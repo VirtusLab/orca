@@ -45,7 +45,7 @@ class ClaudeArgsTest extends munit.FunSuite:
     assert(!streamJson(AgentConfig()).contains("--model"))
 
   test("the `haiku` alias — what `claude:haiku` pins — is sent qualified"):
-    // Plan mode serves claude-sonnet-5 for the bare alias — see
+    // Plan mode served claude-sonnet-5 for the bare alias (2.1.220) — see
     // ClaudeArgs.modelArgs.
     val args = streamJson(AgentConfig(model = Some(Model("haiku"))))
     assert(args.containsSlice(Seq("--model", "claude-haiku-4-5")), args)
@@ -93,36 +93,54 @@ class ClaudeArgsTest extends munit.FunSuite:
     assert(!args.contains("--permission-mode"), args)
     assert(!args.contains("--allowedTools"), args)
 
-  test(
-    "ToolSet.ReadOnly maps to --permission-mode plan, overriding autoApprove"
-  ):
-    // The read-only tier is the planner/reviewer hard restriction —
-    // Edit/Write/Bash unavailable, not just non-auto-approved. It wins over
-    // `autoApprove` (the agent is verifying claims, not editing).
+  test("ToolSet.ReadOnly maps to --tools, overriding autoApprove"):
+    // The read-only tier is the planner/reviewer hard restriction, and it wins
+    // over `autoApprove` (the agent is verifying claims, not editing).
     val args = streamJson(
       AgentConfig(autoApprove = AutoApprove.All, tools = ToolSet.ReadOnly)
     )
-    assert(args.containsSlice(Seq("--permission-mode", "plan")), args)
+    assert(args.containsSlice(Seq("--tools", "Read,Grep,Glob,Skill")), args)
     assert(!args.contains("bypassPermissions"), args)
-    assert(!args.contains("--allowedTools"), args)
+    assert(!args.contains("--permission-mode"), args)
 
-  test(
-    "ToolSet.NetworkOnly layers networkTools onto plan mode via --allowedTools"
-  ):
+  test("ToolSet.NetworkOnly appends networkTools to the read-only allowlist"):
     val args = streamJson(
       AgentConfig(tools = ToolSet.NetworkOnly),
-      networkTools = Seq("WebFetch", "Bash(gh api:*)")
+      networkTools = Seq("WebFetch", "WebSearch")
     )
-    assert(args.containsSlice(Seq("--permission-mode", "plan")), args)
     assert(
-      args.containsSlice(Seq("--allowedTools", "WebFetch,Bash(gh api:*)")),
+      args.containsSlice(
+        Seq("--tools", "Read,Grep,Glob,Skill,WebFetch,WebSearch")
+      ),
       args
     )
 
-  test("ToolSet.NetworkOnly with no networkTools stays plain plan mode"):
+  test("ToolSet.NetworkOnly pre-approves the network tools"):
+    // --tools only advertises; without --allowedTools the fetch is gated and,
+    // with stdin closed, comes back as a failed tool_result.
+    val args = streamJson(
+      AgentConfig(tools = ToolSet.NetworkOnly),
+      networkTools = Seq("WebFetch", "WebSearch")
+    )
+    assert(
+      args.containsSlice(Seq("--allowedTools", "WebFetch,WebSearch")),
+      args
+    )
+
+  test("ToolSet.NetworkOnly with no networkTools maps to the read-only list"):
     val args = streamJson(AgentConfig(tools = ToolSet.NetworkOnly))
-    assert(args.containsSlice(Seq("--permission-mode", "plan")), args)
+    assert(args.containsSlice(Seq("--tools", "Read,Grep,Glob,Skill")), args)
     assert(!args.contains("--allowedTools"), args)
+
+  test("a resumed ReadOnly turn re-emits --tools"):
+    // The CLI does not carry --tools across --resume: resuming without it
+    // restores the full default set, Bash/Edit/Write included. Every turn
+    // rebuilding its own flags is what keeps a resumed reviewer restricted.
+    val args = streamJson(
+      AgentConfig(tools = ToolSet.ReadOnly),
+      dispatch = Dispatch.Resume(testSid)
+    )
+    assert(args.containsSlice(Seq("--tools", "Read,Grep,Glob,Skill")), args)
 
   test("ToolSet.ReadOnly never emits networkTools even when supplied"):
     // Reviewers/triage use ReadOnly and must stay network-free.
@@ -130,8 +148,8 @@ class ClaudeArgsTest extends munit.FunSuite:
       AgentConfig(tools = ToolSet.ReadOnly),
       networkTools = Seq("WebFetch")
     )
-    assert(args.containsSlice(Seq("--permission-mode", "plan")), args)
-    assert(!args.contains("--allowedTools"), args)
+    assert(args.containsSlice(Seq("--tools", "Read,Grep,Glob,Skill")), args)
+    assert(!args.contains("WebFetch"), args)
 
   test("Dispatch.Fresh emits --session-id <uuid>"):
     val args =

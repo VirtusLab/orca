@@ -1,15 +1,19 @@
 package orca.tools.claude
 
+import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
+import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
 import orca.agents.{
   AutoApprove,
   BackendTag,
   AgentConfig,
   SessionId,
+  ToolSet,
   WireSessionId
 }
-import orca.backend.{ConversationEvent, SupervisedBackend}
+import orca.backend.{ConversationEvent, Dispatch, SupervisedBackend}
 import orca.subprocess.OsProcCliRunner
 import orca.testkit.TempDirs
+import orca.tools.claude.streamjson.OutboundMessage
 
 /** End-to-end tests against the real `claude` CLI. Gated on the
   * `ORCA_INTEGRATION` environment variable so `sbt test` without the flag
@@ -113,9 +117,9 @@ class ClaudeIntegrationTest extends munit.FunSuite:
   ):
     withBackend: backend =>
       // The CLI refuses `/etc/hostname` because it is outside the backend's
-      // workDir. A read inside the workspace runs fine under this config, since
-      // `--allowedTools` adds to claude's defaults rather than restricting to
-      // them. What is pinned is not the refusal but its shape: it arrives as a
+      // workDir; a read inside the workspace runs fine, since `Only(empty)`
+      // emits no flags at all and default permission mode allows workspace
+      // reads. What is pinned is not the refusal but its shape: it arrives as a
       // failed tool_result, not as a `can_use_tool` control request. Stdin is
       // closed at spawn, so orca could not answer such a request — a future CLI
       // reviving that subchannel fails here first (see
@@ -141,3 +145,101 @@ class ClaudeIntegrationTest extends munit.FunSuite:
           s"expected the refused Read to surface as a failed tool_result: $events"
         )
       finally conversation.cancel()
+
+  // --- `--tools` allowlist ---
+  //
+  // The CLI drops an unknown tool name silently: `--tools Read,Grep,NoSuchTool`
+  // yields an init list of `Grep,Read`, exit 0, no warning. A rename upstream
+  // would strip a tool from every read-only turn with no signal, so the two
+  // shipped allowlists are pinned against the live CLI here.
+
+  test("the ReadOnly allowlist reaches claude with every name intact"):
+    assertEquals(
+      grantedTools(AgentConfig(tools = ToolSet.ReadOnly), Seq.empty),
+      ClaudeArgs.ReadOnlyTools.toSet
+    )
+
+  test("the NetworkOnly allowlist reaches claude with every name intact"):
+    // Pins the names only. The init frame lists what is advertised, which says
+    // nothing about whether the tool may run — the next test covers that.
+    assertEquals(
+      grantedTools(
+        AgentConfig(tools = ToolSet.NetworkOnly),
+        ClaudeBackend.DefaultNetworkTools
+      ),
+      (ClaudeArgs.ReadOnlyTools ++ ClaudeBackend.DefaultNetworkTools).toSet
+    )
+
+  test("a NetworkOnly turn can run a fetch, not merely advertise one"):
+    // Advertisement is not approval: `--tools` alone leaves WebFetch gated, and
+    // with stdin closed nobody can approve, so the planner gets a failed
+    // tool_result and plans from the prompt alone. Needs live network.
+    withBackend: backend =>
+      val conversation = backend.runInteractive(
+        prompt =
+          "Use the WebFetch tool on https://example.com and reply with " +
+            "the page title. Use no other tool.",
+        session = fresh,
+        displayPrompt = "fetch example.com",
+        config = AgentConfig(tools = ToolSet.NetworkOnly),
+        outputSchema = None
+      )
+      try
+        val events = conversation.events.toList
+        val _ = conversation.awaitResult()
+        assert(
+          events.exists:
+            case ConversationEvent.AssistantToolCall("WebFetch", _) => true
+            case _                                                  => false
+          ,
+          s"claude never called WebFetch: $events"
+        )
+        // claude's tool_result blocks carry no tool name, so this covers every
+        // result; the prompt asks for WebFetch and nothing else.
+        assert(
+          !events.exists:
+            case ConversationEvent.ToolResult(_, ok, _) => !ok
+            case _                                      => false
+          ,
+          s"a tool call was denied on a NetworkOnly turn: $events"
+        )
+      finally conversation.cancel()
+
+  /** Run the shipped args for `config` and return the built-in tools claude
+    * announces in its `system.init` frame. `mcp__*` names are excluded: they
+    * pass through `--tools` unfiltered and depend on the host's MCP config.
+    */
+  private def grantedTools(
+      config: AgentConfig,
+      networkTools: Seq[String]
+  ): Set[String] =
+    val args = ClaudeArgs.streamJson(
+      config = config,
+      systemPromptFile = None,
+      dispatch = Dispatch.Fresh(
+        Some(
+          WireSessionId[BackendTag.ClaudeCode.type](
+            java.util.UUID.randomUUID().toString
+          )
+        )
+      ),
+      networkTools = networkTools
+    )
+    val stdout = os
+      .proc(args)
+      .call(
+        cwd = TempDirs.dir(),
+        stdin = OutboundMessage.toJson(OutboundMessage.UserText("Reply: ok")) +
+          "\n"
+      )
+      .out
+      .lines()
+    val init = stdout
+      .find(_.contains("\"subtype\":\"init\""))
+      .getOrElse(fail(s"no init frame in claude's output: $stdout"))
+    readFromString[InitTools](init).tools
+      .filterNot(_.startsWith("mcp__"))
+      .toSet
+
+private case class InitTools(tools: List[String])
+    derives ConfiguredJsonValueCodec

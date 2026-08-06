@@ -55,6 +55,19 @@ primitives. A denylist only removes the names you thought of.
 Reproduced here on 2.1.222: `--tools Read,Grep,Glob,Skill,WebFetch,WebSearch`
 gives an `init` list of exactly those six, plus two `mcp__…` tools (task R5).
 
+**Corrected during R1 (PR #89): the last two bullets are wrong.**
+
+`--tools` does **not** survive `--resume`. Measured on 2.1.222: a session
+created under `--tools Read,Grep,Glob,Skill`, resumed without re-passing the
+flag, comes back with the full default set of 28 tools — `Bash`, `Edit` and
+`Write` included. The flag is per-invocation, not session state. Orca is safe
+because `ClaudeArgs.streamJson` rebuilds every turn's flags from that turn's own
+config, which `ClaudeArgsTest` now pins; a resume path that reused stored args
+would silently unlock every reviewer.
+
+"Subagents inherit it" describes a path that cannot be taken: `Task` is not in
+the allowlist, so a read-only turn cannot spawn a subagent at all.
+
 ## 3. Development plan
 
 ### **[TODO]** R1 — Replace the mechanism

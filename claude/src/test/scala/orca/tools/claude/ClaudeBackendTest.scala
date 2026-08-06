@@ -90,7 +90,7 @@ class ClaudeBackendTest extends munit.FunSuite:
         .text()
     assertEquals(staged, "", "the MCP config must be unstageable")
 
-  test("NetworkOnly autonomous call pre-approves the default network tools"):
+  test("NetworkOnly autonomous call allows the default network tools"):
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     withBackend(runner): backend =>
       val _ = backend.runAutonomous(
@@ -99,12 +99,20 @@ class ClaudeBackendTest extends munit.FunSuite:
         AgentConfig().copy(tools = ToolSet.NetworkOnly)
       )
       val args = runner.calls.head
-      assert(args.containsSlice(Seq("--permission-mode", "plan")), args)
-      val allowed = args(args.indexOf("--allowedTools") + 1)
-      assert(allowed.contains("WebFetch"), allowed)
-      assert(allowed.contains("Bash(gh api:*)"), allowed)
+      assertEquals(
+        args(args.indexOf("--tools") + 1),
+        "Read,Grep,Glob,Skill,WebFetch,WebSearch"
+      )
 
-  test("withNetworkTools overrides the default allowlist"):
+  test("withNetworkTools rejects the old command-scoped syntax"):
+    // --tools drops a name it doesn't recognise silently, so a flow script
+    // still passing `Bash(gh api:*)` would grant nothing and say nothing.
+    val thrown = intercept[IllegalArgumentException]:
+      new ClaudeBackend(new SpawnStubCliRunner(Nil))
+        .withNetworkTools(Seq("WebFetch", "Bash(gh api:*)"))
+    assert(thrown.getMessage.contains("Bash(gh api:*)"), thrown.getMessage)
+
+  test("withNetworkTools overrides the default network tools"):
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     SupervisedBackend.using(
       new ClaudeBackend(runner).withNetworkTools(Seq("WebFetch"))
@@ -115,7 +123,10 @@ class ClaudeBackendTest extends munit.FunSuite:
         AgentConfig().copy(tools = ToolSet.NetworkOnly)
       )
       val args = runner.calls.head
-      assert(args.containsSlice(Seq("--allowedTools", "WebFetch")), args)
+      assertEquals(
+        args(args.indexOf("--tools") + 1),
+        "Read,Grep,Glob,Skill,WebFetch"
+      )
 
   test(
     "a withNetworkTools sibling shares the parent's closed latch"

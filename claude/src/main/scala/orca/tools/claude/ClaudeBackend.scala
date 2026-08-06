@@ -60,9 +60,15 @@ private[orca] class ClaudeBackend(
     sharedClosedFlag: AtomicBoolean = new AtomicBoolean(false)
 ) extends AgentBackend[BackendTag.ClaudeCode.type](sharedClosedFlag):
 
-  /** Return a sibling backend that, on [[ToolSet.NetworkOnly]] turns,
-    * pre-approves `tools` (claude `--allowedTools` syntax). Lives on the
-    * backend, not `AgentConfig`, since the strings are claude-specific.
+  /** Return a sibling backend that, on [[ToolSet.NetworkOnly]] turns, adds
+    * `tools` to the read-only `--tools` allowlist. Lives on the backend, not
+    * `AgentConfig`, since the names are claude-specific.
+    *
+    * Rejects anything that is not a bare tool name. These used to be
+    * `--allowedTools` patterns and could be command-scoped (`Bash(gh api:*)`);
+    * `--tools` takes bare names and drops what it does not recognise silently,
+    * exit 0, no warning. Without this check a flow script carrying the old
+    * syntax would keep compiling, keep running, and grant nothing.
     *
     * Shares `closedFlag` with `this`: the sibling is a genuinely different
     * `AgentBackend` instance, so without threading the SAME flag through, a
@@ -70,7 +76,16 @@ private[orca] class ClaudeBackend(
     * use-after-close guard.
     */
   def withNetworkTools(tools: Seq[String]): ClaudeBackend =
-    new ClaudeBackend(cli, tools, projectsDir, workDir, closedFlag)
+    tools.filterNot(ClaudeBackend.BareToolName.matches) match
+      case Nil =>
+        new ClaudeBackend(cli, tools, projectsDir, workDir, closedFlag)
+      case bad =>
+        throw new IllegalArgumentException(
+          s"withNetworkTools takes bare claude tool names; these are not: " +
+            s"${bad.mkString(", ")}. Command-scoped entries like " +
+            "\"Bash(gh api:*)\" belonged to the old --allowedTools mapping and " +
+            "are silently ignored by --tools."
+        )
 
   /** Claude's sessions live on disk (`~/.claude/projects/.../<id>.jsonl`) and
     * outlive the process, so it is durable: the claim survives a restart
@@ -293,21 +308,21 @@ object ClaudeBackend:
   private[claude] def cwdSlug(cwd: os.Path): String =
     cwd.toString.replace('/', '-')
 
-  /** Read-only network tools pre-approved on [[ToolSet.NetworkOnly]] turns.
-    * Command-scoped, so plan mode still blocks general bash and all edits.
-    * `Bash(gh api:*)` is broad GitHub reads — note `gh api -X POST` can mutate
-    * GitHub (not local files); flows wanting a tighter set pass their own via
-    * `claude.withNetworkTools(...)`.
+  /** Built-in tools added to `ClaudeArgs.ReadOnlyTools` on
+    * [[ToolSet.NetworkOnly]] turns. Bare tool names only — `--tools` takes no
+    * command scoping, so there is no `gh` entry. Nothing replaces it: measured
+    * planner use of `gh` was zero
+    * (`docs/research/run-cost/12-reviewer-tool-surface.md` §5) and orca reads
+    * issues host-side via `GitHubTool.readIssue`. Flows wanting a different set
+    * pass their own via `claude.withNetworkTools(...)`.
     */
-  private[claude] val DefaultNetworkTools: Seq[String] = Seq(
-    "WebFetch",
-    "WebSearch",
-    "Bash(gh issue view:*)",
-    "Bash(gh pr view:*)",
-    "Bash(gh search:*)",
-    "Bash(gh repo view:*)",
-    "Bash(gh api:*)"
-  )
+  private[claude] val DefaultNetworkTools: Seq[String] =
+    Seq("WebFetch", "WebSearch")
+
+  /** What `--tools` accepts: a bare built-in name. Not MCP names — those pass
+    * `--tools` unfiltered, so listing one there does nothing.
+    */
+  private val BareToolName = "[A-Za-z][A-Za-z0-9]*".r
 
   /** Fully-qualified tool name (MCP server name + tool slug). Always
     * auto-approved on the interactive path — the user is already typing an

@@ -46,22 +46,17 @@ private[claude] object ClaudeArgs:
       modelArgs(config) ++
       systemPromptFileArgs(systemPromptFile) ++
       sessionArgs(dispatch) ++
-      autoApproveArgs(config, networkTools) ++
+      permissionArgs(config, networkTools) ++
       jsonSchemaArgs(jsonSchema) ++
       mcpConfigArgs(mcpConfig)
 
   /** `--model`, with the bare `haiku` alias replaced by its fully-qualified id.
     *
-    * Under `--permission-mode plan` (every read-only turn — see
-    * `autoApproveArgs`) the CLI serves `claude-sonnet-5` for `--model haiku`,
-    * 3x the intended rate for a `claude:haiku` role pin. Its init line still
-    * names haiku, so re-checking this means reading the model off the assistant
-    * messages or the result's `modelUsage`, not off the init line. It honours
-    * `claude-haiku-4-5` in the same mode; verified against claude 2.1.220.
-    *
-    * Only `haiku` is rewritten — the CLI resolves `sonnet`/`opus`/`fable`
-    * correctly in plan mode, and leaving those bare keeps them tracking the
-    * latest model in their tier.
+    * Under `--permission-mode plan` the CLI served `claude-sonnet-5` for
+    * `--model haiku` — 3x the intended rate for a `claude:haiku` role pin
+    * (measured on 2.1.220). Measured fixed on 2.1.222, but the qualified id is
+    * the cheaper failure mode. Only `haiku` is rewritten; leaving
+    * `sonnet`/`opus`/`fable` bare keeps them tracking their tier's latest.
     */
   private def modelArgs(config: AgentConfig): Seq[String] =
     CliArgs.flag("--model", config.model): model =>
@@ -99,19 +94,44 @@ private[claude] object ClaudeArgs:
   private def mcpConfigArgs(file: Option[os.Path]): Seq[String] =
     CliArgs.flag("--mcp-config", file)(_.toString)
 
-  /** Maps [[AgentConfig.tools]] to claude's permission flags. Both read-only
-    * tiers use `--permission-mode plan`, which is not a no-edit guarantee: plan
-    * mode removes no tools. The `init` message's tool list under
-    * `--permission-mode plan` is byte-identical to the default mode's, `Bash`,
-    * `Write`, `Edit` and `NotebookEdit` included. What blocking happens comes
-    * from the approval layer, which the default mode applies too, and above
-    * that it is model judgement — opus reviewers ran 199 `Bash` calls under
-    * plan mode with zero denials
-    * (`docs/research/run-cost/09-diff-vs-coordinates.md` §2).
+  /** Built-in tools a read-only turn keeps. `--tools` is an allowlist that
+    * removes every name not on it: the dropped tools are absent from the `init`
+    * frame and `ToolSearch` cannot resurrect them, so reviewers and planners
+    * have no shell and no write primitive.
     *
-    * `NetworkOnly` additionally pre-approves `networkTools` via
-    * `--allowedTools`, layering network access onto plan mode. The list is
-    * command-scoped (`Bash(gh api:*)`); an empty list leaves plain plan mode.
+    * **It does not survive `--resume`.** Measured on 2.1.222: resuming a
+    * session created under this list, without re-passing `--tools`, brings back
+    * the full default set — `Bash`, `Edit`, `Write` and all. [[streamJson]]
+    * rebuilds the flags from each turn's own config, which is what keeps a
+    * resumed reviewer restricted; a resume path that reused stored args would
+    * not.
+    *
+    * Unknown names are dropped silently (`Read,Grep,NoSuchTool` yields
+    * `Grep,Read`, exit 0, no warning), so this list is pinned against a live
+    * CLI by `ClaudeIntegrationTest`.
+    */
+  private[claude] val ReadOnlyTools: Seq[String] =
+    Seq("Read", "Grep", "Glob", "Skill")
+
+  /** Maps [[AgentConfig.tools]] to claude's tool and permission flags.
+    *
+    * Both read-only tiers pass `--tools` (see [[ReadOnlyTools]]); `NetworkOnly`
+    * appends `networkTools` to it. Not `--permission-mode plan`: that removed
+    * no tools at all (`docs/research/run-cost/09-diff-vs-coordinates.md` §2).
+    *
+    * `NetworkOnly` also [[approve]]s `networkTools`, without which they are
+    * advertised but not runnable. The two flags compose: `--allowedTools`
+    * grants, `--tools` still bounds the surface. Verified on claude 2.1.223 in
+    * the order emitted here, and pinned by `ClaudeIntegrationTest`.
+    *
+    * `--tools` is not a complete boundary: MCP tools pass through it
+    * unfiltered. Measured on claude 2.1.222 — an `init` frame under `--tools
+    * Read,Grep,Glob,Skill` still carried the `mcp__…` tools of an installed
+    * server, so an MCP server that can write is not covered by this allowlist
+    * at all. The read-only tiers also ignore [[AgentConfig.autoApprove]], so an
+    * MCP tool reaching a read-only turn is advertised but not pre-approved: it
+    * comes back as a failed `tool_result` rather than prompting. No in-repo
+    * flow hits that — every interactive turn is `Full`.
     *
     * `Full` follows [[AgentConfig.autoApprove]]: `All` → `bypassPermissions`;
     * `Only(_)` → default permission mode plus `--allowedTools`. The allowlist
@@ -119,22 +139,21 @@ private[claude] object ClaudeArgs:
     * tools. Under `--print` nothing is prompted back to orca: a call the CLI
     * won't run comes back as a failed `tool_result` (pinned by
     * `ClaudeIntegrationTest`).
+    *
+    * Both flags are variadic (`--tools <tools...>`), so nothing positional may
+    * follow them in the argv — [[streamJson]] emits only flag-value pairs after
+    * this, and the prompt goes over stdin.
     */
-  private def autoApproveArgs(
+  private def permissionArgs(
       config: AgentConfig,
       networkTools: Seq[String]
   ): Seq[String] =
     config.tools match
-      case ToolSet.ReadOnly => Seq("--permission-mode", "plan")
-      case ToolSet.NetworkOnly if networkTools.isEmpty =>
-        Seq("--permission-mode", "plan")
+      case ToolSet.ReadOnly =>
+        Seq("--tools", ReadOnlyTools.mkString(","))
       case ToolSet.NetworkOnly =>
-        Seq(
-          "--permission-mode",
-          "plan",
-          "--allowedTools",
-          networkTools.mkString(",")
-        )
+        Seq("--tools", (ReadOnlyTools ++ networkTools).mkString(",")) ++
+          approve(networkTools)
       case ToolSet.Full =>
         config.autoApprove match
           case AutoApprove.All =>
@@ -144,11 +163,24 @@ private[claude] object ClaudeArgs:
           case AutoApprove.Only(tools) =>
             Seq("--allowedTools", tools.toSeq.sorted.mkString(","))
 
+  /** Grants `tools` on a read-only turn. `--tools` only advertises: the turn
+    * stays in the default permission mode, where `WebFetch` and MCP tools are
+    * gated, and stdin is closed under `--print`, so an ungranted call comes
+    * back as a failed `tool_result`.
+    *
+    * One flag carrying one list. Whether claude honours a repeated
+    * `--allowedTools` is unverified, so a caller with more to grant widens this
+    * argument rather than calling twice.
+    */
+  private def approve(tools: Seq[String]): Seq[String] =
+    if tools.isEmpty then Seq.empty
+    else Seq("--allowedTools", tools.mkString(","))
+
   /** How strongly claude enforces each `(tools, autoApprove)` combination — see
-    * [[autoApproveArgs]] for the flags this classifies. Every combination is
-    * `Hard`. The read-only tiers rest on plan mode, which [[autoApproveArgs]]
-    * records as removing no tools; the `--allowedTools`/`bypassPermissions`
-    * variants are mechanical per-tool gates.
+    * [[permissionArgs]] for the flags this classifies. Every combination is
+    * `Hard`. The read-only tiers rest on `--tools`, which removes every
+    * unlisted built-in; the `--allowedTools`/`bypassPermissions` variants are
+    * mechanical per-tool gates.
     *
     * Written as an exhaustive match (all arms `Hard`) rather than a bare
     * constant so a future `ToolSet`/`AutoApprove` case fails compilation here.
