@@ -918,7 +918,7 @@ private[orca] class OsGitTool(
   private def gitRead(args: Seq[String]): Either[GitReadFailed, String] =
     val result = QuietProc.callCapped(
       "git" +: args,
-      OsGitTool.MaxReadBytes,
+      maxBytes = OsGitTool.MaxReadBytes,
       cwd = workDir,
       env = OsGitTool.nonInteractiveEnv
     )

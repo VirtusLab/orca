@@ -43,45 +43,61 @@ private[orca] object QuietProc:
         check = false
       )
 
-  /** Run `args` to completion, keeping at most `maxOutBytes` of stdout: the
-    * rest is drained and dropped, so the exit code and stderr are still the
-    * ones [[call]] would report and the child never blocks on a full pipe.
+  /** Run `args` to completion, keeping at most `maxBytes` of each of stdout and
+    * stderr: the rest is drained and dropped, so the exit code is the one
+    * [[call]] would report and the child never blocks on a full pipe.
     *
     * For commands whose output size is set by what they are reading rather than
     * by their arguments — [[call]] would put all of it on the heap as a
-    * `String` before the caller could react.
+    * `String` before the caller could react. stderr is capped as well because
+    * it is no more bounded than stdout: one `git show` through a chatty
+    * `textconv` filter was measured retaining ~400 KB of it.
     */
   def callCapped(
       args: Seq[String],
-      maxOutBytes: Int,
+      maxBytes: Int,
       cwd: os.Path = os.pwd,
       env: Map[String, String] = Map.empty
   ): CappedResult =
     log.debug("exec: {}", args.mkString(" "))
-    val kept = new java.io.ByteArrayOutputStream()
-    var produced = 0L
-    // os-lib runs this on a pump thread of its own and joins it before `call`
-    // returns; that join is what publishes `kept` and `produced` here.
-    val capture = os.ProcessOutput: (buf, n) =>
-      produced += n
-      val room = maxOutBytes - kept.size()
-      if room > 0 then kept.write(buf, 0, math.min(n, room))
+    val outKept = new java.io.ByteArrayOutputStream()
+    val errKept = new java.io.ByteArrayOutputStream()
     val result = os
       .proc(args)
       .call(
         cwd = cwd,
         env = env,
         stdin = os.Pipe,
-        stdout = capture,
-        stderr = os.Pipe,
+        stdout = keepFirst(maxBytes, outKept),
+        stderr = keepFirst(maxBytes, errKept),
         check = false
       )
+    val outBytes = outKept.toByteArray
     CappedResult(
       exitCode = result.exitCode,
-      out = String(kept.toByteArray, java.nio.charset.StandardCharsets.UTF_8),
-      truncated = produced > maxOutBytes,
-      err = result.err.text()
+      out = utf8(outBytes.take(maxBytes)),
+      truncated = outBytes.length > maxBytes,
+      err = utf8(errKept.toByteArray.take(maxBytes))
     )
+
+  /** A stream sink retaining the first `maxBytes` written to it, plus one byte
+    * — that extra byte is how "the child wrote more than the cap" is told from
+    * "it wrote exactly the cap", and it never reaches the result.
+    *
+    * os-lib writes this from a pump thread of its own and joins that thread
+    * before `call` returns; the join is what publishes `into`'s contents to the
+    * caller.
+    */
+  private def keepFirst(
+      maxBytes: Int,
+      into: java.io.ByteArrayOutputStream
+  ): os.ProcessOutput =
+    os.ProcessOutput: (buf, n) =>
+      val room = maxBytes + 1 - into.size()
+      if room > 0 then into.write(buf, 0, math.min(n, room))
+
+  private def utf8(bytes: Array[Byte]): String =
+    String(bytes, java.nio.charset.StandardCharsets.UTF_8)
 
 /** Outcome of [[QuietProc.callCapped]]. `out` is a prefix of what the child
   * wrote whenever `truncated` — and, being a prefix of bytes rather than of
