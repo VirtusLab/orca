@@ -33,7 +33,8 @@ the orthogonal **prompting axis** (which available tools auto-approve, only
 meaningful interactively and consulted only on `Full`). Only the two autonomous
 planner entry points (`Plan.autonomousResult` → `from`/`assessThenPlan`/`triage`)
 select `NetworkOnly`; reviewers, `reviewed`/`briefed`, selection and lint keep
-`ReadOnly`, hard everywhere.
+`ReadOnly`. How strongly each backend enforces either tier is the enforcement
+matrix in `AGENTS.md`, machine-checked by `EnforcementTableTest`.
 
 ### Per-backend `NetworkOnly` mapping
 

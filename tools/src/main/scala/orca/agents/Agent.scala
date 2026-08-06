@@ -120,8 +120,8 @@ trait Agent[B <: BackendTag]:
   def withReadOnly: Agent[B] = withTools(ToolSet.ReadOnly)
 
   /** Sibling tool restricted to reads plus network ([[ToolSet.NetworkOnly]]) —
-    * for planner turns that must read an issue/PR. See [[ToolSet]] for the
-    * per-backend no-edit guarantee (hard on most; prompt-only on pi / codex).
+    * for planner turns that must read an issue/PR. How strongly each backend
+    * blocks edits varies; see [[Enforcement]].
     */
   def withNetworkOnly: Agent[B] = withTools(ToolSet.NetworkOnly)
 

@@ -230,9 +230,8 @@ which tools exist at all:
 val reviewer = claude.withReadOnly
 
 // NetworkOnly — reads plus read-only network (web, and on claude a host-served
-// GitHub issue/PR read), for planners that must read an issue/PR. The no-edit
-// guarantee is hard on claude and opencode, prompt-only on pi/codex/gemini
-// (ADR 0016).
+// GitHub issue/PR read), for planners that must read an issue/PR. How strongly
+// each backend blocks edits varies — see the enforcement matrix in AGENTS.md.
 val planner = claude.withNetworkOnly
 
 // Full (the default) — write-capable.
@@ -387,8 +386,8 @@ files, single-valued (a repeated agent key is an error). Value grammar:
 unrecognised name is an error naming the valid set). The model part is passed
 **verbatim** to the harness's `withModel` — orca does not normalise or validate
 model ids, except that claude's bare `haiku` alias is sent as
-`claude-haiku-4-5`, since the CLI serves Sonnet for the alias on the read-only
-turns reviewers use. For example:
+`claude-haiku-4-5`, so a `claude:haiku` pin cannot land on a pricier tier when
+the CLI resolves the alias. For example:
 
 ```properties
 planningAgent = claude:opus

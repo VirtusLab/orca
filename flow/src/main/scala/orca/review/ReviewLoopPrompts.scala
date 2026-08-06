@@ -57,8 +57,8 @@ object ReviewLoopPrompts:
     *
     * `base` is the commit `diff` was sampled against, when the loop knows it
     * describes this diff (see [[ReviewFixLoop.diffBase]]). It is sent alongside
-    * the diff, never instead of it: a reviewer that can run a shell can read
-    * past the diff from there, and one that can't is unaffected.
+    * the diff, never instead of it: it only lets a reviewer read the repo at
+    * that commit, and a reviewer with no way to do so is unaffected.
     */
   def initialReview(
       task: String,
@@ -83,10 +83,10 @@ object ReviewLoopPrompts:
     */
   private def baseNote(base: Option[String]): String =
     base.fold(""): sha =>
-      s"\n\nThe diff above is everything that changed since commit $sha. If " +
-        "you can run shell commands, use that commit to see what the diff " +
-        s"doesn't show — `git show $sha:<path>` for a file as it was before " +
-        "the change, for example. What you review is still the diff; the base " +
+      s"\n\nThe diff above is everything that changed since commit $sha. To " +
+        "see what the diff doesn't show, read a file as it was before the " +
+        s"change: `git_file_at` at that commit, or `git show $sha:<path>` if " +
+        "you have a shell. What you review is still the diff; the base " +
         "commit is there for evidence, not for widening your scope."
 
   private val ReReviewTemplate: String =

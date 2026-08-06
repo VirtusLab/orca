@@ -160,10 +160,10 @@ object Plan:
     * operation.
     *
     * Runs `NetworkOnly`: reads plus read-only network, so the planner can fetch
-    * an issue/PR and verify external claims. Edits stay blocked (hard on
-    * claude/gemini/opencode; prompt-only on pi/codex). Reviewers and the
-    * post-planning `reviewed` turn use plain `withReadOnly` instead — no
-    * network, hard no-edit everywhere.
+    * an issue/PR and verify external claims. How strongly each backend blocks
+    * edits varies — see the enforcement matrix in `AGENTS.md`. Reviewers and
+    * the post-planning `reviewed` turn use plain `withReadOnly` instead, with
+    * no network.
     */
   private def autonomousResult[B <: BackendTag, O: JsonData: Announce, A](
       agent: Agent[B],
