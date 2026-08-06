@@ -51,12 +51,9 @@ private[claude] object ClaudeArgs:
       jsonSchemaArgs(jsonSchema) ++
       mcpConfigArgs(mcpConfig)
 
-  /** `--model`, with the bare `haiku` alias replaced by its fully-qualified id.
-    *
-    * Under `--permission-mode plan` the CLI served `claude-sonnet-5` for
-    * `--model haiku` — 3x the intended rate for a `claude:haiku` role pin
-    * (measured on 2.1.220). Measured fixed on 2.1.222, but the qualified id is
-    * the cheaper failure mode. Only `haiku` is rewritten; leaving
+  /** `--model`, with the bare `haiku` alias replaced by its fully-qualified id:
+    * the CLI resolves the alias, and a `claude:haiku` role pin must not land on
+    * a pricier tier. Only `haiku` is rewritten — leaving
     * `sonnet`/`opus`/`fable` bare keeps them tracking their tier's latest.
     */
   private def modelArgs(config: AgentConfig): Seq[String] =
@@ -96,20 +93,13 @@ private[claude] object ClaudeArgs:
     CliArgs.flag("--mcp-config", file)(_.toString)
 
   /** Built-in tools a read-only turn keeps. `--tools` is an allowlist that
-    * removes every name not on it: the dropped tools are absent from the `init`
-    * frame and `ToolSearch` cannot resurrect them, so reviewers and planners
-    * have no shell and no write primitive.
+    * removes every name not on it: a dropped tool is absent from the `init`
+    * frame and `ToolSearch` cannot resurrect it, so reviewers and planners have
+    * no shell and no write primitive.
     *
-    * **It does not survive `--resume`.** Measured on 2.1.222: resuming a
-    * session created under this list, without re-passing `--tools`, brings back
-    * the full default set — `Bash`, `Edit`, `Write` and all. [[streamJson]]
-    * rebuilds the flags from each turn's own config, which is what keeps a
-    * resumed reviewer restricted; a resume path that reused stored args would
-    * not.
-    *
-    * Unknown names are dropped silently (`Read,Grep,NoSuchTool` yields
-    * `Grep,Read`, exit 0, no warning), so this list is pinned against a live
-    * CLI by `ClaudeIntegrationTest`.
+    * Nothing fails if a name here goes stale — the CLI drops a name it doesn't
+    * recognise without a warning, and the one check of this list against a live
+    * CLI (`ClaudeIntegrationTest`) runs only under `ORCA_INTEGRATION`.
     */
   private[claude] val ReadOnlyTools: Seq[String] =
     Seq("Read", "Grep", "Glob", "Skill")
@@ -117,30 +107,15 @@ private[claude] object ClaudeArgs:
   /** Maps [[AgentConfig.tools]] to claude's tool and permission flags.
     *
     * Both read-only tiers pass `--tools` (see [[ReadOnlyTools]]); `NetworkOnly`
-    * appends `networkTools` to it. Not `--permission-mode plan`: that removed
-    * no tools at all (`docs/research/run-cost/09-diff-vs-coordinates.md` §2).
-    *
-    * Both tiers also [[approve]] what they must be able to call: `mcpTools`,
-    * plus `networkTools` on `NetworkOnly`. Without that grant those names are
-    * advertised but not runnable. The two flags compose: `--allowedTools`
-    * grants, `--tools` still bounds the surface. Verified on claude 2.1.223 in
-    * the order emitted here, and pinned by `ClaudeIntegrationTest`.
-    *
-    * `--tools` is not a complete boundary: MCP tools pass through it
-    * unfiltered. Measured on claude 2.1.222 — an `init` frame under `--tools
-    * Read,Grep,Glob,Skill` still carried the `mcp__…` tools of an installed
-    * server, so an MCP server that can write is not covered by this allowlist
-    * at all. Advertised is not callable, though: the read-only tiers ignore
-    * [[AgentConfig.autoApprove]], so an MCP tool they are meant to use must be
-    * named in `mcpTools`. An un-named one comes back as a failed `tool_result`
-    * rather than prompting.
+    * appends `networkTools` to it. Both also [[approve]] what they must be able
+    * to call: `mcpTools`, plus `networkTools` on `NetworkOnly`. These tiers
+    * ignore [[AgentConfig.autoApprove]], so an MCP tool such a turn is meant to
+    * use has to arrive through `mcpTools`.
     *
     * `Full` follows [[AgentConfig.autoApprove]]: `All` → `bypassPermissions`;
-    * `Only(_)` → default permission mode plus `--allowedTools`. The allowlist
-    * adds to claude's defaults; it does not restrict the agent to the listed
-    * tools. Under `--print` nothing is prompted back to orca: a call the CLI
-    * won't run comes back as a failed `tool_result` (pinned by
-    * `ClaudeIntegrationTest`).
+    * `Only(_)` → default permission mode plus `--allowedTools`. Unlike
+    * `--tools`, that allowlist adds to claude's defaults rather than confining
+    * the agent to the names listed.
     *
     * Both flags are variadic (`--tools <tools...>`), so nothing positional may
     * follow them in the argv — [[streamJson]] emits only flag-value pairs after
@@ -189,13 +164,11 @@ private[claude] object ClaudeArgs:
     else Seq("--allowedTools", tools.mkString(","))
 
   /** How strongly claude enforces each `(tools, autoApprove)` combination — see
-    * [[permissionArgs]] for the flags this classifies. Every combination is
-    * `Hard`. The read-only tiers rest on `--tools`, which removes every
-    * unlisted built-in; the `--allowedTools`/`bypassPermissions` variants are
-    * mechanical per-tool gates.
+    * [[permissionArgs]] for the flags this classifies. Every one of them is a
+    * mechanical gate, hence `Hard` throughout.
     *
-    * Written as an exhaustive match (all arms `Hard`) rather than a bare
-    * constant so a future `ToolSet`/`AutoApprove` case fails compilation here.
+    * Written as an exhaustive match rather than a bare constant so a future
+    * `ToolSet`/`AutoApprove` case fails compilation here.
     */
   def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
     tools match
