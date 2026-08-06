@@ -656,10 +656,17 @@ resume is global, but the resumed context still references that directory):
 > session commit grows without bound, which is the very case this change starts
 > recording.
 >
-> One stated trade-off: a run that spends tokens without committing a session now
-> occupies a retention slot where it previously wrote nothing, so the shell's
-> listing can hold fewer than 20 *continuable* runs. Rare, and preferable to
-> unbounded growth.
+> A run that spends tokens without committing a session is the common case, not
+> a rare one: every fresh run names its branch through a cheap agent call
+> (`BranchNamingStrategy.shortenPrompt`) before its first stage, so one cancelled
+> at the plan prompt leaves a cost log and no manifest. Ranked by run id alone,
+> twenty such runs would empty the shell's listing. Retention therefore keeps two
+> sets of 20: the newest runs that own a manifest, and the newest runs of any
+> kind. The first holds the listing at 20 continuable runs however many
+> manifest-less runs pile up; the second bounds a workdir that stops producing
+> manifests altogether, where the first has nothing to rank against. A run's
+> files are still kept or deleted together, so a cost log never outlives its
+> manifest. The directory holds between 20 and 40 runs.
 >
 > **This needs a carve-out in the 0.x versioning rule.** AGENTS.md forbids
 > default values on persisted fields and forbids back-compat machinery outright,

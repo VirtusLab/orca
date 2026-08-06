@@ -104,8 +104,9 @@ private[runner] class RunManifestWriterState(
 
   private val log = LoggerFactory.getLogger("orca.flow")
 
-  /** How many of the newest RUNS `pruneOldManifests` keeps — a run owns up to
-    * two files.
+  /** The size of each of `pruneOldRuns`' two kept sets ([[keptRunIds]]) — a run
+    * owns up to two files, and the sets overlap, so the runs directory holds
+    * between this many and twice this many runs.
     */
   private val MaxKeptRuns = 20
 
@@ -354,32 +355,66 @@ private[runner] class RunManifestWriterState(
   private def pruneOnce(): Unit =
     if !state.prunedOnce then
       state = state.copy(prunedOnce = true)
-      pruneOldManifests(OrcaDir.cacheRunsPath(workDir))
+      pruneOldRuns(OrcaDir.cacheRunsPath(workDir))
 
-  /** Keeps the newest [[MaxKeptRuns]] runs, deleting both files of each older
-    * one. Grouping by run id rather than counting files is what keeps the
-    * budget in runs, and what stops a cost log outliving the manifest it
-    * belongs to. Run ids sort chronologically as strings (fixed-width epoch
-    * prefix); a run with only one of its two files is still one run.
+  /** Deletes every file of every run outside [[keptRunIds]]. Grouping by run id
+    * rather than counting files is what keeps the budget in runs, and what
+    * stops a cost log outliving the manifest it belongs to.
     *
     * Fully best-effort — the listing itself and each delete are both guarded —
     * since a failure here (a vanished dir, a concurrent cleanup) must not turn
     * into a quarantined listener or an aborted write.
     */
-  private def pruneOldManifests(dir: os.Path): Unit =
+  private def pruneOldRuns(dir: os.Path): Unit =
     try
-      os.list(dir)
-        .groupBy(runIdOf)
-        .toList
-        .collect { case (Some(id), files) => (id, files) }
-        .sortBy((id, _) => id)
-        .reverse
-        .drop(MaxKeptRuns)
-        .flatMap((_, files) => files)
-        .foreach: p =>
-          try os.remove(p)
-          catch case NonFatal(_) => ()
+      val runs = runsNewestFirst(dir)
+      val kept = keptRunIds(runs)
+      for
+        (id, files) <- runs if !kept.contains(id)
+        file <- files
+      do
+        try os.remove(file)
+        catch case NonFatal(_) => ()
     catch case NonFatal(_) => ()
+
+  /** A run's id and the files it left in `.orca/cache/runs/`. */
+  private type Run = (String, Seq[os.Path])
+
+  /** Runs newest first. Run ids sort chronologically as strings (fixed-width
+    * epoch prefix); a run with only one of its two files is still one run.
+    */
+  private def runsNewestFirst(dir: os.Path): List[Run] =
+    os.list(dir)
+      .groupBy(runIdOf)
+      .toList
+      .collect { case (Some(id), files) => (id, files.toSeq) }
+      .sortBy((id, _) => id)
+      .reverse
+
+  /** Two kept sets: the newest [[MaxKeptRuns]] runs that own a manifest, and
+    * the newest [[MaxKeptRuns]] runs of any kind.
+    *
+    * The first is what keeps the shell's "continue a session" list full.
+    * Manifest-less runs are common — every fresh run spends tokens naming its
+    * branch (`BranchNamingStrategy.shortenPrompt`) before its first stage, so
+    * one cancelled at the plan prompt leaves a cost log and nothing else — and
+    * on the newest-first ranking alone [[MaxKeptRuns]] of them would evict
+    * every continuable run.
+    *
+    * The second bounds a workdir that stops producing manifests altogether,
+    * where the first set alone has nothing to rank against.
+    */
+  private def keptRunIds(newestFirst: List[Run]): Set[String] =
+    def newest(runs: List[Run]): Set[String] =
+      runs.take(MaxKeptRuns).map((id, _) => id).toSet
+    newest(newestFirst.filter((_, files) => files.exists(isManifest))) ++
+      newest(newestFirst)
+
+  /** `ext == "json"` is also the shell's listing filter
+    * (`ManifestReader.list`), so "owns a manifest" means "the shell can offer
+    * this run's sessions".
+    */
+  private def isManifest(file: os.Path): Boolean = file.ext == "json"
 
   /** The run a file in `.orca/cache/runs/` belongs to, or `None` for anything
     * this writer didn't produce (a leftover temp file, a stray edit).

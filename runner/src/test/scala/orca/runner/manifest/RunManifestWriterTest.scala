@@ -38,6 +38,11 @@ class RunManifestWriterTest extends munit.FunSuite:
   private def manifestFiles(workDir: os.Path): List[os.Path] =
     os.list(OrcaDir.cacheRunsPath(workDir)).filter(_.ext == "json").toList
 
+  private def costLogFiles(workDir: os.Path): List[os.Path] =
+    os.list(OrcaDir.cacheRunsPath(workDir))
+      .filter(_.last.endsWith("-cost.jsonl"))
+      .toList
+
   private def readManifest(path: os.Path): RunManifest =
     readFromString[RunManifest](os.read(path))(using RunManifest.codec)
 
@@ -335,7 +340,41 @@ class RunManifestWriterTest extends munit.FunSuite:
     val writer =
       newWriter(workDir, fixedClock(Instant.parse("2026-07-18T10:00:00Z")))
     writer.onEvent(OrcaEvent.TokensUsed("claude", None, Usage(10, 1, None)))
-    assertEquals(manifestFiles(workDir).size, 19)
+    assert(
+      !os.exists(runsDir / "1000000000001-1.json"),
+      "the oldest of 25 seeded runs must be gone"
+    )
+
+  /** A run that spends tokens without committing a session is the norm, not the
+    * exception: every fresh run names its branch with a cheap agent call before
+    * its first stage. Ranked by run id alone, twenty of them would empty the
+    * shell's "continue a session" list.
+    */
+  test("manifest-less runs never evict a run that owns a manifest"):
+    val workDir = TempDirs.dir()
+    val runsDir = OrcaDir.cacheRunsPath(workDir)
+    for i <- 1 to 20 do os.write(runsDir / f"1000000000$i%03d-1.json", "{}")
+    for i <- 21 to 40 do
+      os.write(runsDir / f"1000000000$i%03d-1-cost.jsonl", "")
+    val writer =
+      newWriter(workDir, fixedClock(Instant.parse("2026-07-18T10:00:00Z")))
+    writer.onEvent(OrcaEvent.TokensUsed("claude", None, Usage(10, 1, None)))
+    assertEquals(manifestFiles(workDir).size, 20)
+
+  /** Keeping every manifest-less run newer than the oldest kept manifest would
+    * grow without bound in a workdir that stops committing sessions, so they
+    * are ranked among themselves too.
+    */
+  test("manifest-less runs are bounded even where no manifest is evicted"):
+    val workDir = TempDirs.dir()
+    val runsDir = OrcaDir.cacheRunsPath(workDir)
+    for i <- 1 to 20 do os.write(runsDir / f"1000000000$i%03d-1.json", "{}")
+    for i <- 21 to 60 do
+      os.write(runsDir / f"1000000000$i%03d-1-cost.jsonl", "")
+    val writer =
+      newWriter(workDir, fixedClock(Instant.parse("2026-07-18T10:00:00Z")))
+    writer.onEvent(OrcaEvent.TokensUsed("claude", None, Usage(10, 1, None)))
+    assertEquals(costLogFiles(workDir).size, 20)
 
   /** The upsert reads `.orca/` to name the session, and its failure is
     * swallowed. An execute-only `.orca/` makes that `os.list` fail while writes
