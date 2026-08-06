@@ -41,15 +41,10 @@ class CcNegativeCompileTest extends munit.FunSuite:
     def doReport(dia: Diagnostic)(using Context): Unit =
       val _ = diagnostics += dia
 
-  /** The Test classpath, materialised by the build's `resourceGenerators` (flow
-    * tests aren't forked, so `java.class.path` would only be sbt's launcher
-    * classpath). Loaded once and reused across every fixture compile.
+  /** The Test classpath. Tests are forked, so it is what the JVM was started
+    * with, plus the two sbt jars that run the fork — inert to `dotc`.
     */
-  private lazy val classpath: String =
-    val is = getClass.getResourceAsStream("/cc-test-classpath.txt")
-    assert(is != null, "cc-test-classpath.txt resource missing — check build")
-    try new String(is.readAllBytes(), "UTF-8").trim
-    finally is.close()
+  private def classpath: String = System.getProperty("java.class.path")
 
   /** Compile one fixture source with `dotc` and return its error messages. Each
     * call spins a fresh reporter and output dir; the classpath (the expensive

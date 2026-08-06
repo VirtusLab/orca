@@ -99,7 +99,10 @@ case class PendingChanges(stat: String, newFiles: List[String], diff: String)
   * [[GitTool.changedFileStats]].
   */
 enum FileChange:
-  /** Lines added and removed, as `git diff --numstat` counts them. */
+  /** Lines added and removed, as `git diff --numstat` counts them. Both are
+    * zero when the content itself did not change — a mode change, a pure
+    * rename, or a file that became tracked while empty.
+    */
   case Lines(added: Int, deleted: Int)
 
   /** A binary file: git reports that it differs, never by how many lines. */
