@@ -18,6 +18,10 @@ class OsGitToolTest extends munit.FunSuite:
     val dir = GitRepo.empty()
     body(new OsGitTool(dir), dir)
 
+  /** True when a read never reached git: the revision failed validation. */
+  private def rejected(result: Either[GitReadFailed, String]): Boolean =
+    result.left.exists(_.isInstanceOf[GitReadFailed.InvalidRev])
+
   /** Variant that captures the events the tool emits. */
   private def withRepoCapturingEvents(
       body: (OsGitTool, os.Path, AtomicReference[List[OrcaEvent]]) => Unit
@@ -859,8 +863,10 @@ class OsGitToolTest extends munit.FunSuite:
       git.commit("second").orThrow
       assertEquals(git.fileAt("HEAD~1", "a.txt"), Right("before"))
       assertEquals(git.fileAt("HEAD^", "a.txt"), Right("before"))
-      assertEquals(git.fileAt("HEAD@{1}", "a.txt"), Right("before"))
       assertEquals(git.fileAt("@", "a.txt"), Right("after"))
+      // Which commit `HEAD@{1}` names is up to how the fixture moved HEAD, so
+      // this asserts only that the spelling survives validation.
+      assert(!rejected(git.fileAt("HEAD@{1}", "a.txt")))
 
   test("a revision that could be read as a flag is rejected before git runs"):
     // The rev reaches git in a revision position, so a leading dash must not
@@ -868,18 +874,27 @@ class OsGitToolTest extends munit.FunSuite:
     // Spelled with characters a revision may contain, so it is the dash guard
     // being tested rather than the character class.
     withRepo: (git, _) =>
-      val failure = git.show("--all").left.toOption.get
-      assert(failure.isInstanceOf[GitReadFailed.InvalidRev], failure)
+      assert(rejected(git.show("--all")))
+
+  test("a revision carrying a character no revision may contain is rejected"):
+    // The character class is the guard here: nothing about this is a range, and
+    // it does not start with a dash — but a space would smuggle in a flag.
+    withRepo: (git, _) =>
+      assert(rejected(git.show("HEAD --output=x")))
 
   test("a path climbing out of the repository is rejected"):
     withRepo: (git, _) =>
       val failure = git.fileAt("HEAD", "../outside.txt").left.toOption.get
       assert(failure.isInstanceOf[GitReadFailed.InvalidPath], failure)
 
-  test("a range is rejected: git show on one would be unbounded"):
+  test("every range spelling is rejected: git show on one is unbounded"):
+    // `^-` and `^@` are ranges spelled entirely with characters a revision may
+    // contain: `HEAD^-` is `HEAD^..HEAD`, which on a merge is the whole merged
+    // branch, and `HEAD^@` is every parent.
     withRepo: (git, _) =>
-      val failure = git.show("main..HEAD").left.toOption.get
-      assert(failure.isInstanceOf[GitReadFailed.InvalidRev], failure)
+      assert(rejected(git.show("main..HEAD")))
+      assert(rejected(git.show("HEAD^-")))
+      assert(rejected(git.show("HEAD^@")))
 
   test("fileAt refuses a blob past the whole-file limit"):
     withRepo: (git, dir) =>

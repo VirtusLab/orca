@@ -47,8 +47,9 @@ sealed abstract class GitReadFailed(message: String)
 object GitReadFailed:
   final class InvalidRev(rev: String)
       extends GitReadFailed(
-        s"'$rev' is not a revision name (letters, digits, '.', '_', '/', '-', " +
-          "'@', '^', '~', '{', '}', no '..', not starting with a dash)"
+        s"'$rev' is not a single revision (letters, digits, '.', '_', '/', " +
+          "'-', '@', '^', '~', '{', '}', no range '..' / '^-' / '^@', not " +
+          "starting with a dash)"
       )
 
   final class InvalidPath(path: String)
@@ -67,6 +68,14 @@ object GitReadFailed:
 private[tools] object GitRead:
   private val RevPattern = """[A-Za-z0-9._/@^~{}-]+""".r
 
+  /** Every way of spelling a range that [[RevPattern]] admits. `git show` on
+    * one prints a commit per member, where a single revision prints what
+    * somebody committed: `x^-` is `x^..x` — on a merge, the whole merged branch
+    * — and `x^@` is every parent. `git` forbids all three in a refname, so
+    * rejecting them costs nothing.
+    */
+  private val RangeOperators = List("..", "^-", "^@")
+
   /** A single ref or sha, in any of the spellings the tools advertise:
     * `HEAD~1`, `HEAD^`, `@` and `HEAD@{1}` all name one commit, and
     * `git_file_at`'s description asks for a file "before the change under
@@ -74,14 +83,10 @@ private[tools] object GitRead:
     *
     * The leading-dash rejection stops a revision position being read as a flag;
     * callers additionally pass `--end-of-options`.
-    *
-    * `..` is rejected, which costs nothing — git forbids it in a refname — and
-    * rules out handing `git show` a range, whose output is unbounded where a
-    * single commit's is what somebody committed.
     */
   def rev(value: String): Either[GitReadFailed, String] =
     if RevPattern.matches(value) && !value.startsWith("-") &&
-      !value.contains("..")
+      !RangeOperators.exists(value.contains)
     then Right(value)
     else Left(new GitReadFailed.InvalidRev(value))
 
