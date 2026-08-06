@@ -104,6 +104,14 @@ class ClaudeBackendTest extends munit.FunSuite:
         "Read,Grep,Glob,Skill,WebFetch,WebSearch"
       )
 
+  test("withNetworkTools rejects the old command-scoped syntax"):
+    // --tools drops a name it doesn't recognise silently, so a flow script
+    // still passing `Bash(gh api:*)` would grant nothing and say nothing.
+    val thrown = intercept[IllegalArgumentException]:
+      new ClaudeBackend(new SpawnStubCliRunner(Nil))
+        .withNetworkTools(Seq("WebFetch", "Bash(gh api:*)"))
+    assert(thrown.getMessage.contains("Bash(gh api:*)"), thrown.getMessage)
+
   test("withNetworkTools overrides the default network tools"):
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     SupervisedBackend.using(
