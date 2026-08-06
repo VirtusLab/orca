@@ -76,8 +76,8 @@ enum Enforcement:
   *
   *   - **ReadOnly** — reads only; no shell, no edits. The no-edit gate planners
   *     and reviewers rely on.
-  *   - **NetworkOnly** — reads plus read-only network (web + GitHub), for
-  *     planners that must read an issue/PR they were pointed at.
+  *   - **NetworkOnly** — reads plus read-only network (web), for planners that
+  *     must read an issue/PR they were pointed at.
   *   - **Full** — every tool, write-capable; prompting then follows
   *     [[AgentConfig.autoApprove]].
   *

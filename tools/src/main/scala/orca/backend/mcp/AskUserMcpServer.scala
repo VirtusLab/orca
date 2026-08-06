@@ -4,7 +4,6 @@ import chimp.*
 import io.circe.Codec
 import ox.Ox
 import sttp.tapir.Schema
-import sttp.tapir.server.netty.sync.NettySyncServer
 
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
 
@@ -13,29 +12,9 @@ import scala.concurrent.duration.{DurationInt, FiniteDuration}
   */
 private[mcp] case class AskUserInput(question: String) derives Codec, Schema
 
-/** A tiny MCP HTTP server exposing the `ask_user` tool. The handler closes over
-  * an [[AskUserBridge]] — each invocation enqueues the question and blocks
-  * until the host supplies an answer.
-  *
-  * Bound on `127.0.0.1` at an ephemeral port so conversations don't collide.
-  * Lifecycle is caller-owned: `close()` stops the Netty binding, and callers
-  * should tie it to the conversation's lifetime (e.g. via
-  * `Conversation.onFinalize`) so per-call bindings don't accumulate.
+/** The `ask_user` MCP tool: each invocation enqueues the question on an
+  * [[AskUserBridge]] and blocks until the host supplies an answer.
   */
-private[orca] class AskUserMcpServer private[mcp] (
-    /** The bound port. Useful when the caller wants to disambiguate per-server
-      * artefacts (e.g. claude's `mcp-$port.json` config file).
-      */
-    val port: Int,
-    stopFn: () => Unit
-) extends AutoCloseable:
-  /** The URL an MCP client (claude's `.mcp.json`, codex's
-    * `mcp_servers.<name>.url`) should target.
-    */
-  val url: String = s"http://127.0.0.1:$port/mcp"
-
-  override def close(): Unit = stopFn()
-
 private[orca] object AskUserMcpServer:
 
   /** MCP server name advertised to every backend (`mcp_servers.<name>` in
@@ -61,17 +40,10 @@ private[orca] object AskUserMcpServer:
     */
   private[orca] val ToolTimeout: FiniteDuration = 1.hour
 
-  /** Mount the `ask_user` MCP endpoint on a fresh Netty binding in the
-    * enclosing Ox scope; the caller calls `close()` (or relies on scope
-    * tear-down).
-    *
-    * The handler blocks until the host user types an answer, which can take
-    * arbitrarily long, so Netty's default request/idle timeouts are raised to
-    * [[ToolTimeout]] to avoid closing the connection mid-prompt. `idleTimeout`
-    * adds a minute of slop because Netty requires `idleTimeout >
-    * requestTimeout`.
+  /** Mount the `ask_user` tool on a fresh [[McpHost]]. The handler blocks until
+    * the host user types an answer, which is why [[ToolTimeout]] is an hour.
     */
-  def start(bridge: AskUserBridge)(using Ox): AskUserMcpServer =
+  def start(bridge: AskUserBridge)(using Ox): McpHost =
     val askUserTool =
       tool(AskUserMcpServer.ToolSlug)
         .description(
@@ -80,15 +52,7 @@ private[orca] object AskUserMcpServer:
         )
         .input[AskUserInput]
         .handle(in => Right(bridge.ask(in.question)))
-    val endpoint = mcpEndpoint(List(askUserTool), List("mcp"))
-    val binding = NettySyncServer()
-      .port(0)
-      .modifyConfig(
-        _.requestTimeout(ToolTimeout).idleTimeout(ToolTimeout + 1.minute)
-      )
-      .addEndpoint(endpoint)
-      .start()
-    new AskUserMcpServer(binding.port, () => binding.stop())
+    McpHost.start(List(askUserTool), ToolTimeout)
 
   /** Short system-prompt hint telling the agent it has an `ask_user` tool for
     * clarifying questions. Worded conservatively — agents over-use tools

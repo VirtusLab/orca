@@ -7,10 +7,10 @@ Related: [ADR 0003](0003-pluggable-llm-backends.md) (backend surface), [ADR 0011
 
 Planning turns run autonomously (stdin closed, no `ask_user` MCP) and
 read-only. On every backend the read-only mode also blocks the network the
-planner needs to read an issue/PR it was pointed at: claude's
-`--permission-mode plan` prompts for `WebFetch`/`gh` (and an autonomous turn
-can't answer), codex's `--sandbox read-only` blocks all network, pi's read-only
-`--tools` has no web tool, gemini's `--approval-mode plan` gates web/shell.
+planner needs to read an issue/PR it was pointed at: claude's read-only tier
+withholds `WebFetch`/`WebSearch`, codex's `--sandbox read-only` blocks all
+network, pi's read-only `--tools` has no web tool, gemini's `--approval-mode
+plan` gates web/shell.
 
 Capability was previously encoded as a boolean `AgentConfig.readOnly` layered over
 the `AutoApprove` enum, munged together in each backend's args mapping. Two
@@ -39,10 +39,10 @@ select `NetworkOnly`; reviewers, `reviewed`/`briefed`, selection and lint keep
 
 | Backend | `NetworkOnly` | No-edit guarantee | Network |
 | --- | --- | --- | --- |
-| claude | `plan` + `--allowedTools <networkTools>` | **hard** (command-scoped allowlist; plan mode blocks general bash + edits) | web + scoped `gh` |
+| claude | `--tools <read-only tools + networkTools>` + `--allowedTools <mcpTools + networkTools>` | **hard** (`--tools` removes every unlisted built-in, shell and edits included) | web |
 | pi | `--tools …,bash` | **prompt-only** (bash permits writes) | shell (`gh`/`curl`) |
 | codex | `--full-auto` + `-c sandbox_workspace_write.network_access=true` | **prompt-only** (workspace-write permits writes) | shell + web |
-| gemini | `--approval-mode plan --allowed-tools web_fetch` | hard | web |
+| gemini | `--approval-mode plan --allowed-tools web_fetch` | **prompt-only** (plan mode unmeasured against a write) | web |
 | opencode | write tools disabled (= `ReadOnly`) | hard | web only, server-dependent |
 
 pi and codex have no read-only-with-network mode, so granting network forces a
@@ -50,24 +50,47 @@ writable surface; there the no-edit guarantee rests on the planner prompts
 (`planning.md` / `assess-then-plan.md` / `triage.md` all forbid edits), not the
 sandbox. **Verified** on the gemini CLI: plain `plan` mode blocks `web_fetch`,
 but `plan` + `--allowed-tools web_fetch` runs it (returns content), so gemini
-keeps its hard no-edit guarantee *and* gets web reads (no shell `gh`).
+gets web reads (no shell `gh`). What that probe did *not* establish is gemini's
+no-edit guarantee — see the amendment below.
 `--allowed-tools` is deprecated (gemini 1.0 → Policy Engine); migrate then.
 opencode keeps `bash` off (no writable-shell network); its web tool isn't in the
 disabled set, so web may work (server-dependent, unverified).
 
 ### Claude allowlist placement
 
-The claude network allowlist (`--allowedTools` strings like `Bash(gh api:*)`) is
-claude-specific, so it lives on `ClaudeBackend` (default
-`DefaultNetworkTools`), not the shared `AgentConfig`. It is configurable per flow
-via `claude.withNetworkTools(...)`. The default includes `Bash(gh api:*)` for
-broad GitHub reads — note `gh api -X POST` can mutate GitHub (not local files);
-flows wanting a tighter set override it.
+The claude network tool names are claude-specific, so they live on
+`ClaudeBackend` (default `DefaultNetworkTools`), not the shared `AgentConfig`.
+Configurable per flow via `claude.withNetworkTools(...)`.
+
+Amended 2026-08-05 (#78, #84): claude's read-only tiers moved from
+`--permission-mode plan` to a `--tools` allowlist, which is the capability
+removal plan mode was assumed to be and was not. `--tools` takes bare tool
+names, so the default's five command-scoped `Bash(gh …)` entries are gone;
+measured planner use of `gh` was zero, and orca reads issues host-side via
+`GitHubTool.readIssue`. The default is now `WebFetch`, `WebSearch`.
+
+`--tools` advertises a tool without granting it: the default permission mode
+still gates `WebFetch` and MCP tools, and stdin is closed, so the call fails.
+Both read-only tiers therefore also pass `--allowedTools`; the two flags
+compose, with `--tools` still bounding the surface. It is one flag carrying
+the union of every name that tier grants — `mcpTools`, plus `networkTools` on
+`NetworkOnly` — since whether a repeated flag is honoured is unverified.
+
+### gemini's no-edit guarantee
+
+Amended 2026-08-05 (#78): gemini's read-only tiers drop from **hard** to
+**prompt-only**. Nothing has measured `--approval-mode plan` against a write
+attempt; the 2026-06 probe above only established that `--allowed-tools
+web_fetch` re-enables web reads. claude's `--permission-mode plan` — the same
+class of mechanism — turned out to remove no tools at all, and gemini also
+downgrades `plan` to `default` in untrusted folders, which is where orca runs
+agents. The cell records what orca can stand behind, not a known weakness;
+raise it when a probe establishes more.
 
 ## Consequences
 
-- Claude planners get scoped read-only network with the hard no-edit guarantee
-  intact; pi/codex planners get network with a prompt-only guarantee;
-  gemini/opencode planners stay network-free and rely on pre-fetching.
+- Claude planners get read-only network with the hard no-edit guarantee
+  intact; pi/codex/gemini planners get a prompt-only guarantee; opencode
+  planners stay network-free and rely on pre-fetching.
 - `withReadOnly` semantics are unchanged for the six non-planner turn kinds.
 - `AutoApprove.Only` remains unused by flows (latent); not removed here.

@@ -98,10 +98,10 @@ object Plan:
 
   /** Interactive planning — opens a conversation the user can drive (clarifying
     * questions, refinements) before the agent produces the result. Not
-    * read-only: plan mode would disable the `ask_user` MCP tool, so the agent
-    * runs with normal permissions; the prompt asks it not to edit, and the user
-    * sees any violation. Use [[autonomous]] when no mid-session questions are
-    * needed.
+    * read-only: the prompt is what forbids edits here, and the user sees any
+    * violation. The tier was picked when read-only was believed to cost the
+    * `ask_user` MCP tool; claude's `--tools` allowlist does not, so this is
+    * revisitable. Use [[autonomous]] when no mid-session questions are needed.
     *
     * Each operation returns a [[Sessioned]] so the conversation can carry into
     * implementation.
