@@ -896,6 +896,21 @@ class OsGitToolTest extends munit.FunSuite:
       assert(rejected(git.show("HEAD^-")))
       assert(rejected(git.show("HEAD^@")))
 
+  test("a whole-file read can never outgrow what one read holds"):
+    // Above this, `fileAt`'s size check admits a file the read then cuts. The
+    // cut is caught and refused, but the two limits are set independently, so
+    // nothing else says they are related at all.
+    assert(OsGitTool.MaxFileAtBytes <= OsGitTool.MaxReadBytes)
+
+  test("fileAt returns a blob of exactly the limit whole"):
+    withRepo: (git, dir) =>
+      os.write(dir / "big.bin", "x" * OsGitTool.MaxFileAtBytes)
+      git.commit("add big").orThrow
+      assertEquals(
+        git.fileAt("HEAD", "big.bin").map(_.length),
+        Right(OsGitTool.MaxFileAtBytes)
+      )
+
   test("fileAt refuses a blob past the whole-file limit"):
     withRepo: (git, dir) =>
       os.write(dir / "big.bin", "x" * (OsGitTool.MaxFileAtBytes + 1))

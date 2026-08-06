@@ -886,9 +886,14 @@ private[orca] class OsGitTool(
       if checkedPaths.isEmpty then Nil else "--" +: checkedPaths
     // `--end-of-options` after the flags, so git cannot read `checkedRev` as
     // one however it is spelled.
-    gitRead(
+    val output = gitRead(
       Seq("show") ++ statFlag ++ Seq("--end-of-options", checkedRev) ++ pathspec
     ).ok()
+    // A cut diff is still an answer, as long as it says where it stops.
+    if output.truncated then
+      output.text +
+        s"\n\n[cut after ${OsGitTool.MaxReadBytes} bytes — narrow the request]"
+    else output.text
 
   def fileAt(rev: String, path: String): Either[GitReadFailed, String] = either:
     val checkedRev = GitRead.rev(rev).ok()
@@ -898,7 +903,8 @@ private[orca] class OsGitTool(
     // a String, and the path is caller-chosen, so one wrong file (a vendored
     // binary, a checked-in dataset) would otherwise be an OOM rather than an
     // answer.
-    val size = gitRead(Seq("cat-file", "-s", "--end-of-options", blob)).ok()
+    val size =
+      gitRead(Seq("cat-file", "-s", "--end-of-options", blob)).ok().text
     if size.trim.toLongOption.exists(_ > OsGitTool.MaxFileAtBytes) then
       Left(
         new GitReadFailed.Refused(
@@ -906,16 +912,31 @@ private[orca] class OsGitTool(
             s"${OsGitTool.MaxFileAtBytes}-byte limit for a whole-file read"
         )
       ).ok()
-    else gitRead(Seq("show", "--end-of-options", blob)).ok()
+    else
+      val output = gitRead(Seq("show", "--end-of-options", blob)).ok()
+      // The read's own cap is the last word, whatever the size check let
+      // through: a prefix returned as a file's contents is corruption the
+      // caller cannot see, where a refusal is merely an answer it dislikes.
+      if output.truncated then
+        Left(
+          new GitReadFailed.Refused(
+            s"'$path' at $rev is longer than the " +
+              s"${OsGitTool.MaxReadBytes}-byte read limit"
+          )
+        ).ok()
+      else output.text
 
   /** Run a read-only git command, mapping a non-zero exit to
     * [[GitReadFailed.Refused]] instead of aborting the flow — an agent asking
     * for a revision that does not exist gets an answer, not a crash.
     *
-    * Capped at [[OsGitTool.MaxReadBytes]] and marked when cut: `rev` names a
-    * commit, so the output is as large as whatever was committed there.
+    * Reports truncation rather than folding it into the text: `show` marks a
+    * cut diff and carries on, while `fileAt` refuses, and only the caller knows
+    * which its answer can survive.
     */
-  private def gitRead(args: Seq[String]): Either[GitReadFailed, String] =
+  private def gitRead(
+      args: Seq[String]
+  ): Either[GitReadFailed, OsGitTool.ReadOutput] =
     val result = QuietProc.callCapped(
       "git" +: args,
       maxBytes = OsGitTool.MaxReadBytes,
@@ -924,12 +945,7 @@ private[orca] class OsGitTool(
     )
     if result.exitCode != 0 then
       Left(new GitReadFailed.Refused(result.err.trim))
-    else if result.truncated then
-      Right(
-        result.out +
-          s"\n\n[cut after ${OsGitTool.MaxReadBytes} bytes — narrow the request]"
-      )
-    else Right(result.out)
+    else Right(OsGitTool.ReadOutput(result.out, result.truncated))
 
   def addWorktree(
       path: os.Path,
@@ -1039,8 +1055,17 @@ private[orca] object OsGitTool:
     * size up front, which buys a refusal naming the file where [[MaxReadBytes]]
     * could only cut it. Comfortably above any source file; a request over it is
     * a wrong path, not a big one.
+    *
+    * Must not exceed [[MaxReadBytes]] — past that the read cuts what the size
+    * check admitted. `fileAt` refuses a cut read rather than trusting this, so
+    * the cost of breaking it is a refusal, not a silently truncated file.
     */
   private[tools] val MaxFileAtBytes: Int = 2 * 1024 * 1024
+
+  /** One capped read's output, and whether git wrote past [[MaxReadBytes]] so
+    * `text` holds only the start of the answer.
+    */
+  private case class ReadOutput(text: String, truncated: Boolean)
 
   /** Pathspec arguments scoping a diff to "the whole repository, minus orca's
     * bookkeeping". `:(top)` is what makes it repo-wide: a magic pathspec is
