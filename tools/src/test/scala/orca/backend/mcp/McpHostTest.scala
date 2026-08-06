@@ -44,23 +44,32 @@ class McpHostTest extends munit.FunSuite:
       Left("gh exploded")
     )
 
-  test("a bound tool answers a throwing call over the wire, not with a 500"):
-    // The one thing the tests above cannot see: that `start` actually puts the
-    // guard in front of what it binds. Without it a throwing handler reaches
-    // Netty, and the agent gets a transport failure it cannot read.
+  test("a bound tool answers a throwing call over the wire, cut to the cap"):
+    // The one thing the tests above cannot see: that `start` puts this guard in
+    // front of what it binds. Without the catch a throwing handler reaches
+    // Netty and the agent gets a transport failure it cannot read; an
+    // oversized message asserts the same call carries the cap, so wiring some
+    // other guard in would not satisfy this.
     supervised:
+      val message = "gh exploded " + "x" * McpHost.MaxOutputChars
       val throwing =
         tool("probe")
           .input[Probe]
-          .handle(_ => throw new RuntimeException("gh exploded"))
+          .handle(_ => throw new RuntimeException(message))
       val host = McpHost.start(List(throwing), 10.seconds)
       val response = call(
         host.url,
         """{"jsonrpc":"2.0","id":1,"method":"tools/call",""" +
           """"params":{"name":"probe","arguments":{"text":""}}}"""
       )
-      assertEquals(response.statusCode(), 200, response.body())
-      assert(response.body().contains("gh exploded"), response.body())
+      assertEquals(response.statusCode(), 200, response.body().take(200))
+      assert(response.body().contains("gh exploded"), response.body().take(200))
+      // The marker's own dash is non-ASCII, so match the part that survives
+      // whatever charset the response is decoded with.
+      assert(
+        response.body().contains(s"cut after ${McpHost.MaxOutputChars} char"),
+        response.body().takeRight(200)
+      )
 
   /** POST one JSON-RPC message to a running host. The client is closed rather
     * than left to a finalizer: its idle keep-alive connection otherwise holds
