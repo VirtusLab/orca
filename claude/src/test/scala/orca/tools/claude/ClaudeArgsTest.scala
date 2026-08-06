@@ -132,6 +132,36 @@ class ClaudeArgsTest extends munit.FunSuite:
     assert(args.containsSlice(Seq("--tools", "Read,Grep,Glob,Skill")), args)
     assert(!args.contains("--allowedTools"), args)
 
+  test("read-only tiers pre-approve the MCP tools they are handed"):
+    // --tools bounds what exists; an MCP call still needs approval, which an
+    // autonomous turn cannot give, so the names must also reach --allowedTools.
+    val args = ClaudeArgs.streamJson(
+      config = AgentConfig(tools = ToolSet.ReadOnly),
+      systemPromptFile = None,
+      dispatch = Dispatch.Fresh(Some(testSid)),
+      mcpTools = Seq("mcp__orca_repo__git_show")
+    )
+    assert(
+      args.containsSlice(Seq("--allowedTools", "mcp__orca_repo__git_show")),
+      args
+    )
+
+  test("a NetworkOnly turn grants network and MCP through one --allowedTools"):
+    // Whether claude honours a repeated --allowedTools is unverified, so the
+    // two grants must arrive as one flag carrying both. Emitting a flag per
+    // grant would silently drop whichever claude ignores, and the tier that
+    // loses WebFetch plans from the prompt alone with no error.
+    val args = ClaudeArgs.streamJson(
+      config = AgentConfig(tools = ToolSet.NetworkOnly),
+      systemPromptFile = None,
+      dispatch = Dispatch.Fresh(Some(testSid)),
+      networkTools = Seq("WebFetch"),
+      mcpTools = Seq("mcp__orca_repo__git_show")
+    )
+    assertEquals(args.count(_ == "--allowedTools"), 1, args)
+    val granted = args(args.indexOf("--allowedTools") + 1).split(',').toSet
+    assertEquals(granted, Set("mcp__orca_repo__git_show", "WebFetch"))
+
   test("a resumed ReadOnly turn re-emits --tools"):
     // The CLI does not carry --tools across --resume: resuming without it
     // restores the full default set, Bash/Edit/Write included. Every turn

@@ -29,11 +29,12 @@ private[claude] class ClaudeConversation(
     initialPrompt: String = "",
     val outputSchema: Option[String] = None,
     override val askUser: Option[orca.backend.mcp.AskUserSession] = None,
-    /** The temp file backing `--append-system-prompt-file` (if any), owned by
-      * this conversation so it's removed once the turn finalizes rather than
-      * accumulating in `/tmp` for the life of the JVM — see [[onFinalize]].
+    /** Per-turn artefacts this conversation owns — the MCP repo-read binding,
+      * the MCP config file, the `--append-system-prompt-file` temp file. Closed
+      * once the turn finalizes; the same list goes to `SubprocessSpawn.open`,
+      * which covers the failure path. See [[onFinalize]].
       */
-    systemPromptFile: Option[os.Path] = None
+    resources: List[AutoCloseable] = Nil
 ) extends ForkedConversation[BackendTag.ClaudeCode.type](
       source = StreamSource.fromProcess(process),
       backendName = "claude",
@@ -93,16 +94,17 @@ private[claude] class ClaudeConversation(
   // right after the initial prompt, so mid-session input flows through the MCP
   // tool result.
 
-  /** Best-effort delete the `--append-system-prompt-file` temp file, then defer
-    * to the base. `os.temp`'s `deleteOnExit` only fires at JVM shutdown, which
-    * for a flow that runs hundreds of turns means hundreds of live files and
-    * shutdown-hook entries.
+  /** Release the turn's own artefacts (in reverse), then defer to the base.
+    * Load-bearing rather than tidy-up: a leaked MCP binding holds its Netty
+    * event-loop threads and its port for the life of the JVM, and a flow runs
+    * hundreds of turns. Each close is guarded so one failure can't skip the
+    * next.
     */
   override protected def onFinalize(): Unit =
     try
-      systemPromptFile.foreach(p =>
-        orca.backend.SubprocessSpawn.deleteFileResource(p).close()
-      )
+      resources.reverseIterator.foreach: r =>
+        try r.close()
+        catch case scala.util.control.NonFatal(_) => ()
     finally super.onFinalize()
 
   // --- Reader hook ---

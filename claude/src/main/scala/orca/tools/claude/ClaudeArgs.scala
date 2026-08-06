@@ -31,7 +31,8 @@ private[claude] object ClaudeArgs:
       dispatch: Dispatch[BackendTag.ClaudeCode.type],
       jsonSchema: Option[String] = None,
       mcpConfig: Option[os.Path] = None,
-      networkTools: Seq[String] = Seq.empty
+      networkTools: Seq[String] = Seq.empty,
+      mcpTools: Seq[String] = Seq.empty
   ): Seq[String] =
     Seq(
       "claude",
@@ -46,7 +47,7 @@ private[claude] object ClaudeArgs:
       modelArgs(config) ++
       systemPromptFileArgs(systemPromptFile) ++
       sessionArgs(dispatch) ++
-      permissionArgs(config, networkTools) ++
+      permissionArgs(config, networkTools, mcpTools) ++
       jsonSchemaArgs(jsonSchema) ++
       mcpConfigArgs(mcpConfig)
 
@@ -119,7 +120,8 @@ private[claude] object ClaudeArgs:
     * appends `networkTools` to it. Not `--permission-mode plan`: that removed
     * no tools at all (`docs/research/run-cost/09-diff-vs-coordinates.md` §2).
     *
-    * `NetworkOnly` also [[approve]]s `networkTools`, without which they are
+    * Both tiers also [[approve]] what they must be able to call: `mcpTools`,
+    * plus `networkTools` on `NetworkOnly`. Without that grant those names are
     * advertised but not runnable. The two flags compose: `--allowedTools`
     * grants, `--tools` still bounds the surface. Verified on claude 2.1.223 in
     * the order emitted here, and pinned by `ClaudeIntegrationTest`.
@@ -128,10 +130,10 @@ private[claude] object ClaudeArgs:
     * unfiltered. Measured on claude 2.1.222 — an `init` frame under `--tools
     * Read,Grep,Glob,Skill` still carried the `mcp__…` tools of an installed
     * server, so an MCP server that can write is not covered by this allowlist
-    * at all. The read-only tiers also ignore [[AgentConfig.autoApprove]], so an
-    * MCP tool reaching a read-only turn is advertised but not pre-approved: it
-    * comes back as a failed `tool_result` rather than prompting. No in-repo
-    * flow hits that — every interactive turn is `Full`.
+    * at all. Advertised is not callable, though: the read-only tiers ignore
+    * [[AgentConfig.autoApprove]], so an MCP tool they are meant to use must be
+    * named in `mcpTools`. An un-named one comes back as a failed `tool_result`
+    * rather than prompting.
     *
     * `Full` follows [[AgentConfig.autoApprove]]: `All` → `bypassPermissions`;
     * `Only(_)` → default permission mode plus `--allowedTools`. The allowlist
@@ -146,14 +148,15 @@ private[claude] object ClaudeArgs:
     */
   private def permissionArgs(
       config: AgentConfig,
-      networkTools: Seq[String]
+      networkTools: Seq[String],
+      mcpTools: Seq[String]
   ): Seq[String] =
     config.tools match
       case ToolSet.ReadOnly =>
-        Seq("--tools", ReadOnlyTools.mkString(","))
+        Seq("--tools", ReadOnlyTools.mkString(",")) ++ approve(mcpTools)
       case ToolSet.NetworkOnly =>
         Seq("--tools", (ReadOnlyTools ++ networkTools).mkString(",")) ++
-          approve(networkTools)
+          approve(mcpTools ++ networkTools)
       case ToolSet.Full =>
         config.autoApprove match
           case AutoApprove.All =>
@@ -163,14 +166,23 @@ private[claude] object ClaudeArgs:
           case AutoApprove.Only(tools) =>
             Seq("--allowedTools", tools.toSeq.sorted.mkString(","))
 
+  /** Whether a tier's `--tools` list withholds `Bash`, and so needs the host to
+    * hand back the reads it would otherwise shell out for. Matched exhaustively
+    * so a new `ToolSet` case has to answer the question here rather than
+    * silently defaulting.
+    */
+  private[claude] def losesShell(tools: ToolSet): Boolean = tools match
+    case ToolSet.ReadOnly | ToolSet.NetworkOnly => true
+    case ToolSet.Full                           => false
+
   /** Grants `tools` on a read-only turn. `--tools` only advertises: the turn
     * stays in the default permission mode, where `WebFetch` and MCP tools are
     * gated, and stdin is closed under `--print`, so an ungranted call comes
     * back as a failed `tool_result`.
     *
     * One flag carrying one list. Whether claude honours a repeated
-    * `--allowedTools` is unverified, so a caller with more to grant widens this
-    * argument rather than calling twice.
+    * `--allowedTools` is unverified, so a caller with more to grant passes the
+    * union here rather than calling twice.
     */
   private def approve(tools: Seq[String]): Seq[String] =
     if tools.isEmpty then Seq.empty

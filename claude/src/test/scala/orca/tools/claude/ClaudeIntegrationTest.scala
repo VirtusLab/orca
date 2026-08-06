@@ -12,7 +12,7 @@ import orca.agents.{
 }
 import orca.backend.{ConversationEvent, Dispatch, SupervisedBackend}
 import orca.subprocess.OsProcCliRunner
-import orca.testkit.TempDirs
+import orca.testkit.{GitRepo, TempDirs}
 import orca.tools.claude.streamjson.OutboundMessage
 
 /** End-to-end tests against the real `claude` CLI. Gated on the
@@ -145,6 +145,50 @@ class ClaudeIntegrationTest extends munit.FunSuite:
           s"expected the refused Read to surface as a failed tool_result: $events"
         )
       finally conversation.cancel()
+
+  test("a read-only turn can read a file at a commit through MCP"):
+    // The whole point of the repo-read server: --tools leaves the turn without
+    // a shell, so this content is unreachable any other way.
+    val repo = GitRepo.seeded()
+    os.write(repo / "secret.txt", "MARMALADE")
+    val _ = os.proc("git", "add", "-A").call(cwd = repo)
+    val _ = os.proc("git", "commit", "-m", "add secret").call(cwd = repo)
+    os.write.over(repo / "secret.txt", "OVERWRITTEN")
+    SupervisedBackend.using(
+      new ClaudeBackend(OsProcCliRunner, workDir = repo)
+    ): backend =>
+      val result = backend.runAutonomous(
+        prompt = "Use git_file_at to read secret.txt at HEAD. Reply with " +
+          "only its contents.",
+        session = fresh,
+        config = AgentConfig(tools = ToolSet.ReadOnly)
+      )
+      assert(
+        result.output.contains("MARMALADE"),
+        s"expected the committed contents via MCP, got: ${result.output}"
+      )
+
+  test("a read-only turn can call git_show without the optional arguments"):
+    // The tool advertises `paths` and `stat` as optional, so the agent omits
+    // them; a decoder that then rejected the call would leave a read-only
+    // reviewer with one working git tool instead of two.
+    val repo = GitRepo.seeded()
+    os.write(repo / "widget.txt", "one")
+    val _ = os.proc("git", "add", "-A").call(cwd = repo)
+    val _ = os.proc("git", "commit", "-m", "PINEAPPLE commit").call(cwd = repo)
+    SupervisedBackend.using(
+      new ClaudeBackend(OsProcCliRunner, workDir = repo)
+    ): backend =>
+      val result = backend.runAutonomous(
+        prompt = "Call git_show for HEAD, passing only the rev. Reply with " +
+          "only that commit's subject line.",
+        session = fresh,
+        config = AgentConfig(tools = ToolSet.ReadOnly)
+      )
+      assert(
+        result.output.contains("PINEAPPLE"),
+        s"expected the commit subject via git_show, got: ${result.output}"
+      )
 
   // --- `--tools` allowlist ---
   //
