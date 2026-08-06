@@ -8,10 +8,15 @@ import sttp.tapir.Schema
 
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
 
+/** `paths` and `stat` are `Option`, not defaulted fields: the derived circe
+  * codec does not honour a Scala default, so a missing key on a plain
+  * `List`/`Boolean` is a decode failure. The tool advertises both as optional,
+  * so the agent omits them.
+  */
 private[mcp] case class GitShowInput(
     rev: String,
-    paths: List[String] = Nil,
-    stat: Boolean = false
+    paths: Option[List[String]],
+    stat: Option[Boolean]
 ) derives Codec,
       Schema
 
@@ -66,8 +71,10 @@ private[orca] object RepoMcpServer:
       )
       .input[GitShowInput]
       .handle: in =>
-        val detail = if in.stat then ShowDetail.StatOnly else ShowDetail.Full
-        render(git.show(in.rev, in.paths, detail))
+        val detail =
+          if in.stat.getOrElse(false) then ShowDetail.StatOnly
+          else ShowDetail.Full
+        render(git.show(in.rev, in.paths.getOrElse(Nil), detail))
     val fileAtTool = tool(FileAtSlug)
       .description(
         "Read one file's full contents as of a commit, e.g. to see what it " +
