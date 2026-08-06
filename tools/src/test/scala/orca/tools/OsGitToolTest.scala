@@ -898,7 +898,7 @@ class OsGitToolTest extends munit.FunSuite:
 
   test("fileAt refuses a blob past the whole-file limit"):
     withRepo: (git, dir) =>
-      os.write(dir / "big.bin", "x" * (OsGitTool.MaxReadBytes + 1))
+      os.write(dir / "big.bin", "x" * (OsGitTool.MaxFileAtBytes + 1))
       git.commit("add big").orThrow
       val failure = git.fileAt("HEAD", "big.bin").left.toOption.get
       assert(failure.getMessage.contains("whole-file read"), failure.getMessage)

@@ -424,7 +424,7 @@ trait GitTool:
   ): Either[GitReadFailed, String]
 
   /** `git show <rev>:<path>` — one file's full contents as of `rev`. Same
-    * argument validation as [[show]]. A file over `OsGitTool.MaxReadBytes` is
+    * argument validation as [[show]]. A file over `OsGitTool.MaxFileAtBytes` is
     * refused rather than cut: the size is known before the read, so naming the
     * limit beats a truncated file.
     */
@@ -899,11 +899,11 @@ private[orca] class OsGitTool(
     // binary, a checked-in dataset) would otherwise be an OOM rather than an
     // answer.
     val size = gitRead(Seq("cat-file", "-s", "--end-of-options", blob)).ok()
-    if size.trim.toLongOption.exists(_ > OsGitTool.MaxReadBytes) then
+    if size.trim.toLongOption.exists(_ > OsGitTool.MaxFileAtBytes) then
       Left(
         new GitReadFailed.Refused(
           s"'$path' is ${size.trim} bytes at $rev, over the " +
-            s"${OsGitTool.MaxReadBytes}-byte limit for a whole-file read"
+            s"${OsGitTool.MaxFileAtBytes}-byte limit for a whole-file read"
         )
       ).ok()
     else gitRead(Seq("show", "--end-of-options", blob)).ok()
@@ -1027,15 +1027,20 @@ private[orca] class OsGitTool(
 
 private[orca] object OsGitTool:
 
-  /** Most stdout an agent-facing read yields. Comfortably above any source
-    * file; past it the request is a wrong one, not a big one.
-    *
-    * Held to in whichever of two ways the command allows: [[OsGitTool.fileAt]]
-    * knows the size before reading (`cat-file -s`) so it refuses and says why,
-    * while a commit's diff has no such query, leaving `gitRead` to drop the
-    * tail of whatever a command produces past it.
+  /** Most stdout `gitRead` keeps from one read. A heap bound, and only that:
+    * `McpHost` cuts an agent's copy of the same answer to a small fraction of
+    * this, so the marker `gitRead` appends reaches only a direct [[GitTool]]
+    * caller. Applied as the output arrives, since a commit's diff has no size
+    * to ask for beforehand.
     */
   private[tools] val MaxReadBytes: Int = 2 * 1024 * 1024
+
+  /** Largest blob [[GitTool.fileAt]] reads whole. `cat-file -s` answers the
+    * size up front, which buys a refusal naming the file where [[MaxReadBytes]]
+    * could only cut it. Comfortably above any source file; a request over it is
+    * a wrong path, not a big one.
+    */
+  private[tools] val MaxFileAtBytes: Int = 2 * 1024 * 1024
 
   /** Pathspec arguments scoping a diff to "the whole repository, minus orca's
     * bookkeeping". `:(top)` is what makes it repo-wide: a magic pathspec is
