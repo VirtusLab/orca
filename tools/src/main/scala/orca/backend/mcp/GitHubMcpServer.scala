@@ -7,7 +7,6 @@ import ox.Ox
 import sttp.tapir.Schema
 
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
-import scala.util.control.NonFatal
 
 private[mcp] case class GitHubIssueInput(
     owner: String,
@@ -58,20 +57,13 @@ private[orca] object GitHubMcpServer:
   ): Either[String, String] =
     IssueHandle
       .parse(s"${in.owner}/${in.repo}#${in.number}")
-      .flatMap: handle =>
+      .map: handle =>
         // `GitHubTool` aborts a failed `gh` call by throwing — right for a flow
         // stage, wrong here, where an agent naming an issue that does not exist
-        // should get an answer rather than end the turn.
-        //
-        // Bounded because `readIssueComments` pages the whole thread: its size
-        // is set by whoever commented, not by this repository.
-        try
-          Right(
-            McpHost.bounded(
-              render(github.readIssue(handle), github.readIssueComments(handle))
-            )
-          )
-        catch case NonFatal(e) => Left(e.getMessage)
+        // should get an answer rather than end the turn. `McpHost` catches it
+        // into the error channel, and bounds this result: `readIssueComments`
+        // pages the whole thread, whose size is set by whoever commented.
+        render(github.readIssue(handle), github.readIssueComments(handle))
 
   private def render(issue: Issue, comments: List[Comment]): String =
     val header =
