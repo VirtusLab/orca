@@ -183,6 +183,28 @@ class ClaudeIntegrationTest extends munit.FunSuite:
         s"expected #78's title via MCP, got: ${result.output}"
       )
 
+  test("a read-only turn can call git_show without the optional arguments"):
+    // The tool advertises `paths` and `stat` as optional, so the agent omits
+    // them; a decoder that then rejected the call would leave a read-only
+    // reviewer with one working git tool instead of two.
+    val repo = GitRepo.seeded()
+    os.write(repo / "widget.txt", "one")
+    val _ = os.proc("git", "add", "-A").call(cwd = repo)
+    val _ = os.proc("git", "commit", "-m", "PINEAPPLE commit").call(cwd = repo)
+    SupervisedBackend.using(
+      new ClaudeBackend(OsProcCliRunner, workDir = repo)
+    ): backend =>
+      val result = backend.runAutonomous(
+        prompt = "Call git_show for HEAD, passing only the rev. Reply with " +
+          "only that commit's subject line.",
+        session = fresh,
+        config = AgentConfig(tools = ToolSet.ReadOnly)
+      )
+      assert(
+        result.output.contains("PINEAPPLE"),
+        s"expected the commit subject via git_show, got: ${result.output}"
+      )
+
   // --- `--tools` allowlist ---
   //
   // The CLI drops an unknown tool name silently: `--tools Read,Grep,NoSuchTool`

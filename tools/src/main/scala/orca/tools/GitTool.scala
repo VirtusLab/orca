@@ -65,14 +65,19 @@ object GitReadFailed:
   * other than a value.
   */
 private[tools] object GitRead:
-  // `..` and `...` are legal in a ref (`main...HEAD`), so they are allowed
-  // here; the leading-dash rejection is what stops a ref position being read as
-  // a flag, and callers additionally pass `--end-of-options`.
   private val RevPattern = """[A-Za-z0-9._/-]+""".r
 
-  /** A ref, sha or range git may be handed in a revision position. */
+  /** A single ref or sha. The leading-dash rejection stops a revision position
+    * being read as a flag; callers additionally pass `--end-of-options`.
+    *
+    * `..` is rejected, which costs nothing — git forbids it in a refname — and
+    * rules out handing `git show` a range, whose output is unbounded where a
+    * single commit's is what somebody committed.
+    */
   def rev(value: String): Either[GitReadFailed, String] =
-    if RevPattern.matches(value) && !value.startsWith("-") then Right(value)
+    if RevPattern.matches(value) && !value.startsWith("-") &&
+      !value.contains("..")
+    then Right(value)
     else Left(new GitReadFailed.InvalidRev(value))
 
   /** A repository-relative path: neither absolute nor climbing out via `..`. */
@@ -872,9 +877,20 @@ private[orca] class OsGitTool(
   def fileAt(rev: String, path: String): Either[GitReadFailed, String] = either:
     val checkedRev = GitRead.rev(rev).ok()
     val checkedPath = GitRead.path(path).ok()
-    gitRead(
-      Seq("show", "--end-of-options", s"$checkedRev:$checkedPath")
-    ).ok()
+    val blob = s"$checkedRev:$checkedPath"
+    // Ask how big it is before reading it: the whole blob lands in the heap as
+    // a String, and the path is caller-chosen, so one wrong file (a vendored
+    // binary, a checked-in dataset) would otherwise be an OOM rather than an
+    // answer.
+    val size = gitRead(Seq("cat-file", "-s", "--end-of-options", blob)).ok()
+    if size.trim.toLongOption.exists(_ > OsGitTool.MaxFileAtBytes) then
+      Left(
+        new GitReadFailed.Refused(
+          s"'$path' is ${size.trim} bytes at $rev, over the " +
+            s"${OsGitTool.MaxFileAtBytes}-byte limit for a whole-file read"
+        )
+      ).ok()
+    else gitRead(Seq("show", "--end-of-options", blob)).ok()
 
   /** Run a read-only git command, mapping a non-zero exit to
     * [[GitReadFailed.Refused]] instead of aborting the flow — an agent asking
@@ -979,6 +995,11 @@ private[orca] class OsGitTool(
     result.out.text()
 
 private[orca] object OsGitTool:
+
+  /** Largest blob [[OsGitTool.fileAt]] will read whole. Comfortably above any
+    * source file; a request over it is a wrong path, not a big one.
+    */
+  private[tools] val MaxFileAtBytes: Long = 2 * 1024 * 1024
 
   /** Pathspec arguments scoping a diff to "the whole repository, minus orca's
     * bookkeeping". `:(top)` is what makes it repo-wide: a magic pathspec is

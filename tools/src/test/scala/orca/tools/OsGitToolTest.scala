@@ -852,3 +852,15 @@ class OsGitToolTest extends munit.FunSuite:
     withRepo: (git, _) =>
       val failure = git.fileAt("HEAD", "../outside.txt").left.toOption.get
       assert(failure.isInstanceOf[GitReadFailed.InvalidPath], failure)
+
+  test("a range is rejected: git show on one would be unbounded"):
+    withRepo: (git, _) =>
+      val failure = git.show("main..HEAD").left.toOption.get
+      assert(failure.isInstanceOf[GitReadFailed.InvalidRev], failure)
+
+  test("fileAt refuses a blob past the whole-file limit"):
+    withRepo: (git, dir) =>
+      os.write(dir / "big.bin", "x" * (OsGitTool.MaxFileAtBytes.toInt + 1))
+      git.commit("add big").orThrow
+      val failure = git.fileAt("HEAD", "big.bin").left.toOption.get
+      assert(failure.getMessage.contains("whole-file read"), failure.getMessage)
