@@ -2,28 +2,31 @@
 
 Elaborates [00-research-plan.md](00-research-plan.md) into epics and tasks, and
 tracks their state. Reviewed for correctness and completeness on 2026-08-01;
-findings folded in. Status updated 2026-08-02.
+findings folded in. Status updated 2026-08-06.
 
 ## Status board
 
-**All merged as of 2026-08-05. No PR is open.** Epics 0–6 shipped across
-#45–#77; the nine findings files sit in this directory.
+**All merged as of 2026-08-06. No PR is open.** Epics 0–7 shipped across
+#45–#102; the twelve findings files sit in this directory.
 
-Merged since the 2026-08-02 board: #63 untracked symlink-to-directory · #64
-manifest cost schema fix · #65 T2.5 research · #66 `FlowAuthoring` `stripMargin`
-· #67 warm lint summariser · #68 T6.2 research · #69 T1.4 research (NO-GO) · #70
-untracked nested repo · #71 loop ceiling and retry attribution (manifest v4) ·
-#72 resumed reviewers receive the change set · #73 T2.4 research · #74 stdin
-contract and strict fake · #75 change set from git · #76 comment language pass ·
-#77 `session`/`apiCalls` on `ManifestTurn` (manifest v5).
+Merged 2026-08-05/06, after the read-only measurement turned Epic 7 around:
+#78 decision record · #79 ignored titles and base SHA · #80 sandbox research ·
+#81 initial-diff cap · #82 tab-path regression · #83 plan-mode scaladocs ·
+#84 tool-surface measurement · #85 eighth `stripMargin` · #86 test git-config
+isolation · #87 trailer length · #88 `NetworkOnly` answer · #91 zero-line label
+· #92 + #100 ADR 0021 §8 amendment · #93 increment mechanism disproved ·
+**#89 claude `--tools` allowlist** · #90 gemini prompt-only · **#94 MCP
+`git_show`/`git_file_at`** · **#96 MCP `github_issue`** · #95 manifest version
+gate dropped · **#97 cost log split out** · #98 prune coverage · #99 versioning
+carve-out · #101 readability reviewer comment check · #102 manifest write gate
+and retention bound.
 
 Earlier: #46 · #47 · #48 · #49 · #50 · #51 · #52 · #54 · #55 · #57 · #58 · #59 ·
-#61 · #62. **#56 was closed, not merged** — the skill mandate is legitimate for
-this repository (T6.1).
+#61 · #62 · #63 · #64 · #65 · #66 · #67 · #68 · #69 · #70 · #71 · #72 · #73 ·
+#74 · #75 · #76 · #77. **#56 was closed, not merged** — the skill mandate is
+legitimate for this repository (T6.1).
 
-**What remains** is under "Left to implement from the research" and "Epic 7".
-All of it is either a recommendation a merged findings file made and nobody cut
-a task for, or work the re-measurement created.
+**What remains** is under "Left to do (2026-08-06)".
 
 **Settled, no longer open questions:** cache TTL is not orca's to choose and
 every observed write was 1h; resuming a reviewer within a stage is cheaper than
@@ -213,7 +216,7 @@ dropped before the picker sees it**, and the safety floor
 *Done when:* an empty diff plus a Scala change leaves `scala-fp` eligible, with
 a Step explaining the skipped filter, tested in `ReviewerSelectorTest`.
 
-### **[RESEARCH MERGED — PR #73; the cap and the base SHA are still TODO]** T2.4
+### **[MERGED — research #73, cap #81/#82/#87, base SHA #79]** T2.4
 Nothing caps the diff today (`reviewDiff` concatenates unbounded,
 `ReviewLoopPrompts.initialReview` interpolates unbounded). A base-relative diff
 can be much larger than `diff HEAD`, so decide: stay uncapped, or reuse the
@@ -224,7 +227,7 @@ diff over N chars renders as N chars plus a trailer naming **every** omitted
 path with its line counts, with a test asserting trailer ∪ rendered = the full
 change set.
 
-### **[RESEARCH MERGED — PR #65; recommendations (b) and (c) still TODO]** T2.5 — Re-review payload
+### **[MERGED — research #65, (b) in #79, (c) NO-GO in #93]** T2.5 — Re-review payload
 `re-review.md` carries no diff, no issue list, and no fix outcome — the fixer's
 `FixOutcome` (`ReviewLoop.scala:588-590`) is never shown to the reviewer, so
 each reviewer re-derives what changed every round. Measure whether ~200 tokens
@@ -594,24 +597,24 @@ Read-only reviewers made 199 Bash calls with zero errors under
 AGENTS.md's enforcement table and `EnforcementTableTest`. Found by #73. The
 owner's decision is to remove the feature rather than repair it — Epic 7.
 
-### **[TODO — new]** Eighth `stripMargin` site: `ReviewerSelectionRequest`
+### **[MERGED — PR #85]** Eighth `stripMargin` site: `ReviewerSelectionRequest`
 `${r.instructions}` is interpolated into a margin block. `instructions` is a
 public overridable parameter defaulting to a loaded markdown resource, so it is
 arbitrary flow-author text — the same argument on which its two siblings were
 fixed. Latent: the shipped resource has no `|`-leading lines.
 
-### **[TODO — new]** `GitRepo.empty()` leaks ambient git config into tests
+### **[MERGED — PR #86]** `GitRepo.empty()` leaks ambient git config into tests
 Fixed for `core.excludesFile`/`core.hooksPath` in PR #70; noted here because
 the class of problem (ambient config reaching fixtures) is suite-wide.
 
-## Left to implement from the research (added 2026-08-05)
+## Research recommendations, now shipped (added 2026-08-05)
 
 Each item below is a recommendation a merged findings file makes, for which no
 task was ever cut. That is the systematic gap in this initiative: a research
 task was marked done when its document landed, which closed the topic —
 including the recommendation the document had just created.
 
-### **[TODO]** Send the fixer's `ignored` titles to the re-review prompt
+### **[MERGED — PR #79]** Send the fixer's `ignored` titles to the re-review prompt
 #65 §(b). Typically 0–3 entries, ~50–150 tokens, and the one thing in the loop
 that cannot be recovered from the tree at any price: no amount of reading tells
 a reviewer that the fixer judged a finding a deliberate trade-off. Today the
@@ -624,13 +627,13 @@ the confidence contract it exists to apply.
 *Done when:* a resumed reviewer's prompt names the declined findings with their
 reasons, and a test pins that `fixed` titles are not sent.
 
-### **[TODO]** Send the base SHA alongside the diff
+### **[MERGED — PR #79]** Send the base SHA alongside the diff
 #73's "coordinates *in addition to* the diff: yes, and cheap". Tens of
 characters, and it lets a shell-capable reviewer go deeper. Coordinates
 *instead of* the diff was measured and rejected: +32% turns, +27% tool calls,
 3× the git calls per round.
 
-### **[TODO]** Cap the initial diff, generalising machinery that already exists
+### **[MERGED — PR #81, tab-path regression fixed in #82]** Cap the initial diff
 #73's safety valve. Median change set 6 KB, p99 1.3 MB, max 2.1 MB (~526k
 tokens); nothing caps it, so this is a hard-failure risk rather than a saving.
 Three bounded-payload policies are already in the tree —
@@ -642,16 +645,17 @@ a fourth.
 **every** omitted path with its line counts, with a test asserting
 trailer ∪ rendered = the full change set.
 
-### **[TODO — after the cap]** Per-reviewer diff increment
-#65 §(c), deferred by #72, which sends the whole re-sampled change set rather
-than the increment since that reviewer's own last round. #73 is explicit that
-this must not ship before the diff-size policy is settled, so it follows the cap
-above. Mechanism sketch from #65, unverified: a per-round tree written through a
-throwaway index (`GIT_INDEX_FILE=<tmp> git add -A && git write-tree`) gives a
-snapshot to diff against without touching HEAD, the real index or the working
-tree; `reviewDiff(Some(previousTree))` then reads as "everything that changed
-since your last round". Whether ignore rules make that snapshot agree with
-`untrackedPaths()` was not checked.
+### **[NO-GO — PR #93]** Per-reviewer diff increment
+#65 §(c)'s throwaway-index sketch was measured and does not work, and it fails
+somewhere other than where the research flagged. Ignore rules were fine; the
+break is that `git diff <snapshotTree>` decides tracked-ness from the **real
+index**, so a file untracked there but present in the snapshot reports as `D`
+even with the working tree untouched, and `reviewDiff` then splices it back in
+full — a resumed reviewer would be told every round that each carried-over new
+file was deleted and re-added. A tree-to-tree diff between two snapshots does
+give a clean increment, but it is a different mechanism with its own costs
+(`.orca/` pathspec, whole-tree re-hash, blob writes from a read-only path,
+`SessionEntry` carrying a tree). Recorded in `08-re-review-payload.md`.
 
 ### **[TODO — no owner]** The preamble's cost is the call count, not its size
 #77's instrumentation re-measured T6.2 inside this repository. Reviewers average
@@ -701,7 +705,7 @@ covers Bash only, so the Write and Edit tools write straight through it.
 **Open decision:** repair claude with `--tools` and keep the tier, or remove it.
 Removal now costs three working mechanisms, one of them an OS sandbox.
 
-### **[TODO]** Write the removal plan
+### **[DROPPED — removal rejected; see `11-repair-read-only.md`]** Write the removal plan
 Enumerate every `withReadOnly` / `ToolSet.ReadOnly` call site, what each
 currently promises, and what is lost by dropping it. Correct AGENTS.md's
 enforcement table, and delete or rewrite `EnforcementTableTest` so nothing
@@ -718,24 +722,24 @@ dependency: the same job as using each backend's own sandbox, with more to own.
 macOS unanswered (`sandbox-exec` deprecated; App Sandbox needs signing orca
 cannot do). *Output:* `10-filesystem-sandbox.md`.
 
-### **[TODO]** Repair claude with a `--tools` allowlist
+### **[MERGED — PRs #89, #94, #96]** Repair claude with a `--tools` allowlist
 Replace `--permission-mode plan` at `ClaudeArgs.scala:123` with a read-only
 `--tools` allowlist: `Read,Grep,Glob,Skill` for `ReadOnly`. Makes
 `Enforcement.Hard` true for claude instead of aspirational.
 
-**`NetworkOnly` cannot take the same swap.** It gives planners GitHub reads
-through command-scoped `--allowedTools` entries — `Bash(gh issue view:*)` and
-four siblings (`ClaudeBackend.scala:302-310`). `--tools` takes bare built-in
-names, so those cannot move into it, and a straight swap would silently remove
-the planner's `gh` access. **Owner's decision (2026-08-05): planning must keep
-network access.** Open shapes, pending the probe in `12-reviewer-tool-surface.md`:
-keep `Bash` in the allowlist and scope with `--allowedTools` (tier drops to
-`PromptOnly`, matching codex and pi), or expose the `gh` reads as MCP tools
-(tier stays a real no-edit tier, since MCP passes through `--tools` unfiltered).
+**`NetworkOnly` took a different shape (#96).** Its five command-scoped
+`Bash(gh …)` entries had zero measured use, and `--allowedTools` patterns were
+measured to grant without confining — so that tier was broken too. They were
+replaced by a host-served `github_issue` MCP tool, keeping the tier a real
+no-edit tier since MCP passes `--tools` unfiltered. **Owner's decision
+(2026-08-05): planning must keep network access**, satisfied by
+`WebFetch`/`WebSearch` plus that tool.
 
-If `--allowedTools` patterns only grant and do not confine — as #74 measured for
-the plain form — then `NetworkOnly`'s `Hard` claim at `ClaudeArgs.scala:153` is
-already false, and claude has two broken tiers, not one.
+The two flags are different axes and both are needed: `--tools` advertises,
+`--allowedTools` grants. #89 first shipped the swap without the grant, which
+left planners silently unable to fetch; the fix emits **one** `--allowedTools`
+per arm carrying every name that tier grants, since a repeated flag is
+unverified.
 **Cost:** read-only agents lose Bash entirely — no git, no build, no shell `rg`.
 Reviewers already get the diff inlined (#73), but any flow that relies on a
 read-only agent shelling out breaks.
@@ -749,6 +753,63 @@ Deferred: no credentials on this host. Same mechanism as claude's, so the
 `Hard` claim at `GeminiArgs.scala:104` should not be treated as established.
 Separately, gemini silently overrides `--approval-mode plan` to `default` in
 untrusted folders — which is where orca runs agents.
+
+---
+
+## Left to do (2026-08-06)
+
+Everything below is open on master. The first group is fallout from the
+read-only repair that merged with its review findings still outstanding.
+
+### **[TODO]** Bound the MCP output cap with a test
+`McpHost.bounded` (60 000 chars) has **zero coverage** — deleting it from every
+call site leaves the whole suite green. The same unbounded-output defect landed
+twice (`RepoMcpServer` had a cap, `GitHubMcpServer.render` did not); moving it to
+a shared home did not stop a third instance, because nothing fails when a caller
+forgets it. `AskUserMcpServer` already bypasses it.
+
+### **[TODO]** `git_show` is unbounded before its output reaches the heap
+`OsGitTool.show` goes straight to `gitRead`, which buffers all of stdout; a
+commit adding a 32 MB file was measured returning 32.4M chars. `fileAt` asks
+`cat-file -s` first and refuses over 2 MiB. A commit's diff has no cheap size
+query, so this needs a decision — accept it, or stream with a byte cap — and it
+is the pre-existing shape of every other `GitTool` read.
+
+### **[TODO]** Tenth `stripMargin` site: `GitHubMcpServer`
+`${issue.body}` — arbitrary GitHub markdown, where tables begin lines with `|` —
+is interpolated into a `stripMargin` block. The same function gets it right two
+lines later for comment bodies. Ninth site also open: `GitTool`'s failure
+message interpolates git's stderr the same way.
+
+### **[TODO]** Reviewers are told to use a shell they no longer have
+`ReviewLoopPrompts` still says "you can run shell commands, use that commit…
+`git show $sha:<path>`". Read-only claude reviewers have no `Bash`; the recipe
+maps one-to-one onto `git_file_at`. Costs tokens on every reviewer turn.
+
+### **[TODO]** `rev` rejects the spellings its own hint asks for
+`GitRead.rev`'s `[A-Za-z0-9._/-]+` excludes `~ ^ @ { }`, so `HEAD~1` and `HEAD^`
+fail — and `git_file_at`'s description tells the agent to look at a file "before
+the change". Widen the class, keeping the `..` and leading-dash guards.
+
+### **[TODO]** `TurnMcpServer`: collapse three servers × six sites
+`ClaudeBackend.openConversation` threads three MCP servers through allocation,
+the gate, `writeMcpConfig`, `writeSystemPromptIfPresent`'s booleans, the
+per-turn resource list and `mcpTools` — eighteen cells. A missed cell (`ask_user`
+absent from `mcpTools`) was a real bug. A per-turn value makes forgetting one
+unrepresentable. Belongs in `orca.backend.mcp`; codex and gemini have parallel
+plumbing.
+
+### **[TODO]** Comment cleanup on the read-only repair
+#89 shipped 3.8:1 comments to code in production Scala, with six facts stated 22
+times across seven files. Pick one home per fact. Also open: change history in
+`ClaudeBackend`'s `withNetworkTools` scaladoc and in a shipped exception
+message, and `ClaudeArgs`' claim that the allowlist is "pinned against a live
+CLI" when that suite only runs under `ORCA_INTEGRATION`.
+
+### **[TODO]** Stale enforcement claims outside the tables
+`Plan.scala` and `Agent.scala` still say the no-edit guarantee is "hard on
+claude/gemini/opencode" and "hard on most"; `adr/0016` says "hard everywhere"
+nine lines above a table cell that contradicts it.
 
 ---
 
