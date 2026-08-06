@@ -105,7 +105,10 @@ private[orca] object BoundedDiff:
     else
       val head = wholeFilesWithin(diff, ReviewThreshold - trailerMax(changed))
       val shown = head.linesIterator.filter(_.startsWith(FileHeader)).toList
-      head + trailer(changed.filterNot(f => isShown(shown, f.path)))
+      head + trailer(
+        changed.filterNot(f => isShown(shown, f.path)),
+        head.length
+      )
 
   /** The longest prefix of `diff` within `maxChars` that ends where a file's
     * section ends, or `""` when not even the first section fits — the honest
@@ -139,8 +142,13 @@ private[orca] object BoundedDiff:
   private def isShown(headers: List[String], path: String): Boolean =
     headers.exists(_.endsWith(s" b/$path"))
 
-  private val TrailerHead: String =
-    s"\n# The diff above was cut short at $ReviewThreshold characters. It " +
+  /** `shownChars` is the length of the diff as sent, which is under
+    * [[ReviewThreshold]] by whatever the trailer takes — up to
+    * [[TrailerBudget]] when the file list is long. Reporting the threshold
+    * instead would tell the reviewer it got roughly twice the diff it did.
+    */
+  private def trailerHead(shownChars: Int): String =
+    s"\n# The diff above was cut short at $shownChars characters. It " +
       "does not show\n# the changes to the files below — read those files " +
       "directly.\n"
 
@@ -150,8 +158,8 @@ private[orca] object BoundedDiff:
     * leave every cut file unnamed. The cut is stated anyway: a reviewer that
     * isn't told the diff is partial judges a fragment as if it were the whole.
     */
-  private val UnnamedTrailer: String =
-    s"\n# The diff above was cut short at $ReviewThreshold characters. Part of " +
+  private def unnamedTrailer(shownChars: Int): String =
+    s"\n# The diff above was cut short at $shownChars characters. Part of " +
       "the change\n# is not shown, and the file list needed to name it was not " +
       "available.\n"
 
@@ -160,9 +168,11 @@ private[orca] object BoundedDiff:
     * can read as part of a hunk — `- path` would look like a deleted line of
     * source — and the entries are indented under the sentence introducing them.
     */
-  private def trailer(omitted: List[ChangedFile]): String =
-    if omitted.isEmpty then UnnamedTrailer
-    else TrailerHead + boundedEntries(omitted.map(entryLine), TrailerBudget)
+  private def trailer(omitted: List[ChangedFile], shownChars: Int): String =
+    if omitted.isEmpty then unnamedTrailer(shownChars)
+    else
+      trailerHead(shownChars) +
+        boundedEntries(omitted.map(entryLine), TrailerBudget)
 
   /** The longest [[trailer]] any subset of `all` can produce, which is what the
     * diff has to be sized against — the omitted set isn't known until the diff
@@ -176,13 +186,19 @@ private[orca] object BoundedDiff:
   private def trailerMax(all: List[ChangedFile]): Int =
     // +1 per entry for the separator `boundedEntries` joins them with.
     val entries = all.map(entryLine(_).length + 1).sum
+    // Sized with the threshold in place of the diff length the trailer will
+    // report: the latter is always smaller, so never renders more digits.
     math.max(
-      UnnamedTrailer.length,
-      TrailerHead.length + math.min(entries, TrailerBudget)
+      unnamedTrailer(ReviewThreshold).length,
+      trailerHead(ReviewThreshold).length + math.min(entries, TrailerBudget)
     )
 
   private def entryLine(file: ChangedFile): String =
     val size = file.change match
+      // `+0 -0` reads as "nothing changed", which is never why a file is in a
+      // change set. Left this vague because the counts are all this side has:
+      // see `FileChange.Lines` for the causes they cannot tell apart.
+      case FileChange.Lines(0, 0)           => "no lines changed"
       case FileChange.Lines(added, deleted) => s"+$added -$deleted"
       case FileChange.Binary                => "binary"
       case FileChange.New                   => "new file"

@@ -39,7 +39,7 @@ select `NetworkOnly`; reviewers, `reviewed`/`briefed`, selection and lint keep
 
 | Backend | `NetworkOnly` | No-edit guarantee | Network |
 | --- | --- | --- | --- |
-| claude | `--tools <read-only tools + networkTools>` | **hard** (`--tools` removes every unlisted built-in, shell and edits included) | web |
+| claude | `--tools <read-only tools + networkTools>` + `--allowedTools <networkTools>` | **hard** (`--tools` removes every unlisted built-in, shell and edits included) | web |
 | pi | `--tools …,bash` | **prompt-only** (bash permits writes) | shell (`gh`/`curl`) |
 | codex | `--full-auto` + `-c sandbox_workspace_write.network_access=true` | **prompt-only** (workspace-write permits writes) | shell + web |
 | gemini | `--approval-mode plan --allowed-tools web_fetch` | **prompt-only** (plan mode unmeasured against a write) | web |
@@ -69,6 +69,13 @@ names, so the default's five command-scoped `Bash(gh …)` entries are gone;
 measured planner use of `gh` was zero, and orca reads issues host-side via
 `GitHubTool.readIssue`. The default is now `WebFetch`, `WebSearch`.
 
+`--tools` advertises a tool without granting it: the default permission mode
+still gates `WebFetch`, and stdin is closed, so the call fails. `NetworkOnly`
+therefore also passes `--allowedTools <networkTools>`; the two flags compose,
+with `--tools` still bounding the surface. MCP tools need the same grant —
+one `--allowedTools` carrying every name to approve, since a repeated flag is
+unverified.
+
 ### gemini's no-edit guarantee
 
 Amended 2026-08-05 (#78): gemini's read-only tiers drop from **hard** to
@@ -82,8 +89,8 @@ raise it when a probe establishes more.
 
 ## Consequences
 
-- Claude planners get read-only network with the hard no-edit guarantee intact;
-  pi/codex/gemini planners get a prompt-only guarantee; opencode planners stay
-  network-free and rely on pre-fetching.
+- Claude planners get read-only network with the hard no-edit guarantee
+  intact; pi/codex/gemini planners get a prompt-only guarantee; opencode
+  planners stay network-free and rely on pre-fetching.
 - `withReadOnly` semantics are unchanged for the six non-planner turn kinds.
 - `AutoApprove.Only` remains unused by flows (latent); not removed here.

@@ -53,6 +53,19 @@ class ReviewTypesTest extends munit.FunSuite:
       summon[AgentInput[FixRequest]].serialize(request).contains("\n  |a| b|")
     )
 
+  test("the picker prompt keeps an instruction line that starts with `|`"):
+    val request = ReviewerSelectionRequest(
+      taskTitle = Title("Add a check"),
+      changedFiles = List("Foo.scala"),
+      availableReviewers = List(ReviewerInfo("security", "security review")),
+      instructions = "pick one:\n  |a| b|"
+    )
+    assert(
+      summon[AgentInput[ReviewerSelectionRequest]]
+        .serialize(request)
+        .contains("\n  |a| b|")
+    )
+
   test("IgnoredIssues ++ concatenates entries"):
     val a = IgnoredIssues(List(IgnoredIssue(Title("Style nit"), "accepted")))
     val b = IgnoredIssues(List(IgnoredIssue(Title("Style nit"), "deferred")))
