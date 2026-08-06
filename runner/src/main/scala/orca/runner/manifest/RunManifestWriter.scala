@@ -283,7 +283,6 @@ private[runner] class RunManifestWriterState(
     */
   private def write(): Unit =
     val manifest = RunManifest(
-      manifestVersion = RunManifest.SupportedVersion,
       orcaVersion = orcaVersion,
       flow = flowName,
       workDir = workDir.toString,
