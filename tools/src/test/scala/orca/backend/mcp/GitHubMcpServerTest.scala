@@ -1,6 +1,6 @@
 package orca.backend.mcp
 
-import orca.tools.{Comment, Issue}
+import orca.tools.Issue
 
 class GitHubMcpServerTest extends munit.FunSuite:
 
