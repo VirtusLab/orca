@@ -82,12 +82,11 @@ object ReviewerSelector:
     * The picker is handed the task title, the changed file names and those
     * descriptions, and runs under [[orca.agents.ToolSet.ReadOnly]] in the
     * flow's work dir. Whether a shell is there varies by backend — codex's
-    * read-only sandbox runs commands, opencode and pi have no shell tool at
-    * all, and claude's plan mode leaves `Bash` advertised (measured: see
-    * `docs/research/run-cost/09-diff-vs-coordinates.md` §2) — so the default
-    * brief tells it to open the changed files rather than judge by their paths,
-    * to use `git diff HEAD` only if the shell happens to be there, and to
-    * include a reviewer whenever it is unsure.
+    * read-only sandbox runs commands, while claude, opencode and pi have no
+    * shell tool at all — so the default brief tells it to open the changed
+    * files rather than judge by their paths, to use `git diff HEAD` only if the
+    * shell happens to be there, and to include a reviewer whenever it is
+    * unsure.
     *
     * `filePatterns` is a code-side pre-filter applied before the LLM call:
     * reviewers whose pattern doesn't match any of `changedFiles` are dropped,

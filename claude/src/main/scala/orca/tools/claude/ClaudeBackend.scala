@@ -26,21 +26,27 @@ import orca.backend.{
   SystemPromptComposer
 }
 import orca.subprocess.CliRunner
-import orca.backend.mcp.{AskUserMcpServer, AskUserSession}
+import orca.backend.mcp.{
+  AskUserMcpServer,
+  AskUserSession,
+  GitHubMcpServer,
+  McpHost,
+  RepoMcpServer
+}
+import orca.tools.{GitTool, OsGitHubTool, OsGitTool}
 import orca.tools.claude.streamjson.OutboundMessage
 import ox.Ox
 
+import scala.concurrent.duration.FiniteDuration
+
 /** Claude Code backend. All calls — autonomous and interactive — drive a
-  * stream-json subprocess through [[ClaudeConversation]]; the only difference
-  * is the [[ConversationMode]] passed to `openConversation` (autonomous omits
-  * the ask_user MCP, interactive wires it). The autonomous path drains events
-  * and returns the awaited `AgentResult`; the interactive path hands the
-  * `Conversation` back to the caller who runs `Interaction.drive`.
+  * stream-json subprocess through [[ClaudeConversation]]. The autonomous path
+  * drains events and returns the awaited `AgentResult`; the interactive path
+  * hands the `Conversation` back to the caller who runs `Interaction.drive`.
   *
-  * Interactive calls also stand up an MCP host bridge: a tiny HTTP server (via
-  * [[AskUserMcpServer]]) exposing an `ask_user` tool. Its lifetime tracks the
-  * conversation (via `ClaudeConversation.onFinalize`), not the backend, so a
-  * long flow with many interactive calls doesn't leak Netty bindings.
+  * A turn also stands up whichever host MCP servers it is entitled to — see
+  * [[openConversation]]. Every one is a Netty binding whose lifetime tracks the
+  * conversation, not the backend, so a long flow doesn't accumulate them.
   */
 private[orca] class ClaudeBackend(
     cli: CliRunner,
@@ -60,9 +66,15 @@ private[orca] class ClaudeBackend(
     sharedClosedFlag: AtomicBoolean = new AtomicBoolean(false)
 ) extends AgentBackend[BackendTag.ClaudeCode.type](sharedClosedFlag):
 
-  /** Return a sibling backend that, on [[ToolSet.NetworkOnly]] turns,
-    * pre-approves `tools` (claude `--allowedTools` syntax). Lives on the
-    * backend, not `AgentConfig`, since the strings are claude-specific.
+  /** Return a sibling backend that, on [[ToolSet.NetworkOnly]] turns, adds
+    * `tools` to the read-only `--tools` allowlist. Lives on the backend, not
+    * `AgentConfig`, since the names are claude-specific.
+    *
+    * Rejects anything that is not a bare tool name. These used to be
+    * `--allowedTools` patterns and could be command-scoped (`Bash(gh api:*)`);
+    * `--tools` takes bare names and drops what it does not recognise silently,
+    * exit 0, no warning. Without this check a flow script carrying the old
+    * syntax would keep compiling, keep running, and grant nothing.
     *
     * Shares `closedFlag` with `this`: the sibling is a genuinely different
     * `AgentBackend` instance, so without threading the SAME flag through, a
@@ -70,7 +82,16 @@ private[orca] class ClaudeBackend(
     * use-after-close guard.
     */
   def withNetworkTools(tools: Seq[String]): ClaudeBackend =
-    new ClaudeBackend(cli, tools, projectsDir, workDir, closedFlag)
+    tools.filterNot(ClaudeBackend.BareToolName.matches) match
+      case Nil =>
+        new ClaudeBackend(cli, tools, projectsDir, workDir, closedFlag)
+      case bad =>
+        throw new IllegalArgumentException(
+          s"withNetworkTools takes bare claude tool names; these are not: " +
+            s"${bad.mkString(", ")}. Command-scoped entries like " +
+            "\"Bash(gh api:*)\" belonged to the old --allowedTools mapping and " +
+            "are silently ignored by --tools."
+        )
 
   /** Claude's sessions live on disk (`~/.claude/projects/.../<id>.jsonl`) and
     * outlive the process, so it is durable: the claim survives a restart
@@ -81,6 +102,12 @@ private[orca] class ClaudeBackend(
     * never-claimed id reports `false`, which is safe since the caller re-seeds.
     */
   val tag: BackendTag.ClaudeCode.type = BackendTag.ClaudeCode
+
+  /** Backs the repo-read MCP tools. Derived from `workDir` rather than injected
+    * so it cannot disagree with the directory claude is spawned in — the whole
+    * point of the tools is to read the repository the agent is looking at.
+    */
+  private val git: GitTool = new OsGitTool(workDir)
 
   override def enforcement(
       tools: ToolSet,
@@ -157,17 +184,19 @@ private[orca] class ClaudeBackend(
     * with stdin open either way; the close is what makes it exit, which ends
     * the reader on a turn that never settles.
     *
-    * `Interactive` mode wires the MCP `ask_user` tool: stand up an
-    * [[AskUserMcpServer]] on an ephemeral port, write its config at
-    * [[ClaudeBackend.mcpConfigPath]], point claude at it via `--mcp-config`,
-    * and auto-approve the tool. `Autonomous` skips all of that: those calls
-    * have no renderer to drive the prompt, so exposing the tool would let the
-    * agent deadlock the call.
+    * Three host MCP servers may be stood up, each gated on what the turn is:
     *
-    * The MCP server (when present) is a session resource closed from
-    * `onFinalize` after the read loop drains. If anything between resource
-    * allocation and conversation construction throws we tear down the server
-    * (and SIGINT the process if already spawned) so nothing leaks.
+    *   - `ask_user` — `Interactive` only. An autonomous call has no renderer to
+    *     answer the question, so exposing it would let the agent deadlock.
+    *   - repo reads — any tier that loses the shell to `--tools`.
+    *   - GitHub reads — `NetworkOnly` only, so reviewers stay network-free.
+    *
+    * Their config is written to [[ClaudeBackend.mcpConfigPath]] as one file and
+    * passed via `--mcp-config`, and their tools are pre-approved by name. Each
+    * is a session resource closed from `onFinalize` after the read loop drains;
+    * if anything between allocation and conversation construction throws, they
+    * are torn down (and the process SIGINTed if already spawned) so nothing
+    * leaks.
     */
   private def openConversation(
       prompt: String,
@@ -176,27 +205,40 @@ private[orca] class ClaudeBackend(
       config: AgentConfig,
       outputSchema: Option[String]
   )(using Ox): Conversation[BackendTag.ClaudeCode.type] =
-    // Allocate ask_user resources up front so a downstream failure can close
-    // them deterministically. `None` for autonomous — those calls don't expose
-    // the tool.
+    // Allocate MCP resources up front so a downstream failure can close them
+    // deterministically. `ask_user` is interactive-only (an autonomous call has
+    // no renderer to answer it); the repo reads are the reverse — they exist to
+    // give read-only turns back what `--tools` takes away.
     val displayPrompt = mode.displayPrompt
     val askUser: Option[AskUserSession] =
-      Option.when(mode.isInteractive):
-        AskUserSession.allocate: server =>
-          writeMcpConfig(server, workDir)
-          List(
-            SubprocessSpawn.deleteFileResource(
-              ClaudeBackend.mcpConfigPath(workDir, server.port)
-            )
-          )
-    // Written before `open` so it can join `resources` (failure-path cleanup);
-    // the conversation deletes it on the success path via its `onFinalize`.
-    val systemPromptFile =
-      writeSystemPromptIfPresent(config, includeAskUserHint = askUser.isDefined)
-    SubprocessSpawn.open(
-      "claude stream-json",
-      askUser.toList ++ systemPromptFile.map(SubprocessSpawn.deleteFileResource)
-    ) {
+      Option.when(mode.isInteractive)(AskUserSession.allocate())
+    val repoReads: Option[McpHost] =
+      Option.when(ClaudeArgs.losesShell(config.tools))(RepoMcpServer.start(git))
+    val githubReads: Option[McpHost] =
+      Option.when(config.tools == ToolSet.NetworkOnly):
+        GitHubMcpServer.start(new OsGitHubTool(cli, workDir))
+    val mcpConfig = Option
+      .when(askUser.isDefined || repoReads.isDefined || githubReads.isDefined):
+        writeMcpConfig(askUser.map(_.server), repoReads, githubReads, session)
+    val systemPromptFile = writeSystemPromptIfPresent(
+      config,
+      includeAskUserHint = askUser.isDefined,
+      includeRepoHint = repoReads.isDefined,
+      includeGitHubHint = githubReads.isDefined
+    )
+    // One list, handed to both sides: `open` releases it if the spawn or the
+    // build fails, the conversation's `onFinalize` releases it on the happy
+    // path. `askUser` stays separate — `ForkedConversation` owns it, because
+    // the bridge must be errored before the read loop is torn down.
+    val perTurn: List[AutoCloseable] =
+      repoReads.toList ++ githubReads.toList ++
+        mcpConfig.map(SubprocessSpawn.deleteFileResource) ++
+        systemPromptFile.map(SubprocessSpawn.deleteFileResource)
+    SubprocessSpawn.open("claude stream-json", askUser.toList ++ perTurn) {
+      // `autoApproveAlso` reaches `--allowedTools` only on `Full`; the
+      // read-only tiers ignore `autoApprove` entirely, so the name also goes
+      // through `mcpTools` below. Both, because `Full` needs the config route
+      // and the read-only tiers need the flag route.
       val effectiveConfig =
         if askUser.isDefined then
           config.autoApproveAlso(ClaudeBackend.AskUserToolName)
@@ -210,9 +252,11 @@ private[orca] class ClaudeBackend(
         systemPromptFile,
         dispatch = sessions.dispatchFor(session),
         outputSchema,
-        mcpConfig =
-          askUser.map(r => ClaudeBackend.mcpConfigPath(workDir, r.server.port)),
-        networkTools = networkTools
+        mcpConfig = mcpConfig,
+        networkTools = networkTools,
+        mcpTools = askUser.toSeq.map(_ => ClaudeBackend.AskUserToolName) ++
+          repoReads.toSeq.flatMap(_ => ClaudeBackend.RepoToolNames) ++
+          githubReads.toSeq.flatMap(_ => ClaudeBackend.GitHubToolNames)
       )
       cli.spawnPiped(args, cwd = workDir)
     } { process =>
@@ -226,65 +270,89 @@ private[orca] class ClaudeBackend(
         initialPrompt = displayPrompt,
         outputSchema = outputSchema,
         askUser = askUser,
-        systemPromptFile = systemPromptFile
+        resources = perTurn
       )
     }
 
-  /** Write the MCP config file at [[ClaudeBackend.mcpConfigPath]].
+  /** Write this conversation's MCP config, listing whichever host servers it
+    * stood up, and return its path.
     *
-    * The `timeout` field extends claude's per-server tool-call timeout from its
-    * 60s default to [[AskUserMcpServer.ToolTimeout]]. Without it, claude gives
-    * up on `ask_user` if the human takes more than 60s to answer, then fires a
-    * follow-up `ask_user` and the user answers twice.
-    *
-    * One of three renderings of `AskUserMcpServer.ToolTimeout` (claude JSON ms
-    * / codex TOML sec / gemini settings.json ms); keep in sync.
+    * Each `timeout` raises claude's per-server tool-call limit from its 60s
+    * default. For `ask_user` that is load-bearing: without it claude gives up
+    * if the human takes more than 60s to answer, then fires a follow-up and the
+    * user answers twice. `AskUserMcpServer.ToolTimeout` is rendered in three
+    * places (claude JSON ms / codex TOML sec / gemini settings.json ms); keep
+    * them in sync.
     */
   private def writeMcpConfig(
-      server: AskUserMcpServer,
-      workDir: os.Path
-  ): Unit =
-    val timeoutMs = AskUserMcpServer.ToolTimeout.toMillis
+      askUser: Option[McpHost],
+      repoReads: Option[McpHost],
+      githubReads: Option[McpHost],
+      session: SessionId[BackendTag.ClaudeCode.type]
+  ): os.Path =
+    val entries =
+      askUser.map(
+        entryJson(AskUserMcpServer.ServerName, _, AskUserMcpServer.ToolTimeout)
+      ) ++
+        repoReads.map(
+          entryJson(RepoMcpServer.ServerName, _, RepoMcpServer.ToolTimeout)
+        ) ++
+        githubReads.map(
+          entryJson(GitHubMcpServer.ServerName, _, GitHubMcpServer.ToolTimeout)
+        )
     val _ = OrcaDir.ensureCache(workDir)
-    val path = ClaudeBackend.mcpConfigPath(workDir, server.port)
+    val path = ClaudeBackend.mcpConfigPath(workDir, session)
     // `os.write` is CREATE_NEW — it refuses a leaf symlink, which
-    // `os.write.over` would follow — so a same-port leftover from an earlier
-    // hard kill has to be removed first. `os.remove` unlinks a symlink rather
-    // than following it.
+    // `os.write.over` would follow — so a leftover from an earlier hard kill
+    // has to be removed first. `os.remove` unlinks a symlink rather than
+    // following it.
     val _ = os.remove(path)
-    os.write(
-      path,
-      s"""{"mcpServers":{"${AskUserMcpServer.ServerName}":{"type":"http","url":"${server.url}","timeout":$timeoutMs}}}"""
-    )
+    os.write(path, s"""{"mcpServers":{${entries.mkString(",")}}}""")
+    path
+
+  private def entryJson(
+      name: String,
+      host: McpHost,
+      timeout: FiniteDuration
+  ): String =
+    s""""$name":{"type":"http","url":"${host.url}","timeout":${timeout.toMillis}}"""
 
   /** Build the per-session system-prompt file: compose `config.systemPrompt`
-    * with the ask_user hint (interactive only), then write to a JVM temp file
+    * with whichever MCP hints apply, then write to a JVM temp file
     * (auto-cleaned on exit) rather than the user's workDir — it's purely an IPC
     * mechanism, read once via `--append-system-prompt-file`.
     */
   private def writeSystemPromptIfPresent(
       config: AgentConfig,
-      includeAskUserHint: Boolean
+      includeAskUserHint: Boolean,
+      includeRepoHint: Boolean,
+      includeGitHubHint: Boolean
   ): Option[os.Path] =
-    val hint = Option.when(includeAskUserHint)(AskUserMcpServer.Hint)
+    val hints =
+      Option.when(includeAskUserHint)(AskUserMcpServer.Hint) ++
+        Option.when(includeRepoHint)(RepoMcpServer.Hint) ++
+        Option.when(includeGitHubHint)(GitHubMcpServer.Hint)
     SystemPromptComposer
-      .combine(config, hint)
+      .combine(config, hints.reduceOption(_ + "\n\n" + _))
       .map: text =>
         os.temp(prefix = "orca-system-prompt-", suffix = ".md", contents = text)
 
 object ClaudeBackend:
 
-  /** Path of the MCP config file advertising the host's `ask_user` server.
-    * Named with the bound port so two interactive conversations sharing a
-    * `workDir` don't overwrite each other's config.
+  /** Path of the MCP config file advertising this conversation's host servers.
+    * Named with the session id so two conversations sharing a `workDir` don't
+    * overwrite each other's config.
     *
     * Under the self-ignoring `.orca/cache/` rather than at the workDir root: a
     * hard kill skips the deletion resource, and a leftover at the root is swept
     * into the next stage's `git add -A`. Still inside the working tree, so a
     * sandboxed claude that denies reads outside its worktree can read it.
     */
-  private[claude] def mcpConfigPath(workDir: os.Path, port: Int): os.Path =
-    OrcaDir.cachePath(workDir) / s"mcp-$port.json"
+  private[claude] def mcpConfigPath(
+      workDir: os.Path,
+      session: SessionId[BackendTag.ClaudeCode.type]
+  ): os.Path =
+    OrcaDir.cachePath(workDir) / s"mcp-${session.value}.json"
 
   /** Derives the project-directory slug that claude uses under
     * `~/.claude/projects/`: replaces every `/` in the absolute path with `-`.
@@ -293,28 +361,47 @@ object ClaudeBackend:
   private[claude] def cwdSlug(cwd: os.Path): String =
     cwd.toString.replace('/', '-')
 
-  /** Read-only network tools pre-approved on [[ToolSet.NetworkOnly]] turns.
-    * Command-scoped, so plan mode still blocks general bash and all edits.
-    * `Bash(gh api:*)` is broad GitHub reads — note `gh api -X POST` can mutate
-    * GitHub (not local files); flows wanting a tighter set pass their own via
-    * `claude.withNetworkTools(...)`.
+  /** Built-in tools added to `ClaudeArgs.ReadOnlyTools` on
+    * [[ToolSet.NetworkOnly]] turns. Bare tool names only — `--tools` takes no
+    * command scoping, so there is no `gh` entry. Nothing replaces it: measured
+    * planner use of `gh` was zero
+    * (`docs/research/run-cost/12-reviewer-tool-surface.md` §5) and orca reads
+    * issues host-side via `GitHubTool.readIssue`. Flows wanting a different set
+    * pass their own via `claude.withNetworkTools(...)`.
     */
-  private[claude] val DefaultNetworkTools: Seq[String] = Seq(
-    "WebFetch",
-    "WebSearch",
-    "Bash(gh issue view:*)",
-    "Bash(gh pr view:*)",
-    "Bash(gh search:*)",
-    "Bash(gh repo view:*)",
-    "Bash(gh api:*)"
-  )
+  private[claude] val DefaultNetworkTools: Seq[String] =
+    Seq("WebFetch", "WebSearch")
+
+  /** What `--tools` accepts: a bare built-in name. Not MCP names — those pass
+    * `--tools` unfiltered, so listing one there does nothing.
+    */
+  private val BareToolName = "[A-Za-z][A-Za-z0-9]*".r
 
   /** Fully-qualified tool name (MCP server name + tool slug). Always
     * auto-approved on the interactive path — the user is already typing an
     * answer, no need for a y/n prompt first.
     */
   private[claude] val AskUserToolName: String =
-    s"mcp__${AskUserMcpServer.ServerName}__${AskUserMcpServer.ToolSlug}"
+    qualifiedToolName(AskUserMcpServer.ServerName, AskUserMcpServer.ToolSlug)
+
+  /** The repo-read tools, qualified the way claude advertises them. Read-only
+    * turns pass these to `--allowedTools`: `--tools` bounds what exists, but an
+    * MCP call still needs approval, which an autonomous turn cannot give.
+    */
+  private[claude] val RepoToolNames: Seq[String] =
+    RepoMcpServer.ToolSlugs.map(qualifiedToolName(RepoMcpServer.ServerName, _))
+
+  /** The GitHub reads, qualified. `NetworkOnly` only — reviewers stay
+    * network-free.
+    */
+  private[claude] val GitHubToolNames: Seq[String] =
+    GitHubMcpServer.ToolSlugs.map(
+      qualifiedToolName(GitHubMcpServer.ServerName, _)
+    )
+
+  /** How claude names an MCP tool once its server is registered. */
+  private def qualifiedToolName(server: String, slug: String): String =
+    s"mcp__${server}__$slug"
 
   /** Tool name the claude CLI injects for `--json-schema` structured output:
     * the model "exits" the turn by calling this tool with the payload as its

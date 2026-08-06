@@ -17,7 +17,7 @@ import scala.util.control.NonFatal
   */
 private[orca] case class AskUserSession(
     bridge: AskUserBridge,
-    server: AskUserMcpServer,
+    server: McpHost,
     extras: List[AutoCloseable]
 ) extends AutoCloseable:
   import AskUserSession.swallow
@@ -35,7 +35,7 @@ private[orca] object AskUserSession:
     * escapes so no Netty binding leaks.
     */
   def allocate(
-      extras: AskUserMcpServer => List[AutoCloseable] = _ => Nil
+      extras: McpHost => List[AutoCloseable] = _ => Nil
   )(using Ox, BufferCapacity): AskUserSession =
     val bridge = new AskUserBridge
     val server = AskUserMcpServer.start(bridge)

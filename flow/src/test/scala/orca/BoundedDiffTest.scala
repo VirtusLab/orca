@@ -165,6 +165,16 @@ class BoundedDiffTest extends munit.FunSuite:
       "new file went unlabelled"
     )
 
+  test("the trailer never renders a change as `+0 -0`"):
+    // "+0 -0" reads as nothing having changed, which is never why a file is in
+    // a change set.
+    val (diff, changed) = bigChangeSet(60)
+    val payload = BoundedDiff.reviewPayload(
+      diff,
+      changed :+ ChangedFile("script.sh", FileChange.Lines(0, 0))
+    )
+    assert(payload.contains("#   script.sh (no lines changed)"), payload)
+
   /** A path of exactly `chars` characters, nested the way a real one is. */
   private def deepPath(chars: Int): String =
     val leaf = "/Deep.scala"
@@ -195,6 +205,14 @@ class BoundedDiffTest extends munit.FunSuite:
       clue(payload.length) <= BoundedDiff.ReviewThreshold,
       "the payload outgrew its budget"
     )
+
+  test("the trailer reports how much diff the reviewer actually got"):
+    // Not the threshold: the head is cut to leave the trailer its room.
+    val (diff, changed) = bigChangeSet(60)
+    val payload = BoundedDiff.reviewPayload(diff, changed)
+    val shownChars = payload.indexOf("\n# The diff above was cut short at ")
+    assert(shownChars > 0, payload)
+    assert(payload.contains(s"cut short at $shownChars characters"), payload)
 
   test("a cut diff whose file list names nothing still reports the cut"):
     // The diff and the file list are two separate git reads, so an edit landing

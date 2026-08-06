@@ -39,6 +39,17 @@ lazy val commonSettings = commonSmlBuildSettings ++ ossPublishSettings ++ Seq(
   versionScheme := Some("semver-spec"),
   libraryDependencies ++= Seq(munit),
   testFrameworks += new TestFramework("munit.Framework"),
+  // Tests shell out to `git`, which reads the developer's global and system
+  // config unless told otherwise: a global ignore rule or `commit.gpgsign`
+  // changes what a fixture repo does, usually with no hint why. Pointing both
+  // config files at an empty one neutralises the whole class at once (git
+  // 2.32+). Fixtures set `user.name`/`user.email` in the repo, so commits
+  // still work. Env vars can only be set on a new process, hence the fork.
+  Test / fork := true,
+  Test / envVars ++= Map(
+    "GIT_CONFIG_GLOBAL" -> "/dev/null",
+    "GIT_CONFIG_SYSTEM" -> "/dev/null"
+  ),
   homepage := Some(url("https://github.com/VirtusLab/orca")),
   organizationHomepage := Some(url("https://virtuslab.com")),
   licenses := Seq(
@@ -140,26 +151,7 @@ lazy val flow = (project in file("flow"))
       jsonSchemaValidator,
       scala3Compiler,
       munitScalacheck
-    ),
-    // The CC negative-compile suite invokes the Scala 3 compiler
-    // (`dotty.tools.dotc.Main`) in-process against this
-    // module's own test classpath (it needs orca.CheckedPar, orca.FlowControl,
-    // the capability tokens, ox and the Scala library). flow's tests are not
-    // forked, so `java.class.path` is only sbt's launcher classpath — unusable.
-    // Materialise the classpath into a resource the suite reads. It must be
-    // `dependencyClasspath`, NOT `fullClasspath`: the latter includes this
-    // module's own Test products, whose task graph depends back on Test
-    // resources — a cycle that deadlocks sbt's task engine (observed, not
-    // hypothetical). dependencyClasspath still carries everything the fixtures
-    // reference (tools/flow Compile classes plus external deps).
-    Test / resourceGenerators += Def.task {
-      val cp = (Test / dependencyClasspath).value
-        .map(_.data.getAbsolutePath)
-        .mkString(java.io.File.pathSeparator)
-      val f = (Test / resourceManaged).value / "cc-test-classpath.txt"
-      IO.write(f, cp)
-      Seq(f)
-    }.taskValue
+    )
   )
 
 lazy val runner = (project in file("runner"))
@@ -177,10 +169,11 @@ lazy val runner = (project in file("runner"))
   .settings(
     // Published as just "orca" so flow-script coordinates stay short.
     name := "orca",
-    // Fork tests: `flow(...)` mutates the global logback root logger (OrcaLog's
-    // per-run appender) and can `System.exit` on a NonFatal failure — a forked
-    // JVM keeps that out of the shared test runner.
-    Test / fork := true,
+    // This module leans on the fork in `commonSettings` for a second reason:
+    // `flow(...)` mutates the global logback root logger (OrcaLog's per-run
+    // appender) and can `System.exit` on a NonFatal failure, neither of which
+    // may reach the shared test runner.
+    //
     // `runFlow`'s reentrancy guard (`FlowLock.acquireProcess`) is a
     // process-wide `AtomicBoolean` — correct for real usage (one `flow(...)`
     // per process), but sbt's default `Test / parallelExecution` would let two
@@ -209,11 +202,10 @@ lazy val shell = (project in file("shell"))
     // declared explicitly since shell uses it directly.
     libraryDependencies ++= Seq(osLib, jsoniter, jsoniterMacros, ox, jline, jlineConsoleUi, fansi, mainargs),
     // ChildTerminal's SIGINT test mutates process-global JVM signal state
-    // (`sun.misc.Signal.handle` on INT). Fork so that state never lives in
-    // the sbt/Bloop daemon's own JVM, and serialize so no concurrently
-    // running suite observes the temporarily-ignored handler — the same
-    // isolation runner uses for its process-global lock and logger state.
-    Test / fork := true,
+    // (`sun.misc.Signal.handle` on INT). The fork in `commonSettings` keeps
+    // that state out of the sbt/Bloop daemon's own JVM; serialize so no
+    // concurrently running suite observes the temporarily-ignored handler —
+    // the same isolation runner uses for its lock and logger state.
     Test / parallelExecution := false,
     Test / javaOptions += buildVersionProperty.value,
     // Bundles the top-level flows/*.sc scripts as jar resources under
