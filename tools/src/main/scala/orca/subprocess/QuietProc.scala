@@ -68,31 +68,38 @@ private[orca] object QuietProc:
         cwd = cwd,
         env = env,
         stdin = os.Pipe,
-        stdout = keepFirst(maxBytes, outKept),
-        stderr = keepFirst(maxBytes, errKept),
+        stdout = os.ProcessOutput(keepFirst(maxBytes, outKept)),
+        stderr = os.ProcessOutput(keepFirst(maxBytes, errKept)),
         check = false
       )
-    val outBytes = outKept.toByteArray
     CappedResult(
       exitCode = result.exitCode,
-      out = utf8(outBytes.take(maxBytes)),
-      truncated = outBytes.length > maxBytes,
-      err = utf8(errKept.toByteArray.take(maxBytes))
+      out = utf8(withoutSentinel(outKept.toByteArray, maxBytes)),
+      truncated = outKept.size() > maxBytes,
+      err = utf8(withoutSentinel(errKept.toByteArray, maxBytes))
     )
 
-  /** A stream sink retaining the first `maxBytes` written to it, plus one byte
-    * — that extra byte is how "the child wrote more than the cap" is told from
-    * "it wrote exactly the cap", and it never reaches the result.
+  /** What a sink retained, less the sentinel byte. Reads the answer off the
+    * sink rather than re-cutting at `maxBytes`, so a sink that stopped bounding
+    * anything returns too much rather than the right prefix by luck — which is
+    * what makes the bound itself observable to a caller.
+    */
+  private def withoutSentinel(kept: Array[Byte], maxBytes: Int): Array[Byte] =
+    if kept.length > maxBytes then kept.dropRight(1) else kept
+
+  /** A stream sink retaining the first `maxBytes` written to it, plus one
+    * sentinel byte — that extra byte is how "the child wrote more than the cap"
+    * is told from "it wrote exactly the cap", and it never reaches the result.
     *
     * os-lib writes this from a pump thread of its own and joins that thread
     * before `call` returns; the join is what publishes `into`'s contents to the
     * caller.
     */
-  private def keepFirst(
+  private[subprocess] def keepFirst(
       maxBytes: Int,
       into: java.io.ByteArrayOutputStream
-  ): os.ProcessOutput =
-    os.ProcessOutput: (buf, n) =>
+  ): (Array[Byte], Int) => Unit =
+    (buf, n) =>
       val room = maxBytes + 1 - into.size()
       if room > 0 then into.write(buf, 0, math.min(n, room))
 

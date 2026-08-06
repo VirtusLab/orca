@@ -24,13 +24,27 @@ class QuietProcTest extends munit.FunSuite:
     val result = QuietProc.call(Seq("bash", "-c", "exit 7"), cwd = os.pwd)
     assertEquals(result.exitCode, 7)
 
+  /** The heap bound itself, which no result can show: every field of
+    * `CappedResult` reads the same whether the sink stopped at the cap or
+    * retained the lot.
+    */
+  test("the sink stops retaining at the cap, however much arrives"):
+    val into = new java.io.ByteArrayOutputStream()
+    val write = QuietProc.keepFirst(8, into)
+    write(Array.fill[Byte](4)('x'.toByte), 4)
+    write(Array.fill[Byte](1000)('x'.toByte), 1000)
+    // Eight, plus the sentinel byte that marks the cap as exceeded.
+    assertEquals(into.size(), 9)
+
   test("callCapped keeps output of exactly the cap whole"):
     val result = QuietProc.callCapped(Seq("printf", "12345678"), maxBytes = 8)
     assertEquals(result.out, "12345678")
     assertEquals(result.truncated, false)
 
-  test("callCapped cuts output one byte past the cap, and reports the cut"):
-    val result = QuietProc.callCapped(Seq("printf", "123456789"), maxBytes = 8)
+  test("callCapped cuts output past the cap, and reports the cut"):
+    // Two bytes over, not one: at one byte over a sink that never bounded
+    // anything would still leave exactly the right prefix behind.
+    val result = QuietProc.callCapped(Seq("printf", "1234567890"), maxBytes = 8)
     assertEquals(result.out, "12345678")
     assertEquals(result.truncated, true)
 
@@ -47,7 +61,7 @@ class QuietProcTest extends munit.FunSuite:
 
   test("callCapped caps stderr as well: it is no more bounded than stdout"):
     val result = QuietProc.callCapped(
-      Seq("bash", "-c", "printf 123456789 1>&2"),
+      Seq("bash", "-c", "printf 1234567890 1>&2"),
       maxBytes = 8
     )
     assertEquals(result.err, "12345678")
