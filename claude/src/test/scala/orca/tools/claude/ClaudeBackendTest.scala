@@ -171,8 +171,8 @@ class ClaudeBackendTest extends munit.FunSuite:
       val args = runner.calls.head
       assertEquals(
         args(args.indexOf("--allowedTools") + 1),
-        (ClaudeBackend.RepoToolNames ++ ClaudeBackend.GitHubToolNames)
-          .mkString(",")
+        (ClaudeBackend.RepoToolNames ++ ClaudeBackend.GitHubToolNames ++
+          ClaudeBackend.DefaultNetworkTools).mkString(",")
       )
 
   test("a read-only interactive turn pre-approves ask_user"):

@@ -314,14 +314,43 @@ committed anyway. A reviewer whose `git diff HEAD` comes back empty concludes
 nothing changed and reports clean; nothing downstream can tell that apart from a
 real all-clear.
 
-Mechanism note, unverified: `reviewDiff(since)` already accepts any commit-ish
-and already splices untracked file contents (`GitTool.scala:573-574`), so the
-missing piece is a per-round snapshot to diff against. A tree object written
-through a throwaway index (`GIT_INDEX_FILE=<tmp> git add -A && git write-tree`)
-gives one without touching HEAD, the real index, or the working tree, and
-`reviewDiff(Some(previousTree))` then reads as "everything that changed since
-your last round". Whether ignore rules make that snapshot agree with
-`untrackedPaths()` was not checked.
+**Mechanism note — checked, and the sketch does not work.** (git 2.53, scratch
+repo, 2026-08-05.)
+
+The sketch was: a tree written through a throwaway index (`GIT_INDEX_FILE=<tmp>
+git add -A && git write-tree`) gives a per-round snapshot without touching HEAD,
+the real index or the working tree, and `reviewDiff(Some(previousTree))` then
+reads as "everything that changed since your last round". The snapshot half is
+fine. The `reviewDiff` half is not:
+
+- `git diff <tree>` decides what is tracked from the **real index**, so an
+  untracked file is invisible to it both ways: one that is in the snapshot
+  comes out as a **deletion**, and one created since the snapshot is not
+  reported at all. Measured: snapshot taken with an untracked `untracked.txt`
+  in it, working tree then untouched, `git diff <tree>` reports `D
+  untracked.txt`; `git add -N` on that path, with no content change, makes the
+  deletion go away.
+- `reviewDiff` also splices the current untracked files in as new-file diffs
+  (`GitTool.scala:618-619,652-656`), so a file already in the snapshot arrives
+  a second time, in full.
+
+A resumed reviewer would therefore be told, every round, that each file still
+untracked from an earlier round was deleted and re-added. Ignore rules — the
+thing this note flagged as unchecked — are not the problem: `git add -A` and
+`untrackedPaths()` (`git status -uall`, no `--ignored`) both skip ignored
+files, so those two do agree.
+
+What does produce the increment is a **tree-to-tree** diff between two
+snapshots. Measured: `git diff <prevTree> <nowTree>` reports exactly the
+modified tracked file and the added untracked one, no phantom deletion, and it
+renders an added file in full, so no splice is needed at all. That is a
+different mechanism from the one above, and a bigger change than "a `GitTool`
+addition": the snapshot has to carry orca's `.orca/` exclusion pathspec, `git
+add -A` into an empty index re-hashes the whole working tree every round
+(seeding the temp index from the real one avoids that), it writes blobs into the
+object store from a path that is otherwise read-only, and `SessionEntry` has to
+carry a tree per reviewer instead of the diff text it compares today. Not
+attempted.
 
 **Ordering.** (b) is a prompt-and-plumbing change of a few lines and can ship on
 its own. (c) needs a `GitTool` addition and touches `ReviewLoopState`, so it
