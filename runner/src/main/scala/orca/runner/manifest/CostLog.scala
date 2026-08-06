@@ -8,44 +8,62 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.{
   CodecMakerConfig,
   ConfiguredJsonValueCodec
 }
-import orca.events.Cost
+import orca.events.{Cost, Usage}
 
+import java.nio.charset.StandardCharsets
 import scala.util.control.NonFatal
 
-/** One line of a `<id>-cost.jsonl` cost log (ADR 0021 §8 amendment,
-  * 2026-08-05). Serialised with a `type` discriminator, so a reader skips a
-  * record kind it doesn't know instead of failing the file — the additive rule
-  * applied to the line vocabulary.
+/** The persisted projection of [[orca.events.Usage]]'s token axes, sharing its
+  * normalisation contract — including that cache reads and cache writes are
+  * disjoint sub-portions of `inputTokens`, carried separately because they bill
+  * at opposite ends of base input.
+  *
+  * The field names are `Usage`'s, verbatim, and so are the JSON keys: every
+  * axis persisted here has to be traceable to the one it mirrors, or the two
+  * drift and a reader silently reports the wrong money.
+  *
+  * Deliberately carries no money, unlike `Usage`: `Usage.cost` is only the
+  * portion backends reported, and an unlabelled figure next to a resolved
+  * [[orca.events.Cost]] is how reported and estimated spend get mixed.
   */
-private[orca] enum CostRecord:
-  /** Written once, before the first turn. Repeats
-    * `orcaVersion`/`flow`/`workDir` from the run's [[RunManifest]] rather than
-    * referring to it: a run that spends tokens without ever committing a
-    * session writes no manifest at all, and a cost log that can't be read
-    * without a sibling is useless in exactly that case.
-    */
-  case Run(
-      at: String,
-      orcaVersion: String,
-      flow: Option[String],
-      workDir: String
+private[orca] case class ManifestUsage(
+    inputTokens: Long,
+    outputTokens: Long,
+    cacheReadInputTokens: Long,
+    cacheWriteInputTokens: Long,
+    reasoningOutputTokens: Long
+)
+
+private[orca] object ManifestUsage:
+  def of(usage: Usage): ManifestUsage = ManifestUsage(
+    inputTokens = usage.inputTokens,
+    outputTokens = usage.outputTokens,
+    cacheReadInputTokens = usage.cacheReadInputTokens,
+    cacheWriteInputTokens = usage.cacheWriteInputTokens,
+    reasoningOutputTokens = usage.reasoningOutputTokens
   )
 
-  /** One LLM turn, carrying everything an aggregate needs, so total, by-role,
-    * by-agent and by-stage are all folds over these lines and no persisted
-    * summary can disagree with them.
+/** One line of a `<id>-cost.jsonl` cost log (ADR 0021 §8 amendment,
+  * 2026-08-05). The `type` discriminator lets a reader skip a record kind it
+  * doesn't know rather than fail the file.
+  */
+private[orca] enum CostRecord:
+  /** Written once, before the first turn. `orcaVersion` and `flow` have nowhere
+    * else to live for a run that spends tokens without ever committing a
+    * session, since such a run writes no [[RunManifest]] at all. `workDir` is
+    * recoverable from the file's own path, and repeated anyway because a cost
+    * log routinely gets copied out of its directory into a research note.
+    */
+  case Run(orcaVersion: String, flow: Option[String], workDir: String)
+
+  /** One LLM turn, carrying every axis an aggregate needs: total, by-role,
+    * by-agent and by-stage are all folds over these lines, so an axis missing
+    * here cannot be recovered.
     *
-    * `usage` covers every axis; `cost` is `None` for a model absent from the
-    * pricing table, so such a turn shows tokens against no dollars. `attempt`
-    * is the turn's 1-based position among the turns of its call, so retried
-    * spend is separable.
-    *
-    * `session` is the key the conversation is recorded under in
-    * [[RunManifest.sessions]], and `harness`/`sessionName` repeat what that
-    * record would have said. The key alone dangles whenever the manifest was
-    * never written or has since been pruned, and it is `None` for a turn that
-    * arrives before its own `SessionCommitted` — which the autonomous text path
-    * always does.
+    * `cost` is `None` for a model absent from the pricing table, so such a turn
+    * shows tokens against no dollars. `attempt` is the turn's 1-based position
+    * among the turns of its call, so retried spend is separable. `session` is
+    * the key the conversation is recorded under in [[RunManifest.sessions]].
     */
   case Turn(
       at: String,
@@ -56,14 +74,13 @@ private[orca] enum CostRecord:
       apiCalls: Option[Long],
       usage: ManifestUsage,
       cost: Option[Cost],
-      session: Option[String],
-      harness: Option[String],
-      sessionName: Option[String]
+      session: Option[String]
   )
 
-  /** Written by `RunManifestWriter.finish`. Its ABSENCE is the crash signal —
-    * the only way a cost log says whether its run ended, since `outcome` lives
-    * in the session manifest, which a turn-only run never writes.
+  /** Written by `RunManifestWriter.finish`. Distinguishes a succeeded run from
+    * a failed one for a turn-only run, whose `outcome` has no other home — a
+    * distinction that changes how the run's spend reads. (Whether a run ended
+    * at all is answerable without this, from the pid in the filename.)
     */
   case Finish(at: String, outcome: String)
 
@@ -75,50 +92,36 @@ private[orca] object CostRecord:
 
 /** Append-only reader/writer for one run's `<id>-cost.jsonl`.
   *
-  * Append-only rather than the session manifest's whole-file rewrite: a turn
-  * fires far more often than a stage or session event, and rewriting meant
-  * re-serialising every turn recorded so far on each of ~40 writes. The cost is
-  * that a swallowed append is that turn gone — the rewrite was self-healing,
-  * this is not. Accepted: this file is measurement, and the session manifest
-  * keeps its atomic rewrite.
+  * Appending, unlike the session manifest's whole-file rewrite, is not
+  * self-healing: a swallowed append is that turn gone for good. Accepted — this
+  * file is measurement, and turns are frequent enough that rewriting would
+  * re-serialise the whole log on every write.
   *
   * Not thread-safe, and doesn't need to be: the only caller is
   * [[RunManifestWriterState]], which an Ox actor serialises onto one thread.
   */
 private[manifest] class CostLog(val path: os.Path):
 
-  /** Appends one line, creating the file and its directory on first use.
-    *
-    * Repairs a missing trailing newline first. The realistic way this file
-    * tears is not a kill — the kernel already has those bytes — but a write
-    * that throws part-way through a line, which [[RunManifestWriterState]]
-    * swallows so the run continues. Without the repair the next append would
-    * run onto that stump and cost two records instead of one.
-    */
   def append(record: CostRecord): Unit =
     os.makeDir.all(path / os.up)
-    val json = writeToString(record)(using CostRecord.codec)
-    os.write.append(path, s"${newlineRepair()}$json\n")
-
-  private def newlineRepair(): String =
-    if os.exists(path) && os.size(path) > 0 && lastByte() != '\n'.toByte then
-      "\n"
-    else ""
-
-  private def lastByte(): Byte =
-    val size = os.size(path)
-    os.read.bytes(path, offset = size - 1, count = 1).head
+    os.write.append(path, s"${writeToString(record)(using CostRecord.codec)}\n")
 
   /** Every record in the log, in write order, skipping any line that doesn't
-    * parse — a torn line costs itself and nothing after it, which is the whole
-    * reason this file is line-oriented. A record kind this build doesn't know
-    * is skipped the same way.
+    * parse — which covers both a line torn by a failed write and a record kind
+    * this build doesn't know.
+    *
+    * Decodes the whole file through `String`'s replacing decoder rather than
+    * `os.read.lines`, whose decoder REPORTS instead: a tear that cuts a
+    * multi-byte UTF-8 sequence — reachable, since stage and agent names are
+    * free-form and jsoniter emits them unescaped — would otherwise throw out of
+    * the line iterator and lose the whole file, including the lines before the
+    * tear.
     */
   def read(): List[CostRecord] =
     if !os.exists(path) then Nil
     else
-      os.read
-        .lines(path)
+      String(os.read.bytes(path), StandardCharsets.UTF_8)
+        .split('\n')
         .iterator
         .filter(_.nonEmpty)
         .flatMap: line =>

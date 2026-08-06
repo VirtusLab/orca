@@ -1,10 +1,8 @@
 package orca.runner.manifest
 
 import orca.OrcaDir
-import orca.WorkspaceWrite
 import orca.agents.Model
 import orca.events.{Cost, OrcaEvent, PriceList, Pricing, Usage}
-import orca.progress.{BranchMode, ProgressHeader, ProgressStore, SessionRecord}
 import orca.testkit.TempDirs
 
 import java.time.Instant
@@ -38,28 +36,6 @@ class CostLogTest extends munit.FunSuite:
 
   private def turns(workDir: os.Path): List[CostRecord.Turn] =
     costRecords(workDir).collect { case t: CostRecord.Turn => t }
-
-  /** A progress-log `SessionRecord` for `clientId`, which is what makes the
-    * writer treat the session as durable and gives it a name to denormalise.
-    */
-  private def writeDurableSession(
-      workDir: os.Path,
-      clientId: String,
-      name: String
-  ): Unit =
-    given WorkspaceWrite = WorkspaceWrite.unsafe
-    val store = ProgressStore.default(workDir, "join-prompt")
-    store.writeHeader(
-      ProgressHeader(
-        startingBranch = "main",
-        branch = "main",
-        promptHash = "abc",
-        branchMode = BranchMode.Created
-      )
-    )
-    store.upsertSession(
-      SessionRecord(name = name, occurrence = 0, id = clientId, seed = "s")
-    )
 
   test("a turn-only run writes a cost log and no session manifest"):
     val workDir = TempDirs.dir()
@@ -98,12 +74,7 @@ class CostLogTest extends munit.FunSuite:
     assertEquals(
       costRecords(workDir).collect { case r: CostRecord.Run => r },
       List(
-        CostRecord.Run(
-          at = "2026-07-18T10:00:00Z",
-          orcaVersion = "0.0.test",
-          flow = Some("review-pr.sc"),
-          workDir = workDir.toString
-        )
+        CostRecord.Run("0.0.test", Some("review-pr.sc"), workDir.toString)
       )
     )
 
@@ -166,53 +137,6 @@ class CostLogTest extends munit.FunSuite:
         ("claude", None, Some("code"), 1, Some("wire-1"), Some(3L)),
         ("reviewer", Some("reviewer"), None, 2, None, None)
       )
-    )
-
-  /** The session key alone dangles once the manifest is pruned, so the turn
-    * repeats what that record said.
-    */
-  test(
-    "a turn joined to a committed session denormalises its harness and name"
-  ):
-    val workDir = TempDirs.dir()
-    val writer = newWriter(workDir)
-    writeDurableSession(workDir, clientId = "client-1", name = "coder")
-    writer.onEvent(
-      OrcaEvent
-        .SessionCommitted("claude", "client-1", Some("wire-1"), "claude", None)
-    )
-    writer.onEvent(
-      OrcaEvent.TokensUsed(
-        "claude",
-        None,
-        Usage(10, 1, None),
-        None,
-        session = Some("wire-1")
-      )
-    )
-    assertEquals(
-      turns(workDir).map(t => (t.harness, t.sessionName)),
-      List((Some("claude"), Some("coder")))
-    )
-
-  /** A turn emitted before its own `SessionCommitted` — what the autonomous
-    * text path always does — has nothing to join to yet.
-    */
-  test("a turn preceding its session commit carries no denormalised identity"):
-    val workDir = TempDirs.dir()
-    val writer = newWriter(workDir)
-    writer.onEvent(
-      OrcaEvent.TokensUsed(
-        "claude",
-        None,
-        Usage(10, 1, None),
-        None,
-        session = Some("wire-1")
-      )
-    )
-    assertEquals(
-      turns(workDir).map(t => (t.harness, t.sessionName)),
-      List((None, None))
     )
 
   /** Every axis is carried per turn, because the aggregates are folds over
@@ -284,19 +208,30 @@ class CostLogTest extends munit.FunSuite:
       Cost(BigDecimal("0.0969"), estimated = true)
     )
 
-  test("read drops a torn line and keeps every whole one around it"):
+  /** A write that throws part-way leaves an unterminated line, which the next
+    * append runs onto — so the tear costs that record and the one after it, and
+    * nothing before.
+    */
+  test("read drops a torn line and keeps the whole ones before it"):
     val workDir = TempDirs.dir()
     val log = CostLog(workDir / "runs" / "1-1-cost.jsonl")
     log.append(CostRecord.Finish("a", "succeeded"))
     os.write.append(log.path, "{\"type\":\"Turn\",\"at\":\"tor")
     log.append(CostRecord.Finish("b", "failed"))
-    assertEquals(
-      log.read(),
-      List(
-        CostRecord.Finish("a", "succeeded"),
-        CostRecord.Finish("b", "failed")
-      )
-    )
+    assertEquals(log.read(), List(CostRecord.Finish("a", "succeeded")))
+
+  /** A tear can cut a multi-byte character in half — stage and agent names are
+    * free-form and jsoniter emits them unescaped. A reporting decoder throws on
+    * that before yielding any line at all, so what this pins is that the lines
+    * BEFORE the tear still come back.
+    */
+  test("read survives a tear through a multi-byte character"):
+    val workDir = TempDirs.dir()
+    val log = CostLog(workDir / "runs" / "1-1-cost.jsonl")
+    log.append(CostRecord.Finish("a", "succeeded"))
+    // The first two bytes of "€" (E2 82 AC), then nothing.
+    os.write.append(log.path, Array(0xe2.toByte, 0x82.toByte))
+    assertEquals(log.read(), List(CostRecord.Finish("a", "succeeded")))
 
   test("read skips a record kind it does not know"):
     val workDir = TempDirs.dir()
@@ -304,3 +239,17 @@ class CostLogTest extends munit.FunSuite:
     log.append(CostRecord.Finish("a", "succeeded"))
     os.write.append(log.path, "{\"type\":\"FromALaterBuild\",\"at\":\"b\"}\n")
     assertEquals(log.read(), List(CostRecord.Finish("a", "succeeded")))
+
+  /** The manifest half of `finish` is an idempotent rewrite; the cost half is
+    * an append, so a second call must not leave a second trailer.
+    */
+  test("a second finish does not append a second trailer"):
+    val workDir = TempDirs.dir()
+    val writer = newWriter(workDir)
+    writer.onEvent(OrcaEvent.TokensUsed("claude", None, Usage(10, 1, None)))
+    writer.finish(RunOutcome.Succeeded)
+    writer.finish(RunOutcome.Failed)
+    assertEquals(
+      costRecords(workDir).count(_.isInstanceOf[CostRecord.Finish]),
+      1
+    )
