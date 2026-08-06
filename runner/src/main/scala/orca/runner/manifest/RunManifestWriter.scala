@@ -178,11 +178,13 @@ private[runner] class RunManifestWriterState(
       // Guarded because `upsertSession` reads `.orca/` to name the session: an
       // unreadable or vanished directory would otherwise throw straight out of
       // the `tell` handler and quarantine the writer for the rest of the run.
+      // Swallowing that leaves no entry, so the write stays gated — a manifest
+      // listing no sessions is a dead row in the shell's menu.
       guarded("session upsert"):
         state = state.copy(entries =
           upsertSession(harness, clientId, wireId, agent, role)
         )
-      safeWrite()
+      if hasCommittedSession then safeWrite()
     case OrcaEvent.TokensUsed(agent, model, usage, role, attempt, session) =>
       if !state.anyTurnRecorded then
         guarded("cost log header"):

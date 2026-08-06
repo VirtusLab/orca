@@ -337,6 +337,39 @@ class RunManifestWriterTest extends munit.FunSuite:
     writer.onEvent(OrcaEvent.TokensUsed("claude", None, Usage(10, 1, None)))
     assertEquals(manifestFiles(workDir).size, 19)
 
+  /** The upsert reads `.orca/` to name the session, and its failure is
+    * swallowed. An execute-only `.orca/` makes that `os.list` fail while writes
+    * into `.orca/cache/runs/` still succeed — the mode is ignored for root, so
+    * the test checks the setup took before relying on it.
+    */
+  test("a failed session upsert leaves no manifest behind"):
+    val workDir = TempDirs.dir()
+    val writer =
+      newWriter(workDir, fixedClock(Instant.parse("2026-07-18T10:00:00Z")))
+    val orcaDir = OrcaDir.rootPath(workDir)
+    os.perms.set(orcaDir, "--x--x--x")
+    try
+      assume(
+        scala.util.Try(os.list(orcaDir)).isFailure,
+        "needs a user that file permissions apply to"
+      )
+      writer.onEvent(
+        OrcaEvent
+          .SessionCommitted(
+            "claude",
+            "client-1",
+            Some("wire-1"),
+            "claude",
+            None
+          )
+      )
+      assertEquals(
+        manifestFiles(workDir),
+        Nil,
+        "a manifest with no sessions must not be created"
+      )
+    finally os.perms.set(orcaDir, "rwx------")
+
   test("atomic write leaves no temp files behind"):
     val workDir = TempDirs.dir()
     val writer =
