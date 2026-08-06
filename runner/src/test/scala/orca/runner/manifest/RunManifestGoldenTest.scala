@@ -1,7 +1,6 @@
 package orca.runner.manifest
 
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
-import orca.events.Cost
 
 /** Decodes manifests as older builds left them on disk (ADR 0021 §8 amendment,
   * 2026-08-05).
@@ -15,8 +14,9 @@ import orca.events.Cost
   *
   * Hand-authored to match what an older build emitted, then pretty-printed for
   * readability — the writer itself emits compact JSON. Both carry
-  * `manifestVersion`, which this build no longer declares, because skipping it
-  * is part of what is under test.
+  * `manifestVersion`, `cost` and `turns`, none of which this build declares:
+  * skipping them is part of what is under test, and they are what an on-disk
+  * manifest from before the cost log actually looks like.
   *
   * Compared by whole-value equality rather than field by field: a structural
   * comparison cannot forget a field, so renaming an `Option` — which would
@@ -64,25 +64,6 @@ class RunManifestGoldenTest extends munit.FunSuite:
             firstSeenAt = "2026-08-04T09:30:11Z",
             lastActiveAt = "2026-08-04T09:30:44Z"
           )
-        ),
-        cost = ManifestCostSummary(
-          total = ManifestUsage(812340, 19022, 640112, 88010, 0),
-          cost = Some(Cost(BigDecimal("4.1875"), estimated = false)),
-          byRole = Nil,
-          byAgent = Nil,
-          byStage = Nil
-        ),
-        turns = List(
-          ManifestTurn(
-            at = "2026-08-04T09:16:03Z",
-            agent = "implementer",
-            role = Some("coding"),
-            stage = Some("implement"),
-            promptTokens = 107422,
-            attempt = 1,
-            session = Some("0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0"),
-            apiCalls = Some(3L)
-          )
         )
       )
     )
@@ -116,14 +97,6 @@ class RunManifestGoldenTest extends munit.FunSuite:
             firstSeenAt = "2026-08-04T11:02:30Z",
             lastActiveAt = "2026-08-04T11:02:41Z"
           )
-        ),
-        cost = ManifestCostSummary(
-          total = ManifestUsage(4100, 320, 0, 0, 0),
-          cost = None,
-          byRole = Nil,
-          byAgent = Nil,
-          byStage = Nil
-        ),
-        turns = Nil
+        )
       )
     )

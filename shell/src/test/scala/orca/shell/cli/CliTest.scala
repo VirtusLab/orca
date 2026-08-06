@@ -2,7 +2,7 @@ package orca.shell.cli
 
 import mainargs.ParserForMethods
 import orca.agents.BackendTag
-import orca.runner.manifest.{ManifestCostSummary, ManifestSession, RunManifest}
+import orca.runner.manifest.{ManifestSession, RunManifest}
 import orca.settings.{AgentSettings, AgentSpec, SettingsFile}
 import orca.shell.create.CreateTier
 import orca.shell.flows.{DiscoveredFlow, FlowOrigin}
@@ -743,9 +743,7 @@ class CliTest extends munit.FunSuite:
       startedAt = startedAt,
       finishedAt = None,
       outcome = "succeeded",
-      sessions = sessions,
-      cost = ManifestCostSummary.empty,
-      turns = Nil
+      sessions = sessions
     )
 
   private def durable(

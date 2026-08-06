@@ -77,18 +77,22 @@ private class ActorRunManifestWriter(actor: ActorRef[RunManifestWriterState])
 /** Mutable manifest-building state — not thread-safe in isolation.
   * [[ActorRunManifestWriter]] serialises every call onto one actor thread:
   * `onEvent` is a `tell` (fire-and-forget, though a full mailbox blocks the
-  * emitter — turns arrive seconds apart and only stage/session events write, so
-  * the queue drains far faster than it fills) and `finish` is an `ask` (its
-  * write must land before `flow()` moves on to the cost summary). Every write
-  * is guarded internally ([[safeWrite]]) so a transient failure can't
-  * quarantine the writer or throw out of a `tell`'s handler. Tests construct
-  * this directly and drive events synchronously.
+  * emitter — every event now writes, but turns arrive seconds apart and an
+  * append is one small write, so the queue still drains far faster than it
+  * fills) and `finish` is an `ask` (its write must land before `flow()` moves
+  * on to the cost summary). Every write is guarded internally ([[safeWrite]])
+  * so a transient failure can't quarantine the writer or throw out of a
+  * `tell`'s handler. Tests construct this directly and drive events
+  * synchronously.
   *
-  * The manifest file only comes into existence on the first `SessionCommitted`
-  * — earlier stage and token events just update the in-memory stage stack and
-  * cost accumulator (so the first session is stamped with the right stage, and
-  * no token spend is lost) — and `finish()` no-ops if none ever committed: a
-  * session-less run offers nothing to continue (ADR 0021 §8).
+  * The two files have separate creation gates: the manifest appears on the
+  * first `SessionCommitted` (a session-less run offers nothing to continue —
+  * ADR 0021 §8), the cost log on the first `TokensUsed`. They cannot share one,
+  * because the autonomous text path emits a turn's tokens BEFORE committing its
+  * session, so gating cost on the session event would mean holding turns in
+  * memory until it opened. Stage events before either gate still update the
+  * stage stack, so the first session and the first turn are both stamped with
+  * the right stage.
   */
 private[runner] class RunManifestWriterState(
     workDir: os.Path,
@@ -100,13 +104,24 @@ private[runner] class RunManifestWriterState(
 
   private val log = LoggerFactory.getLogger("orca.flow")
 
-  /** How many of the newest manifests `pruneOldManifests` keeps. */
-  private val MaxKeptManifests = 20
+  /** How many of the newest RUNS `pruneOldManifests` keeps — a run owns up to
+    * two files.
+    */
+  private val MaxKeptRuns = 20
 
   private val pid: Long = ProcessHandle.current().pid()
   private val startedAt: Instant = clock()
+  private val runId: String = s"${startedAt.toEpochMilli}-$pid"
   private val manifestPath: os.Path =
-    OrcaDir.cacheRunsPath(workDir) / s"${startedAt.toEpochMilli}-$pid.json"
+    OrcaDir.cacheRunsPath(workDir) / s"$runId.json"
+
+  /** The run's cost log. `.jsonl`, not `.json`: the shell's listing selects
+    * `ext == "json"` (`ManifestReader.list`), so a `.json` sibling would reach
+    * it as a manifest that fails to decode — one warning per run, on every menu
+    * redraw.
+    */
+  private val costLog: CostLog =
+    CostLog(OrcaDir.cacheRunsPath(workDir) / s"$runId-cost.jsonl")
 
   /** A tracked session plus the dedup key it was upserted under — `(harness,
     * wireId-or-clientId)`, per the event's dedup contract
@@ -136,7 +151,9 @@ private[runner] class RunManifestWriterState(
   private case class State(
       stageStack: List[String] = Nil,
       entries: List[Entry] = Nil,
-      cost: CostAccumulator = CostAccumulator(),
+      // Gates the cost log's `Run` header and its `Finish` trailer: both are
+      // written only for a run that actually spent tokens.
+      anyTurnRecorded: Boolean = false,
       outcome: Outcome = Outcome.Running,
       finishedAt: Option[Instant] = None,
       prunedOnce: Boolean = false
@@ -158,27 +175,36 @@ private[runner] class RunManifestWriterState(
           state = state.copy(stageStack = rest)
       if hasCommittedSession then safeWrite()
     case OrcaEvent.SessionCommitted(harness, clientId, wireId, agent, role) =>
-      state = state.copy(entries =
-        upsertSession(harness, clientId, wireId, agent, role)
-      )
+      // Guarded because `upsertSession` reads `.orca/` to name the session: an
+      // unreadable or vanished directory would otherwise throw straight out of
+      // the `tell` handler and quarantine the writer for the rest of the run.
+      guarded("session upsert"):
+        state = state.copy(entries =
+          upsertSession(harness, clientId, wireId, agent, role)
+        )
       safeWrite()
-    // Accumulate only: a turn fires far more often than a stage or session
-    // event, and every write rewrites the whole file.
     case OrcaEvent.TokensUsed(agent, model, usage, role, attempt, session) =>
-      val turn = ManifestTurn(
-        at = clock().toString,
-        agent = agent,
-        role = role,
-        stage = state.stageStack.headOption,
-        promptTokens = usage.inputTokens,
-        attempt = attempt,
-        session = session,
-        apiCalls = usage.apiCalls
-      )
-      state = state.copy(cost =
-        state.cost
-          .record(turn, usage, Pricing.resolve(pricing.table, model, usage))
-      )
+      if !state.anyTurnRecorded then
+        guarded("cost log header"):
+          costLog.append(
+            CostRecord.Run(orcaVersion, flowName, workDir.toString)
+          )
+          state = state.copy(anyTurnRecorded = true)
+          pruneOnce()
+      guarded("cost log append"):
+        costLog.append(
+          CostRecord.Turn(
+            at = clock().toString,
+            agent = agent,
+            role = role,
+            stage = state.stageStack.headOption,
+            attempt = attempt,
+            apiCalls = usage.apiCalls,
+            usage = ManifestUsage.of(usage),
+            cost = Pricing.resolve(pricing.table, model, usage),
+            session = session
+          )
+        )
     case _ => ()
 
   /** Whether a `SessionCommitted` has ever landed — the manifest file's
@@ -189,21 +215,32 @@ private[runner] class RunManifestWriterState(
   private def hasCommittedSession: Boolean = state.entries.nonEmpty
 
   def finish(outcome: RunOutcome): Unit =
+    // The manifest half is an idempotent rewrite; the cost half is an append,
+    // so a second `finish` would leave a second trailer behind.
+    val alreadyFinished = state.finishedAt.isDefined
     state = state.copy(outcome = outcomeOf(outcome), finishedAt = Some(clock()))
     if hasCommittedSession then safeWrite()
+    if state.anyTurnRecorded && !alreadyFinished then
+      guarded("cost log finish"):
+        costLog.append(
+          CostRecord.Finish(clock().toString, outcomeOf(outcome).wireValue)
+        )
 
-  /** `write()` guarded so a transient failure (e.g. ENOSPC) is logged and
-    * swallowed rather than escaping: a throw from a `tell`'s handler would
-    * close the actor's channel and quarantine the writer for the rest of the
-    * run, and a throw from `finish` would surface into run teardown. The
-    * manifest is observability, not something a flow should fail over — and one
-    * failed write must not stop the next one from succeeding.
+  /** The whole-file rewrite, guarded. Because it rewrites everything, a
+    * swallowed failure self-heals on the next successful write — which the cost
+    * log's appends do not (see [[CostLog]]).
     */
-  private def safeWrite(): Unit =
-    try write()
-    catch
-      case NonFatal(e) =>
-        log.warn("run manifest write failed (best-effort)", e)
+  private def safeWrite(): Unit = guarded("run manifest write")(write())
+
+  /** Runs an IO step so a transient failure (e.g. ENOSPC) is logged and
+    * swallowed rather than escaping. Both files need this and for the same
+    * reason: a throw from a `tell`'s handler closes the actor's channel and
+    * quarantines the writer for the rest of the run, and a throw from `finish`
+    * would surface into run teardown.
+    */
+  private def guarded(what: String)(op: => Unit): Unit =
+    try op
+    catch case NonFatal(e) => log.warn(s"$what failed (best-effort)", e)
 
   /** Upsert-by-dedup-key (mirrors `ProgressStore`'s upsert idiom): the same
     * session re-firing `SessionCommitted` on a later turn (retries, resumed
@@ -275,11 +312,7 @@ private[runner] class RunManifestWriterState(
 
   /** Atomic rewrite of the whole manifest — the `ProgressStore.writeLog`
     * temp+move idiom: a sibling temp file, then `os.move(atomicMove = true)` so
-    * a crash mid-write never leaves a torn file behind. On the very first
-    * write, also prunes `.orca/cache/runs/` down to its newest
-    * [[MaxKeptManifests]] files (ADR 0021 §8) — every later write only rewrites
-    * this run's own file, so no new file is ever added afterward and re-pruning
-    * would find nothing to do.
+    * a crash mid-write never leaves a torn file behind.
     */
   private def write(): Unit =
     val manifest = RunManifest(
@@ -290,9 +323,7 @@ private[runner] class RunManifestWriterState(
       startedAt = startedAt.toString,
       finishedAt = state.finishedAt.map(_.toString),
       outcome = state.outcome.wireValue,
-      sessions = state.entries.map(_.session),
-      cost = state.cost.summarise,
-      turns = state.cost.turns.toList
+      sessions = state.entries.map(_.session)
     )
     val dir = manifestPath / os.up
     val tmp = os.temp(
@@ -311,27 +342,52 @@ private[runner] class RunManifestWriterState(
       case NonFatal(e) =>
         if os.exists(tmp) then os.remove(tmp): Unit
         throw e
+    pruneOnce()
+
+  /** Prunes on the first write of either file, never again. Not inside
+    * `write()`: a run that spends tokens without ever committing a session
+    * never writes a manifest, so the trigger would never fire for exactly the
+    * runs the cost log added.
+    */
+  private def pruneOnce(): Unit =
     if !state.prunedOnce then
       state = state.copy(prunedOnce = true)
-      pruneOldManifests(dir)
+      pruneOldManifests(OrcaDir.cacheRunsPath(workDir))
 
-  /** Keeps the newest [[MaxKeptManifests]] (by filename, which sorts
-    * chronologically since `<startedAt-epoch-ms>-<pid>.json` epoch prefixes are
-    * fixed-width), deleting the rest. Fully best-effort — the listing itself
-    * and each delete are both guarded — since this runs exactly once per writer
-    * and a failure here (a vanished dir, a concurrent cleanup) must not turn
-    * into a quarantined listener or an aborted manifest write.
+  /** Keeps the newest [[MaxKeptRuns]] runs, deleting both files of each older
+    * one. Grouping by run id rather than counting files is what keeps the
+    * budget in runs, and what stops a cost log outliving the manifest it
+    * belongs to. Run ids sort chronologically as strings (fixed-width epoch
+    * prefix); a run with only one of its two files is still one run.
+    *
+    * Fully best-effort — the listing itself and each delete are both guarded —
+    * since a failure here (a vanished dir, a concurrent cleanup) must not turn
+    * into a quarantined listener or an aborted write.
     */
   private def pruneOldManifests(dir: os.Path): Unit =
     try
-      val newestFirst =
-        os.list(dir).filter(_.ext == "json").sortBy(_.last).reverse
-      newestFirst
-        .drop(MaxKeptManifests)
+      os.list(dir)
+        .groupBy(runIdOf)
+        .toList
+        .collect { case (Some(id), files) => (id, files) }
+        .sortBy((id, _) => id)
+        .reverse
+        .drop(MaxKeptRuns)
+        .flatMap((_, files) => files)
         .foreach: p =>
           try os.remove(p)
           catch case NonFatal(_) => ()
     catch case NonFatal(_) => ()
+
+  /** The run a file in `.orca/cache/runs/` belongs to, or `None` for anything
+    * this writer didn't produce (a leftover temp file, a stray edit).
+    */
+  private def runIdOf(file: os.Path): Option[String] =
+    val name = file.last
+    if name.endsWith("-cost.jsonl") then
+      Some(name.dropRight("-cost.jsonl".length))
+    else if name.endsWith(".json") then Some(name.dropRight(".json".length))
+    else None
 
 /** How a manifest session was opened. `Durable` when the writer joins
   * `clientId` to a `SessionRecord` in the progress log (an `agent.session(...)`

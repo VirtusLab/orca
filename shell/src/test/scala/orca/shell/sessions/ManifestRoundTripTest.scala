@@ -76,7 +76,11 @@ class ManifestRoundTripTest extends munit.FunSuite:
     assertEquals(session.resumable, true)
     assertEquals(session.sessionName, Some("coder"))
     assertEquals(session.stage, Some("code"))
-    val cost = runs.head.manifest.cost
-    assertEquals(cost.total.inputTokens, 1_000L)
-    assertEquals(cost.byRole.map(_.key), List(Some("reviewer")))
-    assertEquals(runs.head.manifest.turns.map(_.promptTokens), List(1_000L))
+    // The same run wrote a `-cost.jsonl` beside the manifest (the TokensUsed
+    // above). The shell selects by `ext == "json"`, so it must not appear as a
+    // manifest that fails to decode — `warnings` being empty is that check.
+    assert(
+      os.list(workDir / ".orca" / "cache" / "runs")
+        .exists(_.last.endsWith("-cost.jsonl")),
+      "expected the run's cost log beside its manifest"
+    )
