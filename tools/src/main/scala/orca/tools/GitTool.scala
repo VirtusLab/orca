@@ -1198,6 +1198,11 @@ private[orca] object OsGitTool:
     * exception. `cmd` is the argv after `git ` (e.g. `commit -m seed` or `add
     * -A`). Sectioned so the original stderr stays at the top and the
     * diagnostics follow on their own lines.
+    *
+    * No `stripMargin`: `stderr` carries whatever git and any hook it ran wrote,
+    * so a line of it can start with `|`, which a margin block would eat. The
+    * two diagnostic blocks only escape that because each of their lines is
+    * indented first.
     */
   private[tools] def gitFailureMessage(
       cmd: String,
@@ -1210,13 +1215,9 @@ private[orca] object OsGitTool:
     val fsckBlock =
       if diag.fsck.trim.isEmpty then "  (no issues reported)"
       else diag.fsck.linesIterator.map("  " + _).mkString("\n")
-    s"""git $cmd failed: ${stderr.trim}
-       |
-       |git status --porcelain:
-       |$statusBlock
-       |
-       |git fsck --no-progress:
-       |$fsckBlock""".stripMargin
+    s"git $cmd failed: ${stderr.trim}\n\n" +
+      s"git status --porcelain:\n$statusBlock\n\n" +
+      s"git fsck --no-progress:\n$fsckBlock"
 
   /** Parse the output of `git worktree list --porcelain`. Entries are separated
     * by blank lines; each entry has `worktree <path>` followed by `HEAD <sha>`

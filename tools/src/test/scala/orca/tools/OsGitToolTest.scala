@@ -444,6 +444,13 @@ class OsGitToolTest extends munit.FunSuite:
     assert(msg.contains("?? untracked.txt"), msg)
     assert(msg.contains("missing tree fa29f13"), msg)
 
+  test("gitFailureMessage keeps a stderr line that starts with `|`"):
+    // A commit hook writes what it likes to git's stderr, markdown included.
+    val diag = OsGitTool.GitDiagnostics(status = "", fsck = "")
+    val msg =
+      OsGitTool.gitFailureMessage("commit -m x", "hook says:\n| no |", diag)
+    assert(msg.contains("\n| no |"), msg)
+
   test("gitFailureMessage shows '(clean)' / '(no issues reported)' when empty"):
     val diag = OsGitTool.GitDiagnostics(status = "", fsck = "")
     val msg = OsGitTool.gitFailureMessage("add -A", "boom", diag)
