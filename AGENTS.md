@@ -304,10 +304,19 @@ Orca is 0.x: no backwards compatibility is owed anywhere.
 - Never carry back-compat machinery — no defaulting-old-shape codec configs,
   no dual parse paths, no fixture tests pinned to a prior wire format. Change
   the shape and update every call site instead.
-- One deliberate exception: `ProgressLog`/`SessionRecord`'s tolerant decoding
-  (documented at its definition) exists so a mid-run resume survives an orca
-  upgrade — an in-flight run's log written by an older orca must still load.
-  That live-data tolerance stays; don't "fix" it under this rule.
+- Two deliberate exceptions, both live local data that has to survive an orca
+  upgrade, where invalidating it costs a user-visible feature rather than a
+  re-run. Don't "fix" either under this rule:
+  - `ProgressLog`/`SessionRecord`'s tolerant decoding (documented at its
+    definition), so a mid-run resume survives the upgrade — an in-flight run's
+    log written by an older orca must still load.
+  - `RunManifest` (documented at its definition; ADR 0021 §8 amendment,
+    2026-08-05), so the shell still offers "continue a session" from a manifest
+    an older orca wrote. Changes to it are additive only, still with no
+    defaults; the fixtures that hold that — `RunManifestGoldenTest`'s frozen
+    files, and `ManifestReaderTest`'s verbatim older manifest body — are
+    sanctioned, not violations of the no-fixtures rule above. `CostRecord` is
+    not covered: nothing reads a cost log, and no fixture pins it.
 - Comments (see Code style above) never narrate this either: no "was
   previously", "renamed from", "kept for compat" — state what the field/type
   means now, not its history.
