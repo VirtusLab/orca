@@ -70,13 +70,28 @@ private[orca] class ClaudeBackend(
     * `tools` to the read-only `--tools` allowlist. Lives on the backend, not
     * `AgentConfig`, since the names are claude-specific.
     *
+    * Rejects anything that is not a bare tool name. These used to be
+    * `--allowedTools` patterns and could be command-scoped (`Bash(gh api:*)`);
+    * `--tools` takes bare names and drops what it does not recognise silently,
+    * exit 0, no warning. Without this check a flow script carrying the old
+    * syntax would keep compiling, keep running, and grant nothing.
+    *
     * Shares `closedFlag` with `this`: the sibling is a genuinely different
     * `AgentBackend` instance, so without threading the SAME flag through, a
     * handle derived here and leaked past flow-end would bypass the
     * use-after-close guard.
     */
   def withNetworkTools(tools: Seq[String]): ClaudeBackend =
-    new ClaudeBackend(cli, tools, projectsDir, workDir, closedFlag)
+    tools.filterNot(ClaudeBackend.BareToolName.matches) match
+      case Nil =>
+        new ClaudeBackend(cli, tools, projectsDir, workDir, closedFlag)
+      case bad =>
+        throw new IllegalArgumentException(
+          s"withNetworkTools takes bare claude tool names; these are not: " +
+            s"${bad.mkString(", ")}. Command-scoped entries like " +
+            "\"Bash(gh api:*)\" belonged to the old --allowedTools mapping and " +
+            "are silently ignored by --tools."
+        )
 
   /** Claude's sessions live on disk (`~/.claude/projects/.../<id>.jsonl`) and
     * outlive the process, so it is durable: the claim survives a restart
@@ -351,6 +366,11 @@ object ClaudeBackend:
     */
   private[claude] val DefaultNetworkTools: Seq[String] =
     Seq("WebFetch", "WebSearch")
+
+  /** What `--tools` accepts: a bare built-in name. Not MCP names — those pass
+    * `--tools` unfiltered, so listing one there does nothing.
+    */
+  private val BareToolName = "[A-Za-z][A-Za-z0-9]*".r
 
   /** Fully-qualified tool name (MCP server name + tool slug). Always
     * auto-approved on the interactive path — the user is already typing an
