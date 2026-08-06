@@ -27,6 +27,21 @@ private[orca] class McpHost private[mcp] (val port: Int, stopFn: () => Unit)
 
 private[orca] object McpHost:
 
+  /** Chars any one tool result returns. Past this the tail is dropped and the
+    * result says so, so a single call costs a bounded number of tokens rather
+    * than the turn's whole context.
+    */
+  private[mcp] val MaxOutputChars: Int = 60000
+
+  /** Apply [[MaxOutputChars]], naming the cut so the agent can narrow its
+    * request instead of assuming it saw everything.
+    */
+  private[mcp] def bounded(output: String): String =
+    if output.length <= MaxOutputChars then output
+    else
+      output.take(MaxOutputChars) +
+        s"\n\n[cut after $MaxOutputChars characters — narrow the request]"
+
   /** Bind `tools` on a fresh port in the enclosing scope.
     *
     * `toolTimeout` becomes Netty's request timeout, raising it from the

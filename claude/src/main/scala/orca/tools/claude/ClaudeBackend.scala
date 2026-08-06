@@ -235,6 +235,10 @@ private[orca] class ClaudeBackend(
         mcpConfig.map(SubprocessSpawn.deleteFileResource) ++
         systemPromptFile.map(SubprocessSpawn.deleteFileResource)
     SubprocessSpawn.open("claude stream-json", askUser.toList ++ perTurn) {
+      // `autoApproveAlso` reaches `--allowedTools` only on `Full`; the
+      // read-only tiers ignore `autoApprove` entirely, so the name also goes
+      // through `mcpTools` below. Both, because `Full` needs the config route
+      // and the read-only tiers need the flag route.
       val effectiveConfig =
         if askUser.isDefined then
           config.autoApproveAlso(ClaudeBackend.AskUserToolName)
@@ -250,7 +254,8 @@ private[orca] class ClaudeBackend(
         outputSchema,
         mcpConfig = mcpConfig,
         networkTools = networkTools,
-        mcpTools = repoReads.toSeq.flatMap(_ => ClaudeBackend.RepoToolNames) ++
+        mcpTools = askUser.toSeq.map(_ => ClaudeBackend.AskUserToolName) ++
+          repoReads.toSeq.flatMap(_ => ClaudeBackend.RepoToolNames) ++
           githubReads.toSeq.flatMap(_ => ClaudeBackend.GitHubToolNames)
       )
       cli.spawnPiped(args, cwd = workDir)

@@ -175,6 +175,28 @@ class ClaudeBackendTest extends munit.FunSuite:
           .mkString(",")
       )
 
+  test("a read-only interactive turn pre-approves ask_user"):
+    // The read-only tiers ignore `autoApprove`, which is the route
+    // `autoApproveAlso` takes, so ask_user has to reach --allowedTools through
+    // `mcpTools` or the turn loses its only channel to the user.
+    val runner = new SpawnStubCliRunner(List(successfulProcess()))
+    withBackend(runner): backend =>
+      val conv = backend.runInteractive(
+        "x",
+        freshSid,
+        "x",
+        AgentConfig(tools = ToolSet.ReadOnly),
+        None
+      )
+      try
+        val args = runner.calls.head
+        assert(
+          args(args.indexOf("--allowedTools") + 1)
+            .contains(ClaudeBackend.AskUserToolName),
+          args
+        )
+      finally conv.cancel()
+
   test("a ReadOnly call gets no GitHub reads"):
     // ReadOnly is the reviewers' tier and must stay network-free; the GitHub
     // tools reach the network host-side.

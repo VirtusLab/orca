@@ -62,9 +62,14 @@ private[orca] object GitHubMcpServer:
         // `GitHubTool` aborts a failed `gh` call by throwing — right for a flow
         // stage, wrong here, where an agent naming an issue that does not exist
         // should get an answer rather than end the turn.
+        //
+        // Bounded because `readIssueComments` pages the whole thread: its size
+        // is set by whoever commented, not by this repository.
         try
           Right(
-            render(github.readIssue(handle), github.readIssueComments(handle))
+            McpHost.bounded(
+              render(github.readIssue(handle), github.readIssueComments(handle))
+            )
           )
         catch case NonFatal(e) => Left(e.getMessage)
 
