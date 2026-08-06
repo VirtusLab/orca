@@ -47,13 +47,14 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
     assert(schema.contains(clause), schema)
 
   test("initialReview names the commit the diff was sampled against"):
-    // Sent alongside the diff, not instead of it: a reviewer with a shell can
-    // read past the diff from there.
+    // Sent alongside the diff, not instead of it: a reviewer can read the repo
+    // at that commit, via the MCP tool or a shell.
     val prompt = rendered(ConfidenceGate.default, base = Some("abc1234"))
     assert(
       prompt.contains("everything that changed since commit abc1234"),
       prompt
     )
+    assert(prompt.contains("`git_file_at` at that commit"), prompt)
     assert(prompt.contains("git show abc1234:<path>"), prompt)
 
   test("reReview carries the fixer's declines as a position, not a ruling"):
