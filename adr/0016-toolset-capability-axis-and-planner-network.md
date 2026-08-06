@@ -39,7 +39,7 @@ select `NetworkOnly`; reviewers, `reviewed`/`briefed`, selection and lint keep
 
 | Backend | `NetworkOnly` | No-edit guarantee | Network |
 | --- | --- | --- | --- |
-| claude | `--tools <read-only tools + networkTools>` + `--allowedTools <mcpTools + networkTools>` | **hard** (`--tools` removes every unlisted built-in, shell and edits included) | web |
+| claude | `--tools <read-only tools + networkTools>` + `--allowedTools <mcpTools + networkTools>`, `github_issue` among the MCP tools | **hard** (`--tools` removes every unlisted built-in, shell and edits included) | web + host-side GitHub reads |
 | pi | `--tools …,bash` | **prompt-only** (bash permits writes) | shell (`gh`/`curl`) |
 | codex | `--full-auto` + `-c sandbox_workspace_write.network_access=true` | **prompt-only** (workspace-write permits writes) | shell + web |
 | gemini | `--approval-mode plan --allowed-tools web_fetch` | **prompt-only** (plan mode unmeasured against a write) | web |
@@ -68,6 +68,11 @@ removal plan mode was assumed to be and was not. `--tools` takes bare tool
 names, so the default's five command-scoped `Bash(gh …)` entries are gone;
 measured planner use of `gh` was zero, and orca reads issues host-side via
 `GitHubTool.readIssue`. The default is now `WebFetch`, `WebSearch`.
+
+A `NetworkOnly` turn instead gets a `github_issue` MCP tool served host-side
+through `GitHubTool`, so the planner can read an issue or PR it was pointed at
+without the agent holding `gh`. One tool, not two: GitHub numbers issues and
+pull requests from one sequence and serves both from the issues endpoint.
 
 `--tools` advertises a tool without granting it: the default permission mode
 still gates `WebFetch` and MCP tools, and stdin is closed, so the call fails.

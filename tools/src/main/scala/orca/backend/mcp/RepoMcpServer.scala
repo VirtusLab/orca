@@ -50,12 +50,6 @@ private[orca] object RepoMcpServer:
     */
   private[orca] val ToolTimeout: FiniteDuration = 2.minutes
 
-  /** Chars of git output any one tool call returns. Past this the tail is
-    * dropped and the result says so, so a `git show` of a huge commit costs a
-    * bounded number of tokens rather than the turn's whole context.
-    */
-  private[mcp] val MaxOutputChars: Int = 60000
-
   /** Every tool slug this server exposes, for callers that must pre-approve
     * them by name.
     */
@@ -90,14 +84,7 @@ private[orca] object RepoMcpServer:
   private type ToolResult = Either[String, String]
 
   private def render(result: Either[GitReadFailed, String]): ToolResult =
-    result.left.map(_.getMessage).map(bounded)
-
-  private def bounded(output: String): String =
-    if output.length <= MaxOutputChars then output
-    else
-      output.take(MaxOutputChars) +
-        s"\n\n[cut after $MaxOutputChars characters — narrow the request with " +
-        "paths, or read the file directly]"
+    result.left.map(_.getMessage).map(McpHost.bounded)
 
   /** System-prompt hint naming the tools. Read-only turns have no shell, so
     * without this the agent has no reason to look for them.

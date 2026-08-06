@@ -168,6 +168,21 @@ class ClaudeIntegrationTest extends munit.FunSuite:
         s"expected the committed contents via MCP, got: ${result.output}"
       )
 
+  test("a NetworkOnly turn can read a GitHub issue through MCP"):
+    // Needs `gh` authenticated as well as claude. #78 is this repo's own PR;
+    // its title is stable.
+    withBackend: backend =>
+      val result = backend.runAutonomous(
+        prompt = "Use github_issue to read VirtusLab/orca number 78. Reply " +
+          "with only its title.",
+        session = fresh,
+        config = AgentConfig(tools = ToolSet.NetworkOnly)
+      )
+      assert(
+        result.output.contains("Keep the read-only tier"),
+        s"expected #78's title via MCP, got: ${result.output}"
+      )
+
   test("a read-only turn can call git_show without the optional arguments"):
     // The tool advertises `paths` and `stat` as optional, so the agent omits
     // them; a decoder that then rejected the call would leave a read-only
