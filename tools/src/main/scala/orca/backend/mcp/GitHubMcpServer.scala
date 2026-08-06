@@ -65,13 +65,13 @@ private[orca] object GitHubMcpServer:
         // pages the whole thread, whose size is set by whoever commented.
         render(github.readIssue(handle), github.readIssueComments(handle))
 
-  private def render(issue: Issue, comments: List[Comment]): String =
+  /** No `stripMargin`: an issue body is arbitrary GitHub markdown, and a table
+    * row starts its line with `|`, which it would eat.
+    */
+  private[mcp] def render(issue: Issue, comments: List[Comment]): String =
     val header =
-      s"""# ${issue.title}
-         |
-         |state: ${issue.state} · author: ${issue.author}
-         |
-         |${issue.body}""".stripMargin
+      s"# ${issue.title}\n\nstate: ${issue.state} · " +
+        s"author: ${issue.author}\n\n${issue.body}"
     val conversation = comments.map: c =>
       s"\n\n---\n\n**${c.author}**\n\n${c.body}"
     (header +: conversation).mkString
