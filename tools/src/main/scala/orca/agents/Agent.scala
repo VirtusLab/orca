@@ -334,8 +334,8 @@ trait ClaudeAgent extends Agent[BackendTag.ClaudeCode.type]:
 
   override protected def defaultCheap: ClaudeAgent = haiku
 
-  /** Set the read-only network allowlist used on [[ToolSet.NetworkOnly]] turns
-    * (claude `--allowedTools` syntax, e.g. `Bash(gh api:*)`, `WebFetch`).
+  /** Set the network tools added to the read-only `--tools` allowlist on
+    * [[ToolSet.NetworkOnly]] turns. Bare claude tool names, e.g. `WebFetch`.
     * Claude-specific, so it's here rather than on `AgentConfig`; defaults to
     * `ClaudeBackend.DefaultNetworkTools`. Pass it before handing the tool to a
     * planning helper: `claude.opus.withNetworkTools(Seq("WebFetch"))`.

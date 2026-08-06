@@ -294,9 +294,8 @@ class RunManifestWriterTest extends munit.FunSuite:
     )
 
   /** Pruning counts runs, not files. A run owns up to two, so a file count
-    * would silently halve the budget and — since `.jsonl` fails the `ext ==
-    * "json"` filter the old prune used — would delete manifests while orphaning
-    * their cost logs forever.
+    * would halve the budget, and could delete a manifest while leaving its cost
+    * log behind forever.
     */
   test("both files of a pruned run are deleted, and the pair counts as one"):
     val workDir = TempDirs.dir()
@@ -324,28 +323,10 @@ class RunManifestWriterTest extends munit.FunSuite:
       "the newest seeded run's two files must both survive"
     )
 
-  test("a run with only one of its two files still prunes as one run"):
-    val workDir = TempDirs.dir()
-    val runsDir = OrcaDir.cacheRunsPath(workDir)
-    // Cost-log-only runs: no manifest ever written, which is what a run that
-    // spends tokens without committing a session leaves behind.
-    for i <- 1 to 25 do os.write(runsDir / f"1000000000$i%03d-1-cost.jsonl", "")
-    val writer =
-      newWriter(workDir, fixedClock(Instant.parse("2026-07-18T10:00:00Z")))
-    writer.onEvent(
-      OrcaEvent
-        .SessionCommitted("claude", "client-1", Some("wire-1"), "claude", None)
-    )
-    assertEquals(
-      os.list(runsDir).count(_.last.endsWith("-cost.jsonl")),
-      19,
-      "26 runs kept to 20 leaves 19 of the orphaned cost logs plus this run"
-    )
-
   /** The trigger sits on the first write of EITHER file. Left on the manifest
     * path, a workdir whose runs keep spending tokens without committing a
-    * session would grow without bound — and those runs are exactly what the
-    * cost log added.
+    * session would grow without bound — and those runs are exactly the ones the
+    * cost log records.
     */
   test("a run that only ever appends cost lines still prunes"):
     val workDir = TempDirs.dir()

@@ -14,9 +14,11 @@ reviewers. Don't chase formatting the project's formatter handles.
 - **Names**: variables, functions, types — do they say what they are? Flag
   ambiguous, misleading, or overly abstract names. Flag boolean parameters whose
   meaning isn't obvious at the call site.
-- **Comments**: explain *why*, not *what*. Flag comments that restate the code,
-  are out of date, or could be replaced by a better name. Flag absent comments
-  where non-obvious reasoning is needed.
+- **Comments**: explain *why*, not *what*, in as few words as the fact needs.
+  Flag comments that restate the code, narrate change history ("used to be X",
+  "no longer does Y"), assert something unverified, or repeat a fact already
+  stated elsewhere in the change. Flag absent comments where non-obvious
+  reasoning is needed.
 - **Control flow**: deep nesting, long methods, dense conditionals. Suggest
   early returns, named helpers, or pattern matching when they'd clarify.
 - **Magic values**: unexplained literals/strings/numbers in the middle of logic.

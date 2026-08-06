@@ -165,12 +165,17 @@ most easily broken:
   sandbox, semantics widened), **PromptOnly** (only the prompt forbids it), or
   **Ignored** (not encoded; depends on backend/server config outside orca):
 
-  | tools, approve  | claude | codex         | gemini  | opencode | pi        |
-  |-----------------|--------|---------------|---------|----------|-----------|
-  | ReadOnly, *     | Hard   | Hard          | Hard    | Hard     | Hard      |
-  | NetworkOnly, *  | Hard   | PromptOnly    | Hard    | Hard     | PromptOnly|
-  | Full, All       | Hard   | Hard          | Hard    | Ignored  | Ignored   |
-  | Full, Only(_)   | Hard   | SandboxApprox | Ignored | Ignored  | Ignored   |
+  | tools, approve  | claude | codex         | gemini     | opencode | pi        |
+  |-----------------|--------|---------------|------------|----------|-----------|
+  | ReadOnly, *     | Hard   | Hard          | PromptOnly | Hard     | Hard      |
+  | NetworkOnly, *  | Hard   | PromptOnly    | PromptOnly | Hard     | PromptOnly|
+  | Full, All       | Hard   | Hard          | Hard       | Ignored  | Ignored   |
+  | Full, Only(_)   | Hard   | SandboxApprox | Ignored    | Ignored  | Ignored   |
+
+  gemini's read-only cells are `PromptOnly` because its `--approval-mode plan`
+  is **unmeasured**, not because it is known weak: no headless `plan` turn has
+  been run against a write attempt, and gemini downgrades `plan` to `default`
+  in untrusted folders, which is where orca runs agents.
 
   The matrix is machine-checked in
   `runner/src/test/scala/orca/runner/EnforcementTableTest.scala` (the source of

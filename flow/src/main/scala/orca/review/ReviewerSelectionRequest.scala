@@ -31,12 +31,7 @@ private[review] object ReviewerSelectionRequest:
       val reviewers = r.availableReviewers
         .map(ri => s"  - ${ri.name}: ${ri.description}")
         .mkString("\n")
-      s"""Task: ${r.taskTitle}
-         |
-         |Changed files:
-         |$files
-         |
-         |Available reviewers:
-         |$reviewers
-         |
-         |${r.instructions}""".stripMargin
+      // No `stripMargin`: `instructions` is flow-author text handed in whole,
+      // so a `|`-leading line in it would arrive with the `|` eaten.
+      s"Task: ${r.taskTitle}\n\nChanged files:\n$files\n\n" +
+        s"Available reviewers:\n$reviewers\n\n${r.instructions}"

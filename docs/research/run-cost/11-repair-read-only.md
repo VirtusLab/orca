@@ -55,12 +55,25 @@ primitives. A denylist only removes the names you thought of.
 Reproduced here on 2.1.222: `--tools Read,Grep,Glob,Skill,WebFetch,WebSearch`
 gives an `init` list of exactly those six, plus two `mcp__…` tools (task R5).
 
+**Corrected during R1 (PR #89): the last two bullets are wrong.**
+
+`--tools` does **not** survive `--resume`. Measured on 2.1.222: a session
+created under `--tools Read,Grep,Glob,Skill`, resumed without re-passing the
+flag, comes back with the full default set of 28 tools — `Bash`, `Edit` and
+`Write` included. The flag is per-invocation, not session state. Orca is safe
+because `ClaudeArgs.streamJson` rebuilds every turn's flags from that turn's own
+config, which `ClaudeArgsTest` now pins; a resume path that reused stored args
+would silently unlock every reviewer.
+
+"Subagents inherit it" describes a path that cannot be taken: `Task` is not in
+the allowlist, so a read-only turn cannot spawn a subagent at all.
+
 ## 3. Development plan
 
 ### **[TODO]** R1 — Replace the mechanism
 `ClaudeArgs.scala:123`: `--permission-mode plan` → a `--tools` allowlist.
 Proposed `ReadOnly`: `Read,Grep,Glob,Skill`. Proposed `NetworkOnly`: the same
-plus `WebFetch,WebSearch`.
+plus `WebFetch,WebSearch`, and the two MCP tools settled below.
 
 Verify every name against the installed claude rather than trusting this list.
 Two things already found on 2.1.222: `TodoWrite` no longer exists (it is
@@ -68,18 +81,34 @@ Two things already found on 2.1.222: `TodoWrite` no longer exists (it is
 in the default `init` list — so "appears in the default list" is not the test
 for whether a name is valid.
 
-`NetworkOnly` does not survive a straight swap. Its point is that a planner can
-read an issue or PR (`Plan.scala:162-166`), and today it gets that from
-`--allowedTools` entries that are command-scoped `Bash(gh …)`
+`NetworkOnly` does not survive a straight swap either. Its point is that a
+planner can read an issue or PR (`Plan.scala:162-166`), and today it gets that
+from `--allowedTools` entries that are command-scoped `Bash(gh …)`
 (`ClaudeBackend.scala:302-310`). `--tools` takes bare built-in names, so
-`Bash(gh issue view:*)` cannot appear in it. Either the planner loses `gh`, or
-`Bash` goes in the allowlist and `--allowedTools` keeps the command scoping —
-in which case `NetworkOnly` on claude is no longer a no-edit tier and should
-drop to `PromptOnly`, which is exactly what codex and pi already are, and for
-the same reason (`CodexArgs.scala:157-158`, `PiArgs.scala:18-22`). Decide this
-in R1; do not leave it to R3.
-*Done when:* `ClaudeArgsTest` pins the emitted flags for both tiers, and the
-`NetworkOnly` decision above is written down with its consequence for R3.
+`Bash(gh issue view:*)` cannot appear in it.
+
+**The shape is settled** — `12-reviewer-tool-surface.md` (#84) probed it:
+
+- Keeping `Bash` and scoping it with `--allowedTools` does not work. The
+  patterns grant; they do not confine. With `Bash(git log:*)` as the only rule,
+  `ls -la`, `wc -l` and `git status --short` all ran, none matching a rule and
+  none denied (`12-…` §4). The production `NetworkOnly` flag set behaves the
+  same way: `uname -r` and `git log` ran under it, unlisted and undenied
+  (`12-…` §5). That route would end the no-edit tier and buy no real scope.
+- The planner does not use `gh` anyway: **zero** invocations in 59 `Bash` calls
+  across 6 planner sessions, every one of them `grep`, `ls`, `find` or `sed`
+  (`12-…` §5). Orca already fetches issues host-side
+  (`GitHubTool.readIssue`/`readIssueComments`), so the issue body reaches the
+  planner through the prompt.
+- So `NetworkOnly` becomes `--tools Read,Grep,Glob,Skill,WebFetch,WebSearch`
+  plus two MCP tools — `github_issue` and `github_pr` (`12-…` §6). MCP tools
+  pass `--tools` unfiltered and were verified callable in a session with no
+  `Bash` (`12-…` §4). `github_issue` wraps `GitHubTool.readIssue`;
+  `github_pr` needs a host-side read `GitHubTool` does not have yet (it reads
+  PR comments, not the PR body). The tier stays genuinely no-edit; it does not
+  drop to `PromptOnly`.
+
+*Done when:* `ClaudeArgsTest` pins the emitted flags for both tiers.
 
 ### **[TODO]** R2 — Assess what loses `Bash`, and say so plainly
 This is the real cost of the repair and must not be glossed. Six production
@@ -90,7 +119,7 @@ call sites; for each, what breaks without a shell:
 | `Reviewers.scala:147` | every shipped reviewer | the bet, below |
 | `ReviewerSelector.scala:149` | reviewer picker | fine — it is handed the task title, the changed file names and the reviewer descriptions; its own brief already hedges on the shell (`ReviewerSelector.scala:83-88`) |
 | `Lint.scala:144` | lint summariser | fine — it reads captured lint output and emits JSON; large output already spills to a file in `.orca/cache/` that it opens with `Read` (`Lint.scala:108-122`) |
-| `Plan.scala:223` | plan self-review | resumes the planning session, created `NetworkOnly` (`Plan.scala:179`); loses whatever `gh` access R1 leaves it |
+| `Plan.scala:223` | plan self-review | resumes the planning session, created `NetworkOnly` (`Plan.scala:179`), but the turn itself runs `withReadOnly` — so under R1 it gets the reviewer surface: no `gh`, and not the planner's GitHub tools either |
 | `StackDiscovery.scala:91` | stack discovery | **unaffected** — ADR 0019:215-216 already asserts "the discovery agent's read-only toolset has no shell", and orca runs the `command -v` and evidence-file checks itself |
 | `Agent.scala:163` | `cheapOneShot` | fine — one line of text, for branch names and commit messages |
 
@@ -116,11 +145,17 @@ gemini and must not be asserted.
 backend too: `ClaudeArgs.scala:153` and `GeminiArgs.scala:104` each return
 `Hard` for `ReadOnly | NetworkOnly` in one arm, and have to be split.
 
+That `Hard` is false for `NetworkOnly` on claude today, not merely unmeasured:
+three of the six planner sessions in the corpus called `Write` and created
+files, each returning "File created successfully" (`12-…` §5). It becomes true
+with R1's allowlist.
+
 What should read what:
 
 - `AGENTS.md:160-178` — `ReadOnly` row: claude `Hard` (allowlist), codex `Hard`,
   opencode `Hard`, pi `Hard`, gemini `PromptOnly` with one sentence saying it is
-  unmeasured, not weak. `NetworkOnly` row: whatever R1 decided for claude.
+  unmeasured, not weak. `NetworkOnly` row: claude `Hard` once R1 lands, since
+  the tier keeps its network access through MCP rather than `Bash`.
 - `ClaudeArgs.scala:102-117` and `:142-149` — the scaladoc says plan mode "makes
   Edit/Write/Bash unavailable (not just non-auto-approved) — a hard no-edit
   guarantee". False. It becomes true of the allowlist.
@@ -228,6 +263,9 @@ Recorded so they are not repeated, not because removal is still live.
 
 ## Related work
 
+- `12-reviewer-tool-surface.md` (PR #84) — what reviewers and planners actually
+  did with `Bash`, and the tool surface to give back. It settles R1's
+  `NetworkOnly` question and measures the `NetworkOnly` `Hard` cell as false.
 - `10-filesystem-sandbox.md` (PR #80) — whether an orca-owned OS sandbox could
   replace the per-backend mechanisms. Answer: no. It breaks codex, which nests
   its own bubblewrap per shell command, and codex is the backend whose
