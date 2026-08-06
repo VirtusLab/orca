@@ -160,6 +160,8 @@ class ClaudeIntegrationTest extends munit.FunSuite:
     )
 
   test("the NetworkOnly allowlist reaches claude with every name intact"):
+    // Pins the names only. The init frame lists what is advertised, which says
+    // nothing about whether the tool may run — the next test covers that.
     assertEquals(
       grantedTools(
         AgentConfig(tools = ToolSet.NetworkOnly),
@@ -167,6 +169,41 @@ class ClaudeIntegrationTest extends munit.FunSuite:
       ),
       (ClaudeArgs.ReadOnlyTools ++ ClaudeBackend.DefaultNetworkTools).toSet
     )
+
+  test("a NetworkOnly turn can run a fetch, not merely advertise one"):
+    // Advertisement is not approval: `--tools` alone leaves WebFetch gated, and
+    // with stdin closed nobody can approve, so the planner gets a failed
+    // tool_result and plans from the prompt alone. Needs live network.
+    withBackend: backend =>
+      val conversation = backend.runInteractive(
+        prompt =
+          "Use the WebFetch tool on https://example.com and reply with " +
+            "the page title. Use no other tool.",
+        session = fresh,
+        displayPrompt = "fetch example.com",
+        config = AgentConfig(tools = ToolSet.NetworkOnly),
+        outputSchema = None
+      )
+      try
+        val events = conversation.events.toList
+        val _ = conversation.awaitResult()
+        assert(
+          events.exists:
+            case ConversationEvent.AssistantToolCall("WebFetch", _) => true
+            case _                                                  => false
+          ,
+          s"claude never called WebFetch: $events"
+        )
+        // claude's tool_result blocks carry no tool name, so this covers every
+        // result; the prompt asks for WebFetch and nothing else.
+        assert(
+          !events.exists:
+            case ConversationEvent.ToolResult(_, ok, _) => !ok
+            case _                                      => false
+          ,
+          s"a tool call was denied on a NetworkOnly turn: $events"
+        )
+      finally conversation.cancel()
 
   /** Run the shipped args for `config` and return the built-in tools claude
     * announces in its `system.init` frame. `mcp__*` names are excluded: they

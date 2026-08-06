@@ -119,6 +119,13 @@ private[claude] object ClaudeArgs:
     * appends `networkTools` to it. Not `--permission-mode plan`: that removed
     * no tools at all (`docs/research/run-cost/09-diff-vs-coordinates.md` §2).
     *
+    * `NetworkOnly` also pre-approves `networkTools` via `--allowedTools`.
+    * `--tools` only advertises: under the default permission mode `WebFetch` is
+    * still gated, and with stdin closed nobody can approve it, so the call
+    * comes back as a failed `tool_result`. The two flags compose —
+    * `--allowedTools` grants, `--tools` still bounds the surface (pinned by
+    * `ClaudeIntegrationTest`).
+    *
     * `--tools` is not a complete boundary: MCP tools pass through it
     * unfiltered. Measured on claude 2.1.222 — an `init` frame under `--tools
     * Read,Grep,Glob,Skill` still carried the `mcp__…` tools of an installed
@@ -147,7 +154,11 @@ private[claude] object ClaudeArgs:
       case ToolSet.ReadOnly =>
         Seq("--tools", ReadOnlyTools.mkString(","))
       case ToolSet.NetworkOnly =>
-        Seq("--tools", (ReadOnlyTools ++ networkTools).mkString(","))
+        val preApproved =
+          if networkTools.isEmpty then Seq.empty
+          else Seq("--allowedTools", networkTools.mkString(","))
+        preApproved ++
+          Seq("--tools", (ReadOnlyTools ++ networkTools).mkString(","))
       case ToolSet.Full =>
         config.autoApprove match
           case AutoApprove.All =>
