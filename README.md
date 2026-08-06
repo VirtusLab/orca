@@ -230,9 +230,8 @@ which tools exist at all:
 val reviewer = claude.withReadOnly
 
 // NetworkOnly — reads plus read-only network (web, and on claude a host-served
-// GitHub issue/PR read), for planners that must read an issue/PR. The no-edit
-// guarantee is hard on claude and opencode, prompt-only on pi/codex/gemini
-// (ADR 0016).
+// GitHub issue/PR read), for planners that must read an issue/PR. How strongly
+// each backend blocks edits varies — see the enforcement matrix in AGENTS.md.
 val planner = claude.withNetworkOnly
 
 // Full (the default) — write-capable.
