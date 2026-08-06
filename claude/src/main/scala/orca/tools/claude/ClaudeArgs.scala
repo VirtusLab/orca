@@ -119,12 +119,10 @@ private[claude] object ClaudeArgs:
     * appends `networkTools` to it. Not `--permission-mode plan`: that removed
     * no tools at all (`docs/research/run-cost/09-diff-vs-coordinates.md` §2).
     *
-    * `NetworkOnly` also pre-approves `networkTools` via `--allowedTools`.
-    * `--tools` only advertises: under the default permission mode `WebFetch` is
-    * still gated, and with stdin closed nobody can approve it, so the call
-    * comes back as a failed `tool_result`. The two flags compose —
-    * `--allowedTools` grants, `--tools` still bounds the surface (pinned by
-    * `ClaudeIntegrationTest`).
+    * `NetworkOnly` also [[approve]]s `networkTools`, without which they are
+    * advertised but not runnable. The two flags compose: `--allowedTools`
+    * grants, `--tools` still bounds the surface. Verified on claude 2.1.223 in
+    * the order emitted here, and pinned by `ClaudeIntegrationTest`.
     *
     * `--tools` is not a complete boundary: MCP tools pass through it
     * unfiltered. Measured on claude 2.1.222 — an `init` frame under `--tools
@@ -154,11 +152,8 @@ private[claude] object ClaudeArgs:
       case ToolSet.ReadOnly =>
         Seq("--tools", ReadOnlyTools.mkString(","))
       case ToolSet.NetworkOnly =>
-        val preApproved =
-          if networkTools.isEmpty then Seq.empty
-          else Seq("--allowedTools", networkTools.mkString(","))
-        preApproved ++
-          Seq("--tools", (ReadOnlyTools ++ networkTools).mkString(","))
+        Seq("--tools", (ReadOnlyTools ++ networkTools).mkString(",")) ++
+          approve(networkTools)
       case ToolSet.Full =>
         config.autoApprove match
           case AutoApprove.All =>
@@ -167,6 +162,19 @@ private[claude] object ClaudeArgs:
           case AutoApprove.Only(tools) if tools.isEmpty => Seq.empty
           case AutoApprove.Only(tools) =>
             Seq("--allowedTools", tools.toSeq.sorted.mkString(","))
+
+  /** Grants `tools` on a read-only turn. `--tools` only advertises: the turn
+    * stays in the default permission mode, where `WebFetch` and MCP tools are
+    * gated, and stdin is closed under `--print`, so an ungranted call comes
+    * back as a failed `tool_result`.
+    *
+    * One flag carrying one list. Whether claude honours a repeated
+    * `--allowedTools` is unverified, so a caller with more to grant widens this
+    * argument rather than calling twice.
+    */
+  private def approve(tools: Seq[String]): Seq[String] =
+    if tools.isEmpty then Seq.empty
+    else Seq("--allowedTools", tools.mkString(","))
 
   /** How strongly claude enforces each `(tools, autoApprove)` combination — see
     * [[permissionArgs]] for the flags this classifies. Every combination is
