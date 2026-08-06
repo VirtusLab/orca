@@ -2,7 +2,12 @@ package orca.backend.mcp
 
 import chimp.tool
 import io.circe.Codec
+import ox.supervised
 import sttp.tapir.Schema
+
+import java.net.URI
+import java.net.http.{HttpClient, HttpRequest, HttpResponse}
+import scala.concurrent.duration.DurationInt
 
 private case class Probe(text: String) derives Codec, Schema
 
@@ -38,3 +43,36 @@ class McpHostTest extends munit.FunSuite:
       resultOf(_ => throw new RuntimeException("gh exploded")),
       Left("gh exploded")
     )
+
+  test("a bound tool answers a throwing call over the wire, not with a 500"):
+    // The one thing the tests above cannot see: that `start` actually puts the
+    // guard in front of what it binds. Without it a throwing handler reaches
+    // Netty, and the agent gets a transport failure it cannot read.
+    supervised:
+      val throwing =
+        tool("probe")
+          .input[Probe]
+          .handle(_ => throw new RuntimeException("gh exploded"))
+      val host = McpHost.start(List(throwing), 10.seconds)
+      val response = call(
+        host.url,
+        """{"jsonrpc":"2.0","id":1,"method":"tools/call",""" +
+          """"params":{"name":"probe","arguments":{"text":""}}}"""
+      )
+      assertEquals(response.statusCode(), 200, response.body())
+      assert(response.body().contains("gh exploded"), response.body())
+
+  /** POST one JSON-RPC message to a running host. The client is closed rather
+    * than left to a finalizer: its idle keep-alive connection otherwise holds
+    * the binding open, and `stop()` waits ten seconds for it.
+    */
+  private def call(url: String, rpc: String): HttpResponse[String] =
+    val request = HttpRequest
+      .newBuilder()
+      .uri(URI.create(url))
+      .header("Content-Type", "application/json")
+      .POST(HttpRequest.BodyPublishers.ofString(rpc))
+      .build()
+    val client = HttpClient.newHttpClient()
+    try client.send(request, HttpResponse.BodyHandlers.ofString())
+    finally client.close()
