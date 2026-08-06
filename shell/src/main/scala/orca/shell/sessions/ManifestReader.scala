@@ -1,10 +1,6 @@
 package orca.shell.sessions
 
-import com.github.plokhotnyuk.jsoniter_scala.core.{
-  JsonValueCodec,
-  readFromString
-}
-import com.github.plokhotnyuk.jsoniter_scala.macros.JsonCodecMaker
+import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import orca.OrcaDir
 import orca.runner.manifest.RunManifest
 
@@ -23,19 +19,17 @@ private[shell] case class RecordedRun(manifest: RunManifest, crashed: Boolean)
   */
 private[shell] object ManifestReader:
 
-  /** Newest-first by `startedAt`. Skips a file whose `manifestVersion` isn't
-    * the one this build writes, or whose `startedAt` doesn't parse as an
-    * `Instant` (a hand-edited or corrupt file — the writer always produces a
-    * well-formed one), collecting a notice naming the file into the returned
-    * warnings rather than guessing at an unknown schema or ordering it by a
-    * silent fallback timestamp. A manifest with `outcome: "running"` whose
-    * `pid` is no longer alive is a crashed run — its sessions are still
-    * offered, per ADR 0021 §8. Reads `.orca/cache/runs/` passively
-    * ([[OrcaDir.runsPath]], not [[OrcaDir.cacheRunsPath]]) — an absent or empty
-    * directory yields `(Nil, Nil)` without creating anything on disk. A file
-    * that fails to parse as JSON, or doesn't match the `RunManifest` schema, is
-    * skipped with a warning naming the file rather than aborting the whole
-    * listing.
+  /** Newest-first by `startedAt`. Skips a file that doesn't decode, or whose
+    * `startedAt` doesn't parse as an `Instant` (a hand-edited or corrupt file —
+    * the writer always produces a well-formed one), collecting a notice naming
+    * the file into the returned warnings rather than ordering it by a silent
+    * fallback timestamp. A manifest with `outcome: "running"` whose `pid` is no
+    * longer alive is a crashed run — its sessions are still offered, per ADR
+    * 0021 §8. Reads `.orca/cache/runs/` passively ([[OrcaDir.runsPath]], not
+    * [[OrcaDir.cacheRunsPath]]) — an absent or empty directory yields `(Nil,
+    * Nil)` without creating anything on disk. A file that fails to parse as
+    * JSON, or doesn't match the `RunManifest` schema, is skipped with a warning
+    * naming the file rather than aborting the whole listing.
     */
   def list(
       workDir: os.Path,
@@ -72,29 +66,25 @@ private[shell] object ManifestReader:
         warnings.reverse
       )
 
-  /** The version is read on its own, before the full decode, so a manifest
-    * written by another build is skipped by version rather than surfacing
-    * whichever field its schema happens to disagree about first.
+  /** A manifest from any build decodes here: unknown fields are skipped, so
+    * only a file missing something this build requires — or unreadable — is
+    * refused (ADR 0021 §8 amendment, 2026-08-05).
+    *
+    * Only the first line of a decode failure is reported. jsoniter appends a
+    * multi-line hex dump of the buffer to its message, and `Main`'s loop
+    * reprints every warning on each menu redraw, for up to 20 kept manifests —
+    * so the untrimmed message paints the menu over. Same trimming, and same
+    * reason, as `ProgressStore.parseLog`.
     */
   private def readManifest(file: os.Path): Either[String, RunManifest] =
     try
-      val text = os.read(file)
-      val version = readFromString[SchemaVersion](text).manifestVersion
-      if version != RunManifest.SupportedVersion then
-        Left(
-          s"skipping $file: manifestVersion $version, this build reads ${RunManifest.SupportedVersion}"
-        )
-      else Right(readFromString[RunManifest](text)(using RunManifest.codec))
-    catch case NonFatal(e) => Left(s"skipping $file: ${e.getMessage}")
+      Right(readFromString[RunManifest](os.read(file))(using RunManifest.codec))
+    catch case NonFatal(e) => Left(s"skipping $file: ${firstLine(e)}")
 
-  /** Just enough of a manifest to gate on: declaring one field is what lets
-    * this decode a manifest of any schema version, since everything else is
-    * then an unknown field, which jsoniter skips.
-    */
-  private case class SchemaVersion(manifestVersion: Int)
-
-  private given schemaVersionCodec: JsonValueCodec[SchemaVersion] =
-    JsonCodecMaker.make
+  private def firstLine(e: Throwable): String =
+    Option(e.getMessage)
+      .flatMap(_.linesIterator.nextOption())
+      .getOrElse(e.getClass.getSimpleName)
 
   /** The production value of [[list]]'s `pidAlive` parameter (ADR 0021 §8):
     * `ProcessHandle.of` finds nothing for a pid that's been reaped — treated as

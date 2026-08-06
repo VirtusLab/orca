@@ -1,0 +1,56 @@
+{
+  "manifestVersion": 5,
+  "orcaVersion": "0.1.0",
+  "flow": "implement.sc",
+  "workDir": "/home/user/project",
+  "pid": 4242,
+  "startedAt": "2026-08-04T09:15:00Z",
+  "finishedAt": "2026-08-04T09:48:12Z",
+  "outcome": "succeeded",
+  "sessions": [
+    {
+      "harness": "claude-code",
+      "wireId": "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0",
+      "agent": "implementer",
+      "role": "coding",
+      "stage": "implement",
+      "sessionName": "coder",
+      "kind": "durable",
+      "firstSeenAt": "2026-08-04T09:16:03Z",
+      "lastActiveAt": "2026-08-04T09:47:55Z"
+    },
+    {
+      "harness": "codex",
+      "reason": "codex sessions do not survive the run",
+      "agent": "reviewer-scala-fp",
+      "kind": "oneShot",
+      "firstSeenAt": "2026-08-04T09:30:11Z",
+      "lastActiveAt": "2026-08-04T09:30:44Z"
+    }
+  ],
+  "cost": {
+    "total": {
+      "inputTokens": 812340,
+      "outputTokens": 19022,
+      "cacheReadInputTokens": 640112,
+      "cacheWriteInputTokens": 88010,
+      "reasoningOutputTokens": 0
+    },
+    "cost": { "amount": 4.1875, "estimated": false },
+    "byRole": [],
+    "byAgent": [],
+    "byStage": []
+  },
+  "turns": [
+    {
+      "at": "2026-08-04T09:16:03Z",
+      "agent": "implementer",
+      "role": "coding",
+      "stage": "implement",
+      "promptTokens": 107422,
+      "attempt": 1,
+      "session": "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0",
+      "apiCalls": 3
+    }
+  ]
+}

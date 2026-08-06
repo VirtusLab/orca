@@ -736,7 +736,6 @@ class CliTest extends munit.FunSuite:
       sessions: List[ManifestSession]
   ): RunManifest =
     RunManifest(
-      manifestVersion = RunManifest.SupportedVersion,
       orcaVersion = "0.0.test",
       flow = Some("a-flow.sc"),
       workDir = workDir,
@@ -939,28 +938,29 @@ class CliTest extends munit.FunSuite:
 
   // --- stdout/stderr separation (CLI review finding 1) ---
 
-  private def writeFutureManifest(dir: os.Path): Unit =
+  /** A manifest missing the required `workDir` — the reader refuses it and
+    * warns, which is what this test needs a warning for.
+    */
+  private def writeUnreadableManifest(dir: os.Path): Unit =
     val json =
-      s"""{
-        |  "manifestVersion": ${RunManifest.SupportedVersion + 1},
+      """{
         |  "orcaVersion": "0.0.test",
-        |  "workDir": "/work",
         |  "pid": 1,
         |  "startedAt": "2026-07-18T09:00:00Z",
         |  "outcome": "succeeded",
         |  "sessions": []
         |}""".stripMargin
     os.write(
-      dir / ".orca" / "cache" / "runs" / "future.json",
+      dir / ".orca" / "cache" / "runs" / "unreadable.json",
       json,
       createFolders = true
     )
 
   test(
-    "runContinue --list --json: a manifestVersion warning lands on stderr, only JSON on stdout"
+    "runContinue --list --json: a skipped-manifest warning lands on stderr, only JSON on stdout"
   ):
     val dir = TempDirs.dir()
-    writeFutureManifest(dir)
+    writeUnreadableManifest(dir)
     val (out, err) = capturedBoth(
       assertEquals(
         ContinueCli
@@ -969,17 +969,11 @@ class CliTest extends munit.FunSuite:
       )
     )
     assertEquals(out.trim, "[]")
-    assert(
-      err.contains(
-        s"manifestVersion ${RunManifest.SupportedVersion + 1}, this build reads"
-      ),
-      err
-    )
+    assert(err.contains("unreadable.json"), err)
 
   private def writeCrashedManifest(dir: os.Path): Unit =
     val json =
       s"""{
-        |  "manifestVersion": ${RunManifest.SupportedVersion},
         |  "orcaVersion": "0.0.test",
         |  "workDir": "/work",
         |  "pid": 999999,
@@ -1045,7 +1039,6 @@ class CliTest extends munit.FunSuite:
     val goneWorkDir = (dir / "gone").toString
     val json =
       s"""{
-        |  "manifestVersion": ${RunManifest.SupportedVersion},
         |  "orcaVersion": "0.0.test",
         |  "workDir": "$goneWorkDir",
         |  "pid": 1,

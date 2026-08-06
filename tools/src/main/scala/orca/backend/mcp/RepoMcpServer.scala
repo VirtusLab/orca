@@ -81,9 +81,9 @@ private[orca] object RepoMcpServer:
   /** Map a read outcome onto MCP's success/error channels, bounding the success
     * payload.
     */
-  private def render(
-      result: Either[GitReadFailed, String]
-  ): Either[String, String] =
+  private type ToolResult = Either[String, String]
+
+  private def render(result: Either[GitReadFailed, String]): ToolResult =
     result.left.map(_.getMessage).map(McpHost.bounded)
 
   /** System-prompt hint naming the tools. Read-only turns have no shell, so

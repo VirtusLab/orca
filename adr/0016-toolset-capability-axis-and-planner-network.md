@@ -42,7 +42,7 @@ select `NetworkOnly`; reviewers, `reviewed`/`briefed`, selection and lint keep
 | claude | `--tools <read-only tools + networkTools>` + `--allowedTools <mcpTools + networkTools>`, `github_issue` among the MCP tools | **hard** (`--tools` removes every unlisted built-in, shell and edits included) | web + host-side GitHub reads |
 | pi | `--tools …,bash` | **prompt-only** (bash permits writes) | shell (`gh`/`curl`) |
 | codex | `--full-auto` + `-c sandbox_workspace_write.network_access=true` | **prompt-only** (workspace-write permits writes) | shell + web |
-| gemini | `--approval-mode plan --allowed-tools web_fetch` | hard | web |
+| gemini | `--approval-mode plan --allowed-tools web_fetch` | **prompt-only** (plan mode unmeasured against a write) | web |
 | opencode | write tools disabled (= `ReadOnly`) | hard | web only, server-dependent |
 
 pi and codex have no read-only-with-network mode, so granting network forces a
@@ -50,7 +50,8 @@ writable surface; there the no-edit guarantee rests on the planner prompts
 (`planning.md` / `assess-then-plan.md` / `triage.md` all forbid edits), not the
 sandbox. **Verified** on the gemini CLI: plain `plan` mode blocks `web_fetch`,
 but `plan` + `--allowed-tools web_fetch` runs it (returns content), so gemini
-keeps its hard no-edit guarantee *and* gets web reads (no shell `gh`).
+gets web reads (no shell `gh`). What that probe did *not* establish is gemini's
+no-edit guarantee — see the amendment below.
 `--allowed-tools` is deprecated (gemini 1.0 → Policy Engine); migrate then.
 opencode keeps `bash` off (no writable-shell network); its web tool isn't in the
 disabled set, so web may work (server-dependent, unverified).
@@ -80,10 +81,21 @@ compose, with `--tools` still bounding the surface. It is one flag carrying
 the union of every name that tier grants — `mcpTools`, plus `networkTools` on
 `NetworkOnly` — since whether a repeated flag is honoured is unverified.
 
+### gemini's no-edit guarantee
+
+Amended 2026-08-05 (#78): gemini's read-only tiers drop from **hard** to
+**prompt-only**. Nothing has measured `--approval-mode plan` against a write
+attempt; the 2026-06 probe above only established that `--allowed-tools
+web_fetch` re-enables web reads. claude's `--permission-mode plan` — the same
+class of mechanism — turned out to remove no tools at all, and gemini also
+downgrades `plan` to `default` in untrusted folders, which is where orca runs
+agents. The cell records what orca can stand behind, not a known weakness;
+raise it when a probe establishes more.
+
 ## Consequences
 
 - Claude planners get read-only network with the hard no-edit guarantee
-  intact; pi/codex planners get network with a prompt-only guarantee;
-  gemini/opencode planners stay network-free and rely on pre-fetching.
+  intact; pi/codex/gemini planners get a prompt-only guarantee; opencode
+  planners stay network-free and rely on pre-fetching.
 - `withReadOnly` semantics are unchanged for the six non-planner turn kinds.
 - `AutoApprove.Only` remains unused by flows (latent); not removed here.

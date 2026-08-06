@@ -131,9 +131,9 @@ private[claude] object ClaudeArgs:
     * Read,Grep,Glob,Skill` still carried the `mcp__…` tools of an installed
     * server, so an MCP server that can write is not covered by this allowlist
     * at all. Advertised is not callable, though: the read-only tiers ignore
-    * [[AgentConfig.autoApprove]], so every MCP tool a turn is meant to use must
-    * be named in `mcpTools`, which reaches `--allowedTools` on any tier. An
-    * un-named one comes back as a failed `tool_result` rather than prompting.
+    * [[AgentConfig.autoApprove]], so an MCP tool they are meant to use must be
+    * named in `mcpTools`. An un-named one comes back as a failed `tool_result`
+    * rather than prompting.
     *
     * `Full` follows [[AgentConfig.autoApprove]]: `All` → `bypassPermissions`;
     * `Only(_)` → default permission mode plus `--allowedTools`. The allowlist

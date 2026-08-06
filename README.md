@@ -231,7 +231,7 @@ val reviewer = claude.withReadOnly
 
 // NetworkOnly — reads plus read-only network (web, and on claude a host-served
 // GitHub issue/PR read), for planners that must read an issue/PR. The no-edit
-// guarantee is hard on claude, gemini and opencode, prompt-only on pi/codex
+// guarantee is hard on claude and opencode, prompt-only on pi/codex/gemini
 // (ADR 0016).
 val planner = claude.withNetworkOnly
 

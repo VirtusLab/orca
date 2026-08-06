@@ -91,12 +91,16 @@ private[gemini] object GeminiArgs:
   /** How strongly gemini enforces each `(tools, autoApprove)` combination — see
     * [[approvalArgs]] for the flags this classifies.
     *
-    *   - `ReadOnly` / `NetworkOnly` → `Hard`, on the assumption that `plan`
-    *     makes writes and shell mechanically unavailable. Unverified: no
-    *     headless `plan` turn has been run against a write attempt. claude's
-    *     `--permission-mode plan`, the same class of mechanism, was measured
-    *     and removes no tools
-    *     (`docs/research/run-cost/09-diff-vs-coordinates.md` §2).
+    *   - `ReadOnly` / `NetworkOnly` → `PromptOnly`. `plan` was assumed to make
+    *     writes and shell mechanically unavailable, but nothing has measured
+    *     it: no headless `plan` turn has been run against a write attempt on
+    *     any host orca is developed on. The same class of mechanism on claude —
+    *     `--permission-mode plan` — was measured and removes no tools
+    *     (`docs/research/run-cost/09-diff-vs-coordinates.md` §2), and gemini
+    *     additionally downgrades `plan` to `default` in untrusted folders,
+    *     which is where orca runs agents. `PromptOnly` records the guarantee
+    *     orca can actually stand behind; raise it when a probe establishes
+    *     more.
     *   - `Full` + `AutoApprove.All` → `Hard`: `yolo` honours "approve
     *     everything" verbatim.
     *   - `Full` + `AutoApprove.Only(_)` → `Ignored`: no per-tool allowlist, so
@@ -105,7 +109,7 @@ private[gemini] object GeminiArgs:
     */
   def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
     tools match
-      case ToolSet.ReadOnly | ToolSet.NetworkOnly => Enforcement.Hard
+      case ToolSet.ReadOnly | ToolSet.NetworkOnly => Enforcement.PromptOnly
       case ToolSet.Full =>
         autoApprove match
           case AutoApprove.All     => Enforcement.Hard
