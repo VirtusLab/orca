@@ -48,7 +48,7 @@ object GitReadFailed:
   final class InvalidRev(rev: String)
       extends GitReadFailed(
         s"'$rev' is not a revision name (letters, digits, '.', '_', '/', '-', " +
-          "not starting with a dash)"
+          "'@', '^', '~', '{', '}', no '..', not starting with a dash)"
       )
 
   final class InvalidPath(path: String)
@@ -65,10 +65,15 @@ object GitReadFailed:
   * other than a value.
   */
 private[tools] object GitRead:
-  private val RevPattern = """[A-Za-z0-9._/-]+""".r
+  private val RevPattern = """[A-Za-z0-9._/@^~{}-]+""".r
 
-  /** A single ref or sha. The leading-dash rejection stops a revision position
-    * being read as a flag; callers additionally pass `--end-of-options`.
+  /** A single ref or sha, in any of the spellings the tools advertise:
+    * `HEAD~1`, `HEAD^`, `@` and `HEAD@{1}` all name one commit, and
+    * `git_file_at`'s description asks for a file "before the change under
+    * review", which is what `HEAD~1` is for.
+    *
+    * The leading-dash rejection stops a revision position being read as a flag;
+    * callers additionally pass `--end-of-options`.
     *
     * `..` is rejected, which costs nothing — git forbids it in a refname — and
     * rules out handing `git show` a range, whose output is unbounded where a

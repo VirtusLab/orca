@@ -841,11 +841,27 @@ class OsGitToolTest extends munit.FunSuite:
         git.show("nosuchref")
       )
 
+  test("the revision spellings that name a commit's predecessor are accepted"):
+    // `git_file_at`'s description asks the agent for a file as it was before
+    // the change under review, and `git show`'s default format prints no parent
+    // sha — so refusing these leaves no way to name the parent at all.
+    withRepo: (git, dir) =>
+      os.write(dir / "a.txt", "before")
+      git.commit("first").orThrow
+      os.write.over(dir / "a.txt", "after")
+      git.commit("second").orThrow
+      assertEquals(git.fileAt("HEAD~1", "a.txt"), Right("before"))
+      assertEquals(git.fileAt("HEAD^", "a.txt"), Right("before"))
+      assertEquals(git.fileAt("HEAD@{1}", "a.txt"), Right("before"))
+      assertEquals(git.fileAt("@", "a.txt"), Right("after"))
+
   test("a revision that could be read as a flag is rejected before git runs"):
     // The rev reaches git in a revision position, so a leading dash must not
     // survive validation — `--end-of-options` is the second line of defence.
+    // Spelled with characters a revision may contain, so it is the dash guard
+    // being tested rather than the character class.
     withRepo: (git, _) =>
-      val failure = git.show("--upload-pack=touch pwned").left.toOption.get
+      val failure = git.show("--all").left.toOption.get
       assert(failure.isInstanceOf[GitReadFailed.InvalidRev], failure)
 
   test("a path climbing out of the repository is rejected"):
