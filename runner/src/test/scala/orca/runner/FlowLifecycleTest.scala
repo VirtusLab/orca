@@ -2406,8 +2406,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       * in history even under a gitignored `.orca/`.
       */
     def commitLog()(using WorkspaceWrite): Unit =
-      git.forceAdd(setup.store.path)
-      git.commitStaged(setup.store.path, "orca: progress log")
+      git.forceCommitOnly(setup.store.path, "orca: progress log")
 
   /** A bare local-path remote needs no credentials, so these tests exercise the
     * real push without a network round-trip.

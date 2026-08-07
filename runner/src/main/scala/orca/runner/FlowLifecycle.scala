@@ -746,11 +746,11 @@ object FlowLifecycle:
 
   /** Fresh run: resolve + create the branch, then commit the header as the
     * branch's first commit. The commit is pathspec-scoped to just the
-    * progress-log file (`forceAdd` + `commitStaged`, never `add -A`), so a
-    * dirty tree left by skip-branch mode reaches the branch only via the first
-    * stage's own commit. Shared by the absent-log and corrupt-log arms of
-    * [[bindBranch]]. Needs `InStage` (branch-name resolution may call the cheap
-    * model) and `WorkspaceWrite` (the git writes).
+    * progress-log file (`forceCommitOnly`, never `add -A`), so a dirty tree
+    * left by skip-branch mode reaches the branch only via the first stage's own
+    * commit. Shared by the absent-log and corrupt-log arms of [[bindBranch]].
+    * Needs `InStage` (branch-name resolution may call the cheap model) and
+    * `WorkspaceWrite` (the git writes).
     *
     * The resolved name is minted into a [[FeatureBranch]] before reaching git:
     * a protected-name collision falls back to a deterministic
@@ -822,8 +822,7 @@ object FlowLifecycle:
         flowName = flowName
       )
     )
-    git.forceAdd(store.path)
-    git.commitStaged(store.path, "orca: progress log")
+    git.forceCommitOnly(store.path, "orca: progress log")
     branch
 
   /** Give the just-discovered settings file its own commit (ADR 0019), so the
