@@ -168,7 +168,7 @@ private[opencode] class OpencodeConversation(
 
   private def usageOf(info: AssistantInfo): Usage =
     val tokens = info.tokens
-    Usage.exclusiveInput(
+    Usage(
       freshInputTokens = tokens.map(_.input).getOrElse(0L),
       cacheReadInputTokens = tokens.map(_.cache.read).getOrElse(0L),
       cacheWriteInputTokens = tokens.map(_.cache.write).getOrElse(0L),

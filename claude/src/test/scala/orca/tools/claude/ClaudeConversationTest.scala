@@ -2,6 +2,7 @@ package orca.tools.claude
 
 import orca.agents.{AutoApprove, AgentConfig, Model}
 import orca.events.TurnDebit
+import orca.events.Usage
 import orca.testkit.Usages.usage
 import orca.{AgentTurnFailed, OrcaFlowException, OrcaInteractiveCancelled}
 import orca.backend.{
@@ -192,7 +193,17 @@ class ClaudeConversationTest extends munit.FunSuite:
     assertEquals(
       failure.debit,
       TurnDebit.Observed(
-        usage(18L, 3L, Some(BigDecimal("0.25")), cacheRead = 7L),
+        // The wire's counts, verbatim: claude's `input_tokens` excludes the
+        // cache categories, so it is the fresh axis.
+        Usage(
+          freshInputTokens = 11L,
+          cacheReadInputTokens = 7L,
+          cacheWriteInputTokens = 0L,
+          outputTokens = 3L,
+          reasoningOutputTokens = 0L,
+          cost = Some(BigDecimal("0.25")),
+          apiCalls = None
+        ),
         Some(Model("claude-sonnet-4-6"))
       )
     )

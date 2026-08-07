@@ -53,11 +53,11 @@ class PiConversationTest extends munit.FunSuite:
       Usage(
         // pi's `input` counts only the fresh prompt.
         freshInputTokens = 10L,
-        outputTokens = 3L,
-        cost = Some(BigDecimal("0.01")),
         cacheReadInputTokens = 1L,
-        reasoningOutputTokens = 0L,
         cacheWriteInputTokens = 2L,
+        outputTokens = 3L,
+        reasoningOutputTokens = 0L,
+        cost = Some(BigDecimal("0.01")),
         apiCalls = None
       )
     )
@@ -182,11 +182,11 @@ class PiConversationTest extends munit.FunSuite:
       Usage(
         // (1 fresh + 3 read) + (4 fresh + 6 write)
         freshInputTokens = 5L,
-        outputTokens = 7L,
-        cost = None,
         cacheReadInputTokens = 3L,
-        reasoningOutputTokens = 0L,
         cacheWriteInputTokens = 6L,
+        outputTokens = 7L,
+        reasoningOutputTokens = 0L,
+        cost = None,
         apiCalls = None
       )
     )

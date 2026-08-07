@@ -21,20 +21,22 @@ import org.slf4j.LoggerFactory
   * count would be indistinguishable from a measured one downstream, so backends
   * that cannot count leave it unset.
   *
-  * Decoders build one through [[Usage.exclusiveInput]] or
-  * [[Usage.inclusiveInput]], whichever names their wire's convention.
+  * A wire whose input counter EXCLUDES the cache categories (claude, pi,
+  * opencode) maps straight onto this constructor; one that INCLUDES them
+  * (codex, gemini) goes through [[Usage.inclusiveInput]], which splits it.
   *
-  * Destructure by name (`case Usage(outputTokens = out) =>`): the axis list
-  * grows as backends start reporting finer breakdowns, and a positional pattern
-  * silently rebinds or stops compiling when it does.
+  * Construct and destructure by name (`Usage(outputTokens = 3L, …)`): the axis
+  * list grows as backends start reporting finer breakdowns, and a positional
+  * argument or pattern silently rebinds when it does — invisibly, since every
+  * axis is money.
   */
 case class Usage(
     freshInputTokens: Long,
-    outputTokens: Long,
-    cost: Option[BigDecimal],
     cacheReadInputTokens: Long,
-    reasoningOutputTokens: Long,
     cacheWriteInputTokens: Long,
+    outputTokens: Long,
+    reasoningOutputTokens: Long,
+    cost: Option[BigDecimal],
     apiCalls: Option[Long]
 ):
   /** Total prompt tokens, cache categories included. */
@@ -48,41 +50,27 @@ case class Usage(
   def +(that: Usage): Usage =
     Usage(
       freshInputTokens = freshInputTokens + that.freshInputTokens,
-      outputTokens = outputTokens + that.outputTokens,
-      cost = (cost ++ that.cost).reduceOption(_ + _),
       cacheReadInputTokens = cacheReadInputTokens + that.cacheReadInputTokens,
-      reasoningOutputTokens =
-        reasoningOutputTokens + that.reasoningOutputTokens,
       cacheWriteInputTokens =
         cacheWriteInputTokens + that.cacheWriteInputTokens,
+      outputTokens = outputTokens + that.outputTokens,
+      reasoningOutputTokens =
+        reasoningOutputTokens + that.reasoningOutputTokens,
+      cost = (cost ++ that.cost).reduceOption(_ + _),
       apiCalls = (apiCalls ++ that.apiCalls).reduceOption(_ + _)
     )
 
 object Usage:
   private val log = LoggerFactory.getLogger("orca.events")
 
-  val empty: Usage = Usage(0L, 0L, None, 0L, 0L, 0L, None)
-
-  /** Build a usage from a wire whose input counter EXCLUDES the cache
-    * categories (claude, pi, opencode): the three input axes are already
-    * disjoint and are stored as they arrive.
-    */
-  def exclusiveInput(
-      freshInputTokens: Long,
-      cacheReadInputTokens: Long,
-      cacheWriteInputTokens: Long,
-      outputTokens: Long,
-      reasoningOutputTokens: Long,
-      cost: Option[BigDecimal],
-      apiCalls: Option[Long]
-  ): Usage = Usage(
-    freshInputTokens = freshInputTokens,
-    outputTokens = outputTokens,
-    cost = cost,
-    cacheReadInputTokens = cacheReadInputTokens,
-    reasoningOutputTokens = reasoningOutputTokens,
-    cacheWriteInputTokens = cacheWriteInputTokens,
-    apiCalls = apiCalls
+  val empty: Usage = Usage(
+    freshInputTokens = 0L,
+    cacheReadInputTokens = 0L,
+    cacheWriteInputTokens = 0L,
+    outputTokens = 0L,
+    reasoningOutputTokens = 0L,
+    cost = None,
+    apiCalls = None
   )
 
   /** Build a usage from a wire whose input counter INCLUDES the cache
@@ -108,11 +96,11 @@ object Usage:
     val usage = Usage(
       freshInputTokens =
         (totalInputTokens - cacheReadInputTokens - cacheWriteInputTokens) max 0L,
-      outputTokens = outputTokens,
-      cost = cost,
       cacheReadInputTokens = cacheReadInputTokens,
-      reasoningOutputTokens = reasoningOutputTokens,
       cacheWriteInputTokens = cacheWriteInputTokens,
+      outputTokens = outputTokens,
+      reasoningOutputTokens = reasoningOutputTokens,
+      cost = cost,
       apiCalls = apiCalls
     )
     wireTotal.foreach: total =>

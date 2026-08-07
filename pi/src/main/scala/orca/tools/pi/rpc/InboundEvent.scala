@@ -198,7 +198,7 @@ private[pi] object InboundEvent:
     // here, since `ModelPricing` carries one write rate; it is what a per-tier
     // split would key on.
     def toUsage: Usage =
-      Usage.exclusiveInput(
+      Usage(
         freshInputTokens = input.getOrElse(0L),
         cacheReadInputTokens = cacheRead.getOrElse(0L),
         cacheWriteInputTokens = cacheWrite.getOrElse(0L),

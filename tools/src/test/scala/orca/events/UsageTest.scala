@@ -5,7 +5,7 @@ class UsageTest extends munit.FunSuite:
   test("+ adds every axis independently across usages from different backends"):
     // A run mixes backends reporting different axis subsets. Every axis must
     // add independently, whatever order the events arrive in.
-    val withWrites = Usage.exclusiveInput(
+    val withWrites = Usage(
       freshInputTokens = 100L,
       cacheReadInputTokens = 600L,
       cacheWriteInputTokens = 300L,
@@ -14,7 +14,7 @@ class UsageTest extends munit.FunSuite:
       cost = Some(BigDecimal("0.10")),
       apiCalls = Some(2L)
     )
-    val fewerWrites = Usage.exclusiveInput(
+    val fewerWrites = Usage(
       freshInputTokens = 210L,
       cacheReadInputTokens = 200L,
       // non-zero, and different from `withWrites`, so a keep-one-side `+`
@@ -27,7 +27,7 @@ class UsageTest extends munit.FunSuite:
       // total below must still keep the two counts that were measured.
       apiCalls = None
     )
-    val plain = Usage.exclusiveInput(
+    val plain = Usage(
       freshInputTokens = 7L,
       cacheReadInputTokens = 0L,
       cacheWriteInputTokens = 0L,
@@ -40,23 +40,39 @@ class UsageTest extends munit.FunSuite:
       (withWrites + fewerWrites) + plain,
       Usage(
         freshInputTokens = 317L,
-        outputTokens = 153L,
-        cost = Some(BigDecimal("0.11")),
         cacheReadInputTokens = 800L,
-        reasoningOutputTokens = 20L,
         cacheWriteInputTokens = 390L,
+        outputTokens = 153L,
+        reasoningOutputTokens = 20L,
+        cost = Some(BigDecimal("0.11")),
         apiCalls = Some(7L)
       )
     )
     assertEquals(fewerWrites + withWrites, withWrites + fewerWrites)
 
   test("empty is the identity of +"):
-    val u = Usage(10L, 5L, Some(BigDecimal("0.02")), 4L, 1L, 3L, Some(2L))
+    val u = Usage(
+      freshInputTokens = 10L,
+      cacheReadInputTokens = 4L,
+      cacheWriteInputTokens = 3L,
+      outputTokens = 5L,
+      reasoningOutputTokens = 1L,
+      cost = Some(BigDecimal("0.02")),
+      apiCalls = Some(2L)
+    )
     assertEquals(Usage.empty + u, u)
     assertEquals(u + Usage.empty, u)
 
   test("inputTokens totals the three disjoint input axes"):
-    val u = Usage(10L, 0L, None, 4L, 0L, 3L, None)
+    val u = Usage(
+      freshInputTokens = 10L,
+      cacheReadInputTokens = 4L,
+      cacheWriteInputTokens = 3L,
+      outputTokens = 0L,
+      reasoningOutputTokens = 0L,
+      cost = None,
+      apiCalls = None
+    )
     assertEquals(u.inputTokens, 17L)
 
   test("inclusiveInput splits the wire total into its fresh remainder"):

@@ -40,11 +40,11 @@ class CodexConversationTest extends munit.FunSuite:
         // `input_tokens` is already the billed total, so the fresh axis is
         // what its two cache sub-breakdowns leave: 900 - 500 - 300.
         freshInputTokens = 100L,
-        outputTokens = 40L,
-        cost = None,
         cacheReadInputTokens = 500L,
-        reasoningOutputTokens = 12L,
         cacheWriteInputTokens = 300L,
+        outputTokens = 40L,
+        reasoningOutputTokens = 12L,
+        cost = None,
         apiCalls = None
       )
     )

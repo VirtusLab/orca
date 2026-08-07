@@ -93,7 +93,7 @@ private[claude] object InboundMessage:
       sessionId = wire.session_id,
       output = wire.result,
       structuredOutput = wire.structured_output.map(_.value),
-      usage = Usage.exclusiveInput(
+      usage = Usage(
         freshInputTokens = u.input_tokens.getOrElse(0L),
         cacheReadInputTokens = cacheRead,
         cacheWriteInputTokens = cacheWrite,

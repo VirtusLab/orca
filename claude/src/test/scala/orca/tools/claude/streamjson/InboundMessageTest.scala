@@ -63,11 +63,11 @@ class InboundMessageTest extends munit.FunSuite:
         // The wire's `input_tokens` excludes both cache categories, so it is
         // the fresh axis as it stands.
         freshInputTokens = 10L,
-        outputTokens = 20L,
-        cost = Some(BigDecimal("0.5")),
         cacheReadInputTokens = 4000L,
-        reasoningOutputTokens = 0L,
         cacheWriteInputTokens = 300L,
+        outputTokens = 20L,
+        reasoningOutputTokens = 0L,
+        cost = Some(BigDecimal("0.5")),
         apiCalls = None
       )
     )
