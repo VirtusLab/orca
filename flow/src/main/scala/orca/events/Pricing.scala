@@ -106,12 +106,9 @@ object Pricing:
       usage: Usage
   ): Option[Cost] =
     usage.cost
-      .filter(amount => amount.signum != 0 || !spentTokens(usage))
+      .filter(amount => amount.signum != 0 || !usage.spentTokens)
       .map(amount => Cost(amount, estimated = false))
       .orElse(estimate(table, model, usage).map(Cost(_, estimated = true)))
-
-  private def spentTokens(usage: Usage): Boolean =
-    usage.inputTokens > 0 || usage.outputTokens > 0
 
   /** Compute an estimated cost for one call from `usage` and the price for
     * `model`. Returns `None` when `model` is missing, absent from `table`, or
@@ -128,7 +125,7 @@ object Pricing:
       usage: Usage
   ): Option[BigDecimal] =
     Option
-      .when(spentTokens(usage))(model)
+      .when(usage.spentTokens)(model)
       .flatten
       .flatMap(lookup(table, _))
       .map: p =>

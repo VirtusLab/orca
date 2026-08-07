@@ -355,13 +355,13 @@ class DefaultAgentCall[B <: BackendTag, O](
       sessionName: Option[String]
   ): TurnAccounting[B] =
     new TurnAccounting[B](
-      events,
-      agentName,
-      agentRole,
-      backend,
-      session,
-      sessionName,
-      effective.model
+      events = events,
+      agentName = agentName,
+      role = agentRole,
+      backend = backend,
+      session = session,
+      sessionName = sessionName,
+      pinned = effective.model
     )
 
 private case class FailedAttempt(response: String, parserError: String)

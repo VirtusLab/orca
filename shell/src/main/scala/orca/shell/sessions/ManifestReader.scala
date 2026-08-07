@@ -7,8 +7,8 @@ import orca.runner.manifest.{ManifestOutcome, RunManifest}
 import scala.util.control.NonFatal
 
 /** A manifest paired with whether its run is now known to have crashed (outcome
-  * `"running"` with a dead pid, ADR 0021 §8) — computed once here rather than
-  * re-derived by every caller.
+  * [[ManifestOutcome.Running]] with a dead pid, ADR 0021 §8) — computed once
+  * here rather than re-derived by every caller.
   */
 private[shell] case class RecordedRun(manifest: RunManifest, crashed: Boolean)
 

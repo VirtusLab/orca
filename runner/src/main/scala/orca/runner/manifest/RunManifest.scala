@@ -11,8 +11,7 @@ import orca.agents.JsonData
 import java.time.Instant
 
 /** How a run ended, as [[RunManifest.outcome]] records it. `Running` until
-  * [[RunManifestWriter.finish]] finalizes it, so a stale `Running` beside a
-  * dead `pid` is what the shell reads as a crashed run.
+  * [[RunManifestWriter.finish]] finalizes it.
   */
 private[orca] enum ManifestOutcome:
   case Running, Succeeded, Failed
@@ -32,17 +31,16 @@ private[orca] enum ManifestOutcome:
     case Unknown(raw) => raw
 
 private[orca] object ManifestOutcome:
+  private val known: List[ManifestOutcome] = List(Running, Succeeded, Failed)
+
   given codec: JsonValueCodec[ManifestOutcome] with
     def decodeValue(
         in: JsonReader,
         default: ManifestOutcome
     ): ManifestOutcome =
       in.readString(null) match
-        case null        => in.decodeError("expected an outcome string")
-        case "running"   => Running
-        case "succeeded" => Succeeded
-        case "failed"    => Failed
-        case raw         => Unknown(raw)
+        case null => in.decodeError("expected an outcome string")
+        case raw  => known.find(_.wireName == raw).getOrElse(Unknown(raw))
     def encodeValue(value: ManifestOutcome, out: JsonWriter): Unit =
       out.writeVal(value.wireName)
     // Only the pre-parse initializer jsoniter overwrites with the decoded
@@ -55,20 +53,18 @@ private[orca] object ManifestOutcome:
 private[orca] enum ManifestSessionKind:
   case Durable, OneShot
 
-  /** A spelling this build doesn't know — a manifest from a newer build. Only
-    * the decoder produces it; nothing here ever writes one.
-    */
+  /** See [[ManifestOutcome.Unknown]]. */
   case Unknown(raw: String)
 
-  /** The spelling on disk. An [[Unknown]] answers with the string it decoded
-    * from, so passing a manifest through this build never respells it.
-    */
+  /** See [[ManifestOutcome.wireName]]. */
   def wireName: String = this match
     case Durable      => "durable"
     case OneShot      => "oneShot"
     case Unknown(raw) => raw
 
 private[orca] object ManifestSessionKind:
+  private val known: List[ManifestSessionKind] = List(Durable, OneShot)
+
   /** `Durable` exactly when the commit event carries the name an
     * `agent.session(name, seed)` call minted the session under.
     */
@@ -81,10 +77,8 @@ private[orca] object ManifestSessionKind:
         default: ManifestSessionKind
     ): ManifestSessionKind =
       in.readString(null) match
-        case null      => in.decodeError("expected a session kind string")
-        case "durable" => Durable
-        case "oneShot" => OneShot
-        case raw       => Unknown(raw)
+        case null => in.decodeError("expected a session kind string")
+        case raw  => known.find(_.wireName == raw).getOrElse(Unknown(raw))
     def encodeValue(value: ManifestSessionKind, out: JsonWriter): Unit =
       out.writeVal(value.wireName)
     // See ManifestOutcome.codec's nullValue.

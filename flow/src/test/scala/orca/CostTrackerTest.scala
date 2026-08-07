@@ -11,6 +11,7 @@ import orca.events.{
 }
 import orca.agents.Model
 import orca.testkit.Usages.usage
+import ox.{fork, supervised}
 
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
@@ -322,16 +323,6 @@ class CostTrackerTest extends munit.FunSuite:
     )
     assertEquals(tracker.perAgentCost("claude").amount, BigDecimal("2.0"))
 
-  // A turn that spent nothing has no cost to estimate; a Cost(0, estimated)
-  // would carry its flag into the run total and relabel exact spend.
-  test("a zero-token turn leaves the total unflagged"):
-    val tracker = new CostTracker(pricingAsOf)
-    tracker.onEvent(
-      tokens("claude", Some("opus"), usage(10L, 5L, Some(BigDecimal("0.10"))))
-    )
-    tracker.onEvent(tokens("idle", Some("opus"), usage(0L, 0L)))
-    assertEquals(tracker.totalCost.map(_.estimated), Some(false))
-
   test("mixed reported + estimated rolls up to an estimated aggregate"):
     val tracker = new CostTracker(pricingAsOf)
     tracker.onEvent(
@@ -450,7 +441,7 @@ class CostTrackerTest extends munit.FunSuite:
     tracker.onEvent(tokens("c", None, usage(1L, 1L, None)))
     assertLabelsInOrder(tracker.summary, List("(unknown)", "haiku", "opus"))
 
-  test("summary's estimate legend cites the price-list lastUpdated date"):
+  test("summary's estimate legend cites pricingAsOf"):
     val tracker = new CostTracker(pricingAsOf)
     tracker.onEvent(
       tokens("performance", Some("haiku"), usage(1_000_000L, 0L, None))
@@ -479,14 +470,16 @@ class CostTrackerTest extends munit.FunSuite:
     assert(out.contains("Total (some turns unpriced): $0.1000"), out)
     assert(out.contains("some turns had neither a reported cost"), out)
 
-  test("a zero-token turn doesn't qualify the total as partly unpriced"):
+  test("a zero-token turn neither flags nor qualifies the total"):
     // Spending nothing is not a pricing gap: `Pricing.estimate` declines a
-    // zero-token turn on purpose, so it must not put a caveat on the total.
+    // zero-token turn on purpose, and a `Cost(0, estimated)` would relabel
+    // exact spend.
     val tracker = new CostTracker(pricingAsOf)
     tracker.onEvent(
       tokens("claude", Some("opus"), usage(10L, 5L, Some(BigDecimal("0.10"))))
     )
     tracker.onEvent(tokens("idle", Some("opus"), usage(0L, 0L)))
+    assertEquals(tracker.totalCost.map(_.estimated), Some(false))
     assert(tracker.summary.contains("Total: $0.1000"), tracker.summary)
 
   test("perRole subtotals usage by role, with None as the untagged bucket"):
@@ -552,15 +545,14 @@ class CostTrackerTest extends munit.FunSuite:
   test("concurrent onEvent calls from two threads keep every tally"):
     // The reviewer fan-out emits from parallel forks. `AtomicReference`'s
     // compare-and-set retry is what makes that safe; a get-then-set refactor
-    // would drop tallies, and every assertion below would come out short.
+    // would drop tallies.
     val tracker = new CostTracker(pricingAsOf)
-    val threads = (0 until 2).map: t =>
-      new Thread(() =>
-        for _ <- 0 until 500 do
-          tracker.onEvent(tokens(s"agent-$t", Some("opus"), usage(10L, 5L)))
-      )
-    threads.foreach(_.start())
-    threads.foreach(_.join())
+    supervised:
+      val emitters = (0 until 2).map: t =>
+        fork:
+          for _ <- 0 until 500 do
+            tracker.onEvent(tokens(s"agent-$t", Some("opus"), usage(10L, 5L)))
+      emitters.foreach(_.join())
     assertEquals(tracker.total, usage(10_000L, 5_000L))
     assertEquals(tracker.perAgent("agent-0"), usage(5_000L, 2_500L))
     assertEquals(tracker.perAgent("agent-1"), usage(5_000L, 2_500L))
