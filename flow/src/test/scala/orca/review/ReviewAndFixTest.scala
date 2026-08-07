@@ -451,6 +451,9 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewerSelection = ReviewerSelector.allEveryRound,
       initialDiff = Some("")
     )
+    val roundOneFix = coder.seenPrompts.headOption
+      .getOrElse(fail("expected a round-one fix turn"))
+    assert(!roundOneFix.contains("nit"), roundOneFix)
     assertEquals(result, IgnoredIssues(Nil))
 
   test("the cap exit records both the cap reason and the gated issues"):

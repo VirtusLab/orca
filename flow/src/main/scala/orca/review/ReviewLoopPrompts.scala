@@ -102,7 +102,7 @@ object ReviewLoopPrompts:
     * including the base commit, which the initial prompt named and this one
     * therefore doesn't repeat.
     *
-    * `declined` is every refusal the fixer has made so far — see
+    * `declined` is every refusal the fixer has made and not since fixed — see
     * [[reviewAndFixLoop]].
     */
   private[review] def reReview(
