@@ -207,6 +207,22 @@ class ClaudeConversationTest extends munit.FunSuite:
       )
     )
 
+  // Quota/rate-limit/auth failures come back with no `usage` object at all. An
+  // `Observed(Usage.empty)` debit here would reach the cost summary as a
+  // measured zero.
+  convTest("is_error without a usage object reports an unobserved debit"):
+    val process = new FakePipedCliProcess()
+    val conv = new ClaudeConversation(process, AgentConfig())
+
+    process.enqueueStdout(
+      """{"type":"result","subtype":"error","session_id":"sid-nousage","result":"API Error: 400 quota exceeded","is_error":true}"""
+    )
+    process.closeStdout()
+
+    val _ = conv.events.toList
+    val failure = intercept[AgentTurnFailed](conv.awaitResult())
+    assertEquals(failure.debit, TurnDebit.Unobserved)
+
   convTest(
     "is_error after a tool-only turn (no assistant text) surfaces the full error body"
   ):

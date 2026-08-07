@@ -33,6 +33,12 @@ private[claude] enum InboundMessage:
     * validated value lands in `structuredOutput` as raw JSON; without the flag
     * (or in error cases) the agent's free-form reply lands in `output`. Callers
     * that need a single value should prefer `structuredOutput.orElse(output)`.
+    *
+    * `usage` zeroes an absent wire `usage` object, so it alone can't tell a
+    * frame that reported nothing from one that measured zero; `usageReported`
+    * is that distinction. Failure paths must consult it before claiming an
+    * observation — a usage-less frame (quota, rate limit, auth) has seen no
+    * tokens, not zero of them.
     */
   case Result(
       subtype: String,
@@ -40,6 +46,7 @@ private[claude] enum InboundMessage:
       output: Option[String],
       structuredOutput: Option[String],
       usage: Usage,
+      usageReported: Boolean,
       isError: Boolean,
       model: Option[String]
   )
@@ -102,6 +109,7 @@ private[claude] object InboundMessage:
         cost = wire.total_cost_usd,
         apiCalls = None
       ),
+      usageReported = wire.usage.isDefined,
       isError = wire.is_error.getOrElse(false),
       model = wire.model
     )

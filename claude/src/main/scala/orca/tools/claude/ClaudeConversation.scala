@@ -272,14 +272,21 @@ private[claude] class ClaudeConversation(
       if deltasSinceLastFullTurn then "session failed (see message above)"
       else message
     eventQueue.enqueue(ConversationEvent.Error(displayed))
-    failWith(
-      new AgentTurnFailed(
-        s"claude session failed (subtype ${result.subtype}, " +
-          s"session ${result.sessionId}): $message",
+    // A frame that carried no `usage` object saw no tokens — reporting it as
+    // `Observed(Usage.empty)` would be an all-zero measurement. `total_cost_usd`
+    // rides inside `usage` and goes with it; no such frame has been seen.
+    val debit =
+      if result.usageReported then
         TurnDebit.Observed(
           withApiCalls(result.usage),
           turnModel(result).map(Model.apply)
         )
+      else TurnDebit.Unobserved
+    failWith(
+      new AgentTurnFailed(
+        s"claude session failed (subtype ${result.subtype}, " +
+          s"session ${result.sessionId}): $message",
+        debit
       )
     )
 

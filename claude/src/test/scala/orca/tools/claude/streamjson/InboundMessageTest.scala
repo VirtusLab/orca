@@ -130,6 +130,7 @@ class InboundMessageTest extends munit.FunSuite:
     assertEquals(r.output, None)
     assertEquals(r.structuredOutput, None)
     assertEquals(r.usage, Usage.empty)
+    assertEquals(r.usageReported, false)
     assertEquals(r.isError, false)
 
   test("non-init system subtype is namespaced into Unknown"):
