@@ -44,7 +44,9 @@ class CostLogTest extends munit.FunSuite:
   test("a turn-only run writes a cost log and no session manifest"):
     val workDir = TempDirs.dir()
     val writer = newWriter(workDir)
-    writer.onEvent(OrcaEvent.TokensUsed("claude", None, usage(10, 1, None)))
+    writer.onEvent(
+      OrcaEvent.TokensUsed("claude", None, usage(10, 1, None), cost = None)
+    )
     writer.finish(RunOutcome.Succeeded)
     assertEquals(
       os.list(OrcaDir.cacheRunsPath(workDir)).filter(_.ext == "json").toList,
@@ -80,8 +82,12 @@ class CostLogTest extends munit.FunSuite:
   test("the cost log opens with one run header carrying the run's identity"):
     val workDir = TempDirs.dir()
     val writer = newWriter(workDir)
-    writer.onEvent(OrcaEvent.TokensUsed("claude", None, usage(10, 1, None)))
-    writer.onEvent(OrcaEvent.TokensUsed("claude", None, usage(20, 2, None)))
+    writer.onEvent(
+      OrcaEvent.TokensUsed("claude", None, usage(10, 1, None), cost = None)
+    )
+    writer.onEvent(
+      OrcaEvent.TokensUsed("claude", None, usage(20, 2, None), cost = None)
+    )
     assertEquals(
       costRecords(workDir).collect { case r: CostRecord.Run => r },
       List(
@@ -92,7 +98,9 @@ class CostLogTest extends munit.FunSuite:
   test("finish appends the outcome as the log's last record"):
     val workDir = TempDirs.dir()
     val writer = newWriter(workDir)
-    writer.onEvent(OrcaEvent.TokensUsed("claude", None, usage(10, 1, None)))
+    writer.onEvent(
+      OrcaEvent.TokensUsed("claude", None, usage(10, 1, None), cost = None)
+    )
     writer.finish(RunOutcome.Failed)
     assertEquals(
       costRecords(workDir).last,
@@ -108,7 +116,9 @@ class CostLogTest extends munit.FunSuite:
   test("a run that never finishes leaves the log without a trailer"):
     val workDir = TempDirs.dir()
     val writer = newWriter(workDir)
-    writer.onEvent(OrcaEvent.TokensUsed("claude", None, usage(10, 1, None)))
+    writer.onEvent(
+      OrcaEvent.TokensUsed("claude", None, usage(10, 1, None), cost = None)
+    )
     assert(
       !costRecords(workDir).exists(_.isInstanceOf[CostRecord.Finish]),
       costRecords(workDir).toString
@@ -135,7 +145,8 @@ class CostLogTest extends munit.FunSuite:
         None,
         usage(107_000, 500, None, apiCalls = Some(3L)),
         None,
-        session = Some("wire-1")
+        session = Some("wire-1"),
+        cost = None
       )
     )
     // Closing the stage between the two turns pins that the stage is stamped
@@ -147,7 +158,8 @@ class CostLogTest extends munit.FunSuite:
         None,
         usage(0, 0, None),
         Some("reviewer"),
-        attempt = 2
+        attempt = 2,
+        cost = None
       )
     )
     assertEquals(
@@ -275,7 +287,9 @@ class CostLogTest extends munit.FunSuite:
   test("a second finish does not append a second trailer"):
     val workDir = TempDirs.dir()
     val writer = newWriter(workDir)
-    writer.onEvent(OrcaEvent.TokensUsed("claude", None, usage(10, 1, None)))
+    writer.onEvent(
+      OrcaEvent.TokensUsed("claude", None, usage(10, 1, None), cost = None)
+    )
     writer.finish(RunOutcome.Succeeded)
     writer.finish(RunOutcome.Failed)
     assertEquals(

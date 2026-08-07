@@ -2,6 +2,7 @@ package orca.events
 
 import orca.agents.Model
 
+import java.time.LocalDate
 import java.util.concurrent.atomic.AtomicReference
 
 /** Listener that accumulates `TokensUsed` events along three independent axes —
@@ -9,16 +10,17 @@ import java.util.concurrent.atomic.AtomicReference
   * so the tracker is safe to register across concurrent LLM calls.
   *
   * Cost comes off the event, resolved once for the whole run by
-  * [[CostResolvingDispatcher]]; `pricing` is read for its `lastUpdated` alone,
-  * so the legend can't advertise a date from a different table than the one the
-  * run priced with.
+  * [[CostResolvingDispatcher]]. `pricingAsOf` is the date the legend
+  * advertises, normally `PriceList.lastUpdated` of the table the run priced
+  * with; the tracker holds no table of its own, so it cannot report a figure
+  * that disagrees with the run's.
   *
   * All axes share the same underlying calls, so summing any of the maps yields
   * the grand total. The `model` axis keys on `Option[Model]` because the
   * reported model isn't always present; the summary surfaces the missing case
   * as `(unknown)`.
   */
-class CostTracker(pricing: PriceList = Pricing.default) extends OrcaListener:
+class CostTracker(pricingAsOf: LocalDate) extends OrcaListener:
 
   /** One bucket's running total. Keeping the usage and the cost of the same
     * calls in one value is what stops the two drifting apart per axis.
@@ -35,7 +37,12 @@ class CostTracker(pricing: PriceList = Pricing.default) extends OrcaListener:
         * first-write agree. See [[byRole]] for the subtotal axis.
         */
       agentRoles: Map[String, Option[String]] = Map.empty,
-      byRole: Map[Option[String], Tally] = Map.empty
+      byRole: Map[Option[String], Tally] = Map.empty,
+      /** Whether any turn spent tokens the run could not price. A bucket mixing
+        * priced and unpriced turns still has a `Tally.cost`, so this cannot be
+        * derived from the maps afterwards.
+        */
+      anyUnpriced: Boolean = false
   ):
     def record(
         agent: String,
@@ -49,7 +56,11 @@ class CostTracker(pricing: PriceList = Pricing.default) extends OrcaListener:
         byAgent = add(byAgent, agent, tally),
         byModel = add(byModel, model, tally),
         agentRoles = agentRoles.updated(agent, role),
-        byRole = add(byRole, role, tally)
+        byRole = add(byRole, role, tally),
+        // A turn that spent no tokens has nothing to price (`Pricing.estimate`
+        // returns `None` for it by design), so it is not a pricing gap.
+        anyUnpriced = anyUnpriced ||
+          (cost.isEmpty && (usage.inputTokens > 0 || usage.outputTokens > 0))
       )
 
     private def add[K](
@@ -117,6 +128,11 @@ class CostTracker(pricing: PriceList = Pricing.default) extends OrcaListener:
     * with an asterisk marking an estimated figure and a trailing legend line
     * when any estimate is present.
     *
+    * A turn that spent tokens but resolved to no cost contributes nothing to
+    * the total, so the total's label carries `(some turns unpriced)` and gains
+    * its own legend line — otherwise a partial sum would read as the run's full
+    * spend.
+    *
     * Empty string when no `TokensUsed` events have been observed.
     */
   def summary: String =
@@ -147,13 +163,24 @@ class CostTracker(pricing: PriceList = Pricing.default) extends OrcaListener:
         // does, so we drop the marker on the total to avoid `Estimated
         // total: $1.10*` reading like double-counting.
         val label = if c.estimated then "Estimated total" else "Total"
-        s"\n\n$label: ${formatAmount(c)}"
+        // Unqualified, the figure reads as the run's full spend; it is only
+        // the sum of the turns that could be priced.
+        val qualifier = if s.anyUnpriced then " (some turns unpriced)" else ""
+        s"\n\n$label$qualifier: ${formatAmount(c)}"
       val hasEstimate = s.byAgent.values.flatMap(_.cost).exists(_.estimated)
+      val legendLines = List(
+        Option.when(hasEstimate)(
+          s"* estimated from the pricing table " +
+            s"(rates as of $pricingAsOf — may be stale)"
+        ),
+        Option.when(s.anyUnpriced)(
+          "some turns had neither a reported cost nor a pricing-table row " +
+            "— add the model via flow(pricing = …)"
+        )
+      ).flatten
       val legend =
-        if hasEstimate then
-          s"\n\n* estimated from the pricing table " +
-            s"(rates as of ${pricing.lastUpdated} — may be stale)"
-        else ""
+        if legendLines.isEmpty then ""
+        else legendLines.mkString("\n\n", "\n", "")
       s"""By agent:
          |${agentLines.mkString("\n")}
          |

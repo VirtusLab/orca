@@ -119,7 +119,13 @@ private class TokenEmittingReviewer(
           )(using orca.InStage): O =
             ctx.emit(
               OrcaEvent
-                .TokensUsed(capturedName, None, Usage.empty, capturedRole)
+                .TokensUsed(
+                  capturedName,
+                  None,
+                  Usage.empty,
+                  capturedRole,
+                  cost = None
+                )
             )
             result.asInstanceOf[O]
       def interactive: InteractiveAgentCall[BackendTag.ClaudeCode.type, O] =

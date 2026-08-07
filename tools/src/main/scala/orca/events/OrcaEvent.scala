@@ -50,9 +50,10 @@ enum OrcaEvent:
     * Emission sites that never retry leave the default.
     *
     * `cost` is this turn's resolved spend, filled in once at the dispatch
-    * boundary so every listener reads the same figure. Emitters leave it unset:
-    * pricing lives in the flow module, and a listener that priced the event
-    * itself could disagree with the printed summary and the on-disk cost log.
+    * boundary so every listener reads the same figure. Emitters pass `None`,
+    * and the field has no default so they have to say so: pricing lives in the
+    * flow module, and a listener that priced the event itself could disagree
+    * with the printed summary and the on-disk cost log.
     *
     * `session` is [[OrcaEvent.sessionKey]] for the conversation this turn ran
     * in — the same key [[SessionCommitted]] is deduplicated under, so turns and
@@ -67,7 +68,7 @@ enum OrcaEvent:
       role: Option[String] = None,
       attempt: Int = 1,
       session: Option[String] = None,
-      cost: Option[Cost] = None
+      cost: Option[Cost]
   )
 
   /** The agent's final structured payload, after parsing succeeded. `raw` is
