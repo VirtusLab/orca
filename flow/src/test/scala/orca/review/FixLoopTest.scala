@@ -137,6 +137,18 @@ class FixLoopTest extends munit.FunSuite:
       List(IgnoredIssue(Title("x"), "fixer reported no fixes"))
     )
 
+  test("the halt exit says why the loop stopped"):
+    val rec = new Recorder
+    given FlowContext = new TestFlowContext(new EventDispatcher(List(rec)))
+    val _ = fixLoop(
+      evaluate = scripted(List(ReviewResult(List(issue("x"))))),
+      fix = _ => FixOutcome(Nil, Nil)
+    )
+    assert(
+      rec.steps.contains("Fixer reported no fixes; bailing out"),
+      s"halt must be announced: ${rec.steps}"
+    )
+
   test("an echoed issue key resolves even when the fixer rewrote the title"):
     given FlowContext = ctx
     // Keys are positional and copy exactly, which is what makes the match hold
