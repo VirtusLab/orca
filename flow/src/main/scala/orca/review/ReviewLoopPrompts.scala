@@ -185,19 +185,16 @@ private[review] object ReReviewChanges:
     */
   private[review] val InlineThreshold: Int = 16 * 1024
 
-  /** Classify this round's sample against what the reviewer last received.
-    * `paths` is used only past the threshold; the caller samples it from git
-    * beside the diff — see `ReviewFixLoop.runReviewersAndLint`.
+  /** Classify this round's sample against what the reviewer last received. The
+    * [[DiffSample]] carries the paths alongside the diff they describe, so
+    * [[TooLarge]] can never name a different change set than the one it stands
+    * in for.
     *
     * Equality is tested before size, so a pinned `initialDiff` never reaches
     * [[TooLarge]]: pinned samples are byte-identical every round, so a resume
     * always classifies [[AlreadySeen]].
     */
-  def of(
-      previous: String,
-      current: String,
-      paths: List[String]
-  ): ReReviewChanges =
-    if current == previous then AlreadySeen
-    else if current.length > InlineThreshold then TooLarge(paths)
-    else Updated(current)
+  def of(previous: String, current: DiffSample): ReReviewChanges =
+    if current.diff == previous then AlreadySeen
+    else if current.diff.length > InlineThreshold then TooLarge(current.paths)
+    else Updated(current.diff)

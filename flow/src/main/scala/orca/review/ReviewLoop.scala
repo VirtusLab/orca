@@ -8,7 +8,6 @@ import language.experimental.captureChecking
 import language.experimental.separationChecking
 
 import orca.{
-  BoundedDiff,
   CheckedPar,
   Configured,
   FlowContext,
@@ -336,14 +335,14 @@ def reviewAndFixLoop[B <: BackendTag](
       * newly-created files, `.orca/` bookkeeping excluded — re-sampled at the
       * start of every iteration and sent to every reviewer that runs, so each
       * round's reviewers see the fixer's edits whether or not it committed
-      * them. A sample past [[BoundedDiff.ReviewThreshold]] is cut down to the
-      * files that fit plus a list of the ones that didn't, so an outsized
+      * them. A sample past [[orca.BoundedDiff.ReviewThreshold]] is cut down to
+      * the files that fit plus a list of the ones that didn't, so an outsized
       * change set still produces a prompt that can be sent.
       *
       * Pass `Some(...)` to pin the diff instead of sampling it — what the tests
       * use to skip the git call. A pinned diff is also not told its base
       * commit, since it may describe a change set the stage base doesn't
-      * bracket (see [[ReviewFixLoop.diffBase]]).
+      * bracket (see [[ReviewDiffSource.Pinned]]).
       */
     initialDiff: Option[String] = None
 )(using
@@ -371,7 +370,9 @@ def reviewAndFixLoop[B <: BackendTag](
   // Read from `fc` here, at loop entry, for the same reason: the fan-out
   // closures may then carry the plain commit hash rather than the exclusive
   // capability it came from.
-  val reviewBase: Option[String] = fc.stageBaseCommit
+  val diffSource: ReviewDiffSource = initialDiff.fold(
+    ReviewDiffSource.Sampled(ctx.git, fc.stageBaseCommit)
+  )(ReviewDiffSource.Pinned(_))
   // `ctx` (pure [[FlowContext]]) is what the fan-out closures may capture;
   // `fc`/`ws` (exclusive capabilities) are handed only to `run()`, so the durable
   // fix turn reaches the [[FlowSession]] door without those tokens landing in the
@@ -389,8 +390,7 @@ def reviewAndFixLoop[B <: BackendTag](
       confidenceGate = confidenceGate,
       maxIterations = maxIterations,
       fixInstructions = fixInstructions,
-      initialDiff = initialDiff,
-      reviewBase = reviewBase
+      diffSource = diffSource
     )
   )(using ctx, ev).run()(using fc, ws)
 
@@ -416,11 +416,7 @@ private[review] case class ReviewLoopConfig[B <: BackendTag](
     confidenceGate: ConfidenceGate,
     maxIterations: Int,
     fixInstructions: String,
-    initialDiff: Option[String],
-    /** The commit the enclosing stage started from — the base for both
-      * [[ReviewFixLoop.sampleDiff]] and its changed-file list.
-      */
-    reviewBase: Option[String]
+    diffSource: ReviewDiffSource
 )
 
 /** Implementation of [[reviewAndFixLoop]]: one instance per invocation holds
@@ -448,41 +444,11 @@ private[review] class ReviewFixLoop[B <: BackendTag](
   private val roster: List[RosterEntry[?]] =
     reviewers.zipWithIndex.map((a, i) => RosterEntry.wrap(a, ReviewerId(i)))
 
-  /** The change set under review: everything the enclosing stage has produced
-    * since `reviewBase` (ADR 0018 §2.1), bounded to
-    * [[BoundedDiff.ReviewThreshold]]. Re-sampled each iteration, so every
-    * reviewer that round sees the fixer's later edits; a constant `initialDiff`
-    * override skips the git call entirely, and is sent as given — a caller that
-    * pins the diff has already decided what a reviewer should see.
-    */
-  private def sampleDiff(): String =
-    initialDiff.getOrElse:
-      val diff = ctx.git.reviewDiff(reviewBase)
-      // The file list costs another git call, and only the bounded rendering
-      // needs it, so it is sampled only once the diff is over the threshold.
-      if diff.length <= BoundedDiff.ReviewThreshold then diff
-      else BoundedDiff.reviewPayload(diff, ctx.git.changedFileStats(reviewBase))
-
-  /** The commit reviewers are told their diff was sampled against, sent
-    * alongside the diff so a shell-capable reviewer can read past it.
-    *
-    * `None` for a pinned `initialDiff`: that diff may describe a change set
-    * that isn't `reviewBase`-to-working-tree, so naming `reviewBase` as its
-    * base would send the reviewer to the wrong history.
-    */
-  private val diffBase: Option[String] =
-    if initialDiff.isDefined then None else reviewBase
-
   // The loop-constant context `ReviewerSelector.prepare` is handed. `prepare`
   // runs once, at loop start (see `run`), so this is the change set the
   // selection is made from — later rounds' edits don't revise it.
   private val taskTitle: Title = Title(task)
-  private val changedFiles: List[String] =
-    // A pinned `initialDiff` may describe a change set that isn't the working
-    // tree, so only its own text can name its files.
-    initialDiff.fold(ctx.git.changedFiles(reviewBase))(
-      ReviewLoop.extractChangedFiles
-    )
+  private val changedFiles: List[String] = diffSource.selectorFiles
 
   /** Split one agent's findings on the confidence gate. Rejects are kept, not
     * discarded: the loop records the final round's in its [[IgnoredIssues]].
@@ -503,13 +469,12 @@ private[review] class ReviewFixLoop[B <: BackendTag](
   private def reviewWithSession(
       e: RosterEntry[?],
       stored: Option[SessionEntry[?]],
-      currentDiff: String,
-      currentPaths: List[String],
+      current: DiffSample,
       declined: List[IgnoredIssue]
   ): (ReviewResult, Option[SessionEntry[?]]) =
     stored match
-      case Some(se) => resumeReview(se, currentDiff, currentPaths, declined)
-      case None     => firstReview(e, currentDiff)
+      case Some(se) => resumeReview(se, current, declined)
+      case None     => firstReview(e, current.diff)
 
   /** Resume a reviewer's existing session, sending what is new to it since its
     * last round: the change set ([[ReReviewChanges]]) and what the fixer
@@ -523,11 +488,10 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     */
   private def resumeReview[B <: BackendTag](
       se: SessionEntry[B],
-      currentDiff: String,
-      currentPaths: List[String],
+      current: DiffSample,
       declined: List[IgnoredIssue]
   ): (ReviewResult, Option[SessionEntry[?]]) =
-    val changes = ReReviewChanges.of(se.lastDiff, currentDiff, currentPaths)
+    val changes = ReReviewChanges.of(se.lastDiff, current)
     val result =
       se.chat
         .resultAs[ReviewResult]
@@ -536,7 +500,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     // Only advance `lastDiff` when something was actually sent, so a reviewer
     // that skipped a round still compares against what it has seen.
     val advanced = Option.when(changes != ReReviewChanges.AlreadySeen)(
-      se.copy(lastDiff = currentDiff)
+      se.copy(lastDiff = current.diff)
     )
     (result, advanced)
 
@@ -555,7 +519,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
         .autonomous
         .run(
           ReviewLoopPrompts
-            .initialReview(task, currentDiff, confidenceGate, diffBase),
+            .initialReview(task, currentDiff, confidenceGate, diffSource.base),
           emitPrompt = false
         )
     (result, Some(SessionEntry(e, chat, currentDiff)))
@@ -598,22 +562,16 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     // `git diff HEAD`, which is empty as soon as the fixer commits — and an
     // empty diff reads as "nothing changed", so it reports clean without seeing
     // the fix.
-    val currentDiff = if active.isEmpty then "" else sampleDiff()
-    // Paths for the over-threshold case, taken from git rather than scraped
-    // from the diff body, which can't see a binary change or a pure rename.
     // Sampled here on the collecting thread, so the fan-out receives plain
-    // data. Only a sampled diff can reach that case, so the tree and the diff
-    // describe the same change set (see [[ReReviewChanges.of]]).
-    val currentPaths =
-      if initialDiff.isEmpty && currentDiff.length > ReReviewChanges.InlineThreshold
-      then ctx.git.changedFiles(reviewBase)
-      else Nil
+    // data.
+    val current =
+      if active.isEmpty then DiffSample("", Nil) else diffSource.sample()
 
     val reviewerTasks: List[() => AgentOutcome] = active.map: e =>
       val stored = currentState.sessions.get(e.id)
       () =>
         val (result, newSession) =
-          reviewWithSession(e, stored, currentDiff, currentPaths, declined)
+          reviewWithSession(e, stored, current, declined)
         AgentOutcome.Reviewer(e, applyGate(result), newSession)
 
     // Resolved outside the fork below so the next state carries the

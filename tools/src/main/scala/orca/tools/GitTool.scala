@@ -119,6 +119,12 @@ enum FileChange:
   */
 case class ChangedFile(path: String, change: FileChange)
 
+/** One consistent sample of the change set a reviewer sees — see
+  * [[GitTool.reviewChanges]]. `files` names every path in it, including the
+  * ones `diff` cannot show.
+  */
+case class ReviewSample(diff: String, files: List[ChangedFile])
+
 /** Returned in the `Left` of [[GitTool.createBranch]] when a branch by that
   * name already exists. Distinguished from system-level git failures (binary
   * missing, IO error) which surface as thrown `OrcaFlowException`. Subclasses
@@ -364,6 +370,14 @@ trait GitTool:
     * anyway.
     */
   def changedFileStats(since: Option[String] = None): List[ChangedFile]
+
+  /** [[reviewDiff]] and [[changedFileStats]] for the same `since`, from ONE
+    * sample of the working tree — what a caller rendering a bounded diff needs,
+    * since it has to name the files its diff leaves out. Taking the two
+    * separately samples the untracked set twice, and a file created between
+    * them appears in one and not the other.
+    */
+  def reviewChanges(since: Option[String] = None): ReviewSample
 
   /** Everything the next `commit` would include, in the three shapes a caller
     * describing it needs: the [[diffStat]] summary, the [[untrackedPaths]]
@@ -706,6 +720,19 @@ private[orca] class OsGitTool(
   def changedFiles(since: Option[String]): List[String] =
     changedFileStats(since).map(_.path)
 
+  def changedFileStats(since: Option[String]): List[ChangedFile] =
+    allFileStats(since, untrackedPaths())
+
+  def reviewChanges(since: Option[String]): ReviewSample =
+    val untracked = untrackedPaths()
+    ReviewSample(
+      diff = withNewFileContents(since.getOrElse("HEAD"), untracked),
+      files = allFileStats(since, untracked)
+    )
+
+  /** The whole change set as stats, over an `untracked` list the caller already
+    * sampled, so a caller needing the diff alongside can share one sample.
+    */
   // `-z` NUL-terminates each record, so a newline or a non-ASCII byte in a name
   // parses unambiguously. It also turns off the C-quoting git would otherwise
   // apply to a tab in a name — and `--numstat` separates its own fields with
@@ -716,15 +743,18 @@ private[orca] class OsGitTool(
   // `asWorkDirRelative` assumes: with `diff.relative` set in the repo git prints
   // them relative to `workDir` instead, and the translation then adds `../` hops
   // and names the wrong files.
-  def changedFileStats(since: Option[String]): List[ChangedFile] =
+  private def allFileStats(
+      since: Option[String],
+      untracked: List[String]
+  ): List[ChangedFile] =
     val args =
       "diff" +: "--numstat" +: "-z" +: "--no-relative" +:
         since.getOrElse("HEAD") +: OsGitTool.wholeRepoExceptOrca
     val tracked = OsGitTool
       .parseNumstat(git(args*))
       .map(f => f.copy(path = asWorkDirRelative(f.path)))
-    val untracked = untrackedPaths().map(ChangedFile(_, FileChange.New))
-    (tracked ++ untracked).distinctBy(_.path)
+    (tracked ++ untracked.map(ChangedFile(_, FileChange.New)))
+      .distinctBy(_.path)
 
   def pendingChanges(): PendingChanges =
     val untracked = untrackedPaths()

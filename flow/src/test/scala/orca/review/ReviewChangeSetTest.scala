@@ -220,8 +220,11 @@ class ReviewChangeSetTest extends munit.FunSuite:
       .filter(_.startsWith("#   "))
       .map(_.drop(4).takeWhile(_ != ' '))
       .toList
+    // `.distinct` because the rename is named twice: its header reads
+    // `a/old.scala b/new.scala`, which `BoundedDiff.isShown` matches as a whole
+    // line and so reports as not shown, the safe direction.
     assertEquals(
-      (shown ++ notShown).sorted,
+      (shown ++ notShown).distinct.sorted,
       List("gone.scala", "logo.png", "new.scala", "zz-big.scala")
     )
     assert(notShown.contains("zz-big.scala"), prompt.takeRight(500))

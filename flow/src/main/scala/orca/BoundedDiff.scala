@@ -94,11 +94,11 @@ private[orca] object BoundedDiff:
     * fragment as if it were the whole reports findings the rest of the file
     * answers.
     *
-    * `changed` is the change set's file list as git reports it (see
-    * `GitTool.changedFileStats`), not one scraped from the diff body, which
-    * shows neither a binary change nor a 100%-similarity rename. Together with
-    * the sections rendered it covers the whole change set: nothing is left out
-    * without being named.
+    * `changed` is the change set's file list as git reports it, sampled
+    * alongside `diff` (`GitTool.reviewChanges`) rather than scraped from the
+    * diff body, which shows neither a binary change nor a 100%-similarity
+    * rename. Together with the sections rendered it covers the whole change
+    * set: nothing is left out without being named.
     */
   def reviewPayload(diff: String, changed: List[ChangedFile]): String =
     if diff.length <= ReviewThreshold then diff
@@ -130,17 +130,19 @@ private[orca] object BoundedDiff:
   /** Is this file's own section among the ones rendered, `headers` being their
     * header lines?
     *
-    * Matched on the header line, rather than on a path parsed out of it. A
-    * header git had to quote (a `"` or a non-ASCII byte in the name) doesn't
-    * match, so its file is reported as not shown although it was — the safe
+    * Compared as a whole line against the header git writes for an unrenamed,
+    * unquoted path — never as a suffix, which a shown path containing `" b/"`
+    * makes match a different, omitted file. A rename (`a/<old> b/<new>`), a
+    * header git had to quote (a `"` or a non-ASCII byte in the name), a path
+    * `reviewDiff` could only announce (`# skipped …`) rather than render, and a
+    * workDir below the repository root (where the header names the path from
+    * the root and the file list names it from `workDir`) all fail to match, so
+    * their files are reported as not shown although they were — the safe
     * direction of the two: the reader is told to open a file it has already
-    * seen, never left unaware of one it hasn't. Same for a path `reviewDiff`
-    * could only announce (`# skipped …`) rather than render, and for a workDir
-    * below the repository root, where the header names the path from the root
-    * and the file list names it from `workDir`.
+    * seen, never left unaware of one it hasn't.
     */
   private def isShown(headers: List[String], path: String): Boolean =
-    headers.exists(_.endsWith(s" b/$path"))
+    headers.contains(s"${FileHeader}a/$path b/$path")
 
   /** `shownChars` is the length of the diff as sent, which is under
     * [[ReviewThreshold]] by whatever the trailer takes — up to
@@ -152,27 +154,19 @@ private[orca] object BoundedDiff:
       "does not show\n# the changes to the files below — read those files " +
       "directly.\n"
 
-  /** The note closing a cut-short diff whose file list names nothing to add.
-    * Reachable because the diff and the file list are two separate git reads
-    * (see `orca.review.ReviewFixLoop`), so an edit landing between them can
-    * leave every cut file unnamed. The cut is stated anyway: a reviewer that
-    * isn't told the diff is partial judges a fragment as if it were the whole.
-    */
-  private def unnamedTrailer(shownChars: Int): String =
-    s"\n# The diff above was cut short at $shownChars characters. Part of " +
-      "the change\n# is not shown, and the file list needed to name it was not " +
-      "available.\n"
-
   /** The note closing a cut-short review diff: that it was cut, and every file
     * the rendered part doesn't show. Every line is a `#` comment so none of it
     * can read as part of a hunk — `- path` would look like a deleted line of
     * source — and the entries are indented under the sentence introducing them.
+    *
+    * `omitted` is never empty where the cut is: the cut always drops the last
+    * file's whole section, [[isShown]] errs towards reporting a file as not
+    * shown, and `changed` is one sample alongside the diff
+    * (`GitTool.reviewChanges`), so it names that file.
     */
   private def trailer(omitted: List[ChangedFile], shownChars: Int): String =
-    if omitted.isEmpty then unnamedTrailer(shownChars)
-    else
-      trailerHead(shownChars) +
-        boundedEntries(omitted.map(entryLine), TrailerBudget)
+    trailerHead(shownChars) +
+      boundedEntries(omitted.map(entryLine), TrailerBudget)
 
   /** The longest [[trailer]] any subset of `all` can produce, which is what the
     * diff has to be sized against — the omitted set isn't known until the diff
@@ -188,10 +182,7 @@ private[orca] object BoundedDiff:
     val entries = all.map(entryLine(_).length + 1).sum
     // Sized with the threshold in place of the diff length the trailer will
     // report: the latter is always smaller, so never renders more digits.
-    math.max(
-      unnamedTrailer(ReviewThreshold).length,
-      trailerHead(ReviewThreshold).length + math.min(entries, TrailerBudget)
-    )
+    trailerHead(ReviewThreshold).length + math.min(entries, TrailerBudget)
 
   private def entryLine(file: ChangedFile): String =
     val size = file.change match

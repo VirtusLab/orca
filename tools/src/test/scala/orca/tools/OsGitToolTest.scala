@@ -534,6 +534,19 @@ class OsGitToolTest extends munit.FunSuite:
       val diff = git.reviewDiff(base)
       assert(diff.contains("+already committed"), diff)
 
+  test("reviewChanges describes one change set as both a diff and a file list"):
+    withRepo: (git, dir) =>
+      os.write(dir / "tracked.txt", "first")
+      git.commit("seed").orThrow
+      os.write.over(dir / "tracked.txt", "second")
+      os.write(dir / "new.txt", "brand new")
+      val sample = git.reviewChanges()
+      assert(sample.diff.contains("+second"), sample.diff)
+      assertEquals(
+        sample.files.map(_.path).sorted,
+        List("new.txt", "tracked.txt")
+      )
+
   test("headCommit is empty in a repository with no commits"):
     withRepo: (git, _) =>
       assertEquals(git.headCommit(), None)
