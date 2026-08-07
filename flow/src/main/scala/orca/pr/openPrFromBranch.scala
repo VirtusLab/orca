@@ -1,6 +1,6 @@
 package orca.pr
 
-import orca.{FlowContext, FlowControl, gh, git, stage}
+import orca.{BoundedDiff, FlowContext, FlowControl, gh, git, stage}
 import orca.agents.Agent
 import orca.tools.PrHandle
 
@@ -13,7 +13,9 @@ import ox.either.orThrow
   *
   * The diff handed to the summariser is the branch-vs-base diff
   * (`git.diffVsBase(git.defaultBase())`), NOT `git.diff()` (vs HEAD), which is
-  * empty once every task is already committed.
+  * empty once every task is already committed. A branch too large to summarise
+  * whole is cut short ([[BoundedDiff.prPayload]]) rather than sent as is, which
+  * no context window would take.
   *
   * Customise the PR text with `title`/`body`, both given the generated
   * [[PrSummary]]; a flow that closes an issue passes e.g. `body = s =>
@@ -36,7 +38,7 @@ def openPrFromBranch(
   val summary = stage("Generate PR title and description"):
     summarisePr(
       agent = summarisingAgent,
-      diff = git.diffVsBase(git.defaultBase()),
+      diff = BoundedDiff.prPayload(git.diffVsBase(git.defaultBase())),
       context = context,
       instructions = instructions
     )

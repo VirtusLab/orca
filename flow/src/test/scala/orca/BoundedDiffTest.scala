@@ -230,3 +230,17 @@ class BoundedDiffTest extends munit.FunSuite:
       !payload.contains("#   x b/y.txt "),
       s"the file that WAS rendered must stay out of the trailer: $payload"
     )
+
+  // --- the PR payload ---
+
+  test("a PR diff within the threshold is sent as it is"):
+    val diff = section("src/Small.scala", 10)
+    assertEquals(BoundedDiff.prPayload(diff), diff)
+
+  test("a PR diff past the threshold is cut to its head and marked"):
+    assertEquals(
+      BoundedDiff.prPayload("+" * (BoundedDiff.ReviewThreshold * 2)),
+      "+" * BoundedDiff.ReviewThreshold +
+        s"\n\n[diff cut at ${BoundedDiff.ReviewThreshold} characters — " +
+        "the summary covers the leading files only]"
+    )

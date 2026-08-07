@@ -2,16 +2,18 @@ package orca
 
 import orca.tools.{ChangedFile, FileChange, PendingChanges}
 
-/** Renders a change set into a prompt under a size budget, for the two callers
-  * that inline one: the default commit-message prompt ([[commitPayload]], see
-  * `orca.defaultCommitMessage`) and the reviewer's initial prompt
-  * ([[reviewPayload]], see `orca.review.reviewAndFixLoop`).
+/** Renders a change set into a prompt under a size budget, for the three
+  * callers that inline one: the default commit-message prompt
+  * ([[commitPayload]], see `orca.defaultCommitMessage`), the reviewer's initial
+  * prompt ([[reviewPayload]], see `orca.review.reviewAndFixLoop`) and the PR
+  * summariser's ([[prPayload]], see `orca.pr.summarisePr`).
   *
-  * Both keep the same rule: what is left out is still named. A commit subject
-  * gets the `--stat` summary ahead of the diff; a reviewer gets a trailer
-  * listing the files the diff it was sent does not show. Neither ever returns
-  * more than its threshold, so a change set of any size produces a prompt that
-  * can be sent.
+  * The first two keep the same rule: what is left out is still named. A commit
+  * subject gets the `--stat` summary ahead of the diff; a reviewer gets a
+  * trailer listing the files the diff it was sent does not show. [[prPayload]]
+  * only marks that a cut happened. None returns more than its threshold (plus,
+  * for [[prPayload]], its marker), so a change set of any size produces a
+  * prompt that can be sent.
   *
   * Text is assembled by plain interpolation, never a `stripMargin` block:
   * `stripMargin` runs over the interpolated result, so it would eat the leading
@@ -109,6 +111,22 @@ private[orca] object BoundedDiff:
         changed.filterNot(f => isShown(shown, f.path)),
         head.length
       )
+
+  /** The branch diff a PR summariser is sent: under [[ReviewThreshold]] the
+    * diff itself, over it a head cut plus a marker, so at most that threshold
+    * plus the marker.
+    *
+    * A head cut where [[reviewPayload]] cuts on file boundaries and names what
+    * it dropped: a title and body describe what the branch does, which the
+    * leading files show, and a summary survives a mid-hunk cut where a review
+    * does not.
+    */
+  def prPayload(diff: String): String =
+    if diff.length <= ReviewThreshold then diff
+    else
+      withoutDanglingSurrogate(diff.take(ReviewThreshold)) +
+        s"\n\n[diff cut at $ReviewThreshold characters — the summary covers " +
+        "the leading files only]"
 
   /** The longest prefix of `diff` within `maxChars` that ends where a file's
     * section ends, or `""` when not even the first section fits — the honest
@@ -236,16 +254,18 @@ private[orca] object BoundedDiff:
   /** `text` cut to at most `maxChars`, marked when anything was dropped so the
     * model reads a cut-off hunk as partial rather than as the whole change. The
     * marker is counted against the budget; when not even it fits, nothing does.
-    * The cut backs off a dangling high surrogate — half a pair is not valid
-    * UTF-16 and no longer encodes as the character it came from.
     */
   private def bounded(text: String, maxChars: Int): String =
     if text.length <= maxChars then text
     else if maxChars < TruncationMarker.length then ""
     else
-      val head = text.take(maxChars - TruncationMarker.length)
-      val whole =
-        if head.nonEmpty && Character.isHighSurrogate(head.last) then
-          head.dropRight(1)
-        else head
-      whole + TruncationMarker
+      withoutDanglingSurrogate(text.take(maxChars - TruncationMarker.length)) +
+        TruncationMarker
+
+  /** `text` minus a trailing high surrogate: half a pair is not valid UTF-16
+    * and no longer encodes as the character it came from.
+    */
+  private def withoutDanglingSurrogate(text: String): String =
+    if text.nonEmpty && Character.isHighSurrogate(text.last) then
+      text.dropRight(1)
+    else text
