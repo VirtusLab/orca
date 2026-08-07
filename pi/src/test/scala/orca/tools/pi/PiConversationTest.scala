@@ -50,12 +50,14 @@ class PiConversationTest extends munit.FunSuite:
     assertEquals(
       result.usage,
       Usage(
-        // pi's `input` counts only the fresh prompt, so the total is 10+1+2.
-        inputTokens = 13L,
+        // pi's `input` counts only the fresh prompt.
+        freshInputTokens = 10L,
         outputTokens = 3L,
         cost = Some(BigDecimal("0.01")),
         cacheReadInputTokens = 1L,
-        cacheWriteInputTokens = 2L
+        reasoningOutputTokens = 0L,
+        cacheWriteInputTokens = 2L,
+        apiCalls = None
       )
     )
     assertEquals(process.sigIntCount, 1)
@@ -178,11 +180,13 @@ class PiConversationTest extends munit.FunSuite:
       result.usage,
       Usage(
         // (1 fresh + 3 read) + (4 fresh + 6 write)
-        inputTokens = 14L,
+        freshInputTokens = 5L,
         outputTokens = 7L,
         cost = None,
         cacheReadInputTokens = 3L,
-        cacheWriteInputTokens = 6L
+        reasoningOutputTokens = 0L,
+        cacheWriteInputTokens = 6L,
+        apiCalls = None
       )
     )
 

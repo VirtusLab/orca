@@ -17,7 +17,8 @@ import orca.agents.{
   SessionId,
   ToolSet
 }
-import orca.events.{CostTracker, OrcaEvent, OrcaListener, Usage}
+import orca.events.{CostTracker, OrcaEvent, OrcaListener}
+import orca.testkit.Usages.usage
 import orca.tools.opencode.OpencodeAgents
 import _root_.orca.runner.terminal.TerminalInteraction
 import ox.supervised
@@ -240,7 +241,7 @@ class OrcaOverridesTest extends munit.FunSuite:
               OrcaEvent.TokensUsed(
                 "wired",
                 Some(Model("wired-model")),
-                Usage(7L, 3L, None)
+                usage(7L, 3L)
               )
             )
             s"ok: $p"
@@ -293,8 +294,8 @@ class OrcaOverridesTest extends munit.FunSuite:
           OrcaEvent.TokensUsed(
             "test-agent",
             Some(Model("test-model")),
-            Usage(10L, 5L, None)
+            usage(10L, 5L)
           )
         )
     // TerminalInteraction ignores TokensUsed; CostTracker should accumulate.
-    assertEquals(tracker.total, Usage(10L, 5L, None))
+    assertEquals(tracker.total, usage(10L, 5L))

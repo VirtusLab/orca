@@ -192,23 +192,20 @@ private[pi] object InboundEvent:
       cacheWrite: Option[Long] = None,
       cost: Option[CostWire] = None
   ) derives ConfiguredJsonValueCodec:
-    // pi normalises `input` to the FRESH prompt only, disjoint from
-    // `cacheRead`/`cacheWrite` — it forwards Anthropic's `input_tokens` (which
-    // excludes both cache categories) and subtracts cached tokens on providers
-    // that include them, then reports `totalTokens` as the sum of all four
-    // axes. The total prompt is therefore the sum of the three input axes, as
-    // for claude and opencode. pi also reports `cacheWrite1h`, the 1h-TTL
-    // subset of `cacheWrite` — unparsed here, since `ModelPricing` carries one
-    // write rate; it is what a per-tier split would key on.
+    // pi subtracts cached tokens from `input` on providers that include them,
+    // so `input` is the fresh prompt on every provider it fronts. It also
+    // reports `cacheWrite1h`, the 1h-TTL subset of `cacheWrite` — unparsed
+    // here, since `ModelPricing` carries one write rate; it is what a per-tier
+    // split would key on.
     def toUsage: Usage =
-      val read = cacheRead.getOrElse(0L)
-      val write = cacheWrite.getOrElse(0L)
-      Usage(
-        inputTokens = input.getOrElse(0L) + read + write,
+      Usage.exclusiveInput(
+        freshInputTokens = input.getOrElse(0L),
+        cacheReadInputTokens = cacheRead.getOrElse(0L),
+        cacheWriteInputTokens = cacheWrite.getOrElse(0L),
         outputTokens = output.getOrElse(0L),
+        reasoningOutputTokens = 0L,
         cost = cost.flatMap(_.total),
-        cacheReadInputTokens = read,
-        cacheWriteInputTokens = write
+        apiCalls = None
       )
 
   private case class CostWire(total: Option[BigDecimal] = None)

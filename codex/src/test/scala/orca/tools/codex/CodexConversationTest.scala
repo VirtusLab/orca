@@ -1,7 +1,8 @@
 package orca.tools.codex
 
 import orca.agents.{Model, WireSessionId}
-import orca.events.{Usage}
+import orca.events.Usage
+import orca.testkit.Usages.usage
 import orca.{OrcaFlowException, OrcaInteractiveCancelled}
 import orca.backend.{ConversationEvent, ConversationEventConformance}
 import orca.subprocess.FakePipedCliProcess
@@ -36,14 +37,15 @@ class CodexConversationTest extends munit.FunSuite:
     assertEquals(
       result.usage,
       Usage(
-        // `input_tokens` is already the billed total; reads and writes are
-        // sub-breakdowns of it, so nothing is added on top.
-        inputTokens = 900L,
+        // `input_tokens` is already the billed total, so the fresh axis is
+        // what its two cache sub-breakdowns leave: 900 - 500 - 300.
+        freshInputTokens = 100L,
         outputTokens = 40L,
         cost = None,
         cacheReadInputTokens = 500L,
         reasoningOutputTokens = 12L,
-        cacheWriteInputTokens = 300L
+        cacheWriteInputTokens = 300L,
+        apiCalls = None
       )
     )
 
@@ -76,7 +78,7 @@ class CodexConversationTest extends munit.FunSuite:
     val Right(result) = conv.awaitResult(): @unchecked
     assertEquals(WireSessionId.value(result.wireId), "thr-1")
     assertEquals(result.output, "hello")
-    assertEquals(result.usage, Usage(10L, 3L, None))
+    assertEquals(result.usage, usage(10L, 3L))
 
   convTest(
     "usage attributes to the configured model when the wire omits it"

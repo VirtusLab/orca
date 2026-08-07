@@ -2,8 +2,9 @@ package orca.runner.manifest
 
 import orca.OrcaDir
 import orca.agents.Model
-import orca.events.{Cost, OrcaEvent, PriceList, Pricing, Usage}
+import orca.events.{Cost, OrcaEvent, PriceList, Pricing}
 import orca.testkit.TempDirs
+import orca.testkit.Usages.usage
 
 import java.time.Instant
 
@@ -40,7 +41,7 @@ class CostLogTest extends munit.FunSuite:
   test("a turn-only run writes a cost log and no session manifest"):
     val workDir = TempDirs.dir()
     val writer = newWriter(workDir)
-    writer.onEvent(OrcaEvent.TokensUsed("claude", None, Usage(10, 1, None)))
+    writer.onEvent(OrcaEvent.TokensUsed("claude", None, usage(10, 1, None)))
     writer.finish(RunOutcome.Succeeded)
     assertEquals(
       os.list(OrcaDir.cacheRunsPath(workDir)).filter(_.ext == "json").toList,
@@ -69,8 +70,8 @@ class CostLogTest extends munit.FunSuite:
   test("the cost log opens with one run header carrying the run's identity"):
     val workDir = TempDirs.dir()
     val writer = newWriter(workDir)
-    writer.onEvent(OrcaEvent.TokensUsed("claude", None, Usage(10, 1, None)))
-    writer.onEvent(OrcaEvent.TokensUsed("claude", None, Usage(20, 2, None)))
+    writer.onEvent(OrcaEvent.TokensUsed("claude", None, usage(10, 1, None)))
+    writer.onEvent(OrcaEvent.TokensUsed("claude", None, usage(20, 2, None)))
     assertEquals(
       costRecords(workDir).collect { case r: CostRecord.Run => r },
       List(
@@ -81,7 +82,7 @@ class CostLogTest extends munit.FunSuite:
   test("finish appends the outcome as the log's last record"):
     val workDir = TempDirs.dir()
     val writer = newWriter(workDir)
-    writer.onEvent(OrcaEvent.TokensUsed("claude", None, Usage(10, 1, None)))
+    writer.onEvent(OrcaEvent.TokensUsed("claude", None, usage(10, 1, None)))
     writer.finish(RunOutcome.Failed)
     assertEquals(
       costRecords(workDir).last,
@@ -94,7 +95,7 @@ class CostLogTest extends munit.FunSuite:
   test("a run that never finishes leaves the log without a trailer"):
     val workDir = TempDirs.dir()
     val writer = newWriter(workDir)
-    writer.onEvent(OrcaEvent.TokensUsed("claude", None, Usage(10, 1, None)))
+    writer.onEvent(OrcaEvent.TokensUsed("claude", None, usage(10, 1, None)))
     assert(
       !costRecords(workDir).exists(_.isInstanceOf[CostRecord.Finish]),
       costRecords(workDir).toString
@@ -112,7 +113,7 @@ class CostLogTest extends munit.FunSuite:
       OrcaEvent.TokensUsed(
         "claude",
         None,
-        Usage(107_000, 500, None, apiCalls = Some(3L)),
+        usage(107_000, 500, None, apiCalls = Some(3L)),
         None,
         session = Some("wire-1")
       )
@@ -124,7 +125,7 @@ class CostLogTest extends munit.FunSuite:
       OrcaEvent.TokensUsed(
         "reviewer",
         None,
-        Usage(0, 0, None),
+        usage(0, 0, None),
         Some("reviewer"),
         attempt = 2
       )
@@ -151,12 +152,12 @@ class CostLogTest extends munit.FunSuite:
       OrcaEvent.TokensUsed(
         agent = "claude",
         model = Some(Model("claude-sonnet-5")),
-        usage = Usage(
-          inputTokens = 120_000,
-          outputTokens = 900,
+        usage = usage(
+          input = 120_000,
+          output = 900,
           cost = None,
-          cacheReadInputTokens = 107_000,
-          cacheWriteInputTokens = 8_000
+          cacheRead = 107_000,
+          cacheWrite = 8_000
         ),
         role = None
       )
@@ -187,7 +188,7 @@ class CostLogTest extends munit.FunSuite:
       OrcaEvent.TokensUsed(
         agent = "claude",
         model = Some(Model("claude-sonnet-5")),
-        usage = Usage(120_000, 900, None, cacheReadInputTokens = 107_000),
+        usage = usage(120_000, 900, None, cacheRead = 107_000),
         role = None
       )
     )
@@ -195,7 +196,7 @@ class CostLogTest extends munit.FunSuite:
       OrcaEvent.TokensUsed(
         agent = "reviewer",
         model = Some(Model("claude-haiku-4-5")),
-        usage = Usage(5_000, 100, Some(BigDecimal("0.0123"))),
+        usage = usage(5_000, 100, Some(BigDecimal("0.0123"))),
         role = Some("reviewer")
       )
     )
@@ -246,7 +247,7 @@ class CostLogTest extends munit.FunSuite:
   test("a second finish does not append a second trailer"):
     val workDir = TempDirs.dir()
     val writer = newWriter(workDir)
-    writer.onEvent(OrcaEvent.TokensUsed("claude", None, Usage(10, 1, None)))
+    writer.onEvent(OrcaEvent.TokensUsed("claude", None, usage(10, 1, None)))
     writer.finish(RunOutcome.Succeeded)
     writer.finish(RunOutcome.Failed)
     assertEquals(

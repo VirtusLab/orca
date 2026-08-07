@@ -1,7 +1,7 @@
 package orca.tools.gemini
 
 import orca.agents.WireSessionId
-import orca.events.Usage
+import orca.testkit.Usages.usage
 import orca.{OrcaFlowException, OrcaInteractiveCancelled}
 import orca.backend.{ConversationEvent, ConversationEventConformance}
 import orca.subprocess.FakePipedCliProcess
@@ -51,7 +51,7 @@ class GeminiConversationTest extends munit.FunSuite:
     val Right(r) = conv.awaitResult(): @unchecked
     assertEquals(WireSessionId.value(r.wireId), "sess-1")
     assertEquals(r.output, "hello")
-    assertEquals(r.usage, Usage(10L, 3L, None))
+    assertEquals(r.usage, usage(10L, 3L))
     assertEquals(r.model.map(_.name), Some("gemini-2.5-pro"))
 
   convTest("a user-role message is ignored (prompt echo, not agent output)"):

@@ -121,21 +121,19 @@ private[codex] object InboundEvent:
     val wire = readFromString[TurnCompletedWire](line)
     val u = wire.usage.getOrElse(UsageWire())
     TurnCompleted(
-      Usage(
-        // In codex's wire shape `input_tokens` is the total billed input
-        // (cached + non-cached), and `output_tokens` is the total output
-        // (visible + reasoning) — `cached_input_tokens`,
-        // `cache_write_input_tokens` and `reasoning_output_tokens` are
-        // sub-breakdowns. Keep every axis: codex emits no cost, so the price
-        // table is the only cost signal, and on the GPT-5.6 family a cache
-        // write bills 1.25× input.
-        inputTokens = u.input_tokens.getOrElse(0L),
+      // Every axis is worth decoding here: codex emits no cost, so the price
+      // table is the only cost signal, and on the GPT-5.6 family a cache write
+      // bills 1.25× input.
+      Usage.inclusiveInput(
+        totalInputTokens = u.input_tokens.getOrElse(0L),
         cacheReadInputTokens = u.cached_input_tokens.getOrElse(0L),
         cacheWriteInputTokens = u.cache_write_input_tokens.getOrElse(0L),
         outputTokens = u.output_tokens.getOrElse(0L),
         reasoningOutputTokens = u.reasoning_output_tokens.getOrElse(0L),
-        // codex doesn't emit cost in the JSONL stream; left None.
-        cost = None
+        cost = None,
+        apiCalls = None,
+        // codex reports no all-token total to cross-check the axes against.
+        wireTotal = None
       )
     )
 

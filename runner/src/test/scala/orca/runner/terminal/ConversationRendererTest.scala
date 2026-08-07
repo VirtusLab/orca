@@ -79,7 +79,7 @@ class ConversationRendererTest extends munit.FunSuite:
     AgentResult(
       wireId = WireSessionId[BackendTag.ClaudeCode.type]("sid"),
       output = """{"ok":true}""",
-      usage = Usage(0L, 0L, None)
+      usage = Usage.empty
     )
 
   test("UserMessage renders as one truncated line, not the full prompt"):

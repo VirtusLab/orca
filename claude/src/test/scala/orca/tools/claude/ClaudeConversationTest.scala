@@ -1,7 +1,7 @@
 package orca.tools.claude
 
 import orca.agents.{AutoApprove, AgentConfig}
-import orca.events.{Usage}
+import orca.testkit.Usages.usage
 import orca.{AgentTurnFailed, OrcaFlowException, OrcaInteractiveCancelled}
 import orca.backend.{
   ApprovalDecision,
@@ -58,7 +58,7 @@ class ClaudeConversationTest extends munit.FunSuite:
     val _ = conv.events.toList
     val Right(result) = conv.awaitResult(): @unchecked
     assertEquals(result.output, "done")
-    assertEquals(result.usage, Usage(5L, 7L, None))
+    assertEquals(result.usage, usage(5L, 7L))
 
   // Nothing on the wire reports how many requests a turn made. The CLI splits
   // one model response into several `assistant` messages sharing one id, and a
@@ -190,7 +190,7 @@ class ClaudeConversationTest extends munit.FunSuite:
     val failure = intercept[AgentTurnFailed](conv.awaitResult())
     assertEquals(
       failure.usage,
-      Some(Usage(18L, 3L, Some(BigDecimal("0.25")), 7L))
+      Some(usage(18L, 3L, Some(BigDecimal("0.25")), cacheRead = 7L))
     )
 
   convTest(

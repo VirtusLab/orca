@@ -1,7 +1,8 @@
 package orca.shell.sessions
 
 import orca.WorkspaceWrite
-import orca.events.{OrcaEvent, Pricing, Usage}
+import orca.events.{OrcaEvent, Pricing}
+import orca.testkit.Usages.usage
 import orca.progress.{BranchMode, ProgressHeader, ProgressStore, SessionRecord}
 import orca.runner.manifest.{RunManifestWriter, RunOutcome}
 import orca.testkit.TempDirs
@@ -60,7 +61,7 @@ class ManifestRoundTripTest extends munit.FunSuite:
         OrcaEvent.TokensUsed(
           "claude",
           None,
-          Usage(1_000, 200, Some(BigDecimal("0.5"))),
+          usage(1_000, 200, Some(BigDecimal("0.5"))),
           Some("reviewer")
         )
       )

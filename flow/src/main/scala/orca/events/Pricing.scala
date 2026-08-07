@@ -98,13 +98,8 @@ object Pricing:
       .flatMap(lookup(table, _))
       .map: p =>
         val million = BigDecimal(1_000_000)
-        // Fresh input is what neither cache category claimed. The clamp keeps
-        // a backend that over-reports its cache axes from producing a negative
-        // charge.
-        val freshInput = (usage.inputTokens - usage.cacheReadInputTokens -
-          usage.cacheWriteInputTokens) max 0L
         val inputCost =
-          BigDecimal(freshInput) * p.inputUsdPerMillion / million
+          BigDecimal(usage.freshInputTokens) * p.inputUsdPerMillion / million
         val cacheReadCost =
           BigDecimal(usage.cacheReadInputTokens) * p.cacheReadUsdPerMillion /
             million

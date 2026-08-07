@@ -161,17 +161,14 @@ private[opencode] class OpencodeConversation(
 
   private def usageOf(info: Option[AssistantInfo]): Usage =
     val tokens = info.flatMap(_.tokens)
-    Usage(
-      // `input` is the non-cached input; cache read/write are billed separately
-      // and at different rates, so the total input axis sums all three and each
-      // cache category keeps its own axis.
-      inputTokens =
-        tokens.map(t => t.input + t.cache.read + t.cache.write).getOrElse(0L),
-      outputTokens = tokens.map(_.output).getOrElse(0L),
-      cost = info.flatMap(_.cost),
+    Usage.exclusiveInput(
+      freshInputTokens = tokens.map(_.input).getOrElse(0L),
       cacheReadInputTokens = tokens.map(_.cache.read).getOrElse(0L),
+      cacheWriteInputTokens = tokens.map(_.cache.write).getOrElse(0L),
+      outputTokens = tokens.map(_.output).getOrElse(0L),
       reasoningOutputTokens = tokens.map(_.reasoning).getOrElse(0L),
-      cacheWriteInputTokens = tokens.map(_.cache.write).getOrElse(0L)
+      cost = info.flatMap(_.cost),
+      apiCalls = None
     )
 
   private def questionText(req: QuestionRequest): String =

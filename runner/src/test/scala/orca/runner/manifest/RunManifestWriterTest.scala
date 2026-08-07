@@ -3,7 +3,8 @@ package orca.runner.manifest
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import orca.OrcaDir
 import orca.WorkspaceWrite
-import orca.events.{OrcaEvent, PriceList, Pricing, Usage}
+import orca.events.{OrcaEvent, PriceList, Pricing}
+import orca.testkit.Usages.usage
 import orca.progress.{BranchMode, ProgressHeader, ProgressStore, SessionRecord}
 import orca.testkit.TempDirs
 import ox.channels.BufferCapacity
@@ -339,7 +340,7 @@ class RunManifestWriterTest extends munit.FunSuite:
     for i <- 1 to 25 do os.write(runsDir / f"1000000000$i%03d-1.json", "{}")
     val writer =
       newWriter(workDir, fixedClock(Instant.parse("2026-07-18T10:00:00Z")))
-    writer.onEvent(OrcaEvent.TokensUsed("claude", None, Usage(10, 1, None)))
+    writer.onEvent(OrcaEvent.TokensUsed("claude", None, usage(10, 1)))
     assert(
       !os.exists(runsDir / "1000000000001-1.json"),
       "the oldest of 25 seeded runs must be gone"
@@ -358,7 +359,7 @@ class RunManifestWriterTest extends munit.FunSuite:
       os.write(runsDir / f"1000000000$i%03d-1-cost.jsonl", "")
     val writer =
       newWriter(workDir, fixedClock(Instant.parse("2026-07-18T10:00:00Z")))
-    writer.onEvent(OrcaEvent.TokensUsed("claude", None, Usage(10, 1, None)))
+    writer.onEvent(OrcaEvent.TokensUsed("claude", None, usage(10, 1)))
     assertEquals(manifestFiles(workDir).size, 20)
 
   /** Keeping every manifest-less run newer than the oldest kept manifest would
@@ -373,7 +374,7 @@ class RunManifestWriterTest extends munit.FunSuite:
       os.write(runsDir / f"1000000000$i%03d-1-cost.jsonl", "")
     val writer =
       newWriter(workDir, fixedClock(Instant.parse("2026-07-18T10:00:00Z")))
-    writer.onEvent(OrcaEvent.TokensUsed("claude", None, Usage(10, 1, None)))
+    writer.onEvent(OrcaEvent.TokensUsed("claude", None, usage(10, 1)))
     assertEquals(costLogFiles(workDir).size, 20)
 
   /** The upsert reads `.orca/` to name the session, and its failure is

@@ -124,15 +124,19 @@ private[gemini] object InboundEvent:
     val w = readFromString[ResultWire](line)
     val s = w.stats.getOrElse(StatsWire())
     Result(
-      Usage(
-        inputTokens = s.input_tokens.getOrElse(0L),
-        outputTokens = s.output_tokens.getOrElse(0L),
-        cost = None, // gemini doesn't emit cost on the wire
-        // cache sub-count is `cached` (older/forward shapes use
+      Usage.inclusiveInput(
+        totalInputTokens = s.input_tokens.getOrElse(0L),
+        // The cache sub-count is `cached` (older/forward shapes use
         // `cached_input_tokens`), and it counts reads only — gemini reports no
-        // cache-write counter, so `cacheWriteInputTokens` stays zero.
+        // cache-write counter.
         cacheReadInputTokens =
-          s.cached.orElse(s.cached_input_tokens).getOrElse(0L)
+          s.cached.orElse(s.cached_input_tokens).getOrElse(0L),
+        cacheWriteInputTokens = 0L,
+        outputTokens = s.output_tokens.getOrElse(0L),
+        reasoningOutputTokens = 0L,
+        cost = None, // gemini doesn't emit cost on the wire
+        apiCalls = None,
+        wireTotal = s.total_tokens
       ),
       status = ToolStatus.of(w.status)
     )
@@ -170,11 +174,14 @@ private[gemini] object InboundEvent:
   private case class ErrorWire(message: Option[String] = None)
       derives ConfiguredJsonValueCodec
 
+  // `total_tokens` is decoded only as the cross-check `Usage.inclusiveInput`
+  // runs against the axes above; no orca axis is derived from it.
   private case class StatsWire(
       input_tokens: Option[Long] = None,
       output_tokens: Option[Long] = None,
       cached: Option[Long] = None,
-      cached_input_tokens: Option[Long] = None
+      cached_input_tokens: Option[Long] = None,
+      total_tokens: Option[Long] = None
   ) derives ConfiguredJsonValueCodec
 
   private case class ResultWire(

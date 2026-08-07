@@ -11,6 +11,7 @@ import orca.backend.{
   SessionSupport
 }
 import orca.events.{OrcaEvent, OrcaListener, Usage}
+import orca.testkit.Usages.usage
 import ox.scheduling.Schedule
 
 import scala.concurrent.duration.DurationInt
@@ -181,7 +182,7 @@ class BaseAgentTest extends munit.FunSuite:
     val seen =
       new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
     val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
-    val spent = Usage(120L, 8L, Some(BigDecimal("0.0031")))
+    val spent = usage(120L, 8L, Some(BigDecimal("0.0031")))
     val tool = new StubTool(
       new FailingBackend(
         new orca.AgentTurnFailed("claude session failed", usage = Some(spent))

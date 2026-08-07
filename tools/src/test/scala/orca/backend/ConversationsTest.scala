@@ -81,7 +81,7 @@ class ConversationsTest extends munit.FunSuite:
   private val sampleResult = AgentResult[BackendTag.Codex.type](
     wireId = WireSessionId[BackendTag.Codex.type]("sid"),
     output = "out",
-    usage = Usage(0L, 0L, None)
+    usage = Usage.empty
   )
 
   test(
