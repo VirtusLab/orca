@@ -64,6 +64,20 @@ class OsGitToolTest extends munit.FunSuite:
     withRepo: (git, _) =>
       assert(git.checkout("ghost").left.exists(_.isInstanceOf[BranchNotFound]))
 
+  test("checkout of a dash-leading name still returns Left(BranchNotFound)"):
+    // The name reaches `git branch --list` in an argument position, so without
+    // a `--` separator git reads it as an unknown switch and exits 129 —
+    // crashing where the contract promises a typed Left.
+    withRepo: (git, _) =>
+      assert(git.checkout("-x").left.exists(_.isInstanceOf[BranchNotFound]))
+
+  test("createBranch of a dash-leading name fails with git's own complaint"):
+    withRepo: (git, dir) =>
+      os.write(dir / "seed.txt", "seed")
+      git.commit("seed").orThrow
+      val ex = intercept[orca.OrcaFlowException](git.createBranch("-x"))
+      assert(ex.getMessage.contains("not a valid branch name"), ex.getMessage)
+
   test("isIgnored is true for a gitignored path and false otherwise"):
     withRepo: (git, dir) =>
       os.write(dir / ".gitignore", ".orca/\n")
@@ -759,6 +773,22 @@ class OsGitToolTest extends munit.FunSuite:
       val out = git.show("HEAD", paths = List("a.txt")).orThrow
       assert(out.contains("a.txt"), out)
       assert(!out.contains("b.txt"), out)
+
+  test("show refuses when no requested path is part of the commit"):
+    // git exits 0 printing nothing here, which as a Right reads as "the commit
+    // did not touch that file" — the wrong answer to a mistyped path.
+    withRepo: (git, dir) =>
+      os.write(dir / "a.txt", "one")
+      git.commit("add a").orThrow
+      val failure = git.show("HEAD", paths = List("nosuch")).left.toOption.get
+      assert(failure.isInstanceOf[GitReadFailed.Refused], failure)
+
+  test("a magic pathspec is rejected before git runs"):
+    // `:(exclude)` inverts the request and `:(top)` escapes the working
+    // directory, so a leading `:` means something other than "this file".
+    withRepo: (git, _) =>
+      val failure = git.show("HEAD", paths = List(":(exclude)x")).left.toOption
+      assert(failure.exists(_.isInstanceOf[GitReadFailed.InvalidPath]), failure)
 
   test("fileAt returns a file's contents as of a commit"):
     withRepo: (git, dir) =>
