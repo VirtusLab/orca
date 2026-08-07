@@ -1462,6 +1462,42 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
     assertEquals(os.read.lines(log).toList, List("ran"))
 
+  test("a failing format command is named in a Step, with its exit code"):
+    val steps = new ReviewLoopFixture.StepCapture
+    given FlowControl = ReviewLoopFixture.control(steps.dispatcher)
+    val reviewer = new FakeAgent("quiet", outputs = List(ReviewResult.empty))
+    val _ = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
+      reviewers = List(reviewer),
+      task = "reported format failure",
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      formatCommands = Configured.Use(List("exit 3")),
+      diff = ReviewDiff.Pinned("")
+    )
+    val emitted = steps.messages
+    assert(
+      emitted.contains("format command failed (exit 3): exit 3"),
+      emitted.mkString("\n")
+    )
+
+  test("a format command that succeeds says nothing"):
+    val steps = new ReviewLoopFixture.StepCapture
+    given FlowControl = ReviewLoopFixture.control(steps.dispatcher)
+    val reviewer = new FakeAgent("quiet", outputs = List(ReviewResult.empty))
+    val _ = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
+      reviewers = List(reviewer),
+      task = "silent format success",
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      formatCommands = Configured.Use(List("true")),
+      diff = ReviewDiff.Pinned("")
+    )
+    val emitted = steps.messages
+    assert(
+      !emitted.exists(_.startsWith("format command failed")),
+      emitted.mkString("\n")
+    )
+
   test(
     "FromSettings + non-empty settings: format commands run in order, lint " +
       "gate built on the lead's cheap tier"

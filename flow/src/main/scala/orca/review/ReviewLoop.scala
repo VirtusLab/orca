@@ -645,10 +645,10 @@ private[review] class ReviewFixLoop[B <: BackendTag](
       state = currentState.afterRound(contributions, lint)
     )
 
-  /** Run the format commands, in order, in `ctx.workDir`. Exit status ignored —
-    * a formatter failure shouldn't abort the review. `mergeErrIntoOut` folds
-    * stderr into captured stdout so neither stream reaches the terminal and
-    * tears the status row.
+  /** Run the format commands, in order, in `ctx.workDir`. A nonzero exit is
+    * reported as a `Step` but never aborts the review, and never stops the
+    * commands after it: a broken formatter degrades the run, it doesn't end it.
+    * The Step repeats every round the command keeps failing.
     *
     * Takes [[WorkspaceWrite]] because it rewrites the tree (ADR 0018 §2.2), and
     * because that token is fork-opaque: moving this step into the reviewer
@@ -657,9 +657,13 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     */
   private def formatWorkspace()(using WorkspaceWrite): Unit =
     formatCommands.foreach: cmd =>
-      val _ = os
-        .proc("bash", "-c", cmd)
-        .call(cwd = ctx.workDir, check = false, mergeErrIntoOut = true)
+      val result = runShell(cmd)
+      if result.exitCode != 0 then
+        ctx.emit(
+          OrcaEvent.Step(
+            s"format command failed (exit ${result.exitCode}): $cmd"
+          )
+        )
 
   private def evaluate(
       state: ReviewLoopState,
