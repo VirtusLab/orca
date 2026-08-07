@@ -430,6 +430,77 @@ class DefaultAgentCallTest extends munit.FunSuite:
         s"expected the original AgentTurnFailed as cause; got: ${ex.getCause}"
       )
 
+  // `Unobserved` claims the protocol reported nothing, so nothing may be
+  // emitted: an all-zero TokensUsed would read as a turn measured at zero.
+  test("an Unobserved debit emits no TokensUsed"):
+    val seen = new AtomicReference[List[OrcaEvent]](Nil)
+    val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
+    val backend = new SequencedBackend(Nil):
+      override def runAutonomous(
+          prompt: String,
+          session: SessionId[BackendTag.ClaudeCode.type],
+          config: AgentConfig,
+          events: OrcaListener,
+          outputSchema: Option[String]
+      ): AgentResult[BackendTag.ClaudeCode.type] =
+        throw new AgentTurnFailed("no usage on the wire", TurnDebit.Unobserved)
+    supervised:
+      val _ = intercept[AgentTurnFailed]:
+        new DefaultAgentCall[BackendTag.ClaudeCode.type, Answer](
+          backend = backend,
+          effectiveConfig = cfg => cfg.getOrElse(AgentConfig()),
+          prompts = DefaultPrompts,
+          events = listener,
+          interaction = stubInteraction,
+          agentName = "claude"
+        ).autonomous.run("anything")
+      assertEquals(
+        seen.get().collect { case t: OrcaEvent.TokensUsed => t },
+        Nil
+      )
+
+  // The only failure route that does attempt arithmetic: a retry re-sends the
+  // prompt, so the failed second turn is attempt 2 and separable from the first.
+  test("a retry that fails after the model ran debits the second attempt"):
+    val seen = new AtomicReference[List[OrcaEvent]](Nil)
+    val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
+    val spent = usage(70L, 6L)
+    val calls = new AtomicInteger(0)
+    // Turn 1 runs and returns unparseable output; the corrective retry's turn
+    // runs too, then fails with what it spent.
+    val backend = new SequencedBackend(List("not json")):
+      override def runAutonomous(
+          prompt: String,
+          session: SessionId[BackendTag.ClaudeCode.type],
+          config: AgentConfig,
+          events: OrcaListener,
+          outputSchema: Option[String]
+      ): AgentResult[BackendTag.ClaudeCode.type] =
+        if calls.incrementAndGet() == 1 then
+          super.runAutonomous(prompt, session, config, events, outputSchema)
+        else
+          throw new AgentTurnFailed(
+            "provider error",
+            TurnDebit.Observed(spent, None)
+          )
+    supervised:
+      val _ = intercept[AgentTurnFailed]:
+        new DefaultAgentCall[BackendTag.ClaudeCode.type, Answer](
+          backend = backend,
+          effectiveConfig =
+            cfg => cfg.getOrElse(AgentConfig()).copy(retrySchedule = fastRetry),
+          prompts = DefaultPrompts,
+          events = listener,
+          interaction = stubInteraction,
+          agentName = "claude"
+        ).autonomous.run("anything")
+      assertEquals(
+        seen.get().reverse.collect { case t: OrcaEvent.TokensUsed =>
+          t.attempt
+        },
+        List(1, 2)
+      )
+
   test(
     "autonomous still retries a non-AgentTurnFailed backend failure"
   ):

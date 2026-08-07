@@ -2,7 +2,6 @@ package orca.events
 
 import orca.agents.Model
 
-import java.time.LocalDate
 import java.util.concurrent.atomic.AtomicReference
 
 /** Listener that accumulates `TokensUsed` events along three independent axes —
@@ -10,16 +9,16 @@ import java.util.concurrent.atomic.AtomicReference
   * so the tracker is safe to register across concurrent LLM calls.
   *
   * Cost comes off the event, resolved once for the whole run by
-  * [[CostResolvingDispatcher]]. Estimated figures are flagged, and the legend
-  * shows `ratesAsOf` so a stale snapshot is obvious.
+  * [[CostResolvingDispatcher]]; `pricing` is read for its `lastUpdated` alone,
+  * so the legend can't advertise a date from a different table than the one the
+  * run priced with.
   *
   * All axes share the same underlying calls, so summing any of the maps yields
   * the grand total. The `model` axis keys on `Option[Model]` because the
   * reported model isn't always present; the summary surfaces the missing case
   * as `(unknown)`.
   */
-class CostTracker(ratesAsOf: LocalDate = Pricing.default.lastUpdated)
-    extends OrcaListener:
+class CostTracker(pricing: PriceList = Pricing.default) extends OrcaListener:
 
   /** One bucket's running total. Keeping the usage and the cost of the same
     * calls in one value is what stops the two drifting apart per axis.
@@ -151,7 +150,7 @@ class CostTracker(ratesAsOf: LocalDate = Pricing.default.lastUpdated)
       val legend =
         if hasEstimate then
           s"\n\n* estimated from the pricing table " +
-            s"(rates as of $ratesAsOf — may be stale)"
+            s"(rates as of ${pricing.lastUpdated} — may be stale)"
         else ""
       s"""By agent:
          |${agentLines.mkString("\n")}

@@ -1,6 +1,8 @@
 package orca.tools.opencode
 
 import orca.AgentTurnFailed
+import orca.agents.Model
+import orca.events.{TurnDebit, Usage}
 import orca.backend.{
   ApprovalDecision,
   ConversationEvent,
@@ -251,6 +253,48 @@ class OpencodeConversationTest extends munit.FunSuite:
     )
     conv.events.foreach(_ => ())
     intercept[AgentTurnFailed](conv.awaitResult())
+
+  // An assistant message with no `tokens` measured nothing; an all-zero debit
+  // would be indistinguishable from a turn measured at zero.
+  convTest("a failed turn whose message reported no tokens debits nothing"):
+    val (conv, _) = conversation(
+      List(
+        data(
+          """{"type":"message.updated","properties":{"info":{"role":"assistant","sessionID":"ses_A","modelID":"gpt-4o-mini","error":{"message":"model exploded"}}}}"""
+        ),
+        data("""{"type":"session.idle","properties":{"sessionID":"ses_A"}}""")
+      )
+    )
+    conv.events.foreach(_ => ())
+    val failure = intercept[AgentTurnFailed](conv.awaitResult())
+    assertEquals(failure.debit, TurnDebit.Unobserved)
+
+  convTest("a failed turn debits the tokens its message did report"):
+    val (conv, _) = conversation(
+      List(
+        data(
+          """{"type":"message.updated","properties":{"info":{"role":"assistant","sessionID":"ses_A","modelID":"gpt-4o-mini","tokens":{"input":10,"output":2,"reasoning":0,"cache":{"read":1,"write":3}},"error":{"message":"model exploded"}}}}"""
+        ),
+        data("""{"type":"session.idle","properties":{"sessionID":"ses_A"}}""")
+      )
+    )
+    conv.events.foreach(_ => ())
+    val failure = intercept[AgentTurnFailed](conv.awaitResult())
+    assertEquals(
+      failure.debit,
+      TurnDebit.Observed(
+        Usage(
+          freshInputTokens = 10L,
+          cacheReadInputTokens = 1L,
+          cacheWriteInputTokens = 3L,
+          outputTokens = 2L,
+          reasoningOutputTokens = 0L,
+          cost = None,
+          apiCalls = None
+        ),
+        Some(Model("gpt-4o-mini"))
+      )
+    )
 
   convTest(
     "a failure settle after assistant activity still emits AssistantTurnEnd"

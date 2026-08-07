@@ -26,9 +26,7 @@ private[orca] class TurnAccounting[B <: BackendTag](
   // Resolved per emission, not once at construction: for a server-minted id the
   // key only becomes the wire id once the turn commits it, and a turn must name
   // the same key `SessionCommitted` is deduplicated under.
-  private def sessionKey: Option[String] = Some(
-    backend.sessions.sessionKey(session)
-  )
+  private def sessionKey: String = backend.sessions.sessionKey(session)
 
   /** `attempt` is the turn's 1-based position among the turns of this call; a
     * path that never retries passes 1.
@@ -83,7 +81,7 @@ private[orca] class TurnAccounting[B <: BackendTag](
         usage = usage,
         role = role,
         attempt = attempt,
-        session = sessionKey
+        session = Some(sessionKey)
       )
     )
 

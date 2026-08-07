@@ -17,7 +17,7 @@ import java.util.concurrent.atomic.AtomicReference
 
 class CostResolvingDispatcherTest extends munit.FunSuite:
 
-  private val table = PriceList(
+  private val prices = PriceList(
     Map(Model("opus") -> ModelPricing(1, BigDecimal("0.10"), 5, 2)),
     lastUpdated = LocalDate.of(2026, 1, 15)
   )
@@ -32,7 +32,7 @@ class CostResolvingDispatcherTest extends munit.FunSuite:
     val first = AtomicReference[List[OrcaEvent]](Nil)
     val second = AtomicReference[List[OrcaEvent]](Nil)
     val dispatcher = new CostResolvingDispatcher(
-      table,
+      prices,
       new EventDispatcher(List(recorder(first), recorder(second)))
     )
     dispatcher.onEvent(
@@ -50,6 +50,6 @@ class CostResolvingDispatcherTest extends munit.FunSuite:
 
   test("an event that isn't a turn passes through untouched"):
     val seen = AtomicReference[List[OrcaEvent]](Nil)
-    val dispatcher = new CostResolvingDispatcher(table, recorder(seen))
+    val dispatcher = new CostResolvingDispatcher(prices, recorder(seen))
     dispatcher.onEvent(OrcaEvent.Step("hi"))
     assertEquals(seen.get(), List(OrcaEvent.Step("hi")))

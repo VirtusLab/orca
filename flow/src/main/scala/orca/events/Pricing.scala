@@ -62,11 +62,10 @@ object Pricing:
     */
   private val DateSuffix: Regex = """^-\d{8}$""".r
 
-  /** Suffixes that spell the SAME model at the SAME price, stripped so one row
-    * prices every spelling. Today just `[1m]`, the CLI's 1M-context spelling of
-    * a Claude model, which costs what the base row costs.
+  /** The CLI's 1M-context spelling of a Claude model, which costs what the base
+    * row costs — so one row prices both spellings.
     */
-  private val AliasSuffixes: List[String] = List("[1m]")
+  private val AliasSuffix: String = "[1m]"
 
   /** Anthropic's published ratios: cache read 0.10x input, output 5x, cache
     * write 2x — the one-hour-TTL tier Claude Code requests (see the measured
@@ -94,18 +93,22 @@ object Pricing:
       .orElse(estimate(table, model, usage).map(Cost(_, estimated = true)))
 
   /** Compute an estimated cost for one call from `usage` and the price for
-    * `model`. Returns `None` when `model` is missing or absent from `table`.
+    * `model`. Returns `None` when `model` is missing, absent from `table`, or
+    * the call spent no tokens at all — a zero estimate would be a `Cost` whose
+    * `estimated` flag relabels the whole run's total, having priced nothing.
     *
     * Looks up `model` exactly first, then falls back to the longest entry in
     * `table` that prefixes `model` — so a date-suffixed id like
     * `claude-sonnet-4-6-20251015` matches the `claude-sonnet-4-6` entry.
     */
-  def estimate(
+  private def estimate(
       table: PricingTable,
       model: Option[Model],
       usage: Usage
   ): Option[BigDecimal] =
-    model
+    Option
+      .when(usage.inputTokens > 0 || usage.outputTokens > 0)(model)
+      .flatten
       .flatMap(lookup(table, _))
       .map: p =>
         val million = BigDecimal(1_000_000)
@@ -130,9 +133,10 @@ object Pricing:
       model: Model
   ): Option[ModelPricing] =
     exactOrDated(table, model).orElse:
-      val stripped = AliasSuffixes.foldLeft(model.name)(_.stripSuffix(_))
       Option
-        .when(stripped != model.name)(Model(stripped))
+        .when(model.name.endsWith(AliasSuffix))(
+          Model(model.name.stripSuffix(AliasSuffix))
+        )
         .flatMap(exactOrDated(table, _))
 
   private def exactOrDated(

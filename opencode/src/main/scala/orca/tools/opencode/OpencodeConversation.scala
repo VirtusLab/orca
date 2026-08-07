@@ -155,28 +155,33 @@ private[opencode] class OpencodeConversation(
     settleSuccess(
       wireId = session,
       output = structured.getOrElse(turnState.text.mkString),
-      usage = info.fold(Usage.empty)(usageOf),
+      usage = info.flatMap(usageOf).getOrElse(Usage.empty),
       modelId = info.flatMap(_.modelID)
     )
 
   /** The assistant message is refreshed by every `message.updated` frame, so a
     * turn that errors part-way still carries whatever it had spent by then.
+    * Keyed on the token counts, not on the message: an assistant message that
+    * arrived without any is nothing measured, and an all-zero `TokensUsed`
+    * would read as a measured zero.
     */
   override protected def failedTurnDebit: TurnDebit =
-    turnState.info.fold(TurnDebit.Unobserved): info =>
-      TurnDebit.Observed(usageOf(info), info.modelID.map(Model.apply))
+    turnState.info
+      .flatMap(info => usageOf(info).map((_, info.modelID)))
+      .fold(TurnDebit.Unobserved): (usage, modelID) =>
+        TurnDebit.Observed(usage, modelID.map(Model.apply))
 
-  private def usageOf(info: AssistantInfo): Usage =
-    val tokens = info.tokens
-    Usage(
-      freshInputTokens = tokens.map(_.input).getOrElse(0L),
-      cacheReadInputTokens = tokens.map(_.cache.read).getOrElse(0L),
-      cacheWriteInputTokens = tokens.map(_.cache.write).getOrElse(0L),
-      outputTokens = tokens.map(_.output).getOrElse(0L),
-      reasoningOutputTokens = tokens.map(_.reasoning).getOrElse(0L),
-      cost = info.cost,
-      apiCalls = None
-    )
+  private def usageOf(info: AssistantInfo): Option[Usage] =
+    info.tokens.map: tokens =>
+      Usage(
+        freshInputTokens = tokens.input,
+        cacheReadInputTokens = tokens.cache.read,
+        cacheWriteInputTokens = tokens.cache.write,
+        outputTokens = tokens.output,
+        reasoningOutputTokens = tokens.reasoning,
+        cost = info.cost,
+        apiCalls = None
+      )
 
   private def questionText(req: QuestionRequest): String =
     req.questions.headOption.map(_.question).getOrElse("")
