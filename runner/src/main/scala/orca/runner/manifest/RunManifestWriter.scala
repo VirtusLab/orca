@@ -76,13 +76,12 @@ private class ActorRunManifestWriter(actor: ActorRef[RunManifestWriterState])
 /** Mutable manifest-building state — not thread-safe in isolation.
   * [[ActorRunManifestWriter]] serialises every call onto one actor thread:
   * `onEvent` is a `tell` (fire-and-forget, though a full mailbox blocks the
-  * emitter — every event now writes, but turns arrive seconds apart and an
-  * append is one small write, so the queue still drains far faster than it
-  * fills) and `finish` is an `ask` (its write must land before `flow()` moves
-  * on to the cost summary). Every write is guarded internally ([[safeWrite]])
-  * so a transient failure can't quarantine the writer or throw out of a
-  * `tell`'s handler. Tests construct this directly and drive events
-  * synchronously.
+  * emitter — every event writes, but turns arrive seconds apart and an append
+  * is one small write, so the queue still drains far faster than it fills) and
+  * `finish` is an `ask` (its write must land before `flow()` moves on to the
+  * cost summary). Every write is guarded internally ([[safeWrite]]) so a
+  * transient failure can't quarantine the writer or throw out of a `tell`'s
+  * handler. Tests construct this directly and drive events synchronously.
   *
   * The two files have separate creation gates: the manifest appears on the
   * first `SessionCommitted` (a session-less run offers nothing to continue —

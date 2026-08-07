@@ -62,6 +62,24 @@ object Pricing:
     */
   private val DateSuffix: Regex = """^-\d{8}$""".r
 
+  /** Suffixes that spell the SAME model at the SAME price, stripped so one row
+    * prices every spelling. Today just `[1m]`, the CLI's 1M-context spelling of
+    * a Claude model, which costs what the base row costs.
+    */
+  private val AliasSuffixes: List[String] = List("[1m]")
+
+  /** Anthropic's published ratios: cache read 0.10x input, output 5x, cache
+    * write 2x — the one-hour-TTL tier Claude Code requests (see the measured
+    * runs noted on [[default]]).
+    */
+  private def anthropic(inputUsdPerMillion: BigDecimal): ModelPricing =
+    ModelPricing(
+      inputUsdPerMillion = inputUsdPerMillion,
+      cacheReadUsdPerMillion = inputUsdPerMillion * BigDecimal("0.10"),
+      outputUsdPerMillion = inputUsdPerMillion * 5,
+      cacheWriteUsdPerMillion = inputUsdPerMillion * 2
+    )
+
   /** Resolve one call's cost: the figure the backend reported if there is one,
     * an [[estimate]] from `table` otherwise, `None` when neither is available.
     * The single home for the reported-vs-estimated decision.
@@ -103,7 +121,21 @@ object Pricing:
           BigDecimal(usage.outputTokens) * p.outputUsdPerMillion / million
         inputCost + cacheReadCost + cacheWriteCost + outputCost
 
+  /** Exact match, then the dated-snapshot prefix bridge, then the same lookup
+    * again on the alias-stripped id. The alias strip runs LAST so a future
+    * 1M-context model that prices differently wins with its own explicit row.
+    */
   private def lookup(
+      table: PricingTable,
+      model: Model
+  ): Option[ModelPricing] =
+    exactOrDated(table, model).orElse:
+      val stripped = AliasSuffixes.foldLeft(model.name)(_.stripSuffix(_))
+      Option
+        .when(stripped != model.name)(Model(stripped))
+        .flatMap(exactOrDated(table, _))
+
+  private def exactOrDated(
       table: PricingTable,
       model: Model
   ): Option[ModelPricing] =
@@ -126,98 +158,27 @@ object Pricing:
     table = Map(
       // --- Anthropic ---
       // Claude reports `total_cost_usd` from the CLI, so these are mostly
-      // safety nets for sessions that didn't surface the field. Cache-write
-      // rates are the one-hour-TTL tier (2× base input): Claude Code requests
-      // `ttl: "1h"`, and the CLI's own usage breakdown confirms it — across
-      // measured runs every cache-creation token landed in
+      // safety nets for sessions that didn't surface the field — and the CLI
+      // computes that figure at these same sticker rates. Anthropic's
+      // published introductory Sonnet $2/$10 ends 2026-08-31.
+      // Cache-write rates are the one-hour-TTL tier (2x base input): Claude
+      // Code requests `ttl: "1h"`, and the CLI's own usage breakdown confirms
+      // it — across measured runs every cache-creation token landed in
       // `cache_creation.ephemeral_1h_input_tokens` and none in the 5m bucket.
       // A backend that asks for the five-minute TTL instead (pi's default,
-      // unless PI_CACHE_RETENTION=long) bills 1.25× — $6.25 Opus, $3.75
-      // Sonnet, $1.25 Haiku, $12.50 Fable — so override the table for
+      // unless PI_CACHE_RETENTION=long) bills 1.25x, so override the table for
       // pi-heavy use.
-      Model("claude-fable-5") -> ModelPricing(
-        inputUsdPerMillion = 10,
-        cacheReadUsdPerMillion = 1.00,
-        outputUsdPerMillion = 50,
-        cacheWriteUsdPerMillion = 20
-      ),
-      // `[1m]` is the CLI's 1M-context spelling of the same model at the same
-      // price; the suffix isn't a date, so `lookup` won't bridge it — hence its
-      // own row.
-      Model("claude-opus-5") -> ModelPricing(
-        inputUsdPerMillion = 5,
-        cacheReadUsdPerMillion = 0.50,
-        outputUsdPerMillion = 25,
-        cacheWriteUsdPerMillion = 10
-      ),
-      Model("claude-opus-5[1m]") -> ModelPricing(
-        inputUsdPerMillion = 5,
-        cacheReadUsdPerMillion = 0.50,
-        outputUsdPerMillion = 25,
-        cacheWriteUsdPerMillion = 10
-      ),
-      Model("claude-opus-4-8") -> ModelPricing(
-        inputUsdPerMillion = 5,
-        cacheReadUsdPerMillion = 0.50,
-        outputUsdPerMillion = 25,
-        cacheWriteUsdPerMillion = 10
-      ),
-      Model("claude-opus-4-8[1m]") -> ModelPricing(
-        inputUsdPerMillion = 5,
-        cacheReadUsdPerMillion = 0.50,
-        outputUsdPerMillion = 25,
-        cacheWriteUsdPerMillion = 10
-      ),
-      Model("claude-opus-4-7") -> ModelPricing(
-        inputUsdPerMillion = 5,
-        cacheReadUsdPerMillion = 0.50,
-        outputUsdPerMillion = 25,
-        cacheWriteUsdPerMillion = 10
-      ),
-      Model("claude-opus-4-6") -> ModelPricing(
-        inputUsdPerMillion = 5,
-        cacheReadUsdPerMillion = 0.50,
-        outputUsdPerMillion = 25,
-        cacheWriteUsdPerMillion = 10
-      ),
-      Model("claude-opus-4-5") -> ModelPricing(
-        inputUsdPerMillion = 5,
-        cacheReadUsdPerMillion = 0.50,
-        outputUsdPerMillion = 25,
-        cacheWriteUsdPerMillion = 10
-      ),
-      Model("claude-opus-4-1") -> ModelPricing(
-        inputUsdPerMillion = 15,
-        cacheReadUsdPerMillion = 1.50,
-        outputUsdPerMillion = 75,
-        cacheWriteUsdPerMillion = 30
-      ),
-      // The CLI computes the `total_cost_usd` it reports at these sticker
-      // rates; Anthropic's published introductory $2/$10 ends 2026-08-31.
-      Model("claude-sonnet-5") -> ModelPricing(
-        inputUsdPerMillion = 3,
-        cacheReadUsdPerMillion = 0.30,
-        outputUsdPerMillion = 15,
-        cacheWriteUsdPerMillion = 6
-      ),
-      Model("claude-sonnet-4-6") -> ModelPricing(
-        inputUsdPerMillion = 3,
-        cacheReadUsdPerMillion = 0.30,
-        outputUsdPerMillion = 15,
-        cacheWriteUsdPerMillion = 6
-      ),
-      Model("claude-sonnet-4-5") -> ModelPricing(
-        inputUsdPerMillion = 3,
-        cacheReadUsdPerMillion = 0.30,
-        outputUsdPerMillion = 15,
-        cacheWriteUsdPerMillion = 6
-      ),
-      Model("claude-haiku-4-5") -> ModelPricing(
-        inputUsdPerMillion = 1,
-        cacheReadUsdPerMillion = 0.10,
-        outputUsdPerMillion = 5,
-        cacheWriteUsdPerMillion = 2
-      ),
+      Model("claude-fable-5") -> anthropic(10),
+      Model("claude-opus-5") -> anthropic(5),
+      Model("claude-opus-4-8") -> anthropic(5),
+      Model("claude-opus-4-7") -> anthropic(5),
+      Model("claude-opus-4-6") -> anthropic(5),
+      Model("claude-opus-4-5") -> anthropic(5),
+      Model("claude-opus-4-1") -> anthropic(15),
+      Model("claude-sonnet-5") -> anthropic(3),
+      Model("claude-sonnet-4-6") -> anthropic(3),
+      Model("claude-sonnet-4-5") -> anthropic(3),
+      Model("claude-haiku-4-5") -> anthropic(1),
       // --- OpenAI (codex, opencode) ---
       // The GPT-5.6 family prices cache writes separately, at 1.25× input;
       // earlier models have no write charge, so their rate is plain input.

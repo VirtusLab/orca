@@ -53,8 +53,8 @@ private[orca] enum CostRecord:
   /** Written once, before the first turn. `orcaVersion` and `flow` have nowhere
     * else to live for a run that spends tokens without ever committing a
     * session, since such a run writes no [[RunManifest]] at all. `workDir` is
-    * recoverable from the file's own path, and repeated anyway because a cost
-    * log routinely gets copied out of its directory into a research note.
+    * recoverable from the file's own path; repeated so the log is
+    * self-contained when copied.
     */
   case Run(orcaVersion: String, flow: Option[String], workDir: String)
 
@@ -81,8 +81,7 @@ private[orca] enum CostRecord:
 
   /** Written by `RunManifestWriter.finish`. Distinguishes a succeeded run from
     * a failed one for a turn-only run, whose `outcome` has no other home — a
-    * distinction that changes how the run's spend reads. (Whether a run ended
-    * at all is answerable without this, from the pid in the filename.)
+    * distinction that changes how the run's spend reads.
     */
   case Finish(at: String, outcome: String)
 

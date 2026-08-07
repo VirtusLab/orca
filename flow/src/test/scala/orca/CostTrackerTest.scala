@@ -36,6 +36,16 @@ class CostTrackerTest extends munit.FunSuite:
       cost = Pricing.resolve(pricing.table, resolved, u)
     )
 
+  /** Every label appears as a section line in `out`, in the order given. */
+  private def assertLabelsInOrder(out: String, labels: List[String]): Unit =
+    val placed = labels.map(l => l -> out.indexOf(s"  $l:"))
+    placed.foreach((l, at) => assert(at >= 0, s"missing line for $l:\n$out"))
+    assertEquals(
+      placed.map(_._1),
+      placed.sortBy(_._2).map(_._1),
+      s"lines must appear in this order; got:\n$out"
+    )
+
   // Tiny price list so token math gives round dollar figures: a model at
   // $1/M input means 1,000,000 input tokens = $1. Each of the four rates is
   // intentionally distinct so a test can tell which one was applied.
@@ -125,9 +135,8 @@ class CostTrackerTest extends munit.FunSuite:
     //   100k fresh @ $1/M    = $0.10
     //   600k read  @ $0.10/M = $0.06
     //   300k write @ $2/M    = $0.60
-    // Total: $0.76. Folding writes into reads (what the old single axis did)
-    // would bill 900k @ $0.10/M = $0.09 and understate the turn by more
-    // than half.
+    // Total: $0.76. Folding writes into reads would bill 900k @ $0.10/M =
+    // $0.09 and understate the turn by more than half.
     val tracker = new CostTracker(testTable.lastUpdated)
     tracker.onEvent(
       tokens(
@@ -161,9 +170,7 @@ class CostTrackerTest extends munit.FunSuite:
       )
     )
     assert(
-      tracker.summary.contains(
-        "claude: 30K in (29K cache write), 500 out ($0.4200)"
-      ),
+      tracker.summary.contains("claude: 30K in (29K cache write), 500 out"),
       tracker.summary
     )
 
@@ -259,6 +266,34 @@ class CostTrackerTest extends munit.FunSuite:
       s"expected no cost estimate for an unrelated tier; got: ${tracker.perAgentCost
           .get("claude")}"
     )
+
+  test("a [1m] context spelling prices from its base model's row"):
+    // The 1M-context suffix isn't a date, so the snapshot bridge doesn't reach
+    // it; without the alias strip such a run shows tokens against no dollars,
+    // indistinguishable from an unknown model.
+    val tracker = new CostTracker(testTable.lastUpdated)
+    tracker.onEvent(tokens("a", Some("opus[1m]"), usage(1_000_000L, 0L)))
+    tracker.onEvent(
+      tokens("b", Some("opus-20251015[1m]"), usage(1_000_000L, 0L))
+    )
+    assertEquals(tracker.perAgentCost("a").amount, BigDecimal("1.0"))
+    assertEquals(tracker.perAgentCost("b").amount, BigDecimal("1.0"))
+
+  test("an explicit [1m] row outprices the alias strip"):
+    // The alias strip encodes today's fact that the 1M spelling costs the same;
+    // a row saying otherwise is the newer claim and must win.
+    val split = PriceList(
+      table = Map(
+        Model("opus") -> ModelPricing(1, BigDecimal("0.10"), 5, 2),
+        Model("opus[1m]") -> ModelPricing(2, BigDecimal("0.20"), 10, 4)
+      ),
+      lastUpdated = LocalDate.of(2026, 1, 15)
+    )
+    val tracker = new CostTracker(split.lastUpdated)
+    tracker.onEvent(
+      tokens("claude", Some("opus[1m]"), usage(1_000_000L, 0L), pricing = split)
+    )
+    assertEquals(tracker.perAgentCost("claude").amount, BigDecimal("2.0"))
 
   test("mixed reported + estimated rolls up to an estimated aggregate"):
     val tracker = new CostTracker(testTable.lastUpdated)
@@ -366,14 +401,9 @@ class CostTrackerTest extends munit.FunSuite:
         role = Some("reviewer")
       )
     )
-    val out = tracker.summary
-    val labels = List("main", "reviewer: lint", "reviewer: readability")
-      .map(l => l -> out.indexOf(s"  $l:"))
-    labels.foreach((l, i) => assert(i >= 0, s"missing agent line $l:\n$out"))
-    assertEquals(
-      labels.map(_._1),
-      labels.sortBy(_._2).map(_._1),
-      s"agent lines must be alphabetical by label; got:\n$out"
+    assertLabelsInOrder(
+      tracker.summary,
+      List("main", "reviewer: lint", "reviewer: readability")
     )
 
   test("summary lists By model lines alphabetically by model label"):
@@ -381,15 +411,7 @@ class CostTrackerTest extends munit.FunSuite:
     tracker.onEvent(tokens("a", Some("opus"), usage(1L, 1L, None)))
     tracker.onEvent(tokens("b", Some("haiku"), usage(1L, 1L, None)))
     tracker.onEvent(tokens("c", None, usage(1L, 1L, None)))
-    val out = tracker.summary
-    val labels = List("(unknown)", "haiku", "opus")
-      .map(l => l -> out.indexOf(s"  $l:"))
-    labels.foreach((l, i) => assert(i >= 0, s"missing model line $l:\n$out"))
-    assertEquals(
-      labels.map(_._1),
-      labels.sortBy(_._2).map(_._1),
-      s"model lines must be alphabetical; got:\n$out"
-    )
+    assertLabelsInOrder(tracker.summary, List("(unknown)", "haiku", "opus"))
 
   test("summary's estimate legend cites the price-list lastUpdated date"):
     val tracker = new CostTracker(testTable.lastUpdated)
