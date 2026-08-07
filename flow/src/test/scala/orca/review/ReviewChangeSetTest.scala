@@ -184,6 +184,45 @@ class ReviewChangeSetTest extends munit.FunSuite:
     assert(resumePrompt.contains("big.scala"), resumePrompt)
     assert(!resumePrompt.contains("// line 2999"), resumePrompt)
 
+  test("after a paths-only round an unchanged sample points at the file list"):
+    val (ctx, dir) = stagingControl()
+    // Round two's change set is past the inline threshold, so only paths reach
+    // the reviewer. The fixer then claims a fix without touching the tree, so
+    // round three re-samples the same bytes — and must point the reviewer back
+    // at the file list it holds, not at a diff it was never sent.
+    val big = (1 to 3000).map(i => s"// line $i").mkString("\n")
+    val reviewer = new FakeAgent(
+      "r",
+      outputs = List(
+        ReviewResult(List(bug("real bug"))),
+        ReviewResult(List(bug("real bug"))),
+        ReviewResult.empty
+      )
+    )
+    val committed = new java.util.concurrent.atomic.AtomicBoolean(false)
+    val coder = new FakeAgent(
+      "coder",
+      outputs = List.fill(2)(FixOutcome(List(Title("real bug")), Nil)),
+      onRun = () =>
+        if committed.compareAndSet(false, true) then
+          commit(dir, "big.scala", big)
+    )
+    given FlowControl = ctx
+    stage("implement the widget"):
+      val _ = reviewAndFixLoop(
+        coderSession = ReviewLoopFixture.coderSession(coder),
+        reviewers = List(reviewer),
+        task = "build the widget",
+        reviewerSelection = ReviewerSelector.allEveryRound
+      )
+    val lastPrompt = reviewer.seenPrompts
+      .lift(2)
+      .getOrElse(fail("the reviewer ran fewer than three rounds"))
+    assert(
+      lastPrompt.contains("the file list already in this conversation"),
+      lastPrompt
+    )
+
   test("an initial diff past the cap still names every file it leaves out"):
     // The cap's whole point: whatever the change set's size, the reviewer's
     // first prompt covers all of it — the files it shows plus the files it

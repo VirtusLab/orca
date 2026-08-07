@@ -34,10 +34,7 @@ final class RosterEntry[B <: BackendTag] private[review] (
   def name: String = agent.name
 
 private[review] object RosterEntry:
-  /** Wrap a roster agent, binding its backend tag so the entry's `agent` and
-    * any session paired with it in the loop's state share one `B` by
-    * construction.
-    */
+  /** Wrap a roster agent, binding its backend tag into the entry's `B`. */
   def wrap(a: Agent[?], id: ReviewerId): RosterEntry[?] =
     a match
       case a: Agent[b] => new RosterEntry[b](a, id)

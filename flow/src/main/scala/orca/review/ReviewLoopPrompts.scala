@@ -148,10 +148,14 @@ object ReviewLoopPrompts:
           "them directly. Do not use `git diff HEAD` instead — it does not " +
           s"show work that has been committed:\n\n" +
           paths.map("- " + _).mkString("\n")
-      case ReReviewChanges.AlreadySeen =>
+      case ReReviewChanges.AlreadySeen(LastSent.Inline(_)) =>
         "No new change set this round — the diff already in this conversation " +
           "is the one under review. Check the code itself to see whether your " +
           "earlier findings still stand."
+      case ReReviewChanges.AlreadySeen(LastSent.PathsOnly(_)) =>
+        "No new change set this round — the file list already in this " +
+          "conversation still describes the change set. Re-read those files " +
+          "to see whether your earlier findings still stand."
 
   /** The diff as a fenced block, or a note when nothing could be sampled. An
     * empty sample means the loop couldn't describe the change, not that none
@@ -162,6 +166,14 @@ object ReviewLoopPrompts:
       "(no change set could be sampled — do not conclude that nothing " +
         "changed; inspect the code the task describes)"
     else s"```diff\n$diff\n```"
+
+/** What the reviewer was last sent about the change set: the diff text it
+  * compares against, and whether that text or only its paths reached the
+  * conversation.
+  */
+private[review] enum LastSent(val diff: String):
+  case Inline(d: String) extends LastSent(d)
+  case PathsOnly(d: String) extends LastSent(d)
 
 /** What a resumed reviewer is told about the change set this round.
   *
@@ -181,8 +193,11 @@ private[review] enum ReReviewChanges:
     */
   case TooLarge(paths: List[String])
 
-  /** Byte-identical to what this reviewer already holds, so nothing is sent. */
-  case AlreadySeen
+  /** Byte-identical to what this reviewer already holds, so nothing is sent.
+    * Carries how that change set reached the conversation: after a [[TooLarge]]
+    * round only the paths are there to point back at.
+    */
+  case AlreadySeen(last: LastSent)
 
 private[review] object ReReviewChanges:
   /** Max diff length (chars) inlined into a re-review prompt. Above it the
@@ -202,7 +217,7 @@ private[review] object ReReviewChanges:
     * reaches [[TooLarge]]: pinned samples are byte-identical every round, so a
     * resume always classifies [[AlreadySeen]].
     */
-  def of(previous: String, current: DiffSample): ReReviewChanges =
-    if current.diff == previous then AlreadySeen
+  def of(previous: LastSent, current: DiffSample): ReReviewChanges =
+    if current.diff == previous.diff then AlreadySeen(previous)
     else if current.diff.length > InlineThreshold then TooLarge(current.paths)
     else Updated(current.diff)
