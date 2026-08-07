@@ -25,14 +25,28 @@ class PricingTest extends munit.FunSuite:
       Pricing.resolve(
         table,
         model,
-        usage(1_000_000L, 500_000L, cost = Some(BigDecimal(0)))
+        usage(input = 1_000_000L, output = 500_000L, cost = Some(BigDecimal(0)))
       ),
       Some(Cost(BigDecimal("3.5"), estimated = true))
     )
 
+  test("a reported zero on a call with no pricing row resolves to nothing"):
+    assertEquals(
+      Pricing.resolve(
+        table,
+        Some(Model("unlisted")),
+        usage(input = 1_000_000L, output = 500_000L, cost = Some(BigDecimal(0)))
+      ),
+      None
+    )
+
   test("a reported zero on a call that spent nothing is kept as reported"):
     assertEquals(
-      Pricing.resolve(table, model, usage(0L, 0L, cost = Some(BigDecimal(0)))),
+      Pricing.resolve(
+        table,
+        model,
+        usage(input = 0L, output = 0L, cost = Some(BigDecimal(0)))
+      ),
       Some(Cost(BigDecimal(0), estimated = false))
     )
 
@@ -41,7 +55,11 @@ class PricingTest extends munit.FunSuite:
       Pricing.resolve(
         table,
         model,
-        usage(1_000_000L, 500_000L, cost = Some(BigDecimal("0.42")))
+        usage(
+          input = 1_000_000L,
+          output = 500_000L,
+          cost = Some(BigDecimal("0.42"))
+        )
       ),
       Some(Cost(BigDecimal("0.42"), estimated = false))
     )

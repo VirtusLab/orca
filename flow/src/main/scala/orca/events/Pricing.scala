@@ -106,7 +106,7 @@ object Pricing:
       usage: Usage
   ): Option[Cost] =
     usage.cost
-      .filter(amount => amount.signum != 0 || !usage.spentTokens)
+      .filterNot(_.signum == 0 && usage.spentTokens)
       .map(amount => Cost(amount, estimated = false))
       .orElse(estimate(table, model, usage).map(Cost(_, estimated = true)))
 

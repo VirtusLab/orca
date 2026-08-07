@@ -187,7 +187,7 @@ class CostTracker(pricingAsOf: LocalDate) extends OrcaListener:
           s"(rates as of $pricingAsOf — may be stale)"
       ),
       Option.when(s.anyUnpriced)(
-        "some turns had neither a reported cost nor a pricing-table row " +
+        "some turns had no usable cost and no pricing-table row " +
           "— add the model via flow(pricing = …)"
       )
     ).flatten
