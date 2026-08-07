@@ -808,6 +808,24 @@ class CliTest extends munit.FunSuite:
       Left("no sessions recorded yet")
     )
 
+  test("resolveSelection: no selector with only one-shot sessions is an error"):
+    val runs = List(
+      RecordedRun(
+        manifest(
+          startedAt = "2026-07-18T09:00:00Z",
+          sessions = List(
+            durable("plan", "2026-07-18T09:45:00Z")
+              .copy(kind = ManifestSessionKind.OneShot)
+          )
+        ),
+        crashed = false
+      )
+    )
+    assertEquals(
+      SessionPicker.resolveSelection(runs, None),
+      Left("no durable session to continue yet — see `orca continue --list`")
+    )
+
   test(
     "resolveSelection: a numeric selector picks that 1-based row from the full listing"
   ):
