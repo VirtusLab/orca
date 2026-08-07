@@ -1,7 +1,8 @@
 package orca.tools.claude
 
-import orca.agents.{AutoApprove, AgentConfig}
-import orca.events.{Usage}
+import orca.agents.{AutoApprove, AgentConfig, Model}
+import orca.events.{TurnDebit, Usage}
+import orca.testkit.Usages.usage
 import orca.{AgentTurnFailed, OrcaFlowException, OrcaInteractiveCancelled}
 import orca.backend.{
   ApprovalDecision,
@@ -58,7 +59,7 @@ class ClaudeConversationTest extends munit.FunSuite:
     val _ = conv.events.toList
     val Right(result) = conv.awaitResult(): @unchecked
     assertEquals(result.output, "done")
-    assertEquals(result.usage, Usage(5L, 7L, None))
+    assertEquals(result.usage, usage(5L, 7L))
 
   // Nothing on the wire reports how many requests a turn made. The CLI splits
   // one model response into several `assistant` messages sharing one id, and a
@@ -177,20 +178,33 @@ class ClaudeConversationTest extends munit.FunSuite:
 
   // The failing turn's tokens are on the wire in the same `result` frame; the
   // exception is the only way they can still reach the run's cost summary.
-  convTest("is_error carries the result's usage on the thrown failure"):
+  convTest("is_error carries the result's debit on the thrown failure"):
     val process = new FakePipedCliProcess()
     val conv = new ClaudeConversation(process, AgentConfig())
 
     process.enqueueStdout(
-      """{"type":"result","subtype":"error_during_execution","session_id":"sid-cost","is_error":true,"usage":{"input_tokens":11,"output_tokens":3,"cache_read_input_tokens":7},"total_cost_usd":0.25}"""
+      """{"type":"result","subtype":"error_during_execution","session_id":"sid-cost","is_error":true,"usage":{"input_tokens":11,"output_tokens":3,"cache_read_input_tokens":7},"total_cost_usd":0.25,"model":"claude-sonnet-4-6"}"""
     )
     process.closeStdout()
 
     val _ = conv.events.toList
     val failure = intercept[AgentTurnFailed](conv.awaitResult())
     assertEquals(
-      failure.usage,
-      Some(Usage(18L, 3L, Some(BigDecimal("0.25")), 7L))
+      failure.debit,
+      TurnDebit.Observed(
+        // The wire's counts, verbatim: claude's `input_tokens` excludes the
+        // cache categories, so it is the fresh axis.
+        Usage(
+          freshInputTokens = 11L,
+          cacheReadInputTokens = 7L,
+          cacheWriteInputTokens = 0L,
+          outputTokens = 3L,
+          reasoningOutputTokens = 0L,
+          cost = Some(BigDecimal("0.25")),
+          apiCalls = None
+        ),
+        Some(Model("claude-sonnet-4-6"))
+      )
     )
 
   convTest(

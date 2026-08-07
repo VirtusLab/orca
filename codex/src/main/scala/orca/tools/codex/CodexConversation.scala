@@ -2,7 +2,7 @@ package orca.tools.codex
 
 import orca.AgentTurnFailed
 import orca.agents.{BackendTag, Model}
-import orca.events.{Usage}
+import orca.events.{TurnDebit, Usage}
 import orca.backend.ConversationEvent
 import orca.backend.{
   StderrPipeline,
@@ -250,6 +250,12 @@ private[codex] class CodexConversation(
   private def mcpToolName(server: String, tool: String): String =
     s"$server.$tool"
 
+  /** ADR 0007: codex reports usage on `turn.completed` only — a `turn.failed`
+    * or a torn stream carries none, and there is no per-message counter to
+    * accrue along the way.
+    */
+  override protected def failedTurnDebit: TurnDebit = TurnDebit.Unobserved
+
   private def handleTurnCompleted(usage: Usage): Unit =
     settleSuccess(
       wireId = sessionId,
@@ -277,7 +283,12 @@ private[codex] class CodexConversation(
     */
   private def handleTurnFailed(message: String): Unit =
     lastProtocolError = Some(message)
-    failWith(new AgentTurnFailed(appendContext(s"codex turn failed: $message")))
+    failWith(
+      new AgentTurnFailed(
+        appendContext(s"codex turn failed: $message"),
+        failedTurnDebit
+      )
+    )
 
   private def toWire(c: FileChangeDetail): FileChangeWire =
     FileChangeWire(c.path, c.kind)

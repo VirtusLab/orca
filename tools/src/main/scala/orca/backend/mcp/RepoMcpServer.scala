@@ -78,13 +78,11 @@ private[orca] object RepoMcpServer:
       .handle(in => render(git.fileAt(in.rev, in.path)))
     McpHost.start(List(showTool, fileAtTool), ToolTimeout)
 
-  /** Map a read outcome onto MCP's success/error channels, bounding the success
-    * payload.
-    */
+  /** Map a read outcome onto MCP's success/error channels. */
   private type ToolResult = Either[String, String]
 
   private def render(result: Either[GitReadFailed, String]): ToolResult =
-    result.left.map(_.getMessage).map(McpHost.bounded)
+    result.left.map(_.getMessage)
 
   /** System-prompt hint naming the tools. Read-only turns have no shell, so
     * without this the agent has no reason to look for them.

@@ -1,7 +1,7 @@
 package orca.tools.pi
 
-import orca.events.Usage
-import orca.agents.{BackendTag, SessionId}
+import orca.events.{TurnDebit, Usage}
+import orca.agents.{BackendTag, Model, SessionId}
 import orca.{OrcaFlowException}
 import orca.backend.ConversationEvent
 import orca.backend.{StderrPipeline, ForkedConversation, StreamSource}
@@ -47,7 +47,7 @@ private[pi] class PiConversation(
     */
   private case class TurnState(
       lastAssistantMessage: String = "",
-      usage: Usage = Usage.empty,
+      usage: Option[Usage] = None,
       model: Option[String] = None,
       textStreamedThisMessage: Boolean = false
   )
@@ -83,6 +83,13 @@ private[pi] class PiConversation(
     resources.foreach(closeQuietly)
 
   override protected def terminalMessageNoun: String = "an agent_end event"
+
+  /** A pi turn runs many assistant messages, each carrying its own usage, so a
+    * late RPC failure would otherwise discard everything already accrued.
+    */
+  override protected def failedTurnDebit: TurnDebit =
+    turnState.usage.fold(TurnDebit.Unobserved): usage =>
+      TurnDebit.Observed(usage, turnState.model.map(Model.apply))
 
   private def handle(event: InboundEvent): Unit = event match
     case InboundEvent.Response(_, command, success, error) =>
@@ -138,7 +145,7 @@ private[pi] class PiConversation(
       val fallbackText = message.text.nonEmpty && !streamed
       turnState = turnState.copy(
         lastAssistantMessage = message.text,
-        usage = message.usage.fold(turnState.usage)(turnState.usage + _),
+        usage = (turnState.usage ++ message.usage).reduceOption(_ + _),
         model = message.model.orElse(turnState.model),
         textStreamedThisMessage = false // reset for the next message
       )
@@ -155,7 +162,7 @@ private[pi] class PiConversation(
     settleSuccess(
       wireId = clientSession.value,
       output = turnState.lastAssistantMessage,
-      usage = turnState.usage,
+      usage = turnState.usage.getOrElse(Usage.empty),
       modelId = turnState.model
     )
 

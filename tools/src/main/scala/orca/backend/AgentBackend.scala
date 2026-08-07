@@ -181,6 +181,15 @@ trait AgentBackend[B <: BackendTag](
     */
   private[orca] final def isClosed: Boolean = closedFlag.get()
 
+  /** Refuse a run against a backend whose flow has ended, so a leaked agent
+    * handle can't emit to a closed run's dispatcher. Gates both the agent
+    * surface (`BaseAgent`) and the structured gateway (`DefaultAgentCall`),
+    * which holds no agent of its own.
+    */
+  private[orca] final def checkNotClosed(): Unit =
+    if isClosed then
+      throw new orca.OrcaFlowException(AgentBackend.ClosedMessage)
+
 object AgentBackend:
   /** The use-after-close guard's user-facing message, thrown by every
     * `isClosed` gate so a leaked-handle failure reads identically no matter

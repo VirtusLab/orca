@@ -1,6 +1,7 @@
 package orca.runner.terminal
 
-import orca.events.{OrcaEvent, Usage}
+import orca.events.OrcaEvent
+import orca.testkit.Usages.usage
 import orca.agents.Model
 import java.io.{ByteArrayOutputStream, PrintStream}
 
@@ -212,7 +213,7 @@ class TerminalEventListenerTest extends munit.FunSuite:
         OrcaEvent.TokensUsed(
           "claude",
           Some(Model("opus")),
-          Usage(10L, 5L, None)
+          usage(10L, 5L)
         )
       )
     )

@@ -22,8 +22,13 @@ class OrcaFlowException(message: String) extends RuntimeException(message)
   * policy — cannot produce this (see
   * [[orca.backend.Conversations.drainAutonomous]]), so subtyping never causes a
   * cancellation to be retried.
+  *
+  * `debit` is what the abandoned turn had spent, on the same terms as
+  * [[AgentTurnFailed.debit]]: a user who Ctrl-Cs a long interactive turn is
+  * billed for it, so the run's cost summary has to see it.
   */
 class OrcaInteractiveCancelled(
+    val debit: orca.events.TurnDebit,
     message: String = "interactive session cancelled"
 ) extends OrcaFlowException(message)
 
@@ -42,15 +47,15 @@ class OrcaInteractiveCancelled(
   * (stack trace, exact type) for `--verbose`/debug inspection rather than being
   * flattened into the message string.
   *
-  * `usage` carries what the turn spent before failing, when the backend reports
-  * it on the terminal error frame (claude's `result` message does). Without it
-  * a failed turn's tokens would never reach `OrcaEvent.TokensUsed` — the
-  * success path is the only other emitter — and the run's cost summary would
-  * understate spend. `None` for backends whose failure frame carries no usage.
+  * `debit` is what the turn spent before failing. It has no default: the
+  * success path is the only other `OrcaEvent.TokensUsed` emitter, so a driver
+  * that skipped the question would silently drop the failed turn from the run's
+  * cost summary. A driver whose protocol reports nothing on its failure frame
+  * says so with [[orca.events.TurnDebit.Unobserved]].
   */
 class AgentTurnFailed(
     message: String,
-    cause: Throwable | Null = null,
-    val usage: Option[orca.events.Usage] = None
+    val debit: orca.events.TurnDebit,
+    cause: Throwable | Null = null
 ) extends OrcaFlowException(message):
   if cause != null then initCause(cause): Unit

@@ -110,7 +110,7 @@ class OpencodeFlowTest extends munit.FunSuite:
         events: OrcaListener,
         outputSchema: Option[String]
     ): AgentResult[BackendTag.Opencode.type] =
-      AgentResult(session.onWire, json, Usage(0L, 0L, None))
+      AgentResult(session.onWire, json, Usage.empty)
     def runInteractive(
         prompt: String,
         session: SessionId[BackendTag.Opencode.type],

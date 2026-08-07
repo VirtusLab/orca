@@ -40,7 +40,7 @@ class DefaultOpencodeAgentTest extends munit.FunSuite:
         outputSchema: Option[String]
     ): AgentResult[BackendTag.Opencode.type] =
       lastConfig = Some(config)
-      AgentResult(session.onWire, "ok", Usage(0L, 0L, None))
+      AgentResult(session.onWire, "ok", Usage.empty)
     def runInteractive(
         prompt: String,
         session: SessionId[BackendTag.Opencode.type],

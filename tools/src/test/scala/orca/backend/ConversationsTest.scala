@@ -1,7 +1,7 @@
 package orca.backend
 
 import orca.{AgentTurnFailed, OrcaFlowException, OrcaInteractiveCancelled}
-import orca.events.{OrcaEvent, OrcaListener, Usage}
+import orca.events.{OrcaEvent, OrcaListener, TurnDebit, Usage}
 import orca.agents.{BackendTag, SessionId, WireSessionId}
 
 import ox.{Ox, supervised}
@@ -81,7 +81,7 @@ class ConversationsTest extends munit.FunSuite:
   private val sampleResult = AgentResult[BackendTag.Codex.type](
     wireId = WireSessionId[BackendTag.Codex.type]("sid"),
     output = "out",
-    usage = Usage(0L, 0L, None)
+    usage = Usage.empty
   )
 
   test(
@@ -169,7 +169,7 @@ class ConversationsTest extends munit.FunSuite:
     assertEquals(conv.drained.get(), 2)
 
   test("drainAutonomous throws OrcaInteractiveCancelled on Left outcome"):
-    val cancelled = new OrcaInteractiveCancelled()
+    val cancelled = new OrcaInteractiveCancelled(TurnDebit.Unobserved)
     val conv = new ScriptedConversation(Nil, Left(cancelled))
     val thrown = intercept[OrcaInteractiveCancelled]:
       supervised(Conversations.drainAutonomous(conv))
@@ -490,7 +490,7 @@ class ConversationsTest extends munit.FunSuite:
     val client = SessionId.fresh[BackendTag.Codex.type]
     val support = SessionSupport
       .durable[BackendTag.Codex.type](IdScheme.ServerMinted, _ => false)
-    val failure = new AgentTurnFailed("turn blew up")
+    val failure = new AgentTurnFailed("turn blew up", TurnDebit.Unobserved)
     val conv = new FailingConversation(failure)
     val thrown = intercept[AgentTurnFailed]:
       Conversations.runAutonomous(

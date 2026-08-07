@@ -18,6 +18,10 @@ class OsGitToolTest extends munit.FunSuite:
     val dir = GitRepo.empty()
     body(new OsGitTool(dir), dir)
 
+  /** True when a read never reached git: the revision failed validation. */
+  private def rejected(result: Either[GitReadFailed, String]): Boolean =
+    result.left.exists(_.isInstanceOf[GitReadFailed.InvalidRev])
+
   /** Variant that captures the events the tool emits. */
   private def withRepoCapturingEvents(
       body: (OsGitTool, os.Path, AtomicReference[List[OrcaEvent]]) => Unit
@@ -444,6 +448,13 @@ class OsGitToolTest extends munit.FunSuite:
     assert(msg.contains("?? untracked.txt"), msg)
     assert(msg.contains("missing tree fa29f13"), msg)
 
+  test("gitFailureMessage keeps a stderr line that starts with `|`"):
+    // A commit hook writes what it likes to git's stderr, markdown included.
+    val diag = OsGitTool.GitDiagnostics(status = "", fsck = "")
+    val msg =
+      OsGitTool.gitFailureMessage("commit -m x", "hook says:\n| no |", diag)
+    assert(msg.contains("\n| no |"), msg)
+
   test("gitFailureMessage shows '(clean)' / '(no issues reported)' when empty"):
     val diag = OsGitTool.GitDiagnostics(status = "", fsck = "")
     val msg = OsGitTool.gitFailureMessage("add -A", "boom", diag)
@@ -841,26 +852,86 @@ class OsGitToolTest extends munit.FunSuite:
         git.show("nosuchref")
       )
 
+  test("the revision spellings that name a commit's predecessor are accepted"):
+    // `git_file_at`'s description asks the agent for a file as it was before
+    // the change under review, and `git show`'s default format prints no parent
+    // sha — so refusing these leaves no way to name the parent at all.
+    withRepo: (git, dir) =>
+      os.write(dir / "a.txt", "before")
+      git.commit("first").orThrow
+      os.write.over(dir / "a.txt", "after")
+      git.commit("second").orThrow
+      assertEquals(git.fileAt("HEAD~1", "a.txt"), Right("before"))
+      assertEquals(git.fileAt("HEAD^", "a.txt"), Right("before"))
+      assertEquals(git.fileAt("@", "a.txt"), Right("after"))
+      // Which commit `HEAD@{1}` names is up to how the fixture moved HEAD, so
+      // this asserts only that the spelling survives validation.
+      assert(!rejected(git.fileAt("HEAD@{1}", "a.txt")))
+
   test("a revision that could be read as a flag is rejected before git runs"):
     // The rev reaches git in a revision position, so a leading dash must not
     // survive validation — `--end-of-options` is the second line of defence.
+    // Spelled with characters a revision may contain, so it is the dash guard
+    // being tested rather than the character class.
     withRepo: (git, _) =>
-      val failure = git.show("--upload-pack=touch pwned").left.toOption.get
-      assert(failure.isInstanceOf[GitReadFailed.InvalidRev], failure)
+      assert(rejected(git.show("--all")))
+
+  test("a revision carrying a character no revision may contain is rejected"):
+    // The character class is the guard here: nothing about this is a range, and
+    // it does not start with a dash — but a space would smuggle in a flag.
+    withRepo: (git, _) =>
+      assert(rejected(git.show("HEAD --output=x")))
 
   test("a path climbing out of the repository is rejected"):
     withRepo: (git, _) =>
       val failure = git.fileAt("HEAD", "../outside.txt").left.toOption.get
       assert(failure.isInstanceOf[GitReadFailed.InvalidPath], failure)
 
-  test("a range is rejected: git show on one would be unbounded"):
+  test("every range spelling is rejected: git show on one is unbounded"):
+    // `^-` and `^@` are ranges spelled entirely with characters a revision may
+    // contain: `HEAD^-` is `HEAD^..HEAD`, which on a merge is the whole merged
+    // branch, and `HEAD^@` is every parent.
     withRepo: (git, _) =>
-      val failure = git.show("main..HEAD").left.toOption.get
-      assert(failure.isInstanceOf[GitReadFailed.InvalidRev], failure)
+      assert(rejected(git.show("main..HEAD")))
+      assert(rejected(git.show("HEAD^-")))
+      assert(rejected(git.show("HEAD^@")))
+      // A leading `^` excludes instead of naming, and git exits 0 having
+      // printed nothing — an empty answer the agent cannot tell from a commit
+      // that changed nothing.
+      assert(rejected(git.show("^HEAD")))
+
+  test("a whole-file read can never outgrow what one read holds"):
+    // Above this, `fileAt`'s size check admits a file the read then cuts. The
+    // cut is caught and refused, but the two limits are set independently, so
+    // nothing else says they are related at all.
+    assert(OsGitTool.MaxFileAtBytes <= OsGitTool.MaxReadBytes)
+
+  test("fileAt returns a blob of exactly the limit whole"):
+    withRepo: (git, dir) =>
+      os.write(dir / "big.bin", "x" * OsGitTool.MaxFileAtBytes)
+      git.commit("add big").orThrow
+      assertEquals(
+        git.fileAt("HEAD", "big.bin").map(_.length),
+        Right(OsGitTool.MaxFileAtBytes)
+      )
 
   test("fileAt refuses a blob past the whole-file limit"):
     withRepo: (git, dir) =>
-      os.write(dir / "big.bin", "x" * (OsGitTool.MaxFileAtBytes.toInt + 1))
+      os.write(dir / "big.bin", "x" * (OsGitTool.MaxFileAtBytes + 1))
       git.commit("add big").orThrow
       val failure = git.fileAt("HEAD", "big.bin").left.toOption.get
       assert(failure.getMessage.contains("whole-file read"), failure.getMessage)
+
+  test("show cuts a commit whose diff is past the read limit, and says so"):
+    // No size query answers "how big is this commit's diff?", so the cut
+    // happens as the output is read rather than before it: what git wrote past
+    // the limit never reaches the heap.
+    withRepo: (git, dir) =>
+      os.write(
+        dir / "big.txt",
+        ("x" * 99 + "\n") * (OsGitTool.MaxReadBytes / 50)
+      )
+      git.commit("add big").orThrow
+      val out = git.show("HEAD").orThrow
+      assert(clue(out.length) < OsGitTool.MaxReadBytes + 100)
+      assert(out.endsWith("bytes — narrow the request]"), out.takeRight(80))

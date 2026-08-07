@@ -1,7 +1,8 @@
 package orca.tools.claude
 
-import orca.agents.{AutoApprove, BackendTag, AgentConfig}
+import orca.agents.{AutoApprove, BackendTag, AgentConfig, Model}
 import orca.AgentTurnFailed
+import orca.events.TurnDebit
 import orca.backend.{ApprovalDecision, ConversationEvent}
 import orca.backend.{ForkedConversation, StreamSource}
 import orca.subprocess.PipedCliProcess
@@ -210,10 +211,14 @@ private[claude] class ClaudeConversation(
       wireId = result.sessionId,
       output = resultBody(result).getOrElse(""),
       usage = withApiCalls(result.usage),
-      // Fall back to the model claude announced in system.init when the
-      // result message omits it.
-      modelId = result.model.orElse(initModel)
+      modelId = turnModel(result)
     )
+
+  /** The turn's model: the one the `result` message reports, falling back to
+    * what claude announced in `system.init`.
+    */
+  private def turnModel(result: InboundMessage.Result): Option[String] =
+    result.model.orElse(initModel)
 
   /** Attaches the turn's API-call count to its usage and clears the tally, so
     * the next turn of a multi-turn conversation counts its own responses.
@@ -236,6 +241,12 @@ private[claude] class ClaudeConversation(
     */
   private def resultBody(result: InboundMessage.Result): Option[String] =
     result.structuredOutput.orElse(result.output).filter(_.nonEmpty)
+
+  /** orca decodes usage only from the `result` message, and a turn that reaches
+    * one settles itself (with an `Observed` debit) rather than reaching the
+    * base's generic wrap.
+    */
+  override protected def failedTurnDebit: TurnDebit = TurnDebit.Unobserved
 
   /** Claude sets `is_error: true` for out-of-band failures (API errors, rate
     * limits, auth) at the CLI boundary rather than inside a turn. Treat these
@@ -265,7 +276,10 @@ private[claude] class ClaudeConversation(
       new AgentTurnFailed(
         s"claude session failed (subtype ${result.subtype}, " +
           s"session ${result.sessionId}): $message",
-        usage = Some(withApiCalls(result.usage))
+        TurnDebit.Observed(
+          withApiCalls(result.usage),
+          turnModel(result).map(Model.apply)
+        )
       )
     )
 

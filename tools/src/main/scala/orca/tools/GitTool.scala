@@ -47,8 +47,9 @@ sealed abstract class GitReadFailed(message: String)
 object GitReadFailed:
   final class InvalidRev(rev: String)
       extends GitReadFailed(
-        s"'$rev' is not a revision name (letters, digits, '.', '_', '/', '-', " +
-          "not starting with a dash)"
+        s"'$rev' is not a single revision (letters, digits, '.', '_', '/', " +
+          "'-', '@', '^', '~', '{', '}', no range '..' / '^-' / '^@', not " +
+          "starting with a dash or a '^')"
       )
 
   final class InvalidPath(path: String)
@@ -65,18 +66,34 @@ object GitReadFailed:
   * other than a value.
   */
 private[tools] object GitRead:
-  private val RevPattern = """[A-Za-z0-9._/-]+""".r
+  private val RevPattern = """[A-Za-z0-9._/@^~{}-]+""".r
 
-  /** A single ref or sha. The leading-dash rejection stops a revision position
-    * being read as a flag; callers additionally pass `--end-of-options`.
+  /** Range operators [[RevPattern]] admits, in the middle of a revision: `x^-`
+    * is `x^..x` — on a merge, the whole merged branch — and `x^@` is every
+    * parent. `git` forbids all three in a refname, so rejecting them costs
+    * nothing.
+    */
+  private val RangeOperators = List("..", "^-", "^@")
+
+  /** True when `value` names anything other than one commit. A leading `^`
+    * excludes rather than names: `git show ^HEAD` exits 0 having printed
+    * nothing, so without this an agent gets a blank answer it cannot tell from
+    * an empty commit.
+    */
+  private def isRange(value: String): Boolean =
+    value.startsWith("^") || RangeOperators.exists(value.contains)
+
+  /** A single ref or sha, in any of the spellings the tools advertise:
+    * `HEAD~1`, `HEAD^`, `@` and `HEAD@{1}` all name one commit, and
+    * `git_file_at`'s description asks for a file "before the change under
+    * review", which is what `HEAD~1` is for. `x^{/text}` searches history but
+    * still resolves to one commit, so it is allowed.
     *
-    * `..` is rejected, which costs nothing — git forbids it in a refname — and
-    * rules out handing `git show` a range, whose output is unbounded where a
-    * single commit's is what somebody committed.
+    * The leading-dash rejection stops a revision position being read as a flag;
+    * callers additionally pass `--end-of-options`.
     */
   def rev(value: String): Either[GitReadFailed, String] =
-    if RevPattern.matches(value) && !value.startsWith("-") &&
-      !value.contains("..")
+    if RevPattern.matches(value) && !value.startsWith("-") && !isRange(value)
     then Right(value)
     else Left(new GitReadFailed.InvalidRev(value))
 
@@ -404,7 +421,8 @@ trait GitTool:
     *
     * Built for agent-supplied arguments, so `rev` and `paths` are validated
     * before they reach git ([[GitRead.rev]], [[GitRead.path]]) and cannot be
-    * read as flags or escape the repository.
+    * read as flags or escape the repository. The result is capped at
+    * `OsGitTool.MaxReadBytes` and says so where it was cut.
     */
   def show(
       rev: String,
@@ -413,7 +431,9 @@ trait GitTool:
   ): Either[GitReadFailed, String]
 
   /** `git show <rev>:<path>` — one file's full contents as of `rev`. Same
-    * argument validation as [[show]].
+    * argument validation as [[show]]. A file over `OsGitTool.MaxFileAtBytes` is
+    * refused rather than cut: the size is known before the read, so naming the
+    * limit beats a truncated file.
     */
   def fileAt(rev: String, path: String): Either[GitReadFailed, String]
 
@@ -873,9 +893,14 @@ private[orca] class OsGitTool(
       if checkedPaths.isEmpty then Nil else "--" +: checkedPaths
     // `--end-of-options` after the flags, so git cannot read `checkedRev` as
     // one however it is spelled.
-    gitRead(
+    val output = gitRead(
       Seq("show") ++ statFlag ++ Seq("--end-of-options", checkedRev) ++ pathspec
     ).ok()
+    // A cut diff is still an answer, as long as it says where it stops.
+    if output.truncated then
+      output.text +
+        s"\n\n[cut after ${OsGitTool.MaxReadBytes} bytes — narrow the request]"
+    else output.text
 
   def fileAt(rev: String, path: String): Either[GitReadFailed, String] = either:
     val checkedRev = GitRead.rev(rev).ok()
@@ -885,7 +910,8 @@ private[orca] class OsGitTool(
     // a String, and the path is caller-chosen, so one wrong file (a vendored
     // binary, a checked-in dataset) would otherwise be an OOM rather than an
     // answer.
-    val size = gitRead(Seq("cat-file", "-s", "--end-of-options", blob)).ok()
+    val size =
+      gitRead(Seq("cat-file", "-s", "--end-of-options", blob)).ok().text
     if size.trim.toLongOption.exists(_ > OsGitTool.MaxFileAtBytes) then
       Left(
         new GitReadFailed.Refused(
@@ -893,16 +919,40 @@ private[orca] class OsGitTool(
             s"${OsGitTool.MaxFileAtBytes}-byte limit for a whole-file read"
         )
       ).ok()
-    else gitRead(Seq("show", "--end-of-options", blob)).ok()
+    else
+      val output = gitRead(Seq("show", "--end-of-options", blob)).ok()
+      // The read's own cap is the last word, whatever the size check let
+      // through: a prefix returned as a file's contents is corruption the
+      // caller cannot see, where a refusal is merely an answer it dislikes.
+      if output.truncated then
+        Left(
+          new GitReadFailed.Refused(
+            s"'$path' at $rev is longer than the " +
+              s"${OsGitTool.MaxReadBytes}-byte read limit"
+          )
+        ).ok()
+      else output.text
 
   /** Run a read-only git command, mapping a non-zero exit to
     * [[GitReadFailed.Refused]] instead of aborting the flow — an agent asking
     * for a revision that does not exist gets an answer, not a crash.
+    *
+    * Reports truncation rather than folding it into the text: `show` marks a
+    * cut diff and carries on, while `fileAt` refuses, and only the caller knows
+    * which its answer can survive.
     */
-  private def gitRead(args: Seq[String]): Either[GitReadFailed, String] =
-    val result = gitProc("git" +: args)
-    if result.exitCode == 0 then Right(result.out.text())
-    else Left(new GitReadFailed.Refused(result.err.text().trim))
+  private def gitRead(
+      args: Seq[String]
+  ): Either[GitReadFailed, OsGitTool.ReadOutput] =
+    val result = QuietProc.callCapped(
+      "git" +: args,
+      maxBytes = OsGitTool.MaxReadBytes,
+      cwd = workDir,
+      env = OsGitTool.nonInteractiveEnv
+    )
+    if result.exitCode != 0 then
+      Left(new GitReadFailed.Refused(result.err.trim))
+    else Right(OsGitTool.ReadOutput(result.out, result.truncated))
 
   def addWorktree(
       path: os.Path,
@@ -966,9 +1016,10 @@ private[orca] class OsGitTool(
       catch case NonFatal(_) => path.toNIO.toAbsolutePath.normalize()
     normalised(left) == normalised(right)
 
-  /** Run a git subprocess. Every git invocation routes through here so they all
-    * carry [[OsGitTool.nonInteractiveEnv]] — no git (or ssh it spawns) can
-    * block the flow on an interactive credential or passphrase prompt.
+  /** Run a git subprocess. Every git invocation routes through here or
+    * [[gitRead]], so they all carry [[OsGitTool.nonInteractiveEnv]] — no git
+    * (or ssh it spawns) can block the flow on an interactive credential or
+    * passphrase prompt.
     */
   private def gitProc(args: Seq[String]): os.CommandResult =
     QuietProc.call(args, cwd = workDir, env = OsGitTool.nonInteractiveEnv)
@@ -999,10 +1050,29 @@ private[orca] class OsGitTool(
 
 private[orca] object OsGitTool:
 
-  /** Largest blob [[OsGitTool.fileAt]] will read whole. Comfortably above any
-    * source file; a request over it is a wrong path, not a big one.
+  /** Most stdout `gitRead` keeps from one read. A heap bound, and only that:
+    * `McpHost` cuts an agent's copy of the same answer to a small fraction of
+    * this, so the marker `gitRead` appends reaches only a direct [[GitTool]]
+    * caller. Applied as the output arrives, since a commit's diff has no size
+    * to ask for beforehand.
     */
-  private[tools] val MaxFileAtBytes: Long = 2 * 1024 * 1024
+  private[tools] val MaxReadBytes: Int = 2 * 1024 * 1024
+
+  /** Largest blob [[GitTool.fileAt]] reads whole. `cat-file -s` answers the
+    * size up front, which buys a refusal naming the file where [[MaxReadBytes]]
+    * could only cut it. Comfortably above any source file; a request over it is
+    * a wrong path, not a big one.
+    *
+    * Must not exceed [[MaxReadBytes]] — past that the read cuts what the size
+    * check admitted. `fileAt` refuses a cut read rather than trusting this, so
+    * the cost of breaking it is a refusal, not a silently truncated file.
+    */
+  private[tools] val MaxFileAtBytes: Int = 2 * 1024 * 1024
+
+  /** One capped read's output, and whether git wrote past [[MaxReadBytes]] so
+    * `text` holds only the start of the answer.
+    */
+  private case class ReadOutput(text: String, truncated: Boolean)
 
   /** Pathspec arguments scoping a diff to "the whole repository, minus orca's
     * bookkeeping". `:(top)` is what makes it repo-wide: a magic pathspec is
@@ -1170,6 +1240,11 @@ private[orca] object OsGitTool:
     * exception. `cmd` is the argv after `git ` (e.g. `commit -m seed` or `add
     * -A`). Sectioned so the original stderr stays at the top and the
     * diagnostics follow on their own lines.
+    *
+    * No `stripMargin`: `stderr` carries whatever git and any hook it ran wrote,
+    * so a line of it can start with `|`, which a margin block would eat. The
+    * two diagnostic blocks only escape that because each of their lines is
+    * indented first.
     */
   private[tools] def gitFailureMessage(
       cmd: String,
@@ -1182,13 +1257,9 @@ private[orca] object OsGitTool:
     val fsckBlock =
       if diag.fsck.trim.isEmpty then "  (no issues reported)"
       else diag.fsck.linesIterator.map("  " + _).mkString("\n")
-    s"""git $cmd failed: ${stderr.trim}
-       |
-       |git status --porcelain:
-       |$statusBlock
-       |
-       |git fsck --no-progress:
-       |$fsckBlock""".stripMargin
+    s"git $cmd failed: ${stderr.trim}\n\n" +
+      s"git status --porcelain:\n$statusBlock\n\n" +
+      s"git fsck --no-progress:\n$fsckBlock"
 
   /** Parse the output of `git worktree list --porcelain`. Entries are separated
     * by blank lines; each entry has `worktree <path>` followed by `HEAD <sha>`
