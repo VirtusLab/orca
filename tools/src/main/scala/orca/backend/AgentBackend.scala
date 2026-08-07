@@ -141,7 +141,7 @@ trait AgentBackend[B <: BackendTag](
       dispatch: TurnDispatch
   ): Option[EnforcementCell] =
     val cell = enforcementCell(tools, autoApprove, dispatch)
-    val shortfall = tools != ToolSet.Full && cell.level != Enforcement.Hard
+    val shortfall = !tools.writeCapable && cell.level != Enforcement.Hard
     Option.when(shortfall && reportedShortfalls.add((tools, dispatch)))(cell)
 
   private val reportedShortfalls =

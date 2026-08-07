@@ -118,3 +118,18 @@ enum ToolSet:
   case ReadOnly
   case NetworkOnly
   case Full
+
+  /** Whether the tier hands the agent a write primitive, and so whether asking
+    * for it is asking for a no-edit gate at all.
+    */
+  def writeCapable: Boolean = this match
+    case Full                   => true
+    case ReadOnly | NetworkOnly => false
+
+  /** Whether the tier grants the SCOPED, read-only network access a planner
+    * needs — not "has network at all", which `Full` also does through its
+    * shell.
+    */
+  def hasScopedNetwork: Boolean = this match
+    case NetworkOnly     => true
+    case ReadOnly | Full => false

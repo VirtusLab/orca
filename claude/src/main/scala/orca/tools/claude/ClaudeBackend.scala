@@ -217,7 +217,7 @@ private[orca] class ClaudeBackend(
     val repoReads: Option[McpHost] =
       Option.when(ClaudeArgs.losesShell(config.tools))(RepoMcpServer.start(git))
     val githubReads: Option[McpHost] =
-      Option.when(config.tools == ToolSet.NetworkOnly):
+      Option.when(config.tools.hasScopedNetwork):
         GitHubMcpServer.start(new OsGitHubTool(cli, workDir))
     val mcpConfig = Option
       .when(askUser.isDefined || repoReads.isDefined || githubReads.isDefined):
