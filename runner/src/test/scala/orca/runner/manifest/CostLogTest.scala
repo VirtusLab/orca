@@ -50,7 +50,14 @@ class CostLogTest extends munit.FunSuite:
     val writer = newWriter(workDir)
     writer.onEvent(
       OrcaEvent
-        .SessionCommitted("claude", "client-1", Some("wire-1"), "claude", None)
+        .SessionCommitted(
+          harness = "claude",
+          clientId = "client-1",
+          wireId = Some("wire-1"),
+          sessionName = None,
+          agent = "claude",
+          role = None
+        )
     )
     writer.finish(RunOutcome.Succeeded)
     assertEquals(
@@ -103,7 +110,14 @@ class CostLogTest extends munit.FunSuite:
     writer.onEvent(OrcaEvent.StageStarted("code"))
     writer.onEvent(
       OrcaEvent
-        .SessionCommitted("claude", "client-1", Some("wire-1"), "claude", None)
+        .SessionCommitted(
+          harness = "claude",
+          clientId = "client-1",
+          wireId = Some("wire-1"),
+          sessionName = None,
+          agent = "claude",
+          role = None
+        )
     )
     writer.onEvent(
       OrcaEvent.TokensUsed(

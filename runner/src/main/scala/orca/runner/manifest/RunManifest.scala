@@ -8,11 +8,8 @@ import orca.agents.JsonData
   * durable is known for the session, which is exactly when [[resumable]] is
   * `false` and `reason` explains why. Every backend keeps durable sessions, so
   * `None` means the id isn't known yet, not that the backend can't resume.
-  * `kind` is `"durable"` when the writer joins `clientId` to a `SessionRecord`
-  * in the progress log (an `agent.session(...)` call), `"oneShot"` otherwise —
-  * a plain `agent.run`/`resultAs` one-shot AND an interactive call both land as
-  * `"oneShot"` today, since `SessionCommitted` carries nothing that tells them
-  * apart (see [[RunManifestWriterState.durableSessionName]]).
+  * `kind` is `"durable"` when `sessionName` is set — the session was minted by
+  * an `agent.session(name, seed)` call — and `"oneShot"` otherwise.
   */
 private[orca] case class ManifestSession(
     harness: String,
@@ -69,7 +66,6 @@ private[orca] object RunManifest:
   val OutcomeFailed = "failed"
   val KindDurable = "durable"
   val KindOneShot = "oneShot"
-  val KindInteractive = "interactive"
 
   // Only a jsoniter codec — no `JsonData`/`Schema` half, deliberately: the
   // manifest crosses the process/disk boundary to the shell, never an HTTP or

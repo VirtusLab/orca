@@ -45,6 +45,7 @@ class FakeAgentCall[O](outputs: Iterator[Any], onRun: () => Unit)
       private[orca] def runWithSession[I: AgentInput](
           input: I,
           session: SessionId[BackendTag.ClaudeCode.type],
+          sessionName: Option[String],
           config: Option[AgentConfig],
           emitPrompt: Boolean
       )(using orca.InStage): O =
@@ -112,6 +113,7 @@ private class TokenEmittingReviewer(
           private[orca] def runWithSession[I: AgentInput](
               i: I,
               session: SessionId[BackendTag.ClaudeCode.type],
+              sessionName: Option[String],
               c: Option[AgentConfig],
               emitPrompt: Boolean
           )(using orca.InStage): O =
@@ -164,6 +166,7 @@ private class SeedProbingCoder(
           private[orca] def runWithSession[I: AgentInput](
               input: I,
               session: SessionId[BackendTag.ClaudeCode.type],
+              sessionName: Option[String],
               config: Option[AgentConfig],
               emitPrompt: Boolean
           )(using orca.InStage): O =
@@ -1219,6 +1222,7 @@ class ReviewAndFixTest extends munit.FunSuite:
               private[orca] def runWithSession[I: AgentInput](
                   i: I,
                   session: SessionId[BackendTag.ClaudeCode.type],
+                  sessionName: Option[String],
                   c: Option[AgentConfig],
                   emitPrompt: Boolean
               )(using
@@ -1296,6 +1300,7 @@ class ReviewAndFixTest extends munit.FunSuite:
               private[orca] def runWithSession[I: AgentInput](
                   i: I,
                   session: SessionId[BackendTag.ClaudeCode.type],
+                  sessionName: Option[String],
                   c: Option[AgentConfig],
                   emitPrompt: Boolean
               )(using

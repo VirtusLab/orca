@@ -1,13 +1,8 @@
 package orca.runner.manifest
 
-import com.github.plokhotnyuk.jsoniter_scala.core.{
-  readFromString,
-  writeToString
-}
+import com.github.plokhotnyuk.jsoniter_scala.core.writeToString
 import orca.OrcaDir
-import orca.agents.JsonData
 import orca.events.{OrcaEvent, OrcaListener}
-import orca.progress.ProgressLog
 import org.slf4j.LoggerFactory
 import ox.Ox
 import ox.channels.{Actor, ActorRef, BufferCapacity}
@@ -172,16 +167,8 @@ private[runner] class RunManifestWriterState(
         case _ :: rest =>
           state = state.copy(stageStack = rest)
       if hasCommittedSession then safeWrite()
-    case OrcaEvent.SessionCommitted(harness, clientId, wireId, agent, role) =>
-      // Guarded because `upsertSession` reads `.orca/` to name the session: an
-      // unreadable or vanished directory would otherwise throw straight out of
-      // the `tell` handler and quarantine the writer for the rest of the run.
-      // Swallowing that leaves no entry, so the write stays gated — a manifest
-      // listing no sessions is a dead row in the shell's menu.
-      guarded("session upsert"):
-        state = state.copy(entries =
-          upsertSession(harness, clientId, wireId, agent, role)
-        )
+    case e: OrcaEvent.SessionCommitted =>
+      state = state.copy(entries = upsertSession(e))
       if hasCommittedSession then safeWrite()
     case t: OrcaEvent.TokensUsed =>
       if !state.anyTurnRecorded then
@@ -244,34 +231,31 @@ private[runner] class RunManifestWriterState(
 
   /** Upsert-by-dedup-key (mirrors `ProgressStore`'s upsert idiom): the same
     * session re-firing `SessionCommitted` on a later turn (retries, resumed
-    * durable calls) updates `stage`/`lastActiveAt`/`sessionName` in place
-    * (last-write-wins), while `firstSeenAt` is preserved from the first
-    * sighting.
+    * durable calls) updates `stage`/`lastActiveAt` in place (last-write-wins),
+    * while `firstSeenAt` is preserved from the first sighting. `sessionName`
+    * (and the `kind` derived from it) is kept once seen, because a chat turn
+    * continuing the same durable session carries no name.
     */
-  private def upsertSession(
-      harness: String,
-      clientId: String,
-      wireId: Option[String],
-      agent: String,
-      role: Option[String]
-  ): List[Entry] =
-    val key = OrcaEvent.sessionKey(clientId, wireId)
+  private def upsertSession(event: OrcaEvent.SessionCommitted): List[Entry] =
+    val harness = event.harness
+    val wireId = event.wireId
+    val key = OrcaEvent.sessionKey(event.clientId, wireId)
     val now = clock().toString
     val stage = state.stageStack.headOption
-    val sessionName = durableSessionName(clientId)
     val existing =
       state.entries.find(e => e.harness == harness && e.dedupKey == key)
+    val name = event.sessionName.orElse(existing.flatMap(_.session.sessionName))
     val session = ManifestSession(
       harness = harness,
       wireId = wireId,
       reason =
         if wireId.isEmpty then Some(s"$harness sessions do not survive the run")
         else None,
-      agent = agent,
-      role = role,
+      agent = event.agent,
+      role = event.role,
       stage = stage,
-      sessionName = sessionName,
-      kind = SessionKind.of(sessionName).wireValue,
+      sessionName = name,
+      kind = SessionKind.of(name).wireValue,
       firstSeenAt = existing.map(_.session.firstSeenAt).getOrElse(now),
       lastActiveAt = now
     )
@@ -281,34 +265,6 @@ private[runner] class RunManifestWriterState(
         state.entries.map: e =>
           if e.harness == harness && e.dedupKey == key then entry else e
       case None => state.entries :+ entry
-
-  /** `clientId` joined against every `progress-*.json` under `.orca/` —
-    * `SessionRecord`s only exist for durable `agent.session(name, seed)`
-    * sessions, so a match means `clientId` came from one; the record's `name`
-    * becomes the manifest's `sessionName`. `None` for a one-shot call, and
-    * currently also for an interactive one — see [[SessionKind]]'s scaladoc.
-    */
-  private def durableSessionName(clientId: String): Option[String] =
-    progressLogFiles.iterator
-      .flatMap: path =>
-        try
-          readFromString[ProgressLog](os.read(path))(using
-            progressLogCodec
-          ).sessions
-            .find(_.id == clientId)
-            .map(_.name)
-        catch case NonFatal(_) => None
-      .nextOption()
-
-  private val progressLogCodec = summon[JsonData[ProgressLog]].codec
-
-  private def progressLogFiles: List[os.Path] =
-    val root = OrcaDir.rootPath(workDir)
-    if os.exists(root) then
-      os.list(root)
-        .filter(p => p.last.startsWith("progress-") && p.last.endsWith(".json"))
-        .toList
-    else Nil
 
   /** Atomic rewrite of the whole manifest — the `ProgressStore.writeLog`
     * temp+move idiom: a sibling temp file, then `os.move(atomicMove = true)` so
@@ -423,16 +379,12 @@ private[runner] class RunManifestWriterState(
     else if name.endsWith(".json") then Some(name.dropRight(".json".length))
     else None
 
-/** How a manifest session was opened. `Durable` when the writer joins
-  * `clientId` to a `SessionRecord` in the progress log (an `agent.session(...)`
-  * call), `OneShot` otherwise. `Interactive` is reserved and currently unused:
-  * `SessionCommitted` carries nothing that distinguishes an interactive call
-  * from an autonomous one, so interactive calls land as `OneShot` today.
+/** How a manifest session was opened. `Durable` when the event carries the name
+  * an `agent.session(name, seed)` call minted it under, `OneShot` otherwise.
   */
 private enum SessionKind(val wireValue: String):
   case Durable extends SessionKind(RunManifest.KindDurable)
   case OneShot extends SessionKind(RunManifest.KindOneShot)
-  case Interactive extends SessionKind(RunManifest.KindInteractive)
 
 private object SessionKind:
   def of(sessionName: Option[String]): SessionKind =

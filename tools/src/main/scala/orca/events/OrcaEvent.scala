@@ -110,12 +110,15 @@ enum OrcaEvent:
     * ([[orca.runner.manifest.ManifestSession]]). `wireId` is the persistable id
     * ([[orca.agents.Agent.resumeWireId]]) — `None` for backends that keep
     * nothing durably resumable, so a non-resumable commit still fires
-    * accurately.
+    * accurately. `sessionName` is the name the flow minted the session under
+    * (`agent.session(name, seed)`) — `None` for a one-shot or chat turn, which
+    * has no name.
     */
   case SessionCommitted(
       harness: String,
       clientId: String,
       wireId: Option[String],
+      sessionName: Option[String],
       agent: String,
       role: Option[String]
   )
