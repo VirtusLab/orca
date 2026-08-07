@@ -468,7 +468,7 @@ class CostTrackerTest extends munit.FunSuite:
     tracker.onEvent(tokens("gemini", Some("unlisted"), usage(1_000_000L, 0L)))
     val out = tracker.summary
     assert(out.contains("Total (some turns unpriced): $0.1000"), out)
-    assert(out.contains("some turns had neither a reported cost"), out)
+    assert(out.contains("some turns had no usable cost"), out)
 
   test("a zero-token turn neither flags nor qualifies the total"):
     // Spending nothing is not a pricing gap: `Pricing.estimate` declines a
