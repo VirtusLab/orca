@@ -8,7 +8,8 @@ import orca.agents.{
   Enforcement,
   EnforcementCell,
   WireSessionId,
-  ToolSet
+  ToolSet,
+  TurnDispatch
 }
 
 /** Maps `AgentConfig` fields to `gemini` headless CLI flags. `systemPrompt` is
@@ -93,23 +94,26 @@ private[gemini] object GeminiArgs:
     */
   def enforcementCell(
       tools: ToolSet,
-      autoApprove: AutoApprove
-  ): EnforcementCell =
-    tools match
-      case ToolSet.ReadOnly | ToolSet.NetworkOnly =>
-        EnforcementCell(
-          Enforcement.PromptOnly,
-          "`--approval-mode plan` is UNMEASURED, not known weak: no headless `plan` turn has been run against a write attempt. The same class of mechanism on claude — `--permission-mode plan` — was measured and removes no tools (`docs/research/run-cost/09-diff-vs-coordinates.md` §2), and gemini downgrades `plan` to `default` in untrusted folders, which is where orca runs agents. Raise this cell when a probe establishes more."
-        )
-      case ToolSet.Full =>
-        autoApprove match
-          case AutoApprove.All =>
-            EnforcementCell(
-              Enforcement.Hard,
-              "`yolo` honours \"approve everything\" verbatim"
-            )
-          case AutoApprove.Only(_) =>
-            EnforcementCell(
-              Enforcement.Ignored,
-              "no per-tool allowlist, so any `Only` set is widened to `yolo` — the requested subset reaches the CLI nowhere"
-            )
+      autoApprove: AutoApprove,
+      dispatch: TurnDispatch
+  ): EnforcementCell = dispatch match
+    // Same either way: [[resume]] carries `approvalArgs` as [[headless]] does.
+    case TurnDispatch.Fresh | TurnDispatch.Resumed =>
+      tools match
+        case ToolSet.ReadOnly | ToolSet.NetworkOnly =>
+          EnforcementCell(
+            Enforcement.PromptOnly,
+            "`--approval-mode plan` is UNMEASURED, not known weak: no headless `plan` turn has been run against a write attempt. The same class of mechanism on claude — `--permission-mode plan` — was measured and removes no tools (`docs/research/run-cost/09-diff-vs-coordinates.md` §2), and gemini downgrades `plan` to `default` in untrusted folders, which is where orca runs agents. Raise this cell when a probe establishes more."
+          )
+        case ToolSet.Full =>
+          autoApprove match
+            case AutoApprove.All =>
+              EnforcementCell(
+                Enforcement.Hard,
+                "`yolo` honours \"approve everything\" verbatim"
+              )
+            case AutoApprove.Only(_) =>
+              EnforcementCell(
+                Enforcement.Ignored,
+                "no per-tool allowlist, so any `Only` set is widened to `yolo` — the requested subset reaches the CLI nowhere"
+              )

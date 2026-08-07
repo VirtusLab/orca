@@ -77,6 +77,19 @@ enum AutoApprove:
 enum Enforcement:
   case Hard, SandboxApprox, PromptOnly, Ignored
 
+/** Whether a turn starts a backend session or continues one — the second axis
+  * of the enforcement matrix, alongside `(ToolSet, AutoApprove)`. It matters
+  * because a backend may put its restriction flags on the spawn only: codex
+  * `exec resume` rejects `--sandbox`/`--full-auto`, so a resumed turn runs in
+  * the sandbox its session was created with, whatever tier the caller asked
+  * for.
+  *
+  * Derived from [[orca.backend.Dispatch]], which carries the wire ids this
+  * classification has no use for.
+  */
+enum TurnDispatch:
+  case Fresh, Resumed
+
 /** A backend's answer for one cell of the enforcement matrix: the level, and
   * why it is that level. One value rather than two, so a backend whose flags
   * change cannot have its level updated while a stale reason stays beside it.

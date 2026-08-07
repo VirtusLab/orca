@@ -174,6 +174,42 @@ class BaseAgentTest extends munit.FunSuite:
     )
     assertEquals(reply, "Show branch in menu")
 
+  // A caller that asks for a no-edit tier and gets prose has no other signal
+  // that the gate isn't mechanical — and a fan-out would repeat the notice per
+  // turn, which is why it is deduplicated rather than emitted per run call.
+  test("a read-only tier the backend doesn't gate is reported once per run"):
+    val seen =
+      new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
+    val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
+    val tool = new StubTool(
+      new UngatedBackend("first", "second"),
+      toolConfig = AgentConfig(tools = ToolSet.ReadOnly),
+      listener = listener,
+      prompts = DefaultPrompts
+    )
+    val _ = tool.run("one")
+    val _ = tool.run("two")
+    assertEquals(
+      seen.get().collect { case OrcaEvent.Step(m) => m },
+      List(
+        "Pi does not mechanically enforce ReadOnly on a fresh turn: PromptOnly"
+      )
+    )
+
+  // The notice answers "I asked for a gate and didn't get one". A `Full` turn
+  // asked for no gate, so the same weak declaration must stay silent.
+  test("a Full turn reports no enforcement shortfall"):
+    val seen =
+      new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
+    val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
+    val tool = new StubTool(
+      new UngatedBackend("only"),
+      listener = listener,
+      prompts = DefaultPrompts
+    )
+    val _ = tool.run("one")
+    assertEquals(seen.get().collect { case OrcaEvent.Step(m) => m }, Nil)
+
   // A turn that failed after the model ran still spent tokens; the success path
   // is the only other TokensUsed emitter, so without this the failed turn is
   // invisible in the run's cost summary.
@@ -533,9 +569,10 @@ class BaseAgentTest extends munit.FunSuite:
     val tag: BackendTag.Pi.type = BackendTag.Pi
     def enforcementCell(
         tools: ToolSet,
-        autoApprove: AutoApprove
+        autoApprove: AutoApprove,
+        dispatch: TurnDispatch
     ): EnforcementCell =
-      EnforcementCell(Enforcement.Ignored, "test double")
+      EnforcementCell(Enforcement.Hard, "test double: nothing to report")
     def structuredOutputMode: StructuredOutputMode =
       StructuredOutputMode.RawText
 
@@ -565,9 +602,10 @@ class BaseAgentTest extends munit.FunSuite:
     val tag: BackendTag.Pi.type = BackendTag.Pi
     def enforcementCell(
         tools: ToolSet,
-        autoApprove: AutoApprove
+        autoApprove: AutoApprove,
+        dispatch: TurnDispatch
     ): EnforcementCell =
-      EnforcementCell(Enforcement.Ignored, "test double")
+      EnforcementCell(Enforcement.Hard, "test double: nothing to report")
     def structuredOutputMode: StructuredOutputMode =
       StructuredOutputMode.RawText
 
@@ -603,9 +641,10 @@ class BaseAgentTest extends munit.FunSuite:
     val tag: BackendTag.Pi.type = BackendTag.Pi
     def enforcementCell(
         tools: ToolSet,
-        autoApprove: AutoApprove
+        autoApprove: AutoApprove,
+        dispatch: TurnDispatch
     ): EnforcementCell =
-      EnforcementCell(Enforcement.Ignored, "test double")
+      EnforcementCell(Enforcement.Hard, "test double: nothing to report")
     def structuredOutputMode: StructuredOutputMode =
       StructuredOutputMode.RawText
 
@@ -621,6 +660,18 @@ class BaseAgentTest extends munit.FunSuite:
     * `replies` are answered one per call, so a retried call can be scripted
     * with an output that won't parse followed by one that will.
     */
+  /** Declares that it gates nothing mechanically — the condition
+    * `EnforcementNotice` exists to report.
+    */
+  private class UngatedBackend(replies: String*)
+      extends ScriptedDrainBackend(replies*):
+    override def enforcementCell(
+        tools: ToolSet,
+        autoApprove: AutoApprove,
+        dispatch: TurnDispatch
+    ): EnforcementCell =
+      EnforcementCell(Enforcement.PromptOnly, "the prompt is the whole gate")
+
   private class ScriptedDrainBackend(replies: String*)
       extends AgentBackend[BackendTag.Pi.type]:
     private val remaining = replies.iterator
@@ -630,9 +681,10 @@ class BaseAgentTest extends munit.FunSuite:
     val tag: BackendTag.Pi.type = BackendTag.Pi
     def enforcementCell(
         tools: ToolSet,
-        autoApprove: AutoApprove
+        autoApprove: AutoApprove,
+        dispatch: TurnDispatch
     ): EnforcementCell =
-      EnforcementCell(Enforcement.Ignored, "test double")
+      EnforcementCell(Enforcement.Hard, "test double: nothing to report")
     def structuredOutputMode: StructuredOutputMode =
       StructuredOutputMode.RawText
     def runAutonomous(
@@ -713,9 +765,10 @@ class BaseAgentTest extends munit.FunSuite:
     val tag: BackendTag.Pi.type = BackendTag.Pi
     def enforcementCell(
         tools: ToolSet,
-        autoApprove: AutoApprove
+        autoApprove: AutoApprove,
+        dispatch: TurnDispatch
     ): EnforcementCell =
-      EnforcementCell(Enforcement.Ignored, "test double")
+      EnforcementCell(Enforcement.Hard, "test double: nothing to report")
     def structuredOutputMode: StructuredOutputMode =
       StructuredOutputMode.RawText
     def runAutonomous(
@@ -797,9 +850,10 @@ class BaseAgentTest extends munit.FunSuite:
     val tag: BackendTag.Pi.type = BackendTag.Pi
     def enforcementCell(
         tools: ToolSet,
-        autoApprove: AutoApprove
+        autoApprove: AutoApprove,
+        dispatch: TurnDispatch
     ): EnforcementCell =
-      EnforcementCell(Enforcement.Ignored, "test double")
+      EnforcementCell(Enforcement.Hard, "test double: nothing to report")
     def structuredOutputMode: StructuredOutputMode =
       StructuredOutputMode.RawText
 
@@ -830,9 +884,10 @@ class BaseAgentTest extends munit.FunSuite:
     val tag: BackendTag.Pi.type = BackendTag.Pi
     def enforcementCell(
         tools: ToolSet,
-        autoApprove: AutoApprove
+        autoApprove: AutoApprove,
+        dispatch: TurnDispatch
     ): EnforcementCell =
-      EnforcementCell(Enforcement.Ignored, "test double")
+      EnforcementCell(Enforcement.Hard, "test double: nothing to report")
     def structuredOutputMode: StructuredOutputMode =
       StructuredOutputMode.RawText
 
@@ -859,9 +914,10 @@ class BaseAgentTest extends munit.FunSuite:
     val tag: BackendTag.Pi.type = BackendTag.Pi
     def enforcementCell(
         tools: ToolSet,
-        autoApprove: AutoApprove
+        autoApprove: AutoApprove,
+        dispatch: TurnDispatch
     ): EnforcementCell =
-      EnforcementCell(Enforcement.Ignored, "test double")
+      EnforcementCell(Enforcement.Hard, "test double: nothing to report")
     def structuredOutputMode: StructuredOutputMode =
       StructuredOutputMode.RawText
 

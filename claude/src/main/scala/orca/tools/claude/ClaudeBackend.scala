@@ -12,6 +12,7 @@ import orca.agents.{
   SessionId,
   StructuredOutputMode,
   ToolSet,
+  TurnDispatch,
   onWire
 }
 import orca.backend.{
@@ -111,9 +112,10 @@ private[orca] class ClaudeBackend(
 
   override def enforcementCell(
       tools: ToolSet,
-      autoApprove: AutoApprove
+      autoApprove: AutoApprove,
+      dispatch: TurnDispatch
   ): EnforcementCell =
-    ClaudeArgs.enforcementCell(tools, autoApprove)
+    ClaudeArgs.enforcementCell(tools, autoApprove, dispatch)
 
   /** `--json-schema` (passed whenever a structured call supplies a schema — see
     * [[runAutonomous]]) makes the CLI inject a StructuredOutput tool whose

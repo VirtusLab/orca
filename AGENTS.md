@@ -160,8 +160,8 @@ most easily broken:
 - **Tool enforcement.** `AgentConfig.tools: ToolSet` (ReadOnly/NetworkOnly/Full)
   and `autoApprove: AutoApprove` (All/Only) request a restriction, but each
   backend enforces it differently. `AgentBackend.enforcementCell(tools,
-  autoApprove)` answers with the guarantee actually achieved plus the reason —
-  see `Enforcement`'s scaladoc for what the levels mean:
+  autoApprove, dispatch)` answers with the guarantee actually achieved plus the
+  reason — see `Enforcement`'s scaladoc for what the levels mean:
 
   | tools, approve         | ClaudeCode | Codex         | Opencode | Pi         | Gemini     |
   |------------------------|------------|---------------|----------|------------|------------|
@@ -170,12 +170,18 @@ most easily broken:
   | Full, All              | Hard       | Hard          | Ignored  | Ignored    | Hard       |
   | Full, Only(_) / Only() | Hard       | SandboxApprox | Ignored  | Ignored    | Ignored    |
 
-  That table is RENDERED from the declared cells by
+  A resumed turn is classified the same, except:
+  - Codex, ReadOnly, *: PromptOnly, not Hard
+  - Codex, Full, Only(_) / Only(): Ignored, not SandboxApprox
+
+  That block is RENDERED from the declared cells by
   `runner/src/test/scala/orca/runner/EnforcementTableTest.scala`, which walks
-  the full (backend × ToolSet × AutoApprove) product — when it fails, paste the
-  block it prints. Per-cell rationale (why gemini's read-only cells are
-  `PromptOnly`, what claude's `Hard` covers) lives in each backend's
-  `*Args.enforcementCell`.
+  the full (backend × ToolSet × AutoApprove × dispatch) product — when it fails,
+  paste the block it prints. Per-cell rationale (why gemini's read-only cells
+  are `PromptOnly`, what claude's `Hard` covers, why codex loses its sandbox on
+  resume) lives in each backend's `*Args.enforcementCell`. When a turn's tier
+  isn't mechanically enforced, `EnforcementNotice` says so once per run — a
+  `Step` plus a WARN.
 
 - **Conversation events.** The event grammar (turn boundaries, `Option` tool
   names) is specified on `ConversationEvent`'s scaladoc and pinned per backend

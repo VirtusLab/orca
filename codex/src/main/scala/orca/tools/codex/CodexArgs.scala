@@ -9,7 +9,8 @@ import orca.agents.{
   Enforcement,
   EnforcementCell,
   WireSessionId,
-  ToolSet
+  ToolSet,
+  TurnDispatch
 }
 
 /** Maps `AgentConfig` fields to `codex exec` CLI flags. `systemPrompt` is not
@@ -150,9 +151,24 @@ private[codex] object CodexArgs:
       case ToolSet.ReadOnly | ToolSet.Full => Nil
 
   /** How strongly codex enforces each `(tools, autoApprove)` combination — see
-    * [[sandboxArgs]] / [[networkConfigArgs]] for the flags this classifies.
+    * [[sandboxArgs]] / [[networkConfigArgs]] for the flags a fresh turn gets
+    * and [[resumeSandboxArgs]] for the (much smaller) set a resumed one gets.
+    *
+    * codex is the one backend whose answer depends on the dispatch: `exec
+    * resume` accepts no sandbox flag but the bypass, so on every other tier a
+    * resumed turn runs in whatever sandbox its session was created with, which
+    * this classification cannot know. It reports what orca can stand behind for
+    * THIS turn, which is the folded-in prompt.
     */
   def enforcementCell(
+      tools: ToolSet,
+      autoApprove: AutoApprove,
+      dispatch: TurnDispatch
+  ): EnforcementCell = dispatch match
+    case TurnDispatch.Fresh   => freshCell(tools, autoApprove)
+    case TurnDispatch.Resumed => resumedCell(tools, autoApprove)
+
+  private def freshCell(
       tools: ToolSet,
       autoApprove: AutoApprove
   ): EnforcementCell =
@@ -178,4 +194,27 @@ private[codex] object CodexArgs:
             EnforcementCell(
               Enforcement.SandboxApprox,
               "no per-tool allowlist, so the requested subset becomes `--full-auto`, a whole-sandbox approximation wider than what was asked"
+            )
+
+  private def resumedCell(
+      tools: ToolSet,
+      autoApprove: AutoApprove
+  ): EnforcementCell =
+    tools match
+      case ToolSet.ReadOnly | ToolSet.NetworkOnly =>
+        EnforcementCell(
+          Enforcement.PromptOnly,
+          "`exec resume` takes no sandbox flag, so the tier's restriction reaches this turn only as the read-only rule folded into its prompt"
+        )
+      case ToolSet.Full =>
+        autoApprove match
+          case AutoApprove.All =>
+            EnforcementCell(
+              Enforcement.Hard,
+              "`--dangerously-bypass-approvals-and-sandbox` is the one flag `exec resume` accepts, and it is re-asserted every turn"
+            )
+          case AutoApprove.Only(_) =>
+            EnforcementCell(
+              Enforcement.Ignored,
+              "`exec resume` takes no sandbox flag, so the requested subset is encoded nowhere and the turn keeps the sandbox its session was created with"
             )

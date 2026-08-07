@@ -71,9 +71,10 @@ class ChatTest extends munit.FunSuite:
     val tag: BackendTag.Pi.type = BackendTag.Pi
     def enforcementCell(
         tools: ToolSet,
-        autoApprove: AutoApprove
+        autoApprove: AutoApprove,
+        dispatch: TurnDispatch
     ): EnforcementCell =
-      EnforcementCell(Enforcement.Ignored, "test double")
+      EnforcementCell(Enforcement.Hard, "test double: nothing to report")
     def structuredOutputMode: StructuredOutputMode =
       StructuredOutputMode.RawText
 

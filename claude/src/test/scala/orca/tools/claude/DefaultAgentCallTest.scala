@@ -6,6 +6,7 @@ import orca.agents.{
   BackendTag,
   Enforcement,
   EnforcementCell,
+  TurnDispatch,
   JsonData,
   AgentConfig,
   SessionId,
@@ -71,9 +72,10 @@ class SequencedBackend(
   val workDir: os.Path = os.pwd
   def enforcementCell(
       tools: ToolSet,
-      autoApprove: AutoApprove
+      autoApprove: AutoApprove,
+      dispatch: TurnDispatch
   ): EnforcementCell =
-    EnforcementCell(Enforcement.Ignored, "test double")
+    EnforcementCell(Enforcement.Hard, "test double: nothing to report")
   def structuredOutputMode: StructuredOutputMode = mode
 
   def runAutonomous(

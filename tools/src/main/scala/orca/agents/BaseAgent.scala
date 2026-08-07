@@ -108,6 +108,7 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
       )(using orca.InStage): String =
         checkNotClosed()
         val effective = effectiveConfig(callConfig)
+        announceEnforcementShortfall(effective, session)
         if emitPrompt then events.onEvent(OrcaEvent.UserPrompt(prompt))
         val result =
           runAccountingForFailure(effective, session):
@@ -131,6 +132,7 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
         case _: OrcaEvent.AssistantMessage | _: OrcaEvent.ToolUse => ()
         case other => events.onEvent(other)
     val session = SessionId.fresh[B]
+    announceEnforcementShortfall(effective, session)
     val result =
       runAccountingForFailure(effective, session):
         backend.runAutonomous(
@@ -152,6 +154,20 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
       interaction,
       agentName = name,
       agentRole = role
+    )
+
+  /** The dispatch is resolved the same way the backend will resolve it moments
+    * later, since on codex it decides the answer.
+    */
+  private def announceEnforcementShortfall(
+      effective: AgentConfig,
+      session: SessionId[B]
+  ): Unit =
+    EnforcementNotice.announceShortfall(
+      backend,
+      effective,
+      backend.sessions.dispatchFor(session).turn,
+      events
     )
 
   /** Run a backend turn, emitting the spend of a turn that fails after the

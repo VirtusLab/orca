@@ -8,7 +8,8 @@ import orca.agents.{
   Enforcement,
   EnforcementCell,
   WireSessionId,
-  ToolSet
+  ToolSet,
+  TurnDispatch
 }
 
 /** Maps AgentConfig fields to Claude Code CLI flags. `systemPrompt` is consumed
@@ -167,28 +168,32 @@ private[claude] object ClaudeArgs:
   /** How strongly claude enforces each `(tools, autoApprove)` combination — see
     * [[permissionArgs]] for the flags this classifies.
     *
-    * Written as an exhaustive match rather than a bare constant so a future
-    * `ToolSet`/`AutoApprove` case fails compilation here.
+    * Every axis is matched exhaustively rather than answered with a constant,
+    * so a future `ToolSet`/`AutoApprove`/`TurnDispatch` case fails compilation
+    * here.
     */
   def enforcementCell(
       tools: ToolSet,
-      autoApprove: AutoApprove
-  ): EnforcementCell =
-    tools match
-      case ToolSet.ReadOnly | ToolSet.NetworkOnly =>
-        EnforcementCell(
-          Enforcement.Hard,
-          "`--tools` confines the turn to the read-only names, so the write and shell tools are not on offer"
-        )
-      case ToolSet.Full =>
-        autoApprove match
-          case AutoApprove.All =>
-            EnforcementCell(
-              Enforcement.Hard,
-              "`--permission-mode bypassPermissions` approves everything, which is what `All` asks for"
-            )
-          case AutoApprove.Only(_) =>
-            EnforcementCell(
-              Enforcement.Hard,
-              "`--allowedTools` is a mechanical gate, but an ADDITIVE one: the approved set is claude's default permission mode ∪ the `Only` list, and only what falls outside that union is gated"
-            )
+      autoApprove: AutoApprove,
+      dispatch: TurnDispatch
+  ): EnforcementCell = dispatch match
+    // Same either way: [[streamJson]] emits `permissionArgs` on `--resume` too.
+    case TurnDispatch.Fresh | TurnDispatch.Resumed =>
+      tools match
+        case ToolSet.ReadOnly | ToolSet.NetworkOnly =>
+          EnforcementCell(
+            Enforcement.Hard,
+            "`--tools` confines the turn to the read-only names, so the write and shell tools are not on offer"
+          )
+        case ToolSet.Full =>
+          autoApprove match
+            case AutoApprove.All =>
+              EnforcementCell(
+                Enforcement.Hard,
+                "`--permission-mode bypassPermissions` approves everything, which is what `All` asks for"
+              )
+            case AutoApprove.Only(_) =>
+              EnforcementCell(
+                Enforcement.Hard,
+                "`--allowedTools` is a mechanical gate, but an ADDITIVE one: the approved set is claude's default permission mode ∪ the `Only` list, and only what falls outside that union is gated"
+              )

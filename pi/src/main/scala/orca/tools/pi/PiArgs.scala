@@ -6,7 +6,8 @@ import orca.agents.{
   AutoApprove,
   Enforcement,
   EnforcementCell,
-  ToolSet
+  ToolSet,
+  TurnDispatch
 }
 
 /** Maps Orca backend configuration to Pi CLI arguments; the argv carries only
@@ -74,23 +75,26 @@ private[pi] object PiArgs:
     */
   def enforcementCell(
       tools: ToolSet,
-      autoApprove: AutoApprove
-  ): EnforcementCell =
-    tools match
-      case ToolSet.ReadOnly =>
-        EnforcementCell(
-          Enforcement.Hard,
-          "the `--tools` allowlist excludes every writable tool"
-        )
-      case ToolSet.NetworkOnly =>
-        EnforcementCell(
-          Enforcement.PromptOnly,
-          "the allowlist has to include `bash` to reach the network, and `bash` also writes, so only the prompt withholds edits"
-        )
-      case ToolSet.Full =>
-        autoApprove match
-          case AutoApprove.All | AutoApprove.Only(_) =>
-            EnforcementCell(
-              Enforcement.Ignored,
-              "pi RPC never prompts, and the argv encodes no approval policy"
-            )
+      autoApprove: AutoApprove,
+      dispatch: TurnDispatch
+  ): EnforcementCell = dispatch match
+    // Same either way: [[rpc]] emits `toolsArgs` alongside `--continue`.
+    case TurnDispatch.Fresh | TurnDispatch.Resumed =>
+      tools match
+        case ToolSet.ReadOnly =>
+          EnforcementCell(
+            Enforcement.Hard,
+            "the `--tools` allowlist excludes every writable tool"
+          )
+        case ToolSet.NetworkOnly =>
+          EnforcementCell(
+            Enforcement.PromptOnly,
+            "the allowlist has to include `bash` to reach the network, and `bash` also writes, so only the prompt withholds edits"
+          )
+        case ToolSet.Full =>
+          autoApprove match
+            case AutoApprove.All | AutoApprove.Only(_) =>
+              EnforcementCell(
+                Enforcement.Ignored,
+                "pi RPC never prompts, and the argv encodes no approval policy"
+              )

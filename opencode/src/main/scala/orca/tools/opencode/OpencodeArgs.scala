@@ -7,7 +7,8 @@ import orca.agents.{
   Enforcement,
   EnforcementCell,
   Model,
-  ToolSet
+  ToolSet,
+  TurnDispatch
 }
 import orca.tools.opencode.OpencodeApi.{
   MessageBody,
@@ -107,18 +108,21 @@ private[opencode] object OpencodeArgs:
     */
   def enforcementCell(
       tools: ToolSet,
-      autoApprove: AutoApprove
-  ): EnforcementCell =
-    tools match
-      case ToolSet.ReadOnly | ToolSet.NetworkOnly =>
-        EnforcementCell(
-          Enforcement.Hard,
-          "the message body disables the write tools, so the server never offers them"
-        )
-      case ToolSet.Full =>
-        autoApprove match
-          case AutoApprove.All | AutoApprove.Only(_) =>
-            EnforcementCell(
-              Enforcement.Ignored,
-              "the approval policy is whatever the user's `opencode` server config answers a `permission.asked` with, outside orca's control (ADR 0014 risk)"
-            )
+      autoApprove: AutoApprove,
+      dispatch: TurnDispatch
+  ): EnforcementCell = dispatch match
+    // Same either way: the gate rides on [[message]], which every turn sends.
+    case TurnDispatch.Fresh | TurnDispatch.Resumed =>
+      tools match
+        case ToolSet.ReadOnly | ToolSet.NetworkOnly =>
+          EnforcementCell(
+            Enforcement.Hard,
+            "the message body disables the write tools, so the server never offers them"
+          )
+        case ToolSet.Full =>
+          autoApprove match
+            case AutoApprove.All | AutoApprove.Only(_) =>
+              EnforcementCell(
+                Enforcement.Ignored,
+                "the approval policy is whatever the user's `opencode` server config answers a `permission.asked` with, outside orca's control (ADR 0014 risk)"
+              )

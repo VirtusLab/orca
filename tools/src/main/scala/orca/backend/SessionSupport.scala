@@ -1,7 +1,7 @@
 package orca.backend
 
 import orca.OrcaFlowException
-import orca.agents.{BackendTag, SessionId, WireSessionId, onWire}
+import orca.agents.{BackendTag, SessionId, TurnDispatch, WireSessionId, onWire}
 import org.slf4j.LoggerFactory
 
 import scala.util.control.NonFatal
@@ -20,6 +20,13 @@ import scala.util.control.NonFatal
 enum Dispatch[B <: BackendTag]:
   case Fresh(claim: Option[WireSessionId[B]])
   case Resume(wireId: WireSessionId[B])
+
+  /** This dispatch without its wire ids, for [[AgentBackend.enforcementCell]],
+    * which classifies the turn and has no use for them.
+    */
+  def turn: TurnDispatch = this match
+    case Dispatch.Fresh(_)  => TurnDispatch.Fresh
+    case Dispatch.Resume(_) => TurnDispatch.Resumed
 
 /** How a backend's wire-level session ids come to be — decides what a `Fresh`
   * dispatch may put on the wire and which id a commit records.

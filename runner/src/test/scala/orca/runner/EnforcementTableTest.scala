@@ -1,6 +1,6 @@
 package orca.runner
 
-import orca.agents.{AutoApprove, BackendTag, Enforcement, ToolSet}
+import orca.agents.{AutoApprove, BackendTag, Enforcement, ToolSet, TurnDispatch}
 import orca.backend.AgentBackend
 import orca.subprocess.StubCliRunner
 import orca.tools.claude.ClaudeBackend
@@ -22,14 +22,14 @@ private enum ApproveShape(val label: String, val sample: AutoApprove):
   case OnlyEmpty extends ApproveShape("Only()", AutoApprove.Only(Set.empty))
 
 /** Machine-checked source of truth for the per-backend enforcement matrix (the
-  * `Enforcement` a `(ToolSet, AutoApprove)` combination gets on each backend),
-  * and the renderer of the table AGENTS.md carries.
+  * `Enforcement` a `(ToolSet, AutoApprove, TurnDispatch)` combination gets on
+  * each backend), and the renderer of the block AGENTS.md carries.
   *
   * The expectations below are deliberately a second, hand-written copy of what
   * the backends declare: editing a backend's cell without editing its row here
-  * fails. The product is walked in full, so a new `BackendTag`, `ToolSet`, or
-  * approve shape fails the moment its enum grows rather than going silently
-  * unchecked.
+  * fails. The product is walked in full, so a new `BackendTag`, `ToolSet`,
+  * approve shape, or dispatch fails the moment its enum grows rather than going
+  * silently unchecked.
   *
   * Every backend's `enforcementCell` is a pure function delegating to its
   * `*Args`, so construction is cheap: a [[StubCliRunner]] the method never
@@ -58,7 +58,7 @@ class EnforcementTableTest extends munit.FunSuite:
       BackendTag.Pi -> pi
     )
 
-  private val readOnlyRow: Map[BackendTag, Enforcement] = row(
+  private val readOnlyFresh: Map[BackendTag, Enforcement] = row(
     claude = Hard,
     codex = Hard,
     gemini = PromptOnly,
@@ -66,7 +66,18 @@ class EnforcementTableTest extends munit.FunSuite:
     pi = Hard
   )
 
-  private val networkOnlyRow: Map[BackendTag, Enforcement] = row(
+  /** codex `exec resume` takes no sandbox flag, so its read-only tiers fall
+    * back to the prompt on a resumed turn.
+    */
+  private val readOnlyResumed: Map[BackendTag, Enforcement] = row(
+    claude = Hard,
+    codex = PromptOnly,
+    gemini = PromptOnly,
+    opencode = Hard,
+    pi = Hard
+  )
+
+  private val networkOnly: Map[BackendTag, Enforcement] = row(
     claude = Hard,
     codex = PromptOnly,
     gemini = PromptOnly,
@@ -74,7 +85,15 @@ class EnforcementTableTest extends munit.FunSuite:
     pi = PromptOnly
   )
 
-  private val fullOnlyRow: Map[BackendTag, Enforcement] = row(
+  private val fullAll: Map[BackendTag, Enforcement] = row(
+    claude = Hard,
+    codex = Hard,
+    gemini = Hard,
+    opencode = Ignored,
+    pi = Ignored
+  )
+
+  private val fullOnlyFresh: Map[BackendTag, Enforcement] = row(
     claude = Hard,
     codex = SandboxApprox,
     gemini = Ignored,
@@ -82,40 +101,47 @@ class EnforcementTableTest extends munit.FunSuite:
     pi = Ignored
   )
 
-  private val expected
-      : Map[(ToolSet, ApproveShape), Map[BackendTag, Enforcement]] =
-    Map(
-      // ReadOnly / NetworkOnly ignore autoApprove on every backend, so their
-      // three rows agree by construction — pinned, not assumed.
-      (ToolSet.ReadOnly, ApproveShape.All) ->
-        readOnlyRow,
-      (ToolSet.ReadOnly, ApproveShape.OnlySome) ->
-        readOnlyRow,
-      (ToolSet.ReadOnly, ApproveShape.OnlyEmpty) ->
-        readOnlyRow,
-      (ToolSet.NetworkOnly, ApproveShape.All) ->
-        networkOnlyRow,
-      (ToolSet.NetworkOnly, ApproveShape.OnlySome) ->
-        networkOnlyRow,
-      (ToolSet.NetworkOnly, ApproveShape.OnlyEmpty) ->
-        networkOnlyRow,
-      (ToolSet.Full, ApproveShape.All) -> row(
-        claude = Hard,
-        codex = Hard,
-        gemini = Hard,
-        opencode = Ignored,
-        pi = Ignored
-      ),
-      (ToolSet.Full, ApproveShape.OnlySome) ->
-        fullOnlyRow,
-      (ToolSet.Full, ApproveShape.OnlyEmpty) ->
-        fullOnlyRow
+  private val fullOnlyResumed: Map[BackendTag, Enforcement] = row(
+    claude = Hard,
+    codex = Ignored,
+    gemini = Ignored,
+    opencode = Ignored,
+    pi = Ignored
+  )
+
+  private val expected: Map[
+    (ToolSet, ApproveShape, TurnDispatch),
+    Map[BackendTag, Enforcement]
+  ] =
+    (for
+      shape <- ApproveShape.values.toList
+      // The read-only tiers ignore autoApprove on every backend, so one row
+      // stands for all three shapes — pinned by the product walk, not assumed.
+      entry <- List(
+        (ToolSet.ReadOnly, shape, TurnDispatch.Fresh) -> readOnlyFresh,
+        (ToolSet.ReadOnly, shape, TurnDispatch.Resumed) -> readOnlyResumed,
+        (ToolSet.NetworkOnly, shape, TurnDispatch.Fresh) -> networkOnly,
+        (ToolSet.NetworkOnly, shape, TurnDispatch.Resumed) -> networkOnly
+      )
+    yield entry).toMap ++ Map(
+      (ToolSet.Full, ApproveShape.All, TurnDispatch.Fresh) -> fullAll,
+      (ToolSet.Full, ApproveShape.All, TurnDispatch.Resumed) -> fullAll,
+      (
+        ToolSet.Full,
+        ApproveShape.OnlySome,
+        TurnDispatch.Fresh
+      ) -> fullOnlyFresh,
+      (ToolSet.Full, ApproveShape.OnlySome, TurnDispatch.Resumed) ->
+        fullOnlyResumed,
+      (ToolSet.Full, ApproveShape.OnlyEmpty, TurnDispatch.Fresh) ->
+        fullOnlyFresh,
+      (ToolSet.Full, ApproveShape.OnlyEmpty, TurnDispatch.Resumed) ->
+        fullOnlyResumed
     )
 
   test("every backend tag has a backend wired into the matrix"):
     withDeclared: declared =>
-      val wired = declared.keySet.map(_._1)
-      assertEquals(wired, BackendTag.values.toSet)
+      assertEquals(declared.keySet.map(_._1), BackendTag.values.toSet)
 
   test("every cell of the product matches what its backend declares"):
     withDeclared: declared =>
@@ -125,29 +151,34 @@ class EnforcementTableTest extends munit.FunSuite:
         tag <- BackendTag.values.toList
         tools <- ToolSet.values.toList
         shape <- ApproveShape.values.toList
-        problem <- expected.get((tools, shape)).flatMap(_.get(tag)) match
-          case None => Some(s"$tag / $tools / ${shape.label}: no expectation")
+        dispatch <- TurnDispatch.values.toList
+        where = s"$tag / $tools / ${shape.label} / $dispatch"
+        problem <- expected
+          .get((tools, shape, dispatch))
+          .flatMap(_.get(tag)) match
+          case None => Some(s"$where: no expectation")
           case Some(want) =>
             declared
-              .get((tag, tools, shape))
+              .get((tag, tools, shape, dispatch))
               .filter(_ != want)
-              .map(got =>
-                s"$tag / $tools / ${shape.label}: want $want, got $got"
-              )
+              .map(got => s"$where: want $want, got $got")
       yield problem
       assert(problems.isEmpty, problems.mkString("\n"))
 
-  test("AGENTS.md carries the table rendered from the declared cells"):
+  test("AGENTS.md carries the block rendered from the declared cells"):
     withDeclared: declared =>
-      val table = renderTable(declared)
+      val block = renderBlock(declared)
       assert(
-        agentsMd.contains(table),
-        s"AGENTS.md's enforcement table is stale — replace it with:\n\n$table"
+        agentsMd.contains(block),
+        s"AGENTS.md's enforcement block is stale — replace it with:\n\n$block"
       )
 
-  /** The declared level for every (backend, tools, approve shape). */
+  /** The declared level for every (backend, tools, approve shape, dispatch). */
   private def withDeclared[A](
-      use: Map[(BackendTag, ToolSet, ApproveShape), Enforcement] => A
+      use: Map[
+        (BackendTag, ToolSet, ApproveShape, TurnDispatch),
+        Enforcement
+      ] => A
   ): A =
     supervised:
       val cli = new StubCliRunner()
@@ -163,37 +194,66 @@ class EnforcementTableTest extends munit.FunSuite:
           backend <- backends
           tools <- ToolSet.values.toList
           shape <- ApproveShape.values.toList
-        yield (backend.tag, tools, shape) ->
-          backend.enforcementCell(tools, shape.sample).level).toMap
+          dispatch <- TurnDispatch.values.toList
+        yield (backend.tag, tools, shape, dispatch) ->
+          backend.enforcementCell(tools, shape.sample, dispatch).level).toMap
       )
 
-  /** Renders the matrix as the markdown block AGENTS.md carries: one column per
-    * backend, one row per run of approve shapes that classify identically on
-    * every backend (`*` when all of them do, which is why the read-only tiers
-    * are one row each). Indented two spaces to sit inside AGENTS.md's bullet.
+  /** Renders the markdown block AGENTS.md carries: the fresh-turn table, then
+    * the resumed turns that classify differently. Indented two spaces, which is
+    * where it sits inside AGENTS.md's bullet.
+    *
+    * Table rows collapse approve shapes that classify identically on every
+    * backend AND both dispatches (`*` when all of them do), so a shape that
+    * only differs on resume can't hide inside a merged row.
     */
-  private def renderTable(
-      declared: Map[(BackendTag, ToolSet, ApproveShape), Enforcement]
+  private def renderBlock(
+      declared: Map[
+        (BackendTag, ToolSet, ApproveShape, TurnDispatch),
+        Enforcement
+      ]
   ): String =
-    def levels(tools: ToolSet, shape: ApproveShape): List[String] =
-      BackendTag.values.toList.map(tag =>
-        declared((tag, tools, shape)).toString
-      )
+    def levels(
+        tools: ToolSet,
+        shape: ApproveShape,
+        dispatch: TurnDispatch
+    ): List[String] =
+      BackendTag.values.toList.map(declared(_, tools, shape, dispatch).toString)
+    def bothDispatches(tools: ToolSet, shape: ApproveShape): List[String] =
+      TurnDispatch.values.toList.flatMap(levels(tools, shape, _))
+
+    val runs = for
+      tools <- ToolSet.values.toList
+      run <- shapeRuns(tools, bothDispatches)
+    yield (tools, run)
 
     val header = "tools, approve" :: BackendTag.values.toList.map(_.wireName)
-    val body = for
-      tools <- ToolSet.values.toList
-      group <- shapeRuns(tools, levels)
-    yield s"$tools, ${runLabel(group)}" :: levels(tools, group.head)
-
+    val body = runs.map: (tools, run) =>
+      s"$tools, ${runLabel(run)}" ::
+        levels(tools, run.head, TurnDispatch.Fresh)
     val widths = (header :: body).transpose.map(_.map(_.length).max)
     def line(cells: List[String]) =
       cells
         .zip(widths)
-        .map((c, w) => c.padTo(w, ' '))
+        .map((cell, width) => cell.padTo(width, ' '))
         .mkString("  | ", " | ", " |")
     val separator = widths.map(w => "-" * (w + 2)).mkString("  |", "|", "|")
-    (line(header) :: separator :: body.map(line)).mkString("\n")
+    val table = (line(header) :: separator :: body.map(line)).mkString("\n")
+
+    val deltas = for
+      (tools, run) <- runs
+      tag <- BackendTag.values.toList
+      fresh = declared((tag, tools, run.head, TurnDispatch.Fresh))
+      resumed = declared((tag, tools, run.head, TurnDispatch.Resumed))
+      if fresh != resumed
+    yield s"  - ${tag.wireName}, $tools, ${runLabel(run)}: $resumed, not $fresh"
+    val note =
+      if deltas.isEmpty then "  A resumed turn is classified the same."
+      else
+        ("  A resumed turn is classified the same, except:" :: deltas)
+          .mkString("\n")
+
+    s"$table\n\n$note"
 
   /** Consecutive approve shapes whose whole row of levels is identical, so the
     * rendered table collapses them into one row.

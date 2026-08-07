@@ -8,7 +8,8 @@ import orca.agents.{
   EnforcementCell,
   SessionId,
   StructuredOutputMode,
-  ToolSet
+  ToolSet,
+  TurnDispatch
 }
 import orca.subprocess.CliResult
 import orca.backend.{
@@ -68,9 +69,10 @@ private[orca] class GeminiBackend(
 
   override def enforcementCell(
       tools: ToolSet,
-      autoApprove: AutoApprove
+      autoApprove: AutoApprove,
+      dispatch: TurnDispatch
   ): EnforcementCell =
-    GeminiArgs.enforcementCell(tools, autoApprove)
+    GeminiArgs.enforcementCell(tools, autoApprove, dispatch)
 
   /** The gemini CLI has no output-schema flag (see [[runAutonomous]]) —
     * enforcement is prompt-only and the reply text is the JSON value.

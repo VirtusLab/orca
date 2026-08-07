@@ -16,6 +16,7 @@ import orca.agents.{
   AgentConfig,
   Enforcement,
   EnforcementCell,
+  TurnDispatch,
   OpencodeAgent,
   SessionId,
   ToolSet,
@@ -53,9 +54,10 @@ class DefaultOpencodeAgentTest extends munit.FunSuite:
     val tag: BackendTag.Opencode.type = BackendTag.Opencode
     def enforcementCell(
         tools: ToolSet,
-        autoApprove: AutoApprove
+        autoApprove: AutoApprove,
+        dispatch: TurnDispatch
     ): EnforcementCell =
-      EnforcementCell(Enforcement.Ignored, "test double")
+      EnforcementCell(Enforcement.Hard, "test double: nothing to report")
     def structuredOutputMode: orca.agents.StructuredOutputMode =
       orca.agents.StructuredOutputMode.RawText
 

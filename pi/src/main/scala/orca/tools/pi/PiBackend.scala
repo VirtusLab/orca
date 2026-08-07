@@ -9,7 +9,8 @@ import orca.agents.{
   EnforcementCell,
   SessionId,
   StructuredOutputMode,
-  ToolSet
+  ToolSet,
+  TurnDispatch
 }
 import orca.backend.{
   Conversation,
@@ -78,9 +79,10 @@ private[orca] class PiBackend private[pi] (
 
   override def enforcementCell(
       tools: ToolSet,
-      autoApprove: AutoApprove
+      autoApprove: AutoApprove,
+      dispatch: TurnDispatch
   ): EnforcementCell =
-    PiArgs.enforcementCell(tools, autoApprove)
+    PiArgs.enforcementCell(tools, autoApprove, dispatch)
 
   /** Pi has no native structured-output / JSON-schema flag (see
     * [[PiConversation]]) — the reply text is the JSON value.

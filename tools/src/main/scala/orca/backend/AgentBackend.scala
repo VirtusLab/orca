@@ -7,10 +7,12 @@ import orca.agents.{
   AutoApprove,
   BackendTag,
   AgentConfig,
+  Enforcement,
   EnforcementCell,
   SessionId,
   StructuredOutputMode,
-  ToolSet
+  ToolSet,
+  TurnDispatch
 }
 
 import ox.Ox
@@ -100,14 +102,16 @@ trait AgentBackend[B <: BackendTag](
   def tag: B
 
   /** How strongly THIS backend enforces the restriction a `(tools,
-    * autoApprove)` combination requests, and why — a pure classification of the
-    * flags this backend's `*Args` would build, surfaced as data because the
-    * answer differs materially across backends.
+    * autoApprove)` combination requests on a `dispatch` turn, and why — a pure
+    * classification of the flags this backend's `*Args` would build, surfaced
+    * as data because the answer differs materially across backends.
     *
     * Abstract, not defaulted to `Enforcement.Ignored`, so a new backend cannot
-    * ship without answering this. Real backends delegate to their
-    * `*Args.enforcementCell`; test doubles that never consult it add a one-line
-    * `Ignored` cell.
+    * ship without answering this; the `*Args` implementations match `dispatch`
+    * exhaustively, so it cannot answer for fresh turns only. Real backends
+    * delegate to their `*Args.enforcementCell`; test doubles that aren't
+    * exercising [[enforcementShortfall]] add a one-line `Hard` cell, the answer
+    * that reports nothing.
     *
     * @see
     *   [[orca.agents.Enforcement]] for what the levels mean, and
@@ -116,8 +120,33 @@ trait AgentBackend[B <: BackendTag](
     */
   def enforcementCell(
       tools: ToolSet,
-      autoApprove: AutoApprove
+      autoApprove: AutoApprove,
+      dispatch: TurnDispatch
   ): EnforcementCell
+
+  /** The cell of a turn that asked for a no-edit tier and did NOT get a
+    * mechanical gate — the FIRST time this backend is asked for that `(tools,
+    * dispatch)`. `None` afterwards, on [[ToolSet.Full]] (which asks for no such
+    * gate), and whenever the answer is `Enforcement.Hard`.
+    *
+    * Deduplicated here because every agent handle a flow derives shares this
+    * backend instance, so the caller reports the shortfall once rather than on
+    * every one of a fan-out's turns. Reporting, not refusing: a weaker gate is
+    * a documented property of the backend, and the turn's prompt still carries
+    * [[SystemPromptComposer.ReadOnlyTurn]].
+    */
+  final def enforcementShortfall(
+      tools: ToolSet,
+      autoApprove: AutoApprove,
+      dispatch: TurnDispatch
+  ): Option[EnforcementCell] =
+    val cell = enforcementCell(tools, autoApprove, dispatch)
+    val shortfall = tools != ToolSet.Full && cell.level != Enforcement.Hard
+    Option.when(shortfall && reportedShortfalls.add((tools, dispatch)))(cell)
+
+  private val reportedShortfalls =
+    java.util.concurrent.ConcurrentHashMap
+      .newKeySet[(ToolSet, TurnDispatch)]()
 
   /** How THIS backend's wire delivers a structured (`resultAs[O]`) payload
     * ([[orca.agents.StructuredOutputMode]]). Prompt assembly
@@ -125,7 +154,7 @@ trait AgentBackend[B <: BackendTag](
     * misdeclares gets an instruction that contradicts its wire and steers weak
     * models into malformed replies.
     *
-    * Abstract, not defaulted, for the same reason as [[enforcement]]. Real
+    * Abstract, not defaulted, for the same reason as [[enforcementCell]]. Real
     * backends declare what their CLI actually does; test doubles that never
     * assemble prompts add a one-line `RawText` override.
     */
