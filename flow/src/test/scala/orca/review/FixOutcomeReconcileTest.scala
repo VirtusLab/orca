@@ -54,6 +54,13 @@ class FixOutcomeReconcileTest extends munit.FunSuite:
       List(IgnoredIssue(Title("Leaks a handle"), "by design"))
     )
 
+  test("an issue the fixer claimed twice is one fixed entry"):
+    val reconciled = FixOutcome.reconcile(
+      handed("real bug"),
+      FixOutcome(List(Title("I1 real bug"), Title("real bug")), Nil)
+    )
+    assertEquals(reconciled.fixed, List(Title("real bug")))
+
   test("an issue echoed in both lists counts as fixed only"):
     val reconciled = FixOutcome.reconcile(
       handed("real bug"),

@@ -326,12 +326,48 @@ class ReviewAndFixTest extends munit.FunSuite:
     assertEquals(
       result.issues,
       List(
-        IgnoredIssue(Title("real bug"), "fixer reported no fixes"),
         IgnoredIssue(
           Title("flaky"),
           "below the Warning confidence gate (0.3 < 0.6)"
-        )
+        ),
+        IgnoredIssue(Title("real bug"), "fixer reported no fixes")
       )
+    )
+
+  test("a fixer verdict on a once-gated finding beats its gate reason"):
+    given FlowControl = control
+    // "nit" is held back by the gate in round one, so the ledger keeps it for
+    // good. Round two re-reports it above the bar, the fixer sees it and
+    // declines it — the newer verdict, and what the result must say.
+    val reviewer = new FakeAgent(
+      name = "loud",
+      outputs = List(
+        ReviewResult(
+          List(
+            issue("driver", confidence = 0.95),
+            issue("nit", confidence = 0.3)
+          )
+        ),
+        ReviewResult(List(issue("nit", confidence = 0.95)))
+      )
+    )
+    val coder = new FakeAgent(
+      name = "coder",
+      outputs = List(
+        FixOutcome(List(Title("driver")), Nil),
+        FixOutcome(Nil, List(IgnoredIssue(Title("nit"), "deliberate")))
+      )
+    )
+    val result = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(reviewer),
+      task = "build the widget",
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      initialDiff = Some("")
+    )
+    assertEquals(
+      result.issues,
+      List(IgnoredIssue(Title("nit"), "deliberate"))
     )
 
   test("the cap exit records both the cap reason and the gated issues"):
@@ -364,11 +400,11 @@ class ReviewAndFixTest extends munit.FunSuite:
     assertEquals(
       result.issues,
       List(
-        IgnoredIssue(Title("stubborn"), "max iterations (1) reached"),
         IgnoredIssue(
           Title("flaky"),
           "below the Warning confidence gate (0.3 < 0.6)"
-        )
+        ),
+        IgnoredIssue(Title("stubborn"), "max iterations (1) reached")
       )
     )
 
@@ -454,11 +490,11 @@ class ReviewAndFixTest extends munit.FunSuite:
     assertEquals(
       result.issues,
       List(
-        IgnoredIssue(Title("real bug"), "max iterations (1) reached"),
         IgnoredIssue(
           Title("flaky"),
           "below the Warning confidence gate (0.3 < 0.6)"
-        )
+        ),
+        IgnoredIssue(Title("real bug"), "max iterations (1) reached")
       )
     )
 

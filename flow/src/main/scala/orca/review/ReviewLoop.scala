@@ -772,7 +772,10 @@ private[review] class ReviewFixLoop[B <: BackendTag](
           recordIgnored(accumulated, gated.issues)
         case LoopStep.CapReached(ignored) =>
           orca.display(capExitMessage(maxIterations, ignored))
-          recordIgnored(accumulated, ignored.issues, gated.issues)
+          // Gate rejects go in first: the ledger holds them from whichever
+          // round first held one back, so this round's verdict on the same
+          // title is the fresher one and must win.
+          recordIgnored(accumulated, gated.issues, ignored.issues)
         case LoopStep.NeedsFix =>
           val outcome = FixOutcome.reconcile(issues, fix(issues))
           // `ctx` explicit for the same given-priority reason as `selectRound`.
@@ -781,9 +784,9 @@ private[review] class ReviewFixLoop[B <: BackendTag](
             orca.display("Fixer reported no fixes; bailing out")
             recordIgnored(
               accumulated,
+              gated.issues,
               outcome.ignored,
-              outcome.unaccounted.map(IgnoredIssue(_, NoFixesReason)),
-              gated.issues
+              outcome.unaccounted.map(IgnoredIssue(_, NoFixesReason))
             )
           else
             // Bound once: the accumulated set IS the cross-round decline set on

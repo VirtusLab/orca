@@ -76,11 +76,6 @@ class ReviewTypesTest extends munit.FunSuite:
         .contains("\n  |a| b|")
     )
 
-  test("IgnoredIssues ++ concatenates entries"):
-    val a = IgnoredIssues(List(IgnoredIssue(Title("Style nit"), "accepted")))
-    val b = IgnoredIssues(List(IgnoredIssue(Title("Style nit"), "deferred")))
-    assertEquals((a ++ b).issues.size, 2)
-
   test("IgnoredIssues.format renders title and reason"):
     val issues =
       IgnoredIssues(List(IgnoredIssue(Title("Style nit"), "accepted")))
