@@ -201,8 +201,9 @@ class DefaultAgentCallTest extends munit.FunSuite:
         makeCall(backend).autonomous.runWithSession(
           "next step",
           sid,
-          None,
-          true
+          sessionName = None,
+          config = None,
+          emitPrompt = true
         )
       assertEquals(answer, Answer(11))
       val Seq(first, second) = backend.prompts: @unchecked
@@ -675,7 +676,12 @@ class DefaultAgentCallTest extends munit.FunSuite:
         events = orca.events.OrcaListener.noop,
         interaction = drivingInteraction,
         agentName = "claude"
-      ).interactive.runWithSession("anything", clientSid, None)
+      ).interactive.runWithSession(
+        "anything",
+        clientSid,
+        sessionName = None,
+        config = None
+      )
       assertEquals(answer, Answer(3))
       assertEquals(
         backend.sessions.persistableWireId(clientSid),

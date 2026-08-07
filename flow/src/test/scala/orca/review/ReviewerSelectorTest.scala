@@ -42,6 +42,7 @@ private class RecordingPicker(
           private[orca] def runWithSession[I: AgentInput](
               input: I,
               session: SessionId[BackendTag.ClaudeCode.type],
+              sessionName: Option[String],
               config: Option[AgentConfig],
               emitPrompt: Boolean
           )(using orca.InStage): O =
