@@ -1,9 +1,16 @@
 package orca.shell.actions
 
-import orca.runner.manifest.{ManifestSession, RunManifest}
+import orca.runner.manifest.{
+  ManifestOutcome,
+  ManifestSession,
+  ManifestSessionKind,
+  RunManifest
+}
 import orca.shell.sessions.SessionSelection
 import orca.testkit.TempDirs
 import orca.tools.pi.PiSessionStore
+
+import java.time.Instant
 
 class SessionActionTest extends munit.FunSuite:
 
@@ -16,9 +23,9 @@ class SessionActionTest extends munit.FunSuite:
       role = None,
       stage = stage,
       sessionName = Some("newest"),
-      kind = "durable",
-      firstSeenAt = "2026-07-18T09:00:00Z",
-      lastActiveAt = "2026-07-18T09:45:00Z"
+      kind = ManifestSessionKind.Durable,
+      firstSeenAt = Instant.parse("2026-07-18T09:00:00Z"),
+      lastActiveAt = Instant.parse("2026-07-18T09:45:00Z")
     )
 
   private def manifest(s: ManifestSession): RunManifest =
@@ -27,9 +34,9 @@ class SessionActionTest extends munit.FunSuite:
       flow = Some("a-flow.sc"),
       workDir = "/work",
       pid = 1,
-      startedAt = "2026-07-18T09:00:00Z",
+      startedAt = Instant.parse("2026-07-18T09:00:00Z"),
       finishedAt = None,
-      outcome = "succeeded",
+      outcome = ManifestOutcome.Succeeded,
       sessions = List(s)
     )
 
