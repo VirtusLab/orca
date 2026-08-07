@@ -183,22 +183,35 @@ private[shell] object SessionPicker:
           case Some(index) => selectByIndex(runs, index)
           case None        => selectByName(runs, s)
 
+  /** Resolves one picker row for a selector: a `Resume` row yields its
+    * selection, or its `disabledReason` phrased by `notResumable`; a `ShowMore`
+    * row yields `onShowMore`, which each selector words for itself.
+    */
+  private def resolveRow(
+      choice: Choice[PickerRow],
+      notResumable: String => String,
+      onShowMore: => Either[String, SessionSelection]
+  ): Either[String, SessionSelection] =
+    choice.value match
+      case PickerRow.Resume(selection) =>
+        choice.disabledReason.map(notResumable).toLeft(selection)
+      case PickerRow.ShowMore => onShowMore
+
   private[shell] def newestDurableSelection(
       runs: List[RecordedRun]
   ): Either[String, SessionSelection] =
     sessionRows(runs, expanded = false).headOption match
       case None => Left("no sessions recorded yet")
       case Some(choice) =>
-        choice.value match
-          case PickerRow.Resume(selection) =>
-            choice.disabledReason match
-              case Some(reason) =>
-                Left(s"can't resume the newest session — $reason")
-              case None => Right(selection)
-          case PickerRow.ShowMore =>
-            Left(
-              "no durable session to continue yet — see `orca continue --list`"
-            )
+        resolveRow(
+          choice,
+          reason => s"can't resume the newest session — $reason",
+          // reachable: with no durable lineages, the collapsed listing's head
+          // is the one-shot expander row
+          Left(
+            "no durable session to continue yet — see `orca continue --list`"
+          )
+        )
 
   private[shell] def selectByIndex(
       runs: List[RecordedRun],
@@ -211,33 +224,35 @@ private[shell] object SessionPicker:
           s"no session at index $index — see `orca continue --list` (1-${rows.size})"
         )
       case Some(choice) =>
-        choice.value match
-          case PickerRow.Resume(selection) =>
-            choice.disabledReason match
-              case Some(reason) =>
-                Left(s"session $index isn't resumable — $reason")
-              case None => Right(selection)
-          case PickerRow.ShowMore =>
-            // unreachable: withoutExpanders already dropped every ShowMore row
-            Left(s"no session at index $index")
+        resolveRow(
+          choice,
+          reason => s"session $index isn't resumable — $reason",
+          // unreachable: withoutExpanders already dropped every ShowMore row
+          Left(s"no session at index $index")
+        )
 
   private[shell] def selectByName(
       runs: List[RecordedRun],
       name: String
   ): Either[String, SessionSelection] =
+    val notFound =
+      Left(s"no session named '$name' found — see `orca continue --list`")
     val matches =
       withoutExpanders(sessionRows(runs, expanded = false)).collect:
         case choice @ Choice(PickerRow.Resume(selection), _, _)
             if selection.session.sessionName.contains(name) =>
-          (selection, choice.disabledReason)
+          (choice, selection)
     matches match
-      case Nil =>
-        Left(s"no session named '$name' found — see `orca continue --list`")
-      case (selection, None) :: Nil => Right(selection)
-      case (_, Some(reason)) :: Nil =>
-        Left(s"session '$name' isn't resumable — $reason")
+      case Nil => notFound
+      case (choice, _) :: Nil =>
+        resolveRow(
+          choice,
+          reason => s"session '$name' isn't resumable — $reason",
+          // unreachable: withoutExpanders already dropped every ShowMore row
+          notFound
+        )
       case multiple =>
-        val agents = multiple.map(_._1.session.agent).distinct.mkString(", ")
+        val agents = multiple.map(_._2.session.agent).distinct.mkString(", ")
         Left(s"'$name' is ambiguous — matches agents: $agents")
 
   /** [[sessionRows]]'s rows, dropping the "show more" expanders — never present
