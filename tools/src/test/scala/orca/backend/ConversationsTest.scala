@@ -169,7 +169,7 @@ class ConversationsTest extends munit.FunSuite:
     assertEquals(conv.drained.get(), 2)
 
   test("drainAutonomous throws OrcaInteractiveCancelled on Left outcome"):
-    val cancelled = new OrcaInteractiveCancelled()
+    val cancelled = new OrcaInteractiveCancelled(TurnDebit.Unobserved)
     val conv = new ScriptedConversation(Nil, Left(cancelled))
     val thrown = intercept[OrcaInteractiveCancelled]:
       supervised(Conversations.drainAutonomous(conv))

@@ -4,9 +4,9 @@ import orca.backend.{Interaction, AgentBackend}
 import orca.events.{OrcaEvent, OrcaListener}
 
 /** Skeleton shared by all backends' default tools. Centralises the
-  * autonomous-text path (delegation to `backend.runAutonomous` plus
-  * `TokensUsed` emission), the `resultAs[O]` factory, and the `withConfig` /
-  * `withSystemPrompt` / `withName` builders.
+  * autonomous-text path (delegation to `backend.runAutonomous`, with
+  * [[TurnAccounting]] emitting), the `resultAs[O]` factory, and the
+  * `withConfig` / `withSystemPrompt` / `withName` builders.
   *
   * Concrete subclasses provide:
   *   - the `Self` type bound (their own `Agent` subtype) so the builders return
@@ -100,7 +100,7 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
         val effective = effectiveConfig(callConfig)
         if emitPrompt then events.onEvent(OrcaEvent.UserPrompt(prompt))
         val accounting = turnAccounting(effective, session)
-        val result = accounting.recording(TurnAccounting.OnlyTurn):
+        val result = accounting.recording:
           backend.runAutonomous(prompt, session, effective, events)
         accounting.succeeded(result, TurnAccounting.OnlyTurn)
         accounting.sessionCommitted()
@@ -122,7 +122,7 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
         case other => events.onEvent(other)
     val session = SessionId.fresh[B]
     val accounting = turnAccounting(effective, session)
-    val result = accounting.recording(TurnAccounting.OnlyTurn):
+    val result = accounting.recording:
       backend.runAutonomous(prompt, session, effective, quietEvents)
     accounting.succeeded(result, TurnAccounting.OnlyTurn)
     result.output

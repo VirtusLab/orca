@@ -202,6 +202,8 @@ class DefaultAgentCall[B <: BackendTag, O](
       * can drive a corrective re-prompt loop around repeated calls to this.
       */
     def attemptOnce(): O =
+      // This attempt's turn index, whether it ends in a debit or a result.
+      val thisTurn = turnsRecorded + 1
       val promptText = lastFailure match
         case Some(f) =>
           val corrective = prompts.retry(f.response, f.parserError)
@@ -220,7 +222,7 @@ class DefaultAgentCall[B <: BackendTag, O](
         catch
           // Fires at most once per call — `AgentTurnFailed` is never retried.
           case e: AgentTurnFailed =>
-            accounting.failedAfterModelRan(e.debit, turnsRecorded + 1)
+            accounting.failedAfterModelRan(e.debit, thisTurn)
             throw e
       // Fire as soon as the backend drain commits — before the fallible
       // parse below — so a session that later exhausts its retries (parse
@@ -229,8 +231,8 @@ class DefaultAgentCall[B <: BackendTag, O](
       // session re-fires with the same payload; listeners dedup on
       // (backend, clientId, wireId) per the event's scaladoc.
       accounting.sessionCommitted()
-      turnsRecorded += 1
-      accounting.succeeded(result, turnsRecorded)
+      turnsRecorded = thisTurn
+      accounting.succeeded(result, thisTurn)
       try
         val parsed = ResponseParser.parse[O](result.output)
         emitStructuredResult(result.output, parsed)
@@ -283,9 +285,9 @@ class DefaultAgentCall[B <: BackendTag, O](
     // into this Ox, `drive` consumes them, and `cancel` (in the `finally`) tears
     // the conversation down before the scope joins — so a cancelled turn never
     // leaks the subprocess/forks. On cancel `drive` throws, skipping the
-    // register / TokensUsed bookkeeping below; a turn that failed after the
-    // model ran still reports its spend through `recording`.
-    val result = accounting.recording(TurnAccounting.OnlyTurn):
+    // register / session bookkeeping below; `recording` still reports what the
+    // abandoned turn spent.
+    val result = accounting.recording:
       ox.supervised:
         val rawConversation = backend.runInteractive(
           prompt,
@@ -310,9 +312,6 @@ class DefaultAgentCall[B <: BackendTag, O](
     // thread. No-op for backends whose session id IS the client UUID (claude).
     backend.sessions.register(session, result.wireId)
     accounting.sessionCommitted()
-    // A mid-session cancel throws out of `drive` before this line, and the wire
-    // protocols don't always carry partial usage, so a cancelled turn reports
-    // nothing.
     accounting.succeeded(result, TurnAccounting.OnlyTurn)
     val parsed = ResponseParser.parse[O](result.output)
     emitStructuredResult(result.output, parsed)

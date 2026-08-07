@@ -1,6 +1,6 @@
 package orca.tools.claude
 
-import orca.{AgentTurnFailed, OrcaFlowException}
+import orca.{AgentTurnFailed, OrcaFlowException, OrcaInteractiveCancelled}
 import orca.agents.{
   AutoApprove,
   BackendTag,
@@ -503,6 +503,35 @@ class DefaultAgentCallTest extends munit.FunSuite:
         agentName = "claude"
       ).autonomous.run("anything")
       assertEquals(captured.get().flatMap(_.systemPrompt), Some("tool-prompt"))
+
+  // Ctrl-C at an interactive prompt abandons a turn the user is still billed
+  // for; the conversation carries what it spent on the cancellation itself.
+  test("an interactive turn cancelled after the model ran emits TokensUsed"):
+    val seen = new AtomicReference[List[OrcaEvent]](Nil)
+    val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
+    val spent = usage(90L, 4L)
+    val cancellingInteraction: Interaction = new Interaction:
+      val listeners: List[OrcaListener] = Nil
+      def drive[B <: BackendTag](
+          conversation: orca.backend.Conversation[B]
+      )(using ox.Ox): AgentResult[B] =
+        throw new OrcaInteractiveCancelled(
+          TurnDebit.Observed(spent, Some(Model("claude-sonnet-5")))
+        )
+    supervised:
+      val _ = intercept[OrcaInteractiveCancelled]:
+        new DefaultAgentCall[BackendTag.ClaudeCode.type, Answer](
+          backend = new SequencedBackend(Nil),
+          effectiveConfig = cfg => cfg.getOrElse(AgentConfig()),
+          prompts = DefaultPrompts,
+          events = listener,
+          interaction = cancellingInteraction,
+          agentName = "claude"
+        ).interactive.run("anything")
+      assertEquals(
+        seen.get().collect { case t: OrcaEvent.TokensUsed => t.usage },
+        List(spent)
+      )
 
   // The autonomous path emits a failed turn's debit; the interactive one runs
   // the same models against the same bills and used to report nothing.

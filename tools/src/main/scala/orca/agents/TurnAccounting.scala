@@ -2,6 +2,7 @@ package orca.agents
 
 import orca.backend.{AgentBackend, AgentResult}
 import orca.events.{OrcaEvent, OrcaListener, TurnDebit, Usage}
+import orca.agents.TurnAccounting.OnlyTurn
 
 /** Attributes one call's turns — which agent, which model, which role, which
   * session, which attempt — and emits the resulting events.
@@ -42,14 +43,18 @@ private[orca] class TurnAccounting[B <: BackendTag](
     case TurnDebit.Observed(usage, model) => emit(model, usage, attempt)
     case TurnDebit.Unobserved             => ()
 
-  /** Run `turn`, recording the debit of a failure that happened after the model
-    * ran, then re-raising it.
+  /** Run `turn`, recording the debit of a turn that ended after the model ran —
+    * failed or cancelled by the user — then re-raising it. For the call shapes
+    * that run one turn and never retry, hence [[TurnAccounting.OnlyTurn]].
     */
-  def recording(attempt: Int)(turn: => AgentResult[B]): AgentResult[B] =
+  def recording(turn: => AgentResult[B]): AgentResult[B] =
     try turn
     catch
       case e: orca.AgentTurnFailed =>
-        failedAfterModelRan(e.debit, attempt)
+        failedAfterModelRan(e.debit, OnlyTurn)
+        throw e
+      case e: orca.OrcaInteractiveCancelled =>
+        failedAfterModelRan(e.debit, OnlyTurn)
         throw e
 
   /** Fires once a session's first turn commits (ADR 0021 §8). Call after the

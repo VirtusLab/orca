@@ -101,18 +101,18 @@ private[gemini] class GeminiConversation(
       // silently rather than rendering an error.
       ()
 
-  /** Settle the conversation outcome at the terminal `result` event. Only an
-    * explicit `"success"` is success ([[ToolStatus.isSuccess]]); any other
-    * status is a failed turn that must NOT be reported as success even though
-    * gemini exited 0 — tagged `AgentTurnFailed` so the autonomous retry loop
-    * doesn't reopen the now-registered session id.
-    */
   /** Only the terminal `result` event carries stats, and a turn that reaches it
     * settles itself (with an `Observed` debit) rather than reaching the base's
     * generic wrap.
     */
   override protected def failedTurnDebit: TurnDebit = TurnDebit.Unobserved
 
+  /** Settle the conversation outcome at the terminal `result` event. Only an
+    * explicit `"success"` is success ([[ToolStatus.isSuccess]]); any other
+    * status is a failed turn that must NOT be reported as success even though
+    * gemini exited 0 — tagged `AgentTurnFailed` so the autonomous retry loop
+    * doesn't reopen the now-registered session id.
+    */
   private def handleResult(usage: Usage, status: ToolStatus): Unit =
     status match
       case ToolStatus.Success =>

@@ -255,6 +255,31 @@ class PiConversationTest extends munit.FunSuite:
       case other =>
         fail(s"expected cancellation after test cleanup, got $other")
 
+  // Ctrl-C at an interactive prompt abandons a turn that has already been
+  // billed for every assistant message it ran.
+  convTest("a cancelled turn carries the usage accrued before the cancel"):
+    val process = new FakePipedCliProcess()
+    val conv = new PiConversation(process, sid)
+
+    process.enqueueStdout(
+      """{"type":"message_end","message":{"role":"assistant","model":"anthropic/claude-sonnet","content":[{"type":"text","text":"partial"}],"usage":{"input":60,"output":4}}}"""
+    )
+    assertEquals(
+      conv.events.next(),
+      ConversationEvent.AssistantTextDelta("partial")
+    )
+    conv.cancel()
+    conv.awaitResult() match
+      case Left(cancelled) =>
+        assertEquals(
+          cancelled.debit,
+          TurnDebit.Observed(
+            usage(60L, 4L),
+            Some(Model("anthropic/claude-sonnet"))
+          )
+        )
+      case other => fail(s"expected cancellation, got $other")
+
   convTest("fire-and-forget extension UI requests are ignored"):
     val process = new FakePipedCliProcess()
     val conv = new PiConversation(process, sid)

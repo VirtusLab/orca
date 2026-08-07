@@ -250,8 +250,9 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
       Ox
   ): Either[OrcaInteractiveCancelled, AgentResult[B]] =
     ensureStarted().reader.join() match
-      case Outcome.Success(r)  => Right(r)
-      case Outcome.Cancelled() => Left(new OrcaInteractiveCancelled())
+      case Outcome.Success(r) => Right(r)
+      case Outcome.Cancelled() =>
+        Left(new OrcaInteractiveCancelled(failedTurnDebit))
       case Outcome.Failed(e: AgentTurnFailed) => throw e
       case Outcome.Failed(e) =>
         throw new AgentTurnFailed(
@@ -340,14 +341,16 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
 
   // --- Hooks for backend implementations ---
 
-  /** What this turn had spent by the time it failed, for the failures
-    * [[awaitResult]] wraps rather than the driver settling them itself — a
-    * mid-stream read error, a non-zero exit, a clean exit with no result. Read
-    * after the reader fork has joined, so accrued turn state is published.
+  /** What this turn had spent by the time it ended badly. [[awaitResult]] reads
+    * it for the endings it diagnoses itself — a mid-stream read error, a bad
+    * exit, a user cancel — and drivers settling their own failures may reuse
+    * it. It must therefore hold at any point in the stream, not only at the
+    * end; drivers accrue turn state on the reader thread, which the reader's
+    * join publishes.
     *
     * Abstract with no default so a new driver has to answer the question: a
     * body of [[TurnDebit.Unobserved]] is the visible claim that the protocol
-    * reports nothing at that point.
+    * reports nothing to accrue.
     */
   protected def failedTurnDebit: TurnDebit
 
@@ -505,6 +508,11 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
       // depending on it runs first. Idempotent.
       askUser.foreach(_.close())
 
+  /** Diagnose a stream that ended without a settle. `None` is not a cancel — a
+    * genuine one is caught by the `cancelled` check ahead of this — but a
+    * stream that ended with the process still running, which is a failed turn
+    * like the others rather than something to retry against a locked session.
+    */
   private def outcomeFromExit(exitCode: Option[Int]): Outcome[B] =
     exitCode match
       case Some(0) => Outcome.failed[B](cleanExitWithoutResult())
@@ -514,7 +522,15 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
             appendContext(s"$backendName exited with code $code")
           )
         )
-      case None => Outcome.cancelled[B]
+      case None =>
+        Outcome.failed[B](
+          new OrcaFlowException(
+            appendContext(
+              s"$backendName's output ended without $terminalMessageNoun, " +
+                "while the process was still running"
+            )
+          )
+        )
 
   /** Single-consumer iterator over the event channel; `done` ends it. */
   private val channelIterator: Iterator[ConversationEvent] =

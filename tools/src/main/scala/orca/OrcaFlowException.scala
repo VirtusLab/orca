@@ -22,8 +22,13 @@ class OrcaFlowException(message: String) extends RuntimeException(message)
   * policy — cannot produce this (see
   * [[orca.backend.Conversations.drainAutonomous]]), so subtyping never causes a
   * cancellation to be retried.
+  *
+  * `debit` is what the abandoned turn had spent, on the same terms as
+  * [[AgentTurnFailed.debit]]: a user who Ctrl-Cs a long interactive turn is
+  * billed for it, so the run's cost summary has to see it.
   */
 class OrcaInteractiveCancelled(
+    val debit: orca.events.TurnDebit,
     message: String = "interactive session cancelled"
 ) extends OrcaFlowException(message)
 

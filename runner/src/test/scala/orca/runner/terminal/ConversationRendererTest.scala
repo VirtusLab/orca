@@ -1,7 +1,7 @@
 package orca.runner.terminal
 
 import orca.agents.{BackendTag, WireSessionId}
-import orca.events.{Usage}
+import orca.events.{TurnDebit, Usage}
 import orca.{OrcaInteractiveCancelled}
 import orca.backend.{
   ApprovalDecision,
@@ -165,7 +165,7 @@ class ConversationRendererTest extends munit.FunSuite:
 
   test("render surfaces awaitResult's Left as-is"):
     val buf = new ByteArrayOutputStream()
-    val cancelled = new OrcaInteractiveCancelled()
+    val cancelled = new OrcaInteractiveCancelled(TurnDebit.Unobserved)
     val conv = new ScriptedConversation(Nil, Left(cancelled))
     assertEquals(supervised(renderer(buf).render(conv)), Left(cancelled))
 
