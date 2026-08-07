@@ -210,10 +210,13 @@ class CodexBackendTest extends munit.FunSuite:
       val readOnly = AgentConfig(tools = ToolSet.ReadOnly)
       val _ = backend.runAutonomous("first", clientSid, readOnly)
       val _ = backend.runAutonomous("again", clientSid, readOnly)
-      val resumedPrompt = runner.calls(1).last
+      val resumedArgs = runner.calls(1)
+      // Asserted here rather than relied on from the resume test above, so this
+      // one still fails if the second call stops being a resume.
+      assert(resumedArgs.contains("resume"), resumedArgs)
       assert(
-        resumedPrompt.contains(SystemPromptComposer.ReadOnlyTurn),
-        resumedPrompt
+        resumedArgs.last.contains(SystemPromptComposer.ReadOnlyTurn),
+        resumedArgs.last
       )
 
   test(

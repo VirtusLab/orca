@@ -220,7 +220,7 @@ class BaseAgentTest extends munit.FunSuite:
   test("a corrective retry reports the resumed turn's weaker guarantee"):
     val steps = new StepRecorder
     val tool = new StubTool(
-      new GatedOnlyWhenFreshBackend(
+      new WeakerOnResumeBackend(
         "not json at all",
         """{"fixed":[],"ignored":[]}"""
       ),
@@ -235,6 +235,35 @@ class BaseAgentTest extends munit.FunSuite:
     assertEquals(
       steps.seen,
       List(BaseAgentTest.noEditNotice("resumed ReadOnly"))
+    )
+
+  // The turn is named "resumed" whenever resuming is what weakened the answer,
+  // not only where the fresh turn was a hard gate: this backend approximates the
+  // `Only` list on the spawn and encodes nothing at all on the resume, and the
+  // second sentence has to say which turn it is about.
+  test("a retry whose approximation is dropped names the resumed turn"):
+    val steps = new StepRecorder
+    val tool = new StubTool(
+      new WeakerOnResumeBackend(
+        "not json at all",
+        """{"fixed":[],"ignored":[]}"""
+      ),
+      toolConfig = AgentConfig(
+        autoApprove = AutoApprove.Only(Set("read")),
+        retrySchedule = Schedule.exponentialBackoff(1.milli).maxRetries(1)
+      ),
+      listener = steps.listener,
+      prompts = DefaultPrompts
+    )
+    val _ = tool.resultAs[FixOutcome].autonomous.run("fix compile errors")
+    assertEquals(
+      steps.seen,
+      List(
+        "Pi cannot hold a Full turn to the tools it was asked to auto-approve" +
+          " — the sandbox it runs in is wider than that",
+        "Pi cannot hold a resumed Full turn to the tools it was asked to" +
+          " auto-approve — nothing orca puts on the wire says so"
+      )
     )
 
   // The other axis: `Only` asks the backend to auto-approve just those tools,
@@ -821,10 +850,12 @@ class BaseAgentTest extends munit.FunSuite:
     ): EnforcementCell =
       EnforcementCell(Enforcement.PromptOnly, "the prompt is the whole gate")
 
-  /** codex's shape: a mechanical gate on the spawn, none on the resume. Only a
+  /** codex's shape: the sandbox flags ride on the spawn only, so every tier's
+    * answer weakens once the session is resumed — from a gate to prose on the
+    * read-only tiers, and from an approximation to nothing on `Full`. Only a
     * call that classifies per attempt sees the second answer.
     */
-  private class GatedOnlyWhenFreshBackend(replies: String*)
+  private class WeakerOnResumeBackend(replies: String*)
       extends ScriptedDrainBackend(replies*):
     override def enforcementCell(
         tools: ToolSet,
@@ -832,9 +863,26 @@ class BaseAgentTest extends munit.FunSuite:
         dispatch: TurnDispatch
     ): EnforcementCell = dispatch match
       case TurnDispatch.Fresh =>
-        EnforcementCell(Enforcement.Hard, "the spawn carries the sandbox flag")
+        tools match
+          case ToolSet.ReadOnly | ToolSet.NetworkOnly =>
+            EnforcementCell(
+              Enforcement.Hard,
+              "the spawn carries the sandbox flag"
+            )
+          case ToolSet.Full =>
+            EnforcementCell(
+              Enforcement.SandboxApprox,
+              "the spawn's sandbox is coarser than the list"
+            )
       case TurnDispatch.Resumed =>
-        EnforcementCell(Enforcement.PromptOnly, "the resume carries no flag")
+        tools match
+          case ToolSet.ReadOnly | ToolSet.NetworkOnly =>
+            EnforcementCell(
+              Enforcement.PromptOnly,
+              "the resume carries no flag"
+            )
+          case ToolSet.Full =>
+            EnforcementCell(Enforcement.Ignored, "the resume carries no flag")
 
   /** Throws `error` on its first turn and scripts the rest — an attempt that
     * dies before reaching the model, which consumes none of `replies`.

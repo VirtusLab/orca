@@ -74,7 +74,10 @@ private[orca] object EnforcementNotice:
       dispatch: TurnDispatch
   ): Option[String] =
     for
-      request <- unmetRequest(config, turnWording(backend, config, dispatch))
+      request <- unmetRequest(
+        config,
+        turnWording(backend, config, cell, dispatch)
+      )
       consequence <- consequenceOf(cell.level)
     yield s"${backend.tag.wireName} cannot $request — $consequence"
 
@@ -108,22 +111,26 @@ private[orca] object EnforcementNotice:
       case Enforcement.Ignored =>
         Some("nothing orca puts on the wire says so")
 
-  /** Names the resumed turn ONLY where the fresh one would have been gated —
-    * without that, codex's resume-time notice reads as if the tier had never
-    * been enforced. Naming it unconditionally would instead split one fact into
-    * two sentences on every backend the dispatch doesn't change.
+  /** Names the resumed turn ONLY where resuming is what weakened the answer —
+    * without that, a notice that fires at resume time alone reads as if the
+    * restriction had never held (codex, whose read-only sandbox and `Only`
+    * approximation both survive only the spawn). Naming it unconditionally
+    * would instead split one fact into two sentences on every backend the
+    * dispatch doesn't change.
     */
   private def turnWording[B <: BackendTag](
       backend: AgentBackend[B],
       config: AgentConfig,
+      cell: EnforcementCell,
       dispatch: TurnDispatch
   ): String =
-    val freshWasGated =
+    val weakenedByResuming = cell.level.weakerThan(
       backend
         .enforcementCell(config.tools, config.autoApprove, TurnDispatch.Fresh)
-        .level == Enforcement.Hard
+        .level
+    )
     dispatch match
-      case TurnDispatch.Resumed if freshWasGated =>
+      case TurnDispatch.Resumed if weakenedByResuming =>
         s"a resumed ${config.tools} turn"
       case TurnDispatch.Fresh | TurnDispatch.Resumed =>
         s"a ${config.tools} turn"

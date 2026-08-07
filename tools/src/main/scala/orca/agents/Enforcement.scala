@@ -25,6 +25,13 @@ package orca.agents
 enum Enforcement:
   case Hard, SandboxApprox, PromptOnly, Ignored
 
+  /** Whether `this` promises less than `other`. The cases are declared
+    * strongest first — a mechanical block, a mechanical block with widened
+    * semantics, prose, nothing — so the declaration order IS the ranking, and a
+    * new case has to be declared at its strength rather than appended.
+    */
+  def weakerThan(other: Enforcement): Boolean = ordinal > other.ordinal
+
 /** A backend's answer for one cell of the enforcement matrix: the level, and
   * why it is that level. One value rather than two, so a backend whose flags
   * change cannot have its level updated while a stale reason stays beside it.
