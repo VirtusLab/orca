@@ -324,7 +324,7 @@ def reviewAndFixLoop[B <: BackendTag](
       * selector is given.
       *
       * The default samples everything the enclosing stage has produced —
-      * `ctx.git.reviewDiff(fc.stageBaseCommit)`, tracked changes plus
+      * `ctx.git.reviewChanges(fc.stageBaseCommit)`, tracked changes plus
       * newly-created files, `.orca/` bookkeeping excluded — re-sampled at the
       * start of every iteration and sent to every reviewer that runs, so each
       * round's reviewers see the fixer's edits whether or not it committed

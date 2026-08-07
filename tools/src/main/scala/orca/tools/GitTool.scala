@@ -8,25 +8,6 @@ import ox.either.ok
 
 import scala.util.control.NonFatal
 
-case class CommitInfo(hash: String, message: String, author: String)
-
-/** Which diff semantics [[GitTool.diffVsBase]] should produce.
-  *
-  *   - [[DiffMode.MergeBase]] (default) — three-dot syntax (`base...HEAD`).
-  *     Changes the current branch introduces since it forked off `base`,
-  *     ignoring commits `base` gained since the fork (GitHub's PR view).
-  *   - [[DiffMode.Direct]] — two-dot syntax (`base..HEAD`). Compares HEAD
-  *     directly to `base`'s current tip.
-  */
-enum DiffMode:
-  case MergeBase
-  case Direct
-
-/** A linked git worktree — a separate working directory checked out at a
-  * specific branch, sharing the main repository's object store.
-  */
-case class Worktree(path: os.Path, branch: String)
-
 /** How much of a commit [[GitTool.show]] renders. */
 enum ShowDetail:
   /** Message plus the full diff. */
@@ -106,14 +87,13 @@ private[tools] object GitRead:
     else Left(new GitReadFailed.InvalidPath(value))
 
 /** One consistent sample of what the next commit would include — see
-  * [[GitTool.pendingChanges]]. `newFiles` holds the paths new to the repository
-  * — see [[GitTool.untrackedPaths]] — which the stat cannot report and `diff`
-  * shows only as new-file hunks.
+  * [[GitTool.pendingChanges]]. `newFiles` holds the paths new to the
+  * repository, which the stat cannot report and `diff` shows only as new-file
+  * hunks.
   */
 case class PendingChanges(stat: String, newFiles: List[String], diff: String)
 
-/** How much of one file a change set touched — see
-  * [[GitTool.changedFileStats]].
+/** How much of one file a change set touched — see [[GitTool.reviewChanges]].
   */
 enum FileChange:
   /** Lines added and removed, as `git diff --numstat` counts them. Both are
@@ -132,7 +112,7 @@ enum FileChange:
   case New
 
 /** One path in a change set, with how much of it changed — see
-  * [[GitTool.changedFileStats]].
+  * [[GitTool.reviewChanges]].
   */
 case class ChangedFile(path: String, change: FileChange)
 
@@ -187,21 +167,8 @@ object PushFailure:
   final class RemoteDeclined(reason: String)
       extends PushFailure(s"push declined by remote: $reason")
 
-/** Returned in the `Left` of [[GitTool.addWorktree]] when the target `path` is
-  * already a worktree, or the `branch` is checked out in another worktree.
-  */
-class WorktreeAddFailed(path: os.Path, reason: String)
-    extends OrcaFlowException(s"could not add worktree at $path: $reason")
-
-/** Returned in the `Left` of [[GitTool.removeWorktree]] when no worktree is
-  * registered at `path`.
-  */
-class WorktreeNotFound(path: os.Path)
-    extends OrcaFlowException(s"no worktree at $path")
-
 /** Git adapter usable from flow scripts — the handle behind the `git` accessor.
-  * Wraps branch, commit, diff, log, and worktree operations against the working
-  * repository.
+  * Wraps branch, commit, and diff operations against the working repository.
   */
 trait GitTool:
 
@@ -253,13 +220,6 @@ trait GitTool:
     * Always a single explicit path — never a glob or directory.
     */
   def forceAdd(path: os.Path)(using WorkspaceWrite): Unit
-
-  /** Stage `path` (`git add`), respecting `.gitignore`: an ignored path is left
-    * unstaged, so the settings-file commit (ADR 0019) never punches a
-    * `.orca/`-ignored file into history. Always a single explicit path — never
-    * a glob or directory.
-    */
-  def add(path: os.Path)(using WorkspaceWrite): Unit
 
   /** Push the current branch, setting upstream on first push. Returns
     * `Left(PushFailure)` when the remote rejected the push for a reason the
@@ -319,7 +279,7 @@ trait GitTool:
     * repository, excluding `.orca/` bookkeeping. Tracked files only — an
     * untracked file (nothing to diff against) is invisible here. A
     * reviewer-facing consumer that also needs untracked files surfaced wants
-    * [[reviewDiff]] instead.
+    * [[reviewChanges]] instead.
     *
     * The `.orca/` exclusion is load-bearing, not tidiness: once a stage has
     * committed the progress log the file is tracked, and later stage bodies
@@ -329,48 +289,10 @@ trait GitTool:
     */
   def diff(): String
 
-  /** `--stat` summary of the same change set as [[diff]]: one line per changed
-    * file with its insertion/deletion counts, then the totals line. Describes
-    * which files a change touched without carrying any hunk, so it can be sent
-    * to a model when the full diff is too large to be worth its tokens. Paths
-    * are printed in full — git's default stat width elides leading directories
-    * (`.../orca/tools/GitTool.scala`), which defeats the point of naming files.
-    */
-  def diffStat(): String
-
-  /** Untracked, non-`.orca/` paths anywhere in the repository, relative to the
-    * tool's working directory. Untracked directories are recursed into, so an
-    * entry is normally one file; a directory git refuses to enter — a nested
-    * repository — stays one entry, with a trailing slash. These are the paths
-    * [[diff]] can't report — they have no tracked history to diff against — but
-    * that a `git add -A` commit would include (a nested repository as a
-    * gitlink), so anything describing what is about to be committed needs them
-    * alongside the diff. [[reviewDiff]] renders their contents; this is the
-    * list itself.
-    */
-  def untrackedPaths(): List[String]
-
-  /** The change set a reviewer should see: everything [[diff]] reports, PLUS
-    * each untracked non-`.orca/` file rendered as a new-file diff (`git diff
-    * --no-index` against `/dev/null`) — so a freshly-created file is visible
-    * even though it has no tracked history to diff against. Read-only:
-    * untracked files are diffed, never staged.
-    *
-    * `since` is the commit the working tree is compared against. `None` means
-    * HEAD — uncommitted work only, which is empty once the work has been
-    * committed; pass the commit a unit of work started from (see
-    * [[headCommit]]) to see everything it produced either way.
-    *
-    * A path `--no-index` can't render — a symlink to a directory, or a nested
-    * git repository — appears as a line naming the path rather than being
-    * dropped silently.
-    */
-  def reviewDiff(since: Option[String] = None): String
-
-  /** The file paths in the change set [[reviewDiff]] renders: every tracked
-    * path git reports as changed since `since` (`since` as in [[reviewDiff]]),
-    * plus every [[untrackedPaths]] entry. `.orca/` bookkeeping is excluded;
-    * paths are relative to the tool's working directory.
+  /** The file paths in the change set [[reviewChanges]] renders: every tracked
+    * path git reports as changed since `since` (`since` as in
+    * [[reviewChanges]]), plus every untracked non-`.orca/` path. Paths are
+    * relative to the tool's working directory.
     *
     * The list comes from git, not from parsing diff text, so files a diff body
     * can't show still appear: a binary change, a 100%-similarity rename (at its
@@ -378,45 +300,54 @@ trait GitTool:
     */
   def changedFiles(since: Option[String] = None): List[String]
 
-  /** [[changedFiles]], each path carrying how much of it changed. What a caller
-    * that has to leave part of a change set out of a prompt tells the reader
-    * about the files it left out (see `orca.BoundedDiff`).
+  /** The change set a reviewer should see, as diff text and as the list of
+    * paths in it — what a caller rendering a bounded diff needs, since it has
+    * to name the files its diff leaves out (see `orca.BoundedDiff`).
     *
-    * Untracked paths report [[FileChange.New]] rather than a count: they have
-    * no tracked history to count against, and all of their content is new
-    * anyway.
-    */
-  def changedFileStats(since: Option[String] = None): List[ChangedFile]
-
-  /** [[reviewDiff]] and [[changedFileStats]] for the same `since`, from ONE
-    * sample of the working tree — what a caller rendering a bounded diff needs,
-    * since it has to name the files its diff leaves out. Taking the two
-    * separately samples the untracked set twice, and a file created between
-    * them appears in one and not the other.
+    * The diff is everything [[diff]] reports, PLUS each untracked non-`.orca/`
+    * file rendered as a new-file diff (`git diff --no-index` against
+    * `/dev/null`), so a freshly-created file is visible even though it has no
+    * tracked history to diff against. Read-only: untracked files are diffed,
+    * never staged. A path `--no-index` can't render — a symlink to a directory,
+    * or a nested git repository — appears as a line naming the path rather than
+    * being dropped silently. Such a path is still in `files`, reported as
+    * [[FileChange.New]] like every untracked path: they have no tracked history
+    * to count lines against.
+    *
+    * `since` is the commit the working tree is compared against. `None` means
+    * HEAD — uncommitted work only, which is empty once the work has been
+    * committed; pass the commit a unit of work started from (see
+    * [[headCommit]]) to see everything it produced either way.
+    *
+    * The UNTRACKED set is sampled once for both projections, so a file created
+    * mid-call cannot land in one and not the other. Tracked changes are read
+    * per projection (a patch diff and a `--numstat` diff), so a tracked file
+    * written between those two reads can still differ across them.
     */
   def reviewChanges(since: Option[String] = None): ReviewSample
 
   /** Everything the next `commit` would include, in the three shapes a caller
-    * describing it needs: the [[diffStat]] summary, the [[untrackedPaths]]
-    * list, and the [[reviewDiff]] text.
+    * describing it needs: a `--stat` summary, the paths new to the repository,
+    * and the diff text [[reviewChanges]] renders.
     *
-    * Sampled in ONE pass over the working tree, which is the point: calling
-    * `untrackedPaths()` and `reviewDiff()` separately samples it twice, and a
-    * file created between the two calls appears in one and not the other.
+    * The paths new to the repository are the ones [[diff]] can't report — they
+    * have no tracked history to diff against — but that a `git add -A` commit
+    * would include (a nested repository as a gitlink), so anything describing
+    * what is about to be committed needs them alongside the diff.
+    *
+    * Same sampling contract as [[reviewChanges]]: one untracked sample for all
+    * three shapes, tracked changes read per shape.
     */
   def pendingChanges(): PendingChanges
 
-  /** Diff of the current branch vs `base`.
-    *
-    * `mode = MergeBase` (default) returns the cumulative change a PR against
+  /** Diff of the current branch vs `base`: the cumulative change a PR against
     * `base` would carry (three-dot, merge-base semantics — GitHub's PR view).
-    * `mode = Direct` compares HEAD directly to `base`'s tip.
     *
     * Typical bases: `"origin/HEAD"`, `"main"`, `"master"`. `origin/HEAD` may
     * not be set on a freshly `git init`ed repo — see [[defaultBase]] for a
     * probe-with-fallback helper.
     */
-  def diffVsBase(base: String, mode: DiffMode = DiffMode.MergeBase): String
+  def diffVsBase(base: String): String
 
   /** Best-effort default base ref for "branch vs main" diffs. Tries
     * `origin/HEAD` first, then falls back to `origin/main` and `origin/master`.
@@ -426,8 +357,6 @@ trait GitTool:
     * local branch name (e.g. `"main"`).
     */
   def defaultBase(): String
-
-  def log(n: Int = 10): List[CommitInfo]
 
   /** `git show [--stat] <rev> [-- <paths>]` — a commit's message plus its diff,
     * or, under [[ShowDetail.StatOnly]], just its changed-file summary. `paths`
@@ -465,42 +394,12 @@ trait GitTool:
     */
   def ensureClean(stashMessage: String)(using WorkspaceWrite): Boolean
 
-  /** True when the working tree has uncommitted changes (`git status
-    * --porcelain`). READ-ONLY, unlike [[ensureClean]] — never stashes.
-    */
-  def isDirty(): Boolean
-
   /** The paths reported by `git status --porcelain` (modified, staged, and
     * untracked), one per entry. READ-ONLY. Used by skip-branch mode's
     * informational notice on a fresh run with a dirty tree (ADR 0018 amendment)
     * — the count, not the parsed content, is what's shown.
     */
   def dirtyPaths(): List[String]
-
-  /** Create a linked worktree at `path` on `branch`. If the branch already
-    * exists it is checked out in the new worktree; otherwise it is created from
-    * `HEAD`. Lets a flow work on several tasks in parallel without
-    * branch-hopping in a single directory. Returns `Left(WorktreeAddFailed)`
-    * when the path is already a worktree or the branch is checked out
-    * elsewhere.
-    */
-  def addWorktree(
-      path: os.Path,
-      branch: String
-  )(using WorkspaceWrite): Either[WorktreeAddFailed, Worktree]
-
-  /** Remove the linked worktree rooted at `path`, also deleting the working
-    * directory. Returns `Left(WorktreeNotFound)` when no worktree is registered
-    * at that path.
-    */
-  def removeWorktree(path: os.Path)(using
-      WorkspaceWrite
-  ): Either[WorktreeNotFound, Unit]
-
-  /** All linked worktrees attached to the repository, including the main one.
-    * Detached-HEAD worktrees (no branch) are skipped.
-    */
-  def listWorktrees(): List[Worktree]
 
   /** Force-delete a local branch (`git branch -D <name>`). Best-effort — does
     * not throw; failures are silently swallowed so callers can use this in
@@ -520,7 +419,7 @@ trait GitTool:
 
 /** `GitTool` implementation that shells out to the `git` CLI via os-lib.
   * Contract semantics are specified on the trait; this class handles the
-  * subprocess plumbing and the worktree-list parser.
+  * subprocess plumbing.
   *
   * `events` publishes [[OrcaEvent.Step]]s for operations shown in the event log
   * (branch switches, commits, pushes). Optional — defaults to
@@ -552,7 +451,7 @@ private[orca] class OsGitTool(
   private def branchExists(name: String): Boolean =
     git("branch", "--list", name).trim.nonEmpty
 
-  def isDirty(): Boolean = dirtyPaths().nonEmpty
+  private def isDirty(): Boolean = dirtyPaths().nonEmpty
 
   def dirtyPaths(): List[String] =
     // One porcelain line per path, except a rename ("R  old -> new"), which
@@ -597,13 +496,6 @@ private[orca] class OsGitTool(
 
   def forceAdd(path: os.Path)(using WorkspaceWrite): Unit =
     val _ = git("add", "-f", path.toString)
-
-  def add(path: os.Path)(using WorkspaceWrite): Unit =
-    // `git add` exits non-zero when an explicitly named pathspec is
-    // gitignored; the contract is to leave such a path unstaged, so the
-    // ignored case skips the add instead of failing.
-    if !isIgnored(path.subRelativeTo(workDir)) then
-      val _ = git("add", "--", path.toString)
 
   /** Like [[git]] but on non-zero exit throws an `OrcaFlowException` enriched
     * with a `git status --porcelain` + `git fsck --no-progress` snapshot. Used
@@ -729,19 +621,17 @@ private[orca] class OsGitTool(
   private def trackedDiff(since: String): String =
     git(("diff" +: since +: OsGitTool.wholeRepoExceptOrca)*)
 
-  // `--stat=<width>` widens the stat line so the name column holds a full path;
-  // 200 clears any path this side of pathological.
-  def diffStat(): String =
+  /** `--stat` summary of the same change set as [[diff]]. `--stat=<width>`
+    * widens the stat line so the name column holds a full path — git's default
+    * width elides leading directories (`.../orca/tools/GitTool.scala`), which
+    * defeats the point of naming files; 200 clears any path this side of
+    * pathological.
+    */
+  private def diffStat(): String =
     git(("diff" +: "--stat=200" +: "HEAD" +: OsGitTool.wholeRepoExceptOrca)*)
 
-  def reviewDiff(since: Option[String]): String =
-    withNewFileContents(since.getOrElse("HEAD"), untrackedPaths())
-
   def changedFiles(since: Option[String]): List[String] =
-    changedFileStats(since).map(_.path)
-
-  def changedFileStats(since: Option[String]): List[ChangedFile] =
-    allFileStats(since, untrackedPaths())
+    allFileStats(since, untrackedPaths()).map(_.path)
 
   def reviewChanges(since: Option[String]): ReviewSample =
     val untracked = untrackedPaths()
@@ -790,11 +680,16 @@ private[orca] class OsGitTool(
   ): String =
     (trackedDiff(since) :: untracked.map(untrackedFileDiff)).mkString
 
+  /** Untracked, non-`.orca/` paths anywhere in the repository, relative to
+    * `workDir`. Untracked directories are recursed into, so an entry is
+    * normally one file; a directory git refuses to enter — a nested repository
+    * — stays one entry, with a trailing slash.
+    */
   // `--untracked-files=all` recurses into untracked directories so every file
   // inside is listed individually — the default mode lists only the directory.
   // `-z` NUL-delimits records so a path containing a space or newline parses
   // unambiguously.
-  def untrackedPaths(): List[String] =
+  private def untrackedPaths(): List[String] =
     val orcaDir = s"$workDirPrefix${orca.OrcaDir.Name}"
     git("status", "--porcelain", "--untracked-files=all", "-z")
       .split('\u0000')
@@ -860,11 +755,7 @@ private[orca] class OsGitTool(
     else if os.exists(path / ".git") then Some("nested git repository")
     else None
 
-  def diffVsBase(base: String, mode: DiffMode): String =
-    val spec = mode match
-      case DiffMode.MergeBase => s"$base...HEAD"
-      case DiffMode.Direct    => s"$base..HEAD"
-    git("diff", spec)
+  def diffVsBase(base: String): String = git("diff", s"$base...HEAD")
 
   def defaultBase(): String =
     resolveOriginHead
@@ -893,21 +784,6 @@ private[orca] class OsGitTool(
     else None
 
   private def refExists(ref: String): Boolean = revParse(ref).isDefined
-
-  def log(n: Int): List[CommitInfo] =
-    // Fields are separated with the ASCII unit separator (0x1F) so commit
-    // messages can contain anything printable without ambiguity.
-    val sep = "\u001f"
-    val fmt = s"%H$sep%s$sep%an"
-    val output = git("log", "-n", n.toString, s"--pretty=format:$fmt")
-    output.linesIterator
-      .filter(_.nonEmpty)
-      .map: line =>
-        line.split(sep, -1) match
-          case Array(hash, msg, author) => CommitInfo(hash, msg, author)
-          case _ =>
-            throw OrcaFlowException(s"Unexpected git log line: $line")
-      .toList
 
   def show(
       rev: String,
@@ -984,41 +860,6 @@ private[orca] class OsGitTool(
       Left(new GitReadFailed.Refused(result.err.trim))
     else Right(OsGitTool.ReadOutput(result.out, result.truncated))
 
-  def addWorktree(
-      path: os.Path,
-      branch: String
-  )(using WorkspaceWrite): Either[WorktreeAddFailed, Worktree] =
-    // Check out existing branch if it already exists; otherwise branch off
-    // HEAD. `git branch --list <name>` prints the branch when it exists,
-    // empty when not.
-    val cmd =
-      if branchExists(branch) then Seq("worktree", "add", path.toString, branch)
-      else Seq("worktree", "add", "-b", branch, path.toString)
-    val result = gitProc("git" +: cmd)
-    if result.exitCode == 0 then
-      events.onEvent(
-        OrcaEvent.Step(s"Added worktree at $path on branch '$branch'")
-      )
-      Right(Worktree(path, branch))
-    else
-      val stderr = result.err.text().trim
-      if OsGitTool.isWorktreeAlreadyPresent(stderr) then
-        Left(new WorktreeAddFailed(path, stderr))
-      else fail("git worktree add", result)
-
-  def removeWorktree(
-      path: os.Path
-  )(using WorkspaceWrite): Either[WorktreeNotFound, Unit] =
-    if !listWorktrees().exists(w => samePath(w.path, path)) then
-      Left(new WorktreeNotFound(path))
-    else
-      val _ = git("worktree", "remove", path.toString)
-      events.onEvent(OrcaEvent.Step(s"Removed worktree at $path"))
-      Right(())
-
-  def listWorktrees(): List[Worktree] =
-    OsGitTool.parseWorktreeList(git("worktree", "list", "--porcelain"))
-
   def deleteBranch(name: String)(using WorkspaceWrite): Unit =
     // Best-effort: swallow all failures so teardown is never blocked by a
     // cosmetic cleanup step. Never attempt to delete the current branch.
@@ -1039,12 +880,6 @@ private[orca] class OsGitTool(
     git(
       ("diff" +: s"$startBranch..$featureBranch" +: OsGitTool.wholeRepoExceptOrca)*
     )
-
-  private def samePath(left: os.Path, right: os.Path): Boolean =
-    def normalised(path: os.Path): java.nio.file.Path =
-      try path.toNIO.toRealPath()
-      catch case NonFatal(_) => path.toNIO.toAbsolutePath.normalize()
-    normalised(left) == normalised(right)
 
   /** Run a git subprocess. Every git invocation routes through here or
     * [[gitRead]], so they all carry [[OsGitTool.nonInteractiveEnv]] — no git
@@ -1111,7 +946,7 @@ private[orca] object OsGitTool:
     * exclusion stays cwd-relative on purpose, since `.orca/` lives under
     * `workDir`, not under the repository root.
     */
-  val wholeRepoExceptOrca: Seq[String] =
+  private val wholeRepoExceptOrca: Seq[String] =
     Seq("--", ":(top)", orca.OrcaDir.ExcludePathspec)
 
   /** The record separator git's `-z` output modes use. */
@@ -1189,12 +1024,6 @@ private[orca] object OsGitTool:
       stderr.contains("GH006") ||
       stderr.contains("protected branch")
 
-  /** True when `git worktree add` stderr indicates the target path or branch is
-    * already a worktree — the recoverable case (see [[addWorktree]]).
-    */
-  private[tools] def isWorktreeAlreadyPresent(stderr: String): Boolean =
-    stderr.contains("already exists") || stderr.contains("already checked out")
-
   /** Environment that forces git — and any ssh it spawns — to run
     * non-interactively. A flow subprocess has no usable TTY, so a credential or
     * key-passphrase prompt would block the flow forever rather than failing.
@@ -1213,7 +1042,7 @@ private[orca] object OsGitTool:
     * URL forms (`scheme://[user@]host[:port]/path`). `None` for local paths or
     * anything without a recognisable host.
     */
-  private[tools] def remoteHost(url: String): Option[String] =
+  private def remoteHost(url: String): Option[String] =
     val scpLike = """^[^@/]+@([^:/]+):.*""".r
     val urlLike = """^[a-zA-Z][a-zA-Z0-9+.\-]*://(?:[^@/]+@)?([^:/]+).*""".r
     url.trim match
@@ -1257,9 +1086,6 @@ private[orca] object OsGitTool:
         "\"${GH_TOKEN:-$GITHUB_TOKEN}\"; }; f"
     else "!gh auth git-credential"
 
-  private val WorktreePrefix = "worktree "
-  private val BranchPrefix = "branch refs/heads/"
-
   /** Snapshot of repo state captured when a commit fails. `status` is the
     * porcelain listing of what was staged at the moment of failure; `fsck`
     * reports missing/dangling objects when the failure was tree corruption.
@@ -1290,24 +1116,3 @@ private[orca] object OsGitTool:
     s"git $cmd failed: ${stderr.trim}\n\n" +
       s"git status --porcelain:\n$statusBlock\n\n" +
       s"git fsck --no-progress:\n$fsckBlock"
-
-  /** Parse the output of `git worktree list --porcelain`. Entries are separated
-    * by blank lines; each entry has `worktree <path>` followed by `HEAD <sha>`
-    * and either `branch refs/heads/<name>` or `detached`. Detached-HEAD entries
-    * are dropped so callers always get a branch name.
-    */
-  def parseWorktreeList(output: String): List[Worktree] =
-    output
-      .split("\n\n")
-      .toList
-      .flatMap: entry =>
-        val lines = entry.linesIterator.toList
-        for
-          path <- lines.collectFirst {
-            case l if l.startsWith(WorktreePrefix) =>
-              os.Path(l.stripPrefix(WorktreePrefix))
-          }
-          branch <- lines.collectFirst {
-            case l if l.startsWith(BranchPrefix) => l.stripPrefix(BranchPrefix)
-          }
-        yield Worktree(path, branch)

@@ -134,12 +134,12 @@ private[orca] object BoundedDiff:
     * unquoted path — never as a suffix, which a shown path containing `" b/"`
     * makes match a different, omitted file. A rename (`a/<old> b/<new>`), a
     * header git had to quote (a `"` or a non-ASCII byte in the name), a path
-    * `reviewDiff` could only announce (`# skipped …`) rather than render, and a
-    * workDir below the repository root (where the header names the path from
-    * the root and the file list names it from `workDir`) all fail to match, so
-    * their files are reported as not shown although they were — the safe
-    * direction of the two: the reader is told to open a file it has already
-    * seen, never left unaware of one it hasn't.
+    * `reviewChanges` could only announce (`# skipped …`) rather than render,
+    * and a workDir below the repository root (where the header names the path
+    * from the root and the file list names it from `workDir`) all fail to
+    * match, so their files are reported as not shown although they were — the
+    * safe direction of the two: the reader is told to open a file it has
+    * already seen, never left unaware of one it hasn't.
     */
   private def isShown(headers: List[String], path: String): Boolean =
     headers.contains(s"${FileHeader}a/$path b/$path")

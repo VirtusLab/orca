@@ -1976,9 +1976,13 @@ class FlowLifecycleTest extends munit.FunSuite:
       branchesBefore,
       "skip-branch mode must not create any new branch"
     )
-    val log = git.log(5).map(_.message)
+    val log = os
+      .proc("git", "log", "-5", "--pretty=format:%s")
+      .call(cwd = workDir)
+      .out
+      .text()
     assert(
-      log.exists(_.contains("progress log")),
+      log.contains("progress log"),
       s"the header commit must still land, on the reused branch: $log"
     )
 
@@ -2140,7 +2144,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       "a fresh skip-branch run must never stash"
     )
     assert(
-      !git.isDirty(),
+      git.dirtyPaths().isEmpty,
       "the modification must have been swept into a commit by run's end"
     )
     assertEquals(os.read(workDir / "seed.txt"), "modified in place")
