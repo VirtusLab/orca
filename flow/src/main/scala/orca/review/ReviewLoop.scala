@@ -324,10 +324,10 @@ def reviewAndFixLoop[B <: BackendTag](
     reviewerSelection: ReviewerSelector = ReviewerSelector.default,
     /** Shell commands run in order before each review round so reviewers and
       * the lint see formatted code and the committed tree stays formatted. Each
-      * runs via `bash -c` in `ctx.workDir`, exit status ignored. The default
-      * resolves the project's `ctx.stackSettings.format` (ADR 0019);
-      * `Configured.Off` skips formatting, `Configured.Use(...)` overrides the
-      * settings.
+      * runs via `bash -c` in `ctx.workDir`; a nonzero exit is reported but
+      * doesn't abort the round. The default resolves the project's
+      * `ctx.stackSettings.format` (ADR 0019); `Configured.Off` skips
+      * formatting, `Configured.Use(...)` overrides the settings.
       */
     formatCommands: Configured[List[String]] = Configured.FromSettings,
     /** Commands + summariser agent for the lint gate run alongside the
@@ -647,9 +647,8 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     )
 
   /** Run the format commands, in order, in `ctx.workDir`. A nonzero exit is
-    * reported as a `Step` but never aborts the review, and never stops the
-    * commands after it: a broken formatter degrades the run, it doesn't end it.
-    * The Step repeats every round the command keeps failing.
+    * reported as a `Step`; it stops neither the commands after it nor the
+    * review, and repeats every round the command keeps failing.
     *
     * Takes [[WorkspaceWrite]] because it rewrites the tree (ADR 0018 §2.2), and
     * because that token is fork-opaque: moving this step into the reviewer
@@ -658,12 +657,10 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     */
   private def formatWorkspace()(using WorkspaceWrite): Unit =
     formatCommands.foreach: cmd =>
-      val result = runShell(cmd)
-      if result.exitCode != 0 then
+      val exitCode = runShell(cmd).exitCode
+      if exitCode != 0 then
         ctx.emit(
-          OrcaEvent.Step(
-            s"format command failed (exit ${result.exitCode}): $cmd"
-          )
+          OrcaEvent.Step(s"format command failed (exit $exitCode): $cmd")
         )
 
   private def evaluate(
