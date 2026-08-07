@@ -6,7 +6,7 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
 }
 import orca.OrcaDir
 import orca.agents.JsonData
-import orca.events.{OrcaEvent, OrcaListener, PriceList, Pricing}
+import orca.events.{OrcaEvent, OrcaListener}
 import orca.progress.ProgressLog
 import org.slf4j.LoggerFactory
 import ox.Ox
@@ -57,11 +57,10 @@ private[orca] object RunManifestWriter:
       workDir: os.Path,
       orcaVersion: String,
       flowName: Option[String],
-      pricing: PriceList,
       clock: () => Instant
   )(using Ox, BufferCapacity): RunManifestWriter =
     val state =
-      new RunManifestWriterState(workDir, orcaVersion, flowName, pricing, clock)
+      new RunManifestWriterState(workDir, orcaVersion, flowName, clock)
     new ActorRunManifestWriter(Actor.create(state))
 
 /** Actor-backed [[RunManifestWriter]]. `onEvent` is a `tell`; `finish` is an
@@ -77,13 +76,12 @@ private class ActorRunManifestWriter(actor: ActorRef[RunManifestWriterState])
 /** Mutable manifest-building state — not thread-safe in isolation.
   * [[ActorRunManifestWriter]] serialises every call onto one actor thread:
   * `onEvent` is a `tell` (fire-and-forget, though a full mailbox blocks the
-  * emitter — every event now writes, but turns arrive seconds apart and an
-  * append is one small write, so the queue still drains far faster than it
-  * fills) and `finish` is an `ask` (its write must land before `flow()` moves
-  * on to the cost summary). Every write is guarded internally ([[safeWrite]])
-  * so a transient failure can't quarantine the writer or throw out of a
-  * `tell`'s handler. Tests construct this directly and drive events
-  * synchronously.
+  * emitter — every event writes, but turns arrive seconds apart and an append
+  * is one small write, so the queue still drains far faster than it fills) and
+  * `finish` is an `ask` (its write must land before `flow()` moves on to the
+  * cost summary). Every write is guarded internally ([[safeWrite]]) so a
+  * transient failure can't quarantine the writer or throw out of a `tell`'s
+  * handler. Tests construct this directly and drive events synchronously.
   *
   * The two files have separate creation gates: the manifest appears on the
   * first `SessionCommitted` (a session-less run offers nothing to continue —
@@ -98,7 +96,6 @@ private[runner] class RunManifestWriterState(
     workDir: os.Path,
     orcaVersion: String,
     flowName: Option[String],
-    pricing: PriceList,
     clock: () => Instant
 ) extends RunManifestWriter:
 
@@ -186,7 +183,7 @@ private[runner] class RunManifestWriterState(
           upsertSession(harness, clientId, wireId, agent, role)
         )
       if hasCommittedSession then safeWrite()
-    case OrcaEvent.TokensUsed(agent, model, usage, role, attempt, session) =>
+    case t: OrcaEvent.TokensUsed =>
       if !state.anyTurnRecorded then
         guarded("cost log header"):
           costLog.append(
@@ -198,14 +195,14 @@ private[runner] class RunManifestWriterState(
         costLog.append(
           CostRecord.Turn(
             at = clock().toString,
-            agent = agent,
-            role = role,
+            agent = t.agent,
+            role = t.role,
             stage = state.stageStack.headOption,
-            attempt = attempt,
-            apiCalls = usage.apiCalls,
-            usage = ManifestUsage.of(usage),
-            cost = Pricing.resolve(pricing.table, model, usage),
-            session = session
+            attempt = t.attempt,
+            apiCalls = t.usage.apiCalls,
+            usage = ManifestUsage.of(t.usage),
+            cost = t.cost,
+            session = t.session
           )
         )
     case _ => ()

@@ -2,8 +2,9 @@ package orca.runner.manifest
 
 import orca.OrcaDir
 import orca.agents.Model
-import orca.events.{Cost, OrcaEvent, PriceList, Pricing, Usage}
+import orca.events.{Cost, OrcaEvent}
 import orca.testkit.TempDirs
+import orca.testkit.Usages.usage
 
 import java.time.Instant
 
@@ -14,15 +15,11 @@ class CostLogTest extends munit.FunSuite:
 
   private def fixedClock(at: Instant): () => Instant = () => at
 
-  private def newWriter(
-      workDir: os.Path,
-      pricing: PriceList = Pricing.default
-  ): RunManifestWriterState =
+  private def newWriter(workDir: os.Path): RunManifestWriterState =
     new RunManifestWriterState(
       workDir,
       "0.0.test",
       Some("review-pr.sc"),
-      pricing,
       fixedClock(Instant.parse("2026-07-18T10:00:00Z"))
     )
 
@@ -40,7 +37,7 @@ class CostLogTest extends munit.FunSuite:
   test("a turn-only run writes a cost log and no session manifest"):
     val workDir = TempDirs.dir()
     val writer = newWriter(workDir)
-    writer.onEvent(OrcaEvent.TokensUsed("claude", None, Usage(10, 1, None)))
+    writer.onEvent(OrcaEvent.TokensUsed("claude", None, usage(10, 1, None)))
     writer.finish(RunOutcome.Succeeded)
     assertEquals(
       os.list(OrcaDir.cacheRunsPath(workDir)).filter(_.ext == "json").toList,
@@ -69,8 +66,8 @@ class CostLogTest extends munit.FunSuite:
   test("the cost log opens with one run header carrying the run's identity"):
     val workDir = TempDirs.dir()
     val writer = newWriter(workDir)
-    writer.onEvent(OrcaEvent.TokensUsed("claude", None, Usage(10, 1, None)))
-    writer.onEvent(OrcaEvent.TokensUsed("claude", None, Usage(20, 2, None)))
+    writer.onEvent(OrcaEvent.TokensUsed("claude", None, usage(10, 1, None)))
+    writer.onEvent(OrcaEvent.TokensUsed("claude", None, usage(20, 2, None)))
     assertEquals(
       costRecords(workDir).collect { case r: CostRecord.Run => r },
       List(
@@ -81,7 +78,7 @@ class CostLogTest extends munit.FunSuite:
   test("finish appends the outcome as the log's last record"):
     val workDir = TempDirs.dir()
     val writer = newWriter(workDir)
-    writer.onEvent(OrcaEvent.TokensUsed("claude", None, Usage(10, 1, None)))
+    writer.onEvent(OrcaEvent.TokensUsed("claude", None, usage(10, 1, None)))
     writer.finish(RunOutcome.Failed)
     assertEquals(
       costRecords(workDir).last,
@@ -94,7 +91,7 @@ class CostLogTest extends munit.FunSuite:
   test("a run that never finishes leaves the log without a trailer"):
     val workDir = TempDirs.dir()
     val writer = newWriter(workDir)
-    writer.onEvent(OrcaEvent.TokensUsed("claude", None, Usage(10, 1, None)))
+    writer.onEvent(OrcaEvent.TokensUsed("claude", None, usage(10, 1, None)))
     assert(
       !costRecords(workDir).exists(_.isInstanceOf[CostRecord.Finish]),
       costRecords(workDir).toString
@@ -112,7 +109,7 @@ class CostLogTest extends munit.FunSuite:
       OrcaEvent.TokensUsed(
         "claude",
         None,
-        Usage(107_000, 500, None, apiCalls = Some(3L)),
+        usage(107_000, 500, None, apiCalls = Some(3L)),
         None,
         session = Some("wire-1")
       )
@@ -124,7 +121,7 @@ class CostLogTest extends munit.FunSuite:
       OrcaEvent.TokensUsed(
         "reviewer",
         None,
-        Usage(0, 0, None),
+        usage(0, 0, None),
         Some("reviewer"),
         attempt = 2
       )
@@ -141,24 +138,26 @@ class CostLogTest extends munit.FunSuite:
 
   /** Every axis is carried per turn, because the aggregates are folds over
     * these lines and nothing else persists them. The cache-read and cache-write
-    * figures are non-zero and unequal so both survive the projection, and a
-    * write is billed at the write rate rather than folded into base input.
+    * figures are non-zero and unequal so both survive the projection. Cost is
+    * whatever the dispatcher already resolved — the writer prices nothing.
     */
-  test("a turn carries every usage axis and its resolved cost"):
+  test("a turn carries every usage axis and the cost the event arrived with"):
     val workDir = TempDirs.dir()
     val writer = newWriter(workDir)
+    val resolved = Cost(BigDecimal("0.1086"), estimated = true)
     writer.onEvent(
       OrcaEvent.TokensUsed(
         agent = "claude",
         model = Some(Model("claude-sonnet-5")),
-        usage = Usage(
-          inputTokens = 120_000,
-          outputTokens = 900,
+        usage = usage(
+          input = 120_000,
+          output = 900,
           cost = None,
-          cacheReadInputTokens = 107_000,
-          cacheWriteInputTokens = 8_000
+          cacheRead = 107_000,
+          cacheWrite = 8_000
         ),
-        role = None
+        role = None,
+        cost = Some(resolved)
       )
     )
     val turn = turns(workDir).head
@@ -172,9 +171,7 @@ class CostLogTest extends munit.FunSuite:
         reasoningOutputTokens = 0
       )
     )
-    // 13k fresh at $3/M + 107k cache-read at $0.30/M + 8k cache-write at $6/M +
-    // 900 out at $15/M.
-    assertEquals(turn.cost, Some(Cost(BigDecimal("0.1086"), estimated = true)))
+    assertEquals(turn.cost, Some(resolved))
 
   /** The run total is a read-time fold, so this pins that the lines carry
     * enough to compute one — including `estimated` surviving the addition, so a
@@ -187,22 +184,22 @@ class CostLogTest extends munit.FunSuite:
       OrcaEvent.TokensUsed(
         agent = "claude",
         model = Some(Model("claude-sonnet-5")),
-        usage = Usage(120_000, 900, None, cacheReadInputTokens = 107_000),
-        role = None
+        usage = usage(120_000, 900, None, cacheRead = 107_000),
+        role = None,
+        cost = Some(Cost(BigDecimal("0.0846"), estimated = true))
       )
     )
     writer.onEvent(
       OrcaEvent.TokensUsed(
         agent = "reviewer",
         model = Some(Model("claude-haiku-4-5")),
-        usage = Usage(5_000, 100, Some(BigDecimal("0.0123"))),
-        role = Some("reviewer")
+        usage = usage(5_000, 100, Some(BigDecimal("0.0123"))),
+        role = Some("reviewer"),
+        cost = Some(Cost(BigDecimal("0.0123"), estimated = false))
       )
     )
     val recorded = turns(workDir)
     assertEquals(recorded.map(_.usage.inputTokens).sum, 125_000L)
-    // 13k fresh at $3/M + 107k cache-read at $0.30/M + 900 out at $15/M =
-    // $0.0846, plus the second turn's reported $0.0123.
     assertEquals(
       recorded.flatMap(_.cost).reduce(_ + _),
       Cost(BigDecimal("0.0969"), estimated = true)
@@ -246,7 +243,7 @@ class CostLogTest extends munit.FunSuite:
   test("a second finish does not append a second trailer"):
     val workDir = TempDirs.dir()
     val writer = newWriter(workDir)
-    writer.onEvent(OrcaEvent.TokensUsed("claude", None, Usage(10, 1, None)))
+    writer.onEvent(OrcaEvent.TokensUsed("claude", None, usage(10, 1, None)))
     writer.finish(RunOutcome.Succeeded)
     writer.finish(RunOutcome.Failed)
     assertEquals(

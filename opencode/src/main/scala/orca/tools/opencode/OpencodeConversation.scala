@@ -8,8 +8,8 @@ import orca.backend.{
   ForkedConversation,
   StreamSource
 }
-import orca.events.Usage
-import orca.agents.BackendTag
+import orca.events.{TurnDebit, Usage}
+import orca.agents.{BackendTag, Model}
 import orca.tools.opencode.OpencodeApi.{
   AssistantInfo,
   PermissionReply,
@@ -143,7 +143,7 @@ private[opencode] class OpencodeConversation(
         else settleResult()
 
   private def failTurn(message: String): Unit =
-    failWith(AgentTurnFailed(message))
+    failWith(AgentTurnFailed(message, failedTurnDebit))
 
   /** Settle the turn with the synthesised result: in structured mode the
     * validated object, otherwise the accrued assistant text. Usage and model
@@ -155,24 +155,44 @@ private[opencode] class OpencodeConversation(
     settleSuccess(
       wireId = session,
       output = structured.getOrElse(turnState.text.mkString),
-      usage = usageOf(info),
+      usage = settledUsage(info),
       modelId = info.flatMap(_.modelID)
     )
 
-  private def usageOf(info: Option[AssistantInfo]): Usage =
-    val tokens = info.flatMap(_.tokens)
-    Usage(
-      // `input` is the non-cached input; cache read/write are billed separately
-      // and at different rates, so the total input axis sums all three and each
-      // cache category keeps its own axis.
-      inputTokens =
-        tokens.map(t => t.input + t.cache.read + t.cache.write).getOrElse(0L),
-      outputTokens = tokens.map(_.output).getOrElse(0L),
-      cost = info.flatMap(_.cost),
-      cacheReadInputTokens = tokens.map(_.cache.read).getOrElse(0L),
-      reasoningOutputTokens = tokens.map(_.reasoning).getOrElse(0L),
-      cacheWriteInputTokens = tokens.map(_.cache.write).getOrElse(0L)
-    )
+  /** What a COMPLETED turn reports. Unlike [[failedTurnDebit]] there is no
+    * "nothing measured" case to represent: every completed turn owes a
+    * `TokensUsed`, since the cost log keeps one line per turn and the attempt
+    * index counts them. A message that carried no `tokens` settles at zero —
+    * still carrying any cost opencode reported alongside them.
+    */
+  private def settledUsage(info: Option[AssistantInfo]): Usage =
+    info
+      .flatMap(usageOf)
+      .getOrElse(Usage.empty.copy(cost = info.flatMap(_.cost)))
+
+  /** The assistant message is refreshed by every `message.updated` frame, so a
+    * turn that errors part-way still carries whatever it had spent by then.
+    * Keyed on the token counts, not on the message: an assistant message that
+    * arrived without any is nothing measured, and an all-zero `TokensUsed`
+    * would read as a measured zero.
+    */
+  override protected def failedTurnDebit: TurnDebit =
+    turnState.info
+      .flatMap(info => usageOf(info).map((_, info.modelID)))
+      .fold(TurnDebit.Unobserved): (usage, modelID) =>
+        TurnDebit.Observed(usage, modelID.map(Model.apply))
+
+  private def usageOf(info: AssistantInfo): Option[Usage] =
+    info.tokens.map: tokens =>
+      Usage(
+        freshInputTokens = tokens.input,
+        cacheReadInputTokens = tokens.cache.read,
+        cacheWriteInputTokens = tokens.cache.write,
+        outputTokens = tokens.output,
+        reasoningOutputTokens = tokens.reasoning,
+        cost = info.cost,
+        apiCalls = None
+      )
 
   private def questionText(req: QuestionRequest): String =
     req.questions.headOption.map(_.question).getOrElse("")

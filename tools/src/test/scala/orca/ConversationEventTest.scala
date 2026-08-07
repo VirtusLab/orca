@@ -1,6 +1,7 @@
 package orca
 
 import orca.backend.{ApprovalDecision, ConversationEvent}
+import orca.events.TurnDebit
 
 import java.util.concurrent.atomic.AtomicReference
 
@@ -39,6 +40,6 @@ class ConversationEventTest extends munit.FunSuite:
     assertEquals(ApprovalDecision.Deny().reason, None)
 
   test("OrcaInteractiveCancelled is an OrcaFlowException"):
-    val cancelled = new OrcaInteractiveCancelled()
+    val cancelled = new OrcaInteractiveCancelled(TurnDebit.Unobserved)
     assert(cancelled.isInstanceOf[OrcaFlowException])
     assertEquals(cancelled.getMessage, "interactive session cancelled")

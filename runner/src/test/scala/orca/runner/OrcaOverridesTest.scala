@@ -17,7 +17,8 @@ import orca.agents.{
   SessionId,
   ToolSet
 }
-import orca.events.{CostTracker, OrcaEvent, OrcaListener, Usage}
+import orca.events.{CostTracker, OrcaEvent, OrcaListener}
+import orca.testkit.Usages.usage
 import orca.tools.opencode.OpencodeAgents
 import _root_.orca.runner.terminal.TerminalInteraction
 import ox.supervised
@@ -240,7 +241,7 @@ class OrcaOverridesTest extends munit.FunSuite:
               OrcaEvent.TokensUsed(
                 "wired",
                 Some(Model("wired-model")),
-                Usage(7L, 3L, None)
+                usage(7L, 3L)
               )
             )
             s"ok: $p"
@@ -250,8 +251,8 @@ class OrcaOverridesTest extends munit.FunSuite:
     // agent's "wired" event must be among them.
     var seen: List[String] = Nil
     val recorder: OrcaListener =
-      case OrcaEvent.TokensUsed(agent, _, _, _, _, _) => seen = agent :: seen
-      case _                                          => ()
+      case t: OrcaEvent.TokensUsed => seen = t.agent :: seen
+      case _                       => ()
     supervised:
       val interaction = TerminalInteraction.start(
         out = new PrintStream(new ByteArrayOutputStream()),
@@ -292,9 +293,14 @@ class OrcaOverridesTest extends munit.FunSuite:
         summon[FlowContext].emit(
           OrcaEvent.TokensUsed(
             "test-agent",
-            Some(Model("test-model")),
-            Usage(10L, 5L, None)
+            // A model the shipped table prices, so the cost below is the run's
+            // own resolution rather than an absent figure.
+            Some(Model("claude-haiku-4-5")),
+            usage(10L, 5L)
           )
         )
     // TerminalInteraction ignores TokensUsed; CostTracker should accumulate.
-    assertEquals(tracker.total, Usage(10L, 5L, None))
+    assertEquals(tracker.total, usage(10L, 5L))
+    // The tracker prices nothing itself: a cost here means the run resolved it
+    // on the way into the fan-out.
+    assert(tracker.totalCost.nonEmpty, tracker.summary)

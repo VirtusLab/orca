@@ -4,7 +4,7 @@ import orca.{FlowControl, StackSettings}
 import orca.progress.ProgressStore
 import orca.tools.{FsTool, GitHubTool, GitTool}
 import orca.agents.{Agent, BackendTag}
-import orca.events.{EventDispatcher, OrcaEvent}
+import orca.events.{OrcaEvent, OrcaListener}
 
 import ox.discard
 
@@ -21,7 +21,7 @@ private[orca] class DefaultFlowContext[
 ](
     val userPrompt: String,
     val workDir: os.Path,
-    dispatcher: EventDispatcher,
+    dispatcher: OrcaListener,
     // The three role agents (ADR 0020), resolved by `runFlow`. Each is
     // concretely typed via its own tag parameter so the role type members pin
     // them and sessions thread.

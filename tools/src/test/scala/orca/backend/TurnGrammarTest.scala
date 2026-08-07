@@ -1,7 +1,7 @@
 package orca.backend
 
 import orca.agents.{BackendTag, WireSessionId}
-import orca.events.Usage
+import orca.events.{TurnDebit, Usage}
 import orca.OrcaFlowException
 import orca.subprocess.FakePipedCliProcess
 import ox.supervised
@@ -26,6 +26,7 @@ class TurnGrammarTest extends munit.FunSuite:
         backendName = "fake"
       ):
     val outputSchema: Option[String] = None
+    protected def failedTurnDebit: TurnDebit = TurnDebit.Unobserved
 
     protected def handleLine(line: String): Unit =
       line match
@@ -157,6 +158,7 @@ class TurnGrammarTest extends munit.FunSuite:
         backendName = "fake"
       ):
     val outputSchema: Option[String] = None
+    protected def failedTurnDebit: TurnDebit = TurnDebit.Unobserved
     var cancelRequests: Int = 0
     override protected def onCancelRequested(): Unit = cancelRequests += 1
     protected def handleLine(line: String): Unit =
@@ -205,6 +207,7 @@ class TurnGrammarTest extends munit.FunSuite:
         backendName = "fake"
       ):
     val outputSchema: Option[String] = None
+    protected def failedTurnDebit: TurnDebit = TurnDebit.Unobserved
     protected def handleLine(line: String): Unit =
       line match
         case "succeed" =>

@@ -13,14 +13,18 @@ import orca.events.{Cost, Usage}
 import java.nio.charset.StandardCharsets
 import scala.util.control.NonFatal
 
-/** The persisted projection of [[orca.events.Usage]]'s token axes, sharing its
-  * normalisation contract — including that cache reads and cache writes are
-  * disjoint sub-portions of `inputTokens`, carried separately because they bill
-  * at opposite ends of base input.
+/** The persisted projection of [[orca.events.Usage]]'s token axes.
   *
-  * The field names are `Usage`'s, verbatim, and so are the JSON keys: every
-  * axis persisted here has to be traceable to the one it mirrors, or the two
-  * drift and a reader silently reports the wrong money.
+  * The field names are `Usage`'s and so are the JSON keys: every axis persisted
+  * here has to be traceable to the one it mirrors, or the two drift and a
+  * reader silently reports the wrong money. `RunManifestTest` pins that
+  * correspondence against `Usage`'s own field list, so an axis added there
+  * fails a test instead of silently vanishing from the log.
+  *
+  * `inputTokens` is the one name that isn't a field of `Usage`: it is the TOTAL
+  * prompt, `cacheReadInputTokens` and `cacheWriteInputTokens` INCLUDED, so
+  * adding the three double counts. `apiCalls`, an axis of `Usage`, isn't here
+  * at all: it lives on [[CostRecord.Turn]], beside the attribution fields.
   *
   * Deliberately carries no money, unlike `Usage`: `Usage.cost` is only the
   * portion backends reported, and an unlabelled figure next to a resolved
@@ -51,8 +55,8 @@ private[orca] enum CostRecord:
   /** Written once, before the first turn. `orcaVersion` and `flow` have nowhere
     * else to live for a run that spends tokens without ever committing a
     * session, since such a run writes no [[RunManifest]] at all. `workDir` is
-    * recoverable from the file's own path, and repeated anyway because a cost
-    * log routinely gets copied out of its directory into a research note.
+    * recoverable from the file's own path; repeated so the log is
+    * self-contained when copied.
     */
   case Run(orcaVersion: String, flow: Option[String], workDir: String)
 
@@ -79,8 +83,7 @@ private[orca] enum CostRecord:
 
   /** Written by `RunManifestWriter.finish`. Distinguishes a succeeded run from
     * a failed one for a turn-only run, whose `outcome` has no other home — a
-    * distinction that changes how the run's spend reads. (Whether a run ended
-    * at all is answerable without this, from the pid in the filename.)
+    * distinction that changes how the run's spend reads.
     */
   case Finish(at: String, outcome: String)
 

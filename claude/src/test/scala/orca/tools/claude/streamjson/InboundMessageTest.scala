@@ -1,6 +1,8 @@
 package orca.tools.claude.streamjson
 
-import orca.events.{Usage}
+import orca.events.Usage
+import orca.testkit.Usages.usage
+
 class InboundMessageTest extends munit.FunSuite:
 
   test("system/init carries the session id out of the envelope"):
@@ -48,7 +50,7 @@ class InboundMessageTest extends munit.FunSuite:
     val r = msg.asInstanceOf[InboundMessage.Result]
     assertEquals(r.sessionId, "sid-1")
     assertEquals(r.structuredOutput, Some("""{"answer":42}"""))
-    assertEquals(r.usage, Usage(10L, 20L, Some(BigDecimal("0.003"))))
+    assertEquals(r.usage, usage(10L, 20L, Some(BigDecimal("0.003"))))
     assertEquals(r.isError, false)
 
   test("result keeps cache creation and cache reads on separate axes"):
@@ -58,12 +60,15 @@ class InboundMessageTest extends munit.FunSuite:
     assertEquals(
       msg.asInstanceOf[InboundMessage.Result].usage,
       Usage(
-        // All three input categories are billed, so they sum into the total.
-        inputTokens = 4310L,
-        outputTokens = 20L,
-        cost = Some(BigDecimal("0.5")),
+        // The wire's `input_tokens` excludes both cache categories, so it is
+        // the fresh axis as it stands.
+        freshInputTokens = 10L,
         cacheReadInputTokens = 4000L,
-        cacheWriteInputTokens = 300L
+        cacheWriteInputTokens = 300L,
+        outputTokens = 20L,
+        reasoningOutputTokens = 0L,
+        cost = Some(BigDecimal("0.5")),
+        apiCalls = None
       )
     )
 
@@ -124,7 +129,7 @@ class InboundMessageTest extends munit.FunSuite:
     val r = msg.asInstanceOf[InboundMessage.Result]
     assertEquals(r.output, None)
     assertEquals(r.structuredOutput, None)
-    assertEquals(r.usage, Usage(0L, 0L, None))
+    assertEquals(r.usage, Usage.empty)
     assertEquals(r.isError, false)
 
   test("non-init system subtype is namespaced into Unknown"):

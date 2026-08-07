@@ -1,10 +1,11 @@
 package orca.tools.pi
 
 import orca.backend.{ConversationEvent, ConversationEventConformance}
-import orca.events.Usage
-import orca.agents.{BackendTag, SessionId, WireSessionId, onWire}
-import orca.{OrcaFlowException, OrcaInteractiveCancelled}
+import orca.events.{TurnDebit, Usage}
+import orca.agents.{BackendTag, Model, SessionId, WireSessionId, onWire}
+import orca.{AgentTurnFailed, OrcaFlowException, OrcaInteractiveCancelled}
 import orca.subprocess.FakePipedCliProcess
+import orca.testkit.Usages.usage
 import ox.{Ox, supervised}
 
 class PiConversationTest extends munit.FunSuite:
@@ -50,12 +51,14 @@ class PiConversationTest extends munit.FunSuite:
     assertEquals(
       result.usage,
       Usage(
-        // pi's `input` counts only the fresh prompt, so the total is 10+1+2.
-        inputTokens = 13L,
-        outputTokens = 3L,
-        cost = Some(BigDecimal("0.01")),
+        // pi's `input` counts only the fresh prompt.
+        freshInputTokens = 10L,
         cacheReadInputTokens = 1L,
-        cacheWriteInputTokens = 2L
+        cacheWriteInputTokens = 2L,
+        outputTokens = 3L,
+        reasoningOutputTokens = 0L,
+        cost = Some(BigDecimal("0.01")),
+        apiCalls = None
       )
     )
     assertEquals(process.sigIntCount, 1)
@@ -178,11 +181,13 @@ class PiConversationTest extends munit.FunSuite:
       result.usage,
       Usage(
         // (1 fresh + 3 read) + (4 fresh + 6 write)
-        inputTokens = 14L,
-        outputTokens = 7L,
-        cost = None,
+        freshInputTokens = 5L,
         cacheReadInputTokens = 3L,
-        cacheWriteInputTokens = 6L
+        cacheWriteInputTokens = 6L,
+        outputTokens = 7L,
+        reasoningOutputTokens = 0L,
+        cost = None,
+        apiCalls = None
       )
     )
 
@@ -204,6 +209,26 @@ class PiConversationTest extends munit.FunSuite:
     ConversationEventConformance.assertGrammar(events, completedNormally = true)
     val ex = intercept[OrcaFlowException](conv.awaitResult())
     assert(ex.getMessage.contains("model unavailable"))
+
+  // A pi turn runs many assistant messages; a late RPC failure would otherwise
+  // discard every message_end's usage already accrued for the turn.
+  convTest("a failed response debits the usage accrued earlier in the turn"):
+    val process = new FakePipedCliProcess()
+    val conv = new PiConversation(process, sid)
+
+    process.enqueueStdout(
+      """{"type":"message_end","message":{"role":"assistant","model":"anthropic/claude-sonnet","content":[{"type":"text","text":"first"}],"usage":{"input":40,"output":9}}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"response","id":"orca-prompt","command":"prompt","success":false,"error":"model unavailable"}"""
+    )
+
+    val _ = conv.events.toList
+    val ex = intercept[AgentTurnFailed](conv.awaitResult())
+    assertEquals(
+      ex.debit,
+      TurnDebit.Observed(usage(40L, 9L), Some(Model("anthropic/claude-sonnet")))
+    )
 
   convTest(
     "extension UI input request becomes UserQuestion and writes response"
@@ -229,6 +254,31 @@ class PiConversationTest extends munit.FunSuite:
       case Left(_: OrcaInteractiveCancelled) => ()
       case other =>
         fail(s"expected cancellation after test cleanup, got $other")
+
+  // Ctrl-C at an interactive prompt abandons a turn that has already been
+  // billed for every assistant message it ran.
+  convTest("a cancelled turn carries the usage accrued before the cancel"):
+    val process = new FakePipedCliProcess()
+    val conv = new PiConversation(process, sid)
+
+    process.enqueueStdout(
+      """{"type":"message_end","message":{"role":"assistant","model":"anthropic/claude-sonnet","content":[{"type":"text","text":"partial"}],"usage":{"input":60,"output":4}}}"""
+    )
+    assertEquals(
+      conv.events.next(),
+      ConversationEvent.AssistantTextDelta("partial")
+    )
+    conv.cancel()
+    conv.awaitResult() match
+      case Left(cancelled) =>
+        assertEquals(
+          cancelled.debit,
+          TurnDebit.Observed(
+            usage(60L, 4L),
+            Some(Model("anthropic/claude-sonnet"))
+          )
+        )
+      case other => fail(s"expected cancellation, got $other")
 
   convTest("fire-and-forget extension UI requests are ignored"):
     val process = new FakePipedCliProcess()
