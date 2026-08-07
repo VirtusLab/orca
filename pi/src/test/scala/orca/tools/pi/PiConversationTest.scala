@@ -1,10 +1,11 @@
 package orca.tools.pi
 
 import orca.backend.{ConversationEvent, ConversationEventConformance}
-import orca.events.Usage
-import orca.agents.{BackendTag, SessionId, WireSessionId, onWire}
-import orca.{OrcaFlowException, OrcaInteractiveCancelled}
+import orca.events.{TurnDebit, Usage}
+import orca.agents.{BackendTag, Model, SessionId, WireSessionId, onWire}
+import orca.{AgentTurnFailed, OrcaFlowException, OrcaInteractiveCancelled}
 import orca.subprocess.FakePipedCliProcess
+import orca.testkit.Usages.usage
 import ox.{Ox, supervised}
 
 class PiConversationTest extends munit.FunSuite:
@@ -208,6 +209,26 @@ class PiConversationTest extends munit.FunSuite:
     ConversationEventConformance.assertGrammar(events, completedNormally = true)
     val ex = intercept[OrcaFlowException](conv.awaitResult())
     assert(ex.getMessage.contains("model unavailable"))
+
+  // A pi turn runs many assistant messages; a late RPC failure would otherwise
+  // discard every message_end's usage already accrued for the turn.
+  convTest("a failed response debits the usage accrued earlier in the turn"):
+    val process = new FakePipedCliProcess()
+    val conv = new PiConversation(process, sid)
+
+    process.enqueueStdout(
+      """{"type":"message_end","message":{"role":"assistant","model":"anthropic/claude-sonnet","content":[{"type":"text","text":"first"}],"usage":{"input":40,"output":9}}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"response","id":"orca-prompt","command":"prompt","success":false,"error":"model unavailable"}"""
+    )
+
+    val _ = conv.events.toList
+    val ex = intercept[AgentTurnFailed](conv.awaitResult())
+    assertEquals(
+      ex.debit,
+      TurnDebit.Observed(usage(40L, 9L), Some(Model("anthropic/claude-sonnet")))
+    )
 
   convTest(
     "extension UI input request becomes UserQuestion and writes response"

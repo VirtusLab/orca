@@ -1,6 +1,7 @@
 package orca.backend
 
 import orca.agents.BackendTag
+import orca.events.TurnDebit
 import orca.subprocess.OsProcCliRunner
 import orca.testkit.ProcessProbe.{alive, awaitDead}
 
@@ -22,6 +23,7 @@ class ConversationTeardownTest extends munit.FunSuite:
         backendName = "fake"
       ):
     val outputSchema: Option[String] = None
+    protected def failedTurnDebit: TurnDebit = TurnDebit.Unobserved
     protected def handleLine(line: String): Unit =
       eventQueue.enqueue(ConversationEvent.AssistantTextDelta(line))
 

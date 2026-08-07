@@ -1,7 +1,7 @@
 package orca.backend
 
 import orca.{AgentTurnFailed, OrcaFlowException, OrcaInteractiveCancelled}
-import orca.events.{OrcaEvent, OrcaListener, Usage}
+import orca.events.{OrcaEvent, OrcaListener, TurnDebit, Usage}
 import orca.agents.{BackendTag, SessionId, WireSessionId}
 
 import ox.{Ox, supervised}
@@ -490,7 +490,7 @@ class ConversationsTest extends munit.FunSuite:
     val client = SessionId.fresh[BackendTag.Codex.type]
     val support = SessionSupport
       .durable[BackendTag.Codex.type](IdScheme.ServerMinted, _ => false)
-    val failure = new AgentTurnFailed("turn blew up")
+    val failure = new AgentTurnFailed("turn blew up", TurnDebit.Unobserved)
     val conv = new FailingConversation(failure)
     val thrown = intercept[AgentTurnFailed]:
       Conversations.runAutonomous(

@@ -1,7 +1,6 @@
 package orca.agents
 
-import orca.{AgentTurnFailed, OrcaFlowException}
-import orca.backend.{Interaction, AgentBackend, AgentResult}
+import orca.backend.{Interaction, AgentBackend}
 import orca.events.{OrcaEvent, OrcaListener}
 
 /** Skeleton shared by all backends' default tools. Centralises the
@@ -81,15 +80,6 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
     backend.closedFlag
   )
 
-  /** Gates [[autonomous]]`.run` and [[resultAs]]'s gateway construction on the
-    * backend's closed latch, so a leaked agent handle used after its flow ended
-    * can't silently emit to a closed run's dispatcher. The latch lives on the
-    * shared `backend`, so every `copyTool`-derived sibling is covered too.
-    */
-  private def checkNotClosed(): Unit =
-    if backend.isClosed then
-      throw new OrcaFlowException(AgentBackend.ClosedMessage)
-
   /** Latches the shared backend closed first (so a `run`/`resultAs` call racing
     * this close never sees a live-looking agent whose backend is torn down),
     * then delegates resource teardown.
@@ -106,14 +96,14 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
           callConfig: Option[AgentConfig],
           emitPrompt: Boolean
       )(using orca.InStage): String =
-        checkNotClosed()
+        backend.checkNotClosed()
         val effective = effectiveConfig(callConfig)
         if emitPrompt then events.onEvent(OrcaEvent.UserPrompt(prompt))
-        val result =
-          runAccountingForFailure(effective, session):
-            backend.runAutonomous(prompt, session, effective, events)
-        emitTokens(effective, session, result)
-        emitSessionCommitted(session)
+        val accounting = turnAccounting(effective, session)
+        val result = accounting.recording(TurnAccounting.OnlyTurn):
+          backend.runAutonomous(prompt, session, effective, events)
+        accounting.succeeded(result, TurnAccounting.OnlyTurn)
+        accounting.sessionCommitted()
         result.output
 
   /** See [[Agent.quietTextTurn]]: the turn runs against a filtered event sink
@@ -124,26 +114,21 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
   override private[orca] def quietTextTurn(prompt: String)(using
       orca.InStage
   ): String =
-    checkNotClosed()
+    backend.checkNotClosed()
     val effective = effectiveConfig(None)
     val quietEvents: OrcaListener = (e: OrcaEvent) =>
       e match
         case _: OrcaEvent.AssistantMessage | _: OrcaEvent.ToolUse => ()
         case other => events.onEvent(other)
     val session = SessionId.fresh[B]
-    val result =
-      runAccountingForFailure(effective, session):
-        backend.runAutonomous(
-          prompt,
-          session,
-          effective,
-          quietEvents
-        )
-    emitTokens(effective, session, result)
+    val accounting = turnAccounting(effective, session)
+    val result = accounting.recording(TurnAccounting.OnlyTurn):
+      backend.runAutonomous(prompt, session, effective, quietEvents)
+    accounting.succeeded(result, TurnAccounting.OnlyTurn)
     result.output
 
   def resultAs[O: JsonData: Announce]: AgentCall[B, O] =
-    checkNotClosed()
+    backend.checkNotClosed()
     new DefaultAgentCall[B, O](
       backend,
       effectiveConfig,
@@ -154,64 +139,11 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
       agentRole = role
     )
 
-  /** Run a backend turn, emitting the spend of a turn that fails after the
-    * model already ran ([[AgentTurnFailed.usage]]) before re-raising —
-    * otherwise only the success path reports tokens and a failed turn is
-    * invisible in the cost summary. The failure frame carries no model id, so
-    * the bucket key is whatever the caller pinned.
-    */
-  private def runAccountingForFailure(
+  private def turnAccounting(
       effective: AgentConfig,
       session: SessionId[B]
-  )(turn: => AgentResult[B]): AgentResult[B] =
-    try turn
-    catch
-      case e: AgentTurnFailed =>
-        e.usage.foreach: usage =>
-          events.onEvent(
-            OrcaEvent.TokensUsed(
-              name,
-              effective.model,
-              usage,
-              role,
-              session = Some(backend.sessions.sessionKey(session))
-            )
-          )
-        throw e
-
-  /** `model` prefers the response-reported model (most precise), falling back
-    * to whatever the caller pinned in config, `None` when neither is known.
-    */
-  private def emitTokens(
-      effective: AgentConfig,
-      session: SessionId[B],
-      result: AgentResult[B]
-  ): Unit =
-    val model = result.model.orElse(effective.model)
-    events.onEvent(
-      OrcaEvent.TokensUsed(
-        name,
-        model,
-        result.usage,
-        role,
-        session = Some(backend.sessions.sessionKey(session))
-      )
-    )
-
-  /** Fires once a session's first turn commits (ADR 0021 §8): reads
-    * `resumeWireId` after `backend.runAutonomous` returns, so `wireId` reflects
-    * whatever this call just committed.
-    */
-  private def emitSessionCommitted(session: SessionId[B]): Unit =
-    events.onEvent(
-      OrcaEvent.SessionCommitted(
-        backend.tag.wireName,
-        session.value,
-        resumeWireId(session).map(_.value),
-        name,
-        role
-      )
-    )
+  ): TurnAccounting[B] =
+    new TurnAccounting[B](events, name, role, backend, session, effective.model)
 
   /** `None` (the caller omitted the per-call `config` arg) falls back to the
     * tool-level config. An explicit `Some(...)` from the call site wholly

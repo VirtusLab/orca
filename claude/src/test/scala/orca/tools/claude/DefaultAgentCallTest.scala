@@ -6,13 +6,15 @@ import orca.agents.{
   BackendTag,
   Enforcement,
   JsonData,
+  Model,
   AgentConfig,
   SessionId,
   StructuredOutputMode,
   ToolSet,
   WireSessionId
 }
-import orca.events.{OrcaListener, Usage}
+import orca.events.{OrcaEvent, OrcaListener, TurnDebit, Usage}
+import orca.testkit.Usages.usage
 
 import orca.backend.{
   Interaction,
@@ -410,7 +412,10 @@ class DefaultAgentCallTest extends munit.FunSuite:
           outputSchema: Option[String]
       ): AgentResult[BackendTag.ClaudeCode.type] =
         val _ = calls.incrementAndGet()
-        throw new AgentTurnFailed("Prompt is too long")
+        throw new AgentTurnFailed(
+          "Prompt is too long",
+          TurnDebit.Unobserved
+        )
     supervised:
       val ex = intercept[AgentTurnFailed]:
         makeCall(backend).autonomous.run("the original input")
@@ -498,6 +503,40 @@ class DefaultAgentCallTest extends munit.FunSuite:
         agentName = "claude"
       ).autonomous.run("anything")
       assertEquals(captured.get().flatMap(_.systemPrompt), Some("tool-prompt"))
+
+  // The autonomous path emits a failed turn's debit; the interactive one runs
+  // the same models against the same bills and used to report nothing.
+  test(
+    "an interactive turn failing after the model ran still emits TokensUsed"
+  ):
+    val seen = new AtomicReference[List[OrcaEvent]](Nil)
+    val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
+    val spent = usage(120L, 8L, Some(BigDecimal("0.0031")))
+    val failingInteraction: Interaction = new Interaction:
+      val listeners: List[OrcaListener] = Nil
+      def drive[B <: BackendTag](
+          conversation: orca.backend.Conversation[B]
+      )(using ox.Ox): AgentResult[B] =
+        throw new AgentTurnFailed(
+          "provider error",
+          TurnDebit.Observed(spent, Some(Model("claude-sonnet-5")))
+        )
+    supervised:
+      val _ = intercept[AgentTurnFailed]:
+        new DefaultAgentCall[BackendTag.ClaudeCode.type, Answer](
+          backend = new SequencedBackend(Nil),
+          effectiveConfig = cfg => cfg.getOrElse(AgentConfig()),
+          prompts = DefaultPrompts,
+          events = listener,
+          interaction = failingInteraction,
+          agentName = "claude"
+        ).interactive.run("anything")
+      assertEquals(
+        seen.get().collect { case t: OrcaEvent.TokensUsed =>
+          (t.usage, t.model)
+        },
+        List((spent, Some(Model("claude-sonnet-5"))))
+      )
 
   test("interactive.runWithSession registers the (clientSid, serverSid) map"):
     // The framework must call `backend.sessions.register(session, result.wireId)`

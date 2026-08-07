@@ -2,6 +2,7 @@ package orca.tools.claude
 
 import orca.agents.{AutoApprove, BackendTag, AgentConfig}
 import orca.AgentTurnFailed
+import orca.events.TurnDebit
 import orca.backend.{ApprovalDecision, ConversationEvent}
 import orca.backend.{ForkedConversation, StreamSource}
 import orca.subprocess.PipedCliProcess
@@ -253,6 +254,12 @@ private[claude] class ClaudeConversation(
     * settling it here is what lets the failed turn's `usage` reach the cost
     * summary.
     */
+  /** Only the `result` message carries usage, and a turn that reaches it
+    * settles itself (with an `Observed` debit) rather than reaching the base's
+    * generic wrap — so what does reach it spent nothing orca can see.
+    */
+  override protected def failedTurnDebit: TurnDebit = TurnDebit.Unobserved
+
   private def handleResultError(result: InboundMessage.Result): Unit =
     val message = resultBody(result).getOrElse(
       s"claude reported is_error (subtype ${result.subtype})"
@@ -265,7 +272,10 @@ private[claude] class ClaudeConversation(
       new AgentTurnFailed(
         s"claude session failed (subtype ${result.subtype}, " +
           s"session ${result.sessionId}): $message",
-        usage = Some(withApiCalls(result.usage))
+        TurnDebit.Observed(
+          withApiCalls(result.usage),
+          result.model.orElse(initModel).map(orca.agents.Model.apply)
+        )
       )
     )
 

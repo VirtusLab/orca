@@ -2,7 +2,7 @@ package orca.backend
 
 import orca.backend.mcp.{AskUserBridge, AskUserSession}
 import orca.agents.{BackendTag, Model, WireSessionId}
-import orca.events.Usage
+import orca.events.{TurnDebit, Usage}
 import orca.util.OrcaDebug
 import orca.{AgentTurnFailed, OrcaFlowException, OrcaInteractiveCancelled}
 
@@ -256,6 +256,7 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
       case Outcome.Failed(e) =>
         throw new AgentTurnFailed(
           Option(e.getMessage).filter(_.nonEmpty).getOrElse(e.toString),
+          failedTurnDebit,
           e
         )
 
@@ -338,6 +339,17 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
     if turnIsOpen then eventQueue.enqueue(ConversationEvent.AssistantTurnEnd)
 
   // --- Hooks for backend implementations ---
+
+  /** What this turn had spent by the time it failed, for the failures
+    * [[awaitResult]] wraps rather than the driver settling them itself — a
+    * mid-stream read error, a non-zero exit, a clean exit with no result. Read
+    * after the reader fork has joined, so accrued turn state is published.
+    *
+    * Abstract with no default so a new driver has to answer the question: a
+    * body of [[TurnDebit.Unobserved]] is the visible claim that the protocol
+    * reports nothing at that point.
+    */
+  protected def failedTurnDebit: TurnDebit
 
   /** Process a single line of stdout. Implementations parse the protocol
     * message and translate to [[ConversationEvent]] enqueues (and/or

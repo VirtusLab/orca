@@ -8,8 +8,8 @@ import orca.backend.{
   ForkedConversation,
   StreamSource
 }
-import orca.events.Usage
-import orca.agents.BackendTag
+import orca.events.{TurnDebit, Usage}
+import orca.agents.{BackendTag, Model}
 import orca.tools.opencode.OpencodeApi.{
   AssistantInfo,
   PermissionReply,
@@ -143,7 +143,7 @@ private[opencode] class OpencodeConversation(
         else settleResult()
 
   private def failTurn(message: String): Unit =
-    failWith(AgentTurnFailed(message))
+    failWith(AgentTurnFailed(message, failedTurnDebit))
 
   /** Settle the turn with the synthesised result: in structured mode the
     * validated object, otherwise the accrued assistant text. Usage and model
@@ -155,19 +155,26 @@ private[opencode] class OpencodeConversation(
     settleSuccess(
       wireId = session,
       output = structured.getOrElse(turnState.text.mkString),
-      usage = usageOf(info),
+      usage = info.fold(Usage.empty)(usageOf),
       modelId = info.flatMap(_.modelID)
     )
 
-  private def usageOf(info: Option[AssistantInfo]): Usage =
-    val tokens = info.flatMap(_.tokens)
+  /** The assistant message is refreshed by every `message.updated` frame, so a
+    * turn that errors part-way still carries whatever it had spent by then.
+    */
+  override protected def failedTurnDebit: TurnDebit =
+    turnState.info.fold(TurnDebit.Unobserved): info =>
+      TurnDebit.Observed(usageOf(info), info.modelID.map(Model.apply))
+
+  private def usageOf(info: AssistantInfo): Usage =
+    val tokens = info.tokens
     Usage.exclusiveInput(
       freshInputTokens = tokens.map(_.input).getOrElse(0L),
       cacheReadInputTokens = tokens.map(_.cache.read).getOrElse(0L),
       cacheWriteInputTokens = tokens.map(_.cache.write).getOrElse(0L),
       outputTokens = tokens.map(_.output).getOrElse(0L),
       reasoningOutputTokens = tokens.map(_.reasoning).getOrElse(0L),
-      cost = info.flatMap(_.cost),
+      cost = info.cost,
       apiCalls = None
     )
 

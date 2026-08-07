@@ -1,6 +1,7 @@
 package orca.tools.claude
 
-import orca.agents.{AutoApprove, AgentConfig}
+import orca.agents.{AutoApprove, AgentConfig, Model}
+import orca.events.TurnDebit
 import orca.testkit.Usages.usage
 import orca.{AgentTurnFailed, OrcaFlowException, OrcaInteractiveCancelled}
 import orca.backend.{
@@ -177,20 +178,23 @@ class ClaudeConversationTest extends munit.FunSuite:
 
   // The failing turn's tokens are on the wire in the same `result` frame; the
   // exception is the only way they can still reach the run's cost summary.
-  convTest("is_error carries the result's usage on the thrown failure"):
+  convTest("is_error carries the result's debit on the thrown failure"):
     val process = new FakePipedCliProcess()
     val conv = new ClaudeConversation(process, AgentConfig())
 
     process.enqueueStdout(
-      """{"type":"result","subtype":"error_during_execution","session_id":"sid-cost","is_error":true,"usage":{"input_tokens":11,"output_tokens":3,"cache_read_input_tokens":7},"total_cost_usd":0.25}"""
+      """{"type":"result","subtype":"error_during_execution","session_id":"sid-cost","is_error":true,"usage":{"input_tokens":11,"output_tokens":3,"cache_read_input_tokens":7},"total_cost_usd":0.25,"model":"claude-sonnet-4-6"}"""
     )
     process.closeStdout()
 
     val _ = conv.events.toList
     val failure = intercept[AgentTurnFailed](conv.awaitResult())
     assertEquals(
-      failure.usage,
-      Some(usage(18L, 3L, Some(BigDecimal("0.25")), cacheRead = 7L))
+      failure.debit,
+      TurnDebit.Observed(
+        usage(18L, 3L, Some(BigDecimal("0.25")), cacheRead = 7L),
+        Some(Model("claude-sonnet-4-6"))
+      )
     )
 
   convTest(

@@ -10,7 +10,7 @@ import orca.backend.{
   IdScheme,
   SessionSupport
 }
-import orca.events.{OrcaEvent, OrcaListener, Usage}
+import orca.events.{OrcaEvent, OrcaListener, TurnDebit, Usage}
 import orca.testkit.Usages.usage
 import ox.scheduling.Schedule
 
@@ -185,7 +185,10 @@ class BaseAgentTest extends munit.FunSuite:
     val spent = usage(120L, 8L, Some(BigDecimal("0.0031")))
     val tool = new StubTool(
       new FailingBackend(
-        new orca.AgentTurnFailed("claude session failed", usage = Some(spent))
+        new orca.AgentTurnFailed(
+          "claude session failed",
+          TurnDebit.Observed(spent, None)
+        )
       ),
       listener = listener
     )

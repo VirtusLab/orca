@@ -1,7 +1,7 @@
 package orca.tools.gemini
 
-import orca.agents.BackendTag
-import orca.events.Usage
+import orca.agents.{BackendTag, Model}
+import orca.events.{TurnDebit, Usage}
 import orca.AgentTurnFailed
 import orca.backend.{
   StderrPipeline,
@@ -107,6 +107,12 @@ private[gemini] class GeminiConversation(
     * gemini exited 0 — tagged `AgentTurnFailed` so the autonomous retry loop
     * doesn't reopen the now-registered session id.
     */
+  /** Only the terminal `result` event carries stats, and a turn that reaches it
+    * settles itself (with an `Observed` debit) rather than reaching the base's
+    * generic wrap.
+    */
+  override protected def failedTurnDebit: TurnDebit = TurnDebit.Unobserved
+
   private def handleResult(usage: Usage, status: ToolStatus): Unit =
     status match
       case ToolStatus.Success =>
@@ -123,7 +129,10 @@ private[gemini] class GeminiConversation(
           if raw.isEmpty then "a missing status" else s"status '$raw'"
         failWith(
           new AgentTurnFailed(
-            appendContext(s"gemini turn ended with $description")
+            appendContext(s"gemini turn ended with $description"),
+            // The failed `result` frame carries the turn's stats; without them
+            // a quota- or max-turns-killed turn spends invisibly.
+            TurnDebit.Observed(usage, model.map(Model.apply))
           )
         )
 

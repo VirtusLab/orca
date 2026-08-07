@@ -1,6 +1,7 @@
 package orca.tools.gemini
 
-import orca.agents.WireSessionId
+import orca.agents.{Model, WireSessionId}
+import orca.events.TurnDebit
 import orca.testkit.Usages.usage
 import orca.{OrcaFlowException, OrcaInteractiveCancelled}
 import orca.backend.{ConversationEvent, ConversationEventConformance}
@@ -409,6 +410,28 @@ class GeminiConversationTest extends munit.FunSuite:
     assert(
       ex.getMessage.contains("error"),
       s"expected the failing status in the message; got: ${ex.getMessage}"
+    )
+
+  // gemini's failing `result` frame carries the turn's stats, and the estimate
+  // from them is the only cost signal gemini ever gives.
+  convTest("a failed result frame carries its stats as the turn's debit"):
+    val process = new FakePipedCliProcess()
+    val conv = new GeminiConversation(process)
+
+    process.enqueueStdout(
+      """{"type":"init","session_id":"s","model":"gemini-2.5-pro"}"""
+    )
+    process.enqueueStdout(
+      """{"type":"result","status":"error","stats":{"input_tokens":90,"output_tokens":7}}"""
+    )
+    process.closeStdout()
+    process.closeStderr()
+
+    val _ = conv.events.toList
+    val ex = intercept[orca.AgentTurnFailed](conv.awaitResult())
+    assertEquals(
+      ex.debit,
+      TurnDebit.Observed(usage(90L, 7L), Some(Model("gemini-2.5-pro")))
     )
 
   convTest(
