@@ -106,7 +106,7 @@ private[orca] class CodexBackend(
     // Records the client→server mapping so a follow-up call on this client id
     // resumes the right thread; the result carries the server thread id as its
     // wireId, and the caller keeps using the client id.
-    Conversations.runAutonomous(session, sessions, events):
+    Conversations.runAutonomous(session, sessions, config.autoApprove, events):
       openConversation(
         prompt = prompt,
         mode = ConversationMode.Autonomous,

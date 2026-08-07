@@ -88,7 +88,7 @@ private[orca] class OpencodeBackend(
       outputSchema: Option[String]
   ): AgentResult[BackendTag.Opencode.type] =
     val http = server.http
-    Conversations.runAutonomous(session, sessions, events):
+    Conversations.runAutonomous(session, sessions, config.autoApprove, events):
       startTurn(
         http,
         session,
