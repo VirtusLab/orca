@@ -240,6 +240,14 @@ class ClaudeBackendTest extends munit.FunSuite:
         .withNetworkTools(Seq("WebFetch", "Bash(gh api:*)"))
     assert(thrown.getMessage.contains("Bash(gh api:*)"), thrown.getMessage)
 
+  test("withNetworkTools rejects a write-capable builtin"):
+    // A bare "Bash" passes the shape check, and NetworkOnly would put it on
+    // both --tools and --allowedTools while the tier still reports Hard.
+    val thrown = intercept[IllegalArgumentException]:
+      new ClaudeBackend(new SpawnStubCliRunner(Nil))
+        .withNetworkTools(Seq("WebFetch", "Bash"))
+    assert(thrown.getMessage.contains("Bash"), thrown.getMessage)
+
   test("withNetworkTools overrides the default network tools"):
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     SupervisedBackend.using(
