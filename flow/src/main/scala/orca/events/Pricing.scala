@@ -29,13 +29,6 @@ case class ModelPricing(
     cacheWriteUsdPerMillion: BigDecimal
 )
 
-/** A USD cost with a flag that propagates through addition: any aggregate
-  * mixing at least one estimated input is itself flagged as an estimate.
-  */
-case class Cost(amount: BigDecimal, estimated: Boolean):
-  def +(that: Cost): Cost =
-    Cost(amount + that.amount, estimated || that.estimated)
-
 /** Model id → per-million-token rates. */
 type PricingTable = Map[Model, ModelPricing]
 

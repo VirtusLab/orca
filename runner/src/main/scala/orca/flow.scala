@@ -2,6 +2,7 @@ package orca
 
 import orca.backend.{AgentWiring, Interaction}
 import orca.events.{
+  CostResolvingDispatcher,
   CostTracker,
   EventDispatcher,
   OrcaEvent,
@@ -152,7 +153,7 @@ def flow(
   // with no diagnostic; this leaves a trail on the console and in the trace.
   installUncaughtExceptionHandler()
   // Tally token usage and print the summary on exit (success or failure).
-  val costTracker = new CostTracker(pricing)
+  val costTracker = new CostTracker(pricing.lastUpdated)
   // `try/finally` so the cost summary always lands — even when a fatal
   // throwable (OOM, StackOverflow) escapes the NonFatal catch below. See
   // `FlowOutcome`'s scaladoc for why this is one ADT, not two booleans.
@@ -172,7 +173,6 @@ def flow(
       workDir,
       OrcaBanner.version,
       flowName,
-      pricing,
       () => java.time.Instant.now()
     )
     try
@@ -190,6 +190,7 @@ def flow(
           returnToStartBranch = returnToStartBranch,
           progressStore = progressStore,
           flowName = flowName,
+          pricing = pricing,
           wiring = FlowWiring(
             claude = claude,
             codex = codex,
@@ -261,7 +262,8 @@ private[orca] def runFlow(
     // `sys.env` reading; `None` for every other caller (tests, a nested
     // `flow()` invocation with nothing of its own to report).
     flowName: Option[String] = None,
-    wiring: FlowWiring = FlowWiring()
+    wiring: FlowWiring = FlowWiring(),
+    pricing: PriceList = Pricing.default
 )(body: FlowControl ?=> Unit): Unit =
   val debug = OrcaDebug.enabled || args.verbose.value
   // Acquire both guards before `supervised:` (neither needs an `Ox` scope) so a
@@ -279,10 +281,16 @@ private[orca] def runFlow(
           TerminalInteraction.start(workDir = Some(workDir))
         )
         try
-          val dispatcher = new EventDispatcher(
-            effectiveInteraction.listeners ++ List(
-              new LoggingListener
-            ) ++ extraListeners
+          // Cost is resolved on the way in, so the terminal summary, the
+          // on-disk cost log and any listener a caller added all read one
+          // figure — none of them holds a price table of its own.
+          val dispatcher: OrcaListener = new CostResolvingDispatcher(
+            pricing,
+            new EventDispatcher(
+              effectiveInteraction.listeners ++ List(
+                new LoggingListener
+              ) ++ extraListeners
+            )
           )
           val store =
             progressStore.getOrElse(
@@ -364,7 +372,7 @@ private def buildContext(
     reviewAgent: Option[AgentSet => Agent[?]],
     globalSettingsPath: os.Path,
     branchNaming: Option[BranchNamingStrategy],
-    dispatcher: EventDispatcher,
+    dispatcher: OrcaListener,
     agents: WiredAgents,
     gitTool: GitTool,
     ghTool: GitHubTool,

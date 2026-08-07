@@ -2,36 +2,41 @@ package orca.events
 
 import orca.agents.Model
 
+import java.time.LocalDate
 import java.util.concurrent.atomic.AtomicReference
 
-/** Listener that accumulates `TokensUsed` events along two independent axes —
-  * by `agent` and by `model`. State is held in an `AtomicReference` so the
-  * tracker is safe to register across concurrent LLM calls.
+/** Listener that accumulates `TokensUsed` events along three independent axes —
+  * by `agent`, by `model` and by `role`. State is held in an `AtomicReference`
+  * so the tracker is safe to register across concurrent LLM calls.
   *
-  * Cost per event is either a reported figure (Claude CLI returns
-  * `total_cost_usd`) or estimated from the supplied [[PriceList]]. Estimated
-  * costs are flagged, and the legend shows the table's `lastUpdated` date so a
-  * stale snapshot is obvious; pass a custom `pricing` to override the rates.
+  * Cost comes off the event, resolved once for the whole run by
+  * [[CostResolvingDispatcher]]. Estimated figures are flagged, and the legend
+  * shows `ratesAsOf` so a stale snapshot is obvious.
   *
-  * Both axes share the same underlying calls, so summing either map yields the
-  * grand total. The `model` axis keys on `Option[Model]` because the reported
-  * model isn't always present; the summary surfaces the missing case as
-  * `(unknown)`.
+  * All axes share the same underlying calls, so summing any of the maps yields
+  * the grand total. The `model` axis keys on `Option[Model]` because the
+  * reported model isn't always present; the summary surfaces the missing case
+  * as `(unknown)`.
   */
-class CostTracker(pricing: PriceList = Pricing.default) extends OrcaListener:
+class CostTracker(ratesAsOf: LocalDate = Pricing.default.lastUpdated)
+    extends OrcaListener:
+
+  /** One bucket's running total. Keeping the usage and the cost of the same
+    * calls in one value is what stops the two drifting apart per axis.
+    */
+  private case class Tally(usage: Usage, cost: Option[Cost]):
+    def +(that: Tally): Tally =
+      Tally(usage + that.usage, (cost ++ that.cost).reduceOption(_ + _))
 
   private case class State(
-      byAgent: Map[String, Usage] = Map.empty,
-      byModel: Map[Option[Model], Usage] = Map.empty,
-      byAgentCost: Map[String, Cost] = Map.empty,
-      byModelCost: Map[Option[Model], Cost] = Map.empty,
+      byAgent: Map[String, Tally] = Map.empty,
+      byModel: Map[Option[Model], Tally] = Map.empty,
       /** The role last recorded for a given agent, for display/subtotal lookup.
         * `TokensUsed.role` is constant per agent in practice, so last-write and
         * first-write agree. See [[byRole]] for the subtotal axis.
         */
       agentRoles: Map[String, Option[String]] = Map.empty,
-      byRole: Map[Option[String], Usage] = Map.empty,
-      byRoleCost: Map[Option[String], Cost] = Map.empty
+      byRole: Map[Option[String], Tally] = Map.empty
   ):
     def record(
         agent: String,
@@ -39,69 +44,67 @@ class CostTracker(pricing: PriceList = Pricing.default) extends OrcaListener:
         usage: Usage,
         cost: Option[Cost],
         role: Option[String]
-    ): State = copy(
-      byAgent =
-        byAgent.updated(agent, byAgent.getOrElse(agent, Usage.empty) + usage),
-      byModel =
-        byModel.updated(model, byModel.getOrElse(model, Usage.empty) + usage),
-      byAgentCost = addCost(byAgentCost, agent, cost),
-      byModelCost = addCost(byModelCost, model, cost),
-      agentRoles = agentRoles.updated(agent, role),
-      byRole =
-        byRole.updated(role, byRole.getOrElse(role, Usage.empty) + usage),
-      byRoleCost = addCost(byRoleCost, role, cost)
-    )
+    ): State =
+      val tally = Tally(usage, cost)
+      copy(
+        byAgent = add(byAgent, agent, tally),
+        byModel = add(byModel, model, tally),
+        agentRoles = agentRoles.updated(agent, role),
+        byRole = add(byRole, role, tally)
+      )
 
-  /** Fold one optional cost into a per-key map. No-op when `cost` is `None`
-    * (the call had neither a reported nor estimable figure).
-    */
-  private def addCost[K](
-      map: Map[K, Cost],
-      key: K,
-      cost: Option[Cost]
-  ): Map[K, Cost] =
-    cost.fold(map)(c => map.updated(key, map.get(key).fold(c)(_ + c)))
+    private def add[K](
+        buckets: Map[K, Tally],
+        key: K,
+        tally: Tally
+    ): Map[K, Tally] =
+      buckets.updatedWith(key)(prev => Some(prev.fold(tally)(_ + tally)))
 
   private val state: AtomicReference[State] = AtomicReference(State())
 
   def onEvent(event: OrcaEvent): Unit = event match
     // `attempt` is ignored: a retry's tokens count toward the run's spend like
     // any other turn's.
-    case OrcaEvent.TokensUsed(agent, model, usage, role, _, _) =>
-      val cost = Pricing.resolve(pricing.table, model, usage)
+    case OrcaEvent.TokensUsed(agent, model, usage, role, _, _, cost) =>
       val _ = state.updateAndGet(_.record(agent, model, usage, cost, role))
     case _ => ()
 
   /** Usage accumulated across every call, regardless of axis. */
   def total: Usage =
-    state.get().byAgent.values.foldLeft(Usage.empty)(_ + _)
+    state.get().byAgent.values.foldLeft(Usage.empty)(_ + _.usage)
 
   /** Total cost across every call. `None` when no call surfaced a cost
     * (reported or estimable).
     */
   def totalCost: Option[Cost] =
-    state.get().byAgentCost.values.reduceOption(_ + _)
+    state.get().byAgent.values.flatMap(_.cost).reduceOption(_ + _)
 
   /** Per-agent usage breakdown — keyed by `Agent.name`. */
-  def perAgent: Map[String, Usage] = state.get().byAgent
+  def perAgent: Map[String, Usage] =
+    state.get().byAgent.view.mapValues(_.usage).toMap
 
   /** Per-agent cost breakdown. Missing entry means that agent's calls had
     * neither reported nor estimable cost.
     */
-  def perAgentCost: Map[String, Cost] = state.get().byAgentCost
+  def perAgentCost: Map[String, Cost] = costsOf(state.get().byAgent)
 
   /** Per-model usage breakdown. `None` collects calls whose model the backend
     * didn't report and the caller didn't pin in `AgentConfig`.
     */
-  def perModel: Map[Option[Model], Usage] = state.get().byModel
+  def perModel: Map[Option[Model], Usage] =
+    state.get().byModel.view.mapValues(_.usage).toMap
 
   /** Per-model cost breakdown. Same key semantics as [[perModel]]. */
-  def perModelCost: Map[Option[Model], Cost] = state.get().byModelCost
+  def perModelCost: Map[Option[Model], Cost] = costsOf(state.get().byModel)
 
   /** Per-role usage breakdown ([[Agent.role]], e.g. `Some("reviewer")`). `None`
     * collects calls from an agent with no role tag — the common case.
     */
-  def perRole: Map[Option[String], Usage] = state.get().byRole
+  def perRole: Map[Option[String], Usage] =
+    state.get().byRole.view.mapValues(_.usage).toMap
+
+  private def costsOf[K](buckets: Map[K, Tally]): Map[K, Cost] =
+    buckets.collect { case (key, Tally(_, Some(cost))) => key -> cost }
 
   /** Two or three sections — by-agent, by-model, and (only when at least one
     * call carried a [[orca.agents.Agent.role]] tag) by-role — each sorted
@@ -121,17 +124,17 @@ class CostTracker(pricing: PriceList = Pricing.default) extends OrcaListener:
     else
       val agentLines = s.byAgent.toList
         .sortBy((agent, _) => agentLabel(agent, s.agentRoles))
-        .map: (agent, u) =>
-          s"  ${agentLabel(agent, s.agentRoles)}: ${formatLine(u, s.byAgentCost.get(agent))}"
+        .map: (agent, t) =>
+          s"  ${agentLabel(agent, s.agentRoles)}: ${formatLine(t)}"
       val modelLines = s.byModel.toList
         .sortBy((model, _) => modelLabel(model))
-        .map: (model, u) =>
-          s"  ${modelLabel(model)}: ${formatLine(u, s.byModelCost.get(model))}"
+        .map: (model, t) =>
+          s"  ${modelLabel(model)}: ${formatLine(t)}"
       val roleLines = s.byRole.toList
-        .collect { case (Some(role), u) => (role, u) }
+        .collect { case (Some(role), t) => (role, t) }
         .sortBy(_._1)
-        .map: (role, u) =>
-          s"  $role: ${formatLine(u, s.byRoleCost.get(Some(role)))}"
+        .map: (role, t) =>
+          s"  $role: ${formatLine(t)}"
       val roleSection =
         if roleLines.isEmpty then ""
         else s"""
@@ -144,12 +147,11 @@ class CostTracker(pricing: PriceList = Pricing.default) extends OrcaListener:
         // total: $1.10*` reading like double-counting.
         val label = if c.estimated then "Estimated total" else "Total"
         s"\n\n$label: ${formatAmount(c)}"
-      val hasEstimate =
-        (s.byAgentCost.values ++ s.byModelCost.values).exists(_.estimated)
+      val hasEstimate = s.byAgent.values.flatMap(_.cost).exists(_.estimated)
       val legend =
         if hasEstimate then
           s"\n\n* estimated from the pricing table " +
-            s"(rates as of ${pricing.lastUpdated} — may be stale)"
+            s"(rates as of $ratesAsOf — may be stale)"
         else ""
       s"""By agent:
          |${agentLines.mkString("\n")}
@@ -175,9 +177,9 @@ class CostTracker(pricing: PriceList = Pricing.default) extends OrcaListener:
   ): String =
     agentRoles.get(agent).flatten.fold(agent)(role => s"$role: $agent")
 
-  private def formatLine(usage: Usage, cost: Option[Cost]): String =
-    val tokens = formatUsage(usage)
-    cost.fold(tokens)(c => s"$tokens (${formatCost(c)})")
+  private def formatLine(tally: Tally): String =
+    val tokens = formatUsage(tally.usage)
+    tally.cost.fold(tokens)(c => s"$tokens (${formatCost(c)})")
 
   /** Cache reads and cache writes share one parenthetical after the input
     * count, each part dropped when zero.

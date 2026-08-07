@@ -3,7 +3,7 @@ package orca.runner.manifest
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import orca.OrcaDir
 import orca.WorkspaceWrite
-import orca.events.{OrcaEvent, PriceList, Pricing}
+import orca.events.OrcaEvent
 import orca.testkit.Usages.usage
 import orca.progress.{BranchMode, ProgressHeader, ProgressStore, SessionRecord}
 import orca.testkit.TempDirs
@@ -31,10 +31,9 @@ class RunManifestWriterTest extends munit.FunSuite:
   private def newWriter(
       workDir: os.Path,
       clock: () => Instant,
-      flowName: Option[String] = None,
-      pricing: PriceList = Pricing.default
+      flowName: Option[String] = None
   ): RunManifestWriterState =
-    new RunManifestWriterState(workDir, "0.0.test", flowName, pricing, clock)
+    new RunManifestWriterState(workDir, "0.0.test", flowName, clock)
 
   private def manifestFiles(workDir: os.Path): List[os.Path] =
     os.list(OrcaDir.cacheRunsPath(workDir)).filter(_.ext == "json").toList
@@ -443,7 +442,6 @@ class RunManifestWriterTest extends munit.FunSuite:
         workDir,
         "0.0.test",
         None,
-        Pricing.default,
         () => Instant.now()
       )
       val threads = (0 until 2).map: t =>

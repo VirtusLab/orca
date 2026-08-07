@@ -1,7 +1,7 @@
 package orca.shell.sessions
 
 import orca.WorkspaceWrite
-import orca.events.{OrcaEvent, Pricing}
+import orca.events.OrcaEvent
 import orca.testkit.Usages.usage
 import orca.progress.{BranchMode, ProgressHeader, ProgressStore, SessionRecord}
 import orca.runner.manifest.{RunManifestWriter, RunOutcome}
@@ -44,7 +44,6 @@ class ManifestRoundTripTest extends munit.FunSuite:
         workDir,
         "0.0.test",
         Some("a-flow.sc"),
-        Pricing.default,
         () => Instant.now()
       )
       writer.onEvent(OrcaEvent.StageStarted("code"))

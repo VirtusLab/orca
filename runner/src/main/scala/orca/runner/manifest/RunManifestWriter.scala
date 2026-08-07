@@ -6,7 +6,7 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
 }
 import orca.OrcaDir
 import orca.agents.JsonData
-import orca.events.{OrcaEvent, OrcaListener, PriceList, Pricing}
+import orca.events.{OrcaEvent, OrcaListener}
 import orca.progress.ProgressLog
 import org.slf4j.LoggerFactory
 import ox.Ox
@@ -57,11 +57,10 @@ private[orca] object RunManifestWriter:
       workDir: os.Path,
       orcaVersion: String,
       flowName: Option[String],
-      pricing: PriceList,
       clock: () => Instant
   )(using Ox, BufferCapacity): RunManifestWriter =
     val state =
-      new RunManifestWriterState(workDir, orcaVersion, flowName, pricing, clock)
+      new RunManifestWriterState(workDir, orcaVersion, flowName, clock)
     new ActorRunManifestWriter(Actor.create(state))
 
 /** Actor-backed [[RunManifestWriter]]. `onEvent` is a `tell`; `finish` is an
@@ -98,7 +97,6 @@ private[runner] class RunManifestWriterState(
     workDir: os.Path,
     orcaVersion: String,
     flowName: Option[String],
-    pricing: PriceList,
     clock: () => Instant
 ) extends RunManifestWriter:
 
@@ -186,7 +184,7 @@ private[runner] class RunManifestWriterState(
           upsertSession(harness, clientId, wireId, agent, role)
         )
       if hasCommittedSession then safeWrite()
-    case OrcaEvent.TokensUsed(agent, model, usage, role, attempt, session) =>
+    case OrcaEvent.TokensUsed(agent, _, usage, role, attempt, session, cost) =>
       if !state.anyTurnRecorded then
         guarded("cost log header"):
           costLog.append(
@@ -204,7 +202,7 @@ private[runner] class RunManifestWriterState(
             attempt = attempt,
             apiCalls = usage.apiCalls,
             usage = ManifestUsage.of(usage),
-            cost = Pricing.resolve(pricing.table, model, usage),
+            cost = cost,
             session = session
           )
         )

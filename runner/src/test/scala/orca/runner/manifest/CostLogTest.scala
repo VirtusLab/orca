@@ -2,7 +2,7 @@ package orca.runner.manifest
 
 import orca.OrcaDir
 import orca.agents.Model
-import orca.events.{Cost, OrcaEvent, PriceList, Pricing}
+import orca.events.{Cost, OrcaEvent}
 import orca.testkit.TempDirs
 import orca.testkit.Usages.usage
 
@@ -15,15 +15,11 @@ class CostLogTest extends munit.FunSuite:
 
   private def fixedClock(at: Instant): () => Instant = () => at
 
-  private def newWriter(
-      workDir: os.Path,
-      pricing: PriceList = Pricing.default
-  ): RunManifestWriterState =
+  private def newWriter(workDir: os.Path): RunManifestWriterState =
     new RunManifestWriterState(
       workDir,
       "0.0.test",
       Some("review-pr.sc"),
-      pricing,
       fixedClock(Instant.parse("2026-07-18T10:00:00Z"))
     )
 
@@ -142,12 +138,13 @@ class CostLogTest extends munit.FunSuite:
 
   /** Every axis is carried per turn, because the aggregates are folds over
     * these lines and nothing else persists them. The cache-read and cache-write
-    * figures are non-zero and unequal so both survive the projection, and a
-    * write is billed at the write rate rather than folded into base input.
+    * figures are non-zero and unequal so both survive the projection. Cost is
+    * whatever the dispatcher already resolved — the writer prices nothing.
     */
-  test("a turn carries every usage axis and its resolved cost"):
+  test("a turn carries every usage axis and the cost the event arrived with"):
     val workDir = TempDirs.dir()
     val writer = newWriter(workDir)
+    val resolved = Cost(BigDecimal("0.1086"), estimated = true)
     writer.onEvent(
       OrcaEvent.TokensUsed(
         agent = "claude",
@@ -159,7 +156,8 @@ class CostLogTest extends munit.FunSuite:
           cacheRead = 107_000,
           cacheWrite = 8_000
         ),
-        role = None
+        role = None,
+        cost = Some(resolved)
       )
     )
     val turn = turns(workDir).head
@@ -173,9 +171,7 @@ class CostLogTest extends munit.FunSuite:
         reasoningOutputTokens = 0
       )
     )
-    // 13k fresh at $3/M + 107k cache-read at $0.30/M + 8k cache-write at $6/M +
-    // 900 out at $15/M.
-    assertEquals(turn.cost, Some(Cost(BigDecimal("0.1086"), estimated = true)))
+    assertEquals(turn.cost, Some(resolved))
 
   /** The run total is a read-time fold, so this pins that the lines carry
     * enough to compute one — including `estimated` surviving the addition, so a
@@ -189,7 +185,8 @@ class CostLogTest extends munit.FunSuite:
         agent = "claude",
         model = Some(Model("claude-sonnet-5")),
         usage = usage(120_000, 900, None, cacheRead = 107_000),
-        role = None
+        role = None,
+        cost = Some(Cost(BigDecimal("0.0846"), estimated = true))
       )
     )
     writer.onEvent(
@@ -197,13 +194,12 @@ class CostLogTest extends munit.FunSuite:
         agent = "reviewer",
         model = Some(Model("claude-haiku-4-5")),
         usage = usage(5_000, 100, Some(BigDecimal("0.0123"))),
-        role = Some("reviewer")
+        role = Some("reviewer"),
+        cost = Some(Cost(BigDecimal("0.0123"), estimated = false))
       )
     )
     val recorded = turns(workDir)
     assertEquals(recorded.map(_.usage.inputTokens).sum, 125_000L)
-    // 13k fresh at $3/M + 107k cache-read at $0.30/M + 900 out at $15/M =
-    // $0.0846, plus the second turn's reported $0.0123.
     assertEquals(
       recorded.flatMap(_.cost).reduce(_ + _),
       Cost(BigDecimal("0.0969"), estimated = true)
