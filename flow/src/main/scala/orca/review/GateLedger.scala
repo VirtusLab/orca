@@ -22,15 +22,14 @@ private[review] final class GateLedger private (
       owner: GateLedger.Owner,
       dropped: List[ReviewIssue]
   ): GateLedger =
-    val latest: Map[Title, ReviewIssue] = dropped.map(i => i.title -> i).toMap
-    val held = entries.getOrElse(owner, Nil)
-    val refreshed = held.map(i => latest.getOrElse(i.title, i))
-    val added = dropped
-      .map(_.title)
-      .distinct
-      .filterNot(t => held.exists(_.title == t))
-      .map(latest)
-    new GateLedger(entries.updated(owner, refreshed ++ added))
+    new GateLedger(
+      entries.updated(
+        owner,
+        GateLedger.mergeLatestByTitle(entries.getOrElse(owner, Nil), dropped)(
+          _.title
+        )
+      )
+    )
 
   /** What `owner` had held back, in the order it first reported each finding.
     */
@@ -46,3 +45,20 @@ private[review] object GateLedger:
     case Lint
 
   val empty: GateLedger = new GateLedger(Map.empty)
+
+  /** `held` with `incoming` merged in, keyed by `title`: a title `held` already
+    * carries is refreshed with the latest report in place, a new one is
+    * appended, and duplicate titles within `incoming` collapse to the last. The
+    * review loop's one notion of "the same finding again": a title names one
+    * entry in the ledger, in the fixer's accumulated declines, and in the
+    * [[IgnoredIssues]] any exit returns.
+    */
+  def mergeLatestByTitle[A](held: List[A], incoming: List[A])(
+      title: A => Title
+  ): List[A] =
+    val latest = incoming.map(a => title(a) -> a).toMap
+    val heldTitles = held.map(title).toSet
+    val refreshed = held.map(a => latest.getOrElse(title(a), a))
+    val added =
+      incoming.map(title).distinct.filterNot(heldTitles.contains).map(latest)
+    refreshed ++ added

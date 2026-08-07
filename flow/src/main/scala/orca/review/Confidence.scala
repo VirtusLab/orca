@@ -8,8 +8,10 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
 import orca.OrcaFlowException
 import sttp.tapir.{Schema, Validator}
 
-/** Returned in the `Left` of [[Confidence.apply]], and thrown at the wire
-  * boundary when a reviewer reports a number outside `[0, 1]`.
+/** Returned in the `Left` of [[Confidence.apply]] for a number outside `[0,
+  * 1]`. The decoder reports the same range in a JSON decode error rather than
+  * raising this, so a reviewer's out-of-range reply surfaces as malformed agent
+  * output.
   */
 class InvalidConfidence(value: Double)
     extends OrcaFlowException(

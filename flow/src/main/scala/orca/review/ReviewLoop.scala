@@ -84,6 +84,30 @@ private[review] def capExitMessage(
   (s"Reached max iterations ($maxIterations); still open:" :: titles)
     .mkString("\n")
 
+/** The reason recorded against an issue the fixer left unaccounted for. Only
+  * the halt exits record these, and both halt precisely because the fixer
+  * reported no fixes.
+  */
+private[review] val NoFixesReason: String = "fixer reported no fixes"
+
+/** Fold `additions` into `accumulated`, in order, keeping one entry per title
+  * with the latest reason ([[GateLedger.mergeLatestByTitle]]).
+  *
+  * Every accumulation point in both loops goes through this, so a finding
+  * declined in round one and re-declined — or later reported unaccounted for,
+  * or held back by the gate — comes back as one entry saying the last thing
+  * known about it, never as two entries with contradictory reasons.
+  */
+private[review] def recordIgnored(
+    accumulated: IgnoredIssues,
+    additions: List[IgnoredIssue]*
+): IgnoredIssues =
+  IgnoredIssues(
+    additions.foldLeft(accumulated.issues)((held, incoming) =>
+      GateLedger.mergeLatestByTitle(held, incoming)(_.title)
+    )
+  )
+
 /** Announce the fixer's replies that matched no issue it was handed — the
   * visible sign of a degraded fix turn, whose entries are otherwise dropped.
   */
@@ -119,19 +143,27 @@ def fixLoop(
     // stage (ADR 0018 §2.2).
     orca.display(s"Iteration ${iteration + 1}")
     val issues = evaluate().issues
-    stopPolicy(issues, iteration, maxIterations) match
+    stopPolicy(
+      issues,
+      iteration = iteration,
+      maxIterations = maxIterations
+    ) match
       case LoopStep.Done =>
         orca.display("No review comments")
         accumulated
       case LoopStep.CapReached(ignored) =>
         orca.display(capExitMessage(maxIterations, ignored))
-        accumulated ++ ignored
+        recordIgnored(accumulated, ignored.issues)
       case LoopStep.NeedsFix =>
         val outcome = FixOutcome.reconcile(issues, fix(issues))
         announceFixTurn(outcome)
         if outcome.fixed.isEmpty then
-          accumulated ++ IgnoredIssues(outcome.ignored ++ outcome.unaccounted)
-        else loop(accumulated ++ IgnoredIssues(outcome.ignored), iteration + 1)
+          recordIgnored(
+            accumulated,
+            outcome.ignored,
+            outcome.unaccounted.map(IgnoredIssue(_, NoFixesReason))
+          )
+        else loop(recordIgnored(accumulated, outcome.ignored), iteration + 1)
 
   loop(IgnoredIssues(Nil), 0)
 
@@ -255,11 +287,10 @@ private case class GatedIssues(kept: ReviewResult, dropped: List[ReviewIssue])
 private case class LintRound(gate: Lint, summariser: Lint.Summariser)
 
 /** One evaluation round's outcome: the issues that cleared the gate this round,
-  * every gate reject on the books, and the state to carry into the next round.
+  * and the state to carry into the next round (which carries the gate rejects).
   */
 private case class RoundOutcome(
     issues: List[ReviewIssue],
-    gateRejects: List[ReviewIssue],
     state: ReviewLoopState
 )
 
@@ -583,15 +614,17 @@ private[review] class ReviewFixLoop[B <: BackendTag](
         () =>
           val report =
             lint(r.gate.commands, r.summariser, ReviewLoopPrompts.SummariseLint)
-          AgentOutcome.Lint(applyGate(report.result), report.resumable)
+          AgentOutcome.Lint(
+            applyGate(report.result),
+            report.resumableSummariser
+          )
 
     // The explicit type application is CC-forced: it widens both lists' element
     // type to `() => AgentOutcome` so their capture sets unify into the single
     // `C^` CheckedPar.mapParUnordered binds below. Deleting it breaks the CC
     // compile.
     val tasks = reviewerTasks.++[() => AgentOutcome](lintTaskOpt.toList)
-    if tasks.isEmpty then
-      RoundOutcome(Nil, gateRejectsOf(currentState), currentState)
+    if tasks.isEmpty then RoundOutcome(Nil, currentState)
     else
       val outcomes: List[AgentOutcome] =
         // The fan out the file header's capture checking guards.
@@ -628,7 +661,6 @@ private[review] class ReviewFixLoop[B <: BackendTag](
       RoundOutcome(
         issues = contributions.flatMap(_.gated.kept.issues) ++
           lintOutcome.toList.flatMap(_.gated.kept.issues),
-        gateRejects = gateRejectsOf(nextState),
         state = nextState
       )
 
@@ -713,22 +745,6 @@ private[review] class ReviewFixLoop[B <: BackendTag](
       rejects.map(i => IgnoredIssue(i.title, confidenceGate.rejectionReason(i)))
     )
 
-  /** Accumulate the fixer's declines, one entry per title with the latest
-    * reason: a finding declined again in a later round is the same finding, not
-    * a second one. Cross-round identity has only titles to key on — the
-    * [[FixRequest]] keys are re-minted each round — which is enough, since a
-    * re-declined finding is re-echoed from the same reviewer-reported title.
-    */
-  private def accumulateDeclines(
-      accumulated: IgnoredIssues,
-      declined: List[IgnoredIssue]
-  ): IgnoredIssues =
-    val latest = declined.map(i => i.title -> i).toMap
-    val refreshed = accumulated.issues.map(i => latest.getOrElse(i.title, i))
-    val added =
-      declined.filterNot(d => accumulated.issues.exists(_.title == d.title))
-    IgnoredIssues(refreshed ++ added)
-
   /** The clean-round message, honest about what the gate held back. */
   private def doneMessage(droppedCount: Int): String =
     if droppedCount == 0 then "No review comments"
@@ -763,10 +779,12 @@ private[review] class ReviewFixLoop[B <: BackendTag](
         accumulated: IgnoredIssues,
         iteration: Int,
         state: ReviewLoopState,
-        // What the last fix turn refused to fix, on its way to this round's
+        // Every decline the fixer has made so far, on its way to this round's
         // reviewers: without it a reviewer re-reports what the fixer
         // deliberately declined, the fixer declines it again, and the round is
-        // spent. A fresh argument per round rather than a state field, so it
+        // spent. The whole set rather than the last round's, so a reviewer
+        // first activated in round three still learns what was settled in round
+        // one. A fresh argument per round rather than a state field, so it
         // cannot be delivered twice or forgotten. Not split per reviewer — a
         // [[FixOutcome]] doesn't say which reviewer reported what — so every
         // reviewer is sent the whole list.
@@ -775,29 +793,36 @@ private[review] class ReviewFixLoop[B <: BackendTag](
       orca.display(s"Iteration ${iteration + 1}")
       val round = evaluate(state, selectRound, declined)
       val issues = round.issues
-      val gated = gatedOut(round.gateRejects)
-      stopPolicy(issues, iteration, maxIterations) match
+      val stillGated = gateRejectsOf(round.state)
+      val gated = gatedOut(stillGated)
+      stopPolicy(
+        issues,
+        iteration = iteration,
+        maxIterations = maxIterations
+      ) match
         case LoopStep.Done =>
-          orca.display(doneMessage(round.gateRejects.size))
-          accumulated ++ gated
+          orca.display(doneMessage(stillGated.size))
+          recordIgnored(accumulated, gated.issues)
         case LoopStep.CapReached(ignored) =>
           orca.display(capExitMessage(maxIterations, ignored))
-          accumulated ++ ignored ++ gated
+          recordIgnored(accumulated, ignored.issues, gated.issues)
         case LoopStep.NeedsFix =>
           val outcome = FixOutcome.reconcile(issues, fix(issues))
           // `ctx` explicit for the same given-priority reason as `selectRound`.
           announceFixTurn(outcome)(using ctx)
           if outcome.fixed.isEmpty then
             orca.display("Fixer reported no fixes; bailing out")
-            accumulateDeclines(accumulated, outcome.ignored) ++
-              IgnoredIssues(outcome.unaccounted) ++ gated
-          else
-            loop(
-              accumulateDeclines(accumulated, outcome.ignored),
-              iteration + 1,
-              round.state,
-              outcome.ignored
+            recordIgnored(
+              accumulated,
+              outcome.ignored,
+              outcome.unaccounted.map(IgnoredIssue(_, NoFixesReason)),
+              gated.issues
             )
+          else
+            // Bound once: the accumulated set IS the cross-round decline set on
+            // this branch, since only declines reach it before an exit.
+            val carried = recordIgnored(accumulated, outcome.ignored)
+            loop(carried, iteration + 1, round.state, carried.issues)
     loop(IgnoredIssues(Nil), 0, ReviewLoopState.empty, Nil)
 
 private[review] object ReviewLoop:

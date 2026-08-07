@@ -49,7 +49,8 @@ export orca.pr.{openPrFromBranch, orcaCommentMarker, summarisePr, PrSummary}
 // Reviewer-customisation surface: compose your own `List[Reviewer]` and
 // `buildReviewers` it into the agents `reviewAndFixLoop` takes. IgnoredIssue(s)
 // is the result type of fixLoop/reviewAndFixLoop; Lint is constructed at the
-// call site for reviewAndFixLoop's `lint` parameter, ConfidenceGate for its
+// call site for reviewAndFixLoop's `lint` parameter and LintReport is what the
+// summariser-taking `lint` returns, ConfidenceGate for its
 // `confidenceGate` parameter. Severity, Location and Confidence are
 // ReviewIssue's field types — needed by any flow that consumes findings — and
 // InvalidConfidence is the Left of `Confidence(...)`.
@@ -67,6 +68,7 @@ export orca.review.{
   IgnoredIssue,
   IgnoredIssues,
   Lint,
+  LintReport,
   Location,
   Reviewer,
   ReviewerPrompts,

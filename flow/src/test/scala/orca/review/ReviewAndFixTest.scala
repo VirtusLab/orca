@@ -618,9 +618,95 @@ class ReviewAndFixTest extends munit.FunSuite:
       initialDiff = Some("")
     )
     assertEquals(
-      result.issues.filter(_.title == Title("nit")),
-      List(IgnoredIssue(Title("nit"), "still deliberate"))
+      result.issues,
+      List(
+        IgnoredIssue(Title("nit"), "still deliberate"),
+        IgnoredIssue(Title("real bug"), "fixer reported no fixes")
+      )
     )
+
+  test("a declined finding the last turn forgot is recorded once, not twice"):
+    given FlowControl = control
+    // Round two's reply accounts for nothing, so "nit" is both an earlier
+    // decline and now unaccounted for. Two entries would contradict each other
+    // about the same finding; the exit records the latest reason only.
+    val reviewer = new FakeAgent(
+      name = "loud",
+      outputs = List(
+        ReviewResult(
+          List(
+            issue("nit", confidence = 0.95),
+            issue("real bug", confidence = 0.95)
+          )
+        ),
+        ReviewResult(List(issue("nit", confidence = 0.95)))
+      )
+    )
+    val coder = new FakeAgent(
+      name = "coder",
+      outputs = List(
+        FixOutcome(
+          List(Title("real bug")),
+          List(IgnoredIssue(Title("nit"), "deliberate"))
+        ),
+        FixOutcome(Nil, Nil)
+      )
+    )
+    val result = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(reviewer),
+      task = "build the widget",
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      initialDiff = Some("")
+    )
+    assertEquals(
+      result.issues,
+      List(IgnoredIssue(Title("nit"), "fixer reported no fixes"))
+    )
+
+  test("a reviewer joining in round three sees round one's declines"):
+    given FlowControl = control
+    // Declines accumulate across rounds, so a late joiner learns what was
+    // settled before it started — not merely what the previous round settled.
+    val early = new FakeAgent(
+      name = "early",
+      outputs = List(
+        ReviewResult(
+          List(issue("a", confidence = 0.95), issue("b", confidence = 0.95))
+        ),
+        ReviewResult(List(issue("c", confidence = 0.95))),
+        ReviewResult.empty
+      )
+    )
+    val late = new FakeAgent("late", outputs = List(ReviewResult.empty))
+    val coder = new FakeAgent(
+      name = "coder",
+      outputs = List(
+        FixOutcome(
+          List(Title("a")),
+          List(IgnoredIssue(Title("b"), "by design"))
+        ),
+        FixOutcome(List(Title("c")), Nil)
+      )
+    )
+    val joinsInRoundThree = new ReviewerSelector:
+      def prepare(
+          all: List[RosterEntry[?]],
+          taskTitle: Title,
+          changedFiles: List[String]
+      )(using FlowContext, orca.InStage) =
+        history =>
+          if history.size < 2 then all.filter(_.name == "early") else all
+    val _ = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(early, late),
+      task = "build the widget",
+      reviewerSelection = joinsInRoundThree,
+      initialDiff = Some("")
+    )
+    val joined = late.seenPrompts.headOption
+      .getOrElse(fail("the late reviewer never ran"))
+    assert(joined.contains("- b: by design"), joined)
 
   test("runs multiple reviewers and merges their issues"):
     given FlowControl = control

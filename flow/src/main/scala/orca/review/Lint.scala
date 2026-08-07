@@ -63,9 +63,9 @@ def lint(
   * conversation per call — for a caller running the gate several times over one
   * stage, where resuming costs a fraction of re-establishing the session.
   *
-  * Consumes the summariser and hands back a continuation only while the
-  * conversation is still safe to resume, so a caller cannot reuse one that has
-  * reported (see [[LintReport.resumable]]).
+  * Hands the summariser back only while the conversation is still safe to
+  * resume, so a caller that carries the report's handle forward never resumes
+  * one that has reported (see [[LintReport.resumableSummariser]]).
   */
 def lint(
     commands: List[String],
@@ -84,19 +84,16 @@ def lint(
     else summariseRuns(runs, summariser, instructions)
   // Pre-gate issues: what the conversation now holds, whatever a caller's
   // confidence gate later admits of it.
-  LintReport(
-    result,
-    Option.when(result.issues.isEmpty)(new Lint.Summariser(summariser.chat))
-  )
+  LintReport(result, Option.when(result.issues.isEmpty)(summariser))
 
 /** One [[lint]] call's outcome.
   *
-  * `resumable` is the same conversation, handed back only while it holds no
-  * finding: a conversation that has reported can repeat that finding on a later
-  * call whose commands no longer show it, and the phantom costs a fix turn and
-  * lands in the caller's records as unfixed. The consumed [[Lint.Summariser]]
-  * is never returned, so resuming after a report is unobtainable rather than
-  * forbidden.
+  * `resumableSummariser` is the summariser that was passed in, handed back only
+  * while the conversation holds no finding: one that has reported can repeat
+  * that finding on a later call whose commands no longer show it, and the
+  * phantom costs a fix turn and lands in the caller's records as unfixed. A
+  * caller that carries this field forward rather than the handle it passed in
+  * therefore starts a fresh conversation after any report.
   *
   * That bounds re-reporting rather than eliminating it: a resumed conversation
   * still holds every earlier call's raw output, from which it could newly
@@ -105,7 +102,10 @@ def lint(
   * to that, and by construction the retained output is output the model already
   * judged non-actionable.
   */
-case class LintReport(result: ReviewResult, resumable: Option[Lint.Summariser])
+case class LintReport(
+    result: ReviewResult,
+    resumableSummariser: Option[Lint.Summariser]
+)
 
 private def summariseRuns(
     runs: List[LintRun],

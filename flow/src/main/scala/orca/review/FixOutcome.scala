@@ -19,14 +19,15 @@ case class FixOutcome(
 ) derives JsonData
 
 /** A [[FixOutcome]] resolved against the issues the fixer was handed, so every
-  * handed issue is in exactly one bucket and no echo is counted twice.
+  * handed title is in exactly one bucket and no echo is counted twice.
   *
-  * `unaccounted` is what came back in neither list. The fix prompt asks for
-  * every issue to be accounted for; when one isn't, it is still open, so a loop
-  * halting here records it rather than dropping it. A loop that goes on to
-  * re-evaluate ignores it by name instead: the reviewer's persistent session
-  * re-reports a forgotten issue that is still real, and recording it here would
-  * report issues the next round went on to fix.
+  * `unaccounted` is what came back in neither list, as bare titles: the reason
+  * belongs to the exit that records them, not to the reconciliation. The fix
+  * prompt asks for every issue to be accounted for; when one isn't, it is still
+  * open, so a loop halting here records it rather than dropping it. A loop that
+  * goes on to re-evaluate ignores it by name instead: the reviewer's persistent
+  * session re-reports a forgotten issue that is still real, and recording it
+  * here would report issues the next round went on to fix.
   *
   * `unresolvedEchoes` is what the fixer named that matched no handed issue —
   * dropped from the books, and worth announcing, since it means the reply is
@@ -35,7 +36,7 @@ case class FixOutcome(
 private[review] case class ReconciledFixOutcome(
     fixed: List[Title],
     ignored: List[IgnoredIssue],
-    unaccounted: List[IgnoredIssue],
+    unaccounted: List[Title],
     unresolvedEchoes: List[String]
 )
 
@@ -68,32 +69,31 @@ object FixOutcome:
         .orElse(handed.find(_.title.value == text))
         .orElse(handed.find(i => normalised(i.title.value) == normalised(text)))
 
-    val fixedIssues = outcome.fixed.flatMap(t => resolve(t.value)).distinct
-    val ignoredPairs = outcome.ignored
-      .flatMap(entry => resolve(entry.title.value).map(_ -> entry.reason))
-      .filterNot((issue, _) => fixedIssues.contains(issue))
-      .distinctBy((issue, _) => issue.title)
-    val accounted = fixedIssues ++ ignoredPairs.map((issue, _) => issue)
+    // Buckets are keyed by title throughout, so two reviewers reporting the
+    // same title cannot land one copy in `ignored` and the other in
+    // `unaccounted`.
+    val fixedTitles = outcome.fixed.flatMap(t => resolve(t.value)).map(_.title)
+    val ignoredEntries = outcome.ignored
+      .flatMap(entry => resolve(entry.title.value).map(_.title -> entry.reason))
+      .filterNot((title, _) => fixedTitles.contains(title))
+      .distinctBy((title, _) => title)
+    val accounted = (fixedTitles ++ ignoredEntries.map((t, _) => t)).toSet
     val echoes =
       outcome.fixed.map(_.value) ++ outcome.ignored.map(_.title.value)
 
     ReconciledFixOutcome(
-      fixed = fixedIssues.map(_.title),
-      ignored =
-        ignoredPairs.map((issue, reason) => IgnoredIssue(issue.title, reason)),
-      unaccounted = handed
-        .filterNot(accounted.contains)
-        .map(_.title)
-        .distinct
-        .map(t => IgnoredIssue(t, "fixer reported no fixes")),
+      fixed = fixedTitles.distinct,
+      ignored = ignoredEntries.map(IgnoredIssue(_, _)),
+      unaccounted = handed.map(_.title).distinct.filterNot(accounted.contains),
       unresolvedEchoes = echoes.filter(resolve(_).isEmpty)
     )
 
-  // A key only matches when the echo doesn't continue it with another digit,
-  // so `I1` cannot claim the reply naming `I10`.
+  // A key only matches when the echo doesn't continue it with another letter or
+  // digit, so `I1` claims neither the reply naming `I10` nor one opening with
+  // an unrelated word like `I2C bus timing`.
   private def startsWithKey(echo: String, key: String): Boolean =
     echo.startsWith(key) &&
-      (echo.length == key.length || !echo.charAt(key.length).isDigit)
+      (echo.length == key.length || !echo.charAt(key.length).isLetterOrDigit)
 
   private def normalised(title: String): String =
     title.trim.toLowerCase(java.util.Locale.ROOT).replaceAll("\\s+", " ")
