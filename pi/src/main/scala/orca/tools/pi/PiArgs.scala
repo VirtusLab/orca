@@ -1,7 +1,13 @@
 package orca.tools.pi
 
 import orca.backend.CliArgs
-import orca.agents.{AgentConfig, AutoApprove, Enforcement, ToolSet}
+import orca.agents.{
+  AgentConfig,
+  AutoApprove,
+  Enforcement,
+  EnforcementCell,
+  ToolSet
+}
 
 /** Maps Orca backend configuration to Pi CLI arguments; the argv carries only
   * process/session/configuration flags, since prompts go over stdin.
@@ -17,8 +23,7 @@ private[pi] object PiArgs:
 
   /** Pi has no web/fetch tool, so the only network path is the general `bash`
     * tool — which also permits writes. Added on [[ToolSet.NetworkOnly]] turns;
-    * the no-edit guarantee is then prompt-only (the planner prompts forbid
-    * edits), not enforced by the allowlist.
+    * see [[enforcementCell]] for what that costs the tier's guarantee.
     */
   val NetworkTool: String = "bash"
 
@@ -64,19 +69,28 @@ private[pi] object PiArgs:
   private def extensionArgs(file: Option[os.Path]): Seq[String] =
     CliArgs.flag("--extension", file)(_.toString)
 
-  /** How strongly pi enforces each `(tools, autoApprove)` combination:
-    *   - `ReadOnly` → `Hard`: the `--tools` allowlist mechanically excludes
-    *     every writable tool.
-    *   - `NetworkOnly` → `PromptOnly`: network arrives only via the general
-    *     `bash` tool, which also permits writes, so the no-edit guarantee rests
-    *     on the planner prompt.
-    *   - `Full` + `AutoApprove.All` / `Only(_)` → `Ignored`: pi RPC never
-    *     prompts and the argv encodes no approval policy.
+  /** How strongly pi enforces each `(tools, autoApprove)` combination — see
+    * [[toolsArgs]] for the flags this classifies.
     */
-  def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
+  def enforcementCell(
+      tools: ToolSet,
+      autoApprove: AutoApprove
+  ): EnforcementCell =
     tools match
-      case ToolSet.ReadOnly    => Enforcement.Hard
-      case ToolSet.NetworkOnly => Enforcement.PromptOnly
+      case ToolSet.ReadOnly =>
+        EnforcementCell(
+          Enforcement.Hard,
+          "the `--tools` allowlist excludes every writable tool"
+        )
+      case ToolSet.NetworkOnly =>
+        EnforcementCell(
+          Enforcement.PromptOnly,
+          "the allowlist has to include `bash` to reach the network, and `bash` also writes, so only the prompt withholds edits"
+        )
       case ToolSet.Full =>
         autoApprove match
-          case AutoApprove.All | AutoApprove.Only(_) => Enforcement.Ignored
+          case AutoApprove.All | AutoApprove.Only(_) =>
+            EnforcementCell(
+              Enforcement.Ignored,
+              "pi RPC never prompts, and the argv encodes no approval policy"
+            )

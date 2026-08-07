@@ -20,7 +20,7 @@ import orca.agents.{
   AutoApprove,
   BackendTag,
   AgentConfig,
-  Enforcement,
+  EnforcementCell,
   SessionId,
   StructuredOutputMode,
   ToolSet,
@@ -126,11 +126,11 @@ private[orca] class OpencodeBackend(
 
   val tag: BackendTag.Opencode.type = BackendTag.Opencode
 
-  override def enforcement(
+  override def enforcementCell(
       tools: ToolSet,
       autoApprove: AutoApprove
-  ): Enforcement =
-    OpencodeArgs.enforcement(tools, autoApprove)
+  ): EnforcementCell =
+    OpencodeArgs.enforcementCell(tools, autoApprove)
 
   /** The `format: json_schema` message field is a response-format constraint —
     * the model still emits the JSON as its reply text (the server parses it

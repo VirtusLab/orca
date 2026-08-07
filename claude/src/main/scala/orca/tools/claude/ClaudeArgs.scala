@@ -6,6 +6,7 @@ import orca.agents.{
   BackendTag,
   AgentConfig,
   Enforcement,
+  EnforcementCell,
   WireSessionId,
   ToolSet
 }
@@ -164,16 +165,30 @@ private[claude] object ClaudeArgs:
     else Seq("--allowedTools", tools.mkString(","))
 
   /** How strongly claude enforces each `(tools, autoApprove)` combination — see
-    * [[permissionArgs]] for the flags this classifies. Every one of them is a
-    * mechanical gate, hence `Hard` throughout.
+    * [[permissionArgs]] for the flags this classifies.
     *
     * Written as an exhaustive match rather than a bare constant so a future
     * `ToolSet`/`AutoApprove` case fails compilation here.
     */
-  def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
+  def enforcementCell(
+      tools: ToolSet,
+      autoApprove: AutoApprove
+  ): EnforcementCell =
     tools match
-      case ToolSet.ReadOnly | ToolSet.NetworkOnly => Enforcement.Hard
+      case ToolSet.ReadOnly | ToolSet.NetworkOnly =>
+        EnforcementCell(
+          Enforcement.Hard,
+          "`--tools` confines the turn to the read-only names, so the write and shell tools are not on offer"
+        )
       case ToolSet.Full =>
         autoApprove match
-          case AutoApprove.All     => Enforcement.Hard
-          case AutoApprove.Only(_) => Enforcement.Hard
+          case AutoApprove.All =>
+            EnforcementCell(
+              Enforcement.Hard,
+              "`--permission-mode bypassPermissions` approves everything, which is what `All` asks for"
+            )
+          case AutoApprove.Only(_) =>
+            EnforcementCell(
+              Enforcement.Hard,
+              "`--allowedTools` is a mechanical gate, but an ADDITIVE one: the approved set is claude's default permission mode ∪ the `Only` list, and only what falls outside that union is gated"
+            )

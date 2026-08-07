@@ -7,7 +7,7 @@ import orca.agents.{
   AutoApprove,
   BackendTag,
   AgentConfig,
-  Enforcement,
+  EnforcementCell,
   SessionId,
   StructuredOutputMode,
   ToolSet
@@ -100,21 +100,24 @@ trait AgentBackend[B <: BackendTag](
   def tag: B
 
   /** How strongly THIS backend enforces the restriction a `(tools,
-    * autoApprove)` combination requests — a pure classification of the flags
-    * this backend's `*Args` would build. The mapping differs materially across
-    * backends (a `Full` + `AutoApprove.Only` is a mechanical allowlist on
-    * claude but a whole-sandbox approximation on codex and unencoded on the
-    * rest), so it is surfaced as data. The complete matrix is machine-checked
-    * in `runner/src/test/scala/orca/runner/EnforcementTableTest.scala`; each
-    * backend delegates to its `*Args.enforcement`, where the per-cell rationale
-    * lives.
+    * autoApprove)` combination requests, and why — a pure classification of the
+    * flags this backend's `*Args` would build, surfaced as data because the
+    * answer differs materially across backends.
     *
     * Abstract, not defaulted to `Enforcement.Ignored`, so a new backend cannot
-    * ship without answering this. Real backends implement it and add their rows
-    * to `EnforcementTableTest`; test doubles that never call `enforcement` add
-    * a one-line `Enforcement.Ignored` override.
+    * ship without answering this. Real backends delegate to their
+    * `*Args.enforcementCell`; test doubles that never consult it add a one-line
+    * `Ignored` cell.
+    *
+    * @see
+    *   [[orca.agents.Enforcement]] for what the levels mean, and
+    *   `runner/src/test/scala/orca/runner/EnforcementTableTest.scala`, which
+    *   checks the full product and renders AGENTS.md's table from it.
     */
-  def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement
+  def enforcementCell(
+      tools: ToolSet,
+      autoApprove: AutoApprove
+  ): EnforcementCell
 
   /** How THIS backend's wire delivers a structured (`resultAs[O]`) payload
     * ([[orca.agents.StructuredOutputMode]]). Prompt assembly

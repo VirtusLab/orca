@@ -8,7 +8,7 @@ import orca.agents.{
   AutoApprove,
   BackendTag,
   AgentConfig,
-  Enforcement,
+  EnforcementCell,
   SessionId,
   StructuredOutputMode,
   ToolSet,
@@ -109,11 +109,11 @@ private[orca] class ClaudeBackend(
     */
   private val git: GitTool = new OsGitTool(workDir)
 
-  override def enforcement(
+  override def enforcementCell(
       tools: ToolSet,
       autoApprove: AutoApprove
-  ): Enforcement =
-    ClaudeArgs.enforcement(tools, autoApprove)
+  ): EnforcementCell =
+    ClaudeArgs.enforcementCell(tools, autoApprove)
 
   /** `--json-schema` (passed whenever a structured call supplies a schema — see
     * [[runAutonomous]]) makes the CLI inject a StructuredOutput tool whose

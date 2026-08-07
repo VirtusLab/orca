@@ -159,28 +159,23 @@ most easily broken:
 
 - **Tool enforcement.** `AgentConfig.tools: ToolSet` (ReadOnly/NetworkOnly/Full)
   and `autoApprove: AutoApprove` (All/Only) request a restriction, but each
-  backend enforces it differently. `AgentBackend.enforcement(tools, autoApprove)`
-  surfaces the actual guarantee as the `Enforcement` enum — **Hard** (mechanically
-  blocked: permission mode / sandbox / allowlist), **SandboxApprox** (a coarser
-  sandbox, semantics widened), **PromptOnly** (only the prompt forbids it), or
-  **Ignored** (not encoded; depends on backend/server config outside orca):
+  backend enforces it differently. `AgentBackend.enforcementCell(tools,
+  autoApprove)` answers with the guarantee actually achieved plus the reason —
+  see `Enforcement`'s scaladoc for what the levels mean:
 
-  | tools, approve  | claude | codex         | gemini     | opencode | pi        |
-  |-----------------|--------|---------------|------------|----------|-----------|
-  | ReadOnly, *     | Hard   | Hard          | PromptOnly | Hard     | Hard      |
-  | NetworkOnly, *  | Hard   | PromptOnly    | PromptOnly | Hard     | PromptOnly|
-  | Full, All       | Hard   | Hard          | Hard       | Ignored  | Ignored   |
-  | Full, Only(_)   | Hard   | SandboxApprox | Ignored    | Ignored  | Ignored   |
+  | tools, approve         | ClaudeCode | Codex         | Opencode | Pi         | Gemini     |
+  |------------------------|------------|---------------|----------|------------|------------|
+  | ReadOnly, *            | Hard       | Hard          | Hard     | Hard       | PromptOnly |
+  | NetworkOnly, *         | Hard       | PromptOnly    | Hard     | PromptOnly | PromptOnly |
+  | Full, All              | Hard       | Hard          | Ignored  | Ignored    | Hard       |
+  | Full, Only(_) / Only() | Hard       | SandboxApprox | Ignored  | Ignored    | Ignored    |
 
-  gemini's read-only cells are `PromptOnly` because its `--approval-mode plan`
-  is **unmeasured**, not because it is known weak: no headless `plan` turn has
-  been run against a write attempt, and gemini downgrades `plan` to `default`
-  in untrusted folders, which is where orca runs agents.
-
-  The matrix is machine-checked in
-  `runner/src/test/scala/orca/runner/EnforcementTableTest.scala` (the source of
-  truth) — keep this table in sync with `EnforcementTableTest`; per-cell
-  rationale lives in each backend's `*Args.enforcement`.
+  That table is RENDERED from the declared cells by
+  `runner/src/test/scala/orca/runner/EnforcementTableTest.scala`, which walks
+  the full (backend × ToolSet × AutoApprove) product — when it fails, paste the
+  block it prints. Per-cell rationale (why gemini's read-only cells are
+  `PromptOnly`, what claude's `Hard` covers) lives in each backend's
+  `*Args.enforcementCell`.
 
 - **Conversation events.** The event grammar (turn boundaries, `Option` tool
   names) is specified on `ConversationEvent`'s scaladoc and pinned per backend

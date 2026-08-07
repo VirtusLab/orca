@@ -19,6 +19,7 @@ import orca.agents.{
   BackendTag,
   DefaultPrompts,
   Enforcement,
+  EnforcementCell,
   InteractiveAgentCall,
   JsonData,
   AgentCall,
@@ -120,8 +121,11 @@ class OpencodeFlowTest extends munit.FunSuite:
     val sessions: SessionSupport[BackendTag.Opencode.type] =
       SessionSupport.ephemeral(IdScheme.ClientClaimed)
     val tag: BackendTag.Opencode.type = BackendTag.Opencode
-    def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
-      Enforcement.Ignored
+    def enforcementCell(
+        tools: ToolSet,
+        autoApprove: AutoApprove
+    ): EnforcementCell =
+      EnforcementCell(Enforcement.Ignored, "test double")
     def structuredOutputMode: orca.agents.StructuredOutputMode =
       orca.agents.StructuredOutputMode.RawText
 

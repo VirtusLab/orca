@@ -59,17 +59,33 @@ enum AutoApprove:
   * edits/shell"; for `Full` it is the approval policy itself.
   *
   *   - Hard — mechanically blocked (permission mode, sandbox, tool allowlist).
+  *     On `Full` the gated boundary may sit at a documented SUPERSET of the
+  *     request: claude's `--allowedTools` adds to its default permission mode's
+  *     approvals rather than confining the agent to the names listed, so the
+  *     approved set is those defaults ∪ the `Only` list.
   *   - SandboxApprox — approximated by a coarser sandbox; semantics widened.
   *   - PromptOnly — only the prompt forbids it; the tools can physically do it.
+  *     [[orca.backend.SystemPromptComposer.ReadOnlyTurn]] is what puts that
+  *     prose on every read-only turn.
   *   - Ignored — not encoded at all; behaviour depends on backend/server
   *     configuration outside orca's control.
   *
-  * The per-backend mapping is machine-checked in
-  * `runner/.../EnforcementTableTest.scala`; see each backend's
-  * `*Args.enforcement` for the per-cell rationale.
+  * This is the canonical statement of what the levels mean; the per-backend
+  * mapping is machine-checked in `runner/.../EnforcementTableTest.scala`, and
+  * per-cell rationale lives in each backend's `*Args.enforcementCell`.
   */
 enum Enforcement:
   case Hard, SandboxApprox, PromptOnly, Ignored
+
+/** A backend's answer for one cell of the enforcement matrix: the level, and
+  * why it is that level. One value rather than two, so a backend whose flags
+  * change cannot have its level updated while a stale reason stays beside it.
+  *
+  * `rationale` is a single unwrapped sentence or two naming the mechanism (the
+  * flag, sandbox, or absence of one) that produces `level`. It is the only home
+  * for that text: AGENTS.md's table is rendered from the levels alone.
+  */
+case class EnforcementCell(level: Enforcement, rationale: String)
 
 /** The set of tools available to the agent — the capability tier on
   * [[AgentConfig.tools]]:

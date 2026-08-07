@@ -7,6 +7,7 @@ import orca.agents.{
   BackendTag,
   AgentConfig,
   Enforcement,
+  EnforcementCell,
   WireSessionId,
   ToolSet
 }
@@ -123,11 +124,9 @@ private[codex] object CodexArgs:
 
   /** Maps [[AgentConfig.tools]] to codex's sandbox flags (placed after the
     * `exec` subcommand). codex has no per-tool CLI allowlist, so
-    * [[AutoApprove.Only]] is approximated with the coarser `--full-auto`.
-    *
-    * `NetworkOnly` has no read-only-with-network sandbox on codex: network
-    * needs `workspace-write` (via `--full-auto`), which also permits writes, so
-    * its no-edit guarantee is prompt-only.
+    * [[AutoApprove.Only]] is approximated with the coarser `--full-auto`, and
+    * `NetworkOnly` has to take `workspace-write` too — codex has no
+    * read-only-with-network sandbox.
     */
   private def sandboxArgs(config: AgentConfig): Seq[String] =
     config.tools match
@@ -152,19 +151,31 @@ private[codex] object CodexArgs:
 
   /** How strongly codex enforces each `(tools, autoApprove)` combination — see
     * [[sandboxArgs]] / [[networkConfigArgs]] for the flags this classifies.
-    *
-    *   - `ReadOnly` → `Hard`: `--sandbox read-only` mechanically blocks writes.
-    *   - `NetworkOnly` → `PromptOnly`: no read-only-with-network sandbox, so
-    *     the no-edit guarantee rests only on the planner prompt.
-    *   - `Full` + `AutoApprove.All` → `Hard`: bypass flag approves everything.
-    *   - `Full` + `AutoApprove.Only(_)` → `SandboxApprox`: no per-tool
-    *     allowlist, so `--full-auto` is wider than the requested subset.
     */
-  def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
+  def enforcementCell(
+      tools: ToolSet,
+      autoApprove: AutoApprove
+  ): EnforcementCell =
     tools match
-      case ToolSet.ReadOnly    => Enforcement.Hard
-      case ToolSet.NetworkOnly => Enforcement.PromptOnly
+      case ToolSet.ReadOnly =>
+        EnforcementCell(
+          Enforcement.Hard,
+          "`--sandbox read-only` blocks writes at the sandbox"
+        )
+      case ToolSet.NetworkOnly =>
+        EnforcementCell(
+          Enforcement.PromptOnly,
+          "network needs the `workspace-write` sandbox, which also permits writes, so only the prompt withholds edits"
+        )
       case ToolSet.Full =>
         autoApprove match
-          case AutoApprove.All     => Enforcement.Hard
-          case AutoApprove.Only(_) => Enforcement.SandboxApprox
+          case AutoApprove.All =>
+            EnforcementCell(
+              Enforcement.Hard,
+              "`--dangerously-bypass-approvals-and-sandbox` approves everything, which is what `All` asks for"
+            )
+          case AutoApprove.Only(_) =>
+            EnforcementCell(
+              Enforcement.SandboxApprox,
+              "no per-tool allowlist, so the requested subset becomes `--full-auto`, a whole-sandbox approximation wider than what was asked"
+            )

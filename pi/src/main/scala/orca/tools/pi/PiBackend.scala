@@ -6,7 +6,7 @@ import orca.agents.{
   AutoApprove,
   BackendTag,
   AgentConfig,
-  Enforcement,
+  EnforcementCell,
   SessionId,
   StructuredOutputMode,
   ToolSet
@@ -76,11 +76,11 @@ private[orca] class PiBackend private[pi] (
 
   val tag: BackendTag.Pi.type = BackendTag.Pi
 
-  override def enforcement(
+  override def enforcementCell(
       tools: ToolSet,
       autoApprove: AutoApprove
-  ): Enforcement =
-    PiArgs.enforcement(tools, autoApprove)
+  ): EnforcementCell =
+    PiArgs.enforcementCell(tools, autoApprove)
 
   /** Pi has no native structured-output / JSON-schema flag (see
     * [[PiConversation]]) — the reply text is the JSON value.

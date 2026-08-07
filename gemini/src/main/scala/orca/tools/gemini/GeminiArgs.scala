@@ -6,6 +6,7 @@ import orca.agents.{
   BackendTag,
   AgentConfig,
   Enforcement,
+  EnforcementCell,
   WireSessionId,
   ToolSet
 }
@@ -68,10 +69,6 @@ private[gemini] object GeminiArgs:
     * per-tool CLI allowlist, and in headless mode `auto_edit` blocks on shell
     * approvals no one can answer, so both [[AutoApprove.All]] and
     * [[AutoApprove.Only]] map to `yolo` (the `Only` widening: ADR 0015).
-    *
-    *   - `ReadOnly` → `--approval-mode plan`
-    *   - `NetworkOnly` → `--approval-mode plan --allowed-tools <web tools>`
-    *   - `Full` + `AutoApprove.All` / `Only(_)` → `--approval-mode yolo`
     */
   private def approvalArgs(config: AgentConfig): Seq[String] =
     config.tools match
@@ -89,28 +86,30 @@ private[gemini] object GeminiArgs:
             Seq("--approval-mode", "yolo")
 
   /** How strongly gemini enforces each `(tools, autoApprove)` combination — see
-    * [[approvalArgs]] for the flags this classifies.
-    *
-    *   - `ReadOnly` / `NetworkOnly` → `PromptOnly`. `plan` was assumed to make
-    *     writes and shell mechanically unavailable, but nothing has measured
-    *     it: no headless `plan` turn has been run against a write attempt on
-    *     any host orca is developed on. The same class of mechanism on claude —
-    *     `--permission-mode plan` — was measured and removes no tools
-    *     (`docs/research/run-cost/09-diff-vs-coordinates.md` §2), and gemini
-    *     additionally downgrades `plan` to `default` in untrusted folders,
-    *     which is where orca runs agents. `PromptOnly` records the guarantee
-    *     orca can actually stand behind; raise it when a probe establishes
-    *     more.
-    *   - `Full` + `AutoApprove.All` → `Hard`: `yolo` honours "approve
-    *     everything" verbatim.
-    *   - `Full` + `AutoApprove.Only(_)` → `Ignored`: no per-tool allowlist, so
-    *     any `Only` set is widened to `yolo` (ADR 0015) — the requested subset
-    *     is not encoded.
+    * [[approvalArgs]] for the flags this classifies. The read-only cells are
+    * the one place in the matrix where a level records what orca can stand
+    * behind rather than what a flag was assumed to do, so their rationale
+    * carries the whole argument — this is its only home.
     */
-  def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
+  def enforcementCell(
+      tools: ToolSet,
+      autoApprove: AutoApprove
+  ): EnforcementCell =
     tools match
-      case ToolSet.ReadOnly | ToolSet.NetworkOnly => Enforcement.PromptOnly
+      case ToolSet.ReadOnly | ToolSet.NetworkOnly =>
+        EnforcementCell(
+          Enforcement.PromptOnly,
+          "`--approval-mode plan` is UNMEASURED, not known weak: no headless `plan` turn has been run against a write attempt. The same class of mechanism on claude — `--permission-mode plan` — was measured and removes no tools (`docs/research/run-cost/09-diff-vs-coordinates.md` §2), and gemini downgrades `plan` to `default` in untrusted folders, which is where orca runs agents. Raise this cell when a probe establishes more."
+        )
       case ToolSet.Full =>
         autoApprove match
-          case AutoApprove.All     => Enforcement.Hard
-          case AutoApprove.Only(_) => Enforcement.Ignored
+          case AutoApprove.All =>
+            EnforcementCell(
+              Enforcement.Hard,
+              "`yolo` honours \"approve everything\" verbatim"
+            )
+          case AutoApprove.Only(_) =>
+            EnforcementCell(
+              Enforcement.Ignored,
+              "no per-tool allowlist, so any `Only` set is widened to `yolo` — the requested subset reaches the CLI nowhere"
+            )
