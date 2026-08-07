@@ -91,15 +91,14 @@ private[review] def capExitMessage(
 private[review] val NoFixesReason: String = "fixer reported no fixes"
 
 /** The fixer-reported-no-fixes halt, shared by [[fixLoop]] and
-  * [[ReviewFixLoop]]: announces the bail-out and returns the additions the
-  * caller folds via [[recordIgnored]], which may prepend its own (the review
-  * loop's gate rejects).
+  * [[ReviewFixLoop]]: announces the bail-out and returns the entries the caller
+  * folds via [[recordIgnored]].
   */
 private def fixerHaltAdditions(
     outcome: ReconciledFixOutcome
-)(using FlowContext): List[List[IgnoredIssue]] =
+)(using FlowContext): List[IgnoredIssue] =
   orca.display("Fixer reported no fixes; bailing out")
-  List(outcome.ignored, outcome.unaccounted.map(IgnoredIssue(_, NoFixesReason)))
+  outcome.ignored ++ outcome.unaccounted.map(IgnoredIssue(_, NoFixesReason))
 
 /** Fold `additions` into `accumulated`, in order, keeping one entry per title
   * with the latest reason ([[GateLedger.mergeLatestByTitle]]).
@@ -191,7 +190,7 @@ def fixLoop(
         val outcome = FixOutcome.reconcile(issues, fix(issues))
         announceFixTurn(outcome)
         if outcome.fixed.isEmpty then
-          recordIgnored(accumulated, fixerHaltAdditions(outcome)*)
+          recordIgnored(accumulated, fixerHaltAdditions(outcome))
         else
           loop(
             carryPastFixes(accumulated, outcome.fixed.toSet, outcome.ignored),
@@ -765,20 +764,17 @@ private[review] class ReviewFixLoop[B <: BackendTag](
       accumulated: IgnoredIssues,
       state: ReviewLoopState
   ): IgnoredIssues =
-    val stillGated = gateRejectsOf(state)
-    val gated = gatedOut(stillGated)
+    val rejects = gateRejectsOf(state)
+    val gated = gatedOut(rejects).issues
     exit match
       case LoopExit.Clean =>
-        orca.display(doneMessage(stillGated.size))
-        recordIgnored(accumulated, gated.issues)
+        orca.display(doneMessage(rejects.size))
+        recordIgnored(accumulated, gated)
       case LoopExit.Capped(stillOpen) =>
         orca.display(capExitMessage(maxIterations, stillOpen))
-        recordIgnored(accumulated, gated.issues, stillOpen.issues)
+        recordIgnored(accumulated, gated, stillOpen.issues)
       case LoopExit.FixerHalted(outcome) =>
-        recordIgnored(
-          accumulated,
-          (gated.issues :: fixerHaltAdditions(outcome))*
-        )
+        recordIgnored(accumulated, gated, fixerHaltAdditions(outcome))
 
   /** Run the evaluate/fix loop to convergence and return the accumulated
     * [[IgnoredIssues]], applying the shared [[stopPolicy]] each round and
