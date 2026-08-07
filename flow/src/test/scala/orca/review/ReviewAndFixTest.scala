@@ -275,13 +275,8 @@ class ReviewAndFixTest extends munit.FunSuite:
   test("the clean-round message names what the gate held back"):
     // Termination honesty: a round whose only findings were gated out must not
     // report a bare "No review comments".
-    val steps = new java.util.concurrent.ConcurrentLinkedQueue[String]()
-    val listener: OrcaListener = (e: OrcaEvent) =>
-      e match
-        case OrcaEvent.Step(msg) => steps.add(msg): Unit
-        case _                   => ()
-    given FlowControl =
-      ReviewLoopFixture.control(new EventDispatcher(List(listener)))
+    val steps = new ReviewLoopFixture.StepCapture
+    given FlowControl = ReviewLoopFixture.control(steps.dispatcher)
     val reviewer = new FakeAgent(
       name = "loud",
       outputs = List(ReviewResult(List(issue("flaky", confidence = 0.3))))
@@ -293,7 +288,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewerSelection = ReviewerSelector.allEveryRound,
       initialDiff = Some("")
     )
-    val emitted = steps.toArray.toList.map(_.toString)
+    val emitted = steps.messages
     assert(
       emitted.exists(
         _ == "No issues above the confidence gate; 1 sub-threshold finding recorded as ignored"
@@ -547,13 +542,8 @@ class ReviewAndFixTest extends munit.FunSuite:
     // The echoed title matches no handed issue, so it is dropped from the books
     // and named in a Step, and the finding surfaces once as unaccounted — where
     // before it landed both as the fixer's ignored entry and as unaccounted.
-    val steps = new java.util.concurrent.ConcurrentLinkedQueue[String]()
-    val listener: OrcaListener = (e: OrcaEvent) =>
-      e match
-        case OrcaEvent.Step(msg) => steps.add(msg): Unit
-        case _                   => ()
-    given FlowControl =
-      ReviewLoopFixture.control(new EventDispatcher(List(listener)))
+    val steps = new ReviewLoopFixture.StepCapture
+    given FlowControl = ReviewLoopFixture.control(steps.dispatcher)
     val reviewer = new FakeAgent(
       name = "loud",
       outputs = List(ReviewResult(List(issue("real bug", confidence = 0.95))))
@@ -575,7 +565,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       result.issues,
       List(IgnoredIssue(Title("real bug"), "fixer reported no fixes"))
     )
-    val emitted = steps.toArray.toList.map(_.toString)
+    val emitted = steps.messages
     assert(
       emitted.contains(
         "Fixer named Real bug!, which matched no issue it was handed"
@@ -1546,13 +1536,8 @@ class ReviewAndFixTest extends munit.FunSuite:
     // (empty-output) coder is never asked to fix anything. The round says so,
     // since converging on nothing is otherwise indistinguishable from a clean
     // review.
-    val steps = new java.util.concurrent.ConcurrentLinkedQueue[String]()
-    val listener: OrcaListener = (e: OrcaEvent) =>
-      e match
-        case OrcaEvent.Step(msg) => steps.add(msg): Unit
-        case _                   => ()
-    given FlowControl =
-      ReviewLoopFixture.control(new EventDispatcher(List(listener)))
+    val steps = new ReviewLoopFixture.StepCapture
+    given FlowControl = ReviewLoopFixture.control(steps.dispatcher)
     val rosterA = new FakeAgent(name = "a") // no outputs: throws if run
     val emptySelector = new ReviewerSelector:
       def prepare(
@@ -1578,7 +1563,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       IgnoredIssues(Nil),
       "empty selection ⇒ no issues ⇒ loop stops with nothing accumulated"
     )
-    val emitted = steps.toArray.toList.map(_.toString)
+    val emitted = steps.messages
     assert(
       emitted.contains("reviewer selection returned no reviewers this round"),
       emitted.mkString("\n")

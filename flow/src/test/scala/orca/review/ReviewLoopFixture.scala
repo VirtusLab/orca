@@ -2,7 +2,7 @@ package orca.review
 
 import orca.{FlowSession, StackSettings, TestFlowControl}
 import orca.agents.{Agent, BackendTag, SessionId}
-import orca.events.EventDispatcher
+import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
 
 /** Shared fixture construction for the `reviewAndFixLoop` tests.
   *
@@ -11,6 +11,19 @@ import orca.events.EventDispatcher
   * [[orca.FlowControl]] (progress store) and [[orca.WorkspaceWrite]] in scope.
   */
 object ReviewLoopFixture:
+
+  /** Collects every `Step` message emitted through [[dispatcher]]. Hand the
+    * dispatcher to whichever context the test needs — [[control]] here, or a
+    * bare `TestFlowContext` for a selector.
+    */
+  class StepCapture:
+    private val steps = new java.util.concurrent.ConcurrentLinkedQueue[String]()
+    private val listener: OrcaListener = (e: OrcaEvent) =>
+      e match
+        case OrcaEvent.Step(msg) => steps.add(msg): Unit
+        case _                   => ()
+    val dispatcher: EventDispatcher = new EventDispatcher(List(listener))
+    def messages: List[String] = steps.toArray.toList.map(_.toString)
 
   /** A coder [[FlowSession]] over `agent` and a fixed session id, built via the
     * `private[orca]` ctor so no production factory is widened for tests.

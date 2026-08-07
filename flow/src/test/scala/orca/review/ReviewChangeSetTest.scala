@@ -221,13 +221,15 @@ class ReviewChangeSetTest extends munit.FunSuite:
       .filter(_.startsWith("#   "))
       .map(_.drop(4).takeWhile(_ != ' '))
       .toList
-    // `.distinct` because the rename is named twice: its header reads
-    // `a/old.scala b/new.scala`, which `BoundedDiff.isShown` matches as a whole
-    // line and so reports as not shown, the safe direction.
     assertEquals(
       (shown ++ notShown).distinct.sorted,
       List("gone.scala", "logo.png", "new.scala", "zz-big.scala")
     )
+    // The rename is the one file named twice: its header reads
+    // `a/old.scala b/new.scala`, which `BoundedDiff.isShown` compares as a
+    // whole line and so reports as not shown — the safe direction, telling the
+    // reviewer to open a file it has already seen.
+    assertEquals(shown.toSet.intersect(notShown.toSet), Set("new.scala"))
     assert(notShown.contains("zz-big.scala"), prompt.takeRight(500))
 
   test("reviewer selection sees the files of work the agent committed"):

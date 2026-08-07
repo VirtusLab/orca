@@ -541,7 +541,10 @@ class OsGitToolTest extends munit.FunSuite:
       os.write.over(dir / "tracked.txt", "second")
       os.write(dir / "new.txt", "brand new")
       val sample = git.reviewChanges()
+      // Both projections come off one untracked sample, so the new file is in
+      // the diff body as well as the list.
       assert(sample.diff.contains("+second"), sample.diff)
+      assert(sample.diff.contains("+brand new"), sample.diff)
       assertEquals(
         sample.files.map(_.path).sorted,
         List("new.txt", "tracked.txt")

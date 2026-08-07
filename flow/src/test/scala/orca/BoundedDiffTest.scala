@@ -226,3 +226,7 @@ class BoundedDiffTest extends munit.FunSuite:
         ChangedFile("y.txt", FileChange.Lines(1, 0)) :: changed
     )
     assert(payload.contains("#   y.txt (+1 -0)"), payload)
+    assert(
+      !payload.contains("#   x b/y.txt "),
+      s"the file that WAS rendered must stay out of the trailer: $payload"
+    )
