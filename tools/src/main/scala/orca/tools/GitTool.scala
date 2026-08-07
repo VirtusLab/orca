@@ -295,8 +295,11 @@ trait GitTool:
     *
     * Capped at `OsGitTool.MaxReadBytes` and marked where it was cut — the
     * change set's size is set by the working tree, not by the caller.
+    *
+    * Uncommitted is the whole scope: once the work is committed this is empty.
+    * A caller after "everything a branch produced" wants [[diffVsBase]].
     */
-  def diff(): String
+  def uncommittedDiff(): String
 
   /** The file paths in the change set [[reviewChanges]] renders: every tracked
     * path git reports as changed since `since` (`since` as in
@@ -313,15 +316,15 @@ trait GitTool:
     * paths in it — what a caller rendering a bounded diff needs, since it has
     * to name the files its diff leaves out (see `orca.BoundedDiff`).
     *
-    * The diff is everything [[diff]] reports, PLUS each untracked non-`.orca/`
-    * file rendered as a new-file diff (`git diff --no-index` against
-    * `/dev/null`), so a freshly-created file is visible even though it has no
-    * tracked history to diff against. Read-only: untracked files are diffed,
-    * never staged. A path `--no-index` can't render — a symlink to a directory,
-    * or a nested git repository — appears as a line naming the path rather than
-    * being dropped silently. Such a path is still in `files`, reported as
-    * [[FileChange.New]] like every untracked path: they have no tracked history
-    * to count lines against.
+    * The diff is everything [[uncommittedDiff]] reports, PLUS each untracked
+    * non-`.orca/` file rendered as a new-file diff (`git diff --no-index`
+    * against `/dev/null`), so a freshly-created file is visible even though it
+    * has no tracked history to diff against. Read-only: untracked files are
+    * diffed, never staged. A path `--no-index` can't render — a symlink to a
+    * directory, or a nested git repository — appears as a line naming the path
+    * rather than being dropped silently. Such a path is still in `files`,
+    * reported as [[FileChange.New]] like every untracked path: they have no
+    * tracked history to count lines against.
     *
     * `since` is the commit the working tree is compared against. `None` means
     * HEAD — uncommitted work only, which is empty once the work has been
@@ -343,10 +346,11 @@ trait GitTool:
     * describing it needs: a `--stat` summary, the paths new to the repository,
     * and the diff text [[reviewChanges]] renders.
     *
-    * The paths new to the repository are the ones [[diff]] can't report — they
-    * have no tracked history to diff against — but that a `git add -A` commit
-    * would include (a nested repository as a gitlink), so anything describing
-    * what is about to be committed needs them alongside the diff.
+    * The paths new to the repository are the ones [[uncommittedDiff]] can't
+    * report — they have no tracked history to diff against — but that a `git
+    * add -A` commit would include (a nested repository as a gitlink), so
+    * anything describing what is about to be committed needs them alongside the
+    * diff.
     *
     * Same sampling contract as [[reviewChanges]]: one untracked sample for all
     * three shapes, tracked changes read per shape.
@@ -403,11 +407,8 @@ trait GitTool:
     * The stash-recovery hint rides on the `Step` reaching the run's dispatcher:
     * a custom `GitTool` built without the run's listener loses the hint, and
     * the user never learns to `git stash pop`.
-    *
-    * Returns `true` if a stash was created, `false` if the tree was already
-    * clean.
     */
-  def ensureClean(stashMessage: String)(using WorkspaceWrite): Boolean
+  def ensureClean(stashMessage: String)(using WorkspaceWrite): Unit
 
   /** The paths reported by `git status --porcelain` (modified, staged, and
     * untracked), one per entry. READ-ONLY. Used by skip-branch mode's
@@ -445,13 +446,16 @@ private[orca] class OsGitTool(
     events: OrcaListener = OrcaListener.noop
 ) extends GitTool:
 
+  private def step(message: String): Unit =
+    events.onEvent(OrcaEvent.Step(message))
+
   def createBranch(name: String)(using
       WorkspaceWrite
   ): Either[BranchAlreadyExists, Unit] =
     if branchExists(name) then Left(new BranchAlreadyExists(name))
     else
       val _ = git("checkout", "-b", name)
-      events.onEvent(OrcaEvent.Step(s"Switched to a new branch '$name'"))
+      step(s"Switched to a new branch '$name'")
       Right(())
 
   def checkout(
@@ -460,7 +464,7 @@ private[orca] class OsGitTool(
     if !branchExists(name) then Left(new BranchNotFound(name))
     else
       val _ = git("checkout", name)
-      events.onEvent(OrcaEvent.Step(s"Switched to branch '$name'"))
+      step(s"Switched to branch '$name'")
       Right(())
 
   // `--` so a dash-leading name is a pattern rather than a flag: without it
@@ -479,41 +483,39 @@ private[orca] class OsGitTool(
       .filter(_.nonEmpty)
       .toList
 
-  def ensureClean(stashMessage: String)(using WorkspaceWrite): Boolean =
-    val dirty = isDirty()
-    if dirty then
+  def ensureClean(stashMessage: String)(using WorkspaceWrite): Unit =
+    if isDirty() then
       val _ = git("stash", "push", "-u", "-m", stashMessage)
-      events.onEvent(
-        OrcaEvent.Step(
-          s"Working tree wasn't clean — stashed pending changes ($stashMessage). Recover with `git stash pop`."
-        )
+      step(
+        s"Working tree wasn't clean — stashed pending changes ($stashMessage). Recover with `git stash pop`."
       )
-      true
-    else false
 
   def commit(message: String)(using
       WorkspaceWrite
   ): Either[NothingToCommit, Unit] =
     val _ = gitWithDiagnostics("add", "-A")
-    // `git status --porcelain` after staging is the cheapest "are there
-    // changes?" check that doesn't depend on parsing localised git output.
-    if git("status", "--porcelain").trim.isEmpty then Left(new NothingToCommit)
+    if !isDirty() then Left(new NothingToCommit)
     else
       val _ = gitWithDiagnostics("commit", "-m", message)
-      events.onEvent(OrcaEvent.Step(s"Committed: $message"))
+      step(s"Committed: $message")
       Right(())
 
   def commitOnly(path: os.Path, message: String)(using WorkspaceWrite): Unit =
     val _ = git("add", "--", path.toString)
-    val _ = git("commit", "-m", message, "--", path.toString)
-    events.onEvent(OrcaEvent.Step(s"Committed: $message"))
+    commitPathspec(path, message)
 
   def forceCommitOnly(path: os.Path, message: String)(using
       WorkspaceWrite
   ): Unit =
     val _ = git("add", "-f", path.toString)
+    commitPathspec(path, message)
+
+  /** Commit the already-staged `path` and nothing else: the commit pathspec
+    * keeps anything else staged or dirty out.
+    */
+  private def commitPathspec(path: os.Path, message: String): Unit =
     val _ = git("commit", "-m", message, "--", path.toString)
-    events.onEvent(OrcaEvent.Step(s"Committed: $message"))
+    step(s"Committed: $message")
 
   def forceAdd(path: os.Path)(using WorkspaceWrite): Unit =
     val _ = git("add", "-f", path.toString)
@@ -563,7 +565,7 @@ private[orca] class OsGitTool(
       .filter(_.nonEmpty)
     val result = gitProc(OsGitTool.pushArgs(originUrl, envToken))
     if result.exitCode == 0 then
-      events.onEvent(OrcaEvent.Step("Pushed to origin"))
+      step("Pushed to origin")
       Right(())
     else
       val stderr = result.err.text()
@@ -617,20 +619,18 @@ private[orca] class OsGitTool(
 
   def resetHard()(using WorkspaceWrite): Unit =
     val _ = git("reset", "--hard")
-    events.onEvent(
-      OrcaEvent.Step("Discarded uncommitted changes (reset --hard)")
-    )
+    step("Discarded uncommitted changes (reset --hard)")
 
-  def diff(): String = trackedDiff("HEAD")
+  def uncommittedDiff(): String = trackedDiff("HEAD")
 
   private def trackedDiff(since: String): String =
     marked(gitCapped(("diff" +: since +: OsGitTool.wholeRepoExceptOrca)*))
 
-  /** `--stat` summary of the same change set as [[diff]]. `--stat=<width>`
-    * widens the stat line so the name column holds a full path — git's default
-    * width elides leading directories (`.../orca/tools/GitTool.scala`), which
-    * defeats the point of naming files; 200 clears any path this side of
-    * pathological.
+  /** `--stat` summary of the same change set as [[uncommittedDiff]].
+    * `--stat=<width>` widens the stat line so the name column holds a full path
+    * — git's default width elides leading directories
+    * (`.../orca/tools/GitTool.scala`), which defeats the point of naming files;
+    * 200 clears any path this side of pathological.
     */
   private def diffStat(): String =
     git(("diff" +: "--stat=200" +: "HEAD" +: OsGitTool.wholeRepoExceptOrca)*)
@@ -896,23 +896,18 @@ private[orca] class OsGitTool(
     else Right(OsGitTool.ReadOutput(result.out, result.truncated))
 
   def deleteBranch(name: String)(using WorkspaceWrite): Unit =
-    // Best-effort: swallow all failures so teardown is never blocked by a
-    // cosmetic cleanup step. Never attempt to delete the current branch.
     try
       if currentBranch() != name then
         val result = gitProc(Seq("git", "branch", "-D", name))
-        if result.exitCode == 0 then
-          events.onEvent(OrcaEvent.Step(s"Deleted branch '$name'"))
+        if result.exitCode == 0 then step(s"Deleted branch '$name'")
     catch case NonFatal(_) => ()
 
   def branchHasChangesExcludingOrca(
       startBranch: String,
       featureBranch: String
   ): Boolean =
-    // Two-dot diff (direct) to see all changes the feature branch has vs the
-    // start branch, minus the orca bookkeeping directory, so only substantive
-    // code changes count. `--quiet` answers on the exit code alone: 0 when the
-    // two sides match, 1 when they differ, so nothing is rendered or read.
+    // `--quiet` answers on the exit code alone: 0 when the two sides match, 1
+    // when they differ, so nothing is rendered or read.
     val args =
       Seq("git", "diff", "--quiet", s"$startBranch..$featureBranch") ++
         OsGitTool.wholeRepoExceptOrca

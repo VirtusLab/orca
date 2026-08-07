@@ -40,8 +40,8 @@ class OpenPrFromBranchTest extends FunSuite:
 
   /** Records `push`; stubs `defaultBase` and answers `diffVsBase` with
     * `branchDiff` (no remote in the temp repo); delegates the writes the
-    * `stage` runtime performs (`forceAdd`, `commit`, `diff`) to a real
-    * [[OsGitTool]] so stage commits actually land.
+    * `stage` runtime performs (`forceAdd`, `commit`, `uncommittedDiff`) to a
+    * real [[OsGitTool]] so stage commits actually land.
     */
   private class RecordingGit(
       underlying: GitTool,

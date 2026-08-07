@@ -481,8 +481,7 @@ object FlowLifecycle:
       if args.skipBranch.value then
         val isResume =
           store.loadDetailed().isInstanceOf[ProgressStore.LoadResult.Loaded]
-        if isResume then
-          val _ = git.ensureClean("orca: starting flow")
+        if isResume then git.ensureClean("orca: starting flow")
         else
           val dirty = git.dirtyPaths()
           if dirty.nonEmpty then
@@ -491,8 +490,7 @@ object FlowLifecycle:
                 s"leaving ${dirty.size} uncommitted/untracked file(s) in place for the flow"
               )
             )
-      else
-        val _ = git.ensureClean("orca: starting flow")
+      else git.ensureClean("orca: starting flow")
 
     /** Bind the run to a branch + progress log — resume onto the header's
       * branch for a valid log, warn and start fresh from a corrupt one, or

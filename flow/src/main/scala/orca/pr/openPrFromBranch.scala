@@ -12,10 +12,9 @@ import ox.either.orThrow
   * edits) would be fragile on resume.
   *
   * The diff handed to the summariser is the branch-vs-base diff
-  * (`git.diffVsBase(git.defaultBase())`), NOT `git.diff()` (vs HEAD), which is
-  * empty once every task is already committed. A branch too large to summarise
-  * whole is cut short ([[BoundedDiff.prPayload]]) rather than sent as is, which
-  * no context window would take.
+  * (`git.diffVsBase(git.defaultBase())`). A branch too large to summarise whole
+  * is cut short ([[BoundedDiff.prPayload]]) rather than sent as is, which no
+  * context window would take.
   *
   * Customise the PR text with `title`/`body`, both given the generated
   * [[PrSummary]]; a flow that closes an issue passes e.g. `body = s =>
