@@ -45,7 +45,9 @@ object Confidence:
         case Left(e)  => in.decodeError(e.getMessage)
     def encodeValue(value: Confidence, out: JsonWriter): Unit =
       out.writeVal(value)
-    def nullValue: Confidence = null.asInstanceOf[Confidence]
+    // Only ever handed to `decodeValue` as its `default`, which ignores it and
+    // reads the wire value — never a decode result.
+    def nullValue: Confidence = 0.0
 
   // The bounds are emitted as JSON Schema `minimum`/`maximum`, so the model
   // sees the range before it answers rather than only in a decode failure.

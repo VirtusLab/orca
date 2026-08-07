@@ -612,13 +612,12 @@ private[review] class ReviewFixLoop[B <: BackendTag](
             )
 
       // Back to `active` order — `mapParUnordered` returns completion order.
-      val byId = outcomes.collect:
-        case AgentOutcome.Reviewer(e, g, s) =>
-          e.id -> RoundContribution(e, g, s)
-      val contributions =
-        active.flatMap(e =>
-          byId.collectFirst { case (id, c) if id == e.id => c }
-        )
+      val byId = outcomes
+        .collect:
+          case AgentOutcome.Reviewer(e, g, s) =>
+            e.id -> RoundContribution(e, g, s)
+        .toMap
+      val contributions = active.flatMap(e => byId.get(e.id))
       val lintOutcome = outcomes.collectFirst:
         case l: AgentOutcome.Lint => l
       val nextState = currentState.afterRound(
@@ -786,8 +785,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
           accumulated ++ ignored ++ gated
         case LoopStep.NeedsFix =>
           val outcome = FixOutcome.reconcile(issues, fix(issues))
-          // `ctx` explicit: the in-scope `fc: FlowControl` is more specific and
-          // would be picked, and its root capability rejected.
+          // `ctx` explicit for the same given-priority reason as `selectRound`.
           announceFixTurn(outcome)(using ctx)
           if outcome.fixed.isEmpty then
             orca.display("Fixer reported no fixes; bailing out")

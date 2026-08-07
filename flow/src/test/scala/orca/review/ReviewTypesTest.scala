@@ -44,8 +44,8 @@ class ReviewTypesTest extends munit.FunSuite:
     )
 
   test("the fix prompt keeps a suggestion line that starts with `|`"):
-    // `formatIssue` wraps a suggestion with its own line breaks and indents
-    // preserved, so a quoted margin block reaches the prompt as a `|` line.
+    // `FixRequest`'s renderer keeps a suggestion's own line breaks and indents,
+    // so a quoted margin block reaches the prompt as a `|` line.
     val request = FixRequest(
       "fix these",
       List(
@@ -53,7 +53,7 @@ class ReviewTypesTest extends munit.FunSuite:
           severity = Severity.Warning,
           confidence = Confidence(0.9).orThrow,
           title = Title("Mangled quote"),
-          description = "ignored by formatIssue",
+          description = "the quote is mangled",
           location = None,
           suggestion = Some("use:\n  |a| b|")
         )

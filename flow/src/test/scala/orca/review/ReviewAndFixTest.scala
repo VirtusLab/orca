@@ -544,10 +544,16 @@ class ReviewAndFixTest extends munit.FunSuite:
     assert(fixPrompt.contains("DESCRIPTION-MARKER"), fixPrompt)
 
   test("a paraphrased fixer reply records the finding once, not twice"):
-    given FlowControl = control
     // The echoed title matches no handed issue, so it is dropped from the books
-    // and the finding surfaces once as unaccounted — where before it landed
-    // both as the fixer's ignored entry and as unaccounted.
+    // and named in a Step, and the finding surfaces once as unaccounted — where
+    // before it landed both as the fixer's ignored entry and as unaccounted.
+    val steps = new java.util.concurrent.ConcurrentLinkedQueue[String]()
+    val listener: OrcaListener = (e: OrcaEvent) =>
+      e match
+        case OrcaEvent.Step(msg) => steps.add(msg): Unit
+        case _                   => ()
+    given FlowControl =
+      ReviewLoopFixture.control(new EventDispatcher(List(listener)))
     val reviewer = new FakeAgent(
       name = "loud",
       outputs = List(ReviewResult(List(issue("real bug", confidence = 0.95))))
@@ -568,6 +574,13 @@ class ReviewAndFixTest extends munit.FunSuite:
     assertEquals(
       result.issues,
       List(IgnoredIssue(Title("real bug"), "fixer reported no fixes"))
+    )
+    val emitted = steps.toArray.toList.map(_.toString)
+    assert(
+      emitted.contains(
+        "Fixer named Real bug!, which matched no issue it was handed"
+      ),
+      emitted.mkString("\n")
     )
 
   test(
@@ -1444,8 +1457,16 @@ class ReviewAndFixTest extends munit.FunSuite:
     // An empty selection means exactly what it says: no reviewers run this
     // round. With no issues found, the shared stop policy converges — the loop
     // never resurrects the roster behind the selector's back, and the
-    // (empty-output) coder is never asked to fix anything.
-    given FlowControl = control
+    // (empty-output) coder is never asked to fix anything. The round says so,
+    // since converging on nothing is otherwise indistinguishable from a clean
+    // review.
+    val steps = new java.util.concurrent.ConcurrentLinkedQueue[String]()
+    val listener: OrcaListener = (e: OrcaEvent) =>
+      e match
+        case OrcaEvent.Step(msg) => steps.add(msg): Unit
+        case _                   => ()
+    given FlowControl =
+      ReviewLoopFixture.control(new EventDispatcher(List(listener)))
     val rosterA = new FakeAgent(name = "a") // no outputs: throws if run
     val emptySelector = new ReviewerSelector:
       def prepare(
@@ -1470,31 +1491,6 @@ class ReviewAndFixTest extends munit.FunSuite:
       result,
       IgnoredIssues(Nil),
       "empty selection ⇒ no issues ⇒ loop stops with nothing accumulated"
-    )
-
-  test("a round that runs no reviewer at all says so"):
-    // The loop then converges with an empty result, which is otherwise
-    // indistinguishable from a clean review.
-    val steps = new java.util.concurrent.ConcurrentLinkedQueue[String]()
-    val listener: OrcaListener = (e: OrcaEvent) =>
-      e match
-        case OrcaEvent.Step(msg) => steps.add(msg): Unit
-        case _                   => ()
-    given FlowControl =
-      ReviewLoopFixture.control(new EventDispatcher(List(listener)))
-    val emptySelector = new ReviewerSelector:
-      def prepare(
-          all: List[RosterEntry[?]],
-          taskTitle: Title,
-          changedFiles: List[String]
-      )(using FlowContext, orca.InStage) =
-        _ => Nil
-    val _ = reviewAndFixLoop(
-      coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
-      reviewers = List(new FakeAgent(name = "a")),
-      reviewerSelection = emptySelector,
-      task = "empty selection",
-      initialDiff = Some("")
     )
     val emitted = steps.toArray.toList.map(_.toString)
     assert(
@@ -1543,7 +1539,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     assert(joined.contains("- nit: the shape is deliberate"), joined)
 
   test("a selector returning the same entry twice runs it once that round"):
-    // Entries are keyed by identity, so `active.distinct` collapses an
+    // Entries carry a `ReviewerId`, so `active.distinctBy(_.id)` collapses an
     // accidental duplicate: the reviewer runs a single time (one session, one
     // scripted output — a second concurrent run would race its session mint and
     // drain its empty iterator).
