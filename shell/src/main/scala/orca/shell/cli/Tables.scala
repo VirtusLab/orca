@@ -20,6 +20,9 @@ private[cli] object Tables:
 
   // --- continue --list ---
 
+  // `kind` and `lastActiveAt` are the manifest's wire spellings as strings: the
+  // rows are what `--json` hands to scripts, so they carry the on-disk form
+  // rather than this build's typed one.
   private[cli] case class SessionRow(
       index: Int,
       sessionName: String,
@@ -58,10 +61,10 @@ private[cli] object Tables:
           SessionRow(
             index = i + 1,
             sessionName = session.sessionName.getOrElse(session.agent),
-            kind = session.kind,
+            kind = session.kind.wireName,
             stage = session.stage,
             harness = SessionPicker.harnessSettingsName(session.harness),
-            lastActiveAt = session.lastActiveAt,
+            lastActiveAt = session.lastActiveAt.toString,
             resumable = choice.isEnabled,
             reason = choice.disabledReason,
             crashed = selection.crashed

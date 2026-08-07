@@ -3,6 +3,8 @@ package orca.shell.sessions
 import orca.OrcaFlowException
 import orca.testkit.TempDirs
 
+import java.time.Instant
+
 class ManifestReaderTest extends munit.FunSuite:
 
   private val alwaysDead: Long => Boolean = _ => false
@@ -25,20 +27,7 @@ class ManifestReaderTest extends munit.FunSuite:
          |  "pid": $pid,
          |  "startedAt": "$startedAt",
          |  "outcome": "$outcome",
-         |  "sessions": [],
-         |  "cost": {
-         |    "total": {
-         |      "inputTokens": 0,
-         |      "outputTokens": 0,
-         |      "cacheReadInputTokens": 0,
-         |      "cacheWriteInputTokens": 0,
-         |      "reasoningOutputTokens": 0
-         |    },
-         |    "byRole": [],
-         |    "byAgent": [],
-         |    "byStage": []
-         |  },
-         |  "turns": []
+         |  "sessions": []
          |}""".stripMargin
     os.write(runsDir(workDir) / name, json, createFolders = true)
 
@@ -62,9 +51,9 @@ class ManifestReaderTest extends munit.FunSuite:
     assertEquals(
       runs.map(_.manifest.startedAt),
       List(
-        "2026-07-18T12:00:00Z",
-        "2026-07-18T11:00:00Z",
-        "2026-07-18T10:00:00Z"
+        Instant.parse("2026-07-18T12:00:00Z"),
+        Instant.parse("2026-07-18T11:00:00Z"),
+        Instant.parse("2026-07-18T10:00:00Z")
       )
     )
 
@@ -89,7 +78,10 @@ class ManifestReaderTest extends munit.FunSuite:
       createFolders = true
     )
     val (runs, warnings) = ManifestReader.list(workDir, alwaysDead)
-    assertEquals(runs.map(_.manifest.startedAt), List("2026-07-18T10:00:00Z"))
+    assertEquals(
+      runs.map(_.manifest.startedAt),
+      List(Instant.parse("2026-07-18T10:00:00Z"))
+    )
     assertEquals(warnings, Nil)
 
   test("a skipped manifest is warned about without sinking the listing"):
@@ -107,7 +99,10 @@ class ManifestReaderTest extends munit.FunSuite:
       createFolders = true
     )
     val (runs, warnings) = ManifestReader.list(workDir, alwaysDead)
-    assertEquals(runs.map(_.manifest.startedAt), List("2026-07-18T11:00:00Z"))
+    assertEquals(
+      runs.map(_.manifest.startedAt),
+      List(Instant.parse("2026-07-18T11:00:00Z"))
+    )
     assertEquals(warnings.size, 1)
     assert(
       warnings.head.contains("no-workdir.json"),
@@ -128,20 +123,7 @@ class ManifestReaderTest extends munit.FunSuite:
         |  "workDir": "/work",
         |  "pid": 111,
         |  "startedAt": "2026-07-18T10:00:00Z",
-        |  "outcome": "succeeded",
-        |  "cost": {
-        |    "total": {
-        |      "inputTokens": 0,
-        |      "outputTokens": 0,
-        |      "cacheReadInputTokens": 0,
-        |      "cacheWriteInputTokens": 0,
-        |      "reasoningOutputTokens": 0
-        |    },
-        |    "byRole": [],
-        |    "byAgent": [],
-        |    "byStage": []
-        |  },
-        |  "turns": []
+        |  "outcome": "succeeded"
         |}""".stripMargin,
       createFolders = true
     )

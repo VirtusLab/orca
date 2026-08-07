@@ -1,15 +1,100 @@
 package orca.runner.manifest
 
+import com.github.plokhotnyuk.jsoniter_scala.core.{
+  JsonReader,
+  JsonValueCodec,
+  JsonWriter
+}
 import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
 import orca.agents.JsonData
+
+import java.time.Instant
+
+/** How a run ended, as [[RunManifest.outcome]] records it. `Running` until
+  * [[RunManifestWriter.finish]] finalizes it, so a stale `Running` beside a
+  * dead `pid` is what the shell reads as a crashed run.
+  */
+private[orca] enum ManifestOutcome:
+  case Running, Succeeded, Failed
+
+  /** A spelling this build doesn't know — a manifest from a newer build. Only
+    * the decoder produces it; nothing here ever writes one.
+    */
+  case Unknown(raw: String)
+
+  /** The spelling on disk. An [[Unknown]] answers with the string it decoded
+    * from, so passing a manifest through this build never respells it.
+    */
+  def wireName: String = this match
+    case Running      => "running"
+    case Succeeded    => "succeeded"
+    case Failed       => "failed"
+    case Unknown(raw) => raw
+
+private[orca] object ManifestOutcome:
+  given codec: JsonValueCodec[ManifestOutcome] with
+    def decodeValue(
+        in: JsonReader,
+        default: ManifestOutcome
+    ): ManifestOutcome =
+      in.readString(null) match
+        case null        => in.decodeError("expected an outcome string")
+        case "running"   => Running
+        case "succeeded" => Succeeded
+        case "failed"    => Failed
+        case raw         => Unknown(raw)
+    def encodeValue(value: ManifestOutcome, out: JsonWriter): Unit =
+      out.writeVal(value.wireName)
+    // Only the pre-parse initializer jsoniter overwrites with the decoded
+    // value: an absent `outcome` fails as a missing required field, and an
+    // explicit JSON null is refused above.
+    def nullValue: ManifestOutcome = Unknown("")
+
+/** How a manifest session was opened, as [[ManifestSession.kind]] records it.
+  */
+private[orca] enum ManifestSessionKind:
+  case Durable, OneShot
+
+  /** A spelling this build doesn't know — a manifest from a newer build. Only
+    * the decoder produces it; nothing here ever writes one.
+    */
+  case Unknown(raw: String)
+
+  /** The spelling on disk. An [[Unknown]] answers with the string it decoded
+    * from, so passing a manifest through this build never respells it.
+    */
+  def wireName: String = this match
+    case Durable      => "durable"
+    case OneShot      => "oneShot"
+    case Unknown(raw) => raw
+
+private[orca] object ManifestSessionKind:
+  /** `Durable` exactly when the commit event carries the name an
+    * `agent.session(name, seed)` call minted the session under.
+    */
+  def of(sessionName: Option[String]): ManifestSessionKind =
+    if sessionName.isDefined then Durable else OneShot
+
+  given codec: JsonValueCodec[ManifestSessionKind] with
+    def decodeValue(
+        in: JsonReader,
+        default: ManifestSessionKind
+    ): ManifestSessionKind =
+      in.readString(null) match
+        case null      => in.decodeError("expected a session kind string")
+        case "durable" => Durable
+        case "oneShot" => OneShot
+        case raw       => Unknown(raw)
+    def encodeValue(value: ManifestSessionKind, out: JsonWriter): Unit =
+      out.writeVal(value.wireName)
+    // See ManifestOutcome.codec's nullValue.
+    def nullValue: ManifestSessionKind = Unknown("")
 
 /** One tracked session inside a [[RunManifest]] (ADR 0021 §8). `wireId` is the
   * persistable id ([[orca.agents.Agent.resumeWireId]]) — `None` when nothing
   * durable is known for the session, which is exactly when [[resumable]] is
   * `false` and `reason` explains why. Every backend keeps durable sessions, so
   * `None` means the id isn't known yet, not that the backend can't resume.
-  * `kind` is `"durable"` when `sessionName` is set — the session was minted by
-  * an `agent.session(name, seed)` call — and `"oneShot"` otherwise.
   */
 private[orca] case class ManifestSession(
     harness: String,
@@ -19,9 +104,9 @@ private[orca] case class ManifestSession(
     role: Option[String],
     stage: Option[String],
     sessionName: Option[String],
-    kind: String,
-    firstSeenAt: String,
-    lastActiveAt: String
+    kind: ManifestSessionKind,
+    firstSeenAt: Instant,
+    lastActiveAt: Instant
 ):
   /** Derived, not persisted: a session is resumable exactly when it carries a
     * wire id, so there is nothing here that could drift from [[wireId]].
@@ -30,10 +115,9 @@ private[orca] case class ManifestSession(
 
 /** A per-run manifest written to
   * `.orca/cache/runs/<startedAt-epoch-ms>-<pid>.json`, read by the shell to
-  * offer "continue a session". `outcome` is `"running"` until
-  * [[RunManifestWriter.finish]] finalizes it to `"succeeded"` or `"failed"` — a
-  * stale `"running"` with a dead `pid` means the run crashed, and the shell
-  * still offers its recorded sessions.
+  * offer "continue a session". A stale [[ManifestOutcome.Running]] with a dead
+  * `pid` means the run crashed, and the shell still offers its recorded
+  * sessions.
   *
   * Carries no schema version (ADR 0021 §8 amendment, 2026-08-05). The
   * compatibility rule is about writing instead: additions are `Option` or carry
@@ -51,22 +135,13 @@ private[orca] case class RunManifest(
     flow: Option[String],
     workDir: String,
     pid: Long,
-    startedAt: String,
-    finishedAt: Option[String],
-    outcome: String,
+    startedAt: Instant,
+    finishedAt: Option[Instant],
+    outcome: ManifestOutcome,
     sessions: List[ManifestSession]
 )
 
 private[orca] object RunManifest:
-  // The `outcome` and `ManifestSession.kind` wire strings, named once here so
-  // the writer that produces them (RunManifestWriter's Outcome/SessionKind
-  // enums) and every reader that matches on them share one spelling.
-  val OutcomeRunning = "running"
-  val OutcomeSucceeded = "succeeded"
-  val OutcomeFailed = "failed"
-  val KindDurable = "durable"
-  val KindOneShot = "oneShot"
-
   // Only a jsoniter codec — no `JsonData`/`Schema` half, deliberately: the
   // manifest crosses the process/disk boundary to the shell, never an HTTP or
   // LLM boundary, so it needs on-disk (de)serialisation but no tool schema.

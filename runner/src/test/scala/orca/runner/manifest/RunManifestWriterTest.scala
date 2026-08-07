@@ -71,7 +71,7 @@ class RunManifestWriterTest extends munit.FunSuite:
       )
     )
     val manifest = soleManifest(workDir)
-    assertEquals(manifest.outcome, "running")
+    assertEquals(manifest.outcome, ManifestOutcome.Running)
     assertEquals(manifest.sessions.map(_.harness), List("claude"))
 
   test(
@@ -118,8 +118,8 @@ class RunManifestWriterTest extends munit.FunSuite:
       "same dedup key must upsert, not append"
     )
     val session = manifest.sessions.head
-    assertEquals(session.firstSeenAt, "2026-07-18T10:01:00Z")
-    assertEquals(session.lastActiveAt, "2026-07-18T10:04:00Z")
+    assertEquals(session.firstSeenAt, Instant.parse("2026-07-18T10:01:00Z"))
+    assertEquals(session.lastActiveAt, Instant.parse("2026-07-18T10:04:00Z"))
     assertEquals(session.stage, Some("code"))
 
   test("nested stages stamp the top of the stack"):
@@ -203,9 +203,9 @@ class RunManifestWriterTest extends munit.FunSuite:
     val sessions = soleManifest(workDir).sessions
     val durable = sessions.find(_.wireId.contains("w1")).get
     val oneShot = sessions.find(_.wireId.contains("w2")).get
-    assertEquals(durable.kind, "durable")
+    assertEquals(durable.kind, ManifestSessionKind.Durable)
     assertEquals(durable.sessionName, Some("coder"))
-    assertEquals(oneShot.kind, "oneShot")
+    assertEquals(oneShot.kind, ManifestSessionKind.OneShot)
     assertEquals(oneShot.sessionName, None)
 
   test("finish finalizes outcome and finishedAt"):
@@ -229,8 +229,11 @@ class RunManifestWriterTest extends munit.FunSuite:
     )
     writer.finish(RunOutcome.Succeeded)
     val manifest = soleManifest(workDir)
-    assertEquals(manifest.outcome, "succeeded")
-    assertEquals(manifest.finishedAt, Some("2026-07-18T10:05:00Z"))
+    assertEquals(manifest.outcome, ManifestOutcome.Succeeded)
+    assertEquals(
+      manifest.finishedAt,
+      Some(Instant.parse("2026-07-18T10:05:00Z"))
+    )
 
   test("finish(Failed) records outcome failed on disk"):
     val workDir = TempDirs.dir()
@@ -252,7 +255,7 @@ class RunManifestWriterTest extends munit.FunSuite:
       )
     )
     writer.finish(RunOutcome.Failed)
-    assertEquals(soleManifest(workDir).outcome, "failed")
+    assertEquals(soleManifest(workDir).outcome, ManifestOutcome.Failed)
 
   test("25 pre-seeded run files are pruned to the newest 20 on first write"):
     val workDir = TempDirs.dir()
@@ -442,7 +445,7 @@ class RunManifestWriterTest extends munit.FunSuite:
       // the count would fall below 100.
       writer.finish(RunOutcome.Succeeded)
       val manifest = soleManifest(workDir)
-      assertEquals(manifest.outcome, "succeeded")
+      assertEquals(manifest.outcome, ManifestOutcome.Succeeded)
       assertEquals(
         manifest.sessions.size,
         100,
@@ -530,4 +533,4 @@ class RunManifestWriterTest extends munit.FunSuite:
     os.remove(runsDir): Unit
     os.makeDir.all(runsDir)
     writer.finish(RunOutcome.Succeeded)
-    assertEquals(soleManifest(workDir).outcome, "succeeded")
+    assertEquals(soleManifest(workDir).outcome, ManifestOutcome.Succeeded)

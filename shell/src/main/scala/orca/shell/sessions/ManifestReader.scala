@@ -2,10 +2,8 @@ package orca.shell.sessions
 
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import orca.OrcaDir
-import orca.runner.manifest.RunManifest
+import orca.runner.manifest.{ManifestOutcome, RunManifest}
 
-import java.time.Instant
-import scala.util.Try
 import scala.util.control.NonFatal
 
 /** A manifest paired with whether its run is now known to have crashed (outcome
@@ -19,17 +17,14 @@ private[shell] case class RecordedRun(manifest: RunManifest, crashed: Boolean)
   */
 private[shell] object ManifestReader:
 
-  /** Newest-first by `startedAt`. Skips a file that doesn't decode, or whose
-    * `startedAt` doesn't parse as an `Instant` (a hand-edited or corrupt file —
-    * the writer always produces a well-formed one), collecting a notice naming
-    * the file into the returned warnings rather than ordering it by a silent
-    * fallback timestamp. A manifest with `outcome: "running"` whose `pid` is no
-    * longer alive is a crashed run — its sessions are still offered, per ADR
-    * 0021 §8. Reads `.orca/cache/runs/` passively ([[OrcaDir.runsPath]], not
-    * [[OrcaDir.cacheRunsPath]]) — an absent or empty directory yields `(Nil,
-    * Nil)` without creating anything on disk. A file that fails to parse as
-    * JSON, or doesn't match the `RunManifest` schema, is skipped with a warning
-    * naming the file rather than aborting the whole listing.
+  /** Newest-first by `startedAt`. A manifest with [[ManifestOutcome.Running]]
+    * whose `pid` is no longer alive is a crashed run — its sessions are still
+    * offered, per ADR 0021 §8. Reads `.orca/cache/runs/` passively
+    * ([[OrcaDir.runsPath]], not [[OrcaDir.cacheRunsPath]]) — an absent or empty
+    * directory yields `(Nil, Nil)` without creating anything on disk. A file
+    * that fails to parse as JSON, or doesn't match the `RunManifest` schema —
+    * which includes a timestamp that isn't an `Instant` — is skipped with a
+    * warning naming the file rather than aborting the whole listing.
     */
   def list(
       workDir: os.Path,
@@ -49,22 +44,26 @@ private[shell] object ManifestReader:
             case ((runs, warnings), file) =>
               readManifest(file) match
                 case Left(warning) => (runs, warning :: warnings)
-                case Right(manifest)
-                    if Try(Instant.parse(manifest.startedAt)).isFailure =>
-                  (
-                    runs,
-                    s"skipping $file: unparseable startedAt `${manifest.startedAt}`" :: warnings
-                  )
                 case Right(manifest) =>
-                  val crashed =
-                    manifest.outcome == RunManifest.OutcomeRunning && !pidAlive(
-                      manifest.pid
-                    )
-                  (RecordedRun(manifest, crashed) :: runs, warnings)
-      (
-        runs.sortBy(r => Instant.parse(r.manifest.startedAt)).reverse,
-        warnings.reverse
-      )
+                  (
+                    RecordedRun(manifest, crashed(manifest, pidAlive)) :: runs,
+                    warnings
+                  )
+      (runs.sortBy(_.manifest.startedAt).reverse, warnings.reverse)
+
+  /** An outcome this build doesn't know (a newer build's manifest) is a run
+    * that reached some terminal state, not a crashed one — only `Running`
+    * paired with a dead pid says the writer never got to finalize.
+    */
+  private def crashed(
+      manifest: RunManifest,
+      pidAlive: Long => Boolean
+  ): Boolean =
+    manifest.outcome match
+      case ManifestOutcome.Running => !pidAlive(manifest.pid)
+      case ManifestOutcome.Succeeded | ManifestOutcome.Failed |
+          ManifestOutcome.Unknown(_) =>
+        false
 
   /** A manifest from any build decodes here: unknown fields are skipped, so
     * only a file missing something this build requires — or unreadable — is
