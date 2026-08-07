@@ -162,7 +162,7 @@ class DefaultAgentCall[B <: BackendTag, O](
     EnforcementNotice.announceShortfall(
       backend,
       effective,
-      backend.sessions.dispatchFor(session).turn,
+      backend.sessions.dispatchFor(session).asTurnDispatch,
       events
     )
 

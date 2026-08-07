@@ -21,10 +21,11 @@ enum Dispatch[B <: BackendTag]:
   case Fresh(claim: Option[WireSessionId[B]])
   case Resume(wireId: WireSessionId[B])
 
-  /** This dispatch without its wire ids, for [[AgentBackend.enforcementCell]],
-    * which classifies the turn and has no use for them.
+  /** This dispatch with the wire ids dropped, as
+    * [[AgentBackend.enforcementCell]] takes it — that classification needs to
+    * know only which of the two this is.
     */
-  def turn: TurnDispatch = this match
+  def asTurnDispatch: TurnDispatch = this match
     case Dispatch.Fresh(_)  => TurnDispatch.Fresh
     case Dispatch.Resume(_) => TurnDispatch.Resumed
 

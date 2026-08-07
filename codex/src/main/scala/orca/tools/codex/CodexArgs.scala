@@ -157,8 +157,8 @@ private[codex] object CodexArgs:
     * codex is the one backend whose answer depends on the dispatch: `exec
     * resume` accepts no sandbox flag but the bypass, so on every other tier a
     * resumed turn runs in whatever sandbox its session was created with, which
-    * this classification cannot know. It reports what orca can stand behind for
-    * THIS turn, which is the folded-in prompt.
+    * this classification cannot know. Each resumed cell therefore reports only
+    * what orca can still stand behind for THIS turn.
     */
   def enforcementCell(
       tools: ToolSet,

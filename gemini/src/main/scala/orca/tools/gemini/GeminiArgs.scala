@@ -87,10 +87,9 @@ private[gemini] object GeminiArgs:
             Seq("--approval-mode", "yolo")
 
   /** How strongly gemini enforces each `(tools, autoApprove)` combination — see
-    * [[approvalArgs]] for the flags this classifies. The read-only cells are
-    * the one place in the matrix where a level records what orca can stand
-    * behind rather than what a flag was assumed to do, so their rationale
-    * carries the whole argument — this is its only home.
+    * [[approvalArgs]] for the flags this classifies. The read-only cells record
+    * what orca can stand behind rather than what a flag was assumed to do, so
+    * their rationale carries the whole argument — this is its only home.
     */
   def enforcementCell(
       tools: ToolSet,
@@ -103,7 +102,7 @@ private[gemini] object GeminiArgs:
         case ToolSet.ReadOnly | ToolSet.NetworkOnly =>
           EnforcementCell(
             Enforcement.PromptOnly,
-            "`--approval-mode plan` is UNMEASURED, not known weak: no headless `plan` turn has been run against a write attempt. The same class of mechanism on claude — `--permission-mode plan` — was measured and removes no tools (`docs/research/run-cost/09-diff-vs-coordinates.md` §2), and gemini downgrades `plan` to `default` in untrusted folders, which is where orca runs agents. Raise this cell when a probe establishes more."
+            "`--approval-mode plan` is UNMEASURED, not known weak: no headless `plan` turn has been run against a write attempt. The same class of mechanism on claude — `--permission-mode plan` — was measured and removes no tools (`docs/research/run-cost/09-diff-vs-coordinates.md` §2). Raise this cell when a probe establishes more."
           )
         case ToolSet.Full =>
           autoApprove match

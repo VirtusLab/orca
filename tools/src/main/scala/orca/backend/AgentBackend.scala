@@ -103,8 +103,11 @@ trait AgentBackend[B <: BackendTag](
 
   /** How strongly THIS backend enforces the restriction a `(tools,
     * autoApprove)` combination requests on a `dispatch` turn, and why — a pure
-    * classification of the flags this backend's `*Args` would build, surfaced
-    * as data because the answer differs materially across backends.
+    * classification of the tier and approval flags this backend's `*Args` would
+    * build, surfaced as data because the answer differs materially across
+    * backends. It does not see what a turn additionally GRANTS on top of the
+    * tier (claude's MCP tool names, pi's ask-user extension), which widens the
+    * tools on offer without changing how the tier itself is enforced.
     *
     * Abstract, not defaulted to `Enforcement.Ignored`, so a new backend cannot
     * ship without answering this; the `*Args` implementations match `dispatch`

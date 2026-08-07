@@ -166,7 +166,7 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
     EnforcementNotice.announceShortfall(
       backend,
       effective,
-      backend.sessions.dispatchFor(session).turn,
+      backend.sessions.dispatchFor(session).asTurnDispatch,
       events
     )
 

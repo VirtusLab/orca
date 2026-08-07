@@ -190,6 +190,14 @@ private[claude] object ClaudeArgs:
                 Enforcement.Hard,
                 "`--permission-mode bypassPermissions` approves everything, which is what `All` asks for"
               )
+            // Split as [[permissionArgs]] splits it: an empty `Only` emits no
+            // flag at all, so naming `--allowedTools` here would describe a
+            // gate that branch never builds.
+            case AutoApprove.Only(names) if names.isEmpty =>
+              EnforcementCell(
+                Enforcement.Hard,
+                "no flag: the turn runs in claude's default permission mode, which is the gate and approves nothing beyond its own defaults"
+              )
             case AutoApprove.Only(_) =>
               EnforcementCell(
                 Enforcement.Hard,

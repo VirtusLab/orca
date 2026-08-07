@@ -74,11 +74,6 @@ private[orca] object SystemPromptComposer:
   def combine(
       config: AgentConfig,
       extraHint: Option[String] = None
-  ): String = composeAll(config, extraHint)
-
-  private def composeAll(
-      config: AgentConfig,
-      extraHint: Option[String]
   ): String =
     // The two tool-gated rules are complementary: `Full` gets the git rule
     // (unless `selfManagedGit` says the agent drives git itself — a question
@@ -111,5 +106,5 @@ private[orca] object SystemPromptComposer:
   ): String =
     // No `stripMargin`: `userPrompt` carries the diffs, lint output and review
     // issues that start lines with `|`, which it would eat.
-    s"System guidance:\n${composeAll(config, extraHint)}\n\n" +
+    s"System guidance:\n${combine(config, extraHint)}\n\n" +
       s"User request:\n$userPrompt"

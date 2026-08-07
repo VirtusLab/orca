@@ -117,7 +117,7 @@ private[opencode] object OpencodeArgs:
         case ToolSet.ReadOnly | ToolSet.NetworkOnly =>
           EnforcementCell(
             Enforcement.Hard,
-            "the message body disables the write tools, so the server never offers them"
+            "the message body disables `write`, `edit`, `bash` and `patch` by name, so the server offers none of those four — unlike an allowlist, this stays exact only while opencode ships no fifth writing tool"
           )
         case ToolSet.Full =>
           autoApprove match
