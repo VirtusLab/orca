@@ -123,12 +123,12 @@ class ReviewChangeSetTest extends munit.FunSuite:
 
   test("a pinned diff is not re-sent to a resumed reviewer as a fresh sample"):
     val (ctx, _) = stagingControl()
-    // `initialDiff` pins one constant for the whole loop, so round two's sample
-    // is byte-identical to round one's. Re-sending it would claim the fixer's
-    // edits are inside a diff that predates them. The pinned diff is past the
-    // inline threshold on purpose: equality is tested before size, so a pinned
-    // diff never reaches the path-listing branch either, which is what lets
-    // that branch take its paths from git.
+    // `ReviewDiff.Pinned` is one constant for the whole loop, so round two's
+    // sample is byte-identical to round one's. Re-sending it would claim the
+    // fixer's edits are inside a diff that predates them. The pinned diff is
+    // past the inline threshold on purpose: equality is tested before size, so
+    // a pinned diff never reaches the path-listing branch either, which is what
+    // lets that branch take its paths from git.
     val reviewer = new FakeAgent(
       "r",
       outputs = List(ReviewResult(List(bug("real bug"))), ReviewResult.empty)
@@ -144,7 +144,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
         reviewers = List(reviewer),
         task = "build the widget",
         reviewerSelection = ReviewerSelector.allEveryRound,
-        initialDiff = Some(
+        diff = ReviewDiff.Pinned(
           "+++ b/pinned.scala\n" + (1 to 3000)
             .map(i => s"+// line $i")
             .mkString("\n")

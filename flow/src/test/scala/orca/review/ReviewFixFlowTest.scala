@@ -56,7 +56,7 @@ class ReviewFixFlowTest extends munit.FunSuite:
       reviewers = List(reviewer),
       task = "optimize cache",
       reviewerSelection = ReviewerSelector.allEveryRound,
-      initialDiff = Some("")
+      diff = ReviewDiff.Pinned("")
     )
 
     // The loop runs under the caller's task stage (ADR 0018 §2.2), so it emits
@@ -93,7 +93,7 @@ class ReviewFixFlowTest extends munit.FunSuite:
       task = "never ending",
       maxIterations = 2,
       reviewerSelection = ReviewerSelector.allEveryRound,
-      initialDiff = Some("")
+      diff = ReviewDiff.Pinned("")
     )
     assert(
       result.issues.exists(_.reason.contains("max iterations")),

@@ -349,24 +349,12 @@ def reviewAndFixLoop[B <: BackendTag](
       */
     maxIterations: Int = DefaultMaxIterations,
     fixInstructions: String = ReviewLoopPrompts.Fix,
-    /** Override the diff handed to each reviewer, and the changed-file list the
-      * selector is given.
-      *
-      * The default samples everything the enclosing stage has produced —
-      * `ctx.git.reviewDiff(fc.stageBaseCommit)`, tracked changes plus
-      * newly-created files, `.orca/` bookkeeping excluded — re-sampled at the
-      * start of every iteration and sent to every reviewer that runs, so each
-      * round's reviewers see the fixer's edits whether or not it committed
-      * them. A sample past [[orca.BoundedDiff.ReviewThreshold]] is cut down to
-      * the files that fit plus a list of the ones that didn't, so an outsized
-      * change set still produces a prompt that can be sent.
-      *
-      * Pass `Some(...)` to pin the diff instead of sampling it — what the tests
-      * use to skip the git call. A pinned diff is also not told its base
-      * commit, since it may describe a change set the stage base doesn't
-      * bracket (see [[ReviewDiffSource.Pinned]]).
+    /** Where the change set under review comes from: sampled from the enclosing
+      * stage each round, or pinned by the caller. Pinning changes what
+      * reviewers and the selector are told, not just the diff text — see
+      * [[ReviewDiff]].
       */
-    initialDiff: Option[String] = None
+    diff: ReviewDiff = ReviewDiff.SampleFromStage
 )(using
     ctx: FlowContext,
     ev: InStage,
@@ -390,9 +378,10 @@ def reviewAndFixLoop[B <: BackendTag](
     case Configured.Use(l) => Some(l)
   // `fc` is read here, at loop entry, so what the loop carries is the plain
   // commit hash rather than the capability it came from.
-  val diffSource: ReviewDiffSource = initialDiff.fold(
-    ReviewDiffSource.Sampled(ctx.git, fc.stageBaseCommit)
-  )(ReviewDiffSource.Pinned(_))
+  val diffSource: ReviewDiffSource = diff match
+    case ReviewDiff.SampleFromStage =>
+      ReviewDiffSource.Sampled(ctx.git, fc.stageBaseCommit)
+    case ReviewDiff.Pinned(d) => ReviewDiffSource.Pinned(d)
   // `ctx`/`ev` passed explicitly, not by implicit search: the more-specific
   // `fc: FlowControl` would otherwise be picked for the constructor's
   // `FlowContext` and its root capability rejected.
@@ -525,11 +514,12 @@ private[review] class ReviewFixLoop[B <: BackendTag](
         .autonomous
         .run(
           ReviewLoopPrompts.initialReview(
-            task,
-            currentDiff,
-            confidenceGate,
-            diffSource.base,
-            declined
+            task = task,
+            diff = currentDiff,
+            diffIntro = diffSource.diffIntro,
+            gate = confidenceGate,
+            base = diffSource.base,
+            declined = declined
           ),
           emitPrompt = false
         )

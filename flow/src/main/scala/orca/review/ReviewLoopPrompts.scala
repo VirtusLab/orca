@@ -54,10 +54,11 @@ object ReviewLoopPrompts:
     * told the actual bars their findings are measured against rather than a
     * hardcoded guess at them.
     *
-    * `base` is the commit `diff` was sampled against, when the loop knows it
-    * describes this diff (see [[ReviewDiffSource]]). It is sent alongside the
-    * diff, never instead of it: it only lets a reviewer read the repo at that
-    * commit, and a reviewer with no way to do so is unaffected.
+    * `diffIntro` introduces the diff, and `base` names the commit `diff` was
+    * sampled against when the loop knows that describes this diff. The base is
+    * sent alongside the diff, never instead of it: it only lets a reviewer read
+    * the repo at that commit, and a reviewer with no way to do so is
+    * unaffected.
     *
     * `declined` matters for a reviewer first activated after round one — see
     * [[reviewAndFixLoop]].
@@ -65,6 +66,7 @@ object ReviewLoopPrompts:
   def initialReview(
       task: String,
       diff: String,
+      diffIntro: String,
       gate: ConfidenceGate,
       base: Option[String],
       declined: List[IgnoredIssue]
@@ -72,6 +74,7 @@ object ReviewLoopPrompts:
     PromptResource.render(
       InitialReviewTemplate,
       "task" -> task,
+      "diffIntro" -> diffIntro,
       "diffBlock" -> diffBlock(diff),
       "baseNote" -> baseNote(base),
       "declined" -> declinedBlock(declined),
@@ -164,8 +167,8 @@ object ReviewLoopPrompts:
   * A resumed reviewer already holds every change set it has been sent. Sending
   * it the same one again, under text saying it was freshly re-sampled, would
   * claim the fixer's edits are inside a diff that predates them, and the
-  * reviewer would re-report findings that were already fixed. A pinned
-  * `initialDiff` produces exactly that repeat.
+  * reviewer would re-report findings that were already fixed. A
+  * [[ReviewDiff.Pinned]] diff produces exactly that repeat.
   */
 private[review] enum ReReviewChanges:
   /** Re-sampled, and different from what this reviewer last saw. */
@@ -194,9 +197,9 @@ private[review] object ReReviewChanges:
     * [[TooLarge]] can never name a different change set than the one it stands
     * in for.
     *
-    * Equality is tested before size, so a pinned `initialDiff` never reaches
-    * [[TooLarge]]: pinned samples are byte-identical every round, so a resume
-    * always classifies [[AlreadySeen]].
+    * Equality is tested before size, so a [[ReviewDiff.Pinned]] diff never
+    * reaches [[TooLarge]]: pinned samples are byte-identical every round, so a
+    * resume always classifies [[AlreadySeen]].
     */
   def of(previous: String, current: DiffSample): ReReviewChanges =
     if current.diff == previous then AlreadySeen

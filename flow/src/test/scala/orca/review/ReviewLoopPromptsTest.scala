@@ -14,7 +14,14 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
       base: Option[String] = None
   ): String =
     TextUtil.collapseWhitespace(
-      ReviewLoopPrompts.initialReview("do the thing", "", gate, base, Nil)
+      ReviewLoopPrompts.initialReview(
+        task = "do the thing",
+        diff = "",
+        diffIntro = "Diff:",
+        gate = gate,
+        base = base,
+        declined = Nil
+      )
     )
 
   test("initialReview renders the caller's bars"):
