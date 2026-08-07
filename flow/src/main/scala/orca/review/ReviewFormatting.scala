@@ -11,8 +11,8 @@ import orca.util.{TextUtil, TextWrap}
   * bullet within a multi-issue body; outer indentation is added by the caller
   * (typically [[formatReviewerOutcome]]).
   *
-  * `description` is deliberately not rendered — it's the longer form fed back
-  * to the fixing agent; the user sees the short form on screen.
+  * `description` is deliberately not rendered: the screen shows the short form,
+  * and the fixer gets the long one from [[FixRequest]]'s own rendering.
   */
 private[review] def formatIssue(issue: ReviewIssue): String =
   val header = TextWrap.wrap(

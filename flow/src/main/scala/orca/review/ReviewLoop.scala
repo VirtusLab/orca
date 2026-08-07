@@ -81,6 +81,21 @@ private[review] def capExitMessage(
   (s"Reached max iterations ($maxIterations); still open:" :: titles)
     .mkString("\n")
 
+/** Announce the fixer's replies that matched no issue it was handed — the
+  * visible sign of a degraded fix turn, whose entries are otherwise dropped.
+  */
+private[review] def announceFixTurn(
+    outcome: ReconciledFixOutcome
+)(using ctx: FlowContext): Unit =
+  if outcome.unresolvedEchoes.nonEmpty then
+    orca.display(
+      s"Fixer named ${outcome.unresolvedEchoes.mkString(", ")}, " +
+        "which matched no issue it was handed"
+    )
+  orca.display(
+    s"Fixed ${outcome.fixed.size}, ignored ${outcome.ignored.size}"
+  )
+
 /** Evaluate, fix, re-evaluate until the reviewer reports no issues, the fixer
   * reports zero fixes, or `maxIterations` fix attempts have been made. Issues
   * remaining when the cap is hit are folded into the returned `IgnoredIssues`
@@ -109,12 +124,10 @@ def fixLoop(
         orca.display(capExitMessage(maxIterations, ignored))
         accumulated ++ ignored
       case LoopStep.NeedsFix =>
-        val outcome = fix(issues)
-        orca.display(
-          s"Fixed ${outcome.fixed.size}, ignored ${outcome.ignored.size}"
-        )
+        val outcome = FixOutcome.reconcile(issues, fix(issues))
+        announceFixTurn(outcome)
         if outcome.fixed.isEmpty then
-          accumulated ++ IgnoredIssues(outcome.ignored)
+          accumulated ++ IgnoredIssues(outcome.ignored ++ outcome.unaccounted)
         else loop(accumulated ++ IgnoredIssues(outcome.ignored), iteration + 1)
 
   loop(IgnoredIssues(Nil), 0)
@@ -712,27 +725,21 @@ private[review] class ReviewFixLoop[B <: BackendTag](
       rejects.map(i => IgnoredIssue(i.title, confidenceGate.rejectionReason(i)))
     )
 
-  /** Issues handed to the fixer that came back in neither `fixed` nor
-    * `ignored`. The fix prompt asks for every one to be accounted for; when one
-    * isn't, it's still open, so the loop records it instead of dropping it.
-    *
-    * Only the halt exit needs this. On the recursing branch the loop
-    * re-evaluates, and a forgotten issue that is still real is re-reported by
-    * the reviewer's persistent session — recording it there would instead
-    * report issues the next round went on to fix.
+  /** Accumulate the fixer's declines, one entry per title with the latest
+    * reason: a finding declined again in a later round is the same finding, not
+    * a second one. Cross-round identity has only titles to key on — the
+    * [[FixRequest]] keys are re-minted each round — which is enough, since a
+    * re-declined finding is re-echoed from the same reviewer-reported title.
     */
-  private def unaccountedFor(
-      handed: List[ReviewIssue],
-      outcome: FixOutcome
+  private def accumulateDeclines(
+      accumulated: IgnoredIssues,
+      declined: List[IgnoredIssue]
   ): IgnoredIssues =
-    val accounted = (outcome.fixed ++ outcome.ignored.map(_.title)).toSet
-    IgnoredIssues(
-      handed
-        .map(_.title)
-        .distinct
-        .filterNot(accounted.contains)
-        .map(t => IgnoredIssue(t, "fixer reported no fixes"))
-    )
+    val latest = declined.map(i => i.title -> i).toMap
+    val refreshed = accumulated.issues.map(i => latest.getOrElse(i.title, i))
+    val added =
+      declined.filterNot(d => accumulated.issues.exists(_.title == d.title))
+    IgnoredIssues(refreshed ++ added)
 
   /** The clean-round message, honest about what the gate held back. */
   private def doneMessage(droppedCount: Int): String =
@@ -794,17 +801,17 @@ private[review] class ReviewFixLoop[B <: BackendTag](
           orca.display(capExitMessage(maxIterations, ignored))
           accumulated ++ ignored ++ gated
         case LoopStep.NeedsFix =>
-          val outcome = fix(issues)
-          orca.display(
-            s"Fixed ${outcome.fixed.size}, ignored ${outcome.ignored.size}"
-          )
+          val outcome = FixOutcome.reconcile(issues, fix(issues))
+          // `ctx` explicit: the in-scope `fc: FlowControl` is more specific and
+          // would be picked, and its root capability rejected.
+          announceFixTurn(outcome)(using ctx)
           if outcome.fixed.isEmpty then
             orca.display("Fixer reported no fixes; bailing out")
-            accumulated ++ IgnoredIssues(outcome.ignored) ++
-              unaccountedFor(issues, outcome) ++ gated
+            accumulateDeclines(accumulated, outcome.ignored) ++
+              IgnoredIssues(outcome.unaccounted) ++ gated
           else
             loop(
-              accumulated ++ IgnoredIssues(outcome.ignored),
+              accumulateDeclines(accumulated, outcome.ignored),
               iteration + 1,
               round.state,
               outcome.ignored

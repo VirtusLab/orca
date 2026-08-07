@@ -502,6 +502,109 @@ class ReviewAndFixTest extends munit.FunSuite:
     assert(fixPrompt.contains("crit-low"), fixPrompt)
     assert(!fixPrompt.contains("warn-low"), fixPrompt)
 
+  test("the fix prompt carries each issue's description"):
+    // Reviewers are asked for "a longer description with enough context for a
+    // fixer to act"; the display rendering drops it, so the fix prompt has its
+    // own.
+    given FlowControl = control
+    val reviewer = new FakeAgent(
+      name = "loud",
+      outputs = List(
+        ReviewResult(
+          List(
+            ReviewIssue(
+              severity = Severity.Warning,
+              confidence = 0.95,
+              title = Title("leaks a handle"),
+              description = "DESCRIPTION-MARKER: the stream is never closed",
+              location = None,
+              suggestion = None
+            )
+          )
+        )
+      )
+    )
+    val coder = new SeedProbingCoder(
+      existsResult = true,
+      fixOutcome = FixOutcome(Nil, Nil)
+    )
+    val _ = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(reviewer),
+      task = "build the widget",
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      initialDiff = Some("")
+    )
+    val fixPrompt =
+      coder.capturedFixPrompt.getOrElse(fail("the fix turn never ran"))
+    assert(fixPrompt.contains("DESCRIPTION-MARKER"), fixPrompt)
+
+  test("a paraphrased fixer reply records the finding once, not twice"):
+    given FlowControl = control
+    // The echoed title matches no handed issue, so it is dropped from the books
+    // and the finding surfaces once as unaccounted — where before it landed
+    // both as the fixer's ignored entry and as unaccounted.
+    val reviewer = new FakeAgent(
+      name = "loud",
+      outputs = List(ReviewResult(List(issue("real bug", confidence = 0.95))))
+    )
+    val coder = new FakeAgent(
+      name = "coder",
+      outputs = List(
+        FixOutcome(Nil, List(IgnoredIssue(Title("Real bug!"), "not a bug")))
+      )
+    )
+    val result = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(reviewer),
+      task = "build the widget",
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      initialDiff = Some("")
+    )
+    assertEquals(
+      result.issues,
+      List(IgnoredIssue(Title("real bug"), "fixer reported no fixes"))
+    )
+
+  test(
+    "a finding declined in two rounds is recorded once, with the latest reason"
+  ):
+    given FlowControl = control
+    // The reviewer re-reports what the fixer declined, and the fixer declines
+    // it again. That is one finding, so the result carries one entry.
+    val reviewer = new FakeAgent(
+      name = "loud",
+      outputs = List.fill(2)(
+        ReviewResult(
+          List(
+            issue("nit", confidence = 0.95),
+            issue("real bug", confidence = 0.95)
+          )
+        )
+      )
+    )
+    val coder = new FakeAgent(
+      name = "coder",
+      outputs = List(
+        FixOutcome(
+          List(Title("real bug")),
+          List(IgnoredIssue(Title("nit"), "deliberate"))
+        ),
+        FixOutcome(Nil, List(IgnoredIssue(Title("nit"), "still deliberate")))
+      )
+    )
+    val result = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(reviewer),
+      task = "build the widget",
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      initialDiff = Some("")
+    )
+    assertEquals(
+      result.issues.filter(_.title == Title("nit")),
+      List(IgnoredIssue(Title("nit"), "still deliberate"))
+    )
+
   test("runs multiple reviewers and merges their issues"):
     given FlowControl = control
     val issueA = issue("A")

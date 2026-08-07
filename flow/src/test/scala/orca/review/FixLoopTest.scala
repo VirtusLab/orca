@@ -102,6 +102,35 @@ class FixLoopTest extends munit.FunSuite:
     assertEquals(evaluates, 1, "must not re-evaluate when nothing was fixed")
     assertEquals(result.issues, List(IgnoredIssue(Title("x"), "won't fix")))
 
+  test("records what the fixer left unaccounted when it reports no fixes"):
+    given FlowContext = ctx
+    // A malformed or incomplete reply accounts for nothing. The issue is still
+    // open, so it must come back rather than vanish from the result.
+    val result = fixLoop(
+      evaluate = scripted(List(ReviewResult(List(issue("x"))))),
+      fix = _ => FixOutcome(Nil, Nil)
+    )
+    assertEquals(
+      result.issues,
+      List(IgnoredIssue(Title("x"), "fixer reported no fixes"))
+    )
+
+  test("an echoed issue key resolves even when the fixer rewrote the title"):
+    given FlowContext = ctx
+    // Keys are positional and copy exactly, which is what makes the match hold
+    // where a paraphrased title doesn't.
+    var evaluates = 0
+    val result = fixLoop(
+      evaluate = () =>
+        evaluates += 1
+        if evaluates == 1 then ReviewResult(List(issue("x")))
+        else ReviewResult.empty
+      ,
+      fix = _ => FixOutcome(List(Title("I1 sorted out the x problem")), Nil)
+    )
+    assertEquals(evaluates, 2, "a resolved fix must let the loop re-evaluate")
+    assertEquals(result, IgnoredIssues(Nil))
+
   test("caps at maxIterations and marks remaining issues with that reason"):
     given FlowContext = ctx
     // The fixer always claims one fix, so progress is reported every round
