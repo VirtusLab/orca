@@ -220,7 +220,7 @@ private[orca] class ClaudeBackend(
     val mcpConfig = Option
       .when(askUser.isDefined || repoReads.isDefined || githubReads.isDefined):
         writeMcpConfig(askUser.map(_.server), repoReads, githubReads, session)
-    val systemPromptFile = writeSystemPromptIfPresent(
+    val systemPromptFile = writeSystemPrompt(
       config,
       includeAskUserHint = askUser.isDefined,
       includeRepoHint = repoReads.isDefined,
@@ -233,7 +233,7 @@ private[orca] class ClaudeBackend(
     val perTurn: List[AutoCloseable] =
       repoReads.toList ++ githubReads.toList ++
         mcpConfig.map(SubprocessSpawn.deleteFileResource) ++
-        systemPromptFile.map(SubprocessSpawn.deleteFileResource)
+        List(SubprocessSpawn.deleteFileResource(systemPromptFile))
     SubprocessSpawn.open("claude stream-json", askUser.toList ++ perTurn) {
       // `autoApproveAlso` reaches `--allowedTools` only on `Full`; the
       // read-only tiers ignore `autoApprove` entirely, so the name also goes
@@ -249,7 +249,7 @@ private[orca] class ClaudeBackend(
       // `agent.chat()`.
       val args = ClaudeArgs.streamJson(
         effectiveConfig,
-        systemPromptFile,
+        Some(systemPromptFile),
         dispatch = sessions.dispatchFor(session),
         outputSchema,
         mcpConfig = mcpConfig,
@@ -322,20 +322,22 @@ private[orca] class ClaudeBackend(
     * (auto-cleaned on exit) rather than the user's workDir — it's purely an IPC
     * mechanism, read once via `--append-system-prompt-file`.
     */
-  private def writeSystemPromptIfPresent(
+  private def writeSystemPrompt(
       config: AgentConfig,
       includeAskUserHint: Boolean,
       includeRepoHint: Boolean,
       includeGitHubHint: Boolean
-  ): Option[os.Path] =
+  ): os.Path =
     val hints =
       Option.when(includeAskUserHint)(AskUserMcpServer.Hint) ++
         Option.when(includeRepoHint)(RepoMcpServer.Hint) ++
         Option.when(includeGitHubHint)(GitHubMcpServer.Hint)
-    SystemPromptComposer
-      .combine(config, hints.reduceOption(_ + "\n\n" + _))
-      .map: text =>
-        os.temp(prefix = "orca-system-prompt-", suffix = ".md", contents = text)
+    os.temp(
+      prefix = "orca-system-prompt-",
+      suffix = ".md",
+      contents =
+        SystemPromptComposer.combine(config, hints.reduceOption(_ + "\n\n" + _))
+    )
 
 object ClaudeBackend:
 

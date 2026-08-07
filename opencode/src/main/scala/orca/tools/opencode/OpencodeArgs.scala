@@ -55,7 +55,7 @@ private[opencode] object OpencodeArgs:
     MessageBody(
       parts = List(MessagePart("text", prompt)),
       model = config.model.map(toModelRef),
-      system = SystemPromptComposer.combine(config),
+      system = Some(SystemPromptComposer.combine(config)),
       // orca never targets a specific opencode agent profile — omitted so the
       // server's default applies.
       agent = None,

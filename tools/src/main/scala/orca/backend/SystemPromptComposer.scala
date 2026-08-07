@@ -6,8 +6,8 @@ import orca.util.PromptResource
 /** Assembles a backend-agnostic system-prompt body from the configured
   * [[AgentConfig.systemPrompt]], an optional `extraHint` (typically the
   * `ask_user` MCP hint on interactive calls), and the standing
-  * [[RuntimeOwnsGit]] and [[BackgroundWorkAbandonedAtTurnEnd]] rules, joining
-  * non-empty pieces with a blank line.
+  * [[RuntimeOwnsGit]] / [[ReadOnlyTurn]] / [[BackgroundWorkAbandonedAtTurnEnd]]
+  * rules, joining non-empty pieces with a blank line.
   *
   * Each backend delivers the result its own way — claude writes it to a temp
   * file for `--append-system-prompt-file`; codex and gemini have no such flag
@@ -58,27 +58,37 @@ private[orca] object SystemPromptComposer:
       "/orca/backend/prompts/background-work-abandoned-at-turn-end.md"
     )
 
-  /** Always `Some`: a standing rule applies to every turn, so there is nothing
-    * to compose that could come out empty. The `Option` is kept because every
-    * backend's delivery path is written around it — narrowing it would flip
-    * each of their system-prompt flags to unconditional.
+  /** Standing rule appended to every read-only turn (`ReadOnly` and
+    * `NetworkOnly`), which is what makes a `PromptOnly` cell of the
+    * [[orca.agents.Enforcement]] matrix true by construction: on a backend that
+    * encodes no mechanical gate, this text is the restriction. Appended on the
+    * hard-gated backends too — redundant there, but it needs no enforcement
+    * plumbing and stays correct if a cell is later reclassified.
+    *
+    * It forbids state changes without mentioning the network, so a
+    * `NetworkOnly` turn keeps the read-only network access it was given.
     */
+  val ReadOnlyTurn: String =
+    PromptResource.load("/orca/backend/prompts/readonly-turn.md")
+
   def combine(
       config: AgentConfig,
       extraHint: Option[String] = None
-  ): Option[String] = Some(composeAll(config, extraHint))
+  ): String = composeAll(config, extraHint)
 
   private def composeAll(
       config: AgentConfig,
       extraHint: Option[String]
   ): String =
-    // Only the git rule is tool-gated. It is additionally suppressed by
-    // `selfManagedGit`, which says who drives git — a question about the repo,
-    // not about what survives the turn boundary.
-    val gitRule = Option.when(
-      config.tools == ToolSet.Full && !config.selfManagedGit
-    )(RuntimeOwnsGit)
-    List(config.systemPrompt, extraHint, gitRule).flatten
+    // The two tool-gated rules are complementary: `Full` gets the git rule
+    // (unless `selfManagedGit` says the agent drives git itself — a question
+    // about the repo, not about what survives the turn boundary), the read-only
+    // tiers get the read-only rule.
+    val toolRule = config.tools match
+      case ToolSet.Full =>
+        Option.when(!config.selfManagedGit)(RuntimeOwnsGit)
+      case ToolSet.ReadOnly | ToolSet.NetworkOnly => Some(ReadOnlyTurn)
+    List(config.systemPrompt, extraHint, toolRule).flatten
       .appended(BackgroundWorkAbandonedAtTurnEnd)
       .mkString("\n\n")
 
@@ -88,10 +98,11 @@ private[orca] object SystemPromptComposer:
     *
     * Called for every turn of a thread, including resumed ones, so a long
     * codex/gemini chat carries one copy per turn. That is deliberate: the
-    * guidance is about the turn being executed — [[RuntimeOwnsGit]] and
-    * [[BackgroundWorkAbandonedAtTurnEnd]] both describe what happens at THIS
-    * turn's end — and restating it keeps it recent rather than buried at the
-    * top of the thread.
+    * guidance is about the turn being executed — [[RuntimeOwnsGit]],
+    * [[ReadOnlyTurn]] and [[BackgroundWorkAbandonedAtTurnEnd]] all describe
+    * THIS turn — and restating it keeps it recent rather than buried at the top
+    * of the thread. It also means a resumed codex turn, which inherits its
+    * sandbox from the original spawn, still carries the restriction text.
     */
   def foldIntoPrompt(
       config: AgentConfig,

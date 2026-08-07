@@ -137,13 +137,13 @@ private[orca] class PiBackend private[pi] (
     // Write the system prompt file before allocating any resource, so a
     // temp-write failure can't leak the ask-user extension: with nothing
     // allocated yet, there's nothing to tear down.
-    val systemPromptFile = writeSystemPromptIfPresent(config, extraHint)
+    val systemPromptFile = writeSystemPrompt(config, extraHint)
 
     val askUserExtension =
       Option.when(mode.isInteractive)(PiAskUserExtension.allocate())
 
     val resources: List[AutoCloseable] =
-      askUserExtension.toList ++ systemPromptFile.toList
+      askUserExtension.toList ++ List(systemPromptFile)
 
     SubprocessSpawn.open("pi RPC", resources) {
       val resume = sessions.dispatchFor(session) match
@@ -157,7 +157,7 @@ private[orca] class PiBackend private[pi] (
           OrcaDir.ensurePiSessions(workDir) / SessionId.value(session),
         resume = resume,
         config = config,
-        systemPromptFile = systemPromptFile.map(_.file),
+        systemPromptFile = Some(systemPromptFile.file),
         askUserExtension = askUserExtension.map(_.file)
       )
       cli.spawnPiped(args, cwd = workDir, pipeStderr = true)
@@ -174,18 +174,15 @@ private[orca] class PiBackend private[pi] (
       conversation
     }
 
-  private def writeSystemPromptIfPresent(
+  private def writeSystemPrompt(
       config: AgentConfig,
       extraHint: Option[String]
-  ): Option[TempFileResource] =
-    SystemPromptComposer
-      .combine(config, extraHint)
-      .map: text =>
-        val dir =
-          os.temp.dir(prefix = "orca-pi-system-prompt-", deleteOnExit = true)
-        val file = dir / "system-prompt.md"
-        os.write(file, text)
-        TempFileResource(dir, file)
+  ): TempFileResource =
+    val dir =
+      os.temp.dir(prefix = "orca-pi-system-prompt-", deleteOnExit = true)
+    val file = dir / "system-prompt.md"
+    os.write(file, SystemPromptComposer.combine(config, extraHint))
+    TempFileResource(dir, file)
 
   private case class TempFileResource(dir: os.Path, file: os.Path)
       extends AutoCloseable:
