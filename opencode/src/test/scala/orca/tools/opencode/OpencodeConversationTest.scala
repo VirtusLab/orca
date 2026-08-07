@@ -233,6 +233,22 @@ class OpencodeConversationTest extends munit.FunSuite:
     assertEquals(result.usage.outputTokens, 0L)
     assertEquals(result.model, None)
 
+  // `tokens` and `cost` are independent fields on the assistant message, so a
+  // turn can report money without counts — which must still reach the summary.
+  convTest("a completed turn keeps a reported cost when tokens are absent"):
+    val (conv, _) = conversation(
+      List(
+        data(
+          """{"type":"message.updated","properties":{"info":{"role":"assistant","sessionID":"ses_A","cost":0.25,"finish":"stop"}}}"""
+        ),
+        data("""{"type":"session.idle","properties":{"sessionID":"ses_A"}}""")
+      )
+    )
+    conv.events.foreach(_ => ())
+    val result = conv.awaitResult().toOption.get
+    assertEquals(result.usage.cost, Some(BigDecimal("0.25")))
+    assertEquals(result.usage.inputTokens, 0L)
+
   convTest("idle with no assistant message at all fails the turn"):
     val (conv, _) = conversation(
       List(

@@ -1,8 +1,7 @@
 package orca.tools.claude
 
 import orca.agents.{AutoApprove, AgentConfig, Model}
-import orca.events.TurnDebit
-import orca.events.Usage
+import orca.events.{TurnDebit, Usage}
 import orca.testkit.Usages.usage
 import orca.{AgentTurnFailed, OrcaFlowException, OrcaInteractiveCancelled}
 import orca.backend.{

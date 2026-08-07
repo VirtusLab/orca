@@ -155,9 +155,20 @@ private[opencode] class OpencodeConversation(
     settleSuccess(
       wireId = session,
       output = structured.getOrElse(turnState.text.mkString),
-      usage = info.flatMap(usageOf).getOrElse(Usage.empty),
+      usage = settledUsage(info),
       modelId = info.flatMap(_.modelID)
     )
+
+  /** What a COMPLETED turn reports. Unlike [[failedTurnDebit]] there is no
+    * "nothing measured" case to represent: every completed turn owes a
+    * `TokensUsed`, since the cost log keeps one line per turn and the attempt
+    * index counts them. A message that carried no `tokens` settles at zero —
+    * still carrying any cost opencode reported alongside them.
+    */
+  private def settledUsage(info: Option[AssistantInfo]): Usage =
+    info
+      .flatMap(usageOf)
+      .getOrElse(Usage.empty.copy(cost = info.flatMap(_.cost)))
 
   /** The assistant message is refreshed by every `message.updated` frame, so a
     * turn that errors part-way still carries whatever it had spent by then.

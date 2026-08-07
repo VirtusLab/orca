@@ -44,7 +44,14 @@ type PricingTable = Map[Model, ModelPricing]
   *   args,
   *   pricing = PriceList(
   *     Pricing.default.table ++
-  *       Map(Model("my-model") -> ModelPricing(2, 0.2, 10, 2.5)),
+  *       Map(
+  *         Model("my-model") -> ModelPricing(
+  *           inputUsdPerMillion = 2,
+  *           cacheReadUsdPerMillion = 0.2,
+  *           outputUsdPerMillion = 10,
+  *           cacheWriteUsdPerMillion = 2.5
+  *         )
+  *       ),
   *     lastUpdated = LocalDate.now
   *   )
   * ): ...

@@ -2,7 +2,6 @@ package orca.agents
 
 import orca.backend.{AgentBackend, AgentResult}
 import orca.events.{OrcaEvent, OrcaListener, TurnDebit, Usage}
-import orca.agents.TurnAccounting.OnlyTurn
 
 /** Attributes one call's turns — which agent, which model, which role, which
   * session, which attempt — and emits the resulting events.
@@ -49,10 +48,10 @@ private[orca] class TurnAccounting[B <: BackendTag](
     try turn
     catch
       case e: orca.AgentTurnFailed =>
-        failedAfterModelRan(e.debit, OnlyTurn)
+        failedAfterModelRan(e.debit, TurnAccounting.OnlyTurn)
         throw e
       case e: orca.OrcaInteractiveCancelled =>
-        failedAfterModelRan(e.debit, OnlyTurn)
+        failedAfterModelRan(e.debit, TurnAccounting.OnlyTurn)
         throw e
 
   /** Fires once a session's first turn commits (ADR 0021 §8). Call after the
