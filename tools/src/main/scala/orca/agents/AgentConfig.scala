@@ -59,10 +59,8 @@ enum AutoApprove:
   * edits/shell"; for `Full` it is the approval policy itself.
   *
   *   - Hard — mechanically blocked (permission mode, sandbox, tool allowlist).
-  *     On `Full` the gated boundary may sit at a documented SUPERSET of the
-  *     request: claude's `--allowedTools` adds to its default permission mode's
-  *     approvals rather than confining the agent to the names listed, so the
-  *     approved set is those defaults ∪ the `Only` list.
+  *     The gated boundary may sit at a documented SUPERSET of the request; the
+  *     cell's `rationale` says so where it does.
   *   - SandboxApprox — approximated by a coarser sandbox; semantics widened.
   *   - PromptOnly — only the prompt forbids it; the tools can physically do it.
   *     [[orca.backend.SystemPromptComposer.ReadOnlyTurn]] is what puts that

@@ -207,7 +207,6 @@ class DefaultAgentCall[B <: BackendTag, O](
   )(using ai: AgentInput[I]): O =
     val serialized = ai.serialize(input)
     val effective = effectiveConfig(config)
-    announceEnforcementShortfall(effective, session)
     val initialPrompt = prompts.autonomous(
       serialized,
       outputSchema,
@@ -252,6 +251,10 @@ class DefaultAgentCall[B <: BackendTag, O](
       * can drive a corrective re-prompt loop around repeated calls to this.
       */
     def attemptOnce(): O =
+      // Per attempt, not once per call: the first attempt commits the session,
+      // so a corrective re-prompt runs as `Resumed` — which is a different
+      // guarantee on codex.
+      announceEnforcementShortfall(effective, session)
       val promptText = lastFailure match
         case Some(f) =>
           val corrective = prompts.retry(f.response, f.parserError)

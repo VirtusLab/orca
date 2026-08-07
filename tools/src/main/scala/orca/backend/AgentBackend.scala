@@ -125,14 +125,22 @@ trait AgentBackend[B <: BackendTag](
   ): EnforcementCell
 
   /** The cell of a turn that asked for a no-edit tier and did NOT get a
-    * mechanical gate — the FIRST time this backend is asked for that `(tools,
-    * dispatch)`. `None` afterwards, on [[ToolSet.Full]] (which asks for no such
-    * gate), and whenever the answer is `Enforcement.Hard`.
+    * mechanical gate. `None` on [[ToolSet.Full]] (which asks for no such gate),
+    * whenever the answer is `Enforcement.Hard`, and whenever this backend has
+    * already answered the same way for the same tier.
     *
-    * Deduplicated here because every agent handle a flow derives shares this
-    * backend instance, so the caller reports the shortfall once rather than on
-    * every one of a fan-out's turns. Reporting, not refusing: a weaker gate is
-    * a documented property of the backend, and the turn's prompt still carries
+    * Deduplicated on `(tools, cell)` — on what the caller would SAY, so the
+    * other two inputs need no place in the key: a different `autoApprove` or
+    * `dispatch` repeats the notice only when it changes the answer, which is
+    * exactly when it is worth repeating (a codex session resumed read-only
+    * loses its sandbox and says so, having said nothing when it was created).
+    * Deduplicated on this instance because every agent handle a flow derives
+    * from one backend shares it, so a fan-out's twenty turns report once —
+    * though a flow that wires a second backend of the same kind gets its own
+    * notice.
+    *
+    * Reporting, not refusing: a weaker gate is a documented property of the
+    * backend, and the turn's prompt still carries
     * [[SystemPromptComposer.ReadOnlyTurn]].
     */
   final def enforcementShortfall(
@@ -142,11 +150,11 @@ trait AgentBackend[B <: BackendTag](
   ): Option[EnforcementCell] =
     val cell = enforcementCell(tools, autoApprove, dispatch)
     val shortfall = !tools.writeCapable && cell.level != Enforcement.Hard
-    Option.when(shortfall && reportedShortfalls.add((tools, dispatch)))(cell)
+    Option.when(shortfall && reportedShortfalls.add((tools, cell)))(cell)
 
   private val reportedShortfalls =
     java.util.concurrent.ConcurrentHashMap
-      .newKeySet[(ToolSet, TurnDispatch)]()
+      .newKeySet[(ToolSet, EnforcementCell)]()
 
   /** How THIS backend's wire delivers a structured (`resultAs[O]`) payload
     * ([[orca.agents.StructuredOutputMode]]). Prompt assembly

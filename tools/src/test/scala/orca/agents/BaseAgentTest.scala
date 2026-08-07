@@ -177,7 +177,7 @@ class BaseAgentTest extends munit.FunSuite:
   // A caller that asks for a no-edit tier and gets prose has no other signal
   // that the gate isn't mechanical — and a fan-out would repeat the notice per
   // turn, which is why it is deduplicated rather than emitted per run call.
-  test("a read-only tier the backend doesn't gate is reported once per run"):
+  test("a read-only tier the backend doesn't gate is reported once"):
     val seen =
       new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
     val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
@@ -191,9 +191,53 @@ class BaseAgentTest extends munit.FunSuite:
     val _ = tool.run("two")
     assertEquals(
       seen.get().collect { case OrcaEvent.Step(m) => m },
-      List(
-        "Pi does not mechanically enforce ReadOnly on a fresh turn: PromptOnly"
-      )
+      List("Pi does not mechanically enforce ReadOnly: PromptOnly")
+    )
+
+  // Reviewers — the turns this notice exists for — reach the backend through
+  // `resultAs`, which dispatches on its own path rather than through the text
+  // one, so it has to raise the notice itself.
+  test("a read-only structured turn reports the shortfall too"):
+    val seen =
+      new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
+    val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
+    val tool = new StubTool(
+      new UngatedBackend("""{"fixed":[],"ignored":[]}"""),
+      toolConfig = AgentConfig(tools = ToolSet.ReadOnly),
+      listener = listener,
+      prompts = DefaultPrompts
+    )
+    val _ = tool.resultAs[FixOutcome].autonomous.run("fix compile errors")
+    assertEquals(
+      seen.get().collect { case OrcaEvent.Step(m) => m },
+      List("Pi does not mechanically enforce ReadOnly: PromptOnly")
+    )
+
+  // The first attempt commits the session, so the corrective re-prompt runs as
+  // a resumed turn — which on this backend (codex's shape) is where the gate
+  // disappears. Classified once per call instead of once per attempt, the
+  // retry's weaker guarantee would go unreported: the first attempt is `Hard`,
+  // so the single Step below is entirely the second attempt's.
+  test("a corrective retry reports the resumed turn's weaker guarantee"):
+    val seen =
+      new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
+    val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
+    val tool = new StubTool(
+      new GatedOnlyWhenFreshBackend(
+        "not json at all",
+        """{"fixed":[],"ignored":[]}"""
+      ),
+      toolConfig = AgentConfig(
+        tools = ToolSet.ReadOnly,
+        retrySchedule = Schedule.exponentialBackoff(1.milli).maxRetries(1)
+      ),
+      listener = listener,
+      prompts = DefaultPrompts
+    )
+    val _ = tool.resultAs[FixOutcome].autonomous.run("fix compile errors")
+    assertEquals(
+      seen.get().collect { case OrcaEvent.Step(m) => m },
+      List("Pi does not mechanically enforce ReadOnly: PromptOnly")
     )
 
   // The notice answers "I asked for a gate and didn't get one". A `Full` turn
@@ -660,18 +704,6 @@ class BaseAgentTest extends munit.FunSuite:
     * `replies` are answered one per call, so a retried call can be scripted
     * with an output that won't parse followed by one that will.
     */
-  /** Declares that it gates nothing mechanically — the condition
-    * `EnforcementNotice` exists to report.
-    */
-  private class UngatedBackend(replies: String*)
-      extends ScriptedDrainBackend(replies*):
-    override def enforcementCell(
-        tools: ToolSet,
-        autoApprove: AutoApprove,
-        dispatch: TurnDispatch
-    ): EnforcementCell =
-      EnforcementCell(Enforcement.PromptOnly, "the prompt is the whole gate")
-
   private class ScriptedDrainBackend(replies: String*)
       extends AgentBackend[BackendTag.Pi.type]:
     private val remaining = replies.iterator
@@ -728,6 +760,33 @@ class BaseAgentTest extends munit.FunSuite:
         outputSchema: Option[String]
     )(using ox.Ox): Conversation[BackendTag.Pi.type] =
       throw new UnsupportedOperationException
+
+  /** Gates nothing mechanically, whichever way the turn dispatches — the
+    * condition `EnforcementNotice` exists to report.
+    */
+  private class UngatedBackend(replies: String*)
+      extends ScriptedDrainBackend(replies*):
+    override def enforcementCell(
+        tools: ToolSet,
+        autoApprove: AutoApprove,
+        dispatch: TurnDispatch
+    ): EnforcementCell =
+      EnforcementCell(Enforcement.PromptOnly, "the prompt is the whole gate")
+
+  /** codex's shape: a mechanical gate on the spawn, none on the resume. Only a
+    * call that classifies per attempt sees the second answer.
+    */
+  private class GatedOnlyWhenFreshBackend(replies: String*)
+      extends ScriptedDrainBackend(replies*):
+    override def enforcementCell(
+        tools: ToolSet,
+        autoApprove: AutoApprove,
+        dispatch: TurnDispatch
+    ): EnforcementCell = dispatch match
+      case TurnDispatch.Fresh =>
+        EnforcementCell(Enforcement.Hard, "the spawn carries the sandbox flag")
+      case TurnDispatch.Resumed =>
+        EnforcementCell(Enforcement.PromptOnly, "the resume carries no flag")
 
   /** Throws `error` on its first turn and scripts the rest — an attempt that
     * dies before reaching the model, which consumes none of `replies`.

@@ -180,8 +180,9 @@ most easily broken:
   paste the block it prints. Per-cell rationale (why gemini's read-only cells
   are `PromptOnly`, what claude's `Hard` covers, why codex loses its sandbox on
   resume) lives in each backend's `*Args.enforcementCell`. When a turn's tier
-  isn't mechanically enforced, `EnforcementNotice` says so once per run — a
-  `Step` plus a WARN.
+  isn't mechanically enforced, `EnforcementNotice` says so — a `Step` plus a
+  WARN — once per backend instance and answer, so a second backend of the same
+  kind gets its own notice.
 
 - **Conversation events.** The event grammar (turn boundaries, `Option` tool
   names) is specified on `ConversationEvent`'s scaladoc and pinned per backend

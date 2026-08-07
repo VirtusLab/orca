@@ -31,8 +31,10 @@ private[orca] object EnforcementNotice:
     backend
       .enforcementShortfall(config.tools, config.autoApprove, dispatch)
       .foreach: cell =>
+        // The dispatch is left to the rationale: it only ever explains WHY the
+        // level is what it is (codex's resumed turns), which is the WARN's job.
         val summary =
-          s"${backend.tag.wireName} does not mechanically enforce ${config.tools} " +
-            s"on a ${dispatch.toString.toLowerCase} turn: ${cell.level}"
+          s"${backend.tag.wireName} does not mechanically enforce " +
+            s"${config.tools}: ${cell.level}"
         events.onEvent(OrcaEvent.Step(summary))
         log.warn("{} — {}", summary, cell.rationale)
