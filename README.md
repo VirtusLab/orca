@@ -662,12 +662,14 @@ everything the enclosing `stage` has produced since it began, so it is the same
 whether or not the coding agent committed its own work along the way. It is
 re-sampled each round and sent to every reviewer that runs, resumed ones
 included, so each round's reviewers see the fixes made before it. Pass
-`initialDiff = Some(...)` to pin it instead.
+`diff = ReviewDiff.Pinned(...)` to pin it instead: reviewers are then not told a
+base commit, the selector's changed-file list is scraped from the diff text, and
+every later round sends the same text.
 
 A change set past 128 KiB is cut down before it is sent: the reviewer gets as
 many whole files as fit, then a list naming every other changed file with its
 line counts, and reads those files itself. Without that, the largest change sets
-make a request no model can accept. A pinned `initialDiff` is sent as given.
+make a request no model can accept. A pinned diff is sent as given.
 
 `reviewAndFixLoop`'s `reviewerSelection` defaults to `ReviewerSelector.default`,
 which narrows twice: a picker LLM on `reviewAgent`'s cheap tier chooses from the
