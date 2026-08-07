@@ -41,6 +41,18 @@ class PiArgsTest extends munit.FunSuite:
     )
     assert(args.containsSlice(Seq("--tools", "read,grep,find,ls")), args)
 
+  test("a resumed read-only turn re-emits the --tools allowlist"):
+    // What makes pi's enforcement cell the same for Fresh and Resumed: the
+    // allowlist rides alongside --continue rather than being inherited from the
+    // session it resumes.
+    val args = PiArgs.rpc(
+      dir,
+      resume = true,
+      AgentConfig().copy(tools = ToolSet.ReadOnly),
+      None
+    )
+    assert(args.containsSlice(Seq("--tools", "read,grep,find,ls")), args)
+
   test("NetworkOnly adds bash for network access"):
     val args = PiArgs.rpc(
       dir,

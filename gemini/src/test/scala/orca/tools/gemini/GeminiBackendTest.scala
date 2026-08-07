@@ -84,6 +84,23 @@ class GeminiBackendTest extends munit.FunSuite:
       )
       assert(finalPrompt.endsWith("q"), finalPrompt)
 
+  test("a read-only turn's -p prompt carries the read-only rule"):
+    // gemini's read-only cells are `PromptOnly`: this text is the whole
+    // restriction, so it has to reach the wire.
+    val runner = new SpawnStubCliRunner(List(successfulProcess()))
+    withBackend(runner): backend =>
+      val _ = backend.runAutonomous(
+        "q",
+        clientSid,
+        AgentConfig(tools = ToolSet.ReadOnly)
+      )
+      val args = runner.calls.head
+      val finalPrompt = args(args.indexOf("-p") + 1)
+      assert(
+        finalPrompt.contains(SystemPromptComposer.ReadOnlyTurn),
+        finalPrompt
+      )
+
   test("runAutonomous parses session id, assistant content, and usage"):
     val runner = new SpawnStubCliRunner(
       List(successfulProcess("sess-42", "the answer", 100L, 25L))

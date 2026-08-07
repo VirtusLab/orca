@@ -84,6 +84,21 @@ class OpencodeArgsTest extends munit.FunSuite:
       body.system
     )
 
+  test("a read-only turn's system field carries the read-only rule"):
+    // Pins the composer onto the message body: this text is what a `PromptOnly`
+    // enforcement cell means, so a body assembled without it would leave such a
+    // cell restricting nothing.
+    val body = OpencodeArgs.message(
+      AgentConfig().copy(tools = ToolSet.ReadOnly),
+      "hi",
+      None,
+      interactive
+    )
+    assert(
+      body.system.exists(_.contains(SystemPromptComposer.ReadOnlyTurn)),
+      body.system
+    )
+
   test("structured turn sets format=json_schema with the schema verbatim"):
     val body = OpencodeArgs.message(
       AgentConfig(),

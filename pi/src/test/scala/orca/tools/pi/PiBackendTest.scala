@@ -151,6 +151,27 @@ class PiBackendTest extends munit.FunSuite:
       promptText
     )
 
+  test("a read-only turn's system prompt file carries the read-only rule"):
+    // Pins the composer onto the spawn path: this text is what a `PromptOnly`
+    // enforcement cell means, so a spawn path that skipped the composer would
+    // leave such a cell restricting nothing.
+    var promptText: Option[String] = None
+    val runner = new SpawnStubCliRunner(
+      List(successfulProcess()),
+      onSpawn = args => promptText = Some(readSystemPrompt(args))
+    )
+
+    val _ = backendWith(runner).runAutonomous(
+      "q",
+      sid,
+      AgentConfig(tools = ToolSet.ReadOnly)
+    )
+
+    assert(
+      promptText.exists(_.contains(SystemPromptComposer.ReadOnlyTurn)),
+      promptText
+    )
+
   test("interactive read-only config includes ask_user extension and tool"):
     val process = successfulProcess()
     val runner = new SpawnStubCliRunner(List(process))

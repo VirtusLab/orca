@@ -411,6 +411,16 @@ class ClaudeBackendTest extends munit.FunSuite:
     val promptText = readOnlySystemPrompt()
     assert(promptText.exists(_.contains(RepoMcpServer.Hint)), promptText)
 
+  test("a read-only turn's prompt file carries the read-only rule"):
+    // Pins the composer onto the spawn path: this text is what a `PromptOnly`
+    // enforcement cell means, so a spawn path that skipped the composer would
+    // leave such a cell restricting nothing.
+    val promptText = readOnlySystemPrompt()
+    assert(
+      promptText.exists(_.contains(SystemPromptComposer.ReadOnlyTurn)),
+      promptText
+    )
+
   /** The system-prompt file text a `ToolSet.ReadOnly` autonomous turn spawns
     * with.
     */
