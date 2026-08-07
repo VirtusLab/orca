@@ -124,12 +124,7 @@ private[orca] class ClaudeBackend(
     */
   private val git: GitTool = new OsGitTool(workDir)
 
-  override def enforcementCell(
-      tools: ToolSet,
-      autoApprove: AutoApprove,
-      dispatch: TurnDispatch
-  ): EnforcementCell =
-    ClaudeArgs.enforcementCell(tools, autoApprove, dispatch)
+  export ClaudeArgs.enforcementCell
 
   /** `--json-schema` (passed whenever a structured call supplies a schema — see
     * [[runAutonomous]]) makes the CLI inject a StructuredOutput tool whose

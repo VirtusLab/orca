@@ -67,12 +67,7 @@ private[orca] class GeminiBackend(
     */
   val tag: BackendTag.Gemini.type = BackendTag.Gemini
 
-  override def enforcementCell(
-      tools: ToolSet,
-      autoApprove: AutoApprove,
-      dispatch: TurnDispatch
-  ): EnforcementCell =
-    GeminiArgs.enforcementCell(tools, autoApprove, dispatch)
+  export GeminiArgs.enforcementCell
 
   /** The gemini CLI has no output-schema flag (see [[runAutonomous]]) —
     * enforcement is prompt-only and the reply text is the JSON value.

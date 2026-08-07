@@ -60,16 +60,19 @@ class CodexArgsTest extends munit.FunSuite:
       os.pwd
     )
     assert(args.contains("--dangerously-bypass-approvals-and-sandbox"))
-    assert(!args.contains("--full-auto"))
+    assert(!args.containsSlice(Seq("--sandbox", "workspace-write")))
 
-  test("AutoApprove.Only maps to --full-auto"):
+  test("AutoApprove.Only maps to --sandbox workspace-write"):
     val args = CodexArgs.exec(
       "x",
       AgentConfig().copy(autoApprove = AutoApprove.Only(Set("Bash"))),
       None,
       os.pwd
     )
-    assert(args.contains("--full-auto"))
+    assert(
+      args.containsSlice(Seq("--sandbox", "workspace-write")),
+      args.toString
+    )
     assert(!args.contains("--dangerously-bypass-approvals-and-sandbox"))
 
   test(
@@ -90,19 +93,24 @@ class CodexArgsTest extends munit.FunSuite:
     )
     assert(args.containsSlice(Seq("--sandbox", "read-only")), args.toString)
     assert(!args.contains("--dangerously-bypass-approvals-and-sandbox"))
-    assert(!args.contains("--full-auto"))
+    assert(!args.containsSlice(Seq("--sandbox", "workspace-write")))
 
-  test("ToolSet.NetworkOnly uses --full-auto + network override before exec"):
+  test(
+    "ToolSet.NetworkOnly uses --sandbox workspace-write + network override before exec"
+  ):
     // codex has no read-only-with-network sandbox: network needs
-    // workspace-write (via --full-auto), enabled by the global `-c` override
-    // which must precede the `exec` subcommand.
+    // workspace-write, enabled by the global `-c` override which must precede
+    // the `exec` subcommand.
     val args = CodexArgs.exec(
       "x",
       AgentConfig().copy(tools = ToolSet.NetworkOnly),
       None,
       os.pwd
     )
-    assert(args.contains("--full-auto"), args.toString)
+    assert(
+      args.containsSlice(Seq("--sandbox", "workspace-write")),
+      args.toString
+    )
     assert(!args.containsSlice(Seq("--sandbox", "read-only")), args.toString)
     val execIdx = args.indexOf("exec")
     val cIdx = args.indexOf("sandbox_workspace_write.network_access=true")
@@ -162,11 +170,9 @@ class CodexArgsTest extends munit.FunSuite:
     assert(!args.contains("-C"))
     assert(!args.contains("--output-schema"))
 
-  test("execResume omits --sandbox and --full-auto"):
-    // `--sandbox` is a hard regression: `codex exec resume` errors with
-    // "unexpected argument". `--full-auto` is accepted but deprecated as of
-    // codex-cli 0.145.0 (probed 2026-08-07), and omitted for that reason —
-    // the tier travels through `-c sandbox_mode` instead.
+  test("execResume omits --sandbox on every tier"):
+    // A hard regression: `codex exec resume` errors with "unexpected argument"
+    // on `--sandbox`, so the tier travels through `-c sandbox_mode` instead.
     val sid = WireSessionId[BackendTag.Codex.type]("sid")
     val readOnly =
       CodexArgs.execResume(
@@ -181,13 +187,13 @@ class CodexArgsTest extends munit.FunSuite:
         "x",
         AgentConfig().copy(tools = ToolSet.NetworkOnly)
       )
-    assert(!networkOnly.contains("--full-auto"), networkOnly)
+    assert(!networkOnly.contains("--sandbox"), networkOnly)
     val fullOnly = CodexArgs.execResume(
       sid,
       "x",
       AgentConfig().copy(autoApprove = AutoApprove.Only(Set("Bash")))
     )
-    assert(!fullOnly.contains("--full-auto"), fullOnly)
+    assert(!fullOnly.contains("--sandbox"), fullOnly)
 
   test(
     "execResume re-applies the read-only tiers' sandbox before the subcommand"

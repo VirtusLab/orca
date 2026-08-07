@@ -49,7 +49,12 @@ private[claude] object ClaudeArgs:
       modelArgs(config) ++
       systemPromptFileArgs(systemPromptFile) ++
       sessionArgs(dispatch) ++
-      permissionArgs(config, networkTools, mcpTools) ++
+      permissionWiring(
+        config.tools,
+        config.autoApprove,
+        networkTools,
+        mcpTools
+      ).args ++
       jsonSchemaArgs(jsonSchema) ++
       mcpConfigArgs(mcpConfig)
 
@@ -106,13 +111,28 @@ private[claude] object ClaudeArgs:
   private[claude] val ReadOnlyTools: Seq[String] =
     Seq("Read", "Grep", "Glob", "Skill")
 
-  /** Maps [[AgentConfig.tools]] to claude's tool and permission flags.
+  /** The permission flags a tier gets and the guarantee they achieve — one
+    * match builds both, so they cannot drift apart.
+    */
+  private case class PermissionWiring(args: Seq[String], cell: EnforcementCell)
+
+  /** The read-only tiers' cell. Shared because `--tools` confines both the same
+    * way; only the names on the list differ.
+    */
+  private val ReadOnlyTiersCell: EnforcementCell = EnforcementCell(
+    Enforcement.Hard,
+    "`--tools` confines the turn to the read-only names, so the write and shell tools are not on offer"
+  )
+
+  /** Maps [[AgentConfig.tools]] to claude's tool and permission flags, and
+    * classifies how strongly they hold.
     *
     * Both read-only tiers pass `--tools` (see [[ReadOnlyTools]]); `NetworkOnly`
     * appends `networkTools` to it. Both also [[approve]] what they must be able
     * to call: `mcpTools`, plus `networkTools` on `NetworkOnly`. These tiers
     * ignore [[AgentConfig.autoApprove]], so an MCP tool such a turn is meant to
-    * use has to arrive through `mcpTools`.
+    * use has to arrive through `mcpTools`. The grants widen what is on offer
+    * without changing the tier's guarantee, so the cell ignores them.
     *
     * `Full` follows [[AgentConfig.autoApprove]]: `All` → `bypassPermissions`;
     * `Only(_)` → default permission mode plus `--allowedTools`. Unlike
@@ -123,25 +143,53 @@ private[claude] object ClaudeArgs:
     * follow them in the argv — [[streamJson]] emits only flag-value pairs after
     * this, and the prompt goes over stdin.
     */
-  private def permissionArgs(
-      config: AgentConfig,
+  private def permissionWiring(
+      tools: ToolSet,
+      autoApprove: AutoApprove,
       networkTools: Seq[String],
       mcpTools: Seq[String]
-  ): Seq[String] =
-    config.tools match
+  ): PermissionWiring =
+    tools match
       case ToolSet.ReadOnly =>
-        Seq("--tools", ReadOnlyTools.mkString(",")) ++ approve(mcpTools)
+        PermissionWiring(
+          Seq("--tools", ReadOnlyTools.mkString(",")) ++ approve(mcpTools),
+          ReadOnlyTiersCell
+        )
       case ToolSet.NetworkOnly =>
-        Seq("--tools", (ReadOnlyTools ++ networkTools).mkString(",")) ++
-          approve(mcpTools ++ networkTools)
+        PermissionWiring(
+          Seq("--tools", (ReadOnlyTools ++ networkTools).mkString(",")) ++
+            approve(mcpTools ++ networkTools),
+          ReadOnlyTiersCell
+        )
       case ToolSet.Full =>
-        config.autoApprove match
+        autoApprove match
           case AutoApprove.All =>
-            Seq("--permission-mode", "bypassPermissions")
-          // Nothing pre-approved beyond claude's own defaults.
-          case AutoApprove.Only(tools) if tools.isEmpty => Seq.empty
-          case AutoApprove.Only(tools) =>
-            Seq("--allowedTools", tools.toSeq.sorted.mkString(","))
+            PermissionWiring(
+              Seq("--permission-mode", "bypassPermissions"),
+              EnforcementCell(
+                Enforcement.Hard,
+                "`--permission-mode bypassPermissions` approves everything, which is what `All` asks for"
+              )
+            )
+          // Nothing pre-approved beyond claude's own defaults, so no flag at
+          // all — and naming `--allowedTools` in the cell would describe a gate
+          // this arm never builds.
+          case AutoApprove.Only(names) if names.isEmpty =>
+            PermissionWiring(
+              Seq.empty,
+              EnforcementCell(
+                Enforcement.Hard,
+                "no flag: the turn runs in claude's default permission mode, which is the gate and approves nothing beyond its own defaults"
+              )
+            )
+          case AutoApprove.Only(names) =>
+            PermissionWiring(
+              Seq("--allowedTools", names.toSeq.sorted.mkString(",")),
+              EnforcementCell(
+                Enforcement.Hard,
+                "`--allowedTools` is a mechanical gate, but an ADDITIVE one: the auto-approved set is claude's default permission mode ∪ the `Only` list, and everything outside that union is denied. Probed 2026-08-07, claude 2.1.224: with only `Bash(echo *)` allowlisted a `Read` still ran unprompted, so the defaults survive the flag; the defaults seen to auto-approve are workspace reads and read-only `Bash`, while `Write` and mutating `Bash` were denied. The gate is hard; its boundary is a documented superset of the request"
+              )
+            )
 
   /** Whether a tier's `--tools` list withholds `Bash`, and so needs the host to
     * hand back the reads it would otherwise shell out for. Exactly the tiers
@@ -164,42 +212,16 @@ private[claude] object ClaudeArgs:
     else Seq("--allowedTools", tools.mkString(","))
 
   /** How strongly claude enforces each `(tools, autoApprove)` combination — see
-    * [[permissionArgs]] for the flags this classifies.
-    *
-    * Every axis is matched exhaustively rather than answered with a constant,
-    * so a future `ToolSet`/`AutoApprove`/`TurnDispatch` case fails compilation
-    * here.
+    * [[permissionWiring]], which derives this from the same match that builds
+    * the flags. The grant lists are empty here for the same reason the wiring's
+    * cell ignores them.
     */
   def enforcementCell(
       tools: ToolSet,
       autoApprove: AutoApprove,
       dispatch: TurnDispatch
   ): EnforcementCell = dispatch match
-    // Same either way: [[streamJson]] emits `permissionArgs` on `--resume` too.
+    // Same either way: [[streamJson]] emits the permission flags on `--resume`
+    // too. Matched rather than ignored so a new dispatch has to answer here.
     case TurnDispatch.Fresh | TurnDispatch.Resumed =>
-      tools match
-        case ToolSet.ReadOnly | ToolSet.NetworkOnly =>
-          EnforcementCell(
-            Enforcement.Hard,
-            "`--tools` confines the turn to the read-only names, so the write and shell tools are not on offer"
-          )
-        case ToolSet.Full =>
-          autoApprove match
-            case AutoApprove.All =>
-              EnforcementCell(
-                Enforcement.Hard,
-                "`--permission-mode bypassPermissions` approves everything, which is what `All` asks for"
-              )
-            // Split as [[permissionArgs]] splits it: an empty `Only` emits no
-            // flag at all, so naming `--allowedTools` here would describe a
-            // gate that branch never builds.
-            case AutoApprove.Only(names) if names.isEmpty =>
-              EnforcementCell(
-                Enforcement.Hard,
-                "no flag: the turn runs in claude's default permission mode, which is the gate and approves nothing beyond its own defaults"
-              )
-            case AutoApprove.Only(_) =>
-              EnforcementCell(
-                Enforcement.Hard,
-                "`--allowedTools` is a mechanical gate, but an ADDITIVE one: the auto-approved set is claude's default permission mode ∪ the `Only` list, and everything outside that union is denied. Probed 2026-08-07, claude 2.1.224: with only `Bash(echo *)` allowlisted a `Read` still ran unprompted, so the defaults survive the flag; the defaults seen to auto-approve are workspace reads and read-only `Bash`, while `Write` and mutating `Bash` were denied. The gate is hard; its boundary is a documented superset of the request"
-              )
+      permissionWiring(tools, autoApprove, Seq.empty, Seq.empty).cell

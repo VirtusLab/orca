@@ -77,12 +77,7 @@ private[orca] class PiBackend private[pi] (
 
   val tag: BackendTag.Pi.type = BackendTag.Pi
 
-  override def enforcementCell(
-      tools: ToolSet,
-      autoApprove: AutoApprove,
-      dispatch: TurnDispatch
-  ): EnforcementCell =
-    PiArgs.enforcementCell(tools, autoApprove, dispatch)
+  export PiArgs.enforcementCell
 
   /** Pi has no native structured-output / JSON-schema flag (see
     * [[PiConversation]]) — the reply text is the JSON value.

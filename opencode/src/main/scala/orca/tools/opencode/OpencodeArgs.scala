@@ -89,33 +89,75 @@ private[opencode] object OpencodeArgs:
       "task" -> false
     )
 
-  /** Per-turn tool gate: disable the write tools on a read-only turn, and the
-    * `question` tool on an autonomous turn. Returns `None` when nothing is
-    * gated so the body omits `tools` and the server's defaults apply.
+  /** The tool flags a tier's message body carries and the guarantee they
+    * achieve — one match builds both, so they cannot drift apart. The
+    * `question` gate is not here: it follows the conversation mode, not the
+    * tier.
+    */
+  private case class TierWiring(
+      flags: Map[String, Boolean],
+      cell: EnforcementCell
+  )
+
+  /** Maps [[AgentConfig.tools]] to the per-turn tool gate, and classifies how
+    * strongly it holds.
     *
     * `webfetch` reads the network without a shell, which is what separates the
     * two restricted tiers: `ReadOnly` disables it too, `NetworkOnly` leaves it
     * on. Neither tier has `bash`, so a `NetworkOnly` turn can read the web but
     * not run `gh`.
     */
+  private def tierWiring(
+      tools: ToolSet,
+      autoApprove: AutoApprove
+  ): TierWiring =
+    tools match
+      case ToolSet.ReadOnly =>
+        TierWiring(
+          writingToolsOff + ("webfetch" -> false),
+          EnforcementCell(
+            Enforcement.Hard,
+            "the message body disables `write`, `edit`, `bash`, `patch`, `task` and `webfetch` by name, so the server offers none of those six — unlike an allowlist, this stays exact only while opencode ships no further writing or network tool"
+          )
+        )
+      case ToolSet.NetworkOnly =>
+        TierWiring(
+          writingToolsOff,
+          EnforcementCell(
+            Enforcement.Hard,
+            "the message body disables `write`, `edit`, `bash`, `patch` and `task` by name; `webfetch` stays on, so the turn reads the web through it and has no shell to do anything else with"
+          )
+        )
+      case ToolSet.Full =>
+        autoApprove match
+          case AutoApprove.All | AutoApprove.Only(_) =>
+            TierWiring(
+              Map.empty,
+              EnforcementCell(
+                Enforcement.Ignored,
+                "the approval policy is whatever the user's `opencode` server config answers a `permission.asked` with, outside orca's control (ADR 0014 risk)"
+              )
+            )
+
+  /** Per-turn tool gate: the tier's gate from [[tierWiring]], plus the
+    * `question` tool disabled on an autonomous turn. Returns `None` when
+    * nothing is gated so the body omits `tools` and the server's defaults
+    * apply.
+    */
   private def toolFlags(
       config: AgentConfig,
       mode: ConversationMode
   ): Option[Map[String, Boolean]] =
-    val tierGate =
-      config.tools match
-        case ToolSet.ReadOnly    => writingToolsOff + ("webfetch" -> false)
-        case ToolSet.NetworkOnly => writingToolsOff
-        case ToolSet.Full        => Map.empty[String, Boolean]
     val question =
       if mode.isInteractive then Map.empty[String, Boolean]
       else Map("question" -> false)
     // The two key sets are disjoint, so the merge order is irrelevant.
-    val flags = tierGate ++ question
+    val flags = tierWiring(config.tools, config.autoApprove).flags ++ question
     Option.when(flags.nonEmpty)(flags)
 
   /** How strongly opencode enforces each `(tools, autoApprove)` combination —
-    * see [[toolFlags]] for the gate this classifies.
+    * see [[tierWiring]], which derives this from the same match that builds the
+    * gate.
     */
   def enforcementCell(
       tools: ToolSet,
@@ -123,22 +165,6 @@ private[opencode] object OpencodeArgs:
       dispatch: TurnDispatch
   ): EnforcementCell = dispatch match
     // Same either way: the gate rides on [[message]], which every turn sends.
+    // Matched rather than ignored so a new dispatch has to answer here.
     case TurnDispatch.Fresh | TurnDispatch.Resumed =>
-      tools match
-        case ToolSet.ReadOnly =>
-          EnforcementCell(
-            Enforcement.Hard,
-            "the message body disables `write`, `edit`, `bash`, `patch`, `task` and `webfetch` by name, so the server offers none of those six — unlike an allowlist, this stays exact only while opencode ships no further writing or network tool"
-          )
-        case ToolSet.NetworkOnly =>
-          EnforcementCell(
-            Enforcement.Hard,
-            "the message body disables `write`, `edit`, `bash`, `patch` and `task` by name; `webfetch` stays on, so the turn reads the web through it and has no shell to do anything else with"
-          )
-        case ToolSet.Full =>
-          autoApprove match
-            case AutoApprove.All | AutoApprove.Only(_) =>
-              EnforcementCell(
-                Enforcement.Ignored,
-                "the approval policy is whatever the user's `opencode` server config answers a `permission.asked` with, outside orca's control (ADR 0014 risk)"
-              )
+      tierWiring(tools, autoApprove).cell
