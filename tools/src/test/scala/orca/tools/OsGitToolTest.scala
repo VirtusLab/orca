@@ -405,7 +405,7 @@ class OsGitToolTest extends munit.FunSuite:
       git.deleteBranch("main")
       assertEquals(git.currentBranch(), "main")
 
-  test("diffBranchExcludingOrca is empty when only .orca/ differs"):
+  test("branchHasChangesExcludingOrca is false when only .orca/ differs"):
     withRepo: (git, dir) =>
       os.write(dir / "seed.txt", "seed")
       git.commit("seed").orThrow
@@ -414,10 +414,11 @@ class OsGitToolTest extends munit.FunSuite:
       os.makeDir(dir / ".orca")
       os.write(dir / ".orca" / "progress-abc.json", "{}")
       git.commit("orca: progress log").orThrow
-      val diff = git.diffBranchExcludingOrca(startBranch, "feature/orca-only")
-      assert(diff.isBlank, s"expected empty diff, got: $diff")
+      assert(
+        !git.branchHasChangesExcludingOrca(startBranch, "feature/orca-only")
+      )
 
-  test("diffBranchExcludingOrca is non-empty when code changes exist"):
+  test("branchHasChangesExcludingOrca is true when code changes exist"):
     withRepo: (git, dir) =>
       os.write(dir / "seed.txt", "seed")
       git.commit("seed").orThrow
@@ -425,12 +426,7 @@ class OsGitToolTest extends munit.FunSuite:
       git.createBranch("feature/has-code").orThrow
       os.write(dir / "feature.txt", "new feature")
       git.commit("add feature").orThrow
-      val diff = git.diffBranchExcludingOrca(startBranch, "feature/has-code")
-      assert(!diff.isBlank, "expected non-empty diff for code changes")
-      assert(
-        diff.contains("feature.txt"),
-        "diff should mention the changed file"
-      )
+      assert(git.branchHasChangesExcludingOrca(startBranch, "feature/has-code"))
 
   test("reviewChanges includes a new untracked file as a new-file diff"):
     withRepo: (git, dir) =>
@@ -868,3 +864,50 @@ class OsGitToolTest extends munit.FunSuite:
       val out = git.show("HEAD").orThrow
       assert(clue(out.length) < OsGitTool.MaxReadBytes + 100)
       assert(out.endsWith("bytes — narrow the request]"), out.takeRight(80))
+
+  test("reviewChanges cuts an untracked file past the read limit, and says so"):
+    withRepo: (git, dir) =>
+      os.write(dir / "seed.txt", "seed")
+      git.commit("seed").orThrow
+      os.write(
+        dir / "big.txt",
+        ("x" * 99 + "\n") * (OsGitTool.MaxReadBytes / 50)
+      )
+      val diff = git.reviewChanges().diff
+      assert(clue(diff.length) < OsGitTool.MaxReadBytes + 100)
+      assert(diff.endsWith(OsGitTool.CutMarker), diff.takeRight(80))
+
+  test("reviewChanges names the untracked files past the diff budget"):
+    withRepo: (git, dir) =>
+      os.write(dir / "seed.txt", "seed")
+      git.commit("seed").orThrow
+      // Rendered first (git lists paths sorted), and on its own it exhausts the
+      // budget, so the next file is named instead of read.
+      os.write(
+        dir / "a-big.txt",
+        ("x" * 99 + "\n") * (OsGitTool.MaxReadBytes / 50)
+      )
+      os.write(dir / "z-small.txt", "small")
+      val diff = git.reviewChanges().diff
+      assert(
+        diff.contains("# skipped z-small.txt: past the"),
+        diff.takeRight(200)
+      )
+
+  test("reviewChanges names an untracked file git cannot read, and carries on"):
+    // The path was listed as untracked and then became unreadable — deleted by
+    // a background build, or locked down as here. One such path must not abort
+    // the review.
+    withRepo: (git, dir) =>
+      os.write(dir / "seed.txt", "seed")
+      git.commit("seed").orThrow
+      os.write(dir / "locked.txt", "secret")
+      os.perms.set(dir / "locked.txt", "---------")
+      try
+        assume(
+          scala.util.Try(os.read(dir / "locked.txt")).isFailure,
+          "needs a user that file permissions apply to"
+        )
+        val diff = git.reviewChanges().diff
+        assert(diff.contains("# skipped locked.txt: no longer readable"), diff)
+      finally os.perms.set(dir / "locked.txt", "rw-------")
