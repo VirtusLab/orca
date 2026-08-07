@@ -167,50 +167,6 @@ def fixLoop(
 
   loop(IgnoredIssues(Nil), 0)
 
-/** One reviewer's place in the roster, minted positionally when the roster is
-  * built. Keys everything the loop records per reviewer, so two reviewers
-  * wrapping the same base agent — which [[buildReviewers]] produces — stay
-  * distinct.
-  */
-private[review] opaque type ReviewerId = Int
-
-private[review] object ReviewerId:
-  def apply(position: Int): ReviewerId = position
-
-/** An opaque handle to one reviewer in `reviewAndFixLoop`'s configured roster.
-  *
-  * The `private[review]` constructor means a [[ReviewerSelector]] can only
-  * return a subset/permutation of the entries it was handed — a foreign
-  * reviewer is unrepresentable, so the loop needs no runtime roster-membership
-  * defences.
-  */
-final class RosterEntry[B <: BackendTag] private[review] (
-    private[review] val agent: Agent[B],
-    private[review] val id: ReviewerId
-):
-  /** The reviewer's bare slug — its identity, and what the picker LLM is shown
-    * and asked to echo. The `reviewer` cost-attribution role tag is applied
-    * only later, at the loop's emission edge.
-    */
-  def name: String = agent.name
-
-private[review] object RosterEntry:
-  /** Wrap a roster agent, binding its backend tag so the entry's `agent` and
-    * any session paired with it in [[ReviewLoopState.sessions]] share one `B`
-    * by construction.
-    */
-  def wrap(a: Agent[?], id: ReviewerId): RosterEntry[?] =
-    a match
-      case a: Agent[b] => new RosterEntry[b](a, id)
-
-/** One round of reviews, with each reviewer's individual outcome preserved and
-  * kept in configured order, so the loop can decide which reviewers to re-run
-  * next iteration based on which ones found issues.
-  */
-case class ReviewBatch(outcomes: List[(RosterEntry[?], ReviewResult)]):
-  def reviewersWithIssues: List[RosterEntry[?]] =
-    outcomes.collect { case (r, rr) if rr.issues.nonEmpty => r }
-
 /** One reviewer's live [[Chat]], paired with its entry under a single backend
   * tag `B`. The chat bundles the role-tagged agent with its conversation id, so
   * a resume just calls the chat again.
@@ -234,7 +190,7 @@ private case class ReviewLoopState(
     history: List[ReviewBatch],
     sessions: Map[ReviewerId, SessionEntry[?]],
     lintChat: Option[Lint.Summariser],
-    gateRejects: GateLedger
+    gateLedger: GateLedger
 ):
   /** The state to carry into the next round: this round's batch on the history,
     * each reviewer that ran holding its latest session, and every gate reject
@@ -242,18 +198,17 @@ private case class ReviewLoopState(
     */
   def afterRound(
       reviewers: List[RoundContribution],
-      lintGated: Option[GatedIssues],
-      resumableLintChat: Option[Lint.Summariser]
+      lint: Option[LintContribution]
   ): ReviewLoopState =
-    val withLint = lintGated.foldLeft(gateRejects): (ledger, gated) =>
-      ledger.record(GateLedger.Owner.Lint, gated.dropped)
+    val withLint = lint.foldLeft(gateLedger): (ledger, c) =>
+      ledger.record(GateLedger.Owner.Lint, c.gated.dropped)
     ReviewLoopState(
       history = ReviewBatch(reviewers.map(c => (c.entry, c.gated.kept)))
         :: history,
       sessions =
         sessions ++ reviewers.flatMap(c => c.newSession.map(c.entry.id -> _)),
-      lintChat = resumableLintChat,
-      gateRejects = reviewers.foldLeft(withLint): (ledger, c) =>
+      lintChat = lint.flatMap(_.resumableSummariser),
+      gateLedger = reviewers.foldLeft(withLint): (ledger, c) =>
         ledger.record(GateLedger.Owner.Reviewer(c.entry.id), c.gated.dropped)
     )
 
@@ -262,7 +217,7 @@ private object ReviewLoopState:
     history = Nil,
     sessions = Map.empty,
     lintChat = None,
-    gateRejects = GateLedger.empty
+    gateLedger = GateLedger.empty
   )
 
 /** What one reviewer contributed to a round: its gate-split findings and the
@@ -274,6 +229,14 @@ private case class RoundContribution(
     entry: RosterEntry[?],
     gated: GatedIssues,
     newSession: Option[SessionEntry[?]]
+)
+
+/** What the lint gate contributed to a round: its gate-split findings and the
+  * conversation [[lint]] handed back as safe to resume.
+  */
+private case class LintContribution(
+    gated: GatedIssues,
+    resumableSummariser: Option[Lint.Summariser]
 )
 
 /** One agent's findings split on the [[ConfidenceGate]]: `kept` goes to the
@@ -454,19 +417,16 @@ private[review] class ReviewFixLoop[B <: BackendTag](
 ):
   import config.*
 
-  // The roster, wrapped once as keyed handles (see [[RosterEntry]]). This is
-  // the only place a `ReviewerId` is minted.
-  private val roster: List[RosterEntry[?]] =
-    reviewers.zipWithIndex.map((a, i) => RosterEntry.wrap(a, ReviewerId(i)))
-
-  // The loop-constant context `ReviewerSelector.prepare` is handed. `prepare`
-  // runs once, at loop start (see `run`), so this is the change set the
-  // selection is made from — later rounds' edits don't revise it.
+  private val roster: List[RosterEntry[?]] = RosterEntry.roster(reviewers)
   private val taskTitle: Title = Title(task)
-  private val changedFiles: List[String] = diffSource.selectorFiles
+
+  // Displayed for the lint gate's own findings, and the identity its LLM runs
+  // are tagged with.
+  private val lintName: String = "lint"
 
   /** Split one agent's findings on the confidence gate. Rejects are kept, not
-    * discarded: the loop records the final round's in its [[IgnoredIssues]].
+    * discarded: [[ReviewLoopState]]'s [[GateLedger]] holds them, and every exit
+    * reports them in its [[IgnoredIssues]].
     */
   private def applyGate(result: ReviewResult): GatedIssues =
     val (kept, dropped) = result.issues.partition(confidenceGate.admits)
@@ -501,8 +461,8 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     * finding was fixed is handed the answer to the question the round exists to
     * ask, and it still has to open the code either way.
     */
-  private def resumeReview[B <: BackendTag](
-      se: SessionEntry[B],
+  private def resumeReview[R <: BackendTag](
+      se: SessionEntry[R],
       current: DiffSample,
       declined: List[IgnoredIssue]
   ): (ReviewResult, Option[SessionEntry[?]]) =
@@ -524,8 +484,8 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     * `currentDiff` seeds the initial framing, and `declined` carries the
     * fixer's refusals to a reviewer joining after round one.
     */
-  private def firstReview[B <: BackendTag](
-      e: RosterEntry[B],
+  private def firstReview[R <: BackendTag](
+      e: RosterEntry[R],
       currentDiff: String,
       declined: List[IgnoredIssue]
   ): (ReviewResult, Option[SessionEntry[?]]) =
@@ -546,21 +506,13 @@ private[review] class ReviewFixLoop[B <: BackendTag](
         )
     (result, Some(SessionEntry(e, chat, currentDiff)))
 
-  /** One parallel agent's contribution, gate-split. The `Reviewer` variant
-    * carries the roster entry that ran and any new [[SessionEntry]] that needs
-    * folding into the loop state; `Lint` carries its findings plus the
-    * conversation [[lint]] handed back as safe to resume.
+  /** What one fork of the round's fan-out came back with — the same
+    * contribution the loop state folds in, tagged with which kind of agent
+    * produced it.
     */
   private enum AgentOutcome:
-    case Reviewer(
-        entry: RosterEntry[?],
-        gated: GatedIssues,
-        newSession: Option[SessionEntry[?]]
-    )
-    case Lint(
-        gated: GatedIssues,
-        resumable: Option[orca.review.Lint.Summariser]
-    )
+    case Reviewer(contribution: RoundContribution)
+    case Lint(contribution: LintContribution)
 
   /** Run every active reviewer plus the optional lint summariser concurrently,
     * emitting one Step per agent as it finishes. State is a parameter, not a
@@ -569,11 +521,8 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     * implementations must be thread-safe.
     *
     * The diff is sampled once per call so every reviewer in the round sees the
-    * same payload. `declined` is the last fix turn's refusals, delivered to
-    * this round's reviewers. Reviewer outcomes are re-ordered to `active` order
-    * on the way out: the fan-out completes unordered, and downstream output —
-    * the merged issue list, the recorded `IgnoredIssues` — should not depend on
-    * which agent happened to finish first.
+    * same payload. `declined` is every refusal the fixer has made so far,
+    * delivered to this round's reviewers.
     */
   private def runReviewersAndLint(
       active: List[RosterEntry[?]],
@@ -594,7 +543,9 @@ private[review] class ReviewFixLoop[B <: BackendTag](
       () =>
         val (result, newSession) =
           reviewWithSession(e, stored, current, declined)
-        AgentOutcome.Reviewer(e, applyGate(result), newSession)
+        AgentOutcome.Reviewer(
+          RoundContribution(e, applyGate(result), newSession)
+        )
 
     // Resolved outside the fork below so the next state carries the
     // conversation even on a round that short-circuits before any turn; minting
@@ -602,10 +553,9 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     val lintRound: Option[LintRound] = lintGate.map: gate =>
       val summariser = currentState.lintChat.getOrElse:
         // Group lint tokens under the same `reviewer` cost role as the
-        // reviewers, under the bare identity "lint"; the tagged copy stays
-        // local to this loop.
+        // reviewers; the tagged copy stays local to this loop.
         Lint.summariser(
-          gate.agent.withName("lint").withRole(ReviewerPrompts.Role)
+          gate.agent.withName(lintName).withRole(ReviewerPrompts.Role)
         )
       LintRound(gate, summariser)
 
@@ -615,8 +565,10 @@ private[review] class ReviewFixLoop[B <: BackendTag](
           val report =
             lint(r.gate.commands, r.summariser, ReviewLoopPrompts.SummariseLint)
           AgentOutcome.Lint(
-            applyGate(report.result),
-            report.resumableSummariser
+            LintContribution(
+              applyGate(report.result),
+              report.resumableSummariser
+            )
           )
 
     // The explicit type application is CC-forced: it widens both lists' element
@@ -631,38 +583,49 @@ private[review] class ReviewFixLoop[B <: BackendTag](
         CheckedPar.mapParUnordered(tasks.size)(tasks):
           // Display the bare slug — the `reviewer` role tag is a cost-report
           // grouping detail, not part of what the user sees.
-          case AgentOutcome.Reviewer(e, g, _) =>
+          case AgentOutcome.Reviewer(c) =>
             ctx.emit(
               OrcaEvent.Step(
-                formatReviewerOutcome(e.name, g.kept, g.dropped.size)
+                formatReviewerOutcome(
+                  c.entry.name,
+                  c.gated.kept,
+                  c.gated.dropped.size
+                )
               )
             )
-          case AgentOutcome.Lint(g, _) =>
+          case AgentOutcome.Lint(c) =>
             ctx.emit(
               OrcaEvent.Step(
-                formatReviewerOutcome("lint", g.kept, g.dropped.size)
+                formatReviewerOutcome(
+                  lintName,
+                  c.gated.kept,
+                  c.gated.dropped.size
+                )
               )
             )
+      collectRound(active, currentState, outcomes)
 
-      // Back to `active` order — `mapParUnordered` returns completion order.
-      val byId = outcomes
-        .collect:
-          case AgentOutcome.Reviewer(e, g, s) =>
-            e.id -> RoundContribution(e, g, s)
-        .toMap
-      val contributions = active.flatMap(e => byId.get(e.id))
-      val lintOutcome = outcomes.collectFirst:
-        case l: AgentOutcome.Lint => l
-      val nextState = currentState.afterRound(
-        contributions,
-        lintOutcome.map(_.gated),
-        lintOutcome.flatMap(_.resumable)
-      )
-      RoundOutcome(
-        issues = contributions.flatMap(_.gated.kept.issues) ++
-          lintOutcome.toList.flatMap(_.gated.kept.issues),
-        state = nextState
-      )
+  /** Fold the round's completed outcomes into the next state and the issues the
+    * fixer is handed. Reviewer contributions are put back into `active` order:
+    * the fan-out completes unordered, and downstream output — the merged issue
+    * list, the recorded `IgnoredIssues` — should not depend on which agent
+    * happened to finish first.
+    */
+  private def collectRound(
+      active: List[RosterEntry[?]],
+      currentState: ReviewLoopState,
+      outcomes: List[AgentOutcome]
+  ): RoundOutcome =
+    val byId = outcomes.collect { case AgentOutcome.Reviewer(c) =>
+      c.entry.id -> c
+    }.toMap
+    val contributions = active.flatMap(e => byId.get(e.id))
+    val lint = outcomes.collectFirst { case AgentOutcome.Lint(c) => c }
+    RoundOutcome(
+      issues = contributions.flatMap(_.gated.kept.issues) ++
+        lint.toList.flatMap(_.gated.kept.issues),
+      state = currentState.afterRound(contributions, lint)
+    )
 
   /** Run the format commands, in order, in `ctx.workDir`. Exit status ignored —
     * a formatter failure shouldn't abort the review. `mergeErrIntoOut` folds
@@ -721,8 +684,8 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     */
   private def gateRejectsOf(state: ReviewLoopState): List[ReviewIssue] =
     roster.flatMap(e =>
-      state.gateRejects.of(GateLedger.Owner.Reviewer(e.id))
-    ) ++ state.gateRejects.of(GateLedger.Owner.Lint)
+      state.gateLedger.of(GateLedger.Owner.Reviewer(e.id))
+    ) ++ state.gateLedger.of(GateLedger.Owner.Lint)
 
   // Routed through the durable [[FlowSession]] door: a coder whose backend
   // conversation is fresh or lost gets the seed + progress preamble re-applied
@@ -773,7 +736,11 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     // stays a function of its inputs. `ctx`/`ev` passed explicitly for the same
     // given-priority reason as the constructor call in `reviewAndFixLoop`.
     val selectRound: List[ReviewBatch] -> List[RosterEntry[?]] =
-      reviewerSelection.prepare(roster, taskTitle, changedFiles)(using ctx, ev)
+      reviewerSelection.prepare(roster, taskTitle, diffSource.selectorFiles)(
+        using
+        ctx,
+        ev
+      )
     @scala.annotation.tailrec
     def loop(
         accumulated: IgnoredIssues,
@@ -824,23 +791,3 @@ private[review] class ReviewFixLoop[B <: BackendTag](
             val carried = recordIgnored(accumulated, outcome.ignored)
             loop(carried, iteration + 1, round.state, carried.issues)
     loop(IgnoredIssues(Nil), 0, ReviewLoopState.empty, Nil)
-
-private[review] object ReviewLoop:
-  /** Parse a unified diff and return the changed file paths (the `b/` side of
-    * each `+++ b/<path>` header). Filters out `/dev/null` so deletions don't
-    * pollute the list. Order matches first appearance in the diff.
-    *
-    * Only for a caller-pinned `initialDiff`, where the diff text is all there
-    * is. Diff text can't name every changed file: a binary change and a
-    * 100%-similarity rename carry no `+++` header, and for a path with a space
-    * the capture includes git's disambiguating trailing tab. Anything sampling
-    * the working tree uses `GitTool.changedFiles` instead.
-    */
-  def extractChangedFiles(diff: String): List[String] =
-    val pattern = "(?m)^\\+\\+\\+ b/(.+)$".r
-    pattern
-      .findAllMatchIn(diff)
-      .map(_.group(1))
-      .filterNot(_ == "/dev/null")
-      .toList
-      .distinct

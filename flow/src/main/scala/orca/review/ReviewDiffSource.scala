@@ -50,6 +50,28 @@ private[review] object ReviewDiffSource:
     * its files.
     */
   case class Pinned(diff: String) extends ReviewDiffSource:
-    def sample(): DiffSample = DiffSample(diff, selectorFiles)
+    // The diff is constant, so its file list is scraped once rather than per
+    // round.
+    private val pinnedSample: DiffSample =
+      DiffSample(diff, extractChangedFiles(diff))
+
+    def sample(): DiffSample = pinnedSample
     def base: Option[String] = None
-    def selectorFiles: List[String] = ReviewLoop.extractChangedFiles(diff)
+    def selectorFiles: List[String] = pinnedSample.paths
+
+  /** Parse a unified diff and return the changed file paths (the `b/` side of
+    * each `+++ b/<path>` header). Filters out `/dev/null` so deletions don't
+    * pollute the list. Order matches first appearance in the diff.
+    *
+    * Only for [[Pinned]], where the diff text is all there is. Diff text can't
+    * name every changed file: a binary change and a 100%-similarity rename
+    * carry no `+++` header, and for a path with a space the capture includes
+    * git's disambiguating trailing tab. [[Sampled]] asks git instead.
+    */
+  private[review] def extractChangedFiles(diff: String): List[String] =
+    "(?m)^\\+\\+\\+ b/(.+)$".r
+      .findAllMatchIn(diff)
+      .map(_.group(1))
+      .filterNot(_ == "/dev/null")
+      .toList
+      .distinct

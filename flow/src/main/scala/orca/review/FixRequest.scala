@@ -25,7 +25,7 @@ private[review] object FixRequest:
     def serialize(r: FixRequest): String =
       val formatted =
         r.issues.zipWithIndex
-          .map((i, n) => rendered(key(n), i))
+          .map((i, n) => renderIssue(key(n), i))
           .mkString("\n\n")
       // No `stripMargin`: a reviewer's description or suggestion can carry
       // markdown tables and `|`-margin blocks, which it would eat.
@@ -35,19 +35,16 @@ private[review] object FixRequest:
     * display rendering: the fixer needs the description, which the screen form
     * omits.
     */
-  private def rendered(key: String, issue: ReviewIssue): String =
+  private def renderIssue(key: String, issue: ReviewIssue): String =
     // Exhaustive destructure: a new `ReviewIssue` field stops compiling here
     // until this prompt decides what to do with it. `confidence` is left out —
     // the gate has already applied it, and the number would only invite the
     // fixer to re-litigate the finding.
     val ReviewIssue(severity, _, title, description, location, suggestion) =
       issue
-    val where = location.map:
-      case Location(f, Some(l)) => s"    at $f:$l"
-      case Location(f, None)    => s"    at $f"
     val lines = List(
       Some(s"$key [$severity] $title"),
-      where,
+      locationLine(location),
       Option.when(description.nonEmpty)(s"    $description"),
       suggestion.map(s => s"    suggestion: $s")
     )

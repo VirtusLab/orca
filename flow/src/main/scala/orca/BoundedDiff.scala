@@ -159,10 +159,10 @@ private[orca] object BoundedDiff:
     * can read as part of a hunk — `- path` would look like a deleted line of
     * source — and the entries are indented under the sentence introducing them.
     *
-    * `omitted` is never empty where the cut is: the cut always drops the last
-    * file's whole section, [[isShown]] errs towards reporting a file as not
-    * shown, and `changed` is one sample alongside the diff
-    * (`GitTool.reviewChanges`), so it names that file.
+    * `omitted` is never empty when a cut happened. A cut always drops at least
+    * the last file's section; `changed` names that file, being sampled
+    * alongside the diff (`GitTool.reviewChanges`); and [[isShown]] errs towards
+    * calling a file not shown, never the other way.
     */
   private def trailer(omitted: List[ChangedFile], shownChars: Int): String =
     trailerHead(shownChars) +

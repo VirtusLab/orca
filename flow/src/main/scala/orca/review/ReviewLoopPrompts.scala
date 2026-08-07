@@ -9,8 +9,7 @@ import orca.util.PromptResource
   *
   * {{{
   * reviewAndFixLoop(
-  *   coder = claude,
-  *   sessionId = sessionId,
+  *   coderSession = coderSession,
   *   reviewers = allReviewers(claude),
   *   task = title,
   *   fixInstructions = ReviewLoopPrompts.Fix +

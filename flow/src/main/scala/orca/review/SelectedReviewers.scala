@@ -8,7 +8,10 @@ import orca.agents.{Announce, JsonData}
   * reviewer dropped at selection is out of the whole review, and nothing
   * downstream can put it back.
   */
-case class Picked(entries: List[RosterEntry[?]], unresolved: List[String])
+private[review] case class PickedReviewers(
+    entries: List[RosterEntry[?]],
+    unresolved: List[String]
+)
 
 case class SelectedReviewers(names: List[String]) derives JsonData:
   /** Resolve the picker's reply to roster entries by matching the bare slug.
@@ -20,11 +23,11 @@ case class SelectedReviewers(names: List[String]) derives JsonData:
     * is what a cheap picker model actually gets wrong, and slugs never collide
     * case-insensitively.
     */
-  def pick(all: List[RosterEntry[?]]): Picked =
+  private[review] def pick(all: List[RosterEntry[?]]): PickedReviewers =
     def key(name: String): String =
       name.trim.toLowerCase(java.util.Locale.ROOT)
     val wanted = names.map(key).toSet
-    Picked(
+    PickedReviewers(
       entries = all.filter(r => wanted.contains(key(r.name))),
       unresolved = names.filterNot(n => all.exists(r => key(r.name) == key(n)))
     )
