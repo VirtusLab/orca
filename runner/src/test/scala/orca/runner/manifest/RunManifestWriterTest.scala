@@ -208,6 +208,35 @@ class RunManifestWriterTest extends munit.FunSuite:
     assertEquals(oneShot.kind, "oneShot")
     assertEquals(oneShot.sessionName, None)
 
+  test("a later unnamed commit on the same session keeps the durable name"):
+    val workDir = TempDirs.dir()
+    val writer =
+      newWriter(workDir, fixedClock(Instant.parse("2026-07-18T10:00:00Z")))
+    writer.onEvent(
+      OrcaEvent.SessionCommitted(
+        harness = "claude",
+        clientId = "client-1",
+        wireId = Some("wire-1"),
+        sessionName = Some("coder"),
+        agent = "claude",
+        role = None
+      )
+    )
+    writer.onEvent(
+      OrcaEvent.SessionCommitted(
+        harness = "claude",
+        clientId = "client-1",
+        wireId = Some("wire-1"),
+        sessionName = None,
+        agent = "claude",
+        role = None
+      )
+    )
+    val sessions = soleManifest(workDir).sessions
+    assertEquals(sessions.size, 1, "same dedup key must upsert, not append")
+    assertEquals(sessions.head.sessionName, Some("coder"))
+    assertEquals(sessions.head.kind, "durable")
+
   test("finish finalizes outcome and finishedAt"):
     val workDir = TempDirs.dir()
     val writer = newWriter(

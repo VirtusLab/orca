@@ -60,8 +60,8 @@ final class FlowSession[B <: BackendTag] private[orca] (
       */
     val id: SessionId[B],
     /** The name this session was minted under. Carried onto every turn's
-      * `OrcaEvent.SessionCommitted` so the run manifest can name the session
-      * without re-reading the progress log.
+      * `OrcaEvent.SessionCommitted`, which is what names the session in the run
+      * manifest.
       */
     private[orca] val name: String
 ):

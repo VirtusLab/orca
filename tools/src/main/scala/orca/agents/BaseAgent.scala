@@ -124,7 +124,7 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
         case other => events.onEvent(other)
     val session = SessionId.fresh[B]
     backend.announceEnforcementShortfall(effective, session, events)
-    val accounting = turnAccounting(effective, session, None)
+    val accounting = turnAccounting(effective, session, sessionName = None)
     val result = accounting.recording:
       backend.runAutonomous(prompt, session, effective, quietEvents)
     accounting.succeeded(result, TurnAccounting.OnlyTurn)
@@ -148,13 +148,13 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
       sessionName: Option[String]
   ): TurnAccounting[B] =
     new TurnAccounting[B](
-      events,
-      name,
-      role,
-      backend,
-      session,
-      sessionName,
-      effective.model
+      events = events,
+      agentName = name,
+      role = role,
+      backend = backend,
+      session = session,
+      sessionName = sessionName,
+      pinned = effective.model
     )
 
   /** `None` (the caller omitted the per-call `config` arg) falls back to the

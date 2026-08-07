@@ -167,18 +167,8 @@ private[runner] class RunManifestWriterState(
         case _ :: rest =>
           state = state.copy(stageStack = rest)
       if hasCommittedSession then safeWrite()
-    case OrcaEvent
-          .SessionCommitted(
-            harness,
-            clientId,
-            wireId,
-            sessionName,
-            agent,
-            role
-          ) =>
-      state = state.copy(entries =
-        upsertSession(harness, clientId, wireId, sessionName, agent, role)
-      )
+    case e: OrcaEvent.SessionCommitted =>
+      state = state.copy(entries = upsertSession(e))
       if hasCommittedSession then safeWrite()
     case t: OrcaEvent.TokensUsed =>
       if !state.anyTurnRecorded then
@@ -241,34 +231,31 @@ private[runner] class RunManifestWriterState(
 
   /** Upsert-by-dedup-key (mirrors `ProgressStore`'s upsert idiom): the same
     * session re-firing `SessionCommitted` on a later turn (retries, resumed
-    * durable calls) updates `stage`/`lastActiveAt`/`sessionName` in place
-    * (last-write-wins), while `firstSeenAt` is preserved from the first
-    * sighting.
+    * durable calls) updates `stage`/`lastActiveAt` in place (last-write-wins),
+    * while `firstSeenAt` is preserved from the first sighting. `sessionName`
+    * (and the `kind` derived from it) is kept once seen, because a chat turn
+    * continuing the same durable session carries no name.
     */
-  private def upsertSession(
-      harness: String,
-      clientId: String,
-      wireId: Option[String],
-      sessionName: Option[String],
-      agent: String,
-      role: Option[String]
-  ): List[Entry] =
-    val key = OrcaEvent.sessionKey(clientId, wireId)
+  private def upsertSession(event: OrcaEvent.SessionCommitted): List[Entry] =
+    val harness = event.harness
+    val wireId = event.wireId
+    val key = OrcaEvent.sessionKey(event.clientId, wireId)
     val now = clock().toString
     val stage = state.stageStack.headOption
     val existing =
       state.entries.find(e => e.harness == harness && e.dedupKey == key)
+    val name = event.sessionName.orElse(existing.flatMap(_.session.sessionName))
     val session = ManifestSession(
       harness = harness,
       wireId = wireId,
       reason =
         if wireId.isEmpty then Some(s"$harness sessions do not survive the run")
         else None,
-      agent = agent,
-      role = role,
+      agent = event.agent,
+      role = event.role,
       stage = stage,
-      sessionName = sessionName,
-      kind = SessionKind.of(sessionName).wireValue,
+      sessionName = name,
+      kind = SessionKind.of(name).wireValue,
       firstSeenAt = existing.map(_.session.firstSeenAt).getOrElse(now),
       lastActiveAt = now
     )
