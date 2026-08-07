@@ -51,6 +51,7 @@ class LintTest extends munit.FunSuite:
             private[orca] def runWithSession[I](
                 i: I,
                 session: SessionId[BackendTag.ClaudeCode.type],
+                sessionName: Option[String],
                 c: Option[AgentConfig],
                 emitPrompt: Boolean
             )(using

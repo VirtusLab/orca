@@ -32,7 +32,7 @@ object ReviewLoopFixture:
       agent: Agent[BackendTag.ClaudeCode.type],
       id: String = "s"
   ): FlowSession[BackendTag.ClaudeCode.type] =
-    new FlowSession(agent, SessionId[BackendTag.ClaudeCode.type](id))
+    new FlowSession(agent, SessionId[BackendTag.ClaudeCode.type](id), "coder")
 
   /** A [[TestFlowControl]] (a real temp git repo + progress store) wired to
     * `dispatcher`, so the loop's `emit`s reach the suite's listeners and the

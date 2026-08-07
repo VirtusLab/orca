@@ -43,6 +43,9 @@ case class Usage(
   def inputTokens: Long =
     freshInputTokens + cacheReadInputTokens + cacheWriteInputTokens
 
+  /** Whether this turn spent anything a price list could bill. */
+  def spentTokens: Boolean = inputTokens > 0 || outputTokens > 0
+
   /** Combine two usages; `cost` and `apiCalls` are `Some` iff at least one side
     * reports them, so a sum that mixes a reporting backend with a silent one
     * under-counts rather than dropping the half that was measured.
