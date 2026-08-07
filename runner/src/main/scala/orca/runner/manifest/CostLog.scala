@@ -15,14 +15,16 @@ import scala.util.control.NonFatal
 
 /** The persisted projection of [[orca.events.Usage]]'s token axes.
   *
-  * The field names are `Usage`'s, verbatim, and so are the JSON keys: every
-  * axis persisted here has to be traceable to the one it mirrors, or the two
-  * drift and a reader silently reports the wrong money. `RunManifestTest` pins
-  * that correspondence against `Usage`'s own field list, so an axis added there
+  * The field names are `Usage`'s and so are the JSON keys: every axis persisted
+  * here has to be traceable to the one it mirrors, or the two drift and a
+  * reader silently reports the wrong money. `RunManifestTest` pins that
+  * correspondence against `Usage`'s own field list, so an axis added there
   * fails a test instead of silently vanishing from the log.
   *
-  * `apiCalls` is the one axis of `Usage` that isn't here: it lives on
-  * [[CostRecord.Turn]], beside the attribution fields.
+  * `inputTokens` is the one name that isn't a field of `Usage`: it is the TOTAL
+  * prompt, `cacheReadInputTokens` and `cacheWriteInputTokens` INCLUDED, so
+  * adding the three double counts. `apiCalls`, an axis of `Usage`, isn't here
+  * at all: it lives on [[CostRecord.Turn]], beside the attribution fields.
   *
   * Deliberately carries no money, unlike `Usage`: `Usage.cost` is only the
   * portion backends reported, and an unlabelled figure next to a resolved

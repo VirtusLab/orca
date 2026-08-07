@@ -11,11 +11,10 @@ import scala.util.matching.Regex
   *     `cache_read_input_tokens`, OpenAI `cached_input`).
   *   - `cacheWrite` bills tokens written into it (Claude
   *     `cache_creation_input_tokens`). Where a provider prices writes by cache
-  *     lifetime — Anthropic charges 1.25× base input at the five-minute TTL and
-  *     2× at the one-hour one — this is a single rate, because the CLI picks
-  *     the TTL per request and orca never sees which tier a given write used.
-  *     The shipped rates follow the tier the CLI in front of them actually
-  *     requests; set your own accordingly.
+  *     lifetime, this is still a single rate: the CLI picks the TTL per request
+  *     and orca never sees which tier a given write used. The shipped rates
+  *     follow the tier the CLI in front of them actually requests; set your own
+  *     accordingly.
   *   - `output` covers reasoning tokens too — both Anthropic and OpenAI bill
   *     reasoning at the output rate.
   *
@@ -67,9 +66,15 @@ object Pricing:
     */
   private val AliasSuffix: String = "[1m]"
 
-  /** Anthropic's published ratios: cache read 0.10x input, output 5x, cache
-    * write 2x — the one-hour-TTL tier Claude Code requests (see the measured
-    * runs noted on [[default]]).
+  /** An Anthropic row from its input rate alone: they all follow the published
+    * ratios — cache read 0.10× input, output 5×, cache write 2×.
+    *
+    * The 2× is the one-hour-TTL tier. Claude Code requests `ttl: "1h"`, and the
+    * CLI's own usage breakdown confirms it: across measured runs every
+    * cache-creation token landed in `cache_creation.ephemeral_1h_input_tokens`
+    * and none in the 5m bucket. A backend asking for the five-minute TTL
+    * instead (pi's default, unless `PI_CACHE_RETENTION=long`) bills 1.25×, so
+    * override the table for pi-heavy use.
     */
   private def anthropic(inputUsdPerMillion: BigDecimal): ModelPricing =
     ModelPricing(
@@ -160,18 +165,11 @@ object Pricing:
     */
   val default: PriceList = PriceList(
     table = Map(
-      // --- Anthropic ---
-      // Claude reports `total_cost_usd` from the CLI, so these are mostly
-      // safety nets for sessions that didn't surface the field — and the CLI
-      // computes that figure at these same sticker rates. Anthropic's
-      // published introductory Sonnet $2/$10 ends 2026-08-31.
-      // Cache-write rates are the one-hour-TTL tier (2x base input): Claude
-      // Code requests `ttl: "1h"`, and the CLI's own usage breakdown confirms
-      // it — across measured runs every cache-creation token landed in
-      // `cache_creation.ephemeral_1h_input_tokens` and none in the 5m bucket.
-      // A backend that asks for the five-minute TTL instead (pi's default,
-      // unless PI_CACHE_RETENTION=long) bills 1.25x, so override the table for
-      // pi-heavy use.
+      // --- Anthropic --- the argument is the input rate in USD per million;
+      // `anthropic` derives the other three. Claude reports `total_cost_usd`
+      // from the CLI, so these are mostly safety nets for sessions that didn't
+      // surface the field — and the CLI computes that figure at these same
+      // sticker rates.
       Model("claude-fable-5") -> anthropic(10),
       Model("claude-opus-5") -> anthropic(5),
       Model("claude-opus-4-8") -> anthropic(5),
@@ -179,6 +177,8 @@ object Pricing:
       Model("claude-opus-4-6") -> anthropic(5),
       Model("claude-opus-4-5") -> anthropic(5),
       Model("claude-opus-4-1") -> anthropic(15),
+      // Sonnet's sticker input rate. Anthropic's introductory $2/$10 promotion
+      // ends 2026-08-31, after which the standard $3/$15 encoded here applies.
       Model("claude-sonnet-5") -> anthropic(3),
       Model("claude-sonnet-4-6") -> anthropic(3),
       Model("claude-sonnet-4-5") -> anthropic(3),

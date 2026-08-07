@@ -33,24 +33,16 @@ private[orca] class LoggingListener extends OrcaListener:
         "structured result: {}",
         summary.filter(_.nonEmpty).getOrElse(raw)
       )
-    case OrcaEvent.TokensUsed(
-          agent,
-          model,
-          usage,
-          role,
-          attempt,
-          session,
-          cost
-        ) =>
+    case t: OrcaEvent.TokensUsed =>
       log.debug(
         "tokens: agent={} role={} model={} attempt={} session={} cost={} usage={}",
-        agent,
-        role.getOrElse("(none)"),
-        model.map(_.name).getOrElse("(unknown)"),
-        attempt,
-        session.getOrElse("(none)"),
-        cost.fold("(none)")(_.amount.toString),
-        usage
+        t.agent,
+        t.role.getOrElse("(none)"),
+        t.model.map(_.name).getOrElse("(unknown)"),
+        t.attempt,
+        t.session.getOrElse("(none)"),
+        t.cost.fold("(none)")(_.amount.toString),
+        t.usage
       )
     case OrcaEvent.Error(message) => log.error("error: {}", message)
     case OrcaEvent.SessionCommitted(harness, clientId, wireId, agent, role) =>

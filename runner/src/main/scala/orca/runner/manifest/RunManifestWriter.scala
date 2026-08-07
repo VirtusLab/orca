@@ -183,7 +183,7 @@ private[runner] class RunManifestWriterState(
           upsertSession(harness, clientId, wireId, agent, role)
         )
       if hasCommittedSession then safeWrite()
-    case OrcaEvent.TokensUsed(agent, _, usage, role, attempt, session, cost) =>
+    case t: OrcaEvent.TokensUsed =>
       if !state.anyTurnRecorded then
         guarded("cost log header"):
           costLog.append(
@@ -195,14 +195,14 @@ private[runner] class RunManifestWriterState(
         costLog.append(
           CostRecord.Turn(
             at = clock().toString,
-            agent = agent,
-            role = role,
+            agent = t.agent,
+            role = t.role,
             stage = state.stageStack.headOption,
-            attempt = attempt,
-            apiCalls = usage.apiCalls,
-            usage = ManifestUsage.of(usage),
-            cost = cost,
-            session = session
+            attempt = t.attempt,
+            apiCalls = t.usage.apiCalls,
+            usage = ManifestUsage.of(t.usage),
+            cost = t.cost,
+            session = t.session
           )
         )
     case _ => ()

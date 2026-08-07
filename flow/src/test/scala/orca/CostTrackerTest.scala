@@ -51,8 +51,18 @@ class CostTrackerTest extends munit.FunSuite:
   // intentionally distinct so a test can tell which one was applied.
   private val testTable = PriceList(
     table = Map(
-      Model("opus") -> ModelPricing(1, BigDecimal("0.10"), 5, 2),
-      Model("haiku") -> ModelPricing(1, BigDecimal("0.10"), 5, 2)
+      Model("opus") -> ModelPricing(
+        inputUsdPerMillion = 1,
+        cacheReadUsdPerMillion = BigDecimal("0.10"),
+        outputUsdPerMillion = 5,
+        cacheWriteUsdPerMillion = 2
+      ),
+      Model("haiku") -> ModelPricing(
+        inputUsdPerMillion = 1,
+        cacheReadUsdPerMillion = BigDecimal("0.10"),
+        outputUsdPerMillion = 5,
+        cacheWriteUsdPerMillion = 2
+      )
     ),
     lastUpdated = LocalDate.of(2026, 1, 15)
   )
@@ -273,19 +283,33 @@ class CostTrackerTest extends munit.FunSuite:
     // indistinguishable from an unknown model.
     val tracker = new CostTracker(testTable)
     tracker.onEvent(tokens("a", Some("opus[1m]"), usage(1_000_000L, 0L)))
+    assertEquals(tracker.perAgentCost("a").amount, BigDecimal("1.0"))
+
+  test("a dated [1m] spelling still reaches the base row"):
+    // Both bridges have to compose: strip the alias, then bridge the snapshot.
+    val tracker = new CostTracker(testTable)
     tracker.onEvent(
-      tokens("b", Some("opus-20251015[1m]"), usage(1_000_000L, 0L))
+      tokens("a", Some("opus-20251015[1m]"), usage(1_000_000L, 0L))
     )
     assertEquals(tracker.perAgentCost("a").amount, BigDecimal("1.0"))
-    assertEquals(tracker.perAgentCost("b").amount, BigDecimal("1.0"))
 
   test("an explicit [1m] row outprices the alias strip"):
     // The alias strip encodes today's fact that the 1M spelling costs the same;
     // a row saying otherwise is the newer claim and must win.
     val split = PriceList(
       table = Map(
-        Model("opus") -> ModelPricing(1, BigDecimal("0.10"), 5, 2),
-        Model("opus[1m]") -> ModelPricing(2, BigDecimal("0.20"), 10, 4)
+        Model("opus") -> ModelPricing(
+          inputUsdPerMillion = 1,
+          cacheReadUsdPerMillion = BigDecimal("0.10"),
+          outputUsdPerMillion = 5,
+          cacheWriteUsdPerMillion = 2
+        ),
+        Model("opus[1m]") -> ModelPricing(
+          inputUsdPerMillion = 2,
+          cacheReadUsdPerMillion = BigDecimal("0.20"),
+          outputUsdPerMillion = 10,
+          cacheWriteUsdPerMillion = 4
+        )
       ),
       lastUpdated = LocalDate.of(2026, 1, 15)
     )

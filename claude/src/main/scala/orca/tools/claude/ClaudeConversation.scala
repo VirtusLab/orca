@@ -1,6 +1,6 @@
 package orca.tools.claude
 
-import orca.agents.{AutoApprove, BackendTag, AgentConfig}
+import orca.agents.{AutoApprove, BackendTag, AgentConfig, Model}
 import orca.AgentTurnFailed
 import orca.events.TurnDebit
 import orca.backend.{ApprovalDecision, ConversationEvent}
@@ -211,10 +211,14 @@ private[claude] class ClaudeConversation(
       wireId = result.sessionId,
       output = resultBody(result).getOrElse(""),
       usage = withApiCalls(result.usage),
-      // Fall back to the model claude announced in system.init when the
-      // result message omits it.
-      modelId = result.model.orElse(initModel)
+      modelId = turnModel(result)
     )
+
+  /** The turn's model: the one the `result` message reports, falling back to
+    * what claude announced in `system.init`.
+    */
+  private def turnModel(result: InboundMessage.Result): Option[String] =
+    result.model.orElse(initModel)
 
   /** Attaches the turn's API-call count to its usage and clears the tally, so
     * the next turn of a multi-turn conversation counts its own responses.
@@ -274,7 +278,7 @@ private[claude] class ClaudeConversation(
           s"session ${result.sessionId}): $message",
         TurnDebit.Observed(
           withApiCalls(result.usage),
-          result.model.orElse(initModel).map(orca.agents.Model.apply)
+          turnModel(result).map(Model.apply)
         )
       )
     )

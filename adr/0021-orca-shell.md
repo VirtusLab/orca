@@ -687,8 +687,9 @@ resume is global, but the resumed context still references that directory):
 > asserts on `cost.total`, `cost.byRole` and `turns`, so its cost half moves to a
 > `runner` round trip against the cost file rather than being deleted. The
 > criterion is deliberately about `orca.runner.manifest` types and not "cost" in
-> general: `PriceList` stays in `RunManifestWriter.start`'s signature, since the
-> writer resolves each turn's cost.
+> general. (`PriceList` has since left `RunManifestWriter.start`'s signature:
+> each turn's cost is resolved once at the dispatch boundary and arrives on the
+> event, so the writer prices nothing.)
 >
 > **Enabled, not scheduled.** Recording each turn's `model` becomes cheap once
 > the cost file is additive, and there is a concrete question waiting for it: a
