@@ -664,7 +664,8 @@ re-sampled each round and sent to every reviewer that runs, resumed ones
 included, so each round's reviewers see the fixes made before it. Pass
 `diff = ReviewDiff.Pinned(...)` to pin it instead: reviewers are then not told a
 base commit, the selector's changed-file list is scraped from the diff text, and
-every later round sends the same text.
+every later round finds the same text, so a resumed reviewer is told there is no
+new change set.
 
 A change set past 128 KiB is cut down before it is sent: the reviewer gets as
 many whole files as fit, then a list naming every other changed file with its

@@ -514,12 +514,12 @@ private[review] class ReviewFixLoop[B <: BackendTag](
         .autonomous
         .run(
           ReviewLoopPrompts.initialReview(
-            task,
-            currentDiff,
-            confidenceGate,
-            diffSource.diffIntro,
-            diffSource.base,
-            declined
+            task = task,
+            diff = currentDiff,
+            diffIntro = diffSource.diffIntro,
+            gate = confidenceGate,
+            base = diffSource.base,
+            declined = declined
           ),
           emitPrompt = false
         )
