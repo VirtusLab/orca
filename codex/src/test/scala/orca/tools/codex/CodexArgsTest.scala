@@ -162,11 +162,11 @@ class CodexArgsTest extends munit.FunSuite:
     assert(!args.contains("-C"))
     assert(!args.contains("--output-schema"))
 
-  test(
-    "execResume omits --sandbox/--full-auto (exec resume rejects them; inherited)"
-  ):
-    // Regression: `codex exec resume` errors with "unexpected argument
-    // '--sandbox'"; the resumed session inherits its sandbox from creation.
+  test("execResume omits --sandbox and --full-auto"):
+    // `--sandbox` is a hard regression: `codex exec resume` errors with
+    // "unexpected argument". `--full-auto` is accepted but deprecated as of
+    // codex-cli 0.145.0 (probed 2026-08-07), and omitted for that reason —
+    // the tier travels through `-c sandbox_mode` instead.
     val sid = WireSessionId[BackendTag.Codex.type]("sid")
     val readOnly =
       CodexArgs.execResume(
@@ -188,6 +188,37 @@ class CodexArgsTest extends munit.FunSuite:
       AgentConfig().copy(autoApprove = AutoApprove.Only(Set("Bash")))
     )
     assert(!fullOnly.contains("--full-auto"), fullOnly)
+
+  test(
+    "execResume re-applies the read-only tiers' sandbox before the subcommand"
+  ):
+    // A resumed session inherits the sandbox it was created with, so without
+    // this a NetworkOnly-created session resumed ReadOnly (what `Plan.reviewed`
+    // does) would still be write-capable. The `-c` override goes in codex's
+    // global slot, hence before `exec`.
+    val sid = WireSessionId[BackendTag.Codex.type]("sid")
+    val readOnly = CodexArgs.execResume(
+      sid,
+      "x",
+      AgentConfig().copy(tools = ToolSet.ReadOnly)
+    )
+    assert(
+      readOnly.containsSlice(Seq("-c", "sandbox_mode=\"read-only\"")),
+      readOnly
+    )
+    assert(
+      readOnly.indexOf("sandbox_mode=\"read-only\"") < readOnly.indexOf("exec"),
+      readOnly
+    )
+    val networkOnly = CodexArgs.execResume(
+      sid,
+      "x",
+      AgentConfig().copy(tools = ToolSet.NetworkOnly)
+    )
+    assert(
+      networkOnly.containsSlice(Seq("-c", "sandbox_mode=\"workspace-write\"")),
+      networkOnly
+    )
 
   test(
     "execResume keeps --dangerously-bypass-approvals-and-sandbox (Full + All)"

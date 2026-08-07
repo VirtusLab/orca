@@ -1,7 +1,15 @@
 package orca.tools.opencode
 
 import orca.backend.{ConversationMode, SystemPromptComposer}
-import orca.agents.{AgentConfig, AutoApprove, Enforcement, Model, ToolSet}
+import orca.agents.{
+  AgentConfig,
+  AutoApprove,
+  Enforcement,
+  EnforcementCell,
+  Model,
+  ToolSet,
+  TurnDispatch
+}
 import orca.tools.opencode.OpencodeApi.{
   MessageBody,
   MessagePart,
@@ -15,9 +23,8 @@ import orca.util.RawJson
   *
   * Unlike the subprocess backends, almost everything travels in the request
   * body rather than on a CLI flag: model, system prompt, output schema, and the
-  * per-tool gate all live on [[MessageBody]]. `autoApprove` is an
-  * approval-policy concern handled at the permission layer (the
-  * `permission.asked` reply), not encoded here.
+  * per-tool gate all live on [[MessageBody]]. `autoApprove` is not encoded at
+  * all — see [[enforcementCell]].
   */
 private[opencode] object OpencodeArgs:
 
@@ -55,7 +62,7 @@ private[opencode] object OpencodeArgs:
     MessageBody(
       parts = List(MessagePart("text", prompt)),
       model = config.model.map(toModelRef),
-      system = SystemPromptComposer.combine(config),
+      system = Some(SystemPromptComposer.combine(config)),
       // orca never targets a specific opencode agent profile — omitted so the
       // server's default applies.
       agent = None,
@@ -98,16 +105,24 @@ private[opencode] object OpencodeArgs:
 
   /** How strongly opencode enforces each `(tools, autoApprove)` combination —
     * see [[toolFlags]] for the gate this classifies.
-    *
-    *   - `ReadOnly` / `NetworkOnly` → `Hard`: the write tools are disabled on
-    *     the message body, a mechanical no-edit gate.
-    *   - `Full` → `Ignored`: `autoApprove` is never encoded here — the approval
-    *     policy is whatever the user's `opencode` server config says via the
-    *     `permission.asked` reply, outside orca's control (ADR 0014 risk).
     */
-  def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
-    tools match
-      case ToolSet.ReadOnly | ToolSet.NetworkOnly => Enforcement.Hard
-      case ToolSet.Full =>
-        autoApprove match
-          case AutoApprove.All | AutoApprove.Only(_) => Enforcement.Ignored
+  def enforcementCell(
+      tools: ToolSet,
+      autoApprove: AutoApprove,
+      dispatch: TurnDispatch
+  ): EnforcementCell = dispatch match
+    // Same either way: the gate rides on [[message]], which every turn sends.
+    case TurnDispatch.Fresh | TurnDispatch.Resumed =>
+      tools match
+        case ToolSet.ReadOnly | ToolSet.NetworkOnly =>
+          EnforcementCell(
+            Enforcement.Hard,
+            "the message body disables `write`, `edit`, `bash` and `patch` by name, so the server offers none of those four — unlike an allowlist, this stays exact only while opencode ships no fifth writing tool"
+          )
+        case ToolSet.Full =>
+          autoApprove match
+            case AutoApprove.All | AutoApprove.Only(_) =>
+              EnforcementCell(
+                Enforcement.Ignored,
+                "the approval policy is whatever the user's `opencode` server config answers a `permission.asked` with, outside orca's control (ADR 0014 risk)"
+              )

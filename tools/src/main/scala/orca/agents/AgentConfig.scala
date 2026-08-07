@@ -54,23 +54,6 @@ enum AutoApprove:
   case All
   case Only(tools: Set[String])
 
-/** How strongly a backend enforces the restriction a `(ToolSet, AutoApprove)`
-  * combination requests. For the read-only tiers the restriction is "no
-  * edits/shell"; for `Full` it is the approval policy itself.
-  *
-  *   - Hard — mechanically blocked (permission mode, sandbox, tool allowlist).
-  *   - SandboxApprox — approximated by a coarser sandbox; semantics widened.
-  *   - PromptOnly — only the prompt forbids it; the tools can physically do it.
-  *   - Ignored — not encoded at all; behaviour depends on backend/server
-  *     configuration outside orca's control.
-  *
-  * The per-backend mapping is machine-checked in
-  * `runner/.../EnforcementTableTest.scala`; see each backend's
-  * `*Args.enforcement` for the per-cell rationale.
-  */
-enum Enforcement:
-  case Hard, SandboxApprox, PromptOnly, Ignored
-
 /** The set of tools available to the agent — the capability tier on
   * [[AgentConfig.tools]]:
   *
@@ -89,3 +72,18 @@ enum ToolSet:
   case ReadOnly
   case NetworkOnly
   case Full
+
+  /** Whether the tier hands the agent a write primitive at all. `false` is a
+    * caller asking for a no-edit gate; `true` asks for none.
+    */
+  def writeCapable: Boolean = this match
+    case Full                   => true
+    case ReadOnly | NetworkOnly => false
+
+  /** Whether the tier grants the SCOPED, read-only network access a planner
+    * needs — not "has network at all", which `Full` also does through its
+    * shell.
+    */
+  def hasScopedNetwork: Boolean = this match
+    case NetworkOnly     => true
+    case ReadOnly | Full => false

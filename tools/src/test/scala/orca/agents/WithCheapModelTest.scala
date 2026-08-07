@@ -1,5 +1,6 @@
 package orca.agents
 
+import orca.testkit.StubEnforcement
 import orca.backend.{
   Conversation,
   Interaction,
@@ -75,8 +76,12 @@ class WithCheapModelTest extends munit.FunSuite:
     val sessions: SessionSupport[BackendTag.Pi.type] =
       SessionSupport.ephemeral(IdScheme.ClientClaimed)
     val tag: BackendTag.Pi.type = BackendTag.Pi
-    def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
-      Enforcement.Ignored
+    def enforcementCell(
+        tools: ToolSet,
+        autoApprove: AutoApprove,
+        dispatch: TurnDispatch
+    ): EnforcementCell =
+      StubEnforcement.cell
     def structuredOutputMode: StructuredOutputMode =
       StructuredOutputMode.RawText
 

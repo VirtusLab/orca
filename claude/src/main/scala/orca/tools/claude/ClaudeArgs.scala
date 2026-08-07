@@ -6,8 +6,10 @@ import orca.agents.{
   BackendTag,
   AgentConfig,
   Enforcement,
+  EnforcementCell,
   WireSessionId,
-  ToolSet
+  ToolSet,
+  TurnDispatch
 }
 
 /** Maps AgentConfig fields to Claude Code CLI flags. `systemPrompt` is consumed
@@ -142,13 +144,11 @@ private[claude] object ClaudeArgs:
             Seq("--allowedTools", tools.toSeq.sorted.mkString(","))
 
   /** Whether a tier's `--tools` list withholds `Bash`, and so needs the host to
-    * hand back the reads it would otherwise shell out for. Matched exhaustively
-    * so a new `ToolSet` case has to answer the question here rather than
-    * silently defaulting.
+    * hand back the reads it would otherwise shell out for. Exactly the tiers
+    * with no write primitive, since claude's write tools and `Bash` are dropped
+    * by the same allowlist.
     */
-  private[claude] def losesShell(tools: ToolSet): Boolean = tools match
-    case ToolSet.ReadOnly | ToolSet.NetworkOnly => true
-    case ToolSet.Full                           => false
+  private[claude] def losesShell(tools: ToolSet): Boolean = !tools.writeCapable
 
   /** Grants `tools` on a read-only turn. `--tools` only advertises: the turn
     * stays in the default permission mode, where `WebFetch` and MCP tools are
@@ -164,16 +164,42 @@ private[claude] object ClaudeArgs:
     else Seq("--allowedTools", tools.mkString(","))
 
   /** How strongly claude enforces each `(tools, autoApprove)` combination — see
-    * [[permissionArgs]] for the flags this classifies. Every one of them is a
-    * mechanical gate, hence `Hard` throughout.
+    * [[permissionArgs]] for the flags this classifies.
     *
-    * Written as an exhaustive match rather than a bare constant so a future
-    * `ToolSet`/`AutoApprove` case fails compilation here.
+    * Every axis is matched exhaustively rather than answered with a constant,
+    * so a future `ToolSet`/`AutoApprove`/`TurnDispatch` case fails compilation
+    * here.
     */
-  def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
-    tools match
-      case ToolSet.ReadOnly | ToolSet.NetworkOnly => Enforcement.Hard
-      case ToolSet.Full =>
-        autoApprove match
-          case AutoApprove.All     => Enforcement.Hard
-          case AutoApprove.Only(_) => Enforcement.Hard
+  def enforcementCell(
+      tools: ToolSet,
+      autoApprove: AutoApprove,
+      dispatch: TurnDispatch
+  ): EnforcementCell = dispatch match
+    // Same either way: [[streamJson]] emits `permissionArgs` on `--resume` too.
+    case TurnDispatch.Fresh | TurnDispatch.Resumed =>
+      tools match
+        case ToolSet.ReadOnly | ToolSet.NetworkOnly =>
+          EnforcementCell(
+            Enforcement.Hard,
+            "`--tools` confines the turn to the read-only names, so the write and shell tools are not on offer"
+          )
+        case ToolSet.Full =>
+          autoApprove match
+            case AutoApprove.All =>
+              EnforcementCell(
+                Enforcement.Hard,
+                "`--permission-mode bypassPermissions` approves everything, which is what `All` asks for"
+              )
+            // Split as [[permissionArgs]] splits it: an empty `Only` emits no
+            // flag at all, so naming `--allowedTools` here would describe a
+            // gate that branch never builds.
+            case AutoApprove.Only(names) if names.isEmpty =>
+              EnforcementCell(
+                Enforcement.Hard,
+                "no flag: the turn runs in claude's default permission mode, which is the gate and approves nothing beyond its own defaults"
+              )
+            case AutoApprove.Only(_) =>
+              EnforcementCell(
+                Enforcement.Hard,
+                "`--allowedTools` is a mechanical gate, but an ADDITIVE one: the auto-approved set is claude's default permission mode ∪ the `Only` list, and everything outside that union is denied. Probed 2026-08-07, claude 2.1.224: with only `Bash(echo *)` allowlisted a `Read` still ran unprompted, so the defaults survive the flag; the defaults seen to auto-approve are workspace reads and read-only `Bash`, while `Write` and mutating `Bash` were denied. The gate is hard; its boundary is a documented superset of the request"
+              )

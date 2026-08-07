@@ -1,5 +1,6 @@
 package orca.runner
 
+import orca.testkit.StubEnforcement
 import orca.{AgentSet, OrcaArgs, StackSettings, flow, runFlow}
 import orca.agents.{
   AgentConfig,
@@ -9,7 +10,8 @@ import orca.agents.{
   BackendTag,
   ClaudeAgent,
   CodexAgent,
-  Enforcement,
+  EnforcementCell,
+  TurnDispatch,
   AgentCall,
   GeminiAgent,
   JsonData,
@@ -299,8 +301,12 @@ class LeadAgentIdentityTest extends munit.FunSuite:
     val sessions: SessionSupport[BackendTag.Pi.type] =
       SessionSupport.ephemeral(IdScheme.ClientClaimed)
     val tag: BackendTag.Pi.type = BackendTag.Pi
-    def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
-      Enforcement.Ignored
+    def enforcementCell(
+        tools: ToolSet,
+        autoApprove: AutoApprove,
+        dispatch: TurnDispatch
+    ): EnforcementCell =
+      StubEnforcement.cell
     def structuredOutputMode: orca.agents.StructuredOutputMode =
       orca.agents.StructuredOutputMode.RawText
 

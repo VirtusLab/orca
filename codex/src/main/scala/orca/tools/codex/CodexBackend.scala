@@ -5,10 +5,11 @@ import orca.agents.{
   AutoApprove,
   BackendTag,
   AgentConfig,
-  Enforcement,
+  EnforcementCell,
   SessionId,
   StructuredOutputMode,
-  ToolSet
+  ToolSet,
+  TurnDispatch
 }
 import orca.backend.{
   Conversation,
@@ -71,11 +72,12 @@ private[orca] class CodexBackend(
     */
   val tag: BackendTag.Codex.type = BackendTag.Codex
 
-  override def enforcement(
+  override def enforcementCell(
       tools: ToolSet,
-      autoApprove: AutoApprove
-  ): Enforcement =
-    CodexArgs.enforcement(tools, autoApprove)
+      autoApprove: AutoApprove,
+      dispatch: TurnDispatch
+  ): EnforcementCell =
+    CodexArgs.enforcementCell(tools, autoApprove, dispatch)
 
   /** `--output-schema` constrains the FINAL MESSAGE text — the reply text is
     * still the JSON value orca parses; there is no structured-output tool.

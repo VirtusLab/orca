@@ -1,12 +1,14 @@
 package orca.review
 
+import orca.testkit.StubEnforcement
 import orca.agents.{
   AgentConfig,
   AutoApprove,
   BackendTag,
   DefaultAgentCall,
   DefaultPrompts,
-  Enforcement,
+  EnforcementCell,
+  TurnDispatch,
   SessionId,
   StructuredOutputMode,
   ToolSet,
@@ -39,8 +41,12 @@ private class CannedBackend(output: String)
   val sessions: SessionSupport[BackendTag.Pi.type] =
     SessionSupport.ephemeral(IdScheme.ClientClaimed)
   val tag: BackendTag.Pi.type = BackendTag.Pi
-  def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
-    Enforcement.Ignored
+  def enforcementCell(
+      tools: ToolSet,
+      autoApprove: AutoApprove,
+      dispatch: TurnDispatch
+  ): EnforcementCell =
+    StubEnforcement.cell
   def structuredOutputMode: StructuredOutputMode = StructuredOutputMode.RawText
   def runAutonomous(
       prompt: String,

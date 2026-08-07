@@ -7,10 +7,12 @@ import orca.agents.{
   AutoApprove,
   BackendTag,
   AgentConfig,
-  Enforcement,
+  EnforcementCell,
+  EnforcementNotice,
   SessionId,
   StructuredOutputMode,
-  ToolSet
+  ToolSet,
+  TurnDispatch
 }
 
 import ox.Ox
@@ -39,7 +41,13 @@ trait AgentBackend[B <: BackendTag](
       * visible through both — otherwise a handle derived via that builder and
       * leaked past flow-end bypasses the use-after-close guard entirely.
       */
-    private[orca] val closedFlag: AtomicBoolean = new AtomicBoolean(false)
+    private[orca] val closedFlag: AtomicBoolean = new AtomicBoolean(false),
+    /** Which enforcement notices this backend has already given. A SIBLING
+      * backend must be passed the parent's, for the same reason as
+      * [[closedFlag]] above: a fresh log would say everything a second time.
+      */
+    private[orca] val enforcementNotice: EnforcementNotice =
+      new EnforcementNotice
 ):
   /** Run one autonomous turn against `session` and return its result.
     *
@@ -100,21 +108,41 @@ trait AgentBackend[B <: BackendTag](
   def tag: B
 
   /** How strongly THIS backend enforces the restriction a `(tools,
-    * autoApprove)` combination requests — a pure classification of the flags
-    * this backend's `*Args` would build. The mapping differs materially across
-    * backends (a `Full` + `AutoApprove.Only` is a mechanical allowlist on
-    * claude but a whole-sandbox approximation on codex and unencoded on the
-    * rest), so it is surfaced as data. The complete matrix is machine-checked
-    * in `runner/src/test/scala/orca/runner/EnforcementTableTest.scala`; each
-    * backend delegates to its `*Args.enforcement`, where the per-cell rationale
-    * lives.
+    * autoApprove)` combination requests on a `dispatch` turn, and why — a pure
+    * classification of the tier and approval flags this backend's `*Args` would
+    * build, surfaced as data because the answer differs materially across
+    * backends. It does not see what a turn additionally GRANTS on top of the
+    * tier (claude's MCP tool names, pi's ask-user extension), which widens the
+    * tools on offer without changing how the tier itself is enforced.
     *
     * Abstract, not defaulted to `Enforcement.Ignored`, so a new backend cannot
-    * ship without answering this. Real backends implement it and add their rows
-    * to `EnforcementTableTest`; test doubles that never call `enforcement` add
-    * a one-line `Enforcement.Ignored` override.
+    * ship without answering this; the `*Args` implementations match `dispatch`
+    * exhaustively, so it cannot answer for fresh turns only. Real backends
+    * delegate to their `*Args.enforcementCell`; test doubles that aren't
+    * exercising [[announceEnforcementShortfall]] add a one-line `Hard` cell,
+    * the answer that reports nothing.
+    *
+    * @see
+    *   [[orca.agents.Enforcement]] for what the levels mean, and
+    *   `runner/src/test/scala/orca/runner/EnforcementTableTest.scala`, which
+    *   checks the full product and renders AGENTS.md's table from it.
     */
-  def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement
+  def enforcementCell(
+      tools: ToolSet,
+      autoApprove: AutoApprove,
+      dispatch: TurnDispatch
+  ): EnforcementCell
+
+  /** Report, at most once per distinct sentence for this backend, that the turn
+    * about to run against `session` asked for a restriction this backend cannot
+    * apply mechanically. Delegates to [[enforcementNotice]], which owns both
+    * the wording and the "already said" bookkeeping.
+    */
+  private[orca] final def announceEnforcementShortfall(
+      config: AgentConfig,
+      session: SessionId[B],
+      events: OrcaListener
+  ): Unit = enforcementNotice.announceShortfall(this, config, session, events)
 
   /** How THIS backend's wire delivers a structured (`resultAs[O]`) payload
     * ([[orca.agents.StructuredOutputMode]]). Prompt assembly
@@ -122,7 +150,7 @@ trait AgentBackend[B <: BackendTag](
     * misdeclares gets an instruction that contradicts its wire and steers weak
     * models into malformed replies.
     *
-    * Abstract, not defaulted, for the same reason as [[enforcement]]. Real
+    * Abstract, not defaulted, for the same reason as [[enforcementCell]]. Real
     * backends declare what their CLI actually does; test doubles that never
     * assemble prompts add a one-line `RawText` override.
     */

@@ -133,6 +133,11 @@ def minimalReviewers[B <: BackendTag](base: Agent[B]): List[Agent[B]] =
   * and could edit files mid-review. Reads stay available so the agent can
   * verify claims beyond the diff.
   *
+  * How strongly that gate holds is per backend and per turn — AGENTS.md's
+  * enforcement table is the answer. The run says so when it isn't mechanical
+  * (`EnforcementNotice`), and the read-only rule is in every such turn's prompt
+  * either way.
+  *
   * Public so a flow can build agents from a custom [[Reviewer]] list rather
   * than being limited to the [[allReviewers]] / [[minimalReviewers]] presets.
   */

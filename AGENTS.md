@@ -159,28 +159,34 @@ most easily broken:
 
 - **Tool enforcement.** `AgentConfig.tools: ToolSet` (ReadOnly/NetworkOnly/Full)
   and `autoApprove: AutoApprove` (All/Only) request a restriction, but each
-  backend enforces it differently. `AgentBackend.enforcement(tools, autoApprove)`
-  surfaces the actual guarantee as the `Enforcement` enum — **Hard** (mechanically
-  blocked: permission mode / sandbox / allowlist), **SandboxApprox** (a coarser
-  sandbox, semantics widened), **PromptOnly** (only the prompt forbids it), or
-  **Ignored** (not encoded; depends on backend/server config outside orca):
+  backend enforces it differently. `AgentBackend.enforcementCell(tools,
+  autoApprove, dispatch)` answers with the guarantee actually achieved plus the
+  reason — see `Enforcement`'s scaladoc for what the levels mean.
 
-  | tools, approve  | claude | codex         | gemini     | opencode | pi        |
-  |-----------------|--------|---------------|------------|----------|-----------|
-  | ReadOnly, *     | Hard   | Hard          | PromptOnly | Hard     | Hard      |
-  | NetworkOnly, *  | Hard   | PromptOnly    | PromptOnly | Hard     | PromptOnly|
-  | Full, All       | Hard   | Hard          | Hard       | Ignored  | Ignored   |
-  | Full, Only(_)   | Hard   | SandboxApprox | Ignored    | Ignored  | Ignored   |
+  The block below is RENDERED — a fresh-turn table, then the resumed turns that
+  differ — by `runner/src/test/scala/orca/runner/EnforcementTableTest.scala`,
+  which walks the full (backend × ToolSet × AutoApprove × dispatch) product.
+  Don't hand-edit it: when the test fails, paste the block it prints.
 
-  gemini's read-only cells are `PromptOnly` because its `--approval-mode plan`
-  is **unmeasured**, not because it is known weak: no headless `plan` turn has
-  been run against a write attempt, and gemini downgrades `plan` to `default`
-  in untrusted folders, which is where orca runs agents.
+  | tools, approve         | ClaudeCode | Codex         | Opencode | Pi         | Gemini     |
+  |------------------------|------------|---------------|----------|------------|------------|
+  | ReadOnly, *            | Hard       | Hard          | Hard     | Hard       | PromptOnly |
+  | NetworkOnly, *         | Hard       | PromptOnly    | Hard     | PromptOnly | PromptOnly |
+  | Full, All              | Hard       | Hard          | Ignored  | Ignored    | Hard       |
+  | Full, Only(_) / Only() | Hard       | SandboxApprox | Ignored  | Ignored    | Ignored    |
 
-  The matrix is machine-checked in
-  `runner/src/test/scala/orca/runner/EnforcementTableTest.scala` (the source of
-  truth) — keep this table in sync with `EnforcementTableTest`; per-cell
-  rationale lives in each backend's `*Args.enforcement`.
+  A resumed turn is classified the same, except:
+  - Codex, Full, Only(_) / Only(): Ignored, not SandboxApprox
+
+  Per-cell rationale (why gemini's read-only cells are `PromptOnly`, what
+  claude's `Hard` covers, what a resumed codex turn re-applies) lives in each
+  backend's `*Args.enforcementCell`, with the CLI version and date of any probe
+  behind it. When a turn asks for a restriction the backend can't apply
+  mechanically — a read-only tier, or an `AutoApprove.Only` list —
+  `EnforcementNotice` says so in plain words as a `Step`, with the rationale
+  behind it as a WARN. Once per backend and distinct sentence: a second backend
+  of the same kind gets its own notice, and a changed answer (codex's `Full` +
+  `Only` once resumed) gets a new one.
 
 - **Conversation events.** The event grammar (turn boundaries, `Option` tool
   names) is specified on `ConversationEvent`'s scaladoc and pinned per backend

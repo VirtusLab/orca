@@ -1,0 +1,1 @@
+This turn is read-only: do not create, edit, or delete files, and do not run commands that modify state — read, analyse, and report your findings instead.

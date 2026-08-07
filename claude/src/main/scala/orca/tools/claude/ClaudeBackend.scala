@@ -8,10 +8,12 @@ import orca.agents.{
   AutoApprove,
   BackendTag,
   AgentConfig,
-  Enforcement,
+  EnforcementCell,
+  EnforcementNotice,
   SessionId,
   StructuredOutputMode,
   ToolSet,
+  TurnDispatch,
   onWire
 }
 import orca.backend.{
@@ -59,12 +61,17 @@ private[orca] class ClaudeBackend(
       * bare/test construction; the runtime passes the flow's real `workDir`.
       */
     override val workDir: os.Path = os.pwd,
-    /** Threaded into [[AgentBackend]]'s `closedFlag`. Bare construction gets a
-      * fresh flag; [[withNetworkTools]] passes THIS instance's flag so the
-      * sibling shares one latch with its parent — see `AgentBackend` for why.
+    /** Threaded into [[AgentBackend]]'s `closedFlag` and `enforcementNotice`.
+      * Bare construction gets fresh ones; [[withNetworkTools]] passes THIS
+      * instance's, so the sibling shares one close latch and one notice log
+      * with its parent — see `AgentBackend` for why each must be shared.
       */
-    sharedClosedFlag: AtomicBoolean = new AtomicBoolean(false)
-) extends AgentBackend[BackendTag.ClaudeCode.type](sharedClosedFlag):
+    sharedClosedFlag: AtomicBoolean = new AtomicBoolean(false),
+    sharedNotice: EnforcementNotice = new EnforcementNotice
+) extends AgentBackend[BackendTag.ClaudeCode.type](
+      sharedClosedFlag,
+      sharedNotice
+    ):
 
   /** Return a sibling backend that, on [[ToolSet.NetworkOnly]] turns, adds
     * `tools` to the read-only `--tools` allowlist. Lives on the backend, not
@@ -76,15 +83,23 @@ private[orca] class ClaudeBackend(
     * exit 0, no warning. Without this check a flow script carrying the old
     * syntax would keep compiling, keep running, and grant nothing.
     *
-    * Shares `closedFlag` with `this`: the sibling is a genuinely different
-    * `AgentBackend` instance, so without threading the SAME flag through, a
-    * handle derived here and leaked past flow-end would bypass the
-    * use-after-close guard.
+    * Shares `closedFlag` and `enforcementNotice` with `this`: the sibling is a
+    * genuinely different `AgentBackend` instance, so without threading the SAME
+    * values through, a handle derived here and leaked past flow-end would
+    * bypass the use-after-close guard, and every enforcement notice would be
+    * given a second time.
     */
   def withNetworkTools(tools: Seq[String]): ClaudeBackend =
     tools.filterNot(ClaudeBackend.BareToolName.matches) match
       case Nil =>
-        new ClaudeBackend(cli, tools, projectsDir, workDir, closedFlag)
+        new ClaudeBackend(
+          cli,
+          tools,
+          projectsDir,
+          workDir,
+          closedFlag,
+          enforcementNotice
+        )
       case bad =>
         throw new IllegalArgumentException(
           s"withNetworkTools takes bare claude tool names; these are not: " +
@@ -109,11 +124,12 @@ private[orca] class ClaudeBackend(
     */
   private val git: GitTool = new OsGitTool(workDir)
 
-  override def enforcement(
+  override def enforcementCell(
       tools: ToolSet,
-      autoApprove: AutoApprove
-  ): Enforcement =
-    ClaudeArgs.enforcement(tools, autoApprove)
+      autoApprove: AutoApprove,
+      dispatch: TurnDispatch
+  ): EnforcementCell =
+    ClaudeArgs.enforcementCell(tools, autoApprove, dispatch)
 
   /** `--json-schema` (passed whenever a structured call supplies a schema — see
     * [[runAutonomous]]) makes the CLI inject a StructuredOutput tool whose
@@ -215,12 +231,12 @@ private[orca] class ClaudeBackend(
     val repoReads: Option[McpHost] =
       Option.when(ClaudeArgs.losesShell(config.tools))(RepoMcpServer.start(git))
     val githubReads: Option[McpHost] =
-      Option.when(config.tools == ToolSet.NetworkOnly):
+      Option.when(config.tools.hasScopedNetwork):
         GitHubMcpServer.start(new OsGitHubTool(cli, workDir))
     val mcpConfig = Option
       .when(askUser.isDefined || repoReads.isDefined || githubReads.isDefined):
         writeMcpConfig(askUser.map(_.server), repoReads, githubReads, session)
-    val systemPromptFile = writeSystemPromptIfPresent(
+    val systemPromptFile = writeSystemPrompt(
       config,
       includeAskUserHint = askUser.isDefined,
       includeRepoHint = repoReads.isDefined,
@@ -233,7 +249,7 @@ private[orca] class ClaudeBackend(
     val perTurn: List[AutoCloseable] =
       repoReads.toList ++ githubReads.toList ++
         mcpConfig.map(SubprocessSpawn.deleteFileResource) ++
-        systemPromptFile.map(SubprocessSpawn.deleteFileResource)
+        List(SubprocessSpawn.deleteFileResource(systemPromptFile))
     SubprocessSpawn.open("claude stream-json", askUser.toList ++ perTurn) {
       // `autoApproveAlso` reaches `--allowedTools` only on `Full`; the
       // read-only tiers ignore `autoApprove` entirely, so the name also goes
@@ -249,7 +265,7 @@ private[orca] class ClaudeBackend(
       // `agent.chat()`.
       val args = ClaudeArgs.streamJson(
         effectiveConfig,
-        systemPromptFile,
+        Some(systemPromptFile),
         dispatch = sessions.dispatchFor(session),
         outputSchema,
         mcpConfig = mcpConfig,
@@ -322,20 +338,22 @@ private[orca] class ClaudeBackend(
     * (auto-cleaned on exit) rather than the user's workDir — it's purely an IPC
     * mechanism, read once via `--append-system-prompt-file`.
     */
-  private def writeSystemPromptIfPresent(
+  private def writeSystemPrompt(
       config: AgentConfig,
       includeAskUserHint: Boolean,
       includeRepoHint: Boolean,
       includeGitHubHint: Boolean
-  ): Option[os.Path] =
+  ): os.Path =
     val hints =
       Option.when(includeAskUserHint)(AskUserMcpServer.Hint) ++
         Option.when(includeRepoHint)(RepoMcpServer.Hint) ++
         Option.when(includeGitHubHint)(GitHubMcpServer.Hint)
-    SystemPromptComposer
-      .combine(config, hints.reduceOption(_ + "\n\n" + _))
-      .map: text =>
-        os.temp(prefix = "orca-system-prompt-", suffix = ".md", contents = text)
+    os.temp(
+      prefix = "orca-system-prompt-",
+      suffix = ".md",
+      contents =
+        SystemPromptComposer.combine(config, hints.reduceOption(_ + "\n\n" + _))
+    )
 
 object ClaudeBackend:
 

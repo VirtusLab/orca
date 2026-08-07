@@ -1,10 +1,12 @@
 package orca.tools.claude
 
+import orca.testkit.StubEnforcement
 import orca.{AgentTurnFailed, OrcaFlowException, OrcaInteractiveCancelled}
 import orca.agents.{
   AutoApprove,
   BackendTag,
-  Enforcement,
+  EnforcementCell,
+  TurnDispatch,
   JsonData,
   Model,
   AgentConfig,
@@ -70,8 +72,12 @@ class SequencedBackend(
 
   val tag: BackendTag.ClaudeCode.type = BackendTag.ClaudeCode
   val workDir: os.Path = os.pwd
-  def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
-    Enforcement.Ignored
+  def enforcementCell(
+      tools: ToolSet,
+      autoApprove: AutoApprove,
+      dispatch: TurnDispatch
+  ): EnforcementCell =
+    StubEnforcement.cell
   def structuredOutputMode: StructuredOutputMode = mode
 
   def runAutonomous(

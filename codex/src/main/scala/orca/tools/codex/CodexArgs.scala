@@ -7,8 +7,10 @@ import orca.agents.{
   BackendTag,
   AgentConfig,
   Enforcement,
+  EnforcementCell,
   WireSessionId,
-  ToolSet
+  ToolSet,
+  TurnDispatch
 }
 
 /** Maps `AgentConfig` fields to `codex exec` CLI flags. `systemPrompt` is not
@@ -52,10 +54,17 @@ private[codex] object CodexArgs:
     *     validation falls to the prompt template + post-hoc parser; the
     *     retry-with-corrective-prompt loop in `DefaultAgentCall` handles parse
     *     failures.
-    *   - rejects `--sandbox <mode>` and `--full-auto` ("unexpected argument"):
-    *     a resumed session inherits the sandbox it was created with. Only
-    *     `--dangerously-bypass-approvals-and-sandbox` is still accepted, so
-    *     [[resumeSandboxArgs]] keeps that one and drops the rest.
+    *   - rejects `--sandbox <mode>` ("unexpected argument"), which is why the
+    *     tier's sandbox is re-applied through [[resumeSandboxModeArgs]]' `-c`
+    *     override instead. `--full-auto` is accepted but deprecated, and
+    *     omitted for that reason rather than because resume refuses it.
+    *
+    * A resumed session INHERITS the sandbox it was created with — probed
+    * 2026-08-07 against codex-cli 0.145.0: a flagless resume of a `--full-auto`
+    * session wrote a file, while a flagless fresh turn was blocked read-only.
+    * So the tier has to be re-asserted per turn; without that, a session
+    * created `NetworkOnly` and resumed `ReadOnly` (which `Plan.reviewed` does)
+    * would keep workspace write.
     *
     * codex also rejects resuming a session started with `--ephemeral`; the
     * backend never passes `--ephemeral`, so resume always finds a rollout.
@@ -68,6 +77,7 @@ private[codex] object CodexArgs:
   ): Seq[String] =
     Seq("codex") ++
       mcpServerArgs(mcpServerUrl) ++
+      resumeSandboxModeArgs(config) ++
       networkConfigArgs(config) ++
       Seq("exec", "resume", "--json", WireSessionId.value(sessionId)) ++
       resumeSandboxArgs(config) ++
@@ -75,11 +85,28 @@ private[codex] object CodexArgs:
       Seq("--skip-git-repo-check") ++
       Seq(prompt)
 
-  /** Sandbox flags accepted by `exec resume` (a subset of [[sandboxArgs]]).
-    * Only `--dangerously-bypass-approvals-and-sandbox` (Full +
-    * [[AutoApprove.All]]) is accepted, re-asserted each turn to keep approvals
-    * off; the other tiers map to no flag since the resumed session inherits its
-    * sandbox from creation.
+  /** Re-applies the read-only tiers' sandbox on a resumed turn, through the
+    * global `-c` slot `exec resume` does accept — the `--sandbox` flag it
+    * doesn't. Verified to narrow an already-widened session: resuming a
+    * `--full-auto` session with `-c sandbox_mode="read-only"` blocked the write
+    * (probed 2026-08-07, codex-cli 0.145.0).
+    *
+    * `Full` is absent because its two shapes are already handled after the
+    * subcommand — [[AutoApprove.All]] by the bypass flag in
+    * [[resumeSandboxArgs]], and `Only` by neither, matching what a resumed
+    * `Only` turn can be held to.
+    */
+  private def resumeSandboxModeArgs(config: AgentConfig): Seq[String] =
+    // Values are TOML, hence the embedded quotes.
+    config.tools match
+      case ToolSet.ReadOnly    => Seq("-c", "sandbox_mode=\"read-only\"")
+      case ToolSet.NetworkOnly => Seq("-c", "sandbox_mode=\"workspace-write\"")
+      case ToolSet.Full        => Nil
+
+  /** Sandbox flags accepted by `exec resume` AFTER the subcommand (a subset of
+    * [[sandboxArgs]]): only `--dangerously-bypass-approvals-and-sandbox` (Full
+    * + [[AutoApprove.All]]), re-asserted each turn to keep approvals off. The
+    * read-only tiers go through [[resumeSandboxModeArgs]] instead.
     */
   private def resumeSandboxArgs(config: AgentConfig): Seq[String] =
     config.tools match
@@ -123,11 +150,9 @@ private[codex] object CodexArgs:
 
   /** Maps [[AgentConfig.tools]] to codex's sandbox flags (placed after the
     * `exec` subcommand). codex has no per-tool CLI allowlist, so
-    * [[AutoApprove.Only]] is approximated with the coarser `--full-auto`.
-    *
-    * `NetworkOnly` has no read-only-with-network sandbox on codex: network
-    * needs `workspace-write` (via `--full-auto`), which also permits writes, so
-    * its no-edit guarantee is prompt-only.
+    * [[AutoApprove.Only]] is approximated with the coarser `--full-auto`, and
+    * `NetworkOnly` has to take `workspace-write` too — codex has no
+    * read-only-with-network sandbox.
     */
   private def sandboxArgs(config: AgentConfig): Seq[String] =
     config.tools match
@@ -151,20 +176,69 @@ private[codex] object CodexArgs:
       case ToolSet.ReadOnly | ToolSet.Full => Nil
 
   /** How strongly codex enforces each `(tools, autoApprove)` combination — see
-    * [[sandboxArgs]] / [[networkConfigArgs]] for the flags this classifies.
+    * [[sandboxArgs]] / [[networkConfigArgs]] for the flags a fresh turn gets,
+    * and [[resumeSandboxModeArgs]] / [[resumeSandboxArgs]] for a resumed one.
     *
-    *   - `ReadOnly` → `Hard`: `--sandbox read-only` mechanically blocks writes.
-    *   - `NetworkOnly` → `PromptOnly`: no read-only-with-network sandbox, so
-    *     the no-edit guarantee rests only on the planner prompt.
-    *   - `Full` + `AutoApprove.All` → `Hard`: bypass flag approves everything.
-    *   - `Full` + `AutoApprove.Only(_)` → `SandboxApprox`: no per-tool
-    *     allowlist, so `--full-auto` is wider than the requested subset.
+    * codex is the one backend whose answer still depends on the dispatch, and
+    * now in one cell only: the read-only tiers get their sandbox re-applied per
+    * turn, so they answer the same either way, while a resumed `Full` +
+    * [[AutoApprove.Only]] turn keeps whatever sandbox its session was created
+    * with — which this classification cannot know.
     */
-  def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
+  def enforcementCell(
+      tools: ToolSet,
+      autoApprove: AutoApprove,
+      dispatch: TurnDispatch
+  ): EnforcementCell = dispatch match
+    case TurnDispatch.Fresh   => freshCell(tools, autoApprove)
+    case TurnDispatch.Resumed => resumedCell(tools, autoApprove)
+
+  private def freshCell(
+      tools: ToolSet,
+      autoApprove: AutoApprove
+  ): EnforcementCell =
     tools match
-      case ToolSet.ReadOnly    => Enforcement.Hard
-      case ToolSet.NetworkOnly => Enforcement.PromptOnly
+      case ToolSet.ReadOnly =>
+        EnforcementCell(
+          Enforcement.Hard,
+          "the `read-only` sandbox blocks writes, and a resumed turn re-applies it rather than inheriting the session's (probed 2026-08-07, codex-cli 0.145.0)"
+        )
+      case ToolSet.NetworkOnly =>
+        EnforcementCell(
+          Enforcement.PromptOnly,
+          "network needs the `workspace-write` sandbox, which also permits writes, so only the prompt withholds edits"
+        )
       case ToolSet.Full =>
         autoApprove match
-          case AutoApprove.All     => Enforcement.Hard
-          case AutoApprove.Only(_) => Enforcement.SandboxApprox
+          case AutoApprove.All =>
+            EnforcementCell(
+              Enforcement.Hard,
+              "`--dangerously-bypass-approvals-and-sandbox` approves everything, which is what `All` asks for"
+            )
+          case AutoApprove.Only(_) =>
+            EnforcementCell(
+              Enforcement.SandboxApprox,
+              "no per-tool allowlist, so the requested subset becomes `--full-auto`, a whole-sandbox approximation wider than what was asked"
+            )
+
+  private def resumedCell(
+      tools: ToolSet,
+      autoApprove: AutoApprove
+  ): EnforcementCell =
+    tools match
+      // The read-only tiers answer exactly as a fresh turn does, because
+      // `resumeSandboxModeArgs` re-applies the same sandbox.
+      case ToolSet.ReadOnly | ToolSet.NetworkOnly =>
+        freshCell(tools, autoApprove)
+      case ToolSet.Full =>
+        autoApprove match
+          case AutoApprove.All =>
+            EnforcementCell(
+              Enforcement.Hard,
+              "`--dangerously-bypass-approvals-and-sandbox` is re-asserted on every resumed turn, and `exec resume --help` lists it (probed 2026-08-07, codex-cli 0.145.0)"
+            )
+          case AutoApprove.Only(_) =>
+            EnforcementCell(
+              Enforcement.Ignored,
+              "the requested subset has no sandbox of its own to re-apply, so a resumed turn keeps whichever sandbox its session was created with — inheritance confirmed by probing a flagless resume of a `--full-auto` session (2026-08-07, codex-cli 0.145.0)"
+            )

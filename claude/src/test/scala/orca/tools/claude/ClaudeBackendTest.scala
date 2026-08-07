@@ -279,6 +279,18 @@ class ClaudeBackendTest extends munit.FunSuite:
       derived.run("prompt")
     assertEquals(thrown.getMessage, orca.backend.AgentBackend.ClosedMessage)
 
+  test("a withNetworkTools sibling shares the parent's enforcement notices"):
+    // The same rule as the closed latch above, for the other value a sibling
+    // must not get its own copy of: with a fresh log it would repeat every
+    // notice the parent already gave. Pinned structurally rather than by
+    // running a turn — claude's cells are `Hard` throughout, so no claude turn
+    // can make the notice fire at all.
+    val backend = new ClaudeBackend(new SpawnStubCliRunner(Nil))
+    assert(
+      backend.withNetworkTools(Seq("WebFetch")).enforcementNotice eq
+        backend.enforcementNotice
+    )
+
   test("claude declares Tool structured-output mode"):
     // The declaration behind the prompt's delivery instruction: --json-schema
     // (asserted below) makes the CLI inject a StructuredOutput tool, so the

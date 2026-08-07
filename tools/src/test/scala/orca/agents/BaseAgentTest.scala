@@ -1,5 +1,6 @@
 package orca.agents
 
+import orca.testkit.StubEnforcement
 import orca.backend.{
   Conversation,
   ConversationEvent,
@@ -27,6 +28,14 @@ case class MapCarrier(m: Map[String, Int]) derives JsonData
   */
 private case class FixOutcome(fixed: List[String], ignored: List[String])
     derives JsonData
+
+private object BaseAgentTest:
+  /** The `EnforcementNotice` line for an ungated read-only `turn`, spelled out
+    * once so the tests below assert the sentence a user sees, not a fragment.
+    */
+  def noEditNotice(turn: String): String =
+    s"Pi cannot stop a $turn turn from editing files or running commands " +
+      "that change state — only the turn's own prompt asks it not to"
 
 class BaseAgentTest extends munit.FunSuite:
 
@@ -174,6 +183,141 @@ class BaseAgentTest extends munit.FunSuite:
       fallback = "stage: build"
     )
     assertEquals(reply, "Show branch in menu")
+
+  // A caller that asks for a no-edit tier and gets prose has no other signal
+  // that the gate isn't mechanical — and a fan-out would repeat the notice per
+  // turn, which is why it is deduplicated rather than emitted per run call.
+  test("a read-only tier the backend doesn't gate is reported once"):
+    val steps = new StepRecorder
+    val tool = new StubTool(
+      new UngatedBackend("first", "second"),
+      toolConfig = AgentConfig(tools = ToolSet.ReadOnly),
+      listener = steps.listener,
+      prompts = DefaultPrompts
+    )
+    val _ = tool.run("one")
+    val _ = tool.run("two")
+    assertEquals(steps.seen, List(BaseAgentTest.noEditNotice("ReadOnly")))
+
+  // Reviewers — the turns this notice exists for — reach the backend through
+  // `resultAs`, which dispatches on its own path rather than through the text
+  // one, so it has to raise the notice itself.
+  test("a read-only structured turn reports the shortfall too"):
+    val steps = new StepRecorder
+    val tool = new StubTool(
+      new UngatedBackend("""{"fixed":[],"ignored":[]}"""),
+      toolConfig = AgentConfig(tools = ToolSet.NetworkOnly),
+      listener = steps.listener,
+      prompts = DefaultPrompts
+    )
+    val _ = tool.resultAs[FixOutcome].autonomous.run("fix compile errors")
+    assertEquals(steps.seen, List(BaseAgentTest.noEditNotice("NetworkOnly")))
+
+  // The first attempt commits the session, so the corrective re-prompt runs as
+  // a resumed turn — which on this backend (codex's shape) is where the gate
+  // disappears. Classified once per call instead of once per attempt, the
+  // retry's weaker guarantee would go unreported: the first attempt is `Hard`,
+  // so the single Step below is entirely the second attempt's, and says so.
+  test("a corrective retry reports the resumed turn's weaker guarantee"):
+    val steps = new StepRecorder
+    val tool = new StubTool(
+      new WeakerOnResumeBackend(
+        "not json at all",
+        """{"fixed":[],"ignored":[]}"""
+      ),
+      toolConfig = AgentConfig(
+        tools = ToolSet.ReadOnly,
+        retrySchedule = Schedule.exponentialBackoff(1.milli).maxRetries(1)
+      ),
+      listener = steps.listener,
+      prompts = DefaultPrompts
+    )
+    val _ = tool.resultAs[FixOutcome].autonomous.run("fix compile errors")
+    assertEquals(
+      steps.seen,
+      List(BaseAgentTest.noEditNotice("resumed ReadOnly"))
+    )
+
+  // The turn is named "resumed" whenever resuming is what weakened the answer,
+  // not only where the fresh turn was a hard gate: this backend approximates the
+  // `Only` list on the spawn and encodes nothing at all on the resume, and the
+  // second sentence has to say which turn it is about.
+  test("a retry whose approximation is dropped names the resumed turn"):
+    val steps = new StepRecorder
+    val tool = new StubTool(
+      new WeakerOnResumeBackend(
+        "not json at all",
+        """{"fixed":[],"ignored":[]}"""
+      ),
+      toolConfig = AgentConfig(
+        autoApprove = AutoApprove.Only(Set("read")),
+        retrySchedule = Schedule.exponentialBackoff(1.milli).maxRetries(1)
+      ),
+      listener = steps.listener,
+      prompts = DefaultPrompts
+    )
+    val _ = tool.resultAs[FixOutcome].autonomous.run("fix compile errors")
+    assertEquals(
+      steps.seen,
+      List(
+        "Pi cannot hold a Full turn to the tools it was asked to auto-approve" +
+          " — the sandbox it runs in is wider than that",
+        "Pi cannot hold a resumed Full turn to the tools it was asked to" +
+          " auto-approve — nothing orca puts on the wire says so"
+      )
+    )
+
+  // The other axis: `Only` asks the backend to auto-approve just those tools,
+  // and a backend that encodes no such list runs the agent wider than asked
+  // with nothing else saying so.
+  test("a Full turn whose Only list isn't encoded is reported"):
+    val steps = new StepRecorder
+    val tool = new StubTool(
+      new UngatedBackend("only"),
+      toolConfig = AgentConfig(autoApprove = AutoApprove.Only(Set("read"))),
+      listener = steps.listener,
+      prompts = DefaultPrompts
+    )
+    val _ = tool.run("one")
+    assertEquals(
+      steps.seen,
+      List(
+        "Pi cannot hold a Full turn to the tools it was asked to auto-approve" +
+          " — only the turn's own prompt asks it not to"
+      )
+    )
+
+  // The notice answers "I asked for a restriction and didn't get one". A `Full`
+  // turn approving everything asked for none, so the same weak declaration must
+  // stay silent.
+  test("a Full turn approving everything reports no shortfall"):
+    val steps = new StepRecorder
+    val tool = new StubTool(
+      new UngatedBackend("only"),
+      listener = steps.listener,
+      prompts = DefaultPrompts
+    )
+    val _ = tool.run("one")
+    assertEquals(steps.seen, Nil)
+
+  // The log lives on the backend, so two backends of the same kind — a flow
+  // that wires its own second one — each say their piece. Documented on
+  // `AgentBackend`; pinned here because it is a consequence of where the state
+  // sits rather than of anything the notice does.
+  test("a second backend of the same kind gives its own notice"):
+    val steps = new StepRecorder
+    def readOnlyTool = new StubTool(
+      new UngatedBackend("reply"),
+      toolConfig = AgentConfig(tools = ToolSet.ReadOnly),
+      listener = steps.listener,
+      prompts = DefaultPrompts
+    )
+    val _ = readOnlyTool.run("one")
+    val _ = readOnlyTool.run("two")
+    assertEquals(
+      steps.seen,
+      List.fill(2)(BaseAgentTest.noEditNotice("ReadOnly"))
+    )
 
   // A turn that failed after the model ran still spent tokens; the success path
   // is the only other TokensUsed emitter, so without this the failed turn is
@@ -535,8 +679,12 @@ class BaseAgentTest extends munit.FunSuite:
     val sessions: SessionSupport[BackendTag.Pi.type] =
       SessionSupport.ephemeral(IdScheme.ClientClaimed)
     val tag: BackendTag.Pi.type = BackendTag.Pi
-    def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
-      Enforcement.Ignored
+    def enforcementCell(
+        tools: ToolSet,
+        autoApprove: AutoApprove,
+        dispatch: TurnDispatch
+    ): EnforcementCell =
+      StubEnforcement.cell
     def structuredOutputMode: StructuredOutputMode =
       StructuredOutputMode.RawText
 
@@ -564,8 +712,12 @@ class BaseAgentTest extends munit.FunSuite:
     val sessions: SessionSupport[BackendTag.Pi.type] =
       SessionSupport.ephemeral(IdScheme.ClientClaimed)
     val tag: BackendTag.Pi.type = BackendTag.Pi
-    def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
-      Enforcement.Ignored
+    def enforcementCell(
+        tools: ToolSet,
+        autoApprove: AutoApprove,
+        dispatch: TurnDispatch
+    ): EnforcementCell =
+      StubEnforcement.cell
     def structuredOutputMode: StructuredOutputMode =
       StructuredOutputMode.RawText
 
@@ -599,8 +751,12 @@ class BaseAgentTest extends munit.FunSuite:
     val sessions: SessionSupport[BackendTag.Pi.type] =
       SessionSupport.ephemeral(IdScheme.ClientClaimed)
     val tag: BackendTag.Pi.type = BackendTag.Pi
-    def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
-      Enforcement.Ignored
+    def enforcementCell(
+        tools: ToolSet,
+        autoApprove: AutoApprove,
+        dispatch: TurnDispatch
+    ): EnforcementCell =
+      StubEnforcement.cell
     def structuredOutputMode: StructuredOutputMode =
       StructuredOutputMode.RawText
 
@@ -623,8 +779,12 @@ class BaseAgentTest extends munit.FunSuite:
     val sessions: SessionSupport[BackendTag.Pi.type] =
       SessionSupport.ephemeral(IdScheme.ClientClaimed)
     val tag: BackendTag.Pi.type = BackendTag.Pi
-    def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
-      Enforcement.Ignored
+    def enforcementCell(
+        tools: ToolSet,
+        autoApprove: AutoApprove,
+        dispatch: TurnDispatch
+    ): EnforcementCell =
+      StubEnforcement.cell
     def structuredOutputMode: StructuredOutputMode =
       StructuredOutputMode.RawText
     def runAutonomous(
@@ -669,6 +829,65 @@ class BaseAgentTest extends munit.FunSuite:
     )(using ox.Ox): Conversation[BackendTag.Pi.type] =
       throw new UnsupportedOperationException
 
+  /** Collects the `Step` lines a run showed, in order — the notice's
+    * user-facing channel.
+    */
+  private class StepRecorder:
+    private val steps =
+      new java.util.concurrent.atomic.AtomicReference[List[String]](Nil)
+    val listener: OrcaListener = event =>
+      event match
+        case OrcaEvent.Step(message) =>
+          val _ = steps.updateAndGet(message :: _)
+        case _ => ()
+    def seen: List[String] = steps.get().reverse
+
+  /** Gates nothing mechanically, whichever way the turn dispatches — the
+    * condition `EnforcementNotice` exists to report.
+    */
+  private class UngatedBackend(replies: String*)
+      extends ScriptedDrainBackend(replies*):
+    override def enforcementCell(
+        tools: ToolSet,
+        autoApprove: AutoApprove,
+        dispatch: TurnDispatch
+    ): EnforcementCell =
+      EnforcementCell(Enforcement.PromptOnly, "the prompt is the whole gate")
+
+  /** codex's shape: the sandbox flags ride on the spawn only, so every tier's
+    * answer weakens once the session is resumed — from a gate to prose on the
+    * read-only tiers, and from an approximation to nothing on `Full`. Only a
+    * call that classifies per attempt sees the second answer.
+    */
+  private class WeakerOnResumeBackend(replies: String*)
+      extends ScriptedDrainBackend(replies*):
+    override def enforcementCell(
+        tools: ToolSet,
+        autoApprove: AutoApprove,
+        dispatch: TurnDispatch
+    ): EnforcementCell = dispatch match
+      case TurnDispatch.Fresh =>
+        tools match
+          case ToolSet.ReadOnly | ToolSet.NetworkOnly =>
+            EnforcementCell(
+              Enforcement.Hard,
+              "the spawn carries the sandbox flag"
+            )
+          case ToolSet.Full =>
+            EnforcementCell(
+              Enforcement.SandboxApprox,
+              "the spawn's sandbox is coarser than the list"
+            )
+      case TurnDispatch.Resumed =>
+        tools match
+          case ToolSet.ReadOnly | ToolSet.NetworkOnly =>
+            EnforcementCell(
+              Enforcement.PromptOnly,
+              "the resume carries no flag"
+            )
+          case ToolSet.Full =>
+            EnforcementCell(Enforcement.Ignored, "the resume carries no flag")
+
   /** Throws `error` on its first turn and scripts the rest — an attempt that
     * dies before reaching the model, which consumes none of `replies`.
     */
@@ -703,8 +922,12 @@ class BaseAgentTest extends munit.FunSuite:
     val sessions: SessionSupport[BackendTag.Pi.type] =
       SessionSupport.ephemeral(IdScheme.ClientClaimed)
     val tag: BackendTag.Pi.type = BackendTag.Pi
-    def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
-      Enforcement.Ignored
+    def enforcementCell(
+        tools: ToolSet,
+        autoApprove: AutoApprove,
+        dispatch: TurnDispatch
+    ): EnforcementCell =
+      StubEnforcement.cell
     def structuredOutputMode: StructuredOutputMode =
       StructuredOutputMode.RawText
     def runAutonomous(
@@ -784,8 +1007,12 @@ class BaseAgentTest extends munit.FunSuite:
     )(using ox.Ox): Conversation[BackendTag.Pi.type] =
       throw new UnsupportedOperationException
     val tag: BackendTag.Pi.type = BackendTag.Pi
-    def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
-      Enforcement.Ignored
+    def enforcementCell(
+        tools: ToolSet,
+        autoApprove: AutoApprove,
+        dispatch: TurnDispatch
+    ): EnforcementCell =
+      StubEnforcement.cell
     def structuredOutputMode: StructuredOutputMode =
       StructuredOutputMode.RawText
 
@@ -814,8 +1041,12 @@ class BaseAgentTest extends munit.FunSuite:
     val sessions: SessionSupport[BackendTag.Pi.type] =
       SessionSupport.ephemeral(IdScheme.ClientClaimed)
     val tag: BackendTag.Pi.type = BackendTag.Pi
-    def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
-      Enforcement.Ignored
+    def enforcementCell(
+        tools: ToolSet,
+        autoApprove: AutoApprove,
+        dispatch: TurnDispatch
+    ): EnforcementCell =
+      StubEnforcement.cell
     def structuredOutputMode: StructuredOutputMode =
       StructuredOutputMode.RawText
 
@@ -840,8 +1071,12 @@ class BaseAgentTest extends munit.FunSuite:
     val sessions: SessionSupport[BackendTag.Pi.type] =
       SessionSupport.ephemeral(IdScheme.ClientClaimed)
     val tag: BackendTag.Pi.type = BackendTag.Pi
-    def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
-      Enforcement.Ignored
+    def enforcementCell(
+        tools: ToolSet,
+        autoApprove: AutoApprove,
+        dispatch: TurnDispatch
+    ): EnforcementCell =
+      StubEnforcement.cell
     def structuredOutputMode: StructuredOutputMode =
       StructuredOutputMode.RawText
 

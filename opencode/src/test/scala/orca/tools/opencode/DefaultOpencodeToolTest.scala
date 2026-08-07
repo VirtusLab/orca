@@ -1,5 +1,6 @@
 package orca.tools.opencode
 
+import orca.testkit.StubEnforcement
 import orca.backend.{
   Conversation,
   Interaction,
@@ -14,7 +15,8 @@ import orca.agents.{
   BackendTag,
   DefaultPrompts,
   AgentConfig,
-  Enforcement,
+  EnforcementCell,
+  TurnDispatch,
   OpencodeAgent,
   SessionId,
   ToolSet,
@@ -50,8 +52,12 @@ class DefaultOpencodeAgentTest extends munit.FunSuite:
     val sessions: SessionSupport[BackendTag.Opencode.type] =
       SessionSupport.ephemeral(IdScheme.ClientClaimed)
     val tag: BackendTag.Opencode.type = BackendTag.Opencode
-    def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
-      Enforcement.Ignored
+    def enforcementCell(
+        tools: ToolSet,
+        autoApprove: AutoApprove,
+        dispatch: TurnDispatch
+    ): EnforcementCell =
+      StubEnforcement.cell
     def structuredOutputMode: orca.agents.StructuredOutputMode =
       orca.agents.StructuredOutputMode.RawText
 
