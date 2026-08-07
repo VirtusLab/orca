@@ -27,6 +27,14 @@ case class MapCarrier(m: Map[String, Int]) derives JsonData
 private case class FixOutcome(fixed: List[String], ignored: List[String])
     derives JsonData
 
+private object BaseAgentTest:
+  /** The `EnforcementNotice` line for an ungated read-only `turn`, spelled out
+    * once so the tests below assert the sentence a user sees, not a fragment.
+    */
+  def noEditNotice(turn: String): String =
+    s"Pi cannot stop a $turn turn from editing files or running commands " +
+      "that change state — only the turn's own prompt asks it not to"
+
 class BaseAgentTest extends munit.FunSuite:
 
   // LLM `run` is gated on `InStage`; mint the token for the suite.
@@ -178,50 +186,38 @@ class BaseAgentTest extends munit.FunSuite:
   // that the gate isn't mechanical — and a fan-out would repeat the notice per
   // turn, which is why it is deduplicated rather than emitted per run call.
   test("a read-only tier the backend doesn't gate is reported once"):
-    val seen =
-      new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
-    val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
+    val steps = new StepRecorder
     val tool = new StubTool(
       new UngatedBackend("first", "second"),
       toolConfig = AgentConfig(tools = ToolSet.ReadOnly),
-      listener = listener,
+      listener = steps.listener,
       prompts = DefaultPrompts
     )
     val _ = tool.run("one")
     val _ = tool.run("two")
-    assertEquals(
-      seen.get().collect { case OrcaEvent.Step(m) => m },
-      List("Pi does not mechanically enforce ReadOnly: PromptOnly")
-    )
+    assertEquals(steps.seen, List(BaseAgentTest.noEditNotice("ReadOnly")))
 
   // Reviewers — the turns this notice exists for — reach the backend through
   // `resultAs`, which dispatches on its own path rather than through the text
   // one, so it has to raise the notice itself.
   test("a read-only structured turn reports the shortfall too"):
-    val seen =
-      new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
-    val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
+    val steps = new StepRecorder
     val tool = new StubTool(
       new UngatedBackend("""{"fixed":[],"ignored":[]}"""),
-      toolConfig = AgentConfig(tools = ToolSet.ReadOnly),
-      listener = listener,
+      toolConfig = AgentConfig(tools = ToolSet.NetworkOnly),
+      listener = steps.listener,
       prompts = DefaultPrompts
     )
     val _ = tool.resultAs[FixOutcome].autonomous.run("fix compile errors")
-    assertEquals(
-      seen.get().collect { case OrcaEvent.Step(m) => m },
-      List("Pi does not mechanically enforce ReadOnly: PromptOnly")
-    )
+    assertEquals(steps.seen, List(BaseAgentTest.noEditNotice("NetworkOnly")))
 
   // The first attempt commits the session, so the corrective re-prompt runs as
   // a resumed turn — which on this backend (codex's shape) is where the gate
   // disappears. Classified once per call instead of once per attempt, the
   // retry's weaker guarantee would go unreported: the first attempt is `Hard`,
-  // so the single Step below is entirely the second attempt's.
+  // so the single Step below is entirely the second attempt's, and says so.
   test("a corrective retry reports the resumed turn's weaker guarantee"):
-    val seen =
-      new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
-    val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
+    val steps = new StepRecorder
     val tool = new StubTool(
       new GatedOnlyWhenFreshBackend(
         "not json at all",
@@ -231,28 +227,66 @@ class BaseAgentTest extends munit.FunSuite:
         tools = ToolSet.ReadOnly,
         retrySchedule = Schedule.exponentialBackoff(1.milli).maxRetries(1)
       ),
-      listener = listener,
+      listener = steps.listener,
       prompts = DefaultPrompts
     )
     val _ = tool.resultAs[FixOutcome].autonomous.run("fix compile errors")
     assertEquals(
-      seen.get().collect { case OrcaEvent.Step(m) => m },
-      List("Pi does not mechanically enforce ReadOnly: PromptOnly")
+      steps.seen,
+      List(BaseAgentTest.noEditNotice("resumed ReadOnly"))
     )
 
-  // The notice answers "I asked for a gate and didn't get one". A `Full` turn
-  // asked for no gate, so the same weak declaration must stay silent.
-  test("a Full turn reports no enforcement shortfall"):
-    val seen =
-      new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
-    val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
+  // The other axis: `Only` asks the backend to auto-approve just those tools,
+  // and a backend that encodes no such list runs the agent wider than asked
+  // with nothing else saying so.
+  test("a Full turn whose Only list isn't encoded is reported"):
+    val steps = new StepRecorder
     val tool = new StubTool(
       new UngatedBackend("only"),
-      listener = listener,
+      toolConfig = AgentConfig(autoApprove = AutoApprove.Only(Set("read"))),
+      listener = steps.listener,
       prompts = DefaultPrompts
     )
     val _ = tool.run("one")
-    assertEquals(seen.get().collect { case OrcaEvent.Step(m) => m }, Nil)
+    assertEquals(
+      steps.seen,
+      List(
+        "Pi cannot hold a Full turn to the tools it was asked to auto-approve" +
+          " — only the turn's own prompt asks it not to"
+      )
+    )
+
+  // The notice answers "I asked for a restriction and didn't get one". A `Full`
+  // turn approving everything asked for none, so the same weak declaration must
+  // stay silent.
+  test("a Full turn approving everything reports no shortfall"):
+    val steps = new StepRecorder
+    val tool = new StubTool(
+      new UngatedBackend("only"),
+      listener = steps.listener,
+      prompts = DefaultPrompts
+    )
+    val _ = tool.run("one")
+    assertEquals(steps.seen, Nil)
+
+  // The log lives on the backend, so two backends of the same kind — a flow
+  // that wires its own second one — each say their piece. Documented on
+  // `AgentBackend`; pinned here because it is a consequence of where the state
+  // sits rather than of anything the notice does.
+  test("a second backend of the same kind gives its own notice"):
+    val steps = new StepRecorder
+    def readOnlyTool = new StubTool(
+      new UngatedBackend("reply"),
+      toolConfig = AgentConfig(tools = ToolSet.ReadOnly),
+      listener = steps.listener,
+      prompts = DefaultPrompts
+    )
+    val _ = readOnlyTool.run("one")
+    val _ = readOnlyTool.run("two")
+    assertEquals(
+      steps.seen,
+      List.fill(2)(BaseAgentTest.noEditNotice("ReadOnly"))
+    )
 
   // A turn that failed after the model ran still spent tokens; the success path
   // is the only other TokensUsed emitter, so without this the failed turn is
@@ -760,6 +794,19 @@ class BaseAgentTest extends munit.FunSuite:
         outputSchema: Option[String]
     )(using ox.Ox): Conversation[BackendTag.Pi.type] =
       throw new UnsupportedOperationException
+
+  /** Collects the `Step` lines a run showed, in order — the notice's
+    * user-facing channel.
+    */
+  private class StepRecorder:
+    private val steps =
+      new java.util.concurrent.atomic.AtomicReference[List[String]](Nil)
+    val listener: OrcaListener = event =>
+      event match
+        case OrcaEvent.Step(message) =>
+          val _ = steps.updateAndGet(message :: _)
+        case _ => ()
+    def seen: List[String] = steps.get().reverse
 
   /** Gates nothing mechanically, whichever way the turn dispatches — the
     * condition `EnforcementNotice` exists to report.

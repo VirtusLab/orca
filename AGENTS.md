@@ -179,10 +179,12 @@ most easily broken:
   the full (backend × ToolSet × AutoApprove × dispatch) product — when it fails,
   paste the block it prints. Per-cell rationale (why gemini's read-only cells
   are `PromptOnly`, what claude's `Hard` covers, why codex loses its sandbox on
-  resume) lives in each backend's `*Args.enforcementCell`. When a turn's tier
-  isn't mechanically enforced, `EnforcementNotice` says so — a `Step` plus a
-  WARN — once per backend instance and answer, so a second backend of the same
-  kind gets its own notice.
+  resume) lives in each backend's `*Args.enforcementCell`. When a turn asks for
+  a restriction the backend can't apply mechanically — a read-only tier, or an
+  `AutoApprove.Only` list — `EnforcementNotice` says so in plain words as a
+  `Step`, with the rationale behind it as a WARN. Once per backend and distinct
+  sentence: a second backend of the same kind gets its own notice, and a
+  changed answer (codex's read-only turns once resumed) gets a new one.
 
 - **Conversation events.** The event grammar (turn boundaries, `Option` tool
   names) is specified on `ConversationEvent`'s scaladoc and pinned per backend

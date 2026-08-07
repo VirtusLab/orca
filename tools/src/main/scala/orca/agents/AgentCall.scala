@@ -151,21 +151,6 @@ class DefaultAgentCall[B <: BackendTag, O](
       checkNotClosed()
       runInteractiveOnce(input, config, session)
 
-  /** Structured turns reach the backend here rather than through `BaseAgent`,
-    * so the notice has to be raised on this path too; the deduplication is
-    * shared, since both read the same backend instance.
-    */
-  private def announceEnforcementShortfall(
-      effective: AgentConfig,
-      session: SessionId[B]
-  ): Unit =
-    EnforcementNotice.announceShortfall(
-      backend,
-      effective,
-      backend.sessions.dispatchFor(session).asTurnDispatch,
-      events
-    )
-
   /** Emit a `StructuredResult` event carrying the raw payload and the
     * `Announce[O]`-derived summary — tri-state per
     * [[orca.events.OrcaEvent.StructuredResult]].
@@ -254,7 +239,7 @@ class DefaultAgentCall[B <: BackendTag, O](
       // Per attempt, not once per call: the first attempt commits the session,
       // so a corrective re-prompt runs as `Resumed` — which is a different
       // guarantee on codex.
-      announceEnforcementShortfall(effective, session)
+      backend.announceEnforcementShortfall(effective, session, events)
       val promptText = lastFailure match
         case Some(f) =>
           val corrective = prompts.retry(f.response, f.parserError)
@@ -332,7 +317,7 @@ class DefaultAgentCall[B <: BackendTag, O](
   )(using ai: AgentInput[I]): O =
     val serialized = ai.serialize(input)
     val effective = effectiveConfig(config)
-    announceEnforcementShortfall(effective, session)
+    backend.announceEnforcementShortfall(effective, session, events)
     val prompt = prompts.interactive(serialized, outputSchema, effective)
     // Per-turn structured-concurrency scope: `runInteractive` forks its workers
     // into this Ox, `drive` consumes them, and `cancel` (in the `finally`) tears

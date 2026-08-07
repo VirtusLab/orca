@@ -9,6 +9,7 @@ import orca.agents.{
   BackendTag,
   AgentConfig,
   EnforcementCell,
+  EnforcementNotice,
   SessionId,
   StructuredOutputMode,
   ToolSet,
@@ -60,12 +61,17 @@ private[orca] class ClaudeBackend(
       * bare/test construction; the runtime passes the flow's real `workDir`.
       */
     override val workDir: os.Path = os.pwd,
-    /** Threaded into [[AgentBackend]]'s `closedFlag`. Bare construction gets a
-      * fresh flag; [[withNetworkTools]] passes THIS instance's flag so the
-      * sibling shares one latch with its parent — see `AgentBackend` for why.
+    /** Threaded into [[AgentBackend]]'s `closedFlag` and `enforcementNotice`.
+      * Bare construction gets fresh ones; [[withNetworkTools]] passes THIS
+      * instance's, so the sibling shares one close latch and one notice log
+      * with its parent — see `AgentBackend` for why each must be shared.
       */
-    sharedClosedFlag: AtomicBoolean = new AtomicBoolean(false)
-) extends AgentBackend[BackendTag.ClaudeCode.type](sharedClosedFlag):
+    sharedClosedFlag: AtomicBoolean = new AtomicBoolean(false),
+    sharedNotice: EnforcementNotice = new EnforcementNotice
+) extends AgentBackend[BackendTag.ClaudeCode.type](
+      sharedClosedFlag,
+      sharedNotice
+    ):
 
   /** Return a sibling backend that, on [[ToolSet.NetworkOnly]] turns, adds
     * `tools` to the read-only `--tools` allowlist. Lives on the backend, not
@@ -77,15 +83,23 @@ private[orca] class ClaudeBackend(
     * exit 0, no warning. Without this check a flow script carrying the old
     * syntax would keep compiling, keep running, and grant nothing.
     *
-    * Shares `closedFlag` with `this`: the sibling is a genuinely different
-    * `AgentBackend` instance, so without threading the SAME flag through, a
-    * handle derived here and leaked past flow-end would bypass the
-    * use-after-close guard.
+    * Shares `closedFlag` and `enforcementNotice` with `this`: the sibling is a
+    * genuinely different `AgentBackend` instance, so without threading the SAME
+    * values through, a handle derived here and leaked past flow-end would
+    * bypass the use-after-close guard, and every enforcement notice would be
+    * given a second time.
     */
   def withNetworkTools(tools: Seq[String]): ClaudeBackend =
     tools.filterNot(ClaudeBackend.BareToolName.matches) match
       case Nil =>
-        new ClaudeBackend(cli, tools, projectsDir, workDir, closedFlag)
+        new ClaudeBackend(
+          cli,
+          tools,
+          projectsDir,
+          workDir,
+          closedFlag,
+          enforcementNotice
+        )
       case bad =>
         throw new IllegalArgumentException(
           s"withNetworkTools takes bare claude tool names; these are not: " +

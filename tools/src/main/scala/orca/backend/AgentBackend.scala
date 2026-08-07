@@ -7,8 +7,8 @@ import orca.agents.{
   AutoApprove,
   BackendTag,
   AgentConfig,
-  Enforcement,
   EnforcementCell,
+  EnforcementNotice,
   SessionId,
   StructuredOutputMode,
   ToolSet,
@@ -41,7 +41,13 @@ trait AgentBackend[B <: BackendTag](
       * visible through both — otherwise a handle derived via that builder and
       * leaked past flow-end bypasses the use-after-close guard entirely.
       */
-    private[orca] val closedFlag: AtomicBoolean = new AtomicBoolean(false)
+    private[orca] val closedFlag: AtomicBoolean = new AtomicBoolean(false),
+    /** Which enforcement notices this backend has already given. A SIBLING
+      * backend must be passed the parent's, for the same reason as
+      * [[closedFlag]] above: a fresh log would say everything a second time.
+      */
+    private[orca] val enforcementNotice: EnforcementNotice =
+      new EnforcementNotice
 ):
   /** Run one autonomous turn against `session` and return its result.
     *
@@ -113,8 +119,8 @@ trait AgentBackend[B <: BackendTag](
     * ship without answering this; the `*Args` implementations match `dispatch`
     * exhaustively, so it cannot answer for fresh turns only. Real backends
     * delegate to their `*Args.enforcementCell`; test doubles that aren't
-    * exercising [[enforcementShortfall]] add a one-line `Hard` cell, the answer
-    * that reports nothing.
+    * exercising [[announceEnforcementShortfall]] add a one-line `Hard` cell,
+    * the answer that reports nothing.
     *
     * @see
     *   [[orca.agents.Enforcement]] for what the levels mean, and
@@ -127,37 +133,16 @@ trait AgentBackend[B <: BackendTag](
       dispatch: TurnDispatch
   ): EnforcementCell
 
-  /** The cell of a turn that asked for a no-edit tier and did NOT get a
-    * mechanical gate. `None` on [[ToolSet.Full]] (which asks for no such gate),
-    * whenever the answer is `Enforcement.Hard`, and whenever this backend has
-    * already answered the same way for the same tier.
-    *
-    * Deduplicated on `(tools, cell)` — on what the caller would SAY, so the
-    * other two inputs need no place in the key: a different `autoApprove` or
-    * `dispatch` repeats the notice only when it changes the answer, which is
-    * exactly when it is worth repeating (a codex session resumed read-only
-    * loses its sandbox and says so, having said nothing when it was created).
-    * Deduplicated on this instance because every agent handle a flow derives
-    * from one backend shares it, so a fan-out's twenty turns report once —
-    * though a flow that wires a second backend of the same kind gets its own
-    * notice.
-    *
-    * Reporting, not refusing: a weaker gate is a documented property of the
-    * backend, and the turn's prompt still carries
-    * [[SystemPromptComposer.ReadOnlyTurn]].
+  /** Report, at most once per distinct sentence for this backend, that the turn
+    * about to run against `session` asked for a restriction this backend cannot
+    * apply mechanically. Delegates to [[enforcementNotice]], which owns both
+    * the wording and the "already said" bookkeeping.
     */
-  final def enforcementShortfall(
-      tools: ToolSet,
-      autoApprove: AutoApprove,
-      dispatch: TurnDispatch
-  ): Option[EnforcementCell] =
-    val cell = enforcementCell(tools, autoApprove, dispatch)
-    val shortfall = !tools.writeCapable && cell.level != Enforcement.Hard
-    Option.when(shortfall && reportedShortfalls.add((tools, cell)))(cell)
-
-  private val reportedShortfalls =
-    java.util.concurrent.ConcurrentHashMap
-      .newKeySet[(ToolSet, EnforcementCell)]()
+  private[orca] final def announceEnforcementShortfall(
+      config: AgentConfig,
+      session: SessionId[B],
+      events: OrcaListener
+  ): Unit = enforcementNotice.announceShortfall(this, config, session, events)
 
   /** How THIS backend's wire delivers a structured (`resultAs[O]`) payload
     * ([[orca.agents.StructuredOutputMode]]). Prompt assembly
