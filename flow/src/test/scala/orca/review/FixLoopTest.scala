@@ -88,6 +88,28 @@ class FixLoopTest extends munit.FunSuite:
       List("Iteration 1", "Iteration 2", "Iteration 3")
     )
 
+  test("a finding declined in one round and fixed in the next is not ignored"):
+    given FlowContext = ctx
+    // The decline is only the fixer's position at the time; once it fixes the
+    // same finding, carrying the old entry would report fixed work as ignored.
+    val result = fixLoop(
+      evaluate = scripted(
+        List(
+          ReviewResult(List(issue("nit"), issue("driver"))),
+          ReviewResult(List(issue("nit"))),
+          ReviewResult.empty
+        )
+      ),
+      fix = found =>
+        if found.size == 2 then
+          FixOutcome(
+            fixed = List(Title("driver")),
+            ignored = List(IgnoredIssue(Title("nit"), "deliberate"))
+          )
+        else FixOutcome(fixed = List(Title("nit")), ignored = Nil)
+    )
+    assertEquals(result, IgnoredIssues(Nil))
+
   test("halts when `fixed` is empty, regardless of `ignored` size"):
     given FlowContext = ctx
     val i = issue("x")

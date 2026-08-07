@@ -378,6 +378,84 @@ class ReviewAndFixTest extends munit.FunSuite:
       List(IgnoredIssue(Title("nit"), "deliberate"))
     )
 
+  test("a finding declined then fixed is neither reported nor re-sent"):
+    given FlowControl = control
+    // The reviewer re-reports what round one declined and the fixer fixes it,
+    // so the decline is stale: it must leave the result, and round three's
+    // reviewers must not be told the finding is still declined.
+    val reviewer = new FakeAgent(
+      name = "loud",
+      outputs = List(
+        ReviewResult(
+          List(
+            issue("nit", confidence = 0.95),
+            issue("driver", confidence = 0.95)
+          )
+        ),
+        ReviewResult(List(issue("nit", confidence = 0.95))),
+        ReviewResult.empty
+      )
+    )
+    val coder = new FakeAgent(
+      name = "coder",
+      outputs = List(
+        FixOutcome(
+          List(Title("driver")),
+          List(IgnoredIssue(Title("nit"), "deliberate"))
+        ),
+        FixOutcome(List(Title("nit")), Nil)
+      )
+    )
+    val result = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(reviewer),
+      task = "build the widget",
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      initialDiff = Some("")
+    )
+    assertEquals(result, IgnoredIssues(Nil))
+    val roundThree = reviewer.seenPrompts
+      .lift(2)
+      .getOrElse(fail(s"expected three review rounds: ${reviewer.seenPrompts}"))
+    assert(!roundThree.contains("deliberate"), roundThree)
+
+  test("a gated finding later admitted and fixed leaves the ledger"):
+    given FlowControl = control
+    // "nit" is held back by the gate in round one, re-reported above the bar in
+    // round two, and fixed there. The loop watched it get fixed, so the ledger
+    // must not still report it as held back.
+    val reviewer = new FakeAgent(
+      name = "loud",
+      outputs = List(
+        ReviewResult(
+          List(
+            issue("driver", confidence = 0.95),
+            issue("nit", confidence = 0.3)
+          )
+        ),
+        ReviewResult(List(issue("nit", confidence = 0.95))),
+        ReviewResult.empty
+      )
+    )
+    val coder = new FakeAgent(
+      name = "coder",
+      outputs = List(
+        FixOutcome(List(Title("driver")), Nil),
+        FixOutcome(List(Title("nit")), Nil)
+      )
+    )
+    val result = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(reviewer),
+      task = "build the widget",
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      initialDiff = Some("")
+    )
+    val roundOneFix = coder.seenPrompts.headOption
+      .getOrElse(fail("expected a round-one fix turn"))
+    assert(!roundOneFix.contains("nit"), roundOneFix)
+    assertEquals(result, IgnoredIssues(Nil))
+
   test("the cap exit records both the cap reason and the gated issues"):
     given FlowControl = control
     // The fixer always claims a fix, so only the cap stops the loop; the gate
