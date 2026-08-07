@@ -27,7 +27,7 @@ class ReviewFixFlowTest extends munit.FunSuite:
   private def issue(desc: String, confidence: Double = 1.0): ReviewIssue =
     ReviewIssue(
       severity = Severity.Warning,
-      confidence = confidence,
+      confidence = Confidence.orThrow(confidence),
       title = Title(desc),
       description = desc,
       location = None,

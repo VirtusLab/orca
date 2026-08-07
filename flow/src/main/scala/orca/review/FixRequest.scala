@@ -15,10 +15,37 @@ private[review] case class FixRequest(
 ) derives JsonData
 
 private[review] object FixRequest:
+  /** The key the fixer is asked to echo for the issue at `index`. Positional
+    * and minted per turn, so it copies exactly where a paraphrased title does
+    * not; [[FixOutcome.reconcile]] resolves echoes against it.
+    */
+  def key(index: Int): String = s"I${index + 1}"
+
   given AgentInput[FixRequest] with
     def serialize(r: FixRequest): String =
-      val formatted = r.issues.map(formatIssue).mkString("\n")
-      // No `stripMargin`: `formatIssue` wraps a reviewer's suggestion with its
-      // own line breaks and indents preserved, so a quoted table or margin
-      // block would arrive with its leading `|` eaten.
+      val formatted =
+        r.issues.zipWithIndex
+          .map((i, n) => renderIssue(key(n), i))
+          .mkString("\n\n")
+      // No `stripMargin`: a reviewer's description or suggestion can carry
+      // markdown tables and `|`-margin blocks, which it would eat.
       s"${r.instructions}\n\nIssues to fix:\n$formatted"
+
+  /** One issue as the fixer sees it. Deliberately not [[formatIssue]], the
+    * display rendering: the fixer needs the description, which the screen form
+    * omits.
+    */
+  private def renderIssue(key: String, issue: ReviewIssue): String =
+    // Exhaustive destructure: a new `ReviewIssue` field stops compiling here
+    // until this prompt decides what to do with it. `confidence` is left out —
+    // the gate has already applied it, and the number would only invite the
+    // fixer to re-litigate the finding.
+    val ReviewIssue(severity, _, title, description, location, suggestion) =
+      issue
+    val lines = List(
+      Some(s"$key [$severity] $title"),
+      locationLine(location),
+      Option.when(description.nonEmpty)(s"    $description"),
+      suggestion.map(s => s"    suggestion: $s")
+    )
+    lines.flatten.mkString("\n")

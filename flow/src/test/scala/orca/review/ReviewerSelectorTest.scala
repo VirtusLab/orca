@@ -1,7 +1,7 @@
 package orca.review
 
 import orca.{FlowContext, TestFlowContext}
-import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
+import orca.events.EventDispatcher
 import orca.agents.{
   AgentInput,
   Announce,
@@ -76,24 +76,17 @@ class ReviewerSelectorTest extends munit.FunSuite:
   private given orca.InStage = orca.InStage.unsafe
 
   private val scalaFp: RosterEntry[?] =
-    RosterEntry.wrap(new NamedTool("scala-fp"))
+    RosterEntry.wrap(new NamedTool("scala-fp"), ReviewerId(0))
   private val generic: RosterEntry[?] =
-    RosterEntry.wrap(new NamedTool("generic"))
+    RosterEntry.wrap(new NamedTool("generic"), ReviewerId(1))
   private val all: List[RosterEntry[?]] = List(scalaFp, generic)
 
   private val filePatterns =
     Map("scala-fp" -> """\.scala$""".r)
 
-  /** Collects the `Step`s emitted through its own [[FlowContext]]. */
-  private class StepCapture:
-    private val steps = new java.util.concurrent.ConcurrentLinkedQueue[String]()
-    private val listener: OrcaListener = (e: OrcaEvent) =>
-      e match
-        case OrcaEvent.Step(msg) => steps.add(msg): Unit
-        case _                   => ()
-    val ctx: FlowContext =
-      new TestFlowContext(new EventDispatcher(List(listener)))
-    def messages: List[String] = steps.toArray.toList.map(_.toString)
+  /** A [[ReviewLoopFixture.StepCapture]] behind its own [[FlowContext]]. */
+  private class SelectorSteps extends ReviewLoopFixture.StepCapture:
+    val ctx: FlowContext = new TestFlowContext(dispatcher)
 
   private def reported(e: RosterEntry[?]): ReviewBatch =
     ReviewBatch(
@@ -102,7 +95,7 @@ class ReviewerSelectorTest extends munit.FunSuite:
           List(
             ReviewIssue(
               severity = Severity.Warning,
-              confidence = 1.0,
+              confidence = Confidence.orThrow(1.0),
               title = Title("found something"),
               description = "found something",
               location = None,
@@ -204,7 +197,7 @@ class ReviewerSelectorTest extends munit.FunSuite:
     assertEquals(picked.map(_.name), List("scala-fp"))
 
   test("an empty diff announces the skipped file-pattern filter"):
-    val capture = new StepCapture
+    val capture = new SelectorSteps
     val captured = new AtomicReference[Option[ReviewerSelectionRequest]](None)
     val selector = ReviewerSelector.agentDriven(
       agent =
@@ -219,6 +212,42 @@ class ReviewerSelectorTest extends munit.FunSuite:
       capture.messages.exists(m =>
         m.startsWith("reviewer selection: no changed files") &&
           m.endsWith("(scala-fp)")
+      ),
+      capture.messages.mkString("\n")
+    )
+
+  test("a picker name that differs only in case still resolves"):
+    val captured = new AtomicReference[Option[ReviewerSelectionRequest]](None)
+    val picker =
+      new RecordingPicker(SelectedReviewers(List(" Scala-FP ")), captured)
+    val selector = ReviewerSelector.agentDriven(agent = picker)
+    val picked =
+      selector.prepare(all, Title("any"), List("src/main/scala/Foo.scala"))(Nil)
+    assertEquals(picked.map(_.name), List("scala-fp"))
+
+  test("a partially-wrong pick announces the names it dropped"):
+    // Without the announcement a single-character echo error removes a reviewer
+    // from the whole loop with no event, and nothing downstream can restore it.
+    val capture = new SelectorSteps
+    val captured = new AtomicReference[Option[ReviewerSelectionRequest]](None)
+    val selector = ReviewerSelector.agentDriven(
+      agent = new RecordingPicker(
+        SelectedReviewers(List("generic", "scla-fp")),
+        captured
+      )
+    )
+    val picked = selector.prepare(all, Title("any"), List("Foo.scala"))(using
+      capture.ctx,
+      summon[orca.InStage]
+    )(Nil)
+    assertEquals(
+      picked.map(_.name),
+      List("generic"),
+      "the resolvable half of the pick still runs"
+    )
+    assert(
+      capture.messages.exists(
+        _ == "reviewer selection: picker named scla-fp, matching no reviewer"
       ),
       capture.messages.mkString("\n")
     )
@@ -292,7 +321,7 @@ class ReviewerSelectorTest extends munit.FunSuite:
     )
 
   test("narrowing never empties the active set"):
-    val capture = new StepCapture
+    val capture = new SelectorSteps
     val selector =
       ReviewerSelector.narrowingAcrossRounds(ReviewerSelector.allEveryRound)
     val selectRound = selector.prepare(all, Title("any"), List("src/lib.rs"))(
@@ -333,7 +362,7 @@ class ReviewerSelectorTest extends munit.FunSuite:
     )
 
   test("a base selector that picks nobody keeps picking nobody"):
-    val capture = new StepCapture
+    val capture = new SelectorSteps
     val picksNobody = new ReviewerSelector:
       def prepare(
           all: List[RosterEntry[?]],

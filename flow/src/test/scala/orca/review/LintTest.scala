@@ -70,7 +70,7 @@ class LintTest extends munit.FunSuite:
     issues = List(
       ReviewIssue(
         Severity.Warning,
-        0.8,
+        Confidence.orThrow(0.8),
         Title("Unused import"),
         "unused import",
         None,

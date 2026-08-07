@@ -214,13 +214,19 @@ class BoundedDiffTest extends munit.FunSuite:
     assert(shownChars > 0, payload)
     assert(payload.contains(s"cut short at $shownChars characters"), payload)
 
-  test("a cut diff whose file list names nothing still reports the cut"):
-    // The diff and the file list are two separate git reads, so an edit landing
-    // between them can leave the list empty. The cut is real regardless — the
-    // last file's section never fits — so the note must not introduce a list of
-    // files and then show none.
-    val diff = section("src/Huge.scala", 6000)
-    assert(clue(diff.length) > BoundedDiff.ReviewThreshold, "fixture too small")
-    val payload = BoundedDiff.reviewPayload(diff, Nil)
-    assert(payload.contains("was cut short"), payload)
-    assert(!payload.contains("the files below"), payload)
+  test("a shown path containing ` b/` doesn't mark another file as shown"):
+    // Git writes `diff --git a/x b/y.txt b/x b/y.txt` for a path with a space,
+    // which ends with ` b/y.txt` — a suffix match would read the omitted
+    // `y.txt` as shown and leave it out of the trailer, the one direction the
+    // trailer exists to prevent.
+    val (diff, changed) = bigChangeSet(60)
+    val payload = BoundedDiff.reviewPayload(
+      section("x b/y.txt", 2) + diff,
+      ChangedFile("x b/y.txt", FileChange.Lines(2, 0)) ::
+        ChangedFile("y.txt", FileChange.Lines(1, 0)) :: changed
+    )
+    assert(payload.contains("#   y.txt (+1 -0)"), payload)
+    assert(
+      !payload.contains("#   x b/y.txt "),
+      s"the file that WAS rendered must stay out of the trailer: $payload"
+    )

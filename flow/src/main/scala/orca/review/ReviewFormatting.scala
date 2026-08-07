@@ -11,8 +11,8 @@ import orca.util.{TextUtil, TextWrap}
   * bullet within a multi-issue body; outer indentation is added by the caller
   * (typically [[formatReviewerOutcome]]).
   *
-  * `description` is deliberately not rendered — it's the longer form fed back
-  * to the fixing agent; the user sees the short form on screen.
+  * `description` is deliberately not rendered: the screen shows the short form,
+  * and the fixer gets the long one from [[FixRequest]]'s own rendering.
   */
 private[review] def formatIssue(issue: ReviewIssue): String =
   val header = TextWrap.wrap(
@@ -20,12 +20,18 @@ private[review] def formatIssue(issue: ReviewIssue): String =
     maxWidth = 74,
     continuation = "  "
   )
-  val location = issue.location.map:
-    case Location(f, Some(l)) => s"    at $f:$l"
-    case Location(f, None)    => s"    at $f"
   val suggestion = issue.suggestion.map: s =>
     TextWrap.wrap(s"    suggestion: $s", maxWidth = 74, continuation = "      ")
-  List(Some(header), location, suggestion).flatten.mkString("\n")
+  List(Some(header), locationLine(issue.location), suggestion).flatten
+    .mkString("\n")
+
+/** Where a finding points, as one indented line — shared by the display and the
+  * fix prompt so a reader of either sees the same shape.
+  */
+private[review] def locationLine(location: Option[Location]): Option[String] =
+  location.map:
+    case Location(f, Some(l)) => s"    at $f:$l"
+    case Location(f, None)    => s"    at $f"
 
 /** Format a reviewer's outcome as a `▶`-step body — heading line names the
   * reviewer + issue count, then bulleted issue details indented under it. Clean

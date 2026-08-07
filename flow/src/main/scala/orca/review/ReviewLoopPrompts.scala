@@ -9,8 +9,7 @@ import orca.util.PromptResource
   *
   * {{{
   * reviewAndFixLoop(
-  *   coder = claude,
-  *   sessionId = sessionId,
+  *   coderSession = coderSession,
   *   reviewers = allReviewers(claude),
   *   task = title,
   *   fixInstructions = ReviewLoopPrompts.Fix +
@@ -56,24 +55,30 @@ object ReviewLoopPrompts:
     * hardcoded guess at them.
     *
     * `base` is the commit `diff` was sampled against, when the loop knows it
-    * describes this diff (see [[ReviewFixLoop.diffBase]]). It is sent alongside
-    * the diff, never instead of it: it only lets a reviewer read the repo at
-    * that commit, and a reviewer with no way to do so is unaffected.
+    * describes this diff (see [[ReviewDiffSource]]). It is sent alongside the
+    * diff, never instead of it: it only lets a reviewer read the repo at that
+    * commit, and a reviewer with no way to do so is unaffected.
+    *
+    * `declined` matters for a reviewer first activated after round one: the
+    * fixer's refusals are the one thing it cannot recover by reading the code,
+    * and without them it re-reports what the fixer has already answered.
     */
   def initialReview(
       task: String,
       diff: String,
       gate: ConfidenceGate,
-      base: Option[String]
+      base: Option[String],
+      declined: List[IgnoredIssue]
   ): String =
     PromptResource.render(
       InitialReviewTemplate,
       "task" -> task,
       "diffBlock" -> diffBlock(diff),
       "baseNote" -> baseNote(base),
-      "criticalBar" -> gate.critical.toString,
-      "warningBar" -> gate.warning.toString,
-      "infoBar" -> gate.info.toString
+      "declined" -> declinedBlock(declined),
+      "criticalBar" -> gate.critical.value.toString,
+      "warningBar" -> gate.warning.value.toString,
+      "infoBar" -> gate.info.value.toString
     )
 
   /** The base commit as a paragraph after the diff, carrying its own leading
@@ -185,19 +190,16 @@ private[review] object ReReviewChanges:
     */
   private[review] val InlineThreshold: Int = 16 * 1024
 
-  /** Classify this round's sample against what the reviewer last received.
-    * `paths` is used only past the threshold; the caller samples it from git
-    * beside the diff — see `ReviewFixLoop.runReviewersAndLint`.
+  /** Classify this round's sample against what the reviewer last received. The
+    * [[DiffSample]] carries the paths alongside the diff they describe, so
+    * [[TooLarge]] can never name a different change set than the one it stands
+    * in for.
     *
     * Equality is tested before size, so a pinned `initialDiff` never reaches
     * [[TooLarge]]: pinned samples are byte-identical every round, so a resume
     * always classifies [[AlreadySeen]].
     */
-  def of(
-      previous: String,
-      current: String,
-      paths: List[String]
-  ): ReReviewChanges =
-    if current == previous then AlreadySeen
-    else if current.length > InlineThreshold then TooLarge(paths)
-    else Updated(current)
+  def of(previous: String, current: DiffSample): ReReviewChanges =
+    if current.diff == previous then AlreadySeen
+    else if current.diff.length > InlineThreshold then TooLarge(current.paths)
+    else Updated(current.diff)

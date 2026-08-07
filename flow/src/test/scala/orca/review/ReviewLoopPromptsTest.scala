@@ -14,14 +14,20 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
       base: Option[String] = None
   ): String =
     TextUtil.collapseWhitespace(
-      ReviewLoopPrompts.initialReview("do the thing", "", gate, base)
+      ReviewLoopPrompts.initialReview("do the thing", "", gate, base, Nil)
     )
 
   test("initialReview renders the caller's bars"):
     // The bars are a parameter, so a caller-tuned gate must reach the prompt —
     // otherwise reviewers calibrate against a threshold that isn't applied.
     val prompt =
-      rendered(ConfidenceGate(critical = 0.1, warning = 0.2, info = 0.3))
+      rendered(
+        ConfidenceGate(
+          critical = Confidence.orThrow(0.1),
+          warning = Confidence.orThrow(0.2),
+          info = Confidence.orThrow(0.3)
+        )
+      )
     assert(prompt.contains("Critical 0.1, Warning 0.2, Info 0.3"), prompt)
 
   test("initialReview tells reviewers the plan is not evidence"):
