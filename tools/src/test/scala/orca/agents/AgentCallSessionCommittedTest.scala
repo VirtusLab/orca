@@ -1,6 +1,6 @@
 package orca.agents
 
-import orca.testkit.StubEnforcement
+import orca.testkit.StubEnforcementCell
 import orca.backend.{
   Conversation,
   Interaction,
@@ -120,22 +120,17 @@ class AgentCallSessionCommittedTest extends munit.FunSuite:
     * via `sessions.persistableWireId` once `runAutonomous` returns.
     */
   private class SequencedBackend(outputs: List[String])
-      extends AgentBackend[BackendTag.ClaudeCode.type]:
+      extends AgentBackend[BackendTag.ClaudeCode.type]
+      with StubEnforcementCell[BackendTag.ClaudeCode.type]:
     private val remaining: AtomicReference[List[String]] =
       AtomicReference(outputs)
     val workDir: os.Path = os.pwd
     val sessions: SessionSupport[BackendTag.ClaudeCode.type] =
       SessionSupport.durable(IdScheme.ServerMinted, _ => false)
     val tag: BackendTag.ClaudeCode.type = BackendTag.ClaudeCode
-    def enforcementCell(
-        tools: ToolSet,
-        autoApprove: AutoApprove,
-        dispatch: TurnDispatch
-    ): EnforcementCell =
-      StubEnforcement.cell
     def structuredOutputMode: StructuredOutputMode =
       StructuredOutputMode.RawText
-    def runAutonomous(
+    def doRunAutonomous(
         prompt: String,
         session: SessionId[BackendTag.ClaudeCode.type],
         config: AgentConfig,
@@ -153,7 +148,7 @@ class AgentCallSessionCommittedTest extends munit.FunSuite:
       )
       sessions.commitAfterDrain(session, result.wireId)
       result
-    def runInteractive(
+    def doRunInteractive(
         prompt: String,
         session: SessionId[BackendTag.ClaudeCode.type],
         displayPrompt: String,

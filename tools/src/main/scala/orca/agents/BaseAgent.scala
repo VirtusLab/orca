@@ -98,7 +98,6 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
       )(using orca.InStage): String =
         backend.checkNotClosed()
         val effective = effectiveConfig(callConfig)
-        backend.announceEnforcementShortfall(effective, session, events)
         if emitPrompt then events.onEvent(OrcaEvent.UserPrompt(prompt))
         val accounting = turnAccounting(effective, session)
         val result = accounting.recording:
@@ -122,7 +121,6 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
         case _: OrcaEvent.AssistantMessage | _: OrcaEvent.ToolUse => ()
         case other => events.onEvent(other)
     val session = SessionId.fresh[B]
-    backend.announceEnforcementShortfall(effective, session, events)
     val accounting = turnAccounting(effective, session)
     val result = accounting.recording:
       backend.runAutonomous(prompt, session, effective, quietEvents)

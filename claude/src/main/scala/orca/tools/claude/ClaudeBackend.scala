@@ -161,7 +161,7 @@ private[orca] class ClaudeBackend(
         )
     )
 
-  def runAutonomous(
+  protected def doRunAutonomous(
       prompt: String,
       session: SessionId[BackendTag.ClaudeCode.type],
       config: AgentConfig,
@@ -181,7 +181,7 @@ private[orca] class ClaudeBackend(
         outputSchema = outputSchema
       )
 
-  def runInteractive(
+  protected def doRunInteractive(
       prompt: String,
       session: SessionId[BackendTag.ClaudeCode.type],
       displayPrompt: String,

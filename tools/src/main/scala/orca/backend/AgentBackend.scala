@@ -25,7 +25,9 @@ import ox.Ox
   * the backend decides internally whether this is a first invocation (session
   * needs creating) or a continuation. `runAutonomous` runs to completion
   * off-screen and returns the result; `runInteractive` returns a live
-  * [[Conversation]] the caller drives through an [[Interaction]].
+  * [[Conversation]] the caller drives through an [[Interaction]]. Both are
+  * final wrappers around the turn-entry gate (close check + enforcement
+  * notice); backends fill in the `doRun*` hooks behind them.
   *
   * `prompt` is the full wire-level message sent to the agent, with all template
   * scaffolding, schema, and rules already wrapped around the user's input.
@@ -62,13 +64,32 @@ trait AgentBackend[B <: BackendTag](
     * agent's last message IS the structured payload" and suppress the raw JSON
     * from the user log — the caller surfaces it via
     * `OrcaEvent.StructuredResult` instead.
+    *
+    * The turn-entry gate below runs per call, not once per session: the first
+    * call commits the session, so a caller's corrective re-prompt dispatches as
+    * `Resumed` — a different guarantee on codex, and hence possibly a different
+    * notice.
     */
-  def runAutonomous(
+  final def runAutonomous(
       prompt: String,
       session: SessionId[B],
       config: AgentConfig,
       events: OrcaListener = OrcaListener.noop,
       outputSchema: Option[String] = None
+  ): AgentResult[B] =
+    checkNotClosed()
+    announceEnforcementShortfall(config, session, events)
+    doRunAutonomous(prompt, session, config, events, outputSchema)
+
+  /** This backend's autonomous turn, run once [[runAutonomous]]'s gate has
+    * passed. Parameters are that method's, minus the defaults.
+    */
+  protected def doRunAutonomous(
+      prompt: String,
+      session: SessionId[B],
+      config: AgentConfig,
+      events: OrcaListener,
+      outputSchema: Option[String]
   ): AgentResult[B]
 
   /** Launch an interactive session against `session` and return a live
@@ -79,8 +100,27 @@ trait AgentBackend[B <: BackendTag](
     * or `None` for free-form text. Backends that support structured-output
     * validation (claude's `--json-schema`) enforce it; others ignore it and let
     * the caller validate post-hoc.
+    *
+    * `events` carries the turn-entry notice only — everything the conversation
+    * itself produces reaches the caller through the returned [[Conversation]],
+    * which is why the backend hook never sees this listener.
     */
-  def runInteractive(
+  final def runInteractive(
+      prompt: String,
+      session: SessionId[B],
+      displayPrompt: String,
+      config: AgentConfig,
+      outputSchema: Option[String],
+      events: OrcaListener = OrcaListener.noop
+  )(using Ox): Conversation[B] =
+    checkNotClosed()
+    announceEnforcementShortfall(config, session, events)
+    doRunInteractive(prompt, session, displayPrompt, config, outputSchema)
+
+  /** This backend's interactive turn, run once [[runInteractive]]'s gate has
+    * passed.
+    */
+  protected def doRunInteractive(
       prompt: String,
       session: SessionId[B],
       displayPrompt: String,

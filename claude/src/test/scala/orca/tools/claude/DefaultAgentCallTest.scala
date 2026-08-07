@@ -1,18 +1,14 @@
 package orca.tools.claude
 
-import orca.testkit.StubEnforcement
+import orca.testkit.StubEnforcementCell
 import orca.{AgentTurnFailed, OrcaFlowException, OrcaInteractiveCancelled}
 import orca.agents.{
-  AutoApprove,
   BackendTag,
-  EnforcementCell,
-  TurnDispatch,
   JsonData,
   Model,
   AgentConfig,
   SessionId,
   StructuredOutputMode,
-  ToolSet,
   WireSessionId
 }
 import orca.events.{OrcaEvent, OrcaListener, TurnDebit, Usage}
@@ -40,7 +36,8 @@ case class Answer(value: Int) derives JsonData
 class SequencedBackend(
     outputs: List[String],
     mode: StructuredOutputMode = StructuredOutputMode.RawText
-) extends AgentBackend[BackendTag.ClaudeCode.type]:
+) extends AgentBackend[BackendTag.ClaudeCode.type]
+    with StubEnforcementCell[BackendTag.ClaudeCode.type]:
   private val remaining: AtomicReference[List[String]] =
     AtomicReference(outputs)
   private val promptsRef: AtomicReference[List[String]] =
@@ -72,15 +69,9 @@ class SequencedBackend(
 
   val tag: BackendTag.ClaudeCode.type = BackendTag.ClaudeCode
   val workDir: os.Path = os.pwd
-  def enforcementCell(
-      tools: ToolSet,
-      autoApprove: AutoApprove,
-      dispatch: TurnDispatch
-  ): EnforcementCell =
-    StubEnforcement.cell
   def structuredOutputMode: StructuredOutputMode = mode
 
-  def runAutonomous(
+  def doRunAutonomous(
       prompt: String,
       session: SessionId[BackendTag.ClaudeCode.type],
       config: AgentConfig,
@@ -91,7 +82,7 @@ class SequencedBackend(
     val _ = seenSchemas.updateAndGet(outputSchema :: _)
     nextResult(prompt)
 
-  def runInteractive(
+  def doRunInteractive(
       prompt: String,
       session: SessionId[BackendTag.ClaudeCode.type],
       displayPrompt: String,
@@ -410,7 +401,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
     // It must propagate after a single attempt, named + sized.
     val calls = new AtomicInteger(0)
     val backend = new SequencedBackend(Nil):
-      override def runAutonomous(
+      override def doRunAutonomous(
           prompt: String,
           session: SessionId[BackendTag.ClaudeCode.type],
           config: AgentConfig,
@@ -442,7 +433,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
     val seen = new AtomicReference[List[OrcaEvent]](Nil)
     val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
     val backend = new SequencedBackend(Nil):
-      override def runAutonomous(
+      override def doRunAutonomous(
           prompt: String,
           session: SessionId[BackendTag.ClaudeCode.type],
           config: AgentConfig,
@@ -475,7 +466,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
     // Turn 1 runs and returns unparseable output; the corrective retry's turn
     // runs too, then fails with what it spent.
     val backend = new SequencedBackend(List("not json")):
-      override def runAutonomous(
+      override def doRunAutonomous(
           prompt: String,
           session: SessionId[BackendTag.ClaudeCode.type],
           config: AgentConfig,
@@ -483,7 +474,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
           outputSchema: Option[String]
       ): AgentResult[BackendTag.ClaudeCode.type] =
         if calls.incrementAndGet() == 1 then
-          super.runAutonomous(prompt, session, config, events, outputSchema)
+          super.doRunAutonomous(prompt, session, config, events, outputSchema)
         else
           throw new AgentTurnFailed(
             "provider error",
@@ -515,7 +506,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
     // didn't disable transient-failure retries.
     val calls = new AtomicInteger(0)
     val backend = new SequencedBackend(List("""{"value":8}""")):
-      override def runAutonomous(
+      override def doRunAutonomous(
           prompt: String,
           session: SessionId[BackendTag.ClaudeCode.type],
           config: AgentConfig,
@@ -527,7 +518,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
             "Failed to open claude stream-json session: Broken pipe"
           )
         else
-          super.runAutonomous(
+          super.doRunAutonomous(
             prompt,
             session,
             config,

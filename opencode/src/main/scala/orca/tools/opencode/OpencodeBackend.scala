@@ -80,7 +80,7 @@ private[orca] class OpencodeBackend(
     */
   override def close(): Unit = server.close()
 
-  def runAutonomous(
+  protected def doRunAutonomous(
       prompt: String,
       session: SessionId[BackendTag.Opencode.type],
       config: AgentConfig,
@@ -98,7 +98,7 @@ private[orca] class OpencodeBackend(
         ConversationMode.Autonomous
       )
 
-  def runInteractive(
+  protected def doRunInteractive(
       prompt: String,
       session: SessionId[BackendTag.Opencode.type],
       displayPrompt: String,

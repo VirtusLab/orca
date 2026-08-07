@@ -1,6 +1,6 @@
 package orca.tools.opencode
 
-import orca.testkit.StubEnforcement
+import orca.testkit.StubEnforcementCell
 import orca.backend.{
   Conversation,
   Interaction,
@@ -11,12 +11,9 @@ import orca.backend.{
 }
 import orca.events.{OrcaListener, Usage}
 import orca.agents.{
-  AutoApprove,
   BackendTag,
   DefaultPrompts,
   AgentConfig,
-  EnforcementCell,
-  TurnDispatch,
   OpencodeAgent,
   SessionId,
   ToolSet,
@@ -29,10 +26,12 @@ class DefaultOpencodeAgentTest extends munit.FunSuite:
   private given orca.InStage = orca.InStage.unsafe
 
   /** Captures the config the tool resolves for an autonomous call. */
-  private class RecordingBackend extends AgentBackend[BackendTag.Opencode.type]:
+  private class RecordingBackend
+      extends AgentBackend[BackendTag.Opencode.type]
+      with StubEnforcementCell[BackendTag.Opencode.type]:
     val workDir: os.Path = os.pwd
     var lastConfig: Option[AgentConfig] = None
-    def runAutonomous(
+    def doRunAutonomous(
         prompt: String,
         session: SessionId[BackendTag.Opencode.type],
         config: AgentConfig,
@@ -41,7 +40,7 @@ class DefaultOpencodeAgentTest extends munit.FunSuite:
     ): AgentResult[BackendTag.Opencode.type] =
       lastConfig = Some(config)
       AgentResult(session.onWire, "ok", Usage.empty)
-    def runInteractive(
+    def doRunInteractive(
         prompt: String,
         session: SessionId[BackendTag.Opencode.type],
         displayPrompt: String,
@@ -52,12 +51,6 @@ class DefaultOpencodeAgentTest extends munit.FunSuite:
     val sessions: SessionSupport[BackendTag.Opencode.type] =
       SessionSupport.ephemeral(IdScheme.ClientClaimed)
     val tag: BackendTag.Opencode.type = BackendTag.Opencode
-    def enforcementCell(
-        tools: ToolSet,
-        autoApprove: AutoApprove,
-        dispatch: TurnDispatch
-    ): EnforcementCell =
-      StubEnforcement.cell
     def structuredOutputMode: orca.agents.StructuredOutputMode =
       orca.agents.StructuredOutputMode.RawText
 
