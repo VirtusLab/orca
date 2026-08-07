@@ -1,5 +1,7 @@
 package orca.review
 
+import ox.either.orThrow
+
 /** The minimum confidence a [[ReviewIssue]] must carry to reach the fixer, per
   * [[Severity]]. Findings below their bar are not fixed, but they are not lost
   * either: `reviewAndFixLoop` records its rejects in the returned
@@ -14,28 +16,36 @@ package orca.review
   * uncertain Info is the noisiest kind of finding and is held to the strictest
   * bar.
   */
-case class ConfidenceGate(critical: Double, warning: Double, info: Double):
+case class ConfidenceGate(
+    critical: Confidence,
+    warning: Confidence,
+    info: Confidence
+):
   /** The bar `severity` must clear. */
-  def minimumFor(severity: Severity): Double = severity match
+  def minimumFor(severity: Severity): Confidence = severity match
     case Severity.Critical => critical
     case Severity.Warning  => warning
     case Severity.Info     => info
 
   /** Whether `issue` clears the bar for its severity. */
   def admits(issue: ReviewIssue): Boolean =
-    issue.confidence >= minimumFor(issue.severity)
+    issue.confidence.clears(minimumFor(issue.severity))
 
   /** Why `issue` was held back, naming the bar it missed — the reason recorded
     * against a gated-out finding.
     */
   def rejectionReason(issue: ReviewIssue): String =
     s"below the ${issue.severity} confidence gate " +
-      s"(${issue.confidence} < ${minimumFor(issue.severity)})"
+      s"(${issue.confidence.value} < ${minimumFor(issue.severity).value})"
 
 object ConfidenceGate:
   /** The numbers are judgment calls, not measurements — callers who find them
     * mis-tuned for their reviewers can pass their own gate, or adjust one bar
-    * with `ConfidenceGate.default.copy(info = ...)`.
+    * with `ConfidenceGate.default.copy(info = Confidence(0.7).orThrow)`.
     */
   val default: ConfidenceGate =
-    ConfidenceGate(critical = 0.5, warning = 0.6, info = 0.8)
+    ConfidenceGate(
+      critical = Confidence(0.5).orThrow,
+      warning = Confidence(0.6).orThrow,
+      info = Confidence(0.8).orThrow
+    )

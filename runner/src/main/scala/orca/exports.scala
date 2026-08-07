@@ -59,6 +59,7 @@ export orca.review.{
   lint,
   minimalReviewers,
   reviewAndFixLoop,
+  Confidence,
   ConfidenceGate,
   FixOutcome,
   IgnoredIssue,

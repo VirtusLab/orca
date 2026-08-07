@@ -31,6 +31,13 @@ import scala.util.matching.Regex
   * round cannot drive an LLM or spend tokens. Put every gated effect in
   * [[prepare]]; the arrow narrows over `history` and may emit a `Step` saying
   * what it decided, nothing more.
+  *
+  * Returning an empty list means no reviewers run that round: the loop finds
+  * nothing and — absent lint findings — converges, so a selector that empties a
+  * non-empty roster turns the review into a no-op with a green result. Each
+  * shipped selector carries its own floor against that ([[agentDriven]] falls
+  * back to every eligible reviewer, [[narrowingAcrossRounds]] re-runs the
+  * previous pick); a custom selector owns its own.
   */
 trait ReviewerSelector:
   def prepare(
@@ -162,7 +169,18 @@ object ReviewerSelector:
             .names
       // Post-filter against `eligible`, not `all`, so a picker that hallucinates
       // a name pre-filtered out can't resurrect it.
-      val selected = SelectedReviewers(names).pick(eligible)
+      val picked = SelectedReviewers(names).pick(eligible)
+      // A partially-wrong pick drops reviewers for the whole loop, so every
+      // unmatched name is announced — the empty-pick fallback below only covers
+      // the all-wrong case.
+      if picked.unresolved.nonEmpty then
+        ctx.emit(
+          OrcaEvent.Step(
+            s"reviewer selection: picker named " +
+              s"${picked.unresolved.mkString(", ")}, matching no reviewer"
+          )
+        )
+      val selected = picked.entries
       // Safety floor: the picker narrows the set, it can't skip review. If it
       // picks nothing while reviewers are eligible, fall back to all eligible
       // so a real change is never silently unreviewed.

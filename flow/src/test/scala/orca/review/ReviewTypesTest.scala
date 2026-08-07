@@ -2,6 +2,7 @@ package orca.review
 
 import orca.plan.Title
 import orca.agents.{AgentInput, given}
+import ox.either.orThrow
 import com.github.plokhotnyuk.jsoniter_scala.core.{
   readFromString,
   writeToString
@@ -13,7 +14,7 @@ class ReviewTypesTest extends munit.FunSuite:
       issues = List(
         ReviewIssue(
           severity = Severity.Critical,
-          confidence = 0.95,
+          confidence = Confidence(0.95).orThrow,
           title = Title("Null pointer risk"),
           description = "null pointer risk",
           location = Some(Location("Foo.scala", Some(42))),
@@ -21,7 +22,7 @@ class ReviewTypesTest extends munit.FunSuite:
         ),
         ReviewIssue(
           severity = Severity.Info,
-          confidence = 0.4,
+          confidence = Confidence(0.4).orThrow,
           title = Title("Stylistic nitpick"),
           description = "stylistic nitpick",
           location = None,
@@ -33,6 +34,15 @@ class ReviewTypesTest extends munit.FunSuite:
     val parsed = readFromString[ReviewResult](json)
     assertEquals(parsed, original)
 
+  test("a confidence outside [0,1] is rejected at decode"):
+    // A percent-style reply would otherwise clear every gate bar forever.
+    val json =
+      """{"issues":[{"severity":"Warning","confidence":85,"title":"t",""" +
+        """"description":"d","location":null,"suggestion":null}]}"""
+    intercept[com.github.plokhotnyuk.jsoniter_scala.core.JsonReaderException](
+      readFromString[ReviewResult](json)
+    )
+
   test("the fix prompt keeps a suggestion line that starts with `|`"):
     // `formatIssue` wraps a suggestion with its own line breaks and indents
     // preserved, so a quoted margin block reaches the prompt as a `|` line.
@@ -41,7 +51,7 @@ class ReviewTypesTest extends munit.FunSuite:
       List(
         ReviewIssue(
           severity = Severity.Warning,
-          confidence = 0.9,
+          confidence = Confidence(0.9).orThrow,
           title = Title("Mangled quote"),
           description = "ignored by formatIssue",
           location = None,

@@ -1,9 +1,12 @@
 package orca.review
 
 // Compiled under capture checking (imports below) so CheckedPar's fan-out
-// enforcement (ADR 0018 §6) fires at its call site. Tapir `derives`/macro types
-// don't type-check under CC — keep them in a sibling non-CC file (see
-// FixRequest.scala).
+// enforcement fires at its call site: the reviewer fan-out may capture the
+// shared `InStage`, and an exclusive `FlowControl`/`WorkspaceWrite` capture is
+// a compile error (ADR 0018 §6, pinned by `orca.CcNegativeCompileTest`). That
+// is why `fc`/`ws` are method parameters rather than fields throughout this
+// file. Tapir `derives`/macro types don't type-check under CC — keep them in a
+// sibling non-CC file (see FixRequest.scala).
 import language.experimental.captureChecking
 import language.experimental.separationChecking
 
@@ -175,8 +178,6 @@ private[review] object RosterEntry:
 case class ReviewBatch(outcomes: List[(RosterEntry[?], ReviewResult)]):
   def reviewersWithIssues: List[RosterEntry[?]] =
     outcomes.collect { case (r, rr) if rr.issues.nonEmpty => r }
-  def allIssues: List[ReviewIssue] =
-    outcomes.flatMap(_._2.issues)
 
 /** One reviewer's live [[Chat]], paired with its entry under a single backend
   * tag `B`. The chat bundles the role-tagged agent with its conversation id, so
@@ -265,17 +266,9 @@ private case class RoundOutcome(
 /** Run reviewers in parallel against `task`, gather per-reviewer outcomes, hand
   * any issues admitted by `confidenceGate` to the coder through
   * `coderSession`'s seeded, structured door, and loop. `reviewerSelection`
-  * decides which reviewers run each iteration; the default
-  * ([[ReviewerSelector.default]]) runs a picker LLM on the review-role agent's
-  * cheap tier for round one, then narrows to the reviewers that reported last
-  * round. Pass `ReviewerSelector.allEveryRound` to skip selection and
-  * narrowing, `ReviewerSelector.agentDriven` (no parentheses) to pick once and
-  * replay that pick every round, or `ReviewerSelector.agentDriven(...)` to
-  * point the picker at a specific model.
-  *
-  * The default picker resolves `reviewAgent`'s cheap variant; a backend with no
-  * separate cheap tier (`.cheap` returns `this`, e.g. pi) simply runs the
-  * picker on the full review-role agent — correct, just not cheaper.
+  * decides which reviewers run each iteration; the default narrows to the
+  * reviewers that reported last round, so a reviewer that goes quiet won't see
+  * the fixes made after it stopped running (see [[ReviewerSelector]]).
   *
   * `coderSession` is the coder's durable [[FlowSession]] (obtain it once with
   * `agent.session(name, seed)`). Each fix turn goes through
@@ -302,15 +295,8 @@ def reviewAndFixLoop[B <: BackendTag](
     coderSession: FlowSession[B],
     reviewers: List[Agent[?]],
     task: String,
-    /** Which reviewers run each iteration. The default
-      * ([[ReviewerSelector.default]]) picks with a LLM on the review-role
-      * agent's cheap tier, then from round two keeps only the reviewers that
-      * reported last round — so a reviewer that goes quiet won't see the fixes
-      * made after it stopped running. For full coverage every round pass
-      * [[ReviewerSelector.allEveryRound]] (whole roster, no picker) or
-      * [[ReviewerSelector.agentDriven]] with no parentheses (one pick,
-      * replayed); [[ReviewerSelector.agentDriven]]`(...)` picks with a specific
-      * model.
+    /** Which reviewers run each iteration — see [[ReviewerSelector]] for the
+      * shipped variants and how each trades coverage for tokens.
       */
     reviewerSelection: ReviewerSelector = ReviewerSelector.default,
     /** Shell commands run in order before each review round so reviewers and
@@ -336,7 +322,7 @@ def reviewAndFixLoop[B <: BackendTag](
     confidenceGate: ConfidenceGate = ConfidenceGate.default,
     /** How many fix attempts before the loop gives up, folding whatever is
       * still open into the returned [[IgnoredIssues]]. Counts fixes, not
-      * evaluations: the default of 3 allows up to four review rounds.
+      * evaluations — see [[stopPolicy]].
       */
     maxIterations: Int = DefaultMaxIterations,
     fixInstructions: String = ReviewLoopPrompts.Fix,
@@ -364,9 +350,8 @@ def reviewAndFixLoop[B <: BackendTag](
     fc: FlowControl,
     ws: WorkspaceWrite
 ): IgnoredIssues =
-  // `Configured` resolution happens here at loop entry (ADR 0019): the config
-  // then carries plain data, so the capture-checked fan-out below never reads
-  // `ctx.stackSettings` (or touches `ctx.reviewAgent`) from a fork.
+  // `Configured` resolution happens here at loop entry (ADR 0019), so the
+  // config carries plain data.
   val resolvedFormat: List[String] = formatCommands match
     case Configured.FromSettings => ctx.stackSettings.format
     case Configured.Off          => Nil
@@ -380,18 +365,14 @@ def reviewAndFixLoop[B <: BackendTag](
       )
     case Configured.Off    => None
     case Configured.Use(l) => Some(l)
-  // Read from `fc` here, at loop entry, for the same reason: the fan-out
-  // closures may then carry the plain commit hash rather than the exclusive
-  // capability it came from.
+  // `fc` is read here, at loop entry, so what the loop carries is the plain
+  // commit hash rather than the capability it came from.
   val diffSource: ReviewDiffSource = initialDiff.fold(
     ReviewDiffSource.Sampled(ctx.git, fc.stageBaseCommit)
   )(ReviewDiffSource.Pinned(_))
-  // `ctx` (pure [[FlowContext]]) is what the fan-out closures may capture;
-  // `fc`/`ws` (exclusive capabilities) are handed only to `run()`, so the durable
-  // fix turn reaches the [[FlowSession]] door without those tokens landing in the
-  // fan-out (ADR 0018 §6). Passed explicitly, not by implicit search: the
-  // more-specific `fc: FlowControl` would otherwise be picked for the
-  // constructor's `FlowContext` and its root capability rejected.
+  // `ctx`/`ev` passed explicitly, not by implicit search: the more-specific
+  // `fc: FlowControl` would otherwise be picked for the constructor's
+  // `FlowContext` and its root capability rejected.
   new ReviewFixLoop(
     ReviewLoopConfig(
       coderSession = coderSession,
@@ -399,7 +380,7 @@ def reviewAndFixLoop[B <: BackendTag](
       reviewerSelection = reviewerSelection,
       task = task,
       formatCommands = resolvedFormat,
-      lint = resolvedLint,
+      lintGate = resolvedLint,
       confidenceGate = confidenceGate,
       maxIterations = maxIterations,
       fixInstructions = fixInstructions,
@@ -409,15 +390,8 @@ def reviewAndFixLoop[B <: BackendTag](
 
 /** [[reviewAndFixLoop]]'s parameters bundled into one value so
   * [[ReviewFixLoop]]'s constructor doesn't mirror them field-for-field. See
-  * `reviewAndFixLoop`'s parameter docs for each field.
-  *
-  * `fc`/`ws` deliberately stay out: they're exclusive capabilities threaded to
-  * [[ReviewFixLoop.run]] as method parameters, so they never land in the
-  * reviewer fan-out closures that capture the config-holding instance (ADR 0018
-  * §6).
-  *
-  * `formatCommands`/`lint` hold RESOLVED values — `Configured` resolution
-  * happens once at loop entry, so the fan-out only ever sees plain data.
+  * `reviewAndFixLoop`'s parameter docs for each field; `formatCommands` and
+  * `lintGate` hold values `Configured` already resolved.
   */
 private[review] case class ReviewLoopConfig[B <: BackendTag](
     coderSession: FlowSession[B],
@@ -425,7 +399,7 @@ private[review] case class ReviewLoopConfig[B <: BackendTag](
     reviewerSelection: ReviewerSelector,
     task: String,
     formatCommands: List[String],
-    lint: Option[Lint],
+    lintGate: Option[Lint],
     confidenceGate: ConfidenceGate,
     maxIterations: Int,
     fixInstructions: String,
@@ -447,10 +421,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     ctx: FlowContext,
     ev: InStage
 ):
-  // `lint` excluded from the wildcard: the config field would otherwise shadow
-  // the package-level `lint(command, agent)` summariser function this class calls
-  // below — `config.lint` stays the qualified way to reach the field.
-  import config.{lint as _, *}
+  import config.*
 
   // The roster, wrapped once as keyed handles (see [[RosterEntry]]). This is
   // the only place a `ReviewerId` is minted.
@@ -487,7 +458,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
   ): (ReviewResult, Option[SessionEntry[?]]) =
     stored match
       case Some(se) => resumeReview(se, current, declined)
-      case None     => firstReview(e, current.diff)
+      case None     => firstReview(e, current.diff, declined)
 
   /** Resume a reviewer's existing session, sending what is new to it since its
     * last round: the change set ([[ReReviewChanges]]) and what the fixer
@@ -519,11 +490,13 @@ private[review] class ReviewFixLoop[B <: BackendTag](
 
   /** A reviewer's first call: mint a fresh [[Chat]] on the role-tagged agent
     * and pair it back with the entry so a later resume recovers it typed.
-    * `currentDiff` seeds the initial framing.
+    * `currentDiff` seeds the initial framing, and `declined` carries the
+    * fixer's refusals to a reviewer joining after round one.
     */
   private def firstReview[B <: BackendTag](
       e: RosterEntry[B],
-      currentDiff: String
+      currentDiff: String,
+      declined: List[IgnoredIssue]
   ): (ReviewResult, Option[SessionEntry[?]]) =
     val chat = e.agent.withRole(ReviewerPrompts.Role).chat()
     val result =
@@ -531,8 +504,13 @@ private[review] class ReviewFixLoop[B <: BackendTag](
         .resultAs[ReviewResult]
         .autonomous
         .run(
-          ReviewLoopPrompts
-            .initialReview(task, currentDiff, confidenceGate, diffSource.base),
+          ReviewLoopPrompts.initialReview(
+            task,
+            currentDiff,
+            confidenceGate,
+            diffSource.base,
+            declined
+          ),
           emitPrompt = false
         )
     (result, Some(SessionEntry(e, chat, currentDiff)))
@@ -590,7 +568,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     // Resolved outside the fork below so the next state carries the
     // conversation even on a round that short-circuits before any turn; minting
     // one reserves an id and contacts nothing.
-    val lintRound: Option[LintRound] = config.lint.map: gate =>
+    val lintRound: Option[LintRound] = lintGate.map: gate =>
       val summariser = currentState.lintChat.getOrElse:
         // Group lint tokens under the same `reviewer` cost role as the
         // reviewers, under the bare identity "lint"; the tagged copy stays
@@ -616,12 +594,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
       RoundOutcome(Nil, gateRejectsOf(currentState), currentState)
     else
       val outcomes: List[AgentOutcome] =
-        // Fan out through the capture-checked funnel (CheckedPar), so separation
-        // checking guards the fork boundary: the shared `InStage` these thunks
-        // capture is admitted (load-bearing — each reviewer reaches a gated LLM
-        // `run`), while an exclusive `WorkspaceWrite`/`FlowControl` capture would
-        // be a compile error here (ADR 0018 §6). Needs this file's two language
-        // imports.
+        // The fan out the file header's capture checking guards.
         CheckedPar.mapParUnordered(tasks.size)(tasks):
           // Display the bare slug — the `reviewer` role tag is a cost-report
           // grouping detail, not part of what the user sees.
@@ -660,32 +633,50 @@ private[review] class ReviewFixLoop[B <: BackendTag](
         state = nextState
       )
 
-  private def evaluate(
-      state: ReviewLoopState,
-      selectRound: List[ReviewBatch] -> List[RosterEntry[?]],
-      declined: List[IgnoredIssue]
-  ): RoundOutcome =
-    // Format before reviewing so the implementation's and each fix's edits are
-    // cleaned up before reviewers and the lint see them, and the committed tree
-    // stays formatted. Exit status ignored — a formatter failure shouldn't abort
-    // the review. `mergeErrIntoOut` folds stderr into captured stdout so neither
-    // stream reaches the terminal and tears the status row.
+  /** Run the format commands, in order, in `ctx.workDir`. Exit status ignored —
+    * a formatter failure shouldn't abort the review. `mergeErrIntoOut` folds
+    * stderr into captured stdout so neither stream reaches the terminal and
+    * tears the status row.
+    *
+    * Takes [[WorkspaceWrite]] because it rewrites the tree (ADR 0018 §2.2), and
+    * because that token is fork-opaque: moving this step into the reviewer
+    * fan-out becomes a compile error rather than a race with the reviewers
+    * reading the tree.
+    */
+  private def formatWorkspace()(using WorkspaceWrite): Unit =
     formatCommands.foreach: cmd =>
       val _ = os
         .proc("bash", "-c", cmd)
         .call(cwd = ctx.workDir, check = false, mergeErrIntoOut = true)
+
+  private def evaluate(
+      state: ReviewLoopState,
+      selectRound: List[ReviewBatch] -> List[RosterEntry[?]],
+      declined: List[IgnoredIssue]
+  )(using WorkspaceWrite): RoundOutcome =
+    // Format before reviewing so the implementation's and each fix's edits are
+    // cleaned up before reviewers and the lint see them, and the committed tree
+    // stays formatted.
+    formatWorkspace()
     // The selector returns roster entries only, so no membership defence is
     // needed — just collapse an accidental duplicate so a reviewer runs at most
     // once per round. An empty selection stays empty: no reviewers run, the
     // round finds no issues, and the stop policy converges — the loop never
     // resurrects the roster behind the selector's back.
     val active = selectRound(state.history).distinctBy(_.id)
-    val totalAgents = active.size + (if config.lint.isDefined then 1 else 0)
+    val totalAgents = active.size + (if lintGate.isDefined then 1 else 0)
     if totalAgents > 0 then
       ctx.emit(
         OrcaEvent.Step(
           s"Running ${TextUtil.pluralize(totalAgents, "review agent")}"
         )
+      )
+    // Say so when a round runs nobody though reviewers are configured: the
+    // round then finds nothing and the loop converges, which is otherwise
+    // indistinguishable from a clean review.
+    if active.isEmpty && roster.nonEmpty then
+      ctx.emit(
+        OrcaEvent.Step("reviewer selection returned no reviewers this round")
       )
     // The gate is applied per agent, before display, so each reviewer's listed
     // issues are exactly what the fixer receives from it. What the gate holds
@@ -704,9 +695,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
 
   // Routed through the durable [[FlowSession]] door: a coder whose backend
   // conversation is fresh or lost gets the seed + progress preamble re-applied
-  // and its learned wire id persisted. Runs on the collecting thread (outside the
-  // reviewer fan-out), so its FlowControl/WorkspaceWrite tokens stay
-  // method-scoped and never land in the `CheckedPar` closures (ADR 0018 §6).
+  // and its learned wire id persisted.
   private def fix(issues: List[ReviewIssue])(using
       fc: FlowControl,
       ws: WorkspaceWrite
@@ -757,11 +746,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     * result, so a finding held back for low confidence is visible in the stage
     * result rather than silently deleted.
     *
-    * Takes [[FlowControl]] + [[WorkspaceWrite]] as method parameters (not
-    * constructor fields) so the durable fix turn ([[fix]]) can reach the
-    * [[FlowSession]] door while these exclusive capabilities stay out of the
-    * instance — and therefore out of the reviewer fan-out closures, which
-    * capture `this` (ADR 0018 §6).
+    * `fc`/`ws` are method parameters, not fields — see the file header.
     */
   def run()(using fc: FlowControl, ws: WorkspaceWrite): IgnoredIssues =
     // A progress marker, not a committing stage: the enclosing implement-task
@@ -771,8 +756,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     // picker LLM call) ONCE here, at loop start, inside this stage. `selectRound`
     // is the resulting pure per-iteration narrowing, passed to `evaluate` so it
     // stays a function of its inputs. `ctx`/`ev` passed explicitly for the same
-    // given-priority reason as the constructor call above (ADR 0018 §6 — see
-    // `reviewAndFixLoop`).
+    // given-priority reason as the constructor call in `reviewAndFixLoop`.
     val selectRound: List[ReviewBatch] -> List[RosterEntry[?]] =
       reviewerSelection.prepare(roster, taskTitle, changedFiles)(using ctx, ev)
     @scala.annotation.tailrec

@@ -13,6 +13,12 @@ import orca.agents.{Agent, Chat}
   * output into a `ReviewResult` (a cheap model suffices — the summary is a
   * small fold). Bundling the pair makes "commands with no summariser"
   * unrepresentable.
+  *
+  * The commands must not modify sources. They run concurrently with the
+  * reviewers, against the change set sampled when the round started, so a
+  * rewrite mid-round makes the reviewers review a moving target. Source
+  * rewriting belongs to the format task, which `reviewAndFixLoop` runs
+  * serialized before the round (ADR 0019).
   */
 case class Lint(commands: List[String], agent: Agent[?])
 
@@ -39,16 +45,12 @@ private case class LintRun(command: String, exitCode: Int, output: String):
   * output the default phrasing doesn't fit.
   *
   * Combined text ≤ [[Lint.InlineLintThreshold]] chars is inlined into the
-  * prompt (the common case), which is what makes lint work under a sandboxed
-  * autonomous agent that denies file reads outside its worktree. Larger output
-  * is spilled to a file under `<workDir>/.orca/cache/` (NOT `/tmp`, so an
-  * in-sandbox worktree can still reach it), avoiding a context-window overflow.
+  * prompt (the common case); larger output spills to a file the sandboxed agent
+  * can reach, avoiding a context-window overflow.
   *
-  * The LLM is invoked read-only: the agent may verify a lint claim against the
-  * sources it references but must not edit.
-  *
-  * Each call summarises on a fresh conversation; to reuse one across calls,
-  * pass a [[Lint.Summariser]] to the overload below.
+  * Each call summarises on a fresh read-only conversation (see
+  * [[Lint.Summariser]]); to reuse one across calls, pass a summariser to the
+  * overload below.
   */
 def lint(
     commands: List[String],
@@ -151,24 +153,19 @@ private def summariseRuns(
     finally
       val _ = os.remove(outputFile)
 
-// Public (not `private[review]`): as the case class's companion it carries the
-// synthesized `apply`/`unapply`, so restricting it would make `Lint(...)`
-// inaccessible outside the package despite the class being public.
-// `InlineLintThreshold` stays package-private on its own member below.
+// Public: restricting the companion would restrict `Lint(...)` too.
 object Lint:
-  /** A conversation [[lint]] may summarise into. The `private[review]`
-    * constructor makes [[summariser]] the only way to obtain one, so the
-    * read-only restriction it applies can't be bypassed by handing `lint` a
-    * write-enabled conversation — the same guarantee the agent-taking overload
-    * gets from applying `withReadOnly` itself.
+  /** A conversation [[lint]] may summarise into, always read-only: it may
+    * verify a lint claim against the sources it references, but must not edit.
+    * The `private[review]` constructor makes [[summariser]] the only way to
+    * obtain one, so handing `lint` a write-enabled conversation is
+    * unrepresentable.
     */
   final class Summariser private[review] (
       private[review] val chat: Chat[?]
   )
 
-  /** A fresh read-only [[Summariser]] over `agent`: it may verify a lint claim
-    * against the sources it references, but must not edit.
-    */
+  /** A fresh [[Summariser]] over `agent`. */
   def summariser(agent: Agent[?]): Summariser =
     new Summariser(agent.withReadOnly.chat())
 

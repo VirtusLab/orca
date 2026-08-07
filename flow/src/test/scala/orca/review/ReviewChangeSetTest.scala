@@ -4,6 +4,7 @@ import orca.{FlowContext, FlowControl, InStage, TestFlowControl, stage}
 import orca.plan.Title
 import orca.events.EventDispatcher
 import orca.testkit.TextReplyingAgent
+import ox.either.orThrow
 
 /** What `reviewAndFixLoop` shows its reviewers: the change set the enclosing
   * stage has produced, whether or not the agent that produced it committed
@@ -36,7 +37,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
   private def bug(title: String): ReviewIssue =
     ReviewIssue(
       severity = Severity.Warning,
-      confidence = 1.0,
+      confidence = Confidence(1.0).orThrow,
       title = Title(title),
       description = title,
       location = None,

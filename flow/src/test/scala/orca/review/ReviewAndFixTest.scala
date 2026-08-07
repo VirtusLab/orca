@@ -21,6 +21,7 @@ import orca.backend.{IdScheme, SessionSupport}
 import orca.progress.SessionRecord
 import orca.events.{EventDispatcher, OrcaEvent, OrcaListener, Usage}
 import orca.testkit.TempDirs
+import ox.either.orThrow
 
 /** Fake AgentCall whose `autonomous.run` drains a scripted sequence of outputs
   * in order. `seenSessions` records each call's session id so tests can assert
@@ -189,7 +190,7 @@ class ReviewAndFixTest extends munit.FunSuite:
   ): ReviewIssue =
     ReviewIssue(
       severity = severity,
-      confidence = confidence,
+      confidence = Confidence(confidence).orThrow,
       title = Title(desc),
       description = desc,
       location = None,
@@ -226,8 +227,11 @@ class ReviewAndFixTest extends munit.FunSuite:
       coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
       reviewers = List(reviewer),
       task = "build the widget",
-      confidenceGate =
-        ConfidenceGate(critical = 0.99, warning = 0.99, info = 0.99),
+      confidenceGate = ConfidenceGate(
+        critical = Confidence(0.99).orThrow,
+        warning = Confidence(0.99).orThrow,
+        info = Confidence(0.99).orThrow
+      ),
       reviewerSelection = ReviewerSelector.allEveryRound,
       initialDiff = Some("")
     )
@@ -514,7 +518,7 @@ class ReviewAndFixTest extends munit.FunSuite:
           List(
             ReviewIssue(
               severity = Severity.Warning,
-              confidence = 0.95,
+              confidence = Confidence(0.95).orThrow,
               title = Title("leaks a handle"),
               description = "DESCRIPTION-MARKER: the stream is never closed",
               location = None,
@@ -1467,6 +1471,76 @@ class ReviewAndFixTest extends munit.FunSuite:
       IgnoredIssues(Nil),
       "empty selection ⇒ no issues ⇒ loop stops with nothing accumulated"
     )
+
+  test("a round that runs no reviewer at all says so"):
+    // The loop then converges with an empty result, which is otherwise
+    // indistinguishable from a clean review.
+    val steps = new java.util.concurrent.ConcurrentLinkedQueue[String]()
+    val listener: OrcaListener = (e: OrcaEvent) =>
+      e match
+        case OrcaEvent.Step(msg) => steps.add(msg): Unit
+        case _                   => ()
+    given FlowControl =
+      ReviewLoopFixture.control(new EventDispatcher(List(listener)))
+    val emptySelector = new ReviewerSelector:
+      def prepare(
+          all: List[RosterEntry[?]],
+          taskTitle: Title,
+          changedFiles: List[String]
+      )(using FlowContext, orca.InStage) =
+        _ => Nil
+    val _ = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
+      reviewers = List(new FakeAgent(name = "a")),
+      reviewerSelection = emptySelector,
+      task = "empty selection",
+      initialDiff = Some("")
+    )
+    val emitted = steps.toArray.toList.map(_.toString)
+    assert(
+      emitted.contains("reviewer selection returned no reviewers this round"),
+      emitted.mkString("\n")
+    )
+
+  test("a reviewer joining a later round is told what the fixer declined"):
+    // The declines are the one thing a reviewer cannot recover by reading the
+    // code, and a late joiner's prompt is the initial one, not a resume.
+    given FlowControl = control
+    val early = new FakeAgent(
+      name = "early",
+      outputs = List(
+        ReviewResult(List(issue("real bug"), issue("nit"))),
+        ReviewResult.empty
+      )
+    )
+    val late = new FakeAgent("late", outputs = List(ReviewResult.empty))
+    val coder = new FakeAgent(
+      name = "coder",
+      outputs = List(
+        FixOutcome(
+          List(Title("real bug")),
+          List(IgnoredIssue(Title("nit"), "the shape is deliberate"))
+        )
+      )
+    )
+    val lateJoiner = new ReviewerSelector:
+      def prepare(
+          all: List[RosterEntry[?]],
+          taskTitle: Title,
+          changedFiles: List[String]
+      )(using FlowContext, orca.InStage) =
+        history =>
+          if history.isEmpty then all.filter(_.name == "early") else all
+    val _ = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(early, late),
+      task = "build the widget",
+      reviewerSelection = lateJoiner,
+      initialDiff = Some("")
+    )
+    val joined = late.seenPrompts.headOption
+      .getOrElse(fail("the late reviewer never ran"))
+    assert(joined.contains("- nit: the shape is deliberate"), joined)
 
   test("a selector returning the same entry twice runs it once that round"):
     // Entries are keyed by identity, so `active.distinct` collapses an

@@ -20,10 +20,10 @@ case class Location(file: String, line: Option[Int]) derives JsonData
   * versus how sure the reviewer is that it is. [[ConfidenceGate]] reads both.
   *
   * @param confidence
-  *   a probability in `[0, 1]`; the contract reviewers are held to is stated in
-  *   full in `resources/orca/review/prompts/initial-review.md`, and the
-  *   `@description` below is its schema-side copy (`ReviewLoopPromptsTest` pins
-  *   the two together).
+  *   the contract reviewers are held to is stated in full in
+  *   `resources/orca/review/prompts/initial-review.md`, and the `@description`
+  *   below is its schema-side copy (`ReviewLoopPromptsTest` pins the two
+  *   together).
   */
 case class ReviewIssue(
     severity: Severity,
@@ -32,7 +32,7 @@ case class ReviewIssue(
         "based only on the evidence you gathered — not on deference to the " +
         "task's plan, and not a prediction of whether it will be accepted."
     )
-    confidence: Double,
+    confidence: Confidence,
     title: Title,
     description: String,
     location: Option[Location],

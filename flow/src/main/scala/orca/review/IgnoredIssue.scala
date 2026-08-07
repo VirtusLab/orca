@@ -9,7 +9,6 @@ case class IgnoredIssues(issues: List[IgnoredIssue]) derives JsonData:
   def ++(other: IgnoredIssues): IgnoredIssues = IgnoredIssues(
     issues ++ other.issues
   )
-  def nonEmpty: Boolean = issues.nonEmpty
   def format: String =
     issues.map(i => s"- ${i.title}: ${i.reason}").mkString("\n")
 

@@ -18,6 +18,7 @@ import orca.agents.{
 import orca.plan.Title
 
 import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
+import ox.either.orThrow
 
 /** Captures every `ReviewerSelectionRequest` handed to the picker and replies
   * with a scripted `SelectedReviewers`, counting each call. Other `Agent`
@@ -102,7 +103,7 @@ class ReviewerSelectorTest extends munit.FunSuite:
           List(
             ReviewIssue(
               severity = Severity.Warning,
-              confidence = 1.0,
+              confidence = Confidence(1.0).orThrow,
               title = Title("found something"),
               description = "found something",
               location = None,
@@ -219,6 +220,37 @@ class ReviewerSelectorTest extends munit.FunSuite:
       capture.messages.exists(m =>
         m.startsWith("reviewer selection: no changed files") &&
           m.endsWith("(scala-fp)")
+      ),
+      capture.messages.mkString("\n")
+    )
+
+  test("a picker name that differs only in case still resolves"):
+    val captured = new AtomicReference[Option[ReviewerSelectionRequest]](None)
+    val picker =
+      new RecordingPicker(SelectedReviewers(List(" Scala-FP ")), captured)
+    val selector = ReviewerSelector.agentDriven(agent = picker)
+    val picked =
+      selector.prepare(all, Title("any"), List("src/main/scala/Foo.scala"))(Nil)
+    assertEquals(picked.map(_.name), List("scala-fp"))
+
+  test("a partially-wrong pick announces the names it dropped"):
+    // Without the announcement a single-character echo error removes a reviewer
+    // from the whole loop with no event, and nothing downstream can restore it.
+    val capture = new StepCapture
+    val captured = new AtomicReference[Option[ReviewerSelectionRequest]](None)
+    val selector = ReviewerSelector.agentDriven(
+      agent = new RecordingPicker(
+        SelectedReviewers(List("generic", "scla-fp")),
+        captured
+      )
+    )
+    val _ = selector.prepare(all, Title("any"), List("Foo.scala"))(using
+      capture.ctx,
+      summon[orca.InStage]
+    )(Nil)
+    assert(
+      capture.messages.exists(
+        _ == "reviewer selection: picker named scla-fp, matching no reviewer"
       ),
       capture.messages.mkString("\n")
     )

@@ -69,6 +69,6 @@ class AllReviewersTest extends munit.FunSuite:
     val picked =
       SelectedReviewers(List("performance", "code-structure")).pick(all)
     assertEquals(
-      picked.map(_.name),
+      picked.entries.map(_.name),
       List("code-structure", "performance")
     )

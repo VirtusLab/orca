@@ -3,6 +3,7 @@ package orca.review
 import orca.agents.given
 import orca.plan.Title
 import orca.util.{JsonSchemaGen, TextUtil}
+import ox.either.orThrow
 
 class ReviewLoopPromptsTest extends munit.FunSuite:
 
@@ -14,14 +15,20 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
       base: Option[String] = None
   ): String =
     TextUtil.collapseWhitespace(
-      ReviewLoopPrompts.initialReview("do the thing", "", gate, base)
+      ReviewLoopPrompts.initialReview("do the thing", "", gate, base, Nil)
     )
 
   test("initialReview renders the caller's bars"):
     // The bars are a parameter, so a caller-tuned gate must reach the prompt —
     // otherwise reviewers calibrate against a threshold that isn't applied.
     val prompt =
-      rendered(ConfidenceGate(critical = 0.1, warning = 0.2, info = 0.3))
+      rendered(
+        ConfidenceGate(
+          critical = Confidence(0.1).orThrow,
+          warning = Confidence(0.2).orThrow,
+          info = Confidence(0.3).orThrow
+        )
+      )
     assert(prompt.contains("Critical 0.1, Warning 0.2, Info 0.3"), prompt)
 
   test("initialReview tells reviewers the plan is not evidence"):
