@@ -34,6 +34,13 @@ class CostLogTest extends munit.FunSuite:
   private def turns(workDir: os.Path): List[CostRecord.Turn] =
     costRecords(workDir).collect { case t: CostRecord.Turn => t }
 
+  // Two trailers the read-side tests append and expect back; only their
+  // distinctness matters there.
+  private val firstFinish =
+    CostRecord.Finish(Instant.parse("2026-07-18T10:00:00Z"), "succeeded")
+  private val secondFinish =
+    CostRecord.Finish(Instant.parse("2026-07-18T11:00:00Z"), "failed")
+
   test("a turn-only run writes a cost log and no session manifest"):
     val workDir = TempDirs.dir()
     val writer = newWriter(workDir)
@@ -89,7 +96,10 @@ class CostLogTest extends munit.FunSuite:
     writer.finish(RunOutcome.Failed)
     assertEquals(
       costRecords(workDir).last,
-      CostRecord.Finish("2026-07-18T10:00:00Z", RunManifest.OutcomeFailed)
+      CostRecord.Finish(
+        Instant.parse("2026-07-18T10:00:00Z"),
+        ManifestOutcome.Failed.wireName
+      )
     )
 
   /** No trailer is how a reader tells a killed run from a finished one, since
@@ -178,10 +188,10 @@ class CostLogTest extends munit.FunSuite:
     assertEquals(
       turn.usage,
       ManifestUsage(
-        inputTokens = 120_000,
-        outputTokens = 900,
+        freshInputTokens = 5_000,
         cacheReadInputTokens = 107_000,
         cacheWriteInputTokens = 8_000,
+        outputTokens = 900,
         reasoningOutputTokens = 0
       )
     )
@@ -213,7 +223,15 @@ class CostLogTest extends munit.FunSuite:
       )
     )
     val recorded = turns(workDir)
-    assertEquals(recorded.map(_.usage.inputTokens).sum, 125_000L)
+    assertEquals(
+      recorded
+        .map(t =>
+          t.usage.freshInputTokens + t.usage.cacheReadInputTokens +
+            t.usage.cacheWriteInputTokens
+        )
+        .sum,
+      125_000L
+    )
     assertEquals(
       recorded.flatMap(_.cost).reduce(_ + _),
       Cost(BigDecimal("0.0969"), estimated = true)
@@ -226,10 +244,10 @@ class CostLogTest extends munit.FunSuite:
   test("read drops a torn line and keeps the whole ones before it"):
     val workDir = TempDirs.dir()
     val log = CostLog(workDir / "runs" / "1-1-cost.jsonl")
-    log.append(CostRecord.Finish("a", "succeeded"))
+    log.append(firstFinish)
     os.write.append(log.path, "{\"type\":\"Turn\",\"at\":\"tor")
-    log.append(CostRecord.Finish("b", "failed"))
-    assertEquals(log.read(), List(CostRecord.Finish("a", "succeeded")))
+    log.append(secondFinish)
+    assertEquals(log.read(), List(firstFinish))
 
   /** A tear can cut a multi-byte character in half — stage and agent names are
     * free-form and jsoniter emits them unescaped. A reporting decoder throws on
@@ -239,17 +257,17 @@ class CostLogTest extends munit.FunSuite:
   test("read survives a tear through a multi-byte character"):
     val workDir = TempDirs.dir()
     val log = CostLog(workDir / "runs" / "1-1-cost.jsonl")
-    log.append(CostRecord.Finish("a", "succeeded"))
+    log.append(firstFinish)
     // The first two bytes of "€" (E2 82 AC), then nothing.
     os.write.append(log.path, Array(0xe2.toByte, 0x82.toByte))
-    assertEquals(log.read(), List(CostRecord.Finish("a", "succeeded")))
+    assertEquals(log.read(), List(firstFinish))
 
   test("read skips a record kind it does not know"):
     val workDir = TempDirs.dir()
     val log = CostLog(workDir / "runs" / "1-1-cost.jsonl")
-    log.append(CostRecord.Finish("a", "succeeded"))
+    log.append(firstFinish)
     os.write.append(log.path, "{\"type\":\"FromALaterBuild\",\"at\":\"b\"}\n")
-    assertEquals(log.read(), List(CostRecord.Finish("a", "succeeded")))
+    assertEquals(log.read(), List(firstFinish))
 
   /** The manifest half of `finish` is an idempotent rewrite; the cost half is
     * an append, so a second call must not leave a second trailer.

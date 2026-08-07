@@ -10,10 +10,9 @@ import ox.channels.{Actor, ActorRef, BufferCapacity}
 import java.time.Instant
 import scala.util.control.NonFatal
 
-/** The manifest's `outcome` at finish, as a typed value rather than a bare
-  * string, so a typo in a call site fails to compile instead of landing on
-  * disk. The "running" state is internal-only ([[RunManifestWriterState]]'s
-  * `Outcome.Running`) and never a finish input.
+/** The manifest's outcome at finish. Narrower than [[ManifestOutcome]] on
+  * purpose: [[ManifestOutcome.Running]] is the state a run starts in, never a
+  * finish input, and [[ManifestOutcome.Unknown]] only ever comes off disk.
   */
 private[orca] enum RunOutcome:
   case Succeeded, Failed
@@ -128,18 +127,10 @@ private[runner] class RunManifestWriterState(
       session: ManifestSession
   )
 
-  /** The manifest's `outcome` on the wire. `Running` is the only state without
-    * a [[RunOutcome]] counterpart: it is the default until `finish` maps a
-    * [[RunOutcome]] onto `Succeeded`/`Failed`.
-    */
-  private enum Outcome(val wireValue: String):
-    case Running extends Outcome(RunManifest.OutcomeRunning)
-    case Succeeded extends Outcome(RunManifest.OutcomeSucceeded)
-    case Failed extends Outcome(RunManifest.OutcomeFailed)
-
-  private def outcomeOf(finished: RunOutcome): Outcome = finished match
-    case RunOutcome.Succeeded => Outcome.Succeeded
-    case RunOutcome.Failed    => Outcome.Failed
+  private def outcomeOf(finished: RunOutcome): ManifestOutcome =
+    finished match
+      case RunOutcome.Succeeded => ManifestOutcome.Succeeded
+      case RunOutcome.Failed    => ManifestOutcome.Failed
 
   private case class State(
       stageStack: List[String] = Nil,
@@ -147,7 +138,7 @@ private[runner] class RunManifestWriterState(
       // Gates the cost log's `Run` header and its `Finish` trailer: both are
       // written only for a run that actually spent tokens.
       anyTurnRecorded: Boolean = false,
-      outcome: Outcome = Outcome.Running,
+      outcome: ManifestOutcome = ManifestOutcome.Running,
       finishedAt: Option[Instant] = None,
       prunedOnce: Boolean = false
   )
@@ -181,7 +172,7 @@ private[runner] class RunManifestWriterState(
       guarded("cost log append"):
         costLog.append(
           CostRecord.Turn(
-            at = clock().toString,
+            at = clock(),
             agent = t.agent,
             role = t.role,
             stage = state.stageStack.headOption,
@@ -210,7 +201,7 @@ private[runner] class RunManifestWriterState(
     if state.anyTurnRecorded && !alreadyFinished then
       guarded("cost log finish"):
         costLog.append(
-          CostRecord.Finish(clock().toString, outcomeOf(outcome).wireValue)
+          CostRecord.Finish(clock(), outcomeOf(outcome).wireName)
         )
 
   /** The whole-file rewrite, guarded. Because it rewrites everything, a
@@ -240,7 +231,7 @@ private[runner] class RunManifestWriterState(
     val harness = event.harness
     val wireId = event.wireId
     val key = OrcaEvent.sessionKey(event.clientId, wireId)
-    val now = clock().toString
+    val now = clock()
     val stage = state.stageStack.headOption
     val existing =
       state.entries.find(e => e.harness == harness && e.dedupKey == key)
@@ -255,7 +246,7 @@ private[runner] class RunManifestWriterState(
       role = event.role,
       stage = stage,
       sessionName = name,
-      kind = SessionKind.of(name).wireValue,
+      kind = ManifestSessionKind.of(name),
       firstSeenAt = existing.map(_.session.firstSeenAt).getOrElse(now),
       lastActiveAt = now
     )
@@ -276,9 +267,9 @@ private[runner] class RunManifestWriterState(
       flow = flowName,
       workDir = workDir.toString,
       pid = pid,
-      startedAt = startedAt.toString,
-      finishedAt = state.finishedAt.map(_.toString),
-      outcome = state.outcome.wireValue,
+      startedAt = startedAt,
+      finishedAt = state.finishedAt,
+      outcome = state.outcome,
       sessions = state.entries.map(_.session)
     )
     val dir = manifestPath / os.up
@@ -378,14 +369,3 @@ private[runner] class RunManifestWriterState(
       Some(name.dropRight("-cost.jsonl".length))
     else if name.endsWith(".json") then Some(name.dropRight(".json".length))
     else None
-
-/** How a manifest session was opened. `Durable` when the event carries the name
-  * an `agent.session(name, seed)` call minted it under, `OneShot` otherwise.
-  */
-private enum SessionKind(val wireValue: String):
-  case Durable extends SessionKind(RunManifest.KindDurable)
-  case OneShot extends SessionKind(RunManifest.KindOneShot)
-
-private object SessionKind:
-  def of(sessionName: Option[String]): SessionKind =
-    if sessionName.isDefined then Durable else OneShot
