@@ -33,20 +33,13 @@ private[claude] enum InboundMessage:
     * validated value lands in `structuredOutput` as raw JSON; without the flag
     * (or in error cases) the agent's free-form reply lands in `output`. Callers
     * that need a single value should prefer `structuredOutput.orElse(output)`.
-    *
-    * `usage` zeroes an absent wire `usage` object, so it alone can't tell a
-    * frame that reported nothing from one that measured zero; `usageReported`
-    * is that distinction. Failure paths must consult it before claiming an
-    * observation — a usage-less frame (quota, rate limit, auth) has seen no
-    * tokens, not zero of them.
     */
   case Result(
       subtype: String,
       sessionId: String,
       output: Option[String],
       structuredOutput: Option[String],
-      usage: Usage,
-      usageReported: Boolean,
+      usage: Option[Usage],
       isError: Boolean,
       model: Option[String]
   )
@@ -86,10 +79,6 @@ private[claude] object InboundMessage:
 
   private def parseResult(line: String): InboundMessage =
     val wire = readFromString[ResultWire](line)
-    val u = wire.usage.getOrElse(UsageWire())
-    // The wire's "cache creation" is orca's cache write.
-    val cacheWrite = u.cache_creation_input_tokens.getOrElse(0L)
-    val cacheRead = u.cache_read_input_tokens.getOrElse(0L)
     // The result message's own `num_turns` looks like a call count and is not
     // one: measured against claude 2.1.220 it is (tool calls + 1), so a
     // response issuing three tool calls at once reports three turns where one
@@ -100,16 +89,17 @@ private[claude] object InboundMessage:
       sessionId = wire.session_id,
       output = wire.result,
       structuredOutput = wire.structured_output.map(_.value),
-      usage = Usage(
-        freshInputTokens = u.input_tokens.getOrElse(0L),
-        cacheReadInputTokens = cacheRead,
-        cacheWriteInputTokens = cacheWrite,
-        outputTokens = u.output_tokens.getOrElse(0L),
-        reasoningOutputTokens = 0L,
-        cost = wire.total_cost_usd,
-        apiCalls = None
-      ),
-      usageReported = wire.usage.isDefined,
+      usage = wire.usage.map: u =>
+        Usage(
+          freshInputTokens = u.input_tokens.getOrElse(0L),
+          cacheReadInputTokens = u.cache_read_input_tokens.getOrElse(0L),
+          // The wire's "cache creation" is orca's cache write.
+          cacheWriteInputTokens = u.cache_creation_input_tokens.getOrElse(0L),
+          outputTokens = u.output_tokens.getOrElse(0L),
+          reasoningOutputTokens = 0L,
+          cost = wire.total_cost_usd,
+          apiCalls = None
+        ),
       isError = wire.is_error.getOrElse(false),
       model = wire.model
     )

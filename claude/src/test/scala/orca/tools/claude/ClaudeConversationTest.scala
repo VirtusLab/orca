@@ -207,9 +207,8 @@ class ClaudeConversationTest extends munit.FunSuite:
       )
     )
 
-  // Quota/rate-limit/auth failures come back with no `usage` object at all. An
-  // `Observed(Usage.empty)` debit here would reach the cost summary as a
-  // measured zero.
+  // `Observed(Usage.empty)` here would reach the cost summary as a measured
+  // zero.
   convTest("is_error without a usage object reports an unobserved debit"):
     val process = new FakePipedCliProcess()
     val conv = new ClaudeConversation(process, AgentConfig())
