@@ -1,9 +1,7 @@
 package orca.shell.sessions
 
-import orca.WorkspaceWrite
 import orca.events.OrcaEvent
 import orca.testkit.Usages.usage
-import orca.progress.{BranchMode, ProgressHeader, ProgressStore, SessionRecord}
 import orca.runner.manifest.{RunManifestWriter, RunOutcome}
 import orca.testkit.TempDirs
 import ox.channels.BufferCapacity
@@ -24,20 +22,6 @@ class ManifestRoundTripTest extends munit.FunSuite:
     "a durable, resumable session survives the real writer -> real reader round trip"
   ):
     val workDir = TempDirs.dir()
-    given WorkspaceWrite = WorkspaceWrite.unsafe
-    val store = ProgressStore.default(workDir, "join-prompt")
-    store.writeHeader(
-      ProgressHeader(
-        startingBranch = "main",
-        branch = "main",
-        promptHash = "abc",
-        branchMode = BranchMode.Created
-      )
-    )
-    store.upsertSession(
-      SessionRecord(name = "coder", occurrence = 0, id = "client-1", seed = "s")
-    )
-
     supervised:
       given BufferCapacity = BufferCapacity(8)
       val writer = RunManifestWriter.start(
@@ -49,11 +33,12 @@ class ManifestRoundTripTest extends munit.FunSuite:
       writer.onEvent(OrcaEvent.StageStarted("code"))
       writer.onEvent(
         OrcaEvent.SessionCommitted(
-          "claude",
-          "client-1",
-          Some("wire-1"),
-          "claude",
-          None
+          harness = "claude",
+          clientId = "client-1",
+          wireId = Some("wire-1"),
+          sessionName = Some("coder"),
+          agent = "claude",
+          role = None
         )
       )
       writer.onEvent(
@@ -61,7 +46,8 @@ class ManifestRoundTripTest extends munit.FunSuite:
           "claude",
           None,
           usage(1_000, 200, Some(BigDecimal("0.5"))),
-          Some("reviewer")
+          Some("reviewer"),
+          cost = None
         )
       )
       writer.finish(RunOutcome.Succeeded)

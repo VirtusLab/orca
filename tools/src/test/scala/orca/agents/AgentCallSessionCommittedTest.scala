@@ -104,7 +104,12 @@ class AgentCallSessionCommittedTest extends munit.FunSuite:
         interaction = drivingInteraction,
         agentName = "claude"
       )
-      val answer = call.interactive.runWithSession("anything", clientSid, None)
+      val answer = call.interactive.runWithSession(
+        "anything",
+        clientSid,
+        sessionName = None,
+        config = None
+      )
       assertEquals(answer, SessionCommittedAnswer(3))
       val committed = seen.get().reverse.collect {
         case e: OrcaEvent.SessionCommitted => e

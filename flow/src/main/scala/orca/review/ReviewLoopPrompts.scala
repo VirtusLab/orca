@@ -54,12 +54,11 @@ object ReviewLoopPrompts:
     * told the actual bars their findings are measured against rather than a
     * hardcoded guess at them.
     *
-    * `diffIntro` is the sentence introducing the diff, and `base` the commit
-    * `diff` was sampled against when the loop knows it describes this diff —
-    * both come from the [[ReviewDiffSource]], since only it knows what the
-    * change set covers. The base is sent alongside the diff, never instead of
-    * it: it only lets a reviewer read the repo at that commit, and a reviewer
-    * with no way to do so is unaffected.
+    * `diffIntro` introduces the diff, and `base` names the commit `diff` was
+    * sampled against when the loop knows that describes this diff. The base is
+    * sent alongside the diff, never instead of it: it only lets a reviewer read
+    * the repo at that commit, and a reviewer with no way to do so is
+    * unaffected.
     *
     * `declined` matters for a reviewer first activated after round one — see
     * [[reviewAndFixLoop]].
@@ -67,8 +66,8 @@ object ReviewLoopPrompts:
   def initialReview(
       task: String,
       diff: String,
-      gate: ConfidenceGate,
       diffIntro: String,
+      gate: ConfidenceGate,
       base: Option[String],
       declined: List[IgnoredIssue]
   ): String =
@@ -106,7 +105,7 @@ object ReviewLoopPrompts:
     * including the base commit, which the initial prompt named and this one
     * therefore doesn't repeat.
     *
-    * `declined` is every refusal the fixer has made so far — see
+    * `declined` is every refusal the fixer has made and not since fixed — see
     * [[reviewAndFixLoop]].
     */
   private[review] def reReview(

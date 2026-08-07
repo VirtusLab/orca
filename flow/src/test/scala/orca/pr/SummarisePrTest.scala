@@ -43,6 +43,7 @@ class SummarisePrTest extends munit.FunSuite:
             private[orca] def runWithSession[I](
                 input: I,
                 session: SessionId[BackendTag.ClaudeCode.type],
+                sessionName: Option[String],
                 config: Option[AgentConfig],
                 emitPrompt: Boolean
             )(using a: AgentInput[I], _x: orca.InStage): O =

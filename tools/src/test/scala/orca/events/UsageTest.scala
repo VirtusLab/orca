@@ -104,3 +104,21 @@ class UsageTest extends munit.FunSuite:
     )
     assertEquals(u.freshInputTokens, 0L)
     assertEquals(u.inputTokens, 550_000L)
+
+  /** A wire total above the decoded axes means the backend carries a counter
+    * this decoder drops. The residue is logged, never folded into the axes —
+    * inventing tokens would bill for a category nobody can name.
+    */
+  test("inclusiveInput leaves the axes alone when the wire total is larger"):
+    val u = Usage.inclusiveInput(
+      totalInputTokens = 1_000L,
+      cacheReadInputTokens = 600L,
+      cacheWriteInputTokens = 300L,
+      outputTokens = 200L,
+      reasoningOutputTokens = 0L,
+      cost = None,
+      apiCalls = None,
+      wireTotal = Some(1_500L)
+    )
+    assertEquals(u.freshInputTokens, 100L)
+    assertEquals(u.inputTokens + u.outputTokens, 1_200L)
