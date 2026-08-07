@@ -64,6 +64,18 @@ class ClaudeBackendTest extends munit.FunSuite:
       "11111111-1111-1111-1111-111111111111"
     )
 
+  private val repoToolNames: Seq[String] =
+    ClaudeBackend.qualifiedToolNames(
+      RepoMcpServer.ServerName,
+      RepoMcpServer.ToolSlugs
+    )
+
+  private val githubToolNames: Seq[String] =
+    ClaudeBackend.qualifiedToolNames(
+      GitHubMcpServer.ServerName,
+      GitHubMcpServer.ToolSlugs
+    )
+
   test("runAutonomous invokes claude in stream-json mode (no --mcp-config)"):
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     withBackend(runner): backend =>
@@ -111,7 +123,7 @@ class ClaudeBackendTest extends munit.FunSuite:
       val args = runner.calls.head
       assertEquals(
         args(args.indexOf("--allowedTools") + 1),
-        ClaudeBackend.RepoToolNames.mkString(",")
+        repoToolNames.mkString(",")
       )
 
   test("the repo-read MCP binding and its config go when the turn finalizes"):
@@ -171,7 +183,7 @@ class ClaudeBackendTest extends munit.FunSuite:
       val args = runner.calls.head
       assertEquals(
         args(args.indexOf("--allowedTools") + 1),
-        (ClaudeBackend.RepoToolNames ++ ClaudeBackend.GitHubToolNames ++
+        (repoToolNames ++ githubToolNames ++
           ClaudeBackend.DefaultNetworkTools).mkString(",")
       )
 

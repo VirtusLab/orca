@@ -191,13 +191,6 @@ private[claude] object ClaudeArgs:
               )
             )
 
-  /** Whether a tier's `--tools` list withholds `Bash`, and so needs the host to
-    * hand back the reads it would otherwise shell out for. Exactly the tiers
-    * with no write primitive, since claude's write tools and `Bash` are dropped
-    * by the same allowlist.
-    */
-  private[claude] def losesShell(tools: ToolSet): Boolean = !tools.writeCapable
-
   /** Grants `tools` on a read-only turn. `--tools` only advertises: the turn
     * stays in the default permission mode, where `WebFetch` and MCP tools are
     * gated, and stdin is closed under `--print`, so an ungranted call comes

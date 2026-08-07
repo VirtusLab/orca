@@ -41,6 +41,23 @@ import ox.Ox
 
 import scala.concurrent.duration.FiniteDuration
 
+/** One host-served MCP server a turn stands up: its registration facts and the
+  * live host. Everything a turn derives from such a server — the `--mcp-config`
+  * entry, the pre-approved tool names, the system-prompt hint, the teardown
+  * resource — maps over one list of these, so a new server is added in one
+  * place.
+  *
+  * `ask_user` is deliberately not one of these: `ForkedConversation` owns its
+  * bridge lifecycle separately.
+  */
+private[claude] final case class TurnMcp(
+    name: String,
+    slugs: Seq[String],
+    timeout: FiniteDuration,
+    hint: String,
+    host: McpHost
+)
+
 /** Claude Code backend. All calls — autonomous and interactive — drive a
   * stream-json subprocess through [[ClaudeConversation]]. The autonomous path
   * drains events and returns the awaited `AgentResult`; the interactive path
@@ -220,26 +237,20 @@ private[orca] class ClaudeBackend(
     val displayPrompt = mode.displayPrompt
     val askUser: Option[AskUserSession] =
       Option.when(mode.isInteractive)(AskUserSession.allocate())
-    val repoReads: Option[McpHost] =
-      Option.when(ClaudeArgs.losesShell(config.tools))(RepoMcpServer.start(git))
-    val githubReads: Option[McpHost] =
-      Option.when(config.tools.hasScopedNetwork):
-        GitHubMcpServer.start(new OsGitHubTool(cli, workDir))
-    val mcpConfig = Option
-      .when(askUser.isDefined || repoReads.isDefined || githubReads.isDefined):
-        writeMcpConfig(askUser.map(_.server), repoReads, githubReads, session)
+    val servers = turnServers(config.tools)
+    val mcpConfig = Option.when(askUser.isDefined || servers.nonEmpty):
+      writeMcpConfig(askUser.map(_.server), servers, session)
     val systemPromptFile = writeSystemPrompt(
       config,
-      includeAskUserHint = askUser.isDefined,
-      includeRepoHint = repoReads.isDefined,
-      includeGitHubHint = githubReads.isDefined
+      hints = askUser.map(_ => AskUserMcpServer.Hint).toList ++
+        servers.map(_.hint)
     )
     // One list, handed to both sides: `open` releases it if the spawn or the
     // build fails, the conversation's `onFinalize` releases it on the happy
     // path. `askUser` stays separate — `ForkedConversation` owns it, because
     // the bridge must be errored before the read loop is torn down.
     val perTurn: List[AutoCloseable] =
-      repoReads.toList ++ githubReads.toList ++
+      servers.map(_.host) ++
         mcpConfig.map(SubprocessSpawn.deleteFileResource) ++
         List(SubprocessSpawn.deleteFileResource(systemPromptFile))
     SubprocessSpawn.open("claude stream-json", askUser.toList ++ perTurn) {
@@ -263,8 +274,9 @@ private[orca] class ClaudeBackend(
         mcpConfig = mcpConfig,
         networkTools = networkTools,
         mcpTools = askUser.toSeq.map(_ => ClaudeBackend.AskUserToolName) ++
-          repoReads.toSeq.flatMap(_ => ClaudeBackend.RepoToolNames) ++
-          githubReads.toSeq.flatMap(_ => ClaudeBackend.GitHubToolNames)
+          servers.flatMap(s =>
+            ClaudeBackend.qualifiedToolNames(s.name, s.slugs)
+          )
       )
       cli.spawnPiped(args, cwd = workDir)
     } { process =>
@@ -282,6 +294,34 @@ private[orca] class ClaudeBackend(
       )
     }
 
+  /** Stand up the host MCP servers a turn with `tools` is entitled to. The only
+    * place a tier is mapped to a server: everything else in the turn is derived
+    * from the returned list.
+    */
+  private def turnServers(tools: ToolSet)(using Ox): List[TurnMcp] =
+    // The read-only tiers drop `Bash` along with the write tools, so the host
+    // serves the git reads back.
+    Option
+      .when(!tools.writeCapable):
+        TurnMcp(
+          RepoMcpServer.ServerName,
+          RepoMcpServer.ToolSlugs,
+          RepoMcpServer.ToolTimeout,
+          RepoMcpServer.Hint,
+          RepoMcpServer.start(git)
+        )
+      .toList ++
+      Option
+        .when(tools.hasScopedNetwork):
+          TurnMcp(
+            GitHubMcpServer.ServerName,
+            GitHubMcpServer.ToolSlugs,
+            GitHubMcpServer.ToolTimeout,
+            GitHubMcpServer.Hint,
+            GitHubMcpServer.start(new OsGitHubTool(cli, workDir))
+          )
+        .toList
+
   /** Write this conversation's MCP config, listing whichever host servers it
     * stood up, and return its path.
     *
@@ -294,20 +334,14 @@ private[orca] class ClaudeBackend(
     */
   private def writeMcpConfig(
       askUser: Option[McpHost],
-      repoReads: Option[McpHost],
-      githubReads: Option[McpHost],
+      servers: List[TurnMcp],
       session: SessionId[BackendTag.ClaudeCode.type]
   ): os.Path =
     val entries =
       askUser.map(
         entryJson(AskUserMcpServer.ServerName, _, AskUserMcpServer.ToolTimeout)
       ) ++
-        repoReads.map(
-          entryJson(RepoMcpServer.ServerName, _, RepoMcpServer.ToolTimeout)
-        ) ++
-        githubReads.map(
-          entryJson(GitHubMcpServer.ServerName, _, GitHubMcpServer.ToolTimeout)
-        )
+        servers.map(s => entryJson(s.name, s.host, s.timeout))
     val _ = OrcaDir.ensureCache(workDir)
     val path = ClaudeBackend.mcpConfigPath(workDir, session)
     // `os.write` is CREATE_NEW — it refuses a leaf symlink, which
@@ -332,14 +366,8 @@ private[orca] class ClaudeBackend(
     */
   private def writeSystemPrompt(
       config: AgentConfig,
-      includeAskUserHint: Boolean,
-      includeRepoHint: Boolean,
-      includeGitHubHint: Boolean
+      hints: List[String]
   ): os.Path =
-    val hints =
-      Option.when(includeAskUserHint)(AskUserMcpServer.Hint) ++
-        Option.when(includeRepoHint)(RepoMcpServer.Hint) ++
-        Option.when(includeGitHubHint)(GitHubMcpServer.Hint)
     os.temp(
       prefix = "orca-system-prompt-",
       suffix = ".md",
@@ -432,20 +460,15 @@ object ClaudeBackend:
   private[claude] val AskUserToolName: String =
     qualifiedToolName(AskUserMcpServer.ServerName, AskUserMcpServer.ToolSlug)
 
-  /** The repo-read tools, qualified the way claude advertises them. Read-only
-    * turns pass these to `--allowedTools`: `--tools` bounds what exists, but an
-    * MCP call still needs approval, which an autonomous turn cannot give.
+  /** A host server's tools, qualified the way claude advertises them. Every
+    * turn passes these to `--allowedTools`: `--tools` bounds what exists, but
+    * an MCP call still needs approval, which an autonomous turn cannot give.
     */
-  private[claude] val RepoToolNames: Seq[String] =
-    RepoMcpServer.ToolSlugs.map(qualifiedToolName(RepoMcpServer.ServerName, _))
-
-  /** The GitHub reads, qualified. `NetworkOnly` only — reviewers stay
-    * network-free.
-    */
-  private[claude] val GitHubToolNames: Seq[String] =
-    GitHubMcpServer.ToolSlugs.map(
-      qualifiedToolName(GitHubMcpServer.ServerName, _)
-    )
+  private[claude] def qualifiedToolNames(
+      server: String,
+      slugs: Seq[String]
+  ): Seq[String] =
+    slugs.map(qualifiedToolName(server, _))
 
   /** How claude names an MCP tool once its server is registered. */
   private def qualifiedToolName(server: String, slug: String): String =
