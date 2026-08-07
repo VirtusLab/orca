@@ -73,12 +73,12 @@ private[orca] class TurnAccounting[B <: BackendTag](
   ): Unit =
     events.onEvent(
       OrcaEvent.TokensUsed(
-        agentName,
-        reported.orElse(pinned),
-        usage,
-        role,
-        attempt,
-        sessionKey
+        agent = agentName,
+        model = reported.orElse(pinned),
+        usage = usage,
+        role = role,
+        attempt = attempt,
+        session = sessionKey
       )
     )
 

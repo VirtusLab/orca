@@ -238,6 +238,12 @@ private[claude] class ClaudeConversation(
   private def resultBody(result: InboundMessage.Result): Option[String] =
     result.structuredOutput.orElse(result.output).filter(_.nonEmpty)
 
+  /** orca decodes usage only from the `result` message, and a turn that reaches
+    * one settles itself (with an `Observed` debit) rather than reaching the
+    * base's generic wrap.
+    */
+  override protected def failedTurnDebit: TurnDebit = TurnDebit.Unobserved
+
   /** Claude sets `is_error: true` for out-of-band failures (API errors, rate
     * limits, auth) at the CLI boundary rather than inside a turn. Treat these
     * as session-ending rather than feeding the error body into the response
@@ -254,12 +260,6 @@ private[claude] class ClaudeConversation(
     * settling it here is what lets the failed turn's `usage` reach the cost
     * summary.
     */
-  /** Only the `result` message carries usage, and a turn that reaches it
-    * settles itself (with an `Observed` debit) rather than reaching the base's
-    * generic wrap — so what does reach it spent nothing orca can see.
-    */
-  override protected def failedTurnDebit: TurnDebit = TurnDebit.Unobserved
-
   private def handleResultError(result: InboundMessage.Result): Unit =
     val message = resultBody(result).getOrElse(
       s"claude reported is_error (subtype ${result.subtype})"

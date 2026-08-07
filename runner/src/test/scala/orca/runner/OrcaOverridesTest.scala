@@ -293,9 +293,14 @@ class OrcaOverridesTest extends munit.FunSuite:
         summon[FlowContext].emit(
           OrcaEvent.TokensUsed(
             "test-agent",
-            Some(Model("test-model")),
+            // A model the shipped table prices, so the cost below is the run's
+            // own resolution rather than an absent figure.
+            Some(Model("claude-haiku-4-5")),
             usage(10L, 5L)
           )
         )
     // TerminalInteraction ignores TokensUsed; CostTracker should accumulate.
     assertEquals(tracker.total, usage(10L, 5L))
+    // The tracker prices nothing itself: a cost here means the run resolved it
+    // on the way into the fan-out.
+    assert(tracker.totalCost.nonEmpty, tracker.summary)

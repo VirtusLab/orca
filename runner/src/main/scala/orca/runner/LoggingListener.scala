@@ -49,7 +49,7 @@ private[orca] class LoggingListener extends OrcaListener:
         model.map(_.name).getOrElse("(unknown)"),
         attempt,
         session.getOrElse("(none)"),
-        cost.map(_.amount).getOrElse("(unknown)"),
+        cost.fold("(none)")(_.amount.toString),
         usage
       )
     case OrcaEvent.Error(message) => log.error("error: {}", message)

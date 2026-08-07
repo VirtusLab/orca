@@ -4,6 +4,7 @@ import orca.agents.Model
 import orca.events.{
   Cost,
   CostResolvingDispatcher,
+  EventDispatcher,
   ModelPricing,
   OrcaEvent,
   OrcaListener,
@@ -28,20 +29,23 @@ class CostResolvingDispatcherTest extends munit.FunSuite:
   // The point of resolving before the fan-out: two listeners can no longer
   // report different dollars for one turn, because neither prices anything.
   test("every listener receives the same resolved cost for one turn"):
-    val seen = AtomicReference[List[OrcaEvent]](Nil)
+    val first = AtomicReference[List[OrcaEvent]](Nil)
+    val second = AtomicReference[List[OrcaEvent]](Nil)
     val dispatcher = new CostResolvingDispatcher(
       table,
-      e => { recorder(seen).onEvent(e); recorder(seen).onEvent(e) }
+      new EventDispatcher(List(recorder(first), recorder(second)))
     )
     dispatcher.onEvent(
       OrcaEvent.TokensUsed("claude", Some(Model("opus")), usage(1_000_000L, 0L))
     )
+    val resolved = List(Some(Cost(BigDecimal("1.0"), estimated = true)))
     assertEquals(
-      seen.get().collect { case t: OrcaEvent.TokensUsed => t.cost },
-      List(
-        Some(Cost(BigDecimal("1.0"), estimated = true)),
-        Some(Cost(BigDecimal("1.0"), estimated = true))
-      )
+      first.get().collect { case t: OrcaEvent.TokensUsed => t.cost },
+      resolved
+    )
+    assertEquals(
+      second.get().collect { case t: OrcaEvent.TokensUsed => t.cost },
+      resolved
     )
 
   test("an event that isn't a turn passes through untouched"):
