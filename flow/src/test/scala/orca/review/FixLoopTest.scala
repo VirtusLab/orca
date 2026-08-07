@@ -12,16 +12,6 @@ class FixLoopTest extends munit.FunSuite:
   private def ctx: FlowContext =
     new TestFlowContext(new EventDispatcher(Nil))
 
-  private def issue(title: String): ReviewIssue =
-    ReviewIssue(
-      severity = Severity.Warning,
-      confidence = Confidence.orThrow(1.0),
-      title = Title(title),
-      description = title,
-      location = None,
-      suggestion = None
-    )
-
   /** Recording listener; reads back collected events in arrival order. */
   private class Recorder extends OrcaListener:
     private val seen: AtomicReference[List[OrcaEvent]] = AtomicReference(Nil)
@@ -247,9 +237,8 @@ class FixLoopTest extends munit.FunSuite:
     assert(rendered.contains("- [Warning] x"), rendered)
 
   test("formatIssue renders a file-only location with no trailing line"):
-    // BB8: file and line used to be independent Options, so (None, Some(l))
-    // silently dropped the line. Location makes that combination
-    // unrepresentable; this pins the still-valid file-without-line case.
+    // A line without a file is unrepresentable (Location pairs them); this
+    // pins the still-valid file-without-line case.
     val fileOnly = ReviewIssue(
       severity = Severity.Info,
       confidence = Confidence.orThrow(0.5),

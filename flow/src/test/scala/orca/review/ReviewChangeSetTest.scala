@@ -33,16 +33,6 @@ class ReviewChangeSetTest extends munit.FunSuite:
   private def bigLine(i: Int): String =
     s"// a comment line, long enough to weigh something, number $i"
 
-  private def bug(title: String): ReviewIssue =
-    ReviewIssue(
-      severity = Severity.Warning,
-      confidence = Confidence.orThrow(1.0),
-      title = Title(title),
-      description = title,
-      location = None,
-      suggestion = None
-    )
-
   private def firstPromptOf(agent: FakeAgent): String =
     agent.seenPrompts.headOption
       .getOrElse(fail(s"${agent.name} was never called"))
@@ -68,7 +58,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
     // Round two admits `late`, whose first prompt must carry that commit.
     val early = new FakeAgent(
       "early",
-      outputs = List(ReviewResult(List(bug("real bug"))), ReviewResult.empty)
+      outputs = List(ReviewResult(List(issue("real bug"))), ReviewResult.empty)
     )
     val late = new FakeAgent("late", outputs = List(ReviewResult.empty))
     val coder = new FakeAgent(
@@ -76,14 +66,8 @@ class ReviewChangeSetTest extends munit.FunSuite:
       outputs = List(FixOutcome(List(Title("real bug")), Nil)),
       onRun = () => commit(dir, "fixed.scala", "object Fixed")
     )
-    val lateJoiner = new ReviewerSelector:
-      def prepare(
-          all: List[RosterEntry[?]],
-          taskTitle: Title,
-          changedFiles: List[String]
-      )(using FlowContext, InStage) =
-        history =>
-          if history.isEmpty then all.filter(_.name == "early") else all
+    val lateJoiner = selector: (all, history) =>
+      if history.isEmpty then all.filter(_.name == "early") else all
     given FlowControl = ctx
     stage("implement the widget"):
       val _ = reviewAndFixLoop(
@@ -101,7 +85,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
     // own `git diff HEAD` is empty once the fixer commits.
     val reviewer = new FakeAgent(
       "r",
-      outputs = List(ReviewResult(List(bug("real bug"))), ReviewResult.empty)
+      outputs = List(ReviewResult(List(issue("real bug"))), ReviewResult.empty)
     )
     val coder = new FakeAgent(
       "coder",
@@ -131,7 +115,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
     // lets that branch take its paths from git.
     val reviewer = new FakeAgent(
       "r",
-      outputs = List(ReviewResult(List(bug("real bug"))), ReviewResult.empty)
+      outputs = List(ReviewResult(List(issue("real bug"))), ReviewResult.empty)
     )
     val coder = new FakeAgent(
       "coder",
@@ -163,7 +147,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
     val big = (1 to 3000).map(i => s"// line $i").mkString("\n")
     val reviewer = new FakeAgent(
       "r",
-      outputs = List(ReviewResult(List(bug("real bug"))), ReviewResult.empty)
+      outputs = List(ReviewResult(List(issue("real bug"))), ReviewResult.empty)
     )
     val coder = new FakeAgent(
       "coder",
@@ -194,8 +178,8 @@ class ReviewChangeSetTest extends munit.FunSuite:
     val reviewer = new FakeAgent(
       "r",
       outputs = List(
-        ReviewResult(List(bug("real bug"))),
-        ReviewResult(List(bug("real bug"))),
+        ReviewResult(List(issue("real bug"))),
+        ReviewResult(List(issue("real bug"))),
         ReviewResult.empty
       )
     )

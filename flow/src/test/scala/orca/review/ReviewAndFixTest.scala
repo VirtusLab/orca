@@ -6,7 +6,6 @@ import orca.agents.{
   AgentInput,
   Announce,
   AutonomousAgentCall,
-  AutonomousTextCall,
   BackendTag,
   InteractiveAgentCall,
   JsonData,
@@ -14,7 +13,6 @@ import orca.agents.{
   AgentConfig,
   Agent,
   SessionId,
-  ToolSet,
   WireSessionId
 }
 import orca.backend.{IdScheme, SessionSupport}
@@ -22,86 +20,20 @@ import orca.progress.SessionRecord
 import orca.events.{EventDispatcher, OrcaEvent, OrcaListener, Usage}
 import orca.testkit.TempDirs
 
-/** Fake AgentCall whose `autonomous.run` drains a scripted sequence of outputs
-  * in order. `seenSessions` records each call's session id so tests can assert
-  * "fresh on first, same id thereafter."; `seenPrompts` records what the caller
-  * sent. `onRun` fires before each reply, for simulating an agent that touches
-  * the working tree.
-  */
-class FakeAgentCall[O](outputs: Iterator[Any], onRun: () => Unit)
-    extends AgentCall[BackendTag.ClaudeCode.type, O]:
-
-  /** Session ids the LLM was called with, in invocation order. */
-  val seenSessions = new java.util.concurrent.atomic.AtomicReference[
-    List[SessionId[BackendTag.ClaudeCode.type]]
-  ](Nil)
-
-  /** Rendered inputs the LLM was called with, in invocation order. */
-  val seenPrompts =
-    new java.util.concurrent.atomic.AtomicReference[List[String]](Nil)
-
-  val autonomous: AutonomousAgentCall[BackendTag.ClaudeCode.type, O] =
-    new AutonomousAgentCall[BackendTag.ClaudeCode.type, O]:
-      private[orca] def runWithSession[I: AgentInput](
-          input: I,
-          session: SessionId[BackendTag.ClaudeCode.type],
-          config: Option[AgentConfig],
-          emitPrompt: Boolean
-      )(using orca.InStage): O =
-        val _ = seenSessions.updateAndGet(session :: _)
-        val _ = seenPrompts.updateAndGet(
-          summon[AgentInput[I]].serialize(input) :: _
-        )
-        onRun()
-        outputs.next().asInstanceOf[O]
-  def interactive: InteractiveAgentCall[BackendTag.ClaudeCode.type, O] = ???
-
-class FakeAgent(
-    override val name: String,
-    outputs: List[Any] = Nil,
-    onRun: () => Unit = () => ()
-) extends Agent[BackendTag.ClaudeCode.type]:
-  private val it = outputs.iterator
-  val fakeCall: FakeAgentCall[Any] = new FakeAgentCall[Any](it, onRun)
-
-  def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] = ???
-
-  def resultAs[O: JsonData: Announce]
-      : AgentCall[BackendTag.ClaudeCode.type, O] =
-    fakeCall.asInstanceOf[AgentCall[BackendTag.ClaudeCode.type, O]]
-
-  /** Session ids this tool was called with, in invocation order. Tests assert
-    * the loop threaded a stable id across iterations.
-    */
-  def seenSessions: List[SessionId[BackendTag.ClaudeCode.type]] =
-    fakeCall.seenSessions.get().reverse
-
-  /** Rendered inputs this tool was called with, in invocation order. */
-  def seenPrompts: List[String] = fakeCall.seenPrompts.get().reverse
-
-  def withConfig(c: AgentConfig): Agent[BackendTag.ClaudeCode.type] = this
-  def withSystemPrompt(p: String): Agent[BackendTag.ClaudeCode.type] = this
-  def withName(n: String): Agent[BackendTag.ClaudeCode.type] = this
-  def withTools(tools: ToolSet): Agent[BackendTag.ClaudeCode.type] = this
-
 /** A reviewer stub that emits a `TokensUsed` event carrying the name + role
   * captured at `resultAs` time, mirroring `BaseAgent`. `withRole` returns a
   * role-tagged copy with `name` unchanged.
   */
 private class TokenEmittingReviewer(
-    override val name: String,
+    name: String,
     result: ReviewResult,
     override val role: Option[String] = None
 )(using ctx: FlowContext)
-    extends Agent[BackendTag.ClaudeCode.type]:
-  def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] = ???
-  def withConfig(c: AgentConfig): Agent[BackendTag.ClaudeCode.type] = this
-  def withSystemPrompt(p: String): Agent[BackendTag.ClaudeCode.type] = this
-  def withName(n: String): Agent[BackendTag.ClaudeCode.type] =
+    extends StubAgent(name):
+  override def withName(n: String): Agent[BackendTag.ClaudeCode.type] =
     new TokenEmittingReviewer(n, result, role)
   override def withRole(r: String): Agent[BackendTag.ClaudeCode.type] =
     new TokenEmittingReviewer(name, result, Some(r))
-  def withTools(tools: ToolSet): Agent[BackendTag.ClaudeCode.type] = this
   def resultAs[O: JsonData: Announce]
       : AgentCall[BackendTag.ClaudeCode.type, O] =
     val capturedName = name
@@ -131,8 +63,7 @@ private class TokenEmittingReviewer(
 private class SeedProbingCoder(
     existsResult: Boolean,
     fixOutcome: FixOutcome
-) extends Agent[BackendTag.ClaudeCode.type]:
-  val name: String = "coder"
+) extends StubAgent("coder"):
 
   @volatile var capturedFixPrompt: Option[String] = None
 
@@ -151,11 +82,6 @@ private class SeedProbingCoder(
       )
     Some(support)
 
-  def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] = ???
-  def withConfig(c: AgentConfig): Agent[BackendTag.ClaudeCode.type] = this
-  def withSystemPrompt(p: String): Agent[BackendTag.ClaudeCode.type] = this
-  def withName(n: String): Agent[BackendTag.ClaudeCode.type] = this
-  def withTools(t: ToolSet): Agent[BackendTag.ClaudeCode.type] = this
   def resultAs[O: JsonData: Announce]
       : AgentCall[BackendTag.ClaudeCode.type, O] =
     new AgentCall[BackendTag.ClaudeCode.type, O]:
@@ -181,20 +107,6 @@ class ReviewAndFixTest extends munit.FunSuite:
 
   private def control: FlowControl =
     ReviewLoopFixture.control(new EventDispatcher(Nil))
-
-  private def issue(
-      desc: String,
-      confidence: Double = 1.0,
-      severity: Severity = Severity.Warning
-  ): ReviewIssue =
-    ReviewIssue(
-      severity = severity,
-      confidence = Confidence.orThrow(confidence),
-      title = Title(desc),
-      description = desc,
-      location = None,
-      suggestion = None
-    )
 
   test("returns empty IgnoredIssues when no reviewer reports issues"):
     given FlowControl = control
@@ -650,8 +562,7 @@ class ReviewAndFixTest extends munit.FunSuite:
 
   test("a paraphrased fixer reply records the finding once, not twice"):
     // The echoed title matches no handed issue, so it is dropped from the books
-    // and named in a Step, and the finding surfaces once as unaccounted — where
-    // before it landed both as the fixer's ignored entry and as unaccounted.
+    // and named in a Step, and the finding surfaces once, as unaccounted.
     val steps = new ReviewLoopFixture.StepCapture
     given FlowControl = ReviewLoopFixture.control(steps.dispatcher)
     val reviewer = new FakeAgent(
@@ -789,14 +700,8 @@ class ReviewAndFixTest extends munit.FunSuite:
         FixOutcome(List(Title("c")), Nil)
       )
     )
-    val joinsInRoundThree = new ReviewerSelector:
-      def prepare(
-          all: List[RosterEntry[?]],
-          taskTitle: Title,
-          changedFiles: List[String]
-      )(using FlowContext, orca.InStage) =
-        history =>
-          if history.size < 2 then all.filter(_.name == "early") else all
+    val joinsInRoundThree = selector: (all, history) =>
+      if history.size < 2 then all.filter(_.name == "early") else all
     val _ = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(early, late),
@@ -1301,38 +1206,20 @@ class ReviewAndFixTest extends munit.FunSuite:
     given FlowControl =
       ReviewLoopFixture.control(new EventDispatcher(List(listener)))
 
-    class GatedReviewer(
+    def gatedReviewer(
         label: String,
         gate: java.util.concurrent.CountDownLatch
-    ) extends Agent[BackendTag.ClaudeCode.type]:
-      val name = label
-      def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] = ???
-      def withConfig(c: AgentConfig): Agent[BackendTag.ClaudeCode.type] = this
-      def withSystemPrompt(p: String): Agent[BackendTag.ClaudeCode.type] =
-        this
-      def withName(n: String): Agent[BackendTag.ClaudeCode.type] = this
-      def withTools(tools: ToolSet): Agent[BackendTag.ClaudeCode.type] = this
-      def resultAs[O: JsonData: Announce]
-          : AgentCall[BackendTag.ClaudeCode.type, O] =
-        new AgentCall[BackendTag.ClaudeCode.type, O]:
-          val autonomous: AutonomousAgentCall[BackendTag.ClaudeCode.type, O] =
-            new AutonomousAgentCall[BackendTag.ClaudeCode.type, O]:
-              private[orca] def runWithSession[I: AgentInput](
-                  i: I,
-                  session: SessionId[BackendTag.ClaudeCode.type],
-                  c: Option[AgentConfig],
-                  emitPrompt: Boolean
-              )(using
-                  orca.InStage
-              ): O =
-                val ok = gate.await(2, java.util.concurrent.TimeUnit.SECONDS)
-                assert(ok, s"$label gate never opened")
-                ReviewResult.empty.asInstanceOf[O]
-          def interactive: InteractiveAgentCall[BackendTag.ClaudeCode.type, O] =
-            ???
+    ): FakeAgent =
+      new FakeAgent(
+        name = label,
+        outputs = List(ReviewResult.empty),
+        onRun = () =>
+          val ok = gate.await(2, java.util.concurrent.TimeUnit.SECONDS)
+          assert(ok, s"$label gate never opened")
+      )
 
-    val slow = new GatedReviewer("slow", gate1)
-    val fast = new GatedReviewer("fast", gate2)
+    val slow = gatedReviewer("slow", gate1)
+    val fast = gatedReviewer("fast", gate2)
     val runner = new Thread(() =>
       val _ = reviewAndFixLoop(
         coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
@@ -1368,52 +1255,31 @@ class ReviewAndFixTest extends munit.FunSuite:
     val rendezvous = new java.util.concurrent.CountDownLatch(2)
     val timeoutMs = 2000L
 
-    class RendezvousReviewer(label: String)
-        extends Agent[BackendTag.ClaudeCode.type]:
-      val name = label
-      def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] = ???
-      def withConfig(c: AgentConfig): Agent[BackendTag.ClaudeCode.type] = this
-      def withSystemPrompt(p: String): Agent[BackendTag.ClaudeCode.type] =
-        this
-      def withName(n: String): Agent[BackendTag.ClaudeCode.type] = this
-      def withTools(tools: ToolSet): Agent[BackendTag.ClaudeCode.type] = this
-      def resultAs[O: JsonData: Announce]
-          : AgentCall[BackendTag.ClaudeCode.type, O] =
-        new AgentCall[BackendTag.ClaudeCode.type, O]:
-          val autonomous: AutonomousAgentCall[BackendTag.ClaudeCode.type, O] =
-            new AutonomousAgentCall[BackendTag.ClaudeCode.type, O]:
-              private def rendezvousThen(): O =
-                rendezvous.countDown()
-                val ok = rendezvous.await(
-                  timeoutMs,
-                  java.util.concurrent.TimeUnit.MILLISECONDS
-                )
-                if !ok then
-                  fail(
-                    s"$label timed out waiting for the other branch — " +
-                      "they ran sequentially"
-                  )
-                ReviewResult.empty.asInstanceOf[O]
-              private[orca] def runWithSession[I: AgentInput](
-                  i: I,
-                  session: SessionId[BackendTag.ClaudeCode.type],
-                  c: Option[AgentConfig],
-                  emitPrompt: Boolean
-              )(using
-                  orca.InStage
-              ): O =
-                rendezvousThen()
-          def interactive: InteractiveAgentCall[BackendTag.ClaudeCode.type, O] =
-            ???
+    def rendezvousReviewer(label: String): FakeAgent =
+      new FakeAgent(
+        name = label,
+        outputs = List(ReviewResult.empty),
+        onRun = () =>
+          rendezvous.countDown()
+          val ok = rendezvous.await(
+            timeoutMs,
+            java.util.concurrent.TimeUnit.MILLISECONDS
+          )
+          if !ok then
+            fail(
+              s"$label timed out waiting for the other branch — " +
+                "they ran sequentially"
+            )
+      )
 
     val _ = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
-      reviewers = List(new RendezvousReviewer("reviewer")),
+      reviewers = List(rendezvousReviewer("reviewer")),
       task = "concurrency check",
       // echo emits output so `lint` doesn't short-circuit on empty stdout
       // and actually calls the (rendezvousing) LLM summariser.
       lint = Configured.Use(
-        Lint(List("echo lint-output"), new RendezvousReviewer("lint"))
+        Lint(List("echo lint-output"), rendezvousReviewer("lint"))
       ),
       reviewerSelection = ReviewerSelector.allEveryRound,
       diff = ReviewDiff.Pinned("")
@@ -1638,7 +1504,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     assertEquals(result, IgnoredIssues(Nil))
     assertEquals(os.read.lines(fmtLog).toList, List("explicit"))
 
-  test("reviewer LLM runs are tagged with the cost role (12.7)"):
+  test("reviewer LLM runs are tagged with the cost role"):
     // The loop keeps reviewer identity as the bare slug and tags the LLM run
     // with the `reviewer` role (not a renamed copy) so `CostTracker` can
     // group/subtotal the spend without a stringly identity convention.
@@ -1676,13 +1542,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       outputs = List(ReviewResult(List(issue("from-x", confidence = 0.9))))
     )
     val rosterY = new FakeAgent(name = "y") // no outputs: throws if run
-    val onlyX = new ReviewerSelector:
-      def prepare(
-          all: List[RosterEntry[?]],
-          taskTitle: Title,
-          changedFiles: List[String]
-      )(using FlowContext, orca.InStage) =
-        _ => all.filter(_.name == "x")
+    val onlyX = selector((all, _) => all.filter(_.name == "x"))
     val coder = new FakeAgent(
       name = "coder",
       outputs = List(FixOutcome(Nil, List(IgnoredIssue(Title("from-x"), "ok"))))
@@ -1711,13 +1571,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val steps = new ReviewLoopFixture.StepCapture
     given FlowControl = ReviewLoopFixture.control(steps.dispatcher)
     val rosterA = new FakeAgent(name = "a") // no outputs: throws if run
-    val emptySelector = new ReviewerSelector:
-      def prepare(
-          all: List[RosterEntry[?]],
-          taskTitle: Title,
-          changedFiles: List[String]
-      )(using FlowContext, orca.InStage) =
-        _ => Nil
+    val emptySelector = selector((_, _) => Nil)
     val coder = new FakeAgent(name = "coder") // throws if a fix turn runs
     val result = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
@@ -1762,14 +1616,8 @@ class ReviewAndFixTest extends munit.FunSuite:
         )
       )
     )
-    val lateJoiner = new ReviewerSelector:
-      def prepare(
-          all: List[RosterEntry[?]],
-          taskTitle: Title,
-          changedFiles: List[String]
-      )(using FlowContext, orca.InStage) =
-        history =>
-          if history.isEmpty then all.filter(_.name == "early") else all
+    val lateJoiner = selector: (all, history) =>
+      if history.isEmpty then all.filter(_.name == "early") else all
     val _ = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(early, late),
@@ -1791,13 +1639,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       name = "x",
       outputs = List(ReviewResult(List(issue("from-x", confidence = 0.9))))
     )
-    val dupSelector = new ReviewerSelector:
-      def prepare(
-          all: List[RosterEntry[?]],
-          taskTitle: Title,
-          changedFiles: List[String]
-      )(using FlowContext, orca.InStage) =
-        _ => all ++ all
+    val dupSelector = selector((all, _) => all ++ all)
     val coder = new FakeAgent(
       name = "coder",
       outputs = List(FixOutcome(Nil, List(IgnoredIssue(Title("from-x"), "ok"))))
