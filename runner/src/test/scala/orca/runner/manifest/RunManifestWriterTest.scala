@@ -2,10 +2,8 @@ package orca.runner.manifest
 
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import orca.OrcaDir
-import orca.WorkspaceWrite
 import orca.events.OrcaEvent
 import orca.testkit.Usages.usage
-import orca.progress.{BranchMode, ProgressHeader, ProgressStore, SessionRecord}
 import orca.testkit.TempDirs
 import ox.channels.BufferCapacity
 import ox.supervised
@@ -15,7 +13,7 @@ import java.time.Instant
 /** Unit tests for [[RunManifestWriter]]: upsert semantics, stage stamping,
   * wireId-less non-resumability, pruning, atomic writes, and thread-safety.
   * Uses plain temp workDirs (no git needed — the writer only touches
-  * `.orca/cache/runs/` and reads `.orca/progress-*.json`).
+  * `.orca/cache/runs/`).
   *
   * Single-scenario tests drive [[RunManifestWriterState]] directly and
   * synchronously; the concurrency test goes through [[RunManifestWriter.start]]
@@ -64,11 +62,12 @@ class RunManifestWriterTest extends munit.FunSuite:
     writer.onEvent(OrcaEvent.StageStarted("plan"))
     writer.onEvent(
       OrcaEvent.SessionCommitted(
-        "claude",
-        "client-1",
-        Some("wire-1"),
-        "claude",
-        None
+        harness = "claude",
+        clientId = "client-1",
+        wireId = Some("wire-1"),
+        sessionName = None,
+        agent = "claude",
+        role = None
       )
     )
     val manifest = soleManifest(workDir)
@@ -92,22 +91,24 @@ class RunManifestWriterTest extends munit.FunSuite:
     writer.onEvent(OrcaEvent.StageStarted("plan"))
     writer.onEvent(
       OrcaEvent.SessionCommitted(
-        "claude",
-        "client-1",
-        Some("wire-1"),
-        "claude",
-        None
+        harness = "claude",
+        clientId = "client-1",
+        wireId = Some("wire-1"),
+        sessionName = None,
+        agent = "claude",
+        role = None
       )
     )
     writer.onEvent(OrcaEvent.StageCompleted("plan"))
     writer.onEvent(OrcaEvent.StageStarted("code"))
     writer.onEvent(
       OrcaEvent.SessionCommitted(
-        "claude",
-        "client-1",
-        Some("wire-1"),
-        "claude",
-        None
+        harness = "claude",
+        clientId = "client-1",
+        wireId = Some("wire-1"),
+        sessionName = None,
+        agent = "claude",
+        role = None
       )
     )
     val manifest = soleManifest(workDir)
@@ -129,22 +130,24 @@ class RunManifestWriterTest extends munit.FunSuite:
     writer.onEvent(OrcaEvent.StageStarted("inner"))
     writer.onEvent(
       OrcaEvent.SessionCommitted(
-        "claude",
-        "client-1",
-        Some("wire-1"),
-        "claude",
-        None
+        harness = "claude",
+        clientId = "client-1",
+        wireId = Some("wire-1"),
+        sessionName = None,
+        agent = "claude",
+        role = None
       )
     )
     assertEquals(soleManifest(workDir).sessions.head.stage, Some("inner"))
     writer.onEvent(OrcaEvent.StageCompleted("inner"))
     writer.onEvent(
       OrcaEvent.SessionCommitted(
-        "codex",
-        "client-2",
-        Some("wire-2"),
-        "codex",
-        None
+        harness = "codex",
+        clientId = "client-2",
+        wireId = Some("wire-2"),
+        sessionName = None,
+        agent = "codex",
+        role = None
       )
     )
     val manifest = soleManifest(workDir)
@@ -156,7 +159,14 @@ class RunManifestWriterTest extends munit.FunSuite:
     val writer =
       newWriter(workDir, fixedClock(Instant.parse("2026-07-18T10:00:00Z")))
     writer.onEvent(
-      OrcaEvent.SessionCommitted("someharness", "client-1", None, "some", None)
+      OrcaEvent.SessionCommitted(
+        harness = "someharness",
+        clientId = "client-1",
+        wireId = None,
+        sessionName = None,
+        agent = "some",
+        role = None
+      )
     )
     val session = soleManifest(workDir).sessions.head
     assertEquals(session.wireId, None)
@@ -166,44 +176,28 @@ class RunManifestWriterTest extends munit.FunSuite:
       Some("someharness sessions do not survive the run")
     )
 
-  test("kind: durable when clientId joins a SessionRecord, oneShot otherwise"):
+  test("kind: durable when the event names the session, oneShot otherwise"):
     val workDir = TempDirs.dir()
-    given WorkspaceWrite = WorkspaceWrite.unsafe
-    val store = ProgressStore.default(workDir, "join-prompt")
-    store.writeHeader(
-      ProgressHeader(
-        startingBranch = "main",
-        branch = "main",
-        promptHash = "abc",
-        branchMode = BranchMode.Created
-      )
-    )
-    store.upsertSession(
-      SessionRecord(
-        name = "coder",
-        occurrence = 0,
-        id = "durable-client",
-        seed = "s"
-      )
-    )
     val writer =
       newWriter(workDir, fixedClock(Instant.parse("2026-07-18T10:00:00Z")))
     writer.onEvent(
       OrcaEvent.SessionCommitted(
-        "claude",
-        "durable-client",
-        Some("w1"),
-        "claude",
-        None
+        harness = "claude",
+        clientId = "durable-client",
+        wireId = Some("w1"),
+        sessionName = Some("coder"),
+        agent = "claude",
+        role = None
       )
     )
     writer.onEvent(
       OrcaEvent.SessionCommitted(
-        "claude",
-        "oneshot-client",
-        Some("w2"),
-        "claude",
-        None
+        harness = "claude",
+        clientId = "oneshot-client",
+        wireId = Some("w2"),
+        sessionName = None,
+        agent = "claude",
+        role = None
       )
     )
     val sessions = soleManifest(workDir).sessions
@@ -225,11 +219,12 @@ class RunManifestWriterTest extends munit.FunSuite:
     )
     writer.onEvent(
       OrcaEvent.SessionCommitted(
-        "claude",
-        "client-1",
-        Some("wire-1"),
-        "claude",
-        None
+        harness = "claude",
+        clientId = "client-1",
+        wireId = Some("wire-1"),
+        sessionName = None,
+        agent = "claude",
+        role = None
       )
     )
     writer.finish(RunOutcome.Succeeded)
@@ -248,11 +243,12 @@ class RunManifestWriterTest extends munit.FunSuite:
     )
     writer.onEvent(
       OrcaEvent.SessionCommitted(
-        "claude",
-        "client-1",
-        Some("wire-1"),
-        "claude",
-        None
+        harness = "claude",
+        clientId = "client-1",
+        wireId = Some("wire-1"),
+        sessionName = None,
+        agent = "claude",
+        role = None
       )
     )
     writer.finish(RunOutcome.Failed)
@@ -268,11 +264,12 @@ class RunManifestWriterTest extends munit.FunSuite:
       newWriter(workDir, fixedClock(Instant.parse("2026-07-18T10:00:00Z")))
     writer.onEvent(
       OrcaEvent.SessionCommitted(
-        "claude",
-        "client-1",
-        Some("wire-1"),
-        "claude",
-        None
+        harness = "claude",
+        clientId = "client-1",
+        wireId = Some("wire-1"),
+        sessionName = None,
+        agent = "claude",
+        role = None
       )
     )
     val files = manifestFiles(workDir)
@@ -312,7 +309,14 @@ class RunManifestWriterTest extends munit.FunSuite:
       newWriter(workDir, fixedClock(Instant.parse("2026-07-18T10:00:00Z")))
     writer.onEvent(
       OrcaEvent
-        .SessionCommitted("claude", "client-1", Some("wire-1"), "claude", None)
+        .SessionCommitted(
+          harness = "claude",
+          clientId = "client-1",
+          wireId = Some("wire-1"),
+          sessionName = None,
+          agent = "claude",
+          role = None
+        )
     )
     // 25 seeded runs plus this one, kept down to 20 runs — so 20 manifests,
     // not the 10 a file count would leave.
@@ -376,39 +380,6 @@ class RunManifestWriterTest extends munit.FunSuite:
     writer.onEvent(OrcaEvent.TokensUsed("claude", None, usage(10, 1)))
     assertEquals(costLogFiles(workDir).size, 20)
 
-  /** The upsert reads `.orca/` to name the session, and its failure is
-    * swallowed. An execute-only `.orca/` makes that `os.list` fail while writes
-    * into `.orca/cache/runs/` still succeed — the mode is ignored for root, so
-    * the test checks the setup took before relying on it.
-    */
-  test("a failed session upsert leaves no manifest behind"):
-    val workDir = TempDirs.dir()
-    val writer =
-      newWriter(workDir, fixedClock(Instant.parse("2026-07-18T10:00:00Z")))
-    val orcaDir = OrcaDir.rootPath(workDir)
-    os.perms.set(orcaDir, "--x--x--x")
-    try
-      assume(
-        scala.util.Try(os.list(orcaDir)).isFailure,
-        "needs a user that file permissions apply to"
-      )
-      writer.onEvent(
-        OrcaEvent
-          .SessionCommitted(
-            "claude",
-            "client-1",
-            Some("wire-1"),
-            "claude",
-            None
-          )
-      )
-      assertEquals(
-        manifestFiles(workDir),
-        Nil,
-        "a manifest with no sessions must not be created"
-      )
-    finally os.perms.set(orcaDir, "rwx------")
-
   test("atomic write leaves no temp files behind"):
     val workDir = TempDirs.dir()
     val writer =
@@ -416,11 +387,12 @@ class RunManifestWriterTest extends munit.FunSuite:
     writer.onEvent(OrcaEvent.StageStarted("plan"))
     writer.onEvent(
       OrcaEvent.SessionCommitted(
-        "claude",
-        "client-1",
-        Some("wire-1"),
-        "claude",
-        None
+        harness = "claude",
+        clientId = "client-1",
+        wireId = Some("wire-1"),
+        sessionName = None,
+        agent = "claude",
+        role = None
       )
     )
     writer.finish(RunOutcome.Succeeded)
@@ -450,11 +422,12 @@ class RunManifestWriterTest extends munit.FunSuite:
             writer.onEvent(OrcaEvent.StageStarted(s"stage-$t-$i"))
             writer.onEvent(
               OrcaEvent.SessionCommitted(
-                "claude",
-                s"client-$t-$i",
-                Some(s"wire-$t-$i"),
-                "claude",
-                None
+                harness = "claude",
+                clientId = s"client-$t-$i",
+                wireId = Some(s"wire-$t-$i"),
+                sessionName = None,
+                agent = "claude",
+                role = None
               )
             )
             writer.onEvent(OrcaEvent.StageCompleted(s"stage-$t-$i"))
@@ -503,11 +476,12 @@ class RunManifestWriterTest extends munit.FunSuite:
     writer.onEvent(OrcaEvent.StageStarted("code"))
     writer.onEvent(
       OrcaEvent.SessionCommitted(
-        "claude",
-        "client-1",
-        Some("wire-1"),
-        "claude",
-        None
+        harness = "claude",
+        clientId = "client-1",
+        wireId = Some("wire-1"),
+        sessionName = None,
+        agent = "claude",
+        role = None
       )
     )
     val manifest = soleManifest(workDir)
@@ -522,11 +496,12 @@ class RunManifestWriterTest extends munit.FunSuite:
     )
     writer.onEvent(
       OrcaEvent.SessionCommitted(
-        "claude",
-        "client-1",
-        Some("wire-1"),
-        "claude",
-        None
+        harness = "claude",
+        clientId = "client-1",
+        wireId = Some("wire-1"),
+        sessionName = None,
+        agent = "claude",
+        role = None
       )
     )
     val manifest = soleManifest(workDir)
@@ -543,7 +518,14 @@ class RunManifestWriterTest extends munit.FunSuite:
     os.write(runsDir, "not a directory")
     writer.onEvent(
       OrcaEvent
-        .SessionCommitted("claude", "client-1", Some("wire-1"), "claude", None)
+        .SessionCommitted(
+          harness = "claude",
+          clientId = "client-1",
+          wireId = Some("wire-1"),
+          sessionName = None,
+          agent = "claude",
+          role = None
+        )
     )
     os.remove(runsDir): Unit
     os.makeDir.all(runsDir)

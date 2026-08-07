@@ -75,6 +75,7 @@ class OrcaOverridesTest extends munit.FunSuite:
           private[orca] def runWithSession(
               p: String,
               session: SessionId[BackendTag.ClaudeCode.type],
+              sessionName: Option[String],
               c: Option[AgentConfig],
               emitPrompt: Boolean
           )(using
@@ -120,6 +121,7 @@ class OrcaOverridesTest extends munit.FunSuite:
           private[orca] def runWithSession(
               p: String,
               session: SessionId[BackendTag.Opencode.type],
+              sessionName: Option[String],
               c: Option[AgentConfig],
               emitPrompt: Boolean
           )(using orca.InStage): String =
@@ -184,6 +186,7 @@ class OrcaOverridesTest extends munit.FunSuite:
           private[orca] def runWithSession(
               p: String,
               session: SessionId[BackendTag.Pi.type],
+              sessionName: Option[String],
               c: Option[AgentConfig],
               emitPrompt: Boolean
           )(using orca.InStage): String =
@@ -232,6 +235,7 @@ class OrcaOverridesTest extends munit.FunSuite:
           private[orca] def runWithSession(
               p: String,
               session: SessionId[BackendTag.ClaudeCode.type],
+              sessionName: Option[String],
               c: Option[AgentConfig],
               emitPrompt: Boolean
           )(using

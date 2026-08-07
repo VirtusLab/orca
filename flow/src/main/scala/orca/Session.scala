@@ -58,7 +58,12 @@ final class FlowSession[B <: BackendTag] private[orca] (
       * scaladoc). Prefer [[run]] / [[resultAs]]; reach for `.id` only to mint
       * an ephemeral continuation via `agent.chat(id)`.
       */
-    val id: SessionId[B]
+    val id: SessionId[B],
+    /** The name this session was minted under. Carried onto every turn's
+      * `OrcaEvent.SessionCommitted` so the run manifest can name the session
+      * without re-reading the progress log.
+      */
+    private[orca] val name: String
 ):
 
   /** Run the agent autonomously against this session on free-form `prompt`,
@@ -83,7 +88,13 @@ final class FlowSession[B <: BackendTag] private[orca] (
   ): String =
     fc.assertOwnerThread("session.run(...)")
     val output = agent.autonomous
-      .runWithSession(effectivePrompt(agent, id, prompt), id, None, true)
+      .runWithSession(
+        effectivePrompt(agent, id, prompt),
+        id,
+        sessionName = Some(name),
+        config = None,
+        emitPrompt = true
+      )
     persistResumeWireId(agent, id)
     output
 
@@ -93,7 +104,7 @@ final class FlowSession[B <: BackendTag] private[orca] (
     * [[FlowSessionCall]]).
     */
   def resultAs[O: JsonData: Announce]: FlowSessionCall[B, O] =
-    new FlowSessionCall(agent, id)
+    new FlowSessionCall(agent, id, name)
 
 /** Structured-durable gateway for a [[FlowSession]] (obtained via
   * [[FlowSession.resultAs]]). Fixes the output type `O`, and exposes a single
@@ -102,7 +113,8 @@ final class FlowSession[B <: BackendTag] private[orca] (
   */
 final class FlowSessionCall[B <: BackendTag, O] private[orca] (
     agent: Agent[B],
-    id: SessionId[B]
+    id: SessionId[B],
+    name: String
 )(using JsonData[O], Announce[O]):
 
   /** Held as a val so schema derivation (`JsonSchemaGen`) fails fast at
@@ -132,8 +144,9 @@ final class FlowSessionCall[B <: BackendTag, O] private[orca] (
       .runWithSession(
         effectivePrompt(agent, id, serialized),
         id,
-        None,
-        emitPrompt
+        sessionName = Some(name),
+        config = None,
+        emitPrompt = emitPrompt
       )
     persistResumeWireId(agent, id)
     output
@@ -184,7 +197,7 @@ extension [B <: BackendTag](agent: Agent[B])
           "via the FlowSession handle (session.run / session.resultAs[...].run)."
       )
     val occ = fc.nextSessionOccurrence(name)
-    new FlowSession(agent, resolveSessionId(agent, name, occ, seed))
+    new FlowSession(agent, resolveSessionId(agent, name, occ, seed), name)
 
 /** The reuse-or-mint decision behind `agent.session(name, seed)`: look up any
   * session already recorded at `(name, occurrence)` and either reuse it

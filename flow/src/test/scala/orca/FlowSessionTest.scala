@@ -77,6 +77,9 @@ class FlowSessionTest extends FunSuite:
   private val testSession: SessionId[BackendTag.ClaudeCode.type] =
     SessionId[BackendTag.ClaudeCode.type](testSessionId)
 
+  /** The name every test's [[FlowSession]] is minted under. */
+  private val testSessionName = "coder"
+
   /** A structured result type for exercising the `resultAs[O]` durable door. */
   private case class StubResult(v: String) derives JsonData
 
@@ -105,11 +108,18 @@ class FlowSessionTest extends FunSuite:
     override private[orca] def backendTag: Option[BackendTag] = tag
 
     private var _capturedPrompts: List[String] = Nil
+    private var _capturedSessionNames: List[Option[String]] = Nil
 
     /** The prompt the stub's most recent `run` (free-text or structured)
       * received, after preamble/seed composition.
       */
     def capturedPrompt: Option[String] = _capturedPrompts.headOption
+
+    /** The `sessionName` the stub's most recent `run` received — what the
+      * durable door hands to the emission edge.
+      */
+    def capturedSessionName: Option[Option[String]] =
+      _capturedSessionNames.headOption
 
     /** Every captured prompt in call order (oldest first) — lets a multi-run
       * test compare the first (primed) turn against a later (continued) one.
@@ -145,9 +155,11 @@ class FlowSessionTest extends FunSuite:
       */
     private def capture(
         prompt: String,
-        session: SessionId[BackendTag.ClaudeCode.type]
+        session: SessionId[BackendTag.ClaudeCode.type],
+        sessionName: Option[String]
     ): Unit =
       _capturedPrompts = prompt :: _capturedPrompts
+      _capturedSessionNames = sessionName :: _capturedSessionNames
       if ephemeral then support.register(session, session.onWire)
 
     val autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
@@ -155,10 +167,11 @@ class FlowSessionTest extends FunSuite:
         private[orca] def runWithSession(
             prompt: String,
             session: SessionId[BackendTag.ClaudeCode.type],
+            sessionName: Option[String],
             config: Option[AgentConfig],
             emitPrompt: Boolean
         )(using orca.InStage): String =
-          capture(prompt, session)
+          capture(prompt, session, sessionName)
           runResult
 
     /** Structured door stub: captures the serialized input (after preamble/seed
@@ -173,12 +186,17 @@ class FlowSessionTest extends FunSuite:
             private[orca] def runWithSession[I: AgentInput](
                 input: I,
                 session: SessionId[BackendTag.ClaudeCode.type],
+                sessionName: Option[String],
                 config: Option[AgentConfig],
                 emitPrompt: Boolean
             )(using
                 orca.InStage
             ): O =
-              capture(summon[AgentInput[I]].serialize(input), session)
+              capture(
+                summon[AgentInput[I]].serialize(input),
+                session,
+                sessionName
+              )
               val parsed =
                 readFromString[O]("""{"v":"ok"}""")(using
                   summon[JsonData[O]].codec
@@ -225,11 +243,13 @@ class FlowSessionTest extends FunSuite:
       "p"
     )
 
-  /** A [[FlowSession]] over [[testSession]] and the given stub agent. */
+  /** A [[FlowSession]] over [[testSession]] and the given stub agent, minted
+    * under [[testSessionName]].
+    */
   private def flowSession(
       agent: StubAgentForSeeded
   ): FlowSession[BackendTag.ClaudeCode.type] =
-    new FlowSession(agent, testSession)
+    new FlowSession(agent, testSession, testSessionName)
 
   // ── tests: free-text run protocol ───────────────────────────────────────────
 
@@ -498,6 +518,20 @@ class FlowSessionTest extends FunSuite:
       "a second in-process run must forward the prompt verbatim (no re-seed)"
     )
 
+  test("run hands the session's name to the turn, for SessionCommitted"):
+    // The manifest's `sessionName`/`kind` come off the event, so the name has
+    // to reach the emission edge from here rather than be re-derived on disk.
+    val fc = makeControl(sessions = Nil)
+    val agent = new StubAgentForSeeded(existsResult = true)
+    val _ = flowSession(agent).run("prompt")(using fc)
+    assertEquals(agent.capturedSessionName, Some(Some(testSessionName)))
+
+  test("resultAs.run hands the session's name to the turn"):
+    val fc = makeControl(sessions = Nil)
+    val agent = new StubAgentForSeeded(existsResult = true)
+    val _ = flowSession(agent).resultAs[StubResult].run("prompt")(using fc)
+    assertEquals(agent.capturedSessionName, Some(Some(testSessionName)))
+
   test("run returns the output from autonomous.run; .id is the session id"):
     val seed = "seed text"
     val fc = makeControl(
@@ -698,7 +732,7 @@ class FlowSessionTest extends FunSuite:
     val errors = compileErrors(
       """
       val agent = new StubAgentForSeeded(existsResult = true)
-      val session = new FlowSession(agent, testSession)
+      val session = new FlowSession(agent, testSession, testSessionName)
       val _ = agent.chat(session)
       """
     )
