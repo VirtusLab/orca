@@ -162,6 +162,21 @@ class ManifestReaderTest extends munit.FunSuite:
     assertEquals(warnings, Nil)
     assertEquals(runs.map(_.crashed), List(false))
 
+  test(
+    "a manifest with an unrecognised outcome and a dead pid is not marked crashed"
+  ):
+    val workDir = TempDirs.dir()
+    writeManifest(
+      workDir,
+      "unknown.json",
+      startedAt = "2026-07-18T10:00:00Z",
+      pid = 999999,
+      outcome = "abandoned"
+    )
+    val (runs, warnings) = ManifestReader.list(workDir, alwaysDead)
+    assertEquals(warnings, Nil)
+    assertEquals(runs.map(_.crashed), List(false))
+
   test("a finished manifest is never marked crashed, even with a dead pid"):
     val workDir = TempDirs.dir()
     writeManifest(

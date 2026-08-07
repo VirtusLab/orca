@@ -50,7 +50,7 @@ class InboundMessageTest extends munit.FunSuite:
     val r = msg.asInstanceOf[InboundMessage.Result]
     assertEquals(r.sessionId, "sid-1")
     assertEquals(r.structuredOutput, Some("""{"answer":42}"""))
-    assertEquals(r.usage, usage(10L, 20L, Some(BigDecimal("0.003"))))
+    assertEquals(r.usage, Some(usage(10L, 20L, Some(BigDecimal("0.003")))))
     assertEquals(r.isError, false)
 
   test("result keeps cache creation and cache reads on separate axes"):
@@ -59,16 +59,18 @@ class InboundMessageTest extends munit.FunSuite:
     )
     assertEquals(
       msg.asInstanceOf[InboundMessage.Result].usage,
-      Usage(
-        // The wire's `input_tokens` excludes both cache categories, so it is
-        // the fresh axis as it stands.
-        freshInputTokens = 10L,
-        cacheReadInputTokens = 4000L,
-        cacheWriteInputTokens = 300L,
-        outputTokens = 20L,
-        reasoningOutputTokens = 0L,
-        cost = Some(BigDecimal("0.5")),
-        apiCalls = None
+      Some(
+        Usage(
+          // The wire's `input_tokens` excludes both cache categories, so it is
+          // the fresh axis as it stands.
+          freshInputTokens = 10L,
+          cacheReadInputTokens = 4000L,
+          cacheWriteInputTokens = 300L,
+          outputTokens = 20L,
+          reasoningOutputTokens = 0L,
+          cost = Some(BigDecimal("0.5")),
+          apiCalls = None
+        )
       )
     )
 
@@ -78,7 +80,10 @@ class InboundMessageTest extends munit.FunSuite:
     val msg = InboundMessage.parse(
       """{"type":"result","subtype":"success","session_id":"sid-1","num_turns":4,"usage":{"input_tokens":10,"output_tokens":20}}"""
     )
-    assertEquals(msg.asInstanceOf[InboundMessage.Result].usage.apiCalls, None)
+    assertEquals(
+      msg.asInstanceOf[InboundMessage.Result].usage.flatMap(_.apiCalls),
+      None
+    )
 
   test("result surfaces the resolved model id when present"):
     val msg = InboundMessage.parse(
@@ -121,7 +126,7 @@ class InboundMessageTest extends munit.FunSuite:
     assertEquals(msg, InboundMessage.AssistantTurn(Nil, None))
 
   test(
-    "result with all optional fields absent defaults usage to zero and isError to false"
+    "result with all optional fields absent leaves usage absent and isError false"
   ):
     val msg = InboundMessage.parse(
       """{"type":"result","subtype":"success","session_id":"sid-x"}"""
@@ -129,8 +134,7 @@ class InboundMessageTest extends munit.FunSuite:
     val r = msg.asInstanceOf[InboundMessage.Result]
     assertEquals(r.output, None)
     assertEquals(r.structuredOutput, None)
-    assertEquals(r.usage, Usage.empty)
-    assertEquals(r.usageReported, false)
+    assertEquals(r.usage, None)
     assertEquals(r.isError, false)
 
   test("non-init system subtype is namespaced into Unknown"):
