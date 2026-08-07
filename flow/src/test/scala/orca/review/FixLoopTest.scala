@@ -6,7 +6,6 @@ import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
 import orca.{TestFlowContext}
 
 import java.util.concurrent.atomic.AtomicReference
-import ox.either.orThrow
 
 class FixLoopTest extends munit.FunSuite:
 
@@ -16,7 +15,7 @@ class FixLoopTest extends munit.FunSuite:
   private def issue(title: String): ReviewIssue =
     ReviewIssue(
       severity = Severity.Warning,
-      confidence = Confidence(1.0).orThrow,
+      confidence = Confidence.orThrow(1.0),
       title = Title(title),
       description = title,
       location = None,
@@ -179,7 +178,7 @@ class FixLoopTest extends munit.FunSuite:
   test("formatIssue renders severity, title, location, and suggestion"):
     val real = ReviewIssue(
       severity = Severity.Warning,
-      confidence = Confidence(0.9).orThrow,
+      confidence = Confidence.orThrow(0.9),
       title = Title("Unbounded growth in `processBatch`"),
       description = "Unbounded growth in `processBatch`",
       location = Some(Location("src/main/Foo.scala", Some(42))),
@@ -219,7 +218,7 @@ class FixLoopTest extends munit.FunSuite:
     // unrepresentable; this pins the still-valid file-without-line case.
     val fileOnly = ReviewIssue(
       severity = Severity.Info,
-      confidence = Confidence(0.5).orThrow,
+      confidence = Confidence.orThrow(0.5),
       title = Title("Nit"),
       description = "Nit",
       location = Some(Location("src/main/Foo.scala", None)),

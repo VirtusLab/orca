@@ -5,7 +5,6 @@ import orca.plan.Title
 import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
 
 import java.util.concurrent.atomic.AtomicReference
-import ox.either.orThrow
 
 /** Integration-style test for the higher-level flow helpers (`reviewAndFixLoop`
   * / `fixLoop`) wired together inside a FlowContext that records every
@@ -28,7 +27,7 @@ class ReviewFixFlowTest extends munit.FunSuite:
   private def issue(desc: String, confidence: Double = 1.0): ReviewIssue =
     ReviewIssue(
       severity = Severity.Warning,
-      confidence = Confidence(confidence).orThrow,
+      confidence = Confidence.orThrow(confidence),
       title = Title(desc),
       description = desc,
       location = None,

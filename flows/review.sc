@@ -73,7 +73,7 @@ case class AllFindings(byReviewer: List[ReviewerFindings]) derives JsonData
 /** Findings at or above this are listed first within their severity; the rest
   * follow under a divider. Nothing is dropped, only ordered.
   */
-val ConfidentAt: Double = 0.7
+val ConfidentAt: Confidence = Confidence.orThrow(0.7)
 
 flow(OrcaArgs(args)):
   val target = stage("Resolve what to review"):
@@ -237,7 +237,9 @@ def renderSeverity(
     issues: List[(String, ReviewIssue)]
 ): String =
   val (confident, tentative) =
-    issues.sortBy(-_._2.confidence).partition(_._2.confidence >= ConfidentAt)
+    issues
+      .sortBy(_._2.confidence)(using Ordering[Confidence].reverse)
+      .partition(_._2.confidence.clears(ConfidentAt))
   // The divider earns its place only when it separates something from
   // something — an all-confident or all-tentative section just lists.
   val divider =
@@ -255,7 +257,7 @@ def renderIssue(attributed: (String, ReviewIssue)): String =
       case Location(file, Some(line)) => s" — `$file:$line`"
       case Location(file, None)       => s" — `$file`"
     .getOrElse("")
-  val confidence = f"${issue.confidence}%.2f"
+  val confidence = f"${issue.confidence.value}%.2f"
   val suggestion = issue.suggestion.fold("")(s => s"\n  - suggestion: $s")
   s"- **${issue.title}** ($reviewer, confidence $confidence)$where\n" +
     s"  - ${issue.description}$suggestion"

@@ -18,7 +18,6 @@ import orca.agents.{
 }
 import orca.events.{EventDispatcher}
 import orca.{TestFlowContext}
-import ox.either.orThrow
 
 class LintTest extends munit.FunSuite:
 
@@ -71,7 +70,7 @@ class LintTest extends munit.FunSuite:
     issues = List(
       ReviewIssue(
         Severity.Warning,
-        Confidence(0.8).orThrow,
+        Confidence.orThrow(0.8),
         Title("Unused import"),
         "unused import",
         None,

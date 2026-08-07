@@ -1,7 +1,6 @@
 package orca.review
 
 import orca.plan.Title
-import ox.either.orThrow
 
 /** [[FixOutcome.reconcile]]'s resolution rules, exercised directly: the loops
   * only ever see the reconciled result, so a rule that stops holding here is
@@ -12,7 +11,7 @@ class FixOutcomeReconcileTest extends munit.FunSuite:
   private def issue(title: String): ReviewIssue =
     ReviewIssue(
       severity = Severity.Warning,
-      confidence = Confidence(0.9).orThrow,
+      confidence = Confidence.orThrow(0.9),
       title = Title(title),
       description = title,
       location = None,

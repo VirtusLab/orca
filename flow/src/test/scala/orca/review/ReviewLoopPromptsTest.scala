@@ -3,7 +3,6 @@ package orca.review
 import orca.agents.given
 import orca.plan.Title
 import orca.util.{JsonSchemaGen, TextUtil}
-import ox.either.orThrow
 
 class ReviewLoopPromptsTest extends munit.FunSuite:
 
@@ -24,9 +23,9 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
     val prompt =
       rendered(
         ConfidenceGate(
-          critical = Confidence(0.1).orThrow,
-          warning = Confidence(0.2).orThrow,
-          info = Confidence(0.3).orThrow
+          critical = Confidence.orThrow(0.1),
+          warning = Confidence.orThrow(0.2),
+          info = Confidence.orThrow(0.3)
         )
       )
     assert(prompt.contains("Critical 0.1, Warning 0.2, Info 0.3"), prompt)

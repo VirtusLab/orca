@@ -18,7 +18,6 @@ import orca.agents.{
 import orca.plan.Title
 
 import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
-import ox.either.orThrow
 
 /** Captures every `ReviewerSelectionRequest` handed to the picker and replies
   * with a scripted `SelectedReviewers`, counting each call. Other `Agent`
@@ -96,7 +95,7 @@ class ReviewerSelectorTest extends munit.FunSuite:
           List(
             ReviewIssue(
               severity = Severity.Warning,
-              confidence = Confidence(1.0).orThrow,
+              confidence = Confidence.orThrow(1.0),
               title = Title("found something"),
               description = "found something",
               location = None,

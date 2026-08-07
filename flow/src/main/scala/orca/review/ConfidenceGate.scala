@@ -1,7 +1,5 @@
 package orca.review
 
-import ox.either.orThrow
-
 /** The minimum confidence a [[ReviewIssue]] must carry to reach the fixer, per
   * [[Severity]]. Findings below their bar are not fixed, but they are not lost
   * either: `reviewAndFixLoop` records its rejects in the returned
@@ -41,11 +39,11 @@ case class ConfidenceGate(
 object ConfidenceGate:
   /** The numbers are judgment calls, not measurements — callers who find them
     * mis-tuned for their reviewers can pass their own gate, or adjust one bar
-    * with `ConfidenceGate.default.copy(info = Confidence(0.7).orThrow)`.
+    * with `ConfidenceGate.default.copy(info = Confidence.orThrow(0.7))`.
     */
   val default: ConfidenceGate =
     ConfidenceGate(
-      critical = Confidence(0.5).orThrow,
-      warning = Confidence(0.6).orThrow,
-      info = Confidence(0.8).orThrow
+      critical = Confidence.orThrow(0.5),
+      warning = Confidence.orThrow(0.6),
+      info = Confidence.orThrow(0.8)
     )

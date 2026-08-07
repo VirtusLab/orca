@@ -53,7 +53,7 @@ export orca.pr.{openPrFromBranch, orcaCommentMarker, summarisePr, PrSummary}
 // summariser-taking `lint` returns, ConfidenceGate for its
 // `confidenceGate` parameter. Severity, Location and Confidence are
 // ReviewIssue's field types — needed by any flow that consumes findings — and
-// InvalidConfidence is the Left of `Confidence(...)`.
+// InvalidConfidence is what `Confidence.orThrow` raises.
 export orca.review.{
   allReviewers,
   buildReviewers,

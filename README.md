@@ -789,8 +789,10 @@ results.
   Issues carry severity, confidence, a `title` (shown), and a long `description`
   (sent to the fixer).
 - **`orca.review.Confidence`** — a probability in `[0, 1]`, checked at
-  construction: `Confidence(0.7)` returns an `Either`, and a reviewer reporting
-  a number outside the range fails the turn instead of clearing every bar.
+  construction: `Confidence.orThrow(0.7)` raises `InvalidConfidence` outside the
+  range, and a reviewer reporting an out-of-range number fails the turn instead
+  of clearing every bar. Compare with `.clears(bar)`, sort with the companion's
+  `Ordering[Confidence]`, and render with `.value`.
 - **`orca.review.ConfidenceGate(critical, warning, info)`** — the minimum
   `Confidence` a `ReviewIssue` needs to reach the fixer, per severity;
   `ConfidenceGate.default` is `(0.5, 0.6, 0.8)`. See the type for why the bar

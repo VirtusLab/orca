@@ -21,7 +21,6 @@ import orca.backend.{IdScheme, SessionSupport}
 import orca.progress.SessionRecord
 import orca.events.{EventDispatcher, OrcaEvent, OrcaListener, Usage}
 import orca.testkit.TempDirs
-import ox.either.orThrow
 
 /** Fake AgentCall whose `autonomous.run` drains a scripted sequence of outputs
   * in order. `seenSessions` records each call's session id so tests can assert
@@ -190,7 +189,7 @@ class ReviewAndFixTest extends munit.FunSuite:
   ): ReviewIssue =
     ReviewIssue(
       severity = severity,
-      confidence = Confidence(confidence).orThrow,
+      confidence = Confidence.orThrow(confidence),
       title = Title(desc),
       description = desc,
       location = None,
@@ -228,9 +227,9 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewers = List(reviewer),
       task = "build the widget",
       confidenceGate = ConfidenceGate(
-        critical = Confidence(0.99).orThrow,
-        warning = Confidence(0.99).orThrow,
-        info = Confidence(0.99).orThrow
+        critical = Confidence.orThrow(0.99),
+        warning = Confidence.orThrow(0.99),
+        info = Confidence.orThrow(0.99)
       ),
       reviewerSelection = ReviewerSelector.allEveryRound,
       initialDiff = Some("")
@@ -549,7 +548,7 @@ class ReviewAndFixTest extends munit.FunSuite:
           List(
             ReviewIssue(
               severity = Severity.Warning,
-              confidence = Confidence(0.95).orThrow,
+              confidence = Confidence.orThrow(0.95),
               title = Title("leaks a handle"),
               description = "DESCRIPTION-MARKER: the stream is never closed",
               location = None,

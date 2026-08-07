@@ -2,7 +2,6 @@ package orca.review
 
 import orca.plan.Title
 import orca.agents.{AgentInput, given}
-import ox.either.orThrow
 import com.github.plokhotnyuk.jsoniter_scala.core.{
   readFromString,
   writeToString
@@ -14,7 +13,7 @@ class ReviewTypesTest extends munit.FunSuite:
       issues = List(
         ReviewIssue(
           severity = Severity.Critical,
-          confidence = Confidence(0.95).orThrow,
+          confidence = Confidence.orThrow(0.95),
           title = Title("Null pointer risk"),
           description = "null pointer risk",
           location = Some(Location("Foo.scala", Some(42))),
@@ -22,7 +21,7 @@ class ReviewTypesTest extends munit.FunSuite:
         ),
         ReviewIssue(
           severity = Severity.Info,
-          confidence = Confidence(0.4).orThrow,
+          confidence = Confidence.orThrow(0.4),
           title = Title("Stylistic nitpick"),
           description = "stylistic nitpick",
           location = None,
@@ -51,7 +50,7 @@ class ReviewTypesTest extends munit.FunSuite:
       List(
         ReviewIssue(
           severity = Severity.Warning,
-          confidence = Confidence(0.9).orThrow,
+          confidence = Confidence.orThrow(0.9),
           title = Title("Mangled quote"),
           description = "the quote is mangled",
           location = None,
