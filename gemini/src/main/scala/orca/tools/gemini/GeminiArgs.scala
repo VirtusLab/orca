@@ -74,11 +74,12 @@ private[gemini] object GeminiArgs:
   /** The read-only tiers' cell. Shared because both ride on `--approval-mode
     * plan`; `NetworkOnly` only pre-approves web reads on top. It records what
     * orca can stand behind rather than what the flag was assumed to do, so the
-    * rationale carries the whole argument — this is its only home.
+    * rationale carries the whole argument — this is its only home. Raise the
+    * level here once a probe establishes more than "unmeasured".
     */
   private val PlanModeCell: EnforcementCell = EnforcementCell(
     Enforcement.PromptOnly,
-    "`--approval-mode plan` is UNMEASURED, not known weak: no headless `plan` turn has been run against a write attempt. The same class of mechanism on claude — `--permission-mode plan` — was measured and removes no tools (`docs/research/run-cost/09-diff-vs-coordinates.md` §2). Raise this cell when a probe establishes more."
+    "`--approval-mode plan` is UNMEASURED, not known weak: no headless `plan` turn has been run against a write attempt. The same class of mechanism on claude — `--permission-mode plan` — was measured and removes no tools (`docs/research/run-cost/09-diff-vs-coordinates.md` §2)"
   )
 
   /** Maps [[AgentConfig.tools]] to gemini's approval mode, and classifies how

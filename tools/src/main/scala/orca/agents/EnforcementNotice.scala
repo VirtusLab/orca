@@ -7,12 +7,9 @@ import org.slf4j.LoggerFactory
 
 /** Says, when a turn asks a backend for a restriction it cannot mechanically
   * apply, that the restriction is not mechanical — the runtime's only consumer
-  * of [[Enforcement]].
-  *
-  * Without it, a caller that asked for `withReadOnly` and got prose has no
-  * signal anywhere: a run in which a reviewer drifted from reporting into
-  * editing looks exactly like one in which editing was impossible, and telling
-  * them apart means already knowing the matrix.
+  * of [[Enforcement]]. Without it, a run in which a reviewer drifted from
+  * reporting into editing looks exactly like one in which editing was
+  * impossible.
   *
   * Two channels, because they have different readers: the `Step` a run shows
   * says in plain words what the agent may still do, and the WARN behind it
@@ -24,11 +21,9 @@ import org.slf4j.LoggerFactory
   */
 private[orca] final class EnforcementNotice:
 
-  /** Rendered `Step` lines already said. Keying on the sentence itself is what
-    * makes "already said" mean what a reader would mean by it: a different
-    * tier, dispatch or approval list repeats the notice exactly when it changes
-    * the sentence, and stays silent when it only changes the reasoning behind
-    * an identical one.
+  /** Rendered `Step` lines already said. Keyed on the sentence rather than the
+    * cell, so a different tier, dispatch or approval list repeats the notice
+    * exactly when it changes the wording.
     */
   private val said =
     java.util.concurrent.ConcurrentHashMap.newKeySet[String]()
@@ -36,9 +31,9 @@ private[orca] final class EnforcementNotice:
   /** Report `config`'s unmet restriction for the turn about to run against
     * `session`, unless the same sentence has already been said.
     *
-    * Resolves the dispatch itself, from the same `dispatchFor` the backend will
-    * consult moments later — the one derivation, so a caller cannot pair a
-    * fresh-turn classification with a resumed turn.
+    * Resolves the dispatch from the same `dispatchFor` the backend will consult
+    * moments later, so a caller cannot pair a fresh-turn classification with a
+    * resumed turn.
     *
     * Reporting, not refusing: a weaker gate is a documented property of the
     * backend, and a restricted turn's prompt still carries

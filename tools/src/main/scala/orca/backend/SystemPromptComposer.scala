@@ -33,25 +33,15 @@ private[orca] object SystemPromptComposer:
 
   /** Standing rule appended to EVERY agent turn, unlike [[RuntimeOwnsGit]]:
     * orca stops reading a turn's output once the turn ends, so anything the
-    * agent left running in the background is abandoned. That is a property of
-    * the turn boundary, not of the agent's tools — a read-only agent can still
-    * spawn a sub-agent or schedule a wakeup and then wait for a result that can
-    * never arrive, which is what a live run cost $1.44 across two reviewer
-    * turns. Gating it on [[ToolSet.Full]] would have withheld it from exactly
-    * those turns.
+    * agent left running in the background is abandoned. Unconditional because
+    * that is a property of the turn boundary, not of the agent's tools — a
+    * read-only agent can also spawn a sub-agent or schedule a wakeup and then
+    * wait for a result that can never arrive.
     *
     * The rule states the turn boundary rather than a process model, because the
     * two differ per backend: claude, codex, gemini and pi are spawned per turn,
     * while opencode's agent runs inside a `serve` process shared by the whole
     * run, where a background command genuinely does survive.
-    *
-    * It says the abandoned command may be killed OR keep running, which holds
-    * either side of the teardown change in flight: today
-    * `ForkedConversation.cancel` destroys the CLI's own PID and not its process
-    * tree, so a backgrounded build is orphaned and can still write into the
-    * work dir while the flow commits; routing teardown through
-    * `destroyForciblyTree` would make the kill real. Both outcomes lose the
-    * result, which is what the agent needs to know.
     */
   val BackgroundWorkAbandonedAtTurnEnd: String =
     PromptResource.load(
@@ -75,10 +65,8 @@ private[orca] object SystemPromptComposer:
       config: AgentConfig,
       extraHint: Option[String] = None
   ): String =
-    // The two tool-gated rules are complementary: `Full` gets the git rule
-    // (unless `selfManagedGit` says the agent drives git itself — a question
-    // about the repo, not about what survives the turn boundary), the read-only
-    // tiers get the read-only rule.
+    // `selfManagedGit` withholds the git rule alone: it says who drives git in
+    // this repo, not what survives the turn boundary.
     val toolRule = config.tools match
       case ToolSet.Full =>
         Option.when(!config.selfManagedGit)(RuntimeOwnsGit)

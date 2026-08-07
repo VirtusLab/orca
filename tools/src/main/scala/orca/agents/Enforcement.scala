@@ -4,16 +4,12 @@ package orca.agents
   * combination requests. For the read-only tiers the restriction is "no
   * edits/shell"; for `Full` it is the approval policy itself.
   *
-  *   - Hard — mechanically blocked (permission mode, sandbox, tool allowlist).
-  *     The gated boundary may sit at a documented SUPERSET of the request — on
-  *     `Full`, claude's `--allowedTools` adds to the default permission mode
-  *     rather than replacing it — and the cell's `rationale` says so where it
-  *     does.
+  *   - Hard — mechanically blocked (permission mode, sandbox, tool allowlist);
+  *     the gated boundary may be a documented SUPERSET of the request, which
+  *     the cell's `rationale` then names.
   *   - SandboxApprox — approximated by a coarser sandbox; semantics widened.
-  *     The line from a `Hard` cell with a documented superset is whether orca
-  *     can name the boundary the agent is held to: claude's additive allowlist
-  *     can (defaults ∪ the list), codex's swap to a whole-workspace sandbox
-  *     cannot.
+  *     What separates it from a `Hard` superset is whether orca can name the
+  *     boundary the agent is held to.
   *   - PromptOnly — only the prompt forbids it; the tools can physically do it.
   *     [[orca.backend.SystemPromptComposer.ReadOnlyTurn]] is what puts that
   *     prose on every read-only turn.
@@ -50,8 +46,7 @@ case class EnforcementCell(level: Enforcement, rationale: String)
   * of the enforcement matrix, alongside `(ToolSet, AutoApprove)`. It matters
   * because a resumed session keeps whatever sandbox it was created with unless
   * the backend re-applies one, and not every restriction has a knob to re-apply
-  * on the narrower resume argv: codex's `Full` + `AutoApprove.Only` has none,
-  * so that cell alone answers differently on a resumed turn.
+  * on the narrower resume argv.
   *
   * Derived from [[orca.backend.Dispatch]] by dropping the wire ids this
   * classification has no use for.

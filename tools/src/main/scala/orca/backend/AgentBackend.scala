@@ -157,15 +157,10 @@ trait AgentBackend[B <: BackendTag](
     *
     * Abstract, not defaulted to `Enforcement.Ignored`, so a new backend cannot
     * ship without answering this; the `*Args` implementations match `dispatch`
-    * exhaustively, so it cannot answer for fresh turns only. Real backends
-    * delegate to their `*Args.enforcementCell`; test doubles that aren't
-    * exercising [[announceEnforcementShortfall]] add a one-line `Hard` cell,
-    * the answer that reports nothing.
+    * exhaustively, so it cannot answer for fresh turns only.
     *
     * @see
-    *   [[orca.agents.Enforcement]] for what the levels mean, and
-    *   `runner/src/test/scala/orca/runner/EnforcementTableTest.scala`, which
-    *   checks the full product and renders AGENTS.md's table from it.
+    *   [[orca.agents.Enforcement]] for what the levels mean.
     */
   def enforcementCell(
       tools: ToolSet,
