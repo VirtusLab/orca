@@ -183,18 +183,17 @@ private[shell] object SessionPicker:
           case Some(index) => selectByIndex(runs, index)
           case None        => selectByName(runs, s)
 
-  /** Resolves one picker row for a selector: a `Resume` row yields its
-    * selection, or its `disabledReason` phrased by `notResumable`; a `ShowMore`
-    * row yields `onShowMore`, which each selector words for itself.
+  /** A picker row resolved for a selector: its selection, or a refusal reading
+    * `<notResumable> — <disabledReason>`.
     */
   private def resolveRow(
       choice: Choice[PickerRow],
-      notResumable: String => String,
-      onShowMore: => Either[String, SessionSelection]
+      notResumable: String,
+      onShowMore: Either[String, SessionSelection]
   ): Either[String, SessionSelection] =
     choice.value match
       case PickerRow.Resume(selection) =>
-        choice.disabledReason.map(notResumable).toLeft(selection)
+        choice.disabledReason.map(r => s"$notResumable — $r").toLeft(selection)
       case PickerRow.ShowMore => onShowMore
 
   private[shell] def newestDurableSelection(
@@ -205,7 +204,7 @@ private[shell] object SessionPicker:
       case Some(choice) =>
         resolveRow(
           choice,
-          reason => s"can't resume the newest session — $reason",
+          "can't resume the newest session",
           // reachable: with no durable lineages, the collapsed listing's head
           // is the one-shot expander row
           Left(
@@ -226,7 +225,7 @@ private[shell] object SessionPicker:
       case Some(choice) =>
         resolveRow(
           choice,
-          reason => s"session $index isn't resumable — $reason",
+          s"session $index isn't resumable",
           // unreachable: withoutExpanders already dropped every ShowMore row
           Left(s"no session at index $index")
         )
@@ -247,7 +246,7 @@ private[shell] object SessionPicker:
       case (choice, _) :: Nil =>
         resolveRow(
           choice,
-          reason => s"session '$name' isn't resumable — $reason",
+          s"session '$name' isn't resumable",
           // unreachable: withoutExpanders already dropped every ShowMore row
           notFound
         )
@@ -257,8 +256,7 @@ private[shell] object SessionPicker:
 
   /** [[sessionRows]]'s rows, dropping the "show more" expanders — never present
     * for [[SessionSelection]] callers (`selectByIndex` reads the fully expanded
-    * listing, `selectByName`/`newestDurableSelection` only ever resolve to an
-    * actual session or fail).
+    * listing, `selectByName` only ever resolves to an actual session or fails).
     */
   private[shell] def withoutExpanders(
       rows: List[Choice[PickerRow]]
