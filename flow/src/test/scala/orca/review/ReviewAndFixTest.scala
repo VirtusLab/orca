@@ -422,6 +422,47 @@ class ReviewAndFixTest extends munit.FunSuite:
       )
     )
 
+  test("a gate reject survives its reviewer running again and going quiet"):
+    given FlowControl = control
+    // Round one reports a real bug plus a sub-threshold finding; round two
+    // repeats only the real bug. The sub-threshold one was never shown to the
+    // fixer, so the reviewer going quiet about it is not resolution — the
+    // ledger only ever unions, so it survives to the result.
+    val reviewer = new FakeAgent(
+      name = "loud",
+      outputs = List(
+        ReviewResult(
+          List(
+            issue("real bug", confidence = 0.95),
+            issue("flaky", confidence = 0.3)
+          )
+        ),
+        ReviewResult(List(issue("real bug", confidence = 0.95)))
+      )
+    )
+    val coder = new FakeAgent(
+      name = "coder",
+      outputs = List(FixOutcome(List(Title("real bug")), Nil))
+    )
+    val result = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(reviewer),
+      task = "build the widget",
+      maxIterations = 1,
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      initialDiff = Some("")
+    )
+    assertEquals(
+      result.issues,
+      List(
+        IgnoredIssue(Title("real bug"), "max iterations (1) reached"),
+        IgnoredIssue(
+          Title("flaky"),
+          "below the Warning confidence gate (0.3 < 0.6)"
+        )
+      )
+    )
+
   test("the default gate admits a confidence by severity"):
     // Two confidence bands, each separating a pair of default bars: 0.65 clears
     // Critical (0.5) and Warning (0.6) but not Info (0.8), while 0.5 clears only

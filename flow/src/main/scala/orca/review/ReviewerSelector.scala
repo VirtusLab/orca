@@ -206,7 +206,7 @@ object ReviewerSelector:
             case None => active
             case Some(previous) =>
               val reported = previous.reviewersWithIssues
-              val narrowed = active.filter(e => reported.exists(_ eq e))
+              val narrowed = active.filter(e => reported.exists(_.id == e.id))
               // The `active.isEmpty` arm returns the same empty list the
               // fallback would; it is there to keep a base selector that picked
               // nobody from being announced as "re-running all 0 reviewer(s)".

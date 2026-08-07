@@ -55,23 +55,21 @@ def lint(
     agent: Agent[?],
     instructions: String = ReviewLoopPrompts.SummariseLint
 )(using ctx: FlowContext, ev: InStage): ReviewResult =
-  lint(commands, Lint.summariser(agent), instructions)
+  lint(commands, Lint.summariser(agent), instructions).result
 
 /** [[lint]] against an existing [[Lint.Summariser]] rather than a fresh
   * conversation per call — for a caller running the gate several times over one
   * stage, where resuming costs a fraction of re-establishing the session.
   *
-  * STOP reusing a summariser once it has reported: it can repeat those findings
-  * on a later call whose commands no longer show them. The
-  * silent-and-successful short-circuit does not cover this, since most linters
-  * print on success (`sbt compile` writes `[success] …`), so the decision is
-  * the caller's. `reviewAndFixLoop` makes it — see `ReviewLoopState.lintChat`.
+  * Consumes the summariser and hands back a continuation only while the
+  * conversation is still safe to resume, so a caller cannot reuse one that has
+  * reported (see [[LintReport.resumable]]).
   */
 def lint(
     commands: List[String],
     summariser: Lint.Summariser,
     instructions: String
-)(using ctx: FlowContext, ev: InStage): ReviewResult =
+)(using ctx: FlowContext, ev: InStage): LintReport =
   val runs = commands.map: command =>
     val proc = os
       .proc("bash", "-c", command)
@@ -79,48 +77,79 @@ def lint(
     LintRun(command, proc.exitCode, proc.out.text().trim)
   // The summariser is skipped only when every run is both silent AND successful.
   val allClean = runs.forall(r => r.exitCode == 0 && r.output.isEmpty)
-  if allClean then ReviewResult.empty
+  val result =
+    if allClean then ReviewResult.empty
+    else summariseRuns(runs, summariser, instructions)
+  // Pre-gate issues: what the conversation now holds, whatever a caller's
+  // confidence gate later admits of it.
+  LintReport(
+    result,
+    Option.when(result.issues.isEmpty)(new Lint.Summariser(summariser.chat))
+  )
+
+/** One [[lint]] call's outcome.
+  *
+  * `resumable` is the same conversation, handed back only while it holds no
+  * finding: a conversation that has reported can repeat that finding on a later
+  * call whose commands no longer show it, and the phantom costs a fix turn and
+  * lands in the caller's records as unfixed. The consumed [[Lint.Summariser]]
+  * is never returned, so resuming after a report is unobtainable rather than
+  * forbidden.
+  *
+  * That bounds re-reporting rather than eliminating it: a resumed conversation
+  * still holds every earlier call's raw output, from which it could newly
+  * derive a finding it previously declined to make. Only the summariser prompt
+  * (`the blocks are this run's output and supersede any earlier ones`) speaks
+  * to that, and by construction the retained output is output the model already
+  * judged non-actionable.
+  */
+case class LintReport(result: ReviewResult, resumable: Option[Lint.Summariser])
+
+private def summariseRuns(
+    runs: List[LintRun],
+    summariser: Lint.Summariser,
+    instructions: String
+)(using ctx: FlowContext, ev: InStage): ReviewResult =
+  def summarise(prompt: String): ReviewResult =
+    summariser.chat
+      .resultAs[ReviewResult]
+      .autonomous
+      .run(prompt, emitPrompt = false)
+  val combined = runs.map(_.labelled).mkString("\n\n")
+  val statusHint =
+    "Each command's combined stdout+stderr is a block headed " +
+      "`$ <command>   (exit <status>)`. A zero status usually means that " +
+      "command succeeded with nothing to report — return an empty result " +
+      "when no block carries anything actionable. The blocks are this run's " +
+      "output and supersede any earlier ones"
+  // No `stripMargin`: compiler diagnostics, tables and markdown in the
+  // captured output start lines with `|`, which it would eat.
+  val promptHead = s"$instructions\n\n$statusHint.\n\n"
+  if combined.length <= Lint.InlineLintThreshold then
+    summarise(promptHead + s"The blocks are:\n\n```\n$combined\n```")
   else
-    def summarise(prompt: String): ReviewResult =
-      summariser.chat
-        .resultAs[ReviewResult]
-        .autonomous
-        .run(prompt, emitPrompt = false)
-    val combined = runs.map(_.labelled).mkString("\n\n")
-    val statusHint =
-      "Each command's combined stdout+stderr is a block headed " +
-        "`$ <command>   (exit <status>)`. A zero status usually means that " +
-        "command succeeded with nothing to report — return an empty result " +
-        "when no block carries anything actionable. The blocks are this run's " +
-        "output and supersede any earlier ones"
-    // No `stripMargin`: compiler diagnostics, tables and markdown in the
-    // captured output start lines with `|`, which it would eat.
-    val promptHead = s"$instructions\n\n$statusHint.\n\n"
-    if combined.length <= Lint.InlineLintThreshold then
-      summarise(promptHead + s"The blocks are:\n\n```\n$combined\n```")
-    else
-      // Spill to a file under the working tree (NOT `/tmp`, so a sandboxed
-      // agent that denies reads outside its worktree can reach it).
-      // `.orca/cache/` self-ignores via the `.gitignore` `ensureCache` writes
-      // first, so a stage's `git add -A` can never sweep the spill file, even
-      // after a crash mid-lint. `deleteOnExit = false`: the `finally` owns
-      // cleanup, avoiding a JVM-exit hook per lint call.
-      val cacheDir = OrcaDir.ensureCache(ctx.workDir)
-      val outputFile =
-        os.temp(
-          combined,
-          dir = cacheDir,
-          prefix = "lint-",
-          suffix = ".txt",
-          deleteOnExit = false
-        )
-      try
-        summarise(
-          promptHead + s"The blocks are in `$outputFile`\n" +
-            "(the file may be large — read it in parts if needed)."
-        )
-      finally
-        val _ = os.remove(outputFile)
+    // Spill to a file under the working tree (NOT `/tmp`, so a sandboxed
+    // agent that denies reads outside its worktree can reach it).
+    // `.orca/cache/` self-ignores via the `.gitignore` `ensureCache` writes
+    // first, so a stage's `git add -A` can never sweep the spill file, even
+    // after a crash mid-lint. `deleteOnExit = false`: the `finally` owns
+    // cleanup, avoiding a JVM-exit hook per lint call.
+    val cacheDir = OrcaDir.ensureCache(ctx.workDir)
+    val outputFile =
+      os.temp(
+        combined,
+        dir = cacheDir,
+        prefix = "lint-",
+        suffix = ".txt",
+        deleteOnExit = false
+      )
+    try
+      summarise(
+        promptHead + s"The blocks are in `$outputFile`\n" +
+          "(the file may be large — read it in parts if needed)."
+      )
+    finally
+      val _ = os.remove(outputFile)
 
 // Public (not `private[review]`): as the case class's companion it carries the
 // synthesized `apply`/`unapply`, so restricting it would make `Lint(...)`
