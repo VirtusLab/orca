@@ -525,6 +525,12 @@ class FlowLifecycleTest extends munit.FunSuite:
   private def setupFresh(workDir: os.Path): FlowLifecycle.FlowSetup =
     setupForSettings(workDir, Some(StackSettings.empty), "a brand new task")
 
+  test("setup: a repository with no commits is refused with a named next step"):
+    val workDir = GitRepo.empty()
+    val thrown = intercept[orca.OrcaFlowException](setupFresh(workDir): Unit)
+    assert(thrown.getMessage.contains("no commits yet"), thrown.getMessage)
+    assert(thrown.getMessage.contains("git commit"), thrown.getMessage)
+
   test(
     "setup: a FRESH run refuses to start on a branch another run's log claims"
   ):

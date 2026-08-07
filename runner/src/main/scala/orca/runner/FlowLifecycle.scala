@@ -305,6 +305,7 @@ object FlowLifecycle:
     given InStage = RuntimeInStage.token()
     given WorkspaceWrite = RuntimeInStage.workspaceToken()
     warnIfSettingsIgnored(git, stackOverridden, emit)
+    abortIfNoCommits(git)
     val startBranch = git.currentBranch()
     abortIfBranchBusy(store, workDir, startBranch)
     // Snapshot the log file before any stash, restore it after if the stash
@@ -367,6 +368,21 @@ object FlowLifecycle:
     * uncommitted content, which is fine here: this check only ever refuses,
     * unlike `bindBranch`'s authoritative post-stash read.
     */
+  /** On an unborn HEAD (`git init`, no commits) every later git call that names
+    * `HEAD` — starting with `currentBranch()` on the next line — exits 128 with
+    * git's "ambiguous argument 'HEAD'" fatal, so refuse here instead.
+    *
+    * `headCommit()` is also `None` when git itself cannot run, which would get
+    * this message rather than its own; accepted, since every path past this
+    * point fails on that same broken git anyway.
+    */
+  private def abortIfNoCommits(git: GitTool): Unit =
+    if git.headCommit().isEmpty then
+      throw new OrcaFlowException(
+        "the repository has no commits yet — make an initial commit " +
+          "(`git commit`) before running a flow"
+      )
+
   private def abortIfBranchBusy(
       store: ProgressStore,
       workDir: os.Path,
