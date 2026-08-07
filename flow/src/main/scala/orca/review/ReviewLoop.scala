@@ -108,6 +108,29 @@ private[review] def recordIgnored(
     )
   )
 
+/** `accumulated` with the fixer's `fixed` titles dropped, then `additions`
+  * folded in ([[recordIgnored]]).
+  *
+  * Both loops prune here, on the continue path, because this is the one point a
+  * fix verdict is observed: an entry left in past it reports a finding that was
+  * fixed as still ignored, and — since the carried set is also what the next
+  * round's reviewers are told was declined — tells them so too.
+  *
+  * The trade-off: a fixer that falsely claims a fix drops the entry from the
+  * record unless a reviewer reports the finding again. That re-report is the
+  * same recovery the continue path already relies on for `unaccounted` titles
+  * ([[ReconciledFixOutcome]]).
+  */
+private[review] def carryPastFixes(
+    accumulated: IgnoredIssues,
+    fixed: Set[Title],
+    additions: List[IgnoredIssue]
+): IgnoredIssues =
+  recordIgnored(
+    IgnoredIssues(accumulated.issues.filterNot(i => fixed.contains(i.title))),
+    additions
+  )
+
 /** Announce the fixer's replies that matched no issue it was handed — the
   * visible sign of a degraded fix turn, whose entries are otherwise dropped.
   */
@@ -139,8 +162,7 @@ def fixLoop(
 )(using ctx: FlowContext): IgnoredIssues =
   @scala.annotation.tailrec
   def loop(accumulated: IgnoredIssues, iteration: Int): IgnoredIssues =
-    // A progress marker, not a committing stage: runs under the caller's task
-    // stage (ADR 0018 §2.2).
+    // (ADR 0018 §2.2)
     orca.display(s"Iteration ${iteration + 1}")
     val issues = evaluate().issues
     stopPolicy(
@@ -163,7 +185,11 @@ def fixLoop(
             outcome.ignored,
             outcome.unaccounted.map(IgnoredIssue(_, NoFixesReason))
           )
-        else loop(recordIgnored(accumulated, outcome.ignored), iteration + 1)
+        else
+          loop(
+            carryPastFixes(accumulated, outcome.fixed.toSet, outcome.ignored),
+            iteration + 1
+          )
 
   loop(IgnoredIssues(Nil), 0)
 
@@ -192,10 +218,6 @@ private case class ReviewLoopState(
     lintChat: Option[Lint.Summariser],
     gateLedger: GateLedger
 ):
-  /** The state to carry into the next round: this round's batch on the history,
-    * each reviewer that ran holding its latest session, and every gate reject
-    * unioned into the ledger.
-    */
   def afterRound(
       reviewers: List[RoundContribution],
       lint: Option[LintContribution]
@@ -457,9 +479,8 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     * ([[ReviewerPrompts.Role]]) so the `TokensUsed` breakdown can subtotal
     * reviewer spend, without renaming the entry's identity.
     *
-    * The fixer's `fixed` titles are deliberately NOT sent: a reviewer told its
-    * finding was fixed is handed the answer to the question the round exists to
-    * ask, and it still has to open the code either way.
+    * The fixer's `fixed` titles are deliberately not sent — see
+    * [[reviewAndFixLoop]].
     */
   private def resumeReview[R <: BackendTag](
       se: SessionEntry[R],
@@ -746,15 +767,11 @@ private[review] class ReviewFixLoop[B <: BackendTag](
         accumulated: IgnoredIssues,
         iteration: Int,
         state: ReviewLoopState,
-        // Every decline the fixer has made so far, on its way to this round's
-        // reviewers: without it a reviewer re-reports what the fixer
-        // deliberately declined, the fixer declines it again, and the round is
-        // spent. The whole set rather than the last round's, so a reviewer
-        // first activated in round three still learns what was settled in round
-        // one. A fresh argument per round rather than a state field, so it
-        // cannot be delivered twice or forgotten. Not split per reviewer — a
-        // [[FixOutcome]] doesn't say which reviewer reported what — so every
-        // reviewer is sent the whole list.
+        // Every decline the fixer has made so far, minus any since fixed. The
+        // whole set rather than the last round's, so a reviewer first activated
+        // in round three still learns what was settled in round one. Not split
+        // per reviewer — a [[FixOutcome]] doesn't say which reviewer reported
+        // what — so every reviewer is sent the whole list.
         declined: List[IgnoredIssue]
     ): IgnoredIssues =
       orca.display(s"Iteration ${iteration + 1}")
@@ -790,7 +807,16 @@ private[review] class ReviewFixLoop[B <: BackendTag](
             )
           else
             // Bound once: the accumulated set IS the cross-round decline set on
-            // this branch, since only declines reach it before an exit.
-            val carried = recordIgnored(accumulated, outcome.ignored)
-            loop(carried, iteration + 1, round.state, carried.issues)
+            // this branch — only declines reach it before an exit, and each one
+            // whose finding has now been fixed has just been pruned out of it.
+            val fixedTitles = outcome.fixed.toSet
+            val carried =
+              carryPastFixes(accumulated, fixedTitles, outcome.ignored)
+            loop(
+              carried,
+              iteration + 1,
+              round.state
+                .copy(gateLedger = round.state.gateLedger.remove(fixedTitles)),
+              carried.issues
+            )
     loop(IgnoredIssues(Nil), 0, ReviewLoopState.empty, Nil)

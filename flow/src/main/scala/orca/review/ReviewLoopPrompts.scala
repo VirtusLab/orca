@@ -59,9 +59,8 @@ object ReviewLoopPrompts:
     * diff, never instead of it: it only lets a reviewer read the repo at that
     * commit, and a reviewer with no way to do so is unaffected.
     *
-    * `declined` matters for a reviewer first activated after round one: the
-    * fixer's refusals are the one thing it cannot recover by reading the code,
-    * and without them it re-reports what the fixer has already answered.
+    * `declined` matters for a reviewer first activated after round one — see
+    * [[reviewAndFixLoop]].
     */
   def initialReview(
       task: String,
@@ -103,8 +102,8 @@ object ReviewLoopPrompts:
     * including the base commit, which the initial prompt named and this one
     * therefore doesn't repeat.
     *
-    * `declined` is what the fixer refused to fix last round, which is the one
-    * thing a reviewer cannot recover by reading the code.
+    * `declined` is every refusal the fixer has made so far — see
+    * [[reviewAndFixLoop]].
     */
   private[review] def reReview(
       changes: ReReviewChanges,

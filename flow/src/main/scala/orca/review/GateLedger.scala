@@ -5,12 +5,13 @@ import orca.plan.Title
 /** Every finding the confidence gate held back, per agent — what
   * `reviewAndFixLoop` reports as ignored at each of its exits.
   *
-  * The only mutator is [[record]], a monotone union: an agent that runs again
-  * refreshes and extends what it reported, and can never erase it. Silence from
-  * an agent therefore cannot delete a finding the fixer was never shown — the
-  * remaining bias is the safe one, a reject whose issue later disappeared still
-  * being reported. Findings are deduplicated per agent by title, the latest
-  * report winning, so one finding re-reported every round yields one entry.
+  * [[record]] is a monotone union: an agent that runs again refreshes and
+  * extends what it reported, and can never erase it. Silence from an agent
+  * therefore cannot delete a finding the fixer was never shown — the remaining
+  * bias is the safe one, a reject whose issue later disappeared still being
+  * reported. Findings are deduplicated per agent by title, the latest report
+  * winning, so one finding re-reported every round yields one entry. The one
+  * way out is [[remove]], driven by a fix verdict the loop observed.
   */
 private[review] final class GateLedger private (
     entries: Map[GateLedger.Owner, List[ReviewIssue]]
@@ -29,6 +30,17 @@ private[review] final class GateLedger private (
           _.title
         )
       )
+    )
+
+  /** Every owner's entries with the given titles dropped — called only when the
+    * loop observed a fix verdict for those titles, so an entry is never removed
+    * on an agent's mere silence.
+    */
+  def remove(titles: Set[Title]): GateLedger =
+    new GateLedger(
+      entries.view
+        .mapValues(_.filterNot(i => titles.contains(i.title)))
+        .toMap
     )
 
   /** What `owner` had held back, in the order it first reported each finding.
