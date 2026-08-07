@@ -210,7 +210,7 @@ private[claude] class ClaudeConversation(
     settleSuccess(
       wireId = result.sessionId,
       output = resultBody(result).getOrElse(""),
-      usage = withApiCalls(result.usage),
+      usage = withApiCalls(result.usage.getOrElse(orca.events.Usage.empty)),
       modelId = turnModel(result)
     )
 
@@ -272,16 +272,13 @@ private[claude] class ClaudeConversation(
       if deltasSinceLastFullTurn then "session failed (see message above)"
       else message
     eventQueue.enqueue(ConversationEvent.Error(displayed))
-    // A frame that carried no `usage` object saw no tokens — reporting it as
-    // `Observed(Usage.empty)` would be an all-zero measurement. `total_cost_usd`
-    // rides inside `usage` and goes with it; no such frame has been seen.
-    val debit =
-      if result.usageReported then
-        TurnDebit.Observed(
-          withApiCalls(result.usage),
-          turnModel(result).map(Model.apply)
-        )
-      else TurnDebit.Unobserved
+    // A frame with no `usage` object saw no tokens — `Observed(Usage.empty)`
+    // would reach the cost summary as a measured zero. The wire's sibling
+    // `total_cost_usd` is folded into `Usage.cost`, so it is dropped with it.
+    val debit = result.usage match
+      case Some(u) =>
+        TurnDebit.Observed(withApiCalls(u), turnModel(result).map(Model.apply))
+      case None => TurnDebit.Unobserved
     failWith(
       new AgentTurnFailed(
         s"claude session failed (subtype ${result.subtype}, " +
