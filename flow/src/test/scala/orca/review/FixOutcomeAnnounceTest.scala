@@ -1,12 +1,12 @@
 package orca.review
 
+import orca.testkit.StubEnforcement
 import orca.agents.{
   AgentConfig,
   AutoApprove,
   BackendTag,
   DefaultAgentCall,
   DefaultPrompts,
-  Enforcement,
   EnforcementCell,
   TurnDispatch,
   SessionId,
@@ -46,7 +46,7 @@ private class CannedBackend(output: String)
       autoApprove: AutoApprove,
       dispatch: TurnDispatch
   ): EnforcementCell =
-    EnforcementCell(Enforcement.Hard, "test double: nothing to report")
+    StubEnforcement.cell
   def structuredOutputMode: StructuredOutputMode = StructuredOutputMode.RawText
   def runAutonomous(
       prompt: String,

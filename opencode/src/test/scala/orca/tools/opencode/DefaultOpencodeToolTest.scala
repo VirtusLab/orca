@@ -1,5 +1,6 @@
 package orca.tools.opencode
 
+import orca.testkit.StubEnforcement
 import orca.backend.{
   Conversation,
   Interaction,
@@ -14,7 +15,6 @@ import orca.agents.{
   BackendTag,
   DefaultPrompts,
   AgentConfig,
-  Enforcement,
   EnforcementCell,
   TurnDispatch,
   OpencodeAgent,
@@ -57,7 +57,7 @@ class DefaultOpencodeAgentTest extends munit.FunSuite:
         autoApprove: AutoApprove,
         dispatch: TurnDispatch
     ): EnforcementCell =
-      EnforcementCell(Enforcement.Hard, "test double: nothing to report")
+      StubEnforcement.cell
     def structuredOutputMode: orca.agents.StructuredOutputMode =
       orca.agents.StructuredOutputMode.RawText
 

@@ -1,5 +1,6 @@
 package orca.runner
 
+import orca.testkit.StubEnforcement
 import orca.{FlowContext, OrcaArgs, StackSettings, flow}
 import orca.backend.{
   Conversation,
@@ -18,7 +19,6 @@ import orca.agents.{
   AutoApprove,
   BackendTag,
   DefaultPrompts,
-  Enforcement,
   EnforcementCell,
   TurnDispatch,
   InteractiveAgentCall,
@@ -127,7 +127,7 @@ class OpencodeFlowTest extends munit.FunSuite:
         autoApprove: AutoApprove,
         dispatch: TurnDispatch
     ): EnforcementCell =
-      EnforcementCell(Enforcement.Hard, "test double: nothing to report")
+      StubEnforcement.cell
     def structuredOutputMode: orca.agents.StructuredOutputMode =
       orca.agents.StructuredOutputMode.RawText
 

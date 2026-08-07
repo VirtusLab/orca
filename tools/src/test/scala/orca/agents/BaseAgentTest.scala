@@ -1,5 +1,6 @@
 package orca.agents
 
+import orca.testkit.StubEnforcement
 import orca.backend.{
   Conversation,
   ConversationEvent,
@@ -650,7 +651,7 @@ class BaseAgentTest extends munit.FunSuite:
         autoApprove: AutoApprove,
         dispatch: TurnDispatch
     ): EnforcementCell =
-      EnforcementCell(Enforcement.Hard, "test double: nothing to report")
+      StubEnforcement.cell
     def structuredOutputMode: StructuredOutputMode =
       StructuredOutputMode.RawText
 
@@ -683,7 +684,7 @@ class BaseAgentTest extends munit.FunSuite:
         autoApprove: AutoApprove,
         dispatch: TurnDispatch
     ): EnforcementCell =
-      EnforcementCell(Enforcement.Hard, "test double: nothing to report")
+      StubEnforcement.cell
     def structuredOutputMode: StructuredOutputMode =
       StructuredOutputMode.RawText
 
@@ -722,7 +723,7 @@ class BaseAgentTest extends munit.FunSuite:
         autoApprove: AutoApprove,
         dispatch: TurnDispatch
     ): EnforcementCell =
-      EnforcementCell(Enforcement.Hard, "test double: nothing to report")
+      StubEnforcement.cell
     def structuredOutputMode: StructuredOutputMode =
       StructuredOutputMode.RawText
 
@@ -750,7 +751,7 @@ class BaseAgentTest extends munit.FunSuite:
         autoApprove: AutoApprove,
         dispatch: TurnDispatch
     ): EnforcementCell =
-      EnforcementCell(Enforcement.Hard, "test double: nothing to report")
+      StubEnforcement.cell
     def structuredOutputMode: StructuredOutputMode =
       StructuredOutputMode.RawText
     def runAutonomous(
@@ -874,7 +875,7 @@ class BaseAgentTest extends munit.FunSuite:
         autoApprove: AutoApprove,
         dispatch: TurnDispatch
     ): EnforcementCell =
-      EnforcementCell(Enforcement.Hard, "test double: nothing to report")
+      StubEnforcement.cell
     def structuredOutputMode: StructuredOutputMode =
       StructuredOutputMode.RawText
     def runAutonomous(
@@ -959,7 +960,7 @@ class BaseAgentTest extends munit.FunSuite:
         autoApprove: AutoApprove,
         dispatch: TurnDispatch
     ): EnforcementCell =
-      EnforcementCell(Enforcement.Hard, "test double: nothing to report")
+      StubEnforcement.cell
     def structuredOutputMode: StructuredOutputMode =
       StructuredOutputMode.RawText
 
@@ -993,7 +994,7 @@ class BaseAgentTest extends munit.FunSuite:
         autoApprove: AutoApprove,
         dispatch: TurnDispatch
     ): EnforcementCell =
-      EnforcementCell(Enforcement.Hard, "test double: nothing to report")
+      StubEnforcement.cell
     def structuredOutputMode: StructuredOutputMode =
       StructuredOutputMode.RawText
 
@@ -1023,7 +1024,7 @@ class BaseAgentTest extends munit.FunSuite:
         autoApprove: AutoApprove,
         dispatch: TurnDispatch
     ): EnforcementCell =
-      EnforcementCell(Enforcement.Hard, "test double: nothing to report")
+      StubEnforcement.cell
     def structuredOutputMode: StructuredOutputMode =
       StructuredOutputMode.RawText
 

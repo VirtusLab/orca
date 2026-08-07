@@ -195,6 +195,27 @@ class CodexBackendTest extends munit.FunSuite:
       assert(secondArgs.contains("resume"), secondArgs)
       assert(secondArgs.contains("thr-server-1"), secondArgs)
 
+  // A resumed codex turn gets no sandbox flag, so the read-only rule in its
+  // prompt IS the restriction — the whole basis for classifying that cell
+  // PromptOnly rather than Hard. Asserted on the wire, since a composer that
+  // stopped folding it in would leave the resumed turn restricted by nothing.
+  test("a resumed read-only turn still carries the read-only rule"):
+    val runner = new SpawnStubCliRunner(
+      List(
+        successfulProcess("thr-server-1"),
+        successfulProcess("thr-server-1")
+      )
+    )
+    withBackend(runner): backend =>
+      val readOnly = AgentConfig(tools = ToolSet.ReadOnly)
+      val _ = backend.runAutonomous("first", clientSid, readOnly)
+      val _ = backend.runAutonomous("again", clientSid, readOnly)
+      val resumedPrompt = runner.calls(1).last
+      assert(
+        resumedPrompt.contains(SystemPromptComposer.ReadOnlyTurn),
+        resumedPrompt
+      )
+
   test(
     "registerSession after an interactive call lets a follow-up autonomous call resume"
   ):

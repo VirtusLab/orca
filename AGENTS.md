@@ -161,7 +161,12 @@ most easily broken:
   and `autoApprove: AutoApprove` (All/Only) request a restriction, but each
   backend enforces it differently. `AgentBackend.enforcementCell(tools,
   autoApprove, dispatch)` answers with the guarantee actually achieved plus the
-  reason — see `Enforcement`'s scaladoc for what the levels mean:
+  reason — see `Enforcement`'s scaladoc for what the levels mean.
+
+  The block below is RENDERED — a fresh-turn table, then the resumed turns that
+  differ — by `runner/src/test/scala/orca/runner/EnforcementTableTest.scala`,
+  which walks the full (backend × ToolSet × AutoApprove × dispatch) product.
+  Don't hand-edit it: when the test fails, paste the block it prints.
 
   | tools, approve         | ClaudeCode | Codex         | Opencode | Pi         | Gemini     |
   |------------------------|------------|---------------|----------|------------|------------|
@@ -174,17 +179,14 @@ most easily broken:
   - Codex, ReadOnly, *: PromptOnly, not Hard
   - Codex, Full, Only(_) / Only(): Ignored, not SandboxApprox
 
-  That block is RENDERED from the declared cells by
-  `runner/src/test/scala/orca/runner/EnforcementTableTest.scala`, which walks
-  the full (backend × ToolSet × AutoApprove × dispatch) product — when it fails,
-  paste the block it prints. Per-cell rationale (why gemini's read-only cells
-  are `PromptOnly`, what claude's `Hard` covers, why codex loses its sandbox on
-  resume) lives in each backend's `*Args.enforcementCell`. When a turn asks for
-  a restriction the backend can't apply mechanically — a read-only tier, or an
-  `AutoApprove.Only` list — `EnforcementNotice` says so in plain words as a
-  `Step`, with the rationale behind it as a WARN. Once per backend and distinct
-  sentence: a second backend of the same kind gets its own notice, and a
-  changed answer (codex's read-only turns once resumed) gets a new one.
+  Per-cell rationale (why gemini's read-only cells are `PromptOnly`, what
+  claude's `Hard` covers, why codex loses its sandbox on resume) lives in each
+  backend's `*Args.enforcementCell`. When a turn asks for a restriction the
+  backend can't apply mechanically — a read-only tier, or an `AutoApprove.Only`
+  list — `EnforcementNotice` says so in plain words as a `Step`, with the
+  rationale behind it as a WARN. Once per backend and distinct sentence: a
+  second backend of the same kind gets its own notice, and a changed answer
+  (codex's read-only turns once resumed) gets a new one.
 
 - **Conversation events.** The event grammar (turn boundaries, `Option` tool
   names) is specified on `ConversationEvent`'s scaladoc and pinned per backend

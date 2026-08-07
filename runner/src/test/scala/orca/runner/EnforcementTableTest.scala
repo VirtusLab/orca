@@ -139,29 +139,26 @@ class EnforcementTableTest extends munit.FunSuite:
         fullOnlyResumed
     )
 
-  test("every backend tag has a backend wired into the matrix"):
-    withDeclared: declared =>
-      assertEquals(declared.keySet.map(_._1), BackendTag.values.toSet)
-
   test("every cell of the product matches what its backend declares"):
     withDeclared: declared =>
-      // Collect every divergence and fail once with the full list, so one run
-      // surfaces all of them rather than stopping at the first.
+      // Both sides are looked up the same way, so an unenumerated cell and an
+      // unwired backend are named rather than skipped. Every divergence is
+      // collected and reported at once, so one run surfaces all of them.
       val problems = for
         tag <- BackendTag.values.toList
         tools <- ToolSet.values.toList
         shape <- ApproveShape.values.toList
         dispatch <- TurnDispatch.values.toList
         where = s"$tag / $tools / ${shape.label} / $dispatch"
-        problem <- expected
-          .get((tools, shape, dispatch))
-          .flatMap(_.get(tag)) match
-          case None => Some(s"$where: no expectation")
-          case Some(want) =>
-            declared
-              .get((tag, tools, shape, dispatch))
-              .filter(_ != want)
-              .map(got => s"$where: want $want, got $got")
+        problem <- (
+          expected.get((tools, shape, dispatch)).flatMap(_.get(tag)),
+          declared.get((tag, tools, shape, dispatch))
+        ) match
+          case (None, _) => Some(s"$where: no expectation declared")
+          case (_, None) => Some(s"$where: no backend wired")
+          case (Some(want), Some(got)) if want != got =>
+            Some(s"$where: want $want, got $got")
+          case _ => None
       yield problem
       assert(problems.isEmpty, problems.mkString("\n"))
 

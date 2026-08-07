@@ -1,5 +1,6 @@
 package orca.agents
 
+import orca.testkit.StubEnforcement
 import orca.backend.{
   Conversation,
   Interaction,
@@ -131,7 +132,7 @@ class AgentCallSessionCommittedTest extends munit.FunSuite:
         autoApprove: AutoApprove,
         dispatch: TurnDispatch
     ): EnforcementCell =
-      EnforcementCell(Enforcement.Hard, "test double: nothing to report")
+      StubEnforcement.cell
     def structuredOutputMode: StructuredOutputMode =
       StructuredOutputMode.RawText
     def runAutonomous(

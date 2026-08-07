@@ -1,10 +1,10 @@
 package orca.tools.claude
 
+import orca.testkit.StubEnforcement
 import orca.{AgentTurnFailed, OrcaFlowException}
 import orca.agents.{
   AutoApprove,
   BackendTag,
-  Enforcement,
   EnforcementCell,
   TurnDispatch,
   JsonData,
@@ -75,7 +75,7 @@ class SequencedBackend(
       autoApprove: AutoApprove,
       dispatch: TurnDispatch
   ): EnforcementCell =
-    EnforcementCell(Enforcement.Hard, "test double: nothing to report")
+    StubEnforcement.cell
   def structuredOutputMode: StructuredOutputMode = mode
 
   def runAutonomous(
