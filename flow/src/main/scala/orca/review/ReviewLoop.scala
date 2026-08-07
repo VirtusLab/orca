@@ -486,8 +486,9 @@ private[review] class ReviewFixLoop[B <: BackendTag](
         .autonomous
         .run(ReviewLoopPrompts.reReview(changes, declined), emitPrompt = false)
     // Nothing is sent on `AlreadySeen`, so the reviewer keeps comparing against
-    // what it has seen. The other two record how this round's change set
-    // reached it, which decides the wording of a later `AlreadySeen` round.
+    // what it has seen. `PathsOnly` still records the whole diff, not the
+    // paths: the next round compares diff text, so a change that rewrites those
+    // files without adding or removing any must still register.
     val advanced = changes match
       case ReReviewChanges.Updated(_) =>
         Some(se.copy(lastSent = LastSent.Inline(current.diff)))
