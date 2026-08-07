@@ -115,16 +115,16 @@ class FlowSessionTest extends FunSuite:
       */
     def capturedPrompt: Option[String] = _capturedPrompts.headOption
 
-    /** The `sessionName` the stub's most recent `run` received — what the
-      * durable door hands to the emission edge.
-      */
-    def capturedSessionName: Option[Option[String]] =
-      _capturedSessionNames.headOption
-
     /** Every captured prompt in call order (oldest first) — lets a multi-run
       * test compare the first (primed) turn against a later (continued) one.
       */
     def capturedPrompts: List[String] = _capturedPrompts.reverse
+
+    /** Every `sessionName` the stub's `run`s received, in call order (oldest
+      * first) — what the durable door hands to the emission edge.
+      */
+    def capturedSessionNames: List[Option[String]] =
+      _capturedSessionNames.reverse
 
     /** The durability capability the stub exposes. `ephemeral = true` builds a
       * `SessionSupport.ephemeral` (a STABLE instance, so an in-process claim
@@ -520,17 +520,17 @@ class FlowSessionTest extends FunSuite:
 
   test("run hands the session's name to the turn, for SessionCommitted"):
     // The manifest's `sessionName`/`kind` come off the event, so the name has
-    // to reach the emission edge from here rather than be re-derived on disk.
+    // to reach the emission edge from here.
     val fc = makeControl(sessions = Nil)
     val agent = new StubAgentForSeeded(existsResult = true)
     val _ = flowSession(agent).run("prompt")(using fc)
-    assertEquals(agent.capturedSessionName, Some(Some(testSessionName)))
+    assertEquals(agent.capturedSessionNames, List(Some(testSessionName)))
 
   test("resultAs.run hands the session's name to the turn"):
     val fc = makeControl(sessions = Nil)
     val agent = new StubAgentForSeeded(existsResult = true)
     val _ = flowSession(agent).resultAs[StubResult].run("prompt")(using fc)
-    assertEquals(agent.capturedSessionName, Some(Some(testSessionName)))
+    assertEquals(agent.capturedSessionNames, List(Some(testSessionName)))
 
   test("run returns the output from autonomous.run; .id is the session id"):
     val seed = "seed text"
