@@ -96,8 +96,8 @@ private[orca] object SystemPromptComposer:
     * guidance is about the turn being executed — [[RuntimeOwnsGit]],
     * [[ReadOnlyTurn]] and [[BackgroundWorkAbandonedAtTurnEnd]] all describe
     * THIS turn — and restating it keeps it recent rather than buried at the top
-    * of the thread. It also means a resumed codex turn, which inherits its
-    * sandbox from the original spawn, still carries the restriction text.
+    * of the thread. It also means a resumed turn carries the restriction text
+    * whatever its flags do — the belt to codex's re-applied sandbox braces.
     */
   def foldIntoPrompt(
       config: AgentConfig,

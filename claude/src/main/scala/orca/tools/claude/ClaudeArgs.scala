@@ -201,5 +201,5 @@ private[claude] object ClaudeArgs:
             case AutoApprove.Only(_) =>
               EnforcementCell(
                 Enforcement.Hard,
-                "`--allowedTools` is a mechanical gate, but an ADDITIVE one: the approved set is claude's default permission mode ∪ the `Only` list, and only what falls outside that union is gated"
+                "`--allowedTools` is a mechanical gate, but an ADDITIVE one: the auto-approved set is claude's default permission mode ∪ the `Only` list, and everything outside that union is denied. Probed 2026-08-07, claude 2.1.224: with only `Bash(echo *)` allowlisted a `Read` still ran unprompted, so the defaults survive the flag; the defaults seen to auto-approve are workspace reads and read-only `Bash`, while `Write` and mutating `Bash` were denied. The gate is hard; its boundary is a documented superset of the request"
               )

@@ -113,10 +113,10 @@ private[orca] object EnforcementNotice:
 
   /** Names the resumed turn ONLY where resuming is what weakened the answer —
     * without that, a notice that fires at resume time alone reads as if the
-    * restriction had never held (codex, whose read-only sandbox and `Only`
-    * approximation both survive only the spawn). Naming it unconditionally
-    * would instead split one fact into two sentences on every backend the
-    * dispatch doesn't change.
+    * restriction had never held (codex's `Only` approximation, which has no
+    * sandbox of its own to re-apply). Naming it unconditionally would instead
+    * split one fact into two sentences on every backend the dispatch doesn't
+    * change.
     */
   private def turnWording[B <: BackendTag](
       backend: AgentBackend[B],

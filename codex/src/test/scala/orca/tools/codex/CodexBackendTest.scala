@@ -195,11 +195,12 @@ class CodexBackendTest extends munit.FunSuite:
       assert(secondArgs.contains("resume"), secondArgs)
       assert(secondArgs.contains("thr-server-1"), secondArgs)
 
-  // A resumed codex turn gets no sandbox flag, so the read-only rule in its
-  // prompt IS the restriction — the whole basis for classifying that cell
-  // PromptOnly rather than Hard. Asserted on the wire, since a composer that
-  // stopped folding it in would leave the resumed turn restricted by nothing.
-  test("a resumed read-only turn still carries the read-only rule"):
+  // Both halves of a resumed read-only turn's restriction, on the wire: the
+  // re-applied sandbox (without which the turn would inherit whatever its
+  // session was created with) and the prompt rule that backs it up.
+  test(
+    "a resumed read-only turn re-applies the sandbox and the read-only rule"
+  ):
     val runner = new SpawnStubCliRunner(
       List(
         successfulProcess("thr-server-1"),
@@ -214,6 +215,10 @@ class CodexBackendTest extends munit.FunSuite:
       // Asserted here rather than relied on from the resume test above, so this
       // one still fails if the second call stops being a resume.
       assert(resumedArgs.contains("resume"), resumedArgs)
+      assert(
+        resumedArgs.containsSlice(Seq("-c", "sandbox_mode=\"read-only\"")),
+        resumedArgs
+      )
       assert(
         resumedArgs.last.contains(SystemPromptComposer.ReadOnlyTurn),
         resumedArgs.last

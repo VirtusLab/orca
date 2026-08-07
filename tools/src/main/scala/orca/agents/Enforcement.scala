@@ -5,8 +5,10 @@ package orca.agents
   * edits/shell"; for `Full` it is the approval policy itself.
   *
   *   - Hard — mechanically blocked (permission mode, sandbox, tool allowlist).
-  *     The gated boundary may sit at a documented SUPERSET of the request; the
-  *     cell's `rationale` says so where it does.
+  *     The gated boundary may sit at a documented SUPERSET of the request — on
+  *     `Full`, claude's `--allowedTools` adds to the default permission mode
+  *     rather than replacing it — and the cell's `rationale` says so where it
+  *     does.
   *   - SandboxApprox — approximated by a coarser sandbox; semantics widened.
   *     The line from a `Hard` cell with a documented superset is whether orca
   *     can name the boundary the agent is held to: claude's additive allowlist
@@ -46,10 +48,10 @@ case class EnforcementCell(level: Enforcement, rationale: String)
 
 /** Whether a turn starts a backend session or continues one — the second axis
   * of the enforcement matrix, alongside `(ToolSet, AutoApprove)`. It matters
-  * because a backend may put its restriction flags on the spawn only: codex
-  * `exec resume` rejects `--sandbox`/`--full-auto`, so a resumed turn runs in
-  * the sandbox its session was created with, whatever tier the caller asked
-  * for.
+  * because a resumed session keeps whatever sandbox it was created with unless
+  * the backend re-applies one, and not every restriction has a knob to re-apply
+  * on the narrower resume argv: codex's `Full` + `AutoApprove.Only` has none,
+  * so that cell alone answers differently on a resumed turn.
   *
   * Derived from [[orca.backend.Dispatch]] by dropping the wire ids this
   * classification has no use for.

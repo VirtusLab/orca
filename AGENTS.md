@@ -176,17 +176,17 @@ most easily broken:
   | Full, Only(_) / Only() | Hard       | SandboxApprox | Ignored  | Ignored    | Ignored    |
 
   A resumed turn is classified the same, except:
-  - Codex, ReadOnly, *: PromptOnly, not Hard
   - Codex, Full, Only(_) / Only(): Ignored, not SandboxApprox
 
   Per-cell rationale (why gemini's read-only cells are `PromptOnly`, what
-  claude's `Hard` covers, why codex loses its sandbox on resume) lives in each
-  backend's `*Args.enforcementCell`. When a turn asks for a restriction the
-  backend can't apply mechanically — a read-only tier, or an `AutoApprove.Only`
-  list — `EnforcementNotice` says so in plain words as a `Step`, with the
-  rationale behind it as a WARN. Once per backend and distinct sentence: a
-  second backend of the same kind gets its own notice, and a changed answer
-  (codex's read-only turns once resumed) gets a new one.
+  claude's `Hard` covers, what a resumed codex turn re-applies) lives in each
+  backend's `*Args.enforcementCell`, with the CLI version and date of any probe
+  behind it. When a turn asks for a restriction the backend can't apply
+  mechanically — a read-only tier, or an `AutoApprove.Only` list —
+  `EnforcementNotice` says so in plain words as a `Step`, with the rationale
+  behind it as a WARN. Once per backend and distinct sentence: a second backend
+  of the same kind gets its own notice, and a changed answer (codex's `Full` +
+  `Only` once resumed) gets a new one.
 
 - **Conversation events.** The event grammar (turn boundaries, `Option` tool
   names) is specified on `ConversationEvent`'s scaladoc and pinned per backend

@@ -58,20 +58,9 @@ class EnforcementTableTest extends munit.FunSuite:
       BackendTag.Pi -> pi
     )
 
-  private val readOnlyFresh: Map[BackendTag, Enforcement] = row(
+  private val readOnly: Map[BackendTag, Enforcement] = row(
     claude = Hard,
     codex = Hard,
-    gemini = PromptOnly,
-    opencode = Hard,
-    pi = Hard
-  )
-
-  /** codex `exec resume` takes no sandbox flag, so its read-only tiers fall
-    * back to the prompt on a resumed turn.
-    */
-  private val readOnlyResumed: Map[BackendTag, Enforcement] = row(
-    claude = Hard,
-    codex = PromptOnly,
     gemini = PromptOnly,
     opencode = Hard,
     pi = Hard
@@ -117,9 +106,11 @@ class EnforcementTableTest extends munit.FunSuite:
       shape <- ApproveShape.values.toList
       // The read-only tiers ignore autoApprove on every backend, so one row
       // stands for all three shapes — pinned by the product walk, not assumed.
+      // Both read-only tiers now answer the same on either dispatch: codex
+      // re-applies their sandbox on resume rather than inheriting one.
       entry <- List(
-        (ToolSet.ReadOnly, shape, TurnDispatch.Fresh) -> readOnlyFresh,
-        (ToolSet.ReadOnly, shape, TurnDispatch.Resumed) -> readOnlyResumed,
+        (ToolSet.ReadOnly, shape, TurnDispatch.Fresh) -> readOnly,
+        (ToolSet.ReadOnly, shape, TurnDispatch.Resumed) -> readOnly,
         (ToolSet.NetworkOnly, shape, TurnDispatch.Fresh) -> networkOnly,
         (ToolSet.NetworkOnly, shape, TurnDispatch.Resumed) -> networkOnly
       )
