@@ -20,9 +20,8 @@ private[cli] object Tables:
 
   // --- continue --list ---
 
-  // `kind` and `lastActiveAt` are the manifest's wire spellings as strings: the
-  // rows are what `--json` hands to scripts, so they carry the on-disk form
-  // rather than this build's typed one.
+  // `kind` is the manifest's wire spelling, so an unknown kind reaches scripts
+  // as written; `lastActiveAt` is the parsed instant rendered back to ISO-8601.
   private[cli] case class SessionRow(
       index: Int,
       sessionName: String,

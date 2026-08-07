@@ -406,6 +406,28 @@ class MainTest extends munit.FunSuite:
       )
     )
 
+  /** The `sessionName` is what a durable-grouping bug would dedupe on, so it is
+    * set here even though one-shots never carry one.
+    */
+  test(
+    "sessionRows groups a session of a kind this build doesn't know with the one-shots"
+  ):
+    val run = RecordedRun(
+      manifest(sessions =
+        List(
+          oneShot().copy(
+            kind = ManifestSessionKind.Unknown("cloned"),
+            sessionName = Some("coder")
+          )
+        )
+      ),
+      crashed = false
+    )
+    assertEquals(
+      SessionPicker.sessionRows(List(run), expanded = true).map(_.label),
+      List("main [claude] (one-shot)")
+    )
+
   test("sessionRows suffixes a crashed run's rows with `(crashed)`"):
     val run = RecordedRun(manifest(sessions = List(durable())), crashed = true)
     assertEquals(
