@@ -375,7 +375,9 @@ class RunManifestWriterTest extends munit.FunSuite:
     for i <- 1 to 25 do os.write(runsDir / f"1000000000$i%03d-1.json", "{}")
     val writer =
       newWriter(workDir, fixedClock(Instant.parse("2026-07-18T10:00:00Z")))
-    writer.onEvent(OrcaEvent.TokensUsed("claude", None, usage(10, 1)))
+    writer.onEvent(
+      OrcaEvent.TokensUsed("claude", None, usage(10, 1), cost = None)
+    )
     assert(
       !os.exists(runsDir / "1000000000001-1.json"),
       "the oldest of 25 seeded runs must be gone"
@@ -394,7 +396,9 @@ class RunManifestWriterTest extends munit.FunSuite:
       os.write(runsDir / f"1000000000$i%03d-1-cost.jsonl", "")
     val writer =
       newWriter(workDir, fixedClock(Instant.parse("2026-07-18T10:00:00Z")))
-    writer.onEvent(OrcaEvent.TokensUsed("claude", None, usage(10, 1)))
+    writer.onEvent(
+      OrcaEvent.TokensUsed("claude", None, usage(10, 1), cost = None)
+    )
     assertEquals(manifestFiles(workDir).size, 20)
 
   /** Keeping every manifest-less run newer than the oldest kept manifest would
@@ -409,7 +413,9 @@ class RunManifestWriterTest extends munit.FunSuite:
       os.write(runsDir / f"1000000000$i%03d-1-cost.jsonl", "")
     val writer =
       newWriter(workDir, fixedClock(Instant.parse("2026-07-18T10:00:00Z")))
-    writer.onEvent(OrcaEvent.TokensUsed("claude", None, usage(10, 1)))
+    writer.onEvent(
+      OrcaEvent.TokensUsed("claude", None, usage(10, 1), cost = None)
+    )
     assertEquals(costLogFiles(workDir).size, 20)
 
   test("atomic write leaves no temp files behind"):

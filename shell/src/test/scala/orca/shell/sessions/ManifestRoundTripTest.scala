@@ -46,7 +46,8 @@ class ManifestRoundTripTest extends munit.FunSuite:
           "claude",
           None,
           usage(1_000, 200, Some(BigDecimal("0.5"))),
-          Some("reviewer")
+          Some("reviewer"),
+          cost = None
         )
       )
       writer.finish(RunOutcome.Succeeded)

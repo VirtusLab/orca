@@ -85,7 +85,8 @@ private[orca] class TurnAccounting[B <: BackendTag](
         usage = usage,
         role = role,
         attempt = attempt,
-        session = Some(sessionKey)
+        session = Some(sessionKey),
+        cost = None
       )
     )
 

@@ -2,6 +2,7 @@ package orca.events
 
 import orca.agents.Model
 
+import java.time.LocalDate
 import java.util.concurrent.atomic.AtomicReference
 
 /** Listener that accumulates `TokensUsed` events along three independent axes —
@@ -9,16 +10,16 @@ import java.util.concurrent.atomic.AtomicReference
   * so the tracker is safe to register across concurrent LLM calls.
   *
   * Cost comes off the event, resolved once for the whole run by
-  * [[CostResolvingDispatcher]]; `pricing` is read for its `lastUpdated` alone,
-  * so the legend can't advertise a date from a different table than the one the
-  * run priced with.
+  * [[CostResolvingDispatcher]] — the tracker prices nothing, so it cannot
+  * report a figure that disagrees with the run's. `pricingAsOf` is the legend's
+  * date only; pass the `lastUpdated` of the table the run prices with.
   *
   * All axes share the same underlying calls, so summing any of the maps yields
   * the grand total. The `model` axis keys on `Option[Model]` because the
   * reported model isn't always present; the summary surfaces the missing case
   * as `(unknown)`.
   */
-class CostTracker(pricing: PriceList = Pricing.default) extends OrcaListener:
+class CostTracker(pricingAsOf: LocalDate) extends OrcaListener:
 
   /** One bucket's running total. Keeping the usage and the cost of the same
     * calls in one value is what stops the two drifting apart per axis.
@@ -35,7 +36,12 @@ class CostTracker(pricing: PriceList = Pricing.default) extends OrcaListener:
         * first-write agree. See [[byRole]] for the subtotal axis.
         */
       agentRoles: Map[String, Option[String]] = Map.empty,
-      byRole: Map[Option[String], Tally] = Map.empty
+      byRole: Map[Option[String], Tally] = Map.empty,
+      /** Whether any turn spent tokens the run could not price. A bucket mixing
+        * priced and unpriced turns still has a `Tally.cost`, so this cannot be
+        * derived from the maps afterwards.
+        */
+      anyUnpriced: Boolean = false
   ):
     def record(
         agent: String,
@@ -49,7 +55,9 @@ class CostTracker(pricing: PriceList = Pricing.default) extends OrcaListener:
         byAgent = add(byAgent, agent, tally),
         byModel = add(byModel, model, tally),
         agentRoles = agentRoles.updated(agent, role),
-        byRole = add(byRole, role, tally)
+        byRole = add(byRole, role, tally),
+        // A turn that spent nothing has nothing to price, so it is not a gap.
+        anyUnpriced = anyUnpriced || (cost.isEmpty && usage.spentTokens)
       )
 
     private def add[K](
@@ -77,8 +85,10 @@ class CostTracker(pricing: PriceList = Pricing.default) extends OrcaListener:
   /** Total cost across every call. `None` when no call surfaced a cost
     * (reported or estimable).
     */
-  def totalCost: Option[Cost] =
-    state.get().byAgent.values.flatMap(_.cost).reduceOption(_ + _)
+  def totalCost: Option[Cost] = totalCostOf(state.get())
+
+  private def totalCostOf(s: State): Option[Cost] =
+    s.byAgent.values.flatMap(_.cost).reduceOption(_ + _)
 
   /** Per-agent usage breakdown — keyed by `Agent.name`. */
   def perAgent: Map[String, Usage] =
@@ -117,6 +127,11 @@ class CostTracker(pricing: PriceList = Pricing.default) extends OrcaListener:
     * with an asterisk marking an estimated figure and a trailing legend line
     * when any estimate is present.
     *
+    * A turn that spent tokens but resolved to no cost contributes nothing to
+    * the total, so the total's label carries `(some turns unpriced)` and gains
+    * its own legend line — otherwise a partial sum would read as the run's full
+    * spend.
+    *
     * Empty string when no `TokensUsed` events have been observed.
     */
   def summary: String =
@@ -142,25 +157,42 @@ class CostTracker(pricing: PriceList = Pricing.default) extends OrcaListener:
                  |
                  |By role:
                  |${roleLines.mkString("\n")}""".stripMargin
-      val totalLine = totalCost.fold(""): c =>
-        // The "Estimated" prefix already conveys what the per-line asterisk
-        // does, so we drop the marker on the total to avoid `Estimated
-        // total: $1.10*` reading like double-counting.
-        val label = if c.estimated then "Estimated total" else "Total"
-        s"\n\n$label: ${formatAmount(c)}"
-      val hasEstimate = s.byAgent.values.flatMap(_.cost).exists(_.estimated)
-      val legend =
-        if hasEstimate then
-          s"\n\n* estimated from the pricing table " +
-            s"(rates as of ${pricing.lastUpdated} — may be stale)"
-        else ""
       s"""By agent:
          |${agentLines.mkString("\n")}
          |
          |By model:
          |${modelLines.mkString(
           "\n"
-        )}$roleSection$totalLine$legend""".stripMargin
+        )}$roleSection${totalLine(s)}${legend(s)}""".stripMargin
+
+  /** The run's total, qualified when some turns could not be priced. */
+  private def totalLine(s: State): String =
+    totalCostOf(s).fold(""): c =>
+      // The "Estimated" prefix already conveys what the per-line asterisk
+      // does, so we drop the marker on the total to avoid `Estimated
+      // total: $1.10*` reading like double-counting.
+      val label = if c.estimated then "Estimated total" else "Total"
+      // Unqualified, the figure reads as the run's full spend; it is only
+      // the sum of the turns that could be priced.
+      val qualifier = if s.anyUnpriced then " (some turns unpriced)" else ""
+      s"\n\n$label$qualifier: ${formatAmount(c)}"
+
+  /** One explanation per caveat the summary raised; empty when it raised none.
+    */
+  private def legend(s: State): String =
+    val hasEstimate = s.byAgent.values.flatMap(_.cost).exists(_.estimated)
+    val legendLines = List(
+      Option.when(hasEstimate)(
+        s"* estimated from the pricing table " +
+          s"(rates as of $pricingAsOf — may be stale)"
+      ),
+      Option.when(s.anyUnpriced)(
+        "some turns had neither a reported cost nor a pricing-table row " +
+          "— add the model via flow(pricing = …)"
+      )
+    ).flatten
+    if legendLines.isEmpty then ""
+    else legendLines.mkString("\n\n", "\n", "")
 
   /** Render a model bucket key for the summary. `None` covers calls whose model
     * the backend didn't report.

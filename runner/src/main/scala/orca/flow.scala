@@ -153,7 +153,7 @@ def flow(
   // with no diagnostic; this leaves a trail on the console and in the trace.
   installUncaughtExceptionHandler()
   // Tally token usage and print the summary on exit (success or failure).
-  val costTracker = new CostTracker(pricing)
+  val costTracker = new CostTracker(pricing.lastUpdated)
   // `try/finally` so the cost summary always lands — even when a fatal
   // throwable (OOM, StackOverflow) escapes the NonFatal catch below. See
   // `FlowOutcome`'s scaladoc for why this is one ADT, not two booleans.

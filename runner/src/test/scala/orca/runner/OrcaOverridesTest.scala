@@ -17,7 +17,7 @@ import orca.agents.{
   SessionId,
   ToolSet
 }
-import orca.events.{CostTracker, OrcaEvent, OrcaListener}
+import orca.events.{CostTracker, OrcaEvent, OrcaListener, Pricing}
 import orca.testkit.Usages.usage
 import orca.tools.opencode.OpencodeAgents
 import _root_.orca.runner.terminal.TerminalInteraction
@@ -245,7 +245,8 @@ class OrcaOverridesTest extends munit.FunSuite:
               OrcaEvent.TokensUsed(
                 "wired",
                 Some(Model("wired-model")),
-                usage(7L, 3L)
+                usage(7L, 3L),
+                cost = None
               )
             )
             s"ok: $p"
@@ -279,7 +280,7 @@ class OrcaOverridesTest extends munit.FunSuite:
 
   test("flow collects extra listeners alongside the interaction's"):
     val buf = new ByteArrayOutputStream()
-    val tracker = new CostTracker
+    val tracker = new CostTracker(Pricing.default.lastUpdated)
     supervised:
       val interaction = TerminalInteraction.start(
         out = new PrintStream(buf),
@@ -300,7 +301,8 @@ class OrcaOverridesTest extends munit.FunSuite:
             // A model the shipped table prices, so the cost below is the run's
             // own resolution rather than an absent figure.
             Some(Model("claude-haiku-4-5")),
-            usage(10L, 5L)
+            usage(10L, 5L),
+            cost = None
           )
         )
     // TerminalInteraction ignores TokensUsed; CostTracker should accumulate.

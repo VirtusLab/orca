@@ -119,7 +119,7 @@ object Pricing:
       usage: Usage
   ): Option[BigDecimal] =
     Option
-      .when(usage.inputTokens > 0 || usage.outputTokens > 0)(model)
+      .when(usage.spentTokens)(model)
       .flatten
       .flatMap(lookup(table, _))
       .map: p =>
