@@ -324,10 +324,10 @@ def reviewAndFixLoop[B <: BackendTag](
     reviewerSelection: ReviewerSelector = ReviewerSelector.default,
     /** Shell commands run in order before each review round so reviewers and
       * the lint see formatted code and the committed tree stays formatted. Each
-      * runs via `bash -c` in `ctx.workDir`, exit status ignored. The default
-      * resolves the project's `ctx.stackSettings.format` (ADR 0019);
-      * `Configured.Off` skips formatting, `Configured.Use(...)` overrides the
-      * settings.
+      * runs via `bash -c` in `ctx.workDir`; a nonzero exit is reported but
+      * doesn't abort the round. The default resolves the project's
+      * `ctx.stackSettings.format` (ADR 0019); `Configured.Off` skips
+      * formatting, `Configured.Use(...)` overrides the settings.
       */
     formatCommands: Configured[List[String]] = Configured.FromSettings,
     /** Commands + summariser agent for the lint gate run alongside the
@@ -646,10 +646,9 @@ private[review] class ReviewFixLoop[B <: BackendTag](
       state = currentState.afterRound(contributions, lint)
     )
 
-  /** Run the format commands, in order, in `ctx.workDir`. Exit status ignored —
-    * a formatter failure shouldn't abort the review. `mergeErrIntoOut` folds
-    * stderr into captured stdout so neither stream reaches the terminal and
-    * tears the status row.
+  /** Run the format commands, in order, in `ctx.workDir`. A nonzero exit is
+    * reported as a `Step`; it stops neither the commands after it nor the
+    * review, and repeats every round the command keeps failing.
     *
     * Takes [[WorkspaceWrite]] because it rewrites the tree (ADR 0018 §2.2), and
     * because that token is fork-opaque: moving this step into the reviewer
@@ -658,9 +657,11 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     */
   private def formatWorkspace()(using WorkspaceWrite): Unit =
     formatCommands.foreach: cmd =>
-      val _ = os
-        .proc("bash", "-c", cmd)
-        .call(cwd = ctx.workDir, check = false, mergeErrIntoOut = true)
+      val exitCode = runShell(cmd).exitCode
+      if exitCode != 0 then
+        ctx.emit(
+          OrcaEvent.Step(s"format command failed (exit $exitCode): $cmd")
+        )
 
   private def evaluate(
       state: ReviewLoopState,
