@@ -22,11 +22,10 @@ import orca.agents.{Agent, Chat}
   */
 case class Lint(commands: List[String], agent: Agent[?])
 
-/** Run `cmd` through `bash -c` in `ctx.workDir`, shared by the lint gate and
-  * the review loop's format step. Never throws on a nonzero exit — both callers
-  * decide for themselves what a failure means. `mergeErrIntoOut` folds stderr
-  * into the captured stdout so neither stream reaches the terminal and tears
-  * the renderer's status row.
+/** Run `cmd` through `bash -c` in `ctx.workDir`. A nonzero exit is returned,
+  * not thrown — the caller decides what a failure means. `mergeErrIntoOut`
+  * folds stderr into the captured stdout so neither stream reaches the terminal
+  * and tears the renderer's status row.
   */
 private[review] def runShell(cmd: String)(using
     ctx: FlowContext

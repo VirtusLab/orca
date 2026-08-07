@@ -44,12 +44,19 @@ private class TokenEmittingReviewer(
           private[orca] def runWithSession[I: AgentInput](
               i: I,
               session: SessionId[BackendTag.ClaudeCode.type],
+              sessionName: Option[String],
               c: Option[AgentConfig],
               emitPrompt: Boolean
           )(using orca.InStage): O =
             ctx.emit(
               OrcaEvent
-                .TokensUsed(capturedName, None, Usage.empty, capturedRole)
+                .TokensUsed(
+                  capturedName,
+                  None,
+                  Usage.empty,
+                  capturedRole,
+                  cost = None
+                )
             )
             result.asInstanceOf[O]
       def interactive: InteractiveAgentCall[BackendTag.ClaudeCode.type, O] =
@@ -90,6 +97,7 @@ private class SeedProbingCoder(
           private[orca] def runWithSession[I: AgentInput](
               input: I,
               session: SessionId[BackendTag.ClaudeCode.type],
+              sessionName: Option[String],
               config: Option[AgentConfig],
               emitPrompt: Boolean
           )(using orca.InStage): O =
@@ -354,6 +362,9 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewerSelection = ReviewerSelector.allEveryRound,
       diff = ReviewDiff.Pinned("")
     )
+    val roundOneFix = coder.seenPrompts.headOption
+      .getOrElse(fail("expected a round-one fix turn"))
+    assert(!roundOneFix.contains("nit"), roundOneFix)
     assertEquals(result, IgnoredIssues(Nil))
 
   test("the cap exit records both the cap reason and the gated issues"):

@@ -32,10 +32,7 @@ private[review] final class GateLedger private (
       )
     )
 
-  /** Every owner's entries with the given titles dropped — called only when the
-    * loop observed a fix verdict for those titles, so an entry is never removed
-    * on an agent's mere silence.
-    */
+  /** Every owner's entries with the given titles dropped. */
   def remove(titles: Set[Title]): GateLedger =
     new GateLedger(
       entries.view

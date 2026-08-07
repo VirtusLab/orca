@@ -183,13 +183,11 @@ class ReviewChangeSetTest extends munit.FunSuite:
         ReviewResult.empty
       )
     )
-    val committed = new java.util.concurrent.atomic.AtomicBoolean(false)
     val coder = new FakeAgent(
       "coder",
       outputs = List.fill(2)(FixOutcome(List(Title("real bug")), Nil)),
       onRun = () =>
-        if committed.compareAndSet(false, true) then
-          commit(dir, "big.scala", big)
+        if !os.exists(dir / "big.scala") then commit(dir, "big.scala", big)
     )
     given FlowControl = ctx
     stage("implement the widget"):

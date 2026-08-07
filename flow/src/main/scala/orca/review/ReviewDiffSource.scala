@@ -11,30 +11,23 @@ private[review] case class DiffSample(diff: String, paths: List[String])
 
 /** Where `reviewAndFixLoop` gets the change set under review. */
 enum ReviewDiff:
-  /** Everything the enclosing stage has produced since it began (ADR 0018 §2.1)
-    * — tracked changes plus newly-created files, `.orca/` bookkeeping excluded
-    * — re-sampled at the start of every round and sent to every reviewer that
-    * runs, so each round's reviewers see the fixer's edits whether or not it
-    * committed them. A sample past [[orca.BoundedDiff.ReviewThreshold]] is cut
-    * down to the files that fit plus a list of the ones that didn't, so an
-    * outsized change set still produces a prompt that can be sent.
+  /** Everything the enclosing stage has produced since it began (ADR 0018
+    * §2.1), re-sampled every round so each round's reviewers see the fixer's
+    * edits whether or not it committed them.
     */
   case SampleFromStage
 
-  /** A caller-pinned diff, sent as given. It changes three things beyond the
-    * diff text: reviewers are not told a base commit (the pinned change set
-    * need not be the stage's, so naming the stage base would send them to the
-    * wrong history); the changed-file list the reviewer picker sees is scraped
-    * from the diff text, which can't name a binary change or a 100%-similarity
-    * rename; and every re-review round finds the same text, so a resumed
-    * reviewer is told there is no new change set even after the fixer edits.
+  /** A caller-pinned diff, sent as given. Pinning also changes what reviewers
+    * are told: the prompt does not claim the change set covers the stage, no
+    * base commit is named (the pinned set need not be the stage's), the
+    * selector's changed-file list is scraped from the diff text, and every
+    * later round finds the same text, so a resumed reviewer is told there is no
+    * new change set.
     */
   case Pinned(diff: String)
 
-/** How the loop reads a [[ReviewDiff]] each round. The cases differ in more
-  * than the diff text — how reviewers are told to read it, what they may be
-  * told about its base, and what the reviewer picker sees as changed files — so
-  * each owns all four answers rather than every consumer re-deciding from the
+/** How the loop reads a [[ReviewDiff]] each round. Every answer that depends on
+  * where the diff came from lives here, so no consumer re-decides from the
   * enum.
   */
 private[review] sealed trait ReviewDiffSource:
@@ -48,9 +41,8 @@ private[review] sealed trait ReviewDiffSource:
     */
   def base: Option[String]
 
-  /** The sentence introducing the diff in the initial-review prompt. It states
-    * what the change set covers, so it can only be claimed by a source that
-    * knows.
+  /** The sentence introducing the diff in the initial-review prompt; it states
+    * what the change set covers.
     */
   def diffIntro: String
 
