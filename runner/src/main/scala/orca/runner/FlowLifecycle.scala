@@ -349,6 +349,19 @@ object FlowLifecycle:
       binding.branchMode
     )
 
+  /** On an unborn HEAD (`git init`, no commits) every later git call that names
+    * `HEAD` exits 128 with git's "ambiguous argument 'HEAD'" fatal, so refuse
+    * here with our own message. `headCommit()` is also `None` outside a git
+    * repository, hence the message names both cases.
+    */
+  private def abortIfNoCommits(git: GitTool): Unit =
+    if git.headCommit().isEmpty then
+      throw new OrcaFlowException(
+        "orca needs a git repository with at least one commit — " +
+          "initialize one if needed (git init), then make the first commit " +
+          "(git add -A && git commit -m \"initial commit\")"
+      )
+
   /** Refuse to start a NEW run on a branch that another run's progress log
     * already claims (ADR 0018 §2.5, R1 amendment).
     *
@@ -368,21 +381,6 @@ object FlowLifecycle:
     * uncommitted content, which is fine here: this check only ever refuses,
     * unlike `bindBranch`'s authoritative post-stash read.
     */
-  /** On an unborn HEAD (`git init`, no commits) every later git call that names
-    * `HEAD` — starting with `currentBranch()` on the next line — exits 128 with
-    * git's "ambiguous argument 'HEAD'" fatal, so refuse here instead.
-    *
-    * `headCommit()` is also `None` when git itself cannot run, which would get
-    * this message rather than its own; accepted, since every path past this
-    * point fails on that same broken git anyway.
-    */
-  private def abortIfNoCommits(git: GitTool): Unit =
-    if git.headCommit().isEmpty then
-      throw new OrcaFlowException(
-        "the repository has no commits yet — make an initial commit " +
-          "(`git commit`) before running a flow"
-      )
-
   private def abortIfBranchBusy(
       store: ProgressStore,
       workDir: os.Path,
@@ -760,11 +758,11 @@ object FlowLifecycle:
 
   /** Fresh run: resolve + create the branch, then commit the header as the
     * branch's first commit. The commit is pathspec-scoped to just the
-    * progress-log file (`forceCommitOnly`, never `add -A`), so a dirty tree
-    * left by skip-branch mode reaches the branch only via the first stage's own
-    * commit. Shared by the absent-log and corrupt-log arms of [[bindBranch]].
-    * Needs `InStage` (branch-name resolution may call the cheap model) and
-    * `WorkspaceWrite` (the git writes).
+    * progress-log file (never `add -A`), so a dirty tree left by skip-branch
+    * mode reaches the branch only via the first stage's own commit. Shared by
+    * the absent-log and corrupt-log arms of [[bindBranch]]. Needs `InStage`
+    * (branch-name resolution may call the cheap model) and `WorkspaceWrite`
+    * (the git writes).
     *
     * The resolved name is minted into a [[FeatureBranch]] before reaching git:
     * a protected-name collision falls back to a deterministic
@@ -845,10 +843,10 @@ object FlowLifecycle:
     *
     * [[GitTool.commitOnly]]'s pathspec guarantees the commit carries exactly
     * this one path — anything else dirty or untracked stays out. Not
-    * `forceAdd`: a repo that still ignores `.orca/` must keep the file ignored
-    * (the migration warning already covers it), so the commit is skipped when
-    * [[GitTool.isIgnored]] reports the path excluded. Only the progress log
-    * punches through the ignore, for resume correctness.
+    * `forceCommitOnly`: a repo that still ignores `.orca/` must keep the file
+    * ignored (the migration warning already covers it), so the commit is
+    * skipped when [[GitTool.isIgnored]] reports the path excluded. Only the
+    * progress log punches through the ignore, for resume correctness.
     */
   private def commitDiscoveredSettings(git: GitTool, workDir: os.Path)(using
       WorkspaceWrite

@@ -14,7 +14,14 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
       base: Option[String] = None
   ): String =
     TextUtil.collapseWhitespace(
-      ReviewLoopPrompts.initialReview("do the thing", "", gate, base, Nil)
+      ReviewLoopPrompts.initialReview(
+        task = "do the thing",
+        diff = "",
+        diffIntro = "Diff:",
+        gate = gate,
+        base = base,
+        declined = Nil
+      )
     )
 
   test("initialReview renders the caller's bars"):
@@ -66,7 +73,7 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
   test("reReview carries the fixer's declines as a position, not a ruling"):
     val prompt = TextUtil.collapseWhitespace(
       ReviewLoopPrompts.reReview(
-        ReReviewChanges.AlreadySeen,
+        ReReviewChanges.AlreadySeen(LastSent.Inline("")),
         List(IgnoredIssue(Title("rename the field"), "the name is on our API"))
       )
     )
@@ -85,6 +92,9 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
   test("reReview says nothing about declines when the fixer declined nothing"):
     // Same separator argument as the base-commit section above.
     val prompt = TextUtil.collapseWhitespace(
-      ReviewLoopPrompts.reReview(ReReviewChanges.AlreadySeen, Nil)
+      ReviewLoopPrompts.reReview(
+        ReReviewChanges.AlreadySeen(LastSent.Inline("")),
+        Nil
+      )
     )
     assert(!prompt.contains("The fixer declined"), prompt)

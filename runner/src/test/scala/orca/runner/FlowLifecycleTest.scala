@@ -528,7 +528,7 @@ class FlowLifecycleTest extends munit.FunSuite:
   test("setup: a repository with no commits is refused with a named next step"):
     val workDir = GitRepo.empty()
     val thrown = intercept[orca.OrcaFlowException](setupFresh(workDir): Unit)
-    assert(thrown.getMessage.contains("no commits yet"), thrown.getMessage)
+    assert(thrown.getMessage.contains("at least one commit"), thrown.getMessage)
     assert(thrown.getMessage.contains("git commit"), thrown.getMessage)
 
   test(
@@ -2408,9 +2408,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       setup: FlowLifecycle.FlowSetup,
       logRelPath: os.SubPath
   ):
-    /** Commit the progress log, force-staged as the runtime does, so it lands
-      * in history even under a gitignored `.orca/`.
-      */
+    /** Commit the progress log exactly as the runtime does. */
     def commitLog()(using WorkspaceWrite): Unit =
       git.forceCommitOnly(setup.store.path, "orca: progress log")
 

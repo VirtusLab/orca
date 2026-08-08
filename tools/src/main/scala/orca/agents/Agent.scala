@@ -68,7 +68,13 @@ trait Agent[B <: BackendTag]:
       config: Option[AgentConfig] = None,
       emitPrompt: Boolean = true
   )(using InStage): String =
-    autonomous.runWithSession(prompt, SessionId.fresh[B], config, emitPrompt)
+    autonomous.runWithSession(
+      prompt,
+      SessionId.fresh[B],
+      sessionName = None,
+      config = config,
+      emitPrompt = emitPrompt
+    )
 
   /** Start a fresh EPHEMERAL multi-turn conversation — see [[Chat]]. In-run
     * only: nothing is persisted, so a crash/resume starts over. Needs only

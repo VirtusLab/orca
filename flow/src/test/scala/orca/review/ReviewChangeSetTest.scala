@@ -33,16 +33,6 @@ class ReviewChangeSetTest extends munit.FunSuite:
   private def bigLine(i: Int): String =
     s"// a comment line, long enough to weigh something, number $i"
 
-  private def bug(title: String): ReviewIssue =
-    ReviewIssue(
-      severity = Severity.Warning,
-      confidence = Confidence.orThrow(1.0),
-      title = Title(title),
-      description = title,
-      location = None,
-      suggestion = None
-    )
-
   private def firstPromptOf(agent: FakeAgent): String =
     agent.seenPrompts.headOption
       .getOrElse(fail(s"${agent.name} was never called"))
@@ -68,7 +58,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
     // Round two admits `late`, whose first prompt must carry that commit.
     val early = new FakeAgent(
       "early",
-      outputs = List(ReviewResult(List(bug("real bug"))), ReviewResult.empty)
+      outputs = List(ReviewResult(List(issue("real bug"))), ReviewResult.empty)
     )
     val late = new FakeAgent("late", outputs = List(ReviewResult.empty))
     val coder = new FakeAgent(
@@ -76,14 +66,8 @@ class ReviewChangeSetTest extends munit.FunSuite:
       outputs = List(FixOutcome(List(Title("real bug")), Nil)),
       onRun = () => commit(dir, "fixed.scala", "object Fixed")
     )
-    val lateJoiner = new ReviewerSelector:
-      def prepare(
-          all: List[RosterEntry[?]],
-          taskTitle: Title,
-          changedFiles: List[String]
-      )(using FlowContext, InStage) =
-        history =>
-          if history.isEmpty then all.filter(_.name == "early") else all
+    val lateJoiner = selector: (all, history) =>
+      if history.isEmpty then all.filter(_.name == "early") else all
     given FlowControl = ctx
     stage("implement the widget"):
       val _ = reviewAndFixLoop(
@@ -101,7 +85,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
     // own `git diff HEAD` is empty once the fixer commits.
     val reviewer = new FakeAgent(
       "r",
-      outputs = List(ReviewResult(List(bug("real bug"))), ReviewResult.empty)
+      outputs = List(ReviewResult(List(issue("real bug"))), ReviewResult.empty)
     )
     val coder = new FakeAgent(
       "coder",
@@ -123,15 +107,15 @@ class ReviewChangeSetTest extends munit.FunSuite:
 
   test("a pinned diff is not re-sent to a resumed reviewer as a fresh sample"):
     val (ctx, _) = stagingControl()
-    // `initialDiff` pins one constant for the whole loop, so round two's sample
-    // is byte-identical to round one's. Re-sending it would claim the fixer's
-    // edits are inside a diff that predates them. The pinned diff is past the
-    // inline threshold on purpose: equality is tested before size, so a pinned
-    // diff never reaches the path-listing branch either, which is what lets
-    // that branch take its paths from git.
+    // `ReviewDiff.Pinned` is one constant for the whole loop, so round two's
+    // sample is byte-identical to round one's. Re-sending it would claim the
+    // fixer's edits are inside a diff that predates them. The pinned diff is
+    // past the inline threshold on purpose: equality is tested before size, so
+    // a pinned diff never reaches the path-listing branch either, which is what
+    // lets that branch take its paths from git.
     val reviewer = new FakeAgent(
       "r",
-      outputs = List(ReviewResult(List(bug("real bug"))), ReviewResult.empty)
+      outputs = List(ReviewResult(List(issue("real bug"))), ReviewResult.empty)
     )
     val coder = new FakeAgent(
       "coder",
@@ -144,7 +128,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
         reviewers = List(reviewer),
         task = "build the widget",
         reviewerSelection = ReviewerSelector.allEveryRound,
-        initialDiff = Some(
+        diff = ReviewDiff.Pinned(
           "+++ b/pinned.scala\n" + (1 to 3000)
             .map(i => s"+// line $i")
             .mkString("\n")
@@ -163,7 +147,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
     val big = (1 to 3000).map(i => s"// line $i").mkString("\n")
     val reviewer = new FakeAgent(
       "r",
-      outputs = List(ReviewResult(List(bug("real bug"))), ReviewResult.empty)
+      outputs = List(ReviewResult(List(issue("real bug"))), ReviewResult.empty)
     )
     val coder = new FakeAgent(
       "coder",
@@ -183,6 +167,43 @@ class ReviewChangeSetTest extends munit.FunSuite:
       .getOrElse(fail("the reviewer ran once; no resume happened"))
     assert(resumePrompt.contains("big.scala"), resumePrompt)
     assert(!resumePrompt.contains("// line 2999"), resumePrompt)
+
+  test("after a paths-only round an unchanged sample points at the file list"):
+    val (ctx, dir) = stagingControl()
+    // Round two's change set is past the inline threshold, so only paths reach
+    // the reviewer. The fixer then claims a fix without touching the tree, so
+    // round three re-samples the same bytes — and must point the reviewer back
+    // at the file list it holds, not at a diff it was never sent.
+    val big = (1 to 3000).map(i => s"// line $i").mkString("\n")
+    val reviewer = new FakeAgent(
+      "r",
+      outputs = List(
+        ReviewResult(List(issue("real bug"))),
+        ReviewResult(List(issue("real bug"))),
+        ReviewResult.empty
+      )
+    )
+    val coder = new FakeAgent(
+      "coder",
+      outputs = List.fill(2)(FixOutcome(List(Title("real bug")), Nil)),
+      onRun = () =>
+        if !os.exists(dir / "big.scala") then commit(dir, "big.scala", big)
+    )
+    given FlowControl = ctx
+    stage("implement the widget"):
+      val _ = reviewAndFixLoop(
+        coderSession = ReviewLoopFixture.coderSession(coder),
+        reviewers = List(reviewer),
+        task = "build the widget",
+        reviewerSelection = ReviewerSelector.allEveryRound
+      )
+    val lastPrompt = reviewer.seenPrompts
+      .lift(2)
+      .getOrElse(fail("the reviewer ran fewer than three rounds"))
+    assert(
+      lastPrompt.contains("the file list already in this conversation"),
+      lastPrompt
+    )
 
   test("an initial diff past the cap still names every file it leaves out"):
     // The cap's whole point: whatever the change set's size, the reviewer's
