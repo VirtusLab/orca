@@ -64,14 +64,13 @@ class OsGitToolTest extends munit.FunSuite:
     withRepo: (git, _) =>
       assert(git.checkout("ghost").left.exists(_.isInstanceOf[BranchNotFound]))
 
-  test("checkout of a dash-leading name still returns Left(BranchNotFound)"):
-    // The name reaches `git branch --list` in an argument position, so without
-    // a `--` separator git reads it as an unknown switch and exits 129 —
-    // crashing where the contract promises a typed Left.
+  test("checkout of a dash-leading name returns Left(BranchNotFound)"):
     withRepo: (git, _) =>
       assert(git.checkout("-x").left.exists(_.isInstanceOf[BranchNotFound]))
 
-  test("createBranch of a dash-leading name fails with git's own complaint"):
+  test("createBranch of a dash-leading name throws instead of returning Left"):
+    // `branchExists` tolerates the name, but `createBranch`'s own
+    // `git checkout -b` still rejects it, so there is no typed Left here.
     withRepo: (git, dir) =>
       os.write(dir / "seed.txt", "seed")
       git.commit("seed").orThrow
@@ -775,20 +774,20 @@ class OsGitToolTest extends munit.FunSuite:
       assert(!out.contains("b.txt"), out)
 
   test("show refuses when no requested path is part of the commit"):
-    // git exits 0 printing nothing here, which as a Right reads as "the commit
-    // did not touch that file" — the wrong answer to a mistyped path.
     withRepo: (git, dir) =>
       os.write(dir / "a.txt", "one")
       git.commit("add a").orThrow
       val failure = git.show("HEAD", paths = List("nosuch")).left.toOption.get
       assert(failure.isInstanceOf[GitReadFailed.Refused], failure)
 
-  test("a magic pathspec is rejected before git runs"):
-    // `:(exclude)` inverts the request and `:(top)` escapes the working
-    // directory, so a leading `:` means something other than "this file".
-    withRepo: (git, _) =>
-      val failure = git.show("HEAD", paths = List(":(exclude)x")).left.toOption
-      assert(failure.exists(_.isInstanceOf[GitReadFailed.InvalidPath]), failure)
+  test("show refuses when the commit did not change a path present at the rev"):
+    withRepo: (git, dir) =>
+      os.write(dir / "a.txt", "one")
+      git.commit("add a").orThrow
+      os.write(dir / "b.txt", "two")
+      git.commit("add b").orThrow
+      val failure = git.show("HEAD", paths = List("a.txt")).left.toOption.get
+      assert(failure.isInstanceOf[GitReadFailed.Refused], failure)
 
   test("fileAt returns a file's contents as of a commit"):
     withRepo: (git, dir) =>
@@ -844,6 +843,12 @@ class OsGitToolTest extends munit.FunSuite:
   test("a path climbing out of the repository is rejected"):
     withRepo: (git, _) =>
       val failure = git.fileAt("HEAD", "../outside.txt").left.toOption.get
+      assert(failure.isInstanceOf[GitReadFailed.InvalidPath], failure)
+
+  test("a magic pathspec is rejected before git runs"):
+    withRepo: (git, _) =>
+      val failure =
+        git.show("HEAD", paths = List(":(exclude)x")).left.toOption.get
       assert(failure.isInstanceOf[GitReadFailed.InvalidPath], failure)
 
   test("every range spelling is rejected: git show on one is unbounded"):
