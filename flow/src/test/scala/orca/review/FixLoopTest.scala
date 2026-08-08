@@ -12,16 +12,6 @@ class FixLoopTest extends munit.FunSuite:
   private def ctx: FlowContext =
     new TestFlowContext(new EventDispatcher(Nil))
 
-  private def issue(title: String): ReviewIssue =
-    ReviewIssue(
-      severity = Severity.Warning,
-      confidence = Confidence.orThrow(1.0),
-      title = Title(title),
-      description = title,
-      location = None,
-      suggestion = None
-    )
-
   /** Recording listener; reads back collected events in arrival order. */
   private class Recorder extends OrcaListener:
     private val seen: AtomicReference[List[OrcaEvent]] = AtomicReference(Nil)
@@ -88,6 +78,28 @@ class FixLoopTest extends munit.FunSuite:
       List("Iteration 1", "Iteration 2", "Iteration 3")
     )
 
+  test("a finding declined in one round and fixed in the next is not ignored"):
+    given FlowContext = ctx
+    // The decline is only the fixer's position at the time; once it fixes the
+    // same finding, carrying the old entry would report fixed work as ignored.
+    val result = fixLoop(
+      evaluate = scripted(
+        List(
+          ReviewResult(List(issue("nit"), issue("driver"))),
+          ReviewResult(List(issue("nit"))),
+          ReviewResult.empty
+        )
+      ),
+      fix = found =>
+        if found.size == 2 then
+          FixOutcome(
+            fixed = List(Title("driver")),
+            ignored = List(IgnoredIssue(Title("nit"), "deliberate"))
+          )
+        else FixOutcome(fixed = List(Title("nit")), ignored = Nil)
+    )
+    assertEquals(result, IgnoredIssues(Nil))
+
   test("halts when `fixed` is empty, regardless of `ignored` size"):
     given FlowContext = ctx
     val i = issue("x")
@@ -113,6 +125,18 @@ class FixLoopTest extends munit.FunSuite:
     assertEquals(
       result.issues,
       List(IgnoredIssue(Title("x"), "fixer reported no fixes"))
+    )
+
+  test("the halt exit says why the loop stopped"):
+    val rec = new Recorder
+    given FlowContext = new TestFlowContext(new EventDispatcher(List(rec)))
+    val _ = fixLoop(
+      evaluate = scripted(List(ReviewResult(List(issue("x"))))),
+      fix = _ => FixOutcome(Nil, Nil)
+    )
+    assert(
+      rec.steps.contains("Fixer reported no fixes; bailing out"),
+      s"halt must be announced: ${rec.steps}"
     )
 
   test("an echoed issue key resolves even when the fixer rewrote the title"):
@@ -213,9 +237,8 @@ class FixLoopTest extends munit.FunSuite:
     assert(rendered.contains("- [Warning] x"), rendered)
 
   test("formatIssue renders a file-only location with no trailing line"):
-    // BB8: file and line used to be independent Options, so (None, Some(l))
-    // silently dropped the line. Location makes that combination
-    // unrepresentable; this pins the still-valid file-without-line case.
+    // A line without a file is unrepresentable (Location pairs them); this
+    // pins the still-valid file-without-line case.
     val fileOnly = ReviewIssue(
       severity = Severity.Info,
       confidence = Confidence.orThrow(0.5),

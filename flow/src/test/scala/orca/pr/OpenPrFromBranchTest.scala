@@ -113,6 +113,7 @@ class OpenPrFromBranchTest extends FunSuite:
             private[orca] def runWithSession[I](
                 input: I,
                 session: SessionId[BackendTag.ClaudeCode.type],
+                sessionName: Option[String],
                 config: Option[AgentConfig],
                 emitPrompt: Boolean
             )(using in: AgentInput[I], _s: orca.InStage): O =

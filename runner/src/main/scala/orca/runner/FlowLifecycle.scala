@@ -762,11 +762,11 @@ object FlowLifecycle:
 
   /** Fresh run: resolve + create the branch, then commit the header as the
     * branch's first commit. The commit is pathspec-scoped to just the
-    * progress-log file (`forceCommitOnly`, never `add -A`), so a dirty tree
-    * left by skip-branch mode reaches the branch only via the first stage's own
-    * commit. Shared by the absent-log and corrupt-log arms of [[bindBranch]].
-    * Needs `InStage` (branch-name resolution may call the cheap model) and
-    * `WorkspaceWrite` (the git writes).
+    * progress-log file (never `add -A`), so a dirty tree left by skip-branch
+    * mode reaches the branch only via the first stage's own commit. Shared by
+    * the absent-log and corrupt-log arms of [[bindBranch]]. Needs `InStage`
+    * (branch-name resolution may call the cheap model) and `WorkspaceWrite`
+    * (the git writes).
     *
     * The resolved name is minted into a [[FeatureBranch]] before reaching git:
     * a protected-name collision falls back to a deterministic
@@ -847,10 +847,10 @@ object FlowLifecycle:
     *
     * [[GitTool.commitOnly]]'s pathspec guarantees the commit carries exactly
     * this one path — anything else dirty or untracked stays out. Not
-    * `forceAdd`: a repo that still ignores `.orca/` must keep the file ignored
-    * (the migration warning already covers it), so the commit is skipped when
-    * [[GitTool.isIgnored]] reports the path excluded. Only the progress log
-    * punches through the ignore, for resume correctness.
+    * `forceCommitOnly`: a repo that still ignores `.orca/` must keep the file
+    * ignored (the migration warning already covers it), so the commit is
+    * skipped when [[GitTool.isIgnored]] reports the path excluded. Only the
+    * progress log punches through the ignore, for resume correctness.
     */
   private def commitDiscoveredSettings(git: GitTool, workDir: os.Path)(using
       WorkspaceWrite
