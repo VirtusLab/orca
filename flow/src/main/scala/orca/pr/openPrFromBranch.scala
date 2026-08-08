@@ -13,7 +13,8 @@ import ox.either.orThrow
   *
   * The diff handed to the summariser is the branch-vs-base diff
   * (`git.diffVsBase(git.defaultBase())`), NOT `git.diff()` (vs HEAD), which is
-  * empty once every task is already committed.
+  * empty once every task is already committed. A branch too large to summarise
+  * is cut short by [[summarisePr]].
   *
   * Customise the PR text with `title`/`body`, both given the generated
   * [[PrSummary]]; a flow that closes an issue passes e.g. `body = s =>
