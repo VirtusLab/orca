@@ -191,9 +191,9 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
     assertEquals(result.issues.map(_.title), List(Title("flaky")))
 
-  test("the clean-round message names what the gate held back"):
+  test("the clean exit names what the gate held back, and why"):
     // Termination honesty: a round whose only findings were gated out must not
-    // report a bare "No review comments".
+    // report a bare "No review comments", and must say which finding it means.
     val steps = new ReviewLoopFixture.StepCapture
     given FlowControl = ReviewLoopFixture.control(steps.dispatcher)
     val reviewer = new FakeAgent(
@@ -209,13 +209,180 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
     val emitted = steps.messages
     assert(
-      emitted.exists(
-        _ == "No issues above the confidence gate; 1 sub-threshold finding recorded as ignored"
+      emitted.contains("No issues to fix"),
+      emitted.mkString("\n")
+    )
+    assert(
+      emitted.contains(
+        """Unresolved findings (1):
+          |  - [Warning] flaky
+          |    below the Warning confidence gate (0.3 < 0.6)""".stripMargin
       ),
       emitted.mkString("\n")
     )
 
-  test("the fixer-bailout exit records both unaccounted and gated issues"):
+  test("an exit with nothing left open prints no closing block"):
+    val steps = new ReviewLoopFixture.StepCapture
+    given FlowControl = ReviewLoopFixture.control(steps.dispatcher)
+    val _ = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
+      reviewers = List(new FakeAgent("quiet", List(ReviewResult.empty))),
+      task = titled("build the widget"),
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      diff = ReviewDiff.Pinned("")
+    )
+    val emitted = steps.messages
+    assert(
+      !emitted.exists(_.startsWith("Unresolved findings")),
+      emitted.mkString("\n")
+    )
+
+  test("a clean exit still names what the fixer declined in an earlier round"):
+    // The reviewer drops the finding once it is told the fixer refused it, so
+    // the last round comes back clean while the refusal is still open. The
+    // headline must not read as an all-clear.
+    val steps = new ReviewLoopFixture.StepCapture
+    given FlowControl = ReviewLoopFixture.control(steps.dispatcher)
+    val reviewer = new FakeAgent(
+      name = "loud",
+      outputs = List(
+        ReviewResult(List(issue("driver"), issue("nit"))),
+        ReviewResult.empty
+      )
+    )
+    val coder = new FakeAgent(
+      name = "coder",
+      outputs = List(
+        FixOutcome(
+          List(Title("driver")),
+          List(IgnoredIssue(Title("nit"), "deliberate"))
+        )
+      )
+    )
+    val _ = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(reviewer),
+      task = titled("build the widget"),
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      diff = ReviewDiff.Pinned("")
+    )
+    val emitted = steps.messages
+    assert(emitted.contains("No issues to fix"), emitted.mkString("\n"))
+    assert(
+      emitted.contains(
+        """Unresolved findings (1):
+          |  - [Warning] nit
+          |    deliberate""".stripMargin
+      ),
+      emitted.mkString("\n")
+    )
+
+  test("a fixer decline beats a gate reject on the same title at a clean exit"):
+    given FlowControl = control
+    // One reviewer's copy of "nit" clears the gate and the fixer refuses it;
+    // the other's copy is held back. The fixer actually looked at the finding,
+    // so its reason is the one that must be recorded.
+    val loud = new FakeAgent(
+      name = "loud",
+      outputs = List(
+        ReviewResult(List(issue("driver"), issue("nit", confidence = 0.95))),
+        ReviewResult.empty
+      )
+    )
+    val quiet = new FakeAgent(
+      name = "quiet",
+      outputs = List(
+        ReviewResult(List(issue("nit", confidence = 0.3))),
+        ReviewResult.empty
+      )
+    )
+    val coder = new FakeAgent(
+      name = "coder",
+      outputs = List(
+        FixOutcome(
+          List(Title("driver")),
+          List(IgnoredIssue(Title("nit"), "deliberate"))
+        )
+      )
+    )
+    val result = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(loud, quiet),
+      task = titled("build the widget"),
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      diff = ReviewDiff.Pinned("")
+    )
+    assertEquals(result.issues, List(IgnoredIssue(Title("nit"), "deliberate")))
+
+  test("the cap exit names what it leaves open, and why"):
+    val steps = new ReviewLoopFixture.StepCapture
+    given FlowControl = ReviewLoopFixture.control(steps.dispatcher)
+    val reviewer = new FakeAgent(
+      name = "loud",
+      outputs = List.fill(2)(ReviewResult(List(issue("stubborn"))))
+    )
+    val coder = new FakeAgent(
+      name = "coder",
+      outputs = List(FixOutcome(List(Title("stubborn")), Nil))
+    )
+    val _ = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(reviewer),
+      task = titled("build the widget"),
+      maxIterations = 1,
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      diff = ReviewDiff.Pinned("")
+    )
+    val emitted = steps.messages
+    assert(emitted.contains("Reached max iterations (1)"), emitted.mkString)
+    assert(
+      emitted.contains(
+        """Unresolved findings (1):
+          |  - [Warning] stubborn
+          |    max iterations (1) reached""".stripMargin
+      ),
+      emitted.mkString("\n")
+    )
+
+  test("the halt exit names what the fixer refused, and its reason"):
+    val steps = new ReviewLoopFixture.StepCapture
+    given FlowControl = ReviewLoopFixture.control(steps.dispatcher)
+    val reviewer = new FakeAgent(
+      name = "loud",
+      outputs = List(
+        ReviewResult(
+          List(issue("race in the driver", severity = Severity.Critical))
+        )
+      )
+    )
+    val coder = new FakeAgent(
+      name = "coder",
+      outputs = List(
+        FixOutcome(
+          Nil,
+          List(IgnoredIssue(Title("race in the driver"), "the lock covers it"))
+        )
+      )
+    )
+    val _ = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(reviewer),
+      task = titled("build the widget"),
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      diff = ReviewDiff.Pinned("")
+    )
+    val emitted = steps.messages
+    assertEquals(
+      emitted.count(
+        _ == """Unresolved findings (1):
+               |  - [Critical] race in the driver
+               |    the lock covers it""".stripMargin
+      ),
+      1,
+      emitted.mkString("\n")
+    )
+
+  test("the fixer-halt exit records both unaccounted and gated issues"):
     given FlowControl = control
     // The fix prompt requires every issue in `fixed` or `ignored`; when one is
     // in neither and the fixer reports no fixes, it is still open, so the loop

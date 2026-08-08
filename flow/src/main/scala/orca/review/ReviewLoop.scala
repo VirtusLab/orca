@@ -72,17 +72,20 @@ private[review] def stopPolicy(
     )
   else LoopStep.NeedsFix
 
-/** The message shown when the loop gives up at the cap, listing the issues left
-  * open. Every shipped flow discards the returned [[IgnoredIssues]], so this
-  * message is the only place a too-low cap shows up in a run.
+/** The headline shown when a loop gives up at the cap. */
+private[review] def capExitMessage(maxIterations: Int): String =
+  s"Reached max iterations ($maxIterations)"
+
+/** The headline for a round that found nothing for the fixer. A run can reach
+  * it with findings still open — declined earlier, or held back by the gate —
+  * so it must not claim the review came back clean.
   */
-private[review] def capExitMessage(
-    maxIterations: Int,
-    stillOpen: IgnoredIssues
-): String =
-  val titles = stillOpen.issues.map(i => s"  - ${i.title.value}")
-  (s"Reached max iterations ($maxIterations); still open:" :: titles)
-    .mkString("\n")
+private[review] def cleanExitMessage(open: IgnoredIssues): String =
+  if open.issues.isEmpty then "No review comments" else "No issues to fix"
+
+/** The headline shown when a loop stops because the fixer reported no fixes. */
+private[review] val FixerHaltMessage: String =
+  "Fixer reported no fixes; ending review"
 
 /** The reason recorded against an issue the fixer left unaccounted for. Only
   * the halt exits record these, and both halt precisely because the fixer
@@ -90,15 +93,38 @@ private[review] def capExitMessage(
   */
 private[review] val NoFixesReason: String = "fixer reported no fixes"
 
-/** The fixer-reported-no-fixes halt, shared by [[fixLoop]] and
-  * [[ReviewFixLoop]]: announces the bail-out and returns the entries the caller
-  * folds via [[recordIgnored]].
+/** The entries the fixer-reported-no-fixes halt adds, for the caller to fold
+  * via [[recordIgnored]].
   */
 private def fixerHaltAdditions(
     outcome: ReconciledFixOutcome
-)(using FlowContext): List[IgnoredIssue] =
-  orca.display("Fixer reported no fixes; bailing out")
+): List[IgnoredIssue] =
   outcome.ignored ++ outcome.unaccounted.map(IgnoredIssue(_, NoFixesReason))
+
+/** Announce a loop exit: `headline`, then the closing block naming everything
+  * `open` still holds and why ([[formatUnresolvedFindings]]).
+  *
+  * Every exit of both loops ends here, because the returned [[IgnoredIssues]]
+  * is the one thing a run's callers discard — without this the record would
+  * exist only in a value nobody reads. Intermediate rounds deliberately don't
+  * print it: a finding declined in round one may well be fixed in round two.
+  */
+private def announceExit(
+    headline: String,
+    open: IgnoredIssues,
+    severities: Map[Title, Severity]
+)(using FlowContext): Unit =
+  orca.display(headline)
+  formatUnresolvedFindings(open.issues, severities).foreach(orca.display)
+
+/** `severities` extended with the severity of each of `issues`, so a finding
+  * recorded in one round can still be labelled at an exit rounds later.
+  */
+private def indexSeverities(
+    severities: Map[Title, Severity],
+    issues: List[ReviewIssue]
+): Map[Title, Severity] =
+  severities ++ issues.map(i => i.title -> i.severity)
 
 /** Fold `additions` into `accumulated`, in order, keeping one entry per title
   * with the latest reason ([[GateLedger.mergeLatestByTitle]]).
@@ -171,33 +197,42 @@ def fixLoop(
     maxIterations: Int = DefaultMaxIterations
 )(using ctx: FlowContext): IgnoredIssues =
   @scala.annotation.tailrec
-  def loop(accumulated: IgnoredIssues, iteration: Int): IgnoredIssues =
+  def loop(
+      accumulated: IgnoredIssues,
+      iteration: Int,
+      severities: Map[Title, Severity]
+  ): IgnoredIssues =
     // A progress marker, not a committing stage (ADR 0018 §2.2).
     orca.display(s"Iteration ${iteration + 1}")
     val issues = evaluate().issues
+    val seenSeverities = indexSeverities(severities, issues)
     stopPolicy(
       issues,
       iteration = iteration,
       maxIterations = maxIterations
     ) match
       case LoopStep.Done =>
-        orca.display("No review comments")
+        announceExit(cleanExitMessage(accumulated), accumulated, seenSeverities)
         accumulated
       case LoopStep.CapReached(ignored) =>
-        orca.display(capExitMessage(maxIterations, ignored))
-        recordIgnored(accumulated, ignored.issues)
+        val open = recordIgnored(accumulated, ignored.issues)
+        announceExit(capExitMessage(maxIterations), open, seenSeverities)
+        open
       case LoopStep.NeedsFix =>
         val outcome = FixOutcome.reconcile(issues, fix(issues))
         announceFixTurn(outcome)
         if outcome.fixed.isEmpty then
-          recordIgnored(accumulated, fixerHaltAdditions(outcome))
+          val open = recordIgnored(accumulated, fixerHaltAdditions(outcome))
+          announceExit(FixerHaltMessage, open, seenSeverities)
+          open
         else
           loop(
             carryPastFixes(accumulated, outcome.fixed.toSet, outcome.ignored),
-            iteration + 1
+            iteration + 1,
+            seenSeverities
           )
 
-  loop(IgnoredIssues(Nil), 0)
+  loop(IgnoredIssues(Nil), 0, Map.empty)
 
 /** One reviewer's live [[Chat]]. The chat bundles the role-tagged agent with
   * its conversation id, so a resume just calls the chat again.
@@ -307,7 +342,8 @@ private case class RoundOutcome(
   *
   * Nothing still open is lost at any exit: whatever the fixer left unaccounted
   * for, and whatever the confidence gate held back and the loop never saw
-  * fixed, come back in the returned [[IgnoredIssues]] with a reason.
+  * fixed, come back in the returned [[IgnoredIssues]] with a reason, and are
+  * printed at the exit.
   */
 def reviewAndFixLoop[B <: BackendTag](
     coderSession: FlowSession[B],
@@ -742,13 +778,6 @@ private[review] class ReviewFixLoop[B <: BackendTag](
       rejects.map(i => IgnoredIssue(i.title, confidenceGate.rejectionReason(i)))
     )
 
-  /** The clean-round message, honest about what the gate held back. */
-  private def doneMessage(droppedCount: Int): String =
-    if droppedCount == 0 then "No review comments"
-    else
-      val findings = TextUtil.pluralize(droppedCount, "sub-threshold finding")
-      s"No issues above the confidence gate; $findings recorded as ignored"
-
   /** How a round ended the loop, carrying whatever that exit has to record on
     * top of the gate rejects [[conclude]] folds in for all three.
     */
@@ -757,29 +786,41 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     case Capped(stillOpen: IgnoredIssues)
     case FixerHalted(outcome: ReconciledFixOutcome)
 
-  /** Announce `exit` and fold everything still open into `accumulated` — the
-    * only place gate rejects are folded in.
+  /** Fold everything still open into one [[IgnoredIssues]] — the only place
+    * gate rejects are folded in — then announce the exit over that result
+    * ([[announceExit]]), so what is printed is exactly what is returned.
     *
-    * Gate rejects go first: the ledger holds them from whichever round first
-    * held one back, so this round's verdict on the same title is the fresher
-    * one and must win ([[recordIgnored]] keeps the last reason per title).
+    * Gate rejects are the base at every exit: the ledger holds a finding from
+    * whichever round first held it back, so any verdict the loop went on to
+    * make about the same title — the fixer's, or the cap's — is the fresher one
+    * and wins ([[recordIgnored]] keeps the last reason per title).
     */
   private def conclude(
       exit: LoopExit,
       accumulated: IgnoredIssues,
-      state: ReviewLoopState
+      state: ReviewLoopState,
+      severities: Map[Title, Severity]
   ): IgnoredIssues =
     val rejects = gateRejectsOf(state)
-    val gated = gatedOut(rejects).issues
-    exit match
+    val gated = gatedOut(rejects)
+    val (headline, open) = exit match
       case LoopExit.Clean =>
-        orca.display(doneMessage(rejects.size))
-        recordIgnored(accumulated, gated)
+        val open = recordIgnored(gated, accumulated.issues)
+        (cleanExitMessage(open), open)
       case LoopExit.Capped(stillOpen) =>
-        orca.display(capExitMessage(maxIterations, stillOpen))
-        recordIgnored(accumulated, gated, stillOpen.issues)
+        (
+          capExitMessage(maxIterations),
+          recordIgnored(gated, accumulated.issues, stillOpen.issues)
+        )
       case LoopExit.FixerHalted(outcome) =>
-        recordIgnored(accumulated, gated, fixerHaltAdditions(outcome))
+        (
+          FixerHaltMessage,
+          recordIgnored(gated, accumulated.issues, fixerHaltAdditions(outcome))
+        )
+    // Gate rejects never reach `issues`, so their severities are indexed here
+    // rather than by the round loop.
+    announceExit(headline, open, indexSeverities(severities, rejects))
+    open
 
   /** Run the evaluate/fix loop to convergence and return the accumulated
     * [[IgnoredIssues]], applying the shared [[stopPolicy]] each round and
@@ -787,8 +828,8 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     * through each round.
     *
     * Every exit folds the still-open gate rejects ([[gatedOut]]) into the
-    * result, so a finding held back for low confidence is visible in the stage
-    * result rather than silently deleted.
+    * result and prints it ([[conclude]]), so a finding held back for low
+    * confidence is visible in the run rather than silently deleted.
     *
     * `fc`/`ws` are method parameters, not fields — see the file header.
     */
@@ -817,26 +858,40 @@ private[review] class ReviewFixLoop[B <: BackendTag](
         // in round three still learns what was settled in round one. Not split
         // per reviewer — a [[FixOutcome]] doesn't say which reviewer reported
         // what — so every reviewer is sent the whole list.
-        declined: List[IgnoredIssue]
+        declined: List[IgnoredIssue],
+        // Severity per finding evaluated so far, which [[IgnoredIssue]] doesn't
+        // carry and the closing block needs.
+        severities: Map[Title, Severity]
     ): IgnoredIssues =
       orca.display(s"Iteration ${iteration + 1}")
       val round = evaluate(state, selectRound, declined)
       val issues = round.issues
+      val seenSeverities = indexSeverities(severities, issues)
       stopPolicy(
         issues,
         iteration = iteration,
         maxIterations = maxIterations
       ) match
         case LoopStep.Done =>
-          conclude(LoopExit.Clean, accumulated, round.state)
+          conclude(LoopExit.Clean, accumulated, round.state, seenSeverities)
         case LoopStep.CapReached(ignored) =>
-          conclude(LoopExit.Capped(ignored), accumulated, round.state)
+          conclude(
+            LoopExit.Capped(ignored),
+            accumulated,
+            round.state,
+            seenSeverities
+          )
         case LoopStep.NeedsFix =>
           val outcome = FixOutcome.reconcile(issues, fix(issues))
           // `ctx` explicit for the same given-priority reason as `selectRound`.
           announceFixTurn(outcome)(using ctx)
           if outcome.fixed.isEmpty then
-            conclude(LoopExit.FixerHalted(outcome), accumulated, round.state)
+            conclude(
+              LoopExit.FixerHalted(outcome),
+              accumulated,
+              round.state,
+              seenSeverities
+            )
           else
             val fixedTitles = outcome.fixed.toSet
             // Bound once: the accumulated set IS the cross-round decline set on
@@ -848,6 +903,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
               iteration + 1,
               round.state
                 .copy(gateLedger = round.state.gateLedger.remove(fixedTitles)),
-              carried.issues
+              carried.issues,
+              seenSeverities
             )
-    loop(IgnoredIssues(Nil), 0, ReviewLoopState.empty, Nil)
+    loop(IgnoredIssues(Nil), 0, ReviewLoopState.empty, Nil, Map.empty)
