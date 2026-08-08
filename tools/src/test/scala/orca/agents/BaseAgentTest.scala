@@ -1,6 +1,6 @@
 package orca.agents
 
-import orca.testkit.StubEnforcement
+import orca.testkit.StubEnforcementCell
 import orca.backend.{
   Conversation,
   ConversationEvent,
@@ -212,6 +212,19 @@ class BaseAgentTest extends munit.FunSuite:
     )
     val _ = tool.resultAs[FixOutcome].autonomous.run("fix compile errors")
     assertEquals(steps.seen, List(BaseAgentTest.noEditNotice("NetworkOnly")))
+
+  // The gate lives on `AgentBackend.runAutonomous` itself, so a turn entry
+  // point that never goes through `BaseAgent` or `DefaultAgentCall` still
+  // announces — a new door cannot forget it.
+  test("a direct runAutonomous call announces the shortfall"):
+    val steps = new StepRecorder
+    val _ = new UngatedBackend("reply").runAutonomous(
+      "one",
+      SessionId.fresh[BackendTag.Pi.type],
+      AgentConfig(tools = ToolSet.ReadOnly),
+      steps.listener
+    )
+    assertEquals(steps.seen, List(BaseAgentTest.noEditNotice("ReadOnly")))
 
   // The first attempt commits the session, so the corrective re-prompt runs as
   // a resumed turn — which on this backend (codex's shape) is where the gate
@@ -675,10 +688,12 @@ class BaseAgentTest extends munit.FunSuite:
   /** Records the `AgentConfig` the framework actually resolved and passed to
     * the backend, so tests can assert on it directly.
     */
-  private class RecordingConfigBackend extends AgentBackend[BackendTag.Pi.type]:
+  private class RecordingConfigBackend
+      extends AgentBackend[BackendTag.Pi.type]
+      with StubEnforcementCell[BackendTag.Pi.type]:
     val workDir: os.Path = os.pwd
     var lastConfig: Option[AgentConfig] = None
-    def runAutonomous(
+    protected def doRunAutonomous(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
         config: AgentConfig,
@@ -691,7 +706,7 @@ class BaseAgentTest extends munit.FunSuite:
         "out",
         Usage.empty
       )
-    def runInteractive(
+    protected def doRunInteractive(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
         displayPrompt: String,
@@ -702,12 +717,6 @@ class BaseAgentTest extends munit.FunSuite:
     val sessions: SessionSupport[BackendTag.Pi.type] =
       SessionSupport.ephemeral(IdScheme.ClientClaimed)
     val tag: BackendTag.Pi.type = BackendTag.Pi
-    def enforcementCell(
-        tools: ToolSet,
-        autoApprove: AutoApprove,
-        dispatch: TurnDispatch
-    ): EnforcementCell =
-      StubEnforcement.cell
     def structuredOutputMode: StructuredOutputMode =
       StructuredOutputMode.RawText
 
@@ -715,16 +724,17 @@ class BaseAgentTest extends munit.FunSuite:
     * failed `runAutonomous` can be exercised without a live backend.
     */
   private class FailingBackend(error: Throwable)
-      extends AgentBackend[BackendTag.Pi.type]:
+      extends AgentBackend[BackendTag.Pi.type]
+      with StubEnforcementCell[BackendTag.Pi.type]:
     val workDir: os.Path = os.pwd
-    def runAutonomous(
+    protected def doRunAutonomous(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
         config: AgentConfig,
         events: OrcaListener,
         outputSchema: Option[String]
     ): AgentResult[BackendTag.Pi.type] = throw error
-    def runInteractive(
+    protected def doRunInteractive(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
         displayPrompt: String,
@@ -735,21 +745,17 @@ class BaseAgentTest extends munit.FunSuite:
     val sessions: SessionSupport[BackendTag.Pi.type] =
       SessionSupport.ephemeral(IdScheme.ClientClaimed)
     val tag: BackendTag.Pi.type = BackendTag.Pi
-    def enforcementCell(
-        tools: ToolSet,
-        autoApprove: AutoApprove,
-        dispatch: TurnDispatch
-    ): EnforcementCell =
-      StubEnforcement.cell
     def structuredOutputMode: StructuredOutputMode =
       StructuredOutputMode.RawText
 
   /** Emits the streaming display events a real drain would (a tool line and the
     * assistant's reply) so the quiet-turn test can assert they are filtered.
     */
-  private class NoisyBackend extends AgentBackend[BackendTag.Pi.type]:
+  private class NoisyBackend
+      extends AgentBackend[BackendTag.Pi.type]
+      with StubEnforcementCell[BackendTag.Pi.type]:
     val workDir: os.Path = os.pwd
-    def runAutonomous(
+    protected def doRunAutonomous(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
         config: AgentConfig,
@@ -763,7 +769,7 @@ class BaseAgentTest extends munit.FunSuite:
         "short-label",
         Usage.empty
       )
-    def runInteractive(
+    protected def doRunInteractive(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
         displayPrompt: String,
@@ -774,12 +780,6 @@ class BaseAgentTest extends munit.FunSuite:
     val sessions: SessionSupport[BackendTag.Pi.type] =
       SessionSupport.ephemeral(IdScheme.ClientClaimed)
     val tag: BackendTag.Pi.type = BackendTag.Pi
-    def enforcementCell(
-        tools: ToolSet,
-        autoApprove: AutoApprove,
-        dispatch: TurnDispatch
-    ): EnforcementCell =
-      StubEnforcement.cell
     def structuredOutputMode: StructuredOutputMode =
       StructuredOutputMode.RawText
 
@@ -796,21 +796,16 @@ class BaseAgentTest extends munit.FunSuite:
     * with an output that won't parse followed by one that will.
     */
   private class ScriptedDrainBackend(replies: String*)
-      extends AgentBackend[BackendTag.Pi.type]:
+      extends AgentBackend[BackendTag.Pi.type]
+      with StubEnforcementCell[BackendTag.Pi.type]:
     private val remaining = replies.iterator
     val workDir: os.Path = os.pwd
     val sessions: SessionSupport[BackendTag.Pi.type] =
       SessionSupport.ephemeral(IdScheme.ClientClaimed)
     val tag: BackendTag.Pi.type = BackendTag.Pi
-    def enforcementCell(
-        tools: ToolSet,
-        autoApprove: AutoApprove,
-        dispatch: TurnDispatch
-    ): EnforcementCell =
-      StubEnforcement.cell
     def structuredOutputMode: StructuredOutputMode =
       StructuredOutputMode.RawText
-    def runAutonomous(
+    protected def doRunAutonomous(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
         config: AgentConfig,
@@ -848,7 +843,7 @@ class BaseAgentTest extends munit.FunSuite:
             )
           def canAskUser: Boolean = false
           def cancel(): Unit = ()
-    def runInteractive(
+    protected def doRunInteractive(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
         displayPrompt: String,
@@ -922,7 +917,7 @@ class BaseAgentTest extends munit.FunSuite:
   private class FailFirstBackend(error: Throwable, replies: String*)
       extends ScriptedDrainBackend(replies*):
     private var thrown = false
-    override def runAutonomous(
+    override protected def doRunAutonomous(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
         config: AgentConfig,
@@ -930,7 +925,7 @@ class BaseAgentTest extends munit.FunSuite:
         outputSchema: Option[String]
     ): AgentResult[BackendTag.Pi.type] =
       if thrown then
-        super.runAutonomous(prompt, session, config, events, outputSchema)
+        super.doRunAutonomous(prompt, session, config, events, outputSchema)
       else
         thrown = true
         throw error
@@ -945,27 +940,22 @@ class BaseAgentTest extends munit.FunSuite:
       scripted: List[ConversationEvent],
       finalOutput: String,
       schema: Option[String]
-  ) extends AgentBackend[BackendTag.Pi.type]:
+  ) extends AgentBackend[BackendTag.Pi.type]
+      with StubEnforcementCell[BackendTag.Pi.type]:
     val workDir: os.Path = os.pwd
     val sessions: SessionSupport[BackendTag.Pi.type] =
       SessionSupport.ephemeral(IdScheme.ClientClaimed)
     val tag: BackendTag.Pi.type = BackendTag.Pi
-    def enforcementCell(
-        tools: ToolSet,
-        autoApprove: AutoApprove,
-        dispatch: TurnDispatch
-    ): EnforcementCell =
-      StubEnforcement.cell
     def structuredOutputMode: StructuredOutputMode =
       StructuredOutputMode.RawText
-    def runAutonomous(
+    protected def doRunAutonomous(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
         config: AgentConfig,
         events: OrcaListener,
         outputSchema: Option[String]
     ): AgentResult[BackendTag.Pi.type] = throw new UnsupportedOperationException
-    def runInteractive(
+    protected def doRunInteractive(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
         displayPrompt: String,
@@ -1008,11 +998,12 @@ class BaseAgentTest extends munit.FunSuite:
     * `Agent.resumeWireId` reports `wireId` once `runAutonomous` returns.
     */
   private class CommittingBackend(wireId: String)
-      extends AgentBackend[BackendTag.Pi.type]:
+      extends AgentBackend[BackendTag.Pi.type]
+      with StubEnforcementCell[BackendTag.Pi.type]:
     val workDir: os.Path = os.pwd
     val sessions: SessionSupport[BackendTag.Pi.type] =
       SessionSupport.durable(IdScheme.ServerMinted, _ => true)
-    def runAutonomous(
+    protected def doRunAutonomous(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
         config: AgentConfig,
@@ -1026,7 +1017,7 @@ class BaseAgentTest extends munit.FunSuite:
       )
       sessions.commitAfterDrain(session, result.wireId)
       result
-    def runInteractive(
+    protected def doRunInteractive(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
         displayPrompt: String,
@@ -1035,18 +1026,14 @@ class BaseAgentTest extends munit.FunSuite:
     )(using ox.Ox): Conversation[BackendTag.Pi.type] =
       throw new UnsupportedOperationException
     val tag: BackendTag.Pi.type = BackendTag.Pi
-    def enforcementCell(
-        tools: ToolSet,
-        autoApprove: AutoApprove,
-        dispatch: TurnDispatch
-    ): EnforcementCell =
-      StubEnforcement.cell
     def structuredOutputMode: StructuredOutputMode =
       StructuredOutputMode.RawText
 
-  private object StubBackend extends AgentBackend[BackendTag.Pi.type]:
+  private object StubBackend
+      extends AgentBackend[BackendTag.Pi.type]
+      with StubEnforcementCell[BackendTag.Pi.type]:
     val workDir: os.Path = os.pwd
-    def runAutonomous(
+    protected def doRunAutonomous(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
         config: AgentConfig,
@@ -1058,7 +1045,7 @@ class BaseAgentTest extends munit.FunSuite:
         "out",
         Usage.empty
       )
-    def runInteractive(
+    protected def doRunInteractive(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
         displayPrompt: String,
@@ -1069,27 +1056,23 @@ class BaseAgentTest extends munit.FunSuite:
     val sessions: SessionSupport[BackendTag.Pi.type] =
       SessionSupport.ephemeral(IdScheme.ClientClaimed)
     val tag: BackendTag.Pi.type = BackendTag.Pi
-    def enforcementCell(
-        tools: ToolSet,
-        autoApprove: AutoApprove,
-        dispatch: TurnDispatch
-    ): EnforcementCell =
-      StubEnforcement.cell
     def structuredOutputMode: StructuredOutputMode =
       StructuredOutputMode.RawText
 
-  private class RecordingCloseBackend extends AgentBackend[BackendTag.Pi.type]:
+  private class RecordingCloseBackend
+      extends AgentBackend[BackendTag.Pi.type]
+      with StubEnforcementCell[BackendTag.Pi.type]:
     val workDir: os.Path = os.pwd
     var closeCount: Int = 0
     override def close(): Unit = closeCount += 1
-    def runAutonomous(
+    protected def doRunAutonomous(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
         config: AgentConfig,
         events: OrcaListener,
         outputSchema: Option[String]
     ): AgentResult[BackendTag.Pi.type] = ???
-    def runInteractive(
+    protected def doRunInteractive(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
         displayPrompt: String,
@@ -1099,12 +1082,6 @@ class BaseAgentTest extends munit.FunSuite:
     val sessions: SessionSupport[BackendTag.Pi.type] =
       SessionSupport.ephemeral(IdScheme.ClientClaimed)
     val tag: BackendTag.Pi.type = BackendTag.Pi
-    def enforcementCell(
-        tools: ToolSet,
-        autoApprove: AutoApprove,
-        dispatch: TurnDispatch
-    ): EnforcementCell =
-      StubEnforcement.cell
     def structuredOutputMode: StructuredOutputMode =
       StructuredOutputMode.RawText
 

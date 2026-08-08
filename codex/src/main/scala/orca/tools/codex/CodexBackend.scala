@@ -96,7 +96,7 @@ private[orca] class CodexBackend(
           )
     )
 
-  def runAutonomous(
+  protected def doRunAutonomous(
       prompt: String,
       session: SessionId[BackendTag.Codex.type],
       config: AgentConfig,
@@ -120,7 +120,7 @@ private[orca] class CodexBackend(
         outputSchema = outputSchema
       )
 
-  def runInteractive(
+  protected def doRunInteractive(
       prompt: String,
       session: SessionId[BackendTag.Codex.type],
       displayPrompt: String,

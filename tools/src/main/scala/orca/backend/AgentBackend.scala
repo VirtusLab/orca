@@ -25,7 +25,9 @@ import ox.Ox
   * the backend decides internally whether this is a first invocation (session
   * needs creating) or a continuation. `runAutonomous` runs to completion
   * off-screen and returns the result; `runInteractive` returns a live
-  * [[Conversation]] the caller drives through an [[Interaction]].
+  * [[Conversation]] the caller drives through an [[Interaction]]. Both are
+  * final: they run the turn-entry gate (close check + enforcement notice), then
+  * delegate to the `doRun*` hooks a backend implements.
   *
   * `prompt` is the full wire-level message sent to the agent, with all template
   * scaffolding, schema, and rules already wrapped around the user's input.
@@ -63,12 +65,29 @@ trait AgentBackend[B <: BackendTag](
     * from the user log — the caller surfaces it via
     * `OrcaEvent.StructuredResult` instead.
     */
-  def runAutonomous(
+  final def runAutonomous(
       prompt: String,
       session: SessionId[B],
       config: AgentConfig,
       events: OrcaListener = OrcaListener.noop,
       outputSchema: Option[String] = None
+  ): AgentResult[B] =
+    checkNotClosed()
+    // Per call, not once per session: the first call commits the session, so a
+    // caller's corrective re-prompt dispatches as `Resumed` — a different
+    // guarantee on codex, and hence possibly a different notice.
+    announceEnforcementShortfall(config, session, events)
+    doRunAutonomous(prompt, session, config, events, outputSchema)
+
+  /** This backend's autonomous turn, run once [[runAutonomous]]'s gate has
+    * passed.
+    */
+  protected def doRunAutonomous(
+      prompt: String,
+      session: SessionId[B],
+      config: AgentConfig,
+      events: OrcaListener,
+      outputSchema: Option[String]
   ): AgentResult[B]
 
   /** Launch an interactive session against `session` and return a live
@@ -79,8 +98,27 @@ trait AgentBackend[B <: BackendTag](
     * or `None` for free-form text. Backends that support structured-output
     * validation (claude's `--json-schema`) enforce it; others ignore it and let
     * the caller validate post-hoc.
+    *
+    * `events` carries the turn-entry notice only — everything the conversation
+    * itself produces reaches the caller through the returned [[Conversation]],
+    * which is why the backend hook never sees this listener.
     */
-  def runInteractive(
+  final def runInteractive(
+      prompt: String,
+      session: SessionId[B],
+      displayPrompt: String,
+      config: AgentConfig,
+      outputSchema: Option[String],
+      events: OrcaListener = OrcaListener.noop
+  )(using Ox): Conversation[B] =
+    checkNotClosed()
+    announceEnforcementShortfall(config, session, events)
+    doRunInteractive(prompt, session, displayPrompt, config, outputSchema)
+
+  /** This backend's interactive turn, run once [[runInteractive]]'s gate has
+    * passed.
+    */
+  protected def doRunInteractive(
       prompt: String,
       session: SessionId[B],
       displayPrompt: String,
@@ -119,8 +157,7 @@ trait AgentBackend[B <: BackendTag](
     * ship without answering this; the `*Args` implementations match `dispatch`
     * exhaustively, so it cannot answer for fresh turns only. Real backends
     * delegate to their `*Args.enforcementCell`; test doubles that aren't
-    * exercising [[announceEnforcementShortfall]] add a one-line `Hard` cell,
-    * the answer that reports nothing.
+    * exercising it mix in the testkit's `StubEnforcementCell`.
     *
     * @see
     *   [[orca.agents.Enforcement]] for what the levels mean, and
@@ -138,7 +175,7 @@ trait AgentBackend[B <: BackendTag](
     * apply mechanically. Delegates to [[enforcementNotice]], which owns both
     * the wording and the "already said" bookkeeping.
     */
-  private[orca] final def announceEnforcementShortfall(
+  private def announceEnforcementShortfall(
       config: AgentConfig,
       session: SessionId[B],
       events: OrcaListener
@@ -182,9 +219,11 @@ trait AgentBackend[B <: BackendTag](
   private[orca] final def isClosed: Boolean = closedFlag.get()
 
   /** Refuse a run against a backend whose flow has ended, so a leaked agent
-    * handle can't emit to a closed run's dispatcher. Gates both the agent
-    * surface (`BaseAgent`) and the structured gateway (`DefaultAgentCall`),
-    * which holds no agent of its own.
+    * handle can't emit to a closed run's dispatcher. [[runAutonomous]] /
+    * [[runInteractive]] gate every turn; the agent surface (`BaseAgent`) and
+    * the structured gateway (`DefaultAgentCall`, which holds no agent of its
+    * own) gate earlier still, so a dead handle fails at the door rather than
+    * one frame into the backend.
     */
   private[orca] final def checkNotClosed(): Unit =
     if isClosed then

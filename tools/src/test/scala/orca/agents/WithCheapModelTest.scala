@@ -1,6 +1,6 @@
 package orca.agents
 
-import orca.testkit.StubEnforcement
+import orca.testkit.StubEnforcementCell
 import orca.backend.{
   Conversation,
   Interaction,
@@ -57,16 +57,18 @@ class WithCheapModelTest extends munit.FunSuite:
         role: Option[String] = None
     ): Agent[BackendTag.Pi.type] = new StubTool(config)
 
-  private object StubBackend extends AgentBackend[BackendTag.Pi.type]:
+  private object StubBackend
+      extends AgentBackend[BackendTag.Pi.type]
+      with StubEnforcementCell[BackendTag.Pi.type]:
     val workDir: os.Path = os.pwd
-    def runAutonomous(
+    protected def doRunAutonomous(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
         config: AgentConfig,
         events: OrcaListener,
         outputSchema: Option[String]
     ): AgentResult[BackendTag.Pi.type] = ???
-    def runInteractive(
+    protected def doRunInteractive(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
         displayPrompt: String,
@@ -76,12 +78,6 @@ class WithCheapModelTest extends munit.FunSuite:
     val sessions: SessionSupport[BackendTag.Pi.type] =
       SessionSupport.ephemeral(IdScheme.ClientClaimed)
     val tag: BackendTag.Pi.type = BackendTag.Pi
-    def enforcementCell(
-        tools: ToolSet,
-        autoApprove: AutoApprove,
-        dispatch: TurnDispatch
-    ): EnforcementCell =
-      StubEnforcement.cell
     def structuredOutputMode: StructuredOutputMode =
       StructuredOutputMode.RawText
 

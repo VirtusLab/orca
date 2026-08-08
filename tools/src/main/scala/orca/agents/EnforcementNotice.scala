@@ -67,8 +67,8 @@ private[orca] object EnforcementNotice:
   /** The sentence to say, or `None` when the turn asked for nothing this
     * backend had to encode, or got what it asked for.
     */
-  private def summary[B <: BackendTag](
-      backend: AgentBackend[B],
+  private def summary(
+      backend: AgentBackend[?],
       config: AgentConfig,
       cell: EnforcementCell,
       dispatch: TurnDispatch
@@ -118,8 +118,8 @@ private[orca] object EnforcementNotice:
     * split one fact into two sentences on every backend the dispatch doesn't
     * change.
     */
-  private def turnWording[B <: BackendTag](
-      backend: AgentBackend[B],
+  private def turnWording(
+      backend: AgentBackend[?],
       config: AgentConfig,
       cell: EnforcementCell,
       dispatch: TurnDispatch

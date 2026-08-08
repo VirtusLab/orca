@@ -85,7 +85,7 @@ private[orca] class PiBackend private[pi] (
   override def structuredOutputMode: StructuredOutputMode =
     StructuredOutputMode.RawText
 
-  def runAutonomous(
+  protected def doRunAutonomous(
       prompt: String,
       session: SessionId[BackendTag.Pi.type],
       config: AgentConfig,
@@ -101,7 +101,7 @@ private[orca] class PiBackend private[pi] (
         outputSchema = outputSchema
       )
 
-  def runInteractive(
+  protected def doRunInteractive(
       prompt: String,
       session: SessionId[BackendTag.Pi.type],
       displayPrompt: String,

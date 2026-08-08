@@ -228,10 +228,6 @@ class DefaultAgentCall[B <: BackendTag, O](
       * can drive a corrective re-prompt loop around repeated calls to this.
       */
     def attemptOnce(): O =
-      // Per attempt, not once per call: the first attempt commits the session,
-      // so a corrective re-prompt runs as `Resumed` — which is a different
-      // guarantee on codex.
-      backend.announceEnforcementShortfall(effective, session, events)
       // This attempt's turn index, whether it ends in a debit or a result.
       val thisTurn = turnsRecorded + 1
       val promptText = lastFailure match
@@ -310,7 +306,6 @@ class DefaultAgentCall[B <: BackendTag, O](
   )(using ai: AgentInput[I]): O =
     val serialized = ai.serialize(input)
     val effective = effectiveConfig(config)
-    backend.announceEnforcementShortfall(effective, session, events)
     val prompt = prompts.interactive(serialized, outputSchema, effective)
     val accounting = turnAccounting(effective, session, sessionName)
     // Per-turn structured-concurrency scope: `runInteractive` forks its workers
@@ -326,7 +321,8 @@ class DefaultAgentCall[B <: BackendTag, O](
           session,
           displayPrompt = serialized,
           effective,
-          Some(outputSchema)
+          Some(outputSchema),
+          events
         )(using summon[ox.Ox])
         // Withhold the closing structured-payload turn from every `Interaction`
         // impl uniformly (parallel to `Conversations.TurnBuffer` on the

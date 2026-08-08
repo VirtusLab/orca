@@ -89,7 +89,7 @@ private[orca] class GeminiBackend(
         )
     )
 
-  def runAutonomous(
+  protected def doRunAutonomous(
       prompt: String,
       session: SessionId[BackendTag.Gemini.type],
       config: AgentConfig,
@@ -110,7 +110,7 @@ private[orca] class GeminiBackend(
         outputSchema = outputSchema
       )
 
-  def runInteractive(
+  protected def doRunInteractive(
       prompt: String,
       session: SessionId[BackendTag.Gemini.type],
       displayPrompt: String,

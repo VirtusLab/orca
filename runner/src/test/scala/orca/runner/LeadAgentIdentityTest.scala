@@ -1,17 +1,14 @@
 package orca.runner
 
-import orca.testkit.StubEnforcement
+import orca.testkit.StubEnforcementCell
 import orca.{AgentSet, OrcaArgs, StackSettings, flow, runFlow}
 import orca.agents.{
   AgentConfig,
   Announce,
-  AutoApprove,
   AutonomousTextCall,
   BackendTag,
   ClaudeAgent,
   CodexAgent,
-  EnforcementCell,
-  TurnDispatch,
   AgentCall,
   GeminiAgent,
   JsonData,
@@ -276,13 +273,15 @@ class LeadAgentIdentityTest extends munit.FunSuite:
     * single observable teardown — the actual contract, not that `close()` is
     * called exactly once.
     */
-  private class RecordingCloseBackend extends AgentBackend[BackendTag.Pi.type]:
+  private class RecordingCloseBackend
+      extends AgentBackend[BackendTag.Pi.type]
+      with StubEnforcementCell[BackendTag.Pi.type]:
     val workDir: os.Path = os.pwd
     private val closed = new java.util.concurrent.atomic.AtomicBoolean(false)
     var closeCount: Int = 0
     override def close(): Unit =
       if closed.compareAndSet(false, true) then closeCount += 1
-    def runAutonomous(
+    protected def doRunAutonomous(
         prompt: String,
         session: orca.agents.SessionId[BackendTag.Pi.type],
         config: AgentConfig,
@@ -290,7 +289,7 @@ class LeadAgentIdentityTest extends munit.FunSuite:
         outputSchema: Option[String]
     ): AgentResult[BackendTag.Pi.type] =
       throw new UnsupportedOperationException
-    def runInteractive(
+    protected def doRunInteractive(
         prompt: String,
         session: orca.agents.SessionId[BackendTag.Pi.type],
         displayPrompt: String,
@@ -301,12 +300,6 @@ class LeadAgentIdentityTest extends munit.FunSuite:
     val sessions: SessionSupport[BackendTag.Pi.type] =
       SessionSupport.ephemeral(IdScheme.ClientClaimed)
     val tag: BackendTag.Pi.type = BackendTag.Pi
-    def enforcementCell(
-        tools: ToolSet,
-        autoApprove: AutoApprove,
-        dispatch: TurnDispatch
-    ): EnforcementCell =
-      StubEnforcement.cell
     def structuredOutputMode: orca.agents.StructuredOutputMode =
       orca.agents.StructuredOutputMode.RawText
 

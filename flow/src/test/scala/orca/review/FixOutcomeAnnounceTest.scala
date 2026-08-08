@@ -1,17 +1,13 @@
 package orca.review
 
-import orca.testkit.StubEnforcement
+import orca.testkit.StubEnforcementCell
 import orca.agents.{
   AgentConfig,
-  AutoApprove,
   BackendTag,
   DefaultAgentCall,
   DefaultPrompts,
-  EnforcementCell,
-  TurnDispatch,
   SessionId,
   StructuredOutputMode,
-  ToolSet,
   WireSessionId
 }
 import orca.backend.{
@@ -36,19 +32,14 @@ import java.util.concurrent.atomic.AtomicReference
   * loop's own "Fixed N, ignored N" line.
   */
 private class CannedBackend(output: String)
-    extends AgentBackend[BackendTag.Pi.type]:
+    extends AgentBackend[BackendTag.Pi.type]
+    with StubEnforcementCell[BackendTag.Pi.type]:
   val workDir: os.Path = os.pwd
   val sessions: SessionSupport[BackendTag.Pi.type] =
     SessionSupport.ephemeral(IdScheme.ClientClaimed)
   val tag: BackendTag.Pi.type = BackendTag.Pi
-  def enforcementCell(
-      tools: ToolSet,
-      autoApprove: AutoApprove,
-      dispatch: TurnDispatch
-  ): EnforcementCell =
-    StubEnforcement.cell
   def structuredOutputMode: StructuredOutputMode = StructuredOutputMode.RawText
-  def runAutonomous(
+  protected def doRunAutonomous(
       prompt: String,
       session: SessionId[BackendTag.Pi.type],
       config: AgentConfig,
@@ -60,7 +51,7 @@ private class CannedBackend(output: String)
       output,
       Usage.empty
     )
-  def runInteractive(
+  protected def doRunInteractive(
       prompt: String,
       session: SessionId[BackendTag.Pi.type],
       displayPrompt: String,

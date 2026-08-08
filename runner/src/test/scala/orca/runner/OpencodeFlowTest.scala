@@ -1,6 +1,6 @@
 package orca.runner
 
-import orca.testkit.StubEnforcement
+import orca.testkit.StubEnforcementCell
 import orca.{FlowContext, OrcaArgs, StackSettings, flow}
 import orca.backend.{
   Conversation,
@@ -16,11 +16,8 @@ import orca.agents.{
   Announce,
   AutonomousAgentCall,
   AutonomousTextCall,
-  AutoApprove,
   BackendTag,
   DefaultPrompts,
-  EnforcementCell,
-  TurnDispatch,
   InteractiveAgentCall,
   JsonData,
   AgentCall,
@@ -101,9 +98,10 @@ class OpencodeFlowTest extends munit.FunSuite:
     * `DefaultAgentCall` does the real parsing.
     */
   private class CannedBackend(json: String)
-      extends AgentBackend[BackendTag.Opencode.type]:
+      extends AgentBackend[BackendTag.Opencode.type]
+      with StubEnforcementCell[BackendTag.Opencode.type]:
     val workDir: os.Path = os.pwd
-    def runAutonomous(
+    protected def doRunAutonomous(
         prompt: String,
         session: SessionId[BackendTag.Opencode.type],
         config: AgentConfig,
@@ -111,7 +109,7 @@ class OpencodeFlowTest extends munit.FunSuite:
         outputSchema: Option[String]
     ): AgentResult[BackendTag.Opencode.type] =
       AgentResult(session.onWire, json, Usage.empty)
-    def runInteractive(
+    protected def doRunInteractive(
         prompt: String,
         session: SessionId[BackendTag.Opencode.type],
         displayPrompt: String,
@@ -122,12 +120,6 @@ class OpencodeFlowTest extends munit.FunSuite:
     val sessions: SessionSupport[BackendTag.Opencode.type] =
       SessionSupport.ephemeral(IdScheme.ClientClaimed)
     val tag: BackendTag.Opencode.type = BackendTag.Opencode
-    def enforcementCell(
-        tools: ToolSet,
-        autoApprove: AutoApprove,
-        dispatch: TurnDispatch
-    ): EnforcementCell =
-      StubEnforcement.cell
     def structuredOutputMode: orca.agents.StructuredOutputMode =
       orca.agents.StructuredOutputMode.RawText
 
