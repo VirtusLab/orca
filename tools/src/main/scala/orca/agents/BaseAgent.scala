@@ -93,13 +93,14 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
       private[orca] def runWithSession(
           prompt: String,
           session: SessionId[B],
+          sessionName: Option[String],
           callConfig: Option[AgentConfig],
           emitPrompt: Boolean
       )(using orca.InStage): String =
         backend.checkNotClosed()
         val effective = effectiveConfig(callConfig)
         if emitPrompt then events.onEvent(OrcaEvent.UserPrompt(prompt))
-        val accounting = turnAccounting(effective, session)
+        val accounting = turnAccounting(effective, session, sessionName)
         val result = accounting.recording:
           backend.runAutonomous(prompt, session, effective, events)
         accounting.succeeded(result, TurnAccounting.OnlyTurn)
@@ -121,7 +122,7 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
         case _: OrcaEvent.AssistantMessage | _: OrcaEvent.ToolUse => ()
         case other => events.onEvent(other)
     val session = SessionId.fresh[B]
-    val accounting = turnAccounting(effective, session)
+    val accounting = turnAccounting(effective, session, sessionName = None)
     val result = accounting.recording:
       backend.runAutonomous(prompt, session, effective, quietEvents)
     accounting.succeeded(result, TurnAccounting.OnlyTurn)
@@ -141,9 +142,18 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
 
   private def turnAccounting(
       effective: AgentConfig,
-      session: SessionId[B]
+      session: SessionId[B],
+      sessionName: Option[String]
   ): TurnAccounting[B] =
-    new TurnAccounting[B](events, name, role, backend, session, effective.model)
+    new TurnAccounting[B](
+      events = events,
+      agentName = name,
+      role = role,
+      backend = backend,
+      session = session,
+      sessionName = sessionName,
+      pinned = effective.model
+    )
 
   /** `None` (the caller omitted the per-call `config` arg) falls back to the
     * tool-level config. An explicit `Some(...)` from the call site wholly

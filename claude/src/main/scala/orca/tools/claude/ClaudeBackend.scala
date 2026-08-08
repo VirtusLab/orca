@@ -41,14 +41,8 @@ import ox.Ox
 
 import scala.concurrent.duration.FiniteDuration
 
-/** One host-served MCP server a turn stands up: its registration facts and the
-  * live host. Everything a turn derives from such a server — the `--mcp-config`
-  * entry, the pre-approved tool names, the system-prompt hint, the teardown
-  * resource — maps over one list of these, so a new server is added in one
-  * place.
-  *
-  * `ask_user` is deliberately not one of these: `ForkedConversation` owns its
-  * bridge lifecycle separately.
+/** The registration facts a turn needs from one host-served MCP server, paired
+  * with its live host.
   */
 private[claude] final case class TurnMcp(
     name: String,
@@ -209,12 +203,10 @@ private[orca] class ClaudeBackend(
     * with stdin open either way; the close is what makes it exit, which ends
     * the reader on a turn that never settles.
     *
-    * Three host MCP servers may be stood up, each gated on what the turn is:
-    *
-    *   - `ask_user` — `Interactive` only. An autonomous call has no renderer to
-    *     answer the question, so exposing it would let the agent deadlock.
-    *   - repo reads — any tier that loses the shell to `--tools`.
-    *   - GitHub reads — `NetworkOnly` only, so reviewers stay network-free.
+    * Host MCP servers may be stood up: `ask_user` on an `Interactive` turn only
+    * — an autonomous call has no renderer to answer the question, so exposing
+    * it would let the agent deadlock — plus whatever [[turnServers]] the tier
+    * is entitled to.
     *
     * Their config is written to [[ClaudeBackend.mcpConfigPath]] as one file and
     * passed via `--mcp-config`, and their tools are pre-approved by name. Each
@@ -231,9 +223,7 @@ private[orca] class ClaudeBackend(
       outputSchema: Option[String]
   )(using Ox): Conversation[BackendTag.ClaudeCode.type] =
     // Allocate MCP resources up front so a downstream failure can close them
-    // deterministically. `ask_user` is interactive-only (an autonomous call has
-    // no renderer to answer it); the repo reads are the reverse — they exist to
-    // give read-only turns back what `--tools` takes away.
+    // deterministically.
     val displayPrompt = mode.displayPrompt
     val askUser: Option[AskUserSession] =
       Option.when(mode.isInteractive)(AskUserSession.allocate())
@@ -294,33 +284,31 @@ private[orca] class ClaudeBackend(
       )
     }
 
-  /** Stand up the host MCP servers a turn with `tools` is entitled to. The only
-    * place a tier is mapped to a server: everything else in the turn is derived
-    * from the returned list.
+  /** Stand up the host MCP servers a turn with `tools` is entitled to — the
+    * only place a tier is mapped to a server. Everything else the turn derives
+    * from a server maps over the returned list.
     */
   private def turnServers(tools: ToolSet)(using Ox): List[TurnMcp] =
     // The read-only tiers drop `Bash` along with the write tools, so the host
     // serves the git reads back.
-    Option
-      .when(!tools.writeCapable):
-        TurnMcp(
-          RepoMcpServer.ServerName,
-          RepoMcpServer.ToolSlugs,
-          RepoMcpServer.ToolTimeout,
-          RepoMcpServer.Hint,
-          RepoMcpServer.start(git)
-        )
-      .toList ++
-      Option
-        .when(tools.hasScopedNetwork):
-          TurnMcp(
-            GitHubMcpServer.ServerName,
-            GitHubMcpServer.ToolSlugs,
-            GitHubMcpServer.ToolTimeout,
-            GitHubMcpServer.Hint,
-            GitHubMcpServer.start(new OsGitHubTool(cli, workDir))
-          )
-        .toList
+    val repoReads = Option.when(!tools.writeCapable):
+      TurnMcp(
+        name = RepoMcpServer.ServerName,
+        slugs = RepoMcpServer.ToolSlugs,
+        timeout = RepoMcpServer.ToolTimeout,
+        hint = RepoMcpServer.Hint,
+        host = RepoMcpServer.start(git)
+      )
+    // `NetworkOnly` only, so reviewers stay network-free.
+    val githubReads = Option.when(tools.hasScopedNetwork):
+      TurnMcp(
+        name = GitHubMcpServer.ServerName,
+        slugs = GitHubMcpServer.ToolSlugs,
+        timeout = GitHubMcpServer.ToolTimeout,
+        hint = GitHubMcpServer.Hint,
+        host = GitHubMcpServer.start(new OsGitHubTool(cli, workDir))
+      )
+    List(repoReads, githubReads).flatten
 
   /** Write this conversation's MCP config, listing whichever host servers it
     * stood up, and return its path.
@@ -415,16 +403,18 @@ object ClaudeBackend:
     */
   private val BareToolName = "[A-Za-z][A-Za-z0-9]*".r
 
-  /** Builtins [[withNetworkTools]] refuses: each is a write primitive or a
-    * shell, and `withNetworkTools` exists only to add network reads. Taken from
-    * claude 2.1.224's built-in set — a stale name here is harmless, a missing
-    * one is not, so err towards keeping names the CLI has dropped.
+  /** Builtins [[withNetworkTools]] refuses: each writes, shells out, or drives
+    * a shell, and `withNetworkTools` exists only to add network reads. Probed
+    * 2026-08-08, claude 2.1.226: only `Bash`, `Monitor`, `Write`, `Edit` and
+    * `NotebookEdit` are still in the built-in set; the rest are kept because a
+    * stale name here is harmless while a missing one is not.
     */
   private val WriteCapableTools: Set[String] = Set(
     "Bash",
     "BashOutput",
     "KillBash",
     "KillShell",
+    "Monitor",
     "Write",
     "Edit",
     "MultiEdit",
@@ -432,26 +422,23 @@ object ClaudeBackend:
   )
 
   private def rejectNonBareNames(tools: Seq[String]): Unit =
-    tools.filterNot(BareToolName.matches) match
-      case Nil => ()
-      case bad =>
-        throw new IllegalArgumentException(
-          s"withNetworkTools takes bare claude tool names; these are not: " +
-            s"${bad.mkString(", ")}. Command-scoped entries like " +
-            "\"Bash(gh api:*)\" belonged to the old --allowedTools mapping and " +
-            "are silently ignored by --tools."
-        )
+    val bad = tools.filterNot(BareToolName.matches)
+    if bad.nonEmpty then
+      throw new IllegalArgumentException(
+        "withNetworkTools takes bare claude tool names; these are not: " +
+          s"${bad.mkString(", ")}. Command-scoped entries like " +
+          "\"Bash(gh api:*)\" belonged to the old --allowedTools mapping and " +
+          "are silently ignored by --tools."
+      )
 
   private def rejectWriteCapable(tools: Seq[String]): Unit =
-    tools.filter(WriteCapableTools.contains) match
-      case Nil => ()
-      case bad =>
-        throw new IllegalArgumentException(
-          s"withNetworkTools only adds network reads to a NetworkOnly turn; " +
-            s"these write or shell out: ${bad.mkString(", ")}. A NetworkOnly " +
-            "turn would get them pre-approved while still reporting its tools " +
-            "as read-only. Give the agent ToolSet.Full if it needs a shell."
-        )
+    val bad = tools.filter(WriteCapableTools.contains)
+    if bad.nonEmpty then
+      throw new IllegalArgumentException(
+        "withNetworkTools adds network reads to a NetworkOnly turn; these " +
+          s"write or shell out: ${bad.mkString(", ")}. Use ToolSet.Full if " +
+          "the agent needs to write or run commands."
+      )
 
   /** Fully-qualified tool name (MCP server name + tool slug). Always
     * auto-approved on the interactive path — the user is already typing an
@@ -460,9 +447,9 @@ object ClaudeBackend:
   private[claude] val AskUserToolName: String =
     qualifiedToolName(AskUserMcpServer.ServerName, AskUserMcpServer.ToolSlug)
 
-  /** A host server's tools, qualified the way claude advertises them. Every
-    * turn passes these to `--allowedTools`: `--tools` bounds what exists, but
-    * an MCP call still needs approval, which an autonomous turn cannot give.
+  /** A host server's tools. A turn that stands one up passes these to
+    * `--allowedTools`: `--tools` bounds what exists, but an MCP call still
+    * needs approval, which an autonomous turn cannot give.
     */
   private[claude] def qualifiedToolNames(
       server: String,

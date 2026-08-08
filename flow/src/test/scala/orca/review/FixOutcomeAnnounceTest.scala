@@ -39,7 +39,7 @@ private class CannedBackend(output: String)
     SessionSupport.ephemeral(IdScheme.ClientClaimed)
   val tag: BackendTag.Pi.type = BackendTag.Pi
   def structuredOutputMode: StructuredOutputMode = StructuredOutputMode.RawText
-  def doRunAutonomous(
+  protected def doRunAutonomous(
       prompt: String,
       session: SessionId[BackendTag.Pi.type],
       config: AgentConfig,
@@ -51,7 +51,7 @@ private class CannedBackend(output: String)
       output,
       Usage.empty
     )
-  def doRunInteractive(
+  protected def doRunInteractive(
       prompt: String,
       session: SessionId[BackendTag.Pi.type],
       displayPrompt: String,

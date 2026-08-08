@@ -260,7 +260,8 @@ class ConversationsTest extends munit.FunSuite:
     assertEquals(
       recorder.events.collect { case e: OrcaEvent.Error => e.message },
       List(
-        "Denied Bash: not in auto-approve set (autonomous mode cannot prompt)"
+        "Denied Bash: it is not in the auto-approve set; " +
+          "autonomous mode cannot prompt"
       )
     )
 
@@ -285,8 +286,35 @@ class ConversationsTest extends munit.FunSuite:
     assertEquals(
       recorder.events.collect { case e: OrcaEvent.Error => e.message },
       List(
-        "Denied Bash: backend asked for interactive approval " +
-          "(autonomous mode cannot prompt)"
+        "Denied Bash: the backend asked for approval itself; " +
+          "autonomous mode cannot prompt"
+      )
+    )
+
+  test("ApproveTool for a tool in the Only set blames the ask, not the set"):
+    // opencode ignores orca's auto-approve set and asks on its own account, so
+    // a listed tool can still be asked about — the set is not the cause.
+    val recorder = new RecordingListener
+    val decisions = new AtomicReference[List[ApprovalDecision]](Nil)
+    val record = (d: ApprovalDecision) =>
+      val _ = decisions.updateAndGet(d :: _)
+    val conv = new ScriptedConversation(
+      List(ConversationEvent.ApproveTool("Bash", "{}", record)),
+      Right(sampleResult)
+    )
+    val _ = supervised(
+      Conversations
+        .drainAutonomous(conv, AutoApprove.Only(Set("Bash")), recorder)
+    )
+    decisions.get() match
+      case ApprovalDecision.Deny(Some(reason)) :: Nil =>
+        assert(!reason.contains("auto-approve"), reason)
+      case other => fail(s"expected Deny with reason; got $other")
+    assertEquals(
+      recorder.events.collect { case e: OrcaEvent.Error => e.message },
+      List(
+        "Denied Bash: the backend asked for approval itself; " +
+          "autonomous mode cannot prompt"
       )
     )
 

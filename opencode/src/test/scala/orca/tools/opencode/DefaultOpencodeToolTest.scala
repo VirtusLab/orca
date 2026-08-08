@@ -31,7 +31,7 @@ class DefaultOpencodeAgentTest extends munit.FunSuite:
       with StubEnforcementCell[BackendTag.Opencode.type]:
     val workDir: os.Path = os.pwd
     var lastConfig: Option[AgentConfig] = None
-    def doRunAutonomous(
+    protected def doRunAutonomous(
         prompt: String,
         session: SessionId[BackendTag.Opencode.type],
         config: AgentConfig,
@@ -40,7 +40,7 @@ class DefaultOpencodeAgentTest extends munit.FunSuite:
     ): AgentResult[BackendTag.Opencode.type] =
       lastConfig = Some(config)
       AgentResult(session.onWire, "ok", Usage.empty)
-    def doRunInteractive(
+    protected def doRunInteractive(
         prompt: String,
         session: SessionId[BackendTag.Opencode.type],
         displayPrompt: String,
