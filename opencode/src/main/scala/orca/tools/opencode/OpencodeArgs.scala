@@ -90,9 +90,8 @@ private[opencode] object OpencodeArgs:
     )
 
   /** The tool flags a tier's message body carries and the guarantee they
-    * achieve — one match builds both, so they cannot drift apart. The
-    * `question` gate is not here: it follows the conversation mode, not the
-    * tier.
+    * achieve. The `question` gate is not here: it follows the conversation
+    * mode, not the tier.
     */
   private case class TierWiring(
       flags: Map[String, Boolean],
