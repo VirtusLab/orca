@@ -94,6 +94,11 @@ object Pricing:
   /** Resolve one call's cost: the figure the backend reported if there is one,
     * an [[estimate]] from `table` otherwise, `None` when neither is available.
     * The single home for the reported-vs-estimated decision.
+    *
+    * A reported zero against tokens actually spent is read as "no report" — a
+    * backend that couldn't price the call (an unknown model, a subscription
+    * plan), not a free call — so it falls through to the estimate. A zero on a
+    * call that spent nothing is taken at face value.
     */
   def resolve(
       table: PricingTable,
@@ -101,6 +106,7 @@ object Pricing:
       usage: Usage
   ): Option[Cost] =
     usage.cost
+      .filterNot(_.signum == 0 && usage.spentTokens)
       .map(amount => Cost(amount, estimated = false))
       .orElse(estimate(table, model, usage).map(Cost(_, estimated = true)))
 
@@ -119,7 +125,7 @@ object Pricing:
       usage: Usage
   ): Option[BigDecimal] =
     Option
-      .when(usage.inputTokens > 0 || usage.outputTokens > 0)(model)
+      .when(usage.spentTokens)(model)
       .flatten
       .flatMap(lookup(table, _))
       .map: p =>

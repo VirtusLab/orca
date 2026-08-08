@@ -7,7 +7,7 @@ import sttp.tapir.Schema.annotations.description
 
 /** Where a [[ReviewIssue]] points in the diff. `line` narrows further within
   * `file` when the reviewer names one — a line without a file isn't a
-  * representable location, so the two can no longer appear independently.
+  * representable location, so the two cannot appear independently.
   */
 case class Location(file: String, line: Option[Int]) derives JsonData
 

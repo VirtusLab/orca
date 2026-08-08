@@ -54,7 +54,7 @@ object FixOutcome:
     * title, then by a title matched case- and whitespace-insensitively. Each
     * handed issue takes at most one echo (`fixed` wins over `ignored`, since
     * the fix is the stronger claim) and each echo at most one issue, so a
-    * paraphrase can no longer record one real finding twice.
+    * paraphrase cannot record one real finding twice.
     */
   private[review] def reconcile(
       handed: List[ReviewIssue],

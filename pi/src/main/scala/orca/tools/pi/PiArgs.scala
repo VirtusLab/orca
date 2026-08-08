@@ -49,9 +49,6 @@ private[pi] object PiArgs:
   private def systemPromptArgs(file: Option[os.Path]): Seq[String] =
     CliArgs.flag("--append-system-prompt", file)(_.toString)
 
-  /** The `--tools` allowlist a tier gets and the guarantee it achieves — one
-    * match builds both, so they cannot drift apart.
-    */
   private case class ToolsWiring(args: Seq[String], cell: EnforcementCell)
 
   /** Maps [[AgentConfig.tools]] to pi's `--tools` allowlist (`Full` omits the
