@@ -52,8 +52,8 @@ private[claude] object ClaudeArgs:
       permissionWiring(
         config.tools,
         config.autoApprove,
-        networkTools,
-        mcpTools
+        networkTools = networkTools,
+        mcpTools = mcpTools
       ).args ++
       jsonSchemaArgs(jsonSchema) ++
       mcpConfigArgs(mcpConfig)
@@ -111,9 +111,6 @@ private[claude] object ClaudeArgs:
   private[claude] val ReadOnlyTools: Seq[String] =
     Seq("Read", "Grep", "Glob", "Skill")
 
-  /** The permission flags a tier gets and the guarantee they achieve — one
-    * match builds both, so they cannot drift apart.
-    */
   private case class PermissionWiring(args: Seq[String], cell: EnforcementCell)
 
   /** The read-only tiers' cell. Shared because `--tools` confines both the same
@@ -217,4 +214,9 @@ private[claude] object ClaudeArgs:
     // Same either way: [[streamJson]] emits the permission flags on `--resume`
     // too. Matched rather than ignored so a new dispatch has to answer here.
     case TurnDispatch.Fresh | TurnDispatch.Resumed =>
-      permissionWiring(tools, autoApprove, Seq.empty, Seq.empty).cell
+      permissionWiring(
+        tools,
+        autoApprove,
+        networkTools = Seq.empty,
+        mcpTools = Seq.empty
+      ).cell

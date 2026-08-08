@@ -6,15 +6,12 @@ import orca.agents.{
   AgentInput,
   Announce,
   AutonomousAgentCall,
-  AutonomousTextCall,
   BackendTag,
   InteractiveAgentCall,
   JsonData,
   AgentCall,
   AgentConfig,
-  Agent,
-  SessionId,
-  ToolSet
+  SessionId
 }
 import orca.events.{EventDispatcher}
 import orca.{TestFlowContext}
@@ -30,19 +27,12 @@ class LintTest extends munit.FunSuite:
   /** Agent that records the serialized prompt passed to
     * `resultAs.autonomous.run` and returns a canned ReviewResult.
     */
-  private class CapturingAgent(canned: ReviewResult)
-      extends Agent[BackendTag.ClaudeCode.type]:
+  private class CapturingAgent(canned: ReviewResult) extends StubAgent("mock"):
     var captured: String = ""
     // Contents of the `*.txt` file the prompt references, read inside `run`
     // while it still exists — `lint` deletes it once `run` returns. Empty when
     // the output was inlined rather than spilled to a file.
     var capturedFileContent: String = ""
-    val name = "mock"
-    def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] = ???
-    def withConfig(c: AgentConfig): Agent[BackendTag.ClaudeCode.type] = this
-    def withSystemPrompt(p: String): Agent[BackendTag.ClaudeCode.type] = this
-    def withName(n: String): Agent[BackendTag.ClaudeCode.type] = this
-    def withTools(tools: ToolSet): Agent[BackendTag.ClaudeCode.type] = this
     def resultAs[O: JsonData: Announce]
         : AgentCall[BackendTag.ClaudeCode.type, O] =
       new AgentCall[BackendTag.ClaudeCode.type, O]:
@@ -51,6 +41,7 @@ class LintTest extends munit.FunSuite:
             private[orca] def runWithSession[I](
                 i: I,
                 session: SessionId[BackendTag.ClaudeCode.type],
+                sessionName: Option[String],
                 c: Option[AgentConfig],
                 emitPrompt: Boolean
             )(using

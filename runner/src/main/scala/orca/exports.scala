@@ -73,6 +73,7 @@ export orca.review.{
   Reviewer,
   ReviewerPrompts,
   ReviewBatch,
+  ReviewDiff,
   ReviewerSelector,
   ReviewIssue,
   ReviewResult,

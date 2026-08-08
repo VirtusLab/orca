@@ -111,8 +111,8 @@ private[codex] object CodexArgs:
   private def outputSchemaArgs(file: Option[os.Path]): Seq[String] =
     CliArgs.flag("--output-schema", file)(_.toString)
 
-  /** The sandbox flags a tier gets and the guarantee they achieve — one match
-    * builds both, so they cannot drift apart.
+  /** codex's flags for one tier, in the two argv slots they occupy, plus the
+    * guarantee they achieve.
     *
     * @param preSubcommand
     *   global `-c` overrides, which must precede `exec` for codex to read them
@@ -126,13 +126,27 @@ private[codex] object CodexArgs:
       cell: EnforcementCell
   )
 
+  /** The tier's sandbox mode as each dispatch carries it: `--sandbox <mode>`
+    * after the subcommand on a fresh turn; on a resumed one, which rejects that
+    * flag, the same mode as a global `-c` override — a TOML value, hence the
+    * embedded quotes.
+    */
+  private def sandboxModeArgs(
+      mode: String,
+      dispatch: TurnDispatch
+  ): (Seq[String], Seq[String]) = dispatch match
+    case TurnDispatch.Fresh   => (Nil, Seq("--sandbox", mode))
+    case TurnDispatch.Resumed => (Seq("-c", s"sandbox_mode=\"$mode\""), Nil)
+
   /** codex's isolation wiring for one `(tools, autoApprove, dispatch)`: which
     * flags [[exec]] / [[execResume]] emit, and how strongly they hold.
     *
-    * codex is the one backend whose answer depends on the dispatch, in one cell
-    * only: the read-only tiers get their sandbox re-applied per turn, so they
-    * answer the same either way, while a resumed `Full` + [[AutoApprove.Only]]
-    * turn keeps whatever sandbox its session was created with.
+    * codex is the one backend whose enforcement LEVEL depends on the dispatch,
+    * in one cell only: a resumed `Full` + [[AutoApprove.Only]] turn keeps
+    * whatever sandbox its session was created with. Every other cell holds
+    * either way — the read-only tiers re-apply their sandbox per turn and
+    * `Full` + [[AutoApprove.All]] re-asserts its bypass flag — and differs
+    * across dispatches only in what its rationale can cite.
     *
     * Two probes, both 2026-08-07 against codex-cli 0.145.0, decide the resume
     * arms. A resumed session INHERITS the sandbox it was created with: a
@@ -152,13 +166,9 @@ private[codex] object CodexArgs:
       autoApprove: AutoApprove,
       dispatch: TurnDispatch
   ): SandboxWiring =
-    // `-c` values are TOML, hence the embedded quotes.
     tools match
       case ToolSet.ReadOnly =>
-        val (pre, post) = dispatch match
-          case TurnDispatch.Fresh => (Nil, Seq("--sandbox", "read-only"))
-          case TurnDispatch.Resumed =>
-            (Seq("-c", "sandbox_mode=\"read-only\""), Nil)
+        val (pre, post) = sandboxModeArgs("read-only", dispatch)
         SandboxWiring(
           pre,
           post,
@@ -172,13 +182,9 @@ private[codex] object CodexArgs:
       // since workspace-write blocks it by default.
       case ToolSet.NetworkOnly =>
         val network = Seq("-c", "sandbox_workspace_write.network_access=true")
-        val (pre, post) = dispatch match
-          case TurnDispatch.Fresh =>
-            (network, Seq("--sandbox", "workspace-write"))
-          case TurnDispatch.Resumed =>
-            (Seq("-c", "sandbox_mode=\"workspace-write\"") ++ network, Nil)
+        val (pre, post) = sandboxModeArgs("workspace-write", dispatch)
         SandboxWiring(
-          pre,
+          pre ++ network,
           post,
           EnforcementCell(
             Enforcement.PromptOnly,

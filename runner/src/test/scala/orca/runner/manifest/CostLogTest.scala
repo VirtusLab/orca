@@ -34,10 +34,19 @@ class CostLogTest extends munit.FunSuite:
   private def turns(workDir: os.Path): List[CostRecord.Turn] =
     costRecords(workDir).collect { case t: CostRecord.Turn => t }
 
+  // Two trailers the read-side tests append and expect back; only their
+  // distinctness matters there.
+  private val firstFinish =
+    CostRecord.Finish(Instant.parse("2026-07-18T10:00:00Z"), "succeeded")
+  private val secondFinish =
+    CostRecord.Finish(Instant.parse("2026-07-18T11:00:00Z"), "failed")
+
   test("a turn-only run writes a cost log and no session manifest"):
     val workDir = TempDirs.dir()
     val writer = newWriter(workDir)
-    writer.onEvent(OrcaEvent.TokensUsed("claude", None, usage(10, 1, None)))
+    writer.onEvent(
+      OrcaEvent.TokensUsed("claude", None, usage(10, 1, None), cost = None)
+    )
     writer.finish(RunOutcome.Succeeded)
     assertEquals(
       os.list(OrcaDir.cacheRunsPath(workDir)).filter(_.ext == "json").toList,
@@ -50,7 +59,14 @@ class CostLogTest extends munit.FunSuite:
     val writer = newWriter(workDir)
     writer.onEvent(
       OrcaEvent
-        .SessionCommitted("claude", "client-1", Some("wire-1"), "claude", None)
+        .SessionCommitted(
+          harness = "claude",
+          clientId = "client-1",
+          wireId = Some("wire-1"),
+          sessionName = None,
+          agent = "claude",
+          role = None
+        )
     )
     writer.finish(RunOutcome.Succeeded)
     assertEquals(
@@ -66,8 +82,12 @@ class CostLogTest extends munit.FunSuite:
   test("the cost log opens with one run header carrying the run's identity"):
     val workDir = TempDirs.dir()
     val writer = newWriter(workDir)
-    writer.onEvent(OrcaEvent.TokensUsed("claude", None, usage(10, 1, None)))
-    writer.onEvent(OrcaEvent.TokensUsed("claude", None, usage(20, 2, None)))
+    writer.onEvent(
+      OrcaEvent.TokensUsed("claude", None, usage(10, 1, None), cost = None)
+    )
+    writer.onEvent(
+      OrcaEvent.TokensUsed("claude", None, usage(20, 2, None), cost = None)
+    )
     assertEquals(
       costRecords(workDir).collect { case r: CostRecord.Run => r },
       List(
@@ -78,11 +98,16 @@ class CostLogTest extends munit.FunSuite:
   test("finish appends the outcome as the log's last record"):
     val workDir = TempDirs.dir()
     val writer = newWriter(workDir)
-    writer.onEvent(OrcaEvent.TokensUsed("claude", None, usage(10, 1, None)))
+    writer.onEvent(
+      OrcaEvent.TokensUsed("claude", None, usage(10, 1, None), cost = None)
+    )
     writer.finish(RunOutcome.Failed)
     assertEquals(
       costRecords(workDir).last,
-      CostRecord.Finish("2026-07-18T10:00:00Z", RunManifest.OutcomeFailed)
+      CostRecord.Finish(
+        Instant.parse("2026-07-18T10:00:00Z"),
+        ManifestOutcome.Failed.wireName
+      )
     )
 
   /** No trailer is how a reader tells a killed run from a finished one, since
@@ -91,7 +116,9 @@ class CostLogTest extends munit.FunSuite:
   test("a run that never finishes leaves the log without a trailer"):
     val workDir = TempDirs.dir()
     val writer = newWriter(workDir)
-    writer.onEvent(OrcaEvent.TokensUsed("claude", None, usage(10, 1, None)))
+    writer.onEvent(
+      OrcaEvent.TokensUsed("claude", None, usage(10, 1, None), cost = None)
+    )
     assert(
       !costRecords(workDir).exists(_.isInstanceOf[CostRecord.Finish]),
       costRecords(workDir).toString
@@ -103,7 +130,14 @@ class CostLogTest extends munit.FunSuite:
     writer.onEvent(OrcaEvent.StageStarted("code"))
     writer.onEvent(
       OrcaEvent
-        .SessionCommitted("claude", "client-1", Some("wire-1"), "claude", None)
+        .SessionCommitted(
+          harness = "claude",
+          clientId = "client-1",
+          wireId = Some("wire-1"),
+          sessionName = None,
+          agent = "claude",
+          role = None
+        )
     )
     writer.onEvent(
       OrcaEvent.TokensUsed(
@@ -111,7 +145,8 @@ class CostLogTest extends munit.FunSuite:
         None,
         usage(107_000, 500, None, apiCalls = Some(3L)),
         None,
-        session = Some("wire-1")
+        session = Some("wire-1"),
+        cost = None
       )
     )
     // Closing the stage between the two turns pins that the stage is stamped
@@ -123,7 +158,8 @@ class CostLogTest extends munit.FunSuite:
         None,
         usage(0, 0, None),
         Some("reviewer"),
-        attempt = 2
+        attempt = 2,
+        cost = None
       )
     )
     assertEquals(
@@ -164,10 +200,10 @@ class CostLogTest extends munit.FunSuite:
     assertEquals(
       turn.usage,
       ManifestUsage(
-        inputTokens = 120_000,
-        outputTokens = 900,
+        freshInputTokens = 5_000,
         cacheReadInputTokens = 107_000,
         cacheWriteInputTokens = 8_000,
+        outputTokens = 900,
         reasoningOutputTokens = 0
       )
     )
@@ -199,7 +235,15 @@ class CostLogTest extends munit.FunSuite:
       )
     )
     val recorded = turns(workDir)
-    assertEquals(recorded.map(_.usage.inputTokens).sum, 125_000L)
+    assertEquals(
+      recorded
+        .map(t =>
+          t.usage.freshInputTokens + t.usage.cacheReadInputTokens +
+            t.usage.cacheWriteInputTokens
+        )
+        .sum,
+      125_000L
+    )
     assertEquals(
       recorded.flatMap(_.cost).reduce(_ + _),
       Cost(BigDecimal("0.0969"), estimated = true)
@@ -212,10 +256,10 @@ class CostLogTest extends munit.FunSuite:
   test("read drops a torn line and keeps the whole ones before it"):
     val workDir = TempDirs.dir()
     val log = CostLog(workDir / "runs" / "1-1-cost.jsonl")
-    log.append(CostRecord.Finish("a", "succeeded"))
+    log.append(firstFinish)
     os.write.append(log.path, "{\"type\":\"Turn\",\"at\":\"tor")
-    log.append(CostRecord.Finish("b", "failed"))
-    assertEquals(log.read(), List(CostRecord.Finish("a", "succeeded")))
+    log.append(secondFinish)
+    assertEquals(log.read(), List(firstFinish))
 
   /** A tear can cut a multi-byte character in half — stage and agent names are
     * free-form and jsoniter emits them unescaped. A reporting decoder throws on
@@ -225,17 +269,17 @@ class CostLogTest extends munit.FunSuite:
   test("read survives a tear through a multi-byte character"):
     val workDir = TempDirs.dir()
     val log = CostLog(workDir / "runs" / "1-1-cost.jsonl")
-    log.append(CostRecord.Finish("a", "succeeded"))
+    log.append(firstFinish)
     // The first two bytes of "€" (E2 82 AC), then nothing.
     os.write.append(log.path, Array(0xe2.toByte, 0x82.toByte))
-    assertEquals(log.read(), List(CostRecord.Finish("a", "succeeded")))
+    assertEquals(log.read(), List(firstFinish))
 
   test("read skips a record kind it does not know"):
     val workDir = TempDirs.dir()
     val log = CostLog(workDir / "runs" / "1-1-cost.jsonl")
-    log.append(CostRecord.Finish("a", "succeeded"))
+    log.append(firstFinish)
     os.write.append(log.path, "{\"type\":\"FromALaterBuild\",\"at\":\"b\"}\n")
-    assertEquals(log.read(), List(CostRecord.Finish("a", "succeeded")))
+    assertEquals(log.read(), List(firstFinish))
 
   /** The manifest half of `finish` is an idempotent rewrite; the cost half is
     * an append, so a second call must not leave a second trailer.
@@ -243,7 +287,9 @@ class CostLogTest extends munit.FunSuite:
   test("a second finish does not append a second trailer"):
     val workDir = TempDirs.dir()
     val writer = newWriter(workDir)
-    writer.onEvent(OrcaEvent.TokensUsed("claude", None, usage(10, 1, None)))
+    writer.onEvent(
+      OrcaEvent.TokensUsed("claude", None, usage(10, 1, None), cost = None)
+    )
     writer.finish(RunOutcome.Succeeded)
     writer.finish(RunOutcome.Failed)
     assertEquals(
