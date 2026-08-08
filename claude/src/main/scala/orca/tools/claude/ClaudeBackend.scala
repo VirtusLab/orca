@@ -387,16 +387,18 @@ object ClaudeBackend:
     */
   private val BareToolName = "[A-Za-z][A-Za-z0-9]*".r
 
-  /** Builtins [[withNetworkTools]] refuses: each is a write primitive or a
-    * shell, and `withNetworkTools` exists only to add network reads. Taken from
-    * claude 2.1.224's built-in set — a stale name here is harmless, a missing
-    * one is not, so err towards keeping names the CLI has dropped.
+  /** Builtins [[withNetworkTools]] refuses: each writes, shells out, or drives
+    * a shell, and `withNetworkTools` exists only to add network reads. Probed
+    * 2026-08-08, claude 2.1.226: only `Bash`, `Monitor`, `Write`, `Edit` and
+    * `NotebookEdit` are still in the built-in set; the rest are kept because a
+    * stale name here is harmless while a missing one is not.
     */
   private val WriteCapableTools: Set[String] = Set(
     "Bash",
     "BashOutput",
     "KillBash",
     "KillShell",
+    "Monitor",
     "Write",
     "Edit",
     "MultiEdit",
@@ -404,26 +406,23 @@ object ClaudeBackend:
   )
 
   private def rejectNonBareNames(tools: Seq[String]): Unit =
-    tools.filterNot(BareToolName.matches) match
-      case Nil => ()
-      case bad =>
-        throw new IllegalArgumentException(
-          s"withNetworkTools takes bare claude tool names; these are not: " +
-            s"${bad.mkString(", ")}. Command-scoped entries like " +
-            "\"Bash(gh api:*)\" belonged to the old --allowedTools mapping and " +
-            "are silently ignored by --tools."
-        )
+    val bad = tools.filterNot(BareToolName.matches)
+    if bad.nonEmpty then
+      throw new IllegalArgumentException(
+        "withNetworkTools takes bare claude tool names; these are not: " +
+          s"${bad.mkString(", ")}. Command-scoped entries like " +
+          "\"Bash(gh api:*)\" belonged to the old --allowedTools mapping and " +
+          "are silently ignored by --tools."
+      )
 
   private def rejectWriteCapable(tools: Seq[String]): Unit =
-    tools.filter(WriteCapableTools.contains) match
-      case Nil => ()
-      case bad =>
-        throw new IllegalArgumentException(
-          s"withNetworkTools only adds network reads to a NetworkOnly turn; " +
-            s"these write or shell out: ${bad.mkString(", ")}. A NetworkOnly " +
-            "turn would get them pre-approved while still reporting its tools " +
-            "as read-only. Give the agent ToolSet.Full if it needs a shell."
-        )
+    val bad = tools.filter(WriteCapableTools.contains)
+    if bad.nonEmpty then
+      throw new IllegalArgumentException(
+        "withNetworkTools adds network reads to a NetworkOnly turn; these " +
+          s"write or shell out: ${bad.mkString(", ")}. Use ToolSet.Full if " +
+          "the agent needs to write or run commands."
+      )
 
   /** Fully-qualified tool name (MCP server name + tool slug). Always
     * auto-approved on the interactive path — the user is already typing an
