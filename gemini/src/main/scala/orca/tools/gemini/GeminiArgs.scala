@@ -66,9 +66,6 @@ private[gemini] object GeminiArgs:
     */
   private val NetworkTools: Seq[String] = Seq("web_fetch")
 
-  /** The approval flags a tier gets and the guarantee they achieve — one match
-    * builds both, so they cannot drift apart.
-    */
   private case class ApprovalWiring(args: Seq[String], cell: EnforcementCell)
 
   /** The read-only tiers' cell. Shared because both ride on `--approval-mode

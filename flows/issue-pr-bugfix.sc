@@ -156,8 +156,7 @@ flow(
 
 /** PR title + body from the full branch diff, with issue context and a
   * phase-specific `note`. Used for both the tentative (test-only) and final
-  * (test + fix) descriptions. `git.diffVsBase` (not `git.diff()` vs HEAD)
-  * because the changes are already committed.
+  * (test + fix) descriptions.
   */
 def prSummary(note: String, issue: Issue)(using
     FlowContext,

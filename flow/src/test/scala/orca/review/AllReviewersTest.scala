@@ -1,15 +1,6 @@
 package orca.review
 
-import orca.agents.{
-  Announce,
-  AutonomousTextCall,
-  BackendTag,
-  JsonData,
-  AgentCall,
-  AgentConfig,
-  Agent,
-  ToolSet
-}
+import orca.agents.{Announce, BackendTag, JsonData, AgentCall, Agent}
 class AllReviewersTest extends munit.FunSuite:
 
   /** Agent that records every `withSystemPrompt` call into a shared buffer (so
@@ -18,19 +9,18 @@ class AllReviewersTest extends munit.FunSuite:
     * `allReviewers` can tag each reviewer.
     */
   private class RecordingTool(
-      val name: String = "base",
+      name: String = "base",
       systemPromptsSeen: collection.mutable.ListBuffer[String] =
         collection.mutable.ListBuffer.empty
-  ) extends Agent[BackendTag.ClaudeCode.type]:
+  ) extends StubAgent(name):
     def seen: List[String] = systemPromptsSeen.toList
-    def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] = ???
-    def withConfig(c: AgentConfig): Agent[BackendTag.ClaudeCode.type] = this
-    def withSystemPrompt(p: String): Agent[BackendTag.ClaudeCode.type] =
+    override def withSystemPrompt(
+        p: String
+    ): Agent[BackendTag.ClaudeCode.type] =
       val _ = systemPromptsSeen += p
       this
-    def withName(n: String): Agent[BackendTag.ClaudeCode.type] =
+    override def withName(n: String): Agent[BackendTag.ClaudeCode.type] =
       new RecordingTool(n, systemPromptsSeen)
-    def withTools(tools: ToolSet): Agent[BackendTag.ClaudeCode.type] = this
     def resultAs[O: JsonData: Announce]
         : AgentCall[BackendTag.ClaudeCode.type, O] =
       ???
