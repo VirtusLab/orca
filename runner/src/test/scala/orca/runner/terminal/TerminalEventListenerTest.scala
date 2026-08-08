@@ -213,7 +213,8 @@ class TerminalEventListenerTest extends munit.FunSuite:
         OrcaEvent.TokensUsed(
           "claude",
           Some(Model("opus")),
-          usage(10L, 5L)
+          usage(10L, 5L),
+          cost = None
         )
       )
     )

@@ -34,9 +34,9 @@ final class RosterEntry[B <: BackendTag] private[review] (
   def name: String = agent.name
 
 private[review] object RosterEntry:
-  /** Wrap a roster agent, binding its backend tag so the entry's `agent` and
-    * any session paired with it in the loop's state share one `B` by
-    * construction.
+  /** Wrap a roster agent, opening the wildcard so the entry gets a concrete
+    * tag. Nothing downstream reads that tag — every use site spells
+    * `RosterEntry[?]` — it exists only because the class requires one.
     */
   def wrap(a: Agent[?], id: ReviewerId): RosterEntry[?] =
     a match
