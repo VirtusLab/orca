@@ -2,7 +2,13 @@ package orca.backend
 
 import orca.{AgentTurnFailed, OrcaFlowException, OrcaInteractiveCancelled}
 import orca.events.{OrcaEvent, OrcaListener, TurnDebit, Usage}
-import orca.agents.{AutoApprove, BackendTag, SessionId, WireSessionId}
+import orca.agents.{
+  AutoApprove,
+  BackendTag,
+  SessionId,
+  StructuredOutputMode,
+  WireSessionId
+}
 
 import ox.{Ox, supervised}
 
@@ -13,7 +19,9 @@ private class ScriptedConversation(
     outcome: Either[OrcaInteractiveCancelled, AgentResult[
       BackendTag.Codex.type
     ]],
-    val outputSchema: Option[String] = None
+    val outputSchema: Option[String] = None,
+    override val structuredOutputMode: StructuredOutputMode =
+      StructuredOutputMode.RawText
 ) extends Conversation[BackendTag.Codex.type]:
   val drained = new AtomicInteger(0)
   val cancelCount = new AtomicInteger(0)
@@ -492,10 +500,9 @@ class ConversationsTest extends munit.FunSuite:
     "structured mode: a tool call inside the sole turn doesn't defeat the " +
       "withhold"
   ):
-    // A single completed turn (activity opened by a tool call, closed once by
-    // the trailing AssistantTurnEnd) must stay withheld regardless of what
-    // kind of activity preceded the text delta — the one-turn delay only
-    // ever concerns TURN COUNT, not the shape of a turn's activity.
+    // Only activity AFTER a turn closed releases it: here the tool call and
+    // its result open the very turn whose text is the payload, so that turn
+    // stays withheld and the JSON never renders.
     val recorder = new RecordingListener
     val conv = new ScriptedConversation(
       List(
@@ -513,6 +520,101 @@ class ConversationsTest extends munit.FunSuite:
       recorder.events,
       List(OrcaEvent.ToolUse("bash", """{"command":"ls"}"""))
     )
+
+  test("a completed turn's prose renders before the next turn's tool call"):
+    // claude closes a narration turn, then opens a tool-only turn: the
+    // narration must render above the tool call it announces.
+    val recorder = new RecordingListener
+    val conv = new ScriptedConversation(
+      List(
+        ConversationEvent.AssistantTextDelta(
+          "Now let me read the existing stats.py file:"
+        ),
+        ConversationEvent.AssistantTurnEnd,
+        ConversationEvent.AssistantToolCall("Read", """{"file":"stats.py"}"""),
+        ConversationEvent.AssistantTurnEnd,
+        ConversationEvent.AssistantTextDelta("""{"answer":42}"""),
+        ConversationEvent.AssistantTurnEnd
+      ),
+      Right(sampleResult),
+      outputSchema = Some("""{"type":"object"}""")
+    )
+    val _ =
+      supervised(Conversations.drainAutonomous(conv, AutoApprove.All, recorder))
+    assertEquals(
+      recorder.events,
+      List(
+        OrcaEvent.AssistantMessage(
+          "Now let me read the existing stats.py file:"
+        ),
+        OrcaEvent.ToolUse("Read", """{"file":"stats.py"}""")
+      )
+    )
+
+  test("a Tool-mode structured call renders its closing prose turn"):
+    // In Tool mode the payload never streams as reply text, so withholding the
+    // closing turn would only lose genuine narration.
+    val recorder = new RecordingListener
+    val conv = new ScriptedConversation(
+      List(
+        ConversationEvent.AssistantTextDelta("Writing the plan now."),
+        ConversationEvent.AssistantTurnEnd
+      ),
+      Right(sampleResult),
+      outputSchema = Some("""{"type":"object"}"""),
+      structuredOutputMode = StructuredOutputMode.Tool
+    )
+    val _ =
+      supervised(Conversations.drainAutonomous(conv, AutoApprove.All, recorder))
+    assertEquals(
+      recorder.events,
+      List(OrcaEvent.AssistantMessage("Writing the plan now."))
+    )
+
+  test(
+    "the interactive filter emits a turn's prose before it yields the " +
+      "next turn's tool call"
+  ):
+    // Prose reaches the listener while the tool call reaches the consumer, so
+    // the order is only observable by checking the listener at the moment the
+    // tool call is handed over.
+    val recorder = new RecordingListener
+    val conv = new ScriptedConversation(
+      List(
+        ConversationEvent.AssistantTextDelta("Reading the file:"),
+        ConversationEvent.AssistantTurnEnd,
+        ConversationEvent.AssistantToolCall("Read", "{}")
+      ),
+      Right(sampleResult),
+      outputSchema = Some("""{"type":"object"}""")
+    )
+    supervised:
+      val forwarded =
+        Conversations.withholdInteractiveProse(conv, recorder).events.next()
+      assertEquals(
+        recorder.events,
+        List(OrcaEvent.AssistantMessage("Reading the file:"))
+      )
+      assertEquals(forwarded, ConversationEvent.AssistantToolCall("Read", "{}"))
+
+  test("the interactive filter withholds a closing turn even in Tool mode"):
+    // `Prompts.interactive` asks every backend for a JSON-only final message,
+    // so the wire's autonomous delivery doesn't decide anything here.
+    val recorder = new RecordingListener
+    val conv = new ScriptedConversation(
+      List(
+        ConversationEvent.AssistantTextDelta("""{"answer":42}"""),
+        ConversationEvent.AssistantTurnEnd
+      ),
+      Right(sampleResult),
+      outputSchema = Some("""{"type":"object"}"""),
+      structuredOutputMode = StructuredOutputMode.Tool
+    )
+    supervised:
+      val forwarded =
+        Conversations.withholdInteractiveProse(conv, recorder).events.toList
+      assertEquals(forwarded, Nil)
+      assertEquals(recorder.events, Nil)
 
   test("two back-to-back turns flush independently"):
     // Pins the textBuf.clear() inside the AssistantTurnEnd case so the

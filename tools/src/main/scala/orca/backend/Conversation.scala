@@ -1,6 +1,6 @@
 package orca.backend
 
-import orca.agents.{BackendTag}
+import orca.agents.{BackendTag, StructuredOutputMode}
 import orca.sweep.EnvCookie
 import orca.{OrcaInteractiveCancelled}
 
@@ -26,6 +26,16 @@ trait Conversation[B <: BackendTag]:
     * in favour of an `OrcaEvent.StructuredResult`) or genuine prose to flush.
     */
   def outputSchema: Option[String]
+
+  /** Conversation-side view of [[AgentBackend.structuredOutputMode]], read only
+    * when [[outputSchema]] is defined.
+    *
+    * Defaults to `RawText`, the withholding shape: a `Tool` backend that
+    * forgets to declare loses its closing turn's prose, whereas the reverse
+    * default would leak the JSON payload. A decorator must forward what it
+    * wraps, for the same reason as [[envCookie]].
+    */
+  def structuredOutputMode: StructuredOutputMode = StructuredOutputMode.RawText
 
   /** Events from the subprocess, in arrival order. Blocks on `next()` until a
     * line has been parsed or the session ends; `hasNext` returns false once the

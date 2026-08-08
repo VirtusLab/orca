@@ -134,13 +134,8 @@ private[orca] class ClaudeBackend(
 
   export ClaudeArgs.enforcementCell
 
-  /** `--json-schema` (passed whenever a structured call supplies a schema — see
-    * [[runAutonomous]]) makes the CLI inject a StructuredOutput tool whose
-    * parameters are the schema's top-level properties; the payload arrives as
-    * that tool call, never as reply text.
-    */
   override def structuredOutputMode: StructuredOutputMode =
-    StructuredOutputMode.Tool
+    ClaudeBackend.StructuredOutputDelivery
 
   /** The sole session handle. [[IdScheme.ClientClaimed]]: ids are claimed via
     * `--session-id` so subsequent calls use `--resume` (the CLI refuses to
@@ -468,3 +463,10 @@ object ClaudeBackend:
     * rendering the tool call too would show the same JSON twice.
     */
   private[claude] val StructuredOutputToolName: String = "StructuredOutput"
+
+  /** Shared by [[ClaudeBackend.structuredOutputMode]] and
+    * [[ClaudeConversation]], so prompt assembly and the drain can't disagree
+    * about how the payload arrives.
+    */
+  private[claude] val StructuredOutputDelivery: StructuredOutputMode =
+    StructuredOutputMode.Tool
