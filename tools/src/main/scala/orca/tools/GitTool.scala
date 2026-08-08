@@ -209,12 +209,13 @@ trait GitTool:
     */
   def commitOnly(path: os.Path, message: String)(using WorkspaceWrite): Unit
 
-  /** Force-stage `path` (`git add -f`, punching through `.gitignore`) and
-    * commit exactly it, scoped by the same commit pathspec as [[commitOnly]] —
-    * nothing else staged or dirty leaks in. [[commitOnly]] cannot serve here: a
-    * plain `git add` on an ignored, not-yet-tracked path refuses without `-f`.
-    * Used for the progress-log header commit (ADR 0018 R8), which must land
-    * even under a gitignored `.orca/`.
+  /** Force-stage `path` (`git add -f`) and commit exactly it, scoped by the
+    * same commit pathspec as [[commitOnly]] — nothing else staged or dirty
+    * leaks in. Use over [[commitOnly]] when the path may be ignored: a plain
+    * `git add` under an ignored directory exits non-zero even for a tracked
+    * file. Used for the progress-log header commit (ADR 0018 R8). Throws
+    * `OrcaFlowException` when the path has no changes to commit or on
+    * system-level failures.
     */
   def forceCommitOnly(path: os.Path, message: String)(using
       WorkspaceWrite

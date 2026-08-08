@@ -112,8 +112,10 @@ class OsGitToolTest extends munit.FunSuite:
       os.write(dir / ".gitignore", ".orca/\n")
       git.commit("seed").orThrow
       os.write(dir / ".orca" / "progress.json", "{}", createFolders = true)
-      // A second untracked file alongside the target: it must stay out of the
-      // commit and remain untracked in the working tree.
+      // Skip-branch mode reaches this call with a dirty index, so the commit
+      // pathspec has to hold against a staged file as well as an untracked one.
+      os.write(dir / "staged.txt", "staged")
+      val _ = os.proc("git", "add", "staged.txt").call(cwd = dir)
       os.write(dir / "scratch.txt", "scratch")
       git.forceCommitOnly(dir / ".orca" / "progress.json", "orca: progress log")
       val committed = os
@@ -126,6 +128,7 @@ class OsGitToolTest extends munit.FunSuite:
       val status =
         os.proc("git", "status", "--porcelain").call(cwd = dir).out.text()
       assert(status.contains("?? scratch.txt"), status)
+      assert(status.contains("A  staged.txt"), status)
 
   test("commit stages all changes and records the message"):
     withRepo: (git, dir) =>
