@@ -134,7 +134,10 @@ private[claude] object ClaudeArgs:
     * `Full` follows [[AgentConfig.autoApprove]]: `All` → `bypassPermissions`;
     * `Only(_)` → default permission mode plus `--allowedTools`. Unlike
     * `--tools`, that allowlist adds to claude's defaults rather than confining
-    * the agent to the names listed.
+    * the agent to the names listed — probed 2026-08-07 against claude 2.1.224:
+    * with only `Bash(echo *)` allowlisted a `Read` still ran unprompted, and
+    * the surviving defaults auto-approved workspace reads and read-only `Bash`
+    * while denying `Write` and mutating `Bash`.
     *
     * Both flags are variadic (`--tools <tools...>`), so nothing positional may
     * follow them in the argv — [[streamJson]] emits only flag-value pairs after
@@ -184,7 +187,7 @@ private[claude] object ClaudeArgs:
               Seq("--allowedTools", names.toSeq.sorted.mkString(",")),
               EnforcementCell(
                 Enforcement.Hard,
-                "`--allowedTools` is a mechanical gate, but an ADDITIVE one: the auto-approved set is claude's default permission mode ∪ the `Only` list, and everything outside that union is denied. Probed 2026-08-07, claude 2.1.224: with only `Bash(echo *)` allowlisted a `Read` still ran unprompted, so the defaults survive the flag; the defaults seen to auto-approve are workspace reads and read-only `Bash`, while `Write` and mutating `Bash` were denied. The gate is hard; its boundary is a documented superset of the request"
+                "`--allowedTools` is a hard but ADDITIVE gate: the auto-approved set is claude's default permission mode ∪ the `Only` list, and everything outside that union is denied (probed 2026-08-07, claude 2.1.224)"
               )
             )
 

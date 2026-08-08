@@ -160,9 +160,7 @@ trait AgentBackend[B <: BackendTag](
     * exercising it mix in the testkit's `StubEnforcementCell`.
     *
     * @see
-    *   [[orca.agents.Enforcement]] for what the levels mean, and
-    *   `runner/src/test/scala/orca/runner/EnforcementTableTest.scala`, which
-    *   checks the full product and renders AGENTS.md's table from it.
+    *   [[orca.agents.Enforcement]] for what the levels mean.
     */
   def enforcementCell(
       tools: ToolSet,

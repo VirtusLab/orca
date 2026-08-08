@@ -178,15 +178,26 @@ most easily broken:
   A resumed turn is classified the same, except:
   - Codex, Full, Only(_) / Only(): Ignored, not SandboxApprox
 
-  Per-cell rationale (why gemini's read-only cells are `PromptOnly`, what
-  claude's `Hard` covers, what a resumed codex turn re-applies) lives in each
-  backend's `*Args.enforcementCell`, with the CLI version and date of any probe
-  behind it. When a turn asks for a restriction the backend can't apply
-  mechanically — a read-only tier, or an `AutoApprove.Only` list —
-  `EnforcementNotice` says so in plain words as a `Step`, with the rationale
-  behind it as a WARN. Once per backend and distinct sentence: a second backend
-  of the same kind gets its own notice, and a changed answer (codex's `Full` +
-  `Only` once resumed) gets a new one.
+  Per-cell rationale lives in each backend's `*Args.enforcementCell`, with the
+  CLI version and date of any probe behind it. A turn that asks for a
+  restriction its backend can't apply mechanically gets an `EnforcementNotice`
+  — see that class for what it says and how often.
+
+  The table answers how strongly a tier's gate is held, not what the tier
+  GRANTS. For `NetworkOnly` the grant is per-backend, and this list is
+  hand-maintained — nothing renders or checks it:
+
+  - claude: `WebFetch`/`WebSearch` (`ClaudeBackend.DefaultNetworkTools`; a flow
+    can substitute its own via `claude.withNetworkTools(...)`) on `--tools` AND
+    on `--allowedTools` — `--tools` only advertises, so a name missing from the
+    approval flag comes back as a failed call. Plus the host-served GitHub
+    issue/PR read (`GitHubMcpServer`).
+  - codex: `network_access=true` inside the `workspace-write` sandbox — codex
+    has no read-only-with-network sandbox.
+  - gemini: `web_fetch` pre-approved through `--allowed-tools`.
+  - opencode: `webfetch` left unset, so the server's own default decides
+    (`ReadOnly` disables it by name).
+  - pi: `bash` — pi has no web tool, and `bash` also writes.
 
 - **Conversation events.** The event grammar (turn boundaries, `Option` tool
   names) is specified on `ConversationEvent`'s scaladoc and pinned per backend
