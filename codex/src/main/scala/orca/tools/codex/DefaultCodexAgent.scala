@@ -48,3 +48,16 @@ private[orca] class DefaultCodexAgent(
       name,
       role
     )
+
+private[orca] object DefaultCodexAgent:
+
+  /** The strong default model that bare `codex` pins; `mini` opts down.
+    *
+    * Pinning is what makes a default codex turn priceable at all: `codex exec
+    * --json` names no model anywhere on its stream (probed 2026-08-08,
+    * codex-cli 0.145.0 — `thread.started` carries `thread_id` alone, with and
+    * without `-m`), so an unpinned turn lands under `(unknown)`. This id is
+    * that version's own default; newer ones may rename it — override via
+    * `codex.withModel(...)` if so.
+    */
+  val Sol: Model = Model("gpt-5.6-sol")

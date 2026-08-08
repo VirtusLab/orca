@@ -10,11 +10,13 @@ import orca.subprocess.OsProcCliRunner
   */
 object CodexAgents:
 
-  /** The default codex agent for a run: standard config (no pinned model). */
+  /** The default codex agent for a run: GPT-5.6 Sol pinned (the strong model);
+    * `.mini` opts down for cheap one-shots.
+    */
   def default(wiring: AgentWiring): CodexAgent =
     new DefaultCodexAgent(
       backend = new CodexBackend(OsProcCliRunner, workDir = wiring.workDir),
-      config = AgentConfig(),
+      config = AgentConfig(model = Some(DefaultCodexAgent.Sol)),
       prompts = wiring.prompts,
       events = wiring.events,
       interaction = wiring.interaction

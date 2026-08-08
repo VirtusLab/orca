@@ -149,7 +149,7 @@ class RoleAgentsTest extends munit.FunSuite:
     )
     assert(
       resolution.announcement.contains("coding=codex (project)"),
-      s"codex's no-default-model config must stay bare: ${resolution.announcement}"
+      s"an agent with no default model pin must stay bare: ${resolution.announcement}"
     )
 
   test("resolveAll renders a project model pin as harness:model"):

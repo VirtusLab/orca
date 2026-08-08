@@ -155,7 +155,7 @@ private[orca] object RoleAgents:
     * shown is whichever settings never override: a settings pin wins outright
     * (that's what the user asked for); absent a pin, the resolved agent's OWN
     * configured model (e.g. claude's wired Opus1M default) is shown instead of
-    * staying silent — codex/pi, which pin no default, stay bare.
+    * staying silent — pi/opencode, which pin no default, stay bare.
     */
   private def harnessAndModel(
       agent: Agent[?],
