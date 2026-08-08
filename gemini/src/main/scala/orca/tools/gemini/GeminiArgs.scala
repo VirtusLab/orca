@@ -33,7 +33,7 @@ private[gemini] object GeminiArgs:
     Seq("gemini") ++
       trustArgs ++
       CliArgs.modelArgs(config) ++
-      approvalArgs(config) ++
+      approvalWiring(config.tools, config.autoApprove).args ++
       Seq("--output-format", "stream-json", "-p", prompt)
 
   /** Multi-turn continuation: `gemini --resume <id> -p <prompt>`. The id is the
@@ -47,7 +47,7 @@ private[gemini] object GeminiArgs:
     Seq("gemini") ++
       trustArgs ++
       CliArgs.modelArgs(config) ++
-      approvalArgs(config) ++
+      approvalWiring(config.tools, config.autoApprove).args ++
       Seq("--resume", WireSessionId.value(sessionId)) ++
       Seq("--output-format", "stream-json", "-p", prompt)
 
@@ -66,53 +66,71 @@ private[gemini] object GeminiArgs:
     */
   private val NetworkTools: Seq[String] = Seq("web_fetch")
 
-  /** Maps [[AgentConfig.tools]] to gemini's approval mode. `Full` has no
-    * per-tool CLI allowlist, and in headless mode `auto_edit` blocks on shell
-    * approvals no one can answer, so both [[AutoApprove.All]] and
-    * [[AutoApprove.Only]] map to `yolo` (the `Only` widening: ADR 0015).
+  private case class ApprovalWiring(args: Seq[String], cell: EnforcementCell)
+
+  /** The read-only tiers' cell. Shared because both ride on `--approval-mode
+    * plan`; `NetworkOnly` only pre-approves web reads on top. It records what
+    * orca can stand behind rather than what the flag was assumed to do, so the
+    * rationale carries the whole argument — this is its only home.
     */
-  private def approvalArgs(config: AgentConfig): Seq[String] =
-    config.tools match
-      case ToolSet.ReadOnly => Seq("--approval-mode", "plan")
+  private val PlanModeCell: EnforcementCell = EnforcementCell(
+    Enforcement.PromptOnly,
+    "`--approval-mode plan` is UNMEASURED, not known weak: no headless `plan` turn has been run against a write attempt. The same class of mechanism on claude — `--permission-mode plan` — was measured and removes no tools (`docs/research/run-cost/09-diff-vs-coordinates.md` §2). Raise this cell when a probe establishes more."
+  )
+
+  /** Maps [[AgentConfig.tools]] to gemini's approval mode, and classifies how
+    * strongly it holds. `Full` has no per-tool CLI allowlist, and in headless
+    * mode `auto_edit` blocks on shell approvals no one can answer, so both
+    * [[AutoApprove.All]] and [[AutoApprove.Only]] map to `yolo` (the `Only`
+    * widening: ADR 0015) — the same flag, but not the same guarantee.
+    */
+  private def approvalWiring(
+      tools: ToolSet,
+      autoApprove: AutoApprove
+  ): ApprovalWiring =
+    tools match
+      case ToolSet.ReadOnly =>
+        ApprovalWiring(Seq("--approval-mode", "plan"), PlanModeCell)
       case ToolSet.NetworkOnly =>
-        Seq(
-          "--approval-mode",
-          "plan",
-          "--allowed-tools",
-          NetworkTools.mkString(",")
+        ApprovalWiring(
+          Seq(
+            "--approval-mode",
+            "plan",
+            "--allowed-tools",
+            NetworkTools.mkString(",")
+          ),
+          PlanModeCell
         )
       case ToolSet.Full =>
-        config.autoApprove match
-          case AutoApprove.All | AutoApprove.Only(_) =>
-            Seq("--approval-mode", "yolo")
+        val yolo = Seq("--approval-mode", "yolo")
+        autoApprove match
+          case AutoApprove.All =>
+            ApprovalWiring(
+              yolo,
+              EnforcementCell(
+                Enforcement.Hard,
+                "`yolo` honours \"approve everything\" verbatim"
+              )
+            )
+          case AutoApprove.Only(_) =>
+            ApprovalWiring(
+              yolo,
+              EnforcementCell(
+                Enforcement.Ignored,
+                "no per-tool allowlist, so any `Only` set is widened to `yolo` — the requested subset reaches the CLI nowhere"
+              )
+            )
 
   /** How strongly gemini enforces each `(tools, autoApprove)` combination — see
-    * [[approvalArgs]] for the flags this classifies. The read-only cells record
-    * what orca can stand behind rather than what a flag was assumed to do, so
-    * their rationale carries the whole argument — this is its only home.
+    * [[approvalWiring]], which derives this from the same match that builds the
+    * flags.
     */
   def enforcementCell(
       tools: ToolSet,
       autoApprove: AutoApprove,
       dispatch: TurnDispatch
   ): EnforcementCell = dispatch match
-    // Same either way: [[resume]] carries `approvalArgs` as [[headless]] does.
+    // Same either way: [[resume]] carries the approval flags as [[headless]]
+    // does. Matched rather than ignored so a new dispatch has to answer here.
     case TurnDispatch.Fresh | TurnDispatch.Resumed =>
-      tools match
-        case ToolSet.ReadOnly | ToolSet.NetworkOnly =>
-          EnforcementCell(
-            Enforcement.PromptOnly,
-            "`--approval-mode plan` is UNMEASURED, not known weak: no headless `plan` turn has been run against a write attempt. The same class of mechanism on claude — `--permission-mode plan` — was measured and removes no tools (`docs/research/run-cost/09-diff-vs-coordinates.md` §2). Raise this cell when a probe establishes more."
-          )
-        case ToolSet.Full =>
-          autoApprove match
-            case AutoApprove.All =>
-              EnforcementCell(
-                Enforcement.Hard,
-                "`yolo` honours \"approve everything\" verbatim"
-              )
-            case AutoApprove.Only(_) =>
-              EnforcementCell(
-                Enforcement.Ignored,
-                "no per-tool allowlist, so any `Only` set is widened to `yolo` — the requested subset reaches the CLI nowhere"
-              )
+      approvalWiring(tools, autoApprove).cell

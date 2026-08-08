@@ -42,7 +42,7 @@ matrix in `AGENTS.md`, machine-checked by `EnforcementTableTest`.
 | --- | --- | --- | --- |
 | claude | `--tools <read-only tools + networkTools>` + `--allowedTools <mcpTools + networkTools>`, `github_issue` among the MCP tools | **hard** (`--tools` removes every unlisted built-in, shell and edits included) | web + host-side GitHub reads |
 | pi | `--tools …,bash` | **prompt-only** (bash permits writes) | shell (`gh`/`curl`) |
-| codex | `--full-auto` + `-c sandbox_workspace_write.network_access=true` | **prompt-only** (workspace-write permits writes) | shell + web |
+| codex | `--sandbox workspace-write` + `-c sandbox_workspace_write.network_access=true` | **prompt-only** (workspace-write permits writes) | shell + web |
 | gemini | `--approval-mode plan --allowed-tools web_fetch` | **prompt-only** (plan mode unmeasured against a write) | web |
 | opencode | write tools disabled (= `ReadOnly`) | hard | web only, server-dependent |
 

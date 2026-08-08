@@ -72,12 +72,7 @@ private[orca] class CodexBackend(
     */
   val tag: BackendTag.Codex.type = BackendTag.Codex
 
-  override def enforcementCell(
-      tools: ToolSet,
-      autoApprove: AutoApprove,
-      dispatch: TurnDispatch
-  ): EnforcementCell =
-    CodexArgs.enforcementCell(tools, autoApprove, dispatch)
+  export CodexArgs.enforcementCell
 
   /** `--output-schema` constrains the FINAL MESSAGE text — the reply text is
     * still the JSON value orca parses; there is no structured-output tool.

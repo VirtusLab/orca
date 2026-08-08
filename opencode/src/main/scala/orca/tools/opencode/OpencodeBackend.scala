@@ -127,12 +127,7 @@ private[orca] class OpencodeBackend(
 
   val tag: BackendTag.Opencode.type = BackendTag.Opencode
 
-  override def enforcementCell(
-      tools: ToolSet,
-      autoApprove: AutoApprove,
-      dispatch: TurnDispatch
-  ): EnforcementCell =
-    OpencodeArgs.enforcementCell(tools, autoApprove, dispatch)
+  export OpencodeArgs.enforcementCell
 
   /** The `format: json_schema` message field is a response-format constraint —
     * the model still emits the JSON as its reply text (the server parses it
