@@ -64,9 +64,10 @@ class GeminiBackendTest extends munit.FunSuite:
     p.enqueueStdout("""{"type":"init","session_id":"sess-pending"}""")
     p
 
-  test("a read-only turn's -p prompt is wrapped in the guidance envelope"):
-    // gemini has no --append-system-prompt, so the standing rules ride in the
-    // user prompt — including on read-only turns, which compose no git rule.
+  /** The `-p` prompt a `ToolSet.ReadOnly` autonomous turn spawns with, failing
+    * on a missing flag rather than reading whatever argument sits at index 0.
+    */
+  private def readOnlyPrompt(): String =
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     withBackend(runner): backend =>
       val _ = backend.runAutonomous(
@@ -74,32 +75,31 @@ class GeminiBackendTest extends munit.FunSuite:
         clientSid,
         AgentConfig(tools = ToolSet.ReadOnly)
       )
-      val args = runner.calls.head
-      val finalPrompt = args(args.indexOf("-p") + 1)
-      assert(
-        finalPrompt.contains(
-          SystemPromptComposer.BackgroundWorkAbandonedAtTurnEnd
-        ),
-        finalPrompt
-      )
-      assert(finalPrompt.endsWith("q"), finalPrompt)
+    val args = runner.calls.head
+    val idx = args.indexOf("-p")
+    require(idx >= 0, s"no -p in $args")
+    args(idx + 1)
+
+  test("a read-only turn's -p prompt is wrapped in the guidance envelope"):
+    // gemini has no --append-system-prompt, so the standing rules ride in the
+    // user prompt — including on read-only turns, which compose no git rule.
+    val finalPrompt = readOnlyPrompt()
+    assert(
+      finalPrompt.contains(
+        SystemPromptComposer.BackgroundWorkAbandonedAtTurnEnd
+      ),
+      finalPrompt
+    )
+    assert(finalPrompt.endsWith("q"), finalPrompt)
 
   test("a read-only turn's -p prompt carries the read-only rule"):
     // gemini's read-only cells are `PromptOnly`: this text is the whole
     // restriction, so it has to reach the wire.
-    val runner = new SpawnStubCliRunner(List(successfulProcess()))
-    withBackend(runner): backend =>
-      val _ = backend.runAutonomous(
-        "q",
-        clientSid,
-        AgentConfig(tools = ToolSet.ReadOnly)
-      )
-      val args = runner.calls.head
-      val finalPrompt = args(args.indexOf("-p") + 1)
-      assert(
-        finalPrompt.contains(SystemPromptComposer.ReadOnlyTurn),
-        finalPrompt
-      )
+    val finalPrompt = readOnlyPrompt()
+    assert(
+      finalPrompt.contains(SystemPromptComposer.ReadOnlyTurn),
+      finalPrompt
+    )
 
   test("runAutonomous parses session id, assistant content, and usage"):
     val runner = new SpawnStubCliRunner(
