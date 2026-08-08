@@ -37,8 +37,10 @@ object GitReadFailed:
   final class InvalidPath(path: String)
       extends GitReadFailed(s"'$path' is not a repository-relative path")
 
-  /** git ran and refused — unknown revision, or a path not in that commit.
-    * Carries git's own message.
+  /** The read has no usable answer. `detail` is git's own message when git
+    * refused (an unknown revision, a path missing from the commit), and orca's
+    * when git succeeded but the result is unusable — [[GitTool.show]] rendering
+    * nothing for the requested paths, [[GitTool.fileAt]] past its size limit.
     */
   final class Refused(detail: String) extends GitReadFailed(detail)
 
@@ -79,11 +81,16 @@ private[tools] object GitRead:
     then Right(value)
     else Left(new GitReadFailed.InvalidRev(value))
 
-  /** A repository-relative path: neither absolute nor climbing out via `..`. */
+  /** A repository-relative path: neither absolute, nor climbing out via `..`,
+    * nor a magic pathspec. Git reads any leading `:` as magic — `:(exclude)`
+    * inverts the request and `:(top)` re-anchors the pathspec at the repository
+    * root — and no plain path is addressable that way, so rejecting the prefix
+    * costs nothing.
+    */
   def path(value: String): Either[GitReadFailed, String] =
     val segments = value.split('/').toList
     if value.nonEmpty && !value.startsWith("/") && !value.startsWith("-") &&
-      !segments.contains("..")
+      !value.startsWith(":") && !segments.contains("..")
     then Right(value)
     else Left(new GitReadFailed.InvalidPath(value))
 
@@ -370,7 +377,8 @@ trait GitTool:
 
   /** `git show [--stat] <rev> [-- <paths>]` — a commit's message plus its diff,
     * or, under [[ShowDetail.StatOnly]], just its changed-file summary. `paths`
-    * narrows the diff; empty means the whole commit.
+    * narrows the diff; empty means the whole commit. When the commit renders no
+    * diff for `paths`, the result is a `Refused` rather than an empty success.
     *
     * Built for agent-supplied arguments, so `rev` and `paths` are validated
     * before they reach git ([[GitRead.rev]], [[GitRead.path]]) and cannot be
@@ -458,8 +466,11 @@ private[orca] class OsGitTool(
       events.onEvent(OrcaEvent.Step(s"Switched to branch '$name'"))
       Right(())
 
+  // `--` so a dash-leading name is a pattern rather than a flag: without it
+  // git exits 129 with its usage text, and the caller's typed `Left` never
+  // happens.
   private def branchExists(name: String): Boolean =
-    git("branch", "--list", name).trim.nonEmpty
+    git("branch", "--list", "--", name).trim.nonEmpty
 
   def dirtyPaths(): List[String] =
     // One porcelain line per path, except a rename ("R  old -> new"), which
@@ -854,7 +865,20 @@ private[orca] class OsGitTool(
     val output = gitRead(
       Seq("show") ++ statFlag ++ Seq("--end-of-options", checkedRev) ++ pathspec
     ).ok()
-    marked(output)
+    // git exits 0 printing nothing at all — not even the commit message — when
+    // it renders no diff for the pathspec. That blank cannot be told apart
+    // from a mistyped path, so there is no answer to hand back.
+    if checkedPaths.nonEmpty && output.out.isBlank then
+      Left(
+        new GitReadFailed.Refused(
+          s"$rev shows no diff for: ${paths.mkString(", ")} — they may be " +
+            "absent from that commit, present but unchanged by it, or " +
+            s"hidden because $rev is a merge, for which git renders no " +
+            "per-path diff by default. Retry without paths for the whole " +
+            "commit, or read a file's contents at that revision."
+        )
+      ).ok()
+    else marked(output)
 
   def fileAt(rev: String, path: String): Either[GitReadFailed, String] = either:
     val checkedRev = GitRead.rev(rev).ok()
