@@ -84,36 +84,16 @@ private[orca] object Conversations:
         emit(current.toString)
         current.clear()
 
-  /** The two texts an auto-denied `ApproveTool` produces: `reason` goes back to
-    * the agent on the wire, `error` to the user as an `OrcaEvent.Error`.
+  /** Why the tool wasn't already approved. The auto-approve set is blamed only
+    * when the tool really is outside it: a backend that ignores orca's set
+    * (opencode, whose own server config answers `permission.asked`) can ask
+    * about a tool the set already lists.
     */
-  private final case class AutoDenial(reason: String, error: String)
-
-  /** Under [[AutoApprove.All]] there is no approve set the tool could be
-    * missing from — the backend asked on its own account (an opencode server
-    * whose user config says `permission: ask`), so the denial must not blame a
-    * set that doesn't exist.
-    */
-  private def autoDenial(
-      toolName: String,
-      autoApprove: AutoApprove
-  ): AutoDenial =
+  private def denialCause(toolName: String, autoApprove: AutoApprove): String =
     autoApprove match
-      case AutoApprove.Only(_) =>
-        AutoDenial(
-          reason = s"$toolName is not in the auto-approve set and " +
-            "autonomous mode cannot prompt for permission",
-          error = s"Denied $toolName: not in auto-approve set " +
-            "(autonomous mode cannot prompt)"
-        )
-      case AutoApprove.All =>
-        AutoDenial(
-          reason =
-            s"$toolName needs an interactive approval that the backend " +
-              "asked for, and autonomous mode cannot answer prompts",
-          error = s"Denied $toolName: backend asked for interactive approval " +
-            "(autonomous mode cannot prompt)"
-        )
+      case AutoApprove.Only(tools) if !tools.contains(toolName) =>
+        "it is not in the auto-approve set"
+      case _ => "the backend asked for approval itself"
 
   def drainAutonomous[B <: BackendTag](
       conv: Conversation[B],
@@ -138,9 +118,19 @@ private[orca] object Conversations:
           // The subprocess blocks on stdin waiting for our decision and
           // autonomous mode has no user to ask, so deny with a reason (so the
           // agent can adapt) and surface as an error; dropping would deadlock.
-          val denial = autoDenial(toolName, autoApprove)
-          respond(ApprovalDecision.Deny(Some(denial.reason)))
-          events.onEvent(OrcaEvent.Error(denial.error))
+          val cause = denialCause(toolName, autoApprove)
+          respond(
+            ApprovalDecision.Deny(
+              Some(
+                s"$toolName denied: $cause, and autonomous mode cannot prompt"
+              )
+            )
+          )
+          events.onEvent(
+            OrcaEvent.Error(
+              s"Denied $toolName: $cause; autonomous mode cannot prompt"
+            )
+          )
         case ConversationEvent.UserQuestion(_, respond) =>
           // The ask_user MCP bridge isn't wired in autonomous mode (see
           // `ConversationMode.Autonomous`), so this should be unreachable. If it
