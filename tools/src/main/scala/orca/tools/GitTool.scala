@@ -86,10 +86,9 @@ private[tools] object GitRead:
     then Right(value)
     else Left(new GitReadFailed.InvalidPath(value))
 
-/** One consistent sample of what the next commit would include — see
-  * [[GitTool.pendingChanges]]. `newFiles` holds the paths new to the
-  * repository, which the stat cannot report and `diff` shows only as new-file
-  * hunks.
+/** What the next commit would include — see [[GitTool.pendingChanges]].
+  * `newFiles` holds the paths new to the repository, which the stat cannot
+  * report and `diff` shows only as new-file hunks.
   */
 case class PendingChanges(stat: String, newFiles: List[String], diff: String)
 
@@ -116,9 +115,8 @@ enum FileChange:
   */
 case class ChangedFile(path: String, change: FileChange)
 
-/** One consistent sample of the change set a reviewer sees — see
-  * [[GitTool.reviewChanges]]. `files` names every path in it, including the
-  * ones `diff` cannot show.
+/** The change set a reviewer sees — see [[GitTool.reviewChanges]]. `files`
+  * names every path in it, including the ones `diff` cannot show.
   */
 case class ReviewSample(diff: String, files: List[ChangedFile])
 
@@ -291,8 +289,8 @@ trait GitTool:
 
   /** The file paths in the change set [[reviewChanges]] renders: every tracked
     * path git reports as changed since `since` (`since` as in
-    * [[reviewChanges]]), plus every untracked non-`.orca/` path. Paths are
-    * relative to the tool's working directory.
+    * [[reviewChanges]]), plus every untracked path. `.orca/` bookkeeping is
+    * excluded from both; paths are relative to the tool's working directory.
     *
     * The list comes from git, not from parsing diff text, so files a diff body
     * can't show still appear: a binary change, a 100%-similarity rename (at its
@@ -451,8 +449,6 @@ private[orca] class OsGitTool(
   private def branchExists(name: String): Boolean =
     git("branch", "--list", name).trim.nonEmpty
 
-  private def isDirty(): Boolean = dirtyPaths().nonEmpty
-
   def dirtyPaths(): List[String] =
     // One porcelain line per path, except a rename ("R  old -> new"), which
     // is one line covering two paths — fine for an informational count.
@@ -462,7 +458,7 @@ private[orca] class OsGitTool(
       .toList
 
   def ensureClean(stashMessage: String)(using WorkspaceWrite): Boolean =
-    val dirty = isDirty()
+    val dirty = dirtyPaths().nonEmpty
     if dirty then
       val _ = git("stash", "push", "-u", "-m", stashMessage)
       events.onEvent(
@@ -621,12 +617,11 @@ private[orca] class OsGitTool(
   private def trackedDiff(since: String): String =
     git(("diff" +: since +: OsGitTool.wholeRepoExceptOrca)*)
 
-  /** `--stat` summary of the same change set as [[diff]]. `--stat=<width>`
-    * widens the stat line so the name column holds a full path — git's default
-    * width elides leading directories (`.../orca/tools/GitTool.scala`), which
-    * defeats the point of naming files; 200 clears any path this side of
-    * pathological.
-    */
+  /** `--stat` summary of the same change set as [[diff]]. */
+  // `--stat=<width>` widens the stat line so the name column holds a full path
+  // — git's default width elides leading directories
+  // (`.../orca/tools/GitTool.scala`), which defeats the point of naming files;
+  // 200 clears any path this side of pathological.
   private def diffStat(): String =
     git(("diff" +: "--stat=200" +: "HEAD" +: OsGitTool.wholeRepoExceptOrca)*)
 
@@ -685,10 +680,9 @@ private[orca] class OsGitTool(
     * normally one file; a directory git refuses to enter — a nested repository
     * — stays one entry, with a trailing slash.
     */
-  // `--untracked-files=all` recurses into untracked directories so every file
-  // inside is listed individually — the default mode lists only the directory.
-  // `-z` NUL-delimits records so a path containing a space or newline parses
-  // unambiguously.
+  // `--untracked-files=all` is what makes that recursion happen; the default
+  // mode lists only the directory. `-z` NUL-delimits records so a path
+  // containing a space or newline parses unambiguously.
   private def untrackedPaths(): List[String] =
     val orcaDir = s"$workDirPrefix${orca.OrcaDir.Name}"
     git("status", "--porcelain", "--untracked-files=all", "-z")
