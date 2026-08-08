@@ -195,12 +195,13 @@ most easily broken:
     has no read-only-with-network sandbox, which is what costs the tier its
     `Hard`.
   - gemini: `web_fetch` pre-approved through `--allowed-tools`.
-  - opencode: `webfetch` left enabled (`ReadOnly` disables it too).
+  - opencode: `webfetch` left unset, so the server's own default decides
+    (`ReadOnly` disables it by name).
   - pi: `bash`, pi's only path to the network — and, since `bash` also writes,
     what costs the tier its guarantee.
 
-  The compensation for having no shell is asymmetric too: claude's read-only
-  tiers get git reads served back by the host (`RepoMcpServer`), pi's
+  The compensation for having no shell is asymmetric: claude's read-only tiers
+  get git reads served back by the host (`RepoMcpServer`), pi's
   (`read,grep,find,ls`) get nothing.
 
 - **Conversation events.** The event grammar (turn boundaries, `Option` tool

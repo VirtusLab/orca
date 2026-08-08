@@ -9,6 +9,9 @@ import orca.events.{OrcaEvent, OrcaListener, TurnDebit, Usage}
   * Built once per call, so no emission site assembles the attribution itself
   * and a path that forgets the session key or the model fallback can't exist.
   *
+  * @param sessionName
+  *   the name a durable `agent.session(name, seed)` minted this session under;
+  *   `None` for one-shot and chat turns.
   * @param pinned
   *   the model the caller configured, used wherever the turn itself reports
   *   none.
@@ -19,6 +22,7 @@ private[orca] class TurnAccounting[B <: BackendTag](
     role: Option[String],
     backend: AgentBackend[B],
     session: SessionId[B],
+    sessionName: Option[String],
     pinned: Option[Model]
 ):
 
@@ -60,11 +64,12 @@ private[orca] class TurnAccounting[B <: BackendTag](
   def sessionCommitted(): Unit =
     events.onEvent(
       OrcaEvent.SessionCommitted(
-        backend.tag.wireName,
-        session.value,
-        backend.sessions.persistableWireId(session).map(_.value),
-        agentName,
-        role
+        harness = backend.tag.wireName,
+        clientId = session.value,
+        wireId = backend.sessions.persistableWireId(session).map(_.value),
+        sessionName = sessionName,
+        agent = agentName,
+        role = role
       )
     )
 
@@ -80,7 +85,8 @@ private[orca] class TurnAccounting[B <: BackendTag](
         usage = usage,
         role = role,
         attempt = attempt,
-        session = Some(sessionKey)
+        session = Some(sessionKey),
+        cost = None
       )
     )
 

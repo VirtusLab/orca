@@ -209,7 +209,7 @@ object FlowCanary:
       stage("pr"):
         val summary: PrSummary = summarisePr(
           agent = claude.haiku,
-          diff = git.diff(),
+          diff = git.uncommittedDiff(),
           context = Some("Originating issue: acme/widgets#7")
         )
         val _ = summary.title
@@ -222,7 +222,7 @@ object FlowCanary:
   def exportsSurface(): Unit =
     flow(OrcaArgs()):
       stage("exports"):
-        val tracker = new CostTracker()
+        val tracker = new CostTracker(Pricing.default.lastUpdated)
         val _: Option[Cost] = tracker.totalCost
         val listener: OrcaListener =
           case t: OrcaEvent.TokensUsed =>

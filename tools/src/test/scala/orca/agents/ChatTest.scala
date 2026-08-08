@@ -47,7 +47,7 @@ class ChatTest extends munit.FunSuite:
       with StubEnforcementCell[BackendTag.Pi.type]:
     val workDir: os.Path = os.pwd
     var seen: List[String] = Nil
-    def doRunAutonomous(
+    protected def doRunAutonomous(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
         config: AgentConfig,
@@ -60,7 +60,7 @@ class ChatTest extends munit.FunSuite:
         "out",
         Usage.empty
       )
-    def doRunInteractive(
+    protected def doRunInteractive(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
         displayPrompt: String,

@@ -45,12 +45,13 @@ private[orca] class LoggingListener extends OrcaListener:
         t.usage
       )
     case OrcaEvent.Error(message) => log.error("error: {}", message)
-    case OrcaEvent.SessionCommitted(harness, clientId, wireId, agent, role) =>
+    case e: OrcaEvent.SessionCommitted =>
       log.debug(
-        "session committed: harness={} clientId={} wireId={} agent={} role={}",
-        harness,
-        clientId,
-        wireId.getOrElse("(none)"),
-        agent,
-        role.getOrElse("(none)")
+        "session committed: harness={} clientId={} wireId={} sessionName={} agent={} role={}",
+        e.harness,
+        e.clientId,
+        e.wireId.getOrElse("(none)"),
+        e.sessionName.getOrElse("(none)"),
+        e.agent,
+        e.role.getOrElse("(none)")
       )

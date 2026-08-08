@@ -423,6 +423,29 @@ class BaseAgentTest extends munit.FunSuite:
     assertEquals(committed.head.wireId, Some("wire-committed"))
     assertEquals(committed.head.agent, "stub")
     assertEquals(committed.head.role, None)
+    assertEquals(committed.head.sessionName, None)
+
+  // The manifest classifies a session as durable off this field alone, so the
+  // name a `FlowSession` hands to `runWithSession` has to survive to the event.
+  test("a named session's name reaches SessionCommitted"):
+    val seen =
+      new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
+    val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
+    val tool =
+      new StubTool(new CommittingBackend("wire-named"), listener = listener)
+    val _ = tool.autonomous.runWithSession(
+      "prompt",
+      SessionId.fresh[BackendTag.Pi.type],
+      sessionName = Some("coder"),
+      config = None,
+      emitPrompt = true
+    )
+    assertEquals(
+      seen.get().collect { case e: OrcaEvent.SessionCommitted =>
+        e.sessionName
+      },
+      List(Some("coder"))
+    )
 
   // A turn joins to the session that produced it only if it names that session
   // by the same key `SessionCommitted` is deduplicated under — here the wire id
@@ -670,7 +693,7 @@ class BaseAgentTest extends munit.FunSuite:
       with StubEnforcementCell[BackendTag.Pi.type]:
     val workDir: os.Path = os.pwd
     var lastConfig: Option[AgentConfig] = None
-    def doRunAutonomous(
+    protected def doRunAutonomous(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
         config: AgentConfig,
@@ -683,7 +706,7 @@ class BaseAgentTest extends munit.FunSuite:
         "out",
         Usage.empty
       )
-    def doRunInteractive(
+    protected def doRunInteractive(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
         displayPrompt: String,
@@ -704,14 +727,14 @@ class BaseAgentTest extends munit.FunSuite:
       extends AgentBackend[BackendTag.Pi.type]
       with StubEnforcementCell[BackendTag.Pi.type]:
     val workDir: os.Path = os.pwd
-    def doRunAutonomous(
+    protected def doRunAutonomous(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
         config: AgentConfig,
         events: OrcaListener,
         outputSchema: Option[String]
     ): AgentResult[BackendTag.Pi.type] = throw error
-    def doRunInteractive(
+    protected def doRunInteractive(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
         displayPrompt: String,
@@ -732,7 +755,7 @@ class BaseAgentTest extends munit.FunSuite:
       extends AgentBackend[BackendTag.Pi.type]
       with StubEnforcementCell[BackendTag.Pi.type]:
     val workDir: os.Path = os.pwd
-    def doRunAutonomous(
+    protected def doRunAutonomous(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
         config: AgentConfig,
@@ -746,7 +769,7 @@ class BaseAgentTest extends munit.FunSuite:
         "short-label",
         Usage.empty
       )
-    def doRunInteractive(
+    protected def doRunInteractive(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
         displayPrompt: String,
@@ -782,7 +805,7 @@ class BaseAgentTest extends munit.FunSuite:
     val tag: BackendTag.Pi.type = BackendTag.Pi
     def structuredOutputMode: StructuredOutputMode =
       StructuredOutputMode.RawText
-    def doRunAutonomous(
+    protected def doRunAutonomous(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
         config: AgentConfig,
@@ -820,7 +843,7 @@ class BaseAgentTest extends munit.FunSuite:
             )
           def canAskUser: Boolean = false
           def cancel(): Unit = ()
-    def doRunInteractive(
+    protected def doRunInteractive(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
         displayPrompt: String,
@@ -894,7 +917,7 @@ class BaseAgentTest extends munit.FunSuite:
   private class FailFirstBackend(error: Throwable, replies: String*)
       extends ScriptedDrainBackend(replies*):
     private var thrown = false
-    override def doRunAutonomous(
+    override protected def doRunAutonomous(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
         config: AgentConfig,
@@ -925,14 +948,14 @@ class BaseAgentTest extends munit.FunSuite:
     val tag: BackendTag.Pi.type = BackendTag.Pi
     def structuredOutputMode: StructuredOutputMode =
       StructuredOutputMode.RawText
-    def doRunAutonomous(
+    protected def doRunAutonomous(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
         config: AgentConfig,
         events: OrcaListener,
         outputSchema: Option[String]
     ): AgentResult[BackendTag.Pi.type] = throw new UnsupportedOperationException
-    def doRunInteractive(
+    protected def doRunInteractive(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
         displayPrompt: String,
@@ -980,7 +1003,7 @@ class BaseAgentTest extends munit.FunSuite:
     val workDir: os.Path = os.pwd
     val sessions: SessionSupport[BackendTag.Pi.type] =
       SessionSupport.durable(IdScheme.ServerMinted, _ => true)
-    def doRunAutonomous(
+    protected def doRunAutonomous(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
         config: AgentConfig,
@@ -994,7 +1017,7 @@ class BaseAgentTest extends munit.FunSuite:
       )
       sessions.commitAfterDrain(session, result.wireId)
       result
-    def doRunInteractive(
+    protected def doRunInteractive(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
         displayPrompt: String,
@@ -1010,7 +1033,7 @@ class BaseAgentTest extends munit.FunSuite:
       extends AgentBackend[BackendTag.Pi.type]
       with StubEnforcementCell[BackendTag.Pi.type]:
     val workDir: os.Path = os.pwd
-    def doRunAutonomous(
+    protected def doRunAutonomous(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
         config: AgentConfig,
@@ -1022,7 +1045,7 @@ class BaseAgentTest extends munit.FunSuite:
         "out",
         Usage.empty
       )
-    def doRunInteractive(
+    protected def doRunInteractive(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
         displayPrompt: String,
@@ -1042,14 +1065,14 @@ class BaseAgentTest extends munit.FunSuite:
     val workDir: os.Path = os.pwd
     var closeCount: Int = 0
     override def close(): Unit = closeCount += 1
-    def doRunAutonomous(
+    protected def doRunAutonomous(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
         config: AgentConfig,
         events: OrcaListener,
         outputSchema: Option[String]
     ): AgentResult[BackendTag.Pi.type] = ???
-    def doRunInteractive(
+    protected def doRunInteractive(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
         displayPrompt: String,

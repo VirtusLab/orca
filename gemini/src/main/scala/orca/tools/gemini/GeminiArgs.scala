@@ -66,9 +66,6 @@ private[gemini] object GeminiArgs:
     */
   private val NetworkTools: Seq[String] = Seq("web_fetch")
 
-  /** The approval flags a tier gets and the guarantee they achieve — one match
-    * builds both, so they cannot drift apart.
-    */
   private case class ApprovalWiring(args: Seq[String], cell: EnforcementCell)
 
   /** The read-only tiers' cell. Shared because both ride on `--approval-mode
@@ -79,7 +76,7 @@ private[gemini] object GeminiArgs:
     */
   private val PlanModeCell: EnforcementCell = EnforcementCell(
     Enforcement.PromptOnly,
-    "`--approval-mode plan` is UNMEASURED, not known weak: no headless `plan` turn has been run against a write attempt. The same class of mechanism on claude — `--permission-mode plan` — was measured and removes no tools (`docs/research/run-cost/09-diff-vs-coordinates.md` §2)"
+    "`--approval-mode plan` is UNMEASURED, not known weak: no headless `plan` turn has been run against a write attempt. The same class of mechanism on claude — `--permission-mode plan` — was measured and removes no tools (`docs/research/run-cost/09-diff-vs-coordinates.md` §2)."
   )
 
   /** Maps [[AgentConfig.tools]] to gemini's approval mode, and classifies how

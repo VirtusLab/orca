@@ -61,14 +61,14 @@ class WithCheapModelTest extends munit.FunSuite:
       extends AgentBackend[BackendTag.Pi.type]
       with StubEnforcementCell[BackendTag.Pi.type]:
     val workDir: os.Path = os.pwd
-    def doRunAutonomous(
+    protected def doRunAutonomous(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
         config: AgentConfig,
         events: OrcaListener,
         outputSchema: Option[String]
     ): AgentResult[BackendTag.Pi.type] = ???
-    def doRunInteractive(
+    protected def doRunInteractive(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
         displayPrompt: String,

@@ -253,12 +253,12 @@ class ClaudeBackendTest extends munit.FunSuite:
     assert(thrown.getMessage.contains("Bash(gh api:*)"), thrown.getMessage)
 
   test("withNetworkTools rejects a write-capable builtin"):
-    // A bare "Bash" passes the shape check, and NetworkOnly would put it on
-    // both --tools and --allowedTools while the tier still reports Hard.
+    // A bare "Bash" passes the shape check.
     val thrown = intercept[IllegalArgumentException]:
       new ClaudeBackend(new SpawnStubCliRunner(Nil))
         .withNetworkTools(Seq("WebFetch", "Bash"))
     assert(thrown.getMessage.contains("Bash"), thrown.getMessage)
+    assert(thrown.getMessage.contains("ToolSet.Full"), thrown.getMessage)
 
   test("withNetworkTools overrides the default network tools"):
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
@@ -405,21 +405,18 @@ class ClaudeBackendTest extends munit.FunSuite:
       promptText
     )
 
-  test("a read-only turn is told about the repo-read MCP tools"):
-    // Without the hint the agent has no reason to look for tools that replace
-    // the shell it no longer has.
-    val promptText = readOnlySystemPrompt()
-    assert(promptText.exists(_.contains(RepoMcpServer.Hint)), promptText)
-
   test("a read-only turn's prompt file carries the read-only rule"):
-    // Pins the composer onto the spawn path: this text is what a `PromptOnly`
-    // enforcement cell means, so a spawn path that skipped the composer would
-    // leave such a cell restricting nothing.
     val promptText = readOnlySystemPrompt()
     assert(
       promptText.exists(_.contains(SystemPromptComposer.ReadOnlyTurn)),
       promptText
     )
+
+  test("a read-only turn is told about the repo-read MCP tools"):
+    // Without the hint the agent has no reason to look for tools that replace
+    // the shell it no longer has.
+    val promptText = readOnlySystemPrompt()
+    assert(promptText.exists(_.contains(RepoMcpServer.Hint)), promptText)
 
   /** The system-prompt file text a `ToolSet.ReadOnly` autonomous turn spawns
     * with.

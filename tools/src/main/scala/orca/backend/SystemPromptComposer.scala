@@ -24,9 +24,9 @@ private[orca] object SystemPromptComposer:
     * owns git, so the agent must never commit, push, or switch branches itself.
     * Without it, coding agents routinely `git commit` their own work, which
     * empties the working tree and then turns the flow's own `git.commit(...)`
-    * into a `NothingToCommit` no-op and leaves `git.diff()` empty, so reviewer
-    * selection sees no changed files and runs no reviewers. Omitted on
-    * read-only turns and on [[AgentConfig.selfManagedGit]] turns.
+    * into a `NothingToCommit` no-op and leaves `git.uncommittedDiff()` empty,
+    * so reviewer selection sees no changed files and runs no reviewers. Omitted
+    * on read-only turns and on [[AgentConfig.selfManagedGit]] turns.
     */
   val RuntimeOwnsGit: String =
     PromptResource.load("/orca/backend/prompts/runtime-owns-git.md")

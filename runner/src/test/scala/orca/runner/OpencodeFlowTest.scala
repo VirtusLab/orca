@@ -101,7 +101,7 @@ class OpencodeFlowTest extends munit.FunSuite:
       extends AgentBackend[BackendTag.Opencode.type]
       with StubEnforcementCell[BackendTag.Opencode.type]:
     val workDir: os.Path = os.pwd
-    def doRunAutonomous(
+    protected def doRunAutonomous(
         prompt: String,
         session: SessionId[BackendTag.Opencode.type],
         config: AgentConfig,
@@ -109,7 +109,7 @@ class OpencodeFlowTest extends munit.FunSuite:
         outputSchema: Option[String]
     ): AgentResult[BackendTag.Opencode.type] =
       AgentResult(session.onWire, json, Usage.empty)
-    def doRunInteractive(
+    protected def doRunInteractive(
         prompt: String,
         session: SessionId[BackendTag.Opencode.type],
         displayPrompt: String,
@@ -156,6 +156,7 @@ class OpencodeFlowTest extends munit.FunSuite:
             private[orca] def runWithSession[I: AgentInput](
                 input: I,
                 session: SessionId[BackendTag.Opencode.type],
+                sessionName: Option[String],
                 config: Option[AgentConfig],
                 emitPrompt: Boolean
             )(using orca.InStage): O =

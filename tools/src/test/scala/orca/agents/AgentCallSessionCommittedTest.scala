@@ -104,7 +104,12 @@ class AgentCallSessionCommittedTest extends munit.FunSuite:
         interaction = drivingInteraction,
         agentName = "claude"
       )
-      val answer = call.interactive.runWithSession("anything", clientSid, None)
+      val answer = call.interactive.runWithSession(
+        "anything",
+        clientSid,
+        sessionName = None,
+        config = None
+      )
       assertEquals(answer, SessionCommittedAnswer(3))
       val committed = seen.get().reverse.collect {
         case e: OrcaEvent.SessionCommitted => e
@@ -130,7 +135,7 @@ class AgentCallSessionCommittedTest extends munit.FunSuite:
     val tag: BackendTag.ClaudeCode.type = BackendTag.ClaudeCode
     def structuredOutputMode: StructuredOutputMode =
       StructuredOutputMode.RawText
-    def doRunAutonomous(
+    protected def doRunAutonomous(
         prompt: String,
         session: SessionId[BackendTag.ClaudeCode.type],
         config: AgentConfig,
@@ -148,7 +153,7 @@ class AgentCallSessionCommittedTest extends munit.FunSuite:
       )
       sessions.commitAfterDrain(session, result.wireId)
       result
-    def doRunInteractive(
+    protected def doRunInteractive(
         prompt: String,
         session: SessionId[BackendTag.ClaudeCode.type],
         displayPrompt: String,
