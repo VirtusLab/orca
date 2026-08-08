@@ -1,6 +1,12 @@
 package orca.tools.claude
 
-import orca.agents.{AutoApprove, BackendTag, AgentConfig, Model}
+import orca.agents.{
+  AutoApprove,
+  BackendTag,
+  AgentConfig,
+  Model,
+  StructuredOutputMode
+}
 import orca.AgentTurnFailed
 import orca.events.TurnDebit
 import orca.backend.{ApprovalDecision, ConversationEvent}
@@ -41,6 +47,9 @@ private[claude] class ClaudeConversation(
       backendName = "claude",
       initialPrompt = initialPrompt
     ):
+
+  override def structuredOutputMode: StructuredOutputMode =
+    ClaudeBackend.StructuredOutputDelivery
 
   // The reader thread is the sole writer for the fields below, and reads happen
   // on the same thread within `handle(...)` dispatch — no cross-thread
