@@ -22,6 +22,17 @@ import orca.agents.{Agent, Chat}
   */
 case class Lint(commands: List[String], agent: Agent[?])
 
+/** Run `cmd` through `bash -c` in `ctx.workDir`. A nonzero exit is returned,
+  * not thrown — the caller decides what a failure means. `mergeErrIntoOut`
+  * folds stderr into the captured stdout so neither stream reaches the terminal
+  * and tears the renderer's status row.
+  */
+private[review] def runShell(cmd: String)(using
+    ctx: FlowContext
+): os.CommandResult =
+  os.proc("bash", "-c", cmd)
+    .call(cwd = ctx.workDir, check = false, mergeErrIntoOut = true)
+
 /** One executed lint command, rendered for the summariser as a labelled block
   * headed
   * {{{
@@ -73,9 +84,7 @@ def lint(
     instructions: String
 )(using ctx: FlowContext, ev: InStage): LintReport =
   val runs = commands.map: command =>
-    val proc = os
-      .proc("bash", "-c", command)
-      .call(cwd = ctx.workDir, check = false, mergeErrIntoOut = true)
+    val proc = runShell(command)
     LintRun(command, proc.exitCode, proc.out.text().trim)
   // The summariser is skipped only when every run is both silent AND successful.
   val allClean = runs.forall(r => r.exitCode == 0 && r.output.isEmpty)

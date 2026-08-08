@@ -305,6 +305,7 @@ object FlowLifecycle:
     given InStage = RuntimeInStage.token()
     given WorkspaceWrite = RuntimeInStage.workspaceToken()
     warnIfSettingsIgnored(git, stackOverridden, emit)
+    abortIfNoCommits(git)
     val startBranch = git.currentBranch()
     abortIfBranchBusy(store, workDir, startBranch)
     // Snapshot the log file before any stash, restore it after if the stash
@@ -347,6 +348,19 @@ object FlowLifecycle:
       stackSettings,
       binding.branchMode
     )
+
+  /** On an unborn HEAD (`git init`, no commits) every later git call that names
+    * `HEAD` exits 128 with git's "ambiguous argument 'HEAD'" fatal, so refuse
+    * here with our own message. `headCommit()` is also `None` outside a git
+    * repository, hence the message names both cases.
+    */
+  private def abortIfNoCommits(git: GitTool): Unit =
+    if git.headCommit().isEmpty then
+      throw new OrcaFlowException(
+        "orca needs a git repository with at least one commit — " +
+          "initialize one if needed (git init), then make the first commit " +
+          "(git add -A && git commit -m \"initial commit\")"
+      )
 
   /** Refuse to start a NEW run on a branch that another run's progress log
     * already claims (ADR 0018 §2.5, R1 amendment).
@@ -465,8 +479,7 @@ object FlowLifecycle:
       if args.skipBranch.value then
         val isResume =
           store.loadDetailed().isInstanceOf[ProgressStore.LoadResult.Loaded]
-        if isResume then
-          val _ = git.ensureClean("orca: starting flow")
+        if isResume then git.ensureClean("orca: starting flow")
         else
           val dirty = git.dirtyPaths()
           if dirty.nonEmpty then
@@ -475,8 +488,7 @@ object FlowLifecycle:
                 s"leaving ${dirty.size} uncommitted/untracked file(s) in place for the flow"
               )
             )
-      else
-        val _ = git.ensureClean("orca: starting flow")
+      else git.ensureClean("orca: starting flow")
 
     /** Bind the run to a branch + progress log — resume onto the header's
       * branch for a valid log, warn and start fresh from a corrupt one, or
@@ -746,11 +758,11 @@ object FlowLifecycle:
 
   /** Fresh run: resolve + create the branch, then commit the header as the
     * branch's first commit. The commit is pathspec-scoped to just the
-    * progress-log file (`forceAdd` + `commitStaged`, never `add -A`), so a
-    * dirty tree left by skip-branch mode reaches the branch only via the first
-    * stage's own commit. Shared by the absent-log and corrupt-log arms of
-    * [[bindBranch]]. Needs `InStage` (branch-name resolution may call the cheap
-    * model) and `WorkspaceWrite` (the git writes).
+    * progress-log file (never `add -A`), so a dirty tree left by skip-branch
+    * mode reaches the branch only via the first stage's own commit. Shared by
+    * the absent-log and corrupt-log arms of [[bindBranch]]. Needs `InStage`
+    * (branch-name resolution may call the cheap model) and `WorkspaceWrite`
+    * (the git writes).
     *
     * The resolved name is minted into a [[FeatureBranch]] before reaching git:
     * a protected-name collision falls back to a deterministic
@@ -822,8 +834,7 @@ object FlowLifecycle:
         flowName = flowName
       )
     )
-    git.forceAdd(store.path)
-    git.commitStaged(store.path, "orca: progress log")
+    git.forceCommitOnly(store.path, "orca: progress log")
     branch
 
   /** Give the just-discovered settings file its own commit (ADR 0019), so the
@@ -832,10 +843,10 @@ object FlowLifecycle:
     *
     * [[GitTool.commitOnly]]'s pathspec guarantees the commit carries exactly
     * this one path — anything else dirty or untracked stays out. Not
-    * `forceAdd`: a repo that still ignores `.orca/` must keep the file ignored
-    * (the migration warning already covers it), so the commit is skipped when
-    * [[GitTool.isIgnored]] reports the path excluded. Only the progress log
-    * punches through the ignore, for resume correctness.
+    * `forceCommitOnly`: a repo that still ignores `.orca/` must keep the file
+    * ignored (the migration warning already covers it), so the commit is
+    * skipped when [[GitTool.isIgnored]] reports the path excluded. Only the
+    * progress log punches through the ignore, for resume correctness.
     */
   private def commitDiscoveredSettings(git: GitTool, workDir: os.Path)(using
       WorkspaceWrite
@@ -1035,9 +1046,10 @@ object FlowLifecycle:
     val throwaway =
       setup.branchMode == BranchMode.Created &&
         setup.featureBranch.value != setup.startBranch &&
-        git
-          .diffBranchExcludingOrca(setup.startBranch, setup.featureBranch.value)
-          .isBlank
+        !git.branchHasChangesExcludingOrca(
+          setup.startBranch,
+          setup.featureBranch.value
+        )
     if throwaway then
       // The start branch existed when this run began, so a plain `checkout`
       // suffices; if it's gone mid-run that's genuinely exceptional, not a case

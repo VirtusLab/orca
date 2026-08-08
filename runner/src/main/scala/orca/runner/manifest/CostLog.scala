@@ -11,6 +11,7 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.{
 import orca.events.{Cost, Usage}
 
 import java.nio.charset.StandardCharsets
+import java.time.Instant
 import scala.util.control.NonFatal
 
 /** The persisted projection of [[orca.events.Usage]]'s token axes.
@@ -19,31 +20,29 @@ import scala.util.control.NonFatal
   * here has to be traceable to the one it mirrors, or the two drift and a
   * reader silently reports the wrong money. `RunManifestTest` pins that
   * correspondence against `Usage`'s own field list, so an axis added there
-  * fails a test instead of silently vanishing from the log.
-  *
-  * `inputTokens` is the one name that isn't a field of `Usage`: it is the TOTAL
-  * prompt, `cacheReadInputTokens` and `cacheWriteInputTokens` INCLUDED, so
-  * adding the three double counts. `apiCalls`, an axis of `Usage`, isn't here
-  * at all: it lives on [[CostRecord.Turn]], beside the attribution fields.
+  * fails a test instead of silently vanishing from the log. The input axes are
+  * therefore disjoint, as they are on `Usage`, and the total prompt is their
+  * sum. `apiCalls`, an axis of `Usage`, isn't here at all: it lives on
+  * [[CostRecord.Turn]], beside the attribution fields.
   *
   * Deliberately carries no money, unlike `Usage`: `Usage.cost` is only the
   * portion backends reported, and an unlabelled figure next to a resolved
   * [[orca.events.Cost]] is how reported and estimated spend get mixed.
   */
 private[orca] case class ManifestUsage(
-    inputTokens: Long,
-    outputTokens: Long,
+    freshInputTokens: Long,
     cacheReadInputTokens: Long,
     cacheWriteInputTokens: Long,
+    outputTokens: Long,
     reasoningOutputTokens: Long
 )
 
 private[orca] object ManifestUsage:
   def of(usage: Usage): ManifestUsage = ManifestUsage(
-    inputTokens = usage.inputTokens,
-    outputTokens = usage.outputTokens,
+    freshInputTokens = usage.freshInputTokens,
     cacheReadInputTokens = usage.cacheReadInputTokens,
     cacheWriteInputTokens = usage.cacheWriteInputTokens,
+    outputTokens = usage.outputTokens,
     reasoningOutputTokens = usage.reasoningOutputTokens
   )
 
@@ -70,7 +69,7 @@ private[orca] enum CostRecord:
     * the key the conversation is recorded under in [[RunManifest.sessions]].
     */
   case Turn(
-      at: String,
+      at: Instant,
       agent: String,
       role: Option[String],
       stage: Option[String],
@@ -85,7 +84,7 @@ private[orca] enum CostRecord:
     * a failed one for a turn-only run, whose `outcome` has no other home — a
     * distinction that changes how the run's spend reads.
     */
-  case Finish(at: String, outcome: String)
+  case Finish(at: Instant, outcome: String)
 
 private[orca] object CostRecord:
   given codec: ConfiguredJsonValueCodec[CostRecord] =

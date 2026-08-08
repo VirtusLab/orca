@@ -525,6 +525,12 @@ class FlowLifecycleTest extends munit.FunSuite:
   private def setupFresh(workDir: os.Path): FlowLifecycle.FlowSetup =
     setupForSettings(workDir, Some(StackSettings.empty), "a brand new task")
 
+  test("setup: a repository with no commits is refused with a named next step"):
+    val workDir = GitRepo.empty()
+    val thrown = intercept[orca.OrcaFlowException](setupFresh(workDir): Unit)
+    assert(thrown.getMessage.contains("at least one commit"), thrown.getMessage)
+    assert(thrown.getMessage.contains("git commit"), thrown.getMessage)
+
   test(
     "setup: a FRESH run refuses to start on a branch another run's log claims"
   ):
@@ -1976,9 +1982,13 @@ class FlowLifecycleTest extends munit.FunSuite:
       branchesBefore,
       "skip-branch mode must not create any new branch"
     )
-    val log = git.log(5).map(_.message)
+    val log = os
+      .proc("git", "log", "-5", "--pretty=format:%s")
+      .call(cwd = workDir)
+      .out
+      .text()
     assert(
-      log.exists(_.contains("progress log")),
+      log.contains("progress log"),
       s"the header commit must still land, on the reused branch: $log"
     )
 
@@ -2140,7 +2150,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       "a fresh skip-branch run must never stash"
     )
     assert(
-      !git.isDirty(),
+      git.dirtyPaths().isEmpty,
       "the modification must have been swept into a commit by run's end"
     )
     assertEquals(os.read(workDir / "seed.txt"), "modified in place")
@@ -2398,12 +2408,9 @@ class FlowLifecycleTest extends munit.FunSuite:
       setup: FlowLifecycle.FlowSetup,
       logRelPath: os.SubPath
   ):
-    /** Commit the progress log, force-staged as the runtime does, so it lands
-      * in history even under a gitignored `.orca/`.
-      */
+    /** Commit the progress log exactly as the runtime does. */
     def commitLog()(using WorkspaceWrite): Unit =
-      git.forceAdd(setup.store.path)
-      git.commitStaged(setup.store.path, "orca: progress log")
+      git.forceCommitOnly(setup.store.path, "orca: progress log")
 
   /** A bare local-path remote needs no credentials, so these tests exercise the
     * real push without a network round-trip.
