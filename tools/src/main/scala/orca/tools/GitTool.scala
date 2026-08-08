@@ -6,6 +6,7 @@ import orca.subprocess.{CappedResult, QuietProc}
 import ox.either
 import ox.either.ok
 
+import java.nio.charset.StandardCharsets
 import scala.util.control.NonFatal
 
 /** How much of a commit [[GitTool.show]] renders. */
@@ -36,10 +37,10 @@ object GitReadFailed:
   final class InvalidPath(path: String)
       extends GitReadFailed(s"'$path' is not a repository-relative path")
 
-  /** The read has no usable answer: git refused (an unknown revision, or a path
-    * missing from that commit in [[GitTool.fileAt]]), or [[GitTool.show]] found
-    * none of the requested paths in the commit — git exits 0 printing nothing
-    * there, so orca supplies the message rather than git.
+  /** The read has no usable answer. `detail` is git's own message when git
+    * refused (an unknown revision, a path missing from the commit), and orca's
+    * when git succeeded but the result is unusable — [[GitTool.show]] rendering
+    * nothing for the requested paths, [[GitTool.fileAt]] past its size limit.
     */
   final class Refused(detail: String) extends GitReadFailed(detail)
 
@@ -82,8 +83,9 @@ private[tools] object GitRead:
 
   /** A repository-relative path: neither absolute, nor climbing out via `..`,
     * nor a magic pathspec. Git reads any leading `:` as magic — `:(exclude)`
-    * inverts the request and `:(top)` escapes the working directory — and no
-    * plain path is addressable that way, so rejecting the prefix costs nothing.
+    * inverts the request and `:(top)` re-anchors the pathspec at the repository
+    * root — and no plain path is addressable that way, so rejecting the prefix
+    * costs nothing.
     */
   def path(value: String): Either[GitReadFailed, String] =
     val segments = value.split('/').toList
@@ -92,10 +94,9 @@ private[tools] object GitRead:
     then Right(value)
     else Left(new GitReadFailed.InvalidPath(value))
 
-/** One consistent sample of what the next commit would include — see
-  * [[GitTool.pendingChanges]]. `newFiles` holds the paths new to the
-  * repository, which the stat cannot report and `diff` shows only as new-file
-  * hunks.
+/** What the next commit would include — see [[GitTool.pendingChanges]].
+  * `newFiles` holds the paths new to the repository, which the stat cannot
+  * report and `diff` shows only as new-file hunks.
   */
 case class PendingChanges(stat: String, newFiles: List[String], diff: String)
 
@@ -122,9 +123,8 @@ enum FileChange:
   */
 case class ChangedFile(path: String, change: FileChange)
 
-/** One consistent sample of the change set a reviewer sees — see
-  * [[GitTool.reviewChanges]]. `files` names every path in it, including the
-  * ones `diff` cannot show.
+/** The change set a reviewer sees — see [[GitTool.reviewChanges]]. `files`
+  * names every path in it, including the ones `diff` cannot show.
   */
 case class ReviewSample(diff: String, files: List[ChangedFile])
 
@@ -293,15 +293,14 @@ trait GitTool:
     * then shows up as a pair of very long -/+ lines that sort ahead of the real
     * change.
     *
-    * Capped at `OsGitTool.MaxReadBytes` and marked where it was cut — the
-    * change set's size is set by the working tree, not by the caller.
+    * Capped at `OsGitTool.MaxReadBytes` and marked where it was cut.
     */
   def diff(): String
 
   /** The file paths in the change set [[reviewChanges]] renders: every tracked
     * path git reports as changed since `since` (`since` as in
-    * [[reviewChanges]]), plus every untracked non-`.orca/` path. Paths are
-    * relative to the tool's working directory.
+    * [[reviewChanges]]), plus every untracked path. `.orca/` bookkeeping is
+    * excluded from both; paths are relative to the tool's working directory.
     *
     * The list comes from git, not from parsing diff text, so files a diff body
     * can't show still appear: a binary change, a 100%-similarity rename (at its
@@ -333,8 +332,10 @@ trait GitTool:
     * per projection (a patch diff and a `--numstat` diff), so a tracked file
     * written between those two reads can still differ across them.
     *
-    * The diff text is bounded: `OsGitTool.MaxReadBytes` overall, past which the
-    * remaining untracked files are named rather than rendered. `files` is
+    * The diff text is bounded: untracked files stop being rendered once
+    * `OsGitTool.MaxReadBytes` of it has accumulated, so the rendered part
+    * reaches at most twice that — the file crossing the budget is rendered
+    * whole. Every path past it is still named, one line each. `files` is
     * unaffected, so a caller can still see every path in the change set.
     */
   def reviewChanges(since: Option[String] = None): ReviewSample
@@ -349,7 +350,8 @@ trait GitTool:
     * what is about to be committed needs them alongside the diff.
     *
     * Same sampling contract as [[reviewChanges]]: one untracked sample for all
-    * three shapes, tracked changes read per shape.
+    * three shapes, tracked changes read per shape, and the same budget past
+    * which an untracked file is named rather than rendered.
     */
   def pendingChanges(): PendingChanges
 
@@ -375,7 +377,8 @@ trait GitTool:
 
   /** `git show [--stat] <rev> [-- <paths>]` — a commit's message plus its diff,
     * or, under [[ShowDetail.StatOnly]], just its changed-file summary. `paths`
-    * narrows the diff; empty means the whole commit.
+    * narrows the diff; empty means the whole commit. When the commit renders no
+    * diff for `paths`, the result is a `Refused` rather than an empty success.
     *
     * Built for agent-supplied arguments, so `rev` and `paths` are validated
     * before they reach git ([[GitRead.rev]], [[GitRead.path]]) and cannot be
@@ -469,8 +472,6 @@ private[orca] class OsGitTool(
   private def branchExists(name: String): Boolean =
     git("branch", "--list", "--", name).trim.nonEmpty
 
-  private def isDirty(): Boolean = dirtyPaths().nonEmpty
-
   def dirtyPaths(): List[String] =
     // One porcelain line per path, except a rename ("R  old -> new"), which
     // is one line covering two paths — fine for an informational count.
@@ -480,7 +481,7 @@ private[orca] class OsGitTool(
       .toList
 
   def ensureClean(stashMessage: String)(using WorkspaceWrite): Boolean =
-    val dirty = isDirty()
+    val dirty = dirtyPaths().nonEmpty
     if dirty then
       val _ = git("stash", "push", "-u", "-m", stashMessage)
       events.onEvent(
@@ -623,12 +624,11 @@ private[orca] class OsGitTool(
   private def trackedDiff(since: String): String =
     marked(gitCapped(("diff" +: since +: OsGitTool.wholeRepoExceptOrca)*))
 
-  /** `--stat` summary of the same change set as [[diff]]. `--stat=<width>`
-    * widens the stat line so the name column holds a full path — git's default
-    * width elides leading directories (`.../orca/tools/GitTool.scala`), which
-    * defeats the point of naming files; 200 clears any path this side of
-    * pathological.
-    */
+  /** `--stat` summary of the same change set as [[diff]]. */
+  // `--stat=<width>` widens the stat line so the name column holds a full path
+  // — git's default width elides leading directories
+  // (`.../orca/tools/GitTool.scala`), which defeats the point of naming files;
+  // 200 clears any path this side of pathological.
   private def diffStat(): String =
     git(("diff" +: "--stat=200" +: "HEAD" +: OsGitTool.wholeRepoExceptOrca)*)
 
@@ -680,12 +680,12 @@ private[orca] class OsGitTool(
       diff = withNewFileContents("HEAD", untracked, OsGitTool.MaxReadBytes)
     )
 
-  /** The tracked diff followed by one new-file diff per untracked path, cut off
-    * at `budget` bytes: an agent that ran a package manager or a build before
-    * anything ignored its output leaves tens of thousands of untracked files,
-    * each a subprocess and a full file's contents on the heap. Past the budget
-    * a path is named the same way an unrenderable one is, so nothing silently
-    * disappears from the sample.
+  /** The tracked diff followed by one new-file diff per untracked path,
+    * stopping at the first untracked file past `budget` bytes: an agent that
+    * ran a package manager or a build before anything ignored its output leaves
+    * tens of thousands of untracked files, each a subprocess and a full file's
+    * contents on the heap. Past the budget a path is named the same way an
+    * unrenderable one is, so nothing silently disappears from the sample.
     */
   private def withNewFileContents(
       since: String,
@@ -693,6 +693,12 @@ private[orca] class OsGitTool(
       budget: Int
   ): String =
     val tracked = trackedDiff(since)
+
+    // `budget` counts bytes, as the read cap that produces each piece does: a
+    // piece cut at the cap is exactly that many bytes, so counting chars would
+    // let rendering continue past a cut and put the cut marker mid-document.
+    def utf8Size(piece: String): Int =
+      piece.getBytes(StandardCharsets.UTF_8).length
 
     @scala.annotation.tailrec
     def render(
@@ -707,19 +713,18 @@ private[orca] class OsGitTool(
             if size >= budget then
               s"# skipped $path: past the $budget-byte diff budget\n"
             else untrackedFileDiff(path)
-          render(rest, size + piece.length, piece :: acc)
+          render(rest, size + utf8Size(piece), piece :: acc)
 
-    (tracked :: render(untracked, tracked.length, Nil)).mkString
+    (tracked :: render(untracked, utf8Size(tracked), Nil)).mkString
 
   /** Untracked, non-`.orca/` paths anywhere in the repository, relative to
     * `workDir`. Untracked directories are recursed into, so an entry is
     * normally one file; a directory git refuses to enter — a nested repository
     * — stays one entry, with a trailing slash.
     */
-  // `--untracked-files=all` recurses into untracked directories so every file
-  // inside is listed individually — the default mode lists only the directory.
-  // `-z` NUL-delimits records so a path containing a space or newline parses
-  // unambiguously.
+  // `--untracked-files=all` is what makes that recursion happen; the default
+  // mode lists only the directory. `-z` NUL-delimits records so a path
+  // containing a space or newline parses unambiguously.
   private def untrackedPaths(): List[String] =
     val orcaDir = s"$workDirPrefix${orca.OrcaDir.Name}"
     git("status", "--porcelain", "--untracked-files=all", "-z")
@@ -755,10 +760,11 @@ private[orca] class OsGitTool(
     * as success would return an empty diff for a file that does have contents.
     *
     * A path [[undiffableReason]] names is announced rather than diffed, so that
-    * one such path does not abort the whole review. A path git cannot read is
-    * announced too: it may simply have been deleted between the untracked
-    * sample and this call (a background build removing its own temp file), and
-    * a sample missing one file beats an aborted flow.
+    * one such path does not abort the whole review. A path git exits non-zero
+    * on is announced too, quoting what git said rather than naming a cause: it
+    * may simply have been deleted between the untracked sample and this call (a
+    * background build removing its own temp file), and a sample missing one
+    * file beats an aborted flow.
     */
   private def untrackedFileDiff(relPath: String): String =
     undiffableReason(relPath) match
@@ -769,7 +775,12 @@ private[orca] class OsGitTool(
         )
         val differs = result.exitCode == 1 && result.err.isEmpty
         if result.exitCode == 0 || differs then marked(result)
-        else s"# skipped $relPath: no longer readable\n"
+        else
+          val gitSaid = result.err.linesIterator
+            .map(_.trim)
+            .find(_.nonEmpty)
+            .fold("")(line => s": $line")
+          s"# skipped $relPath: git diff exited ${result.exitCode}$gitSaid\n"
 
   /** Why `git diff --no-index` cannot render this untracked path, or `None` if
     * it can.
@@ -832,18 +843,20 @@ private[orca] class OsGitTool(
     val output = gitRead(
       Seq("show") ++ statFlag ++ Seq("--end-of-options", checkedRev) ++ pathspec
     ).ok()
-    // A cut diff is still an answer, as long as it says where it stops.
-    if output.truncated then output.text + OsGitTool.CutMarker
-    else if checkedPaths.nonEmpty && output.text.isBlank then
-      // With a pathspec that matches nothing, git exits 0 printing nothing at
-      // all — not even the commit message. Relaying that blank would read as
-      // "the commit left those files alone".
+    // git exits 0 printing nothing at all — not even the commit message — when
+    // it renders no diff for the pathspec. That blank cannot be told apart
+    // from a mistyped path, so there is no answer to hand back.
+    if checkedPaths.nonEmpty && output.out.isBlank then
       Left(
         new GitReadFailed.Refused(
-          s"no path in $rev matched: ${paths.mkString(", ")}"
+          s"$rev shows no diff for: ${paths.mkString(", ")} — they may be " +
+            "absent from that commit, present but unchanged by it, or " +
+            s"hidden because $rev is a merge, for which git renders no " +
+            "per-path diff by default. Retry without paths for the whole " +
+            "commit, or read a file's contents at that revision."
         )
       ).ok()
-    else output.text
+    else marked(output)
 
   def fileAt(rev: String, path: String): Either[GitReadFailed, String] = either:
     val checkedRev = GitRead.rev(rev).ok()
@@ -854,7 +867,7 @@ private[orca] class OsGitTool(
     // binary, a checked-in dataset) would otherwise be an OOM rather than an
     // answer.
     val size =
-      gitRead(Seq("cat-file", "-s", "--end-of-options", blob)).ok().text
+      gitRead(Seq("cat-file", "-s", "--end-of-options", blob)).ok().out
     if size.trim.toLongOption.exists(_ > OsGitTool.MaxFileAtBytes) then
       Left(
         new GitReadFailed.Refused(
@@ -874,7 +887,7 @@ private[orca] class OsGitTool(
               s"${OsGitTool.MaxReadBytes}-byte read limit"
           )
         ).ok()
-      else output.text
+      else output.out
 
   /** Run a read-only git command, mapping a non-zero exit to
     * [[GitReadFailed.Refused]] instead of aborting the flow — an agent asking
@@ -884,13 +897,11 @@ private[orca] class OsGitTool(
     * cut diff and carries on, while `fileAt` refuses, and only the caller knows
     * which its answer can survive.
     */
-  private def gitRead(
-      args: Seq[String]
-  ): Either[GitReadFailed, OsGitTool.ReadOutput] =
+  private def gitRead(args: Seq[String]): Either[GitReadFailed, CappedResult] =
     val result = gitProcCapped("git" +: args)
     if result.exitCode != 0 then
       Left(new GitReadFailed.Refused(result.err.trim))
-    else Right(OsGitTool.ReadOutput(result.out, result.truncated))
+    else Right(result)
 
   def deleteBranch(name: String)(using WorkspaceWrite): Unit =
     // Best-effort: swallow all failures so teardown is never blocked by a
@@ -909,7 +920,7 @@ private[orca] class OsGitTool(
     // Two-dot diff (direct) to see all changes the feature branch has vs the
     // start branch, minus the orca bookkeeping directory, so only substantive
     // code changes count. `--quiet` answers on the exit code alone: 0 when the
-    // two sides match, 1 when they differ, so nothing is rendered or read.
+    // two sides match, 1 when they differ, so no diff text is produced.
     val args =
       Seq("git", "diff", "--quiet", s"$startBranch..$featureBranch") ++
         OsGitTool.wholeRepoExceptOrca
@@ -955,9 +966,6 @@ private[orca] class OsGitTool(
   private def fail(label: String, result: os.CommandResult): Nothing =
     failWith(label, result.exitCode, result.err.text().trim)
 
-  private def fail(label: String, result: CappedResult): Nothing =
-    failWith(label, result.exitCode, result.err.trim)
-
   private def failWith(label: String, exitCode: Int, stderr: String): Nothing =
     throw OrcaFlowException(s"$label failed (exit $exitCode): $stderr")
 
@@ -974,13 +982,14 @@ private[orca] class OsGitTool(
     if result.exitCode != 0 then fail(s"git ${args.mkString(" ")}", result)
     result.out.text()
 
-  /** [[git]] for a command whose output is bounded only by what it reads. The
-    * caller decides what a cut answer means to it — [[marked]] says where it
-    * stops, for the callers whose answer survives being cut.
+  /** [[git]] for a command whose output is bounded only by what it reads.
+    * [[marked]] stays outside rather than folded in, since
+    * [[untrackedFileDiff]] marks a result whose exit code it checks itself.
     */
   private def gitCapped(args: String*): CappedResult =
     val result = gitProcCapped("git" +: args)
-    if result.exitCode != 0 then fail(s"git ${args.mkString(" ")}", result)
+    if result.exitCode != 0 then
+      failWith(s"git ${args.mkString(" ")}", result.exitCode, result.err.trim)
     result
 
   private def marked(result: CappedResult): String =
@@ -1012,11 +1021,6 @@ private[orca] object OsGitTool:
     * the cost of breaking it is a refusal, not a silently truncated file.
     */
   private[tools] val MaxFileAtBytes: Int = 2 * 1024 * 1024
-
-  /** One capped read's output, and whether git wrote past [[MaxReadBytes]] so
-    * `text` holds only the start of the answer.
-    */
-  private case class ReadOutput(text: String, truncated: Boolean)
 
   /** Pathspec arguments scoping a diff to "the whole repository, minus orca's
     * bookkeeping". `:(top)` is what makes it repo-wide: a magic pathspec is

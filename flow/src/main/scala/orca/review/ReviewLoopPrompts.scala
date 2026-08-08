@@ -54,18 +54,19 @@ object ReviewLoopPrompts:
     * told the actual bars their findings are measured against rather than a
     * hardcoded guess at them.
     *
-    * `base` is the commit `diff` was sampled against, when the loop knows it
-    * describes this diff (see [[ReviewDiffSource]]). It is sent alongside the
-    * diff, never instead of it: it only lets a reviewer read the repo at that
-    * commit, and a reviewer with no way to do so is unaffected.
+    * `diffIntro` introduces the diff, and `base` names the commit `diff` was
+    * sampled against when the loop knows that describes this diff. The base is
+    * sent alongside the diff, never instead of it: it only lets a reviewer read
+    * the repo at that commit, and a reviewer with no way to do so is
+    * unaffected.
     *
-    * `declined` matters for a reviewer first activated after round one: the
-    * fixer's refusals are the one thing it cannot recover by reading the code,
-    * and without them it re-reports what the fixer has already answered.
+    * `declined` matters for a reviewer first activated after round one — see
+    * [[reviewAndFixLoop]].
     */
   def initialReview(
       task: String,
       diff: String,
+      diffIntro: String,
       gate: ConfidenceGate,
       base: Option[String],
       declined: List[IgnoredIssue]
@@ -73,6 +74,7 @@ object ReviewLoopPrompts:
     PromptResource.render(
       InitialReviewTemplate,
       "task" -> task,
+      "diffIntro" -> diffIntro,
       "diffBlock" -> diffBlock(diff),
       "baseNote" -> baseNote(base),
       "declined" -> declinedBlock(declined),
@@ -103,8 +105,8 @@ object ReviewLoopPrompts:
     * including the base commit, which the initial prompt named and this one
     * therefore doesn't repeat.
     *
-    * `declined` is what the fixer refused to fix last round, which is the one
-    * thing a reviewer cannot recover by reading the code.
+    * `declined` is every refusal the fixer has made and not since fixed — see
+    * [[reviewAndFixLoop]].
     */
   private[review] def reReview(
       changes: ReReviewChanges,
@@ -145,10 +147,14 @@ object ReviewLoopPrompts:
           "them directly. Do not use `git diff HEAD` instead — it does not " +
           s"show work that has been committed:\n\n" +
           paths.map("- " + _).mkString("\n")
-      case ReReviewChanges.AlreadySeen =>
+      case ReReviewChanges.AlreadySeen(LastSent.Inline(_)) =>
         "No new change set this round — the diff already in this conversation " +
           "is the one under review. Check the code itself to see whether your " +
           "earlier findings still stand."
+      case ReReviewChanges.AlreadySeen(LastSent.PathsOnly(_)) =>
+        "No new change set this round — the file list already in this " +
+          "conversation still describes the change set. Re-read those files " +
+          "to see whether your earlier findings still stand."
 
   /** The diff as a fenced block, or a note when nothing could be sampled. An
     * empty sample means the loop couldn't describe the change, not that none
@@ -160,13 +166,21 @@ object ReviewLoopPrompts:
         "changed; inspect the code the task describes)"
     else s"```diff\n$diff\n```"
 
+/** What the reviewer was last sent about the change set: the diff text it
+  * compares against, and whether that text or only its paths reached the
+  * conversation.
+  */
+private[review] enum LastSent(val diff: String):
+  case Inline(d: String) extends LastSent(d)
+  case PathsOnly(d: String) extends LastSent(d)
+
 /** What a resumed reviewer is told about the change set this round.
   *
   * A resumed reviewer already holds every change set it has been sent. Sending
   * it the same one again, under text saying it was freshly re-sampled, would
   * claim the fixer's edits are inside a diff that predates them, and the
-  * reviewer would re-report findings that were already fixed. A pinned
-  * `initialDiff` produces exactly that repeat.
+  * reviewer would re-report findings that were already fixed. A
+  * [[ReviewDiff.Pinned]] diff produces exactly that repeat.
   */
 private[review] enum ReReviewChanges:
   /** Re-sampled, and different from what this reviewer last saw. */
@@ -178,8 +192,11 @@ private[review] enum ReReviewChanges:
     */
   case TooLarge(paths: List[String])
 
-  /** Byte-identical to what this reviewer already holds, so nothing is sent. */
-  case AlreadySeen
+  /** Byte-identical to what this reviewer already holds, so nothing is sent.
+    * Carries how that change set reached the conversation: after a [[TooLarge]]
+    * round only the paths are there to point back at.
+    */
+  case AlreadySeen(last: LastSent)
 
 private[review] object ReReviewChanges:
   /** Max diff length (chars) inlined into a re-review prompt. Above it the
@@ -195,11 +212,11 @@ private[review] object ReReviewChanges:
     * [[TooLarge]] can never name a different change set than the one it stands
     * in for.
     *
-    * Equality is tested before size, so a pinned `initialDiff` never reaches
-    * [[TooLarge]]: pinned samples are byte-identical every round, so a resume
-    * always classifies [[AlreadySeen]].
+    * Equality is tested before size, so a [[ReviewDiff.Pinned]] diff never
+    * reaches [[TooLarge]]: pinned samples are byte-identical every round, so a
+    * resume always classifies [[AlreadySeen]].
     */
-  def of(previous: String, current: DiffSample): ReReviewChanges =
-    if current.diff == previous then AlreadySeen
+  def of(previous: LastSent, current: DiffSample): ReReviewChanges =
+    if current.diff == previous.diff then AlreadySeen(previous)
     else if current.diff.length > InlineThreshold then TooLarge(current.paths)
     else Updated(current.diff)

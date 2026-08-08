@@ -439,6 +439,12 @@ are excluded automatically.
 > exact version match in both directions, so a manifest from any other build
 > is skipped with a warning rather than misread.
 
+> **Amendment (2026-08-07).** `SessionCommitted` also carries the session's
+> name, set by `FlowSession` (`agent.session(name, seed)`) and `None`
+> everywhere else, so the listener reads `sessionName` and `kind` off the
+> event instead of joining the progress log by `clientId`. The reserved
+> `interactive` kind is gone; re-adding it is additive.
+
 **Shell side**: after a flow run (and on entry, from existing manifests,
 newest first) the "continue a session" item lists one row per durable
 `(agent, sessionName)` lineage — `★ <sessionName> — latest (stage: <stage>)

@@ -8,18 +8,8 @@ import orca.plan.Title
   */
 class FixOutcomeReconcileTest extends munit.FunSuite:
 
-  private def issue(title: String): ReviewIssue =
-    ReviewIssue(
-      severity = Severity.Warning,
-      confidence = Confidence.orThrow(0.9),
-      title = Title(title),
-      description = title,
-      location = None,
-      suggestion = None
-    )
-
   private def handed(titles: String*): List[ReviewIssue] =
-    titles.toList.map(issue)
+    titles.toList.map(t => issue(t))
 
   test("a key claims only its own issue, never one whose key it prefixes"):
     // `I1` prefixes `I10`; the echo names the tenth issue, so the first must
