@@ -405,6 +405,13 @@ class ClaudeBackendTest extends munit.FunSuite:
       promptText
     )
 
+  test("a read-only turn's prompt file carries the read-only rule"):
+    val promptText = readOnlySystemPrompt()
+    assert(
+      promptText.exists(_.contains(SystemPromptComposer.ReadOnlyTurn)),
+      promptText
+    )
+
   test("a read-only turn is told about the repo-read MCP tools"):
     // Without the hint the agent has no reason to look for tools that replace
     // the shell it no longer has.

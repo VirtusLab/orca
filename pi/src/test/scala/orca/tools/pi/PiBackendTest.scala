@@ -130,16 +130,8 @@ class PiBackendTest extends munit.FunSuite:
 
   test("an autonomous turn's system prompt carries no ask_user hint"):
     // The hint and the ask_user extension share one `mode.isInteractive` gate,
-    // so an autonomous turn must get neither. Read at spawn time: the prompt
-    // file is gone once the turn finishes.
-    var promptText: Option[String] = None
-    val runner = new SpawnStubCliRunner(
-      List(successfulProcess()),
-      onSpawn = args => promptText = Some(readSystemPrompt(args))
-    )
-
-    val _ = backendWith(runner).runAutonomous("q", sid, AgentConfig())
-
+    // so an autonomous turn must get neither.
+    val promptText = autonomousSystemPrompt(AgentConfig())
     // The positive half matters: a prompt that never composed at all would
     // satisfy "carries no hint" too.
     assert(
@@ -150,6 +142,27 @@ class PiBackendTest extends munit.FunSuite:
       promptText.exists(!_.contains(PiAskUserExtension.Hint)),
       promptText
     )
+
+  test("a read-only turn's system prompt file carries the read-only rule"):
+    val promptText = autonomousSystemPrompt(
+      AgentConfig(tools = ToolSet.ReadOnly)
+    )
+    assert(
+      promptText.exists(_.contains(SystemPromptComposer.ReadOnlyTurn)),
+      promptText
+    )
+
+  /** The system-prompt file text an autonomous turn under `config` spawns with,
+    * captured at spawn time — the file is gone once the turn finishes.
+    */
+  private def autonomousSystemPrompt(config: AgentConfig): Option[String] =
+    var promptText: Option[String] = None
+    val runner = new SpawnStubCliRunner(
+      List(successfulProcess()),
+      onSpawn = args => promptText = Some(readSystemPrompt(args))
+    )
+    val _ = backendWith(runner).runAutonomous("q", sid, config)
+    promptText
 
   test("interactive read-only config includes ask_user extension and tool"):
     val process = successfulProcess()

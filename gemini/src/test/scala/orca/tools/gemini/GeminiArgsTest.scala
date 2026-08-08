@@ -83,6 +83,28 @@ class GeminiArgsTest extends munit.FunSuite:
     assert(args.containsSlice(Seq("--resume", "uuid-123")), args.toString)
     assert(args.containsSlice(Seq("-p", "next step")), args.toString)
 
+  test("resume re-emits --approval-mode plan for ToolSet.ReadOnly"):
+    // Backs the Fresh == Resumed claim in GeminiArgs.enforcementCell.
+    val sid = WireSessionId[BackendTag.Gemini.type]("sid")
+    val args =
+      GeminiArgs.resume(sid, "x", AgentConfig().copy(tools = ToolSet.ReadOnly))
+    assert(args.contains("--resume"), args.toString)
+    assert(args.containsSlice(Seq("--approval-mode", "plan")), args.toString)
+
+  test("resume re-emits --allowed-tools web_fetch for ToolSet.NetworkOnly"):
+    // Without it a resumed planner loses its only network read.
+    val sid = WireSessionId[BackendTag.Gemini.type]("sid")
+    val args = GeminiArgs.resume(
+      sid,
+      "x",
+      AgentConfig().copy(tools = ToolSet.NetworkOnly)
+    )
+    assert(args.contains("--resume"), args.toString)
+    assert(
+      args.containsSlice(Seq("--allowed-tools", "web_fetch")),
+      args.toString
+    )
+
   test("resume propagates --model when AgentConfig.model is set"):
     val sid = WireSessionId[BackendTag.Gemini.type]("sid")
     val args = GeminiArgs.resume(
