@@ -209,16 +209,17 @@ trait GitTool:
     */
   def commitOnly(path: os.Path, message: String)(using WorkspaceWrite): Unit
 
-  /** Commit exactly `path`, assuming the caller already staged it (typically
-    * via [[forceAdd]]) — unlike [[commitOnly]], this does no `add` of its own.
-    * Scoped by the same commit pathspec, so nothing else staged or dirty leaks
-    * in. Needed wherever the path must be force-staged to punch through
-    * `.gitignore`: a plain `git add` on an already-staged-but-not-yet-tracked
-    * ignored path still refuses without `-f`, so [[commitOnly]]'s own add would
-    * fail there. Used for the progress-log header commit (ADR 0018 R8), which
-    * must land even under a gitignored `.orca/`.
+  /** Force-stage `path` (`git add -f`) and commit exactly it, scoped by the
+    * same commit pathspec as [[commitOnly]] — nothing else staged or dirty
+    * leaks in. Use over [[commitOnly]] when the path may be ignored: a plain
+    * `git add` under an ignored directory exits non-zero even for a tracked
+    * file. Used for the progress-log header commit (ADR 0018 R8). Throws
+    * `OrcaFlowException` when the path has no changes to commit or on
+    * system-level failures.
     */
-  def commitStaged(path: os.Path, message: String)(using WorkspaceWrite): Unit
+  def forceCommitOnly(path: os.Path, message: String)(using
+      WorkspaceWrite
+  ): Unit
 
   /** Force-stage `path` (`git add -f`), bypassing `.gitignore`. The stage
     * runtime uses this to stage its progress-log file even when the project
@@ -509,7 +510,10 @@ private[orca] class OsGitTool(
     val _ = git("commit", "-m", message, "--", path.toString)
     events.onEvent(OrcaEvent.Step(s"Committed: $message"))
 
-  def commitStaged(path: os.Path, message: String)(using WorkspaceWrite): Unit =
+  def forceCommitOnly(path: os.Path, message: String)(using
+      WorkspaceWrite
+  ): Unit =
+    val _ = git("add", "-f", path.toString)
     val _ = git("commit", "-m", message, "--", path.toString)
     events.onEvent(OrcaEvent.Step(s"Committed: $message"))
 
