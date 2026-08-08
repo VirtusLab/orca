@@ -47,11 +47,8 @@ private[codex] class CodexConversation(
       * [[orca.backend.SubprocessSpawn.deleteFileResource]] and [[onFinalize]].
       */
     schemaFile: Option[os.Path] = None,
-    /** Cost-attribution fallback when codex's `thread.started` omits the
-      * resolved model id — which 0.145.0 always does, so in practice this is
-      * what prices every codex turn. Without it the tokens land under
-      * `(unknown)` and go unpriced, which is why the default agent pins a model
-      * ([[DefaultCodexAgent.Sol]]).
+    /** Names the turn's model when codex's `thread.started` omits it, which
+      * 0.145.0 always does — see [[DefaultCodexAgent.Sol]].
       */
     configuredModel: Option[Model] = None
 ) extends ForkedConversation[BackendTag.Codex.type](
@@ -263,8 +260,6 @@ private[codex] class CodexConversation(
       wireId = sessionId,
       output = lastAgentMessage,
       usage = usage,
-      // Fall back to the configured model when the wire omitted it, so the
-      // turn's tokens are priced rather than attributed to `(unknown)`.
       modelId = model.orElse(configuredModel.map(_.name))
     )
 

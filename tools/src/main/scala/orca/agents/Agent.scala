@@ -242,9 +242,9 @@ trait Agent[B <: BackendTag]:
 
   /** The model this tool's NEXT call will run, if pinned — either by the wiring
     * default (e.g. claude's Opus1M) or a `withModel`/tier accessor. `None` for
-    * a backend that picks its own model (codex/pi defaults) or a tool without a
-    * backend. The role-agents announcement reads this to show a resolved
-    * default model the settings layer never pinned.
+    * a backend that picks its own model (pi/opencode defaults) or a tool
+    * without a backend. The role-agents announcement reads this to show a
+    * resolved default model the settings layer never pinned.
     */
   private[orca] def configuredModel: Option[Model] = None
 
@@ -348,9 +348,8 @@ trait ClaudeAgent extends Agent[BackendTag.ClaudeCode.type]:
     */
   def withNetworkTools(tools: Seq[String]): ClaudeAgent
 
-/** Bare `codex` runs the installed `codex-cli`'s default model; `codex.mini`
-  * opts down to the cheap tier, and `codex.withModel(Model("..."))` pins any
-  * other id the CLI offers.
+/** Bare `codex` pins the strong model; `codex.mini` opts down to the cheap
+  * tier, and `codex.withModel(Model("..."))` pins any other id the CLI offers.
   */
 trait CodexAgent extends Agent[BackendTag.Codex.type]:
   def mini: CodexAgent

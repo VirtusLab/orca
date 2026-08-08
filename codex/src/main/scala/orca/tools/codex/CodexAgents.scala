@@ -10,8 +10,8 @@ import orca.subprocess.OsProcCliRunner
   */
 object CodexAgents:
 
-  /** The default codex agent for a run: [[DefaultCodexAgent.Sol]] pinned (the
-    * strong model); `.mini` opts down for cheap one-shots.
+  /** The default codex agent for a run: GPT-5.6 Sol pinned (the strong model);
+    * `.mini` opts down for cheap one-shots.
     */
   def default(wiring: AgentWiring): CodexAgent =
     new DefaultCodexAgent(
