@@ -305,6 +305,7 @@ object FlowLifecycle:
     given InStage = RuntimeInStage.token()
     given WorkspaceWrite = RuntimeInStage.workspaceToken()
     warnIfSettingsIgnored(git, stackOverridden, emit)
+    abortIfNoCommits(git)
     val startBranch = git.currentBranch()
     abortIfBranchBusy(store, workDir, startBranch)
     // Snapshot the log file before any stash, restore it after if the stash
@@ -347,6 +348,19 @@ object FlowLifecycle:
       stackSettings,
       binding.branchMode
     )
+
+  /** On an unborn HEAD (`git init`, no commits) every later git call that names
+    * `HEAD` exits 128 with git's "ambiguous argument 'HEAD'" fatal, so refuse
+    * here with our own message. `headCommit()` is also `None` outside a git
+    * repository, hence the message names both cases.
+    */
+  private def abortIfNoCommits(git: GitTool): Unit =
+    if git.headCommit().isEmpty then
+      throw new OrcaFlowException(
+        "orca needs a git repository with at least one commit — " +
+          "initialize one if needed (git init), then make the first commit " +
+          "(git add -A && git commit -m \"initial commit\")"
+      )
 
   /** Refuse to start a NEW run on a branch that another run's progress log
     * already claims (ADR 0018 §2.5, R1 amendment).
