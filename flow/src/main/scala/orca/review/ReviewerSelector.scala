@@ -183,12 +183,13 @@ object ReviewerSelector:
       val selected = picked.entries
       // Safety floor: the picker narrows the set, it can't skip review. If it
       // picks nothing while reviewers are eligible, fall back to all eligible
-      // so a real change is never silently unreviewed.
+      // so a real change is never silently unreviewed. The schema's
+      // `minItems: 1` binds only the backends that enforce it on the wire.
       val active =
         if selected.isEmpty && eligible.nonEmpty then
           ctx.emit(
             OrcaEvent.Step(
-              s"reviewer selection: picker returned no usable names; " +
+              "reviewer selection: the pick resolved to no reviewer; " +
                 s"falling back to all ${eligible.size} eligible reviewer(s)"
             )
           )

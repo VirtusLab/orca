@@ -42,6 +42,15 @@ class ReviewTypesTest extends munit.FunSuite:
       readFromString[ReviewResult](json)
     )
 
+  test("an empty picker selection still decodes"):
+    // The schema forbids it, but only backends that enforce the schema on the
+    // wire are bound by that — the rest reach `ReviewerSelector`'s fallback
+    // through this decode.
+    assertEquals(
+      readFromString[SelectedReviewers]("""{"names":[]}"""),
+      SelectedReviewers(Nil)
+    )
+
   test("the fix prompt keeps a suggestion line that starts with `|`"):
     // `FixRequest`'s renderer keeps a suggestion's own line breaks and indents,
     // so a quoted margin block reaches the prompt as a `|` line.
