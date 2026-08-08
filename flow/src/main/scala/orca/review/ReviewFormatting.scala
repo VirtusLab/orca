@@ -1,8 +1,12 @@
 package orca.review
 
+import orca.plan.Title
 import orca.util.{TextUtil, TextWrap}
 
 // Rendering of review outcomes into `Step`-body text for the event log.
+
+/** Wrap width shared by every renderer here, so one run's output lines up. */
+private val WrapWidth: Int = 74
 
 /** Format a single review comment as the body lines of a `Step`.
   *
@@ -17,11 +21,15 @@ import orca.util.{TextUtil, TextWrap}
 private[review] def formatIssue(issue: ReviewIssue): String =
   val header = TextWrap.wrap(
     s"- [${issue.severity}] ${issue.title}",
-    maxWidth = 74,
+    maxWidth = WrapWidth,
     continuation = "  "
   )
   val suggestion = issue.suggestion.map: s =>
-    TextWrap.wrap(s"    suggestion: $s", maxWidth = 74, continuation = "      ")
+    TextWrap.wrap(
+      s"    suggestion: $s",
+      maxWidth = WrapWidth,
+      continuation = "      "
+    )
   List(Some(header), locationLine(issue.location), suggestion).flatten
     .mkString("\n")
 
@@ -56,3 +64,31 @@ private[review] def formatReviewerOutcome(
       s"$reviewerName: ${TextUtil.pluralize(result.issues.size, "issue")}$gated"
     val bullets = result.issues.map(formatIssue).mkString("\n")
     s"$header\n$bullets"
+
+/** The block a review loop prints when it stops with findings still open: one
+  * `- [Severity] title` line per finding, with the reason it is still open
+  * below it. `None` when nothing is open.
+  *
+  * A title missing from `severities` renders unprefixed rather than guessing a
+  * severity.
+  */
+private[review] def formatUnresolvedFindings(
+    open: List[IgnoredIssue],
+    severities: Map[Title, Severity]
+): Option[String] =
+  Option.when(open.nonEmpty):
+    val lines = open.flatMap: i =>
+      val label = severities
+        .get(i.title)
+        .fold(i.title.value)(s => s"[$s] ${i.title.value}")
+      // The fixer writes the reason, so it can arrive with its own line breaks;
+      // collapsing them keeps continuation lines under the bullet.
+      val reason = i.reason.trim.replaceAll("\\s+", " ")
+      TextWrap.wrap(s"  - $label", maxWidth = WrapWidth, continuation = "    ")
+        :: Option
+          .when(reason.nonEmpty)(
+            TextWrap
+              .wrap(s"    $reason", maxWidth = WrapWidth, continuation = "    ")
+          )
+          .toList
+    (s"Unresolved findings (${open.size}):" :: lines).mkString("\n")

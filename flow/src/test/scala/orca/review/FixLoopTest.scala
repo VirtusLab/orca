@@ -135,7 +135,7 @@ class FixLoopTest extends munit.FunSuite:
       fix = _ => FixOutcome(Nil, Nil)
     )
     assert(
-      rec.steps.contains("Fixer reported no fixes; bailing out"),
+      rec.steps.contains("Fixer reported no fixes; ending review"),
       s"halt must be announced: ${rec.steps}"
     )
 
@@ -195,7 +195,11 @@ class FixLoopTest extends munit.FunSuite:
       maxIterations = 1
     )
     assert(
-      rec.steps.exists(_.contains("- still broken")),
+      rec.steps.contains(
+        """Unresolved findings (1):
+          |  - [Warning] still broken
+          |    max iterations (1) reached""".stripMargin
+      ),
       s"cap exit must name what it left open: ${rec.steps}"
     )
 

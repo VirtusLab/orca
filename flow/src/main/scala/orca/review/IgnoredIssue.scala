@@ -10,5 +10,5 @@ case class IgnoredIssues(issues: List[IgnoredIssue]) derives JsonData:
     issues.map(i => s"- ${i.title}: ${i.reason}").mkString("\n")
 
 object IgnoredIssues:
-  /** Silent — the fix loop already announces its outcome per iteration. */
+  /** Silent — the fix loop prints these itself when it exits. */
   given Announce[IgnoredIssues] = Announce.from(_ => "")
