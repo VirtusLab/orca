@@ -41,23 +41,6 @@ class CliFailurePredicatesTest extends munit.FunSuite:
     assert(!OsGitTool.isNonFastForward(stderr))
     assert(!OsGitTool.isRemoteDeclined(stderr))
 
-  test("isWorktreeAlreadyPresent matches an existing path"):
-    assert(
-      OsGitTool.isWorktreeAlreadyPresent(
-        "fatal: '/tmp/wt' already exists"
-      )
-    )
-
-  test("isWorktreeAlreadyPresent matches an already-checked-out branch"):
-    assert(
-      OsGitTool.isWorktreeAlreadyPresent(
-        "fatal: 'feat' is already checked out at '/tmp/other'"
-      )
-    )
-
-  test("isWorktreeAlreadyPresent does not match a generic failure"):
-    assert(!OsGitTool.isWorktreeAlreadyPresent("fatal: not a git repository"))
-
   test("isPrAlreadyExists matches gh's duplicate-PR message (case-folded)"):
     // Verbatim gh output, mixed case — the predicate case-folds internally.
     val combined =

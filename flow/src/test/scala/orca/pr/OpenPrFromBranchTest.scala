@@ -16,7 +16,7 @@ import orca.agents.{
   SessionId,
   ToolSet
 }
-import orca.tools.{DiffMode, GitHubTool, GitTool, OsGitTool, PrHandle}
+import orca.tools.{GitHubTool, GitTool, OsGitTool, PrHandle}
 import orca.progress.{BranchMode, ProgressHeader, ProgressStore}
 import orca.testkit.GitRepo
 import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
@@ -50,8 +50,7 @@ class OpenPrFromBranchTest extends FunSuite:
       calls.add("push"): Unit
       Right(())
     def defaultBase(): String = "main"
-    def diffVsBase(base: String, mode: DiffMode = DiffMode.MergeBase): String =
-      "stub-diff"
+    def diffVsBase(base: String): String = "stub-diff"
 
   /** Records `createPr` and hands back a fixed handle; every other endpoint is
     * unreached by `openPrFromBranch`.

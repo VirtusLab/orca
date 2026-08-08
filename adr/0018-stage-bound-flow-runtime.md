@@ -229,8 +229,8 @@ Four capabilities, all constructible only inside `orca`:
 
 Every side-effecting tool method gains a token clause. The methods gated:
 
-- `GitTool`: `createBranch`, `checkout*`, `commit`, `push`, `addWorktree`,
-  `removeWorktree`, `ensureClean` — `(using WorkspaceWrite)`.
+- `GitTool`: `createBranch`, `checkout*`, `commit`, `push`, `ensureClean` —
+  `(using WorkspaceWrite)`.
 - `FsTool`: `write` — `(using WorkspaceWrite)`.
 - `GitHubTool`: `createPr`, `updatePr`, `writeComment`, `upsertComment` *(new)* —
   `(using WorkspaceWrite)`.
