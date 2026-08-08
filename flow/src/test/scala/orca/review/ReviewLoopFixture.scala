@@ -66,8 +66,8 @@ object ReviewLoopFixture:
       .create(dispatcher, lead = lead, stackSettings = stackSettings)
       ._1
 
-/** Agent stub base: identity plus the `with*` no-ops every review-loop stub
-  * repeats; subclasses supply only `resultAs`.
+/** Agent stub base: supplies the identity and the `with*` no-ops every
+  * review-loop stub repeats, leaving `resultAs` abstract.
   */
 private[review] abstract class StubAgent(override val name: String)
     extends Agent[BackendTag.ClaudeCode.type]:
@@ -80,8 +80,7 @@ private[review] abstract class StubAgent(override val name: String)
 /** Fake AgentCall whose `autonomous.run` drains a scripted sequence of outputs
   * in order. `seenSessions` records each call's session id so tests can assert
   * "fresh on first, same id thereafter."; `seenPrompts` records what the caller
-  * sent. `onRun` fires before each reply, for simulating an agent that touches
-  * the working tree.
+  * sent. `onRun` fires before each reply.
   */
 private[review] class FakeAgentCall[O](
     outputs: Iterator[Any],
@@ -89,12 +88,14 @@ private[review] class FakeAgentCall[O](
 ) extends AgentCall[BackendTag.ClaudeCode.type, O]:
 
   /** Session ids the LLM was called with, in invocation order. */
-  val seenSessions = new java.util.concurrent.atomic.AtomicReference[
+  val seenSessions: java.util.concurrent.atomic.AtomicReference[
+    List[SessionId[BackendTag.ClaudeCode.type]]
+  ] = new java.util.concurrent.atomic.AtomicReference[
     List[SessionId[BackendTag.ClaudeCode.type]]
   ](Nil)
 
   /** Rendered inputs the LLM was called with, in invocation order. */
-  val seenPrompts =
+  val seenPrompts: java.util.concurrent.atomic.AtomicReference[List[String]] =
     new java.util.concurrent.atomic.AtomicReference[List[String]](Nil)
 
   val autonomous: AutonomousAgentCall[BackendTag.ClaudeCode.type, O] =
@@ -105,7 +106,7 @@ private[review] class FakeAgentCall[O](
           sessionName: Option[String],
           config: Option[AgentConfig],
           emitPrompt: Boolean
-      )(using orca.InStage): O =
+      )(using InStage): O =
         val _ = seenSessions.updateAndGet(session :: _)
         val _ = seenPrompts.updateAndGet(
           summon[AgentInput[I]].serialize(input) :: _
@@ -122,8 +123,8 @@ private[review] class FakeAgent(
     outputs: List[Any] = Nil,
     onRun: () => Unit = () => ()
 ) extends StubAgent(name):
-  private val it = outputs.iterator
-  val fakeCall: FakeAgentCall[Any] = new FakeAgentCall[Any](it, onRun)
+  private val fakeCall: FakeAgentCall[Any] =
+    new FakeAgentCall[Any](outputs.iterator, onRun)
 
   def resultAs[O: JsonData: Announce]
       : AgentCall[BackendTag.ClaudeCode.type, O] =
