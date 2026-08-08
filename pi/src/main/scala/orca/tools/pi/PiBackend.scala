@@ -92,7 +92,7 @@ private[orca] class PiBackend private[pi] (
       events: OrcaListener,
       outputSchema: Option[String]
   ): AgentResult[BackendTag.Pi.type] =
-    Conversations.runAutonomous(session, sessions, events):
+    Conversations.runAutonomous(session, sessions, config.autoApprove, events):
       openConversation(
         prompt = prompt,
         mode = ConversationMode.Autonomous,

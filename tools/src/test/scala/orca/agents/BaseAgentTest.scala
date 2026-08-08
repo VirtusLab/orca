@@ -825,7 +825,12 @@ class BaseAgentTest extends munit.FunSuite:
       if !remaining.hasNext then
         throw new IllegalStateException("scripted replies exhausted")
       val reply = remaining.next()
-      Conversations.runAutonomous(session, sessions, events):
+      Conversations.runAutonomous(
+        session,
+        sessions,
+        config.autoApprove,
+        events
+      ):
         new Conversation[BackendTag.Pi.type]:
           val outputSchema: Option[String] = schema
           def events(using ox.Ox): Iterator[ConversationEvent] =

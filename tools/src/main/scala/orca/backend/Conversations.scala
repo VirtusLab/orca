@@ -1,7 +1,7 @@
 package orca.backend
 
 import orca.events.{OrcaEvent, OrcaListener}
-import orca.agents.{BackendTag, SessionId}
+import orca.agents.{AutoApprove, BackendTag, SessionId}
 import orca.sweep.{EnvCookie, EnvCookieSweep}
 
 import ox.{Ox, supervised}
@@ -84,8 +84,20 @@ private[orca] object Conversations:
         emit(current.toString)
         current.clear()
 
+  /** Why the tool wasn't already approved. The auto-approve set is blamed only
+    * when the tool really is outside it: a backend that ignores orca's set
+    * (opencode, whose own server config answers `permission.asked`) can ask
+    * about a tool the set already lists.
+    */
+  private def denialCause(toolName: String, autoApprove: AutoApprove): String =
+    autoApprove match
+      case AutoApprove.Only(tools) if !tools.contains(toolName) =>
+        "it is not in the auto-approve set"
+      case _ => "the backend asked for approval itself"
+
   def drainAutonomous[B <: BackendTag](
       conv: Conversation[B],
+      autoApprove: AutoApprove,
       events: OrcaListener = OrcaListener.noop
   )(using Ox): AgentResult[B] =
     val buffer = new TurnBuffer(
@@ -106,18 +118,17 @@ private[orca] object Conversations:
           // The subprocess blocks on stdin waiting for our decision and
           // autonomous mode has no user to ask, so deny with a reason (so the
           // agent can adapt) and surface as an error; dropping would deadlock.
+          val cause = denialCause(toolName, autoApprove)
           respond(
             ApprovalDecision.Deny(
               Some(
-                s"$toolName is not in the auto-approve set and " +
-                  "autonomous mode cannot prompt for permission"
+                s"$toolName denied: $cause, and autonomous mode cannot prompt"
               )
             )
           )
           events.onEvent(
             OrcaEvent.Error(
-              s"Denied $toolName: not in auto-approve set " +
-                "(autonomous mode cannot prompt)"
+              s"Denied $toolName: $cause; autonomous mode cannot prompt"
             )
           )
         case ConversationEvent.UserQuestion(_, respond) =>
@@ -166,9 +177,10 @@ private[orca] object Conversations:
       conv: Conversation[B],
       session: SessionId[B],
       sessions: SessionSupport[B],
+      autoApprove: AutoApprove,
       events: OrcaListener = OrcaListener.noop
   )(using Ox): AgentResult[B] =
-    val result = drainAutonomous(conv, events)
+    val result = drainAutonomous(conv, autoApprove, events)
     sessions.commitAfterDrain(session, result.wireId)
     result
 
@@ -184,11 +196,12 @@ private[orca] object Conversations:
   def runAutonomous[B <: BackendTag](
       session: SessionId[B],
       sessions: SessionSupport[B],
+      autoApprove: AutoApprove,
       events: OrcaListener
   )(open: Ox ?=> Conversation[B]): AgentResult[B] =
     supervised:
       val conv = open
-      try drainAndCommit(conv, session, sessions, events)
+      try drainAndCommit(conv, session, sessions, autoApprove, events)
       finally
         conv.cancel()
         EnvCookieSweep.afterTurn(conv.envCookie, events)

@@ -155,7 +155,7 @@ private[orca] class ClaudeBackend(
     // before claude registered the session id would otherwise leave the registry
     // wedged. The ordering matters for the NEXT `session(...)` call, which must
     // see a registry that agrees with what claude actually did.
-    Conversations.runAutonomous(session, sessions, events):
+    Conversations.runAutonomous(session, sessions, config.autoApprove, events):
       openConversation(
         prompt = prompt,
         mode = ConversationMode.Autonomous,
