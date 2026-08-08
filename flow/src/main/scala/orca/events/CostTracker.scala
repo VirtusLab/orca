@@ -14,10 +14,10 @@ import java.util.concurrent.atomic.AtomicReference
   * report a figure that disagrees with the run's. `pricingAsOf` is the legend's
   * date only; pass the `lastUpdated` of the table the run prices with.
   *
-  * All axes share the same underlying calls, so summing any of the maps yields
-  * the grand total. The `model` axis keys on `Option[Model]` because the
-  * reported model isn't always present; the summary surfaces the missing case
-  * as `(unknown)`.
+  * All axes share the same underlying calls, so summing any of the maps — or
+  * any section the summary renders — yields the grand total. The `model` and
+  * `role` axes key on `Option` because neither the reported model nor a role
+  * tag is always present.
   */
 class CostTracker(pricingAsOf: LocalDate) extends OrcaListener:
 
@@ -117,15 +117,16 @@ class CostTracker(pricingAsOf: LocalDate) extends OrcaListener:
   private def costsOf[K](buckets: Map[K, Tally]): Map[K, Cost] =
     buckets.collect { case (key, Tally(_, Some(cost))) => key -> cost }
 
-  /** Two or three sections — by-agent, by-model, and (only when at least one
-    * call carried a [[orca.agents.Agent.role]] tag) by-role — each sorted
-    * alphabetically by its rendered label. Each by-agent line is prefixed with
-    * that agent's role when it has one (e.g. `reviewer: performance`). Cache
-    * reads, cache writes and reasoning tokens are shown parenthetically when
-    * non-zero. Token counts are rendered compactly (`1K`, `103.8K`, `3.2M`)
-    * from 1000 up; cost (when known) stays exact and is appended as `$X.XXXX`,
-    * with an asterisk marking an estimated figure and a trailing legend line
-    * when any estimate is present.
+  /** Two or three sections — by-agent, by-model and by-role — each sorted
+    * alphabetically by its rendered label. The by-role section appears only
+    * when some call carried a [[orca.agents.Agent.role]] tag, and then includes
+    * the `(untagged)` bucket too, so it still sums to the run's total. Each
+    * by-agent line is prefixed with that agent's role when it has one (e.g.
+    * `reviewer: performance`). Cache reads, cache writes and reasoning tokens
+    * are shown parenthetically when non-zero. Token counts are rendered
+    * compactly (`1K`, `103.8K`, `3.2M`) from 1000 up; cost (when known) stays
+    * exact and is appended as `$X.XXXX`, with an asterisk marking an estimated
+    * figure and a trailing legend line when any estimate is present.
     *
     * A turn that spent tokens but resolved to no cost contributes nothing to
     * the total, so the total's label carries `(some turns unpriced)` and gains
@@ -147,12 +148,12 @@ class CostTracker(pricingAsOf: LocalDate) extends OrcaListener:
         .map: (model, t) =>
           s"  ${modelLabel(model)}: ${formatLine(t)}"
       val roleLines = s.byRole.toList
-        .collect { case (Some(role), t) => (role, t) }
-        .sortBy(_._1)
+        .sortBy((role, _) => roleLabel(role))
         .map: (role, t) =>
-          s"  $role: ${formatLine(t)}"
+          s"  ${roleLabel(role)}: ${formatLine(t)}"
+      val anyRoleTagged = s.byRole.keys.exists(_.isDefined)
       val roleSection =
-        if roleLines.isEmpty then ""
+        if !anyRoleTagged then ""
         else s"""
                  |
                  |By role:
@@ -199,6 +200,12 @@ class CostTracker(pricingAsOf: LocalDate) extends OrcaListener:
     */
   private def modelLabel(model: Option[Model]): String =
     model.map(_.name).getOrElse("(unknown)")
+
+  /** Render a role bucket key for the summary. `None` covers calls from an
+    * agent with no role tag — too varied to name for any one role.
+    */
+  private def roleLabel(role: Option[String]): String =
+    role.getOrElse("(untagged)")
 
   /** Render a by-agent line's label: the bare agent name, prefixed with its
     * role (looked up in `agentRoles`) when it has one. The `"reviewer: "`
