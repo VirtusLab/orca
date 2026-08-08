@@ -369,9 +369,9 @@ trait GitTool:
   /** Best-effort default base ref for "branch vs main" diffs. Tries
     * `origin/HEAD` first, then falls back to `origin/main` and `origin/master`.
     *
-    * Throws `OrcaFlowException` when none of these refs exist — typically the
-    * repo has no remote configured, in which case the caller can substitute a
-    * local branch name (e.g. `"main"`).
+    * Throws `OrcaFlowException` when none of these refs can be resolved —
+    * typically the repo has no remote configured, in which case the caller can
+    * substitute a local branch name (e.g. `"main"`).
     */
   def defaultBase(): String
 
@@ -585,18 +585,14 @@ private[orca] class OsGitTool(
     */
   private def revParse(ref: String): Option[String] =
     probe("rev-parse", "--verify", "--quiet", ref)
-      .map(_.trim)
-      .filter(_.nonEmpty)
 
   def isIgnored(relPath: os.SubPath): Boolean =
     // check-ignore exits 0 when the path is ignored, 1 when it isn't, and 128
     // on error (e.g. not a git repo) — only 0 means ignored, so the error
     // cases collapse to false without special-casing.
-    probe("check-ignore", "-q", "--", relPath.toString).isDefined
+    probeSucceeds("check-ignore", "-q", "--", relPath.toString)
 
   def defaultBranch(): Option[String] =
-    // `originHead()` is the short ref, e.g. "origin/main"; strip the remote
-    // prefix to get the bare branch name callers compare against.
     originHead().map(_.stripPrefix("origin/"))
 
   def upstreamHas(path: os.Path): Boolean =
@@ -610,7 +606,7 @@ private[orca] class OsGitTool(
     // which differs from `workDir` whenever the tool points at a subdirectory.
     try
       val relPath = path.subRelativeTo(workDir)
-      probe("cat-file", "-e", s"@{upstream}:./$relPath").isDefined
+      probeSucceeds("cat-file", "-e", s"@{upstream}:./$relPath")
     catch case NonFatal(_) => false
 
   def resetHard()(using WorkspaceWrite): Unit =
@@ -742,7 +738,7 @@ private[orca] class OsGitTool(
     * Probed once per instance.
     */
   private lazy val workDirPrefix: String =
-    probe("rev-parse", "--show-prefix").fold("")(_.trim)
+    probe("rev-parse", "--show-prefix").getOrElse("")
 
   /** A repo-root-relative path as `workDir` sees it: inside `workDir` the
     * prefix comes off, above it the path needs `..` hops back up.
@@ -814,15 +810,15 @@ private[orca] class OsGitTool(
         )
       )
 
-  /** The remote's recorded default branch in short form ("origin/main"), or
-    * `None` when `origin/HEAD` is unset. The single resolution point behind
-    * both [[defaultBase]] and [[defaultBranch]], which differ only in whether
-    * they keep the remote prefix.
+  /** The remote's recorded `origin/HEAD`, in git's shortest unambiguous
+    * spelling of the target — usually `origin/<branch>`, but a longer form when
+    * that would be ambiguous (a local branch of the same name). `None` when
+    * `origin/HEAD` is unset or git cannot be run. The single resolution point
+    * behind [[defaultBase]], which passes it straight to `diff`, and
+    * [[defaultBranch]], which strips the remote prefix.
     */
   private def originHead(): Option[String] =
     probe("symbolic-ref", "--short", "refs/remotes/origin/HEAD")
-      .map(_.trim)
-      .filter(_.nonEmpty)
 
   private def refExists(ref: String): Boolean = revParse(ref).isDefined
 
@@ -938,11 +934,22 @@ private[orca] class OsGitTool(
   private def gitProc(args: Seq[String]): os.CommandResult =
     QuietProc.call(args, cwd = workDir, env = OsGitTool.nonInteractiveEnv)
 
-  /** Stdout of a read-only git command that exited 0, `None` on any non-zero
-    * exit or subprocess error — the shared shape of this tool's best-effort
-    * reads, which answer "not known" rather than aborting the flow.
+  /** Trimmed stdout of a read-only git command that exited 0; `None` on a
+    * non-zero exit, empty output, or a subprocess error — the shared shape of
+    * this tool's best-effort reads, which answer "not known" rather than
+    * aborting the flow.
     */
   private def probe(args: String*): Option[String] =
+    probeStdout(args).map(_.trim).filter(_.nonEmpty)
+
+  /** Whether a read-only git command exited 0, for the probes that answer on
+    * their exit code alone and print nothing — which [[probe]] cannot tell from
+    * a failure.
+    */
+  private def probeSucceeds(args: String*): Boolean =
+    probeStdout(args).isDefined
+
+  private def probeStdout(args: Seq[String]): Option[String] =
     try
       val result = gitProc("git" +: args)
       if result.exitCode == 0 then Some(result.out.text()) else None
@@ -971,7 +978,7 @@ private[orca] class OsGitTool(
 
   /** Read a single git config value (`git config --get`), `None` when unset. */
   private def gitConfigGet(key: String): Option[String] =
-    probe("config", "--get", key).map(_.trim).filter(_.nonEmpty)
+    probe("config", "--get", key)
 
   private def git(args: String*): String =
     // Route through QuietProc so git's stderr ("Switched to a new branch",
