@@ -1035,9 +1035,10 @@ object FlowLifecycle:
     val throwaway =
       setup.branchMode == BranchMode.Created &&
         setup.featureBranch.value != setup.startBranch &&
-        git
-          .diffBranchExcludingOrca(setup.startBranch, setup.featureBranch.value)
-          .isBlank
+        !git.branchHasChangesExcludingOrca(
+          setup.startBranch,
+          setup.featureBranch.value
+        )
     if throwaway then
       // The start branch existed when this run began, so a plain `checkout`
       // suffices; if it's gone mid-run that's genuinely exceptional, not a case
