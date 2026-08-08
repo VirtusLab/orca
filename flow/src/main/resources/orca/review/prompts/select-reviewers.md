@@ -11,10 +11,11 @@ list means the change set could not be described, not that nothing changed.
 
 When you are unsure whether a reviewer applies, include it — a needless review
 costs a little time, a missed one costs a defect that ships. Skip a reviewer
-only when the files plainly contain nothing in its scope, e.g. a
-pure-documentation change with no executable code. That bar is highest for the
-risk-bearing reviewers, security and code-functionality above all.
+only when the files plainly contain nothing in its scope, e.g. a change that
+touches no test file has nothing for the test reviewer. That bar is highest
+for the risk-bearing reviewers, security and code-functionality above all.
 
-Reply with a SelectedReviewers whose `names` are copied verbatim from the `name`
-field of `availableReviewers` (one entry per chosen reviewer). When some
-reviewers apply, don't return an empty list.
+Reply with `names` copied verbatim from the `name` field of
+`availableReviewers`, one entry per chosen reviewer. Name at least one: an
+empty list makes every reviewer run. If you think none apply, name the one or
+two whose scope is closest to the changed files.

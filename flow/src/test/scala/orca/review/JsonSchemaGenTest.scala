@@ -6,7 +6,7 @@ import orca.util.JsonSchemaGen
 import com.networknt.schema.{InputFormat, JsonSchemaFactory, SpecVersion}
 
 class JsonSchemaGenTest extends munit.FunSuite:
-  private def compiledSchema =
+  private def compiledResultSchema =
     val schemaString = JsonSchemaGen[ReviewResult]
     val factory = JsonSchemaFactory.getInstance(SpecVersion.VersionFlag.V202012)
     factory.getSchema(schemaString)
@@ -23,7 +23,7 @@ class JsonSchemaGenTest extends munit.FunSuite:
         |  "location":null,
         |  "suggestion":null
         |}]}""".stripMargin
-    val errors = compiledSchema.validate(sample, InputFormat.JSON)
+    val errors = compiledResultSchema.validate(sample, InputFormat.JSON)
     assert(errors.isEmpty, s"Validation errors: $errors")
 
   test("generated schema rejects an unknown severity value"):
@@ -36,7 +36,7 @@ class JsonSchemaGenTest extends munit.FunSuite:
         |  "location":null,
         |  "suggestion":null
         |}]}""".stripMargin
-    val errors = compiledSchema.validate(invalid, InputFormat.JSON)
+    val errors = compiledResultSchema.validate(invalid, InputFormat.JSON)
     assert(!errors.isEmpty, "Schema should reject unknown severity values")
 
   test("generated schema rejects a confidence outside [0,1]"):
@@ -51,7 +51,7 @@ class JsonSchemaGenTest extends munit.FunSuite:
         |  "location":null,
         |  "suggestion":null
         |}]}""".stripMargin
-    val errors = compiledSchema.validate(invalid, InputFormat.JSON)
+    val errors = compiledResultSchema.validate(invalid, InputFormat.JSON)
     assert(!errors.isEmpty, "Schema should reject a percent-style confidence")
 
   test("generated schema rejects a payload that omits a nullable field"):
@@ -65,7 +65,7 @@ class JsonSchemaGenTest extends munit.FunSuite:
         |  "description":"x",
         |  "location":null
         |}]}""".stripMargin
-    val errors = compiledSchema.validate(invalid, InputFormat.JSON)
+    val errors = compiledResultSchema.validate(invalid, InputFormat.JSON)
     assert(
       !errors.isEmpty,
       "Schema should reject payloads that omit a nullable property"
@@ -74,8 +74,25 @@ class JsonSchemaGenTest extends munit.FunSuite:
   test("generated schema rejects additional properties"):
     val invalid =
       """{"issues":[],"unexpected":"x"}"""
-    val errors = compiledSchema.validate(invalid, InputFormat.JSON)
+    val errors = compiledResultSchema.validate(invalid, InputFormat.JSON)
     assert(
       !errors.isEmpty,
       "Schema should reject unknown top-level keys (additionalProperties:false)"
     )
+
+  private def compiledSelectionSchema =
+    JsonSchemaFactory
+      .getInstance(SpecVersion.VersionFlag.V202012)
+      .getSchema(JsonSchemaGen[SelectedReviewers])
+
+  test("generated schema rejects a selection that names no reviewer"):
+    // What claude:haiku and codex reply on a small change when the schema
+    // permits it; the selector's fallback then runs the whole roster.
+    val errors =
+      compiledSelectionSchema.validate("""{"names":[]}""", InputFormat.JSON)
+    assert(!errors.isEmpty, "Schema should reject an empty selection")
+
+  test("generated schema accepts a selection that names one reviewer"):
+    val errors = compiledSelectionSchema
+      .validate("""{"names":["code-functionality"]}""", InputFormat.JSON)
+    assert(errors.isEmpty, s"Validation errors: $errors")
