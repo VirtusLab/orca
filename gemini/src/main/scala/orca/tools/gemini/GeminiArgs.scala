@@ -71,8 +71,8 @@ private[gemini] object GeminiArgs:
   /** The read-only tiers' cell. Shared because both ride on `--approval-mode
     * plan`; `NetworkOnly` only pre-approves web reads on top. It records what
     * orca can stand behind rather than what the flag was assumed to do, so the
-    * rationale carries the whole argument — this is its only home. Raise the
-    * level here once a probe establishes more than "unmeasured".
+    * rationale carries the whole argument — this is its only home. A probe
+    * against a write attempt is what would raise the level.
     */
   private val PlanModeCell: EnforcementCell = EnforcementCell(
     Enforcement.PromptOnly,

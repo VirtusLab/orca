@@ -187,22 +187,17 @@ most easily broken:
   GRANTS. For `NetworkOnly` the grant is per-backend, and this list is
   hand-maintained — nothing renders or checks it:
 
-  - claude: `WebFetch`/`WebSearch` on the `--tools` allowlist
-    (`ClaudeBackend.DefaultNetworkTools`; a flow can substitute its own via
-    `claude.withNetworkTools(...)`), plus the host-served GitHub issue/PR read
-    (`GitHubMcpServer`).
+  - claude: `WebFetch`/`WebSearch` (`ClaudeBackend.DefaultNetworkTools`; a flow
+    can substitute its own via `claude.withNetworkTools(...)`) on `--tools` AND
+    on `--allowedTools` — `--tools` only advertises, so a name missing from the
+    approval flag comes back as a failed call. Plus the host-served GitHub
+    issue/PR read (`GitHubMcpServer`).
   - codex: `network_access=true` inside the `workspace-write` sandbox — codex
-    has no read-only-with-network sandbox, which is what costs the tier its
-    `Hard`.
+    has no read-only-with-network sandbox.
   - gemini: `web_fetch` pre-approved through `--allowed-tools`.
   - opencode: `webfetch` left unset, so the server's own default decides
     (`ReadOnly` disables it by name).
-  - pi: `bash`, pi's only path to the network — and, since `bash` also writes,
-    what costs the tier its guarantee.
-
-  The compensation for having no shell is asymmetric: claude's read-only tiers
-  get git reads served back by the host (`RepoMcpServer`), pi's
-  (`read,grep,find,ls`) get nothing.
+  - pi: `bash` — pi has no web tool, and `bash` also writes.
 
 - **Conversation events.** The event grammar (turn boundaries, `Option` tool
   names) is specified on `ConversationEvent`'s scaladoc and pinned per backend

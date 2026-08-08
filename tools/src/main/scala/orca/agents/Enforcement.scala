@@ -8,8 +8,8 @@ package orca.agents
   *     the gated boundary may be a documented SUPERSET of the request, which
   *     the cell's `rationale` then names.
   *   - SandboxApprox — approximated by a coarser sandbox; semantics widened.
-  *     What separates it from a `Hard` superset is whether orca can name the
-  *     boundary the agent is held to.
+  *     Unlike a `Hard` superset, orca cannot name the boundary the agent ends
+  *     up held to.
   *   - PromptOnly — only the prompt forbids it; the tools can physically do it.
   *     [[orca.backend.SystemPromptComposer.ReadOnlyTurn]] is what puts that
   *     prose on every read-only turn.

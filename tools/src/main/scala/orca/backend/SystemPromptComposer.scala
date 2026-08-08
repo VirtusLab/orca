@@ -65,8 +65,6 @@ private[orca] object SystemPromptComposer:
       config: AgentConfig,
       extraHint: Option[String] = None
   ): String =
-    // `selfManagedGit` withholds the git rule alone: it says who drives git in
-    // this repo, not what survives the turn boundary.
     val toolRule = config.tools match
       case ToolSet.Full =>
         Option.when(!config.selfManagedGit)(RuntimeOwnsGit)
