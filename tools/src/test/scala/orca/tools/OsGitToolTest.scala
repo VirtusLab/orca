@@ -18,6 +18,10 @@ class OsGitToolTest extends munit.FunSuite:
     val dir = GitRepo.empty()
     body(new OsGitTool(dir), dir)
 
+  private def withSeededRepo(body: (OsGitTool, os.Path) => Unit): Unit =
+    val dir = GitRepo.seeded()
+    body(new OsGitTool(dir), dir)
+
   /** True when a read never reached git: the revision failed validation. */
   private def rejected(result: Either[GitReadFailed, String]): Boolean =
     result.left.exists(_.isInstanceOf[GitReadFailed.InvalidRev])
@@ -33,17 +37,12 @@ class OsGitToolTest extends munit.FunSuite:
     body(new OsGitTool(dir, listener), dir, seen)
 
   test("createBranch switches to the new branch"):
-    withRepo: (git, dir) =>
-      // Need at least one commit before creating a branch (to have HEAD).
-      os.write(dir / "initial.txt", "seed")
-      git.commit("initial").orThrow
+    withSeededRepo: (git, _) =>
       git.createBranch("feature/x").orThrow
       assertEquals(git.currentBranch(), "feature/x")
 
   test("checkout switches to an existing branch"):
-    withRepo: (git, dir) =>
-      os.write(dir / "a.txt", "a")
-      git.commit("add a").orThrow
+    withSeededRepo: (git, _) =>
       git.createBranch("feature/y").orThrow
       git.checkout("main").orThrow
       assertEquals(git.currentBranch(), "main")
@@ -51,9 +50,7 @@ class OsGitToolTest extends munit.FunSuite:
   test(
     "createBranch returns Left(BranchAlreadyExists) when the branch is taken"
   ):
-    withRepo: (git, dir) =>
-      os.write(dir / "x.txt", "x")
-      git.commit("seed").orThrow
+    withSeededRepo: (git, _) =>
       git.createBranch("dup").orThrow
       git.checkout("main").orThrow
       assert(
@@ -63,6 +60,17 @@ class OsGitToolTest extends munit.FunSuite:
   test("checkout returns Left(BranchNotFound) when the branch doesn't exist"):
     withRepo: (git, _) =>
       assert(git.checkout("ghost").left.exists(_.isInstanceOf[BranchNotFound]))
+
+  test("checkout of a dash-leading name returns Left(BranchNotFound)"):
+    withRepo: (git, _) =>
+      assert(git.checkout("-x").left.exists(_.isInstanceOf[BranchNotFound]))
+
+  test("createBranch of a dash-leading name throws instead of returning Left"):
+    // `branchExists` tolerates the name, but `createBranch`'s own
+    // `git checkout -b` still rejects it, so there is no typed Left here.
+    withSeededRepo: (git, _) =>
+      val ex = intercept[orca.OrcaFlowException](git.createBranch("-x"))
+      assert(ex.getMessage.contains("not a valid branch name"), ex.getMessage)
 
   test("isIgnored is true for a gitignored path and false otherwise"):
     withRepo: (git, dir) =>
@@ -74,27 +82,8 @@ class OsGitToolTest extends munit.FunSuite:
     val dir = TempDirs.dir()
     assert(!new OsGitTool(dir).isIgnored(os.sub / "whatever.txt"))
 
-  test("add stages a normal path and leaves a gitignored path unstaged"):
-    withRepo: (git, dir) =>
-      os.write(dir / ".gitignore", ".orca/\n")
-      git.commit("seed").orThrow
-      os.write(dir / "notes.txt", "x")
-      os.makeDir(dir / ".orca")
-      os.write(dir / ".orca" / "settings.properties", "format = cargo fmt\n")
-      git.add(dir / "notes.txt")
-      git.add(dir / ".orca" / "settings.properties")
-      val staged = os
-        .proc("git", "diff", "--cached", "--name-only")
-        .call(cwd = dir)
-        .out
-        .text()
-      assert(staged.contains("notes.txt"), staged)
-      assert(!staged.contains("settings.properties"), staged)
-
   test("commitOnly commits exactly the given path, leaving other files out"):
-    withRepo: (git, dir) =>
-      os.write(dir / "seed.txt", "seed")
-      git.commit("seed").orThrow
+    withSeededRepo: (git, dir) =>
       os.write(dir / "settings.properties", "format = cargo fmt\n")
       // A second untracked file alongside the target: it must stay out of the
       // commit and remain untracked in the working tree.
@@ -111,27 +100,52 @@ class OsGitToolTest extends munit.FunSuite:
         os.proc("git", "status", "--porcelain").call(cwd = dir).out.text()
       assert(status.contains("?? progress.json"), status)
 
+  test("forceCommitOnly commits a gitignored path, leaving other files out"):
+    withRepo: (git, dir) =>
+      os.write(dir / ".gitignore", ".orca/\n")
+      git.commit("seed").orThrow
+      os.write(dir / ".orca" / "progress.json", "{}", createFolders = true)
+      // Skip-branch mode reaches this call with a dirty index, so the commit
+      // pathspec has to hold against a staged file as well as an untracked one.
+      os.write(dir / "staged.txt", "staged")
+      val _ = os.proc("git", "add", "staged.txt").call(cwd = dir)
+      os.write(dir / "scratch.txt", "scratch")
+      git.forceCommitOnly(dir / ".orca" / "progress.json", "orca: progress log")
+      val committed = os
+        .proc("git", "show", "--name-only", "--pretty=format:", "HEAD")
+        .call(cwd = dir)
+        .out
+        .text()
+        .trim
+      assertEquals(committed, ".orca/progress.json")
+      val status =
+        os.proc("git", "status", "--porcelain").call(cwd = dir).out.text()
+      assert(status.contains("?? scratch.txt"), status)
+      assert(status.contains("A  staged.txt"), status)
+
   test("commit stages all changes and records the message"):
     withRepo: (git, dir) =>
       os.write(dir / "file.txt", "content")
       git.commit("add file").orThrow
-      val entries = git.log(1)
-      assertEquals(entries.size, 1)
-      assertEquals(entries.head.message, "add file")
+      val subject =
+        os.proc("git", "log", "-1", "--format=%s")
+          .call(cwd = dir)
+          .out
+          .text()
+          .trim
+      assertEquals(subject, "add file")
 
-  test("diff returns the unstaged changes"):
+  test("uncommittedDiff returns the unstaged changes"):
     withRepo: (git, dir) =>
       os.write(dir / "file.txt", "first")
       git.commit("initial").orThrow
       os.write.over(dir / "file.txt", "second")
-      val d = git.diff()
+      val d = git.uncommittedDiff()
       assert(d.contains("-first"))
       assert(d.contains("+second"))
 
   test("defaultBase falls back to origin/main when origin/HEAD is unset"):
-    withRepo: (git, dir) =>
-      os.write(dir / "file.txt", "x")
-      git.commit("seed").orThrow
+    withSeededRepo: (git, dir) =>
       // Simulate a freshly `git init`ed repo that pushed to an `origin/main`
       // remote without setting origin/HEAD — fake a remote-tracking ref via
       // `git update-ref` instead of pulling in a real second repo.
@@ -146,9 +160,7 @@ class OsGitToolTest extends munit.FunSuite:
       val _ = intercept[orca.OrcaFlowException](git.defaultBase())
 
   test("defaultBranch reads the remote HEAD's short name"):
-    withRepo: (git, dir) =>
-      os.write(dir / "file.txt", "x")
-      git.commit("seed").orThrow
+    withSeededRepo: (git, dir) =>
       // Point origin/HEAD at a non-main/master branch to prove it isn't
       // hard-coded: create `trunk`, set origin's symbolic ref to it.
       val _ = os
@@ -165,9 +177,7 @@ class OsGitToolTest extends munit.FunSuite:
       assertEquals(git.defaultBranch(), Some("trunk"))
 
   test("defaultBranch returns None when origin/HEAD is unset"):
-    withRepo: (git, dir) =>
-      os.write(dir / "file.txt", "x")
-      git.commit("seed").orThrow
+    withSeededRepo: (git, _) =>
       // No remote / no origin/HEAD → best-effort None.
       assertEquals(git.defaultBranch(), None)
 
@@ -189,73 +199,19 @@ class OsGitToolTest extends munit.FunSuite:
       assert(d.contains("+second"))
       assert(d.contains("+added"))
 
-  test("log respects the limit, returns newest-first, and parses the author"):
-    withRepo: (git, dir) =>
-      os.write(dir / "a.txt", "a")
-      git.commit("first").orThrow
-      os.write(dir / "b.txt", "b")
-      git.commit("second").orThrow
-      os.write(dir / "c.txt", "c")
-      git.commit("third").orThrow
-      val recent = git.log(2)
-      assertEquals(recent.map(_.message), List("third", "second"))
-      assertEquals(recent.map(_.author).distinct, List("Test"))
-
-  test("addWorktree creates a new branch and linked working directory"):
-    withRepo: (git, dir) =>
-      os.write(dir / "seed.txt", "x")
-      git.commit("initial").orThrow
-      val wtPath = TempDirs.dir() / "feature"
-      val wt = git.addWorktree(wtPath, "feature/alpha").orThrow
-      assertEquals(wt.branch, "feature/alpha")
-      assert(os.exists(wtPath / "seed.txt"))
-
-  test("addWorktree checks out an existing branch instead of creating"):
-    withRepo: (git, dir) =>
-      os.write(dir / "seed.txt", "x")
-      git.commit("initial").orThrow
-      git.createBranch("reuse").orThrow
-      git.checkout("main").orThrow
-      val wtPath = TempDirs.dir() / "reused"
-      val wt = git.addWorktree(wtPath, "reuse").orThrow
-      assertEquals(wt.branch, "reuse")
-      assert(os.exists(wtPath / "seed.txt"))
-
-  test("listWorktrees returns the main repo plus each linked worktree"):
-    withRepo: (git, dir) =>
-      os.write(dir / "seed.txt", "x")
-      git.commit("initial").orThrow
-      val wtPath = TempDirs.dir() / "feature"
-      val _ = git.addWorktree(wtPath, "feature/beta").orThrow
-      val branches = git.listWorktrees().map(_.branch).toSet
-      assert(branches.contains("main"))
-      assert(branches.contains("feature/beta"))
-
-  test("removeWorktree unlinks the worktree and drops its directory"):
-    withRepo: (git, dir) =>
-      os.write(dir / "seed.txt", "x")
-      git.commit("initial").orThrow
-      val wtPath = TempDirs.dir() / "gone"
-      val _ = git.addWorktree(wtPath, "feature/gone").orThrow
-      git.removeWorktree(wtPath).orThrow
-      assert(!os.exists(wtPath))
-      val branches = git.listWorktrees().map(_.branch).toSet
-      assert(!branches.contains("feature/gone"))
-
-  test("ensureClean returns false on a clean tree"):
-    withRepo: (git, dir) =>
-      os.write(dir / "x.txt", "x")
-      git.commit("seed").orThrow
-      assertEquals(git.ensureClean("test stash"), false)
+  test("ensureClean creates no stash on a clean tree"):
+    withSeededRepo: (git, dir) =>
+      git.ensureClean("test stash")
+      val stashes = os.proc("git", "stash", "list").call(cwd = dir).out.text()
+      assertEquals(stashes.trim, "")
 
   test("ensureClean stashes pending changes and emits a Step"):
     withRepoCapturingEvents: (git, dir, seen) =>
       os.write(dir / "x.txt", "initial")
       git.commit("seed").orThrow
       os.write.over(dir / "x.txt", "dirty")
-      val stashed = git.ensureClean("orca: pre-flow")
-      assertEquals(stashed, true)
-      assertEquals(git.diff().trim, "")
+      git.ensureClean("orca: pre-flow")
+      assertEquals(git.uncommittedDiff().trim, "")
       val steps =
         seen.get().reverse.collect { case orca.events.OrcaEvent.Step(msg) =>
           msg
@@ -289,42 +245,12 @@ class OsGitToolTest extends munit.FunSuite:
       )
 
   test("commit returns Left(NothingToCommit) on a clean tree"):
-    withRepo: (git, dir) =>
-      os.write(dir / "x.txt", "x")
-      git.commit("seed").orThrow
+    withSeededRepo: (git, _) =>
       assert(git.commit("noop").left.exists(_.isInstanceOf[NothingToCommit]))
 
-  test("addWorktree returns Left(WorktreeAddFailed) when the path is taken"):
-    withRepo: (git, dir) =>
-      os.write(dir / "seed.txt", "x")
-      git.commit("initial").orThrow
-      val wtPath = TempDirs.dir() / "occupied"
-      val _ = git.addWorktree(wtPath, "feature/first").orThrow
-      val again = git.addWorktree(wtPath, "feature/first")
-      assert(again.left.exists(_.isInstanceOf[WorktreeAddFailed]))
-
-  test(
-    "removeWorktree returns Left(WorktreeNotFound) when the path isn't a worktree"
-  ):
-    withRepo: (git, _) =>
-      val ghost = TempDirs.dir() / "ghost"
-      assert(
-        git.removeWorktree(ghost).left.exists(_.isInstanceOf[WorktreeNotFound])
-      )
-
   test("push publishes the current branch to origin"):
-    withRepo: (git, dir) =>
-      os.write(dir / "f.txt", "x")
-      git.commit("seed").orThrow
-      // A bare local-path remote needs no credentials, so this exercises the
-      // push argv — including the injected gh credential fallback, inert for a
-      // non-github remote — without a network round-trip.
-      val remote = TempDirs.dir() / "remote.git"
-      val _ = os.proc("git", "init", "--bare", remote.toString).call(cwd = dir)
-      val _ = os
-        .proc("git", "remote", "add", "origin", remote.toString)
-        .call(cwd = dir)
-      git.push().orThrow
+    withSeededRepo: (git, dir) =>
+      val remote = pushToLocalRemote(git, dir)
       val refs = os
         .proc("git", "for-each-ref", "--format=%(refname)")
         .call(cwd = remote)
@@ -332,51 +258,46 @@ class OsGitToolTest extends munit.FunSuite:
         .text()
       assert(refs.contains("refs/heads/main"), refs)
 
-  /** Give `dir` a bare local-path origin — no credentials needed — and push the
-    * current branch so it has an upstream.
+  /** Give `dir` a bare local-path origin and push the current branch so it has
+    * an upstream. A bare local path needs no credentials, so the push argv —
+    * including the injected gh credential fallback, inert for a non-github
+    * remote — is exercised without a network round-trip. Returns the remote.
     */
-  private def pushToLocalRemote(git: OsGitTool, dir: os.Path): Unit =
+  private def pushToLocalRemote(git: OsGitTool, dir: os.Path): os.Path =
     val remote = TempDirs.dir() / "remote.git"
     val _ = os.proc("git", "init", "--bare", remote.toString).call(cwd = dir)
     val _ =
       os.proc("git", "remote", "add", "origin", remote.toString).call(cwd = dir)
     git.push().orThrow
+    remote
 
   test("upstreamHas is false when the branch has no upstream"):
-    withRepo: (git, dir) =>
-      os.write(dir / "f.txt", "x")
-      git.commit("seed").orThrow
-      assert(!git.upstreamHas(dir / "f.txt"))
+    withSeededRepo: (git, dir) =>
+      assert(!git.upstreamHas(dir / "seed.txt"))
 
   test("upstreamHas is true for a file present in the upstream tree"):
-    withRepo: (git, dir) =>
-      os.write(dir / "f.txt", "x")
-      git.commit("seed").orThrow
-      pushToLocalRemote(git, dir)
-      assert(git.upstreamHas(dir / "f.txt"))
+    withSeededRepo: (git, dir) =>
+      val _ = pushToLocalRemote(git, dir)
+      assert(git.upstreamHas(dir / "seed.txt"))
 
   test("upstreamHas is false for a file absent from the upstream tree"):
-    withRepo: (git, dir) =>
-      os.write(dir / "f.txt", "x")
-      git.commit("seed").orThrow
-      pushToLocalRemote(git, dir)
+    withSeededRepo: (git, dir) =>
+      val _ = pushToLocalRemote(git, dir)
       // Committed after the push, so it exists locally but not upstream.
       os.write(dir / "later.txt", "y")
       git.commit("later").orThrow
       assert(!git.upstreamHas(dir / "later.txt"))
 
   test("upstreamHas is false for a path outside the working directory"):
-    withRepo: (git, dir) =>
-      os.write(dir / "f.txt", "x")
-      git.commit("seed").orThrow
-      pushToLocalRemote(git, dir)
+    withSeededRepo: (git, dir) =>
+      val _ = pushToLocalRemote(git, dir)
       assert(!git.upstreamHas(TempDirs.dir() / "outside.txt"))
 
   test("upstreamHas resolves paths against a subdirectory working directory"):
     withRepo: (git, dir) =>
       os.write(dir / "nested" / "f.txt", "x", createFolders = true)
       git.commit("seed").orThrow
-      pushToLocalRemote(git, dir)
+      val _ = pushToLocalRemote(git, dir)
       // Paths are cwd-relative, so a tool rooted at `nested` must see its own
       // `f.txt` — not miss it by looking for `f.txt` at the repo root.
       val nestedGit = new OsGitTool(dir / "nested")
@@ -463,86 +384,54 @@ class OsGitToolTest extends munit.FunSuite:
     assert(msg.contains("(no issues reported)"), msg)
 
   test("deleteBranch removes an existing branch"):
-    withRepo: (git, dir) =>
-      os.write(dir / "seed.txt", "x")
-      git.commit("seed").orThrow
+    withSeededRepo: (git, dir) =>
       git.createBranch("to-delete").orThrow
       git.checkout("main").orThrow
       git.deleteBranch("to-delete")
-      // The branch should no longer be listed.
       val result =
         os.proc("git", "branch", "--list", "to-delete").call(cwd = dir)
       assertEquals(result.out.text().trim, "")
 
   test("deleteBranch is a no-op for a non-existent branch"):
-    withRepo: (git, dir) =>
-      os.write(dir / "seed.txt", "x")
-      git.commit("seed").orThrow
+    withSeededRepo: (git, _) =>
       // Must not throw — best-effort.
       git.deleteBranch("ghost-branch")
 
   test("deleteBranch does not delete the current branch"):
-    withRepo: (git, dir) =>
-      os.write(dir / "seed.txt", "x")
-      git.commit("seed").orThrow
+    withSeededRepo: (git, _) =>
       // Attempt to delete the currently checked-out branch: must silently skip.
       git.deleteBranch("main")
       assertEquals(git.currentBranch(), "main")
 
-  test("diffBranchExcludingOrca is empty when only .orca/ differs"):
-    withRepo: (git, dir) =>
-      os.write(dir / "seed.txt", "seed")
-      git.commit("seed").orThrow
+  test("branchHasChangesExcludingOrca is false when only .orca/ differs"):
+    withSeededRepo: (git, dir) =>
       val startBranch = git.currentBranch()
       git.createBranch("feature/orca-only").orThrow
       os.makeDir(dir / ".orca")
       os.write(dir / ".orca" / "progress-abc.json", "{}")
       git.commit("orca: progress log").orThrow
-      val diff = git.diffBranchExcludingOrca(startBranch, "feature/orca-only")
-      assert(diff.isBlank, s"expected empty diff, got: $diff")
+      assert(
+        !git.branchHasChangesExcludingOrca(startBranch, "feature/orca-only")
+      )
 
-  test("diffBranchExcludingOrca is non-empty when code changes exist"):
-    withRepo: (git, dir) =>
-      os.write(dir / "seed.txt", "seed")
-      git.commit("seed").orThrow
+  test("branchHasChangesExcludingOrca is true when code changes exist"):
+    withSeededRepo: (git, dir) =>
       val startBranch = git.currentBranch()
       git.createBranch("feature/has-code").orThrow
       os.write(dir / "feature.txt", "new feature")
       git.commit("add feature").orThrow
-      val diff = git.diffBranchExcludingOrca(startBranch, "feature/has-code")
-      assert(!diff.isBlank, "expected non-empty diff for code changes")
-      assert(
-        diff.contains("feature.txt"),
-        "diff should mention the changed file"
-      )
+      assert(git.branchHasChangesExcludingOrca(startBranch, "feature/has-code"))
 
-  test("reviewDiff includes a new untracked file as a new-file diff"):
-    withRepo: (git, dir) =>
-      os.write(dir / "seed.txt", "seed")
-      git.commit("seed").orThrow
-      os.write(dir / "new.txt", "brand new content")
-      val diff = git.reviewDiff()
-      assert(diff.contains("new.txt"), diff)
-      assert(diff.contains("+brand new content"), diff)
-
-  test("reviewDiff includes a tracked file's modification"):
-    withRepo: (git, dir) =>
-      os.write(dir / "file.txt", "first")
-      git.commit("initial").orThrow
-      os.write.over(dir / "file.txt", "second")
-      val diff = git.reviewDiff()
-      assert(diff.contains("-first"), diff)
-      assert(diff.contains("+second"), diff)
-
-  test("reviewDiff since a base commit reports work committed after it"):
-    withRepo: (git, dir) =>
-      os.write(dir / "seed.txt", "seed")
-      git.commit("seed").orThrow
+  test("reviewChanges since a base commit reports work committed after it"):
+    withSeededRepo: (git, dir) =>
       val base = git.headCommit()
       os.write(dir / "committed.txt", "already committed")
       git.commit("agent committed its own work").orThrow
-      assert(git.reviewDiff().isEmpty, "precondition: nothing left uncommitted")
-      val diff = git.reviewDiff(base)
+      assert(
+        git.reviewChanges().diff.isEmpty,
+        "precondition: nothing left uncommitted"
+      )
+      val diff = git.reviewChanges(base).diff
       assert(diff.contains("+already committed"), diff)
 
   test("reviewChanges describes one change set as both a diff and a file list"):
@@ -565,32 +454,21 @@ class OsGitToolTest extends munit.FunSuite:
     withRepo: (git, _) =>
       assertEquals(git.headCommit(), None)
 
-  test("diffStat names the changed file and its counts"):
-    withRepo: (git, dir) =>
-      os.write(dir / "seed.txt", "one\n")
-      git.commit("seed").orThrow
-      os.write.over(dir / "seed.txt", "two\n")
-      val stat = git.diffStat()
-      assert(stat.contains("seed.txt"), stat)
-      assert(stat.contains("1 file changed"), stat)
-
-  test("diffStat excludes a modified tracked .orca/ file"):
+  test("pendingChanges excludes a modified tracked .orca/ file from the stat"):
     withRepo: (git, dir) =>
       os.makeDir(dir / ".orca")
       os.write(dir / ".orca" / "progress-x.json", "{}")
       os.write(dir / "seed.txt", "seed")
       git.commit("seed").orThrow
       os.write.over(dir / ".orca" / "progress-x.json", "{\"a\":1}")
-      assertEquals(git.diffStat().trim, "")
+      assertEquals(git.pendingChanges().stat.trim, "")
 
-  test("untrackedPaths lists new files and skips .orca/ bookkeeping"):
-    withRepo: (git, dir) =>
-      os.write(dir / "seed.txt", "seed")
-      git.commit("seed").orThrow
+  test("pendingChanges skips .orca/ bookkeeping in the new-file list"):
+    withSeededRepo: (git, dir) =>
       os.write(dir / "new.txt", "hello")
       os.makeDir(dir / ".orca")
       os.write(dir / ".orca" / "progress-x.json", "{}")
-      assertEquals(git.untrackedPaths(), List("new.txt"))
+      assertEquals(git.pendingChanges().newFiles, List("new.txt"))
 
   test("a tool rooted in a subdirectory still sees the whole repository"):
     // Magic pathspecs resolve against the process cwd, so a scoping mistake
@@ -603,8 +481,12 @@ class OsGitToolTest extends munit.FunSuite:
       root.commit("seed").orThrow
       os.write.over(dir / "top.txt", "two\n")
       val inSub = new OsGitTool(dir / "sub")
-      assert(inSub.diff().contains("top.txt"), inSub.diff())
-      assert(inSub.diffStat().contains("top.txt"), inSub.diffStat())
+      assert(
+        inSub.uncommittedDiff().contains("top.txt"),
+        inSub.uncommittedDiff()
+      )
+      val stat = inSub.pendingChanges().stat
+      assert(stat.contains("top.txt"), stat)
 
   test("a tool rooted in a subdirectory renders new files it can reach"):
     // `git status` reports repo-root-relative paths; used unchanged they name
@@ -616,8 +498,9 @@ class OsGitToolTest extends munit.FunSuite:
       root.commit("seed").orThrow
       os.write(dir / "sub" / "new.txt", "hello")
       val inSub = new OsGitTool(dir / "sub")
-      assertEquals(inSub.untrackedPaths(), List("new.txt"))
-      assert(inSub.reviewDiff().contains("+hello"), inSub.reviewDiff())
+      assertEquals(inSub.pendingChanges().newFiles, List("new.txt"))
+      val diff = inSub.reviewChanges().diff
+      assert(diff.contains("+hello"), diff)
 
   test("pendingChanges reports the stat, the new files and the diff together"):
     withRepo: (git, dir) =>
@@ -627,70 +510,65 @@ class OsGitToolTest extends munit.FunSuite:
       os.write(dir / "new.txt", "hello\n")
       val changes = git.pendingChanges()
       assert(changes.stat.contains("seed.txt"), changes.stat)
+      assert(changes.stat.contains("1 file changed"), changes.stat)
       assertEquals(changes.newFiles, List("new.txt"))
       assert(changes.diff.contains("+two"), changes.diff)
       assert(changes.diff.contains("+hello"), changes.diff)
 
-  test("reviewDiff excludes a modified tracked .orca/ file"):
+  test("reviewChanges excludes a modified tracked .orca/ file"):
     withRepo: (git, dir) =>
       os.makeDir(dir / ".orca")
       os.write(dir / ".orca" / "progress-x.json", "{}")
       os.write(dir / "seed.txt", "seed")
       git.commit("seed").orThrow
       os.write.over(dir / ".orca" / "progress-x.json", "{\"a\":1}")
-      val diff = git.reviewDiff()
+      val diff = git.reviewChanges().diff
       assert(!diff.contains("progress-x.json"), diff)
 
-  test("reviewDiff excludes a new untracked .orca/ file"):
-    withRepo: (git, dir) =>
-      os.write(dir / "seed.txt", "seed")
-      git.commit("seed").orThrow
+  test("reviewChanges excludes a new untracked .orca/ file"):
+    withSeededRepo: (git, dir) =>
       os.makeDir(dir / ".orca")
       os.write(dir / ".orca" / "progress-new.json", "{}")
-      val diff = git.reviewDiff()
+      val diff = git.reviewChanges().diff
       assert(!diff.contains("progress-new.json"), diff)
 
-  test("reviewDiff includes an untracked file inside a new directory"):
-    withRepo: (git, dir) =>
-      os.write(dir / "seed.txt", "seed")
-      git.commit("seed").orThrow
+  test("reviewChanges includes an untracked file inside a new directory"):
+    withSeededRepo: (git, dir) =>
       os.makeDir(dir / "newdir")
       os.write(dir / "newdir" / "inner.sc", "val x = 1")
-      val diff = git.reviewDiff()
+      val diff = git.reviewChanges().diff
       assert(diff.contains("newdir/inner.sc"), diff)
 
-  test("reviewDiff names an untracked symlink to a directory, and carries on"):
-    withRepo: (git, dir) =>
-      os.write(dir / "seed.txt", "seed")
-      git.commit("seed").orThrow
+  test(
+    "reviewChanges names an untracked symlink to a directory, and carries on"
+  ):
+    withSeededRepo: (git, dir) =>
       os.makeDir(dir / "realdir")
       os.symlink(dir / "linkdir", dir / "realdir")
       os.write(dir / "new.txt", "brand new content")
-      val diff = git.reviewDiff()
+      val diff = git.reviewChanges().diff
       assert(diff.contains("# skipped linkdir"), diff)
       assert(diff.contains("+brand new content"), diff)
 
   // Guards how narrow the skip above is, not the abort it fixes: widening it to
   // every symlink would silently replace this diff with a skip line.
   test(
-    "reviewDiff renders an untracked symlink to a file as a mode-120000 diff"
+    "reviewChanges renders an untracked symlink to a file as a mode-120000 diff"
   ):
-    withRepo: (git, dir) =>
-      os.write(dir / "target.txt", "target contents")
-      git.commit("seed").orThrow
-      os.symlink(dir / "linkfile", dir / "target.txt")
-      val diff = git.reviewDiff()
+    withSeededRepo: (git, dir) =>
+      os.symlink(dir / "linkfile", dir / "seed.txt")
+      val diff = git.reviewChanges().diff
       assert(diff.contains("+++ b/linkfile"), diff)
       assert(diff.contains("new file mode 120000"), diff)
 
-  test("reviewDiff names an untracked nested git repository, and carries on"):
-    withRepo: (git, dir) =>
-      os.write(dir / "seed.txt", "seed")
-      git.commit("seed").orThrow
+  test(
+    "reviewChanges names an untracked nested git repository, and carries on"
+  ):
+    withSeededRepo: (git, dir) =>
       os.makeDir(dir / "nested")
       val _ = os.proc("git", "init").call(cwd = dir / "nested")
       os.write(dir / "new.txt", "brand new content")
-      val diff = git.reviewDiff()
+      val diff = git.reviewChanges().diff
       assert(diff.contains("# skipped nested/: nested git repository"), diff)
       assert(diff.contains("+brand new content"), diff)
       // Skipping the diff must not drop the path from what `add -A` will
@@ -699,31 +577,27 @@ class OsGitToolTest extends munit.FunSuite:
 
   // Pins the probe as `os.exists`, not `os.isDir`: a linked worktree's `.git`
   // is a file, not a directory.
-  test("reviewDiff names an untracked linked worktree"):
-    withRepo: (git, dir) =>
-      os.write(dir / "seed.txt", "seed")
-      git.commit("seed").orThrow
+  test("reviewChanges names an untracked linked worktree"):
+    withSeededRepo: (git, dir) =>
       val _ =
         os.proc("git", "worktree", "add", "-q", "wt", "-b", "wtb")
           .call(cwd = dir)
-      val diff = git.reviewDiff()
+      val diff = git.reviewChanges().diff
       assert(diff.contains("# skipped wt/: nested git repository"), diff)
 
-  test("reviewDiff includes an untracked file whose name has spaces"):
-    withRepo: (git, dir) =>
-      os.write(dir / "seed.txt", "seed")
-      git.commit("seed").orThrow
+  test("reviewChanges includes an untracked file whose name has spaces"):
+    withSeededRepo: (git, dir) =>
       os.write(dir / "my new file.txt", "hello")
-      val diff = git.reviewDiff()
+      val diff = git.reviewChanges().diff
       assert(diff.contains("my new file.txt"), diff)
 
-  test("reviewDiff composes a tracked modification with an untracked file"):
+  test("reviewChanges composes a tracked modification with an untracked file"):
     withRepo: (git, dir) =>
       os.write(dir / "tracked.txt", "old")
       git.commit("seed").orThrow
       os.write.over(dir / "tracked.txt", "new")
       os.write(dir / "untracked.txt", "fresh")
-      val diff = git.reviewDiff()
+      val diff = git.reviewChanges().diff
       assert(diff.contains("-old"), diff)
       assert(diff.contains("+new"), diff)
       assert(diff.contains("untracked.txt"), diff)
@@ -762,33 +636,31 @@ class OsGitToolTest extends munit.FunSuite:
       os.write.over(dir / "tab\there.md", "two")
       assertEquals(git.changedFiles(), List("tab\there.md"))
 
-  test("changedFileStats counts the lines a change added and removed"):
+  test("reviewChanges counts the lines a change added and removed"):
     withRepo: (git, dir) =>
       os.write(dir / "notes.md", "one\ntwo\n")
       git.commit("seed").orThrow
       os.write.over(dir / "notes.md", "one\ntwo\nthree\n")
       assertEquals(
-        git.changedFileStats(),
+        git.reviewChanges().files,
         List(ChangedFile("notes.md", FileChange.Lines(1, 0)))
       )
 
-  test("changedFileStats reports a binary change without a count"):
+  test("reviewChanges reports a binary change without a count"):
     withRepo: (git, dir) =>
       os.write(dir / "logo.png", Array[Byte](0, 1, 2, 3))
       git.commit("seed").orThrow
       os.write.over(dir / "logo.png", Array[Byte](4, 5, 6, 7))
       assertEquals(
-        git.changedFileStats(),
+        git.reviewChanges().files,
         List(ChangedFile("logo.png", FileChange.Binary))
       )
 
-  test("changedFileStats reports an untracked file as new"):
-    withRepo: (git, dir) =>
-      os.write(dir / "seed.txt", "seed")
-      git.commit("seed").orThrow
+  test("reviewChanges reports an untracked file as new"):
+    withSeededRepo: (git, dir) =>
       os.write(dir / "fresh.txt", "one\ntwo\n")
       assertEquals(
-        git.changedFileStats(),
+        git.reviewChanges().files,
         List(ChangedFile("fresh.txt", FileChange.New))
       )
 
@@ -812,9 +684,7 @@ class OsGitToolTest extends munit.FunSuite:
     // Integration check that the formatter is wired into the commit path:
     // corrupt the index so `git add -A` fails, then confirm the thrown message
     // carries the status + fsck blocks rather than the bare stderr.
-    withRepo: (git, dir) =>
-      os.write(dir / "seed.txt", "seed")
-      git.commit("seed").orThrow
+    withSeededRepo: (git, dir) =>
       os.write.over(dir / ".git" / "index", "garbage")
       os.write(dir / "another.txt", "x")
       val ex = intercept[orca.OrcaFlowException](git.commit("noop"))
@@ -847,6 +717,22 @@ class OsGitToolTest extends munit.FunSuite:
       assert(out.contains("a.txt"), out)
       assert(!out.contains("b.txt"), out)
 
+  test("show refuses when no requested path is part of the commit"):
+    withRepo: (git, dir) =>
+      os.write(dir / "a.txt", "one")
+      git.commit("add a").orThrow
+      val failure = git.show("HEAD", paths = List("nosuch")).left.toOption.get
+      assert(failure.isInstanceOf[GitReadFailed.Refused], failure)
+
+  test("show refuses when the commit did not change a path present at the rev"):
+    withRepo: (git, dir) =>
+      os.write(dir / "a.txt", "one")
+      git.commit("add a").orThrow
+      os.write(dir / "b.txt", "two")
+      git.commit("add b").orThrow
+      val failure = git.show("HEAD", paths = List("a.txt")).left.toOption.get
+      assert(failure.isInstanceOf[GitReadFailed.Refused], failure)
+
   test("fileAt returns a file's contents as of a commit"):
     withRepo: (git, dir) =>
       os.write(dir / "a.txt", "before")
@@ -857,9 +743,7 @@ class OsGitToolTest extends munit.FunSuite:
       assertEquals(git.fileAt(first, "a.txt"), Right("before"))
 
   test("a revision git does not know comes back as Refused, not a throw"):
-    withRepo: (git, dir) =>
-      os.write(dir / "a.txt", "one")
-      git.commit("add a").orThrow
+    withSeededRepo: (git, _) =>
       assert(
         git
           .show("nosuchref")
@@ -901,6 +785,12 @@ class OsGitToolTest extends munit.FunSuite:
   test("a path climbing out of the repository is rejected"):
     withRepo: (git, _) =>
       val failure = git.fileAt("HEAD", "../outside.txt").left.toOption.get
+      assert(failure.isInstanceOf[GitReadFailed.InvalidPath], failure)
+
+  test("a magic pathspec is rejected before git runs"):
+    withRepo: (git, _) =>
+      val failure =
+        git.show("HEAD", paths = List(":(exclude)x")).left.toOption.get
       assert(failure.isInstanceOf[GitReadFailed.InvalidPath], failure)
 
   test("every range spelling is rejected: git show on one is unbounded"):
@@ -951,3 +841,44 @@ class OsGitToolTest extends munit.FunSuite:
       val out = git.show("HEAD").orThrow
       assert(clue(out.length) < OsGitTool.MaxReadBytes + 100)
       assert(out.endsWith("bytes — narrow the request]"), out.takeRight(80))
+
+  test("reviewChanges cuts an untracked file past the read limit, and says so"):
+    withSeededRepo: (git, dir) =>
+      os.write(
+        dir / "big.txt",
+        ("x" * 99 + "\n") * (OsGitTool.MaxReadBytes / 50)
+      )
+      val diff = git.reviewChanges().diff
+      assert(clue(diff.length) < OsGitTool.MaxReadBytes + 100)
+      assert(diff.endsWith(OsGitTool.CutMarker), diff.takeRight(80))
+
+  test("reviewChanges names the untracked files past the diff budget"):
+    withSeededRepo: (git, dir) =>
+      // Rendered first (git lists paths sorted), and on its own it exhausts the
+      // budget, so the next file is named instead of read.
+      os.write(
+        dir / "a-big.txt",
+        ("x" * 99 + "\n") * (OsGitTool.MaxReadBytes / 50)
+      )
+      os.write(dir / "z-small.txt", "small")
+      val diff = git.reviewChanges().diff
+      assert(
+        diff.contains("# skipped z-small.txt: past the"),
+        diff.takeRight(200)
+      )
+
+  test("reviewChanges names an untracked file git cannot read, and carries on"):
+    // The path was listed as untracked and then became unreadable — deleted by
+    // a background build, or locked down as here. One such path must not abort
+    // the review.
+    withSeededRepo: (git, dir) =>
+      os.write(dir / "locked.txt", "secret")
+      os.perms.set(dir / "locked.txt", "---------")
+      try
+        assume(
+          scala.util.Try(os.read(dir / "locked.txt")).isFailure,
+          "needs a user that file permissions apply to"
+        )
+        val diff = git.reviewChanges().diff
+        assert(diff.contains("# skipped locked.txt: git diff exited"), diff)
+      finally os.perms.set(dir / "locked.txt", "rw-------")

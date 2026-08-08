@@ -1,5 +1,6 @@
 package orca.runner.manifest
 
+import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import orca.events.Usage
 
 class RunManifestTest extends munit.FunSuite:
@@ -12,10 +13,19 @@ class RunManifestTest extends munit.FunSuite:
   test("ManifestUsage mirrors every token axis of Usage"):
     assertEquals(
       ManifestUsage.of(Usage.empty).productElementNames.toSet,
-      // Three of Usage's fields take another route: `freshInputTokens` is
-      // persisted through the `inputTokens` total it feeds, `cost` is not
+      // The two of Usage's fields that take another route: `cost` is not
       // carried at all (see ManifestUsage's scaladoc), and `apiCalls` sits
       // beside the usage on each turn line rather than inside it.
-      Usage.empty.productElementNames.toSet
-        - "freshInputTokens" + "inputTokens" - "cost" - "apiCalls"
+      Usage.empty.productElementNames.toSet - "cost" - "apiCalls"
     )
+
+  /** An outcome only a newer build writes must not sink the file: the shell
+    * still has sessions to offer from it.
+    */
+  test("an unrecognised outcome decodes to Unknown, keeping its spelling"):
+    val manifest = readFromString[RunManifest](
+      """{"orcaVersion":"0.0.test","workDir":"/work","pid":1,
+        |"startedAt":"2026-07-18T10:00:00Z","outcome":"abandoned",
+        |"sessions":[]}""".stripMargin
+    )(using RunManifest.codec)
+    assertEquals(manifest.outcome, ManifestOutcome.Unknown("abandoned"))

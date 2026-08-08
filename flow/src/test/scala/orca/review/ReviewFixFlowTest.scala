@@ -24,16 +24,6 @@ class ReviewFixFlowTest extends munit.FunSuite:
       val _ = seen.updateAndGet(event :: _)
     def events: List[OrcaEvent] = seen.get().reverse
 
-  private def issue(desc: String, confidence: Double = 1.0): ReviewIssue =
-    ReviewIssue(
-      severity = Severity.Warning,
-      confidence = Confidence.orThrow(confidence),
-      title = Title(desc),
-      description = desc,
-      location = None,
-      suggestion = None
-    )
-
   test("reviewAndFixLoop marks the loop with a `Review & fix` progress line"):
     val listener = new RecordingListener
     given FlowControl =
@@ -56,7 +46,7 @@ class ReviewFixFlowTest extends munit.FunSuite:
       reviewers = List(reviewer),
       task = "optimize cache",
       reviewerSelection = ReviewerSelector.allEveryRound,
-      initialDiff = Some("")
+      diff = ReviewDiff.Pinned("")
     )
 
     // The loop runs under the caller's task stage (ADR 0018 §2.2), so it emits
@@ -93,7 +83,7 @@ class ReviewFixFlowTest extends munit.FunSuite:
       task = "never ending",
       maxIterations = 2,
       reviewerSelection = ReviewerSelector.allEveryRound,
-      initialDiff = Some("")
+      diff = ReviewDiff.Pinned("")
     )
     assert(
       result.issues.exists(_.reason.contains("max iterations")),

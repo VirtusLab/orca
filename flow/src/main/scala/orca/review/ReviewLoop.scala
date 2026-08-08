@@ -90,6 +90,16 @@ private[review] def capExitMessage(
   */
 private[review] val NoFixesReason: String = "fixer reported no fixes"
 
+/** The fixer-reported-no-fixes halt, shared by [[fixLoop]] and
+  * [[ReviewFixLoop]]: announces the bail-out and returns the entries the caller
+  * folds via [[recordIgnored]].
+  */
+private def fixerHaltAdditions(
+    outcome: ReconciledFixOutcome
+)(using FlowContext): List[IgnoredIssue] =
+  orca.display("Fixer reported no fixes; bailing out")
+  outcome.ignored ++ outcome.unaccounted.map(IgnoredIssue(_, NoFixesReason))
+
 /** Fold `additions` into `accumulated`, in order, keeping one entry per title
   * with the latest reason ([[GateLedger.mergeLatestByTitle]]).
   *
@@ -106,6 +116,29 @@ private[review] def recordIgnored(
     additions.foldLeft(accumulated.issues)((held, incoming) =>
       GateLedger.mergeLatestByTitle(held, incoming)(_.title)
     )
+  )
+
+/** `accumulated` with the fixer's `fixed` titles dropped, then `additions`
+  * folded in ([[recordIgnored]]).
+  *
+  * Both loops prune here, on the continue path, because this is the one point a
+  * fix verdict is observed: an entry left in past it reports a finding that was
+  * fixed as still ignored, and — since the carried set is also what the next
+  * round's reviewers are told was declined — tells them so too.
+  *
+  * The trade-off: a fixer that falsely claims a fix drops the entry from the
+  * record unless a reviewer reports the finding again. That re-report is the
+  * same recovery the continue path already relies on for `unaccounted` titles
+  * ([[ReconciledFixOutcome]]).
+  */
+private[review] def carryPastFixes(
+    accumulated: IgnoredIssues,
+    fixed: Set[Title],
+    additions: List[IgnoredIssue]
+): IgnoredIssues =
+  recordIgnored(
+    IgnoredIssues(accumulated.issues.filterNot(i => fixed.contains(i.title))),
+    additions
   )
 
 /** Announce the fixer's replies that matched no issue it was handed — the
@@ -139,8 +172,7 @@ def fixLoop(
 )(using ctx: FlowContext): IgnoredIssues =
   @scala.annotation.tailrec
   def loop(accumulated: IgnoredIssues, iteration: Int): IgnoredIssues =
-    // A progress marker, not a committing stage: runs under the caller's task
-    // stage (ADR 0018 §2.2).
+    // A progress marker, not a committing stage (ADR 0018 §2.2).
     orca.display(s"Iteration ${iteration + 1}")
     val issues = evaluate().issues
     stopPolicy(
@@ -158,28 +190,23 @@ def fixLoop(
         val outcome = FixOutcome.reconcile(issues, fix(issues))
         announceFixTurn(outcome)
         if outcome.fixed.isEmpty then
-          recordIgnored(
-            accumulated,
-            outcome.ignored,
-            outcome.unaccounted.map(IgnoredIssue(_, NoFixesReason))
+          recordIgnored(accumulated, fixerHaltAdditions(outcome))
+        else
+          loop(
+            carryPastFixes(accumulated, outcome.fixed.toSet, outcome.ignored),
+            iteration + 1
           )
-        else loop(recordIgnored(accumulated, outcome.ignored), iteration + 1)
 
   loop(IgnoredIssues(Nil), 0)
 
-/** One reviewer's live [[Chat]], paired with its entry under a single backend
-  * tag `B`. The chat bundles the role-tagged agent with its conversation id, so
-  * a resume just calls the chat again.
+/** One reviewer's live [[Chat]]. The chat bundles the role-tagged agent with
+  * its conversation id, so a resume just calls the chat again.
   *
-  * `lastDiff` is the change set this reviewer was last sent, not the last one
+  * `lastSent` is the change set this reviewer was last sent, not the last one
   * sampled: a resume compares against it to decide whether there is anything
   * new to send ([[ReReviewChanges.of]]).
   */
-private case class SessionEntry[B <: BackendTag](
-    entry: RosterEntry[B],
-    chat: Chat[B],
-    lastDiff: String
-)
+private case class SessionEntry(chat: Chat[?], lastSent: LastSent)
 
 /** All cross-iteration state for `reviewAndFixLoop`, in one immutable record.
   * `history` is consulted by [[ReviewerSelector]]; `sessions` holds one
@@ -188,14 +215,10 @@ private case class SessionEntry[B <: BackendTag](
   */
 private case class ReviewLoopState(
     history: List[ReviewBatch],
-    sessions: Map[ReviewerId, SessionEntry[?]],
+    sessions: Map[ReviewerId, SessionEntry],
     lintChat: Option[Lint.Summariser],
     gateLedger: GateLedger
 ):
-  /** The state to carry into the next round: this round's batch on the history,
-    * each reviewer that ran holding its latest session, and every gate reject
-    * unioned into the ledger.
-    */
   def afterRound(
       reviewers: List[RoundContribution],
       lint: Option[LintContribution]
@@ -228,7 +251,7 @@ private object ReviewLoopState:
 private case class RoundContribution(
     entry: RosterEntry[?],
     gated: GatedIssues,
-    newSession: Option[SessionEntry[?]]
+    newSession: Option[SessionEntry]
 )
 
 /** What the lint gate contributed to a round: its gate-split findings and the
@@ -279,11 +302,12 @@ private case class RoundOutcome(
   * a finding was considered and refused rather than missed — the one thing in
   * the loop it could not have worked out by reading the code. The `fixed`
   * titles do not: a reviewer told its finding was fixed is handed the answer it
-  * exists to work out for itself.
+  * exists to work out for itself. A refusal the fixer later reverses drops out
+  * of that set, and out of the gate ledger, the round the fix is observed.
   *
   * Nothing still open is lost at any exit: whatever the fixer left unaccounted
-  * for, and whatever the confidence gate held back, come back in the returned
-  * [[IgnoredIssues]] with a reason.
+  * for, and whatever the confidence gate held back and the loop never saw
+  * fixed, come back in the returned [[IgnoredIssues]] with a reason.
   */
 def reviewAndFixLoop[B <: BackendTag](
     coderSession: FlowSession[B],
@@ -295,10 +319,10 @@ def reviewAndFixLoop[B <: BackendTag](
     reviewerSelection: ReviewerSelector = ReviewerSelector.default,
     /** Shell commands run in order before each review round so reviewers and
       * the lint see formatted code and the committed tree stays formatted. Each
-      * runs via `bash -c` in `ctx.workDir`, exit status ignored. The default
-      * resolves the project's `ctx.stackSettings.format` (ADR 0019);
-      * `Configured.Off` skips formatting, `Configured.Use(...)` overrides the
-      * settings.
+      * runs via `bash -c` in `ctx.workDir`; a nonzero exit is reported but
+      * doesn't abort the round. The default resolves the project's
+      * `ctx.stackSettings.format` (ADR 0019); `Configured.Off` skips
+      * formatting, `Configured.Use(...)` overrides the settings.
       */
     formatCommands: Configured[List[String]] = Configured.FromSettings,
     /** Commands + summariser agent for the lint gate run alongside the
@@ -320,24 +344,12 @@ def reviewAndFixLoop[B <: BackendTag](
       */
     maxIterations: Int = DefaultMaxIterations,
     fixInstructions: String = ReviewLoopPrompts.Fix,
-    /** Override the diff handed to each reviewer, and the changed-file list the
-      * selector is given.
-      *
-      * The default samples everything the enclosing stage has produced —
-      * `ctx.git.reviewDiff(fc.stageBaseCommit)`, tracked changes plus
-      * newly-created files, `.orca/` bookkeeping excluded — re-sampled at the
-      * start of every iteration and sent to every reviewer that runs, so each
-      * round's reviewers see the fixer's edits whether or not it committed
-      * them. A sample past [[orca.BoundedDiff.ReviewThreshold]] is cut down to
-      * the files that fit plus a list of the ones that didn't, so an outsized
-      * change set still produces a prompt that can be sent.
-      *
-      * Pass `Some(...)` to pin the diff instead of sampling it — what the tests
-      * use to skip the git call. A pinned diff is also not told its base
-      * commit, since it may describe a change set the stage base doesn't
-      * bracket (see [[ReviewDiffSource.Pinned]]).
+    /** Where the change set under review comes from: sampled from the enclosing
+      * stage each round, or pinned by the caller. Pinning changes what
+      * reviewers and the selector are told, not just the diff text — see
+      * [[ReviewDiff]].
       */
-    initialDiff: Option[String] = None
+    diff: ReviewDiff = ReviewDiff.SampleFromStage
 )(using
     ctx: FlowContext,
     ev: InStage,
@@ -361,9 +373,10 @@ def reviewAndFixLoop[B <: BackendTag](
     case Configured.Use(l) => Some(l)
   // `fc` is read here, at loop entry, so what the loop carries is the plain
   // commit hash rather than the capability it came from.
-  val diffSource: ReviewDiffSource = initialDiff.fold(
-    ReviewDiffSource.Sampled(ctx.git, fc.stageBaseCommit)
-  )(ReviewDiffSource.Pinned(_))
+  val diffSource: ReviewDiffSource = diff match
+    case ReviewDiff.SampleFromStage =>
+      ReviewDiffSource.Sampled(ctx.git, fc.stageBaseCommit)
+    case ReviewDiff.Pinned(d) => ReviewDiffSource.Pinned(d)
   // `ctx`/`ev` passed explicitly, not by implicit search: the more-specific
   // `fc: FlowControl` would otherwise be picked for the constructor's
   // `FlowContext` and its root capability rejected.
@@ -425,8 +438,9 @@ private[review] class ReviewFixLoop[B <: BackendTag](
   private val lintName: String = "lint"
 
   /** Split one agent's findings on the confidence gate. Rejects are kept, not
-    * discarded: [[ReviewLoopState]]'s [[GateLedger]] holds them, and every exit
-    * reports them in its [[IgnoredIssues]].
+    * discarded: [[ReviewLoopState]]'s [[GateLedger]] holds them until either
+    * the loop sees the finding fixed or an exit reports them in its
+    * [[IgnoredIssues]].
     */
   private def applyGate(result: ReviewResult): GatedIssues =
     val (kept, dropped) = result.issues.partition(confidenceGate.admits)
@@ -435,7 +449,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
   /** Run one reviewer against an immutable sessions snapshot. Returns the
     * review result plus the [[SessionEntry]] the caller folds into the next
     * state — a new one on the reviewer's first call, an updated one when a
-    * resume advanced its `lastDiff`, `None` when there is nothing to record.
+    * resume advanced its `lastSent`, `None` when there is nothing to record.
     * Pure with respect to its inputs — no shared-state side effects — so the
     * caller can run many in parallel.
     *
@@ -443,10 +457,10 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     */
   private def reviewWithSession(
       e: RosterEntry[?],
-      stored: Option[SessionEntry[?]],
+      stored: Option[SessionEntry],
       current: DiffSample,
       declined: List[IgnoredIssue]
-  ): (ReviewResult, Option[SessionEntry[?]]) =
+  ): (ReviewResult, Option[SessionEntry]) =
     stored match
       case Some(se) => resumeReview(se, current, declined)
       case None     => firstReview(e, current.diff, declined)
@@ -457,38 +471,42 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     * ([[ReviewerPrompts.Role]]) so the `TokensUsed` breakdown can subtotal
     * reviewer spend, without renaming the entry's identity.
     *
-    * The fixer's `fixed` titles are deliberately NOT sent: a reviewer told its
-    * finding was fixed is handed the answer to the question the round exists to
-    * ask, and it still has to open the code either way.
+    * The fixer's `fixed` titles are deliberately not sent — see
+    * [[reviewAndFixLoop]].
     */
-  private def resumeReview[R <: BackendTag](
-      se: SessionEntry[R],
+  private def resumeReview(
+      se: SessionEntry,
       current: DiffSample,
       declined: List[IgnoredIssue]
-  ): (ReviewResult, Option[SessionEntry[?]]) =
-    val changes = ReReviewChanges.of(se.lastDiff, current)
+  ): (ReviewResult, Option[SessionEntry]) =
+    val changes = ReReviewChanges.of(se.lastSent, current)
     val result =
       se.chat
         .resultAs[ReviewResult]
         .autonomous
         .run(ReviewLoopPrompts.reReview(changes, declined), emitPrompt = false)
-    // Only advance `lastDiff` when something was actually sent, so a reviewer
-    // that skipped a round still compares against what it has seen.
-    val advanced = Option.when(changes != ReReviewChanges.AlreadySeen)(
-      se.copy(lastDiff = current.diff)
-    )
+    // Nothing is sent on `AlreadySeen`, so the reviewer keeps comparing against
+    // what it has seen. `PathsOnly` still records the whole diff, not the
+    // paths: the next round compares diff text, so a change that rewrites those
+    // files without adding or removing any must still register.
+    val advanced = changes match
+      case ReReviewChanges.Updated(_) =>
+        Some(se.copy(lastSent = LastSent.Inline(current.diff)))
+      case ReReviewChanges.TooLarge(_) =>
+        Some(se.copy(lastSent = LastSent.PathsOnly(current.diff)))
+      case ReReviewChanges.AlreadySeen(_) => None
     (result, advanced)
 
-  /** A reviewer's first call: mint a fresh [[Chat]] on the role-tagged agent
-    * and pair it back with the entry so a later resume recovers it typed.
-    * `currentDiff` seeds the initial framing, and `declined` carries the
-    * fixer's refusals to a reviewer joining after round one.
+  /** A reviewer's first call: mint a fresh [[Chat]] on the role-tagged agent so
+    * a later round can resume it. `currentDiff` seeds the initial framing, and
+    * `declined` carries the fixer's refusals to a reviewer joining after round
+    * one.
     */
-  private def firstReview[R <: BackendTag](
-      e: RosterEntry[R],
+  private def firstReview(
+      e: RosterEntry[?],
       currentDiff: String,
       declined: List[IgnoredIssue]
-  ): (ReviewResult, Option[SessionEntry[?]]) =
+  ): (ReviewResult, Option[SessionEntry]) =
     val chat = e.agent.withRole(ReviewerPrompts.Role).chat()
     val result =
       chat
@@ -496,15 +514,16 @@ private[review] class ReviewFixLoop[B <: BackendTag](
         .autonomous
         .run(
           ReviewLoopPrompts.initialReview(
-            task,
-            currentDiff,
-            confidenceGate,
-            diffSource.base,
-            declined
+            task = task,
+            diff = currentDiff,
+            diffIntro = diffSource.diffIntro,
+            gate = confidenceGate,
+            base = diffSource.base,
+            declined = declined
           ),
           emitPrompt = false
         )
-    (result, Some(SessionEntry(e, chat, currentDiff)))
+    (result, Some(SessionEntry(chat, LastSent.Inline(currentDiff))))
 
   /** What one fork of the round's fan-out came back with — the same
     * contribution the loop state folds in, tagged with which kind of agent
@@ -521,8 +540,8 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     * implementations must be thread-safe.
     *
     * The diff is sampled once per call so every reviewer in the round sees the
-    * same payload. `declined` is every refusal the fixer has made so far,
-    * delivered to this round's reviewers.
+    * same payload. `declined` is every refusal the fixer has made and not since
+    * fixed, delivered to this round's reviewers.
     */
   private def runReviewersAndLint(
       active: List[RosterEntry[?]],
@@ -627,10 +646,9 @@ private[review] class ReviewFixLoop[B <: BackendTag](
       state = currentState.afterRound(contributions, lint)
     )
 
-  /** Run the format commands, in order, in `ctx.workDir`. Exit status ignored —
-    * a formatter failure shouldn't abort the review. `mergeErrIntoOut` folds
-    * stderr into captured stdout so neither stream reaches the terminal and
-    * tears the status row.
+  /** Run the format commands, in order, in `ctx.workDir`. A nonzero exit is
+    * reported as a `Step`; it stops neither the commands after it nor the
+    * review, and repeats every round the command keeps failing.
     *
     * Takes [[WorkspaceWrite]] because it rewrites the tree (ADR 0018 §2.2), and
     * because that token is fork-opaque: moving this step into the reviewer
@@ -639,9 +657,11 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     */
   private def formatWorkspace()(using WorkspaceWrite): Unit =
     formatCommands.foreach: cmd =>
-      val _ = os
-        .proc("bash", "-c", cmd)
-        .call(cwd = ctx.workDir, check = false, mergeErrIntoOut = true)
+      val exitCode = runShell(cmd).exitCode
+      if exitCode != 0 then
+        ctx.emit(
+          OrcaEvent.Step(s"format command failed (exit $exitCode): $cmd")
+        )
 
   private def evaluate(
       state: ReviewLoopState,
@@ -715,6 +735,38 @@ private[review] class ReviewFixLoop[B <: BackendTag](
       val findings = TextUtil.pluralize(droppedCount, "sub-threshold finding")
       s"No issues above the confidence gate; $findings recorded as ignored"
 
+  /** How a round ended the loop, carrying whatever that exit has to record on
+    * top of the gate rejects [[conclude]] folds in for all three.
+    */
+  private enum LoopExit:
+    case Clean
+    case Capped(stillOpen: IgnoredIssues)
+    case FixerHalted(outcome: ReconciledFixOutcome)
+
+  /** Announce `exit` and fold everything still open into `accumulated` — the
+    * only place gate rejects are folded in.
+    *
+    * Gate rejects go first: the ledger holds them from whichever round first
+    * held one back, so this round's verdict on the same title is the fresher
+    * one and must win ([[recordIgnored]] keeps the last reason per title).
+    */
+  private def conclude(
+      exit: LoopExit,
+      accumulated: IgnoredIssues,
+      state: ReviewLoopState
+  ): IgnoredIssues =
+    val rejects = gateRejectsOf(state)
+    val gated = gatedOut(rejects).issues
+    exit match
+      case LoopExit.Clean =>
+        orca.display(doneMessage(rejects.size))
+        recordIgnored(accumulated, gated)
+      case LoopExit.Capped(stillOpen) =>
+        orca.display(capExitMessage(maxIterations, stillOpen))
+        recordIgnored(accumulated, gated, stillOpen.issues)
+      case LoopExit.FixerHalted(outcome) =>
+        recordIgnored(accumulated, gated, fixerHaltAdditions(outcome))
+
   /** Run the evaluate/fix loop to convergence and return the accumulated
     * [[IgnoredIssues]], applying the shared [[stopPolicy]] each round and
     * threading the immutable [[ReviewLoopState]] (reviewer history + sessions)
@@ -746,51 +798,42 @@ private[review] class ReviewFixLoop[B <: BackendTag](
         accumulated: IgnoredIssues,
         iteration: Int,
         state: ReviewLoopState,
-        // Every decline the fixer has made so far, on its way to this round's
-        // reviewers: without it a reviewer re-reports what the fixer
-        // deliberately declined, the fixer declines it again, and the round is
-        // spent. The whole set rather than the last round's, so a reviewer
-        // first activated in round three still learns what was settled in round
-        // one. A fresh argument per round rather than a state field, so it
-        // cannot be delivered twice or forgotten. Not split per reviewer — a
-        // [[FixOutcome]] doesn't say which reviewer reported what — so every
-        // reviewer is sent the whole list.
+        // Every decline the fixer has made so far, minus any since fixed. The
+        // whole set rather than the last round's, so a reviewer first activated
+        // in round three still learns what was settled in round one. Not split
+        // per reviewer — a [[FixOutcome]] doesn't say which reviewer reported
+        // what — so every reviewer is sent the whole list.
         declined: List[IgnoredIssue]
     ): IgnoredIssues =
       orca.display(s"Iteration ${iteration + 1}")
       val round = evaluate(state, selectRound, declined)
       val issues = round.issues
-      val stillGated = gateRejectsOf(round.state)
-      val gated = gatedOut(stillGated)
       stopPolicy(
         issues,
         iteration = iteration,
         maxIterations = maxIterations
       ) match
         case LoopStep.Done =>
-          orca.display(doneMessage(stillGated.size))
-          recordIgnored(accumulated, gated.issues)
+          conclude(LoopExit.Clean, accumulated, round.state)
         case LoopStep.CapReached(ignored) =>
-          orca.display(capExitMessage(maxIterations, ignored))
-          // Gate rejects go in first: the ledger holds them from whichever
-          // round first held one back, so this round's verdict on the same
-          // title is the fresher one and must win.
-          recordIgnored(accumulated, gated.issues, ignored.issues)
+          conclude(LoopExit.Capped(ignored), accumulated, round.state)
         case LoopStep.NeedsFix =>
           val outcome = FixOutcome.reconcile(issues, fix(issues))
           // `ctx` explicit for the same given-priority reason as `selectRound`.
           announceFixTurn(outcome)(using ctx)
           if outcome.fixed.isEmpty then
-            orca.display("Fixer reported no fixes; bailing out")
-            recordIgnored(
-              accumulated,
-              gated.issues,
-              outcome.ignored,
-              outcome.unaccounted.map(IgnoredIssue(_, NoFixesReason))
-            )
+            conclude(LoopExit.FixerHalted(outcome), accumulated, round.state)
           else
+            val fixedTitles = outcome.fixed.toSet
             // Bound once: the accumulated set IS the cross-round decline set on
             // this branch, since only declines reach it before an exit.
-            val carried = recordIgnored(accumulated, outcome.ignored)
-            loop(carried, iteration + 1, round.state, carried.issues)
+            val carried =
+              carryPastFixes(accumulated, fixedTitles, outcome.ignored)
+            loop(
+              carried,
+              iteration + 1,
+              round.state
+                .copy(gateLedger = round.state.gateLedger.remove(fixedTitles)),
+              carried.issues
+            )
     loop(IgnoredIssues(Nil), 0, ReviewLoopState.empty, Nil)

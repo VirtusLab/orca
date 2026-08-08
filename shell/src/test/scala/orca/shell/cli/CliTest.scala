@@ -2,13 +2,20 @@ package orca.shell.cli
 
 import mainargs.ParserForMethods
 import orca.agents.BackendTag
-import orca.runner.manifest.{ManifestSession, RunManifest}
+import orca.runner.manifest.{
+  ManifestOutcome,
+  ManifestSession,
+  ManifestSessionKind,
+  RunManifest
+}
 import orca.settings.{AgentSettings, AgentSpec, SettingsFile}
 import orca.shell.create.CreateTier
 import orca.shell.flows.{DiscoveredFlow, FlowOrigin}
 import orca.shell.run.LaunchResult
 import orca.shell.sessions.{RecordedRun, SessionPicker, SessionSelection}
 import orca.testkit.TempDirs
+
+import java.time.Instant
 
 class CliTest extends munit.FunSuite:
 
@@ -740,9 +747,9 @@ class CliTest extends munit.FunSuite:
       flow = Some("a-flow.sc"),
       workDir = workDir,
       pid = 1,
-      startedAt = startedAt,
+      startedAt = Instant.parse(startedAt),
       finishedAt = None,
-      outcome = "succeeded",
+      outcome = ManifestOutcome.Succeeded,
       sessions = sessions
     )
 
@@ -760,9 +767,9 @@ class CliTest extends munit.FunSuite:
       role = None,
       stage = None,
       sessionName = Some(sessionName),
-      kind = "durable",
-      firstSeenAt = lastActiveAt,
-      lastActiveAt = lastActiveAt
+      kind = ManifestSessionKind.Durable,
+      firstSeenAt = Instant.parse(lastActiveAt),
+      lastActiveAt = Instant.parse(lastActiveAt)
     )
 
   private def runsFixture(): List[RecordedRun] =
@@ -799,6 +806,24 @@ class CliTest extends munit.FunSuite:
     assertEquals(
       SessionPicker.resolveSelection(Nil, None),
       Left("no sessions recorded yet")
+    )
+
+  test("resolveSelection: no selector with only one-shot sessions is an error"):
+    val runs = List(
+      RecordedRun(
+        manifest(
+          startedAt = "2026-07-18T09:00:00Z",
+          sessions = List(
+            durable("plan", "2026-07-18T09:45:00Z")
+              .copy(kind = ManifestSessionKind.OneShot)
+          )
+        ),
+        crashed = false
+      )
+    )
+    assertEquals(
+      SessionPicker.resolveSelection(runs, None),
+      Left("no durable session to continue yet — see `orca continue --list`")
     )
 
   test(
@@ -865,9 +890,9 @@ class CliTest extends munit.FunSuite:
       role = None,
       stage = None,
       sessionName = Some(sessionName),
-      kind = "durable",
-      firstSeenAt = lastActiveAt,
-      lastActiveAt = lastActiveAt
+      kind = ManifestSessionKind.Durable,
+      firstSeenAt = Instant.parse(lastActiveAt),
+      lastActiveAt = Instant.parse(lastActiveAt)
     )
 
   test(

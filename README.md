@@ -178,7 +178,7 @@ backend's model accessors and backend-specific extras:
 | `opencode` | `anthropicOpus`/`anthropicSonnet`/`anthropicHaiku`, `openaiSol`/`openaiTerra`/`openaiLuna`, `cheap` (provider-matched: openai→luna, else anthropicHaiku), `withModel(providerModel)` / `withModel(provider, modelId)` | [OpenCode](https://opencode.ai) coding/reviewing agent, driven over HTTP+SSE against a headless `opencode serve` (started lazily, shared for the run; sessions survive it — see [Sessions](#sessions)). Spans providers, so models are provider-qualified: use an accessor (`opencode.openaiLuna`) or `opencode.withModel("openai/gpt-5-mini")` / `opencode.withModel("ollama", "llama3.1")`. Inherits the user's configured `opencode` providers/auth. |
 | `pi` | `withModel(Model)` | [Pi](https://pi.dev/) coding agent backend, driven through `pi --mode rpc`. Pi handles provider/model selection through its own CLI configuration; pin a model with `pi.withModel(Model("provider/model"))`. Interactive calls can ask clarifying questions via Orca's `ask_user` bridge. |
 | `gemini` | `flash`, `cheap` (→ flash), `withModel(Model)` | Google Gemini CLI coding/reviewing agent, driven via `gemini --output-format stream-json`. Bare `gemini` pins **Gemini 2.5 Pro**; use `gemini.flash` for cheaper one-shot calls. Structured output is prompt-enforced (Gemini has no schema flag); `withReadOnly` maps to `--approval-mode plan`. See [ADR 0015](adr/0015-gemini-stream-json-driver.md). |
-| `git` | `createBranch`, `checkout`, `ensureClean`, `commit`, `forceAdd`, `push`, `currentBranch`, `headCommit`, `diff`, `diffStat`, `untrackedPaths`, `reviewDiff`, `changedFiles`, `changedFileStats`, `reviewChanges`, `pendingChanges`, `diffVsBase`, `defaultBase`, `log`, `resetHard`, `deleteBranch`, `addWorktree`, `removeWorktree`, `listWorktrees`, `diffBranchExcludingOrca` | Git operations against the working tree. Recoverable failures (`BranchAlreadyExists`, `BranchNotFound`, `NothingToCommit`, `PushFailure` — `NonFastForward`/`RemoteDeclined` — `WorktreeAddFailed`, `WorktreeNotFound`) surface as `Either`; `.orThrow` converts a `Left` back to an exception when the case is unexpected. `forceAdd`, `resetHard`, `deleteBranch` are used by the flow runtime for bookkeeping and teardown. `diff` covers the whole repository minus `.orca/` bookkeeping; `diffStat` is its `--stat` summary and `untrackedPaths` the files new to the repo, which no diff of tracked history reports. `reviewDiff` is `diff` plus those new files' contents — what `reviewAndFixLoop` hands reviewers — and takes an optional commit to compare against (`headCommit` reads one) so work already committed still shows up; `changedFiles` lists the same change set as file paths instead of rendering it, for a consumer gating on file names — the diff text alone names neither a binary change nor a rename, and leaves a trailing tab on a path containing a space; `changedFileStats` is the same list with each path's line counts (a binary file and an untracked one report their kind instead), for a caller that has to say what it left out of a prompt; `reviewChanges` returns the `reviewDiff` text and the `changedFileStats` list from a single sample, so a caller that has to name the files its bounded diff left out cannot pair one sample's diff with another's file list; `pendingChanges` returns all three from a single sample, for describing what the next commit will include. |
+| `git` | `createBranch`, `checkout`, `ensureClean`, `commit`, `forceAdd`, `push`, `currentBranch`, `headCommit`, `uncommittedDiff`, `changedFiles`, `reviewChanges`, `pendingChanges`, `diffVsBase`, `defaultBase`, `resetHard`, `deleteBranch`, `branchHasChangesExcludingOrca` | Git operations against the working tree. Recoverable failures (`BranchAlreadyExists`, `BranchNotFound`, `NothingToCommit`, `PushFailure` — `NonFastForward`/`RemoteDeclined`) surface as `Either`; `.orThrow` converts a `Left` back to an exception when the case is unexpected. `forceAdd`, `resetHard`, `deleteBranch` are used by the flow runtime for bookkeeping and teardown. `uncommittedDiff` covers the whole repository minus `.orca/` bookkeeping, tracked files only, and is empty once the work is committed — `diffVsBase` is the branch-wide view. `reviewChanges` is what `reviewAndFixLoop` hands reviewers: that diff plus the contents of files new to the repo, together with the list of every path in the change set and how much of each changed. It takes an optional commit to compare against (`headCommit` reads one) so work already committed still shows up. `changedFiles` is the path list on its own, for a consumer gating on file names — the diff text alone names neither a binary change nor a rename, and leaves a trailing tab on a path containing a space. `pendingChanges` describes what the next commit will include: a `--stat` summary, the new files, and the diff. |
 | `gh` | `createPr`, `updatePr`, `readIssue`, `readIssueComments`, `readPrComments`, `writeComment(pr, body)` / `writeComment(issue, body)`, `upsertComment(pr, marker, body)` / `upsertComment(issue, marker, body)`, `buildStatus`, `waitForBuild` | GitHub PR + CI integration via the `gh` CLI. `createPr` is idempotent by branch (returns the existing PR if one is open); `upsertComment` finds a prior comment carrying `marker` and edits it in place (see [Authoring rules](#authoring-rules) for the re-run pattern). `updatePr` replaces a PR's title + body. `waitForBuild` returns `Either[BuildWaitFailed, …]`. |
 | `fs` | `read`, `write`, `list` | Working-tree file I/O. `read` returns `Option[String]` so a missing file is a branch point, not an exception. |
 
@@ -299,7 +299,7 @@ slot is typed `AgentWiring => Ox ?=> OpencodeAgent`.
 Every side-effecting call — git mutations (`commit`/`push`/`resetHard`/…),
 `fs.write`, `gh` writes, every `agent.*.run` — must happen inside a `stage`
 body, and **the compiler enforces it**: a mutation outside a stage doesn't
-compile. Pure reads (`git.diff`, `git.log`, `gh.readIssue`, `fs.read`),
+compile. Pure reads (`git.uncommittedDiff`, `git.changedFiles`, `gh.readIssue`, `fs.read`),
 `display`, and `fail` run anywhere; `agent.session(name, seed)` runs outside a
 stage too — it records a session, not a side effect. Where to *place* effects is
 covered by the [Authoring rules](#authoring-rules).
@@ -510,7 +510,7 @@ inside stages](#side-effects-happen-inside-stages)). The rules below are the
 structural conventions you choose to follow as a flow author.
 
 1. **Reads outside, mutations inside.** Only side-effecting work goes in a
-   stage. Pure reads (`git.diff`, `gh.readIssue`, `fs.read`, `gh.waitForBuild`)
+   stage. Pure reads (`git.uncommittedDiff`, `gh.readIssue`, `fs.read`, `gh.waitForBuild`)
    run outside stages — staging them wastes commits and checkpoints.
    `agent.session(name, seed)` also belongs outside stages (see
    [Sessions](#sessions)).
@@ -633,7 +633,7 @@ Review utilities, available via `import orca.review.*`:
 |---|---|
 | `lint(commands, agent, instructions?)` | Run shell lint commands (in order, each via `bash -c`; every one runs even if an earlier one fails) and have `agent` summarise their labelled, concatenated output as a `ReviewResult`. Short output is inlined into the prompt; anything larger is written to a file under `.orca/cache/` for the agent to read, so unbounded output can't overflow the context. |
 | `lint(commands, summariser, instructions)` | As above, but summarising into an existing `Lint.summariser(agent)` conversation instead of a fresh one per call, so a gate run several times within one stage resumes the session rather than re-establishing it each round. Stop reusing a summariser once it has reported: it can repeat those findings on a later call whose commands no longer show them. `reviewAndFixLoop` does this for you. |
-| `reviewAndFixLoop(coderSession, reviewers, task, ..., formatCommands?, lint?, confidenceGate?, maxIterations?, fixInstructions?)` | Run reviewers against `task`, collect the findings admitted by `confidenceGate: ConfidenceGate` (a per-severity minimum confidence; see below), hand them to the `coderSession` (a `FlowSession`) to fix, re-evaluate. Halts when reviewers come back clean, the fixer reports no fixes, or `maxIterations` fix attempts have run (default 3, so up to four evaluation rounds). The cap exit names the issues it leaves open. Whatever is still open at that point — issues the fixer didn't account for, plus every finding the confidence gate held back over the whole loop — comes back in the returned `IgnoredIssues` with a reason. `formatCommands: Configured[List[String]]` runs before each review round; `lint: Configured[Lint]` runs alongside the reviewers each round — both default to the project's [stack settings](#settings), see below. |
+| `reviewAndFixLoop(coderSession, reviewers, task, ..., formatCommands?, lint?, confidenceGate?, maxIterations?, fixInstructions?)` | Run reviewers against `task`, collect the findings admitted by `confidenceGate: ConfidenceGate` (a per-severity minimum confidence; see below), hand them to the `coderSession` (a `FlowSession`) to fix, re-evaluate. Halts when reviewers come back clean, the fixer reports no fixes, or `maxIterations` fix attempts have run (default 3, so up to four evaluation rounds). The cap exit names the issues it leaves open. Whatever is still open at that point — issues the fixer didn't account for, plus every finding the confidence gate held back over the whole loop and the loop never saw fixed — comes back in the returned `IgnoredIssues` with a reason. `formatCommands: Configured[List[String]]` runs before each review round; `lint: Configured[Lint]` runs alongside the reviewers each round — both default to the project's [stack settings](#settings), see below. |
 | `allReviewers(base)` | All eight canonical reviewer agents (code-functionality, test, readability, code-structure, simplicity, performance, security, scala-fp) layered on top of `base`. |
 | `minimalReviewers(base)` | Universally-applicable subset (code-functionality, readability, test). Pair with the default LLM-driven selector when the full set is overkill. |
 | `fixLoop(evaluate, fix, ...)` | Lower-level evaluate/fix loop over your own two functions — no reviewers, no sessions, no diff. Shares `reviewAndFixLoop`'s stop policy and `maxIterations` default, not its machinery. |
@@ -662,12 +662,15 @@ everything the enclosing `stage` has produced since it began, so it is the same
 whether or not the coding agent committed its own work along the way. It is
 re-sampled each round and sent to every reviewer that runs, resumed ones
 included, so each round's reviewers see the fixes made before it. Pass
-`initialDiff = Some(...)` to pin it instead.
+`diff = ReviewDiff.Pinned(...)` to pin it instead: reviewers are then not told a
+base commit, the selector's changed-file list is scraped from the diff text, and
+every later round finds the same text, so a resumed reviewer is told there is no
+new change set.
 
 A change set past 128 KiB is cut down before it is sent: the reviewer gets as
 many whole files as fit, then a list naming every other changed file with its
 line counts, and reads those files itself. Without that, the largest change sets
-make a request no model can accept. A pinned `initialDiff` is sent as given.
+make a request no model can accept. A pinned diff is sent as given.
 
 `reviewAndFixLoop`'s `reviewerSelection` defaults to `ReviewerSelector.default`,
 which narrows twice: a picker LLM on `reviewAgent`'s cheap tier chooses from the
@@ -699,7 +702,7 @@ PR utilities, available via `import orca.pr.*`:
 
 | Method | Use |
 |---|---|
-| `summarisePr(agent, diff, context?, instructions?)` | Fold a branch diff into a `PrSummary(title, body)` for `gh.createPr`. `context` is an optional preamble (originating issue link, user prompt, etc.) the model anchors the description to. Use a cheap model (`claude.cheap`, `codingAgent.cheap`). |
+| `summarisePr(agent, diff, context?, instructions?)` | Fold a branch diff into a `PrSummary(title, body)` for `gh.createPr`. `context` is an optional preamble (originating issue link, user prompt, etc.) the model anchors the description to. A diff too large to send is cut short. Use a cheap model (`claude.cheap`, `codingAgent.cheap`). |
 
 ### Customising prompts
 

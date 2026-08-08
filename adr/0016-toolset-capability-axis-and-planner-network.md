@@ -55,7 +55,8 @@ gets web reads (no shell `gh`). What that probe did *not* establish is gemini's
 no-edit guarantee — see the amendment below.
 `--allowed-tools` is deprecated (gemini 1.0 → Policy Engine); migrate then.
 opencode keeps `bash` off (no writable-shell network); its web tool isn't in the
-disabled set, so web may work (server-dependent, unverified).
+disabled set, so web may work (server-dependent, unverified). opencode's two
+tiers are no longer the same gate — see the amendment below.
 
 ### Claude allowlist placement
 
@@ -92,6 +93,17 @@ class of mechanism — turned out to remove no tools at all, and gemini also
 downgrades `plan` to `default` in untrusted folders, which is where orca runs
 agents. The cell records what orca can stand behind, not a known weakness;
 raise it when a probe establishes more.
+
+### opencode's two restricted tiers
+
+Amended 2026-08-08 (#111): opencode's `ReadOnly` and `NetworkOnly` are no longer
+the same gate. Both disable `write`, `edit`, `bash`, `patch` and `task` (`task`
+spawns a subagent with the profile's write-capable default set, and flag
+propagation into subagents is unmeasured). `ReadOnly` also disables `webfetch`
+by name; `NetworkOnly` leaves it unset, so opencode's `NetworkOnly` grants web
+reads with no shell, the same shape as claude's. Both tiers stay **hard**. This
+supersedes the opencode row in the table above and the "opencode planners stay
+network-free and rely on pre-fetching" consequence below.
 
 ## Consequences
 

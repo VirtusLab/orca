@@ -32,7 +32,13 @@ final class Chat[B <: BackendTag] private[orca] (
       config: Option[AgentConfig] = None,
       emitPrompt: Boolean = true
   )(using InStage): String =
-    agent.autonomous.runWithSession(prompt, id, config, emitPrompt)
+    agent.autonomous.runWithSession(
+      prompt,
+      id,
+      sessionName = None,
+      config = config,
+      emitPrompt = emitPrompt
+    )
 
   /** Fix the output type for structured turns continuing this conversation —
     * both `autonomous` and `interactive` modes, mirroring `agent.resultAs[O]`.
@@ -54,11 +60,22 @@ final class ChatCall[B <: BackendTag, O] private[orca] (
         config: Option[AgentConfig] = None,
         emitPrompt: Boolean = true
     )(using InStage): O =
-      call.autonomous.runWithSession(input, id, config, emitPrompt)
+      call.autonomous.runWithSession(
+        input,
+        id,
+        sessionName = None,
+        config = config,
+        emitPrompt = emitPrompt
+      )
 
   object interactive:
     def run[I: AgentInput](
         input: I,
         config: Option[AgentConfig] = None
     )(using InStage): O =
-      call.interactive.runWithSession(input, id, config)
+      call.interactive.runWithSession(
+        input,
+        id,
+        sessionName = None,
+        config = config
+      )
