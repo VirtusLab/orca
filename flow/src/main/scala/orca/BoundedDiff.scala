@@ -29,7 +29,9 @@ private[orca] object BoundedDiff:
     */
   val CommitThreshold: Int = 8 * 1024
 
-  /** Max chars [[reviewPayload]] ever returns.
+  /** The size both [[reviewPayload]] and [[prPayload]] bound a diff to:
+    * [[reviewPayload]] never returns more, [[prPayload]] cuts its head to it
+    * and appends a marker on top.
     *
     * Sized as a safety valve against a request that cannot be sent, not as a
     * saving: at ~4 chars per token a 128 KiB diff is ~32k tokens, which on top
