@@ -286,7 +286,8 @@ trait GitTool:
     * repository, excluding `.orca/` bookkeeping. Tracked files only — an
     * untracked file (nothing to diff against) is invisible here. A
     * reviewer-facing consumer that also needs untracked files surfaced wants
-    * [[reviewChanges]] instead.
+    * [[reviewChanges]] instead; a caller after everything a branch produced
+    * wants [[diffVsBase]], since this is empty once the work is committed.
     *
     * The `.orca/` exclusion is load-bearing, not tidiness: once a stage has
     * committed the progress log the file is tracked, and later stage bodies
@@ -295,9 +296,6 @@ trait GitTool:
     * change.
     *
     * Capped at `OsGitTool.MaxReadBytes` and marked where it was cut.
-    *
-    * Uncommitted is the whole scope: once the work is committed this is empty.
-    * A caller after "everything a branch produced" wants [[diffVsBase]].
     */
   def uncommittedDiff(): String
 
@@ -417,7 +415,9 @@ trait GitTool:
   /** The paths reported by `git status --porcelain` (modified, staged, and
     * untracked), one per entry. READ-ONLY. Used by skip-branch mode's
     * informational notice on a fresh run with a dirty tree (ADR 0018 amendment)
-    * — the count, not the parsed content, is what's shown.
+    * — the count, not the parsed content, is what's shown. Emptiness is also
+    * what [[commit]] and [[ensureClean]] decide on, so narrowing what this
+    * reports changes when they commit and when they stash.
     */
   def dirtyPaths(): List[String]
 
@@ -985,7 +985,7 @@ private[orca] class OsGitTool(
     // Route through QuietProc so git's stderr ("Switched to a new branch",
     // etc.) is captured rather than leaked to the parent terminal, where it
     // would tear the renderer's status row. Branch-state changes surface in the
-    // event log via the OrcaEvent.Step calls in the public methods above.
+    // event log via the `step` calls in the public methods above.
     val result = gitProc("git" +: args)
     if result.exitCode != 0 then fail(s"git ${args.mkString(" ")}", result)
     result.out.text()

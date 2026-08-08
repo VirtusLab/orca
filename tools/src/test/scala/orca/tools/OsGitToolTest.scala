@@ -18,8 +18,6 @@ class OsGitToolTest extends munit.FunSuite:
     val dir = GitRepo.empty()
     body(new OsGitTool(dir), dir)
 
-  /** Variant for tests that only need a HEAD to exist, not a particular seed.
-    */
   private def withSeededRepo(body: (OsGitTool, os.Path) => Unit): Unit =
     val dir = GitRepo.seeded()
     body(new OsGitTool(dir), dir)

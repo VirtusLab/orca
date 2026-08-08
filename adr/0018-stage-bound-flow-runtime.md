@@ -178,9 +178,9 @@ that stage's progress entry. Why two stages can't run concurrently — the
   parameters: file writes, git mutations, and GitHub mutations require
   `WorkspaceWrite`; **all** LLM calls require `InStage`. (Originally one combined
   `InStage` token; split 2026-07-07 for capture checking — §6.)
-- **R16** — Pure reads (`fs.read`, `git.diff` / `log` / `currentBranch`,
-  `gh.readIssue` / `buildStatus` / `waitForBuild`) require neither token and are
-  callable outside stages.
+- **R16** — Pure reads (`fs.read`, `git.uncommittedDiff` / `log` /
+  `currentBranch`, `gh.readIssue` / `buildStatus` / `waitForBuild`) require
+  neither token and are callable outside stages.
 - **R17** — Library helpers that perform side effects take the matching token
   clause — `(using InStage)` for LLM calls, `(using WorkspaceWrite)` for workspace
   writes, both if they do both — and run under the caller's stage rather than
