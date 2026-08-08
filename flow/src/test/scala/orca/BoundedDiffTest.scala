@@ -244,3 +244,12 @@ class BoundedDiffTest extends munit.FunSuite:
         s"\n\n[diff cut at ${BoundedDiff.ReviewThreshold} characters — " +
         "the summary covers the leading files only]"
     )
+
+  test("the PR cut never splits a surrogate pair"):
+    // The one-char prefix is what lands the cut mid-pair: the threshold is
+    // even, so a bare run of two-char emoji would break between pairs. A lone
+    // high surrogate isn't encodable — UTF-8 round-tripping replaces it, which
+    // is what this asserts.
+    val payload =
+      BoundedDiff.prPayload("+" + "🙂" * BoundedDiff.ReviewThreshold)
+    assertEquals(String(payload.getBytes(UTF_8), UTF_8), payload)

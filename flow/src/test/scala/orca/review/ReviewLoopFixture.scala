@@ -1,8 +1,22 @@
 package orca.review
 
-import orca.{FlowSession, StackSettings, TestFlowControl}
-import orca.agents.{Agent, BackendTag, SessionId}
+import orca.{FlowContext, FlowSession, InStage, StackSettings, TestFlowControl}
+import orca.agents.{
+  Agent,
+  AgentCall,
+  AgentConfig,
+  AgentInput,
+  Announce,
+  AutonomousAgentCall,
+  AutonomousTextCall,
+  BackendTag,
+  InteractiveAgentCall,
+  JsonData,
+  SessionId,
+  ToolSet
+}
 import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
+import orca.plan.Title
 
 /** Shared fixture construction for the `reviewAndFixLoop` tests.
   *
@@ -32,7 +46,7 @@ object ReviewLoopFixture:
       agent: Agent[BackendTag.ClaudeCode.type],
       id: String = "s"
   ): FlowSession[BackendTag.ClaudeCode.type] =
-    new FlowSession(agent, SessionId[BackendTag.ClaudeCode.type](id))
+    new FlowSession(agent, SessionId[BackendTag.ClaudeCode.type](id), "coder")
 
   /** A [[TestFlowControl]] (a real temp git repo + progress store) wired to
     * `dispatcher`, so the loop's `emit`s reach the suite's listeners and the
@@ -51,3 +65,106 @@ object ReviewLoopFixture:
     TestFlowControl
       .create(dispatcher, lead = lead, stackSettings = stackSettings)
       ._1
+
+/** Agent stub base: supplies the identity and the `with*` no-ops every
+  * review-loop stub repeats, leaving `resultAs` abstract.
+  */
+private[review] abstract class StubAgent(override val name: String)
+    extends Agent[BackendTag.ClaudeCode.type]:
+  def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] = ???
+  def withConfig(c: AgentConfig): Agent[BackendTag.ClaudeCode.type] = this
+  def withSystemPrompt(p: String): Agent[BackendTag.ClaudeCode.type] = this
+  def withName(n: String): Agent[BackendTag.ClaudeCode.type] = this
+  def withTools(t: ToolSet): Agent[BackendTag.ClaudeCode.type] = this
+
+/** Fake AgentCall whose `autonomous.run` drains a scripted sequence of outputs
+  * in order. `seenSessions` records each call's session id so tests can assert
+  * "fresh on first, same id thereafter."; `seenPrompts` records what the caller
+  * sent. `onRun` fires before each reply.
+  */
+private[review] class FakeAgentCall[O](
+    outputs: Iterator[Any],
+    onRun: () => Unit
+) extends AgentCall[BackendTag.ClaudeCode.type, O]:
+
+  /** Session ids the LLM was called with, in invocation order. */
+  val seenSessions: java.util.concurrent.atomic.AtomicReference[
+    List[SessionId[BackendTag.ClaudeCode.type]]
+  ] = new java.util.concurrent.atomic.AtomicReference[
+    List[SessionId[BackendTag.ClaudeCode.type]]
+  ](Nil)
+
+  /** Rendered inputs the LLM was called with, in invocation order. */
+  val seenPrompts: java.util.concurrent.atomic.AtomicReference[List[String]] =
+    new java.util.concurrent.atomic.AtomicReference[List[String]](Nil)
+
+  val autonomous: AutonomousAgentCall[BackendTag.ClaudeCode.type, O] =
+    new AutonomousAgentCall[BackendTag.ClaudeCode.type, O]:
+      private[orca] def runWithSession[I: AgentInput](
+          input: I,
+          session: SessionId[BackendTag.ClaudeCode.type],
+          sessionName: Option[String],
+          config: Option[AgentConfig],
+          emitPrompt: Boolean
+      )(using InStage): O =
+        val _ = seenSessions.updateAndGet(session :: _)
+        val _ = seenPrompts.updateAndGet(
+          summon[AgentInput[I]].serialize(input) :: _
+        )
+        onRun()
+        outputs.next().asInstanceOf[O]
+  def interactive: InteractiveAgentCall[BackendTag.ClaudeCode.type, O] = ???
+
+/** An agent replying with `outputs` in order; a call past the end throws, which
+  * is how a test pins that a stub must never run.
+  */
+private[review] class FakeAgent(
+    name: String,
+    outputs: List[Any] = Nil,
+    onRun: () => Unit = () => ()
+) extends StubAgent(name):
+  private val fakeCall: FakeAgentCall[Any] =
+    new FakeAgentCall[Any](outputs.iterator, onRun)
+
+  def resultAs[O: JsonData: Announce]
+      : AgentCall[BackendTag.ClaudeCode.type, O] =
+    fakeCall.asInstanceOf[AgentCall[BackendTag.ClaudeCode.type, O]]
+
+  /** Session ids this tool was called with, in invocation order. Tests assert
+    * the loop threaded a stable id across iterations.
+    */
+  def seenSessions: List[SessionId[BackendTag.ClaudeCode.type]] =
+    fakeCall.seenSessions.get().reverse
+
+  /** Rendered inputs this tool was called with, in invocation order. */
+  def seenPrompts: List[String] = fakeCall.seenPrompts.get().reverse
+
+/** A finding whose title doubles as its description, with no location or
+  * suggestion — the shape the review tests assert on.
+  */
+private[review] def issue(
+    desc: String,
+    confidence: Double = 1.0,
+    severity: Severity = Severity.Warning
+): ReviewIssue =
+  ReviewIssue(
+    severity = severity,
+    confidence = Confidence.orThrow(confidence),
+    title = Title(desc),
+    description = desc,
+    location = None,
+    suggestion = None
+  )
+
+/** A [[ReviewerSelector]] that does nothing at prepare time and narrows each
+  * round with `narrow(roster, history)`.
+  */
+private[review] def selector(
+    narrow: (List[RosterEntry[?]], List[ReviewBatch]) => List[RosterEntry[?]]
+): ReviewerSelector = new ReviewerSelector:
+  def prepare(
+      all: List[RosterEntry[?]],
+      taskTitle: Title,
+      changedFiles: List[String]
+  )(using FlowContext, InStage) =
+    history => narrow(all, history)

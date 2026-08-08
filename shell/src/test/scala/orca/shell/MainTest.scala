@@ -2,7 +2,12 @@ package orca.shell
 
 import org.jline.terminal.{Terminal, TerminalBuilder}
 import orca.StackSettings
-import orca.runner.manifest.{ManifestSession, RunManifest}
+import orca.runner.manifest.{
+  ManifestOutcome,
+  ManifestSession,
+  ManifestSessionKind,
+  RunManifest
+}
 import orca.settings.SettingsFile
 import orca.shell.actions.{SettingsEditAction, StackAction}
 import orca.shell.create.CreateTier
@@ -12,6 +17,8 @@ import orca.shell.run.LaunchResult
 import orca.shell.sessions.{RecordedRun, SessionPicker, SessionSelection}
 import orca.shell.ui.{Choice, ShellUi, UiOutcome}
 import orca.testkit.TempDirs
+
+import java.time.Instant
 
 /** Answers a single fixed `confirm` outcome, recording the question it was
   * asked; every other prompt is unsupported — [[Main.rediscoverStack]] and
@@ -114,9 +121,9 @@ class MainTest extends munit.FunSuite:
       flow = Some("a-flow.sc"),
       workDir = workDir,
       pid = 1,
-      startedAt = startedAt,
+      startedAt = Instant.parse(startedAt),
       finishedAt = None,
-      outcome = "succeeded",
+      outcome = ManifestOutcome.Succeeded,
       sessions = sessions
     )
 
@@ -137,9 +144,9 @@ class MainTest extends munit.FunSuite:
       role = None,
       stage = stage,
       sessionName = Some(sessionName),
-      kind = "durable",
-      firstSeenAt = lastActiveAt,
-      lastActiveAt = lastActiveAt
+      kind = ManifestSessionKind.Durable,
+      firstSeenAt = Instant.parse(lastActiveAt),
+      lastActiveAt = Instant.parse(lastActiveAt)
     )
 
   private def oneShot(
@@ -159,9 +166,9 @@ class MainTest extends munit.FunSuite:
       role = role,
       stage = stage,
       sessionName = None,
-      kind = "oneShot",
-      firstSeenAt = lastActiveAt,
-      lastActiveAt = lastActiveAt
+      kind = ManifestSessionKind.OneShot,
+      firstSeenAt = Instant.parse(lastActiveAt),
+      lastActiveAt = Instant.parse(lastActiveAt)
     )
 
   private def resumeSelections(
@@ -397,6 +404,28 @@ class MainTest extends munit.FunSuite:
         "★ helper — latest (no stage yet) [claude]",
         "★ main — latest (no stage yet) [claude]"
       )
+    )
+
+  /** The `sessionName` is what a durable-grouping bug would dedupe on, so it is
+    * set here even though one-shots never carry one.
+    */
+  test(
+    "sessionRows groups a session of a kind this build doesn't know with the one-shots"
+  ):
+    val run = RecordedRun(
+      manifest(sessions =
+        List(
+          oneShot().copy(
+            kind = ManifestSessionKind.Unknown("cloned"),
+            sessionName = Some("coder")
+          )
+        )
+      ),
+      crashed = false
+    )
+    assertEquals(
+      SessionPicker.sessionRows(List(run), expanded = true).map(_.label),
+      List("main [claude] (one-shot)")
     )
 
   test("sessionRows suffixes a crashed run's rows with `(crashed)`"):

@@ -939,5 +939,5 @@ class OsGitToolTest extends munit.FunSuite:
           "needs a user that file permissions apply to"
         )
         val diff = git.reviewChanges().diff
-        assert(diff.contains("# skipped locked.txt: no longer readable"), diff)
+        assert(diff.contains("# skipped locked.txt: git diff exited"), diff)
       finally os.perms.set(dir / "locked.txt", "rw-------")
