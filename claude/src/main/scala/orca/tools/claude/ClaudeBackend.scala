@@ -83,6 +83,10 @@ private[orca] class ClaudeBackend(
     * exit 0, no warning. Without this check a flow script carrying the old
     * syntax would keep compiling, keep running, and grant nothing.
     *
+    * Also rejects the write-capable builtins: a `NetworkOnly` turn puts these
+    * names on both `--tools` and `--allowedTools`, so passing one here hands
+    * back an auto-approved shell while the tier still reports `Hard`.
+    *
     * Shares `closedFlag` and `enforcementNotice` with `this`: the sibling is a
     * genuinely different `AgentBackend` instance, so without threading the SAME
     * values through, a handle derived here and leaked past flow-end would
@@ -90,23 +94,16 @@ private[orca] class ClaudeBackend(
     * given a second time.
     */
   def withNetworkTools(tools: Seq[String]): ClaudeBackend =
-    tools.filterNot(ClaudeBackend.BareToolName.matches) match
-      case Nil =>
-        new ClaudeBackend(
-          cli,
-          tools,
-          projectsDir,
-          workDir,
-          closedFlag,
-          enforcementNotice
-        )
-      case bad =>
-        throw new IllegalArgumentException(
-          s"withNetworkTools takes bare claude tool names; these are not: " +
-            s"${bad.mkString(", ")}. Command-scoped entries like " +
-            "\"Bash(gh api:*)\" belonged to the old --allowedTools mapping and " +
-            "are silently ignored by --tools."
-        )
+    ClaudeBackend.rejectNonBareNames(tools)
+    ClaudeBackend.rejectWriteCapable(tools)
+    new ClaudeBackend(
+      cli,
+      tools,
+      projectsDir,
+      workDir,
+      closedFlag,
+      enforcementNotice
+    )
 
   /** Claude's sessions live on disk (`~/.claude/projects/.../<id>.jsonl`) and
     * outlive the process, so it is durable: the claim survives a restart
@@ -389,6 +386,43 @@ object ClaudeBackend:
     * `--tools` unfiltered, so listing one there does nothing.
     */
   private val BareToolName = "[A-Za-z][A-Za-z0-9]*".r
+
+  /** Builtins [[withNetworkTools]] refuses: each writes, shells out, or drives
+    * a shell, and `withNetworkTools` exists only to add network reads. Probed
+    * 2026-08-08, claude 2.1.226: only `Bash`, `Monitor`, `Write`, `Edit` and
+    * `NotebookEdit` are still in the built-in set; the rest are kept because a
+    * stale name here is harmless while a missing one is not.
+    */
+  private val WriteCapableTools: Set[String] = Set(
+    "Bash",
+    "BashOutput",
+    "KillBash",
+    "KillShell",
+    "Monitor",
+    "Write",
+    "Edit",
+    "MultiEdit",
+    "NotebookEdit"
+  )
+
+  private def rejectNonBareNames(tools: Seq[String]): Unit =
+    val bad = tools.filterNot(BareToolName.matches)
+    if bad.nonEmpty then
+      throw new IllegalArgumentException(
+        "withNetworkTools takes bare claude tool names; these are not: " +
+          s"${bad.mkString(", ")}. Command-scoped entries like " +
+          "\"Bash(gh api:*)\" belonged to the old --allowedTools mapping and " +
+          "are silently ignored by --tools."
+      )
+
+  private def rejectWriteCapable(tools: Seq[String]): Unit =
+    val bad = tools.filter(WriteCapableTools.contains)
+    if bad.nonEmpty then
+      throw new IllegalArgumentException(
+        "withNetworkTools adds network reads to a NetworkOnly turn; these " +
+          s"write or shell out: ${bad.mkString(", ")}. Use ToolSet.Full if " +
+          "the agent needs to write or run commands."
+      )
 
   /** Fully-qualified tool name (MCP server name + tool slug). Always
     * auto-approved on the interactive path — the user is already typing an
