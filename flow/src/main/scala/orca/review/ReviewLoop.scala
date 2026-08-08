@@ -19,7 +19,7 @@ import orca.{
   InStage,
   WorkspaceWrite
 }
-import orca.plan.Title
+import orca.plan.{Task, Title}
 
 import orca.agents.{BackendTag, Agent, Chat}
 import orca.events.OrcaEvent
@@ -312,7 +312,18 @@ private case class RoundOutcome(
 def reviewAndFixLoop[B <: BackendTag](
     coderSession: FlowSession[B],
     reviewers: List[Agent[?]],
-    task: String,
+    /** The work under review. Reviewers are shown its title and its
+      * description, alongside `userRequest`, each labelled — so a reviewer can
+      * tell what the user asked for apart from what the planner decided, and
+      * report a finding against the planned choice. A flow with no planning
+      * stage passes its prompt as the title and an empty description.
+      */
+    task: Task,
+    /** What the user asked for, shown to reviewers alongside the task. Defaults
+      * to the run's prompt; a flow whose prompt is only a pointer — an issue
+      * reference, say — passes the text it points at instead.
+      */
+    userRequest: Option[String] = None,
     /** Which reviewers run each iteration — see [[ReviewerSelector]] for the
       * shipped variants and how each trades coverage for tokens.
       */
@@ -386,6 +397,7 @@ def reviewAndFixLoop[B <: BackendTag](
       reviewers = reviewers,
       reviewerSelection = reviewerSelection,
       task = task,
+      userRequest = userRequest.getOrElse(ctx.userPrompt),
       formatCommands = resolvedFormat,
       lintGate = resolvedLint,
       confidenceGate = confidenceGate,
@@ -398,13 +410,15 @@ def reviewAndFixLoop[B <: BackendTag](
 /** [[reviewAndFixLoop]]'s parameters bundled into one value so
   * [[ReviewFixLoop]]'s constructor doesn't mirror them field-for-field. See
   * `reviewAndFixLoop`'s parameter docs for each field; `formatCommands` and
-  * `lintGate` hold values `Configured` already resolved.
+  * `lintGate` hold values `Configured` already resolved, and `userRequest`
+  * holds the caller's override or, failing that, the run's `ctx.userPrompt`.
   */
 private[review] case class ReviewLoopConfig[B <: BackendTag](
     coderSession: FlowSession[B],
     reviewers: List[Agent[?]],
     reviewerSelection: ReviewerSelector,
-    task: String,
+    task: Task,
+    userRequest: String,
     formatCommands: List[String],
     lintGate: Option[Lint],
     confidenceGate: ConfidenceGate,
@@ -431,7 +445,6 @@ private[review] class ReviewFixLoop[B <: BackendTag](
   import config.*
 
   private val roster: List[RosterEntry[?]] = RosterEntry.roster(reviewers)
-  private val taskTitle: Title = Title(task)
 
   // Displayed for the lint gate's own findings, and the identity its LLM runs
   // are tagged with.
@@ -515,6 +528,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
         .run(
           ReviewLoopPrompts.initialReview(
             task = task,
+            userRequest = userRequest,
             diff = currentDiff,
             diffIntro = diffSource.diffIntro,
             gate = confidenceGate,
@@ -788,7 +802,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     // stays a function of its inputs. `ctx`/`ev` passed explicitly for the same
     // given-priority reason as the constructor call in `reviewAndFixLoop`.
     val selectRound: List[ReviewBatch] -> List[RosterEntry[?]] =
-      reviewerSelection.prepare(roster, taskTitle, diffSource.selectorFiles)(
+      reviewerSelection.prepare(roster, task.title, diffSource.selectorFiles)(
         using
         ctx,
         ev

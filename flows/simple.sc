@@ -42,6 +42,7 @@ flow(OrcaArgs(args)):
       coderSession = session,
       reviewers = buildReviewers(reviewAgent, List(review)),
       reviewerSelection = ReviewerSelector.allEveryRound,
-      task = userPrompt,
+      // No planning stage, so the prompt is the whole task.
+      task = Task(Title(userPrompt), ""),
       maxIterations = 3
     )

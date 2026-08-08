@@ -1,4 +1,4 @@
-Task: {{task}}
+Task: {{taskTitle}}{{taskContext}}
 
 Review the following changes only — do NOT survey unrelated files in the
 project. Focus your findings strictly on what the diff modifies and on code that
@@ -34,7 +34,10 @@ deflate one to hedge: report the probability you actually believe.
 
 ## The plan is not evidence
 
-The task description, and the plan behind it, are context — not evidence that a
-decision is correct. A choice made at planning time is as reviewable as the code
-implementing it. If a planned choice looks wrong, say so, at whatever confidence
-the evidence supports.
+The task above says what was decided, not that the decision is correct. A
+planned choice is as reviewable as the code implementing it. If one looks wrong,
+report it as a finding against that choice — say which part of the task you mean
+— at whatever confidence the evidence supports.
+
+What the user asked for is what the work has to satisfy. Where that and what was
+planned differ, what the user asked for wins.

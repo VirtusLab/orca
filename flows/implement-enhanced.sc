@@ -46,7 +46,7 @@ flow(OrcaArgs(args), returnToStartBranch = true):
       reviewAndFixLoop(
         coderSession = session,
         reviewers = allReviewers(reviewAgent),
-        task = task.title.value,
+        task = task,
         maxIterations = 3
       )
 

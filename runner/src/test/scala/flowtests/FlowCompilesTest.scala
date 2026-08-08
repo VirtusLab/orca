@@ -20,7 +20,8 @@ import orca.agents.AgentConfig
 
 import scala.util.matching.Regex
 
-case class PlanTask(branchName: String, description: String) derives JsonData
+case class PlanTask(branchName: String, title: String, description: String)
+    derives JsonData
 case class FlowPlan(tasks: List[PlanTask]) derives JsonData
 case class BranchSlug(name: String) derives JsonData
 
@@ -106,7 +107,7 @@ object FlowCanary:
             coderSession = session,
             reviewers = allReviewers(claude),
             reviewerSelection = ReviewerSelector.agentDriven(claude.haiku),
-            task = task.description,
+            task = Task(Title(task.title), task.description),
             formatCommands = Configured.Use(List("mvn -q spotless:apply")),
             lint = Configured.Use(Lint(List("mvn -q test"), claude.haiku))
           )
@@ -386,7 +387,7 @@ object FlowCanary:
           reviewAndFixLoop(
             coderSession = session,
             reviewers = allReviewers(claude),
-            task = task.title.value
+            task = task
           )
 
   /** `implement-interactive.sc`: interactive plan → session → task loop. Only
@@ -405,7 +406,7 @@ object FlowCanary:
           reviewAndFixLoop(
             coderSession = session,
             reviewers = allReviewers(claude),
-            task = task.title.value
+            task = task
           )
 
   /** `implement-enhanced.sc`: plan → `.reviewed` → the seeded implementer
@@ -424,7 +425,7 @@ object FlowCanary:
           reviewAndFixLoop(
             coderSession = session,
             reviewers = allReviewers(claude),
-            task = task.title.value
+            task = task
           )
 
       val _ = openPrFromBranch(summarisingAgent = claude.haiku)
@@ -471,7 +472,7 @@ object FlowCanary:
           reviewAndFixLoop(
             coderSession = session,
             reviewers = reviewers,
-            task = task.title.value
+            task = task
           )
 
       stage("Update documentation"):
@@ -511,7 +512,7 @@ object FlowCanary:
             reviewAndFixLoop(
               coderSession = session,
               reviewers = allReviewers(claude),
-              task = task.title.value
+              task = task
             )
 
         val _ = openPrFromBranch(
@@ -588,7 +589,7 @@ object FlowCanary:
               reviewAndFixLoop(
                 coderSession = session,
                 reviewers = allReviewers(claude),
-                task = task.title.value,
+                task = task,
                 lint = Configured.Use(
                   Lint(List("sbt Test/compile"), codingAgent.cheap)
                 )
@@ -636,7 +637,7 @@ object StackSettingsCanary:
         reviewAndFixLoop(
           coderSession = session,
           reviewers = allReviewers(claude),
-          task = "format-only review",
+          task = Task(Title("format-only review"), ""),
           formatCommands = Configured.Use(List("cargo fmt")),
           lint = Configured.Off
         )

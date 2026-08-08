@@ -46,7 +46,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
       val _ = reviewAndFixLoop(
         coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
         reviewers = List(reviewer),
-        task = "build the widget",
+        task = titled("build the widget"),
         reviewerSelection = ReviewerSelector.allEveryRound
       )
     val prompt = firstPromptOf(reviewer)
@@ -73,7 +73,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
       val _ = reviewAndFixLoop(
         coderSession = ReviewLoopFixture.coderSession(coder),
         reviewers = List(early, late),
-        task = "build the widget",
+        task = titled("build the widget"),
         reviewerSelection = lateJoiner
       )
     val prompt = firstPromptOf(late)
@@ -97,7 +97,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
       val _ = reviewAndFixLoop(
         coderSession = ReviewLoopFixture.coderSession(coder),
         reviewers = List(reviewer),
-        task = "build the widget",
+        task = titled("build the widget"),
         reviewerSelection = ReviewerSelector.allEveryRound
       )
     val resumePrompt = reviewer.seenPrompts
@@ -126,7 +126,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
       val _ = reviewAndFixLoop(
         coderSession = ReviewLoopFixture.coderSession(coder),
         reviewers = List(reviewer),
-        task = "build the widget",
+        task = titled("build the widget"),
         reviewerSelection = ReviewerSelector.allEveryRound,
         diff = ReviewDiff.Pinned(
           "+++ b/pinned.scala\n" + (1 to 3000)
@@ -159,7 +159,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
       val _ = reviewAndFixLoop(
         coderSession = ReviewLoopFixture.coderSession(coder),
         reviewers = List(reviewer),
-        task = "build the widget",
+        task = titled("build the widget"),
         reviewerSelection = ReviewerSelector.allEveryRound
       )
     val resumePrompt = reviewer.seenPrompts
@@ -194,7 +194,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
       val _ = reviewAndFixLoop(
         coderSession = ReviewLoopFixture.coderSession(coder),
         reviewers = List(reviewer),
-        task = "build the widget",
+        task = titled("build the widget"),
         reviewerSelection = ReviewerSelector.allEveryRound
       )
     val lastPrompt = reviewer.seenPrompts
@@ -229,7 +229,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
       val _ = reviewAndFixLoop(
         coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
         reviewers = List(reviewer),
-        task = "build the widget",
+        task = titled("build the widget"),
         reviewerSelection = ReviewerSelector.allEveryRound
       )
     val prompt = firstPromptOf(reviewer)
@@ -274,7 +274,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
         coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
         reviewers =
           List(new FakeAgent("r", outputs = List(ReviewResult.empty))),
-        task = "build the widget",
+        task = titled("build the widget"),
         reviewerSelection = recording
       )
     assertEquals(seen.get(), List("widget.scala"))
