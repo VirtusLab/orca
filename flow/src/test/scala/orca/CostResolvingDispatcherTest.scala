@@ -39,11 +39,50 @@ class CostResolvingDispatcherTest extends munit.FunSuite:
     val seen = AtomicReference[List[OrcaEvent]](Nil)
     val dispatcher = new CostResolvingDispatcher(prices, recorder(seen))
     dispatcher.onEvent(
-      OrcaEvent.TokensUsed("claude", Some(Model("opus")), usage(1_000_000L, 0L))
+      OrcaEvent.TokensUsed(
+        "claude",
+        Some(Model("opus")),
+        usage(1_000_000L, 0L),
+        cost = None
+      )
     )
     assertEquals(
       seen.get().collect { case t: OrcaEvent.TokensUsed => t.cost },
       List(Some(Cost(BigDecimal("1.0"), estimated = true)))
+    )
+
+  // The dispatcher is the single resolution point, so a cost that arrived from
+  // somewhere else is replaced rather than trusted.
+  test("a turn arriving with a cost already set is re-resolved"):
+    val seen = AtomicReference[List[OrcaEvent]](Nil)
+    val dispatcher = new CostResolvingDispatcher(prices, recorder(seen))
+    dispatcher.onEvent(
+      OrcaEvent.TokensUsed(
+        "claude",
+        Some(Model("opus")),
+        usage(1_000_000L, 0L),
+        cost = Some(Cost(BigDecimal("99.0"), estimated = false))
+      )
+    )
+    assertEquals(
+      seen.get().collect { case t: OrcaEvent.TokensUsed => t.cost },
+      List(Some(Cost(BigDecimal("1.0"), estimated = true)))
+    )
+
+  test("a turn whose model misses the table passes through unpriced"):
+    val seen = AtomicReference[List[OrcaEvent]](Nil)
+    val dispatcher = new CostResolvingDispatcher(prices, recorder(seen))
+    dispatcher.onEvent(
+      OrcaEvent.TokensUsed(
+        "gemini",
+        Some(Model("unlisted")),
+        usage(1_000_000L, 0L),
+        cost = None
+      )
+    )
+    assertEquals(
+      seen.get().collect { case t: OrcaEvent.TokensUsed => t.cost },
+      List(None)
     )
 
   test("an event that isn't a turn passes through untouched"):

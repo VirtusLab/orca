@@ -39,7 +39,7 @@ private[claude] enum InboundMessage:
       sessionId: String,
       output: Option[String],
       structuredOutput: Option[String],
-      usage: Usage,
+      usage: Option[Usage],
       isError: Boolean,
       model: Option[String]
   )
@@ -79,10 +79,6 @@ private[claude] object InboundMessage:
 
   private def parseResult(line: String): InboundMessage =
     val wire = readFromString[ResultWire](line)
-    val u = wire.usage.getOrElse(UsageWire())
-    // The wire's "cache creation" is orca's cache write.
-    val cacheWrite = u.cache_creation_input_tokens.getOrElse(0L)
-    val cacheRead = u.cache_read_input_tokens.getOrElse(0L)
     // The result message's own `num_turns` looks like a call count and is not
     // one: measured against claude 2.1.220 it is (tool calls + 1), so a
     // response issuing three tool calls at once reports three turns where one
@@ -93,15 +89,17 @@ private[claude] object InboundMessage:
       sessionId = wire.session_id,
       output = wire.result,
       structuredOutput = wire.structured_output.map(_.value),
-      usage = Usage(
-        freshInputTokens = u.input_tokens.getOrElse(0L),
-        cacheReadInputTokens = cacheRead,
-        cacheWriteInputTokens = cacheWrite,
-        outputTokens = u.output_tokens.getOrElse(0L),
-        reasoningOutputTokens = 0L,
-        cost = wire.total_cost_usd,
-        apiCalls = None
-      ),
+      usage = wire.usage.map: u =>
+        Usage(
+          freshInputTokens = u.input_tokens.getOrElse(0L),
+          cacheReadInputTokens = u.cache_read_input_tokens.getOrElse(0L),
+          // The wire's "cache creation" is orca's cache write.
+          cacheWriteInputTokens = u.cache_creation_input_tokens.getOrElse(0L),
+          outputTokens = u.output_tokens.getOrElse(0L),
+          reasoningOutputTokens = 0L,
+          cost = wire.total_cost_usd,
+          apiCalls = None
+        ),
       isError = wire.is_error.getOrElse(false),
       model = wire.model
     )

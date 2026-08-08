@@ -1,7 +1,9 @@
 package orca.shell.sessions
 
 import orca.agents.BackendTag
-import orca.runner.manifest.ManifestSession
+import orca.runner.manifest.{ManifestSession, ManifestSessionKind}
+
+import java.time.Instant
 
 class ResumeCommandTest extends munit.FunSuite:
 
@@ -18,9 +20,9 @@ class ResumeCommandTest extends munit.FunSuite:
       role = None,
       stage = None,
       sessionName = None,
-      kind = "oneShot",
-      firstSeenAt = "2026-07-18T10:00:00Z",
-      lastActiveAt = "2026-07-18T10:00:00Z"
+      kind = ManifestSessionKind.OneShot,
+      firstSeenAt = Instant.parse("2026-07-18T10:00:00Z"),
+      lastActiveAt = Instant.parse("2026-07-18T10:00:00Z")
     )
 
   /** [[ResumeCommand.build]] with lookup stubs that fail the test if invoked —

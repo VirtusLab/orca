@@ -20,6 +20,8 @@ private[cli] object Tables:
 
   // --- continue --list ---
 
+  // `kind` is the manifest's wire spelling, so an unknown kind reaches scripts
+  // as written; `lastActiveAt` is the parsed instant rendered back to ISO-8601.
   private[cli] case class SessionRow(
       index: Int,
       sessionName: String,
@@ -58,10 +60,10 @@ private[cli] object Tables:
           SessionRow(
             index = i + 1,
             sessionName = session.sessionName.getOrElse(session.agent),
-            kind = session.kind,
+            kind = session.kind.wireName,
             stage = session.stage,
             harness = SessionPicker.harnessSettingsName(session.harness),
-            lastActiveAt = session.lastActiveAt,
+            lastActiveAt = session.lastActiveAt.toString,
             resumable = choice.isEnabled,
             reason = choice.disabledReason,
             crashed = selection.crashed
