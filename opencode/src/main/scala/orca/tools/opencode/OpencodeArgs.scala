@@ -74,33 +74,45 @@ private[opencode] object OpencodeArgs:
     val (provider, id) = OpencodeModel.split(model)
     ModelRef(provider, id)
 
-  /** Per-turn tool gate: disable the write tools on a read-only turn, and the
-    * `question` tool on an autonomous turn. Returns `None` when nothing is
-    * gated so the body omits `tools` and the server's defaults apply.
+  /** The tools both restricted tiers withhold. `task` is one of them: it spawns
+    * a subagent that runs with the agent profile's default, write-capable tool
+    * set, and whether these per-message flags reach a subagent is unmeasured.
+    * `todowrite` is not: it writes the agent's own todo state, not the
+    * workspace.
+    */
+  private val restrictedToolsOff: Map[String, Boolean] =
+    Map(
+      "write" -> false,
+      "edit" -> false,
+      "bash" -> false,
+      "patch" -> false,
+      "task" -> false
+    )
+
+  /** Per-turn tool gate: withhold the restricted tiers' tools on a `ReadOnly`
+    * or `NetworkOnly` turn, and the `question` tool on an autonomous turn.
+    * Returns `None` when nothing is gated so the body omits `tools` and the
+    * server's defaults apply.
     *
-    * `NetworkOnly` gets no dedicated handling and behaves like `ReadOnly`:
-    * scoped network would need `bash` enabled, dropping the hard no-edit
-    * guarantee, so opencode flows pre-fetch issue/PR context instead.
+    * `webfetch` reads the network without a shell, which is what separates the
+    * two restricted tiers: `ReadOnly` disables it by name, `NetworkOnly` leaves
+    * it unset so the server's own default decides. Neither tier has `bash`, so
+    * a `NetworkOnly` turn cannot run `gh`.
     */
   private def toolFlags(
       config: AgentConfig,
       mode: ConversationMode
   ): Option[Map[String, Boolean]] =
-    val writeGate =
+    val tierGate =
       config.tools match
-        case ToolSet.ReadOnly | ToolSet.NetworkOnly =>
-          Map(
-            "write" -> false,
-            "edit" -> false,
-            "bash" -> false,
-            "patch" -> false
-          )
-        case ToolSet.Full => Map.empty[String, Boolean]
+        case ToolSet.ReadOnly    => restrictedToolsOff + ("webfetch" -> false)
+        case ToolSet.NetworkOnly => restrictedToolsOff
+        case ToolSet.Full        => Map.empty[String, Boolean]
     val question =
       if mode.isInteractive then Map.empty[String, Boolean]
       else Map("question" -> false)
     // The two key sets are disjoint, so the merge order is irrelevant.
-    val flags = writeGate ++ question
+    val flags = tierGate ++ question
     Option.when(flags.nonEmpty)(flags)
 
   /** How strongly opencode enforces each `(tools, autoApprove)` combination —
@@ -114,10 +126,15 @@ private[opencode] object OpencodeArgs:
     // Same either way: the gate rides on [[message]], which every turn sends.
     case TurnDispatch.Fresh | TurnDispatch.Resumed =>
       tools match
-        case ToolSet.ReadOnly | ToolSet.NetworkOnly =>
+        case ToolSet.ReadOnly =>
           EnforcementCell(
             Enforcement.Hard,
-            "the message body disables `write`, `edit`, `bash` and `patch` by name, so the server offers none of those four — unlike an allowlist, this stays exact only while opencode ships no fifth writing tool"
+            "the message body disables `write`, `edit`, `bash`, `patch`, `task` and `webfetch` by name, so the server offers none of them — a denylist, so it stays exact only while opencode ships no further writing or network tool"
+          )
+        case ToolSet.NetworkOnly =>
+          EnforcementCell(
+            Enforcement.Hard,
+            "the message body disables `write`, `edit`, `bash`, `patch` and `task` by name and leaves `webfetch` to the server default, so the turn reads the web where the server offers it but has no `bash` to run `gh` — a denylist, so it stays exact only while opencode ships no further writing tool"
           )
         case ToolSet.Full =>
           autoApprove match

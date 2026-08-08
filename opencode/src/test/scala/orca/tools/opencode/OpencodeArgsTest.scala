@@ -103,7 +103,7 @@ class OpencodeArgsTest extends munit.FunSuite:
       OpencodeArgs.message(AgentConfig(), "hi", None, interactive)
     assertEquals(body.tools, None)
 
-  test("read-only turn disables the write tools (write/edit/bash/patch)"):
+  test("read-only turn disables the write tools, task and webfetch"):
     val cfg =
       AgentConfig().copy(
         tools = ToolSet.ReadOnly,
@@ -118,18 +118,20 @@ class OpencodeArgsTest extends munit.FunSuite:
     assertEquals(tools.get("edit"), Some(false))
     assertEquals(tools.get("bash"), Some(false))
     assertEquals(tools.get("patch"), Some(false))
+    assertEquals(tools.get("task"), Some(false))
+    assertEquals(tools.get("webfetch"), Some(false))
 
-  test("NetworkOnly keeps bash disabled (no writable-shell network)"):
-    // opencode has no scoped network: NetworkOnly gates the same write tools as
-    // ReadOnly, so the planner can't shell out to `gh`.
+  test("NetworkOnly keeps webfetch, with the write tools still disabled"):
     val cfg = AgentConfig().copy(tools = ToolSet.NetworkOnly)
     val tools =
       OpencodeArgs
         .message(cfg, "hi", None, interactive)
         .tools
         .getOrElse(Map.empty)
+    assertEquals(tools.get("webfetch"), None)
     assertEquals(tools.get("bash"), Some(false))
     assertEquals(tools.get("edit"), Some(false))
+    assertEquals(tools.get("task"), Some(false))
 
   test("read-only autonomous turn gates both write tools and question"):
     val cfg = AgentConfig().copy(tools = ToolSet.ReadOnly)
