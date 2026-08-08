@@ -17,6 +17,17 @@ enum ShowDetail:
   /** Message plus `--stat`: which files changed and by how much, no hunks. */
   case StatOnly
 
+/** What [[GitTool.discardUncommitted]] does with untracked files, which `git
+  * reset --hard` alone never touches.
+  */
+enum UntrackedFiles:
+  /** Delete them. Only correct when everything untracked was created after the
+    * tree was last known clean — otherwise this destroys the user's own files.
+    */
+  case Remove
+
+  case Keep
+
 /** Why a [[GitTool.show]] / [[GitTool.fileAt]] read did not happen. Returned in
   * a `Left` rather than thrown: these reads take agent-supplied arguments, and
   * a bad one is an answer to relay, not a flow failure. Subclasses
@@ -273,14 +284,23 @@ trait GitTool:
     * committed progress log) intact, so a re-run resumes cleanly (ADR 0018
     * §2.5).
     *
-    * '''`reset --hard` does NOT remove untracked files''' — a failed stage's
-    * newly created files survive in the working tree. They're swept later, into
-    * the next run's `ensureClean` stash (`git stash push -u`), alongside any
-    * genuine user WIP. A scoped clean here would risk deleting pre-existing
-    * untracked files too (blanket `git clean -fd`), so that cleanup is
-    * deliberately left to `ensureClean`, not done here.
+    * `reset --hard` covers tracked files only, so `untracked` decides what
+    * happens to files the run newly created — the common shape of agent output.
+    * [[UntrackedFiles.Remove]] adds `git clean -fd`, which the caller may only
+    * ask for when it knows the tree started clean.
+    *
+    * The clean never passes `-x`, so gitignored paths (build caches,
+    * `.orca/cache/`) are kept, and it always excludes `.orca/` itself: that
+    * directory holds other runs' progress logs, and this run's log while no
+    * stage has committed it yet — neither is the failed stage's output.
+    *
+    * One case the exclusion cannot reason about: an empty untracked directory
+    * is invisible to `git status` (even `-uall`), so `-d` removes a non-ignored
+    * one whether or not the run created it. Empty ignored directories survive.
     */
-  def resetHard()(using WorkspaceWrite): Unit
+  def discardUncommitted(untracked: UntrackedFiles)(using
+      WorkspaceWrite
+  ): Unit
 
   /** All changes since the last commit (staged and unstaged) anywhere in the
     * repository, excluding `.orca/` bookkeeping. Tracked files only — an
@@ -416,8 +436,10 @@ trait GitTool:
     * untracked), one per entry. READ-ONLY. Used by skip-branch mode's
     * informational notice on a fresh run with a dirty tree (ADR 0018 amendment)
     * — the count, not the parsed content, is what's shown. Emptiness is also
-    * what [[commit]] and [[ensureClean]] decide on, so narrowing what this
-    * reports changes when they commit and when they stash.
+    * what [[commit]] and [[ensureClean]] decide on, and what the failure
+    * teardown's choice of [[UntrackedFiles]] follows from, so narrowing what
+    * this reports changes when they commit, when they stash, and whether
+    * untracked files are deleted.
     */
   def dirtyPaths(): List[String]
 
@@ -478,9 +500,12 @@ private[orca] class OsGitTool(
     git("branch", "--list", "--", name).trim.nonEmpty
 
   def dirtyPaths(): List[String] =
+    // The untracked mode is explicit because `status.showUntrackedFiles=no` in
+    // a user's git config would otherwise hide untracked paths from every
+    // consumer of this.
     // One porcelain line per path, except a rename ("R  old -> new"), which
     // is one line covering two paths — fine for an informational count.
-    git("status", "--porcelain").linesIterator
+    git("status", "--porcelain", "--untracked-files=normal").linesIterator
       .map(_.trim)
       .filter(_.nonEmpty)
       .toList
@@ -615,9 +640,21 @@ private[orca] class OsGitTool(
       probeSucceeds("cat-file", "-e", s"@{upstream}:./$relPath")
     catch case NonFatal(_) => false
 
-  def resetHard()(using WorkspaceWrite): Unit =
+  def discardUncommitted(untracked: UntrackedFiles)(using
+      WorkspaceWrite
+  ): Unit =
     val _ = git("reset", "--hard")
-    step("Discarded uncommitted changes (reset --hard)")
+    untracked match
+      case UntrackedFiles.Keep =>
+        step("Discarded uncommitted changes (reset --hard)")
+      case UntrackedFiles.Remove =>
+        // `.orca` is an unanchored pattern, so it is spared at any depth —
+        // including under the `:(top)` rescoping to the repository root.
+        val _ = git("clean", "-fdq", "-e", orca.OrcaDir.Name, "--", ":(top)")
+        step(
+          "Discarded uncommitted changes and new files (reset --hard, clean " +
+            "-fd excluding .orca)"
+        )
 
   def uncommittedDiff(): String = trackedDiff("HEAD")
 

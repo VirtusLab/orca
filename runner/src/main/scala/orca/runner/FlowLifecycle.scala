@@ -28,7 +28,7 @@ import orca.progress.{
   UnsafeBranchRefRefused
 }
 import orca.settings.{AgentSettings, SettingsFile, SettingsScope}
-import orca.tools.GitTool
+import orca.tools.{GitTool, UntrackedFiles}
 import org.slf4j.LoggerFactory
 import ox.either.orThrow
 
@@ -85,23 +85,25 @@ object FlowLifecycle:
     // The whole flow body runs as a top-level stage: an otherwise unhandled
     // exception surfaces as a single Error event. `teardownFailure` runs only
     // here in the body phase, so a success-teardown error can never trigger
-    // `resetHard` or strand the user on the feature branch.
+    // `discardUncommitted` or strand the user on the feature branch.
     try surfaced(body(using ctx))
     catch
       case f @ SurfacedFlowFailure(e) =>
         // `e` was already reported by `surfaced`. If the reset itself fails, attach
         // it as suppressed (rather than replacing `e`), and log/print it too.
         //
-        // This Step names WHY the reset is about to discard changes — `resetHard`
-        // itself also emits its own "Discarded uncommitted changes" Step, which
-        // alone would read as unexplained data loss.
+        // This Step names WHY the reset is about to discard changes —
+        // `discardUncommitted` itself also emits its own "Discarded
+        // uncommitted changes" Step, which alone would read as unexplained
+        // data loss.
         ctx.emit(
           OrcaEvent.Step(
             "recovering from the failure — discarding uncommitted changes " +
-              "so a re-run resumes from the last completed stage"
+              "and the files the failed stage created, so a re-run resumes " +
+              "from the last completed stage"
           )
         )
-        try teardownFailure(ctx.git)
+        try teardownFailure(ctx.git, flowSetup.untrackedOnFailure)
         catch
           case NonFatal(t) =>
             e.addSuppressed(t)
@@ -209,13 +211,19 @@ object FlowLifecycle:
     * `branchMode` (mirrors [[ProgressHeader.branchMode]]) gates
     * [[finishBranch]]'s throwaway auto-delete: `Reused` blocks it, since orca
     * bound to a pre-existing branch rather than minting one.
+    *
+    * `untrackedOnFailure` is the cleanliness policy's verdict on what failure
+    * teardown may delete. `Keep` only when setup deliberately left pre-existing
+    * files in place (fresh skip-branch mode), where orca cannot tell the user's
+    * untracked files from the run's.
     */
   private[orca] case class FlowSetup(
       store: ProgressStore,
       featureBranch: FeatureBranch,
       startBranch: String,
       stackSettings: StackSettings,
-      branchMode: BranchMode
+      branchMode: BranchMode,
+      untrackedOnFailure: UntrackedFiles
   )
 
   /** The branch half of [[FlowSetup]] (FP2), resolved by whichever of
@@ -322,7 +330,7 @@ object FlowLifecycle:
         flowName,
         emit
       )
-    session.applyCleanlinessPolicy()
+    val untrackedOnFailure = session.applyCleanlinessPolicy()
     restoreLogIfMissing(store.path, snapshot)
     // Discovery (ADR 0019) is sequenced after the cleanliness decision (whose
     // stash, when it runs, would sweep a just-written untracked file straight
@@ -346,7 +354,8 @@ object FlowLifecycle:
       binding.featureBranch,
       binding.startBranch,
       stackSettings,
-      binding.branchMode
+      binding.branchMode,
+      untrackedOnFailure
     )
 
   /** On an unborn HEAD (`git init`, no commits) every later git call that names
@@ -474,21 +483,30 @@ object FlowLifecycle:
       * — the leftover files are likely the flow's own hand-off context. Every
       * other case (resume, or normal mode either way) auto-stashes, since an
       * interrupted stage's uncommitted work must not leak into the re-run.
+      *
+      * Returns what failure teardown may then do with untracked files (see
+      * [[FlowSetup.untrackedOnFailure]]).
       */
-    def applyCleanlinessPolicy()(using WorkspaceWrite): Unit =
+    def applyCleanlinessPolicy()(using WorkspaceWrite): UntrackedFiles =
       if args.skipBranch.value then
         val isResume =
           store.loadDetailed().isInstanceOf[ProgressStore.LoadResult.Loaded]
-        if isResume then git.ensureClean("orca: starting flow")
+        if isResume then
+          git.ensureClean("orca: starting flow")
+          UntrackedFiles.Remove
         else
           val dirty = git.dirtyPaths()
-          if dirty.nonEmpty then
+          if dirty.isEmpty then UntrackedFiles.Remove
+          else
             emit(
               OrcaEvent.Step(
                 s"leaving ${dirty.size} uncommitted/untracked file(s) in place for the flow"
               )
             )
-      else git.ensureClean("orca: starting flow")
+            UntrackedFiles.Keep
+      else
+        git.ensureClean("orca: starting flow")
+        UntrackedFiles.Remove
 
     /** Bind the run to a branch + progress log — resume onto the header's
       * branch for a valid log, warn and start fresh from a corrupt one, or
@@ -1061,8 +1079,12 @@ object FlowLifecycle:
 
   /** Failure teardown (ADR 0018 §2.5): discard the failed stage's uncommitted
     * partial edits with `git reset --hard` (which restores the last committed
-    * log), staying on the feature branch so the next run resumes in place.
+    * log) plus, when `untracked` allows it, the files the stage newly created,
+    * staying on the feature branch so the next run resumes in place.
     */
-  private[orca] def teardownFailure(git: GitTool): Unit =
+  private[orca] def teardownFailure(
+      git: GitTool,
+      untracked: UntrackedFiles
+  ): Unit =
     given WorkspaceWrite = RuntimeInStage.workspaceToken()
-    git.resetHard()
+    git.discardUncommitted(untracked)

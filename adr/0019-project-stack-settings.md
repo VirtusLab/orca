@@ -38,10 +38,11 @@ Two further findings shaped the design:
   object, the lint summariser agent, dissolves by convention (the flow
   supplies its own cheap tier; settings carry only the command).
 - **A force-staged file is *less* durable than an untracked one.** `git reset
-  --hard` (the failure-teardown step) deletes a staged-but-uncommitted file
-  but leaves an untracked file alone. Anything orca writes for the user must
-  therefore be written untracked, never pre-staged; it is written untracked
-  and committed separately (or by the user).
+  --hard` (the failure-teardown step) deletes a staged-but-uncommitted file,
+  while an untracked one under `.orca/` survives — teardown's `git clean`
+  excludes that directory. The settings file lives there, so it must be
+  written untracked, never pre-staged; it is written untracked and committed
+  separately (or by the user).
 
 Named presets (`preset = rust-cargo`) were considered and rejected: real
 projects differ in subtle ways (extra cargo features, a nonstandard sbt

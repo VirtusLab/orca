@@ -427,17 +427,19 @@ the wrong branch.
   when the branch's upstream still contains the progress log — proof the flow
   itself published it — so teardown never pushes work the run wasn't asked to
   publish. On a **failure** exit the feature branch and
-  its committed log are kept intact so the next run can resume; only the failed
-  stage's uncommitted *tracked* partial edits are discarded (it re-runs on
-  resume) — teardown is `git reset --hard`, which does not remove *untracked*
-  files, so a failed stage's newly created files (the common shape of agent
-  output) survive teardown and stay in the working tree. They aren't lost:
-  R4's stash on the *next* run's start sweeps them up (`stash push -u` does
-  cover untracked paths) alongside any genuine user WIP, rather than
-  discarding them outright. Whether teardown should instead delete
-  run-touched untracked leftovers (a scoped clean, not blanket `git clean
-  -fd`, which would also claim pre-existing untracked user files) is an open
-  decision, not made here.
+  its committed log are kept intact so the next run can resume; the failed
+  stage's uncommitted partial edits are discarded (they re-run on resume).
+  Teardown is `git reset --hard`, which covers tracked files only, plus
+  `git clean -fd` for the files the stage newly created — the common shape of
+  agent output. The clean is scoped so it can only claim the run's own output:
+  no `-x`, so gitignored paths (build caches, `.orca/cache/`) stay; `.orca/`
+  itself is excluded, since it holds this run's progress log while no stage has
+  committed it yet, and other runs' progress logs; and it is skipped entirely
+  when setup did not establish a clean tree — a FRESH skip-branch run tolerates
+  a dirty tree instead of
+  stashing it (R4 amendment), so those untracked files pre-date the run and are
+  the flow's hand-off context, not its output. In that one case the untracked
+  leftovers stay, and the next run's stash (R4) sweeps them up.
 - **R6** — Push and PR creation are flow-controlled and usable at any point; the
   runtime imposes no single terminal push.
 - **R30** — On startup the runtime cross-checks the header's recorded branch against
@@ -549,9 +551,9 @@ Teardown on **success**:
 Teardown on **failure**:
 
 8. Discard the failed stage's uncommitted partial edits with `git reset --hard`
-   (which restores the last committed log) — **not** `git clean -x .orca/`, or a log
-   force-added but not yet committed in the crash window would be wiped. They re-run
-   on resume. **Stay on the feature branch** (R3); do not return to the starting
+   (which restores the last committed log), plus a scoped `git clean -fd` — see
+   R5 for what the clean spares and when it is skipped. They re-run on resume.
+   **Stay on the feature branch** (R3); do not return to the starting
    branch — HEAD is then already where the next run resumes and the committed log is
    in the working tree, so resume needs no branch lookup. The user switches back to
    the starting branch themselves once they've dealt with the failure.
