@@ -528,7 +528,7 @@ class FlowLifecycleTest extends munit.FunSuite:
   test("setup: a repository with no commits is refused with a named next step"):
     val workDir = GitRepo.empty()
     val thrown = intercept[orca.OrcaFlowException](setupFresh(workDir): Unit)
-    assert(thrown.getMessage.contains("no commits yet"), thrown.getMessage)
+    assert(thrown.getMessage.contains("at least one commit"), thrown.getMessage)
     assert(thrown.getMessage.contains("git commit"), thrown.getMessage)
 
   test(
