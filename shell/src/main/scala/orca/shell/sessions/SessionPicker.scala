@@ -1,12 +1,11 @@
 package orca.shell.sessions
 
 import orca.agents.BackendTag
-import orca.runner.manifest.{ManifestSession, RunManifest}
+import orca.runner.manifest.{ManifestSession, ManifestSessionKind}
 import orca.settings.AgentSpec
 import orca.shell.ui.Choice
 
 import java.time.Instant
-import scala.util.Try
 
 /** The continue-a-session picker (ADR 0021 §8): groups, sorts, and labels the
   * sessions across every recorded run into selectable rows, and resolves a
@@ -36,18 +35,19 @@ private[shell] object SessionPicker:
     * an expander.
     *
     * A durable lineage is a `(agent, sessionName)` pair with `kind ==
-    * "durable"` — every occurrence of it across every run in `runs`, not just
-    * the newest run, since a lineage's `sessionName` is stable across separate
-    * flow runs (a fresh run mints a fresh `clientId`/`wireId` but reuses the
-    * same `agent.session(name, ...)` name) while a single run's own durable
-    * session always upserts onto one manifest row. Only the occurrence with the
-    * max `lastActiveAt` is shown (marked `★ ... — latest`, the primary
-    * continuation target); the rest collapse behind a "show N earlier
-    * occurrences" row. One-shot sessions (`kind == "oneShot"` — Plan-stage
-    * calls, reviewer-selection calls, reviewer `chat()` runs) are never deduped
-    * — each is a genuinely distinct fresh session — but collapse behind a
-    * single "show N one-shot sessions" row, since these are the rows that
-    * otherwise flood the picker with same-named, low-value entries.
+    * [[ManifestSessionKind.Durable]]` — every occurrence of it across every run
+    * in `runs`, not just the newest run, since a lineage's `sessionName` is
+    * stable across separate flow runs (a fresh run mints a fresh
+    * `clientId`/`wireId` but reuses the same `agent.session(name, ...)` name)
+    * while a single run's own durable session always upserts onto one manifest
+    * row. Only the occurrence with the max `lastActiveAt` is shown (marked `★
+    * ... — latest`, the primary continuation target); the rest collapse behind
+    * a "show N earlier occurrences" row. One-shot sessions
+    * ([[ManifestSessionKind.OneShot]] — Plan-stage calls, reviewer-selection
+    * calls, reviewer `chat()` runs) are never deduped — each is a genuinely
+    * distinct fresh session — but collapse behind a single "show N one-shot
+    * sessions" row, since these are the rows that otherwise flood the picker
+    * with same-named, low-value entries.
     *
     * `expanded` reveals both collapsed groups in place, sorted the same as the
     * primary rows (newest `lastActiveAt` first). Disabling a row previews only
@@ -67,8 +67,7 @@ private[shell] object SessionPicker:
         run <- runs
         session <- run.manifest.sessions
       yield Occurrence(run, session)
-    val (durable, oneShot) =
-      occurrences.partition(_.session.kind == RunManifest.KindDurable)
+    val (durable, oneShot) = occurrences.partition(isDurable)
 
     val lineages = durable
       .groupBy(o => (o.session.agent, o.session.sessionName))
@@ -94,13 +93,15 @@ private[shell] object SessionPicker:
 
     primaryRows ++ earlierRows ++ oneShotRows
 
-  /** Parses `session.lastActiveAt` — always a valid `Instant` from the writer
-    * (`clock().toString`), but falls back to the epoch rather than throwing on
-    * a hand-edited or future-schema manifest, so one bad row can't take down
-    * the whole picker.
+  /** A kind this build doesn't know (a newer build's manifest) is grouped with
+    * the one-shots: those rows are listed as they come, while the durable half
+    * is deduped by a `sessionName` such a session may not have.
     */
-  private def recency(o: Occurrence): Instant =
-    Try(Instant.parse(o.session.lastActiveAt)).getOrElse(Instant.EPOCH)
+  private def isDurable(o: Occurrence): Boolean = o.session.kind match
+    case ManifestSessionKind.Durable                                  => true
+    case ManifestSessionKind.OneShot | ManifestSessionKind.Unknown(_) => false
+
+  private def recency(o: Occurrence): Instant = o.session.lastActiveAt
 
   private def resumeRow(o: Occurrence, label: String): Choice[PickerRow] =
     Choice(
@@ -126,8 +127,8 @@ private[shell] object SessionPicker:
 
   /** `★ <sessionName> — latest (stage: <stage>) [<harness>]`, or `(no stage
     * yet)` when the durable session hasn't entered a stage (rare — custom flows
-    * only). Falls back to the agent name if a malformed manifest somehow has
-    * `kind == "durable"` without a `sessionName`.
+    * only). Falls back to the agent name if a malformed manifest somehow has a
+    * [[ManifestSessionKind.Durable]] session without a `sessionName`.
     */
   private def primaryLabel(o: Occurrence): String =
     val name = o.session.sessionName.getOrElse(o.session.agent)
@@ -182,22 +183,34 @@ private[shell] object SessionPicker:
           case Some(index) => selectByIndex(runs, index)
           case None        => selectByName(runs, s)
 
+  /** A picker row resolved for a selector: its selection, or a refusal reading
+    * `<notResumable> — <disabledReason>`.
+    */
+  private def resolveRow(
+      choice: Choice[PickerRow],
+      notResumable: String,
+      onShowMore: Either[String, SessionSelection]
+  ): Either[String, SessionSelection] =
+    choice.value match
+      case PickerRow.Resume(selection) =>
+        choice.disabledReason.map(r => s"$notResumable — $r").toLeft(selection)
+      case PickerRow.ShowMore => onShowMore
+
   private[shell] def newestDurableSelection(
       runs: List[RecordedRun]
   ): Either[String, SessionSelection] =
     sessionRows(runs, expanded = false).headOption match
       case None => Left("no sessions recorded yet")
       case Some(choice) =>
-        choice.value match
-          case PickerRow.Resume(selection) =>
-            choice.disabledReason match
-              case Some(reason) =>
-                Left(s"can't resume the newest session — $reason")
-              case None => Right(selection)
-          case PickerRow.ShowMore =>
-            Left(
-              "no durable session to continue yet — see `orca continue --list`"
-            )
+        resolveRow(
+          choice,
+          "can't resume the newest session",
+          // reachable: with no durable lineages, the collapsed listing's head
+          // is the one-shot expander row
+          Left(
+            "no durable session to continue yet — see `orca continue --list`"
+          )
+        )
 
   private[shell] def selectByIndex(
       runs: List[RecordedRun],
@@ -210,39 +223,40 @@ private[shell] object SessionPicker:
           s"no session at index $index — see `orca continue --list` (1-${rows.size})"
         )
       case Some(choice) =>
-        choice.value match
-          case PickerRow.Resume(selection) =>
-            choice.disabledReason match
-              case Some(reason) =>
-                Left(s"session $index isn't resumable — $reason")
-              case None => Right(selection)
-          case PickerRow.ShowMore =>
-            // unreachable: withoutExpanders already dropped every ShowMore row
-            Left(s"no session at index $index")
+        resolveRow(
+          choice,
+          s"session $index isn't resumable",
+          // unreachable: withoutExpanders already dropped every ShowMore row
+          Left(s"no session at index $index")
+        )
 
   private[shell] def selectByName(
       runs: List[RecordedRun],
       name: String
   ): Either[String, SessionSelection] =
+    val notFound =
+      Left(s"no session named '$name' found — see `orca continue --list`")
     val matches =
       withoutExpanders(sessionRows(runs, expanded = false)).collect:
         case choice @ Choice(PickerRow.Resume(selection), _, _)
             if selection.session.sessionName.contains(name) =>
-          (selection, choice.disabledReason)
+          (choice, selection)
     matches match
-      case Nil =>
-        Left(s"no session named '$name' found — see `orca continue --list`")
-      case (selection, None) :: Nil => Right(selection)
-      case (_, Some(reason)) :: Nil =>
-        Left(s"session '$name' isn't resumable — $reason")
+      case Nil => notFound
+      case (choice, _) :: Nil =>
+        resolveRow(
+          choice,
+          s"session '$name' isn't resumable",
+          // unreachable: withoutExpanders already dropped every ShowMore row
+          notFound
+        )
       case multiple =>
-        val agents = multiple.map(_._1.session.agent).distinct.mkString(", ")
+        val agents = multiple.map(_._2.session.agent).distinct.mkString(", ")
         Left(s"'$name' is ambiguous — matches agents: $agents")
 
   /** [[sessionRows]]'s rows, dropping the "show more" expanders — never present
     * for [[SessionSelection]] callers (`selectByIndex` reads the fully expanded
-    * listing, `selectByName`/`newestDurableSelection` only ever resolve to an
-    * actual session or fail).
+    * listing, `selectByName` only ever resolves to an actual session or fails).
     */
   private[shell] def withoutExpanders(
       rows: List[Choice[PickerRow]]

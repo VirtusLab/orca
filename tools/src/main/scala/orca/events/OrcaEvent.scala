@@ -50,7 +50,7 @@ enum OrcaEvent:
     * Emission sites that never retry leave the default.
     *
     * `cost` is this turn's resolved spend, filled in once at the dispatch
-    * boundary so every listener reads the same figure. Emitters leave it unset:
+    * boundary so every listener reads the same figure. Emitters pass `None`:
     * pricing lives in the flow module, and a listener that priced the event
     * itself could disagree with the printed summary and the on-disk cost log.
     *
@@ -67,7 +67,7 @@ enum OrcaEvent:
       role: Option[String] = None,
       attempt: Int = 1,
       session: Option[String] = None,
-      cost: Option[Cost] = None
+      cost: Option[Cost]
   )
 
   /** The agent's final structured payload, after parsing succeeded. `raw` is
@@ -110,12 +110,15 @@ enum OrcaEvent:
     * ([[orca.runner.manifest.ManifestSession]]). `wireId` is the persistable id
     * ([[orca.agents.Agent.resumeWireId]]) — `None` for backends that keep
     * nothing durably resumable, so a non-resumable commit still fires
-    * accurately.
+    * accurately. `sessionName` is the name the flow minted the session under
+    * (`agent.session(name, seed)`) — `None` for a one-shot or chat turn, which
+    * has no name.
     */
   case SessionCommitted(
       harness: String,
       clientId: String,
       wireId: Option[String],
+      sessionName: Option[String],
       agent: String,
       role: Option[String]
   )
