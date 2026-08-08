@@ -41,7 +41,7 @@ import orca.progress.{
   StageEntry
 }
 import orca.runner.terminal.TerminalInteraction
-import orca.tools.{FsTool, GitHubTool, GitTool, OsGitTool}
+import orca.tools.{FsTool, GitHubTool, GitTool, OsGitTool, UntrackedFiles}
 import mainargs.Flag
 import ox.supervised
 import ox.either.orThrow
@@ -94,8 +94,9 @@ class FlowLifecycleTest extends munit.FunSuite:
     "failure teardown: stays on feature branch with clean working tree and earlier commit present"
   ):
     // Build the pre-failure state manually: feature branch with a committed
-    // progress header + one completed stage entry, then staged (uncommitted)
-    // partial work from a second stage. Then apply failure teardown (resetHard).
+    // progress header + one completed stage entry, then a modified tracked file
+    // and a newly created untracked one from a second stage. Then apply failure
+    // teardown.
     val workDir = GitRepo.seeded()
     val git = new OsGitTool(workDir)
     val prompt = "lifecycle-failure"
@@ -124,15 +125,15 @@ class FlowLifecycleTest extends munit.FunSuite:
     git.forceAdd(store.path)
     val _ = git.commit("stage: stage-one")
 
-    // Simulate stage-two leaving staged but uncommitted work.
-    // Writing + staging makes this a modified-in-index file that `reset --hard`
-    // will remove (unlike untracked files which reset --hard leaves alone).
+    // Simulate stage-two leaving uncommitted work in both shapes a stage
+    // produces: an edit to a file committed by stage one, and a brand-new file
+    // — which `reset --hard` alone would leave behind.
+    os.write.over(workDir / "one.txt", "partial edit")
     os.write(workDir / "two.txt", "partial")
-    val _ = os.proc("git", "add", "two.txt").call(cwd = workDir)
     val featureBranch = git.currentBranch()
 
-    // Apply failure teardown (git reset --hard, stay on feature branch).
-    git.resetHard()
+    // Apply failure teardown (stay on feature branch).
+    git.discardUncommitted(UntrackedFiles.Remove)
 
     assertEquals(git.currentBranch(), featureBranch)
     val status =
@@ -150,8 +151,9 @@ class FlowLifecycleTest extends munit.FunSuite:
     assert(ids.contains("stage-one#0"), "stage one must remain recorded")
     assert(
       !os.exists(workDir / "two.txt"),
-      "staged partial file must be wiped by reset --hard"
+      "the new file the failed stage created must be gone"
     )
+    assertEquals(os.read(workDir / "one.txt"), "content")
 
   test(
     "setup resume: second flow call resumes feature branch; a stage body runs only once"
@@ -1992,6 +1994,60 @@ class FlowLifecycleTest extends munit.FunSuite:
       s"the header commit must still land, on the reused branch: $log"
     )
 
+  test(
+    "skip-branch mode on a dirty tree: failure teardown keeps the untracked files it started with"
+  ):
+    // A fresh skip-branch run tolerates a dirty tree instead of stashing it, so
+    // those untracked files pre-date the run — its hand-off context, not its
+    // output. Teardown's untracked removal must therefore be off here.
+    val workDir = GitRepo.seeded()
+    val prompt = "skip-branch-dirty-teardown"
+    val store = ProgressStore.default(workDir, prompt)
+    val git = new OsGitTool(workDir)
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    val _ = git.createBranch("my-work")
+    os.write(workDir / "handoff.md", "the plan")
+    val _ = intercept[SurfacedFlowFailure]:
+      supervised:
+        val interaction = TerminalInteraction.start(
+          out = new PrintStream(new ByteArrayOutputStream()),
+          useColor = false,
+          animated = false
+        )
+        runFlow(
+          args = OrcaArgs(prompt, skipBranch = Flag(true)),
+          stackSettings = Some(StackSettings.empty),
+          wiring = FlowWiring(claude = Some(_ => StubAgent.claude)),
+          workDir = workDir,
+          interaction = Some(interaction),
+          extraListeners = Nil,
+          branchNaming = None,
+          returnToStartBranch = false,
+          progressStore = Some(store)
+        ):
+          val _ = stage[String]("crash"):
+            throw new RuntimeException("boom body")
+    assert(
+      os.exists(workDir / "handoff.md"),
+      "a file that pre-dated the run must survive failure teardown"
+    )
+
+  test(
+    "failure teardown removes the untracked file a failed stage created"
+  ):
+    val workDir = GitRepo.seeded()
+    val prompt = "teardown-removes-untracked"
+    val store = ProgressStore.default(workDir, prompt)
+    val _ = intercept[SurfacedFlowFailure]:
+      runFlowForTest(workDir, prompt, store):
+        val _ = stage[String]("crash"):
+          os.write(workDir / "half-written.txt", "partial")
+          throw new RuntimeException("boom body")
+    assert(
+      !os.exists(workDir / "half-written.txt"),
+      "the failed stage's new file must not survive teardown"
+    )
+
   test("skip-branch mode refuses to bind to a protected branch"):
     val workDir = GitRepo.seeded() // starts on "main"
     val prompt = "skip-branch-protected"
@@ -2386,7 +2442,8 @@ class FlowLifecycleTest extends munit.FunSuite:
       featureBranch = featureBranch,
       startBranch = "main",
       stackSettings = StackSettings.empty,
-      branchMode = BranchMode.Reused
+      branchMode = BranchMode.Reused,
+      untrackedOnFailure = UntrackedFiles.Remove
     )
     FlowLifecycle.teardownSuccess(git, setup, returnToStartBranch = false)
     assert(
@@ -2436,7 +2493,8 @@ class FlowLifecycleTest extends munit.FunSuite:
         .get,
       startBranch = "main",
       stackSettings = StackSettings.empty,
-      branchMode = BranchMode.Reused
+      branchMode = BranchMode.Reused,
+      untrackedOnFailure = UntrackedFiles.Remove
     )
     TeardownPushRepo(git, remote, setup, store.path.subRelativeTo(workDir))
 
@@ -2749,10 +2807,10 @@ class FlowLifecycleTest extends munit.FunSuite:
     "surfaced: a body failure whose teardownFailure ALSO throws surfaces once; the reset failure rides along suppressed"
   ):
     // The body reports its Error at the stage boundary (one Error, no
-    // double-report). failure teardown (`resetHard`) still runs — and if the
-    // reset itself throws, that must NOT mask the original body failure: it is
-    // attached as suppressed so the user sees the body message and debug sees
-    // both.
+    // double-report). failure teardown (`discardUncommitted`) still runs — and
+    // if the reset itself throws, that must NOT mask the original body failure:
+    // it is attached as suppressed so the user sees the body message and debug
+    // sees both.
     val workDir = GitRepo.seeded()
     val prompt = "surfaced-suppressed"
     val store = ProgressStore.default(workDir, prompt)
@@ -2799,7 +2857,7 @@ class FlowLifecycleTest extends munit.FunSuite:
   test(
     "a body failure emits an explanatory Step before the reset --hard teardown runs"
   ):
-    // DC1: the reset's own Step ("Discarded uncommitted changes") reads as
+    // The reset's own Step ("Discarded uncommitted changes") reads as
     // unexplained data loss on its own — FlowLifecycle.run must emit a
     // preceding Step naming WHY the reset is about to happen (recovery, not
     // loss) whenever a body failure triggers failure teardown.
@@ -3083,13 +3141,15 @@ class FlowLifecycleTest extends munit.FunSuite:
         : AgentCall[BackendTag.ClaudeCode.type, O] =
       throw new UnsupportedOperationException
 
-  /** An `OsGitTool` whose `resetHard` always throws — to exercise the
+  /** An `OsGitTool` whose `discardUncommitted` always throws — to exercise the
     * body-phase failure teardown throwing while it handles a body failure, so
     * the reset error is attached as suppressed rather than masking the
     * original.
     */
   private class ResetThrowingGit(workDir: os.Path) extends OsGitTool(workDir):
-    override def resetHard()(using WorkspaceWrite): Unit =
+    override def discardUncommitted(untracked: UntrackedFiles)(using
+        WorkspaceWrite
+    ): Unit =
       throw new RuntimeException("reset boom")
 
   /** Codex counterpart of [[RecordingClaude]], used to assert that a

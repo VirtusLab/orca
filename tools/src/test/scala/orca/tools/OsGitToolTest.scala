@@ -221,6 +221,50 @@ class OsGitToolTest extends munit.FunSuite:
         s"expected a stash Step; got: $steps"
       )
 
+  test(
+    "dirtyPaths sees untracked files even when status.showUntrackedFiles=no"
+  ):
+    withSeededRepo: (git, dir) =>
+      val _ =
+        os.proc("git", "config", "status.showUntrackedFiles", "no")
+          .call(cwd = dir)
+      os.write(dir / "user-file.txt", "precious")
+      assertEquals(git.dirtyPaths(), List("?? user-file.txt"))
+
+  test("discardUncommitted(Remove) deletes an untracked file"):
+    withSeededRepo: (git, dir) =>
+      os.write(dir / "new.txt", "created")
+      git.discardUncommitted(UntrackedFiles.Remove)
+      assert(!os.exists(dir / "new.txt"))
+
+  test("discardUncommitted(Keep) leaves an untracked file in place"):
+    withSeededRepo: (git, dir) =>
+      os.write(dir / "new.txt", "created")
+      git.discardUncommitted(UntrackedFiles.Keep)
+      assert(os.exists(dir / "new.txt"))
+
+  test("discardUncommitted(Remove) keeps `.orca/` bookkeeping"):
+    withSeededRepo: (git, dir) =>
+      // Neither file belongs to the failed stage: one is another run's
+      // progress log, the other cached session state.
+      os.write(
+        dir / ".orca" / "progress-other.json",
+        "{}",
+        createFolders = true
+      )
+      os.write(dir / ".orca" / "cache" / "s.jsonl", "{}", createFolders = true)
+      git.discardUncommitted(UntrackedFiles.Remove)
+      assert(os.exists(dir / ".orca" / "progress-other.json"))
+      assert(os.exists(dir / ".orca" / "cache" / "s.jsonl"))
+
+  test("discardUncommitted(Remove) keeps gitignored files"):
+    withSeededRepo: (git, dir) =>
+      os.write(dir / ".gitignore", "build/\n")
+      git.commit("ignore build output").orThrow
+      os.write(dir / "build" / "out.jar", "bytes", createFolders = true)
+      git.discardUncommitted(UntrackedFiles.Remove)
+      assert(os.exists(dir / "build" / "out.jar"))
+
   test("createBranch / commit / checkout each emit a Step event"):
     withRepoCapturingEvents: (git, dir, seen) =>
       os.write(dir / "seed.txt", "x")

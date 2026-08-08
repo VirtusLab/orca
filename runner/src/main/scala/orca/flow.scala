@@ -233,8 +233,8 @@ def flow(
   * then runs the body as a top-level stage with disjoint success/failure
   * teardown. Unlike [[flow]], a failure in any phase is **propagated** (after
   * body-failure teardown), not turned into a `System.exit`, so the
-  * crash→`resetHard`→resume wiring is directly testable. A phase that reports
-  * to the event surface first escapes wrapped in
+  * crash→`discardUncommitted`→resume wiring is directly testable. A phase that
+  * reports to the event surface first escapes wrapped in
   * [[orca.runner.SurfacedFlowFailure]]`(cause)`; a failure from BEFORE the
   * dispatcher and agents exist (e.g. an agent-override factory) has no event
   * surface and escapes unwrapped.
