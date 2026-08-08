@@ -24,16 +24,6 @@ class ReviewFixFlowTest extends munit.FunSuite:
       val _ = seen.updateAndGet(event :: _)
     def events: List[OrcaEvent] = seen.get().reverse
 
-  private def issue(desc: String, confidence: Double = 1.0): ReviewIssue =
-    ReviewIssue(
-      severity = Severity.Warning,
-      confidence = Confidence.orThrow(confidence),
-      title = Title(desc),
-      description = desc,
-      location = None,
-      suggestion = None
-    )
-
   test("reviewAndFixLoop marks the loop with a `Review & fix` progress line"):
     val listener = new RecordingListener
     given FlowControl =

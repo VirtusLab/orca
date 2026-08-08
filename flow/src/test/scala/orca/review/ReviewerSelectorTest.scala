@@ -6,14 +6,11 @@ import orca.agents.{
   AgentInput,
   Announce,
   AutonomousAgentCall,
-  AutonomousTextCall,
   BackendTag,
   JsonData,
   AgentCall,
   AgentConfig,
-  Agent,
-  SessionId,
-  ToolSet
+  SessionId
 }
 import orca.plan.Title
 
@@ -27,13 +24,7 @@ private class RecordingPicker(
     response: SelectedReviewers,
     captured: AtomicReference[Option[ReviewerSelectionRequest]],
     calls: AtomicInteger = new AtomicInteger(0)
-) extends Agent[BackendTag.ClaudeCode.type]:
-  val name: String = "picker"
-  def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] = ???
-  def withConfig(c: AgentConfig): Agent[BackendTag.ClaudeCode.type] = this
-  def withSystemPrompt(p: String): Agent[BackendTag.ClaudeCode.type] = this
-  def withName(n: String): Agent[BackendTag.ClaudeCode.type] = this
-  def withTools(tools: ToolSet): Agent[BackendTag.ClaudeCode.type] = this
+) extends StubAgent("picker"):
   def resultAs[O: JsonData: Announce]
       : AgentCall[BackendTag.ClaudeCode.type, O] =
     new AgentCall[BackendTag.ClaudeCode.type, O]:
@@ -56,18 +47,6 @@ private class RecordingPicker(
           : orca.agents.InteractiveAgentCall[BackendTag.ClaudeCode.type, O] =
         ???
 
-/** Inert reviewer tool — just carries the name the selector dispatches on. */
-private class NamedTool(override val name: String)
-    extends Agent[BackendTag.ClaudeCode.type]:
-  def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] = ???
-  def withConfig(c: AgentConfig): Agent[BackendTag.ClaudeCode.type] = this
-  def withSystemPrompt(p: String): Agent[BackendTag.ClaudeCode.type] = this
-  def withName(n: String): Agent[BackendTag.ClaudeCode.type] = this
-  def withTools(tools: ToolSet): Agent[BackendTag.ClaudeCode.type] = this
-  def resultAs[O: JsonData: Announce]
-      : AgentCall[BackendTag.ClaudeCode.type, O] =
-    ???
-
 class ReviewerSelectorTest extends munit.FunSuite:
 
   private given FlowContext = new TestFlowContext(new EventDispatcher(Nil))
@@ -77,9 +56,9 @@ class ReviewerSelectorTest extends munit.FunSuite:
   private given orca.InStage = orca.InStage.unsafe
 
   private val scalaFp: RosterEntry[?] =
-    RosterEntry.wrap(new NamedTool("scala-fp"), ReviewerId(0))
+    RosterEntry.wrap(new FakeAgent("scala-fp"), ReviewerId(0))
   private val generic: RosterEntry[?] =
-    RosterEntry.wrap(new NamedTool("generic"), ReviewerId(1))
+    RosterEntry.wrap(new FakeAgent("generic"), ReviewerId(1))
   private val all: List[RosterEntry[?]] = List(scalaFp, generic)
 
   private val filePatterns =
@@ -90,22 +69,7 @@ class ReviewerSelectorTest extends munit.FunSuite:
     val ctx: FlowContext = new TestFlowContext(dispatcher)
 
   private def reported(e: RosterEntry[?]): ReviewBatch =
-    ReviewBatch(
-      List(
-        e -> ReviewResult(
-          List(
-            ReviewIssue(
-              severity = Severity.Warning,
-              confidence = Confidence.orThrow(1.0),
-              title = Title("found something"),
-              description = "found something",
-              location = None,
-              suggestion = None
-            )
-          )
-        )
-      )
-    )
+    ReviewBatch(List(e -> ReviewResult(List(issue("found something")))))
 
   test("file-pattern reviewers are dropped before the picker sees them"):
     val captured = new AtomicReference[Option[ReviewerSelectionRequest]](None)
@@ -347,13 +311,8 @@ class ReviewerSelectorTest extends munit.FunSuite:
     // `generic` is excluded by the base and never reported, so the only route
     // back into the round would be narrowing consulting something other than
     // `base`'s own result.
-    val basePicksScalaFp = new ReviewerSelector:
-      def prepare(
-          all: List[RosterEntry[?]],
-          taskTitle: Title,
-          changedFiles: List[String]
-      )(using FlowContext, orca.InStage) =
-        _ => all.filter(_.name == "scala-fp")
+    val basePicksScalaFp =
+      selector((all, _) => all.filter(_.name == "scala-fp"))
     val selectRound = ReviewerSelector
       .narrowingAcrossRounds(basePicksScalaFp)
       .prepare(all, Title("any"), List("notes.txt"))
@@ -364,13 +323,7 @@ class ReviewerSelectorTest extends munit.FunSuite:
 
   test("a base selector that picks nobody keeps picking nobody"):
     val capture = new SelectorSteps
-    val picksNobody = new ReviewerSelector:
-      def prepare(
-          all: List[RosterEntry[?]],
-          taskTitle: Title,
-          changedFiles: List[String]
-      )(using FlowContext, orca.InStage) =
-        _ => Nil
+    val picksNobody = selector((_, _) => Nil)
     val selectRound = ReviewerSelector
       .narrowingAcrossRounds(picksNobody)
       .prepare(all, Title("any"), List("notes.txt"))(using
