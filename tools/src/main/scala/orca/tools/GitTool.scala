@@ -369,9 +369,9 @@ trait GitTool:
   /** Best-effort default base ref for "branch vs main" diffs. Tries
     * `origin/HEAD` first, then falls back to `origin/main` and `origin/master`.
     *
-    * Throws `OrcaFlowException` when none of these refs exist — typically the
-    * repo has no remote configured, in which case the caller can substitute a
-    * local branch name (e.g. `"main"`).
+    * Throws `OrcaFlowException` when none of these refs can be resolved —
+    * typically the repo has no remote configured, in which case the caller can
+    * substitute a local branch name (e.g. `"main"`).
     */
   def defaultBase(): String
 
@@ -584,34 +584,16 @@ private[orca] class OsGitTool(
     * itself; `--quiet` keeps that off stderr.
     */
   private def revParse(ref: String): Option[String] =
-    try
-      val result = gitProc(Seq("git", "rev-parse", "--verify", "--quiet", ref))
-      if result.exitCode == 0 then
-        Some(result.out.text().trim).filter(_.nonEmpty)
-      else None
-    catch case NonFatal(_) => None
+    probe("rev-parse", "--verify", "--quiet", ref)
 
   def isIgnored(relPath: os.SubPath): Boolean =
     // check-ignore exits 0 when the path is ignored, 1 when it isn't, and 128
     // on error (e.g. not a git repo) — only 0 means ignored, so the error
     // cases collapse to false without special-casing.
-    try
-      gitProc(
-        Seq("git", "check-ignore", "-q", "--", relPath.toString)
-      ).exitCode == 0
-    catch case NonFatal(_) => false
+    probeSucceeds("check-ignore", "-q", "--", relPath.toString)
 
   def defaultBranch(): Option[String] =
-    try
-      val result = gitProc(
-        Seq("git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
-      )
-      if result.exitCode == 0 then
-        // Output is the short ref, e.g. "origin/main"; strip the remote prefix
-        // to get the bare branch name callers compare against.
-        Some(result.out.text().trim.stripPrefix("origin/")).filter(_.nonEmpty)
-      else None
-    catch case NonFatal(_) => None
+    originHead().map(_.stripPrefix("origin/"))
 
   def upstreamHas(path: os.Path): Boolean =
     // `cat-file -e <rev>:<path>` exits 0 only when that path resolves to an
@@ -624,9 +606,7 @@ private[orca] class OsGitTool(
     // which differs from `workDir` whenever the tool points at a subdirectory.
     try
       val relPath = path.subRelativeTo(workDir)
-      gitProc(
-        Seq("git", "cat-file", "-e", s"@{upstream}:./$relPath")
-      ).exitCode == 0
+      probeSucceeds("cat-file", "-e", s"@{upstream}:./$relPath")
     catch case NonFatal(_) => false
 
   def resetHard()(using WorkspaceWrite): Unit =
@@ -758,8 +738,7 @@ private[orca] class OsGitTool(
     * Probed once per instance.
     */
   private lazy val workDirPrefix: String =
-    val result = gitProc(Seq("git", "rev-parse", "--show-prefix"))
-    if result.exitCode == 0 then result.out.text().trim else ""
+    probe("rev-parse", "--show-prefix").getOrElse("")
 
   /** A repo-root-relative path as `workDir` sees it: inside `workDir` the
     * prefix comes off, above it the path needs `..` hops back up.
@@ -821,7 +800,7 @@ private[orca] class OsGitTool(
     marked(gitCapped("diff", s"$base...HEAD"))
 
   def defaultBase(): String =
-    resolveOriginHead
+    originHead()
       .orElse(List("origin/main", "origin/master").find(refExists))
       .getOrElse(
         throw OrcaFlowException(
@@ -831,20 +810,15 @@ private[orca] class OsGitTool(
         )
       )
 
-  /** Resolve the remote's recorded default branch via `git symbolic-ref`. `-q`
-    * suppresses stderr and lets us read the answer off the exit code, so a
-    * missing `origin/HEAD` ref becomes a clean `None` rather than a thrown
-    * subprocess error.
+  /** The remote's recorded `origin/HEAD`, in git's shortest unambiguous
+    * spelling of the target — usually `origin/<branch>`, but a longer form when
+    * that would be ambiguous (a local branch of the same name). `None` when
+    * `origin/HEAD` is unset or git cannot be run. The single resolution point
+    * behind [[defaultBase]], which passes it straight to `diff`, and
+    * [[defaultBranch]], which strips the remote prefix.
     */
-  private def resolveOriginHead: Option[String] =
-    val result = gitProc(
-      Seq("git", "symbolic-ref", "-q", "refs/remotes/origin/HEAD")
-    )
-    if result.exitCode == 0 then
-      // Output looks like "refs/remotes/origin/main"; strip the prefix to
-      // get the short form callers can pass back into `diff`.
-      Some(result.out.text().trim.stripPrefix("refs/remotes/"))
-    else None
+  private def originHead(): Option[String] =
+    probe("symbolic-ref", "--short", "refs/remotes/origin/HEAD")
 
   private def refExists(ref: String): Boolean = revParse(ref).isDefined
 
@@ -960,6 +934,27 @@ private[orca] class OsGitTool(
   private def gitProc(args: Seq[String]): os.CommandResult =
     QuietProc.call(args, cwd = workDir, env = OsGitTool.nonInteractiveEnv)
 
+  /** Trimmed stdout of a read-only git command that exited 0; `None` on a
+    * non-zero exit, empty output, or a subprocess error — the shared shape of
+    * this tool's best-effort reads, which answer "not known" rather than
+    * aborting the flow.
+    */
+  private def probe(args: String*): Option[String] =
+    probeStdout(args).map(_.trim).filter(_.nonEmpty)
+
+  /** Whether a read-only git command exited 0, for the probes that answer on
+    * their exit code alone and print nothing — which [[probe]] cannot tell from
+    * a failure.
+    */
+  private def probeSucceeds(args: String*): Boolean =
+    probeStdout(args).isDefined
+
+  private def probeStdout(args: Seq[String]): Option[String] =
+    try
+      val result = gitProc("git" +: args)
+      if result.exitCode == 0 then Some(result.out.text()) else None
+    catch case NonFatal(_) => None
+
   /** [[gitProc]] for a command whose output size is set by what it reads rather
     * than by its arguments, keeping at most [[OsGitTool.MaxReadBytes]] of it.
     */
@@ -983,9 +978,7 @@ private[orca] class OsGitTool(
 
   /** Read a single git config value (`git config --get`), `None` when unset. */
   private def gitConfigGet(key: String): Option[String] =
-    val r = gitProc(Seq("git", "config", "--get", key))
-    if r.exitCode == 0 then Some(r.out.text().trim).filter(_.nonEmpty)
-    else None
+    probe("config", "--get", key)
 
   private def git(args: String*): String =
     // Route through QuietProc so git's stderr ("Switched to a new branch",
