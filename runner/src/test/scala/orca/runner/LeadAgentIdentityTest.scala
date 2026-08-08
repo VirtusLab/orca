@@ -281,7 +281,7 @@ class LeadAgentIdentityTest extends munit.FunSuite:
     var closeCount: Int = 0
     override def close(): Unit =
       if closed.compareAndSet(false, true) then closeCount += 1
-    def doRunAutonomous(
+    protected def doRunAutonomous(
         prompt: String,
         session: orca.agents.SessionId[BackendTag.Pi.type],
         config: AgentConfig,
@@ -289,7 +289,7 @@ class LeadAgentIdentityTest extends munit.FunSuite:
         outputSchema: Option[String]
     ): AgentResult[BackendTag.Pi.type] =
       throw new UnsupportedOperationException
-    def doRunInteractive(
+    protected def doRunInteractive(
         prompt: String,
         session: orca.agents.SessionId[BackendTag.Pi.type],
         displayPrompt: String,

@@ -135,7 +135,7 @@ class AgentCallSessionCommittedTest extends munit.FunSuite:
     val tag: BackendTag.ClaudeCode.type = BackendTag.ClaudeCode
     def structuredOutputMode: StructuredOutputMode =
       StructuredOutputMode.RawText
-    def doRunAutonomous(
+    protected def doRunAutonomous(
         prompt: String,
         session: SessionId[BackendTag.ClaudeCode.type],
         config: AgentConfig,
@@ -153,7 +153,7 @@ class AgentCallSessionCommittedTest extends munit.FunSuite:
       )
       sessions.commitAfterDrain(session, result.wireId)
       result
-    def doRunInteractive(
+    protected def doRunInteractive(
         prompt: String,
         session: SessionId[BackendTag.ClaudeCode.type],
         displayPrompt: String,
