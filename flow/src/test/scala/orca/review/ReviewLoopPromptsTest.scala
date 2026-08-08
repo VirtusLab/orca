@@ -1,7 +1,7 @@
 package orca.review
 
 import orca.agents.given
-import orca.plan.Title
+import orca.plan.{Task, Title}
 import orca.util.{JsonSchemaGen, TextUtil}
 
 class ReviewLoopPromptsTest extends munit.FunSuite:
@@ -11,11 +11,14 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
   // line breaks it arrives with.
   private def rendered(
       gate: ConfidenceGate,
-      base: Option[String] = None
+      base: Option[String] = None,
+      task: Task = Task(Title("do the thing"), "split the list in halves"),
+      userRequest: String = "add a median function"
   ): String =
     TextUtil.collapseWhitespace(
       ReviewLoopPrompts.initialReview(
-        task = "do the thing",
+        task = task,
+        userRequest = userRequest,
         diff = "",
         diffIntro = "Diff:",
         gate = gate,
@@ -37,12 +40,39 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
       )
     assert(prompt.contains("Critical 0.1, Warning 0.2, Info 0.3"), prompt)
 
+  test("initialReview labels the user's request and the planner's description"):
+    // The labels are the point: a reviewer that can't tell the two apart can't
+    // aim a finding at the planned choice rather than the code.
+    val prompt = rendered(ConfidenceGate.default)
+    assert(
+      prompt.contains(
+        "The user's request for this run: add a median function"
+      ),
+      prompt
+    )
+    assert(
+      prompt.contains(
+        "The planner's description of this task: split the list in halves"
+      ),
+      prompt
+    )
+
+  test("initialReview drops a context section repeating the task title"):
+    // Saying the same words three times is pure token cost.
+    val prompt = rendered(
+      ConfidenceGate.default,
+      task = Task(Title("add a median function"), "add a median function"),
+      userRequest = "add a median function"
+    )
+    assert(!prompt.contains("The user's request for this run:"), prompt)
+    assert(!prompt.contains("The planner's description of this task:"), prompt)
+
   test("initialReview tells reviewers the plan is not evidence"):
     val prompt = rendered(ConfidenceGate.default)
     assert(
       prompt.contains(
-        "The task description, and the plan behind it, are context — not " +
-          "evidence that a decision is correct."
+        "The task above says what was decided, not that the decision is " +
+          "correct."
       ),
       prompt
     )
@@ -85,6 +115,24 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
       prompt.contains(
         "That is the fixer's position, not a ruling. If you still think a " +
           "finding is real, report it again and say why the reason is wrong."
+      ),
+      prompt
+    )
+
+  test("reReview says the task is unchanged rather than repeating it"):
+    // A resumed reviewer is the same conversation that got the initial prompt,
+    // so the request and the description are already there — re-sending them
+    // every round would cost tokens for nothing.
+    val prompt = TextUtil.collapseWhitespace(
+      ReviewLoopPrompts.reReview(
+        ReReviewChanges.AlreadySeen(LastSent.Inline("")),
+        Nil
+      )
+    )
+    assert(
+      prompt.contains(
+        "Everything the initial prompt said still applies: the task it " +
+          "described is the same"
       ),
       prompt
     )

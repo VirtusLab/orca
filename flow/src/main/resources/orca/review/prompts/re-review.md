@@ -6,5 +6,6 @@ issues.
 
 {{changes}}{{declined}}
 
-The confidence contract from the initial prompt still applies: the probability
-the finding is real, on the evidence you gathered — not deference to the plan.
+Everything the initial prompt said still applies: the task it described is the
+same, and a finding's confidence is the probability it is real on the evidence
+you gathered — not deference to the plan.

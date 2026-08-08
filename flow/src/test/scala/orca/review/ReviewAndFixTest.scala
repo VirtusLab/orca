@@ -1,7 +1,7 @@
 package orca.review
 
 import orca.{Configured, FlowContext, FlowControl, StackSettings}
-import orca.plan.Title
+import orca.plan.{Task, Title}
 import orca.agents.{
   AgentInput,
   Announce,
@@ -126,7 +126,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val result = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(silentReviewer),
-      task = "do the thing",
+      task = titled("do the thing"),
       reviewerSelection = ReviewerSelector.allEveryRound,
       diff = ReviewDiff.Pinned("")
     )
@@ -145,7 +145,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val result = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
       reviewers = List(reviewer),
-      task = "build the widget",
+      task = titled("build the widget"),
       confidenceGate = ConfidenceGate(
         critical = Confidence.orThrow(0.99),
         warning = Confidence.orThrow(0.99),
@@ -185,7 +185,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val result = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(reviewer),
-      task = "build the widget",
+      task = titled("build the widget"),
       reviewerSelection = ReviewerSelector.allEveryRound,
       diff = ReviewDiff.Pinned("")
     )
@@ -203,7 +203,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val _ = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
       reviewers = List(reviewer),
-      task = "build the widget",
+      task = titled("build the widget"),
       reviewerSelection = ReviewerSelector.allEveryRound,
       diff = ReviewDiff.Pinned("")
     )
@@ -238,7 +238,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val result = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(reviewer),
-      task = "build the widget",
+      task = titled("build the widget"),
       reviewerSelection = ReviewerSelector.allEveryRound,
       diff = ReviewDiff.Pinned("")
     )
@@ -280,7 +280,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val result = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(reviewer),
-      task = "build the widget",
+      task = titled("build the widget"),
       reviewerSelection = ReviewerSelector.allEveryRound,
       diff = ReviewDiff.Pinned("")
     )
@@ -320,7 +320,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val result = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(reviewer),
-      task = "build the widget",
+      task = titled("build the widget"),
       reviewerSelection = ReviewerSelector.allEveryRound,
       diff = ReviewDiff.Pinned("")
     )
@@ -358,7 +358,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val result = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(reviewer),
-      task = "build the widget",
+      task = titled("build the widget"),
       reviewerSelection = ReviewerSelector.allEveryRound,
       diff = ReviewDiff.Pinned("")
     )
@@ -389,7 +389,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val result = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(reviewer),
-      task = "build the widget",
+      task = titled("build the widget"),
       maxIterations = 1,
       reviewerSelection = ReviewerSelector.allEveryRound,
       diff = ReviewDiff.Pinned("")
@@ -436,7 +436,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val result = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(rosterX, rosterY),
-      task = "build the widget",
+      task = titled("build the widget"),
       diff = ReviewDiff.Pinned("")
     )
     assertEquals(
@@ -479,7 +479,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val result = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(reviewer),
-      task = "build the widget",
+      task = titled("build the widget"),
       maxIterations = 1,
       reviewerSelection = ReviewerSelector.allEveryRound,
       diff = ReviewDiff.Pinned("")
@@ -522,7 +522,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val _ = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(reviewer),
-      task = "build the widget",
+      task = titled("build the widget"),
       reviewerSelection = ReviewerSelector.allEveryRound,
       diff = ReviewDiff.Pinned("")
     )
@@ -563,7 +563,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val _ = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(reviewer),
-      task = "build the widget",
+      task = titled("build the widget"),
       reviewerSelection = ReviewerSelector.allEveryRound,
       diff = ReviewDiff.Pinned("")
     )
@@ -589,7 +589,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val result = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(reviewer),
-      task = "build the widget",
+      task = titled("build the widget"),
       reviewerSelection = ReviewerSelector.allEveryRound,
       diff = ReviewDiff.Pinned("")
     )
@@ -635,7 +635,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val result = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(reviewer),
-      task = "build the widget",
+      task = titled("build the widget"),
       reviewerSelection = ReviewerSelector.allEveryRound,
       diff = ReviewDiff.Pinned("")
     )
@@ -677,7 +677,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val result = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(reviewer),
-      task = "build the widget",
+      task = titled("build the widget"),
       reviewerSelection = ReviewerSelector.allEveryRound,
       diff = ReviewDiff.Pinned("")
     )
@@ -716,7 +716,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val _ = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(early, late),
-      task = "build the widget",
+      task = titled("build the widget"),
       reviewerSelection = joinsInRoundThree,
       diff = ReviewDiff.Pinned("")
     )
@@ -751,7 +751,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val result = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(reviewerA, reviewerB),
-      task = "multi",
+      task = titled("multi"),
       reviewerSelection = ReviewerSelector.allEveryRound,
       diff = ReviewDiff.Pinned("")
     )
@@ -775,7 +775,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val _ = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(reviewer),
-      task = "never ending",
+      task = titled("never ending"),
       maxIterations = 2,
       reviewerSelection = ReviewerSelector.allEveryRound,
       diff = ReviewDiff.Pinned("")
@@ -811,7 +811,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val _ = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(loud),
-      task = "warm lint",
+      task = titled("warm lint"),
       reviewerSelection = ReviewerSelector.allEveryRound,
       // `echo` emits output so `lint` doesn't short-circuit before calling the
       // summariser.
@@ -847,7 +847,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val _ = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(quiet),
-      task = "reporting lint",
+      task = titled("reporting lint"),
       reviewerSelection = ReviewerSelector.allEveryRound,
       lint = Configured.Use(Lint(List("echo lint-output"), summariser)),
       maxIterations = 1,
@@ -885,7 +885,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val _ = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(loud),
-      task = "sub-threshold lint",
+      task = titled("sub-threshold lint"),
       reviewerSelection = ReviewerSelector.allEveryRound,
       lint = Configured.Use(Lint(List("echo lint-output"), summariser)),
       maxIterations = 1,
@@ -908,7 +908,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val _ = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(captureReviewer),
-      task = "do thing",
+      task = titled("do thing"),
       reviewerSelection = ReviewerSelector.allEveryRound,
       diff = ReviewDiff.Pinned("--- a/Foo.scala\n+++ b/Foo.scala\n+ added line")
     )
@@ -916,6 +916,63 @@ class ReviewAndFixTest extends munit.FunSuite:
       .getOrElse(fail("the fresh-session run was never called"))
     assert(sent.contains("--- a/Foo.scala"), s"diff missing from prompt: $sent")
     assert(sent.contains("do thing"), s"task missing from prompt: $sent")
+
+  test("the reviewer's first prompt carries the task and the user's request"):
+    // A reviewer given only the title argues with the fixer over choices the
+    // planner settled in the description — which the fixer can see and it
+    // cannot.
+    given FlowControl =
+      ReviewLoopFixture.control(
+        new EventDispatcher(Nil),
+        userPrompt = "add a median function"
+      )
+    val reviewer =
+      new FakeAgent("capturing", outputs = List(ReviewResult.empty))
+    val _ = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
+      reviewers = List(reviewer),
+      task = Task(Title("Median"), "on an even count, average the two middle"),
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      diff = ReviewDiff.Pinned("")
+    )
+    val sent = reviewer.seenPrompts.headOption
+      .getOrElse(fail("the fresh-session run was never called"))
+    assert(
+      sent.contains("on an even count, average the two middle"),
+      s"task description missing from prompt: $sent"
+    )
+    assert(
+      sent.contains("add a median function"),
+      s"user request missing from prompt: $sent"
+    )
+
+  test("the reviewer's first prompt carries a caller-supplied user request"):
+    // The override exists for a flow whose prompt is only an issue reference.
+    given FlowControl =
+      ReviewLoopFixture.control(
+        new EventDispatcher(Nil),
+        userPrompt = "acme/widgets#42"
+      )
+    val reviewer =
+      new FakeAgent("capturing", outputs = List(ReviewResult.empty))
+    val _ = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
+      reviewers = List(reviewer),
+      task = titled("Median"),
+      userRequest = Some("the median rounds down on ties"),
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      diff = ReviewDiff.Pinned("")
+    )
+    val sent = reviewer.seenPrompts.headOption
+      .getOrElse(fail("the fresh-session run was never called"))
+    assert(
+      sent.contains("the median rounds down on ties"),
+      s"caller's user request missing from prompt: $sent"
+    )
+    assert(
+      !sent.contains("acme/widgets#42"),
+      s"the run prompt reached the reviewer instead: $sent"
+    )
 
   test("the reviewer's first prompt names the stage's base commit"):
     // The base is sent alongside the diff, from the same `stageBaseCommit` the
@@ -930,7 +987,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val _ = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
       reviewers = List(reviewer),
-      task = "do thing",
+      task = titled("do thing"),
       reviewerSelection = ReviewerSelector.allEveryRound
     )
     val sent = reviewer.seenPrompts.headOption
@@ -952,7 +1009,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val _ = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
       reviewers = List(reviewer),
-      task = "do thing",
+      task = titled("do thing"),
       reviewerSelection = ReviewerSelector.allEveryRound,
       diff = ReviewDiff.Pinned("--- a/Foo.scala\n+++ b/Foo.scala\n+ added line")
     )
@@ -978,7 +1035,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val _ = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
       reviewers = List(reviewer),
-      task = "do thing",
+      task = titled("do thing"),
       reviewerSelection = ReviewerSelector.allEveryRound
     )
     val sent = reviewer.seenPrompts.headOption
@@ -1010,7 +1067,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val _ = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(reviewer),
-      task = "build the widget",
+      task = titled("build the widget"),
       reviewerSelection = ReviewerSelector.allEveryRound,
       diff = ReviewDiff.Pinned("")
     )
@@ -1053,7 +1110,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(reviewerX, reviewerY),
       reviewerSelection = ReviewerSelector.agentDriven(agent = picker),
-      task = "picker-routing check",
+      task = titled("picker-routing check"),
       diff = ReviewDiff.Pinned("")
     )
     assertEquals(
@@ -1088,7 +1145,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val result = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(reviewerX, reviewerY),
-      task = "default selection",
+      task = titled("default selection"),
       diff = ReviewDiff.Pinned("")
     )
     assertEquals(
@@ -1127,7 +1184,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val _ = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(quiet, loud),
-      task = "narrowing check",
+      task = titled("narrowing check"),
       maxIterations = 2,
       diff = ReviewDiff.Pinned("")
     )
@@ -1158,7 +1215,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val _ = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(quiet),
-      task = "lint keeps the loop going",
+      task = titled("lint keeps the loop going"),
       // `echo` emits output so `lint` doesn't short-circuit before calling the
       // summariser.
       lint = Configured.Use(Lint(List("echo lint-output"), summariser)),
@@ -1186,7 +1243,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val result = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(reviewerX),
-      task = "no-picker check",
+      task = titled("no-picker check"),
       reviewerSelection = ReviewerSelector.allEveryRound,
       diff = ReviewDiff.Pinned("")
     )
@@ -1235,7 +1292,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       val _ = reviewAndFixLoop(
         coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
         reviewers = List(slow, fast),
-        task = "ordering check",
+        task = titled("ordering check"),
         reviewerSelection = ReviewerSelector.allEveryRound,
         diff = ReviewDiff.Pinned("")
       )
@@ -1286,7 +1343,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val _ = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
       reviewers = List(rendezvousReviewer("reviewer")),
-      task = "concurrency check",
+      task = titled("concurrency check"),
       // echo emits output so `lint` doesn't short-circuit on empty stdout
       // and actually calls the (rendezvousing) LLM summariser.
       lint = Configured.Use(
@@ -1314,7 +1371,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val _ = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(reviewer),
-      task = "format check",
+      task = titled("format check"),
       reviewerSelection = ReviewerSelector.allEveryRound,
       formatCommands = Configured.Use(List(s"echo x >> '$counter'")),
       diff = ReviewDiff.Pinned("")
@@ -1332,7 +1389,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val _ = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(reviewer),
-      task = "fail-open format",
+      task = titled("fail-open format"),
       reviewerSelection = ReviewerSelector.allEveryRound,
       formatCommands = Configured.Use(List("false", s"echo ran >> '$log'")),
       diff = ReviewDiff.Pinned("")
@@ -1346,7 +1403,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val _ = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
       reviewers = List(reviewer),
-      task = "reported format failure",
+      task = titled("reported format failure"),
       reviewerSelection = ReviewerSelector.allEveryRound,
       formatCommands = Configured.Use(List("exit 3")),
       diff = ReviewDiff.Pinned("")
@@ -1364,7 +1421,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val _ = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
       reviewers = List(reviewer),
-      task = "silent format success",
+      task = titled("silent format success"),
       reviewerSelection = ReviewerSelector.allEveryRound,
       formatCommands = Configured.Use(List("true")),
       diff = ReviewDiff.Pinned("")
@@ -1407,7 +1464,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val result = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(reviewer),
-      task = "settings-driven gates",
+      task = titled("settings-driven gates"),
       reviewerSelection = ReviewerSelector.allEveryRound,
       diff = ReviewDiff.Pinned("")
     )
@@ -1430,7 +1487,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val result = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
       reviewers = List(reviewer),
-      task = "lint gate",
+      task = titled("lint gate"),
       lint = Configured.Use(Lint(List("echo lint-output"), summariser)),
       reviewerSelection = ReviewerSelector.allEveryRound,
       diff = ReviewDiff.Pinned("")
@@ -1455,7 +1512,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val result = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(reviewer),
-      task = "empty settings",
+      task = titled("empty settings"),
       reviewerSelection = ReviewerSelector.allEveryRound,
       diff = ReviewDiff.Pinned("")
     )
@@ -1478,7 +1535,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val result = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(reviewer),
-      task = "explicitly off",
+      task = titled("explicitly off"),
       reviewerSelection = ReviewerSelector.allEveryRound,
       formatCommands = Configured.Off,
       lint = Configured.Off,
@@ -1506,7 +1563,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val result = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(reviewer),
-      task = "explicit override",
+      task = titled("explicit override"),
       reviewerSelection = ReviewerSelector.allEveryRound,
       formatCommands = Configured.Use(List(s"echo explicit >> '$fmtLog'")),
       lint = Configured.Use(Lint(List("echo overridden"), summariser)),
@@ -1531,7 +1588,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val _ = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(reviewer),
-      task = "cost labelling",
+      task = titled("cost labelling"),
       reviewerSelection = ReviewerSelector.allEveryRound,
       diff = ReviewDiff.Pinned("")
     )
@@ -1562,7 +1619,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(rosterX, rosterY),
       reviewerSelection = onlyX,
-      task = "roster-bound selection",
+      task = titled("roster-bound selection"),
       diff = ReviewDiff.Pinned("")
     )
     assertEquals(result.issues, List(IgnoredIssue(Title("from-x"), "ok")))
@@ -1588,7 +1645,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(rosterA),
       reviewerSelection = emptySelector,
-      task = "empty selection",
+      task = titled("empty selection"),
       diff = ReviewDiff.Pinned("")
     )
     assert(
@@ -1632,7 +1689,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val _ = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(early, late),
-      task = "build the widget",
+      task = titled("build the widget"),
       reviewerSelection = lateJoiner,
       diff = ReviewDiff.Pinned("")
     )
@@ -1659,7 +1716,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(rosterX),
       reviewerSelection = dupSelector,
-      task = "duplicate selection",
+      task = titled("duplicate selection"),
       diff = ReviewDiff.Pinned("")
     )
     assertEquals(rosterX.seenSessions.size, 1)
@@ -1691,7 +1748,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       val _ = reviewAndFixLoop(
         coderSession = ReviewLoopFixture.coderSession(coder),
         reviewers = List(reviewer),
-        task = "seed check",
+        task = titled("seed check"),
         reviewerSelection = ReviewerSelector.allEveryRound,
         diff = ReviewDiff.Pinned("")
       )

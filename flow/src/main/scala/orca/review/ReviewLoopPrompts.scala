@@ -1,5 +1,6 @@
 package orca.review
 
+import orca.plan.Task
 import orca.util.PromptResource
 
 /** Default prompt fragments for the helpers in this package. Each `val` is a
@@ -11,7 +12,7 @@ import orca.util.PromptResource
   * reviewAndFixLoop(
   *   coderSession = coderSession,
   *   reviewers = allReviewers(claude),
-  *   task = title,
+  *   task = task,
   *   fixInstructions = ReviewLoopPrompts.Fix +
   *     "\n\nIf you delete a test, mention it in the ignored reason."
   * )
@@ -50,6 +51,9 @@ object ReviewLoopPrompts:
     * fan out across the whole project. The same prompt template is used for
     * every reviewer; the reviewer's identity comes from its system prompt.
     *
+    * `task` and `userRequest` render as separately labelled sections under the
+    * task title.
+    *
     * `gate` is rendered into the prompt's confidence section, so reviewers are
     * told the actual bars their findings are measured against rather than a
     * hardcoded guess at them.
@@ -64,7 +68,8 @@ object ReviewLoopPrompts:
     * [[reviewAndFixLoop]].
     */
   def initialReview(
-      task: String,
+      task: Task,
+      userRequest: String,
       diff: String,
       diffIntro: String,
       gate: ConfidenceGate,
@@ -73,7 +78,8 @@ object ReviewLoopPrompts:
   ): String =
     PromptResource.render(
       InitialReviewTemplate,
-      "task" -> task,
+      "taskTitle" -> task.title.value,
+      "taskContext" -> taskContext(task, userRequest),
       "diffIntro" -> diffIntro,
       "diffBlock" -> diffBlock(diff),
       "baseNote" -> baseNote(base),
@@ -82,6 +88,24 @@ object ReviewLoopPrompts:
       "warningBar" -> gate.warning.value.toString,
       "infoBar" -> gate.info.value.toString
     )
+
+  /** The task's context as labelled sections under the title: what the user
+    * asked for, then the planner's description of this task. Both are short
+    * prose, so they go in whole.
+    *
+    * Each section carries its own leading blank line, as [[baseNote]] does. A
+    * section that is blank, or that repeats the title, is dropped — a flow with
+    * no planning stage has neither to add.
+    */
+  private def taskContext(task: Task, userRequest: String): String =
+    val title = task.title.value.trim
+    List(
+      "The user's request for this run" -> userRequest.trim,
+      "The planner's description of this task" -> task.description.trim
+    ).collect:
+      case (label, text) if text.nonEmpty && text != title =>
+        s"\n\n$label:\n\n$text"
+    .mkString
 
   /** The base commit as a paragraph after the diff, carrying its own leading
     * blank line so the section disappears without a trace when there is no base

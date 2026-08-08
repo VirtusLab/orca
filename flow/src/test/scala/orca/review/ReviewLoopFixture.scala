@@ -16,7 +16,7 @@ import orca.agents.{
   ToolSet
 }
 import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
-import orca.plan.Title
+import orca.plan.{Task, Title}
 
 /** Shared fixture construction for the `reviewAndFixLoop` tests.
   *
@@ -55,16 +55,28 @@ object ReviewLoopFixture:
     * needed by `ReviewerSelector.default`, whose picker resolves as
     * `ctx.reviewAgent.cheap`, and by `Configured.FromSettings` lint resolution
     * (`Lint(stackSettings.lint, ctx.reviewAgent.cheap)`). `stackSettings` seeds
-    * the context's resolved settings for the `FromSettings` tests.
+    * the context's resolved settings for the `FromSettings` tests, and
+    * `userPrompt` seeds the context's run prompt.
     */
   def control(
       dispatcher: EventDispatcher,
       lead: Option[Agent[BackendTag.ClaudeCode.type]] = None,
-      stackSettings: StackSettings = StackSettings.empty
+      stackSettings: StackSettings = StackSettings.empty,
+      userPrompt: String = "p"
   ): TestFlowControl =
     TestFlowControl
-      .create(dispatcher, lead = lead, stackSettings = stackSettings)
+      .create(
+        dispatcher,
+        userPrompt = userPrompt,
+        lead = lead,
+        stackSettings = stackSettings
+      )
       ._1
+
+/** A [[Task]] carrying only a title — what a test that doesn't exercise the
+  * description passes for `reviewAndFixLoop`'s `task`.
+  */
+private[review] def titled(title: String): Task = Task(Title(title), "")
 
 /** Agent stub base: supplies the identity and the `with*` no-ops every
   * review-loop stub repeats, leaving `resultAs` abstract.

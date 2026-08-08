@@ -44,7 +44,7 @@ class ReviewFixFlowTest extends munit.FunSuite:
     val _ = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(reviewer),
-      task = "optimize cache",
+      task = titled("optimize cache"),
       reviewerSelection = ReviewerSelector.allEveryRound,
       diff = ReviewDiff.Pinned("")
     )
@@ -80,7 +80,7 @@ class ReviewFixFlowTest extends munit.FunSuite:
     val result = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(reviewer),
-      task = "never ending",
+      task = titled("never ending"),
       maxIterations = 2,
       reviewerSelection = ReviewerSelector.allEveryRound,
       diff = ReviewDiff.Pinned("")

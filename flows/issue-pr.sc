@@ -90,7 +90,8 @@ flow(
         reviewAndFixLoop(
           coderSession = session,
           reviewers = allReviewers(reviewAgent),
-          task = task.title.value,
+          task = task,
+          userRequest = Some(issuePayload),
           maxIterations = 3
         )
 

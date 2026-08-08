@@ -134,7 +134,7 @@ flow(
       display(s"CI red on ${pr.shortRef} — reproduction confirmed")
 
       confirmReproductionMatches(pr, issue)
-      planAndImplementFix(session)
+      planAndImplementFix(session, issuePayload)
 
       // Again later than the task edits above, so the fix commits exist.
       stage("Push fix + finalise PR"):
@@ -223,9 +223,13 @@ def confirmReproductionMatches(pr: PrHandle, issue: Issue)(using
   *
   * `[B <: BackendTag]` is read off the `session` argument, so the helper
   * accepts a session for whichever backend the settings named.
+  *
+  * `issuePayload` is what reviewers are shown as the user's request: the run's
+  * prompt is only an issue reference.
   */
 def planAndImplementFix[B <: BackendTag](
-    session: FlowSession[B]
+    session: FlowSession[B],
+    issuePayload: String
 )(using FlowControl): Unit =
   val fixPlan = stage("Plan the fix"):
     Plan.autonomous
@@ -246,6 +250,7 @@ def planAndImplementFix[B <: BackendTag](
       reviewAndFixLoop(
         coderSession = session,
         reviewers = allReviewers(reviewAgent),
-        task = task.title.value,
+        task = task,
+        userRequest = Some(issuePayload),
         maxIterations = 3
       )
