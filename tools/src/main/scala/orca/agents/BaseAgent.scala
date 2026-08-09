@@ -102,7 +102,12 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
         if emitPrompt then events.onEvent(OrcaEvent.UserPrompt(prompt))
         val accounting = turnAccounting(effective, session, sessionName)
         val result = accounting.recording:
-          backend.runAutonomous(prompt, session, effective, events)
+          backend.runAutonomous(
+            prompt,
+            session,
+            effective,
+            OrcaListener.attributedTo(events, name)
+          )
         accounting.succeeded(result, TurnAccounting.OnlyTurn)
         accounting.sessionCommitted()
         result.output

@@ -131,13 +131,13 @@ class ConversationRendererTest extends munit.FunSuite:
   test("AssistantToolCall renders the name and a summarised input"):
     val buf = new ByteArrayOutputStream()
     val conv = new ScriptedConversation(
-      List(ConversationEvent.AssistantToolCall("Bash", """{"cmd":"ls"}""")),
+      List(ConversationEvent.AssistantToolCall("Bash", """{"command":"ls"}""")),
       Right(sampleResult)
     )
     val _ = supervised(renderer(buf).render(conv))
     val out = buf.toString
     assert(out.contains("Bash"))
-    assert(out.contains("{\"cmd\":\"ls\"}"))
+    assert(out.contains("(ls)"))
 
   test("ToolResult rendering differs by ok flag"):
     val buf = new ByteArrayOutputStream()

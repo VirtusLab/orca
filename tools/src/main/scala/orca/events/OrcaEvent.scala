@@ -20,7 +20,14 @@ import orca.agents.Model
 enum OrcaEvent:
   case StageStarted(name: String)
   case StageCompleted(name: String)
-  case ToolUse(tool: String, args: String)
+
+  /** One tool invocation by the agent named in `agent`. Backends emit `None` —
+    * a drain doesn't know which agent it runs for;
+    * [[OrcaListener.attributedTo]] wraps it and stamps the name on the way out.
+    * Renderers use the name to tell apart the interleaved lines of agents
+    * running in parallel.
+    */
+  case ToolUse(tool: String, args: String, agent: Option[String] = None)
 
   /** A single instantaneous note in the event log — neither a stage nor a
     * stream-of-text. Tools emit these for discrete progress: "switched to
@@ -94,9 +101,10 @@ enum OrcaEvent:
   /** A turn of free-form prose from the agent, one per
     * [[ConversationEvent.AssistantTurnEnd]] on the autonomous drain (the
     * interactive renderer surfaces these itself). The terminal listener renders
-    * it as a one-line `●`; full text reaches non-terminal listeners.
+    * it as a one-line `●`; full text reaches non-terminal listeners. `agent`
+    * carries the same attribution as [[ToolUse]].
     */
-  case AssistantMessage(text: String)
+  case AssistantMessage(text: String, agent: Option[String] = None)
 
   case Error(message: String)
 
@@ -156,3 +164,16 @@ object OrcaListener:
     * dispatcher (unit tests, lightweight scripts).
     */
   val noop: OrcaListener = (_: OrcaEvent) => ()
+
+  /** Stamps `agentName` onto the two display events a turn produces
+    * ([[OrcaEvent.ToolUse]], [[OrcaEvent.AssistantMessage]]) on their way to
+    * `downstream`; every other event passes through untouched. Wrapped around
+    * the listener handed to a backend drain, which emits those events without
+    * knowing which agent it is running for.
+    */
+  def attributedTo(downstream: OrcaListener, agentName: String): OrcaListener =
+    case e: OrcaEvent.ToolUse =>
+      downstream.onEvent(e.copy(agent = Some(agentName)))
+    case e: OrcaEvent.AssistantMessage =>
+      downstream.onEvent(e.copy(agent = Some(agentName)))
+    case other => downstream.onEvent(other)

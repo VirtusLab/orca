@@ -99,7 +99,7 @@ private[terminal] class ConversationRenderer(
 
   private def renderToolCall(name: String, input: String): Unit =
     enterSection(Section.Tool)
-    appendBlock(ToolCallLine.format(name, input, paint, workDir))
+    appendBlock(ToolCallLine.format(name, input, paint, workDir, agent = None))
 
   private def renderToolResult(ok: Boolean, content: String): Unit =
     enterSection(Section.Tool)
