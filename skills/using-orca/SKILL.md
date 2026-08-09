@@ -30,7 +30,7 @@ orca run implement.sc "<task description>"
 across the project/global/built-in tiers.
 
 Key flags:
-- `--verbose` — stream flow output.
+- `--verbose` — print a stack trace if the flow aborts.
 - `--skip-branch` — continue on the current branch instead of creating a
   new one. Use this when the current branch already has plan/context files
   the flow should pick up (e.g. it was planned with a harness first).
