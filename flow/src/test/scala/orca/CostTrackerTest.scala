@@ -393,6 +393,89 @@ class CostTrackerTest extends munit.FunSuite:
       tracker.summary
     )
 
+  test("a group with a sub-unit part renders every count at two decimals"):
+    // Counts from a live run: the parts have to sum to the total above them.
+    val tracker = new CostTracker(pricingAsOf)
+    tracker.onEvent(
+      tokens(
+        "claude",
+        Some("opus"),
+        usage(
+          input = 1_630_100L,
+          output = 30_200L,
+          cost = None,
+          cacheRead = 1_151_000L,
+          cacheWrite = 479_100L
+        )
+      )
+    )
+    assert(
+      tracker.summary.contains(
+        "claude: 1.63M in (1.15M cache read, 0.48M cache write), 30.2K out"
+      ),
+      tracker.summary
+    )
+
+  test("a part far below the group's unit keeps its own scale"):
+    // At the group's unit this would round to 0.00M, which reads as "no cache
+    // writes at all" — a different fact from "too few to show at this scale".
+    val tracker = new CostTracker(pricingAsOf)
+    tracker.onEvent(
+      tokens(
+        "claude",
+        Some("opus"),
+        usage(
+          input = 2_000_000L,
+          output = 0L,
+          cost = None,
+          cacheWrite = 900L
+        )
+      )
+    )
+    assert(
+      tracker.summary.contains("claude: 2M in (900 cache write), 0 out"),
+      tracker.summary
+    )
+
+  test(
+    "a two-decimal group shows the total to the same precision as its parts"
+  ):
+    // Stripping the total to "12.4M" would leave the reader adding 11.9 + 0.51
+    // against a headline shown to one fewer digit.
+    val tracker = new CostTracker(pricingAsOf)
+    tracker.onEvent(
+      tokens(
+        "claude",
+        Some("opus"),
+        usage(
+          input = 12_412_300L,
+          output = 100L,
+          cost = None,
+          cacheRead = 11_900_000L,
+          cacheWrite = 512_300L
+        )
+      )
+    )
+    assert(
+      tracker.summary.contains(
+        "claude: 12.41M in (11.90M cache read, 0.51M cache write), 100 out"
+      ),
+      tracker.summary
+    )
+
+  test("the output group keeps its own unit, unaffected by a large input"):
+    // Sharing ONE unit across the whole line would render this as "0.1K out";
+    // output is not a part of input, so nothing is summed across the two.
+    val tracker = new CostTracker(pricingAsOf)
+    tracker.onEvent(
+      tokens(
+        "claude",
+        Some("opus"),
+        usage(input = 3_000_000L, output = 100L, cost = None)
+      )
+    )
+    assert(tracker.summary.contains("claude: 3M in, 100 out"), tracker.summary)
+
   test("summary drops the cache-write part when a backend reports no writes"):
     val tracker = new CostTracker(pricingAsOf)
     tracker.onEvent(

@@ -114,8 +114,9 @@ class RoleAgentsTest extends munit.FunSuite:
     )
     assertEquals(
       resolution.announcement,
-      "agents: planning=claude (default), coding=codex (project), " +
-        "review=gemini (global)"
+      "agents: planning=claude:<harness default> (default), " +
+        "coding=codex:<harness default> (project), " +
+        "review=gemini:<harness default> (global)"
     )
     assertEquals(resolution.foreignWarnings, Nil)
 
@@ -138,7 +139,7 @@ class RoleAgentsTest extends munit.FunSuite:
     )
 
   test(
-    "resolveAll stays bare when neither settings nor the wired agent pin a model"
+    "resolveAll marks a role nobody pinned a model for as the harness's own default"
   ):
     val resolution = RoleAgents.resolveAll(
       project = AgentSettings(coding = Some(AgentSpec(BackendTag.Codex, None))),
@@ -148,8 +149,27 @@ class RoleAgentsTest extends munit.FunSuite:
       onRoleResolved = _ => ()
     )
     assert(
-      resolution.announcement.contains("coding=codex (project)"),
-      s"an agent with no default model pin must stay bare: ${resolution.announcement}"
+      resolution.announcement.contains(
+        "coding=codex:<harness default> (project)"
+      ),
+      s"a role nobody pinned a model for must say the harness picks: " +
+        resolution.announcement
+    )
+
+  test(
+    "a settings entry naming only a harness announces that agent's own model"
+  ):
+    // The header and the cost table must name the same model.
+    val resolution = RoleAgents.resolveAll(
+      project = AgentSettings(coding = Some(AgentSpec(BackendTag.Codex, None))),
+      global = AgentSettings.empty,
+      overrides = RoleOverrides(None, None, None),
+      agents = wiredAgents(codex = new DefaultModelCodex),
+      onRoleResolved = _ => ()
+    )
+    assert(
+      resolution.announcement.contains("coding=codex:gpt-5.6-sol (project)"),
+      s"expected the wired codex's own model: ${resolution.announcement}"
     )
 
   test("resolveAll renders a project model pin as harness:model"):
@@ -201,7 +221,9 @@ class RoleAgentsTest extends munit.FunSuite:
       onRoleResolved = _ => ()
     )
     assert(
-      resolution.announcement.contains("coding=codex (override)"),
+      resolution.announcement.contains(
+        "coding=codex:<harness default> (override)"
+      ),
       s"an override must beat the project file and label (override): " +
         resolution.announcement
     )
@@ -288,7 +310,7 @@ class RoleAgentsTest extends munit.FunSuite:
     override private[orca] def configuredModel: Option[Model] =
       Some(Model("claude-opus-5[1m]"))
 
-  private object NoopCodex extends CodexAgent:
+  private class NoopCodexAgent extends CodexAgent:
     val name = "noop-codex"
     // A real backend tag so the override-announcement test can read the
     // resolved backend's harness (`codex`) off the agent, as production does.
@@ -304,6 +326,14 @@ class RoleAgentsTest extends munit.FunSuite:
       throw new UnsupportedOperationException
     def resultAs[O: JsonData: Announce]: AgentCall[BackendTag.Codex.type, O] =
       throw new UnsupportedOperationException
+
+  private object NoopCodex extends NoopCodexAgent
+
+  /** [[NoopCodexAgent]] with a model of its own, for the settings path. */
+  private class DefaultModelCodex extends NoopCodexAgent:
+    override val name = "codex"
+    override private[orca] def configuredModel: Option[Model] =
+      Some(Model("gpt-5.6-sol"))
 
   private object NoopOpencode extends OpencodeAgent:
     val name = "noop-opencode"

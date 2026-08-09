@@ -266,8 +266,9 @@ class RoleSettingsFlowTest extends munit.FunSuite:
     assertEquals(
       announcements,
       List(
-        "agents: planning=claude (default), coding=codex (project), " +
-          "review=gemini (global)"
+        "agents: planning=claude:<harness default> (default), " +
+          "coding=codex:<harness default> (project), " +
+          "review=gemini:<harness default> (global)"
       ),
       s"expected exactly one per-role announcement, saw: ${steps.get()}"
     )
@@ -286,32 +287,11 @@ class RoleSettingsFlowTest extends munit.FunSuite:
     assertEquals(
       announcements,
       List(
-        "agents: planning=claude (default), coding=codex:gpt-5-mini (project), " +
-          "review=claude (default)"
+        "agents: planning=claude:<harness default> (default), " +
+          "coding=codex:gpt-5-mini (project), " +
+          "review=claude:<harness default> (default)"
       ),
       s"expected the pinned model in the coding segment: ${steps.get()}"
-    )
-
-  test(
-    "an unpinned role keeps the bare harness form, unchanged"
-  ):
-    val workDir = GitRepo.seeded()
-    writeProject(workDir, "codingAgent = codex\n")
-    val steps = new AtomicReference[List[String]](Nil)
-    driveFlow(
-      workDir,
-      stackSettings = Some(StackSettings.empty),
-      listeners = List(recordSteps(steps)),
-      wiring = wiringWith(claude = StubAgent.claude, codex = new StubCodex)
-    )(())
-    val announcements = steps.get().filter(_.startsWith("agents:"))
-    assertEquals(
-      announcements,
-      List(
-        "agents: planning=claude (default), coding=codex (project), " +
-          "review=claude (default)"
-      ),
-      s"an unset model must not render a `:` suffix: ${steps.get()}"
     )
 
   test(
@@ -332,7 +312,8 @@ class RoleSettingsFlowTest extends munit.FunSuite:
       announcements,
       List(
         "agents: planning=claude:claude-opus-5[1m] (default), " +
-          "coding=codex (project), review=claude:claude-opus-5[1m] (default)"
+          "coding=codex:<harness default> (project), " +
+          "review=claude:claude-opus-5[1m] (default)"
       ),
       s"expected the wired default model for the unpinned roles: ${steps.get()}"
     )
