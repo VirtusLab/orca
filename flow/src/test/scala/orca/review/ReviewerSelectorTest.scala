@@ -174,9 +174,9 @@ class ReviewerSelectorTest extends munit.FunSuite:
       summon[orca.InStage]
     )(Nil)
     assert(
-      capture.messages.exists(m =>
-        m.startsWith("reviewer selection: no changed files") &&
-          m.endsWith("(scala-fp)")
+      capture.messages.contains(
+        "reviewer selection: no changed files were found; keeping " +
+          "1 file-gated reviewer eligible (scala-fp)"
       ),
       capture.messages.mkString("\n")
     )

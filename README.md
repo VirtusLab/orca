@@ -845,7 +845,7 @@ are indented.
 | `⏺` | Tool call (path / command / query in grey) |
 | `⎿` | Tool result, truncated to one line (interactive calls only) |
 | `✖` | Error |
-| `?` | Approval request |
+| `?` | Approval request, or a question for you (interactive calls only) |
 
 </details>
 

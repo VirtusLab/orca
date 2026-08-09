@@ -11,6 +11,7 @@ import orca.{FlowContext, InStage}
 import orca.events.OrcaEvent
 import orca.agents.Agent
 import orca.plan.Title
+import orca.util.TextUtil
 
 import scala.util.matching.Regex
 
@@ -259,9 +260,9 @@ object ReviewerSelector:
       if gated.nonEmpty then
         ctx.emit(
           OrcaEvent.Step(
-            s"reviewer selection: no changed files to match against; keeping " +
-              s"${gated.size} file-gated reviewer(s) eligible " +
-              s"(${gated.mkString(", ")})"
+            s"reviewer selection: no changed files were found; keeping " +
+              s"${TextUtil.pluralize(gated.size, "file-gated reviewer")} " +
+              s"eligible (${gated.mkString(", ")})"
           )
         )
       all
