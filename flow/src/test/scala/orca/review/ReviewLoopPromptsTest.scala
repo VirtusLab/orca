@@ -103,7 +103,7 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
   test("reReview carries the fixer's declines as a position, not a ruling"):
     val prompt = TextUtil.collapseWhitespace(
       ReviewLoopPrompts.reReview(
-        ReReviewChanges.AlreadySeen(LastSent.Inline("")),
+        ReReviewChanges.AlreadySeen(LastSent.NoteOnly("")),
         List(IgnoredIssue(Title("rename the field"), "the name is on our API"))
       )
     )
@@ -125,7 +125,7 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
     // every round would cost tokens for nothing.
     val prompt = TextUtil.collapseWhitespace(
       ReviewLoopPrompts.reReview(
-        ReReviewChanges.AlreadySeen(LastSent.Inline("")),
+        ReReviewChanges.AlreadySeen(LastSent.NoteOnly("")),
         Nil
       )
     )
@@ -141,7 +141,7 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
     // Same separator argument as the base-commit section above.
     val prompt = TextUtil.collapseWhitespace(
       ReviewLoopPrompts.reReview(
-        ReReviewChanges.AlreadySeen(LastSent.Inline("")),
+        ReReviewChanges.AlreadySeen(LastSent.NoteOnly("")),
         Nil
       )
     )

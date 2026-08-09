@@ -82,7 +82,9 @@ class ReviewChangeSetTest extends munit.FunSuite:
   test("a resumed reviewer sees an edit the fixer committed"):
     val (ctx, dir) = stagingControl()
     // The reviewer runs both rounds, so round two resumes its session — and its
-    // own `git diff HEAD` is empty once the fixer commits.
+    // own `git diff HEAD` is empty once the fixer commits. Nothing is committed
+    // before the loop, so round one also samples nothing: this is the empty
+    // sample followed by a real one.
     val reviewer = new FakeAgent(
       "r",
       outputs = List(ReviewResult(List(issue("real bug"))), ReviewResult.empty)
@@ -138,6 +140,44 @@ class ReviewChangeSetTest extends munit.FunSuite:
       .lift(1)
       .getOrElse(fail("the reviewer ran once; no resume happened"))
     assert(!resumePrompt.contains("pinned.scala"), resumePrompt)
+
+  test("after an empty sample an unchanged sample says there is still none"):
+    val (ctx, _) = stagingControl()
+    // Nothing could be sampled in round one, so all the reviewer holds is the
+    // placeholder note saying so. Round two samples the same nothing: pointing
+    // it back at the diff in its conversation would name a diff it was never
+    // sent.
+    val reviewer = new FakeAgent(
+      "r",
+      outputs = List(ReviewResult(List(issue("real bug"))), ReviewResult.empty)
+    )
+    val coder = new FakeAgent(
+      "coder",
+      outputs = List(FixOutcome(List(Title("real bug")), Nil))
+    )
+    given FlowControl = ctx
+    stage("implement the widget"):
+      val _ = reviewAndFixLoop(
+        coderSession = ReviewLoopFixture.coderSession(coder),
+        reviewers = List(reviewer),
+        task = titled("build the widget"),
+        reviewerSelection = ReviewerSelector.allEveryRound,
+        diff = ReviewDiff.Pinned("")
+      )
+    val resumePrompt = reviewer.seenPrompts
+      .lift(1)
+      .getOrElse(fail("the reviewer ran once; no resume happened"))
+    assert(
+      resumePrompt.contains(
+        "Still no change set could be sampled, so nothing was sent this " +
+          "round either."
+      ),
+      resumePrompt
+    )
+    assert(
+      !resumePrompt.contains("the diff already in this conversation"),
+      resumePrompt
+    )
 
   test("a change set too large to inline reaches a resumed reviewer as paths"):
     val (ctx, dir) = stagingControl()
@@ -261,7 +301,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
       new java.util.concurrent.atomic.AtomicReference[List[String]](Nil)
     val recording = new ReviewerSelector:
       def prepare(
-          all: List[RosterEntry[?]],
+          all: List[RosterEntry],
           taskTitle: Title,
           changedFiles: List[String]
       )(using FlowContext, InStage) =

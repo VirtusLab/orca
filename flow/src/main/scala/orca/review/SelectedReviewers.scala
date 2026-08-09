@@ -11,7 +11,7 @@ import sttp.tapir.Validator
   * downstream can put it back.
   */
 private[review] case class PickedReviewers(
-    entries: List[RosterEntry[?]],
+    entries: List[RosterEntry],
     unresolved: List[String]
 )
 
@@ -25,7 +25,7 @@ case class SelectedReviewers(names: List[String]):
     * is what a cheap picker model actually gets wrong, and slugs never collide
     * case-insensitively.
     */
-  private[review] def pick(all: List[RosterEntry[?]]): PickedReviewers =
+  private[review] def pick(all: List[RosterEntry]): PickedReviewers =
     def key(name: String): String =
       name.trim.toLowerCase(java.util.Locale.ROOT)
     val wanted = names.map(key).toSet
