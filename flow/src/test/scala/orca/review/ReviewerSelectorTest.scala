@@ -55,11 +55,11 @@ class ReviewerSelectorTest extends munit.FunSuite:
   // token for the suite.
   private given orca.InStage = orca.InStage.unsafe
 
-  private val scalaFp: RosterEntry[?] =
-    RosterEntry.wrap(new FakeAgent("scala-fp"), ReviewerId(0))
-  private val generic: RosterEntry[?] =
-    RosterEntry.wrap(new FakeAgent("generic"), ReviewerId(1))
-  private val all: List[RosterEntry[?]] = List(scalaFp, generic)
+  private val scalaFp: RosterEntry =
+    new RosterEntry(new FakeAgent("scala-fp"), ReviewerId(0))
+  private val generic: RosterEntry =
+    new RosterEntry(new FakeAgent("generic"), ReviewerId(1))
+  private val all: List[RosterEntry] = List(scalaFp, generic)
 
   private val filePatterns =
     Map("scala-fp" -> """\.scala$""".r)
@@ -68,7 +68,7 @@ class ReviewerSelectorTest extends munit.FunSuite:
   private class SelectorSteps extends ReviewLoopFixture.StepCapture:
     val ctx: FlowContext = new TestFlowContext(dispatcher)
 
-  private def reported(e: RosterEntry[?]): ReviewBatch =
+  private def reported(e: RosterEntry): ReviewBatch =
     ReviewBatch(List(e -> ReviewResult(List(issue("found something")))))
 
   test("file-pattern reviewers are dropped before the picker sees them"):

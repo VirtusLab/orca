@@ -54,7 +54,7 @@ class AllReviewersTest extends munit.FunSuite:
     val base = new RecordingTool
     val all =
       allReviewers(base).zipWithIndex.map((a, i) =>
-        RosterEntry.wrap(a, ReviewerId(i))
+        new RosterEntry(a, ReviewerId(i))
       )
     val picked =
       SelectedReviewers(List("performance", "code-structure")).pick(all)

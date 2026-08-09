@@ -162,10 +162,10 @@ class CcNegativeCompileTest extends munit.FunSuite:
        |object SelectorFixture:
        |  val selector: ReviewerSelector = new ReviewerSelector:
        |    def prepare(
-       |        all: List[RosterEntry[?]],
+       |        all: List[RosterEntry],
        |        taskTitle: Title,
        |        changedFiles: List[String]
-       |    )(using ctx: FlowContext, ev: InStage): List[ReviewBatch] -> List[RosterEntry[?]] =
+       |    )(using ctx: FlowContext, ev: InStage): List[ReviewBatch] -> List[RosterEntry] =
        |      $body
        |""".stripMargin
 

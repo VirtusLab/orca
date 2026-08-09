@@ -179,24 +179,41 @@ object ReviewLoopPrompts:
         "No new change set this round — the file list already in this " +
           "conversation still describes the change set. Re-read those files " +
           "to see whether your earlier findings still stand."
+      case ReReviewChanges.AlreadySeen(LastSent.NoteOnly(_)) =>
+        "No change set could be sampled this round either. Do not conclude " +
+          "that nothing changed — check the code the task describes to see " +
+          "whether your earlier findings still stand."
 
   /** The diff as a fenced block, or a note when nothing could be sampled. An
     * empty sample means the loop couldn't describe the change, not that none
     * was made (ADR 0011), so the note has to say so.
     */
   private def diffBlock(diff: String): String =
-    if diff.trim.isEmpty then
+    if LastSent.nothingToShow(diff) then
       "(no change set could be sampled — do not conclude that nothing " +
         "changed; inspect the code the task describes)"
     else s"```diff\n$diff\n```"
 
-/** What the reviewer was last sent about the change set: the diff text it
-  * compares against, and whether that text or only its paths reached the
-  * conversation.
+/** What the reviewer was last sent about the change set: the sample it compares
+  * against, and how much of it reached the conversation — an empty sample
+  * reaches it only as the placeholder note.
   */
 private[review] enum LastSent(val diff: String):
   case Inline(d: String) extends LastSent(d)
   case PathsOnly(d: String) extends LastSent(d)
+  case NoteOnly(d: String) extends LastSent(d)
+
+private[review] object LastSent:
+  /** Whether a sample renders as the placeholder note instead of a diff. Shared
+    * so the prompt and the recorded [[LastSent]] can't disagree.
+    */
+  def nothingToShow(sample: String): Boolean = sample.trim.isEmpty
+
+  /** Records a sample sent inline — an empty one reaches the reviewer as the
+    * placeholder note, not as a diff.
+    */
+  def inlined(sample: String): LastSent =
+    if nothingToShow(sample) then NoteOnly(sample) else Inline(sample)
 
 /** What a resumed reviewer is told about the change set this round.
   *
@@ -218,7 +235,9 @@ private[review] enum ReReviewChanges:
 
   /** Byte-identical to what this reviewer already holds, so nothing is sent.
     * Carries how that change set reached the conversation: after a [[TooLarge]]
-    * round only the paths are there to point back at.
+    * round only the paths are there to point back at, and after an empty sample
+    * only the placeholder note — which is no change set at all, so the reviewer
+    * must not be told it holds one.
     */
   case AlreadySeen(last: LastSent)
 

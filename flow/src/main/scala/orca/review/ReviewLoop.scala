@@ -288,7 +288,7 @@ private object ReviewLoopState:
   * is nothing new to record).
   */
 private case class RoundContribution(
-    entry: RosterEntry[?],
+    entry: RosterEntry,
     gated: GatedIssues,
     newSession: Option[SessionEntry]
 )
@@ -484,7 +484,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
 ):
   import config.*
 
-  private val roster: List[RosterEntry[?]] = RosterEntry.roster(reviewers)
+  private val roster: List[RosterEntry] = RosterEntry.roster(reviewers)
 
   // Displayed for the lint gate's own findings, and the identity its LLM runs
   // are tagged with.
@@ -509,7 +509,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     * `stored` is the reviewer's existing [[SessionEntry]], if any.
     */
   private def reviewWithSession(
-      e: RosterEntry[?],
+      e: RosterEntry,
       stored: Option[SessionEntry],
       current: DiffSample,
       declined: List[IgnoredIssue]
@@ -544,7 +544,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     // files without adding or removing any must still register.
     val advanced = changes match
       case ReReviewChanges.Updated(_) =>
-        Some(se.copy(lastSent = LastSent.Inline(current.diff)))
+        Some(se.copy(lastSent = LastSent.inlined(current.diff)))
       case ReReviewChanges.TooLarge(_) =>
         Some(se.copy(lastSent = LastSent.PathsOnly(current.diff)))
       case ReReviewChanges.AlreadySeen(_) => None
@@ -556,7 +556,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     * one.
     */
   private def firstReview(
-      e: RosterEntry[?],
+      e: RosterEntry,
       currentDiff: String,
       declined: List[IgnoredIssue]
   ): (ReviewResult, Option[SessionEntry]) =
@@ -577,7 +577,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
           ),
           emitPrompt = false
         )
-    (result, Some(SessionEntry(chat, LastSent.Inline(currentDiff))))
+    (result, Some(SessionEntry(chat, LastSent.inlined(currentDiff))))
 
   /** What one fork of the round's fan-out came back with — the same
     * contribution the loop state folds in, tagged with which kind of agent
@@ -598,7 +598,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     * fixed, delivered to this round's reviewers.
     */
   private def runReviewersAndLint(
-      active: List[RosterEntry[?]],
+      active: List[RosterEntry],
       currentState: ReviewLoopState,
       declined: List[IgnoredIssue]
   ): RoundOutcome =
@@ -685,7 +685,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     * happened to finish first.
     */
   private def collectRound(
-      active: List[RosterEntry[?]],
+      active: List[RosterEntry],
       currentState: ReviewLoopState,
       outcomes: List[AgentOutcome]
   ): RoundOutcome =
@@ -719,7 +719,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
 
   private def evaluate(
       state: ReviewLoopState,
-      selectRound: List[ReviewBatch] -> List[RosterEntry[?]],
+      selectRound: List[ReviewBatch] -> List[RosterEntry],
       declined: List[IgnoredIssue]
   )(using WorkspaceWrite): RoundOutcome =
     // Format before reviewing so the implementation's and each fix's edits are
@@ -850,7 +850,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     // is the resulting pure per-iteration narrowing, passed to `evaluate` so it
     // stays a function of its inputs. `ctx`/`ev` passed explicitly for the same
     // given-priority reason as the constructor call in `reviewAndFixLoop`.
-    val selectRound: List[ReviewBatch] -> List[RosterEntry[?]] =
+    val selectRound: List[ReviewBatch] -> List[RosterEntry] =
       reviewerSelection.prepare(roster, task.title, diffSource.selectorFiles)(
         using
         ctx,

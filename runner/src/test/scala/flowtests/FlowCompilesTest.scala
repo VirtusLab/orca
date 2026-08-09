@@ -144,7 +144,7 @@ object FlowCanary:
   def customReviewerSelectorSurface(): Unit =
     val _: ReviewerSelector = new ReviewerSelector:
       def prepare(
-          all: List[RosterEntry[?]],
+          all: List[RosterEntry],
           taskTitle: Title,
           changedFiles: List[String]
       )(using FlowContext, InStage) =

@@ -42,10 +42,10 @@ import scala.util.matching.Regex
   */
 trait ReviewerSelector:
   def prepare(
-      all: List[RosterEntry[?]],
+      all: List[RosterEntry],
       taskTitle: Title,
       changedFiles: List[String]
-  )(using FlowContext, InStage): List[ReviewBatch] -> List[RosterEntry[?]]
+  )(using FlowContext, InStage): List[ReviewBatch] -> List[RosterEntry]
 
 object ReviewerSelector:
 
@@ -68,10 +68,10 @@ object ReviewerSelector:
     */
   val allEveryRound: ReviewerSelector = new ReviewerSelector:
     def prepare(
-        all: List[RosterEntry[?]],
+        all: List[RosterEntry],
         taskTitle: Title,
         changedFiles: List[String]
-    )(using FlowContext, InStage): List[ReviewBatch] -> List[RosterEntry[?]] =
+    )(using FlowContext, InStage): List[ReviewBatch] -> List[RosterEntry] =
       _ => all
 
   /** Asks a picker LLM which reviewers are worth running for a given task. The
@@ -109,13 +109,13 @@ object ReviewerSelector:
     */
   def agentDriven: ReviewerSelector = new ReviewerSelector:
     def prepare(
-        all: List[RosterEntry[?]],
+        all: List[RosterEntry],
         taskTitle: Title,
         changedFiles: List[String]
     )(using
         ctx: FlowContext,
         ev: InStage
-    ): List[ReviewBatch] -> List[RosterEntry[?]] =
+    ): List[ReviewBatch] -> List[RosterEntry] =
       agentDriven(ctx.reviewAgent.cheap).prepare(all, taskTitle, changedFiles)
 
   /** See the parameterless [[agentDriven]] above for the full description. Wrap
@@ -129,13 +129,13 @@ object ReviewerSelector:
       filePatterns: Map[String, Regex] = ReviewerPrompts.filePatternsBySlug
   ): ReviewerSelector = new ReviewerSelector:
     def prepare(
-        all: List[RosterEntry[?]],
+        all: List[RosterEntry],
         taskTitle: Title,
         changedFiles: List[String]
     )(using
         ctx: FlowContext,
         ev: InStage
-    ): List[ReviewBatch] -> List[RosterEntry[?]] =
+    ): List[ReviewBatch] -> List[RosterEntry] =
       val eligible = eligibleForPicker(all, filePatterns, changedFiles)
       val infos = eligible.map: r =>
         ReviewerInfo(
@@ -212,13 +212,13 @@ object ReviewerSelector:
   def narrowingAcrossRounds(base: ReviewerSelector): ReviewerSelector =
     new ReviewerSelector:
       def prepare(
-          all: List[RosterEntry[?]],
+          all: List[RosterEntry],
           taskTitle: Title,
           changedFiles: List[String]
       )(using
           ctx: FlowContext,
           ev: InStage
-      ): List[ReviewBatch] -> List[RosterEntry[?]] =
+      ): List[ReviewBatch] -> List[RosterEntry] =
         val basePick = base.prepare(all, taskTitle, changedFiles)
         history =>
           val active = basePick(history)
@@ -251,10 +251,10 @@ object ReviewerSelector:
     * nothing downstream can put it back.
     */
   private def eligibleForPicker(
-      all: List[RosterEntry[?]],
+      all: List[RosterEntry],
       filePatterns: Map[String, Regex],
       changedFiles: List[String]
-  )(using ctx: FlowContext): List[RosterEntry[?]] =
+  )(using ctx: FlowContext): List[RosterEntry] =
     if changedFiles.isEmpty then
       val gated = all.map(_.name).filter(filePatterns.contains)
       if gated.nonEmpty then

@@ -172,10 +172,10 @@ private[review] def issue(
   * round with `narrow(roster, history)`.
   */
 private[review] def selector(
-    narrow: (List[RosterEntry[?]], List[ReviewBatch]) => List[RosterEntry[?]]
+    narrow: (List[RosterEntry], List[ReviewBatch]) => List[RosterEntry]
 ): ReviewerSelector = new ReviewerSelector:
   def prepare(
-      all: List[RosterEntry[?]],
+      all: List[RosterEntry],
       taskTitle: Title,
       changedFiles: List[String]
   )(using FlowContext, InStage) =
