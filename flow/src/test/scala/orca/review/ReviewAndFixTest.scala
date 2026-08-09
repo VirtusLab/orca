@@ -1419,6 +1419,31 @@ class ReviewAndFixTest extends munit.FunSuite:
       List(IgnoredIssue(Title("only-x"), "accepted"))
     )
 
+  test("the round's opening Step names every agent it runs"):
+    // The lint gate is one of the named agents, not a silent extra.
+    val steps = new ReviewLoopFixture.StepCapture
+    given FlowControl = ReviewLoopFixture.control(steps.dispatcher)
+    val summariser =
+      new FakeAgent(name = "summariser", outputs = List(ReviewResult.empty))
+    val _ = reviewAndFixLoop(
+      coderSession =
+        ReviewLoopFixture.coderSession(new FakeAgent(name = "coder")),
+      reviewers = List(
+        new FakeAgent(name = "a", outputs = List(ReviewResult.empty)),
+        new FakeAgent(name = "b", outputs = List(ReviewResult.empty))
+      ),
+      task = titled("named agents"),
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      // `echo` emits output so `lint` doesn't short-circuit before calling the
+      // summariser.
+      lint = Configured.Use(Lint(List("echo lint-output"), summariser)),
+      diff = ReviewDiff.Pinned("")
+    )
+    assert(
+      steps.messages.contains("Running 3 review agents: a, b, lint"),
+      steps.messages.mkString("\n")
+    )
+
   test("each agent's Step lands on listeners as it finishes, not at end"):
     // Two reviewers gated on latches we control: gate2 releases first, so
     // the second reviewer must finish first; its Step must be visible to a

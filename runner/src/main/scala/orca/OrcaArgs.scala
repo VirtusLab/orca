@@ -6,7 +6,7 @@ import mainargs.{Flag, ParserForClass, arg}
 case class OrcaArgs(
     @arg(positional = true, doc = "task description")
     userPrompt: String = "",
-    @arg(doc = "verbose logging")
+    @arg(doc = "print a stack trace if the flow aborts")
     verbose: Flag = Flag(),
     @arg(doc = "run on the current branch instead of creating a new one")
     skipBranch: Flag = Flag()

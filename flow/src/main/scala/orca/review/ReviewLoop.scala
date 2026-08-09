@@ -178,8 +178,12 @@ private[review] def announceFixTurn(
       s"Fixer named ${outcome.unresolvedEchoes.mkString(", ")}, " +
         "which matched no issue it was handed"
     )
+  // Both loops continue exactly when something was fixed, so only then does the
+  // line promise another round; the halt branch prints FixerHaltMessage.
+  val next =
+    if outcome.fixed.nonEmpty then "; reviewing again after the fixes" else ""
   orca.display(
-    s"Fixed ${outcome.fixed.size}, ignored ${outcome.ignored.size}"
+    s"Fixed ${outcome.fixed.size}, ignored ${outcome.ignored.size}$next"
   )
 
 /** Evaluate, fix, re-evaluate until the reviewer reports no issues, the fixer
@@ -728,11 +732,15 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     // round finds no issues, and the stop policy converges — the loop never
     // resurrects the roster behind the selector's back.
     val active = selectRound(state.history).distinctBy(_.id)
-    val totalAgents = active.size + (if lintGate.isDefined then 1 else 0)
-    if totalAgents > 0 then
+    // The same names the per-agent Steps use, in selection order with the lint
+    // gate last; those Steps arrive in completion order, not this one.
+    val agentNames =
+      active.map(_.name) ++ Option.when(lintGate.isDefined)(lintName)
+    if agentNames.nonEmpty then
       ctx.emit(
         OrcaEvent.Step(
-          s"Running ${TextUtil.pluralize(totalAgents, "review agent")}"
+          s"Running ${TextUtil.pluralize(agentNames.size, "review agent")}: " +
+            agentNames.mkString(", ")
         )
       )
     // Say so when a round runs nobody though reviewers are configured: the

@@ -47,8 +47,8 @@ object SelectedReviewers:
       plain.codec
     )
 
-  /** Deliberately silent: the review loop narrates the selection itself
-    * ("Running N review agents"), so a summary here would render the picker's
-    * raw JSON on top of that line.
+  /** Deliberately silent: the review loop names the agents it runs each round
+    * ("Running N review agents: …"), so a summary here would render the
+    * picker's raw JSON on top of that line.
     */
   given Announce[SelectedReviewers] = Announce.from(_ => "")

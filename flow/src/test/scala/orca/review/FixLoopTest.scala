@@ -127,6 +127,30 @@ class FixLoopTest extends munit.FunSuite:
       List(IgnoredIssue(Title("x"), "fixer reported no fixes"))
     )
 
+  test("the fix line says another review round follows the fixes"):
+    val rec = new Recorder
+    given FlowContext = new TestFlowContext(new EventDispatcher(List(rec)))
+    val _ = fixLoop(
+      evaluate =
+        scripted(List(ReviewResult(List(issue("a"))), ReviewResult.empty)),
+      fix = _ => FixOutcome(List(Title("a")), Nil)
+    )
+    assert(
+      rec.steps.contains(
+        "Fixed 1, ignored 0; reviewing again after the fixes"
+      ),
+      rec.steps.mkString("\n")
+    )
+
+  test("the fix line promises no further review when nothing was fixed"):
+    val rec = new Recorder
+    given FlowContext = new TestFlowContext(new EventDispatcher(List(rec)))
+    val _ = fixLoop(
+      evaluate = scripted(List(ReviewResult(List(issue("a"))))),
+      fix = _ => FixOutcome(Nil, List(IgnoredIssue(Title("a"), "won't fix")))
+    )
+    assert(rec.steps.contains("Fixed 0, ignored 1"), rec.steps.mkString("\n"))
+
   test("the halt exit says why the loop stopped"):
     val rec = new Recorder
     given FlowContext = new TestFlowContext(new EventDispatcher(List(rec)))
