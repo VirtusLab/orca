@@ -180,9 +180,9 @@ object ReviewLoopPrompts:
           "conversation still describes the change set. Re-read those files " +
           "to see whether your earlier findings still stand."
       case ReReviewChanges.AlreadySeen(LastSent.NoteOnly(_)) =>
-        "Still no change set could be sampled, so nothing was sent this " +
-          "round either. Do not conclude that nothing changed; check the code " +
-          "the task describes to see whether your earlier findings still stand."
+        "No change set could be sampled this round either. Do not conclude " +
+          "that nothing changed — check the code the task describes to see " +
+          "whether your earlier findings still stand."
 
   /** The diff as a fenced block, or a note when nothing could be sampled. An
     * empty sample means the loop couldn't describe the change, not that none
@@ -195,9 +195,8 @@ object ReviewLoopPrompts:
     else s"```diff\n$diff\n```"
 
 /** What the reviewer was last sent about the change set: the sample it compares
-  * against, and how much of that sample reached the conversation — the diff
-  * text, only its paths, or only the placeholder note an empty sample renders
-  * as.
+  * against, and how much of it reached the conversation — an empty sample
+  * reaches it only as the placeholder note.
   */
 private[review] enum LastSent(val diff: String):
   case Inline(d: String) extends LastSent(d)
@@ -205,13 +204,14 @@ private[review] enum LastSent(val diff: String):
   case NoteOnly(d: String) extends LastSent(d)
 
 private[review] object LastSent:
-  /** Whether a sample has nothing to show, in which case a reviewer gets the
-    * placeholder note instead of a diff. The one home for that test: what the
-    * prompt renders and what the loop records must agree.
+  /** Whether a sample renders as the placeholder note instead of a diff. Shared
+    * so the prompt and the recorded [[LastSent]] can't disagree.
     */
   def nothingToShow(sample: String): Boolean = sample.trim.isEmpty
 
-  /** What an inlined sample leaves the reviewer holding. */
+  /** Records a sample sent inline — an empty one reaches the reviewer as the
+    * placeholder note, not as a diff.
+    */
   def inlined(sample: String): LastSent =
     if nothingToShow(sample) then NoteOnly(sample) else Inline(sample)
 

@@ -83,8 +83,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
     val (ctx, dir) = stagingControl()
     // The reviewer runs both rounds, so round two resumes its session — and its
     // own `git diff HEAD` is empty once the fixer commits. Nothing is committed
-    // before the loop, so round one also samples nothing: this is the empty
-    // sample followed by a real one.
+    // before the loop, so round one's sample is empty and round two's is not.
     val reviewer = new FakeAgent(
       "r",
       outputs = List(ReviewResult(List(issue("real bug"))), ReviewResult.empty)
@@ -141,7 +140,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
       .getOrElse(fail("the reviewer ran once; no resume happened"))
     assert(!resumePrompt.contains("pinned.scala"), resumePrompt)
 
-  test("after an empty sample an unchanged sample says there is still none"):
+  test("after an empty-sample round an unchanged sample says so again"):
     val (ctx, _) = stagingControl()
     // Nothing could be sampled in round one, so all the reviewer holds is the
     // placeholder note saying so. Round two samples the same nothing: pointing
@@ -169,8 +168,9 @@ class ReviewChangeSetTest extends munit.FunSuite:
       .getOrElse(fail("the reviewer ran once; no resume happened"))
     assert(
       resumePrompt.contains(
-        "Still no change set could be sampled, so nothing was sent this " +
-          "round either."
+        "No change set could be sampled this round either. Do not conclude " +
+          "that nothing changed — check the code the task describes to see " +
+          "whether your earlier findings still stand."
       ),
       resumePrompt
     )
