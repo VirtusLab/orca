@@ -4,36 +4,48 @@ class DefaultPromptsTest extends munit.FunSuite:
   private val input = """{"task":"refactor"}"""
   private val schema = """{"type":"object"}"""
   private val config = AgentConfig()
+  private val failed = """{"name":"widget"""
+  private val parseError = "expected '}' at offset 15"
 
-  test("autonomous prompt embeds input and schema and forbids code fences"):
+  test("autonomous prompt for a RawText backend ships the schema and rules"):
+    // Nothing on the wire holds a RawText backend to the schema on every turn,
+    // so the prompt carries the whole contract.
     val prompt = DefaultPrompts
       .autonomous(input, schema, config, StructuredOutputMode.RawText)
     assert(prompt.contains(input))
     assert(prompt.contains(schema))
     assert(prompt.contains("no markdown code fences"))
 
-  test("autonomous delivery rules follow the declared structured-output mode"):
-    // Tool-mode backends receive their reply via a CLI-injected StructuredOutput
-    // tool, so "raw JSON only" would contradict the wire; RawText backends keep
-    // the raw-JSON contract verbatim.
-    val raw = DefaultPrompts
-      .autonomous(input, schema, config, StructuredOutputMode.RawText)
-    val tool = DefaultPrompts
+  test(
+    "autonomous prompt for a Tool backend replaces the schema and JSON rules " +
+      "with the tool instruction"
+  ):
+    // The CLI-injected StructuredOutput tool already carries the schema and
+    // makes the call mandatory, so repeating either would be dead weight — and
+    // "raw JSON only" would contradict the wire.
+    val prompt = DefaultPrompts
       .autonomous(input, schema, config, StructuredOutputMode.Tool)
-    assert(raw.contains("raw JSON only"))
-    assert(!raw.contains("StructuredOutput"))
-    assert(tool.contains("calling the StructuredOutput tool"))
-    assert(tool.contains("top-level fields as the tool's arguments"))
-    assert(!tool.contains("raw JSON only"))
-    assert(tool.contains(input) && tool.contains(schema))
+    assert(prompt.contains(input))
+    assert(prompt.contains("calling the StructuredOutput tool"))
+    assert(!prompt.contains(schema))
+    assert(!prompt.contains("raw JSON only"))
 
-  test("retry prompt includes the failed response, error, and raw-JSON rules"):
-    val failed = """{"name":"widget"""
-    val error = "expected '}' at offset 15"
-    val prompt = DefaultPrompts.retry(failed, error)
+  test("retry prompt for a RawText backend repeats the raw-JSON rules"):
+    val prompt = DefaultPrompts
+      .retry(failed, parseError, StructuredOutputMode.RawText)
     assert(prompt.contains(failed))
-    assert(prompt.contains(error))
+    assert(prompt.contains(parseError))
     assert(prompt.contains("no markdown code fences"))
+
+  test("retry prompt for a Tool backend asks for the tool call instead"):
+    // A corrective turn that asked for raw JSON would talk the model out of the
+    // tool call the drain and the result extraction both expect.
+    val prompt = DefaultPrompts
+      .retry(failed, parseError, StructuredOutputMode.Tool)
+    assert(prompt.contains(failed))
+    assert(prompt.contains(parseError))
+    assert(prompt.contains("calling the StructuredOutput tool"))
+    assert(!prompt.contains("raw JSON only"))
 
   test(
     "interactive prompt embeds input and schema and does not ask for a marker"

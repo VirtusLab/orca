@@ -9,7 +9,7 @@ import orca.backend.{
   StreamSource
 }
 import orca.events.{TurnDebit, Usage}
-import orca.agents.{BackendTag, Model}
+import orca.agents.{BackendTag, Model, StructuredOutputMode}
 import orca.tools.opencode.OpencodeApi.{
   AssistantInfo,
   PermissionReply,
@@ -49,6 +49,9 @@ private[opencode] class OpencodeConversation(
       nativeAskUser = canAsk
     ):
 
+  override def structuredOutputMode: StructuredOutputMode =
+    OpencodeBackend.StructuredOutputDelivery
+
   /** Best-effort `POST /session/{id}/abort`, so a genuinely cancelled turn
     * (mid-flight, never settled) stops running (and writing) on the shared
     * server. The base [[ForkedConversation.cancel]] only calls this hook when
@@ -70,7 +73,8 @@ private[opencode] class OpencodeConversation(
   private case class TurnState(
       text: Vector[String] = Vector.empty,
       info: Option[AssistantInfo] = None,
-      startedTools: Set[String] = Set.empty
+      startedTools: Set[String] = Set.empty,
+      reasoningParts: Set[String] = Set.empty
   )
 
   protected def handleLine(rawLine: String): Unit =
@@ -92,25 +96,42 @@ private[opencode] class OpencodeConversation(
     event.sessionId.forall(_ == session)
 
   private def translate(event: OpencodeEvent): Unit = event match
-    case OpencodeEvent.TextDelta(_, delta) =>
-      turnState = turnState.copy(text = turnState.text :+ delta)
-      eventQueue.enqueue(ConversationEvent.AssistantTextDelta(delta))
+    case OpencodeEvent.TextDelta(_, partId, delta) =>
+      // A reasoning part's deltas also arrive with `field:"text"`, so route by
+      // the part opencode announced rather than by the field name — otherwise a
+      // reasoning model's chain of thought renders as the assistant's message.
+      // A delta with no id can't be matched against an announced part, so it
+      // stays assistant text.
+      if partId.exists(turnState.reasoningParts.contains) then
+        eventQueue.enqueue(ConversationEvent.AssistantThinkingDelta(delta))
+      else
+        turnState = turnState.copy(text = turnState.text :+ delta)
+        eventQueue.enqueue(ConversationEvent.AssistantTextDelta(delta))
     case OpencodeEvent.ReasoningDelta(_, delta) =>
       eventQueue.enqueue(ConversationEvent.AssistantThinkingDelta(delta))
+    case OpencodeEvent.ReasoningPart(_, partId) =>
+      // A part with no id records nothing, so its deltas render as assistant
+      // text.
+      partId.foreach: id =>
+        turnState =
+          turnState.copy(reasoningParts = turnState.reasoningParts + id)
     case OpencodeEvent.ToolStarted(_, partId, tool, input) =>
-      // A tool part repeats `running` frames; surface the call once per part,
-      // keyed by its id. A part with no id (protocol drift) can't be deduped
-      // against — surface every frame rather than risk a coerced "" key
-      // wrongly colliding two distinct id-less parts (BB5).
-      partId match
-        case Some(id) if turnState.startedTools.contains(id) => ()
-        case Some(id) =>
-          turnState = turnState.copy(startedTools = turnState.startedTools + id)
-          eventQueue.enqueue(ConversationEvent.AssistantToolCall(tool, input))
-        case None =>
-          eventQueue.enqueue(ConversationEvent.AssistantToolCall(tool, input))
+      if !isStructuredOutputEcho(tool) then
+        // A tool part repeats `running` frames; surface the call once per part,
+        // keyed by its id. A part with no id (protocol drift) can't be deduped
+        // against — surface every frame rather than risk a coerced "" key
+        // wrongly colliding two distinct id-less parts (BB5).
+        partId match
+          case Some(id) if turnState.startedTools.contains(id) => ()
+          case Some(id) =>
+            turnState =
+              turnState.copy(startedTools = turnState.startedTools + id)
+            eventQueue.enqueue(ConversationEvent.AssistantToolCall(tool, input))
+          case None =>
+            eventQueue.enqueue(ConversationEvent.AssistantToolCall(tool, input))
     case OpencodeEvent.ToolFinished(_, _, tool, ok, output) =>
-      eventQueue.enqueue(ConversationEvent.ToolResult(Some(tool), ok, output))
+      if !isStructuredOutputEcho(tool) then
+        eventQueue.enqueue(ConversationEvent.ToolResult(Some(tool), ok, output))
     case OpencodeEvent.MessageUpdated(_, info) =>
       turnState = turnState.copy(info = Some(info))
     case OpencodeEvent.QuestionAsked(req) =>
@@ -128,6 +149,14 @@ private[opencode] class OpencodeConversation(
     case OpencodeEvent.Idle(_)             => finishTurn()
     case OpencodeEvent.Errored(_, message) => failTurn(message)
     case OpencodeEvent.Ignored             => ()
+
+  /** The server-injected structured-output call: its payload already reaches
+    * the caller through the result, so rendering the tool exchange would show
+    * the same JSON twice. Gated on the schema, so a user tool of the same name
+    * still renders on a plain run.
+    */
+  private def isStructuredOutputEcho(tool: String): Boolean =
+    outputSchema.isDefined && tool == OpencodeBackend.StructuredOutputToolName
 
   /** Terminal (`session.idle`): a turn whose assistant message carries
     * `info.error`, or that went idle without producing anything, is a failure;

@@ -76,6 +76,11 @@ private[orca] class CodexBackend(
 
   /** `--output-schema` constrains the FINAL MESSAGE text — the reply text is
     * still the JSON value orca parses; there is no structured-output tool.
+    * Probed against codex-cli 0.145.0 (2026-08-09): `codex exec --json
+    * --output-schema` answered a bare question with the JSON as its
+    * `agent_message` text. Only the fresh turn carries the flag —
+    * [[CodexArgs.execResume]] leaves it off — so the prompt keeps the raw-JSON
+    * contract for every turn.
     */
   override def structuredOutputMode: StructuredOutputMode =
     StructuredOutputMode.RawText

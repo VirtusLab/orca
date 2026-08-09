@@ -31,67 +31,72 @@ trait Prompts:
       config: AgentConfig
   ): String
 
-  /** Builds a prompt asking the model to retry after a JSON parse failure.
-    * Assumes it is sent as a follow-up turn on the same session — the original
-    * output schema is expected to still be visible in prior context.
+  /** Builds a prompt asking the model to retry after a parse failure. Assumes
+    * it is sent as a follow-up turn on the same session — the original output
+    * schema is expected to still be visible in prior context. `mode` picks the
+    * delivery instruction, as in [[autonomous]]: a retry that asked a Tool-mode
+    * backend for raw JSON would talk it out of the tool call the wire expects.
     */
-  def retry(failedResponse: String, parseError: String): String
+  def retry(
+      failedResponse: String,
+      parseError: String,
+      mode: StructuredOutputMode
+  ): String
 
 /** Default [[Prompts]] implementation. Templates live as `.md` resources under
   * `src/main/resources/orca/agents/prompts/` and are loaded once at object
   * init.
   *
-  * Both call modes ship the JSON Schema inline in the prompt AND hand it to the
-  * backend: claude enforces it CLI-side via `--json-schema`; text-only backends
-  * rely on `ResponseParser` + the retry loop. Autonomous delivery rules follow
-  * the backend's [[StructuredOutputMode]]: `Tool` backends call the
-  * StructuredOutput tool, `RawText` backends keep the raw-JSON contract.
+  * The autonomous and retry templates come in one variant per
+  * [[StructuredOutputMode]], selected via an exhaustive match so a new mode
+  * shows up here as an exhaustivity warning rather than a lookup failure at
+  * runtime. `RawText` backends carry the whole contract in the prompt — the
+  * schema plus the raw-JSON rules — because nothing else holds them to it on
+  * every turn. `Tool` backends get neither: the CLI-injected StructuredOutput
+  * tool already carries the schema, so the prompt only names the tool.
   */
 object DefaultPrompts extends Prompts:
 
   private val RawJsonRules: String =
     PromptResource.load("/orca/agents/prompts/raw-json-rules.md")
 
-  private val ToolCallRules: String =
-    PromptResource.load("/orca/agents/prompts/tool-call-rules.md")
-
-  // Substitute the shared rules fragments once at init so each call only pays
-  // for the dynamic `{{...}}` replacements. One autonomous template per
-  // StructuredOutputMode, selected via an exhaustive match in [[autonomous]] so
-  // a new mode is a compile error here rather than a lookup failure at runtime.
-  private val AutonomousBase: String =
-    PromptResource.load("/orca/agents/prompts/autonomous.md")
-
+  // Substitute the shared rules fragment once at init so each call only pays
+  // for the dynamic `{{...}}` replacements.
   private val AutonomousRawTextTemplate: String =
-    AutonomousBase.replace("{{resultRules}}", RawJsonRules)
+    PromptResource
+      .load("/orca/agents/prompts/autonomous-raw-text.md")
+      .replace("{{rawJsonRules}}", RawJsonRules)
 
   private val AutonomousToolTemplate: String =
-    AutonomousBase.replace("{{resultRules}}", ToolCallRules)
+    PromptResource.load("/orca/agents/prompts/autonomous-tool.md")
 
   private val InteractiveTemplate: String =
     PromptResource
       .load("/orca/agents/prompts/interactive.md")
       .replace("{{rawJsonRules}}", RawJsonRules)
 
-  private val RetryTemplate: String =
+  private val RetryRawTextTemplate: String =
     PromptResource
-      .load("/orca/agents/prompts/retry.md")
+      .load("/orca/agents/prompts/retry-raw-text.md")
       .replace("{{rawJsonRules}}", RawJsonRules)
+
+  private val RetryToolTemplate: String =
+    PromptResource.load("/orca/agents/prompts/retry-tool.md")
 
   def autonomous(
       input: String,
       outputSchema: String,
       config: AgentConfig,
       mode: StructuredOutputMode
-  ): String =
-    val template = mode match
-      case StructuredOutputMode.RawText => AutonomousRawTextTemplate
-      case StructuredOutputMode.Tool    => AutonomousToolTemplate
-    PromptResource.render(
-      template,
-      "input" -> input,
-      "outputSchema" -> outputSchema
-    )
+  ): String = mode match
+    case StructuredOutputMode.RawText =>
+      PromptResource.render(
+        AutonomousRawTextTemplate,
+        "input" -> input,
+        "outputSchema" -> outputSchema
+      )
+    case StructuredOutputMode.Tool =>
+      PromptResource.render(AutonomousToolTemplate, "input" -> input)
 
   def interactive(
       input: String,
@@ -104,9 +109,16 @@ object DefaultPrompts extends Prompts:
       "outputSchema" -> outputSchema
     )
 
-  def retry(failedResponse: String, parseError: String): String =
+  def retry(
+      failedResponse: String,
+      parseError: String,
+      mode: StructuredOutputMode
+  ): String =
+    val template = mode match
+      case StructuredOutputMode.RawText => RetryRawTextTemplate
+      case StructuredOutputMode.Tool    => RetryToolTemplate
     PromptResource.render(
-      RetryTemplate,
+      template,
       "failedResponse" -> failedResponse,
       "parseError" -> parseError
     )

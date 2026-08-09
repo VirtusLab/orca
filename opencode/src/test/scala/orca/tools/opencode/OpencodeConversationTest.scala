@@ -111,15 +111,87 @@ class OpencodeConversationTest extends munit.FunSuite:
       schema = Some("""{"type":"object"}""")
     )
     val events = conv.events.toList
-    assertEquals(
-      events,
+    ConversationEventConformance.assertGrammar(events, completedNormally = true)
+    assertEquals(conv.awaitResult().toOption.get.output, """{"x":1}""")
+
+  convTest(
+    "structured mode: the injected StructuredOutput tool is not rendered"
+  ):
+    // Its payload already reaches the caller as the result, so rendering the
+    // call and its result would show the same JSON twice.
+    val (conv, _) = conversation(
       List(
+        data(
+          """{"type":"message.part.updated","properties":{"part":{"type":"tool","tool":"StructuredOutput","state":{"status":"running","input":{"x":1}},"id":"prt_1","sessionID":"ses_A"}}}"""
+        ),
+        data(
+          """{"type":"message.part.updated","properties":{"part":{"type":"tool","tool":"StructuredOutput","state":{"status":"completed","input":{"x":1},"output":"ok"},"id":"prt_1","sessionID":"ses_A"}}}"""
+        ),
+        data(
+          """{"type":"message.updated","properties":{"info":{"role":"assistant","sessionID":"ses_A","structured":{"x":1},"finish":"tool-calls"}}}"""
+        ),
+        data("""{"type":"session.idle","properties":{"sessionID":"ses_A"}}""")
+      ),
+      schema = Some("""{"type":"object"}""")
+    )
+    assertEquals(conv.events.toList, Nil)
+
+  convTest("a plain turn renders a user tool named StructuredOutput"):
+    // The suppression is gated on the schema, not on the name.
+    val (conv, _) = conversation(
+      List(
+        data(
+          """{"type":"message.part.updated","properties":{"part":{"type":"tool","tool":"StructuredOutput","state":{"status":"running","input":{"x":1}},"id":"prt_1","sessionID":"ses_A"}}}"""
+        ),
+        data(
+          """{"type":"message.part.updated","properties":{"part":{"type":"tool","tool":"StructuredOutput","state":{"status":"completed","output":"ok"},"id":"prt_1","sessionID":"ses_A"}}}"""
+        ),
+        data(
+          """{"type":"message.updated","properties":{"info":{"role":"assistant","sessionID":"ses_A","finish":"tool-calls"}}}"""
+        ),
+        data("""{"type":"session.idle","properties":{"sessionID":"ses_A"}}""")
+      )
+    )
+    assertEquals(
+      conv.events.toList,
+      List(
+        ConversationEvent.AssistantToolCall("StructuredOutput", """{"x":1}"""),
         ConversationEvent.ToolResult(Some("StructuredOutput"), ok = true, "ok"),
         ConversationEvent.AssistantTurnEnd
       )
     )
-    ConversationEventConformance.assertGrammar(events, completedNormally = true)
-    assertEquals(conv.awaitResult().toOption.get.output, """{"x":1}""")
+
+  convTest("deltas on an announced reasoning part are thinking, not text"):
+    // opencode names a reasoning part's accruing field "text" too, so without
+    // the part announcement the chain of thought would render as the
+    // assistant's message and end up in the free-form result.
+    val (conv, _) = conversation(
+      List(
+        data(
+          """{"type":"message.part.updated","properties":{"sessionID":"ses_A","part":{"type":"reasoning","id":"prt_1"}}}"""
+        ),
+        data(
+          """{"type":"message.part.delta","properties":{"sessionID":"ses_A","partID":"prt_1","field":"text","delta":"hmm"}}"""
+        ),
+        data(
+          """{"type":"message.part.delta","properties":{"sessionID":"ses_A","partID":"prt_2","field":"text","delta":"Hi"}}"""
+        ),
+        data(
+          """{"type":"message.updated","properties":{"info":{"role":"assistant","sessionID":"ses_A","finish":"stop"}}}"""
+        ),
+        data("""{"type":"session.idle","properties":{"sessionID":"ses_A"}}""")
+      )
+    )
+    val events = conv.events.toList
+    assertEquals(
+      events,
+      List(
+        ConversationEvent.AssistantThinkingDelta("hmm"),
+        ConversationEvent.AssistantTextDelta("Hi"),
+        ConversationEvent.AssistantTurnEnd
+      )
+    )
+    assertEquals(conv.awaitResult().toOption.get.output, "Hi")
 
   convTest("a repeated tool part surfaces one AssistantToolCall"):
     val running =
