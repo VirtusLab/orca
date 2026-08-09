@@ -124,9 +124,11 @@ class CostTracker(pricingAsOf: LocalDate) extends OrcaListener:
     * by-agent line is prefixed with that agent's role when it has one (e.g.
     * `reviewer: performance`). Cache reads, cache writes and reasoning tokens
     * are shown parenthetically when non-zero. Token counts are rendered
-    * compactly (`1K`, `103.8K`, `3.2M`) from 1000 up; cost (when known) stays
-    * exact and is appended as `$X.XXXX`, with an asterisk marking an estimated
-    * figure and a trailing legend line when any estimate is present.
+    * compactly (`1K`, `103.8K`, `3.2M`) from 1000 up, a count and its
+    * parenthetical breakdown at one shared unit (`1.63M in (1.15M cache read,
+    * 0.48M cache write)`); cost (when known) stays exact and is appended as
+    * `$X.XXXX`, with an asterisk marking an estimated figure and a trailing
+    * legend line when any estimate is present.
     *
     * A turn that spent tokens but resolved to no cost contributes nothing to
     * the total, so the total's label carries `(some turns unpriced)` and gains
@@ -221,45 +223,42 @@ class CostTracker(pricingAsOf: LocalDate) extends OrcaListener:
     val tokens = formatUsage(tally.usage)
     tally.cost.fold(tokens)(c => s"$tokens (${formatCost(c)})")
 
-  /** Cache reads and cache writes share one parenthetical after the input
-    * count, each part dropped when zero.
+  /** Input and output are two independent groups: cache reads and writes are
+    * parts of the input count, reasoning a part of the output count.
     */
   private def formatUsage(usage: Usage): String =
-    val cacheParts = List(
-      Option.when(usage.cacheReadInputTokens > 0)(
-        s"${formatCount(usage.cacheReadInputTokens)} cache read"
-      ),
-      Option.when(usage.cacheWriteInputTokens > 0)(
-        s"${formatCount(usage.cacheWriteInputTokens)} cache write"
+    val in = formatGroup(
+      usage.inputTokens,
+      "in",
+      List(
+        usage.cacheReadInputTokens -> "cache read",
+        usage.cacheWriteInputTokens -> "cache write"
       )
-    ).flatten
-    val cache =
-      if cacheParts.isEmpty then "" else cacheParts.mkString(" (", ", ", ")")
-    val reasoning =
-      if usage.reasoningOutputTokens > 0 then
-        s" (${formatCount(usage.reasoningOutputTokens)} reasoning)"
-      else ""
-    val in = formatCount(usage.inputTokens)
-    val out = formatCount(usage.outputTokens)
-    s"$in in$cache, $out out$reasoning"
+    )
+    val out = formatGroup(
+      usage.outputTokens,
+      "out",
+      List(usage.reasoningOutputTokens -> "reasoning")
+    )
+    s"$in, $out"
 
-  /** Render a token count compactly: plain digits below 1000, from 1000 up one
-    * decimal place with a K/M/B suffix and no trailing `.0` — `1K`, `103.8K`,
-    * `3.2M`. Halves round up.
+  /** `<total> <totalLabel>`, followed by the non-zero `parts` in one
+    * parenthetical.
     */
-  private def formatCount(n: Long): String =
-    if n < 1000 then n.toString
+  private def formatGroup(
+      total: Long,
+      totalLabel: String,
+      parts: List[(Long, String)]
+  ): String =
+    val nonZeroParts = parts.filter((n, _) => n > 0)
+    val scale = CostTracker.CountScale.of(total, nonZeroParts.map((n, _) => n))
+    val head = s"${scale.format(total)} $totalLabel"
+    if nonZeroParts.isEmpty then head
     else
-      val units = List(1_000L -> "K", 1_000_000L -> "M", 1_000_000_000L -> "B")
-      def mantissa(unit: Long): BigDecimal =
-        (BigDecimal(n) / unit).setScale(1, BigDecimal.RoundingMode.HALF_UP)
-      // Ascending scan for the first unit whose *rounded* mantissa stays under
-      // 1000: rounding up carries 999,950 to "1000.0K", which belongs one unit
-      // higher as "1M". `getOrElse` covers counts past the largest unit.
-      val (unit, suffix) =
-        units.find((u, _) => mantissa(u) < 1000).getOrElse(units.last)
-      // Scale is fixed at 1, so a plain suffix strip turns "2.0" into "2".
-      s"${mantissa(unit).toString.stripSuffix(".0")}$suffix"
+      val breakdown = nonZeroParts
+        .map((n, partLabel) => s"${scale.format(n)} $partLabel")
+        .mkString(", ")
+      s"$head ($breakdown)"
 
   private def formatAmount(c: Cost): String =
     val rounded = c.amount.setScale(4, BigDecimal.RoundingMode.HALF_UP)
@@ -276,3 +275,60 @@ class CostTracker(pricingAsOf: LocalDate) extends OrcaListener:
   def printSummary(): Unit =
     val s = summary
     if s.nonEmpty then println(s"\n$s")
+
+private object CostTracker:
+
+  /** The unit and decimal count shared by one group of counts — a total and the
+    * counts that break it down. One unit across the group is what lets the
+    * parts be read against the total without a conversion in between, and no
+    * part is ever printed larger than the total it came from.
+    */
+  private case class CountScale(unit: Long, suffix: String, decimals: Int):
+
+    /** `n` at this scale: a mantissa with a K/M/B suffix, halves rounding up. A
+      * trailing `.0` is dropped, but a two-decimal group keeps its zeros, so
+      * every count in it is shown to the same precision.
+      *
+      * A count below a tenth of the unit keeps its OWN scale instead: at this
+      * one it would lose its leading significant digit (5 tokens as `0.01K`),
+      * and it is far too small to move the total it sits under.
+      */
+    def format(n: Long): String =
+      if this == CountScale.Plain then n.toString
+      else if n < unit / 10 then CountScale.of(n, Nil).format(n)
+      else
+        val mantissa = (BigDecimal(n) / unit)
+          .setScale(decimals, BigDecimal.RoundingMode.HALF_UP)
+        val digits =
+          if decimals == 1 then mantissa.toString.stripSuffix(".0")
+          else mantissa.toString
+        s"$digits$suffix"
+
+  private object CountScale:
+
+    /** Counts small enough to print in full. */
+    private val Plain = CountScale(1L, "", 0)
+
+    private val units =
+      List(1_000L -> "K", 1_000_000L -> "M", 1_000_000_000L -> "B")
+
+    /** The scale for a group with this `total` and these non-zero `parts`. The
+      * unit comes from the total, always the largest count in the group. A part
+      * that lands below one unit takes the whole group to two decimals so it
+      * shows a digit rather than `0.0M`; the total never needs that, its own
+      * mantissa being what picked the unit.
+      */
+    def of(total: Long, parts: List[Long]): CountScale =
+      if total < 1000 then Plain
+      else
+        def mantissa(unit: Long): BigDecimal =
+          (BigDecimal(total) / unit)
+            .setScale(1, BigDecimal.RoundingMode.HALF_UP)
+        // Ascending scan for the first unit whose *rounded* mantissa stays
+        // under 1000: rounding up carries 999,950 to "1000.0K", which belongs
+        // one unit higher as "1M". `getOrElse` covers counts past the largest
+        // unit.
+        val (unit, suffix) =
+          units.find((u, _) => mantissa(u) < 1000).getOrElse(units.last)
+        val subUnitPart = parts.exists(p => p >= unit / 10 && p < unit)
+        CountScale(unit, suffix, if subUnitPart then 2 else 1)

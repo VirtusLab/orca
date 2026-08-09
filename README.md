@@ -407,8 +407,11 @@ project or global file still aborts the run either way. `setup` announces the
 resolved roles and where each came from:
 
 ```text
-agents: planning=claude:claude-opus-5[1m] (default), coding=codex:gpt-5-mini (project), review=codex (global)
+agents: planning=claude:claude-opus-5[1m] (default), coding=codex:gpt-5-mini (project), review=opencode:<harness default> (global)
 ```
+
+`<harness default>` marks a role where nothing pins a model, so the harness
+picks one itself.
 
 **Auto-discovery.** Discovery runs when the project file is absent or has no
 stack line; discovered entries are appended below any existing content, so

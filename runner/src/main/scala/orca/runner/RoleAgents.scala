@@ -151,24 +151,25 @@ private[orca] object RoleAgents:
   /** The `harness`/`model` pair an announcement shows for one role. The harness
     * comes from the winning [[AgentSpec]] when there is one (project/global),
     * otherwise from the resolved agent's backend tag (an override shows its
-    * backend's harness; the built-in default resolves to claude). The model
-    * shown is whichever settings never override: a settings pin wins outright
-    * (that's what the user asked for); absent a pin, the resolved agent's OWN
-    * configured model (e.g. claude's wired Opus1M default) is shown instead of
-    * staying silent — pi/opencode, which pin no default, stay bare.
+    * backend's harness; the built-in default resolves to claude).
+    *
+    * The model comes from the spec's pin first, and only then from the agent's
+    * own configured model (claude/codex/gemini pin a default; pi and opencode
+    * don't). That order matters because an agent implementing `Agent` directly
+    * rather than via `BaseAgent` reports no configured model, which would
+    * otherwise drop the user's pin.
     */
   private def harnessAndModel(
       agent: Agent[?],
       spec: Option[AgentSpec]
   ): (String, Option[String]) =
-    spec match
-      case Some(s) => (AgentSpec.harnessNameFor(s.backend), s.model)
+    val harness = spec match
+      case Some(s) => AgentSpec.harnessNameFor(s.backend)
       case None =>
-        val harness =
-          agent.backendTag
-            .flatMap(AgentSpec.harnessNameFor.get)
-            .getOrElse("claude")
-        (harness, agent.configuredModel.map(_.name))
+        agent.backendTag
+          .flatMap(AgentSpec.harnessNameFor.get)
+          .getOrElse("claude")
+    (harness, spec.flatMap(_.model).orElse(agent.configuredModel.map(_.name)))
 
   private def resolveOne(
       label: String,
@@ -209,11 +210,18 @@ private[orca] object RoleAgents:
               foreign = false
             )
 
-  /** One role's announcement segment, `label=harness[:model] (source)` — pure
+  /** Stands in for a role where nothing orca can see pins a model — neither the
+    * settings nor the wired agent (pi and opencode pin no default). The harness
+    * picks one at spawn time, which the header can't know before the first
+    * turn.
+    */
+  private val UnpinnedModelLabel = "<harness default>"
+
+  /** One role's announcement segment, `label=harness:model (source)` — pure
     * formatting of [[RoleChoice]]'s precomputed fields.
     */
   private def announce(c: RoleChoice): String =
-    s"${c.label}=${c.harness}${c.model.map(":" + _).getOrElse("")} (${sourceLabel(c.source)})"
+    s"${c.label}=${c.harness}:${c.model.getOrElse(UnpinnedModelLabel)} (${sourceLabel(c.source)})"
 
   private def sourceLabel(source: RoleSource): String =
     source match

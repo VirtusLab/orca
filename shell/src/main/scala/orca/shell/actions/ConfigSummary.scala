@@ -9,9 +9,9 @@ import orca.settings.AgentSpec
   * via the SAME precedence a flow run applies
   * ([[RoleAgents.projectOverGlobal]], also used by `RoleAgents.resolveOne`),
   * minus its live-agent default-model fallback — no agent is built just to
-  * print this line, so an unset role always shows bare `claude` here, even
-  * though a real run might additionally show that backend's own configured
-  * default model.
+  * print this line, so a role with no model in the settings shows the bare
+  * harness here, whereas a real run's header instead names the resolved agent's
+  * own default model, or `<harness default>` when the backend pins none.
   *
   * [[branchLine]] is NOT part of that summary: `Main.loop` prints it once per
   * redraw, so it stays true after a flow run switches branches.
