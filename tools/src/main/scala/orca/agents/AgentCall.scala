@@ -146,6 +146,12 @@ class DefaultAgentCall[B <: BackendTag, O](
     */
   private val outputSchema: String = JsonSchemaGen[O]
 
+  /** Autonomous turns only: an interactive turn has a human steering one agent,
+    * so its lines need no attribution.
+    */
+  private val attributedEvents: OrcaListener =
+    OrcaListener.attributedTo(events, agentName)
+
   val autonomous: AutonomousAgentCall[B, O] = new AutonomousAgentCall[B, O]:
     private[orca] def runWithSession[I: AgentInput](
         input: I,
@@ -242,7 +248,7 @@ class DefaultAgentCall[B <: BackendTag, O](
             promptText,
             session,
             effective,
-            events,
+            attributedEvents,
             outputSchema = Some(outputSchema)
           )
         catch

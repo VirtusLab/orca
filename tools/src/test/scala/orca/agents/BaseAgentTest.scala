@@ -505,7 +505,10 @@ class BaseAgentTest extends munit.FunSuite:
       s"expected a StructuredResult event: $events"
     )
     assert(
-      !events.exists(_ == OrcaEvent.AssistantMessage(json)),
+      !events.exists:
+        case OrcaEvent.AssistantMessage(text, _) => text == json
+        case _                                   => false
+      ,
       s"the raw JSON payload must not also surface as an AssistantMessage: $events"
     )
 
@@ -529,8 +532,11 @@ class BaseAgentTest extends munit.FunSuite:
       seen
         .get()
         .reverse
-        .contains(OrcaEvent.AssistantMessage("plain prose reply")),
-      s"a plain text call must still surface its AssistantMessage: ${seen.get()}"
+        .contains(
+          OrcaEvent.AssistantMessage("plain prose reply", Some("stub"))
+        ),
+      s"a plain text call must still surface its AssistantMessage, attributed " +
+        s"to the agent that ran it: ${seen.get()}"
     )
 
   // The interactive structured door's closing turn IS the JSON payload too

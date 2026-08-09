@@ -18,13 +18,14 @@ private[orca] class LoggingListener extends OrcaListener:
   private val log = LoggerFactory.getLogger("orca.flow")
 
   def onEvent(event: OrcaEvent): Unit = event match
-    case OrcaEvent.StageStarted(name)     => log.info("stage start: {}", name)
-    case OrcaEvent.StageCompleted(name)   => log.info("stage done:  {}", name)
-    case OrcaEvent.Step(message)          => log.info("step: {}", message)
-    case OrcaEvent.UserPrompt(text)       => log.debug("prompt sent:\n{}", text)
-    case OrcaEvent.AssistantMessage(text) => log.debug("assistant: {}", text)
-    case OrcaEvent.ToolUse(tool, args) =>
-      log.debug("tool use: {} {}", tool, args)
+    case OrcaEvent.StageStarted(name)   => log.info("stage start: {}", name)
+    case OrcaEvent.StageCompleted(name) => log.info("stage done:  {}", name)
+    case OrcaEvent.Step(message)        => log.info("step: {}", message)
+    case OrcaEvent.UserPrompt(text)     => log.debug("prompt sent:\n{}", text)
+    case OrcaEvent.AssistantMessage(text, agent) =>
+      log.debug("assistant ({}): {}", agent.getOrElse("?"), text)
+    case OrcaEvent.ToolUse(tool, args, agent) =>
+      log.debug("tool use ({}): {} {}", agent.getOrElse("?"), tool, args)
     case OrcaEvent.StructuredResult(raw, summary) =>
       // On a deliberately silent summary (`Some("")`) or a missing one
       // (`None`), log the raw JSON — display silence must not hide the result

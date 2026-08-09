@@ -123,6 +123,11 @@ private[terminal] class TerminalOutputState(
   // unwinding after scope-close) may append log lines but must not re-pin a
   // status row nothing will clear again.
   private var closed: Boolean = false
+  // A run of identical lines (an agent re-reading one file, say) is written
+  // once and counted; the count lands on its own line when the run ends, since
+  // a line already handed to `out` can no longer be amended.
+  private var openRunLine: Option[String] = None
+  private var suppressedRepeats: Int = 0
 
   def log(text: String): Unit =
     if suspended then
@@ -180,6 +185,10 @@ private[terminal] class TerminalOutputState(
     */
   def suspend(): Unit =
     if !suspended then
+      // Report the open run before the human takes the terminal, so the count
+      // lands above the prompt and can't span the interaction.
+      flushRepeats()
+      openRunLine = None
       suspended = true
       // Keep `currentLabel` so resume can redraw the same status.
       if animated && currentLabel.isDefined then
@@ -206,6 +215,10 @@ private[terminal] class TerminalOutputState(
       suspendedBuffer = Queue.empty
       suspended = false
       toDrain.foreach(writeLog)
+    flushRepeats()
+    // A late log line (a fork still unwinding) has no open run to join: nothing
+    // would flush its count afterwards, so it must print on its own.
+    openRunLine = None
     val wasShown = currentLabel.isDefined
     currentLabel = None
     closed = true
@@ -213,7 +226,25 @@ private[terminal] class TerminalOutputState(
       out.print(ClearLine)
       out.flush()
 
+  /** Blank lines are separators, never repeats. */
   private def writeLog(text: String): Unit =
+    if !text.isBlank && openRunLine.contains(text) then suppressedRepeats += 1
+    else
+      flushRepeats()
+      openRunLine = if text.isBlank then None else Some(text)
+      writeLine(text)
+
+  private def flushRepeats(): Unit =
+    if suppressedRepeats > 0 then
+      val total = suppressedRepeats + 1
+      suppressedRepeats = 0
+      // Aligned one level under the line it counts, like a tool result.
+      val indent = openRunLine.fold("")(_.takeWhile(_ == ' ')) + "  "
+      writeLine(
+        indent + paint(s"${TerminalOutputState.RepeatGlyph} ×$total", useColor)
+      )
+
+  private def writeLine(text: String): Unit =
     if !animated || currentLabel.isEmpty then
       out.print(text)
       if !text.endsWith("\n") then out.println()
@@ -245,6 +276,11 @@ private[terminal] object TerminalOutputState:
   private val ClearLine: String = "\r\u001b[2K"
 
   private val DefaultLabel: String = "Thinking..."
+
+  /** Same glyph the renderer uses for a tool result, so it reads as belonging
+    * to the line it sits under.
+    */
+  private[terminal] val RepeatGlyph: String = "⎿"
 
   val Frames: Vector[String] =
     Vector("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")

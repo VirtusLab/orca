@@ -292,7 +292,11 @@ class DefaultAgentCallTest extends munit.FunSuite:
     // events fire only when the backend gets the same listener the
     // DefaultAgentCall was constructed with.
     val backend = new SequencedBackend(List("""{"value":1}"""))
-    val myListener: orca.events.OrcaListener = (_: orca.events.OrcaEvent) => ()
+    val received =
+      new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
+    val myListener: OrcaListener = e => {
+      val _ = received.updateAndGet(e :: _)
+    }
     supervised:
       val _ = new DefaultAgentCall[BackendTag.ClaudeCode.type, Answer](
         backend = backend,
@@ -303,7 +307,12 @@ class DefaultAgentCallTest extends munit.FunSuite:
         interaction = stubInteraction,
         agentName = "claude"
       ).autonomous.run("anything")
-      assertEquals(backend.events, List(myListener))
+      // The backend is handed an agent-attributing wrapper, so identity would
+      // say nothing; what has to hold is that its events still arrive.
+      assertEquals(backend.events.size, 1)
+      received.set(Nil)
+      backend.events.foreach(_.onEvent(OrcaEvent.Step("probe")))
+      assertEquals(received.get(), List(OrcaEvent.Step("probe")))
 
   test(
     "autonomous emits StructuredResult with summary=None under default Announce"

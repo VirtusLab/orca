@@ -35,6 +35,42 @@ class TerminalOutputStateTest extends munit.FunSuite:
       bar.log("")
       assertEquals(buf.toString, "\n")
 
+  test("consecutive identical lines print once, then a repeat count"):
+    withBar(animated = false): (bar, buf) =>
+      for _ <- 1 to 3 do bar.log("  ⏺ Read (stats.py)")
+      bar.log("  ⏺ Write (stats.py)")
+      assertEquals(
+        buf.toString,
+        "  ⏺ Read (stats.py)\n    ⎿ ×3\n  ⏺ Write (stats.py)\n"
+      )
+
+  test("close reports a repeat run still open"):
+    withBar(animated = false): (bar, buf) =>
+      bar.log("line")
+      bar.log("line")
+      bar.close()
+      assertEquals(buf.toString, "line\n  ⎿ ×2\n")
+
+  test("a line repeating the last one still prints when logged after close"):
+    withBar(animated = false): (bar, buf) =>
+      bar.log("line")
+      bar.close()
+      bar.log("line")
+      assertEquals(buf.toString, "line\nline\n")
+
+  test("suspend reports a repeat run still open"):
+    withBar(animated = false): (bar, buf) =>
+      bar.log("line")
+      bar.log("line")
+      bar.suspend()
+      assertEquals(buf.toString, "line\n  ⎿ ×2\n")
+
+  test("blank separator lines are never collapsed as repeats"):
+    withBar(animated = false): (bar, buf) =>
+      bar.log("")
+      bar.log("")
+      assertEquals(buf.toString, "\n\n")
+
   test("non-animated mode emits no ANSI escapes"):
     withBar(animated = false): (bar, buf) =>
       bar.setStatus(Some("running"))

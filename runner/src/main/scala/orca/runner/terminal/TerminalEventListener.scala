@@ -2,6 +2,8 @@ package orca.runner.terminal
 
 import orca.events.{OrcaEvent, OrcaListener}
 
+import java.util.concurrent.atomic.AtomicReference
+
 /** Renders `OrcaEvent`s — stage transitions, steps, tool uses, errors — via a
   * [[TerminalOutput]] and tracks the active stage stack + indent depth.
   *
@@ -22,6 +24,7 @@ private[runner] class TerminalEventListener(
     ErrorGlyph,
     MaxAssistantMessageLength,
     MaxStructuredResultRawLength,
+    StageEmitters,
     StageStartGlyph,
     StepGlyphStyle,
     UserPromptGlyph,
@@ -32,21 +35,30 @@ private[runner] class TerminalEventListener(
   // single-writer/@volatile synchronization story.
   @volatile private var stack: List[String] = Nil
 
+  // Unlike `stack` this is written from the parallel agent forks too, hence the
+  // atomic rather than the @volatile single-writer story above.
+  private val stageEmitters =
+    new AtomicReference[StageEmitters](StageEmitters.Silent)
+
   def onEvent(event: OrcaEvent): Unit = event match
     case OrcaEvent.StageStarted(name) =>
       // Format at the current depth (so the marker aligns with the enclosing
       // stage's content), then push.
       val line = formatStepLine(name)
       stack = name :: stack
+      stageEmitters.set(StageEmitters.Silent)
       output.log(line)
       output.setStatus(stack.headOption)
     case OrcaEvent.StageCompleted(_) =>
       // Completions don't print: starting the next event implies the previous
       // one finished.
       stack = stack.drop(1)
+      stageEmitters.set(StageEmitters.Silent)
       output.setStatus(stack.headOption)
-    case OrcaEvent.ToolUse(tool, args) =>
-      val line = formatIndented(ToolCallLine.format(tool, args, paint, workDir))
+    case OrcaEvent.ToolUse(tool, args, agent) =>
+      val line = formatIndented(
+        ToolCallLine.format(tool, args, paint, workDir, attribution(agent))
+      )
       output.log(line)
     case _: OrcaEvent.TokensUsed =>
       () // Token accounting is owned by CostTracker.
@@ -73,12 +85,13 @@ private[runner] class TerminalEventListener(
       if collapsed.nonEmpty then
         val glyph = paint(UserPromptStyle, s"$UserPromptGlyph ")
         output.log(formatIndented(glyph + collapsed))
-    case OrcaEvent.AssistantMessage(text) =>
+    case OrcaEvent.AssistantMessage(text, agent) =>
       // One line per prose turn; empty payloads (turn-without-prose) dropped.
       val collapsed = Text.oneLine(text, MaxAssistantMessageLength)
       if collapsed.nonEmpty then
         val glyph = paint(AssistantGlyphStyle, s"$AssistantGlyph ")
-        output.log(formatIndented(glyph + collapsed))
+        val who = AgentAttribution.prefix(attribution(agent), paint)
+        output.log(formatIndented(glyph + who + collapsed))
     case OrcaEvent.Error(message) =>
       output.log(
         formatIndented(paint(fansi.Color.Red, s"$ErrorGlyph $message"))
@@ -88,6 +101,20 @@ private[runner] class TerminalEventListener(
 
   /** The current indent string. Lock-free read of the `@volatile` [[stack]]. */
   def currentIndent: String = "  " * stack.length
+
+  /** Which agent name, if any, to print on this line. While a stage has a
+    * single emitter, nothing is prefixed — a stage running one agent looks
+    * exactly as it did. From the moment a second agent emits, every line is
+    * named, the first agent's included: with the review fan-out interleaving
+    * them, an unnamed line can no longer be attributed by position.
+    *
+    * An event carrying no agent name never counts as an emitter.
+    */
+  private def attribution(agent: Option[String]): Option[String] =
+    agent.flatMap: name =>
+      stageEmitters.updateAndGet(_.plus(name)) match
+        case StageEmitters.One(_) => None
+        case _                    => Some(name)
 
   /** A `▶` step line: magenta-bold glyph, neutral body — matching the
     * assistant-prose styling so the "primary content" accent stays consistent.
@@ -106,6 +133,19 @@ private[runner] class TerminalEventListener(
     Ansi.paint(useColor, attr, text)
 
 private[runner] object TerminalEventListener:
+
+  /** The agents that have emitted a display event in the current stage, to the
+    * precision `attribution` needs: none, exactly one (named), or several.
+    */
+  private enum StageEmitters:
+    case Silent
+    case One(name: String)
+    case Many
+
+    def plus(emitter: String): StageEmitters = this match
+      case Silent                 => One(emitter)
+      case One(n) if n == emitter => this
+      case _                      => Many
 
   val StageStartGlyph: String = "▶"
   val StageDoneGlyph: String = "✔"

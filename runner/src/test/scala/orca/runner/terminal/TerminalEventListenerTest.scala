@@ -138,6 +138,59 @@ class TerminalEventListenerTest extends munit.FunSuite:
     val output = renderEvents(List(OrcaEvent.AssistantMessage("   \n\t  ")))
     assertEquals(output, "")
 
+  test("a stage's own agent is never named on its tool lines"):
+    val output = renderEvents(
+      List(
+        OrcaEvent.StageStarted("task"),
+        OrcaEvent.ToolUse("Read", """{"file_path":"stats.py"}""", Some("main")),
+        OrcaEvent.ToolUse("Read", """{"file_path":"other.py"}""", Some("main"))
+      )
+    )
+    assert(!output.contains("main:"), output)
+
+  test("a second agent's tool line is prefixed with its name"):
+    val output = renderEvents(
+      List(
+        OrcaEvent.StageStarted("task"),
+        OrcaEvent.ToolUse("Read", """{"file_path":"stats.py"}""", Some("main")),
+        OrcaEvent
+          .ToolUse("Read", """{"file_path":"stats.py"}""", Some("readability"))
+      )
+    )
+    assert(output.contains("⏺ readability: Read (stats.py)"), output)
+
+  test("a second agent's prose line is prefixed with its name"):
+    val output = renderEvents(
+      List(
+        OrcaEvent.StageStarted("task"),
+        OrcaEvent.AssistantMessage("planning", Some("main")),
+        OrcaEvent.AssistantMessage("reviewing", Some("test"))
+      )
+    )
+    assert(output.contains("● test: reviewing"), output)
+
+  test("the first agent is named too once a second one has emitted"):
+    val output = renderEvents(
+      List(
+        OrcaEvent.StageStarted("task"),
+        OrcaEvent.AssistantMessage("planning", Some("main")),
+        OrcaEvent.AssistantMessage("reviewing", Some("test")),
+        OrcaEvent.AssistantMessage("still planning", Some("main"))
+      )
+    )
+    assert(output.contains("● main: still planning"), output)
+
+  test("a new stage lets its own first agent go unnamed again"):
+    val output = renderEvents(
+      List(
+        OrcaEvent.StageStarted("outer"),
+        OrcaEvent.AssistantMessage("planning", Some("main")),
+        OrcaEvent.StageStarted("inner"),
+        OrcaEvent.AssistantMessage("reviewing", Some("test"))
+      )
+    )
+    assert(!output.contains("test:"), output)
+
   test("UserPrompt renders as a `▸` line with the one-line collapsed body"):
     val output =
       renderEvents(
