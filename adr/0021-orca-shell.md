@@ -51,24 +51,31 @@ official installer if it's missing:
 
 ```bash
 #!/usr/bin/env bash
-exec scala-cli run --jvm 21 --quiet \
+exec scala-cli run --jvm 21 --quiet --verbose \
   --dep "org.virtuslab::orca-shell:latest.release" \
   --main-class orca.shell.Main -- "$@"
 ```
 
 Verified: scala-cli runs a main class straight from a Maven dependency with
-no sources, and `latest.release` resolves (research 04). `--quiet` suppresses
-coursier's fetch-progress chrome (which otherwise races the wizard's first
-prompt paint); verified it does NOT hide real compile/resolution errors —
-those still print. The shim therefore
-never needs version bumps; the shell prints its resolved version at startup
-(manifest `Implementation-Version`, the existing `OrcaBanner.version`
-pattern — no BuildInfo plugin). The README additionally documents the pinned
-one-liner (bumped by `updateDocs`) for CI and the install-averse. Rejected:
-coursier app descriptors and `scala-cli --power package` as the launch story
-(both bypass scala-cli at launch and add prerequisites/build surface;
-research 04 §2b–2c) — a URL-based `cs install` channel JSON may be added
-later as a convenience.
+no sources, and `latest.release` resolves (research 04). `--quiet`
+suppresses coursier's fetch-progress chrome (which otherwise races the
+wizard's first prompt paint) — on a cold cache that is a ~900-line wall of
+`Downloading`/`Downloaded`/`Failed to download`, the failed ones being
+expected repository fallback probes. `--quiet` alone would go too far:
+scala-cli derives both the coursier logger AND its verbosity from that one
+flag, and at verbosity -1 it prints no build exception, so a dependency that
+fails to resolve exits nonzero in complete silence. `--verbose` restores
+verbosity 0 while leaving the fetch log off — resolution errors print again
+(verified against scala-cli 1.15.0). Both flags together are one setting;
+`FlowLauncher` passes the same pair when it spawns a flow. The shim
+therefore never needs version bumps; the shell prints its resolved version
+at startup (manifest `Implementation-Version`, the existing
+`OrcaBanner.version` pattern — no BuildInfo plugin). The README additionally
+documents the pinned one-liner (bumped by `updateDocs`) for CI and the
+install-averse. Rejected: coursier app descriptors and
+`scala-cli --power package` as the launch story (both bypass scala-cli at
+launch and add prerequisites/build surface; research 04 §2b–2c) — a
+URL-based `cs install` channel JSON may be added later as a convenience.
 
 All modules release under one dynver version, so shell version = orca
 version with no extra plumbing.

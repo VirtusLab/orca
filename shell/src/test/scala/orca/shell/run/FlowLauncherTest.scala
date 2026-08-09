@@ -19,6 +19,8 @@ class FlowLauncherTest extends munit.FunSuite:
         "scala-cli",
         "run",
         flow.toString,
+        "--quiet",
+        "--verbose",
         "--dep",
         "org.virtuslab::orca:0.0.18",
         "--workspace",
@@ -42,6 +44,8 @@ class FlowLauncherTest extends munit.FunSuite:
         "scala-cli",
         "run",
         flow.toString,
+        "--quiet",
+        "--verbose",
         "--workspace",
         workspaceDir.toString,
         "--",
@@ -65,6 +69,8 @@ class FlowLauncherTest extends munit.FunSuite:
         "scala-cli",
         "run",
         flow.toString,
+        "--quiet",
+        "--verbose",
         "--dep",
         "org.virtuslab::orca:0.0.18",
         "--workspace",
@@ -74,9 +80,10 @@ class FlowLauncherTest extends munit.FunSuite:
         "--verbose"
       )
     )
-    assert(
-      result.indexOf("--verbose") > result.indexOf("--"),
-      "--verbose must come after --"
+    assertEquals(
+      result(result.indexOf("--") + 2),
+      "--verbose",
+      "the flow's own --verbose follows the task, after --"
     )
 
   test(
@@ -95,6 +102,8 @@ class FlowLauncherTest extends munit.FunSuite:
         "scala-cli",
         "run",
         flow.toString,
+        "--quiet",
+        "--verbose",
         "--dep",
         "org.virtuslab::orca:0.0.18",
         "--workspace",
@@ -123,6 +132,8 @@ class FlowLauncherTest extends munit.FunSuite:
         "scala-cli",
         "run",
         flow.toString,
+        "--quiet",
+        "--verbose",
         "--workspace",
         workspaceDir.toString,
         "--",
@@ -142,7 +153,7 @@ class FlowLauncherTest extends munit.FunSuite:
       workspaceDir
     )
     assertEquals(result(2), spacedFlow.toString)
-    assertEquals(result.length, 7)
+    assertEquals(result.length, 9)
 
   test(
     "argv rejects a blank task — Main.promptTask should have re-prompted before this is ever called"
