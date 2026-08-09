@@ -86,7 +86,11 @@ class ChatTest extends munit.FunSuite:
         outputSchema: String,
         config: AgentConfig
     ): String = ???
-    def retry(failedResponse: String, parseError: String): String = ???
+    def retry(
+        failedResponse: String,
+        parseError: String,
+        mode: StructuredOutputMode
+    ): String = ???
 
   private object ChatStubInteraction extends Interaction:
     def listeners: List[OrcaListener] = Nil

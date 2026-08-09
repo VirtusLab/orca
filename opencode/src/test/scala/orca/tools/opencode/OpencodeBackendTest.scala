@@ -2,7 +2,14 @@ package orca.tools.opencode
 
 import orca.OrcaFlowException
 import orca.backend.StreamSource
-import orca.agents.{BackendTag, AgentConfig, Model, SessionId, WireSessionId}
+import orca.agents.{
+  BackendTag,
+  AgentConfig,
+  Model,
+  SessionId,
+  StructuredOutputMode,
+  WireSessionId
+}
 import ox.supervised
 
 class OpencodeBackendTest extends munit.FunSuite:
@@ -109,6 +116,31 @@ class OpencodeBackendTest extends munit.FunSuite:
         backend.runAutonomous("two", client, AgentConfig())
       assertEquals(http.posts.count(_._1 == "/session"), 1)
       assertEquals(http.posts.count(_._1.endsWith("/prompt_async")), 2)
+
+  test("opencode declares Tool structured-output mode"):
+    // The declaration behind the prompt's delivery instruction and the drain's
+    // closing-prose rule: `format: json_schema` (the body field asserted in
+    // OpencodeArgsTest) makes the server deliver the payload through an
+    // injected StructuredOutput tool.
+    supervised:
+      val backend = new OpencodeBackend(new FakeHandle(new FakeHttp(Nil)))
+      assertEquals(backend.structuredOutputMode, StructuredOutputMode.Tool)
+
+  test("the conversation declares the same mode as the backend"):
+    // The prompt is built from the BACKEND's mode while the autonomous drain
+    // reads the CONVERSATION's; a disagreement renders the payload turn as
+    // prose (or withholds prose that is not the payload).
+    supervised:
+      val http = new FakeHttp(turn("ses_server1", "tool-calls", Nil))
+      val backend = new OpencodeBackend(new FakeHandle(http))
+      val conv = backend.runInteractive(
+        "q",
+        fresh,
+        "display",
+        AgentConfig(),
+        outputSchema = Some("""{"type":"object"}""")
+      )
+      assertEquals(conv.structuredOutputMode, backend.structuredOutputMode)
 
   test("registerSession lets a later call resume that server session directly"):
     supervised:

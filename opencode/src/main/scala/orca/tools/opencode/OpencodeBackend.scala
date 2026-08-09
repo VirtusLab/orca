@@ -66,6 +66,21 @@ private[orca] object OpencodeBackend:
   )(using Ox): OpencodeBackend =
     new OpencodeBackend(new OpencodeServer(cli, workDir, launcher), workDir)
 
+  /** Tool name the server injects for a `format: json_schema` turn: the model
+    * delivers the payload by calling it. [[OpencodeConversation]] suppresses
+    * that echo — the payload reaches the caller as
+    * `OrcaEvent.StructuredResult`, so rendering the tool call too would show
+    * the same JSON twice.
+    */
+  private[opencode] val StructuredOutputToolName: String = "StructuredOutput"
+
+  /** Shared by [[OpencodeBackend.structuredOutputMode]] and
+    * [[OpencodeConversation]], so prompt assembly and the drain can't disagree
+    * about how the payload arrives.
+    */
+  private[opencode] val StructuredOutputDelivery: StructuredOutputMode =
+    StructuredOutputMode.Tool
+
 /** `server` and `workDir` must agree; `apply` is the only production
   * constructor.
   */
@@ -129,12 +144,14 @@ private[orca] class OpencodeBackend(
 
   export OpencodeArgs.enforcementCell
 
-  /** The `format: json_schema` message field is a response-format constraint —
-    * the model still emits the JSON as its reply text (the server parses it
-    * into `structured`); there is no structured-output tool.
+  /** The `format: json_schema` message field makes the server inject a
+    * `StructuredOutput` tool the model answers with. Probed against opencode
+    * 1.17.10 (2026-08-09): such a turn finishes with `finish: "tool-calls"` and
+    * delivers the validated object through that tool (also on
+    * `info.structured`) — never as reply text.
     */
   override def structuredOutputMode: StructuredOutputMode =
-    StructuredOutputMode.RawText
+    OpencodeBackend.StructuredOutputDelivery
 
   /** The sole session handle. [[IdScheme.ServerMinted]]: the caller's stable id
     * maps to opencode's server-minted `ses_…` id, so subsequent turns resume

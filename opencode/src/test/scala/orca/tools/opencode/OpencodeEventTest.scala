@@ -4,11 +4,11 @@ class OpencodeEventTest extends munit.FunSuite:
 
   // Fixtures captured from a live `opencode serve` (ADR 0014 spike).
 
-  test("message.part.delta(text) → TextDelta"):
+  test("message.part.delta(text) → TextDelta carrying its part id"):
     val e = OpencodeEvent.parse(
       """{"id":"evt_1","type":"message.part.delta","properties":{"sessionID":"ses_A","messageID":"msg_1","partID":"prt_1","field":"text","delta":"2"}}"""
     )
-    assertEquals(e, OpencodeEvent.TextDelta("ses_A", "2"))
+    assertEquals(e, OpencodeEvent.TextDelta("ses_A", Some("prt_1"), "2"))
 
   test("message.part.delta(reasoning) → ReasoningDelta"):
     val e = OpencodeEvent.parse(
@@ -74,6 +74,17 @@ class OpencodeEventTest extends munit.FunSuite:
         "bash",
         """{"command":"echo hi"}"""
       )
+    )
+
+  test("message.part.updated(reasoning part) → ReasoningPart"):
+    // Announced before its deltas, which arrive as `field:"text"` — this is
+    // what lets the driver tell them from real assistant text.
+    val e = OpencodeEvent.parse(
+      """{"type":"message.part.updated","properties":{"sessionID":"ses_A","part":{"type":"reasoning","id":"prt_7","messageID":"msg_2"}}}"""
+    )
+    assertEquals(
+      e,
+      OpencodeEvent.ReasoningPart(Some("ses_A"), Some("prt_7"))
     )
 
   test("message.part.updated(non-tool part) → Ignored"):
@@ -180,7 +191,10 @@ class OpencodeEventTest extends munit.FunSuite:
     intercept[Exception](OpencodeEvent.parse("not json"))
 
   test("sessionId lifts the owning session for filtering; Ignored has none"):
-    assertEquals(OpencodeEvent.TextDelta("ses_A", "x").sessionId, Some("ses_A"))
+    assertEquals(
+      OpencodeEvent.TextDelta("ses_A", None, "x").sessionId,
+      Some("ses_A")
+    )
     assertEquals(OpencodeEvent.Idle(Some("ses_B")).sessionId, Some("ses_B"))
     assertEquals(OpencodeEvent.Idle(None).sessionId, None)
     assertEquals(OpencodeEvent.Ignored.sessionId, None)

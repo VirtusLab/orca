@@ -18,8 +18,18 @@ import orca.util.RawJson
   * driver can keep only its own turn's events without re-decoding.
   */
 private[opencode] enum OpencodeEvent:
-  case TextDelta(session: String, delta: String)
+  /** A `field:"text"` delta. `text` is the name of the accruing field on BOTH a
+    * text and a reasoning part, so the frame alone doesn't say which — the
+    * consumer decides from `partId` and the [[ReasoningPart]] it saw for it.
+    */
+  case TextDelta(session: String, partId: Option[String], delta: String)
   case ReasoningDelta(session: String, delta: String)
+
+  /** A reasoning part was announced; its deltas arrive as [[TextDelta]] on this
+    * `partId`. Emitted again as the part's status advances, like
+    * [[ToolStarted]].
+    */
+  case ReasoningPart(session: Option[String], partId: Option[String])
 
   /** A tool part reached `running` — its full `input` is known. Emitted on
     * every `running` frame for a part, so the same `partId` can repeat as the
@@ -65,8 +75,9 @@ private[opencode] enum OpencodeEvent:
     * server-level frames ([[Ignored]] `server.connected`/`heartbeat`).
     */
   def sessionId: Option[String] = this match
-    case TextDelta(s, _)             => Some(s)
+    case TextDelta(s, _, _)          => Some(s)
     case ReasoningDelta(s, _)        => Some(s)
+    case ReasoningPart(s, _)         => s
     case ToolStarted(s, _, _, _)     => s
     case ToolFinished(s, _, _, _, _) => s
     case MessageUpdated(s, _)        => Some(s)
@@ -100,19 +111,22 @@ private[opencode] object OpencodeEvent:
   private def parsePartDelta(json: String): OpencodeEvent =
     val p = readFromString[PartDeltaFrame](json).properties
     p.field match
-      case "text"      => TextDelta(p.sessionID, p.delta)
+      case "text"      => TextDelta(p.sessionID, p.partID, p.delta)
       case "reasoning" => ReasoningDelta(p.sessionID, p.delta)
       case _           => Ignored
 
   /** A tool part is reported by `message.part.updated` repeatedly as its status
     * advances; emit a start when its input is first complete (`running`) and a
-    * finish when it settles. Non-tool parts (text/step/…) carry no event — text
-    * arrives via `message.part.delta`.
+    * finish when it settles. A reasoning part is announced so its
+    * `field:"text"` deltas can be told apart from real assistant text; other
+    * parts (text/step/…) carry no event.
     */
   private def parsePartUpdated(json: String): OpencodeEvent =
     val props = readFromString[PartUpdatedFrame](json).properties
     val part = props.part
-    if part.`type` != "tool" then Ignored
+    if part.`type` == "reasoning" then
+      ReasoningPart(props.sessionID.orElse(part.sessionID), part.id)
+    else if part.`type` != "tool" then Ignored
     else
       // `properties.sessionID` is the reliable session source; fall back to the
       // part's own copy on frames that omit it. Neither this nor `part.id` is
@@ -194,6 +208,7 @@ private[opencode] object OpencodeEvent:
 
   private case class PartDeltaProps(
       sessionID: String,
+      partID: Option[String] = None,
       field: String = "",
       delta: String = ""
   ) derives ConfiguredJsonValueCodec

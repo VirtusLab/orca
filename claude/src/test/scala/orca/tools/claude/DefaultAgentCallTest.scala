@@ -266,6 +266,19 @@ class DefaultAgentCallTest extends munit.FunSuite:
       assert(rawPrompt.contains("raw JSON only"))
       assert(!rawPrompt.contains("StructuredOutput"))
 
+  test("the corrective retry prompt follows the same structured-output mode"):
+    // The initial prompt is not the only one that has to match the wire — the
+    // retry after a parse failure carries the same delivery instruction.
+    val backend = new SequencedBackend(
+      List("not even json", """{"value":5}"""),
+      mode = StructuredOutputMode.Tool
+    )
+    supervised:
+      val _ = makeCall(backend).autonomous.run("anything")
+      val corrective = backend.prompts(1)
+      assert(corrective.contains("calling the StructuredOutput tool"))
+      assert(!corrective.contains("raw JSON only"))
+
   test(
     "autonomous forwards a Some(schema) to backend.runAutonomous"
   ):
@@ -567,8 +580,11 @@ class DefaultAgentCallTest extends munit.FunSuite:
           outputSchema: String,
           config: AgentConfig
       ): String = DefaultPrompts.interactive(input, outputSchema, config)
-      def retry(failedResponse: String, parseError: String): String =
-        DefaultPrompts.retry(failedResponse, parseError)
+      def retry(
+          failedResponse: String,
+          parseError: String,
+          mode: StructuredOutputMode
+      ): String = DefaultPrompts.retry(failedResponse, parseError, mode)
     val backend = new SequencedBackend(List("""{"value":1}"""))
     supervised:
       val _ = new DefaultAgentCall[BackendTag.ClaudeCode.type, Answer](
