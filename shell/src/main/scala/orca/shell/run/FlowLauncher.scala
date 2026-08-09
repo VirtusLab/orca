@@ -38,6 +38,18 @@ private[shell] object FlowLauncher:
 
   private val orgAndArtifact = "org.virtuslab::orca"
 
+  /** scala-cli's own logging flags, on every spawn.
+    *
+    * `--quiet` silences coursier's per-artifact fetch log — on a cold cache a
+    * ~900-line wall of `Downloading`/`Downloaded`/`Failed to download` before
+    * the flow prints anything. But it also drops scala-cli's verbosity to -1,
+    * where scala-cli prints no build exception at all: a flow whose
+    * dependencies fail to resolve would exit nonzero in silence. `--verbose`
+    * puts verbosity back to 0, leaving the fetch log off. Verified against
+    * scala-cli 1.15.0; the `orca` shim passes the same pair (ADR 0021).
+    */
+  private val loggingArgs = Seq("--quiet", "--verbose")
+
   /** `--dep org.virtuslab::orca:<v>`, or nothing when `orcaVersion` is `None`
     * (dev build, or an already-declined fallback).
     */
@@ -46,16 +58,16 @@ private[shell] object FlowLauncher:
       .map(v => Seq("--dep", s"$orgAndArtifact:$v"))
       .getOrElse(Seq.empty)
 
-  /** `scala-cli run <flow> [--dep ...] --workspace <dir> -- <task> [--verbose]
-    * [--skip-branch]`. `--verbose`/`--skip-branch` are flow-script arguments
-    * (parsed by the flow's own `OrcaArgs`, whose flags are spelled
-    * `--verbose`/`--skip-branch`), so they land after `--` alongside the task
-    * text, not before it. `--workspace` relocates scala-cli's own
-    * `.scala-build`/`.bsp` build metadata to `workspaceDir`
-    * ([[resolveWorkspaceDir]]) instead of next to `flow` — load-bearing for a
-    * Project-tier flow, whose script lives inside the user's own repo
-    * (`<repo>/.orca/flows/<name>.sc`), same pollution class the `orca` shim's
-    * own `--workspace` fixes (ADR 0021 §1 amendment).
+  /** `scala-cli run <flow> --quiet --verbose [--dep ...] --workspace <dir> --
+    * <task> [--verbose] [--skip-branch]`. The `--verbose` before `--` is
+    * scala-cli's own ([[loggingArgs]]); the one after is the flow's, parsed by
+    * its own `OrcaArgs` — which spells its flags `--verbose`/`--skip-branch`,
+    * so they land after `--` alongside the task text, not before it.
+    * `--workspace` relocates scala-cli's own `.scala-build`/`.bsp` build
+    * metadata to `workspaceDir` ([[resolveWorkspaceDir]]) instead of next to
+    * `flow` — load-bearing for a Project-tier flow, whose script lives inside
+    * the user's own repo (`<repo>/.orca/flows/<name>.sc`), same pollution class
+    * the `orca` shim's own `--workspace` fixes (ADR 0021 §1 amendment).
     *
     * Requires `task` to be non-blank — `Main.promptTask` re-prompts on blank
     * input before this is ever called, so an empty task here means a caller
@@ -75,10 +87,11 @@ private[shell] object FlowLauncher:
     val verboseArgs = if flags.verbose then Seq("--verbose") else Seq.empty
     val skipBranchArgs =
       if flags.skipBranch then Seq("--skip-branch") else Seq.empty
-    Seq("scala-cli", "run", flow.toString) ++ depArgs(orcaVersion) ++ Seq(
-      "--workspace",
-      workspaceDir.toString
-    ) ++ Seq("--", task) ++ verboseArgs ++ skipBranchArgs
+    Seq("scala-cli", "run", flow.toString) ++
+      loggingArgs ++
+      depArgs(orcaVersion) ++
+      Seq("--workspace", workspaceDir.toString) ++
+      Seq("--", task) ++ verboseArgs ++ skipBranchArgs
 
   /** The compile probe's argv — same `--workspace` treatment as [[argv]], and
     * for the same reason: without it, the probe (run whenever the forced
@@ -212,12 +225,18 @@ private[shell] object FlowLauncher:
     * ([[runAnnounced]]), the `--honor-pin` run ([[runHonoringPin]]), and
     * [[run]]'s own pin-honouring fallback re-run. `spawn` produces the
     * [[LaunchResult]] whose [[outcomeSuffix]] closes the bracket.
+    *
+    * The child is silent while it resolves ([[loggingArgs]]) and the launcher
+    * can't see when that starts or ends, so the notice is unconditional: a warm
+    * cache gets one extra line, a cold one gets the only sign the run isn't
+    * hung.
     */
   private[run] def announced(startLabel: String, flowName: String)(
       spawn: => LaunchResult
   ): LaunchResult =
     println()
     ShellOutput.section(startLabel)
+    ShellOutput.info("resolving dependencies…")
     val result = spawn
     ShellOutput.section(s"flow $flowName ${outcomeSuffix(result)}")
     println()

@@ -53,12 +53,14 @@ fi
 
 mkdir -p "$bin_dir"
 
+# --quiet also drops scala-cli's verbosity to -1, where it prints no build
+# exception at all; --verbose restores verbosity 0 with the fetch log still off.
 cat > "$bin_path" <<EOF
 #!/usr/bin/env bash
 $marker
 workspace="\${XDG_CACHE_HOME:-\$HOME/.cache}/orca/shell/workspace"
 mkdir -p "\$workspace"
-exec scala-cli run --workspace "\$workspace" --jvm 21 --quiet \\
+exec scala-cli run --workspace "\$workspace" --jvm 21 --quiet --verbose \\
   --dep "org.virtuslab::orca-shell:latest.release" \\
   --main-class orca.shell.Main -- "\$@"
 EOF

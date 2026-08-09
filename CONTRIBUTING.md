@@ -79,7 +79,8 @@ the released one. Isolate the config and cache dirs so your real
 `~/.config/orca` and wizard state stay untouched; `--workspace` keeps
 scala-cli's own `.scala-build`/`.bsp` for this no-input `--dep`+`--main-class`
 invocation out of the scratch project, the same fix the `orca` shim applies
-(`install.sh`).
+(`install.sh`). `--quiet --verbose` is one setting, not two — dropping either
+half costs you a wall of `Downloading` lines or a silent exit 1 (ADR 0021).
 
 ```bash
 version="$(sbt -batch -error "print shell/version" | tail -1)"
@@ -88,7 +89,7 @@ cd /tmp/orca-dev/project
 git init -q 2>/dev/null; git commit -q --allow-empty -m scratch 2>/dev/null; true
 
 XDG_CONFIG_HOME=/tmp/orca-dev/xdg/config XDG_CACHE_HOME=/tmp/orca-dev/xdg/cache \
-  scala-cli run --workspace /tmp/orca-dev/workspace --jvm 21 --quiet \
+  scala-cli run --workspace /tmp/orca-dev/workspace --jvm 21 --quiet --verbose \
     --dep "org.virtuslab::orca-shell:$version" \
     --repository ivy2local \
     --main-class orca.shell.Main
@@ -99,7 +100,7 @@ the headless CLI, append the subcommand after `--`:
 
 ```bash
 XDG_CONFIG_HOME=... XDG_CACHE_HOME=... \
-  scala-cli run --workspace /tmp/orca-dev/workspace --jvm 21 --quiet \
+  scala-cli run --workspace /tmp/orca-dev/workspace --jvm 21 --quiet --verbose \
     --dep "org.virtuslab::orca-shell:$version" \
     --repository ivy2local \
     --main-class orca.shell.Main -- run implement.sc "your task"
