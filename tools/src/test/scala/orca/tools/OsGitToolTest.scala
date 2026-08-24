@@ -777,6 +777,20 @@ class OsGitToolTest extends munit.FunSuite:
       val failure = git.show("HEAD", paths = List("a.txt")).left.toOption.get
       assert(failure.isInstanceOf[GitReadFailed.Refused], failure)
 
+  test("show refuses on a merge, which renders no per-path diff by default"):
+    withRepo: (git, dir) =>
+      os.write(dir / "a.txt", "one")
+      git.commit("add a").orThrow
+      git.createBranch("side").orThrow
+      os.write(dir / "b.txt", "two")
+      git.commit("add b").orThrow
+      git.checkout("main").orThrow
+      val _ = os
+        .proc("git", "merge", "--no-ff", "-m", "merge side", "side")
+        .call(cwd = dir)
+      val failure = git.show("HEAD", paths = List("b.txt")).left.toOption.get
+      assert(failure.isInstanceOf[GitReadFailed.Refused], failure)
+
   test("fileAt returns a file's contents as of a commit"):
     withRepo: (git, dir) =>
       os.write(dir / "a.txt", "before")
