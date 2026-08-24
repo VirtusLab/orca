@@ -3,8 +3,8 @@ list it under `fixed`. Otherwise — when the issue is environmental, out of
 scope, or a false positive — list it and a brief reason under `ignored`. Every
 input issue should appear in exactly one of the two lists.
 
-Identify each issue by the key that starts its line (`I1`, `I2`, …), followed by
-its title: `I2 [Warning] The widget leaks a file handle`. The key is how the
-issue is matched back, so copy it exactly.
+Identify each issue by the key that starts its line (`I1.1`, `I1.2`, …),
+followed by its title: `I2.1 [Warning] The widget leaks a file handle`. The key
+is how the issue is matched back, so copy it exactly.
 
 Prefer minimal, scoped fixes.

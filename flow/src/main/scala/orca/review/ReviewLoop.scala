@@ -223,7 +223,9 @@ def fixLoop(
         announceExit(capExitMessage(maxIterations), open, seenSeverities)
         open
       case LoopStep.NeedsFix =>
-        val outcome = FixOutcome.reconcile(issues, fix(issues))
+        // One evaluator, so it is the round's only agent — index 0.
+        val outcome =
+          FixOutcome.reconcile(KeyedIssue.forAgent(0, issues), fix(issues))
         announceFixTurn(outcome)
         if outcome.fixed.isEmpty then
           val open = recordIgnored(accumulated, fixerHaltAdditions(outcome))
@@ -265,8 +267,9 @@ private case class ReviewLoopState(
     val withLint = lint.foldLeft(gateLedger): (ledger, c) =>
       ledger.record(GateLedger.Owner.Lint, c.gated.dropped)
     ReviewLoopState(
-      history = ReviewBatch(reviewers.map(c => (c.entry, c.gated.kept)))
-        :: history,
+      history = ReviewBatch(
+        reviewers.map(c => (c.entry, ReviewResult(c.gated.kept.map(_.issue))))
+      ) :: history,
       sessions =
         sessions ++ reviewers.flatMap(c => c.newSession.map(c.entry.id -> _)),
       lintChat = lint.flatMap(_.resumableSummariser),
@@ -302,9 +305,13 @@ private case class LintContribution(
 )
 
 /** One agent's findings split on the [[ConfidenceGate]]: `kept` goes to the
-  * fixer and the display, `dropped` is recorded rather than fixed.
+  * fixer and the display, carrying the keys both name it by; `dropped` is
+  * recorded rather than fixed.
   */
-private case class GatedIssues(kept: ReviewResult, dropped: List[ReviewIssue])
+private case class GatedIssues(
+    kept: List[KeyedIssue],
+    dropped: List[ReviewIssue]
+)
 
 /** The lint gate this round, paired with the conversation its summary runs on,
   * so neither can go missing without the other.
@@ -312,10 +319,11 @@ private case class GatedIssues(kept: ReviewResult, dropped: List[ReviewIssue])
 private case class LintRound(gate: Lint, summariser: Lint.Summariser)
 
 /** One evaluation round's outcome: the issues that cleared the gate this round,
-  * and the state to carry into the next round (which carries the gate rejects).
+  * keyed as the fixer will see them, and the state to carry into the next round
+  * (which carries the gate rejects).
   */
 private case class RoundOutcome(
-    issues: List[ReviewIssue],
+    issues: List[KeyedIssue],
     state: ReviewLoopState
 )
 
@@ -490,14 +498,15 @@ private[review] class ReviewFixLoop[B <: BackendTag](
   // are tagged with.
   private val lintName: String = "lint"
 
-  /** Split one agent's findings on the confidence gate. Rejects are kept, not
-    * discarded: [[ReviewLoopState]]'s [[GateLedger]] holds them until either
-    * the loop sees the finding fixed or an exit reports them in its
-    * [[IgnoredIssues]].
+  /** Split one agent's findings on the confidence gate, keying what it keeps by
+    * the agent's index in the round ([[KeyedIssue.forAgent]]). Rejects are
+    * kept, not discarded: [[ReviewLoopState]]'s [[GateLedger]] holds them until
+    * either the loop sees the finding fixed or an exit reports them in its
+    * [[IgnoredIssues]]. They carry no key — nothing hands them to the fixer.
     */
-  private def applyGate(result: ReviewResult): GatedIssues =
+  private def applyGate(agentIndex: Int, result: ReviewResult): GatedIssues =
     val (kept, dropped) = result.issues.partition(confidenceGate.admits)
-    GatedIssues(ReviewResult(kept), dropped)
+    GatedIssues(KeyedIssue.forAgent(agentIndex, kept), dropped)
 
   /** Run one reviewer against an immutable sessions snapshot. Returns the
     * review result plus the [[SessionEntry]] the caller folds into the next
@@ -611,14 +620,16 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     val current =
       if active.isEmpty then DiffSample("", Nil) else diffSource.sample()
 
-    val reviewerTasks: List[() => AgentOutcome] = active.map: e =>
-      val stored = currentState.sessions.get(e.id)
-      () =>
-        val (result, newSession) =
-          reviewWithSession(e, stored, current, declined)
-        AgentOutcome.Reviewer(
-          RoundContribution(e, applyGate(result), newSession)
-        )
+    // Each agent's key index is its position here — fixed before the fan-out.
+    val reviewerTasks: List[() => AgentOutcome] =
+      active.zipWithIndex.map: (e, agentIndex) =>
+        val stored = currentState.sessions.get(e.id)
+        () =>
+          val (result, newSession) =
+            reviewWithSession(e, stored, current, declined)
+          AgentOutcome.Reviewer(
+            RoundContribution(e, applyGate(agentIndex, result), newSession)
+          )
 
     // Resolved outside the fork below so the next state carries the
     // conversation even on a round that short-circuits before any turn; minting
@@ -639,7 +650,9 @@ private[review] class ReviewFixLoop[B <: BackendTag](
             lint(r.gate.commands, r.summariser, ReviewLoopPrompts.SummariseLint)
           AgentOutcome.Lint(
             LintContribution(
-              applyGate(report.result),
+              // Lint findings come last in the fix list, so it takes the index
+              // after the last reviewer.
+              applyGate(active.size, report.result),
               report.resumableSummariser
             )
           )
@@ -695,8 +708,8 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     val contributions = active.flatMap(e => byId.get(e.id))
     val lint = outcomes.collectFirst { case AgentOutcome.Lint(c) => c }
     RoundOutcome(
-      issues = contributions.flatMap(_.gated.kept.issues) ++
-        lint.toList.flatMap(_.gated.kept.issues),
+      issues = contributions.flatMap(_.gated.kept) ++
+        lint.toList.flatMap(_.gated.kept),
       state = currentState.afterRound(contributions, lint)
     )
 
@@ -768,7 +781,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
   // Routed through the durable [[FlowSession]] door: a coder whose backend
   // conversation is fresh or lost gets the seed + progress preamble re-applied
   // and its learned wire id persisted.
-  private def fix(issues: List[ReviewIssue])(using
+  private def fix(issues: List[KeyedIssue])(using
       fc: FlowControl,
       ws: WorkspaceWrite
   ): FixOutcome =
@@ -873,10 +886,10 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     ): IgnoredIssues =
       orca.display(s"Iteration ${iteration + 1}")
       val round = evaluate(state, selectRound, declined)
-      val issues = round.issues
-      val seenSeverities = indexSeverities(severities, issues)
+      val findings = round.issues.map(_.issue)
+      val seenSeverities = indexSeverities(severities, findings)
       stopPolicy(
-        issues,
+        findings,
         iteration = iteration,
         maxIterations = maxIterations
       ) match
@@ -890,7 +903,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
             seenSeverities
           )
         case LoopStep.NeedsFix =>
-          val outcome = FixOutcome.reconcile(issues, fix(issues))
+          val outcome = FixOutcome.reconcile(round.issues, fix(round.issues))
           // `ctx` explicit for the same given-priority reason as `selectRound`.
           announceFixTurn(outcome)(using ctx)
           if outcome.fixed.isEmpty then

@@ -57,17 +57,17 @@ object FixOutcome:
     * paraphrase cannot record one real finding twice.
     */
   private[review] def reconcile(
-      handed: List[ReviewIssue],
+      handed: List[KeyedIssue],
       outcome: FixOutcome
   ): ReconciledFixOutcome =
-    val keyed = handed.zipWithIndex.map((i, n) => (FixRequest.key(n), i))
+    val issues = handed.map(_.issue)
 
     def resolve(echo: String): Option[ReviewIssue] =
       val text = echo.trim
-      keyed
-        .collectFirst { case (k, i) if startsWithKey(text, k) => i }
-        .orElse(handed.find(_.title.value == text))
-        .orElse(handed.find(i => normalised(i.title.value) == normalised(text)))
+      handed
+        .collectFirst { case k if startsWithKey(text, k.key) => k.issue }
+        .orElse(issues.find(_.title.value == text))
+        .orElse(issues.find(i => normalised(i.title.value) == normalised(text)))
 
     // Buckets are keyed by title throughout, so two reviewers reporting the
     // same title cannot land one copy in `ignored` and the other in
@@ -84,13 +84,12 @@ object FixOutcome:
     ReconciledFixOutcome(
       fixed = fixedTitles.distinct,
       ignored = ignoredEntries.map(IgnoredIssue(_, _)),
-      unaccounted = handed.map(_.title).distinct.filterNot(accounted.contains),
+      unaccounted = issues.map(_.title).distinct.filterNot(accounted.contains),
       unresolvedEchoes = echoes.filter(resolve(_).isEmpty)
     )
 
-  // A key only matches when the echo doesn't continue it with another letter or
-  // digit, so `I1` claims neither the reply naming `I10` nor one opening with
-  // an unrelated word like `I2C bus timing`.
+  // A key only matches when the echo doesn't continue it with another digit —
+  // otherwise `I1.1` would claim a reply naming `I1.10` — or with a letter.
   private def startsWithKey(echo: String, key: String): Boolean =
     echo.startsWith(key) &&
       (echo.length == key.length || !echo.charAt(key.length).isLetterOrDigit)

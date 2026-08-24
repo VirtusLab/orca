@@ -20,10 +20,13 @@ private[terminal] object CommandHeadline:
   private val MinBoundaryDivisor: Int = 2
 
   def render(command: String, maxLength: Int): String =
-    val matcher = ShellWrapper.matcher(command)
+    // Collapsed first: a `git commit -m "subject\n\nbody"` arrives carrying real
+    // newlines, and both the wrapper match and the width budget assume one line.
+    val single = Text.collapseWhitespace(command)
+    val matcher = ShellWrapper.matcher(single)
     val unwrapped =
-      if matcher.lookingAt() then unquote(command.substring(matcher.end()))
-      else command
+      if matcher.lookingAt() then unquote(single.substring(matcher.end()))
+      else single
     truncateAtBoundary(unwrapped, maxLength)
 
   /** Drop the quotes the wrapper needed to pass the command as one argument.

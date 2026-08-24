@@ -38,6 +38,42 @@ class ToolInputSummaryTest extends munit.FunSuite:
     val raw = """{"query":"file_path","file_path":"real.py"}"""
     assertEquals(ToolInputSummary.summarise(raw, maxLen), "(real.py)")
 
+  test("summarise keeps a command with an embedded newline on one line"):
+    // `\n` survives the raw JSON's whitespace collapse as two characters and
+    // only becomes a newline when the value is unescaped.
+    val raw =
+      """{"command":"git commit -m \"feat: add variance\n\nImplements it.\""}"""
+    val out = ToolInputSummary.summarise(raw, maxLen)
+    assertEquals(out, """(git commit -m "feat: add variance Implements it.")""")
+
+  test("summarise spends the width budget on visible characters only"):
+    // Newlines in the body would cost budget without showing the reader
+    // anything.
+    val body = List.fill(60)("line").mkString("\n")
+    val raw = s"""{"description":"${body.replace("\n", "\\n")}"}"""
+    val out = ToolInputSummary.summarise(raw, maxLen)
+    // 24 words ("line " × 24, less the trailing space) fill the 120-char
+    // budget, and the cut character becomes the ellipsis.
+    assertEquals(out, s"(${List.fill(24)("line").mkString(" ")}…)")
+
+  test("summarise heads a search with its pattern, scoped to a subtree"):
+    val workDir = os.Path("/tmp/orca-AbC")
+    val raw =
+      s"""{"pattern":"variance","path":"${workDir.toString}/stats"}"""
+    val out = ToolInputSummary.summarise(raw, maxLen, Some(workDir))
+    assertEquals(out, "(variance in stats)")
+
+  test("summarise drops a search path that is the working directory"):
+    // `relativise` turns it into `.`, which says nothing about the call.
+    val workDir = os.Path("/tmp/orca-AbC")
+    val raw = s"""{"pattern":"variance","path":"${workDir.toString}"}"""
+    val out = ToolInputSummary.summarise(raw, maxLen, Some(workDir))
+    assertEquals(out, "(variance)")
+
+  test("summarise still heads a path-only tool with its path"):
+    val raw = """{"path":"src/Main.scala"}"""
+    assertEquals(ToolInputSummary.summarise(raw, maxLen), "(src/Main.scala)")
+
   test("summarise picks the rev/skill/name headlines"):
     assertEquals(
       ToolInputSummary.summarise("""{"rev":"HEAD","stat":true}""", maxLen),
@@ -58,6 +94,10 @@ class ToolInputSummaryTest extends munit.FunSuite:
       ToolInputSummary.summarise(raw, maxLen),
       "{old_string, new_string}"
     )
+
+  test("summarise falls through a headline value that is only whitespace"):
+    val raw = """{"pattern":"\t"}"""
+    assertEquals(ToolInputSummary.summarise(raw, maxLen), "{pattern}")
 
   test("summarise lists only top-level field names, not nested ones"):
     val raw = """{"edits":[{"inner":"x"}],"dry_run":true}"""

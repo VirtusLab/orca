@@ -174,7 +174,7 @@ class FixLoopTest extends munit.FunSuite:
         if evaluates == 1 then ReviewResult(List(issue("x")))
         else ReviewResult.empty
       ,
-      fix = _ => FixOutcome(List(Title("I1 sorted out the x problem")), Nil)
+      fix = _ => FixOutcome(List(Title("I1.1 sorted out the x problem")), Nil)
     )
     assertEquals(evaluates, 2, "a resolved fix must let the loop re-evaluate")
     assertEquals(result, IgnoredIssues(Nil))
@@ -236,8 +236,8 @@ class FixLoopTest extends munit.FunSuite:
       location = Some(Location("src/main/Foo.scala", Some(42))),
       suggestion = Some("stream batches instead of buffering")
     )
-    val rendered = formatIssue(real)
-    assert(rendered.contains("[Warning]"), s"missing severity: $rendered")
+    val rendered = formatIssue("I1.1", real)
+    assert(rendered.startsWith("- I1.1 [Warning]"), s"missing key: $rendered")
     assert(rendered.contains("Unbounded growth"), s"missing title: $rendered")
     assert(
       rendered.contains("at src/main/Foo.scala:42"),
@@ -251,18 +251,29 @@ class FixLoopTest extends munit.FunSuite:
   test("formatReviewerOutcome notes gate rejects on a clean review"):
     // A reviewer whose findings were all gated out must not read as quiet.
     assertEquals(
-      formatReviewerOutcome("loud", ReviewResult.empty, 3),
+      formatReviewerOutcome("loud", Nil, 3),
       "loud: 0 issues (3 below the confidence gate)"
     )
 
   test("formatReviewerOutcome notes gate rejects in the heading above bullets"):
     val rendered =
-      formatReviewerOutcome("loud", ReviewResult(List(issue("x"))), 1)
+      formatReviewerOutcome("loud", KeyedIssue.forAgent(0, List(issue("x"))), 1)
     assertEquals(
       rendered.linesIterator.next(),
       "loud: 1 issue (1 below the confidence gate)"
     )
-    assert(rendered.contains("- [Warning] x"), rendered)
+    assert(rendered.contains("- I1.1 [Warning] x"), rendered)
+
+  test("formatReviewerOutcome bullets carry the agent's own key index"):
+    // Keys name the agent that reported the finding, so the second agent's
+    // findings are I2.n — that is what the fixer echoes back.
+    val rendered = formatReviewerOutcome(
+      "second",
+      KeyedIssue.forAgent(1, List(issue("x"), issue("y"))),
+      0
+    )
+    assert(rendered.contains("- I2.1 [Warning] x"), rendered)
+    assert(rendered.contains("- I2.2 [Warning] y"), rendered)
 
   test("formatIssue renders a file-only location with no trailing line"):
     // A line without a file is unrepresentable (Location pairs them); this
@@ -275,7 +286,7 @@ class FixLoopTest extends munit.FunSuite:
       location = Some(Location("src/main/Foo.scala", None)),
       suggestion = None
     )
-    val rendered = formatIssue(fileOnly)
+    val rendered = formatIssue("I1.1", fileOnly)
     assert(
       rendered.contains("at src/main/Foo.scala") &&
         !rendered.contains("src/main/Foo.scala:"),
