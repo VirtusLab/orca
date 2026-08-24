@@ -93,6 +93,7 @@ Used in the event log:
 | `⎿` | grey | The result of the preceding tool call, truncated to one line. |
 | `✖` | red | An error — either an `OrcaEvent.Error` from a stage that threw, or a non-fatal mid-session error. |
 | `?` | yellow | Approval request — the agent wants a tool that isn't auto-approved. |
+| `!` | yellow, bold | An `OrcaEvent.Caveat` — something true of the whole run, today a restriction a backend cannot apply mechanically. |
 
 Used in the status line:
 
@@ -109,6 +110,9 @@ Glyph choices are pragmatic:
   introducing a third arrow shape.
 - `⏺` / `⎿` for tool call / result echo the Claude Code aesthetic;
   changing them is fine but they should stay paired.
+- `!` is ASCII punctuation like `?`, marking a line that isn't progress.
+  It is also the one event-log line printed at zero indent whatever stage
+  is open, since the caveat's scope is the run.
 - The braille spinner's column-stable width (each frame is one
   glyph) is what makes single-line redraws clean.
 

@@ -21,6 +21,8 @@ private[runner] class TerminalEventListener(
   import TerminalEventListener.{
     AssistantGlyph,
     AssistantGlyphStyle,
+    CaveatGlyph,
+    CaveatStyle,
     ErrorGlyph,
     MaxAssistantMessageLength,
     MaxStructuredResultRawLength,
@@ -64,6 +66,9 @@ private[runner] class TerminalEventListener(
       () // Token accounting is owned by CostTracker.
     case OrcaEvent.Step(message) =>
       output.log(formatStepLine(message))
+    case OrcaEvent.Caveat(message) =>
+      // No `formatIndented`, unlike every sibling arm: it is run-scoped.
+      output.log(paint(CaveatStyle, s"$CaveatGlyph ") + message)
     case OrcaEvent.StructuredResult(raw, summary) =>
       // Surfaces the result the conversation renderer suppressed in structured
       // mode. `summary` is tri-state (see the event's scaladoc): `Some(s)`
@@ -154,6 +159,11 @@ private[runner] object TerminalEventListener:
   val ErrorGlyph: String = "✖"
   val AssistantGlyph: String = "●"
 
+  /** Marker for a run-level caveat ([[OrcaEvent.Caveat]]). ASCII punctuation,
+    * like the approval prompt's `?`, marks a line that isn't flow progress.
+    */
+  val CaveatGlyph: String = "!"
+
   /** Marker for the human input sent to the agent. Matches the
     * [[ConversationRenderer]]'s `▸` user glyph.
     */
@@ -173,6 +183,9 @@ private[runner] object TerminalEventListener:
 
   /** Cyan-bold to mirror the [[ConversationRenderer]]'s user-message header. */
   val UserPromptStyle: fansi.Attrs = fansi.Color.Cyan ++ fansi.Bold.On
+
+  /** Yellow-bold: a caution, short of the red an [[OrcaEvent.Error]] gets. */
+  val CaveatStyle: fansi.Attrs = fansi.Color.Yellow ++ fansi.Bold.On
 
   /** Per-turn cap collapsing long agent prose to one line. Matches the live
     * renderer's tool-result-content cap.

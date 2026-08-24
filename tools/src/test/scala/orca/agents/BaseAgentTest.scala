@@ -188,51 +188,66 @@ class BaseAgentTest extends munit.FunSuite:
   // that the gate isn't mechanical — and a fan-out would repeat the notice per
   // turn, which is why it is deduplicated rather than emitted per run call.
   test("a read-only tier the backend doesn't gate is reported once"):
-    val steps = new StepRecorder
+    val notices = new NoticeRecorder
     val tool = new StubTool(
       new UngatedBackend("first", "second"),
       toolConfig = AgentConfig(tools = ToolSet.ReadOnly),
-      listener = steps.listener,
+      listener = notices.listener,
       prompts = DefaultPrompts
     )
     val _ = tool.run("one")
     val _ = tool.run("two")
-    assertEquals(steps.seen, List(BaseAgentTest.noEditNotice("ReadOnly")))
+    assertEquals(notices.caveats, List(BaseAgentTest.noEditNotice("ReadOnly")))
+
+  test("the shortfall is not announced as progress"):
+    val notices = new NoticeRecorder
+    val tool = new StubTool(
+      new UngatedBackend("first"),
+      toolConfig = AgentConfig(tools = ToolSet.ReadOnly),
+      listener = notices.listener,
+      prompts = DefaultPrompts
+    )
+    val _ = tool.run("one")
+    assert(notices.caveats.nonEmpty)
+    assertEquals(notices.steps, Nil)
 
   // Reviewers — the turns this notice exists for — reach the backend through
   // `resultAs`, which dispatches on its own path rather than through the text
   // one, so it has to raise the notice itself.
   test("a read-only structured turn reports the shortfall too"):
-    val steps = new StepRecorder
+    val notices = new NoticeRecorder
     val tool = new StubTool(
       new UngatedBackend("""{"fixed":[],"ignored":[]}"""),
       toolConfig = AgentConfig(tools = ToolSet.NetworkOnly),
-      listener = steps.listener,
+      listener = notices.listener,
       prompts = DefaultPrompts
     )
     val _ = tool.resultAs[FixOutcome].autonomous.run("fix compile errors")
-    assertEquals(steps.seen, List(BaseAgentTest.noEditNotice("NetworkOnly")))
+    assertEquals(
+      notices.caveats,
+      List(BaseAgentTest.noEditNotice("NetworkOnly"))
+    )
 
   // The gate lives on `AgentBackend.runAutonomous` itself, so a turn entry
   // point that never goes through `BaseAgent` or `DefaultAgentCall` still
   // announces — a new door cannot forget it.
   test("a direct runAutonomous call announces the shortfall"):
-    val steps = new StepRecorder
+    val notices = new NoticeRecorder
     val _ = new UngatedBackend("reply").runAutonomous(
       "one",
       SessionId.fresh[BackendTag.Pi.type],
       AgentConfig(tools = ToolSet.ReadOnly),
-      steps.listener
+      notices.listener
     )
-    assertEquals(steps.seen, List(BaseAgentTest.noEditNotice("ReadOnly")))
+    assertEquals(notices.caveats, List(BaseAgentTest.noEditNotice("ReadOnly")))
 
   // The first attempt commits the session, so the corrective re-prompt runs as
   // a resumed turn — which on this backend (codex's shape) is where the gate
   // disappears. Classified once per call instead of once per attempt, the
   // retry's weaker guarantee would go unreported: the first attempt is `Hard`,
-  // so the single Step below is entirely the second attempt's, and says so.
+  // so the single Caveat below is entirely the second attempt's, and says so.
   test("a corrective retry reports the resumed turn's weaker guarantee"):
-    val steps = new StepRecorder
+    val notices = new NoticeRecorder
     val tool = new StubTool(
       new WeakerOnResumeBackend(
         "not json at all",
@@ -242,12 +257,12 @@ class BaseAgentTest extends munit.FunSuite:
         tools = ToolSet.ReadOnly,
         retrySchedule = Schedule.exponentialBackoff(1.milli).maxRetries(1)
       ),
-      listener = steps.listener,
+      listener = notices.listener,
       prompts = DefaultPrompts
     )
     val _ = tool.resultAs[FixOutcome].autonomous.run("fix compile errors")
     assertEquals(
-      steps.seen,
+      notices.caveats,
       List(BaseAgentTest.noEditNotice("resumed ReadOnly"))
     )
 
@@ -256,7 +271,7 @@ class BaseAgentTest extends munit.FunSuite:
   // `Only` list on the spawn and encodes nothing at all on the resume, and the
   // second sentence has to say which turn it is about.
   test("a retry whose approximation is dropped names the resumed turn"):
-    val steps = new StepRecorder
+    val notices = new NoticeRecorder
     val tool = new StubTool(
       new WeakerOnResumeBackend(
         "not json at all",
@@ -266,12 +281,12 @@ class BaseAgentTest extends munit.FunSuite:
         autoApprove = AutoApprove.Only(Set("read")),
         retrySchedule = Schedule.exponentialBackoff(1.milli).maxRetries(1)
       ),
-      listener = steps.listener,
+      listener = notices.listener,
       prompts = DefaultPrompts
     )
     val _ = tool.resultAs[FixOutcome].autonomous.run("fix compile errors")
     assertEquals(
-      steps.seen,
+      notices.caveats,
       List(
         "Pi cannot hold a Full turn to the tools it was asked to auto-approve" +
           " — the sandbox it runs in is wider than that",
@@ -284,16 +299,16 @@ class BaseAgentTest extends munit.FunSuite:
   // and a backend that encodes no such list runs the agent wider than asked
   // with nothing else saying so.
   test("a Full turn whose Only list isn't encoded is reported"):
-    val steps = new StepRecorder
+    val notices = new NoticeRecorder
     val tool = new StubTool(
       new UngatedBackend("only"),
       toolConfig = AgentConfig(autoApprove = AutoApprove.Only(Set("read"))),
-      listener = steps.listener,
+      listener = notices.listener,
       prompts = DefaultPrompts
     )
     val _ = tool.run("one")
     assertEquals(
-      steps.seen,
+      notices.caveats,
       List(
         "Pi cannot hold a Full turn to the tools it was asked to auto-approve" +
           " — only the turn's own prompt asks it not to"
@@ -304,31 +319,31 @@ class BaseAgentTest extends munit.FunSuite:
   // turn approving everything asked for none, so the same weak declaration must
   // stay silent.
   test("a Full turn approving everything reports no shortfall"):
-    val steps = new StepRecorder
+    val notices = new NoticeRecorder
     val tool = new StubTool(
       new UngatedBackend("only"),
-      listener = steps.listener,
+      listener = notices.listener,
       prompts = DefaultPrompts
     )
     val _ = tool.run("one")
-    assertEquals(steps.seen, Nil)
+    assertEquals(notices.caveats, Nil)
 
   // The log lives on the backend, so two backends of the same kind — a flow
   // that wires its own second one — each say their piece. Documented on
   // `AgentBackend`; pinned here because it is a consequence of where the state
   // sits rather than of anything the notice does.
   test("a second backend of the same kind gives its own notice"):
-    val steps = new StepRecorder
+    val notices = new NoticeRecorder
     def readOnlyTool = new StubTool(
       new UngatedBackend("reply"),
       toolConfig = AgentConfig(tools = ToolSet.ReadOnly),
-      listener = steps.listener,
+      listener = notices.listener,
       prompts = DefaultPrompts
     )
     val _ = readOnlyTool.run("one")
     val _ = readOnlyTool.run("two")
     assertEquals(
-      steps.seen,
+      notices.caveats,
       List.fill(2)(BaseAgentTest.noEditNotice("ReadOnly"))
     )
 
@@ -858,18 +873,21 @@ class BaseAgentTest extends munit.FunSuite:
     )(using ox.Ox): Conversation[BackendTag.Pi.type] =
       throw new UnsupportedOperationException
 
-  /** Collects the `Step` lines a run showed, in order — the notice's
-    * user-facing channel.
+  /** Records every event a run emitted, projected onto the [[caveats]] and
+    * [[steps]] messages in emission order.
     */
-  private class StepRecorder:
-    private val steps =
-      new java.util.concurrent.atomic.AtomicReference[List[String]](Nil)
+  private class NoticeRecorder:
+    private val events =
+      new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
     val listener: OrcaListener = event =>
-      event match
-        case OrcaEvent.Step(message) =>
-          val _ = steps.updateAndGet(message :: _)
-        case _ => ()
-    def seen: List[String] = steps.get().reverse
+      val _ = events.updateAndGet(event :: _)
+    private def seen: List[OrcaEvent] = events.get().reverse
+    def caveats: List[String] = seen.collect { case c: OrcaEvent.Caveat =>
+      c.message
+    }
+    def steps: List[String] = seen.collect { case s: OrcaEvent.Step =>
+      s.message
+    }
 
   /** Gates nothing mechanically, whichever way the turn dispatches — the
     * condition `EnforcementNotice` exists to report.

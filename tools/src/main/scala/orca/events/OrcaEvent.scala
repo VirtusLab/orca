@@ -35,6 +35,15 @@ enum OrcaEvent:
     */
   case Step(message: String)
 
+  /** Something true of the whole run rather than of the stage it surfaced in —
+    * today, a restriction a backend cannot apply mechanically
+    * ([[orca.agents.EnforcementNotice]]). Distinct from [[Step]] because a
+    * caveat about what orca can guarantee must not read as progress: the
+    * terminal listener prints it un-indented with a `!`, so the stage it
+    * happened to fire under doesn't look like its scope.
+    */
+  case Caveat(message: String)
+
   /** Token usage for a single LLM call, attributed along three independent axes
     * that `CostTracker` summarises separately:
     *
