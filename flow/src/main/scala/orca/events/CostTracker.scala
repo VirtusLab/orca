@@ -109,7 +109,7 @@ class CostTracker(pricingAsOf: LocalDate) extends OrcaListener:
   def perModelCost: Map[Option[Model], Cost] = costsOf(state.get().byModel)
 
   /** Per-role usage breakdown ([[Agent.role]], e.g. `Some("reviewer")`). `None`
-    * collects calls from an agent with no role tag — the common case.
+    * collects calls from every agent with no role tag — the common case.
     */
   def perRole: Map[Option[String], Usage] =
     state.get().byRole.view.mapValues(_.usage).toMap
@@ -120,7 +120,7 @@ class CostTracker(pricingAsOf: LocalDate) extends OrcaListener:
   /** Two or three sections — by-agent, by-model and by-role — each sorted
     * alphabetically by its rendered label. The by-role section appears only
     * when some call carried a [[orca.agents.Agent.role]] tag, and then includes
-    * the `(untagged)` bucket too, so it still sums to the run's total. Each
+    * the `(no role)` bucket too, so it still sums to the run's total. Each
     * by-agent line is prefixed with that agent's role when it has one (e.g.
     * `reviewer: performance`). Cache reads, cache writes and reasoning tokens
     * are shown parenthetically when non-zero. Token counts are rendered
@@ -203,11 +203,11 @@ class CostTracker(pricingAsOf: LocalDate) extends OrcaListener:
   private def modelLabel(model: Option[Model]): String =
     model.map(_.name).getOrElse("(unknown)")
 
-  /** Render a role bucket key for the summary. `None` covers calls from an
-    * agent with no role tag — too varied to name for any one role.
+  /** Render a role bucket key for the summary. `None` covers calls from every
+    * agent with no role tag.
     */
   private def roleLabel(role: Option[String]): String =
-    role.getOrElse("(untagged)")
+    role.getOrElse("(no role)")
 
   /** Render a by-agent line's label: the bare agent name, prefixed with its
     * role (looked up in `agentRoles`) when it has one. The `"reviewer: "`
