@@ -565,7 +565,7 @@ class CostTrackerTest extends munit.FunSuite:
     assertEquals(tracker.totalCost.map(_.estimated), Some(false))
     assert(tracker.summary.contains("Total: $0.1000"), tracker.summary)
 
-  test("perRole subtotals usage by role, with None as the untagged bucket"):
+  test("perRole subtotals usage by role, with None as the role-less bucket"):
     val tracker = new CostTracker(pricingAsOf)
     tracker.onEvent(
       tokens(
@@ -623,7 +623,7 @@ class CostTrackerTest extends munit.FunSuite:
     assert(!tracker.summary.contains("By role:"), tracker.summary)
 
   test(
-    "summary's By role section shows untagged spend, so it sums to the total"
+    "summary's By role section shows role-less spend, so it sums to the total"
   ):
     val tracker = new CostTracker(pricingAsOf)
     tracker.onEvent(
@@ -638,12 +638,31 @@ class CostTrackerTest extends munit.FunSuite:
       tokens("claude", Some("opus"), usage(100L, 50L, Some(BigDecimal("0.40"))))
     )
     val out = tracker.summary
-    assert(out.contains("  (untagged): 100 in, 50 out ($0.4000)"), out)
+    assert(out.contains("  (no role): 100 in, 50 out ($0.4000)"), out)
     assert(out.contains("  reviewer: 10 in, 5 out ($0.6000)"), out)
     assert(out.contains("Total: $1.0000"), out)
 
   test(
-    "summary's By role section has no untagged line when every call carried a role"
+    "summary's (no role) bucket sums every role-less agent, not just the lead"
+  ):
+    val tracker = new CostTracker(pricingAsOf)
+    tracker.onEvent(tokens("main", Some("opus"), usage(100L, 50L, None)))
+    tracker.onEvent(tokens("helper", Some("opus"), usage(20L, 10L, None)))
+    tracker.onEvent(
+      tokens(
+        "performance",
+        Some("opus"),
+        usage(10L, 5L, None),
+        role = Some("reviewer")
+      )
+    )
+    assert(
+      tracker.summary.contains("  (no role): 120 in, 60 out"),
+      tracker.summary
+    )
+
+  test(
+    "summary's By role section has no role-less line when every call carried a role"
   ):
     val tracker = new CostTracker(pricingAsOf)
     tracker.onEvent(
@@ -654,7 +673,7 @@ class CostTrackerTest extends munit.FunSuite:
         role = Some("reviewer")
       )
     )
-    assert(!tracker.summary.contains("(untagged)"), tracker.summary)
+    assert(!tracker.summary.contains("(no role)"), tracker.summary)
 
   test("summary is empty when nothing has been recorded"):
     assertEquals(new CostTracker(pricingAsOf).summary, "")
