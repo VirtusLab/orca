@@ -106,7 +106,9 @@ private[runner] class TerminalEventListener(
     * single emitter, nothing is prefixed — a stage running one agent looks
     * exactly as it did. From the moment a second agent emits, every line is
     * named, the first agent's included: with the review fan-out interleaving
-    * them, an unnamed line can no longer be attributed by position.
+    * them, an unnamed line can no longer be attributed by position. The first
+    * agent's earlier lines stay bare — the log is append-only, so nothing
+    * already printed can be prefixed after the fact.
     *
     * An event carrying no agent name never counts as an emitter.
     */

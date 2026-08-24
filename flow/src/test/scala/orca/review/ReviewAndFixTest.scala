@@ -191,6 +191,36 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
     assertEquals(result.issues.map(_.title), List(Title("flaky")))
 
+  test("a finding is shown under the key the fixer is handed for it"):
+    // The fixer narrates its work by key ("Fix I2.1"), so a key on screen that
+    // named a different finding in the prompt would misattribute every fix.
+    val steps = new ReviewLoopFixture.StepCapture
+    given FlowControl = ReviewLoopFixture.control(steps.dispatcher)
+    val first = new FakeAgent(
+      name = "first",
+      outputs = List(ReviewResult(List(issue("a"), issue("b"))))
+    )
+    val second = new FakeAgent(
+      name = "second",
+      outputs = List(ReviewResult(List(issue("c"))))
+    )
+    val coder = new FakeAgent("coder", outputs = List(FixOutcome(Nil, Nil)))
+    val _ = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(first, second),
+      task = titled("build the widget"),
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      diff = ReviewDiff.Pinned("")
+    )
+    assert(
+      steps.messages.exists(_.contains("- I2.1 [Warning] c")),
+      steps.messages.mkString("\n")
+    )
+    assert(
+      coder.seenPrompts.head.contains("I2.1 [Warning] c"),
+      coder.seenPrompts.mkString("\n")
+    )
+
   test("the clean exit names what the gate held back, and why"):
     // Termination honesty: a round whose only findings were gated out must not
     // report a bare "No review comments", and must say which finding it means.

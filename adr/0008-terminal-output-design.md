@@ -66,9 +66,9 @@ amendment for the tri-state).
 
 **Tool-call paths under `workDir` show as relative.** Absolute paths
 outside `workDir` stay absolute, so out-of-project file access is
-visually obvious. Free-form `command` / `pattern` / `query`
-fields pass through verbatim — only `file_path`/`path` headline
-fields get the rewrite.
+visually obvious. `command` and `url` pass through verbatim;
+`pattern`/`query` head the call and take a relativised ` in <dir>`
+suffix when the search was narrowed below `workDir`.
 
 **Subprocess stderr must be captured.** os-lib 0.11.x defaults
 `os.proc(...).call(...)`'s `stderr` to `Inherit`. A tool calling

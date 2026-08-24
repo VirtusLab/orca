@@ -8,27 +8,27 @@ import orca.plan.Title
   */
 class FixOutcomeReconcileTest extends munit.FunSuite:
 
-  private def handed(titles: String*): List[ReviewIssue] =
-    titles.toList.map(t => issue(t))
+  private def handed(titles: String*): List[KeyedIssue] =
+    KeyedIssue.forAgent(0, titles.toList.map(t => issue(t)))
 
   test("a key claims only its own issue, never one whose key it prefixes"):
-    // `I1` prefixes `I10`; the echo names the tenth issue, so the first must
-    // stay unaccounted.
+    // `I1.1` prefixes `I1.10`; the echo names the tenth issue, so the first
+    // must stay unaccounted.
     val issues = handed((1 to 10).map(n => s"finding $n")*)
     val reconciled = FixOutcome.reconcile(
       issues,
-      FixOutcome(List(Title("I10 finding 10")), Nil)
+      FixOutcome(List(Title("I1.10 finding 10")), Nil)
     )
     assertEquals(reconciled.fixed, List(Title("finding 10")))
 
   test("a key followed by a letter does not claim that issue"):
-    // "I2C bus timing" opens with `I2` but names something else entirely.
+    // The boundary check covers a following letter, not just a digit.
     val reconciled = FixOutcome.reconcile(
       handed("first", "second"),
-      FixOutcome(Nil, List(IgnoredIssue(Title("I2C bus timing"), "no")))
+      FixOutcome(Nil, List(IgnoredIssue(Title("I1.2C bus timing"), "no")))
     )
     assertEquals(reconciled.ignored, Nil)
-    assertEquals(reconciled.unresolvedEchoes, List("I2C bus timing"))
+    assertEquals(reconciled.unresolvedEchoes, List("I1.2C bus timing"))
 
   test("a title differing only in case and spacing still resolves"):
     val reconciled = FixOutcome.reconcile(
@@ -46,7 +46,7 @@ class FixOutcomeReconcileTest extends munit.FunSuite:
   test("an issue the fixer claimed twice is one fixed entry"):
     val reconciled = FixOutcome.reconcile(
       handed("real bug"),
-      FixOutcome(List(Title("I1 real bug"), Title("real bug")), Nil)
+      FixOutcome(List(Title("I1.1 real bug"), Title("real bug")), Nil)
     )
     assertEquals(reconciled.fixed, List(Title("real bug")))
 

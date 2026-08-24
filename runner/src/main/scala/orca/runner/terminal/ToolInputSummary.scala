@@ -16,24 +16,30 @@ private[terminal] object ToolInputSummary:
 
   /** How a matched field's value renders: `Path` is a single path, relativised
     * against `workDir`; `Command` is a shell command line, rendered through
-    * [[CommandHeadline]]; `Plain` is free-form text that may interleave paths
-    * with other text, so it is only truncated.
+    * [[CommandHeadline]]; `Search` is a pattern or query, suffixed with the
+    * subtree it was scoped to; `Plain` is free-form text that may interleave
+    * paths with other text, so it is only truncated.
     */
   private enum HeadlineKind:
-    case Path, Command, Plain
+    case Path, Command, Search, Plain
 
   /** Field names tried against the input's top-level JSON object, in order —
     * the first match wins — each with how its value renders. More specific
-    * names come first (`file_path` beats `path`, both beat `pattern`/`query`);
-    * the tail holds the generic ones, `name` ahead of `description`.
+    * names come first (`file_path` beats `pattern`/`query`, all three beat
+    * `path`); the tail holds the generic ones, `name` ahead of `description`.
+    *
+    * A search tool carries `pattern` (or `query`) alongside `path`, and the
+    * pattern is what identifies the call: `path` is usually the working
+    * directory itself, which relativises to `.`. The path still shows, as the
+    * `Search` suffix, when it narrows the search.
     */
   private val HeadlineFields: List[(String, HeadlineKind)] =
     List(
       "file_path" -> HeadlineKind.Path,
+      "pattern" -> HeadlineKind.Search,
+      "query" -> HeadlineKind.Search,
       "path" -> HeadlineKind.Path,
       "command" -> HeadlineKind.Command,
-      "pattern" -> HeadlineKind.Plain,
-      "query" -> HeadlineKind.Plain,
       "url" -> HeadlineKind.Plain,
       "rev" -> HeadlineKind.Plain,
       "skill" -> HeadlineKind.Plain,
@@ -49,28 +55,65 @@ private[terminal] object ToolInputSummary:
       maxLength: Int,
       workDir: Option[os.Path] = None
   ): String =
-    val collapsed = collapseWhitespace(rawJson)
+    val collapsed = Text.collapseWhitespace(rawJson)
     if collapsed.isEmpty || collapsed == "{}" then ""
     else
       HeadlineFields.iterator
         .flatMap((field, kind) =>
-          extractStringField(collapsed, field).map(kind -> _)
+          extractStringField(collapsed, field)
+            // A value that collapses to nothing would head the line with an
+            // empty string, or with a bare ` in <dir>` suffix.
+            .filter(v => Text.collapseWhitespace(v).nonEmpty)
+            .map(kind -> _)
         )
         .nextOption() match
         case Some((kind, value)) =>
-          s"(${headline(kind, value, maxLength, workDir)})"
+          val text = headline(
+            kind,
+            value = value,
+            json = collapsed,
+            maxLength = maxLength,
+            workDir = workDir
+          )
+          s"($text)"
         case None => fallback(collapsed, maxLength)
 
+  /** `json` is the whole (collapsed) input, which a [[HeadlineKind.Search]]
+    * needs for its second field.
+    *
+    * Each branch collapses whitespace again — `Command` inside
+    * [[CommandHeadline]] — because the raw JSON's was collapsed before
+    * extraction, but [[unescape]] then turned each `\n` in the value into a
+    * real newline: a `git commit -m` body would otherwise spread the headline
+    * over three lines and spend the width budget on characters nobody sees.
+    */
   private def headline(
       kind: HeadlineKind,
       value: String,
+      json: String,
       maxLength: Int,
       workDir: Option[os.Path]
   ): String = kind match
     case HeadlineKind.Path =>
-      Text.truncate(relativise(value, workDir), maxLength)
+      Text.oneLine(relativise(value, workDir), maxLength)
     case HeadlineKind.Command => CommandHeadline.render(value, maxLength)
-    case HeadlineKind.Plain   => Text.truncate(value, maxLength)
+    case HeadlineKind.Search =>
+      Text.oneLine(scopedPattern(value, json, workDir), maxLength)
+    case HeadlineKind.Plain => Text.oneLine(value, maxLength)
+
+  /** `pattern in dir` when the call narrowed the search, the bare pattern
+    * otherwise: a search scoped to the working directory relativises to `.`,
+    * which says nothing about the call.
+    */
+  private def scopedPattern(
+      pattern: String,
+      json: String,
+      workDir: Option[os.Path]
+  ): String =
+    extractStringField(json, "path")
+      .map(relativise(_, workDir))
+      .filter(p => p.nonEmpty && p != ".")
+      .fold(pattern)(p => s"$pattern in $p")
 
   /** No headline field matched. Show WHICH fields the call carried rather than
     * their values: the values are the reason no field matched (long edit
@@ -95,15 +138,6 @@ private[terminal] object ToolInputSummary:
         else if value.startsWith(s"$abs/") then Some(value.drop(abs.length + 1))
         else None
       .getOrElse(value)
-
-  /** Pre-compiled — `String.replaceAll` recompiles on every call, and this
-    * fires once per tool-use event (many per turn on a busy session).
-    */
-  private val WhitespaceRun: java.util.regex.Pattern =
-    java.util.regex.Pattern.compile("\\s+")
-
-  private def collapseWhitespace(raw: String): String =
-    WhitespaceRun.matcher(raw).replaceAll(" ").trim
 
   /** Matches a `"field": "value"` entry — JSON allows whitespace around the
     * colon, and an agent that pretty-prints its tool input would otherwise fall

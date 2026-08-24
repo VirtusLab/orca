@@ -56,14 +56,17 @@ class ReviewTypesTest extends munit.FunSuite:
     // so a quoted margin block reaches the prompt as a `|` line.
     val request = FixRequest(
       "fix these",
-      List(
-        ReviewIssue(
-          severity = Severity.Warning,
-          confidence = Confidence.orThrow(0.9),
-          title = Title("Mangled quote"),
-          description = "the quote is mangled",
-          location = None,
-          suggestion = Some("use:\n  |a| b|")
+      KeyedIssue.forAgent(
+        0,
+        List(
+          ReviewIssue(
+            severity = Severity.Warning,
+            confidence = Confidence.orThrow(0.9),
+            title = Title("Mangled quote"),
+            description = "the quote is mangled",
+            location = None,
+            suggestion = Some("use:\n  |a| b|")
+          )
         )
       )
     )

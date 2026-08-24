@@ -11,22 +11,36 @@ import orca.agents.{AgentInput, JsonData, given}
   */
 private[review] case class FixRequest(
     instructions: String,
-    issues: List[ReviewIssue]
+    issues: List[KeyedIssue]
 ) derives JsonData
 
-private[review] object FixRequest:
-  /** The key the fixer is asked to echo for the issue at `index`. Positional
-    * and minted per turn, so it copies exactly where a paraphrased title does
-    * not; [[FixOutcome.reconcile]] resolves echoes against it.
-    */
-  def key(index: Int): String = s"I${index + 1}"
+/** A finding paired with the key the fixer is asked to echo for it. Minted when
+  * the gate splits an agent's findings, then used by both the display and the
+  * fix prompt, so what the fixer names in its prose ("Fix I2.1") is what the
+  * reader saw on screen.
+  */
+private[review] case class KeyedIssue(key: String, issue: ReviewIssue)
+    derives JsonData
 
+private[review] object KeyedIssue:
+  /** Mint the keys for one agent's findings in a round.
+    *
+    * Keys are positional and minted per turn, so the fixer copies them exactly
+    * where it would paraphrase a title; [[FixOutcome.reconcile]] resolves
+    * echoes against them. Numbering runs per agent rather than across the round
+    * so a key is fixed before the round's agents run: they report in any order,
+    * and each one's findings are shown as soon as it finishes.
+    */
+  def forAgent(agentIndex: Int, issues: List[ReviewIssue]): List[KeyedIssue] =
+    issues.zipWithIndex.map((issue, n) =>
+      KeyedIssue(s"I${agentIndex + 1}.${n + 1}", issue)
+    )
+
+private[review] object FixRequest:
   given AgentInput[FixRequest] with
     def serialize(r: FixRequest): String =
       val formatted =
-        r.issues.zipWithIndex
-          .map((i, n) => renderIssue(key(n), i))
-          .mkString("\n\n")
+        r.issues.map(k => renderIssue(k.key, k.issue)).mkString("\n\n")
       // No `stripMargin`: a reviewer's description or suggestion can carry
       // markdown tables and `|`-margin blocks, which it would eat.
       s"${r.instructions}\n\nIssues to fix:\n$formatted"
