@@ -50,8 +50,8 @@ object GitReadFailed:
 
   /** The read has no usable answer. `detail` is git's own message when git
     * refused (an unknown revision, a path missing from the commit), and orca's
-    * when git succeeded but the result is unusable — [[GitTool.show]] rendering
-    * nothing for the requested paths, [[GitTool.fileAt]] past its size limit.
+    * when git succeeded but the result is unusable — [[GitTool.show]] finding
+    * no change for the requested paths, [[GitTool.fileAt]] past its size limit.
     */
   final class Refused(detail: String) extends GitReadFailed(detail)
 
@@ -400,8 +400,8 @@ trait GitTool:
 
   /** `git show [--stat] <rev> [-- <paths>]` — a commit's message plus its diff,
     * or, under [[ShowDetail.StatOnly]], just its changed-file summary. `paths`
-    * narrows the diff; empty means the whole commit. When the commit renders no
-    * diff for `paths`, the result is a `Refused` rather than an empty success.
+    * narrows the diff; empty means the whole commit. When the commit changes
+    * none of `paths`, the result is a `Refused`.
     *
     * Built for agent-supplied arguments, so `rev` and `paths` are validated
     * before they reach git ([[GitRead.rev]], [[GitRead.path]]) and cannot be
@@ -870,20 +870,10 @@ private[orca] class OsGitTool(
   ): Either[GitReadFailed, String] = either:
     val checkedRev = GitRead.rev(rev).ok()
     val checkedPaths = paths.map(GitRead.path(_).ok())
-    val statFlag = detail match
-      case ShowDetail.StatOnly => Seq("--stat")
-      case ShowDetail.Full     => Nil
     val pathspec =
       if checkedPaths.isEmpty then Nil else "--" +: checkedPaths
-    // `--end-of-options` after the flags, so git cannot read `checkedRev` as
-    // one however it is spelled.
-    val output = gitRead(
-      Seq("show") ++ statFlag ++ Seq("--end-of-options", checkedRev) ++ pathspec
-    ).ok()
-    // git exits 0 printing nothing at all — not even the commit message — when
-    // it renders no diff for the pathspec. That blank cannot be told apart
-    // from a mistyped path, so there is no answer to hand back.
-    if checkedPaths.nonEmpty && output.out.isBlank then
+    // A diff-less render cannot be told apart from a mistyped path.
+    if checkedPaths.nonEmpty && !changesAnyPath(checkedRev, pathspec).ok() then
       Left(
         new GitReadFailed.Refused(
           s"$rev shows no diff for: ${paths.mkString(", ")} — they may be " +
@@ -893,7 +883,36 @@ private[orca] class OsGitTool(
             "commit, or read a file's contents at that revision."
         )
       ).ok()
-    else marked(output)
+    else
+      val statFlag = detail match
+        case ShowDetail.StatOnly => Seq("--stat")
+        case ShowDetail.Full     => Nil
+      // `--end-of-options` after the flags, so git cannot read `checkedRev` as
+      // one however it is spelled.
+      marked(
+        gitRead(
+          Seq("show") ++ statFlag ++
+            Seq("--end-of-options", checkedRev) ++ pathspec
+        ).ok()
+      )
+
+  /** Whether `checkedRev` changes any of `pathspec`. Asked of git rather than
+    * read off the render: since git 2.55 a `git show <rev> -- <paths>` that
+    * renders no diff still prints the commit header and message, so its output
+    * is not an emptiness signal.
+    *
+    * Same `show` invocation as the render, so pathspec, root-commit and merge
+    * semantics match it exactly; `--format=` leaves the changed-path list as
+    * the only output, and git writes not one byte of it when nothing changed.
+    */
+  private def changesAnyPath(
+      checkedRev: String,
+      pathspec: Seq[String]
+  ): Either[GitReadFailed, Boolean] =
+    gitRead(
+      Seq("show", "--name-only", "--format=", "--end-of-options", checkedRev)
+        ++ pathspec
+    ).map(_.out.nonEmpty)
 
   def fileAt(rev: String, path: String): Either[GitReadFailed, String] = either:
     val checkedRev = GitRead.rev(rev).ok()
