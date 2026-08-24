@@ -11,19 +11,22 @@ import org.slf4j.LoggerFactory
   * reporting into editing looks exactly like one in which editing was
   * impossible.
   *
-  * Two channels, because they have different readers: the `Step` a run shows
+  * Two channels, because they have different readers: the `Caveat` a run shows
   * says in plain words what the agent may still do, and the WARN behind it
   * carries the cell's rationale and level names for whoever is diagnosing.
   *
   * One instance per backend, held by [[AgentBackend]] and shared with any
   * sibling backend derived from it, so a twenty-reviewer fan-out says each
   * thing once.
+  *
+  * Said at the first turn that asks, not at run start: a flow picks a turn's
+  * `ToolSet` when it makes the call, so the run header cannot know the tiers.
   */
 private[orca] final class EnforcementNotice:
 
-  /** Rendered `Step` lines already said. Keyed on the sentence rather than the
-    * cell, so a different tier, dispatch or approval list repeats the notice
-    * exactly when it changes the wording.
+  /** Sentences already said. Keyed on the sentence rather than the cell, so a
+    * different tier, dispatch or approval list repeats the notice exactly when
+    * it changes the wording.
     */
   private val said =
     java.util.concurrent.ConcurrentHashMap.newKeySet[String]()
@@ -52,7 +55,7 @@ private[orca] final class EnforcementNotice:
       .summary(backend, config, cell, dispatch)
       .foreach: summary =>
         if said.add(summary) then
-          events.onEvent(OrcaEvent.Step(summary))
+          events.onEvent(OrcaEvent.Caveat(summary))
           EnforcementNotice.log.warn("{} — {}", summary, cell.rationale)
 
 private[orca] object EnforcementNotice:

@@ -87,6 +87,36 @@ class TerminalEventListenerTest extends munit.FunSuite:
       s"Step events must never produce a closing ✔ line; got: $output"
     )
 
+  test("a Caveat renders un-indented with `!`, whatever stage is open"):
+    val output = renderEvents(
+      List(
+        OrcaEvent.StageStarted("plan"),
+        OrcaEvent.Caveat("Codex cannot stop a NetworkOnly turn"),
+        OrcaEvent.StageCompleted("plan")
+      )
+    )
+    val line = output
+      .split('\n')
+      .find(_.contains("NetworkOnly"))
+      .getOrElse(fail(s"missing caveat line; got: $output"))
+    assertEquals(
+      line,
+      s"${TerminalEventListener.CaveatGlyph} Codex cannot stop a NetworkOnly turn"
+    )
+
+  test("a Caveat's glyph is painted in the caveat style, its body left plain"):
+    val output = renderWith(
+      animated = false,
+      events = List(OrcaEvent.Caveat("no gate here")),
+      listenerUseColor = true
+    )
+    val glyph = TerminalEventListener
+      .CaveatStyle(s"${TerminalEventListener.CaveatGlyph} ")
+      .render
+    val line = output.split('\n').head
+    assert(line.startsWith(glyph), line)
+    assertEquals(line.stripPrefix(glyph), "no gate here")
+
   test("errors are prefixed with an error marker"):
     val output = renderEvents(List(OrcaEvent.Error("boom")))
     assert(output.contains(TerminalEventListener.ErrorGlyph))

@@ -849,6 +849,7 @@ are indented.
 | `⎿` | Tool result, truncated to one line (interactive calls only) |
 | `✖` | Error |
 | `?` | Approval request, or a question for you (interactive calls only) |
+| `!` | Caveat about what Orca can enforce for this run (never indented under a stage) |
 
 </details>
 

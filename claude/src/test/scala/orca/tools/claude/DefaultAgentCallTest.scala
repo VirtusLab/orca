@@ -706,8 +706,8 @@ class DefaultAgentCallTest extends munit.FunSuite:
         interaction = drivingInteraction,
         agentName = "claude"
       ).interactive.run("anything")
-      val steps = seen.get().collect { case s: OrcaEvent.Step => s.message }
-      assert(steps.contains(expected), steps)
+      val caveats = seen.get().collect { case c: OrcaEvent.Caveat => c.message }
+      assert(caveats.contains(expected), caveats)
 
   test("interactive.runWithSession registers the (clientSid, serverSid) map"):
     // The framework must call `backend.sessions.register(session, result.wireId)`
