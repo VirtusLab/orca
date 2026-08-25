@@ -60,8 +60,9 @@ agent:
 orca run implement.sc "add a rate limiter to /login"
 ```
 
-Useful flag: `--skip-branch` (continue on the current branch instead of
-creating one).
+Useful flags: `--skip-branch` (continue on the current branch instead of
+creating one) and `--keep-changes` (leave uncommitted files in place instead of
+stashing them).
 
 In every mode, which agent (and model) handles the planning, coding, and review
 roles comes from `settings.properties` — written for you by the shell's
@@ -317,8 +318,17 @@ Each `flow(...)` run is bound to exactly one feature branch and one progress log
   branch — refusing on a protected branch or detached HEAD. On a FRESH
   `--skip-branch` run a dirty tree is tolerated, not stashed: uncommitted or
   untracked files (e.g. plan files left by a planning harness) stay in place for
-  the flow, and get swept into the first stage's commit. Resuming a
-  `--skip-branch` run still auto-stashes, same as normal mode.
+  the flow, and get swept into the first stage's commit. `--keep-changes`
+  (`OrcaArgs.keepChanges`) does the same on a FRESH run in either branch mode —
+  in normal mode the files survive branch creation and reach the new branch in
+  that first stage commit. With neither flag, a dirty tree on a fresh run is put
+  to the user: stash (the default), keep, or abort; with no terminal to ask, it
+  stashes. A run that already has a progress log — a resume, or one too broken
+  to read — always stashes and ignores `--keep-changes`, so an interrupted
+  stage's partial work can't leak into the stage that re-runs.
+  Sharp edge: kept files are unprotected until that first stage commit — a
+  failure before it runs the teardown's `git reset --hard` and destroys kept
+  modifications to tracked files (kept untracked files survive).
 - **Resume:** a re-run with the same prompt finds the progress log and resumes
   from the first incomplete stage. A corrupt or truncated progress log is
   detected at startup — orca warns and starts fresh (previous stages re-run)
@@ -334,10 +344,11 @@ Each `flow(...)` run is bound to exactly one feature branch and one progress log
   `git reset --hard` for tracked files, plus `git clean -fd` for the files it
   newly created; stay on the feature branch so a re-run resumes in place.
   Gitignored paths and `.orca/` are never removed. Whether the clean runs at
-  all is decided once, at setup, for the whole run: a FRESH `--skip-branch` run
-  that started with a dirty tree left those files in place rather than stashing
-  them, so orca cannot tell them apart from the run's own — no untracked file
-  is deleted, in any stage, including ones the failed stage created.
+  all is decided once, at setup, for the whole run: a FRESH run that kept a
+  dirty tree instead of stashing it (`--skip-branch`, `--keep-changes`, or the
+  interactive keep answer) leaves orca unable to tell those files apart from the
+  run's own — no untracked file is deleted, in any stage, including ones the
+  failed stage created.
 
 ### Settings
 
@@ -910,7 +921,7 @@ action non-interactively and exits.
 
 | Command | Key flags | Does |
 |---|---|---|
-| `orca run <flow> [task]` | `--verbose` (stack trace on abort), `--skip-branch`, `--honor-pin` (use the flow's own pinned orca version) | run a flow, propagating its exit code; task is read from stdin when omitted and piped |
+| `orca run <flow> [task]` | `--verbose` (stack trace on abort), `--skip-branch`, `--keep-changes` (leave uncommitted files in place), `--honor-pin` (use the flow's own pinned orca version) | run a flow, propagating its exit code; task is read from stdin when omitted and piped |
 | `orca view <flow>` | `--plain`, `--color` | print a flow's source (highlighted when stdout is a terminal) |
 | `orca edit <flow>` | `--to project\|global` | open a flow in `$VISUAL`/`$EDITOR`/vi (`--to` required to customize a built-in) |
 | `orca create "<goal>"` | `--name <file>`, `--global` | author a new flow: the built-in `simple.sc` flow writes it in an isolated sandbox with the configured role agents; `--name` is auto-derived when omitted |

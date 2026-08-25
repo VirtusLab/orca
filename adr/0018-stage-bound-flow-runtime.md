@@ -421,6 +421,23 @@ the wrong branch.
   HEAD is already on the right branch and the committed log is in the working tree.
 - **R4** — On flow start a dirty working tree is stashed, with a user-visible
   warning, so the flow begins clean.
+
+  > **Amendment (2026-08-25).** `OrcaArgs.keepChanges` (`--keep-changes`) opts
+  > out of the stash on a FRESH run in BOTH branch modes — same tolerance, same
+  > one-`Step` notice as the R2 amendment above; in normal mode the kept files
+  > survive branch creation and reach the new branch through the first stage's
+  > commit. With neither flag, a fresh run with a dirty tree asks the user —
+  > stash (the default), keep, or abort (`OrcaFlowException`, thrown before any
+  > stash or branch mutation) — but only when stdin and stderr are both a
+  > terminal, so an unattended run still stashes exactly as before. A run whose
+  > own progress log is present stashes regardless, and says `--keep-changes`
+  > was ignored: the R2 amendment's resume rationale, extended to a log too
+  > broken to read (only the stash reverts a broken in-progress edit to its
+  > committed content). Sharp edge, deliberately not mitigated: kept files are
+  > unprotected until that first stage commit — a failure before it runs R5's
+  > `git reset --hard` and destroys kept modifications to tracked files. Kept
+  > untracked files survive: R5's clean is skipped for this run too, for the
+  > reason its own text gives.
 - **R5** — On **successful** exit the progress-log file is removed in a final
   commit, and a feature branch left with no changes other than the progress log is
   deleted (throwaway-branch cleanup). That removal commit is also pushed, but only
@@ -435,11 +452,10 @@ the wrong branch.
   no `-x`, so gitignored paths (build caches, `.orca/cache/`) stay; `.orca/`
   itself is excluded, since it holds this run's progress log while no stage has
   committed it yet, and other runs' progress logs; and it is skipped entirely
-  when setup did not establish a clean tree — a FRESH skip-branch run tolerates
-  a dirty tree instead of
-  stashing it (R4 amendment), so those untracked files pre-date the run and are
-  the flow's hand-off context, not its output. In that one case the untracked
-  leftovers stay, and the next run's stash (R4) sweeps them up.
+  when setup did not establish a clean tree — a FRESH run that kept a dirty tree
+  instead of stashing it (R4 amendment), so those untracked files pre-date the
+  run and are the flow's hand-off context, not its output. In that case the
+  untracked leftovers stay, and the next run's stash (R4) sweeps them up.
 - **R6** — Push and PR creation are flow-controlled and usable at any point; the
   runtime imposes no single terminal push.
 - **R30** — On startup the runtime cross-checks the header's recorded branch against
