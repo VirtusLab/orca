@@ -2335,6 +2335,48 @@ class FlowLifecycleTest extends munit.FunSuite:
     )
 
   test(
+    "skip-branch mode, FRESH run whose own log is unparseable: the dirty tree is stashed, not tolerated"
+  ):
+    // A corrupt own log may be a broken in-progress edit of a good committed
+    // one, so it takes the stash arm in every mode: skip-branch mode's
+    // tolerance covers an ABSENT log only.
+    val workDir = GitRepo.seeded()
+    val prompt = "skip-branch-corrupt-log"
+    val store = ProgressStore.default(workDir, prompt)
+    val git = new OsGitTool(workDir)
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    val _ = git.createBranch("my-work")
+    os.write(store.path, "not json {{{", createFolders = true)
+    os.write(workDir / "handoff.md", "the plan")
+    os.write.over(workDir / "seed.txt", "modified in place")
+    val listener = new RecordingListener
+    supervised:
+      val interaction = TerminalInteraction.start(
+        out = new PrintStream(new ByteArrayOutputStream()),
+        useColor = false,
+        animated = false
+      )
+      flow(
+        args = OrcaArgs(prompt, skipBranch = Flag(true)),
+        stackSettings = Some(StackSettings.empty),
+        claude = Some(_ => StubAgent.claude),
+        workDir = workDir,
+        progressStore = Some(store),
+        interaction = Some(interaction),
+        extraListeners = List(listener)
+      ):
+        val _ = stage("write code")("done")
+    assert(
+      stashList(workDir).nonEmpty,
+      "a corrupt own log must defeat skip-branch mode's dirty-tree tolerance"
+    )
+    val steps = listener.events.collect { case s: OrcaEvent.Step => s.message }
+    assert(
+      !steps.exists(_.contains("leaving")),
+      s"nothing may be reported as left in place: $steps"
+    )
+
+  test(
     "skip-branch mode, RESUME with a dirty tree from an interrupted stage: still stashes, the stage re-runs clean"
   ):
     val workDir = GitRepo.seeded()
@@ -2389,6 +2431,170 @@ class FlowLifecycleTest extends munit.FunSuite:
     assert(
       steps.exists(_.contains("stashed pending changes")),
       s"a stash-recovery Step must be emitted on resume: $steps"
+    )
+
+  test(
+    "normal mode, FRESH run with --keep-changes: a modified tracked file and an untracked file survive branch creation and are swept into the stage commit"
+  ):
+    val workDir = GitRepo.seeded() // commits "seed.txt"
+    val prompt = "keep-changes-fresh"
+    val git = new OsGitTool(workDir)
+    os.write.over(workDir / "seed.txt", "modified in place")
+    os.write(workDir / "docs" / "plan.md", "plan notes", createFolders = true)
+    val listener = new RecordingListener
+    var bothPresentInBody = false
+    supervised:
+      val interaction = TerminalInteraction.start(
+        out = new PrintStream(new ByteArrayOutputStream()),
+        useColor = false,
+        animated = false
+      )
+      flow(
+        args = OrcaArgs(prompt, keepChanges = Flag(true)),
+        stackSettings = Some(StackSettings.empty),
+        claude = Some(_ => StubAgent.claude),
+        workDir = workDir,
+        interaction = Some(interaction),
+        extraListeners = List(listener)
+      ):
+        val _ = stage("write code"):
+          bothPresentInBody =
+            os.read(workDir / "seed.txt") == "modified in place" &&
+              os.exists(workDir / "docs" / "plan.md")
+          "done"
+    assert(
+      bothPresentInBody,
+      "both leftovers must still be in the tree when the stage body runs — not stashed away"
+    )
+    assertEquals(
+      stashList(workDir),
+      Nil,
+      "a fresh run with --keep-changes must never stash"
+    )
+    assertNotEquals(
+      git.currentBranch(),
+      "main",
+      "normal mode must still create a feature branch"
+    )
+    val steps = listener.events.collect { case s: OrcaEvent.Step => s.message }
+    assert(
+      steps.exists(_.contains("leaving 2 uncommitted/untracked file(s)")),
+      s"expected the leftover-file notice: $steps"
+    )
+    // Pin WHICH commit the leftovers land in: `git checkout -b` carried them
+    // onto the new branch, and the header commit (HEAD~2) is pathspec-scoped,
+    // so they reach the branch only via the first stage's commit (HEAD~1).
+    val progressRelPath =
+      s".orca/progress-${ProgressStore.hashPrompt(prompt)}.json"
+    assertEquals(commitMessage(workDir, "HEAD~2"), "orca: progress log")
+    assertEquals(
+      commitFiles(workDir, "HEAD~2"),
+      List(progressRelPath),
+      "the header commit must carry ONLY the progress log"
+    )
+    assertEquals(commitMessage(workDir, "HEAD~1"), "stage: write code")
+    assertEquals(
+      commitFiles(workDir, "HEAD~1"),
+      List(progressRelPath, "docs/plan.md", "seed.txt"),
+      "the first stage commit must carry both leftovers"
+    )
+
+  test(
+    "normal mode, RESUME with --keep-changes: the flag is ignored — the interrupted stage's leftover is still stashed"
+  ):
+    val workDir = GitRepo.seeded()
+    val prompt = "keep-changes-resume"
+    val store = ProgressStore.default(workDir, prompt)
+    val git = new OsGitTool(workDir)
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    val _ = git.createBranch("feat/keep-changes-resume")
+    // A committed header, as if a prior run got this far before being killed.
+    store.writeHeader(
+      ProgressHeader(
+        startingBranch = "main",
+        branch = "feat/keep-changes-resume",
+        promptHash = ProgressStore.hashPrompt(prompt),
+        branchMode = BranchMode.Created
+      )
+    )
+    git.forceAdd(store.path)
+    val _ = git.commit("orca: progress log")
+    // The interrupted stage's leftover: untracked, never committed.
+    os.write(workDir / "partial.txt", "half-finished work")
+    val listener = new RecordingListener
+    var sawPartialInBody = false
+    supervised:
+      val interaction = TerminalInteraction.start(
+        out = new PrintStream(new ByteArrayOutputStream()),
+        useColor = false,
+        animated = false
+      )
+      flow(
+        args = OrcaArgs(prompt, keepChanges = Flag(true)),
+        stackSettings = Some(StackSettings.empty),
+        claude = Some(_ => StubAgent.claude),
+        workDir = workDir,
+        progressStore = Some(store),
+        interaction = Some(interaction),
+        extraListeners = List(listener)
+      ):
+        val _ = stage("task"):
+          sawPartialInBody = os.exists(workDir / "partial.txt")
+          "done"
+    assert(
+      !sawPartialInBody,
+      "resume must stash the leftover despite --keep-changes, so the stage re-runs against a clean tree"
+    )
+    assert(
+      stashList(workDir).nonEmpty,
+      "resume must still auto-stash a dirty tree"
+    )
+    val steps = listener.events.collect { case s: OrcaEvent.Step => s.message }
+    assert(
+      steps.exists(_.contains("ignoring --keep-changes")),
+      s"resume must say the flag was ignored: $steps"
+    )
+
+  test(
+    "normal mode with --keep-changes: failure teardown keeps the untracked files it started with, but the kept tracked modification is reset"
+  ):
+    // A fresh run with --keep-changes tolerates a dirty tree instead of
+    // stashing it, so those files pre-date the run — its hand-off context, not
+    // its output. Teardown's untracked removal must therefore be off here. The
+    // tracked half is the documented sharp edge: `reset --hard` always runs.
+    val workDir = GitRepo.seeded() // commits "seed.txt" holding "seed"
+    val prompt = "keep-changes-teardown"
+    val store = ProgressStore.default(workDir, prompt)
+    os.write(workDir / "handoff.md", "the plan")
+    os.write.over(workDir / "seed.txt", "modified in place")
+    val _ = intercept[SurfacedFlowFailure]:
+      supervised:
+        val interaction = TerminalInteraction.start(
+          out = new PrintStream(new ByteArrayOutputStream()),
+          useColor = false,
+          animated = false
+        )
+        runFlow(
+          args = OrcaArgs(prompt, keepChanges = Flag(true)),
+          stackSettings = Some(StackSettings.empty),
+          wiring = FlowWiring(claude = Some(_ => StubAgent.claude)),
+          workDir = workDir,
+          interaction = Some(interaction),
+          extraListeners = Nil,
+          branchNaming = None,
+          returnToStartBranch = false,
+          progressStore = Some(store)
+        ):
+          val _ = stage[String]("crash"):
+            throw new RuntimeException("boom body")
+    assert(
+      os.exists(workDir / "handoff.md"),
+      "an untracked file that pre-dated the run must survive failure teardown"
+    )
+    assertEquals(
+      os.read(workDir / "seed.txt"),
+      "seed",
+      "the kept tracked modification dies to the teardown's reset --hard"
     )
 
   test(
@@ -2663,6 +2869,62 @@ class FlowLifecycleTest extends munit.FunSuite:
       0,
       "resume must read the stashed-clean committed log, not treat the " +
         "dirty JSON-break as corrupt and re-run the already-recorded stage"
+    )
+
+  test(
+    "normal mode, --keep-changes with a tracked-but-modified (JSON-broken) progress log: the log is still stashed clean, so the run resumes rather than starting fresh"
+  ):
+    // The flag may not defeat the committed-content classification: the
+    // pre-stash peek reads the broken copy as `Corrupt`, which must still take
+    // the stash arm — otherwise the run would mint a new branch and re-run
+    // every completed stage over the interrupted stage's leftovers.
+    val workDir = GitRepo.seeded()
+    val prompt = "keep-changes-dirty-json-break"
+    val store = ProgressStore.default(workDir, prompt)
+    val invocations = new AtomicInteger(0)
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    val git = new OsGitTool(workDir)
+    val _ = git.createBranch("feat/keep-changes-dirty-json-break")
+    store.writeHeader(
+      ProgressHeader(
+        startingBranch = "main",
+        branch = "feat/keep-changes-dirty-json-break",
+        promptHash = ProgressStore.hashPrompt(prompt),
+        branchMode = BranchMode.Created
+      )
+    )
+    git.forceAdd(store.path)
+    val _ = git.commit("orca: progress log")
+    store.appendEntry(
+      StageEntry("resumable-stage#0", "resumable-stage", RawJson("\"ok\""))
+    )
+    git.forceAdd(store.path)
+    val _ = git.commit("stage: resumable-stage")
+    os.write.over(store.path, "not json {{{")
+
+    supervised:
+      val interaction = TerminalInteraction.start(
+        out = new PrintStream(new ByteArrayOutputStream()),
+        useColor = false,
+        animated = false
+      )
+      flow(
+        args = OrcaArgs(prompt, keepChanges = Flag(true)),
+        stackSettings = Some(StackSettings.empty),
+        claude = Some(_ => StubAgent.claude),
+        workDir = workDir,
+        progressStore = Some(store),
+        interaction = Some(interaction)
+      ):
+        val _ = stage("resumable-stage"):
+          invocations.incrementAndGet()
+          "ok"
+
+    assertEquals(
+      invocations.get(),
+      0,
+      "--keep-changes must not turn a dirty JSON-break into a fresh run that " +
+        "re-runs the already-recorded stage"
     )
 
   test(

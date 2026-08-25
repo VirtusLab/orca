@@ -9,7 +9,11 @@ case class OrcaArgs(
     @arg(doc = "print a stack trace if the flow aborts")
     verbose: Flag = Flag(),
     @arg(doc = "run on the current branch instead of creating a new one")
-    skipBranch: Flag = Flag()
+    skipBranch: Flag = Flag(),
+    @arg(doc =
+      "keep uncommitted/untracked files in the working tree instead of stashing them (fresh runs only)"
+    )
+    keepChanges: Flag = Flag()
 )
 
 object OrcaArgs:
