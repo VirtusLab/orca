@@ -811,13 +811,18 @@ class FlowLifecycleTest extends munit.FunSuite:
 
   // --- stack-settings resolution during setup (ADR 0019) --------------------
 
-  /** Drives `setup` directly against `workDir` with a throwaway store and a
-    * null event sink — the fixture for the stack-settings resolution tests.
+  /** Drives `setup` directly against `workDir` with a throwaway store — the
+    * fixture for the stack-settings resolution tests, and (via the defaulted
+    * `emit`/`tty`/`ask`) the dirty-tree prompt tests. Headless by default, so a
+    * fresh dirty run stashes without asking.
     */
   private def setupForSettings(
       workDir: os.Path,
       settingsOverride: Option[StackSettings] = None,
-      prompt: String = "settings-resolution"
+      prompt: String = "settings-resolution",
+      emit: OrcaEvent => Unit = _ => (),
+      tty: () => Boolean = () => false,
+      ask: Int => DirtyTreeChoice = _ => DirtyTreeChoice.Stash
   ): FlowLifecycle.FlowSetup =
     FlowLifecycle.setup(
       args = OrcaArgs(prompt),
@@ -830,7 +835,9 @@ class FlowLifecycleTest extends munit.FunSuite:
         .stack,
       stackOverridden = settingsOverride.isDefined,
       store = ProgressStore.default(workDir, prompt),
-      emit = _ => ()
+      emit = emit,
+      tty = tty,
+      ask = ask
     )
 
   test("setup: a committed settings file resolves into FlowSetup"):
@@ -2555,9 +2562,9 @@ class FlowLifecycleTest extends munit.FunSuite:
       s"resume must say the flag was ignored: $steps"
     )
 
-  /** `setup` with the dirty-tree prompt injected: `answer` is what the user
-    * "types", `tty` whether there is a terminal to type at. Counts the asks,
-    * and records the emitted events, for the assertions that care.
+  /** [[setupForSettings]] with the dirty-tree prompt injected: `answer` is what
+    * the user "types", `tty` whether there is a terminal to type at. Counts the
+    * asks, and records the emitted events, for the assertions that care.
     */
   private def setupAsking(
       workDir: os.Path,
@@ -2567,17 +2574,10 @@ class FlowLifecycleTest extends munit.FunSuite:
       emitted: AtomicReference[List[OrcaEvent]] = new AtomicReference(Nil),
       asks: AtomicInteger = new AtomicInteger(0)
   ): FlowLifecycle.FlowSetup =
-    FlowLifecycle.setup(
-      args = OrcaArgs(prompt),
-      agent = StubAgent.claude,
-      git = new OsGitTool(workDir),
-      workDir = workDir,
-      branchNaming = None,
-      resolution = FlowLifecycle
-        .readSettings(workDir, noGlobalSettings, Some(StackSettings.empty))
-        .stack,
-      stackOverridden = true,
-      store = ProgressStore.default(workDir, prompt),
+    setupForSettings(
+      workDir,
+      settingsOverride = Some(StackSettings.empty),
+      prompt = prompt,
       emit = e => { val _ = emitted.updateAndGet(e :: _) },
       tty = () => tty,
       ask = _ => { val _ = asks.incrementAndGet(); answer }
@@ -2699,6 +2699,45 @@ class FlowLifecycleTest extends munit.FunSuite:
       os.read(workDir / "seed.txt"),
       "seed",
       "the kept tracked modification dies to the teardown's reset --hard"
+    )
+
+  test(
+    "normal mode with --keep-changes, no stage: success teardown leaves the kept file uncommitted and out of every commit"
+  ):
+    // The body commits nothing, so the kept file is still uncommitted when
+    // success teardown runs — its log-removal commit is pathspec-scoped and
+    // must not sweep the file in.
+    val workDir = GitRepo.seeded()
+    val prompt = "keep-changes-no-stage"
+    val git = new OsGitTool(workDir)
+    os.write(workDir / "handoff.md", "the plan")
+    supervised:
+      val interaction = TerminalInteraction.start(
+        out = new PrintStream(new ByteArrayOutputStream()),
+        useColor = false,
+        animated = false
+      )
+      flow(
+        args = OrcaArgs(prompt, keepChanges = Flag(true)),
+        stackSettings = Some(StackSettings.empty),
+        claude = Some(_ => StubAgent.claude),
+        workDir = workDir,
+        interaction = Some(interaction)
+      ):
+        summon[FlowContext].emit(OrcaEvent.Step("no-op"))
+    assertEquals(
+      git.dirtyPaths(),
+      List("?? handoff.md"),
+      "the kept file must still be uncommitted in the working tree"
+    )
+    val committedFiles = os
+      .proc("git", "log", "--all", "--name-only", "--pretty=format:")
+      .call(cwd = workDir)
+      .out
+      .text()
+    assert(
+      !committedFiles.linesIterator.map(_.trim).contains("handoff.md"),
+      s"no commit may carry the kept file: $committedFiles"
     )
 
   test(

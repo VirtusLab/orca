@@ -259,26 +259,10 @@ object FlowLifecycle:
     * worst as `Corrupt`, which it treats like `Absent`: no resumable run of
     * mine here, so another run's claim on this branch still stands.
     *
-    * Cleanliness policy (ADR 0018 amendment): the peek gates the stash, via
-    * [[DirtyTreePolicy.decide]]. A run whose own log is ABSENT and that passed
-    * `--skip-branch` or `--keep-changes` tolerates a dirty tree outright — no
-    * stash, no refusal, one informational `Step` naming the file count. Under
-    * `--skip-branch` the leftover files are likely the very hand-off context
-    * the flow is meant to act on; under `--keep-changes` the user asked for
-    * them to stay; in normal mode they reach the new branch via the first
-    * stage's commit (see [[freshRun]]). Every other case auto-stashes as
-    * before: a resumed run's interrupted stage may have left uncommitted
-    * partial work that must not leak into the stage that re-runs, and a log
-    * that is PRESENT but unparseable may be a broken in-progress edit of a good
-    * committed one — only the stash reverts it to the content the authoritative
-    * read below then classifies. Either way `--keep-changes` loses, and is told
-    * it lost.
-    *
-    * The one case that is not settled by those facts — a fresh run, dirty tree,
-    * neither flag — asks the user, but only on a real terminal (`tty`/`ask`,
-    * injected). Off a terminal nothing is asked and the tree is stashed, so an
-    * unattended run behaves exactly as it did before the prompt existed; the
-    * abort answer throws before anything in the tree is touched.
+    * Cleanliness policy: the peek's facts feed [[DirtyTreePolicy.decide]] (the
+    * decision table lives there), and [[SetupSession.applyCleanlinessPolicy]]
+    * carries the verdict out — stash, keep, or an abort thrown before anything
+    * in the tree is touched.
     *
     * The progress header is untrusted input on load (the log is human-visible
     * and pushable), so the AUTHORITATIVE read — at the `binding` match below —
@@ -528,7 +512,7 @@ object FlowLifecycle:
         keepChanges = args.keepChanges.value,
         dirtyCount = dirtyCount
       )
-      DirtyTreePolicy.decide(facts, tty, () => ask(dirtyCount)) match
+      DirtyTreePolicy.decide(facts, tty, ask) match
         case DirtyTreeChoice.Stash => stashDirtyTree(dirtyCount)
         case DirtyTreeChoice.Keep  => keepDirtyTree(dirtyCount)
         case DirtyTreeChoice.Abort =>
@@ -540,20 +524,23 @@ object FlowLifecycle:
 
     /** Stash whatever is dirty, so the run starts from committed content. Says
       * once that `--keep-changes` lost, and only when it did: the flag holds
-      * for a fresh run alone, and there is nothing to ignore on a clean tree.
+      * for a fresh run alone, and there is nothing to ignore on a clean tree. A
+      * clean tree also skips `ensureClean` — it would only repeat the caller's
+      * `git status` to find nothing to stash.
       */
     private def stashDirtyTree(dirtyCount: Int)(using
         WorkspaceWrite
     ): UntrackedFiles =
-      if args.keepChanges.value && dirtyCount > 0 then
-        emit(
-          OrcaEvent.Step(
-            "ignoring --keep-changes: this task already has a progress log, " +
-              "so the tree is stashed clean — an interrupted stage's partial " +
-              "work must not leak into the stages that re-run"
+      if dirtyCount > 0 then
+        if args.keepChanges.value then
+          emit(
+            OrcaEvent.Step(
+              "ignoring --keep-changes: this task already has a progress " +
+                "log, so the tree is stashed clean — an interrupted stage's " +
+                "partial work must not leak into the stages that re-run"
+            )
           )
-        )
-      git.ensureClean("orca: starting flow")
+        git.ensureClean("orca: starting flow")
       UntrackedFiles.Remove
 
     /** Leave a dirty tree in place, naming the file count once. `Keep` then
@@ -1086,14 +1073,17 @@ object FlowLifecycle:
         try
           val _ = os.remove(setup.store.path)
         catch case _: java.nio.file.NoSuchFileException => ()
-      // `add -A` in commit picks up the removal; NothingToCommit means it was
-      // never committed — harmless. A genuine commit failure is cosmetic: the
-      // run already succeeded and the progress file is gone from the tree.
+      // Pathspec-scoped to the log file, so uncommitted files the cleanliness
+      // policy left in the tree stay out of this bookkeeping commit;
+      // force-staged, because `.orca/` may be gitignored. A log never
+      // committed, or already removed by an earlier teardown, fails the stage
+      // or the commit — cosmetic, swallowed by bestEffort.
       bestEffort("commit progress-log removal"):
-        val _ = git.commit("orca: remove progress log")
+        git.forceCommitOnly(setup.store.path, "orca: remove progress log")
       // Gated on the remote still carrying the log, not on the commit leg
-      // succeeding: a resumed teardown hits NothingToCommit yet may still owe
-      // the remote a push. The gate is also what keeps this from publishing
+      // succeeding: a resumed teardown's commit finds nothing to commit yet
+      // may still owe the remote a push. The gate is also what keeps this from
+      // publishing
       // anything the run didn't — a reused branch that had an upstream before
       // the run only has the log upstream if this run pushed it there.
       bestEffort("push progress-log removal"):

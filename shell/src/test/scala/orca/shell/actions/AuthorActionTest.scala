@@ -49,16 +49,17 @@ private class RecordingLaunch(
       onLaunch(workDir)
       result
 
+/** Runs `body` against a throwaway dumb JLine terminal, closed afterwards. */
+private def withTerminal(body: Terminal => Unit): Unit =
+  val terminal = TerminalBuilder.builder().dumb(true).build()
+  try body(terminal)
+  finally terminal.close()
+
 class AuthorActionTest extends munit.FunSuite:
 
   private val builtInFlow =
     BuiltInFlows.extracted(sys.env.get, os.home, ShellVersion.value) /
       "simple.sc"
-
-  private def withTerminal(body: Terminal => Unit): Unit =
-    val terminal = TerminalBuilder.builder().dumb(true).build()
-    try body(terminal)
-    finally terminal.close()
 
   private def captured(body: => Unit): String =
     val buffer = new java.io.ByteArrayOutputStream()

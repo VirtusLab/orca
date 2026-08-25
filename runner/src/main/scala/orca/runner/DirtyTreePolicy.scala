@@ -1,5 +1,6 @@
 package orca.runner
 
+import scala.annotation.tailrec
 import scala.io.StdIn
 
 /** What setup does with a working tree holding uncommitted or untracked files
@@ -42,21 +43,21 @@ private[runner] object DirtyTreePolicy:
     * already say "keep"). Everything else is settled by the facts alone — which
     * is what keeps an unattended run unattended.
     *
-    * `tty` and `ask` are both thunks, called only in that one case: the probe
-    * spawns a subprocess, and it is worth nothing in the settled cases, where
-    * an off-tty run must also reach the stash default without reading stdin.
-    * Both are injected (as in `RunCli.readTask`) so tests decide without a
-    * terminal.
+    * `tty` and `ask` (handed `facts.dirtyCount`, all the menu shows) are called
+    * only in that one case: the probe spawns a subprocess, and it is worth
+    * nothing in the settled cases, where an off-tty run must also reach the
+    * stash default without reading stdin. Both are injected (as in
+    * `RunCli.readTask`) so tests decide without a terminal.
     */
   def decide(
       facts: DirtyTreeFacts,
       tty: () => Boolean,
-      ask: () => DirtyTreeChoice
+      ask: Int => DirtyTreeChoice
   ): DirtyTreeChoice =
     if facts.ownLogPresent then DirtyTreeChoice.Stash
     else if facts.skipBranch || facts.keepChanges then DirtyTreeChoice.Keep
     else if facts.dirtyCount == 0 then DirtyTreeChoice.Stash
-    else if tty() then ask()
+    else if tty() then ask(facts.dirtyCount)
     else DirtyTreeChoice.Stash
 
   /** The production `ask`: a numbered menu on stderr, one line from stdin.
@@ -74,27 +75,42 @@ private[runner] object DirtyTreePolicy:
     * instead would mean handing setup the run's `Interaction` — including every
     * embedder's non-terminal one. Residual: a `Step` still queued in the
     * renderer's mailbox can print into the middle of the menu, which costs a
-    * re-read, not a wrong answer (an unrecognized line stashes, exactly as no
-    * prompt at all would); and the read blocks uninterruptibly, so a fork
-    * failing elsewhere in the run's scope waits for the answer.
+    * re-read, not a wrong answer; and the read blocks uninterruptibly, so a
+    * fork failing elsewhere in the run's scope waits for the answer.
     */
   def promptOnStderr(dirtyCount: Int): DirtyTreeChoice =
     Console.err.println(
       s"$dirtyCount uncommitted/untracked file(s) in the working tree:\n" +
         "  1) stash them and start from a clean tree (default)\n" +
-        "  2) keep them in place for the flow to work on\n" +
+        "  2) keep them in place for the flow to work on (if the flow fails " +
+        "before its first commit, kept changes to tracked files are lost)\n" +
         "  3) abort"
     )
+    readAnswer()
+
+  /** One `choice [1]:` line + read, repeated until [[parse]] accepts the answer
+    * — an unrecognized one must not silently pick the stash default against the
+    * user's intent. EOF and an empty line are accepted (as the default), so a
+    * closed stdin cannot loop.
+    */
+  @tailrec
+  private def readAnswer(): DirtyTreeChoice =
     Console.err.print("choice [1]: ")
     Console.err.flush()
-    parse(Option(StdIn.readLine()))
+    parse(Option(StdIn.readLine())) match
+      case Some(choice) => choice
+      case None =>
+        Console.err.println("unrecognized answer — enter 1, 2, or 3")
+        readAnswer()
 
-  /** Everything other than an explicit keep or abort answers "stash": an empty
-    * line, an unrecognized one, or EOF (`readLine` yields `null` when stdin
-    * closes mid-prompt). The default matches what a headless run does.
+  /** One menu answer: "1"/"2"/"3" name their entries; an empty line and EOF
+    * (`readLine` yields `null` when stdin closes mid-prompt) mean the stash
+    * default, matching what a headless run does. Any other answer is `None` —
+    * unrecognized, for [[readAnswer]] to re-ask.
     */
-  private[runner] def parse(answer: Option[String]): DirtyTreeChoice =
+  private[runner] def parse(answer: Option[String]): Option[DirtyTreeChoice] =
     answer.map(_.trim) match
-      case Some("2") => DirtyTreeChoice.Keep
-      case Some("3") => DirtyTreeChoice.Abort
-      case _         => DirtyTreeChoice.Stash
+      case None | Some("") | Some("1") => Some(DirtyTreeChoice.Stash)
+      case Some("2")                   => Some(DirtyTreeChoice.Keep)
+      case Some("3")                   => Some(DirtyTreeChoice.Abort)
+      case Some(_)                     => None

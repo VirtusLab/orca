@@ -1,15 +1,9 @@
 package orca.shell.actions
 
-import org.jline.terminal.{Terminal, TerminalBuilder}
 import orca.shell.flows.{DiscoveredFlow, FlowOrigin}
-import orca.shell.run.{FallbackPolicy, FlowFlags, FlowLauncher, LaunchResult}
+import orca.shell.run.{FallbackPolicy, FlowFlags, LaunchResult}
 
 class RunActionTest extends munit.FunSuite:
-
-  private def withTerminal(body: Terminal => Unit): Unit =
-    val terminal = TerminalBuilder.builder().dumb(true).build()
-    try body(terminal)
-    finally terminal.close()
 
   test("run hands the caller's flags to the launcher unchanged"):
     withTerminal: terminal =>
@@ -24,11 +18,7 @@ class RunActionTest extends munit.FunSuite:
       // instead of these fails here.
       val flags =
         FlowFlags(verbose = true, skipBranch = false, keepChanges = true)
-      var seen = Option.empty[(FallbackPolicy, os.Path, String, FlowFlags)]
-      val launch: FlowLauncher.FlowLaunch =
-        (fallback, launched, task, _, launchedFlags, _) =>
-          seen = Some((fallback, launched, task, launchedFlags))
-          LaunchResult.Ok
+      val recording = RecordingLaunch()
 
       val result = RunAction.run(
         flow,
@@ -36,13 +26,13 @@ class RunActionTest extends munit.FunSuite:
         RunAction.RunOptions(flags, FallbackPolicy.Refuse("hint")),
         os.pwd,
         terminal,
-        launch
+        recording.fn
       )
 
       assertEquals(result, LaunchResult.Ok)
       assertEquals(
-        seen,
-        Some(
+        recording.calls.map(c => (c.fallback, c.flow, c.task, c.flags)),
+        List(
           (
             FallbackPolicy.Refuse("hint"),
             flow.path,
