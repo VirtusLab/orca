@@ -23,10 +23,15 @@ private[shell] enum FallbackPolicy:
   case Refuse(hint: String)
 
 /** The flow-script argv flags every [[FlowLauncher]] launch path threads
-  * through: bundled instead of two adjacent same-typed positional Booleans,
-  * which a call site could silently transpose without a compile error.
+  * through: bundled, and built once at the CLI boundary, instead of a run of
+  * adjacent same-typed positional Booleans that a call site could silently
+  * transpose without a compile error.
   */
-private[shell] case class FlowFlags(verbose: Boolean, skipBranch: Boolean)
+private[shell] case class FlowFlags(
+    verbose: Boolean,
+    skipBranch: Boolean,
+    keepChanges: Boolean
+)
 
 /** Runs a selected flow as a `scala-cli run` child inheriting the shell's
   * terminal (ADR 0021 §2). By default the shell forces its own orca version via
@@ -35,6 +40,21 @@ private[shell] case class FlowFlags(verbose: Boolean, skipBranch: Boolean)
   * fails) it falls back to a pin-honouring re-run at the user's confirmation.
   */
 private[shell] object FlowLauncher:
+
+  /** [[runAnnounced]]'s exact shape — a type alias so the actions that launch a
+    * flow can take it as an injectable parameter, defaulting to the real thing,
+    * the same way `FlowAuthoring.suggestFilename`'s `runner` stands in for a
+    * real subprocess in tests.
+    */
+  private[shell] type FlowLaunch =
+    (
+        FallbackPolicy,
+        os.Path,
+        String,
+        os.Path,
+        FlowFlags,
+        Terminal
+    ) => LaunchResult
 
   private val orgAndArtifact = "org.virtuslab::orca"
 
@@ -59,15 +79,16 @@ private[shell] object FlowLauncher:
       .getOrElse(Seq.empty)
 
   /** `scala-cli run <flow> --quiet --verbose [--dep ...] --workspace <dir> --
-    * <task> [--verbose] [--skip-branch]`. The `--verbose` before `--` is
-    * scala-cli's own ([[loggingArgs]]); the one after is the flow's, parsed by
-    * its own `OrcaArgs` — which spells its flags `--verbose`/`--skip-branch`,
-    * so they land after `--` alongside the task text, not before it.
-    * `--workspace` relocates scala-cli's own `.scala-build`/`.bsp` build
-    * metadata to `workspaceDir` ([[resolveWorkspaceDir]]) instead of next to
-    * `flow` — load-bearing for a Project-tier flow, whose script lives inside
-    * the user's own repo (`<repo>/.orca/flows/<name>.sc`), same pollution class
-    * the `orca` shim's own `--workspace` fixes (ADR 0021 §1 amendment).
+    * <task> [--verbose] [--skip-branch] [--keep-changes]`. The `--verbose`
+    * before `--` is scala-cli's own ([[loggingArgs]]); the one after is the
+    * flow's, parsed by its own `OrcaArgs` — which spells its flags
+    * `--verbose`/`--skip-branch`/`--keep-changes`, so they land after `--`
+    * alongside the task text, not before it. `--workspace` relocates
+    * scala-cli's own `.scala-build`/`.bsp` build metadata to `workspaceDir`
+    * ([[resolveWorkspaceDir]]) instead of next to `flow` — load-bearing for a
+    * Project-tier flow, whose script lives inside the user's own repo
+    * (`<repo>/.orca/flows/<name>.sc`), same pollution class the `orca` shim's
+    * own `--workspace` fixes (ADR 0021 §1 amendment).
     *
     * Requires `task` to be non-blank — `Main.promptTask` re-prompts on blank
     * input before this is ever called, so an empty task here means a caller
@@ -87,11 +108,13 @@ private[shell] object FlowLauncher:
     val verboseArgs = if flags.verbose then Seq("--verbose") else Seq.empty
     val skipBranchArgs =
       if flags.skipBranch then Seq("--skip-branch") else Seq.empty
+    val keepChangesArgs =
+      if flags.keepChanges then Seq("--keep-changes") else Seq.empty
     Seq("scala-cli", "run", flow.toString) ++
       loggingArgs ++
       depArgs(orcaVersion) ++
       Seq("--workspace", workspaceDir.toString) ++
-      Seq("--", task) ++ verboseArgs ++ skipBranchArgs
+      Seq("--", task) ++ verboseArgs ++ skipBranchArgs ++ keepChangesArgs
 
   /** The compile probe's argv — same `--workspace` treatment as [[argv]], and
     * for the same reason: without it, the probe (run whenever the forced

@@ -4,7 +4,7 @@ import org.jline.terminal.{Terminal, TerminalBuilder}
 import orca.shell.ShellVersion
 import orca.shell.create.{CreateTarget, CreateTier}
 import orca.shell.flows.{BuiltInFlows, DiscoveredFlow, FlowOrigin}
-import orca.shell.run.{FallbackPolicy, FlowFlags, LaunchResult}
+import orca.shell.run.{FallbackPolicy, FlowFlags, FlowLauncher, LaunchResult}
 import orca.shell.ui.{Choice, ShellUi, UiOutcome}
 import orca.testkit.{GitRepo, TempDirs}
 
@@ -26,7 +26,7 @@ private object NoPromptUi extends ShellUi:
   def inputMultiline(prompt: String): UiOutcome[String] =
     throw new UnsupportedOperationException("AuthorAction doesn't input")
 
-/** Records every [[AuthorAction.FlowLaunch]]-shaped call it receives instead of
+/** Records every [[FlowLauncher.FlowLaunch]]-shaped call it receives instead of
   * actually spawning `scala-cli`. `onLaunch` runs with the sandbox (the call's
   * `workDir`) mid-"run" — the seam where a test writes the authored file, or
   * snapshots sandbox state that [[AuthorAction]] deletes afterwards.
@@ -43,7 +43,7 @@ private class RecordingLaunch(
       flags: FlowFlags
   )
   var calls: List[Call] = Nil
-  val fn: AuthorAction.FlowLaunch =
+  val fn: FlowLauncher.FlowLaunch =
     (fallback, flow, task, workDir, flags, _) =>
       calls = calls :+ Call(fallback, flow, task, workDir, flags)
       onLaunch(workDir)
@@ -131,7 +131,10 @@ class AuthorActionTest extends munit.FunSuite:
       assertEquals(recording.calls.size, 1)
       val call = recording.calls.head
       assertEquals(call.flow, builtInFlow)
-      assertEquals(call.flags, FlowFlags(verbose = false, skipBranch = false))
+      assertEquals(
+        call.flags,
+        FlowFlags(verbose = false, skipBranch = false, keepChanges = false)
+      )
       assertEquals(call.fallback, FallbackPolicy.Ask(NoPromptUi))
       assert(call.task.contains("sync issues nightly"), call.task)
       // The prompt targets the sandbox-local file, never the real tier path.

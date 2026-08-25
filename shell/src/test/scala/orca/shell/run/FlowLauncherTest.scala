@@ -10,7 +10,7 @@ class FlowLauncherTest extends munit.FunSuite:
       flow,
       Some("0.0.18"),
       "do the thing",
-      FlowFlags(verbose = false, skipBranch = false),
+      FlowFlags(verbose = false, skipBranch = false, keepChanges = false),
       workspaceDir
     )
     assertEquals(
@@ -35,7 +35,7 @@ class FlowLauncherTest extends munit.FunSuite:
       flow,
       None,
       "do the thing",
-      FlowFlags(verbose = false, skipBranch = false),
+      FlowFlags(verbose = false, skipBranch = false, keepChanges = false),
       workspaceDir
     )
     assertEquals(
@@ -60,7 +60,7 @@ class FlowLauncherTest extends munit.FunSuite:
       flow,
       Some("0.0.18"),
       "do the thing",
-      FlowFlags(verbose = true, skipBranch = false),
+      FlowFlags(verbose = true, skipBranch = false, keepChanges = false),
       workspaceDir
     )
     assertEquals(
@@ -93,7 +93,7 @@ class FlowLauncherTest extends munit.FunSuite:
       flow,
       Some("0.0.18"),
       "do the thing",
-      FlowFlags(verbose = false, skipBranch = true),
+      FlowFlags(verbose = false, skipBranch = true, keepChanges = false),
       workspaceDir
     )
     assertEquals(
@@ -123,7 +123,7 @@ class FlowLauncherTest extends munit.FunSuite:
       flow,
       None,
       "do the thing",
-      FlowFlags(verbose = true, skipBranch = true),
+      FlowFlags(verbose = true, skipBranch = true, keepChanges = false),
       workspaceDir
     )
     assertEquals(
@@ -143,13 +143,73 @@ class FlowLauncherTest extends munit.FunSuite:
       )
     )
 
+  test(
+    "argv adds --keep-changes (OrcaArgs's exact flag spelling) after -- when set"
+  ):
+    val result = FlowLauncher.argv(
+      flow,
+      Some("0.0.18"),
+      "do the thing",
+      FlowFlags(verbose = false, skipBranch = false, keepChanges = true),
+      workspaceDir
+    )
+    assertEquals(
+      result,
+      Seq(
+        "scala-cli",
+        "run",
+        flow.toString,
+        "--quiet",
+        "--verbose",
+        "--dep",
+        "org.virtuslab::orca:0.0.18",
+        "--workspace",
+        workspaceDir.toString,
+        "--",
+        "do the thing",
+        "--keep-changes"
+      )
+    )
+    assert(
+      result.indexOf("--keep-changes") > result.indexOf("--"),
+      "--keep-changes must come after --"
+    )
+
+  test(
+    "argv adds every flow flag in a fixed order after --: verbose, skip-branch, keep-changes"
+  ):
+    val result = FlowLauncher.argv(
+      flow,
+      None,
+      "do the thing",
+      FlowFlags(verbose = true, skipBranch = true, keepChanges = true),
+      workspaceDir
+    )
+    assertEquals(
+      result,
+      Seq(
+        "scala-cli",
+        "run",
+        flow.toString,
+        "--quiet",
+        "--verbose",
+        "--workspace",
+        workspaceDir.toString,
+        "--",
+        "do the thing",
+        "--verbose",
+        "--skip-branch",
+        "--keep-changes"
+      )
+    )
+
   test("argv keeps a spaces-bearing flow path as a single argv element"):
     val spacedFlow = os.root / "home" / "u" / "my flows" / "release.sc"
     val result = FlowLauncher.argv(
       spacedFlow,
       None,
       "task",
-      FlowFlags(verbose = false, skipBranch = false),
+      FlowFlags(verbose = false, skipBranch = false, keepChanges = false),
       workspaceDir
     )
     assertEquals(result(2), spacedFlow.toString)
@@ -163,7 +223,7 @@ class FlowLauncherTest extends munit.FunSuite:
         flow,
         None,
         "   ",
-        FlowFlags(verbose = false, skipBranch = false),
+        FlowFlags(verbose = false, skipBranch = false, keepChanges = false),
         workspaceDir
       )
     )

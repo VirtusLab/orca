@@ -48,21 +48,6 @@ private[shell] object AuthorAction:
     */
   private val AuthoringFlowName = "simple.sc"
 
-  /** [[FlowLauncher.runAnnounced]]'s exact shape — a type alias so `create`/
-    * `fork` can take it as an injectable parameter, defaulting to the real
-    * thing, the same way [[FlowAuthoring.suggestFilename]]'s `runner` stands in
-    * for a real subprocess in tests.
-    */
-  private[shell] type FlowLaunch =
-    (
-        FallbackPolicy,
-        os.Path,
-        String,
-        os.Path,
-        FlowFlags,
-        Terminal
-    ) => LaunchResult
-
   /** New-flow authoring: sets up the sandbox, extracts the bundled API material
     * into its cache, builds [[FlowAuthoring.initialPrompt]] against the
     * sandbox-local target, and runs it as the authoring flow's task.
@@ -72,7 +57,7 @@ private[shell] object AuthorAction:
       params: AuthorParams,
       ui: ShellUi,
       terminal: Terminal,
-      launch: FlowLaunch = FlowLauncher.runAnnounced
+      launch: FlowLauncher.FlowLaunch = FlowLauncher.runAnnounced
   ): LaunchResult =
     val sandbox = AuthoringSandbox.create(params.target.flowPath.last)
     val apiDir = FlowAuthoring.extractApiMaterial(
@@ -102,7 +87,7 @@ private[shell] object AuthorAction:
       params: AuthorParams,
       ui: ShellUi,
       terminal: Terminal,
-      launch: FlowLaunch = FlowLauncher.runAnnounced
+      launch: FlowLauncher.FlowLaunch = FlowLauncher.runAnnounced
   ): LaunchResult =
     val sandbox = AuthoringSandbox.create(params.target.flowPath.last)
     val apiDir = FlowAuthoring.extractApiMaterial(
@@ -142,7 +127,7 @@ private[shell] object AuthorAction:
       params: AuthorParams,
       ui: ShellUi,
       terminal: Terminal,
-      launch: FlowLaunch
+      launch: FlowLauncher.FlowLaunch
   ): LaunchResult =
     val flow =
       BuiltInFlows.extracted(sys.env.get, os.home, ShellVersion.value) /
@@ -152,7 +137,7 @@ private[shell] object AuthorAction:
       flow,
       prompt,
       sandbox,
-      FlowFlags(verbose = false, skipBranch = false),
+      FlowFlags(verbose = false, skipBranch = false, keepChanges = false),
       terminal
     )
     finishAuthoring(result, sandbox, params)
