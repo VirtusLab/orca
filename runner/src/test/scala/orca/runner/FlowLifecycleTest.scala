@@ -2555,6 +2555,110 @@ class FlowLifecycleTest extends munit.FunSuite:
       s"resume must say the flag was ignored: $steps"
     )
 
+  /** `setup` with the dirty-tree prompt injected: `answer` is what the user
+    * "types", `tty` whether there is a terminal to type at. Counts the asks,
+    * and records the emitted events, for the assertions that care.
+    */
+  private def setupAsking(
+      workDir: os.Path,
+      prompt: String,
+      answer: DirtyTreeChoice,
+      tty: Boolean = true,
+      emitted: AtomicReference[List[OrcaEvent]] = new AtomicReference(Nil),
+      asks: AtomicInteger = new AtomicInteger(0)
+  ): FlowLifecycle.FlowSetup =
+    FlowLifecycle.setup(
+      args = OrcaArgs(prompt),
+      agent = StubAgent.claude,
+      git = new OsGitTool(workDir),
+      workDir = workDir,
+      branchNaming = None,
+      resolution = FlowLifecycle
+        .readSettings(workDir, noGlobalSettings, Some(StackSettings.empty))
+        .stack,
+      stackOverridden = true,
+      store = ProgressStore.default(workDir, prompt),
+      emit = e => { val _ = emitted.updateAndGet(e :: _) },
+      tty = () => tty,
+      ask = _ => { val _ = asks.incrementAndGet(); answer }
+    )
+
+  test(
+    "fresh run on a dirty tree, keep answered at the prompt: the files stay, nothing is stashed"
+  ):
+    val workDir = GitRepo.seeded()
+    os.write(workDir / "handoff.md", "the plan")
+    val emitted = new AtomicReference[List[OrcaEvent]](Nil)
+    val setup =
+      setupAsking(
+        workDir,
+        "prompt-keep",
+        DirtyTreeChoice.Keep,
+        emitted = emitted
+      )
+    assertEquals(setup.untrackedOnFailure, UntrackedFiles.Keep)
+    assertEquals(stashList(workDir), Nil)
+    assert(os.exists(workDir / "handoff.md"))
+    val steps =
+      emitted.get().reverse.collect { case s: OrcaEvent.Step => s.message }
+    assert(
+      steps.exists(_.contains("leaving 1 uncommitted/untracked file")),
+      s"expected the leftover-file notice: $steps"
+    )
+
+  test(
+    "fresh run on a dirty tree, stash answered at the prompt: the tree is stashed clean"
+  ):
+    val workDir = GitRepo.seeded()
+    os.write(workDir / "handoff.md", "the plan")
+    val asks = new AtomicInteger(0)
+    val setup =
+      setupAsking(workDir, "prompt-stash", DirtyTreeChoice.Stash, asks = asks)
+    assertEquals(asks.get(), 1, "the prompt must have been consulted")
+    assertEquals(setup.untrackedOnFailure, UntrackedFiles.Remove)
+    assert(stashList(workDir).nonEmpty, "the answer must reach the stash")
+    assert(!os.exists(workDir / "handoff.md"))
+
+  test(
+    "fresh run on a dirty tree, abort answered at the prompt: refused with the tree and branches untouched"
+  ):
+    val workDir = GitRepo.seeded()
+    os.write(workDir / "handoff.md", "the plan")
+    os.write.over(workDir / "seed.txt", "modified in place")
+    val branchesBefore = branchNames(workDir)
+    val thrown = intercept[orca.OrcaFlowException]:
+      val _ = setupAsking(workDir, "prompt-abort", DirtyTreeChoice.Abort)
+    assert(
+      thrown.getMessage.contains("refusing to start") &&
+        thrown.getMessage.contains("--keep-changes"),
+      s"the refusal must name a way out: ${thrown.getMessage}"
+    )
+    assertEquals(stashList(workDir), Nil, "the abort must precede any stash")
+    assertEquals(os.read(workDir / "seed.txt"), "modified in place")
+    assert(os.exists(workDir / "handoff.md"))
+    assertEquals(
+      branchNames(workDir),
+      branchesBefore,
+      "the abort must precede any branch mutation"
+    )
+
+  test(
+    "fresh run on a dirty tree with no terminal: stashed without a prompt"
+  ):
+    val workDir = GitRepo.seeded()
+    os.write(workDir / "handoff.md", "the plan")
+    val asks = new AtomicInteger(0)
+    val setup = setupAsking(
+      workDir,
+      "prompt-headless",
+      DirtyTreeChoice.Keep,
+      tty = false,
+      asks = asks
+    )
+    assertEquals(asks.get(), 0, "a headless run must never prompt")
+    assertEquals(setup.untrackedOnFailure, UntrackedFiles.Remove)
+    assert(stashList(workDir).nonEmpty)
+
   test(
     "normal mode with --keep-changes: failure teardown keeps the untracked files it started with, but the kept tracked modification is reset"
   ):
