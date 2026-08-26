@@ -17,6 +17,17 @@ enum ReviewDiff:
     */
   case SampleFromStage
 
+  /** Everything the run has produced since it started — since the commit HEAD
+    * pointed at when the run bound its branch, recorded in the progress log —
+    * re-sampled every round like [[SampleFromStage]]. For a review over the
+    * whole branch, where a stage-scoped change set would miss what earlier
+    * stages committed.
+    *
+    * A run whose progress log records no usable commit has no base to diff
+    * against: `reviewAndFixLoop` then says so and returns without reviewing.
+    */
+  case WholeRun
+
   /** A caller-pinned diff, sent as given. Pinning also changes what reviewers
     * are told: the prompt does not claim the change set covers the stage, no
     * base commit is named (the pinned set need not be the stage's), the
@@ -50,11 +61,29 @@ private[review] sealed trait ReviewDiffSource:
   def selectorFiles: List[String]
 
 private[review] object ReviewDiffSource:
-  /** Everything the enclosing stage has produced since `base` (ADR 0018 §2.1),
-    * bounded to [[BoundedDiff.ReviewThreshold]].
+  /** Reads [[ReviewDiff.SampleFromStage]] (ADR 0018 §2.1): everything the
+    * working tree has changed since the enclosing stage began.
     */
-  case class Sampled(git: GitTool, base: Option[String])
-      extends ReviewDiffSource:
+  def stage(git: GitTool, base: Option[String]): ReviewDiffSource =
+    Sampled(git, base, StageDiffIntro)
+
+  /** Reads [[ReviewDiff.WholeRun]]: everything the working tree has changed
+    * since `start`, the commit the run bound at.
+    */
+  def wholeRun(git: GitTool, start: String): ReviewDiffSource =
+    Sampled(git, Some(start), WholeRunDiffIntro)
+
+  /** Everything the working tree has changed since `base`, bounded to
+    * [[BoundedDiff.ReviewThreshold]]. Private, and built only by [[stage]] and
+    * [[wholeRun]]: how far back `base` reaches and what `diffIntro` tells the
+    * reviewer it covers are one decision, and a caller free to pair them itself
+    * could hand over a whole branch described as one stage's work.
+    */
+  private case class Sampled(
+      git: GitTool,
+      base: Option[String],
+      diffIntro: String
+  ) extends ReviewDiffSource:
     def sample(): DiffSample =
       val changes = git.reviewChanges(base)
       DiffSample(
@@ -64,10 +93,17 @@ private[review] object ReviewDiffSource:
 
     def selectorFiles: List[String] = git.changedFiles(base)
 
-    def diffIntro: String =
-      "Diff (everything this task has changed since its stage began, " +
-        "committed or not). Do not use `git diff HEAD` instead — it does not " +
-        "show work that has been committed:"
+  private val StageDiffIntro: String =
+    "Diff (everything this task has changed since its stage began, " +
+      "committed or not). Do not use `git diff HEAD` instead — it does not " +
+      "show work that has been committed:"
+
+  // Says the change set reaches back past the enclosing stage, so a reviewer
+  // does not read it as this stage's work.
+  private val WholeRunDiffIntro: String =
+    "Diff (everything this run has changed since it started, across every " +
+      "stage, committed or not). Do not use `git diff HEAD` instead — it does " +
+      "not show work that has been committed:"
 
   /** Reads [[ReviewDiff.Pinned]]: the caller has already decided what a
     * reviewer should see, so the text is sent as given and only that text can

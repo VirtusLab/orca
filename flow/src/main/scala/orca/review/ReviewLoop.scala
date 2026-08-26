@@ -416,9 +416,9 @@ def reviewAndFixLoop[B <: BackendTag](
     maxIterations: Int = DefaultMaxIterations,
     fixInstructions: String = ReviewLoopPrompts.Fix,
     /** Where the change set under review comes from: sampled from the enclosing
-      * stage each round, or pinned by the caller. Pinning changes what
-      * reviewers and the selector are told, not just the diff text — see
-      * [[ReviewDiff]].
+      * stage each round, sampled from where the whole run started, or pinned by
+      * the caller. The choice changes what reviewers and the selector are told,
+      * not just the diff text — see [[ReviewDiff]].
       */
     diff: ReviewDiff = ReviewDiff.SampleFromStage
 )(using
@@ -428,27 +428,43 @@ def reviewAndFixLoop[B <: BackendTag](
     ws: WorkspaceWrite
 ): IgnoredIssues =
   // `fc` is read here, at loop entry, so what the loop carries is the plain
-  // commit hash rather than the capability it came from.
-  val diffSource: ReviewDiffSource = diff match
+  // commit hash rather than the capability it came from. `None` comes from
+  // `WholeRun` alone: with no commit recorded there is nothing to diff against,
+  // and reviewing some other range would be worse than not reviewing.
+  val diffSource: Option[ReviewDiffSource] = diff match
     case ReviewDiff.SampleFromStage =>
-      ReviewDiffSource.Sampled(ctx.git, fc.stageBaseCommit)
-    case ReviewDiff.Pinned(d) => ReviewDiffSource.Pinned(d)
-  // `ctx`/`ev` passed explicitly, not by implicit search: the more-specific
-  // `fc: FlowControl` would otherwise be picked for the constructor's
-  // `FlowContext` and its root capability rejected.
-  new ReviewFixLoop(
-    ReviewLoopConfig(
-      coderSession = coderSession,
-      reviewers = reviewers,
-      reviewerSelection = reviewerSelection,
-      task = task,
-      userRequest = userRequest.getOrElse(ctx.userPrompt),
-      formatCommands = resolveFormat(ctx, formatCommands),
-      lintGate = resolveLint(ctx, lint),
-      fixInstructions = fixInstructions,
-      diffSource = diffSource
-    )
-  )(using ctx, ev).run(maxIterations)(using fc, ws)
+      Some(ReviewDiffSource.stage(ctx.git, fc.stageBaseCommit))
+    case ReviewDiff.WholeRun =>
+      fc.startingCommit.map(c => ReviewDiffSource.wholeRun(ctx.git, c.value))
+    case ReviewDiff.Pinned(d) => Some(ReviewDiffSource.Pinned(d))
+  diffSource match
+    case None =>
+      ctx.emit(
+        OrcaEvent.Step(
+          "skipping this review: the run has no usable starting commit to " +
+            "diff the whole run against — its progress log records none, or " +
+            "the one it records no longer sits behind HEAD (a rebase, or a " +
+            "fresh clone). Start a fresh run if you need this review"
+        )
+      )
+      IgnoredIssues(Nil)
+    case Some(source) =>
+      // `ctx`/`ev` passed explicitly, not by implicit search: the more-specific
+      // `fc: FlowControl` would otherwise be picked for the constructor's
+      // `FlowContext` and its root capability rejected.
+      new ReviewFixLoop(
+        ReviewLoopConfig(
+          coderSession = coderSession,
+          reviewers = reviewers,
+          reviewerSelection = reviewerSelection,
+          task = task,
+          userRequest = userRequest.getOrElse(ctx.userPrompt),
+          formatCommands = resolveFormat(ctx, formatCommands),
+          lintGate = resolveLint(ctx, lint),
+          fixInstructions = fixInstructions,
+          diffSource = source
+        )
+      )(using ctx, ev).run(maxIterations)(using fc, ws)
 
 /** One review round over the enclosing stage's changes and, if it found
   * anything, one fix turn — then done. The fixer's `fixed` claims are taken on
@@ -491,7 +507,7 @@ def reviewThenFix[B <: BackendTag](
       formatCommands = resolveFormat(ctx, formatCommands),
       lintGate = resolveLint(ctx, lint),
       fixInstructions = ReviewLoopPrompts.Fix,
-      diffSource = ReviewDiffSource.Sampled(ctx.git, fc.stageBaseCommit)
+      diffSource = ReviewDiffSource.stage(ctx.git, fc.stageBaseCommit)
     )
   )(using ctx, ev).runOnce()(using fc, ws)
 

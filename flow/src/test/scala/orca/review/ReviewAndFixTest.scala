@@ -864,6 +864,96 @@ class ReviewAndFixTest extends munit.FunSuite:
       .getOrElse(fail("the fresh-session run was never called"))
     assert(sent.contains("since its stage began"), s"framing missing: $sent")
 
+  test("a whole-run diff reaches back past the enclosing stage"):
+    // What an earlier stage committed is exactly what a stage-scoped diff
+    // misses, and exactly what a final review over the branch has to see.
+    val fc = ReviewLoopFixture.control(new EventDispatcher(Nil))
+    given FlowControl = fc
+    val runStart =
+      fc.startingCommit.getOrElse(fail("the fixture recorded no run start"))
+    os.write(fc.workDir / "earlier.txt", "an earlier stage's work")
+    assert(fc.git.commit("earlier stage").isRight)
+    val _ = fc.enterStage("final review", fc.git.headCommit())
+    os.write(fc.workDir / "later.txt", "this stage's work")
+    val reviewer =
+      new FakeAgent("capturing", outputs = List(ReviewResult.empty))
+    val _ = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
+      reviewers = List(reviewer),
+      task = titled("final review"),
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      diff = ReviewDiff.WholeRun
+    )
+    val sent = reviewer.seenPrompts.headOption
+      .getOrElse(fail("the fresh-session run was never called"))
+    assert(
+      sent.contains(s"since commit ${runStart.value}"),
+      s"the run's starting commit must be the base: $sent"
+    )
+    assert(sent.contains("earlier.txt"), s"committed work missing: $sent")
+    assert(sent.contains("later.txt"), s"uncommitted work missing: $sent")
+    // The framing has to match the range: a reviewer told this is one stage's
+    // work would read every earlier stage's commits as this stage's doing.
+    assert(
+      sent.contains("since it started, across every stage"),
+      s"whole-run framing missing: $sent"
+    )
+    assert(
+      !sent.contains("since its stage began"),
+      s"stage framing leaked: $sent"
+    )
+
+  test("a whole-run diff is re-sampled, so a later round sees the fixes"):
+    // The base is fixed for the run, the sample is not: a fix made after round
+    // one has to show up in round two's change set.
+    val fc = ReviewLoopFixture.control(new EventDispatcher(Nil))
+    given FlowControl = fc
+    val reviewer = new FakeAgent(
+      name = "capturing",
+      outputs =
+        List(ReviewResult(List(issue("needs fixing"))), ReviewResult.empty)
+    )
+    val coder = new FakeAgent(
+      name = "coder",
+      outputs = List(FixOutcome(List(Title("needs fixing")), Nil)),
+      // The fix the second round must see; FakeAgent otherwise leaves the tree
+      // untouched.
+      onRun = () => os.write(fc.workDir / "fixed.txt", "the fix")
+    )
+    val _ = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(reviewer),
+      task = titled("final review"),
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      diff = ReviewDiff.WholeRun
+    )
+    val reReview = reviewer.seenPrompts.lift(1).getOrElse(fail("no re-review"))
+    assert(reReview.contains("fixed.txt"), s"the fix is missing: $reReview")
+
+  test("a whole-run review with no recorded starting commit is skipped"):
+    // Without a base, diffing against anything else would review the wrong
+    // range — so nothing runs, and the run is told why.
+    val steps = new ReviewLoopFixture.StepCapture
+    given FlowControl =
+      ReviewLoopFixture.controlWithoutStartingCommit(steps.dispatcher)
+    // No scripted outputs: running either stub throws.
+    val reviewer = new FakeAgent("never-runs")
+    val result = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
+      reviewers = List(reviewer),
+      task = titled("final review"),
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      diff = ReviewDiff.WholeRun
+    )
+    assertEquals(result, IgnoredIssues(Nil))
+    assert(reviewer.seenSessions.isEmpty, "no reviewer may run without a base")
+    assert(
+      steps.messages.exists(m =>
+        m.contains("skipping this review") && m.contains("starting commit")
+      ),
+      steps.messages.mkString("\n")
+    )
+
   test("the fixer's declines reach the next round's reviewer, its fixes don't"):
     // A decline is the one thing a reviewer cannot recover by reading the tree:
     // nothing in the code says a finding was considered and refused. A "fixed"

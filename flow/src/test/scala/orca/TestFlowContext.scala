@@ -116,7 +116,11 @@ object TestFlowControl:
       dispatcher: EventDispatcher,
       userPrompt: String = "p",
       lead: Option[Agent[BackendTag.ClaudeCode.type]] = None,
-      stackSettings: StackSettings = StackSettings.empty
+      stackSettings: StackSettings = StackSettings.empty,
+      // False models a run left with no whole-run diff base: no header recorded
+      // one, or the one it recorded was dropped as unusable. Everything else
+      // about the fixture is unchanged.
+      recordStartingCommit: Boolean = true
   ): (TestFlowControl, os.Path) =
     val dir = GitRepo.seeded()
     val git = new OsGitTool(dir)
@@ -124,7 +128,11 @@ object TestFlowControl:
     given WorkspaceWrite = WorkspaceWrite.unsafe
     // The seed commit stands in for the commit a real run binds at, so a
     // whole-run diff base is present here as it is in production.
-    val startingCommit = git.headCommit().flatMap(CommitHash.from)
+    val startingCommit =
+      Option
+        .when(recordStartingCommit)(git.headCommit())
+        .flatten
+        .flatMap(CommitHash.from)
     store.writeHeader(
       ProgressHeader(
         "main",

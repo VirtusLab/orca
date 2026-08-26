@@ -73,6 +73,15 @@ object ReviewLoopFixture:
       )
       ._1
 
+  /** Like [[control]], but the run carries no starting commit: no header
+    * recorded one, or the one it recorded was dropped as unusable. What
+    * `ReviewDiff.WholeRun` has to cope with.
+    */
+  def controlWithoutStartingCommit(
+      dispatcher: EventDispatcher
+  ): TestFlowControl =
+    TestFlowControl.create(dispatcher, recordStartingCommit = false)._1
+
 /** A [[Task]] carrying only a title — what a test that doesn't exercise the
   * description passes for `reviewAndFixLoop`'s `task`.
   */
