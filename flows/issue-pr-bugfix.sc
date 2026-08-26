@@ -28,7 +28,8 @@
   *   1. Waits for CI to go red. Fails loudly on green — the reproduction is
   *      wrong.
   *   1. Confirms the failure matches the report.
-  *   1. Plans + implements the fix on the same branch.
+  *   1. Plans + implements the fix on the same branch, reviewing each task in
+  *      a single pass, then loops a review over everything the run changed.
   *   1. Pushes the fix and regenerates the PR title + description from the
   *      full branch diff.
   *
@@ -219,7 +220,8 @@ def confirmReproductionMatches(pr: PrHandle, issue: Issue)(using
     if !verdict.matches then
       fail(s"Reproduction doesn't match the report: ${verdict.explanation}")
 
-/** Plan + implement the fix on the same branch, reusing the triage `session`.
+/** Plan + implement the fix on the same branch, reusing the triage `session`,
+  * then review everything the run changed.
   *
   * `[B <: BackendTag]` is read off the `session` argument, so the helper
   * accepts a session for whichever backend the settings named.
@@ -245,12 +247,24 @@ def planAndImplementFix[B <: BackendTag](
   for task <- fixPlan.tasks do
     stage(s"Task: ${task.title}"):
       session.run(fixPlan.taskPrompt(task))
-      // Don't gate this loop on the tests: the branch carries a deliberately
+      // Don't gate this review on the tests: the branch carries a deliberately
       // failing one until the last fix task lands.
-      reviewAndFixLoop(
+      reviewThenFix(
         coderSession = session,
         reviewers = allReviewers(reviewAgent),
         task = task,
-        userRequest = Some(issuePayload),
-        maxIterations = 3
+        userRequest = Some(issuePayload)
       )
+
+  // Everything the run changed — the failing test and the fix alike — reviewed
+  // in one loop: each task's single pass took the fixer's word for its own
+  // fixes, and this is what checks them.
+  stage("Final review"):
+    reviewAndFixLoop(
+      coderSession = session,
+      reviewers = allReviewers(reviewAgent),
+      task = Task(Title(s"Fix for ${issueHandle.shortRef}"), fixPlan.brief),
+      userRequest = Some(issuePayload),
+      diff = ReviewDiff.WholeRun,
+      maxIterations = 5
+    )
