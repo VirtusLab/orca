@@ -7,4 +7,10 @@ issues.
 {{changes}}{{declined}}
 
 Everything the initial prompt said still applies: the task it described is the
-same.
+same, a planned choice is still evidence of intent and not of correctness, fix
+cost still never lowers severity, and user data loss, silent inversion of what
+the user asked for and a blocked or hung process are still always reported.
+
+Where an earlier finding's suggestion offered alternatives ("do X, or document
+why Y is safe"), work out from the code which one was taken, and check that that
+option resolves the original concern — not merely that something was done.

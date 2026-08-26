@@ -148,7 +148,11 @@ object ReviewLoopPrompts:
       "\n\nThe fixer declined to fix these findings, and gave this reason " +
         s"for each:\n\n${IgnoredIssues(declined).format}\n\nThat is the " +
         "fixer's position, not a ruling. If you still think a finding is " +
-        "real, report it again and say why the reason is wrong."
+        "real, report it again and say why the reason is wrong. \"The plan " +
+        "chose this\" is not on its own a sufficient answer for a finding " +
+        "whose consequence is user data loss, silent inversion of what the " +
+        "user asked for, or a blocked or hung process — re-report such a " +
+        "finding."
 
   private def changesBlock(changes: ReReviewChanges): String =
     changes match

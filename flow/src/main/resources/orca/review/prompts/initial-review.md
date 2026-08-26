@@ -22,8 +22,20 @@ whether the fix is a one-line change or a rewrite.
 ## The plan is not evidence
 
 The task above says what was decided, not that the decision is correct. A
-planned choice is as reviewable as the code implementing it. If one looks wrong,
-report it as a finding against that choice — say which part of the task you mean.
+deliberate or planned choice is evidence of intent, not of correctness: "the
+plan says so" and "this looks deliberate" are never reasons to withhold a
+finding or to soften its severity. A planned choice is as reviewable as the code
+implementing it. If one looks wrong, report it as a finding against that choice
+— say which part of the task you mean.
 
 What the user asked for is what the work has to satisfy. Where that and what was
 planned differ, what the user asked for wins.
+
+## Always report these
+
+A finding whose consequence is user data loss, silent inversion of what the user
+asked for, or a blocked or hung process must always be reported, at the severity
+that consequence deserves — even where the plan explicitly chose the behaviour.
+
+"One-line fix" describes cost, not severity. Never downgrade a finding because
+the remedy is small.
