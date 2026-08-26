@@ -44,8 +44,18 @@ object ReviewLoopPrompts:
   val SummariseLint: String =
     PromptResource.load("/orca/review/prompts/summarise-lint.md")
 
+  /** The always-report categories, worded once. Substituted into both review
+    * templates at init; [[declinedBlock]] back-references the copy those
+    * templates render below it.
+    */
+  private[review] val MandatoryCategories: String =
+    "user data loss, silent inversion of what the user asked for, or a " +
+      "blocked or hung process"
+
   private val InitialReviewTemplate: String =
-    PromptResource.load("/orca/review/prompts/initial-review.md")
+    PromptResource
+      .load("/orca/review/prompts/initial-review.md")
+      .replace("{{mandatoryCategories}}", MandatoryCategories)
 
   /** Initial reviewer call: pin the agent to the supplied diff so it doesn't
     * fan out across the whole project. The same prompt template is used for
@@ -113,7 +123,9 @@ object ReviewLoopPrompts:
         "commit is there for evidence, not for widening your scope."
 
   private val ReReviewTemplate: String =
-    PromptResource.load("/orca/review/prompts/re-review.md")
+    PromptResource
+      .load("/orca/review/prompts/re-review.md")
+      .replace("{{mandatoryCategories}}", MandatoryCategories)
 
   /** Continuation prompt for a reviewer's session on iterations after the
     * first. The session already holds the reviewer's earlier findings and every
@@ -148,7 +160,9 @@ object ReviewLoopPrompts:
       "\n\nThe fixer declined to fix these findings, and gave this reason " +
         s"for each:\n\n${IgnoredIssues(declined).format}\n\nThat is the " +
         "fixer's position, not a ruling. If you still think a finding is " +
-        "real, report it again and say why the reason is wrong."
+        "real, report it again and say why the reason is wrong. \"The plan " +
+        "chose this\" is not on its own a sufficient answer for a finding " +
+        "in the always-report categories below — re-report such a finding."
 
   private def changesBlock(changes: ReReviewChanges): String =
     changes match

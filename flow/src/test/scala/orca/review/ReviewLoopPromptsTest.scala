@@ -24,6 +24,14 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
       )
     )
 
+  private def reRendered(declined: List[IgnoredIssue] = Nil): String =
+    TextUtil.collapseWhitespace(
+      ReviewLoopPrompts.reReview(
+        ReReviewChanges.AlreadySeen(LastSent.NoteOnly("")),
+        declined
+      )
+    )
+
   test("initialReview asks for findings worth fixing, not hedges"):
     // The reviewer's own judgement is the only filter between a finding and the
     // fixer, so the prompt has to say what clears it.
@@ -83,6 +91,42 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
       ),
       prompt
     )
+    assert(
+      prompt.contains(
+        "A deliberate or planned choice is evidence of intent, not of " +
+          "correctness"
+      ),
+      prompt
+    )
+
+  test("the always-report list is worded once, in MandatoryCategories"):
+    assertEquals(
+      ReviewLoopPrompts.MandatoryCategories,
+      "user data loss, silent inversion of what the user asked for, or a " +
+        "blocked or hung process"
+    )
+
+  test("initialReview makes the deference-prone categories mandatory"):
+    // Asserting via the constant checks the {{mandatoryCategories}}
+    // placeholder was substituted; the list's wording is pinned in its own
+    // test above.
+    val prompt = rendered()
+    assert(
+      prompt.contains(
+        "A finding whose consequence is " +
+          ReviewLoopPrompts.MandatoryCategories +
+          " must always be reported, at the severity that consequence " +
+          "deserves — even where the plan explicitly chose the behaviour."
+      ),
+      prompt
+    )
+    assert(
+      prompt.contains(
+        "\"One-line fix\" describes cost, not severity. Never downgrade a " +
+          "finding because the remedy is small."
+      ),
+      prompt
+    )
 
   test("initialReview names the commit the diff was sampled against"):
     // Sent alongside the diff, not instead of it: a reviewer can read the repo
@@ -96,11 +140,8 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
     assert(prompt.contains("git show abc1234:<path>"), prompt)
 
   test("reReview carries the fixer's declines as a position, not a ruling"):
-    val prompt = TextUtil.collapseWhitespace(
-      ReviewLoopPrompts.reReview(
-        ReReviewChanges.AlreadySeen(LastSent.NoteOnly("")),
-        List(IgnoredIssue(Title("rename the field"), "the name is on our API"))
-      )
+    val prompt = reRendered(
+      List(IgnoredIssue(Title("rename the field"), "the name is on our API"))
     )
     assert(
       prompt.contains("- rename the field: the name is on our API"),
@@ -113,17 +154,27 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
       ),
       prompt
     )
+    assert(
+      prompt.contains(
+        "\"The plan chose this\" is not on its own a sufficient answer for a " +
+          "finding in the always-report categories below — re-report such a " +
+          "finding."
+      ),
+      prompt
+    )
+    // "below" holds: the template's own copy of the list renders after this
+    // block.
+    assert(
+      prompt.indexOf("always-report categories below") <
+        prompt.indexOf(ReviewLoopPrompts.MandatoryCategories),
+      prompt
+    )
 
   test("reReview says the task is unchanged rather than repeating it"):
     // A resumed reviewer is the same conversation that got the initial prompt,
     // so the request and the description are already there — re-sending them
     // every round would cost tokens for nothing.
-    val prompt = TextUtil.collapseWhitespace(
-      ReviewLoopPrompts.reReview(
-        ReReviewChanges.AlreadySeen(LastSent.NoteOnly("")),
-        Nil
-      )
-    )
+    val prompt = reRendered()
     assert(
       prompt.contains(
         "Everything the initial prompt said still applies: the task it " +
@@ -131,13 +182,42 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
       ),
       prompt
     )
+    assert(
+      prompt.contains(
+        "a planned choice is still evidence of intent and not of correctness, " +
+          "fix cost still never lowers severity, and " +
+          ReviewLoopPrompts.MandatoryCategories +
+          " are still always reported."
+      ),
+      prompt
+    )
+
+  test("reReview checks the option taken, not that something was done"):
+    // Which alternative was taken is readable from the code, so verifying it
+    // needs no fixer data — the loop never sends fixed titles to reviewers.
+    val prompt = reRendered()
+    assert(
+      prompt.contains(
+        "work out from the code which one was taken, and check that that " +
+          "option resolves the original concern — not merely that something " +
+          "was done."
+      ),
+      prompt
+    )
+
+  test("Fix asks which alternative was taken"):
+    assert(
+      TextUtil
+        .collapseWhitespace(ReviewLoopPrompts.Fix)
+        .contains(
+          "Where a comment's suggestion offers alternatives (\"do X, or " +
+            "document why Y is safe\"), say which one you took, after the " +
+            "title"
+        ),
+      ReviewLoopPrompts.Fix
+    )
 
   test("reReview says nothing about declines when the fixer declined nothing"):
     // Same separator argument as the base-commit section above.
-    val prompt = TextUtil.collapseWhitespace(
-      ReviewLoopPrompts.reReview(
-        ReReviewChanges.AlreadySeen(LastSent.NoteOnly("")),
-        Nil
-      )
-    )
+    val prompt = reRendered()
     assert(!prompt.contains("The fixer declined"), prompt)
