@@ -114,17 +114,28 @@ flow(OrcaArgs(args)):
   for task <- plan.tasks do
     stage(s"Task: ${task.title}"):
       session.run(task.description)
-      reviewAndFixLoop(                  
+      reviewThenFix(
         coderSession = session,
         reviewers = allReviewers(reviewAgent),
-        // reviewerSelection defaults to a picker LLM on reviewAgent.cheap,
-        // narrowing each round (see "Review utilities"). Format
-        // and lint default to the project's stack settings
+        // One review round, one fix turn. Reviewers are picked by a picker LLM
+        // on reviewAgent.cheap (see "Review utilities"); format and lint
+        // default to the project's stack settings
         // (`.orca/settings.properties`, auto-discovered on first run) — see
         // "Settings" below. The whole task goes in: reviewers are shown its
         // title and description, plus the run's prompt, each labelled.
         task = task
       )
+
+  // Each task's single pass took the fixer's word for its own fixes; this loop
+  // over everything the run changed is what checks them.
+  stage("Final review"):
+    reviewAndFixLoop(
+      coderSession = session,
+      reviewers = allReviewers(reviewAgent),
+      task = Task(Title("The whole planned change"), plan.brief),
+      diff = ReviewDiff.WholeRun,
+      maxIterations = 5
+    )
 ```
 
 ```bash
@@ -654,6 +665,7 @@ Review utilities, available via `import orca.review.*`:
 | `lint(commands, agent, instructions?)` | Run shell lint commands (in order, each via `bash -c`; every one runs even if an earlier one fails) and have `agent` summarise their labelled, concatenated output as a `ReviewResult`. Short output is inlined into the prompt; anything larger is written to a file under `.orca/cache/` for the agent to read, so unbounded output can't overflow the context. |
 | `lint(commands, summariser, instructions)` | As above, but summarising into an existing `Lint.summariser(agent)` conversation instead of a fresh one per call, so a gate run several times within one stage resumes the session rather than re-establishing it each round. Stop reusing a summariser once it has reported: it can repeat those findings on a later call whose commands no longer show them. `reviewAndFixLoop` does this for you. |
 | `reviewAndFixLoop(coderSession, reviewers, task, userRequest?, ..., formatCommands?, lint?, maxIterations?, fixInstructions?)` | Run reviewers against `task: Task`, collect their findings, hand them to the `coderSession` (a `FlowSession`) to fix, re-evaluate. Reviewers are asked to report only what they believe should be fixed, and every finding they report reaches the fixer — nothing filters them in between. Reviewers see the task's title and description under separate labels, plus the user's request — the run's prompt by default, or `userRequest` when the prompt is only a pointer, like an issue reference. Keeping them apart is what lets a reviewer report a finding against the planner's choice rather than only against the code. A flow with no planning stage passes its prompt as the title and an empty description. Halts when reviewers come back clean, the fixer reports no fixes, or `maxIterations` fix attempts have run (default 3, so up to four evaluation rounds). Every exit names the findings it leaves open and why each is still open. Whatever is still open at that point — the findings the fixer declined, didn't account for, or that were first reported in the round that hit the cap — comes back in the returned `IgnoredIssues` with a reason. `formatCommands: Configured[List[String]]` runs before each review round; `lint: Configured[Lint]` runs alongside the reviewers each round — both default to the project's [stack settings](#settings), see below. |
+| `reviewThenFix(coderSession, reviewers, task, userRequest?, formatCommands?, lint?)` | One round of the above and, if it found anything, one fix turn — then done. Nothing re-reviews, so the fixer's claim that it fixed a finding is taken on trust. Reviewers are picked once (`ReviewerSelector.agentDriven`) and the change set is the enclosing stage's, as above. What the fixer declined, and what it never reported on, come back in the returned `IgnoredIssues` with a reason. Use it per task where a later stage reviews the same code again — a whole-run `reviewAndFixLoop`, below — and pay for the loop where nothing else re-reviews the fixes. |
 | `allReviewers(base)` | All eight canonical reviewer agents (code-functionality, test, readability, code-structure, simplicity, performance, security, scala-fp) layered on top of `base`. |
 | `minimalReviewers(base)` | Universally-applicable subset (code-functionality, readability, test). Pair with the default LLM-driven selector when the full set is overkill. |
 | `fixLoop(evaluate, fix, ...)` | Lower-level evaluate/fix loop over your own two functions — no reviewers, no sessions, no diff. Shares `reviewAndFixLoop`'s stop policy and `maxIterations` default, not its machinery. |
@@ -686,6 +698,29 @@ included, so each round's reviewers see the fixes made before it. Pass
 base commit, the selector's changed-file list is scraped from the diff text, and
 every later round finds the same text, so a resumed reviewer is told there is no
 new change set.
+
+`diff = ReviewDiff.WholeRun` widens it to everything the run has changed since
+it started — since the commit HEAD pointed at when the run bound its branch,
+recorded in the progress log — so a stage placed after the per-task work
+reviews the whole branch, earlier stages' commits included. Reviewers are told
+the change set spans every stage. A run whose log records no usable commit (a
+log from before orca recorded one, or one whose commit no longer sits behind
+HEAD after a rebase) has no base: the call says so in a step and returns without
+reviewing.
+
+That is the final-review half of the shape every task-based built-in flow uses
+— `reviewThenFix` per task, then this once:
+
+```scala
+stage("Final review"):
+  reviewAndFixLoop(
+    coderSession = session,
+    reviewers = allReviewers(reviewAgent),
+    task = Task(Title("The whole planned change"), plan.brief),
+    diff = ReviewDiff.WholeRun,
+    maxIterations = 5
+  )
+```
 
 A change set past 128 KiB is cut down before it is sent: the reviewer gets as
 many whole files as fit, then a list naming every other changed file with its
