@@ -3,7 +3,7 @@ package orca.shell.cli
 import mainargs.{Flag, ParserForMethods, Renderer, Util, arg, main}
 import org.jline.terminal.Terminal
 import orca.settings.GlobalSettings
-import orca.shell.run.LaunchResult
+import orca.shell.run.{FlowFlags, LaunchResult}
 import orca.shell.ui.ShellUi
 import orca.subprocess.TtyProbe
 
@@ -151,18 +151,25 @@ private[shell] object Cli:
       @arg(doc = "run on the current branch instead of creating a new one")
       skipBranch: Flag = Flag(),
       @arg(doc =
+        "keep uncommitted/untracked files in the working tree instead of stashing them (fresh runs only)"
+      )
+      keepChanges: Flag = Flag(),
+      @arg(doc =
         "run the flow's own pinned orca version instead of forcing this shell's"
       )
       honorPin: Flag = Flag()
   ): Int =
     RunCli.run(
-      flow,
-      task,
-      verbose.value,
-      skipBranch.value,
-      honorPin.value,
-      os.pwd,
-      TtyProbe.stdin()
+      flowRef = flow,
+      task = task,
+      flags = FlowFlags(
+        verbose = verbose.value,
+        skipBranch = skipBranch.value,
+        keepChanges = keepChanges.value
+      ),
+      honorPin = honorPin.value,
+      workDir = os.pwd,
+      tty = TtyProbe.stdin()
     )
 
   @main(doc =

@@ -56,6 +56,14 @@ class CliTest extends munit.FunSuite:
       Right(1)
     )
 
+  test(
+    "run: --keep-changes parses too (fails later, at flow resolution)"
+  ):
+    assertEquals(
+      invoke("run", "no-such-flow.sc", "a task", "--keep-changes"),
+      Right(1)
+    )
+
   test("run: the required flow positional missing is a usage error"):
     assert(!parses("run"))
 

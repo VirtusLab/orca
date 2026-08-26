@@ -28,6 +28,7 @@ import orca.progress.{
   UnsafeBranchRefRefused
 }
 import orca.settings.{AgentSettings, SettingsFile, SettingsScope}
+import orca.subprocess.TtyProbe
 import orca.tools.{GitTool, UntrackedFiles}
 import org.slf4j.LoggerFactory
 import ox.either.orThrow
@@ -214,8 +215,9 @@ object FlowLifecycle:
     *
     * `untrackedOnFailure` is the cleanliness policy's verdict on what failure
     * teardown may delete. `Keep` only when setup deliberately left pre-existing
-    * files in place (fresh skip-branch mode), where orca cannot tell the user's
-    * untracked files from the run's.
+    * files in place (a fresh run under `--skip-branch`, `--keep-changes`, or an
+    * interactive keep answer), where orca cannot tell the user's untracked
+    * files from the run's.
     */
   private[orca] case class FlowSetup(
       store: ProgressStore,
@@ -248,24 +250,19 @@ object FlowLifecycle:
     * start on a branch another run's progress log already claims; see
     * [[abortIfBranchBusy]].
     *
-    * Cleanliness policy (ADR 0018 amendment): only skip-branch mode needs the
-    * fresh-vs-resume distinction to decide whether to stash, so only there is
-    * `store.loadDetailed()` peeked at pre-stash (a throwaway read, gating the
-    * branch below only — not reused for the actual routing decision). A FRESH
-    * skip-branch run tolerates a dirty tree outright — no stash, no refusal,
-    * one informational `Step` naming the file count — since the leftover files
-    * are likely the very hand-off context the flow is meant to act on. Every
-    * other case (resume, or normal branch-creating mode either way)
-    * auto-stashes as before: a resumed run's interrupted stage may have left
-    * uncommitted partial work that must not leak into the stage that re-runs.
-    * Normal mode's stash decision needs no peek, so it is unchanged.
-    *
-    * [[abortIfBranchBusy]] also reads the own log pre-stash, in every mode. A
-    * pre-stash read can see a dirty working copy, which is why neither peek
+    * This run's own log is peeked at ONCE pre-stash (`ownLog` below) and shared
+    * by the two steps that need it before any tree mutation:
+    * [[abortIfBranchBusy]] and [[SetupSession.applyCleanlinessPolicy]]. A
+    * pre-stash read can see a dirty working copy, which is why the peek never
     * routes fresh-vs-resume — that stays with the post-stash authoritative read
     * below. The busy check only ever refuses, and a dirty own log reads at
     * worst as `Corrupt`, which it treats like `Absent`: no resumable run of
     * mine here, so another run's claim on this branch still stands.
+    *
+    * Cleanliness policy: the peek's facts feed [[DirtyTreePolicy.decide]] (the
+    * decision table lives there), and [[SetupSession.applyCleanlinessPolicy]]
+    * carries the verdict out — stash, keep, or an abort thrown before anything
+    * in the tree is touched.
     *
     * The progress header is untrusted input on load (the log is human-visible
     * and pushable), so the AUTHORITATIVE read — at the `binding` match below —
@@ -308,14 +305,24 @@ object FlowLifecycle:
       // "Resume interrupted run" offer (ADR 0021 §3 amendment) knows which
       // flow script to relaunch. `None` for a run started outside the shell.
       flowName: Option[String] = None,
-      emit: OrcaEvent => Unit
+      emit: OrcaEvent => Unit,
+      // The dirty-tree prompt's two terminal dependencies, injected so tests
+      // (and any headless caller) decide without one. Production probes real
+      // stdin and prompts on stderr; `ask` takes the dirty-file count, which
+      // is all the menu shows.
+      // Both streams of the exchange must be a terminal: the menu is printed
+      // on stderr, so `orca ... 2> run.log` from an interactive shell has a tty
+      // stdin but nowhere visible to ask.
+      tty: () => Boolean = () => TtyProbe.stdin() && TtyProbe.stderr(),
+      ask: Int => DirtyTreeChoice = DirtyTreePolicy.promptOnStderr
   ): FlowSetup =
     given InStage = RuntimeInStage.token()
     given WorkspaceWrite = RuntimeInStage.workspaceToken()
     warnIfSettingsIgnored(git, stackOverridden, emit)
     abortIfNoCommits(git)
     val startBranch = git.currentBranch()
-    abortIfBranchBusy(store, workDir, startBranch)
+    val ownLog = store.loadDetailed()
+    abortIfBranchBusy(ownLog, store.path, workDir, startBranch)
     // Snapshot the log file before any stash, restore it after if the stash
     // removed it — so an uncommitted/untracked log is still readable below.
     val snapshot = snapshotLog(store.path)
@@ -328,9 +335,11 @@ object FlowLifecycle:
         branchNaming,
         store,
         flowName,
-        emit
+        emit,
+        tty,
+        ask
       )
-    val untrackedOnFailure = session.applyCleanlinessPolicy()
+    val untrackedOnFailure = session.applyCleanlinessPolicy(ownLog)
     restoreLogIfMissing(store.path, snapshot)
     // Discovery (ADR 0019) is sequenced after the cleanliness decision (whose
     // stash, when it runs, would sweep a just-written untracked file straight
@@ -380,10 +389,10 @@ object FlowLifecycle:
     * half-done. A log naming the current branch IS such a run: failure teardown
     * keeps the log and stays on the branch, success teardown deletes it.
     *
-    * Skipped when this run's own log loads: that is a legitimate resume of the
-    * same prompt, and the branch its header names is its own (validated
-    * downstream by `bindBranch`) — so other logs naming the branch don't turn a
-    * resume into a conflict.
+    * Skipped when this run's own log loads (`ownLog`, [[setup]]'s shared
+    * pre-stash peek): that is a legitimate resume of the same prompt, and the
+    * branch its header names is its own (validated downstream by `bindBranch`)
+    * — so other logs naming the branch don't turn a resume into a conflict.
     *
     * Runs before the cleanliness policy, so an abort leaves the tree and branch
     * exactly as the user left them. Reading foreign logs pre-stash can pick up
@@ -391,14 +400,13 @@ object FlowLifecycle:
     * unlike `bindBranch`'s authoritative post-stash read.
     */
   private def abortIfBranchBusy(
-      store: ProgressStore,
+      ownLog: ProgressStore.LoadResult,
+      ownPath: os.Path,
       workDir: os.Path,
       startBranch: String
   ): Unit =
-    val ownLogLoads =
-      store.loadDetailed().isInstanceOf[ProgressStore.LoadResult.Loaded]
-    if !ownLogLoads then
-      busyBranchLog(store.path, workDir, startBranch).foreach: log =>
+    if !ownLog.isInstanceOf[ProgressStore.LoadResult.Loaded] then
+      busyBranchLog(ownPath, workDir, startBranch).foreach: log =>
         throw new OrcaFlowException(
           branchBusyMessage(log, workDir, startBranch)
         )
@@ -474,39 +482,80 @@ object FlowLifecycle:
       branchNaming: Option[BranchNamingStrategy],
       store: ProgressStore,
       flowName: Option[String],
-      emit: OrcaEvent => Unit
+      emit: OrcaEvent => Unit,
+      tty: () => Boolean,
+      ask: Int => DirtyTreeChoice
   ):
 
-    /** Cleanliness policy (ADR 0018 amendment) — see [[setup]]'s doc for why
-      * only this mode peeks the store pre-stash. Skip-branch + fresh: tolerate
-      * a dirty tree (no stash, one informational `Step` naming the file count)
-      * — the leftover files are likely the flow's own hand-off context. Every
-      * other case (resume, or normal mode either way) auto-stashes, since an
-      * interrupted stage's uncommitted work must not leak into the re-run.
+    /** Cleanliness policy (ADR 0018 amendment) — carries out what
+      * [[DirtyTreePolicy.decide]] chose. `ownLog` is [[setup]]'s shared
+      * pre-stash peek; see its doc for why a pre-stash peek may gate this
+      * decision but never routes fresh-vs-resume. A PRESENT log — a resume, or
+      * one too broken to classify before the stash reverts it — is what turns
+      * the decision away from every keep path, so presence is the fact passed
+      * on, not resumability.
+      *
+      * Aborting throws here, which is before the first stash and the first
+      * branch mutation alike: a refused run leaves the tree as the user left
+      * it.
       *
       * Returns what failure teardown may then do with untracked files (see
       * [[FlowSetup.untrackedOnFailure]]).
       */
-    def applyCleanlinessPolicy()(using WorkspaceWrite): UntrackedFiles =
-      if args.skipBranch.value then
-        val isResume =
-          store.loadDetailed().isInstanceOf[ProgressStore.LoadResult.Loaded]
-        if isResume then
-          git.ensureClean("orca: starting flow")
-          UntrackedFiles.Remove
-        else
-          val dirty = git.dirtyPaths()
-          if dirty.isEmpty then UntrackedFiles.Remove
-          else
-            emit(
-              OrcaEvent.Step(
-                s"leaving ${dirty.size} uncommitted/untracked file(s) in place for the flow"
-              )
+    def applyCleanlinessPolicy(
+        ownLog: ProgressStore.LoadResult
+    )(using WorkspaceWrite): UntrackedFiles =
+      val dirtyCount = git.dirtyPaths().size
+      val facts = DirtyTreeFacts(
+        ownLogPresent = ownLog != ProgressStore.LoadResult.Absent,
+        skipBranch = args.skipBranch.value,
+        keepChanges = args.keepChanges.value,
+        dirtyCount = dirtyCount
+      )
+      DirtyTreePolicy.decide(facts, tty, ask) match
+        case DirtyTreeChoice.Stash => stashDirtyTree(dirtyCount)
+        case DirtyTreeChoice.Keep  => keepDirtyTree(dirtyCount)
+        case DirtyTreeChoice.Abort =>
+          throw new OrcaFlowException(
+            s"refusing to start with $dirtyCount uncommitted/untracked " +
+              "file(s) in the working tree — commit or stash them yourself, " +
+              "or re-run with --keep-changes to leave them in place"
+          )
+
+    /** Stash whatever is dirty, so the run starts from committed content. Says
+      * once that `--keep-changes` lost, and only when it did: the flag holds
+      * for a fresh run alone, and there is nothing to ignore on a clean tree. A
+      * clean tree also skips `ensureClean` — it would only repeat the caller's
+      * `git status` to find nothing to stash.
+      */
+    private def stashDirtyTree(dirtyCount: Int)(using
+        WorkspaceWrite
+    ): UntrackedFiles =
+      if dirtyCount > 0 then
+        if args.keepChanges.value then
+          emit(
+            OrcaEvent.Step(
+              "ignoring --keep-changes: this task already has a progress " +
+                "log, so the tree is stashed clean — an interrupted stage's " +
+                "partial work must not leak into the stages that re-run"
             )
-            UntrackedFiles.Keep
-      else
+          )
         git.ensureClean("orca: starting flow")
-        UntrackedFiles.Remove
+      UntrackedFiles.Remove
+
+    /** Leave a dirty tree in place, naming the file count once. `Keep` then
+      * holds failure teardown back from deleting untracked files it cannot tell
+      * apart from the run's own (see [[FlowSetup.untrackedOnFailure]]).
+      */
+    private def keepDirtyTree(dirtyCount: Int): UntrackedFiles =
+      if dirtyCount == 0 then UntrackedFiles.Remove
+      else
+        emit(
+          OrcaEvent.Step(
+            s"leaving $dirtyCount uncommitted/untracked file(s) in place for the flow"
+          )
+        )
+        UntrackedFiles.Keep
 
     /** Bind the run to a branch + progress log — resume onto the header's
       * branch for a valid log, warn and start fresh from a corrupt one, or
@@ -776,11 +825,12 @@ object FlowLifecycle:
 
   /** Fresh run: resolve + create the branch, then commit the header as the
     * branch's first commit. The commit is pathspec-scoped to just the
-    * progress-log file (never `add -A`), so a dirty tree left by skip-branch
-    * mode reaches the branch only via the first stage's own commit. Shared by
-    * the absent-log and corrupt-log arms of [[bindBranch]]. Needs `InStage`
-    * (branch-name resolution may call the cheap model) and `WorkspaceWrite`
-    * (the git writes).
+    * progress-log file (never `add -A`), so a dirty tree the cleanliness policy
+    * left in place (`--skip-branch` or `--keep-changes`) reaches the branch
+    * only via the first stage's own commit. Shared by the absent-log and
+    * corrupt-log arms of [[bindBranch]]. Needs `InStage` (branch-name
+    * resolution may call the cheap model) and `WorkspaceWrite` (the git
+    * writes).
     *
     * The resolved name is minted into a [[FeatureBranch]] before reaching git:
     * a protected-name collision falls back to a deterministic
@@ -1023,14 +1073,17 @@ object FlowLifecycle:
         try
           val _ = os.remove(setup.store.path)
         catch case _: java.nio.file.NoSuchFileException => ()
-      // `add -A` in commit picks up the removal; NothingToCommit means it was
-      // never committed — harmless. A genuine commit failure is cosmetic: the
-      // run already succeeded and the progress file is gone from the tree.
+      // Pathspec-scoped to the log file, so uncommitted files the cleanliness
+      // policy left in the tree stay out of this bookkeeping commit;
+      // force-staged, because `.orca/` may be gitignored. A log never
+      // committed, or already removed by an earlier teardown, fails the stage
+      // or the commit — cosmetic, swallowed by bestEffort.
       bestEffort("commit progress-log removal"):
-        val _ = git.commit("orca: remove progress log")
+        git.forceCommitOnly(setup.store.path, "orca: remove progress log")
       // Gated on the remote still carrying the log, not on the commit leg
-      // succeeding: a resumed teardown hits NothingToCommit yet may still owe
-      // the remote a push. The gate is also what keeps this from publishing
+      // succeeding: a resumed teardown's commit finds nothing to commit yet
+      // may still owe the remote a push. The gate is also what keeps this from
+      // publishing
       // anything the run didn't — a reused branch that had an upstream before
       // the run only has the log upstream if this run pushed it there.
       bestEffort("push progress-log removal"):

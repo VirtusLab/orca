@@ -19,7 +19,7 @@ import orca.shell.cli.{Cli, CliHelp}
 import orca.shell.create.{CreateTarget, CreateTier, FlowAuthoring}
 import orca.shell.flows.{DiscoveredFlow, FlowEditor, FlowOrigin}
 import orca.shell.resume.{InterruptedRun, ResumeDetector}
-import orca.shell.run.{FallbackPolicy, LaunchResult}
+import orca.shell.run.{FallbackPolicy, FlowFlags, LaunchResult}
 import orca.shell.sessions.{ManifestReader, RecordedRun, SessionPicker}
 import orca.shell.ui.{Choice, ShellOutput, ShellUi, UiOutcome}
 import orca.shell.wizard.{FirstRun, FirstRunStatus, Wizard}
@@ -362,8 +362,11 @@ object Main:
       createBranch <- promptCreateBranch(ui)
     do
       val opts = RunAction.RunOptions(
-        verbose = false,
-        skipBranch = !createBranch,
+        flags = FlowFlags(
+          verbose = false,
+          skipBranch = !createBranch,
+          keepChanges = false
+        ),
         fallback = FallbackPolicy.Ask(ui)
       )
       RunAction.run(flow, task, opts, os.pwd, terminal).discard
@@ -376,8 +379,8 @@ object Main:
     * ([[RunAction.run]]/[[orca.shell.run.FlowLauncher]]): no branch prompt —
     * the resume happens on the current branch by design, and a resumed log's
     * `bindBranch` (`FlowLifecycle`) ignores `skipBranch` entirely, so the
-    * default `RunOptions` is exactly as correct here as any other value would
-    * be. `runAction` is injectable, [[AuthorAction]]-style, so a test can
+    * all-false flags passed here are exactly as correct as any other value
+    * would be. `runAction` is injectable, [[AuthorAction]]-style, so a test can
     * record the call instead of spawning a real subprocess.
     */
   private[shell] def resumeInterruptedRun(
@@ -391,14 +394,21 @@ object Main:
           RunAction.RunOptions,
           os.Path,
           Terminal
-      ) => LaunchResult = RunAction.run
+          // Spelled as a lambda, not `RunAction.run`: the real method has a
+          // trailing injectable `launch` of its own, which eta-expansion would
+          // pull into this shape.
+      ) => LaunchResult = RunAction.run(_, _, _, _, _)
   ): Unit =
     FlowResolution.resolve(run.flowName, workDir) match
       case Left(message) => ShellOutput.error(message)
       case Right(flow) =>
         val opts =
           RunAction.RunOptions(
-            verbose = false,
+            flags = FlowFlags(
+              verbose = false,
+              skipBranch = false,
+              keepChanges = false
+            ),
             fallback = FallbackPolicy.Ask(ui)
           )
         runAction(flow, run.userPrompt, opts, workDir, terminal).discard

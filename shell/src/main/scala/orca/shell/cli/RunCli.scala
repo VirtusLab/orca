@@ -13,8 +13,7 @@ private[cli] object RunCli:
   def run(
       flowRef: String,
       task: Option[String],
-      verbose: Boolean,
-      skipBranch: Boolean,
+      flags: FlowFlags,
       honorPin: Boolean,
       workDir: os.Path,
       tty: Boolean
@@ -36,7 +35,7 @@ private[cli] object RunCli:
                     resolved.path,
                     taskText,
                     workDir,
-                    FlowFlags(verbose, skipBranch),
+                    flags,
                     terminal
                   )
                 else
@@ -44,8 +43,7 @@ private[cli] object RunCli:
                     resolved,
                     taskText,
                     RunAction.RunOptions(
-                      verbose = verbose,
-                      skipBranch = skipBranch,
+                      flags = flags,
                       fallback =
                         FallbackPolicy.Refuse("re-run with --honor-pin")
                     ),

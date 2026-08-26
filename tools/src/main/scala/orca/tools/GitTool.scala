@@ -433,13 +433,14 @@ trait GitTool:
   def ensureClean(stashMessage: String)(using WorkspaceWrite): Unit
 
   /** The paths reported by `git status --porcelain` (modified, staged, and
-    * untracked), one per entry. READ-ONLY. Used by skip-branch mode's
-    * informational notice on a fresh run with a dirty tree (ADR 0018 amendment)
-    * — the count, not the parsed content, is what's shown. Emptiness is also
-    * what [[commit]] and [[ensureClean]] decide on, and what the failure
-    * teardown's choice of [[UntrackedFiles]] follows from, so narrowing what
-    * this reports changes when they commit, when they stash, and whether
-    * untracked files are deleted.
+    * untracked), one per entry. READ-ONLY. Used by the cleanliness policy's
+    * informational notice on a fresh run that keeps a dirty tree
+    * (`--skip-branch` or `--keep-changes`, ADR 0018 amendment) — the count, not
+    * the parsed content, is what's shown. Emptiness is also what [[commit]] and
+    * [[ensureClean]] decide on, and what the failure teardown's choice of
+    * [[UntrackedFiles]] follows from, so narrowing what this reports changes
+    * when they commit, when they stash, and whether untracked files are
+    * deleted.
     */
   def dirtyPaths(): List[String]
 
