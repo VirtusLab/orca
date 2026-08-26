@@ -736,12 +736,6 @@ round — the trade-off is that it won't see the fixes made after it stopped. If
 narrowing would leave no reviewer at all (everyone quiet, while a lint finding
 keeps the loop going), the round's full selection runs again and a step says so.
 
-Each shipped reviewer's description ends with an "Include when:" checklist of
-diff signals to look for (the performance one: spawns a subprocess, does IO,
-adds work inside a loop), and the picker is asked to justify every reviewer it
-leaves out. Write the same into a custom `Reviewer`'s `description` to get the
-same treatment.
-
 | Selector | Behaviour |
 |---|---|
 | `default` | The above: `narrowingAcrossRounds(agentDriven)`. |
@@ -749,6 +743,12 @@ same treatment.
 | `agentDriven` | Pick once with `reviewAgent.cheap`, replay that pick every round. |
 | `agentDriven(agent, instructions?, descriptions?, filePatterns?)` | As above with a chosen picker model and briefs. |
 | `narrowingAcrossRounds(base)` | Adds the per-round narrowing over any `base`. |
+
+Each shipped reviewer's description ends with an "Include when:" checklist of
+diff signals to look for (the performance one: spawns a subprocess, does IO,
+adds work inside a loop), and the picker is asked to justify every reviewer it
+leaves out. Write the same into a custom `Reviewer`'s `description` to get the
+same treatment.
 
 A reviewer declaring a `files:` pattern in its frontmatter (of the shipped set,
 only `scala-fp`) is offered to the picker only when a changed file matches it —

@@ -18,8 +18,9 @@ the change set could not be described, not that nothing changed.
 
 When you are unsure whether a reviewer applies, include it — a needless review
 costs a little time, a missed one costs a defect that ships. Skip a reviewer
-only when the files plainly contain nothing in its scope, e.g. a change that
-touches no test file has nothing for the test reviewer. That bar is highest
+only when none of its clauses match and the files plainly contain nothing in
+its scope, e.g. a documentation-only change matches no clause of the
+performance or security checklists. That bar is highest
 for the risk-bearing reviewers, security and code-functionality above all.
 
 Reply with `names` copied verbatim from the `name` field of

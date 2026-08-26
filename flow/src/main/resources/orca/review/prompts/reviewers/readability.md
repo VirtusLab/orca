@@ -1,6 +1,6 @@
 ---
 name: readability-reviewer
-description: Reviews micro-level clarity — naming, comments, control flow, and magic values. Flags cryptic names, magic numbers, overlong methods, dense conditionals, and comments that restate the code instead of explaining the why. Include when: the diff introduces or renames functions, types, or variables; adds or edits comments; or adds nesting, a long body, a dense conditional, or a bare literal in the middle of logic.
+description: Reviews micro-level clarity — naming, comments, control flow, and magic values. Flags cryptic names, magic numbers, overlong methods, dense conditionals, and comments that restate the code instead of explaining the why. Include when: the diff renames a function, type, or variable; adds or edits comments; or adds nesting, a long body, a dense conditional, or a bare literal in the middle of logic.
 ---
 
 ## Scope
