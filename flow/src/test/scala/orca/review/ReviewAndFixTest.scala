@@ -319,6 +319,42 @@ class ReviewAndFixTest extends munit.FunSuite:
       emitted.mkString("\n")
     )
 
+  test("the cap exit keeps earlier declines alongside the capped findings"):
+    given FlowControl = control
+    // Round one's decline and the finding still reported when the cap is hit
+    // are both returned, each with its own reason.
+    val reviewer = new FakeAgent(
+      name = "loud",
+      outputs = List(
+        ReviewResult(List(issue("driver"), issue("nit"))),
+        ReviewResult(List(issue("stubborn")))
+      )
+    )
+    val coder = new FakeAgent(
+      name = "coder",
+      outputs = List(
+        FixOutcome(
+          List(Title("driver")),
+          List(IgnoredIssue(Title("nit"), "deliberate"))
+        )
+      )
+    )
+    val result = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(reviewer),
+      task = titled("build the widget"),
+      maxIterations = 1,
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      diff = ReviewDiff.Pinned("")
+    )
+    assertEquals(
+      result.issues,
+      List(
+        IgnoredIssue(Title("nit"), "deliberate"),
+        IgnoredIssue(Title("stubborn"), "max iterations (1) reached")
+      )
+    )
+
   test("a finding declined then fixed is neither reported nor re-sent"):
     given FlowControl = control
     // The reviewer re-reports what round one declined and the fixer fixes it,

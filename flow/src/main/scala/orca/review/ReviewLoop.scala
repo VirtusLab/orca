@@ -126,19 +126,31 @@ private def indexSeverities(
 ): Map[Title, Severity] =
   severities ++ issues.map(i => i.title -> i.severity)
 
-/** Fold `additions` into `accumulated`, in order, keeping one entry per title
-  * with the latest reason ([[mergeLatestByTitle]]).
+/** `existing` with `additions` merged in, keyed by title: a title `existing`
+  * already carries is refreshed with the latest reason in place, a new one is
+  * appended, and duplicate titles within `additions` collapse to the last.
   *
   * Every accumulation point in both loops goes through this, so a finding
   * declined in round one and re-declined — or later reported unaccounted for —
   * comes back as one entry saying the last thing known about it, never as two
-  * entries with contradictory reasons.
+  * entries with contradictory reasons. A title is the loop's one notion of "the
+  * same finding again", in the fixer's accumulated declines and in the
+  * [[IgnoredIssues]] any exit returns.
   */
 private[review] def recordIgnored(
-    accumulated: IgnoredIssues,
-    additions: List[IgnoredIssue]*
+    existing: IgnoredIssues,
+    additions: List[IgnoredIssue]
 ): IgnoredIssues =
-  IgnoredIssues(additions.foldLeft(accumulated.issues)(mergeLatestByTitle))
+  val latest = additions.map(i => i.title -> i).toMap
+  val existingTitles = existing.issues.map(_.title).toSet
+  val refreshed = existing.issues.map(i => latest.getOrElse(i.title, i))
+  val added =
+    additions
+      .map(_.title)
+      .distinct
+      .filterNot(existingTitles.contains)
+      .map(latest)
+  IgnoredIssues(refreshed ++ added)
 
 /** `accumulated` with the fixer's `fixed` titles dropped, then `additions`
   * folded in ([[recordIgnored]]).
@@ -257,7 +269,7 @@ private case class ReviewLoopState(
 ):
   def afterRound(
       reviewers: List[RoundContribution],
-      lint: Option[LintContribution]
+      lintChat: Option[Lint.Summariser]
   ): ReviewLoopState =
     ReviewLoopState(
       history = ReviewBatch(
@@ -265,7 +277,7 @@ private case class ReviewLoopState(
       ) :: history,
       sessions =
         sessions ++ reviewers.flatMap(c => c.newSession.map(c.entry.id -> _)),
-      lintChat = lint.flatMap(_.resumableSummariser)
+      lintChat = lintChat
     )
 
 private object ReviewLoopState:
@@ -286,8 +298,9 @@ private case class RoundContribution(
     newSession: Option[SessionEntry]
 )
 
-/** What the lint gate contributed to a round: its keyed findings and the
-  * conversation [[lint]] handed back as safe to resume.
+/** What the lint command gate ([[Lint]], run alongside the reviewers)
+  * contributed to a round: its keyed findings and the conversation [[lint]]
+  * handed back as safe to resume.
   */
 private case class LintContribution(
     issues: List[KeyedIssue],
@@ -661,7 +674,10 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     val lint = outcomes.collectFirst { case AgentOutcome.Lint(c) => c }
     RoundOutcome(
       issues = contributions.flatMap(_.issues) ++ lint.toList.flatMap(_.issues),
-      state = currentState.afterRound(contributions, lint)
+      state = currentState.afterRound(
+        contributions,
+        lint.flatMap(_.resumableSummariser)
+      )
     )
 
   /** Run the format commands, in order, in `ctx.workDir`. A nonzero exit is
@@ -727,38 +743,6 @@ private[review] class ReviewFixLoop[B <: BackendTag](
       .resultAs[FixOutcome]
       .run(FixRequest(fixInstructions, issues), emitPrompt = false)
 
-  /** How a round ended the loop, carrying whatever that exit has to record on
-    * top of what the loop already accumulated.
-    */
-  private enum LoopExit:
-    case Clean
-    case Capped(stillOpen: IgnoredIssues)
-    case FixerHalted(outcome: ReconciledFixOutcome)
-
-  /** Fold everything still open into one [[IgnoredIssues]], then announce the
-    * exit over that result ([[announceExit]]), so what is printed is exactly
-    * what is returned.
-    */
-  private def conclude(
-      exit: LoopExit,
-      accumulated: IgnoredIssues,
-      severities: Map[Title, Severity]
-  ): IgnoredIssues =
-    val (headline, open) = exit match
-      case LoopExit.Clean => (cleanExitMessage(accumulated), accumulated)
-      case LoopExit.Capped(stillOpen) =>
-        (
-          capExitMessage(maxIterations),
-          recordIgnored(accumulated, stillOpen.issues)
-        )
-      case LoopExit.FixerHalted(outcome) =>
-        (
-          FixerHaltMessage,
-          recordIgnored(accumulated, fixerHaltAdditions(outcome))
-        )
-    announceExit(headline, open, severities)
-    open
-
   /** Run the evaluate/fix loop to convergence and return the accumulated
     * [[IgnoredIssues]], applying the shared [[stopPolicy]] each round and
     * threading the immutable [[ReviewLoopState]] (reviewer history + sessions)
@@ -786,18 +770,18 @@ private[review] class ReviewFixLoop[B <: BackendTag](
         accumulated: IgnoredIssues,
         iteration: Int,
         state: ReviewLoopState,
-        // Every decline the fixer has made so far, minus any since fixed. The
-        // whole set rather than the last round's, so a reviewer first activated
-        // in round three still learns what was settled in round one. Not split
-        // per reviewer — a [[FixOutcome]] doesn't say which reviewer reported
-        // what — so every reviewer is sent the whole list.
-        declined: List[IgnoredIssue],
         // Severity per finding evaluated so far, which [[IgnoredIssue]] doesn't
         // carry and the closing block needs.
         severities: Map[Title, Severity]
     ): IgnoredIssues =
       orca.display(s"Iteration ${iteration + 1}")
-      val round = evaluate(state, selectRound, declined)
+      // `accumulated` doubles as the cross-round decline set sent to this
+      // round's reviewers: only declines reach it before an exit, minus any
+      // since fixed. The whole set rather than the last round's, so a reviewer
+      // first activated in round three still learns what was settled in round
+      // one. Not split per reviewer — a [[FixOutcome]] doesn't say which
+      // reviewer reported what — so every reviewer is sent the whole list.
+      val round = evaluate(state, selectRound, accumulated.issues)
       val findings = round.issues.map(_.issue)
       val seenSeverities = indexSeverities(severities, findings)
       stopPolicy(
@@ -805,26 +789,35 @@ private[review] class ReviewFixLoop[B <: BackendTag](
         iteration = iteration,
         maxIterations = maxIterations
       ) match
+        // `ctx` explicit on the announce calls for the same given-priority
+        // reason as `selectRound`.
         case LoopStep.Done =>
-          conclude(LoopExit.Clean, accumulated, seenSeverities)
+          announceExit(
+            cleanExitMessage(accumulated),
+            accumulated,
+            seenSeverities
+          )(using
+            ctx
+          )
+          accumulated
         case LoopStep.CapReached(ignored) =>
-          conclude(LoopExit.Capped(ignored), accumulated, seenSeverities)
+          val open = recordIgnored(accumulated, ignored.issues)
+          announceExit(capExitMessage(maxIterations), open, seenSeverities)(
+            using ctx
+          )
+          open
         case LoopStep.NeedsFix =>
           val outcome = FixOutcome.reconcile(round.issues, fix(round.issues))
-          // `ctx` explicit for the same given-priority reason as `selectRound`.
           announceFixTurn(outcome)(using ctx)
           if outcome.fixed.isEmpty then
-            conclude(LoopExit.FixerHalted(outcome), accumulated, seenSeverities)
+            val open = recordIgnored(accumulated, fixerHaltAdditions(outcome))
+            announceExit(FixerHaltMessage, open, seenSeverities)(using ctx)
+            open
           else
-            // Bound once: the accumulated set IS the cross-round decline set on
-            // this branch, since only declines reach it before an exit.
-            val carried =
-              carryPastFixes(accumulated, outcome.fixed.toSet, outcome.ignored)
             loop(
-              carried,
+              carryPastFixes(accumulated, outcome.fixed.toSet, outcome.ignored),
               iteration + 1,
               round.state,
-              carried.issues,
               seenSeverities
             )
-    loop(IgnoredIssues(Nil), 0, ReviewLoopState.empty, Nil, Map.empty)
+    loop(IgnoredIssues(Nil), 0, ReviewLoopState.empty, Map.empty)
