@@ -457,7 +457,8 @@ private def buildContext(
           gh = ghTool,
           fs = fsTool,
           progressStore = store,
-          stackSettings = flowSetup.stackSettings
+          stackSettings = flowSetup.stackSettings,
+          startingCommit = flowSetup.startingCommit
         )
     transferred = true
     (ctx, flowSetup)

@@ -156,6 +156,19 @@ class ProgressLogTest extends FunSuite:
     assertEquals(roundTrip(log).header.userPrompt, Some("fix the flaky test"))
     assertEquals(roundTrip(log).header.flowName, Some("implement.sc"))
 
+  test("ProgressHeader round-trips startingCommit when set"):
+    val log = ProgressLog(
+      header = ProgressHeader(
+        startingBranch = "main",
+        branch = "feat/whole-run",
+        promptHash = "abc123def456",
+        branchMode = BranchMode.Created,
+        startingCommit = Some("0badc0ffee0ddf00d1234567890abcdef1234567")
+      ),
+      entries = Nil
+    )
+    assertEquals(roundTrip(log), log)
+
   test(
     "ProgressHeader JSON without userPrompt/flowName keys decodes both to None (old-format log)"
   ):

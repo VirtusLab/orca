@@ -17,6 +17,7 @@ import orca.events.OrcaEvent
 import orca.util.TextUtil
 import orca.progress.{
   BranchMode,
+  CommitHash,
   FeatureBranch,
   ProgressHeader,
   ProgressScan,
@@ -225,17 +226,23 @@ object FlowLifecycle:
       startBranch: String,
       stackSettings: StackSettings,
       branchMode: BranchMode,
-      untrackedOnFailure: UntrackedFiles
+      untrackedOnFailure: UntrackedFiles,
+      startingCommit: Option[CommitHash]
   )
 
   /** The branch half of [[FlowSetup]] (FP2), resolved by whichever of
     * [[setup]]'s three `store.loadDetailed()` arms runs (corrupt log, absent
     * log, or resumed) before the stack-settings half is folded in.
+    *
+    * `startingCommit` comes from the same arm: a fresh run records the commit
+    * it bound at, a resumed one reads back what its header recorded, so both
+    * name the state the RUN started from rather than this attempt's.
     */
   private[orca] case class BranchBinding(
       featureBranch: FeatureBranch,
       startBranch: String,
-      branchMode: BranchMode
+      branchMode: BranchMode,
+      startingCommit: Option[CommitHash]
   )
 
   /** Bind the run to a branch + progress log before the body runs (ADR 0018
@@ -357,14 +364,16 @@ object FlowLifecycle:
       RecoveryCheck.alwaysProtected ++ git
         .defaultBranch()
         .map(_.toLowerCase(java.util.Locale.ROOT))
-    val binding = session.bindBranch(startBranch, protectedBranches, discovered)
+    val binding =
+      session.bindBranch(startBranch, protectedBranches, discovered)
     FlowSetup(
       store,
       binding.featureBranch,
       binding.startBranch,
       stackSettings,
       binding.branchMode,
-      untrackedOnFailure
+      untrackedOnFailure,
+      binding.startingCommit
     )
 
   /** On an unborn HEAD (`git init`, no commits) every later git call that names
@@ -606,6 +615,11 @@ object FlowLifecycle:
         protectedBranches: Set[String],
         discovered: Boolean
     )(using InStage, WorkspaceWrite): BranchBinding =
+      // Read before the settings/header commits this binding makes, so the
+      // whole-run review's diff base sits behind everything this run commits.
+      // `Some` on a fresh run: `abortIfNoCommits` has already established a
+      // HEAD, and git's own output is a hash.
+      val headAtBinding = git.headCommit().flatMap(CommitHash.from)
       val branch = freshRun(
         args,
         agent,
@@ -616,14 +630,16 @@ object FlowLifecycle:
         startBranch,
         protectedBranches,
         discovered,
-        flowName,
-        emit
+        flowName = flowName,
+        headAtBinding = headAtBinding,
+        emit = emit
       )
       BranchBinding(
         branch,
         startBranch,
         if args.skipBranch.value then BranchMode.Reused
-        else BranchMode.Created
+        else BranchMode.Created,
+        headAtBinding
       )
 
     /** Resume onto the header's existing branch. Validates the untrusted header
@@ -660,7 +676,19 @@ object FlowLifecycle:
             "against the wrong branch"
         )
       if discovered then commitDiscoveredSettings(git, workDir)
-      BranchBinding(featureBranch, header.startingBranch, header.branchMode)
+      // The FIRST attempt's commit, read back from the header: this attempt's
+      // HEAD has moved on by every stage the interrupted run committed, and a
+      // whole-run review must still see those. Dropped unless git can still
+      // diff against it — a rebase or a fresh clone leaves a hash that would
+      // otherwise widen the review to unrelated history.
+      BranchBinding(
+        featureBranch,
+        header.startingBranch,
+        header.branchMode,
+        RecoveryCheck
+          .startingCommit(header)
+          .filter(c => git.isAncestorOfHead(c.value))
+      )
 
   /** Resolve the stack settings for the run (ADR 0019 §7): pass through
     * `resolution`'s already-resolved settings, or run [[StackDiscovery]] and
@@ -854,6 +882,7 @@ object FlowLifecycle:
       protectedBranches: Set[String],
       discovered: Boolean,
       flowName: Option[String],
+      headAtBinding: Option[CommitHash],
       emit: OrcaEvent => Unit
   )(using InStage, WorkspaceWrite): FeatureBranch =
     val branch =
@@ -899,7 +928,8 @@ object FlowLifecycle:
           if args.skipBranch.value then BranchMode.Reused
           else BranchMode.Created,
         userPrompt = Some(args.userPrompt),
-        flowName = flowName
+        flowName = flowName,
+        startingCommit = headAtBinding.map(_.value)
       )
     )
     git.forceCommitOnly(store.path, "orca: progress log")

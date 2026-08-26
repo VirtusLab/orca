@@ -1,6 +1,7 @@
 package orca.review
 
 import orca.BoundedDiff
+import orca.progress.CommitHash
 import orca.tools.GitTool
 
 /** A change set as the loop hands it out: the diff text a reviewer is sent, and
@@ -16,6 +17,17 @@ enum ReviewDiff:
     * edits whether or not it committed them.
     */
   case SampleFromStage
+
+  /** Everything the run has produced since it started — since the commit HEAD
+    * pointed at when the run bound its branch, recorded in the progress log —
+    * re-sampled every round like [[SampleFromStage]]. For a review over the
+    * whole branch, where a stage-scoped change set would miss what earlier
+    * stages committed.
+    *
+    * A run whose progress log records no usable commit has no base to diff
+    * against: `reviewAndFixLoop` then says so and returns without reviewing.
+    */
+  case WholeRun
 
   /** A caller-pinned diff, sent as given. Pinning also changes what reviewers
     * are told: the prompt does not claim the change set covers the stage, no
@@ -50,24 +62,64 @@ private[review] sealed trait ReviewDiffSource:
   def selectorFiles: List[String]
 
 private[review] object ReviewDiffSource:
-  /** Everything the enclosing stage has produced since `base` (ADR 0018 §2.1),
-    * bounded to [[BoundedDiff.ReviewThreshold]].
+  /** Reads [[ReviewDiff.SampleFromStage]] (ADR 0018 §2.1): everything the
+    * working tree has changed since the enclosing stage began.
     */
-  case class Sampled(git: GitTool, base: Option[String])
-      extends ReviewDiffSource:
-    def sample(): DiffSample =
-      val changes = git.reviewChanges(base)
-      DiffSample(
-        BoundedDiff.reviewPayload(changes.diff, changes.files),
-        changes.files.map(_.path)
-      )
+  def stage(git: GitTool, base: Option[String]): ReviewDiffSource =
+    StageSampled(git, base)
 
+  /** Reads [[ReviewDiff.WholeRun]]: everything the working tree has changed
+    * since `start`, the commit the run bound at.
+    */
+  def wholeRun(git: GitTool, start: CommitHash): ReviewDiffSource =
+    WholeRunSampled(git, start)
+
+  /** The change set since `base`, bounded to [[BoundedDiff.ReviewThreshold]].
+    * Shared by both sampled sources so they can't diverge on what a sample
+    * carries.
+    */
+  private def sampleSince(git: GitTool, base: Option[String]): DiffSample =
+    val changes = git.reviewChanges(base)
+    DiffSample(
+      BoundedDiff.reviewPayload(changes.diff, changes.files),
+      changes.files.map(_.path)
+    )
+
+  /** Everything the working tree has changed since the enclosing stage began.
+    * Private, built only by [[stage]]: how far back `base` reaches and what
+    * `diffIntro` tells the reviewer it covers are one decision, and a caller
+    * free to pair them itself could hand over a whole branch described as one
+    * stage's work.
+    */
+  private case class StageSampled(
+      git: GitTool,
+      base: Option[String]
+  ) extends ReviewDiffSource:
+    def sample(): DiffSample = sampleSince(git, base)
     def selectorFiles: List[String] = git.changedFiles(base)
-
     def diffIntro: String =
       "Diff (everything this task has changed since its stage began, " +
         "committed or not). Do not use `git diff HEAD` instead — it does not " +
         "show work that has been committed:"
+
+  /** Everything the working tree has changed since `start`. Private for the
+    * same pairing reason as [[StageSampled]]. Holds the [[CommitHash]] itself,
+    * unwrapped at each git call per that type's contract.
+    */
+  private case class WholeRunSampled(
+      git: GitTool,
+      start: CommitHash
+  ) extends ReviewDiffSource:
+    def sample(): DiffSample = sampleSince(git, Some(start.value))
+    def base: Option[String] = Some(start.value)
+    def selectorFiles: List[String] = git.changedFiles(Some(start.value))
+    // Names the concrete base rather than claiming the run's full history:
+    // after a corrupt-log restart the recorded base is the restart's HEAD,
+    // which excludes the first attempt's commits.
+    def diffIntro: String =
+      s"Diff (everything changed since commit ${start.short}, reaching back " +
+        "past the current stage, committed or not). Do not use `git diff " +
+        "HEAD` instead — it does not show work that has been committed:"
 
   /** Reads [[ReviewDiff.Pinned]]: the caller has already decided what a
     * reviewer should see, so the text is sent as given and only that text can

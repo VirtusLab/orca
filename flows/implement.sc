@@ -1,4 +1,4 @@
-// Plan a prompt into tasks and implement each with a review-and-fix loop.
+// Plan a prompt into tasks, review each once, then loop a review over the run.
 //> using scala 3.8.4
 //> using dep "org.virtuslab::orca:0.1.4"
 //> using jvm 21
@@ -6,7 +6,9 @@
 /** Autonomous planning + coding flow — the README example.
   *
   * The planner breaks the prompt into tasks; each task is implemented on the
-  * run's feature branch and taken through a review-and-fix loop.
+  * run's feature branch and reviewed in a single pass. A final stage then loops
+  * a review over everything the run changed, checking the per-task fixes with
+  * fresh eyes.
   *
   * `examples/runnable/01-simple/create-test-project.sh` seeds a calculator
   * crate into a temp dir and copies this script alongside it; from there:
@@ -30,12 +32,26 @@ flow(OrcaArgs(args)):
 
   val session = codingAgent.session("implementer", seed = plan.brief)
 
-  for task <- plan.tasks do
-    stage(s"Task: ${task.title}"):
-      session.run(task.description)
-      reviewAndFixLoop(
-        coderSession = session,
-        reviewers = allReviewers(reviewAgent),
-        task = task,
-        maxIterations = 3
-      )
+  val taskDeclines =
+    for task <- plan.tasks yield
+      stage(s"Task: ${task.title}"):
+        session.run(task.description)
+        reviewThenFix(
+          coderSession = session,
+          reviewers = allReviewers(reviewAgent),
+          task = task
+        )
+
+  // Everything the run changed, reviewed in one loop: each task's single pass
+  // took the fixer's word for its own fixes, and this is what checks them. The
+  // per-task declines seed the loop, so its reviewers don't re-report findings
+  // the fixer already answered.
+  stage("Final review"):
+    reviewAndFixLoop(
+      coderSession = session,
+      reviewers = allReviewers(reviewAgent),
+      task = Task(Title("The whole planned change"), plan.brief),
+      diff = ReviewDiff.WholeRun,
+      maxIterations = 5,
+      priorDeclines = IgnoredIssues(taskDeclines.flatMap(_.issues))
+    )

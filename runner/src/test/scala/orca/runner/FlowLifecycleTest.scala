@@ -723,6 +723,115 @@ class FlowLifecycleTest extends munit.FunSuite:
     assertEquals(setup.featureBranch.value, "feat/resume-me")
     assertEquals(setup.startBranch, startBranch)
 
+  // --- the commit the run started from (a whole-run review's diff base) ---
+
+  test("setup: a fresh run records the commit it bound at in its header"):
+    // Read at the binding point, so the run's own header commit — which moves
+    // HEAD — is inside the range a whole-run review sees, not before it.
+    val workDir = GitRepo.seeded()
+    val git = new OsGitTool(workDir)
+    val boundAt = git.headCommit()
+    val setup = setupFresh(workDir)
+    assertEquals(setup.startingCommit.map(_.value), boundAt)
+    assertEquals(setup.store.load().get.header.startingCommit, boundAt)
+    assertNotEquals(git.headCommit(), boundAt)
+
+  test("setup: skip-branch mode records the commit it bound at too"):
+    // No branch is created here, so nothing else would capture the commit.
+    val workDir = GitRepo.seeded()
+    val git = new OsGitTool(workDir)
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    assert(git.createBranch("my-work").isRight)
+    val boundAt = git.headCommit()
+    val prompt = "skip-branch starting commit"
+    val store = ProgressStore.default(workDir, prompt)
+    val setup = FlowLifecycle.setup(
+      args = OrcaArgs(prompt, skipBranch = Flag(true)),
+      agent = StubAgent.claude,
+      git = git,
+      workDir = workDir,
+      branchNaming = None,
+      resolution = FlowLifecycle
+        .readSettings(workDir, noGlobalSettings, Some(StackSettings.empty))
+        .stack,
+      stackOverridden = true,
+      store = store,
+      emit = _ => ()
+    )
+    assertEquals(setup.startingCommit.map(_.value), boundAt)
+    assertEquals(store.load().get.header.startingCommit, boundAt)
+
+  test("setup: a resumed run reports the commit the FIRST attempt bound at"):
+    // This attempt's HEAD has moved on by everything the interrupted one
+    // committed, and a whole-run review must still see those changes.
+    val workDir = GitRepo.seeded()
+    val git = new OsGitTool(workDir)
+    val boundAt = git.headCommit()
+    val _ = setupFresh(workDir)
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    os.write(workDir / "stage.txt", "done")
+    assert(git.commit("stage one").isRight)
+    assertEquals(setupFresh(workDir).startingCommit.map(_.value), boundAt)
+
+  test("setup: a resume tolerates a header whose startingCommit isn't a hash"):
+    // Hand-edited or written before the field existed: the run carries on
+    // without a base rather than aborting, since it is only ever a diff base.
+    val workDir = GitRepo.seeded()
+    val git = new OsGitTool(workDir)
+    val prompt = "resume-unusable-commit"
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    val startBranch = git.currentBranch()
+    assert(git.createBranch("feat/resume-unusable-commit").isRight)
+    ProgressStore
+      .default(workDir, prompt)
+      .writeHeader(
+        ProgressHeader(
+          startingBranch = startBranch,
+          branch = "feat/resume-unusable-commit",
+          promptHash = ProgressStore.hashPrompt(prompt),
+          branchMode = BranchMode.Created,
+          startingCommit = Some("HEAD~1 --output=/tmp/x")
+        )
+      )
+    val setup = setupForSettings(workDir, Some(StackSettings.empty), prompt)
+    assertEquals(setup.startingCommit, None)
+
+  test("setup: a resume drops a commit this repository can no longer diff"):
+    // Rebased away, or absent from a fresh clone: the hash is well-formed but
+    // names nothing HEAD descends from, so diffing against it would widen the
+    // review to unrelated history. Losing the base is the designed outcome.
+    val workDir = GitRepo.seeded()
+    val git = new OsGitTool(workDir)
+    val prompt = "resume-unreachable-commit"
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    val startBranch = git.currentBranch()
+    assert(git.createBranch("feat/resume-unreachable-commit").isRight)
+    ProgressStore
+      .default(workDir, prompt)
+      .writeHeader(
+        ProgressHeader(
+          startingBranch = startBranch,
+          branch = "feat/resume-unreachable-commit",
+          promptHash = ProgressStore.hashPrompt(prompt),
+          branchMode = BranchMode.Created,
+          startingCommit = Some("0" * 40)
+        )
+      )
+    val setup = setupForSettings(workDir, Some(StackSettings.empty), prompt)
+    assertEquals(setup.startingCommit, None)
+
+  test("the commit the run bound at reaches the flow body"):
+    // The rest of the path FlowSetup only starts: DefaultFlowContext, and what
+    // a flow body actually reads when it asks for the whole-run diff base.
+    val workDir = GitRepo.seeded()
+    val prompt = "starting-commit-threading"
+    val store = ProgressStore.default(workDir, prompt)
+    val boundAt = new OsGitTool(workDir).headCommit()
+    var seen: Option[String] = None
+    runFlowForTest(workDir, prompt, store):
+      seen = summon[orca.FlowControl].startingCommit.map(_.value)
+    assertEquals(seen, boundAt)
+
   // The ADR-0019 gitignored-settings warning message.
   private val settingsIgnoredWarning =
     "stack settings at .orca/settings.properties are gitignored — remove the " +
@@ -2792,7 +2901,8 @@ class FlowLifecycleTest extends munit.FunSuite:
       startBranch = "main",
       stackSettings = StackSettings.empty,
       branchMode = BranchMode.Reused,
-      untrackedOnFailure = UntrackedFiles.Remove
+      untrackedOnFailure = UntrackedFiles.Remove,
+      startingCommit = None
     )
     FlowLifecycle.teardownSuccess(git, setup, returnToStartBranch = false)
     assert(
@@ -2843,7 +2953,8 @@ class FlowLifecycleTest extends munit.FunSuite:
       startBranch = "main",
       stackSettings = StackSettings.empty,
       branchMode = BranchMode.Reused,
-      untrackedOnFailure = UntrackedFiles.Remove
+      untrackedOnFailure = UntrackedFiles.Remove,
+      startingCommit = None
     )
     TeardownPushRepo(git, remote, setup, store.path.subRelativeTo(workDir))
 

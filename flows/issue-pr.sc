@@ -20,7 +20,8 @@
   *   1. Skeptically assesses the report against the repo (claims, missing
   *      detail, duplicates, scope) and either proceeds with a plan or rejects.
   *   1. On rejection: posts the agent's reply on the issue.
-  *   1. On proceed: runs the per-task implement + review-and-fix loop.
+  *   1. On proceed: implements each task and reviews it in a single pass, then
+  *      loops a review over everything the run changed.
   *   1. Pushes the branch and opens a PR with a cheap-model-generated title
   *      and description.
   *
@@ -84,16 +85,31 @@ flow(
   maybePlan.foreach: plan =>
     val session = codingAgent.session("implementer", seed = plan.brief)
 
-    for task <- plan.tasks do
-      stage(s"Task: ${task.title}"):
-        session.run(task.description)
-        reviewAndFixLoop(
-          coderSession = session,
-          reviewers = allReviewers(reviewAgent),
-          task = task,
-          userRequest = Some(issuePayload),
-          maxIterations = 3
-        )
+    val taskDeclines =
+      for task <- plan.tasks yield
+        stage(s"Task: ${task.title}"):
+          session.run(task.description)
+          reviewThenFix(
+            coderSession = session,
+            reviewers = allReviewers(reviewAgent),
+            task = task,
+            userRequest = Some(issuePayload)
+          )
+
+    // Everything the run changed, reviewed in one loop: each task's single pass
+    // took the fixer's word for its own fixes, and this is what checks them.
+    // The per-task declines seed the loop, so its reviewers don't re-report
+    // findings the fixer already answered.
+    stage("Final review"):
+      reviewAndFixLoop(
+        coderSession = session,
+        reviewers = allReviewers(reviewAgent),
+        task = Task(Title("The whole planned change"), plan.brief),
+        userRequest = Some(issuePayload),
+        diff = ReviewDiff.WholeRun,
+        maxIterations = 5,
+        priorDeclines = IgnoredIssues(taskDeclines.flatMap(_.issues))
+      )
 
     openPrFromBranch(
       summarisingAgent = codingAgent.cheap,

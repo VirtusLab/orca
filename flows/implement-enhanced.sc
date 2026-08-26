@@ -7,7 +7,8 @@
   * opens a pull request.
   *
   * Same backbone as `implement.sc` (autonomous planning → per-task implement +
-  * review-and-fix loop), with a self-review pass on the plan: the planner
+  * single review pass → whole-run review loop), with a self-review pass on the
+  * plan: the planner
   * critiques its own draft and returns an improved one (missing or duplicated
   * tasks, ordering, vague descriptions, steps that don't fit the code).
   *
@@ -15,6 +16,7 @@
   *
   *   1. Updates the project's docs (README, doc-comments) from what the tasks
   *      changed, as its own stage and commit — so the docs land in the PR.
+  *   1. Reviews everything the run changed, docs included.
   *   1. Pushes the feature branch.
   *   1. Opens a PR with a cheap-model-generated title + description from the
   *      full branch diff. A human picks the PR up from there.
@@ -40,15 +42,15 @@ flow(OrcaArgs(args), returnToStartBranch = true):
 
   val session = codingAgent.session("implementer", seed = plan.brief)
 
-  for task <- plan.tasks do
-    stage(s"Task: ${task.title}"):
-      session.run(task.description)
-      reviewAndFixLoop(
-        coderSession = session,
-        reviewers = allReviewers(reviewAgent),
-        task = task,
-        maxIterations = 3
-      )
+  val taskDeclines =
+    for task <- plan.tasks yield
+      stage(s"Task: ${task.title}"):
+        session.run(task.description)
+        reviewThenFix(
+          coderSession = session,
+          reviewers = allReviewers(reviewAgent),
+          task = task
+        )
 
   // Docs pass on the implementer session — it already carries the brief and
   // every task's context. Its own stage, so the docs commit exists before the
@@ -57,6 +59,20 @@ flow(OrcaArgs(args), returnToStartBranch = true):
     session.run(
       "All tasks done. Update project docs (README, doc-comments) based " +
         "on the changes made. Only update what's affected — no new sections."
+    )
+
+  // Everything the run changed, reviewed in one loop: each task's single pass
+  // took the fixer's word for its own fixes, and this is what checks them. The
+  // per-task declines seed the loop, so its reviewers don't re-report findings
+  // the fixer already answered.
+  stage("Final review"):
+    reviewAndFixLoop(
+      coderSession = session,
+      reviewers = allReviewers(reviewAgent),
+      task = Task(Title("The whole planned change"), plan.brief),
+      diff = ReviewDiff.WholeRun,
+      maxIterations = 5,
+      priorDeclines = IgnoredIssues(taskDeclines.flatMap(_.issues))
     )
 
   openPrFromBranch(summarisingAgent = codingAgent.cheap)

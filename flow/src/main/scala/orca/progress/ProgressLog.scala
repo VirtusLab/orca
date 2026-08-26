@@ -35,6 +35,13 @@ enum BranchMode derives JsonData:
   * an orca upgrade still resumes; it just isn't one-keystroke). `flowName` is
   * separately `None` for a run started outside the shell (no `ORCA_FLOW_NAME`
   * to record) even on a freshly written header.
+  *
+  * `startingCommit` is the commit HEAD pointed at when the run bound its branch
+  * — the diff base for a review of everything the whole run changed. It carries
+  * the same `Option`/`None` tolerant-decoding exception, and unlike the fields
+  * above it stays lenient on load: a header missing it, or carrying something
+  * that isn't a commit hash, reads as absent rather than aborting the run
+  * ([[RecoveryCheck.startingCommit]]). A fresh run always writes `Some`.
   */
 case class ProgressHeader(
     startingBranch: String,
@@ -42,7 +49,8 @@ case class ProgressHeader(
     promptHash: String,
     branchMode: BranchMode,
     userPrompt: Option[String] = None,
-    flowName: Option[String] = None
+    flowName: Option[String] = None,
+    startingCommit: Option[String] = None
 ) derives JsonData
 
 /** A single stage's outcome, stored as an already-serialised JSON subtree.

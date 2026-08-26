@@ -864,6 +864,164 @@ class ReviewAndFixTest extends munit.FunSuite:
       .getOrElse(fail("the fresh-session run was never called"))
     assert(sent.contains("since its stage began"), s"framing missing: $sent")
 
+  test("a whole-run diff reaches back past the enclosing stage"):
+    // What an earlier stage committed is exactly what a stage-scoped diff
+    // misses, and exactly what a final review over the branch has to see.
+    val steps = new ReviewLoopFixture.StepCapture
+    val fc = ReviewLoopFixture.control(steps.dispatcher)
+    given FlowControl = fc
+    val runStart =
+      fc.startingCommit.getOrElse(fail("the fixture recorded no run start"))
+    os.write(fc.workDir / "earlier.txt", "an earlier stage's work")
+    assert(fc.git.commit("earlier stage").isRight)
+    val _ = fc.enterStage("final review", fc.git.headCommit())
+    os.write(fc.workDir / "later.txt", "this stage's work")
+    val reviewer =
+      new FakeAgent("capturing", outputs = List(ReviewResult.empty))
+    val _ = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
+      reviewers = List(reviewer),
+      task = titled("final review"),
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      diff = ReviewDiff.WholeRun
+    )
+    val sent = reviewer.seenPrompts.headOption
+      .getOrElse(fail("the fresh-session run was never called"))
+    assert(
+      sent.contains(s"since commit ${runStart.value}"),
+      s"the run's starting commit must be the base: $sent"
+    )
+    assert(sent.contains("earlier.txt"), s"committed work missing: $sent")
+    assert(sent.contains("later.txt"), s"uncommitted work missing: $sent")
+    // The framing has to name the concrete base, not claim the run's full
+    // history — after a corrupt-log restart the recorded base excludes the
+    // first attempt's commits — and must not read as one stage's work.
+    assert(
+      sent.contains(s"everything changed since commit ${runStart.short}"),
+      s"base-naming framing missing: $sent"
+    )
+    assert(
+      !sent.contains("since its stage began"),
+      s"stage framing leaked: $sent"
+    )
+    // The run's log also names the base, so a reader can tell what the final
+    // review covered without opening a prompt.
+    assert(
+      steps.messages.contains(
+        s"reviewing everything changed since commit ${runStart.short}"
+      ),
+      steps.messages.mkString("\n")
+    )
+
+  test("a whole-run diff is re-sampled, so a later round sees the fixes"):
+    // The base is fixed for the run, the sample is not: a fix made after round
+    // one has to show up in round two's change set.
+    val fc = ReviewLoopFixture.control(new EventDispatcher(Nil))
+    given FlowControl = fc
+    val reviewer = new FakeAgent(
+      name = "capturing",
+      outputs =
+        List(ReviewResult(List(issue("needs fixing"))), ReviewResult.empty)
+    )
+    val coder = new FakeAgent(
+      name = "coder",
+      outputs = List(FixOutcome(List(Title("needs fixing")), Nil)),
+      // The fix the second round must see; FakeAgent otherwise leaves the tree
+      // untouched.
+      onRun = () => os.write(fc.workDir / "fixed.txt", "the fix")
+    )
+    val _ = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(reviewer),
+      task = titled("final review"),
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      diff = ReviewDiff.WholeRun
+    )
+    val reReview = reviewer.seenPrompts.lift(1).getOrElse(fail("no re-review"))
+    assert(reReview.contains("fixed.txt"), s"the fix is missing: $reReview")
+
+  /** The entry every skipped whole-run review returns, so a caller can tell a
+    * skip from a clean review without a new type.
+    */
+  private val skippedWholeRunReview = IgnoredIssues(
+    List(
+      IgnoredIssue(
+        Title("whole-run review"),
+        "skipped: no usable starting commit for the diff base"
+      )
+    )
+  )
+
+  test("a whole-run review with no recorded starting commit is skipped"):
+    // Without a base, diffing against anything else would review the wrong
+    // range — so nothing runs, and the run is told why.
+    val steps = new ReviewLoopFixture.StepCapture
+    given FlowControl =
+      ReviewLoopFixture.controlWithoutStartingCommit(steps.dispatcher)
+    // No scripted outputs: running either stub throws.
+    val reviewer = new FakeAgent("never-runs")
+    val result = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
+      reviewers = List(reviewer),
+      task = titled("final review"),
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      diff = ReviewDiff.WholeRun
+    )
+    assertEquals(result, skippedWholeRunReview)
+    assert(reviewer.seenSessions.isEmpty, "no reviewer may run without a base")
+    assert(
+      steps.messages.exists(m =>
+        m.contains("skipping this review") && m.contains("starting commit")
+      ),
+      steps.messages.mkString("\n")
+    )
+
+  test("a whole-run review whose base is not an ancestor of HEAD is skipped"):
+    // The recorded commit no longer sits behind HEAD — a mid-run rebase, or a
+    // fresh clone — so diffing against it would cover unrelated history. The
+    // probe runs at review time: binding never checked a fresh run's commit.
+    val steps = new ReviewLoopFixture.StepCapture
+    given FlowControl =
+      ReviewLoopFixture.controlWithUnusableStartingCommit(steps.dispatcher)
+    // No scripted outputs: running either stub throws.
+    val reviewer = new FakeAgent("never-runs")
+    val result = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
+      reviewers = List(reviewer),
+      task = titled("final review"),
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      diff = ReviewDiff.WholeRun
+    )
+    assertEquals(result, skippedWholeRunReview)
+    assert(reviewer.seenSessions.isEmpty, "no reviewer may run without a base")
+    assert(
+      steps.messages.exists(_.contains("skipping this review")),
+      steps.messages.mkString("\n")
+    )
+
+  test("seeded declines reach round one's reviewers and return at exit"):
+    // `priorDeclines` carries what per-task fixers already declined into a
+    // final loop: shown as declined from round one — so reviewers don't
+    // re-report what was already answered — and still in the exit record.
+    given FlowControl = control
+    val reviewer = new FakeAgent("r", outputs = List(ReviewResult.empty))
+    val seeded = IgnoredIssue(Title("nit"), "the shape is deliberate")
+    val result = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
+      reviewers = List(reviewer),
+      task = titled("final review"),
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      diff = ReviewDiff.Pinned(""),
+      priorDeclines = IgnoredIssues(List(seeded))
+    )
+    val sent = reviewer.seenPrompts.headOption
+      .getOrElse(fail("the reviewer was never called"))
+    assert(
+      sent.contains("- nit: the shape is deliberate"),
+      s"seeded decline missing from the round-one prompt: $sent"
+    )
+    assertEquals(result, IgnoredIssues(List(seeded)))
+
   test("the fixer's declines reach the next round's reviewer, its fixes don't"):
     // A decline is the one thing a reviewer cannot recover by reading the tree:
     // nothing in the code says a finding was considered and refused. A "fixed"

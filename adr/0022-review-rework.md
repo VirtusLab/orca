@@ -67,6 +67,13 @@ setup as a run-level baseline, not a stage's own `stageBaseCommit`. Capped at 5
 rounds. The five task-based flows adopt it, before PR-opening where
 applicable; `simple.sc` and `review.sc` are unchanged.
 
+> **Amendment (2026-08-26, on implementing part 2).** The recorded baseline is
+> not always usable: a log written before orca recorded one, a hand-edited
+> value, or a commit that no longer sits behind HEAD after a rebase or in a
+> fresh clone. Diffing against any of those reviews the wrong range, so the
+> final stage then **skips**: it emits a step naming why and returns no
+> findings, leaving the run otherwise untouched.
+
 This is a **deliberate exception** to ADR 0011's argument (amendment 2026-08-02,
 [adr/0011:217](0011-reviewer-roster.md)) that "it is the stage, not the branch,
 that bounds the change set". That argument holds for per-task review, and stands
