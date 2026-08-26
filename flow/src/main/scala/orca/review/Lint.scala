@@ -91,8 +91,6 @@ def lint(
   val result =
     if allClean then ReviewResult.empty
     else summariseRuns(runs, summariser, instructions)
-  // Pre-gate issues: what the conversation now holds, whatever a caller's
-  // confidence gate later admits of it.
   LintReport(result, Option.when(result.issues.isEmpty)(summariser))
 
 /** One [[lint]] call's outcome.

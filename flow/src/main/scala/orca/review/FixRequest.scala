@@ -14,10 +14,10 @@ private[review] case class FixRequest(
     issues: List[KeyedIssue]
 ) derives JsonData
 
-/** A finding paired with the key the fixer is asked to echo for it. Minted when
-  * the gate splits an agent's findings, then used by both the display and the
-  * fix prompt, so what the fixer names in its prose ("Fix I2.1") is what the
-  * reader saw on screen.
+/** A finding paired with the key the fixer is asked to echo for it. Minted per
+  * agent when a round's findings are collected, then used by both the display
+  * and the fix prompt, so what the fixer names in its prose ("Fix I2.1") is
+  * what the reader saw on screen.
   */
 private[review] case class KeyedIssue(key: String, issue: ReviewIssue)
     derives JsonData
@@ -51,9 +51,8 @@ private[review] object FixRequest:
     */
   private def renderIssue(key: String, issue: ReviewIssue): String =
     // Exhaustive destructure: a new `ReviewIssue` field stops compiling here
-    // until this prompt decides what to do with it. `confidence` is left out —
-    // the gate has already applied it, and the number would only invite the
-    // fixer to re-litigate the finding.
+    // until this prompt decides what to do with it. `confidence` is left out:
+    // the number would only invite the fixer to re-litigate the finding.
     val ReviewIssue(severity, _, title, description, location, suggestion) =
       issue
     val lines = List(

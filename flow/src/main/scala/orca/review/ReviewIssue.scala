@@ -17,13 +17,7 @@ case class Location(file: String, line: Option[Int]) derives JsonData
   * flow scripts handling issues and tasks share field names.
   *
   * `severity` and `confidence` are orthogonal: impact if the finding is real,
-  * versus how sure the reviewer is that it is. [[ConfidenceGate]] reads both.
-  *
-  * @param confidence
-  *   the contract reviewers are held to is stated in full in
-  *   `resources/orca/review/prompts/initial-review.md`, and the `@description`
-  *   below is its schema-side copy (`ReviewLoopPromptsTest` pins the two
-  *   together).
+  * versus how sure the reviewer is that it is.
   */
 case class ReviewIssue(
     severity: Severity,

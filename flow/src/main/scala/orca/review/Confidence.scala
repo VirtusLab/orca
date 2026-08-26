@@ -18,12 +18,11 @@ class InvalidConfidence(value: Double)
     )
 
 /** How sure a reviewer is that a [[ReviewIssue]] is real — a probability in
-  * `[0, 1]`, which [[ConfidenceGate]] compares against a per-severity bar.
+  * `[0, 1]`.
   *
   * Enforced at decode, so the range cannot be re-checked (or forgotten) per
-  * call site. A percent-style `85` would otherwise clear every bar forever,
-  * silently disabling the gate for that finding; rejecting it fails the turn
-  * loudly instead, which is the outcome that gets the number restated.
+  * call site: a percent-style `85` fails the turn loudly rather than reaching a
+  * caller that compares it against a probability.
   */
 opaque type Confidence = Double
 
