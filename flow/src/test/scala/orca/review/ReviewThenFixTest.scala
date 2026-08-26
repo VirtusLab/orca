@@ -154,6 +154,95 @@ class ReviewThenFixTest extends munit.FunSuite:
     )
     assertEquals(os.read.lines(counter).size, 2)
 
+  test("a fix that leaves lint failing gets one lint-scoped fix turn"):
+    // The lint gate is machine-checkable, so the single pass re-runs it over
+    // the fixer's edits and re-drives it once — reviewer findings alone stay
+    // single-pass.
+    val steps = new ReviewLoopFixture.StepCapture
+    val fc =
+      ReviewLoopFixture.control(steps.dispatcher, lead = Some(picking("x")))
+    given FlowControl = fc
+    val flag = fc.workDir / "lint-passes"
+    val reviewer =
+      new FakeAgent("x", outputs = List(ReviewResult(List(issue("a")))))
+    // Scripted for the two calls that reach the summariser — round one and the
+    // post-fix re-check; the last check finds the flag and calls no LLM.
+    val lintAgent = new FakeAgent(
+      "lint-summariser",
+      outputs =
+        List(ReviewResult.empty, ReviewResult(List(issue("lint broke"))))
+    )
+    val fixes = new java.util.concurrent.atomic.AtomicInteger(0)
+    val coder = new FakeAgent(
+      "coder",
+      outputs = List(
+        FixOutcome(List(Title("a")), Nil),
+        FixOutcome(List(Title("lint broke")), Nil)
+      ),
+      // Only the second, lint-scoped turn repairs the gate.
+      onRun = () => if fixes.incrementAndGet() == 2 then os.write(flag, "")
+    )
+    val result = reviewThenFix(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(reviewer),
+      task = titled("do the thing"),
+      lint = Configured.Use(Lint(List(s"test -f '$flag'"), lintAgent))
+    )
+    assertEquals(result, IgnoredIssues(Nil))
+    assertEquals(coder.seenSessions.size, 2)
+    assert(
+      !steps.messages.exists(_.contains("lint still fails")),
+      steps.messages.mkString("\n")
+    )
+
+  test("lint still failing after its fix turn is surfaced, not looped"):
+    // One re-drive is the whole budget: what still fails lands in the record
+    // under a warning, and no third fix turn runs.
+    val steps = new ReviewLoopFixture.StepCapture
+    val fc =
+      ReviewLoopFixture.control(steps.dispatcher, lead = Some(picking("x")))
+    given FlowControl = fc
+    val reviewer =
+      new FakeAgent("x", outputs = List(ReviewResult(List(issue("a")))))
+    // Round one, the post-fix re-check, and the check after the lint-scoped
+    // turn all reach the summariser: `false` fails silently every time.
+    val lintAgent = new FakeAgent(
+      "lint-summariser",
+      outputs = List(
+        ReviewResult.empty,
+        ReviewResult(List(issue("lint broke"))),
+        ReviewResult(List(issue("lint broke")))
+      )
+    )
+    // Two scripted turns: a third would throw.
+    val coder = new FakeAgent(
+      "coder",
+      outputs = List(
+        FixOutcome(List(Title("a")), Nil),
+        FixOutcome(List(Title("lint broke")), Nil)
+      )
+    )
+    val result = reviewThenFix(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(reviewer),
+      task = titled("do the thing"),
+      lint = Configured.Use(Lint(List("false"), lintAgent))
+    )
+    assertEquals(
+      result.issues,
+      List(
+        IgnoredIssue(
+          Title("lint broke"),
+          "lint still failing after its fix turn"
+        )
+      )
+    )
+    assertEquals(coder.seenSessions.size, 2)
+    assert(
+      steps.messages.exists(_.contains("lint still fails after its fix turn")),
+      steps.messages.mkString("\n")
+    )
+
   test("the reviewer pick is made once"):
     // The picker is scripted for one call; a second would throw. `y` has no
     // outputs, so it must stay unpicked.

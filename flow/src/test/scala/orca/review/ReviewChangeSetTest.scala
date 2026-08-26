@@ -208,6 +208,88 @@ class ReviewChangeSetTest extends munit.FunSuite:
     assert(resumePrompt.contains("big.scala"), resumePrompt)
     assert(!resumePrompt.contains("// line 2999"), resumePrompt)
 
+  /** A minimal per-file diff section, padded to `pad` filler lines so a sample
+    * can be pushed past the inline threshold.
+    */
+  private def diffSection(path: String, marker: String, pad: Int = 0): String =
+    s"diff --git a/$path b/$path\n--- a/$path\n+++ b/$path\n" +
+      s"@@ -1 +1 @@\n+$marker\n" + ("+filler\n" * pad)
+
+  test("a too-large re-sample names only the paths changed since last round"):
+    // Under a whole-run diff the delta since a reviewer's last look is
+    // typically one fix — handing it the run's entire file list every round
+    // makes it re-read everything for nothing.
+    val previous = LastSent.Inline(
+      diffSection("a.scala", "one") + diffSection("b.scala", "two")
+    )
+    val current = DiffSample(
+      diffSection("a.scala", "one") + diffSection("b.scala", "three", 4000),
+      List("a.scala", "b.scala")
+    )
+    assertEquals(
+      ReReviewChanges.of(previous, current),
+      ReReviewChanges.TooLarge(List("b.scala"), List("a.scala"))
+    )
+
+  test("a too-large re-sample with no previous diff names every path"):
+    // Nothing to compare against — the reviewer's last round could sample
+    // nothing — so the whole list is the honest answer, marked as such by the
+    // empty unchanged list (which selects the original prompt wording).
+    val current = DiffSample(
+      diffSection("a.scala", "one", 4000),
+      List("a.scala")
+    )
+    assertEquals(
+      ReReviewChanges.of(LastSent.NoteOnly(""), current),
+      ReReviewChanges.TooLarge(List("a.scala"), Nil)
+    )
+
+  test("the delta prompt tells the reviewer the rest is unchanged"):
+    val prompt = ReviewLoopPrompts.reReview(
+      ReReviewChanges.TooLarge(List("b.scala"), List("a.scala")),
+      declined = Nil
+    )
+    assert(prompt.contains("- b.scala"), prompt)
+    assert(!prompt.contains("a.scala"), prompt)
+    assert(
+      prompt.contains("unchanged since your previous round"),
+      prompt
+    )
+
+  test("a too-large delta reaches a resumed reviewer as the fix's paths only"):
+    // End to end: round two's change set is past the inline threshold, but the
+    // only difference from what the reviewer saw in round one is the fixer's
+    // one file — so that is all the resumed prompt lists.
+    val (ctx, dir) = stagingControl()
+    val big = (1 to 3000).map(i => s"// line $i").mkString("\n")
+    val reviewer = new FakeAgent(
+      "r",
+      outputs = List(ReviewResult(List(issue("real bug"))), ReviewResult.empty)
+    )
+    val coder = new FakeAgent(
+      "coder",
+      outputs = List(FixOutcome(List(Title("real bug")), Nil)),
+      onRun = () => commit(dir, "fix.scala", "object Fix")
+    )
+    given FlowControl = ctx
+    stage("implement the widget"):
+      commit(dir, "big.scala", big)
+      val _ = reviewAndFixLoop(
+        coderSession = ReviewLoopFixture.coderSession(coder),
+        reviewers = List(reviewer),
+        task = titled("build the widget"),
+        reviewerSelection = ReviewerSelector.allEveryRound
+      )
+    val resumePrompt = reviewer.seenPrompts
+      .lift(1)
+      .getOrElse(fail("the reviewer ran once; no resume happened"))
+    assert(resumePrompt.contains("fix.scala"), resumePrompt)
+    assert(!resumePrompt.contains("big.scala"), resumePrompt)
+    assert(
+      resumePrompt.contains("unchanged since your previous round"),
+      resumePrompt
+    )
+
   test("after a paths-only round an unchanged sample points at the file list"):
     val (ctx, dir) = stagingControl()
     // Round two's change set is past the inline threshold, so only paths reach

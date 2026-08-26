@@ -157,12 +157,19 @@ object ReviewLoopPrompts:
           "as your initial diff, so it includes the fixer's edits whether or " +
           "not they were committed). Do not use `git diff HEAD` instead — it " +
           s"does not show work that has been committed:\n\n${diffBlock(diff)}"
-      case ReReviewChanges.TooLarge(paths) =>
+      case ReReviewChanges.TooLarge(changed, Nil) =>
         "The change set under review is too large to include here. These " +
           "files have changed since the baseline of your initial diff — read " +
           "them directly. Do not use `git diff HEAD` instead — it does not " +
           s"show work that has been committed:\n\n" +
-          paths.map("- " + _).mkString("\n")
+          changed.map("- " + _).mkString("\n")
+      case ReReviewChanges.TooLarge(changed, _) =>
+        "The change set under review is too large to include here. Only " +
+          "these files differ from what you saw last round — read them " +
+          "directly; the rest of the change set is unchanged since your " +
+          "previous round. Do not use `git diff HEAD` instead — it does not " +
+          s"show work that has been committed:\n\n" +
+          changed.map("- " + _).mkString("\n")
       case ReReviewChanges.AlreadySeen(LastSent.Inline(_)) =>
         "No new change set this round — the diff already in this conversation " +
           "is the one under review. Check the code itself to see whether your " +
@@ -219,11 +226,17 @@ private[review] enum ReReviewChanges:
   /** Re-sampled, and different from what this reviewer last saw. */
   case Updated(diff: String)
 
-  /** Changed, but past [[ReReviewChanges.InlineThreshold]]. Only the paths are
-    * sent and the reviewer reads the files itself, so a resumed conversation
-    * doesn't accumulate one copy of a large diff per round.
+  /** Changed, but past [[ReReviewChanges.InlineThreshold]]. Only paths are sent
+    * and the reviewer reads the files itself, so a resumed conversation doesn't
+    * accumulate one copy of a large diff per round.
+    *
+    * `changed` is the paths whose per-file diff differs from the sample this
+    * reviewer last received — under a whole-run diff the delta since its last
+    * round is typically one fix, not the run's whole file list. `unchanged` is
+    * the rest of the change set; empty when the previous sample gave nothing to
+    * compare against, in which case `changed` is every path.
     */
-  case TooLarge(paths: List[String])
+  case TooLarge(changed: List[String], unchanged: List[String])
 
   /** Byte-identical to what this reviewer already holds, so nothing is sent.
     * Carries how that change set reached the conversation: after a [[TooLarge]]
@@ -253,5 +266,54 @@ private[review] object ReReviewChanges:
     */
   def of(previous: LastSent, current: DiffSample): ReReviewChanges =
     if current.diff == previous.diff then AlreadySeen(previous)
-    else if current.diff.length > InlineThreshold then TooLarge(current.paths)
+    else if current.diff.length > InlineThreshold then
+      val unchanged = unchangedSince(previous.diff, current)
+      val changed = current.paths.filterNot(unchanged.toSet)
+      // A delta naming no path cannot point the reviewer anywhere (the samples
+      // differ outside any parseable section), so fall back to the full list.
+      if changed.isEmpty then TooLarge(current.paths, Nil)
+      else TooLarge(changed, unchanged)
     else Updated(current.diff)
+
+  /** The paths in `current` whose per-file diff section is byte-identical in
+    * `previousDiff` — what [[TooLarge]] may tell a resumed reviewer it need not
+    * re-read. A path without a parseable section in both samples (binary
+    * change, rename, a cut diff's trailer) is never called unchanged: telling a
+    * reviewer to re-read a file it has seen is the safe direction, the reverse
+    * is not.
+    */
+  private def unchangedSince(
+      previousDiff: String,
+      current: DiffSample
+  ): List[String] =
+    val prev = fileSections(previousDiff)
+    val cur = fileSections(current.diff)
+    current.paths.filter(p =>
+      (cur.get(p), prev.get(p)) match
+        case (Some(c), Some(pr)) => c == pr
+        case _                   => false
+    )
+
+  /** A diff sample's per-file sections, keyed by each section's `b/` path. A
+    * section whose header can't be read (git quotes a path containing `"` or
+    * non-ASCII bytes) contributes no entry, which [[unchangedSince]] reads as
+    * changed.
+    */
+  private def fileSections(diff: String): Map[String, String] =
+    diff
+      .split("(?m)(?=^diff --git )")
+      .toList
+      .flatMap(section => sectionPath(section).map(_ -> section))
+      .toMap
+
+  /** The path after the last ` b/` of a section's `diff --git` header line,
+    * `None` for the text before the first header or a header of another shape.
+    */
+  private def sectionPath(section: String): Option[String] =
+    section.linesIterator
+      .nextOption()
+      .filter(_.startsWith("diff --git "))
+      .flatMap: header =>
+        header.lastIndexOf(" b/") match
+          case -1 => None
+          case i  => Some(header.substring(i + 3))

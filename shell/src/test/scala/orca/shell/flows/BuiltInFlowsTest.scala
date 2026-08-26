@@ -76,14 +76,40 @@ class BuiltInFlowsTest extends munit.FunSuite:
       taskBasedFlows
     )
 
-  test("a flow's final review gets five rounds"):
-    // The final review re-reviews what each task's single pass took on the
-    // fixer's word, so it is worth more rounds than a task loop ever had. The
-    // number is written out here rather than exported: it is these flows'
-    // choice, not a library default for anything else to inherit.
+  /** The text of the `reviewAndFixLoop(...)` call following a flow's `"Final
+    * review"` stage, cut at the call's own closing paren so the pins below
+    * can't be satisfied by some other call in the file.
+    */
+  private def finalReviewCall(name: String): String =
+    val text = resourceText(name)
+    val stage = text.indexOf("\"Final review\"")
+    assert(stage >= 0, s"$name has no final review stage")
+    val open = text.indexOf("reviewAndFixLoop(", stage)
+    assert(open >= 0, s"$name's final review does not call reviewAndFixLoop")
+    val from = open + "reviewAndFixLoop".length
+    var depth = 0
+    var i = from
+    while i == from || depth > 0 do
+      text(i) match
+        case '(' => depth += 1
+        case ')' => depth -= 1
+        case _   => ()
+      i += 1
+    text.substring(open, i)
+
+  test("a flow's final review reviews the whole run, with five rounds"):
+    // `diff = ReviewDiff.WholeRun` is what makes the stage a whole-run review
+    // rather than an empty stage-scoped one — a "Final review" stage without
+    // it reviews nothing. The cap is worth more rounds than a task loop ever
+    // had, since this is what re-checks each single pass's fixes; the number
+    // is written out here rather than exported: it is these flows' choice, not
+    // a library default for anything else to inherit. Both are pinned inside
+    // the final-review call itself, so neither can drift to another call.
     val cap = "maxIterations\\s*=\\s*5\\b".r
     taskBasedFlows.foreach: name =>
-      assert(cap.findFirstIn(resourceText(name)).isDefined, name)
+      val call = finalReviewCall(name)
+      assert(call.contains("diff = ReviewDiff.WholeRun"), s"$name: $call")
+      assert(cap.findFirstIn(call).isDefined, s"$name: $call")
 
   test("the one flow with no final review pins the library's default cap"):
     // simple.sc reviews its single task in a loop and stops there, so its cap is

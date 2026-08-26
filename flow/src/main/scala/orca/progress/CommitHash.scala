@@ -28,3 +28,6 @@ object CommitHash:
     /** Unwrap for the git layer — call at the `GitTool` call site, not earlier.
       */
     def value: String = h
+
+    /** The hash abbreviated for display (at most 12 hex chars). */
+    def short: String = h.take(12)

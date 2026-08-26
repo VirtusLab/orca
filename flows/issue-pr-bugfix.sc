@@ -244,21 +244,23 @@ def planAndImplementFix[B <: BackendTag](
       .reviewed(planningAgent)
       .value
 
-  for task <- fixPlan.tasks do
-    stage(s"Task: ${task.title}"):
-      session.run(fixPlan.taskPrompt(task))
-      // Don't gate this review on the tests: the branch carries a deliberately
-      // failing one until the last fix task lands.
-      reviewThenFix(
-        coderSession = session,
-        reviewers = allReviewers(reviewAgent),
-        task = task,
-        userRequest = Some(issuePayload)
-      )
+  val taskDeclines =
+    for task <- fixPlan.tasks yield
+      stage(s"Task: ${task.title}"):
+        session.run(fixPlan.taskPrompt(task))
+        // Don't gate this review on the tests: the branch carries a
+        // deliberately failing one until the last fix task lands.
+        reviewThenFix(
+          coderSession = session,
+          reviewers = allReviewers(reviewAgent),
+          task = task,
+          userRequest = Some(issuePayload)
+        )
 
   // Everything the run changed — the failing test and the fix alike — reviewed
   // in one loop: each task's single pass took the fixer's word for its own
-  // fixes, and this is what checks them.
+  // fixes, and this is what checks them. The per-task declines seed the loop,
+  // so its reviewers don't re-report findings the fixer already answered.
   stage("Final review"):
     reviewAndFixLoop(
       coderSession = session,
@@ -266,5 +268,6 @@ def planAndImplementFix[B <: BackendTag](
       task = Task(Title(s"Fix for ${issueHandle.shortRef}"), fixPlan.brief),
       userRequest = Some(issuePayload),
       diff = ReviewDiff.WholeRun,
-      maxIterations = 5
+      maxIterations = 5,
+      priorDeclines = IgnoredIssues(taskDeclines.flatMap(_.issues))
     )

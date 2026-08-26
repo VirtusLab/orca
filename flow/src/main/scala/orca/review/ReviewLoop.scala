@@ -420,7 +420,14 @@ def reviewAndFixLoop[B <: BackendTag](
       * the caller. The choice changes what reviewers and the selector are told,
       * not just the diff text — see [[ReviewDiff]].
       */
-    diff: ReviewDiff = ReviewDiff.SampleFromStage
+    diff: ReviewDiff = ReviewDiff.SampleFromStage,
+    /** Findings fixers of earlier reviews declined — typically the merged
+      * results of per-task [[reviewThenFix]] calls, handed to a whole-run final
+      * loop. They seed the loop's accumulated declines: shown to reviewers from
+      * round one so already-answered findings aren't re-reported from scratch,
+      * and returned at exit (minus any since fixed) alongside this loop's own.
+      */
+    priorDeclines: IgnoredIssues = IgnoredIssues(Nil)
 )(using
     ctx: FlowContext,
     ev: InStage,
@@ -430,12 +437,23 @@ def reviewAndFixLoop[B <: BackendTag](
   // `fc` is read here, at loop entry, so what the loop carries is the plain
   // commit hash rather than the capability it came from. `None` comes from
   // `WholeRun` alone: with no commit recorded there is nothing to diff against,
-  // and reviewing some other range would be worse than not reviewing.
+  // and reviewing some other range would be worse than not reviewing. The
+  // ancestor probe runs here, at review time, not only when a resume bound the
+  // branch: a rebase mid-run — and a fresh run's commit, which binding never
+  // checked — would otherwise diff unrelated history.
   val diffSource: Option[ReviewDiffSource] = diff match
     case ReviewDiff.SampleFromStage =>
       Some(ReviewDiffSource.stage(ctx.git, fc.stageBaseCommit))
     case ReviewDiff.WholeRun =>
-      fc.startingCommit.map(c => ReviewDiffSource.wholeRun(ctx.git, c.value))
+      fc.startingCommit
+        .filter(c => ctx.git.isAncestorOfHead(c.value))
+        .map: c =>
+          ctx.emit(
+            OrcaEvent.Step(
+              s"reviewing everything changed since commit ${c.short}"
+            )
+          )
+          ReviewDiffSource.wholeRun(ctx.git, c)
     case ReviewDiff.Pinned(d) => Some(ReviewDiffSource.Pinned(d))
   diffSource match
     case None =>
@@ -447,7 +465,16 @@ def reviewAndFixLoop[B <: BackendTag](
             "fresh clone). Start a fresh run if you need this review"
         )
       )
-      IgnoredIssues(Nil)
+      // One entry, not an empty result: an empty result is what a clean review
+      // returns, and a skipped review must not read as one.
+      IgnoredIssues(
+        List(
+          IgnoredIssue(
+            Title("whole-run review"),
+            "skipped: no usable starting commit for the diff base"
+          )
+        )
+      )
     case Some(source) =>
       // `ctx`/`ev` passed explicitly, not by implicit search: the more-specific
       // `fc: FlowControl` would otherwise be picked for the constructor's
@@ -464,15 +491,17 @@ def reviewAndFixLoop[B <: BackendTag](
           fixInstructions = fixInstructions,
           diffSource = source
         )
-      )(using ctx, ev).run(maxIterations)(using fc, ws)
+      )(using ctx, ev).run(maxIterations, priorDeclines)(using fc, ws)
 
 /** One review round over the enclosing stage's changes and, if it found
   * anything, one fix turn — then done. The fixer's `fixed` claims are taken on
   * trust here, which is the trade [[reviewAndFixLoop]] exists to avoid making.
-  * Use this per task, where a later stage reviews the same code again with
-  * fresh eyes — a whole-run final [[reviewAndFixLoop]], say, which is what
-  * verifies these fixes. Pay for the loop where nothing else re-reviews the
-  * result (ADR 0022 §2).
+  * The one exception is the lint gate: machine-checkable, so it is re-run over
+  * the fixer's edits and re-driven once if it still fails — reviewer findings
+  * alone stay single-pass. Use this per task, where a later stage reviews the
+  * same code again with fresh eyes — a whole-run final [[reviewAndFixLoop]],
+  * say, which is what verifies these fixes. Pay for the loop where nothing else
+  * re-reviews the result (ADR 0022 §2).
   *
   * Reviewers are picked once by [[ReviewerSelector.agentDriven]] and run once,
   * alongside the lint gate; see [[reviewAndFixLoop]] for what each of the
@@ -632,7 +661,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     val advanced = changes match
       case ReReviewChanges.Updated(_) =>
         Some(se.copy(lastSent = LastSent.inlined(current.diff)))
-      case ReReviewChanges.TooLarge(_) =>
+      case ReReviewChanges.TooLarge(_, _) =>
         Some(se.copy(lastSent = LastSent.PathsOnly(current.diff)))
       case ReReviewChanges.AlreadySeen(_) => None
     (result, advanced)
@@ -893,10 +922,13 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     * threading the immutable [[ReviewLoopState]] (reviewer history + sessions)
     * through each round.
     *
+    * `priorDeclines` seeds the accumulated set — see [[reviewAndFixLoop]].
+    *
     * `fc`/`ws` are method parameters, not fields — see the file header.
     */
   def run(
-      maxIterations: Int
+      maxIterations: Int,
+      priorDeclines: IgnoredIssues = IgnoredIssues(Nil)
   )(using fc: FlowControl, ws: WorkspaceWrite): IgnoredIssues =
     // A progress marker, not a committing stage: the enclosing implement-task
     // stage already names the work and owns the commit (ADR 0018 §2.2).
@@ -960,13 +992,21 @@ private[review] class ReviewFixLoop[B <: BackendTag](
               round.state,
               seenSeverities
             )
-    loop(IgnoredIssues(Nil), 0, ReviewLoopState.empty, Map.empty)
+    // Seeded through `recordIgnored` so duplicate titles across the seeds
+    // collapse the way the loop's own accumulation would collapse them.
+    loop(
+      recordIgnored(IgnoredIssues(Nil), priorDeclines.issues),
+      0,
+      ReviewLoopState.empty,
+      Map.empty
+    )
 
   /** One [[evaluate]] round and, if it reported anything, one [[fixTurn]] —
-    * backing [[reviewThenFix]]. There is no re-evaluation, so the returned
-    * [[IgnoredIssues]] is the whole record of what stayed open: the fixer's
-    * declines, plus what it never reported on ([[UnaccountedReason]]) — which a
-    * loop would instead recover by reviewing again.
+    * backing [[reviewThenFix]]. There is no re-evaluation of reviewer findings
+    * (the lint gate alone is re-checked, via [[relintAfterFix]]), so the
+    * returned [[IgnoredIssues]] is the whole record of what stayed open: the
+    * fixer's declines, plus what it never reported on ([[UnaccountedReason]]) —
+    * which a loop would instead recover by reviewing again.
     *
     * `fc`/`ws` are method parameters, not fields — see the file header.
     */
@@ -991,6 +1031,10 @@ private[review] class ReviewFixLoop[B <: BackendTag](
       // No round follows to format the fixer's edits, and the enclosing stage
       // is about to commit them.
       formatWorkspace()
+      // Re-checked only when something was fixed, mirroring the loop: a fixer
+      // that reported no fixes left the tree as the round's own gate saw it.
+      val lintOpen =
+        if outcome.fixed.isEmpty then Nil else relintAfterFix(round.state)
       // A fixer that fixed nothing is the loops' halt, headline and reason
       // alike; one that fixed something leaves any unaccounted title open with
       // nothing to recover it, which the reason has to say.
@@ -999,7 +1043,59 @@ private[review] class ReviewFixLoop[B <: BackendTag](
         else (SinglePassMessage, UnaccountedReason)
       val open = recordIgnored(
         IgnoredIssues(Nil),
-        openAfterFix(outcome, unaccountedReason)
+        openAfterFix(outcome, unaccountedReason) ++ lintOpen
       )
       announceExit(headline, open, severities)(using ctx)
       open
+
+  /** Re-run the lint gate over the fix turn's edits — the machine-checkable
+    * check the single pass would otherwise skip, letting a fix that fails lint
+    * (or doesn't compile) land in the stage's commit and break the tree later
+    * tasks build on. A failure gets ONE fix turn scoped to it and one last
+    * check; whatever still fails is returned for the exit record under a
+    * warning Step. Reviewer findings stay single-pass — only this gate is
+    * re-driven, as the loop's rounds re-drive it.
+    *
+    * `state` is the round's outcome state: its resumable lint conversation, if
+    * any, is reused. `fc`/`ws` are method parameters, not fields — see the file
+    * header. `ctx`/`ev` passed explicitly to `lint` for the same given-priority
+    * reason as elsewhere in this file.
+    */
+  private def relintAfterFix(
+      state: ReviewLoopState
+  )(using fc: FlowControl, ws: WorkspaceWrite): List[IgnoredIssue] =
+    lintGate match
+      case None => Nil
+      case Some(gate) =>
+        def freshSummariser(): Lint.Summariser =
+          Lint.summariser(
+            gate.agent.withName(lintName).withRole(ReviewerPrompts.Role)
+          )
+        def check(summariser: Lint.Summariser): LintReport =
+          lint(gate.commands, summariser, ReviewLoopPrompts.SummariseLint)(using
+            ctx,
+            ev
+          )
+        val recheck = check(state.lintChat.getOrElse(freshSummariser()))
+        if recheck.result.issues.isEmpty then Nil
+        else
+          val issues = KeyedIssue.forAgent(0, recheck.result.issues)
+          ctx.emit(OrcaEvent.Step(formatReviewerOutcome(lintName, issues)))
+          val _ = fixTurn(issues, AfterFixTurn.Stop)
+          formatWorkspace()
+          // A reporting summariser is never resumable, so this is a fresh
+          // conversation (see [[LintReport.resumableSummariser]]).
+          val last = check(
+            recheck.resumableSummariser.getOrElse(freshSummariser())
+          )
+          if last.result.issues.isEmpty then Nil
+          else
+            ctx.emit(
+              OrcaEvent.Step(
+                "warning: lint still fails after its fix turn — the stage " +
+                  "commits with these findings open"
+              )
+            )
+            last.result.issues.map(i =>
+              IgnoredIssue(i.title, "lint still failing after its fix turn")
+            )

@@ -364,18 +364,8 @@ object FlowLifecycle:
       RecoveryCheck.alwaysProtected ++ git
         .defaultBranch()
         .map(_.toLowerCase(java.util.Locale.ROOT))
-    // Read before the settings/header commits the binding makes, so the
-    // whole-run review's diff base sits behind everything this run commits.
-    // `Some` on a fresh run: `abortIfNoCommits` has already established a HEAD,
-    // and git's own output is a hash.
-    val headAtBinding = git.headCommit().flatMap(CommitHash.from)
     val binding =
-      session.bindBranch(
-        startBranch,
-        protectedBranches,
-        discovered,
-        headAtBinding
-      )
+      session.bindBranch(startBranch, protectedBranches, discovered)
     FlowSetup(
       store,
       binding.featureBranch,
@@ -585,27 +575,14 @@ object FlowLifecycle:
     def bindBranch(
         startBranch: String,
         protectedBranches: Set[String],
-        discovered: Boolean,
-        // HEAD as of this call — recorded by a fresh run, ignored by a resume,
-        // which has its own run's commit in the header.
-        headAtBinding: Option[CommitHash]
+        discovered: Boolean
     )(using InStage, WorkspaceWrite): BranchBinding =
       store.loadDetailed() match
         case ProgressStore.LoadResult.Corrupt(reason) =>
           warnCorruptLog(reason)
-          freshBinding(
-            startBranch,
-            protectedBranches,
-            discovered,
-            headAtBinding
-          )
+          freshBinding(startBranch, protectedBranches, discovered)
         case ProgressStore.LoadResult.Absent =>
-          freshBinding(
-            startBranch,
-            protectedBranches,
-            discovered,
-            headAtBinding
-          )
+          freshBinding(startBranch, protectedBranches, discovered)
         case ProgressStore.LoadResult.Loaded(progressLog) =>
           resumeBinding(progressLog.header, protectedBranches, discovered)
 
@@ -636,9 +613,13 @@ object FlowLifecycle:
     private def freshBinding(
         startBranch: String,
         protectedBranches: Set[String],
-        discovered: Boolean,
-        headAtBinding: Option[CommitHash]
+        discovered: Boolean
     )(using InStage, WorkspaceWrite): BranchBinding =
+      // Read before the settings/header commits this binding makes, so the
+      // whole-run review's diff base sits behind everything this run commits.
+      // `Some` on a fresh run: `abortIfNoCommits` has already established a
+      // HEAD, and git's own output is a hash.
+      val headAtBinding = git.headCommit().flatMap(CommitHash.from)
       val branch = freshRun(
         args,
         agent,
