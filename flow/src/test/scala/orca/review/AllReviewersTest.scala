@@ -42,6 +42,22 @@ class AllReviewersTest extends munit.FunSuite:
         s"reviewer '${r.name}' has an empty description"
       )
 
+  test("every shipped reviewer offers the picker an inclusion checklist"):
+    // The description is the only thing the picker sees per reviewer, so a
+    // reviewer without clauses is one it has to judge by prose again.
+    ReviewerPrompts.all.foreach: r =>
+      assert(
+        r.description.contains("Include when:"),
+        s"reviewer '${r.name}' has no 'Include when:' clauses"
+      )
+
+  test("the performance checklist names the subprocess, IO and loop signals"):
+    // The signals the post-mortem run had in its diff while the picker still
+    // dropped the performance reviewer.
+    val description = ReviewerPrompts.Performance.description
+    List("subprocess", "IO", "inside a loop").foreach: signal =>
+      assert(description.contains(signal), s"'$signal' missing: $description")
+
   test("minimalReviewers exposes the small subset"):
     val base = new RecordingTool
     val names = minimalReviewers(base).map(_.name)

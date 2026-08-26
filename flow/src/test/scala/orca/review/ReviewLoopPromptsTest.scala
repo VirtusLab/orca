@@ -217,6 +217,35 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
       ReviewLoopPrompts.Fix
     )
 
+  test("SelectReviewers asks the picker to justify what it left out"):
+    // Nothing in the flow reads the rationale; requiring it is what makes the
+    // picker walk each excluded reviewer's checklist before dropping it.
+    val prompt = TextUtil.collapseWhitespace(ReviewLoopPrompts.SelectReviewers)
+    assert(
+      prompt.contains(
+        "In `exclusionsRationale`, say in one short sentence per excluded " +
+          "reviewer why its clauses don't match"
+      ),
+      prompt
+    )
+
+  test("SelectReviewers points the picker at the inclusion checklists"):
+    val prompt = TextUtil.collapseWhitespace(ReviewLoopPrompts.SelectReviewers)
+    assert(
+      prompt.contains(
+        "check its clauses against the change, include it the moment one " +
+          "matches"
+      ),
+      prompt
+    )
+    // The pre-existing rule the checklists narrow but must not replace.
+    assert(
+      prompt.contains(
+        "When you are unsure whether a reviewer applies, include it"
+      ),
+      prompt
+    )
+
   test("reReview says nothing about declines when the fixer declined nothing"):
     // Same separator argument as the base-commit section above.
     val prompt = reRendered()

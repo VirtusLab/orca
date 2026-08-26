@@ -40,6 +40,25 @@ class ReviewTypesTest extends munit.FunSuite:
       SelectedReviewers(Nil)
     )
 
+  test("a picker selection round-trips with its exclusion rationale"):
+    val original = SelectedReviewers(
+      names = List("security", "performance"),
+      exclusionsRationale = Some("no test file changed, so test is out")
+    )
+    assertEquals(
+      readFromString[SelectedReviewers](writeToString(original)),
+      original
+    )
+
+  test("a picker selection with no rationale still decodes"):
+    // Strict mode requires the key of every backend that enforces the schema
+    // on the wire; the rest can answer with `names` alone, and that reply is
+    // still a pick rather than a decode failure.
+    assertEquals(
+      readFromString[SelectedReviewers]("""{"names":["security"]}"""),
+      SelectedReviewers(List("security"))
+    )
+
   test("the fix prompt keeps a suggestion line that starts with `|`"):
     // `FixRequest`'s renderer keeps a suggestion's own line breaks and indents,
     // so a quoted margin block reaches the prompt as a `|` line.

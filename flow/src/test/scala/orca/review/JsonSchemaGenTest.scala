@@ -70,11 +70,25 @@ class JsonSchemaGenTest extends munit.FunSuite:
   test("generated schema rejects a selection that names no reviewer"):
     // What claude:haiku and codex reply on a small change when the schema
     // permits it; the selector's fallback then runs the whole roster.
-    val errors =
-      compiledSelectionSchema.validate("""{"names":[]}""", InputFormat.JSON)
+    // `exclusionsRationale` is spelled out so `minItems` on `names` is the
+    // only rule this payload can break.
+    val errors = compiledSelectionSchema.validate(
+      """{"names":[],"exclusionsRationale":null}""",
+      InputFormat.JSON
+    )
     assert(!errors.isEmpty, "Schema should reject an empty selection")
 
   test("generated schema accepts a selection that names one reviewer"):
     val errors = compiledSelectionSchema
-      .validate("""{"names":["code-functionality"]}""", InputFormat.JSON)
+      .validate(
+        """{"names":["code-functionality"],"exclusionsRationale":null}""",
+        InputFormat.JSON
+      )
+    assert(errors.isEmpty, s"Validation errors: $errors")
+
+  test("generated schema accepts a selection carrying an exclusion rationale"):
+    val errors = compiledSelectionSchema.validate(
+      """{"names":["security"],"exclusionsRationale":"no tests changed"}""",
+      InputFormat.JSON
+    )
     assert(errors.isEmpty, s"Validation errors: $errors")

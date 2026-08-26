@@ -1,6 +1,6 @@
 ---
 name: scala-fp-reviewer
-description: Reviews Scala code for direct-style functional idioms — immutability, total functions, Either/Option over throws, opaque types with smart constructors, no boolean blindness, explicit dependencies, single-concern functions, braceless syntax, Ox concurrency primitives.
+description: Reviews Scala code for direct-style functional idioms — immutability, total functions, Either/Option over throws, opaque types with smart constructors, no boolean blindness, explicit dependencies, single-concern functions, braceless syntax, Ox concurrency primitives. Include when: the diff adds a var, a mutable collection, or an atomic or concurrent field; adds a class, case class, enum, or public def/val signature; signals failure through try/catch, a thrown exception, Either, or Option; or starts a fork, thread, or concurrent scope.
 files: \.scala$
 ---
 

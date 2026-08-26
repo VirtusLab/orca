@@ -1,6 +1,6 @@
 ---
 name: code-functionality-reviewer
-description: Verifies code correctly implements its intent, covers edge cases, handles failure modes, and surfaces errors appropriately. Catches logic bugs, off-by-ones, mishandled empty/null inputs, swallowed exceptions, missing observability on error paths, and broken concurrency invariants.
+description: Verifies code correctly implements its intent, covers edge cases, handles failure modes, and surfaces errors appropriately. Catches logic bugs, off-by-ones, mishandled empty/null inputs, swallowed exceptions, missing observability on error paths, and broken concurrency invariants. Include when: the diff changes branching, arithmetic, indexing, or collection logic; calls a process, file, network, or parser; adds or edits a catch, a fallback default, or an error path; or touches state read or written from more than one thread.
 ---
 
 ## Scope

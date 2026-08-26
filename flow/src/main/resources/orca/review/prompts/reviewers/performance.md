@@ -1,6 +1,6 @@
 ---
 name: performance-reviewer
-description: Reviews CPU/memory efficiency, algorithmic complexity, I/O and network usage, concurrency, and resource lifecycle. Flags hidden quadratics, n+1 calls, unbounded allocations, race conditions, leaked handles, and missing backpressure.
+description: Reviews CPU/memory efficiency, algorithmic complexity, I/O and network usage, concurrency, and resource lifecycle. Flags hidden quadratics, n+1 calls, unbounded allocations, race conditions, leaked handles, and missing backpressure. Include when: the diff spawns a subprocess or performs file, network, or database IO; adds work inside a loop, a nested iteration, or a per-item call where a batched one exists; builds a collection or buffer that grows with input size; or opens a file, socket, connection, or thread, or shares mutable state across threads.
 ---
 
 ## Scope

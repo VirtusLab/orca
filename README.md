@@ -736,6 +736,12 @@ round — the trade-off is that it won't see the fixes made after it stopped. If
 narrowing would leave no reviewer at all (everyone quiet, while a lint finding
 keeps the loop going), the round's full selection runs again and a step says so.
 
+Each shipped reviewer's description ends with an "Include when:" checklist of
+diff signals to look for (the performance one: spawns a subprocess, does IO,
+adds work inside a loop), and the picker is asked to justify every reviewer it
+leaves out. Write the same into a custom `Reviewer`'s `description` to get the
+same treatment.
+
 | Selector | Behaviour |
 |---|---|
 | `default` | The above: `narrowingAcrossRounds(agentDriven)`. |

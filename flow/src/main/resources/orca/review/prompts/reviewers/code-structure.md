@@ -1,6 +1,6 @@
 ---
 name: code-structure-reviewer
-description: Language-agnostic review of macro-level organisation — file layout, module boundaries, visibility, cohesion/coupling, dependency direction, abstraction quality, and duplication. Flags catch-all files, leaky internals, over-exposed APIs, premature abstractions, missed extractions, cycles, and stable code that depends on volatile concretions.
+description: Language-agnostic review of macro-level organisation — file layout, module boundaries, visibility, cohesion/coupling, dependency direction, abstraction quality, and duplication. Flags catch-all files, leaky internals, over-exposed APIs, premature abstractions, missed extractions, cycles, and stable code that depends on volatile concretions. Include when: the diff adds, moves, renames, or deletes a file, package, or module; adds a type, interface, or layer of indirection; adds logic that resembles code already in the touched files; or widens a declaration's visibility or adds a dependency between packages.
 ---
 
 ## Scope

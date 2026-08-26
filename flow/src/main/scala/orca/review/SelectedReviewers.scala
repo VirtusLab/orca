@@ -15,7 +15,15 @@ private[review] case class PickedReviewers(
     unresolved: List[String]
 )
 
-case class SelectedReviewers(names: List[String]):
+/** The picker's reply: the reviewers it chose, and — for audit in the debug
+  * trace — why it left the rest out. Nothing reads `exclusionsRationale`;
+  * asking for it is what makes the picker walk each excluded reviewer's
+  * checklist before dropping it.
+  */
+case class SelectedReviewers(
+    names: List[String],
+    exclusionsRationale: Option[String] = None
+):
   /** Resolve the picker's reply to roster entries by matching the bare slug.
     * Matching against the handed [[RosterEntry]] list (not raw names) is the
     * hallucinated-picker floor: an invented name that no entry carries matches

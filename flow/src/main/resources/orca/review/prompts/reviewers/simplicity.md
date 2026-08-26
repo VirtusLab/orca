@@ -1,6 +1,6 @@
 ---
 name: simplicity-reviewer
-description: Reviews whether the change is more complex than the problem requires — speculative generality, gold-plating, options or indirection nothing uses, handling of cases that can't occur, and convoluted logic that could be markedly simpler or removed. The question the other reviewers don't ask: could this do the same job with less?
+description: Reviews whether the change is more complex than the problem requires — speculative generality, gold-plating, options or indirection nothing uses, handling of cases that can't occur, and convoluted logic that could be markedly simpler or removed. The question the other reviewers don't ask: could this do the same job with less? Include when: the diff adds a type parameter, trait, or layer of abstraction; adds a config option, mode, or parameter; adds a branch, guard, or fallback path; or adds a wrapper or delegating type.
 ---
 
 ## Scope

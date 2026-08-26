@@ -1,6 +1,6 @@
 ---
 name: test-reviewer
-description: Reviews tests for minimality, non-duplication, single-property focus, coverage of new behaviour, and edge-case exercise. Flags redundant, unfocused, or speculative tests; identifies missing coverage of properties the change introduces.
+description: Reviews tests for minimality, non-duplication, single-property focus, coverage of new behaviour, and edge-case exercise. Flags redundant, unfocused, or speculative tests; identifies missing coverage of properties the change introduces. Include when: the diff adds or edits a test file; adds a function, branch, or failure case with no matching test change; or adds test fixtures, stubs, or helpers.
 ---
 
 ## Scope

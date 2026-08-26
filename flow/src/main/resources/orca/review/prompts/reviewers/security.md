@@ -1,6 +1,6 @@
 ---
 name: security-reviewer
-description: Reviews input validation, injection vectors (shell/SQL/path/template), secret handling, unsafe deserialisation, and privilege/authz mistakes. Especially relevant when code shells out, parses untrusted input, or handles credentials.
+description: Reviews input validation, injection vectors (shell/SQL/path/template), secret handling, unsafe deserialisation, and privilege/authz mistakes. Especially relevant when code shells out, parses untrusted input, or handles credentials. Include when: the diff parses or interpolates external input (user text, request bodies, file contents, env vars); builds a shell command, path, URL, SQL fragment, or regex out of data; reads, stores, logs, or passes a token, key, or password; or changes file permissions, writes outside the work directory, or alters TLS or timeout settings.
 ---
 
 ## Scope
