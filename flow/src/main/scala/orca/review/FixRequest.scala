@@ -51,10 +51,8 @@ private[review] object FixRequest:
     */
   private def renderIssue(key: String, issue: ReviewIssue): String =
     // Exhaustive destructure: a new `ReviewIssue` field stops compiling here
-    // until this prompt decides what to do with it. `confidence` is left out:
-    // the number would only invite the fixer to re-litigate the finding.
-    val ReviewIssue(severity, _, title, description, location, suggestion) =
-      issue
+    // until this prompt decides what to do with it.
+    val ReviewIssue(severity, title, description, location, suggestion) = issue
     val lines = List(
       Some(s"$key [$severity] $title"),
       locationLine(location),

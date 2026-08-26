@@ -13,7 +13,6 @@ class ReviewTypesTest extends munit.FunSuite:
       issues = List(
         ReviewIssue(
           severity = Severity.Critical,
-          confidence = Confidence.orThrow(0.95),
           title = Title("Null pointer risk"),
           description = "null pointer risk",
           location = Some(Location("Foo.scala", Some(42))),
@@ -21,7 +20,6 @@ class ReviewTypesTest extends munit.FunSuite:
         ),
         ReviewIssue(
           severity = Severity.Info,
-          confidence = Confidence.orThrow(0.4),
           title = Title("Stylistic nitpick"),
           description = "stylistic nitpick",
           location = None,
@@ -32,15 +30,6 @@ class ReviewTypesTest extends munit.FunSuite:
     val json = writeToString(original)
     val parsed = readFromString[ReviewResult](json)
     assertEquals(parsed, original)
-
-  test("a confidence outside [0,1] is rejected at decode"):
-    // A percent-style reply would otherwise clear every gate bar forever.
-    val json =
-      """{"issues":[{"severity":"Warning","confidence":85,"title":"t",""" +
-        """"description":"d","location":null,"suggestion":null}]}"""
-    intercept[com.github.plokhotnyuk.jsoniter_scala.core.JsonReaderException](
-      readFromString[ReviewResult](json)
-    )
 
   test("an empty picker selection still decodes"):
     // The schema forbids it, but only backends that enforce the schema on the
@@ -61,7 +50,6 @@ class ReviewTypesTest extends munit.FunSuite:
         List(
           ReviewIssue(
             severity = Severity.Warning,
-            confidence = Confidence.orThrow(0.9),
             title = Title("Mangled quote"),
             description = "the quote is mangled",
             location = None,

@@ -160,7 +160,6 @@ private[review] def issue(
 ): ReviewIssue =
   ReviewIssue(
     severity = severity,
-    confidence = Confidence.orThrow(1.0),
     title = Title(desc),
     description = desc,
     location = None,

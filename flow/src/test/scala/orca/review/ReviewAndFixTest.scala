@@ -372,7 +372,6 @@ class ReviewAndFixTest extends munit.FunSuite:
           List(
             ReviewIssue(
               severity = Severity.Warning,
-              confidence = Confidence.orThrow(0.95),
               title = Title("leaks a handle"),
               description = "DESCRIPTION-MARKER: the stream is never closed",
               location = None,

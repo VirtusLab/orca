@@ -230,7 +230,6 @@ class FixLoopTest extends munit.FunSuite:
   test("formatIssue renders severity, title, location, and suggestion"):
     val real = ReviewIssue(
       severity = Severity.Warning,
-      confidence = Confidence.orThrow(0.9),
       title = Title("Unbounded growth in `processBatch`"),
       description = "Unbounded growth in `processBatch`",
       location = Some(Location("src/main/Foo.scala", Some(42))),
@@ -263,7 +262,6 @@ class FixLoopTest extends munit.FunSuite:
     // pins the still-valid file-without-line case.
     val fileOnly = ReviewIssue(
       severity = Severity.Info,
-      confidence = Confidence.orThrow(0.5),
       title = Title("Nit"),
       description = "Nit",
       location = Some(Location("src/main/Foo.scala", None)),

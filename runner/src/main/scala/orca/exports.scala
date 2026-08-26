@@ -50,9 +50,8 @@ export orca.pr.{openPrFromBranch, orcaCommentMarker, summarisePr, PrSummary}
 // `buildReviewers` it into the agents `reviewAndFixLoop` takes. IgnoredIssue(s)
 // is the result type of fixLoop/reviewAndFixLoop; Lint is constructed at the
 // call site for reviewAndFixLoop's `lint` parameter and LintReport is what the
-// summariser-taking `lint` returns. Severity, Location and Confidence are
-// ReviewIssue's field types — needed by any flow that consumes findings — and
-// InvalidConfidence is what `Confidence.orThrow` raises.
+// summariser-taking `lint` returns. Severity and Location are ReviewIssue's
+// field types — needed by any flow that consumes findings.
 export orca.review.{
   allReviewers,
   buildReviewers,
@@ -60,8 +59,6 @@ export orca.review.{
   lint,
   minimalReviewers,
   reviewAndFixLoop,
-  Confidence,
-  InvalidConfidence,
   FixOutcome,
   IgnoredIssue,
   IgnoredIssues,

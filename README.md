@@ -798,12 +798,8 @@ results.
 - **`orca.pr.PrSummary(title, body)`** — what `summarisePr` returns. The two
   fields feed `gh.createPr(title = …, body = …)` directly.
 - **`orca.review.ReviewIssue` / `ReviewResult`** — what reviewer agents return.
-  Issues carry severity, confidence, a `title` (shown), and a long `description`
-  (sent to the fixer).
-- **`orca.review.Confidence`** — a probability in `[0, 1]`, checked at
-  construction: `Confidence.orThrow(0.7)` raises `InvalidConfidence` outside the
-  range. Compare with `.clears(bar)`, sort with the companion's
-  `Ordering[Confidence]`, and render with `.value`.
+  Issues carry severity, a `title` (shown), and a long `description` (sent to
+  the fixer).
 - **`orca.review.FixOutcome(fixed, ignored)`** — what the fix step returns: the
   titles of issues actually fixed in code, plus titles + reasons for issues set
   aside (environmental, out of scope, false positive). The loop re-evaluates iff
