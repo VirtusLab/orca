@@ -697,6 +697,14 @@ private[review] class ReviewFixLoop[B <: BackendTag](
           OrcaEvent.Step(s"format command failed (exit $exitCode): $cmd")
         )
 
+  /** One evaluation round: format the tree, narrow the roster with the prepared
+    * `selectRound`, and fan the active reviewers out alongside the lint gate.
+    * Returns what they reported plus the state to carry forward — a round is a
+    * function of the state it is handed, so it can be run once or in a loop.
+    *
+    * `declined` is what the fixer has refused and not since fixed, delivered to
+    * this round's reviewers.
+    */
   private def evaluate(
       state: ReviewLoopState,
       selectRound: List[ReviewBatch] -> List[RosterEntry],
@@ -743,7 +751,25 @@ private[review] class ReviewFixLoop[B <: BackendTag](
       .resultAs[FixOutcome]
       .run(FixRequest(fixInstructions, issues), emitPrompt = false)
 
-  /** Run the evaluate/fix loop to convergence and return the accumulated
+  /** One fix turn over `issues`: hand them to the coder, reconcile its reply
+    * against what it was handed ([[FixOutcome.reconcile]]), and announce the
+    * result. What the outcome means for the run is the caller's decision — an
+    * empty `fixed` halts a loop, and is equally the end of a single round.
+    *
+    * `fc`/`ws` are method parameters, not fields — see the file header.
+    */
+  private def fixTurn(issues: List[KeyedIssue])(using
+      fc: FlowControl,
+      ws: WorkspaceWrite
+  ): ReconciledFixOutcome =
+    val outcome = FixOutcome.reconcile(issues, fix(issues))
+    // `ctx` explicit, not by implicit search: the more-specific `fc` would
+    // otherwise be picked for the `FlowContext` and its root capability
+    // rejected.
+    announceFixTurn(outcome)(using ctx)
+    outcome
+
+  /** Run [[evaluate]] and [[fixTurn]] to convergence and return the accumulated
     * [[IgnoredIssues]], applying the shared [[stopPolicy]] each round and
     * threading the immutable [[ReviewLoopState]] (reviewer history + sessions)
     * through each round.
@@ -807,8 +833,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
           )
           open
         case LoopStep.NeedsFix =>
-          val outcome = FixOutcome.reconcile(round.issues, fix(round.issues))
-          announceFixTurn(outcome)(using ctx)
+          val outcome = fixTurn(round.issues)
           if outcome.fixed.isEmpty then
             val open = recordIgnored(accumulated, fixerHaltAdditions(outcome))
             announceExit(FixerHaltMessage, open, seenSeverities)(using ctx)
