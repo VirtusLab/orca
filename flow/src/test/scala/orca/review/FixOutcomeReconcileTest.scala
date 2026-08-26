@@ -43,6 +43,39 @@ class FixOutcomeReconcileTest extends munit.FunSuite:
       List(IgnoredIssue(Title("Leaks a handle"), "by design"))
     )
 
+  test("a keyed echo with the which-alternative suffix resolves by key"):
+    val reconciled = FixOutcome.reconcile(
+      handed("leaks a handle"),
+      FixOutcome(
+        List(Title("I1.1 leaks a handle — closed it in a finally block")),
+        Nil
+      )
+    )
+    assertEquals(reconciled.fixed, List(Title("leaks a handle")))
+
+  test("a keyless echo with the which-alternative suffix resolves by title"):
+    val reconciled = FixOutcome.reconcile(
+      handed("leaks a handle"),
+      FixOutcome(
+        List(Title("leaks a handle — closed it in a finally block")),
+        Nil
+      )
+    )
+    assertEquals(reconciled.fixed, List(Title("leaks a handle")))
+
+  test("a keyless suffixed echo extending two titles stays unresolved"):
+    // Both handed titles are proper prefixes of the echo, so picking either
+    // would be a guess; the echo is dropped instead.
+    val reconciled = FixOutcome.reconcile(
+      handed("leaks a handle", "leaks a handle badly"),
+      FixOutcome(List(Title("leaks a handle badly — fixed")), Nil)
+    )
+    assertEquals(reconciled.fixed, Nil)
+    assertEquals(
+      reconciled.unresolvedEchoes,
+      List("leaks a handle badly — fixed")
+    )
+
   test("an issue the fixer claimed twice is one fixed entry"):
     val reconciled = FixOutcome.reconcile(
       handed("real bug"),

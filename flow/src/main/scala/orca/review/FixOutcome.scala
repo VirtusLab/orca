@@ -51,10 +51,12 @@ object FixOutcome:
   /** Resolve `outcome`'s echoed entries back to the issues in `handed`.
     *
     * An echo resolves by the [[FixRequest]] key it starts with, then by exact
-    * title, then by a title matched case- and whitespace-insensitively. Each
-    * handed issue takes at most one echo (`fixed` wins over `ignored`, since
-    * the fix is the stronger claim) and each echo at most one issue, so a
-    * paraphrase cannot record one real finding twice.
+    * title, then by a title matched case- and whitespace-insensitively, and
+    * last by the sole title the echo extends past a non-alphanumeric separator
+    * — the shape of a keyless echo carrying the fix prompt's "which alternative
+    * was taken" suffix. Each handed issue takes at most one echo (`fixed` wins
+    * over `ignored`, since the fix is the stronger claim) and each echo at most
+    * one issue, so a paraphrase cannot record one real finding twice.
     */
   private[review] def reconcile(
       handed: List[KeyedIssue],
@@ -62,12 +64,28 @@ object FixOutcome:
   ): ReconciledFixOutcome =
     val issues = handed.map(_.issue)
 
+    // Titles can themselves contain " — ", so the echo is prefix-matched
+    // against each full title rather than split at a separator; an echo
+    // extending more than one distinct title stays unresolved rather than
+    // guessed at.
+    def bySuffixedTitle(text: String): Option[ReviewIssue] =
+      val echoNorm = normalised(text)
+      issues
+        .filter: i =>
+          val t = normalised(i.title.value)
+          echoNorm.length > t.length && echoNorm.startsWith(t) &&
+          !echoNorm.charAt(t.length).isLetterOrDigit
+        .distinctBy(i => normalised(i.title.value)) match
+        case List(only) => Some(only)
+        case _          => None
+
     def resolve(echo: String): Option[ReviewIssue] =
       val text = echo.trim
       handed
         .collectFirst { case k if startsWithKey(text, k.key) => k.issue }
         .orElse(issues.find(_.title.value == text))
         .orElse(issues.find(i => normalised(i.title.value) == normalised(text)))
+        .orElse(bySuffixedTitle(text))
 
     // Buckets are keyed by title throughout, so two reviewers reporting the
     // same title cannot land one copy in `ignored` and the other in

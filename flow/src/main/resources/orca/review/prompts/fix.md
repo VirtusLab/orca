@@ -9,6 +9,7 @@ is how the issue is matched back, so copy it exactly.
 
 Where a comment's suggestion offers alternatives ("do X, or document why Y is
 safe"), say which one you took, after the title: `I2.1 [Warning] The widget
-leaks a file handle — closed the handle in a finally block`.
+leaks a file handle — closed the handle in a finally block`. Even with this
+suffix added, the line must still start with the issue key.
 
 Prefer minimal, scoped fixes.
