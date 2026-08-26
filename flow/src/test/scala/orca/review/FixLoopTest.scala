@@ -230,7 +230,6 @@ class FixLoopTest extends munit.FunSuite:
   test("formatIssue renders severity, title, location, and suggestion"):
     val real = ReviewIssue(
       severity = Severity.Warning,
-      confidence = Confidence.orThrow(0.9),
       title = Title("Unbounded growth in `processBatch`"),
       description = "Unbounded growth in `processBatch`",
       location = Some(Location("src/main/Foo.scala", Some(42))),
@@ -248,29 +247,12 @@ class FixLoopTest extends munit.FunSuite:
       s"missing suggestion: $rendered"
     )
 
-  test("formatReviewerOutcome notes gate rejects on a clean review"):
-    // A reviewer whose findings were all gated out must not read as quiet.
-    assertEquals(
-      formatReviewerOutcome("loud", Nil, 3),
-      "loud: 0 issues (3 below the confidence gate)"
-    )
-
-  test("formatReviewerOutcome notes gate rejects in the heading above bullets"):
-    val rendered =
-      formatReviewerOutcome("loud", KeyedIssue.forAgent(0, List(issue("x"))), 1)
-    assertEquals(
-      rendered.linesIterator.next(),
-      "loud: 1 issue (1 below the confidence gate)"
-    )
-    assert(rendered.contains("- I1.1 [Warning] x"), rendered)
-
   test("formatReviewerOutcome bullets carry the agent's own key index"):
     // Keys name the agent that reported the finding, so the second agent's
     // findings are I2.n — that is what the fixer echoes back.
     val rendered = formatReviewerOutcome(
       "second",
-      KeyedIssue.forAgent(1, List(issue("x"), issue("y"))),
-      0
+      KeyedIssue.forAgent(1, List(issue("x"), issue("y")))
     )
     assert(rendered.contains("- I2.1 [Warning] x"), rendered)
     assert(rendered.contains("- I2.2 [Warning] y"), rendered)
@@ -280,7 +262,6 @@ class FixLoopTest extends munit.FunSuite:
     // pins the still-valid file-without-line case.
     val fileOnly = ReviewIssue(
       severity = Severity.Info,
-      confidence = Confidence.orThrow(0.5),
       title = Title("Nit"),
       description = "Nit",
       location = Some(Location("src/main/Foo.scala", None)),

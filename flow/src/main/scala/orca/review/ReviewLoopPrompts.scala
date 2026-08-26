@@ -54,10 +54,6 @@ object ReviewLoopPrompts:
     * `task` and `userRequest` render as separately labelled sections under the
     * task title.
     *
-    * `gate` is rendered into the prompt's confidence section, so reviewers are
-    * told the actual bars their findings are measured against rather than a
-    * hardcoded guess at them.
-    *
     * `diffIntro` introduces the diff, and `base` names the commit `diff` was
     * sampled against when the loop knows that describes this diff. The base is
     * sent alongside the diff, never instead of it: it only lets a reviewer read
@@ -72,7 +68,6 @@ object ReviewLoopPrompts:
       userRequest: String,
       diff: String,
       diffIntro: String,
-      gate: ConfidenceGate,
       base: Option[String],
       declined: List[IgnoredIssue]
   ): String =
@@ -83,10 +78,7 @@ object ReviewLoopPrompts:
       "diffIntro" -> diffIntro,
       "diffBlock" -> diffBlock(diff),
       "baseNote" -> baseNote(base),
-      "declined" -> declinedBlock(declined),
-      "criticalBar" -> gate.critical.value.toString,
-      "warningBar" -> gate.warning.value.toString,
-      "infoBar" -> gate.info.value.toString
+      "declined" -> declinedBlock(declined)
     )
 
   /** The task's context as labelled sections under the title: what the user

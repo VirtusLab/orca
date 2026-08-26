@@ -15,8 +15,7 @@
   *      left.
   *   1. Runs the picked reviewers concurrently, each returning a structured
   *      `ReviewResult`.
-  *   1. Prints every finding grouped by severity, and within a severity split
-  *      by confidence, so the confident Criticals read first.
+  *   1. Prints every finding grouped by severity, Criticals first.
   *   1. Posts the same report on the PR when the target was one — through
   *      `upsertComment`, so a re-run replaces its previous report rather than
   *      stacking a second one.
@@ -69,11 +68,6 @@ case class ReviewerFindings(reviewer: String, issues: List[ReviewIssue])
     derives JsonData
 
 case class AllFindings(byReviewer: List[ReviewerFindings]) derives JsonData
-
-/** Findings at or above this are listed first within their severity; the rest
-  * follow under a divider. Nothing is dropped, only ordered.
-  */
-val ConfidentAt: Confidence = Confidence.orThrow(0.7)
 
 flow(OrcaArgs(args)):
   val target = stage("Resolve what to review"):
@@ -190,8 +184,8 @@ def pickReviewers(target: ReviewTarget)(using
     case selected => selected
 
 /** What each reviewer is asked: findings scoped to the change, with severity,
-  * confidence, location and a suggested fix — reading the diff off disk, since
-  * a read-only reviewer cannot produce one.
+  * location and a suggested fix — reading the diff off disk, since a read-only
+  * reviewer cannot produce one.
   */
 def reviewPrompt(target: ReviewTarget): String =
   s"""Under review: ${target.summary}
@@ -201,19 +195,19 @@ def reviewPrompt(target: ReviewTarget): String =
      |anything in the repository to check a claim, but do not report issues in
      |code this change doesn't touch.
      |
-     |Report each finding with: severity (Critical / Warning / Info), your
-     |confidence in it (0.0-1.0), a one-line title, a description with enough
-     |context to act on, the file and line where applicable, and a concrete
-     |suggested fix. Report only what is worth acting on — no nitpicks, no
-     |restating what the change already does well. If nothing in your dimension
-     |applies, report no issues.""".stripMargin
+     |Report each finding with: severity (Critical / Warning / Info), a
+     |one-line title, a description with enough context to act on, the file and
+     |line where applicable, and a concrete suggested fix. Report only what is
+     |worth acting on — no nitpicks, no restating what the change already does
+     |well. If nothing in your dimension applies, report no issues."""
+    .stripMargin
 
 // ============================== report ==============================
 
 /** The whole report as markdown — printed to the console, and posted verbatim
   * when the target is a PR. Sections follow severity (Critical first, so the
-  * top of the report is the part worth reading); within a section, findings at
-  * or above [[ConfidentAt]] come first, the rest under a divider.
+  * top of the report is the part worth reading); within a section, findings
+  * keep the order the reviewers reported them in.
   */
 def renderReport(
     target: ReviewTarget,
@@ -236,18 +230,7 @@ def renderSeverity(
     severity: Severity,
     issues: List[(String, ReviewIssue)]
 ): String =
-  val (confident, tentative) =
-    issues
-      .sortBy(_._2.confidence)(using Ordering[Confidence].reverse)
-      .partition(_._2.confidence.clears(ConfidentAt))
-  // The divider earns its place only when it separates something from
-  // something — an all-confident or all-tentative section just lists.
-  val divider =
-    if confident.nonEmpty && tentative.nonEmpty then List("_lower confidence:_")
-    else Nil
-  val body =
-    (confident.map(renderIssue) ++ divider ++ tentative.map(renderIssue))
-      .mkString("\n")
+  val body = issues.map(renderIssue).mkString("\n")
   s"### $severity (${issues.size})\n\n$body"
 
 def renderIssue(attributed: (String, ReviewIssue)): String =
@@ -257,7 +240,6 @@ def renderIssue(attributed: (String, ReviewIssue)): String =
       case Location(file, Some(line)) => s" — `$file:$line`"
       case Location(file, None)       => s" — `$file`"
     .getOrElse("")
-  val confidence = f"${issue.confidence.value}%.2f"
   val suggestion = issue.suggestion.fold("")(s => s"\n  - suggestion: $s")
-  s"- **${issue.title}** ($reviewer, confidence $confidence)$where\n" +
+  s"- **${issue.title}** ($reviewer)$where\n" +
     s"  - ${issue.description}$suggestion"

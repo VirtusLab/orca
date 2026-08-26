@@ -48,25 +48,17 @@ private[review] def locationLine(location: Option[Location]): Option[String] =
   * reviewer + issue count, then bulleted issue details indented under it. Clean
   * reviews collapse to a single "<name>: 0 issues" line.
   *
-  * `kept` holds only what cleared the confidence gate, already carrying the
-  * keys the fix turn will use ([[KeyedIssue.forAgent]]); `droppedCount` is how
-  * many of that reviewer's findings the gate held back, noted in the heading so
-  * a quiet reviewer isn't confused with a gated-out one. Those findings are
-  * recorded by name in the loop's `IgnoredIssues`, not here.
+  * `issues` already carry the keys the fix turn will use
+  * ([[KeyedIssue.forAgent]]).
   */
 private[review] def formatReviewerOutcome(
     reviewerName: String,
-    kept: List[KeyedIssue],
-    droppedCount: Int
+    issues: List[KeyedIssue]
 ): String =
-  val gated =
-    if droppedCount == 0 then ""
-    else s" ($droppedCount below the confidence gate)"
-  if kept.isEmpty then s"$reviewerName: 0 issues$gated"
+  if issues.isEmpty then s"$reviewerName: 0 issues"
   else
-    val header =
-      s"$reviewerName: ${TextUtil.pluralize(kept.size, "issue")}$gated"
-    val bullets = kept.map(k => formatIssue(k.key, k.issue)).mkString("\n")
+    val header = s"$reviewerName: ${TextUtil.pluralize(issues.size, "issue")}"
+    val bullets = issues.map(k => formatIssue(k.key, k.issue)).mkString("\n")
     s"$header\n$bullets"
 
 /** The block a review loop prints when it stops with findings still open: one

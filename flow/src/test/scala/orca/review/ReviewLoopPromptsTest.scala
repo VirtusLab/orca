@@ -1,8 +1,7 @@
 package orca.review
 
-import orca.agents.given
 import orca.plan.{Task, Title}
-import orca.util.{JsonSchemaGen, TextUtil}
+import orca.util.TextUtil
 
 class ReviewLoopPromptsTest extends munit.FunSuite:
 
@@ -10,7 +9,6 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
   // the assertions are about the wording reaching the reviewer, not the
   // line breaks it arrives with.
   private def rendered(
-      gate: ConfidenceGate,
       base: Option[String] = None,
       task: Task = Task(Title("do the thing"), "split the list in halves"),
       userRequest: String = "add a median function"
@@ -21,29 +19,39 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
         userRequest = userRequest,
         diff = "",
         diffIntro = "Diff:",
-        gate = gate,
         base = base,
         declined = Nil
       )
     )
 
-  test("initialReview renders the caller's bars"):
-    // The bars are a parameter, so a caller-tuned gate must reach the prompt —
-    // otherwise reviewers calibrate against a threshold that isn't applied.
-    val prompt =
-      rendered(
-        ConfidenceGate(
-          critical = Confidence.orThrow(0.1),
-          warning = Confidence.orThrow(0.2),
-          info = Confidence.orThrow(0.3)
-        )
-      )
-    assert(prompt.contains("Critical 0.1, Warning 0.2, Info 0.3"), prompt)
+  test("initialReview asks for findings worth fixing, not hedges"):
+    // The reviewer's own judgement is the only filter between a finding and the
+    // fixer, so the prompt has to say what clears it.
+    val prompt = rendered()
+    assert(
+      prompt.contains(
+        "Report a finding only if you believe it should be fixed."
+      ),
+      prompt
+    )
+    assert(
+      prompt.contains(
+        "Do not report a hedge, a hunch you did not verify, or a style opinion."
+      ),
+      prompt
+    )
+    assert(
+      prompt.contains(
+        "If you verified it, report it — whether the fix is a one-line change " +
+          "or a rewrite."
+      ),
+      prompt
+    )
 
   test("initialReview labels the user's request and the planner's description"):
     // The labels are the point: a reviewer that can't tell the two apart can't
     // aim a finding at the planned choice rather than the code.
-    val prompt = rendered(ConfidenceGate.default)
+    val prompt = rendered()
     assert(
       prompt.contains(
         "The user's request for this run: add a median function"
@@ -60,7 +68,6 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
   test("initialReview drops a context section repeating the task title"):
     // Saying the same words three times is pure token cost.
     val prompt = rendered(
-      ConfidenceGate.default,
       task = Task(Title("add a median function"), "add a median function"),
       userRequest = "add a median function"
     )
@@ -68,7 +75,7 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
     assert(!prompt.contains("The planner's description of this task:"), prompt)
 
   test("initialReview tells reviewers the plan is not evidence"):
-    val prompt = rendered(ConfidenceGate.default)
+    val prompt = rendered()
     assert(
       prompt.contains(
         "The task above says what was decided, not that the decision is " +
@@ -77,22 +84,10 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
       prompt
     )
 
-  test("the prompt and the generated schema state the same contract"):
-    // The confidence contract is written twice — at length in
-    // initial-review.md, and as the `@description` on ReviewIssue.confidence
-    // that reaches backends through the JSON schema. Nothing shares the string
-    // (a tapir annotation takes a literal), so this pins the clause that makes
-    // the contract distinctive: drop it from either copy and this fails.
-    val clause = "deference to the task's plan"
-    val prompt = rendered(ConfidenceGate.default)
-    val schema = JsonSchemaGen[ReviewResult]
-    assert(prompt.contains(clause), prompt)
-    assert(schema.contains(clause), schema)
-
   test("initialReview names the commit the diff was sampled against"):
     // Sent alongside the diff, not instead of it: a reviewer can read the repo
     // at that commit, via the MCP tool or a shell.
-    val prompt = rendered(ConfidenceGate.default, base = Some("abc1234"))
+    val prompt = rendered(base = Some("abc1234"))
     assert(
       prompt.contains("everything that changed since commit abc1234"),
       prompt

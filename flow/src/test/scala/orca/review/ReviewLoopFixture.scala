@@ -156,12 +156,10 @@ private[review] class FakeAgent(
   */
 private[review] def issue(
     desc: String,
-    confidence: Double = 1.0,
     severity: Severity = Severity.Warning
 ): ReviewIssue =
   ReviewIssue(
     severity = severity,
-    confidence = Confidence.orThrow(confidence),
     title = Title(desc),
     description = desc,
     location = None,

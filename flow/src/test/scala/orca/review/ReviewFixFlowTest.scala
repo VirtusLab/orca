@@ -29,7 +29,7 @@ class ReviewFixFlowTest extends munit.FunSuite:
     given FlowControl =
       ReviewLoopFixture.control(new EventDispatcher(List(listener)))
 
-    val real = issue("real problem", confidence = 0.9)
+    val real = issue("real problem")
     val reviewer = new FakeAgent(
       name = "perf",
       outputs = List(ReviewResult(List(real)))

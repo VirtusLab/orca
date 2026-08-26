@@ -7,5 +7,4 @@ issues.
 {{changes}}{{declined}}
 
 Everything the initial prompt said still applies: the task it described is the
-same, and a finding's confidence is the probability it is real on the evidence
-you gathered — not deference to the plan.
+same.
