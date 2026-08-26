@@ -2,7 +2,7 @@ package orca
 
 import language.experimental.captureChecking
 
-import orca.progress.ProgressStore
+import orca.progress.{CommitHash, ProgressStore}
 
 import scala.annotation.implicitNotFound
 
@@ -52,6 +52,19 @@ trait FlowControl extends FlowContext, caps.ExclusiveCapability:
     * committed. `None` when no such commit was recorded (ADR 0018 §2.1).
     */
   private[orca] def stageBaseCommit: Option[String]
+
+  /** The commit the RUN started from — HEAD when lifecycle setup bound the
+    * branch, before any stage committed — the baseline for everything the run
+    * has produced, as [[stageBaseCommit]] is for one stage. Recorded in the
+    * progress header, so a resumed run reports the first attempt's commit, not
+    * this attempt's.
+    *
+    * `None` when the header didn't record it, recorded something that isn't a
+    * hash, or recorded one this repository can no longer diff against (pruned,
+    * or rebased out of HEAD's history): a whole-run review then has no base and
+    * says so rather than reviewing the wrong range.
+    */
+  private[orca] def startingCommit: Option[CommitHash]
 
   /** Whether execution is currently inside a stage body (any stage frame open).
     * Gates `agent.session(...)` to the flow-body top level.

@@ -73,7 +73,8 @@ class DefaultFlowContextTest extends munit.FunSuite:
       gh = new OsGitHubTool(OsProcCliRunner, workDir),
       fs = new OsFsTool(workDir),
       progressStore = ProgressStore.default(workDir, "test"),
-      stackSettings = StackSettings.empty
+      stackSettings = StackSettings.empty,
+      startingCommit = None
     )
 
   /** Throws from every LLM call and from `close()` — pins that a throwing

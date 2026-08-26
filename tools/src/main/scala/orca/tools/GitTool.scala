@@ -254,6 +254,13 @@ trait GitTool:
     */
   def headCommit(): Option[String]
 
+  /** True when `rev` both resolves in this repository and is an ancestor of
+    * HEAD — i.e. usable as a diff base for "everything since `rev`". READ-ONLY.
+    * Best-effort: `false` whenever the probe cannot answer, so an unknown
+    * answer reads as "not a usable base" rather than producing a wrong range.
+    */
+  def isAncestorOfHead(rev: String): Boolean
+
   /** True when git ignores `relPath` relative to the working directory (`git
     * check-ignore`). READ-ONLY. Best-effort: `false` whenever the probe cannot
     * answer (not a git repo, git unavailable) — callers use this for warnings,
@@ -610,6 +617,12 @@ private[orca] class OsGitTool(
     git("rev-parse", "--abbrev-ref", "HEAD").trim
 
   def headCommit(): Option[String] = revParse("HEAD")
+
+  // Exits 0 for an ancestor, 1 for a resolvable commit that isn't one, and 128
+  // when `rev` doesn't resolve at all (a pruned object, a rebased-away commit,
+  // a fresh clone) — only 0 is a usable base, so the rest collapse to false.
+  def isAncestorOfHead(rev: String): Boolean =
+    probeSucceeds("merge-base", "--is-ancestor", rev, "HEAD")
 
   /** The hash `ref` resolves to, `None` when it doesn't resolve. `--verify`
     * makes an unresolvable ref a non-zero exit rather than an echo of the ref

@@ -50,6 +50,19 @@ object RecoveryCheck:
       !s.contains("..") &&
       !s.split("/", -1).exists(_.isEmpty)
 
+  /** The header's recorded [[ProgressHeader.startingCommit]] as a
+    * [[CommitHash]], or `None` when it isn't one. Lenient by design, unlike
+    * [[validateHeader]]: the value is only ever a read-only diff base, so a
+    * header written before the field existed — or edited to hold something else
+    * — costs the run the whole-run review, not the run.
+    *
+    * Shape only. Whether the hash still names a commit this repository can diff
+    * against is a question for the caller's `GitTool`
+    * (`FlowLifecycle.resumeBinding`).
+    */
+  def startingCommit(header: ProgressHeader): Option[CommitHash] =
+    header.startingCommit.flatMap(CommitHash.from)
+
   /** Branches that are always protected regardless of the repo's configured
     * default — the floor [[validateHeader]] enforces (ADR 0018). The runtime
     * adds the repo's actual default branch on top of these.

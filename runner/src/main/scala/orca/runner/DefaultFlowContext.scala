@@ -1,7 +1,7 @@
 package orca.runner
 
 import orca.{FlowControl, StackSettings}
-import orca.progress.ProgressStore
+import orca.progress.{CommitHash, ProgressStore}
 import orca.tools.{FsTool, GitHubTool, GitTool}
 import orca.agents.{Agent, BackendTag}
 import orca.events.{OrcaEvent, OrcaListener}
@@ -37,7 +37,12 @@ private[orca] class DefaultFlowContext[
       * before the context is constructed, so they arrive frozen — the body (and
       * the loops it calls) sees one immutable value.
       */
-    val stackSettings: StackSettings
+    val stackSettings: StackSettings,
+    /** The commit the run started from (see
+      * [[orca.FlowControl.startingCommit]]) — like `stackSettings`, resolved by
+      * `FlowLifecycle.setup` before the context exists, so it arrives frozen.
+      */
+    private[orca] val startingCommit: Option[CommitHash]
 ) extends FlowControl,
       orca.StageFrames:
 

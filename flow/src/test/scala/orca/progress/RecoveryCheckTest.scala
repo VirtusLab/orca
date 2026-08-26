@@ -153,3 +153,39 @@ class RecoveryCheckTest extends FunSuite:
       branchMode = BranchMode.Created
     )
     assert(RecoveryCheck.validateHeader(header, prompt, Set.empty).isLeft)
+
+  test("startingCommit is absent when the header never recorded one"):
+    // A log written before the field existed. The whole-run review has no base
+    // and skips; the run itself carries on.
+    val header = ProgressHeader(
+      startingBranch = "main",
+      branch = "feat/do-the-thing",
+      promptHash = "abc",
+      branchMode = BranchMode.Created
+    )
+    assertEquals(RecoveryCheck.startingCommit(header), None)
+
+  test("startingCommit drops a value that isn't a commit hash"):
+    // Hand-edited content: it only ever reaches git as a diff base, so it is
+    // dropped rather than passed on.
+    val header = ProgressHeader(
+      startingBranch = "main",
+      branch = "feat/do-the-thing",
+      promptHash = "abc",
+      branchMode = BranchMode.Created,
+      startingCommit = Some("--output=/etc/passwd")
+    )
+    assertEquals(RecoveryCheck.startingCommit(header), None)
+
+  test("startingCommit keeps a hash"):
+    val header = ProgressHeader(
+      startingBranch = "main",
+      branch = "feat/do-the-thing",
+      promptHash = "abc",
+      branchMode = BranchMode.Created,
+      startingCommit = Some("0badc0ffee0ddf00d1234567890abcdef1234567")
+    )
+    assertEquals(
+      RecoveryCheck.startingCommit(header).map(_.value),
+      Some("0badc0ffee0ddf00d1234567890abcdef1234567")
+    )

@@ -498,6 +498,31 @@ class OsGitToolTest extends munit.FunSuite:
     withRepo: (git, _) =>
       assertEquals(git.headCommit(), None)
 
+  test("isAncestorOfHead separates HEAD's history from a diverged branch"):
+    // A commit made on a side branch still resolves after switching away — the
+    // shape a rebased-away base takes — so resolvability alone would wrongly
+    // accept it as a diff base.
+    withRepo: (git, dir) =>
+      os.write(dir / "seed.txt", "seed")
+      git.commit("seed").orThrow
+      val shared = git.headCommit().getOrElse(fail("no HEAD after the commit"))
+      val trunk = git.currentBranch()
+      git.createBranch("side").orThrow
+      os.write(dir / "side.txt", "side")
+      git.commit("side work").orThrow
+      val diverged = git.headCommit().getOrElse(fail("no HEAD on the branch"))
+      git.checkout(trunk).orThrow
+      assert(
+        git.isAncestorOfHead(shared),
+        "HEAD descends from the shared commit"
+      )
+      assert(
+        !git.isAncestorOfHead(diverged),
+        "the side commit is not in history"
+      )
+      // An unresolvable rev answers false rather than throwing.
+      assert(!git.isAncestorOfHead("0" * 40))
+
   test("pendingChanges excludes a modified tracked .orca/ file from the stat"):
     withRepo: (git, dir) =>
       os.makeDir(dir / ".orca")
