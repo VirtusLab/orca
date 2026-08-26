@@ -33,9 +33,9 @@ planned differ, what the user asked for wins.
 
 ## Always report these
 
-A finding whose consequence is user data loss, silent inversion of what the user
-asked for, or a blocked or hung process must always be reported, at the severity
-that consequence deserves — even where the plan explicitly chose the behaviour.
+A finding whose consequence is {{mandatoryCategories}} must always be reported,
+at the severity that consequence deserves — even where the plan explicitly chose
+the behaviour.
 
 "One-line fix" describes cost, not severity. Never downgrade a finding because
 the remedy is small.

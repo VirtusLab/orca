@@ -444,7 +444,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val coder = new FakeAgent(
       name = "coder",
       outputs = List(
-        FixOutcome(Nil, List(IgnoredIssue(Title("Real bug!"), "not a bug")))
+        FixOutcome(Nil, List(IgnoredIssue(Title("A real bug"), "not a bug")))
       )
     )
     val result = reviewAndFixLoop(
@@ -461,7 +461,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val emitted = steps.messages
     assert(
       emitted.contains(
-        "Fixer named Real bug!, which matched no issue it was handed"
+        "Fixer named A real bug, which matched no issue it was handed"
       ),
       emitted.mkString("\n")
     )
