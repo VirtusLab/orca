@@ -10,9 +10,9 @@ private val WrapWidth: Int = 74
 
 /** Format a single review comment as the body lines of a `Step`.
   *
-  * Shape: `- I1.1 [Severity] title ...wrapped...`, optionally followed by ` at
-  * file:line` and a ` suggestion: …` line. The leading `- ` makes the issue a
-  * bullet within a multi-issue body; outer indentation is added by the caller
+  * Shape: `- I1.1 title ...wrapped...`, optionally followed by ` at file:line`
+  * and a ` suggestion: …` line. The leading `- ` makes the issue a bullet
+  * within a multi-issue body; outer indentation is added by the caller
   * (typically [[formatReviewerOutcome]]).
   *
   * `key` is the [[FixRequest]] key the fixer is asked to echo for this issue,
@@ -23,7 +23,7 @@ private val WrapWidth: Int = 74
   */
 private[review] def formatIssue(key: String, issue: ReviewIssue): String =
   val header = TextWrap.wrap(
-    s"- $key [${issue.severity}] ${issue.title}",
+    s"- $key ${issue.title}",
     maxWidth = WrapWidth,
     continuation = "  "
   )
@@ -62,33 +62,35 @@ private[review] def formatReviewerOutcome(
     s"$header\n$bullets"
 
 /** The block a review loop prints when it stops with findings still open: one
-  * `- [Severity] title` line per finding, with the reason it is still open
-  * below it. `None` when nothing is open.
+  * `- title` line per finding, then where it points ([[locationLine]]) and the
+  * reason it is still open. `None` when nothing is open.
   *
   * No [[FixRequest]] keys here: a key numbers one round's fix list, and this
   * block spans rounds — an entry from round one carries no key the last round
   * minted.
   *
-  * A title missing from `severities` renders unprefixed rather than guessing a
-  * severity.
+  * A title missing from `locations` renders without a location line.
   */
-private[review] def formatUnresolvedFindings(
+private[review] def formatOpenFindings(
     open: List[IgnoredIssue],
-    severities: Map[Title, Severity]
+    locations: Map[Title, Location]
 ): Option[String] =
   Option.when(open.nonEmpty):
     val lines = open.flatMap: i =>
-      val label = severities
-        .get(i.title)
-        .fold(i.title.value)(s => s"[$s] ${i.title.value}")
       // The fixer writes the reason, so it can arrive with its own line breaks;
       // collapsing them keeps continuation lines under the bullet.
       val reason = i.reason.trim.replaceAll("\\s+", " ")
-      TextWrap.wrap(s"  - $label", maxWidth = WrapWidth, continuation = "    ")
-        :: Option
-          .when(reason.nonEmpty)(
-            TextWrap
-              .wrap(s"    $reason", maxWidth = WrapWidth, continuation = "    ")
-          )
-          .toList
-    (s"Unresolved findings (${open.size}):" :: lines).mkString("\n")
+      val bullet = TextWrap.wrap(
+        s"  - ${i.title.value}",
+        maxWidth = WrapWidth,
+        continuation = "    "
+      )
+      val why = Option.when(reason.nonEmpty)(
+        TextWrap.wrap(
+          s"    $reason",
+          maxWidth = WrapWidth,
+          continuation = "    "
+        )
+      )
+      List(Some(bullet), locationLine(locations.get(i.title)), why).flatten
+    (s"Findings still open (${open.size}):" :: lines).mkString("\n")

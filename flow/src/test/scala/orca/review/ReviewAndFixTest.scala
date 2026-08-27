@@ -133,18 +133,14 @@ class ReviewAndFixTest extends munit.FunSuite:
     assertEquals(result, IgnoredIssues(Nil))
 
   test("every finding a reviewer reports reaches the fixer"):
-    // Nothing between the reviewer and the fix turn filters findings, whatever
-    // their severity: all three arrive in the one prompt the fixer is sent.
+    // Nothing between the reviewer and the fix turn filters findings: all
+    // three arrive in the one prompt the fixer is sent.
     given FlowControl = control
     val reviewer = new FakeAgent(
       name = "mixed",
       outputs = List(
         ReviewResult(
-          List(
-            issue("crit-finding", severity = Severity.Critical),
-            issue("warn-finding", severity = Severity.Warning),
-            issue("info-finding", severity = Severity.Info)
-          )
+          List(issue("a"), issue("b"), issue("c"))
         )
       )
     )
@@ -161,9 +157,9 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
     val fixPrompt =
       coder.capturedFixPrompt.getOrElse(fail("the fix turn never ran"))
-    assert(fixPrompt.contains("crit-finding"), fixPrompt)
-    assert(fixPrompt.contains("warn-finding"), fixPrompt)
-    assert(fixPrompt.contains("info-finding"), fixPrompt)
+    assert(fixPrompt.contains("I1.1 a"), fixPrompt)
+    assert(fixPrompt.contains("I1.2 b"), fixPrompt)
+    assert(fixPrompt.contains("I1.3 c"), fixPrompt)
 
   test("a finding is shown under the key the fixer is handed for it"):
     // The fixer narrates its work by key ("Fix I2.1"), so a key on screen that
@@ -187,11 +183,11 @@ class ReviewAndFixTest extends munit.FunSuite:
       diff = ReviewDiff.Pinned("")
     )
     assert(
-      steps.messages.exists(_.contains("- I2.1 [Warning] c")),
+      steps.messages.exists(_.contains("- I2.1 c")),
       steps.messages.mkString("\n")
     )
     assert(
-      coder.seenPrompts.head.contains("I2.1 [Warning] c"),
+      coder.seenPrompts.head.contains("I2.1 c"),
       coder.seenPrompts.mkString("\n")
     )
 
@@ -207,7 +203,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
     val emitted = steps.messages
     assert(
-      !emitted.exists(_.startsWith("Unresolved findings")),
+      !emitted.exists(_.startsWith("Findings still open")),
       emitted.mkString("\n")
     )
 
@@ -217,10 +213,16 @@ class ReviewAndFixTest extends munit.FunSuite:
     // headline must not read as an all-clear.
     val steps = new ReviewLoopFixture.StepCapture
     given FlowControl = ReviewLoopFixture.control(steps.dispatcher)
+    val nit = ReviewIssue(
+      title = Title("nit"),
+      description = "nit",
+      location = Some(Location("src/main/Widget.scala", Some(12))),
+      suggestion = None
+    )
     val reviewer = new FakeAgent(
       name = "loud",
       outputs = List(
-        ReviewResult(List(issue("driver"), issue("nit"))),
+        ReviewResult(List(issue("driver"), nit)),
         ReviewResult.empty
       )
     )
@@ -241,11 +243,14 @@ class ReviewAndFixTest extends munit.FunSuite:
       diff = ReviewDiff.Pinned("")
     )
     val emitted = steps.messages
-    assert(emitted.contains("No issues to fix"), emitted.mkString("\n"))
+    assert(emitted.contains("No new findings"), emitted.mkString("\n"))
+    // The location comes from round one, which is the only round that reported
+    // the finding.
     assert(
       emitted.contains(
-        """Unresolved findings (1):
-          |  - [Warning] nit
+        """Findings still open (1):
+          |  - nit
+          |    at src/main/Widget.scala:12
           |    deliberate""".stripMargin
       ),
       emitted.mkString("\n")
@@ -274,8 +279,8 @@ class ReviewAndFixTest extends munit.FunSuite:
     assert(emitted.contains("Reached max iterations (1)"), emitted.mkString)
     assert(
       emitted.contains(
-        """Unresolved findings (1):
-          |  - [Warning] stubborn
+        """Findings still open (1):
+          |  - stubborn
           |    max iterations (1) reached""".stripMargin
       ),
       emitted.mkString("\n")
@@ -288,7 +293,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       name = "loud",
       outputs = List(
         ReviewResult(
-          List(issue("race in the driver", severity = Severity.Critical))
+          List(issue("race in the driver"))
         )
       )
     )
@@ -311,8 +316,8 @@ class ReviewAndFixTest extends munit.FunSuite:
     val emitted = steps.messages
     assertEquals(
       emitted.count(
-        _ == """Unresolved findings (1):
-               |  - [Critical] race in the driver
+        _ == """Findings still open (1):
+               |  - race in the driver
                |    the lock covers it""".stripMargin
       ),
       1,
@@ -407,7 +412,6 @@ class ReviewAndFixTest extends munit.FunSuite:
         ReviewResult(
           List(
             ReviewIssue(
-              severity = Severity.Warning,
               title = Title("leaks a handle"),
               description = "DESCRIPTION-MARKER: the stream is never closed",
               location = None,

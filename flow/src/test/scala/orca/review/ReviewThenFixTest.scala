@@ -128,7 +128,7 @@ class ReviewThenFixTest extends munit.FunSuite:
       task = titled("do the thing")
     )
     assert(
-      steps.messages.contains("Fixed 1, ignored 0"),
+      steps.messages.contains("Fixed 1, declined 0"),
       steps.messages.mkString("\n")
     )
     assert(
@@ -240,6 +240,50 @@ class ReviewThenFixTest extends munit.FunSuite:
     assertEquals(coder.seenSessions.size, 2)
     assert(
       steps.messages.exists(_.contains("lint still fails after its fix turn")),
+      steps.messages.mkString("\n")
+    )
+
+  test("a lint failure that survives its fix turn points at its location"):
+    // The re-lint runs after the round, so its findings are the ones the
+    // round's own location index cannot hold.
+    val steps = new ReviewLoopFixture.StepCapture
+    given FlowControl = control(picking("x"), steps.dispatcher)
+    val reviewer =
+      new FakeAgent("x", outputs = List(ReviewResult(List(issue("a")))))
+    val lintBroke = ReviewIssue(
+      title = Title("lint broke"),
+      description = "lint broke",
+      location = Some(Location("src/main/Foo.scala", Some(7))),
+      suggestion = None
+    )
+    val lintAgent = new FakeAgent(
+      "lint-summariser",
+      outputs = List(
+        ReviewResult.empty,
+        ReviewResult(List(lintBroke)),
+        ReviewResult(List(lintBroke))
+      )
+    )
+    val coder = new FakeAgent(
+      "coder",
+      outputs = List(
+        FixOutcome(List(Title("a")), Nil),
+        FixOutcome(List(Title("lint broke")), Nil)
+      )
+    )
+    val _ = reviewThenFix(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(reviewer),
+      task = titled("do the thing"),
+      lint = Configured.Use(Lint(List("false"), lintAgent))
+    )
+    assert(
+      steps.messages.contains(
+        """Findings still open (1):
+          |  - lint broke
+          |    at src/main/Foo.scala:7
+          |    lint still failing after its fix turn""".stripMargin
+      ),
       steps.messages.mkString("\n")
     )
 

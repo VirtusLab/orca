@@ -15,7 +15,6 @@ case class Location(file: String, line: Option[Int]) derives JsonData
   * flow scripts handling issues and tasks share field names.
   */
 case class ReviewIssue(
-    severity: Severity,
     title: Title,
     description: String,
     location: Option[Location],

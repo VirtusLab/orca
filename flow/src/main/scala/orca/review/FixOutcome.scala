@@ -41,8 +41,8 @@ private[review] case class ReconciledFixOutcome(
 )
 
 object FixOutcome:
-  /** Silent — the fix loop already announces its outcome ("Fixed N, ignored N")
-    * per iteration; without this, the raw-payload fallback (ADR 0008) would
+  /** Silent — the fix loop already announces its outcome ("Fixed N, declined
+    * N") per iteration; without this, the raw-payload fallback (ADR 0008) would
     * print the JSON on top of that line, since `FixOutcome` has no other
     * `Announce` instance to resolve to.
     */

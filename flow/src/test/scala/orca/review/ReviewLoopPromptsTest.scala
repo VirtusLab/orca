@@ -115,18 +115,24 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
       prompt.contains(
         "A finding whose consequence is " +
           ReviewLoopPrompts.MandatoryCategories +
-          " must always be reported, at the severity that consequence " +
-          "deserves — even where the plan explicitly chose the behaviour."
+          " must always be reported — even where the plan explicitly chose " +
+          "the behaviour."
       ),
       prompt
     )
     assert(
       prompt.contains(
-        "\"One-line fix\" describes cost, not severity. Never downgrade a " +
+        "\"One-line fix\" describes cost. Never withhold or soften a " +
           "finding because the remedy is small."
       ),
       prompt
     )
+
+  test("neither template asks for a severity"):
+    // `ReviewIssue` has no such field, so a template still asking for one
+    // would have the reviewer produce a value the schema rejects.
+    List(rendered(), reRendered()).foreach: prompt =>
+      assert(!prompt.toLowerCase.contains("severity"), prompt)
 
   test("initialReview names the commit the diff was sampled against"):
     // Sent alongside the diff, not instead of it: a reviewer can read the repo
@@ -185,7 +191,8 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
     assert(
       prompt.contains(
         "a planned choice is still evidence of intent and not of correctness, " +
-          "fix cost still never lowers severity, and " +
+          "fix cost is still never a reason to withhold or soften a finding, " +
+          "and " +
           ReviewLoopPrompts.MandatoryCategories +
           " are still always reported."
       ),

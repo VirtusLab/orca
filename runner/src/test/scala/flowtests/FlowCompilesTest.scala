@@ -172,7 +172,7 @@ object FlowCanary:
   /** `flows/review.sc`: reviewers run for their findings alone, with no coder
     * session and no fix loop. Pins the roster's file filters, a parallel
     * fan-out of structured `ReviewResult` turns over built reviewers, and
-    * reading a finding's severity and location.
+    * reading a finding's location.
     */
   def reviewOnlyShape(): Unit =
     flow(OrcaArgs()):
@@ -181,8 +181,8 @@ object FlowCanary:
         val agents = buildReviewers(reviewAgent, ReviewerPrompts.all)
         val results: List[ReviewResult] = Par.mapUnordered(4)(agents): a =>
           a.resultAs[ReviewResult].autonomous.run(a.name)
-        val _: List[(Severity, Option[Location])] =
-          results.flatMap(_.issues).map(i => i.severity -> i.location)
+        val _: List[Option[Location]] =
+          results.flatMap(_.issues).map(_.location)
 
   /** Config overrides must be reachable as unqualified names so users can write
     * `flow(args = ..., workDir = ...)` straight from `import orca.*`.

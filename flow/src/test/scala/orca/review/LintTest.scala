@@ -60,7 +60,6 @@ class LintTest extends munit.FunSuite:
   private val expected = ReviewResult(
     issues = List(
       ReviewIssue(
-        Severity.Warning,
         Title("Unused import"),
         "unused import",
         None,
