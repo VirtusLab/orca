@@ -61,10 +61,9 @@ private[review] object FixRequest:
     )
     lines.flatten.mkString("\n")
 
-  /** Every line indented, not just the first: a description runs to several
-    * lines (a co-reporter note, a reviewer's own paragraphs), and an unindented
-    * continuation reads as a new block ahead of the `suggestion:` line below
-    * it.
+  /** Every line indented, not just the first: a reviewer's description can run
+    * to several paragraphs, and an unindented continuation reads as a new block
+    * ahead of the `suggestion:` line below it.
     */
   private def indented(text: String): String =
     text.linesIterator

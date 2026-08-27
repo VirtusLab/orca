@@ -812,12 +812,6 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     * the fan-out completes unordered, and downstream output — the merged issue
     * list, the recorded `IgnoredIssues` — should not depend on which agent
     * happened to finish first.
-    *
-    * Cross-reviewer duplicates are folded ([[DuplicateFindings.merge]]) into
-    * the fixer's list ALONE. The state keeps each reviewer's own findings as
-    * reported, because [[ReviewerSelector.narrowingAcrossRounds]] retires a
-    * reviewer that reported nothing — and a reviewer whose only finding was
-    * absorbed into another's has still reported.
     */
   private def collectRound(
       active: List[RosterEntry],
@@ -829,12 +823,8 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     }.toMap
     val contributions = active.flatMap(e => byId.get(e.id))
     val lint = outcomes.collectFirst { case AgentOutcome.Lint(c) => c }
-    val reported =
-      contributions.flatMap(c =>
-        c.issues.map(ReportedIssue(c.entry.name, _))
-      ) ++ lint.toList.flatMap(_.issues.map(ReportedIssue(lintName, _)))
     RoundOutcome(
-      issues = DuplicateFindings.merge(reported),
+      issues = contributions.flatMap(_.issues) ++ lint.toList.flatMap(_.issues),
       state = currentState.afterRound(
         contributions,
         lint.flatMap(_.resumableSummariser)
