@@ -97,14 +97,51 @@ class WorktreeRunTest extends munit.FunSuite:
   test("outside a git repository, orca's own wording is used"):
     assertEquals(
       WorktreeRun.resolve(TempDirs.dir(), "task A"),
-      Left(FlowLifecycle.noCommitsMessage)
+      Left(GitPreconditions.needsRepoWithCommit)
     )
 
   test("a repository without commits gets orca's wording, not git's"):
     assertEquals(
       WorktreeRun.resolve(GitRepo.empty(), "task A"),
-      Left(FlowLifecycle.noCommitsMessage)
+      Left(GitPreconditions.needsRepoWithCommit)
     )
+
+  test("reuse puts a detached worktree back on its branch"):
+    val repo = GitRepo.seeded()
+    val path = resolved(repo, "task A")
+    // How a half-created worktree looks: `add` succeeded, the branch step did
+    // not. Running there detached records an unresumable starting branch.
+    git(path, "checkout", "--detach", "-q")
+    assertEquals(Worktrees.headBranch(path), Some("HEAD"))
+    assertEquals(WorktreeRun.resolve(repo, "task A"), Right(path))
+    assert(Worktrees.onABranch(path))
+
+  test("reuse refuses when the run's branch has gained commits"):
+    val repo = GitRepo.seeded()
+    val path = resolved(repo, "task A")
+    val branch = s"orca-worktree-${path.last}"
+    os.write(path / "work.txt", "work")
+    git(path, "add", "-A")
+    git(path, "commit", "-q", "-m", "work in the worktree")
+    // Detached BEHIND the branch, so putting the run back on it would strand
+    // that commit — which is what orca refuses to do.
+    git(path, "checkout", "--detach", "-q", "HEAD~1")
+    val refusal = WorktreeRun
+      .resolve(repo, "task A")
+      .left
+      .getOrElse(fail("expected a refusal"))
+    assert(refusal.contains(branch), refusal)
+    assert(refusal.contains(path.toString), refusal)
+
+  test("isWorktreeRun recognises orca's own worktree and nothing else"):
+    val repo = GitRepo.seeded()
+    val ours = resolved(repo, "task A")
+    val theirs = repo / "review-their-branch"
+    assertEquals(Worktrees.add(repo, theirs), Right(()))
+    assert(WorktreeRun.isWorktreeRun(ours), "orca's own worktree")
+    assert(!WorktreeRun.isWorktreeRun(repo), "the main checkout is not one")
+    assert(!WorktreeRun.isWorktreeRun(theirs), "a worktree orca did not make")
+    assert(!WorktreeRun.isWorktreeRun(TempDirs.dir()), "not a repository")
 
   private def resolved(repo: os.Path, userPrompt: String): os.Path =
     WorktreeRun

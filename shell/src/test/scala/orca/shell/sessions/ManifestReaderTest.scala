@@ -33,20 +33,20 @@ class ManifestReaderTest extends munit.FunSuite:
 
   test("list returns (Nil, Nil) for an absent runs dir, creating nothing"):
     val workDir = TempDirs.dir()
-    assertEquals(ManifestReader.list(List(workDir), alwaysDead), (Nil, Nil))
+    assertEquals(ManifestReader.list(workDir, Nil, alwaysDead), (Nil, Nil))
     assert(!os.exists(workDir / ".orca"), "reading must not create .orca")
 
   test("list returns (Nil, Nil) for an empty runs dir"):
     val workDir = TempDirs.dir()
     os.makeDir.all(runsDir(workDir))
-    assertEquals(ManifestReader.list(List(workDir), alwaysDead), (Nil, Nil))
+    assertEquals(ManifestReader.list(workDir, Nil, alwaysDead), (Nil, Nil))
 
   test("list orders manifests newest-first by startedAt"):
     val workDir = TempDirs.dir()
     writeManifest(workDir, "a.json", startedAt = "2026-07-18T10:00:00Z")
     writeManifest(workDir, "b.json", startedAt = "2026-07-18T12:00:00Z")
     writeManifest(workDir, "c.json", startedAt = "2026-07-18T11:00:00Z")
-    val (runs, warnings) = ManifestReader.list(List(workDir), alwaysDead)
+    val (runs, warnings) = ManifestReader.list(workDir, Nil, alwaysDead)
     assertEquals(warnings, Nil)
     assertEquals(
       runs.map(_.manifest.startedAt),
@@ -77,7 +77,7 @@ class ManifestReaderTest extends munit.FunSuite:
         |}""".stripMargin,
       createFolders = true
     )
-    val (runs, warnings) = ManifestReader.list(List(workDir), alwaysDead)
+    val (runs, warnings) = ManifestReader.list(workDir, Nil, alwaysDead)
     assertEquals(
       runs.map(_.manifest.startedAt),
       List(Instant.parse("2026-07-18T10:00:00Z"))
@@ -98,7 +98,7 @@ class ManifestReaderTest extends munit.FunSuite:
         |}""".stripMargin,
       createFolders = true
     )
-    val (runs, warnings) = ManifestReader.list(List(workDir), alwaysDead)
+    val (runs, warnings) = ManifestReader.list(workDir, Nil, alwaysDead)
     assertEquals(
       runs.map(_.manifest.startedAt),
       List(Instant.parse("2026-07-18T11:00:00Z"))
@@ -127,7 +127,7 @@ class ManifestReaderTest extends munit.FunSuite:
         |}""".stripMargin,
       createFolders = true
     )
-    val (runs, warnings) = ManifestReader.list(List(workDir), alwaysDead)
+    val (runs, warnings) = ManifestReader.list(workDir, Nil, alwaysDead)
     assertEquals(runs, Nil)
     assertEquals(warnings.size, 1)
     assert(
@@ -145,7 +145,7 @@ class ManifestReaderTest extends munit.FunSuite:
       pid = 999999,
       outcome = "running"
     )
-    val (runs, warnings) = ManifestReader.list(List(workDir), alwaysDead)
+    val (runs, warnings) = ManifestReader.list(workDir, Nil, alwaysDead)
     assertEquals(warnings, Nil)
     assertEquals(runs.map(_.crashed), List(true))
 
@@ -158,7 +158,7 @@ class ManifestReaderTest extends munit.FunSuite:
       pid = 1,
       outcome = "running"
     )
-    val (runs, warnings) = ManifestReader.list(List(workDir), alwaysAlive)
+    val (runs, warnings) = ManifestReader.list(workDir, Nil, alwaysAlive)
     assertEquals(warnings, Nil)
     assertEquals(runs.map(_.crashed), List(false))
 
@@ -173,7 +173,7 @@ class ManifestReaderTest extends munit.FunSuite:
       pid = 999999,
       outcome = "abandoned"
     )
-    val (runs, warnings) = ManifestReader.list(List(workDir), alwaysDead)
+    val (runs, warnings) = ManifestReader.list(workDir, Nil, alwaysDead)
     assertEquals(warnings, Nil)
     assertEquals(runs.map(_.crashed), List(false))
 
@@ -186,7 +186,7 @@ class ManifestReaderTest extends munit.FunSuite:
       pid = 999999,
       outcome = "succeeded"
     )
-    val (runs, _) = ManifestReader.list(List(workDir), alwaysDead)
+    val (runs, _) = ManifestReader.list(workDir, Nil, alwaysDead)
     assertEquals(runs.map(_.crashed), List(false))
 
   test(
@@ -194,7 +194,7 @@ class ManifestReaderTest extends munit.FunSuite:
   ):
     val workDir = TempDirs.dir()
     writeManifest(workDir, "badstart.json", startedAt = "not-a-timestamp")
-    val (runs, warnings) = ManifestReader.list(List(workDir), alwaysDead)
+    val (runs, warnings) = ManifestReader.list(workDir, Nil, alwaysDead)
     assertEquals(runs, Nil)
     assertEquals(warnings.size, 1)
     assert(
@@ -209,7 +209,7 @@ class ManifestReaderTest extends munit.FunSuite:
       "{ this is not json",
       createFolders = true
     )
-    val (runs, warnings) = ManifestReader.list(List(workDir), alwaysDead)
+    val (runs, warnings) = ManifestReader.list(workDir, Nil, alwaysDead)
     assertEquals(runs, Nil)
     assertEquals(warnings.size, 1)
     assert(
@@ -224,7 +224,7 @@ class ManifestReaderTest extends munit.FunSuite:
     os.makeDir.all(workDir / ".orca" / "cache")
     os.symlink(runsDir(workDir), outside)
     val ex = intercept[OrcaFlowException](
-      ManifestReader.list(List(workDir), alwaysDead)
+      ManifestReader.list(workDir, Nil, alwaysDead)
     )
     assert(ex.getMessage.contains("symlink"), ex.getMessage)
 
@@ -235,7 +235,7 @@ class ManifestReaderTest extends munit.FunSuite:
     writeManifest(worktree, "b.json", startedAt = "2026-07-18T12:00:00Z")
     writeManifest(checkout, "c.json", startedAt = "2026-07-18T11:00:00Z")
     val (runs, warnings) =
-      ManifestReader.list(List(checkout, worktree), alwaysDead)
+      ManifestReader.list(checkout, List(worktree), alwaysDead)
     assertEquals(warnings, Nil)
     assertEquals(
       runs.map(_.manifest.startedAt.toString),
@@ -261,7 +261,7 @@ class ManifestReaderTest extends munit.FunSuite:
     )
     writeManifest(worktree, "good.json", startedAt = "2026-07-18T12:00:00Z")
     val (runs, warnings) =
-      ManifestReader.list(List(checkout, worktree), alwaysDead)
+      ManifestReader.list(checkout, List(worktree), alwaysDead)
     assertEquals(runs.size, 1)
     assert(warnings.exists(_.contains("broken-here.json")), warnings.toString)
     assert(warnings.exists(_.contains("broken-there.json")), warnings.toString)
@@ -274,9 +274,13 @@ class ManifestReaderTest extends munit.FunSuite:
     // another terminal: it must not take the shell's own runs down with it.
     os.makeDir.all(runsDir(worktree))
     os.perms.set(runsDir(worktree), "---------")
+    assume(
+      scala.util.Try(os.list(runsDir(worktree))).isFailure,
+      "needs a user that file permissions apply to"
+    )
     try
       val (runs, warnings) =
-        ManifestReader.list(List(checkout, worktree), alwaysDead)
+        ManifestReader.list(checkout, List(worktree), alwaysDead)
       assertEquals(runs.size, 1)
       assertEquals(warnings.size, 1)
       assert(warnings.head.contains(worktree.toString), warnings.head)
@@ -293,7 +297,7 @@ class ManifestReaderTest extends munit.FunSuite:
     // The hard abort stays for the caller's OWN directory (the case above);
     // refusing to read someone else's tree is the whole remedy there.
     val (runs, warnings) =
-      ManifestReader.list(List(checkout, worktree), alwaysDead)
+      ManifestReader.list(checkout, List(worktree), alwaysDead)
     assertEquals(runs.size, 1)
     assertEquals(warnings.size, 1)
     assert(warnings.head.contains("symlink"), warnings.head)

@@ -84,12 +84,8 @@ private[shell] object SessionPicker:
     val earlier = lineages.flatMap(_.tail).sortBy(recency).reverse
     val oneShotSorted = oneShot.sortBy(recency).reverse
 
-    // Which directory a session is in only matters once the listing spans more
-    // than one, and then it is the only thing telling two rows apart.
-    val where =
-      if runs.map(_.manifest.workDir).distinct.sizeIs > 1 then
-        (o: Occurrence) => s" @${lastSegment(o.run.manifest.workDir)}"
-      else (_: Occurrence) => ""
+    val tag = dirTag(runs)
+    val where = (o: Occurrence) => tag(o.run.manifest.workDir)
 
     val primaryRows = primary.map(o => resumeRow(o, primaryLabel(o) + where(o)))
     val earlierRows =
@@ -118,9 +114,20 @@ private[shell] object SessionPicker:
 
   private def recency(o: Occurrence): Instant = o.session.lastActiveAt
 
-  /** A recorded `workDir`'s final segment, for telling two same-named lineages
-    * apart. String-sliced, not `os.Path`-parsed: the value is manifest content,
-    * and a hand-edited one need not be an absolute path.
+  /** How a row says which tree its session is in, given the runs being
+    * rendered: a suffix per `workDir`, or nothing at all when they share one —
+    * then it would tell the user nothing. The interactive picker and `orca
+    * continue --list` both call this over the same runs, so the two surfaces
+    * cannot drift on either the rule or the marker's shape.
+    */
+  private[shell] def dirTag(runs: List[RecordedRun]): String => String =
+    if runs.map(_.manifest.workDir).distinct.sizeIs > 1 then
+      workDir => s" @${lastSegment(workDir)}"
+    else _ => ""
+
+  /** A recorded `workDir`'s final segment. String-sliced, not `os.Path`-parsed:
+    * the value is manifest content, and a hand-edited one need not be an
+    * absolute path.
     */
   private def lastSegment(workDir: String): String =
     workDir.split('/').filter(_.nonEmpty).lastOption.getOrElse(workDir)

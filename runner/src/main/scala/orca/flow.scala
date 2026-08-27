@@ -164,29 +164,17 @@ def flow(
   installUncaughtExceptionHandler()
   // Tally token usage and print the summary on exit (success or failure).
   val costTracker = new CostTracker(pricing.lastUpdated)
-  // See `FlowOutcome`'s scaladoc for why this is one ADT, not two booleans.
-  var outcome = FlowOutcome.Running
-  // The manifest writer's actor fork lives in this scope, spanning its
-  // construction through `finish`; `System.exit` below stays OUTSIDE it. A
-  // nested `flow()` call gets its own scope and writer.
-  // Read once and threaded explicitly from here down (RunManifestWriter,
-  // and the progress header via `runFlow`/`FlowLifecycle.setup`) rather than
+  // Read once and threaded explicitly from here down (RunManifestWriter, and
+  // the progress header via `runFlow`/`FlowLifecycle.setup`) rather than
   // re-read with `sys.env` at each site.
   val flowName = sys.env.get("ORCA_FLOW_NAME")
 
-  // Where the run happens. `--worktree` moves it into a worktree of this
-  // repository, so this settles before the directory's first consumer — the
-  // session manifest below. Everything downstream is handed `workDir`
-  // explicitly, so it is the single value to change. Contradictory flag pairs
-  // are refused here as well as in `OrcaArgs.parse`: an `OrcaArgs` built by
-  // hand in a flow script never went through the parser.
+  // Where the run happens. This settles before the directory's first consumer,
+  // the session manifest below; everything downstream is handed `workDir`
+  // explicitly, so it is the single value to change.
   def resolveRunDir(): Either[String, os.Path] =
     OrcaArgs
-      .worktreeRefusal(
-        args.worktree.value,
-        args.skipBranch.value,
-        args.keepChanges.value
-      )
+      .worktreeRefusal(args)
       .toLeft(())
       .flatMap: _ =>
         if !args.worktree.value then Right(workDir)
@@ -198,17 +186,20 @@ def flow(
           catch case NonFatal(e) => Left(TextUtil.throwableMessage(e))
 
   // The run proper. Everything under here uses `dir`, never `workDir`.
-  def runIn(dir: os.Path): Unit =
+  def runIn(dir: os.Path): FlowOutcome =
     supervised:
       // Per-run session manifest (ADR 0021 §8), always attached like
       // LoggingListener; see RunManifestWriter's scaladoc for `flowName`'s
-      // ORCA_FLOW_NAME sourcing.
+      // ORCA_FLOW_NAME sourcing. Its actor fork lives in this scope, spanning
+      // construction through `finish`; the `System.exit` at the end of `flow()`
+      // stays OUTSIDE it, and a nested `flow()` gets its own scope and writer.
       val manifestWriter = RunManifestWriter.start(
         dir,
         OrcaBanner.version,
         flowName,
         () => java.time.Instant.now()
       )
+      var outcome = FlowOutcome.Running
       // `try/finally` so the cost summary always lands — even when a fatal
       // throwable (OOM, StackOverflow) escapes the NonFatal catch below.
       try
@@ -252,6 +243,7 @@ def flow(
           case NonFatal(e) =>
             outcome = FlowOutcome.Failed
             System.err.println(s"[orca] ${TextUtil.throwableMessage(e)}")
+        outcome
       finally
         manifestWriter.finish(
           if outcome == FlowOutcome.Succeeded then RunOutcome.Succeeded
@@ -261,19 +253,24 @@ def flow(
 
   // Resolution runs inside this bracket, not before it: it can fail, and the
   // trace still has to close on a path that never reaches `runIn`.
-  try
-    resolveRunDir() match
-      // A refusal has no dispatcher and no manifest to carry it, so it reaches
-      // the user the way the NonFatal backstop above does.
-      case Left(message) =>
-        outcome = FlowOutcome.Failed
-        System.err.println(s"[orca] $message")
-      case Right(dir) =>
-        val where =
-          if args.worktree.value then s"$dir (worktree)" else dir.toString
-        flowLog.info("orca {} starting (workDir={})", OrcaBanner.version, where)
-        runIn(dir)
-  finally orcaLog.finish()
+  val outcome =
+    try
+      resolveRunDir() match
+        // A refusal has no dispatcher and no manifest to carry it, so it
+        // reaches the user the way the NonFatal backstop above does.
+        case Left(message) =>
+          System.err.println(s"[orca] $message")
+          FlowOutcome.Failed
+        case Right(dir) =>
+          val where =
+            if args.worktree.value then s"$dir (worktree)" else dir.toString
+          flowLog.info(
+            "orca {} starting (workDir={})",
+            OrcaBanner.version,
+            where
+          )
+          runIn(dir)
+    finally orcaLog.finish()
   // Known residual: in a NESTED `flow()` call this `System.exit` tears down the
   // JVM before the OUTER flow's `finally` (branch restore, lock release) runs,
   // leaving the outer branch checked out and `.orca/flow.lock` behind (the next

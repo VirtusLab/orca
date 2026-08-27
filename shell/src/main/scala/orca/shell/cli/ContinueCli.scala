@@ -1,5 +1,6 @@
 package orca.shell.cli
 
+import orca.shell.ScanDirs
 import orca.shell.actions.SessionAction
 import orca.shell.sessions.{ManifestReader, SessionPicker, SessionSelection}
 
@@ -18,13 +19,14 @@ private[cli] object ContinueCli:
     * here spawns git.
     */
   private[cli] def runContinue(
-      dirs: List[os.Path],
+      dirs: ScanDirs,
       selector: Option[String],
       list: Boolean,
       json: Boolean,
       tty: Boolean
   ): Int =
-    val (runs, warnings) = ManifestReader.list(dirs, ManifestReader.pidAlive)
+    val (runs, warnings) =
+      ManifestReader.list(dirs.own, dirs.worktrees, ManifestReader.pidAlive)
     warnings.foreach(Cli.diagnostic)
     if list then
       Tables.printSessionListing(runs, json)

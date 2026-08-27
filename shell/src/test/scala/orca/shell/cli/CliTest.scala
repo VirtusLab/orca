@@ -9,6 +9,7 @@ import orca.runner.manifest.{
   RunManifest
 }
 import orca.settings.{AgentSettings, AgentSpec, SettingsFile}
+import orca.shell.ScanDirs
 import orca.shell.create.CreateTier
 import orca.shell.flows.{DiscoveredFlow, FlowOrigin}
 import orca.shell.run.LaunchResult
@@ -1105,7 +1106,13 @@ class CliTest extends munit.FunSuite:
     val (out, err) = capturedBoth(
       assertEquals(
         ContinueCli
-          .runContinue(List(dir), None, list = true, json = true, tty = false),
+          .runContinue(
+            ScanDirs(dir, Nil),
+            None,
+            list = true,
+            json = true,
+            tty = false
+          ),
         ExitCodes.Ok
       )
     )
@@ -1149,13 +1156,100 @@ class CliTest extends munit.FunSuite:
       createFolders = true
     )
 
+  private def writeSessionManifest(dir: os.Path, workDir: String): Unit =
+    val json =
+      s"""{
+        |  "orcaVersion": "0.0.test",
+        |  "workDir": "$workDir",
+        |  "pid": 1,
+        |  "startedAt": "2026-07-18T09:00:00Z",
+        |  "outcome": "succeeded",
+        |  "sessions": [{
+        |    "harness": "ClaudeCode",
+        |    "wireId": "uuid",
+        |    "agent": "main",
+        |    "sessionName": "implementer",
+        |    "kind": "durable",
+        |    "firstSeenAt": "2026-07-18T09:00:00Z",
+        |    "lastActiveAt": "2026-07-18T09:00:00Z"
+        |  }]
+        |}""".stripMargin
+    os.write(
+      dir / ".orca" / "cache" / "runs" / "a.json",
+      json,
+      createFolders = true
+    )
+
+  test("runContinue --list: rows across worktrees say which tree each is in"):
+    val checkout = TempDirs.dir()
+    val worktree = TempDirs.dir()
+    // The same static flow session name in two trees — the suffix is the only
+    // thing telling the user which one `orca continue <n>` reattaches to.
+    writeSessionManifest(checkout, "/repo")
+    writeSessionManifest(worktree, "/repo/.orca/worktrees/ab12cd34")
+    val out = captured(
+      assertEquals(
+        ContinueCli.runContinue(
+          ScanDirs(checkout, List(worktree)),
+          None,
+          list = true,
+          json = false,
+          tty = false
+        ),
+        ExitCodes.Ok
+      )
+    )
+    assert(out.contains("implementer @repo"), out)
+    assert(out.contains("implementer @ab12cd34"), out)
+
+  test("runContinue --list: one directory, so no tree suffix on the row"):
+    val checkout = TempDirs.dir()
+    writeSessionManifest(checkout, "/repo")
+    val out = captured(
+      assertEquals(
+        ContinueCli.runContinue(
+          ScanDirs(checkout, Nil),
+          None,
+          list = true,
+          json = false,
+          tty = false
+        ),
+        ExitCodes.Ok
+      )
+    )
+    assert(out.contains("implementer"), out)
+    assert(!out.contains("@"), out)
+
+  test("runContinue --list --json: each row carries its run's workDir"):
+    val checkout = TempDirs.dir()
+    writeSessionManifest(checkout, "/repo")
+    val out = captured(
+      assertEquals(
+        ContinueCli.runContinue(
+          ScanDirs(checkout, Nil),
+          None,
+          list = true,
+          json = true,
+          tty = false
+        ),
+        ExitCodes.Ok
+      )
+    )
+    assert(out.contains("\"workDir\":\"/repo\""), out)
+
   test("runContinue --list --json: a crashed run reports crashed=true"):
     val dir = TempDirs.dir()
     writeCrashedManifest(dir)
     val out = captured(
       assertEquals(
         ContinueCli
-          .runContinue(List(dir), None, list = true, json = true, tty = false),
+          .runContinue(
+            ScanDirs(dir, Nil),
+            None,
+            list = true,
+            json = true,
+            tty = false
+          ),
         ExitCodes.Ok
       )
     )
@@ -1167,7 +1261,13 @@ class CliTest extends munit.FunSuite:
     val out = captured(
       assertEquals(
         ContinueCli
-          .runContinue(List(dir), None, list = true, json = false, tty = false),
+          .runContinue(
+            ScanDirs(dir, Nil),
+            None,
+            list = true,
+            json = false,
+            tty = false
+          ),
         ExitCodes.Ok
       )
     )
@@ -1217,7 +1317,13 @@ class CliTest extends munit.FunSuite:
     val (out, err) = capturedBoth(
       assertEquals(
         ContinueCli
-          .runContinue(List(dir), None, list = false, json = false, tty = true),
+          .runContinue(
+            ScanDirs(dir, Nil),
+            None,
+            list = false,
+            json = false,
+            tty = true
+          ),
         ExitCodes.ActionFailed
       )
     )

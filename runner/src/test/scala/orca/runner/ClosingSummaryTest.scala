@@ -11,9 +11,11 @@ class ClosingSummaryTest extends munit.FunSuite:
   private val base: CommitHash =
     CommitHash.from("0123456789abcdef0123456789abcdef01234567").get
 
-  // Never touched: `lines` only formats it into two strings.
+  // Never touched: `lines` only formats it into two strings. The space is the
+  // fixture's job — every worktree case then proves the offered command keeps
+  // the path as one shell argument.
   private val worktree: os.Path =
-    os.root / "repo" / ".orca" / "worktrees" / "ab12cd34"
+    os.root / "my repo" / ".orca" / "worktrees" / "ab12cd34"
 
   test("a worktree run names where the work is and scopes the diff to it"):
     assertEquals(
@@ -50,13 +52,4 @@ class ClosingSummaryTest extends munit.FunSuite:
         s"2 file(s) changed since ${base.short}",
         s"""next: git -C "$worktree" diff ${base.short}..work"""
       )
-    )
-
-  test("a path with a space stays one argument in the offered command"):
-    val spaced = os.root / "home" / "me" / "my repo" / ".orca" / "wt"
-    assertEquals(
-      ClosingSummary
-        .lines("work", Some(RunChanges(base, 1, "work")), Some(spaced))
-        .last,
-      s"""next: git -C "$spaced" diff ${base.short}"""
     )

@@ -121,15 +121,19 @@ object Main:
     // cwd, and the discovery is a git subprocess or two.
     val scanDirs = WorktreeScan.dirs(os.pwd)
     val (runs, warnings) =
-      ManifestReader.list(scanDirs, ManifestReader.pidAlive)
+      ManifestReader.list(
+        scanDirs.own,
+        scanDirs.worktrees,
+        ManifestReader.pidAlive
+      )
     warnings.foreach(ShellOutput.info)
     val continueSessionCount =
       runs.headOption.map(_.manifest.sessions.size)
-    val resumeOffer = ResumeDetector.detect(scanDirs)
+    val resumeOffer = ResumeDetector.detect(scanDirs.all)
     ConfigSummary.branchLine(os.pwd).foreach(ShellOutput.info)
     ui.select(
       "orca shell",
-      MainMenu.choices(continueSessionCount, resumeOffer)
+      MainMenu.choices(continueSessionCount, resumeOffer, scanDirs.own)
     ) match
       case UiOutcome.Cancelled                      => ()
       case UiOutcome.Selected(MenuItem.Exit)        => ()
@@ -367,8 +371,9 @@ object Main:
       ui: ShellUi,
       terminal: Terminal,
       workDir: os.Path = os.pwd,
-      // Same two seams as `resumeInterruptedRun`, for the same reason — see
-      // its note on why the default is spelled as a lambda.
+      // `runAction` is injectable like `resumeInterruptedRun`'s — see its note
+      // on why the default is spelled as a lambda; `workDir` is the usual
+      // explicit-directory test seam.
       runAction: (
           DiscoveredFlow,
           String,

@@ -347,8 +347,11 @@ Each `flow(...)` run is bound to exactly one feature branch and one progress log
   `--skip-branch` and with `--keep-changes`. The first run in a worktree pays a
   cold build (no build outputs, no dependencies, none of the untracked local
   config a project may need), an editor or indexer that ignores `.gitignore`
-  will see the second checkout, and orca never removes it: clean up with `git
-  worktree remove .orca/worktrees/<hash>`.
+  will see the second checkout, and orca never removes it. The run starts on an
+  `orca-worktree-<hash>` branch orca also never deletes, so full cleanup is `git
+  worktree remove .orca/worktrees/<hash>` **and** `git branch -d
+  orca-worktree-<hash>`; a re-run of the task refuses rather than moving that
+  branch if it has gained commits since.
   Sharp edge: kept files are unprotected until that first stage commit — a
   failure before it runs the teardown's `git reset --hard` and destroys kept
   modifications to tracked files (kept untracked files survive).

@@ -79,3 +79,70 @@ class WorktreesTest extends munit.FunSuite:
     git(cwd, args*).out.text().trim
 
   private def head(cwd: os.Path): String = gitOut(cwd, "rev-parse", "HEAD")
+
+  test("startBranch refuses to move a branch holding commits HEAD lacks"):
+    val repo = GitRepo.seeded()
+    val path = repo / "wt"
+    assertEquals(Worktrees.add(repo, path), Right(()))
+    assertEquals(Worktrees.startBranch(path, "wt-branch"), Right(()))
+    os.write(path / "work.txt", "work")
+    git(path, "add", "-A").discard
+    git(path, "commit", "-q", "-m", "work in the worktree").discard
+    // Every removal route leaves the branch behind, so a re-run finds it.
+    git(repo, "worktree", "remove", "--force", path.toString).discard
+    assertEquals(Worktrees.add(repo, path), Right(()))
+    assertEquals(
+      Worktrees.startBranch(path, "wt-branch"),
+      Left(StartBranchFailure.WouldLoseCommits("wt-branch"))
+    )
+    // The commit is still reachable from the branch orca refused to move.
+    assert(
+      gitOut(repo, "log", "-1", "--format=%s", "wt-branch")
+        .contains("work in the worktree")
+    )
+
+  test("startBranch takes a freshly added worktree off its detached HEAD"):
+    val repo = GitRepo.seeded()
+    val path = repo / "wt"
+    assertEquals(Worktrees.add(repo, path), Right(()))
+    assertEquals(Worktrees.headBranch(path), Some("HEAD"))
+    assertEquals(Worktrees.startBranch(path, "wt-branch"), Right(()))
+    assertEquals(Worktrees.headBranch(path), Some("wt-branch"))
+    assertEquals(gitOut(path, "rev-parse", "--abbrev-ref", "HEAD"), "wt-branch")
+
+  test("mainCheckout never answers the git dir, even from a linked worktree"):
+    val root = TempDirs.dir()
+    val checkout = root / "checkout"
+    os.makeDir.all(checkout)
+    git(
+      checkout,
+      "init",
+      "-q",
+      "-b",
+      "main",
+      s"--separate-git-dir=${root / "gitdir"}"
+    ).discard
+    git(checkout, "config", "user.email", "t@e.com").discard
+    git(checkout, "config", "user.name", "T").discard
+    os.write(checkout / "seed.txt", "seed")
+    git(checkout, "add", "-A").discard
+    git(checkout, "commit", "-q", "-m", "seed").discard
+    val worktree = root / "wt"
+    assertEquals(Worktrees.add(checkout, worktree), Right(()))
+    // git names the git dir as the main worktree here, so there is no checkout
+    // to answer with: refusing beats writing a worktree inside `.git`.
+    assertEquals(Worktrees.mainCheckout(worktree), None)
+    // And the reason is the layout, not "you have no repository" — the caller
+    // words those two very differently.
+    assertEquals(
+      Worktrees.mainCheckoutOrReason(worktree),
+      Left(MainCheckoutFailure.MainWorktreeNotACheckout)
+    )
+
+  test("mainCheckoutOrReason separates a non-repository from a bad layout"):
+    assertEquals(
+      Worktrees.mainCheckoutOrReason(TempDirs.dir()),
+      Left(MainCheckoutFailure.NotARepository)
+    )
+    val repo = GitRepo.seeded()
+    assertEquals(Worktrees.mainCheckoutOrReason(repo), Right(repo))

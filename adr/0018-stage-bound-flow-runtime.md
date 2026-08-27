@@ -441,10 +441,15 @@ the wrong branch.
 
   > **Amendment (2026-08-27).** `OrcaArgs.worktree` (`--worktree`) runs the flow
   > in `.orca/worktrees/<prompt hash>` of this repository instead of the current
-  > checkout. Such a run always meets this requirement's clean case: a worktree
-  > is created from a commit, so its tree is clean by construction and the
-  > dirty-tree prompt never fires. Uncommitted work in the invoking checkout
-  > stays there. `--worktree` is therefore refused with `--keep-changes` (the
+  > checkout. The FIRST run in a freshly created worktree always meets this
+  > requirement's clean case: a worktree is created from a commit, so its tree
+  > is clean by construction. A REUSED worktree — every resume, and every re-run
+  > of the same task text — is subject to the same dirty-tree policy as any
+  > other directory: a user's edits, or a SIGKILLed run's partial ones, are
+  > still there, and the prompt fires normally. Uncommitted work in the invoking
+  > checkout stays there. The run starts on an `orca-worktree-<hash>` branch
+  > that orca creates and never deletes; it refuses to move that branch if it
+  > has since gained commits. `--worktree` is therefore refused with `--keep-changes` (the
   > files it names are in the other checkout and do not come along) and with
   > `--skip-branch` (git will not check the current branch out a second time in
   > a new worktree). Both refusals happen in `OrcaArgs.parse`, before setup, the

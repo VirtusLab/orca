@@ -221,8 +221,11 @@ runtime's own glyph family (`⏺`/`●`/`▶`/`▸`).
 > what the offer would hand an agent. The progress-log scan deliberately does
 > NOT descend into `.orca/worktrees/`; it stays one level deep.
 >
-> The offer carries the directory its log was found in, and the resume RUNS
-> there. Not `--worktree`: that flag re-derives a path from the task text, which
+> The offer carries the directory its log was found in, names it in the menu
+> label when it is not the shell's own, and the resume RUNS there. No
+> shell-voice notice on top: the child recognises an orca worktree from its own
+> working directory rather than from the flag, so its closing summary already
+> names the tree and offers a `git -C` diff for it. Not `--worktree`: that flag re-derives a path from the task text, which
 > is the directory holding the log only when the log was already in an orca
 > worktree of that exact prompt — otherwise it would silently start a fresh run
 > in a tree with no log, leaving the interrupted one behind.

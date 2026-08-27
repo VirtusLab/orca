@@ -12,6 +12,34 @@ private[orca] enum WorktreeAddFailure:
   case NoCommitsYet
   case GitFailed(message: String)
 
+/** Why [[Worktrees.mainCheckoutOrReason]] could not name a main checkout. Kept
+  * apart because each wants a different thing said to the user, and only the
+  * command that just asked git knows which happened.
+  */
+private[orca] enum MainCheckoutFailure:
+  /** `cwd` is not inside a git working tree — or git could not be run at all.
+    */
+  case NotARepository
+
+  /** git named a main worktree that is not a checkout: it derives one by
+    * stripping `/.git` from the common dir, which under `--separate-git-dir` or
+    * in a submodule names the git directory itself.
+    */
+  case MainWorktreeNotACheckout
+
+  /** git did not answer the query as asked — one older than 2.31 echoes the
+    * unknown `--path-format` and exits 0.
+    */
+  case Unsupported
+
+/** Why [[Worktrees.startBranch]] refused. */
+private[orca] enum StartBranchFailure:
+  /** The branch already carries commits the worktree's HEAD cannot reach, so
+    * moving it there would strand them.
+    */
+  case WouldLoseCommits(branch: String)
+  case GitFailed(message: String)
+
 /** Git worktree plumbing for run-level isolation (`--worktree`).
   *
   * Deliberately not on [[GitTool]]: that trait is flow-facing, and a flow's
@@ -28,7 +56,10 @@ private[orca] object Worktrees:
 
   /** The main checkout of the repository containing `cwd`, identical whether
     * `cwd` is that checkout or any linked worktree of it. `None` when `cwd` is
-    * not inside a git working tree.
+    * not inside a git working tree, when the repository's main worktree is not
+    * a checkout (`--separate-git-dir`, a submodule), and when git is too old to
+    * answer — [[mainCheckoutOrReason]] tells the three apart, for the caller
+    * that has to explain the failure.
     *
     * The checkout is read as `--show-toplevel`, not as the git directory's
     * parent: the two differ in a submodule (git dir under the superproject's
@@ -39,18 +70,45 @@ private[orca] object Worktrees:
     * consulted, which derives the main worktree the same parent-assuming way.
     */
   def mainCheckout(cwd: os.Path): Option[os.Path] =
+    mainCheckout(cwd, list(cwd))
+
+  /** [[mainCheckout]] for a caller that has already run [[list]] — the linked
+    * worktree branch below needs it, and spawning git twice for one answer is
+    * what this overload avoids. By-name: the main-checkout case never looks.
+    */
+  def mainCheckout(cwd: os.Path, worktrees: => List[os.Path]): Option[os.Path] =
+    mainCheckoutOrReason(cwd, worktrees).toOption
+
+  def mainCheckoutOrReason(
+      cwd: os.Path
+  ): Either[MainCheckoutFailure, os.Path] =
+    mainCheckoutOrReason(cwd, list(cwd))
+
+  /** [[mainCheckout]] with the reason it could not answer. The three failures
+    * want three different sentences, and only this command knows which one
+    * happened — a caller left to re-derive it from a second question gets some
+    * of them wrong.
+    */
+  def mainCheckoutOrReason(
+      cwd: os.Path,
+      worktrees: => List[os.Path]
+  ): Either[MainCheckoutFailure, os.Path] =
     val query =
       Seq("rev-parse", "--path-format=absolute") ++
         Seq("--git-dir", "--git-common-dir", "--show-toplevel")
-    probe(cwd, query*)
-      .map(_.linesIterator.toList)
-      .flatMap:
-        case List(gitDir, commonDir, topLevel) =>
-          if gitDir == commonDir then absolute(topLevel)
-          else list(cwd).headOption
-        // Any other shape means git did not answer what was asked — a git older
-        // than 2.31 echoes the unknown `--path-format` and exits 0.
-        case _ => None
+    probe(cwd, query*).map(_.linesIterator.toList) match
+      case None => Left(MainCheckoutFailure.NotARepository)
+      case Some(List(gitDir, commonDir, topLevel)) =>
+        if gitDir == commonDir then
+          absolute(topLevel).toRight(MainCheckoutFailure.Unsupported)
+        // Creating worktrees under a git directory would write a checkout
+        // inside the repository's own metadata store, so a candidate that is
+        // not itself a checkout is refused rather than written to.
+        else
+          worktrees.headOption
+            .filter(p => os.exists(p / ".git"))
+            .toRight(MainCheckoutFailure.MainWorktreeNotACheckout)
+      case Some(_) => Left(MainCheckoutFailure.Unsupported)
 
   /** Paths of every worktree of the repository containing `cwd`, the main
     * checkout first; empty when `cwd` is not in a git repository. A path may
@@ -66,16 +124,22 @@ private[orca] object Worktrees:
 
   /** Create a worktree at `path`, detached at `cwd`'s current HEAD.
     *
+    * Detached, then [[startBranch]] — not one `git worktree add -B`: git
+    * refuses to force-update a branch any worktree entry claims, stale or live
+    * ("cannot force update the branch ... used by worktree at ..."), so the
+    * combined form cannot recreate a worktree whose directory was deleted while
+    * its entry and branch survived — the normal `git clean -xdff` case.
+    *
     * No commit-ish is passed: git then detaches at the invoking checkout's
     * HEAD, which is the wanted start point. No `--` separator either: `path` is
     * absolute, so git cannot read it as an option.
     *
     * `--force` reclaims a path whose administrative entry outlived its
-    * directory — what `git clean -xdff` in the main checkout leaves — and only
-    * that: it still refuses a path that exists, and the other safeguard it
-    * lifts, a branch already checked out elsewhere, cannot apply without a
-    * commit-ish. Path-scoped, unlike `git worktree prune`, which would drop
-    * every stale entry in the repository, including worktrees orca never made.
+    * directory, and only that: it still refuses a path that exists, and the
+    * other safeguard it lifts, a branch already checked out elsewhere, cannot
+    * apply without a commit-ish. Path-scoped, unlike `git worktree prune`,
+    * which would drop every stale entry in the repository, including worktrees
+    * orca never made.
     *
     * Callers establish the repository with [[mainCheckout]] first, so a HEAD
     * that does not resolve here means a repository without commits rather than
@@ -98,16 +162,58 @@ private[orca] object Worktrees:
           )
         )
 
-  /** Put `worktree` on branch `name`, creating it at the current HEAD or
-    * resetting it there if it already exists (`checkout -B`). For a freshly
-    * [[add]]ed worktree, which git leaves detached — a state whose
-    * `currentBranch()` reads back as the literal "HEAD", which orca refuses to
-    * record as a run's starting branch.
+  /** Put `worktree` on `name`, at its current HEAD (`checkout -B`). Used on a
+    * freshly [[add]]ed worktree, which git leaves detached — a state whose
+    * current branch reads back as the literal "HEAD", which a run records as
+    * its starting branch and resume then refuses as an unsafe ref — and on a
+    * reused worktree found detached, which is that same state arrived at later.
+    *
+    * `-B` would reset an existing `name`, so a branch already carrying commits
+    * this HEAD cannot reach is refused instead: every removal route for a
+    * worktree (`git clean -xdff`, `rm -rf`, `git worktree remove`) leaves its
+    * branch behind, so a re-run of the same task finds it, possibly with work
+    * on it. A probe that cannot answer counts as "would lose", so an unreadable
+    * repository refuses rather than resets.
     */
-  def startBranch(worktree: os.Path, name: String): Either[String, Unit] =
-    val result = git(worktree, "checkout", "-B", name)
-    if result.exitCode == 0 then Right(())
-    else Left(result.err.text().trim)
+  def startBranch(
+      worktree: os.Path,
+      name: String
+  ): Either[StartBranchFailure, Unit] =
+    if wouldLoseCommits(worktree, name) then
+      Left(StartBranchFailure.WouldLoseCommits(name))
+    else
+      val result = git(worktree, "checkout", "-B", name)
+      if result.exitCode == 0 then Right(())
+      else Left(StartBranchFailure.GitFailed(result.err.text().trim))
+
+  /** The branch `worktree`'s HEAD is on, `Some("HEAD")` when it is detached,
+    * and `None` when the question could not be answered at all — an unstartable
+    * git, or a worktree directory that has gone away.
+    *
+    * Three-valued on purpose: callers repair a detached worktree, and reading
+    * "could not answer" as "on a branch" would skip the repair for a tree whose
+    * state is unknown. Same rule [[startBranch]] states for its own probe.
+    */
+  def headBranch(worktree: os.Path): Option[String] =
+    probe(worktree, "rev-parse", "--abbrev-ref", "HEAD").map(_.trim)
+
+  /** Whether HEAD is DEFINITELY on a branch — `false` for a detached checkout
+    * and for a worktree that cannot be read, so a caller acting on it fails
+    * closed.
+    */
+  def onABranch(worktree: os.Path): Boolean =
+    headBranch(worktree).exists(_ != "HEAD")
+
+  private def wouldLoseCommits(cwd: os.Path, branch: String): Boolean =
+    val exists =
+      probe(cwd, "rev-parse", "--verify", "--quiet", branch).isDefined
+    exists && git(
+      cwd,
+      "merge-base",
+      "--is-ancestor",
+      branch,
+      "HEAD"
+    ).exitCode != 0
 
   /** Git prints absolute paths for both reads above; anything else means the
     * command did not do what was asked, which is "not known" rather than a

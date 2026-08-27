@@ -230,8 +230,9 @@ object FlowLifecycle:
       branchMode: BranchMode,
       untrackedOnFailure: UntrackedFiles,
       startingCommit: Option[CommitHash],
-      /** The directory a `--worktree` run happens in — the closing summary
-        * names it.
+      /** The orca worktree the run happened in, when it happened in one —
+        * `--worktree`, or a resume the shell relaunched into one without the
+        * flag. The closing summary names it.
         */
       worktree: Option[os.Path]
   )
@@ -380,7 +381,10 @@ object FlowLifecycle:
       binding.branchMode,
       untrackedOnFailure,
       binding.startingCommit,
-      Option.when(args.worktree.value)(workDir)
+      // From where the run IS, not from the flag: the shell relaunches a resume
+      // inside the worktree its log was found in WITHOUT `--worktree` (the flag
+      // would re-derive a path), and that run has to name the tree too.
+      Option.when(WorktreeRun.isWorktreeRun(workDir))(workDir)
     )
 
   /** On an unborn HEAD (`git init`, no commits) every later git call that names
@@ -390,16 +394,7 @@ object FlowLifecycle:
     */
   private def abortIfNoCommits(git: GitTool): Unit =
     if git.headCommit().isEmpty then
-      throw new OrcaFlowException(noCommitsMessage)
-
-  /** [[abortIfNoCommits]]' wording, shared with [[WorktreeRun]]: a `--worktree`
-    * run meets both cases while resolving its directory, which happens before
-    * this lifecycle — and before any [[GitTool]] — exists.
-    */
-  private[runner] val noCommitsMessage: String =
-    "orca needs a git repository with at least one commit — " +
-      "initialize one if needed (git init), then make the first commit " +
-      "(git add -A && git commit -m \"initial commit\")"
+      throw new OrcaFlowException(GitPreconditions.needsRepoWithCommit)
 
   /** Refuse to start a NEW run on a branch that another run's progress log
     * already claims (ADR 0018 §2.5, R1 amendment).

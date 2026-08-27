@@ -125,6 +125,10 @@ class ResumeDetectorTest extends munit.FunSuite:
     val unreadable = TempDirs.dir()
     os.makeDir.all(unreadable / ".orca")
     os.perms.set(unreadable / ".orca", "---------")
+    assume(
+      scala.util.Try(os.list(unreadable / ".orca")).isFailure,
+      "needs a user that file permissions apply to"
+    )
     try
       assertEquals(
         ResumeDetector.detect(List(shellDir, unreadable)),

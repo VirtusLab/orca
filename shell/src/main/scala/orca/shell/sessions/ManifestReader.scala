@@ -17,12 +17,21 @@ private[shell] case class RecordedRun(manifest: RunManifest, crashed: Boolean)
   */
 private[shell] object ManifestReader:
 
-  /** Newest-first by `startedAt` across every directory in `dirs` — a
-    * `--worktree` run keeps its manifests in its own tree, so the listing spans
-    * the shell's checkout and orca's worktrees of it
+  /** Newest-first by `startedAt` across `own` and every directory in
+    * `otherWorktrees` — a `--worktree` run keeps its manifests in its own tree,
+    * so the listing spans the shell's checkout and orca's worktrees of it
     * ([[orca.shell.WorktreeScan.dirs]] picks them). Git is never asked here:
     * the directories arrive resolved, which is what lets these tests seed bare
     * temp directories.
+    *
+    * `own` is the directory the caller is standing in and is read strictly: a
+    * symlinked `.orca` there redirects a read of the user's own tree, and
+    * aborting is the signal. The others are read guarded — one warning each —
+    * since the shell neither created nor controls them for the length of a
+    * redraw (another orca process finishing, a `git worktree remove` in another
+    * terminal, a tree left unreadable by a run under a different uid). Two
+    * parameters rather than one list, because that is the whole difference
+    * between them.
     *
     * A manifest with [[ManifestOutcome.Running]] whose `pid` is no longer alive
     * is a crashed run — its sessions are still offered, per ADR 0021 §8. Each
@@ -34,21 +43,12 @@ private[shell] object ManifestReader:
     * the whole listing.
     */
   def list(
-      dirs: List[os.Path],
+      own: os.Path,
+      otherWorktrees: List[os.Path],
       pidAlive: Long => Boolean
   ): (List[RecordedRun], List[String]) =
-    // The caller's own directory is read unguarded — a symlinked `.orca` there
-    // is a redirected read of the tree the user is standing in, and aborting is
-    // the signal. Every other directory is one the shell neither created nor
-    // controls for the length of a redraw (another orca process finishing, a
-    // `git worktree remove` in another terminal, a tree left unreadable by a
-    // run under a different uid), so a failure there costs one warning rather
-    // than the whole listing — including the runs of the directory the user
-    // actually asked about. Same rule `ResumeDetector.logsIn` follows.
-    val perDir = dirs match
-      case Nil => Nil
-      case here :: rest =>
-        readRunsDir(here, pidAlive) :: rest.map(guarded(_, pidAlive))
+    val perDir =
+      readRunsDir(own, pidAlive) :: otherWorktrees.map(guarded(_, pidAlive))
     (
       perDir.flatMap(_._1).sortBy(_.manifest.startedAt).reverse,
       perDir.flatMap(_._2)

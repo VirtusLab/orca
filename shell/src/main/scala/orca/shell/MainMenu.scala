@@ -30,7 +30,10 @@ private[shell] object MainMenu:
     */
   def choices(
       continueSessionCount: Option[Int],
-      resumeOffer: Option[InterruptedRun] = None
+      resumeOffer: Option[InterruptedRun] = None,
+      // The shell's own directory, to tell a resume that happens here from one
+      // that happens in a worktree. Defaulted for the tests that don't care.
+      workDir: os.Path = os.pwd
   ): List[Choice[MenuItem]] =
     val continueChoice = continueSessionCount.map(count =>
       Choice(
@@ -39,7 +42,9 @@ private[shell] object MainMenu:
       )
     )
     val resumeChoice =
-      resumeOffer.map(run => Choice(MenuItem.ResumeRun, resumeLabel(run)))
+      resumeOffer.map(run =>
+        Choice(MenuItem.ResumeRun, resumeLabel(run, workDir))
+      )
     List(
       Choice(MenuItem.RunFlow, "Run a flow")
     ) ++ resumeChoice.toList ++ List(
@@ -90,6 +95,10 @@ private[shell] object MainMenu:
     * reads multi-line), so it reaches the menu row through
     * [[TextUtil.onelinePreview]].
     */
-  private def resumeLabel(run: InterruptedRun): String =
+  private def resumeLabel(run: InterruptedRun, workDir: os.Path): String =
     val task = TextUtil.onelinePreview(run.userPrompt, 40)
-    s"Resume interrupted run — ${run.flowName}: $task"
+    // The log can be in one of orca's worktrees, and the run resumes THERE —
+    // an offer that read like any other would send the user's work to a
+    // directory they were never shown.
+    val where = if run.dir == workDir then "" else s" (in ${run.dir.last})"
+    s"Resume interrupted run — ${run.flowName}: $task$where"

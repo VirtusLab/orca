@@ -33,13 +33,21 @@ object OrcaArgs:
       "on uncommitted files, which stay behind in the invoking checkout — a " +
       "worktree is created from a commit and starts clean"
 
-  /** Why this combination of flags cannot work, or `None` when it can.
-    *
-    * Over plain booleans so that every site holding the flags asks the one
-    * question rather than restating it: the shell refuses the pair before it
-    * spawns a flow at all, and an `OrcaArgs` written by hand in a flow script
-    * never passed through [[parse]]. What must not drift is which pairs are
-    * refused, not only how each refusal reads.
+  /** Why these flags cannot be combined, or `None` when they can — asked of a
+    * whole `OrcaArgs`, so neither [[parse]] nor `flow()` spells out a triple of
+    * same-typed booleans that a transposition would silently reorder.
+    */
+  private[orca] def worktreeRefusal(args: OrcaArgs): Option[String] =
+    worktreeRefusal(
+      worktree = args.worktree.value,
+      skipBranch = args.skipBranch.value,
+      keepChanges = args.keepChanges.value
+    )
+
+  /** The same question over loose booleans, for the shell — it holds
+    * `FlowFlags`, not an `OrcaArgs`, and refuses the pair before it spawns a
+    * flow at all. What must not drift is which pairs are refused, not only how
+    * each refusal reads.
     */
   private[orca] def worktreeRefusal(
       worktree: Boolean,
@@ -58,12 +66,7 @@ object OrcaArgs:
   def parse(args: Seq[String]): Either[String, OrcaArgs] =
     summon[ParserForClass[OrcaArgs]]
       .constructEither(args.toList)
-      .flatMap: parsed =>
-        worktreeRefusal(
-          worktree = parsed.worktree.value,
-          skipBranch = parsed.skipBranch.value,
-          keepChanges = parsed.keepChanges.value
-        ).toLeft(parsed)
+      .flatMap(parsed => worktreeRefusal(parsed).toLeft(parsed))
 
   /** Overload for scala-cli flow scripts, whose top-level `args` is
     * `Array[String]`. Throws `OrcaFlowException` on a parse failure.
