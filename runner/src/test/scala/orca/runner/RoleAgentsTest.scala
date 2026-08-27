@@ -15,40 +15,46 @@ import orca.agents.{
   PiAgent,
   ToolSet
 }
+import orca.review.ReviewerPrompts
 import orca.settings.{AgentSettings, AgentSpec}
 
-/** Pins [[RoleAgents.resolve]]'s pure mapping from settings to the run's
+/** Pins [[RoleAgents.resolveAll]]'s mapping from settings to the run's
   * [[WiredAgents]]: unset stays claude, a bare spec picks the matching wired
-  * backend by reference, and a model pin produces a `withModel` sibling that
-  * still shares the wired backend's identity — the same sharing
-  * [[LeadAgentIdentityTest]] pins for the `_.claude.opus` selector shape, here
-  * exercised through settings-driven resolution instead of a flow selector.
+  * backend, and a model pin produces a `withModel` sibling that still shares
+  * the wired backend's identity — the same sharing [[LeadAgentIdentityTest]]
+  * pins for the `_.claude.opus` selector shape, here exercised through
+  * settings-driven resolution instead of a flow selector.
+  *
+  * Resolution tags each role's agent, so "came from the wired agent" is
+  * asserted as shared `backendIdentity` rather than reference equality.
   */
 class RoleAgentsTest extends munit.FunSuite:
 
-  test("unset settings resolve every role to the wired claude, unchanged"):
-    val wired = wiredAgents()
-    val resolved = RoleAgents.resolve(AgentSettings.empty, wired)
-    assert(
-      resolved.planning.eq(wired.claude),
-      "planning must be the wired claude"
+  test("unset settings resolve every role to the wired claude"):
+    val token = new AnyRef
+    val roles = resolvedRoles(
+      AgentSettings.empty,
+      wiredAgents(claude = new RecordingModelClaude(token))
     )
-    assert(resolved.coding.eq(wired.claude), "coding must be the wired claude")
-    assert(resolved.review.eq(wired.claude), "review must be the wired claude")
+    assertEquals(
+      List(roles.planning, roles.coding, roles.review).map(_.backendIdentity),
+      List(Some(token), Some(token), Some(token))
+    )
 
-  test("a bare per-role spec picks the matching wired backend by reference"):
-    val wired = wiredAgents()
-    val settings = AgentSettings(
-      coding = Some(AgentSpec(BackendTag.Codex, None))
+  test("a bare per-role spec picks the matching wired backend"):
+    val token = new AnyRef
+    val roles = resolvedRoles(
+      AgentSettings(coding = Some(AgentSpec(BackendTag.Codex, None))),
+      wiredAgents(claude = new RecordingModelClaude(token))
     )
-    val resolved = RoleAgents.resolve(settings, wired)
-    assert(resolved.coding.eq(wired.codex), "coding must be the wired codex")
-    assert(
-      resolved.planning.eq(wired.claude),
-      "an unset role still defaults to the wired claude"
+    assertEquals(
+      roles.coding.backendTag,
+      Some(BackendTag.Codex),
+      "coding must be the wired codex"
     )
-    assert(
-      resolved.review.eq(wired.claude),
+    assertEquals(
+      List(roles.planning, roles.review).map(_.backendIdentity),
+      List(Some(token), Some(token)),
       "an unset role still defaults to the wired claude"
     )
 
@@ -58,22 +64,21 @@ class RoleAgentsTest extends munit.FunSuite:
   ):
     val token = new AnyRef
     val wiredClaude = new RecordingModelClaude(token)
-    val wired = wiredAgents(claude = wiredClaude)
     val settings = AgentSettings(
       planning = Some(AgentSpec(BackendTag.ClaudeCode, Some("claude-opus-x")))
     )
-    val resolved = RoleAgents.resolve(settings, wired)
+    val roles = resolvedRoles(settings, wiredAgents(claude = wiredClaude))
     assert(
-      !resolved.planning.eq(wiredClaude),
+      !roles.planning.eq(wiredClaude),
       "a model pin must produce a new sibling instance, not the wired agent " +
         "itself"
     )
     assertEquals(
-      resolved.planning.backendIdentity,
+      roles.planning.backendIdentity,
       Some(token),
       "the sibling must still share the wired backend's identity"
     )
-    resolved.planning match
+    roles.planning match
       case sibling: RecordingModelClaude =>
         assertEquals(sibling.pinnedModel, Some(Model("claude-opus-x")))
       case other =>
@@ -84,18 +89,17 @@ class RoleAgentsTest extends munit.FunSuite:
   ):
     val token = new AnyRef
     val wiredOpencode = new RecordingOpencode(token)
-    val wired = wiredAgents(opencode = wiredOpencode)
     val settings = AgentSettings(
       review = Some(AgentSpec(BackendTag.Opencode, Some("ollama/qwen-coder")))
     )
-    val resolved = RoleAgents.resolve(settings, wired)
+    val roles = resolvedRoles(settings, wiredAgents(opencode = wiredOpencode))
     assert(
-      !resolved.review.eq(wiredOpencode),
+      !roles.review.eq(wiredOpencode),
       "a model pin must produce a new sibling instance, not the wired agent " +
         "itself"
     )
-    assertEquals(resolved.review.backendIdentity, Some(token))
-    resolved.review match
+    assertEquals(roles.review.backendIdentity, Some(token))
+    roles.review match
       case sibling: RecordingOpencode =>
         assertEquals(sibling.pinnedModel, Some("ollama/qwen-coder"))
       case other =>
@@ -233,21 +237,20 @@ class RoleAgentsTest extends munit.FunSuite:
     )
 
   test("resolveAll tags each role's agent with its label, for the cost report"):
-    val resolution = RoleAgents.resolveAll(
-      project = AgentSettings.empty,
-      global = AgentSettings.empty,
-      overrides = RoleOverrides(None, None, None),
-      agents = wiredAgents(claude = new TaggableClaude("claude")),
-      onRoleResolved = _ => ()
+    val roles = resolvedRoles(
+      AgentSettings.empty,
+      wiredAgents(claude = new TaggableClaude("claude"))
     )
-    val roles = resolution.roles
+    // The review role's cost tag is the reviewers' own, not its label: the
+    // reviewers, lint and the picker all bill under it, and the by-role block
+    // must not grow a second bucket for the same concept.
     assertEquals(
       List(roles.planning, roles.coding, roles.review)
         .map(a => (a.name, a.role)),
       List(
         ("planning", Some("planning")),
         ("coding", Some("coding")),
-        ("review", Some("review"))
+        ("review", Some(ReviewerPrompts.Role))
       )
     )
 
@@ -296,6 +299,23 @@ class RoleAgentsTest extends munit.FunSuite:
       ),
       s"expected a foreign-agent warning: ${resolution.foreignWarnings}"
     )
+
+  /** [[RoleAgents.resolveAll]] with no global settings and no programmatic
+    * override — the settings-only path the mapping tests exercise.
+    */
+  private def resolvedRoles(
+      settings: AgentSettings,
+      agents: WiredAgents
+  ): ResolvedRoles =
+    RoleAgents
+      .resolveAll(
+        project = settings,
+        global = AgentSettings.empty,
+        overrides = RoleOverrides(None, None, None),
+        agents = agents,
+        onRoleResolved = _ => ()
+      )
+      .roles
 
   private def wiredAgents(
       claude: ClaudeAgent = StubAgent.claude,

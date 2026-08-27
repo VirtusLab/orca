@@ -146,16 +146,11 @@ class CostTracker(pricingAsOf: LocalDate) extends OrcaListener:
         .map: (model, t) =>
           s"  ${modelLabel(model)}: ${formatLine(t)}"
       val anyRoleTagged = s.byRole.keys.exists(_.isDefined)
-      val roleSection =
-        if !anyRoleTagged then ""
-        else s"""By role:
-                |${roleLines.mkString("\n")}
-                |
-                |""".stripMargin
-      s"""${roleSection}By model:
-         |${modelLines.mkString(
-          "\n"
-        )}${totalLine(s)}${legend(s)}""".stripMargin
+      val sections = List(
+        Option.when(anyRoleTagged)(s"By role:\n${roleLines.mkString("\n")}"),
+        Some(s"By model:\n${modelLines.mkString("\n")}")
+      ).flatten
+      s"${sections.mkString("\n\n")}${totalLine(s)}${legend(s)}"
 
   /** The run's total, qualified when some turns could not be priced. */
   private def totalLine(s: State): String =

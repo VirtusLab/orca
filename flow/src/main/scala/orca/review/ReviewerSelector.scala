@@ -49,12 +49,12 @@ trait ReviewerSelector:
 
 object ReviewerSelector:
 
-  /** Identity the default picker's turn is billed under, beside the reviewers
-    * it selects (`lint` is the other such non-reviewer under that role). It is
-    * a whole turn per loop, so it gets its own line in the run's cost log
-    * rather than disappearing into the review agent's own spend.
+  /** Identity the picker's turn is billed under, beside the reviewers it
+    * selects (`lint` is the other such non-reviewer under that role). It is a
+    * whole turn per loop, so it gets its own line in the run's cost log rather
+    * than disappearing into the review agent's own spend.
     */
-  val PickerName: String = "picker"
+  private[review] val PickerName: String = "picker"
 
   /** [[reviewAndFixLoop]]'s shipped default: [[agentDriven]] picks the set once
     * at loop start, and [[narrowingAcrossRounds]] then re-runs, each later
@@ -83,11 +83,11 @@ object ReviewerSelector:
 
   /** Asks a picker LLM which reviewers are worth running for a given task. The
     * parameterless form — `reviewAndFixLoop`'s default — resolves the picker at
-    * loop start as [[orca.FlowContext.reviewAgent]]`.cheap`, tagged
-    * [[PickerName]] under the reviewer cost role; the overload below takes the
-    * picker (and optionally retuned prompts/descriptions) explicitly. The
-    * selection is computed once, at loop start — task context doesn't change
-    * mid-loop — and the returned per-round function replays it, ignoring
+    * loop start as [[orca.FlowContext.reviewAgent]]`.cheap`; the overload below
+    * takes the picker (and optionally retuned prompts/descriptions) explicitly.
+    * Either way the turn is billed as [[PickerName]] under the reviewer cost
+    * role. The selection is computed once, at loop start — task context doesn't
+    * change mid-loop — and the returned per-round function replays it, ignoring
     * history.
     *
     * The picker sees each reviewer as a `(name, description)` pair.
@@ -124,11 +124,7 @@ object ReviewerSelector:
         ctx: FlowContext,
         ev: InStage
     ): List[ReviewBatch] -> List[RosterEntry] =
-      agentDriven(
-        ctx.reviewAgent.cheap
-          .withName(PickerName)
-          .withRole(ReviewerPrompts.Role)
-      ).prepare(all, taskTitle, changedFiles)
+      agentDriven(ctx.reviewAgent.cheap).prepare(all, taskTitle, changedFiles)
 
   /** See the parameterless [[agentDriven]] above for the full description. Wrap
     * the result in [[narrowingAcrossRounds]] to also narrow across rounds, as
@@ -175,6 +171,8 @@ object ReviewerSelector:
           // Read-only: the picker decides which reviewers to run and must not
           // edit files during selection (reading context is fine).
           agent.withReadOnly
+            .withName(PickerName)
+            .withRole(ReviewerPrompts.Role)
             .resultAs[SelectedReviewers]
             .autonomous
             .run(request, emitPrompt = false)
