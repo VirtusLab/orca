@@ -352,7 +352,7 @@ private def effectivePrompt[B <: BackendTag](
         )
       )
     val seed = record.map(_.seed).filter(_.nonEmpty)
-    val preamble = progressPreamble(log)
+    val preamble = progressPreamble(log, fc.git.headCommit())
     composePrimedPrompt(preamble, seed, text)
 
 /** After a run, persist the backend's now-learned resume wire id (durable
@@ -382,15 +382,34 @@ private def persistResumeWireId[B <: BackendTag](
       record.copy(resumeWireId = Some(wireId.value), backend = healedTag)
     )
 
-/** Compose the progress preamble from completed stage names in the log. Returns
-  * `None` if there are no completed entries (first run).
+/** Compose the progress preamble from completed stage names in the log and the
+  * commit the working tree sits at. Returns `None` if there are no completed
+  * entries (first run).
+  *
+  * `headCommit` is passed in rather than read here, so the rendered text is a
+  * function of the arguments alone.
+  *
+  * This reaches a model only where [[effectivePrompt]] injects it — when the
+  * backend conversation is fresh or lost. That is the common resumed-run case
+  * but not every one: an agent whose conversation is still live gets the
+  * caller's text verbatim and never sees this.
+  *
+  * The wording stays neutral about interruption because the same preamble
+  * primes a session first used mid-run, after an earlier stage completed.
   */
-private def progressPreamble(log: Option[ProgressLog]): Option[String] =
+private def progressPreamble(
+    log: Option[ProgressLog],
+    headCommit: Option[String]
+): Option[String] =
   val completed = log.map(_.entries.map(_.name)).getOrElse(Nil)
   if completed.isEmpty then None
   else
+    val tree =
+      headCommit.fold("")(c => s" The working tree is at commit $c.")
     Some(
-      s"Progress so far: completed ${completed.mkString(", ")}. Continue from here."
+      s"Progress so far: completed ${completed.mkString(", ")}.$tree " +
+        "Uncommitted work does not survive between stages, so read the files " +
+        "rather than assuming earlier edits are still there. Continue from here."
     )
 
 /** Assemble the final primed prompt from the optional preamble, optional seed,

@@ -72,8 +72,10 @@ private def resumeFrom[T: JsonData](id: String, name: String)(using
           )
         catch case NonFatal(_) => None
       decoded.map: value =>
+        // A replayed stage announces itself with the stage markers alone: the
+        // run already said once what it is resuming from, and the markers are
+        // what keeps a renderer's indent depth balanced.
         fc.emit(OrcaEvent.StageStarted(name))
-        fc.emit(OrcaEvent.Step(s"Resuming '$name' from recorded result"))
         fc.emit(OrcaEvent.StageCompleted(name))
         value
 

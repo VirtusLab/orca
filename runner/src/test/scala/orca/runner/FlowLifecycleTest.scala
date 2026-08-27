@@ -2904,7 +2904,12 @@ class FlowLifecycleTest extends munit.FunSuite:
       untrackedOnFailure = UntrackedFiles.Remove,
       startingCommit = None
     )
-    FlowLifecycle.teardownSuccess(git, setup, returnToStartBranch = false)
+    FlowLifecycle.teardownSuccess(
+      git,
+      setup,
+      returnToStartBranch = false,
+      _ => ()
+    )
     assert(
       branchNames(workDir).contains("reused-branch"),
       "the reused branch must survive teardown when orca did not create it"
@@ -2982,7 +2987,12 @@ class FlowLifecycleTest extends munit.FunSuite:
     repo.commitLog()
     repo.git.push().orThrow
     FlowLifecycle
-      .teardownSuccess(repo.git, repo.setup, returnToStartBranch = false)
+      .teardownSuccess(
+        repo.git,
+        repo.setup,
+        returnToStartBranch = false,
+        _ => ()
+      )
     val files = remoteFiles(repo.remote)
     assert(!files.linesIterator.contains(repo.logRelPath.toString), files)
 
@@ -2991,7 +3001,12 @@ class FlowLifecycleTest extends munit.FunSuite:
     given WorkspaceWrite = WorkspaceWrite.unsafe
     repo.commitLog()
     FlowLifecycle
-      .teardownSuccess(repo.git, repo.setup, returnToStartBranch = false)
+      .teardownSuccess(
+        repo.git,
+        repo.setup,
+        returnToStartBranch = false,
+        _ => ()
+      )
     assertEquals(remoteRefs(repo.remote).trim, "")
 
   test("teardownSuccess pushes nothing when the upstream never got the log"):
@@ -3004,8 +3019,157 @@ class FlowLifecycleTest extends munit.FunSuite:
     val before = remoteTip(repo.remote)
     repo.commitLog()
     FlowLifecycle
-      .teardownSuccess(repo.git, repo.setup, returnToStartBranch = false)
+      .teardownSuccess(
+        repo.git,
+        repo.setup,
+        returnToStartBranch = false,
+        _ => ()
+      )
     assertEquals(remoteTip(repo.remote), before)
+
+  /** The closing block's Step messages, in emission order, from a direct
+    * `teardownSuccess` over `setup`.
+    */
+  private def closingSummary(
+      git: OsGitTool,
+      setup: FlowLifecycle.FlowSetup
+  ): List[String] =
+    val emitted = new AtomicReference[List[OrcaEvent]](Nil)
+    FlowLifecycle.teardownSuccess(
+      git,
+      setup,
+      returnToStartBranch = false,
+      e => { val _ = emitted.updateAndGet(e :: _) }
+    )
+    emitted.get().reverse.collect { case s: OrcaEvent.Step => s.message }
+
+  private def closingSetup(
+      store: ProgressStore,
+      branch: String,
+      branchMode: BranchMode,
+      startingCommit: Option[orca.progress.CommitHash]
+  ): FlowLifecycle.FlowSetup =
+    FlowLifecycle.FlowSetup(
+      store = store,
+      featureBranch =
+        FeatureBranch.resolveReused(branch, Set.empty).toOption.get,
+      startBranch = "main",
+      stackSettings = StackSettings.empty,
+      branchMode = branchMode,
+      untrackedOnFailure = UntrackedFiles.Remove,
+      startingCommit = startingCommit
+    )
+
+  test(
+    "closing summary: names the branch the run ends on, the file count and the diff command"
+  ):
+    val workDir = GitRepo.seeded()
+    val git = new OsGitTool(workDir)
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    val base = git.headCommit().flatMap(orca.progress.CommitHash.from).get
+    val _ = git.createBranch("closing-work")
+    os.write(workDir / "a.txt", "one")
+    os.write(workDir / "b.txt", "two")
+    assert(git.commit("the run's work").isRight)
+    val setup = closingSetup(
+      ProgressStore.default(workDir, "closing-work"),
+      "closing-work",
+      BranchMode.Created,
+      Some(base)
+    )
+    assertEquals(
+      closingSummary(git, setup),
+      List(
+        "done — you are on branch 'closing-work'",
+        s"2 file(s) changed since ${base.short}",
+        s"next: git diff ${base.short}"
+      )
+    )
+
+  test(
+    "closing summary: a throwaway branch is deleted first, so the block names the branch the user is left on"
+  ):
+    val workDir = GitRepo.seeded()
+    val git = new OsGitTool(workDir)
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    val base = git.headCommit().flatMap(orca.progress.CommitHash.from).get
+    val _ = git.createBranch("closing-throwaway") // no user code on it
+    val setup = closingSetup(
+      ProgressStore.default(workDir, "closing-throwaway"),
+      "closing-throwaway",
+      BranchMode.Created,
+      Some(base)
+    )
+    assertEquals(
+      closingSummary(git, setup),
+      List("done — you are on branch 'main'", "no files changed")
+    )
+    assert(!branchNames(workDir).contains("closing-throwaway"))
+
+  test("closing summary: no recorded starting commit omits the file count"):
+    val workDir = GitRepo.seeded()
+    val git = new OsGitTool(workDir)
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    val _ = git.createBranch("closing-no-base")
+    os.write(workDir / "a.txt", "one")
+    assert(git.commit("the run's work").isRight)
+    val setup = closingSetup(
+      ProgressStore.default(workDir, "closing-no-base"),
+      "closing-no-base",
+      BranchMode.Reused,
+      startingCommit = None
+    )
+    assertEquals(
+      closingSummary(git, setup),
+      List("done — you are on branch 'closing-no-base'")
+    )
+
+  test(
+    "resume: setup names the branch it bound and what the replay carries over"
+  ):
+    val workDir = GitRepo.seeded()
+    val prompt = "resume-announcement"
+    val store = ProgressStore.default(workDir, prompt)
+    val git = new OsGitTool(workDir)
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    val base = git.headCommit().flatMap(orca.progress.CommitHash.from).get
+    val _ = git.createBranch("resumed-work")
+    store.writeHeader(
+      ProgressHeader(
+        startingBranch = "main",
+        branch = "resumed-work",
+        promptHash = ProgressStore.hashPrompt(prompt),
+        branchMode = BranchMode.Created,
+        startingCommit = Some(base.value)
+      )
+    )
+    store.appendEntry(StageEntry("plan#0", "plan", RawJson("\"done\"")))
+    git.forceAdd(store.path)
+    val _ = git.commit("orca: progress log")
+    val head = git.headCommit().flatMap(orca.progress.CommitHash.from).get
+    val emitted = new AtomicReference[List[OrcaEvent]](Nil)
+    val setup = setupForSettings(
+      workDir,
+      settingsOverride = Some(StackSettings.empty),
+      prompt = prompt,
+      emit = e => { val _ = emitted.updateAndGet(e :: _) }
+    )
+    assertEquals(setup.startingCommit, Some(base))
+    val steps =
+      emitted.get().reverse.collect { case s: OrcaEvent.Step => s.message }
+    assert(
+      steps.contains(
+        s"on branch 'resumed-work' — this run started from ${base.short}"
+      ),
+      s"the resumed arm must name its branch: $steps"
+    )
+    assert(
+      steps.contains(
+        s"resuming: 1 stage(s) already recorded, tree at ${head.short}; " +
+          "the interrupted stage's uncommitted work was not carried over"
+      ),
+      s"the resumed arm must say what it carries over: $steps"
+    )
 
   test(
     "resume after a skip-branch run on a mixed-case/slashed branch name works"
@@ -3391,6 +3555,10 @@ class FlowLifecycleTest extends munit.FunSuite:
         _.message.contains("recovering from the failure")
       ),
       s"expected an explanatory Step ahead of the reset: $steps"
+    )
+    assert(
+      steps.exists(_.message.contains("re-run the same command")),
+      s"the recovery Step must name what resumes the run: $steps"
     )
 
   // --- flow() reentrancy/concurrency guards --------------------------------

@@ -68,11 +68,18 @@ class StageRuntimeTest extends munit.FunSuite:
     assertEquals(first, "value-42")
     assertEquals(second, "value-42")
     assertEquals(runs.get(), 1, "body must run exactly once across both runs")
+    // A replayed stage prints its markers and nothing else — the run-level
+    // resume announcement covers what was skipped.
+    assertEquals(
+      listener.events.count(_ == OrcaEvent.StageStarted("compute")),
+      2
+    )
     assert(
-      listener.events.contains(
-        OrcaEvent.Step("Resuming 'compute' from recorded result")
-      ),
-      "second run must report a resume"
+      !listener.events.exists:
+        case OrcaEvent.Step(m) => m.contains("compute")
+        case _                 => false
+      ,
+      s"a replayed stage must not add a Step: ${listener.events}"
     )
 
   test("a crash in a later stage leaves earlier stages committed and recorded"):
