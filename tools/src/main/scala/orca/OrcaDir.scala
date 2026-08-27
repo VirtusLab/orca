@@ -7,6 +7,9 @@ import ox.tap
   * via its own `.gitignore` and carries a `CACHEDIR.TAG` so backup tools skip
   * it. All `.orca` creation routes through this object, so the exclusion
   * markers are always in place before anything is written into the cache.
+  *
+  * `worktrees/` is the one root entry that is not committed: it self-ignores
+  * like the cache but is not disposable like it — see [[ensureWorktrees]].
   */
 private[orca] object OrcaDir:
   private val gitignoreContents = "# Automatically created by orca.\n*\n"
@@ -109,6 +112,27 @@ private[orca] object OrcaDir:
     * must not create `.orca` as a side effect of reading it.
     */
   def runsPath(workDir: os.Path): os.Path = cachePath(workDir) / "runs"
+
+  /** `<workDir>/.orca/worktrees`, passively — a run's worktree is derived from
+    * this path before anything decides whether to create it.
+    */
+  def worktreesPath(workDir: os.Path): os.Path = root(workDir) / "worktrees"
+
+  /** Idempotently ensure `.orca/worktrees/` exists, writing its self-ignoring
+    * `.gitignore` before returning: without the marker, `git add -A` in this
+    * checkout stages a worktree under it as an embedded git repository, so the
+    * marker must be in place before the first worktree is created.
+    *
+    * Unlike [[ensureCache]] there is deliberately no `CACHEDIR.TAG` — the tag
+    * tells backup tools to skip the directory, and a worktree holds unmerged
+    * work plus the only copy of the progress log that resumes a failed run.
+    */
+  def ensureWorktrees(workDir: os.Path): os.Path =
+    val worktrees = worktreesPath(workDir)
+    abortIfOrcaComponentSymlink(workDir, worktrees)
+    os.makeDir.all(worktrees)
+    writeIfAbsent(worktrees / ".gitignore", gitignoreContents)
+    worktrees
 
   /** `<workDir>/.orca/flows` — project-tier flow scripts (ADR 0021 §5),
     * committed like the rest of `.orca`'s root.
