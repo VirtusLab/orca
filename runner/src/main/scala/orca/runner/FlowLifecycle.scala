@@ -20,6 +20,7 @@ import orca.progress.{
   CommitHash,
   FeatureBranch,
   ProgressHeader,
+  ProgressLog,
   ProgressScan,
   ProgressStore,
   ProtectedBranchRefused,
@@ -101,7 +102,8 @@ object FlowLifecycle:
         ctx.emit(
           OrcaEvent.Step(
             "recovering from the failure — discarding uncommitted changes " +
-              "and the files the failed stage created, so a re-run resumes " +
+              "and the files the failed stage created; re-run the same " +
+              "command (the same flow with the same task text) to resume " +
               "from the last completed stage"
           )
         )
@@ -118,7 +120,7 @@ object FlowLifecycle:
               )
             )
         throw f
-    teardownSuccess(ctx.git, flowSetup, returnToStartBranch)
+    teardownSuccess(ctx.git, flowSetup, returnToStartBranch, ctx.emit)
 
   /** Replay the persisted resume-wire-id map (ADR 0018 §2.6) into each
     * session's own agent's in-memory registry, so a resumed run resumes against
@@ -584,7 +586,7 @@ object FlowLifecycle:
         case ProgressStore.LoadResult.Absent =>
           freshBinding(startBranch, protectedBranches, discovered)
         case ProgressStore.LoadResult.Loaded(progressLog) =>
-          resumeBinding(progressLog.header, protectedBranches, discovered)
+          resumeBinding(progressLog, protectedBranches, discovered)
 
     /** The log file exists but didn't parse. No sane way to resume from
       * unparseable data, so this warns loudly — distinguishing a corrupt log
@@ -653,10 +655,11 @@ object FlowLifecycle:
       * 0019): this arm creates no branch, so nothing else would commit it.
       */
     private def resumeBinding(
-        header: ProgressHeader,
+        log: ProgressLog,
         protectedBranches: Set[String],
         discovered: Boolean
     )(using WorkspaceWrite): BranchBinding =
+      val header = log.header
       val featureBranch =
         RecoveryCheck.validateHeader(
           header,
@@ -675,19 +678,56 @@ object FlowLifecycle:
             s"'$current' — was it merged? aborting rather than resuming " +
             "against the wrong branch"
         )
-      if discovered then commitDiscoveredSettings(git, workDir)
       // The FIRST attempt's commit, read back from the header: this attempt's
       // HEAD has moved on by every stage the interrupted run committed, and a
       // whole-run review must still see those. Dropped unless git can still
       // diff against it — a rebase or a fresh clone leaves a hash that would
       // otherwise widen the review to unrelated history.
+      val startingCommit =
+        RecoveryCheck
+          .startingCommit(header)
+          .filter(c => git.isAncestorOfHead(c.value))
+      // Ahead of the settings commit, so the reported HEAD is the tree the
+      // recorded stages left behind rather than orca's own bookkeeping.
+      announceResume(featureBranch, startingCommit, log.entries.size)
+      if discovered then commitDiscoveredSettings(git, workDir)
       BranchBinding(
         featureBranch,
         header.startingBranch,
         header.branchMode,
-        RecoveryCheck
-          .startingCommit(header)
-          .filter(c => git.isAncestorOfHead(c.value))
+        startingCommit
+      )
+
+    /** What a resumed run says about itself, once. `createBranch` and
+      * `checkout` announce the branch on every other path; this arm binds an
+      * existing branch and takes neither, so nothing else would name it.
+      *
+      * `startingCommit` is the post-filter value, so the hash shown is always
+      * one git can still resolve. The second line is the run's whole account of
+      * the replay — each replayed stage prints only its own marker — so it
+      * carries how much is skipped and what state the tree is in.
+      *
+      * "not carried over" rather than "discarded": a run resumed after a clean
+      * failure had that work reset away, but one resumed after a kill has it
+      * auto-stashed instead (ADR 0018 R4), and the cleanliness Step says so.
+      */
+    private def announceResume(
+        branch: FeatureBranch,
+        startingCommit: Option[CommitHash],
+        recordedStages: Int
+    ): Unit =
+      val from =
+        startingCommit.fold("")(c => s" — this run started from ${c.short}")
+      emit(OrcaEvent.Step(s"on branch '${branch.value}'$from"))
+      val at = git
+        .headCommit()
+        .flatMap(CommitHash.from)
+        .fold("")(c => s", tree at ${c.short}")
+      emit(
+        OrcaEvent.Step(
+          s"resuming: $recordedStages stage(s) already recorded$at; the " +
+            "interrupted stage's uncommitted work was not carried over"
+        )
       )
 
   /** Resolve the stack settings for the run (ADR 0019 §7): pass through
@@ -1074,11 +1114,19 @@ object FlowLifecycle:
     * leg for the log line.
     */
   private def bestEffort(what: String)(op: => Unit): Unit =
+    val _ = bestEffortRead(what)(Some(op))
+
+  /** [[bestEffort]] for a leg the closing summary reads a value from: a failure
+    * yields `None`, so a broken git read costs the summary a line rather than
+    * escaping teardown.
+    */
+  private def bestEffortRead[T](what: String)(op: => Option[T]): Option[T] =
     val log = LoggerFactory.getLogger("orca.flow")
     try op
     catch
       case NonFatal(e) =>
         log.debug(s"teardownSuccess: $what failed (cosmetic, swallowed)", e)
+        None
 
   /** Successful teardown (ADR 0018 §2.5): remove the progress-log file in a
     * final commit so a merged branch is clean, push that commit when the branch
@@ -1089,38 +1137,60 @@ object FlowLifecycle:
     * handoff are cosmetic on an already-successful run — every leg runs through
     * [[bestEffort]]. A missing progress-log file (the ordinary "already
     * removed" case) stays fully silent; every other failure is debug-logged.
+    *
+    * The closing summary ([[ClosingSummary]]) straddles the whole sequence: its
+    * change set is counted first, while the feature branch is still checked
+    * out, and it is emitted last, once [[finishBranch]] has settled which
+    * branch the user is left on — which is why [[RunChanges]] carries the
+    * branch it was counted on.
     */
   private[orca] def teardownSuccess(
       git: GitTool,
       setup: FlowSetup,
-      returnToStartBranch: Boolean
+      returnToStartBranch: Boolean,
+      emit: OrcaEvent => Unit
   ): Unit =
     // Teardown runs outside any user stage, so it mints its own
     // `WorkspaceWrite`. No LLM call happens here, so `InStage` isn't needed.
     given WorkspaceWrite = RuntimeInStage.workspaceToken()
-    try
-      bestEffort("remove progress log"):
-        try
-          val _ = os.remove(setup.store.path)
-        catch case _: java.nio.file.NoSuchFileException => ()
-      // Pathspec-scoped to the log file, so uncommitted files the cleanliness
-      // policy left in the tree stay out of this bookkeeping commit;
-      // force-staged, because `.orca/` may be gitignored. A log never
-      // committed, or already removed by an earlier teardown, fails the stage
-      // or the commit — cosmetic, swallowed by bestEffort.
-      bestEffort("commit progress-log removal"):
-        git.forceCommitOnly(setup.store.path, "orca: remove progress log")
-      // Gated on the remote still carrying the log, not on the commit leg
-      // succeeding: a resumed teardown's commit finds nothing to commit yet
-      // may still owe the remote a push. The gate is also what keeps this from
-      // publishing
-      // anything the run didn't — a reused branch that had an upstream before
-      // the run only has the log upstream if this run pushed it there.
-      bestEffort("push progress-log removal"):
-        if git.upstreamHas(setup.store.path) then git.push().orThrow
-    finally
-      bestEffort("branch handoff"):
-        finishBranch(git, setup, returnToStartBranch)
+    val changes =
+      try
+        // First, while the feature branch is still checked out: the count is
+        // what `git diff` against the base shows there.
+        val counted = bestEffortRead("count changed files"):
+          setup.startingCommit.map: base =>
+            RunChanges(
+              base,
+              git.trackedChangedFiles(base.value).size,
+              setup.featureBranch.value
+            )
+        bestEffort("remove progress log"):
+          try
+            val _ = os.remove(setup.store.path)
+          catch case _: java.nio.file.NoSuchFileException => ()
+        // Pathspec-scoped to the log file, so uncommitted files the cleanliness
+        // policy left in the tree stay out of this bookkeeping commit;
+        // force-staged, because `.orca/` may be gitignored. A log never
+        // committed, or already removed by an earlier teardown, fails the stage
+        // or the commit — cosmetic, swallowed by bestEffort.
+        bestEffort("commit progress-log removal"):
+          git.forceCommitOnly(setup.store.path, "orca: remove progress log")
+        // Gated on the remote still carrying the log, not on the commit leg
+        // succeeding: a resumed teardown's commit finds nothing to commit yet
+        // may still owe the remote a push. The gate is also what keeps this
+        // from publishing anything the run didn't — a reused branch that had an
+        // upstream before the run only has the log upstream if this run pushed
+        // it there.
+        bestEffort("push progress-log removal"):
+          if git.upstreamHas(setup.store.path) then git.push().orThrow
+        counted
+      finally
+        bestEffort("branch handoff"):
+          finishBranch(git, setup, returnToStartBranch)
+    bestEffort("closing summary"):
+      ClosingSummary
+        .lines(git.currentBranch(), changes)
+        .foreach(line => emit(OrcaEvent.Step(line)))
 
   /** Where HEAD ends up after a successful run. A throwaway feature branch
     * (only orca bookkeeping, no user code vs the start branch) is deleted and

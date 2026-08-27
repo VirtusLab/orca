@@ -341,16 +341,20 @@ Each `flow(...)` run is bound to exactly one feature branch and one progress log
   failure before it runs the teardown's `git reset --hard` and destroys kept
   modifications to tracked files (kept untracked files survive).
 - **Resume:** a re-run with the same prompt finds the progress log and resumes
-  from the first incomplete stage. A corrupt or truncated progress log is
-  detected at startup — orca warns and starts fresh (previous stages re-run)
-  rather than silently mis-resuming.
+  from the first incomplete stage. It says once which branch it bound, how many
+  stages are already recorded, and that the interrupted stage's uncommitted work
+  was not carried over; a re-seeded agent session is told the same. A corrupt or
+  truncated progress log is detected at startup — orca warns and starts fresh
+  (previous stages re-run) rather than silently mis-resuming.
 - **Success teardown:** remove the progress-log file in a final commit, and push
   it when the remote branch still carries the log (i.e. the flow pushed). A
   throwaway feature branch (no substantive changes vs the starting branch) is
   deleted and HEAD returns to the starting branch. Otherwise the feature branch
   is kept and HEAD **stays on it by default** (so you end on the work); pass
   `returnToStartBranch = true` — for flows that open a PR — to return HEAD to
-  the starting branch instead.
+  the starting branch instead. The run then closes by naming the branch you are
+  left on, how many files changed since the commit it started from, and the
+  `git diff` that shows them.
 - **Failure teardown:** discard the failed stage's uncommitted partial edits —
   `git reset --hard` for tracked files, plus `git clean -fd` for the files it
   newly created; stay on the feature branch so a re-run resumes in place.

@@ -61,6 +61,7 @@ class StageRuntimeTest extends munit.FunSuite:
         "value-42"
 
     val first = runOnce()(using ctx)
+    val afterFirstRun = listener.events.size
     // A second control over the SAME repo + store: a fresh process re-run.
     val (ctx2, _) = reopen(dir, listener)
     val second = runOnce()(using ctx2)
@@ -68,11 +69,15 @@ class StageRuntimeTest extends munit.FunSuite:
     assertEquals(first, "value-42")
     assertEquals(second, "value-42")
     assertEquals(runs.get(), 1, "body must run exactly once across both runs")
-    assert(
-      listener.events.contains(
-        OrcaEvent.Step("Resuming 'compute' from recorded result")
-      ),
-      "second run must report a resume"
+    // A replayed stage emits both markers — which is what keeps a renderer's
+    // indent depth balanced — and nothing else: the run-level resume
+    // announcement covers what was skipped.
+    assertEquals(
+      listener.events.drop(afterFirstRun),
+      List(
+        OrcaEvent.StageStarted("compute"),
+        OrcaEvent.StageCompleted("compute")
+      )
     )
 
   test("a crash in a later stage leaves earlier stages committed and recorded"):

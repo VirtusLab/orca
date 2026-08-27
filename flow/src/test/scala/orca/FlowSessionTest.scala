@@ -26,7 +26,7 @@ import orca.progress.{
   SessionRecord
 }
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
-import orca.testkit.TempDirs
+import orca.testkit.{GitRepo, TempDirs}
 import orca.util.RawJson
 
 /** Tests for [[FlowSession]] — the durable-session handle that owns the probe →
@@ -482,6 +482,40 @@ class FlowSessionTest extends FunSuite:
     assert(
       !prompt.startsWith("---"),
       s"prompt must not start with bare separator; got: $prompt"
+    )
+
+  test(
+    "re-seeded session: the preamble names the commit the tree is at and says an unfinished stage left nothing"
+  ):
+    // A real repo, unlike `makeControl`'s bare temp dir, so `headCommit()` has
+    // something to report.
+    val dir = GitRepo.seeded()
+    val store = ProgressStore.default(dir, "p")
+    store.writeHeader(
+      ProgressHeader("main", "feat/test", "deadbeef", BranchMode.Created)
+    )
+    store.upsertSession(
+      SessionRecord(name = "s", occurrence = 0, id = testSessionId, seed = "")
+    )
+    store.appendEntry(StageEntry("triage#0", "triage", RawJson("null")))
+    val git = new orca.tools.OsGitTool(dir)
+    val fc = new TestFlowControl(
+      new orca.events.EventDispatcher(Nil),
+      git,
+      store,
+      "p"
+    )
+    val agent = new StubAgentForSeeded(existsResult = false)
+    val _ = flowSession(agent).run("continue")(using fc)
+    val prompt = agent.capturedPrompt.getOrElse(fail("no prompt captured"))
+    val head = git.headCommit().getOrElse(fail("no HEAD in the seeded repo"))
+    assert(
+      prompt.contains(s"The working tree is at commit $head."),
+      s"the preamble must name the commit; got: $prompt"
+    )
+    assert(
+      prompt.contains("a stage that did not complete left nothing behind"),
+      s"the preamble must say an unfinished stage's edits are gone; got: $prompt"
     )
 
   test(
