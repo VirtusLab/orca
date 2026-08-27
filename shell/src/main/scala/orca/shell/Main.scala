@@ -349,28 +349,43 @@ object Main:
       case UiOutcome.Cancelled      => None
       case UiOutcome.Selected(tier) => Some(tier)
 
-  /** Selects a flow, prompts for the task text and whether to create a branch,
-    * then hands off to [[RunAction.run]]. Verbose is not exposed here in v1 — a
-    * later task can add a verbose confirm alongside session tracking.
+  /** Selects a flow, prompts for the task text, whether to create a branch and
+    * whether to run in a worktree, then hands off to [[RunAction.run]]. Verbose
+    * is not exposed here in v1 — a later task can add a verbose confirm
+    * alongside session tracking.
     */
-  private def runFlow(ui: ShellUi, terminal: Terminal): Unit =
+  private[shell] def runFlow(
+      ui: ShellUi,
+      terminal: Terminal,
+      workDir: os.Path = os.pwd,
+      // Same two seams as `resumeInterruptedRun`, for the same reason — see
+      // its note on why the default is spelled as a lambda.
+      runAction: (
+          DiscoveredFlow,
+          String,
+          RunAction.RunOptions,
+          os.Path,
+          Terminal
+      ) => LaunchResult = RunAction.run(_, _, _, _, _)
+  ): Unit =
     for
-      flow <- listFlows().flatMap(
+      flow <- listFlows(workDir).flatMap(
         pickFlow(ui, "Run which flow?", _, promoteByName(FlagshipFlow, _))
       )
       task <- promptTask(ui)
       createBranch <- promptCreateBranch(ui)
+      worktree <- promptWorktree(ui, createBranch)
     do
       val opts = RunAction.RunOptions(
         flags = FlowFlags(
           verbose = false,
           skipBranch = !createBranch,
           keepChanges = false,
-          worktree = false
+          worktree = worktree
         ),
         fallback = FallbackPolicy.Ask(ui)
       )
-      RunAction.run(flow, task, opts, os.pwd, terminal).discard
+      runAction(flow, task, opts, workDir, terminal).discard
 
   /** Resumes `run` (ADR 0021 §3 amendment): resolves its recorded flow name
     * against the current catalog and launches it with the recorded task text
@@ -445,6 +460,28 @@ object Main:
     ) match
       case UiOutcome.Cancelled   => None
       case UiOutcome.Selected(v) => Some(v)
+
+  /** "Run in a git worktree?" confirm (default no — Enter keeps today's
+    * behavior), asked only when the run is creating a branch. `--worktree` and
+    * running on the current branch are refused together
+    * (`OrcaArgs.worktreeRefusal`), so asking the two questions independently
+    * would invite a combination orca then rejects. `private[shell]` so a
+    * scripted-UI test can drive it directly.
+    */
+  private[shell] def promptWorktree(
+      ui: ShellUi,
+      createBranch: Boolean
+  ): Option[Boolean] =
+    if !createBranch then Some(false)
+    else
+      ui.confirm(
+        "Run in a git worktree of this repository? (choosing 'yes': the flow " +
+          "works in a separate checkout under .orca/worktrees/, leaving this " +
+          "one untouched)",
+        default = false
+      ) match
+        case UiOutcome.Cancelled   => None
+        case UiOutcome.Selected(v) => Some(v)
 
   /** "How should the changes be made?" (ADR 0021 §6/§9 amendment) —
     * [[MainMenu.modeChoices]]'s hand-vs-agent prompt, shared by Edit/Create/
@@ -734,8 +771,10 @@ object Main:
     * needs [[pickFlow]]'s `reorder` (promoting [[FlagshipFlow]]) instead of its
     * default alphabetical order.
     */
-  private def listFlows(): Option[List[DiscoveredFlow]] =
-    FlowResolution.list(os.pwd) match
+  private def listFlows(
+      workDir: os.Path = os.pwd
+  ): Option[List[DiscoveredFlow]] =
+    FlowResolution.list(workDir) match
       case Left(message) =>
         ShellOutput.error(message)
         None

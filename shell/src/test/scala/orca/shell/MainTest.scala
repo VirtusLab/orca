@@ -13,7 +13,7 @@ import orca.shell.actions.{SettingsEditAction, StackAction}
 import orca.shell.create.CreateTier
 import orca.shell.flows.{DiscoveredFlow, FlowOrigin}
 import orca.shell.resume.InterruptedRun
-import orca.shell.run.LaunchResult
+import orca.shell.run.{FlowFlags, LaunchResult}
 import orca.shell.sessions.{RecordedRun, SessionPicker, SessionSelection}
 import orca.shell.ui.{Choice, ShellUi, UiOutcome}
 import orca.testkit.TempDirs
@@ -21,11 +21,13 @@ import orca.testkit.TempDirs
 import java.time.Instant
 
 /** Answers a single fixed `confirm` outcome, recording the question it was
-  * asked; every other prompt is unsupported — [[Main.rediscoverStack]] and
-  * [[Main.promptCreateBranch]] only ever call `confirm`.
+  * asked and the default offered; every other prompt is unsupported —
+  * [[Main.rediscoverStack]], [[Main.promptCreateBranch]] and
+  * [[Main.promptWorktree]] only ever call `confirm`.
   */
 private class ConfirmOnlyUi(outcome: UiOutcome[Boolean]) extends ShellUi:
   var recordedQuestion: Option[String] = None
+  var recordedDefault: Option[Boolean] = None
   def select[A](
       title: String,
       choices: List[Choice[A]],
@@ -34,6 +36,7 @@ private class ConfirmOnlyUi(outcome: UiOutcome[Boolean]) extends ShellUi:
     throw new UnsupportedOperationException("rediscoverStack doesn't select")
   def confirm(question: String, default: Boolean): UiOutcome[Boolean] =
     recordedQuestion = Some(question)
+    recordedDefault = Some(default)
     outcome
   def input(prompt: String, default: Option[String] = None): UiOutcome[String] =
     throw new UnsupportedOperationException("rediscoverStack doesn't input")
@@ -73,11 +76,13 @@ private class RecordingSelectUi(outcome: UiOutcome[DiscoveredFlow])
 private class FlowScriptedUi(
     selectScript: List[UiOutcome[Any]] = Nil,
     inputMultilineScript: List[UiOutcome[String]] = Nil,
-    inputScript: List[UiOutcome[String]] = Nil
+    inputScript: List[UiOutcome[String]] = Nil,
+    confirmScript: List[UiOutcome[Boolean]] = Nil
 ) extends ShellUi:
   private var pendingSelect = selectScript
   private var pendingInputMultiline = inputMultilineScript
   private var pendingInput = inputScript
+  private var pendingConfirm = confirmScript
   var selectCount = 0
   var inputMultilineCount = 0
   var inputCount = 0
@@ -93,9 +98,13 @@ private class FlowScriptedUi(
     outcome.asInstanceOf[UiOutcome[A]]
 
   def confirm(question: String, default: Boolean): UiOutcome[Boolean] =
-    throw new UnsupportedOperationException(
-      "createNewFlow/createForkFlow don't confirm"
-    )
+    if pendingConfirm.isEmpty then
+      throw new UnsupportedOperationException(
+        "createNewFlow/createForkFlow don't confirm"
+      )
+    val outcome = pendingConfirm.head
+    pendingConfirm = pendingConfirm.tail
+    outcome
 
   def input(prompt: String, default: Option[String] = None): UiOutcome[String] =
     inputCount += 1
@@ -587,6 +596,92 @@ class MainTest extends munit.FunSuite:
       Main.promptCreateBranch(ConfirmOnlyUi(UiOutcome.Cancelled)),
       None
     )
+
+  // --- promptWorktree (the worktree confirm, gated on the branch answer) ---
+
+  test("promptWorktree: the question explains where the flow will work"):
+    val ui = ConfirmOnlyUi(UiOutcome.Selected(true))
+    assertEquals(Main.promptWorktree(ui, createBranch = true), Some(true))
+    assertEquals(
+      ui.recordedQuestion,
+      Some(
+        "Run in a git worktree of this repository? (choosing 'yes': the flow " +
+          "works in a separate checkout under .orca/worktrees/, leaving this " +
+          "one untouched)"
+      )
+    )
+
+  test(
+    "promptWorktree: the confirm defaults to no — Enter keeps the current checkout"
+  ):
+    val ui = ConfirmOnlyUi(UiOutcome.Selected(false))
+    assertEquals(Main.promptWorktree(ui, createBranch = true), Some(false))
+    assertEquals(ui.recordedDefault, Some(false))
+
+  test(
+    "promptWorktree: a declined branch skips the question — the pair is refused"
+  ):
+    val ui = ConfirmOnlyUi(UiOutcome.Selected(true))
+    assertEquals(Main.promptWorktree(ui, createBranch = false), Some(false))
+    assertEquals(
+      ui.recordedQuestion,
+      None,
+      "asking would offer --worktree with --skip-branch, which orca refuses"
+    )
+
+  test("promptWorktree: cancelling aborts the run"):
+    assertEquals(
+      Main
+        .promptWorktree(
+          ConfirmOnlyUi(UiOutcome.Cancelled),
+          createBranch = true
+        ),
+      None
+    )
+
+  // --- runFlow (the interactive launch path) ---
+
+  test("runFlow: the branch and worktree answers reach the launcher's flags"):
+    withDumbTerminal: terminal =>
+      val workDir = TempDirs.dir()
+      os.write(
+        workDir / ".orca" / "flows" / "run-flow.sc",
+        "// x\n",
+        createFolders = true
+      )
+      val flow = DiscoveredFlow(
+        name = "run-flow.sc",
+        description = None,
+        origin = FlowOrigin.Project,
+        path = workDir / ".orca" / "flows" / "run-flow.sc",
+        shadows = Nil
+      )
+      // Pick the flow, type the task, then answer both confirms yes.
+      val ui = FlowScriptedUi(
+        selectScript = List(UiOutcome.Selected(flow)),
+        inputMultilineScript = List(UiOutcome.Selected("do the thing")),
+        confirmScript = List(UiOutcome.Selected(true), UiOutcome.Selected(true))
+      )
+      var recorded: Option[FlowFlags] = None
+      Main.runFlow(
+        ui,
+        terminal,
+        workDir,
+        runAction = (_, _, opts, _, _) =>
+          recorded = Some(opts.flags)
+          LaunchResult.Ok
+      )
+      assertEquals(
+        recorded,
+        Some(
+          FlowFlags(
+            verbose = false,
+            skipBranch = false,
+            keepChanges = false,
+            worktree = true
+          )
+        )
+      )
 
   // --- editFlow / createNewFlow / createForkFlow (ADR 0021 §6/§9 amendment:
   // hand-vs-agent mode) ---
