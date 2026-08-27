@@ -622,6 +622,105 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
     assertEquals(result.issues.map(_.title).toSet, Set(Title("A"), Title("B")))
 
+  /** A finding pointing at one fixed spot, so two reviewers reporting it are
+    * cross-reviewer duplicates.
+    */
+  private def sameSpot(title: String): ReviewIssue =
+    ReviewIssue(
+      title = Title(title),
+      description = title,
+      location = Some(Location("A.scala", Some(7))),
+      suggestion = None
+    )
+
+  test("two reviewers at one spot reach the fixer once, naming both"):
+    given FlowControl = control
+    val first = new FakeAgent(
+      name = "a",
+      outputs = List(ReviewResult(List(sameSpot("first finding"))))
+    )
+    val second = new FakeAgent(
+      name = "b",
+      outputs = List(ReviewResult(List(sameSpot("second finding"))))
+    )
+    val coder = new FakeAgent(
+      name = "coder",
+      outputs =
+        List(FixOutcome(Nil, List(IgnoredIssue(Title("first finding"), "ok"))))
+    )
+    val _ = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(first, second),
+      task = titled("dedup"),
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      diff = ReviewDiff.Pinned("")
+    )
+    val fixPrompt = coder.seenPrompts.headOption
+      .getOrElse(fail("the fixer was never called"))
+    assert(fixPrompt.contains("first finding"), fixPrompt)
+    assert(!fixPrompt.contains("second finding"), fixPrompt)
+    assert(fixPrompt.contains("Also reported by b"), fixPrompt)
+
+  test("an absorbed finding still appears on screen under its own reviewer"):
+    // The merge shrinks the fixer's list, not the record of who found what.
+    val steps = new ReviewLoopFixture.StepCapture
+    given FlowControl = ReviewLoopFixture.control(steps.dispatcher)
+    val first = new FakeAgent(
+      name = "a",
+      outputs = List(ReviewResult(List(sameSpot("first finding"))))
+    )
+    val second = new FakeAgent(
+      name = "b",
+      outputs = List(ReviewResult(List(sameSpot("second finding"))))
+    )
+    val coder = new FakeAgent(
+      name = "coder",
+      outputs =
+        List(FixOutcome(Nil, List(IgnoredIssue(Title("first finding"), "ok"))))
+    )
+    val _ = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(first, second),
+      task = titled("dedup"),
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      diff = ReviewDiff.Pinned("")
+    )
+    assert(
+      steps.messages.exists(m =>
+        m.startsWith("b: 1 issue") && m.contains("second finding")
+      ),
+      steps.messages.mkString("\n")
+    )
+
+  test("a reviewer whose only finding was absorbed is not retired"):
+    // Narrowing keys on what each reviewer reported, and that is recorded
+    // before the merge — otherwise folding a finding into another reviewer's
+    // entry would read as silence and drop its reporter from the next round.
+    val survivor = new FakeAgent(
+      name = "a",
+      outputs =
+        List(ReviewResult(List(sameSpot("first finding"))), ReviewResult.empty)
+    )
+    val absorbed = new FakeAgent(
+      name = "b",
+      outputs =
+        List(ReviewResult(List(sameSpot("second finding"))), ReviewResult.empty)
+    )
+    val coder = new FakeAgent(
+      name = "coder",
+      outputs = List(FixOutcome(List(Title("first finding")), Nil))
+    )
+    given FlowControl = control
+    val _ = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(survivor, absorbed),
+      task = titled("dedup"),
+      reviewerSelection =
+        ReviewerSelector.narrowingAcrossRounds(ReviewerSelector.allEveryRound),
+      diff = ReviewDiff.Pinned("")
+    )
+    assertEquals(absorbed.seenSessions.size, 2)
+
   test(
     "reviewer is called with the same session id on every iteration"
   ):

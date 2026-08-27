@@ -231,6 +231,53 @@ class BoundedDiffTest extends munit.FunSuite:
       s"the file that WAS rendered must stay out of the trailer: $payload"
     )
 
+  // --- the sections payload ---
+
+  /** The paths a sections payload's trailer names as not shown. */
+  private def unshown(payload: String): List[String] =
+    payload.linesIterator
+      .filter(_.startsWith("#   "))
+      .map(_.drop(4))
+      .toList
+
+  test("the sections payload carries the requested files and nothing else"):
+    val diff = section("src/A.scala", 3) + section("src/B.scala", 3)
+    assertEquals(
+      BoundedDiff.sectionsPayload(diff, List("src/B.scala"), 8 * 1024),
+      section("src/B.scala", 3)
+    )
+
+  test("a requested file too large for the budget is named, not shown"):
+    // The honest degradation to what the reviewer used to get for the whole
+    // change set: the file is named and it opens it itself.
+    val path = "src/Huge.scala"
+    val payload =
+      BoundedDiff.sectionsPayload(section(path, 2000), List(path), 8 * 1024)
+    assertEquals(rendered(payload), Nil)
+    assertEquals(unshown(payload), List(path))
+
+  test("a requested path with no section of its own is named as not shown"):
+    // A rename off its old name, or a header git had to quote: the caller's
+    // file list has the path, the diff body has no section under it.
+    val payload = BoundedDiff.sectionsPayload(
+      section("src/A.scala", 3),
+      List("src/A.scala", "src/Renamed.scala"),
+      8 * 1024
+    )
+    assertEquals(rendered(payload), List("src/A.scala"))
+    assertEquals(unshown(payload), List("src/Renamed.scala"))
+
+  test("the sections payload stays within its budget"):
+    // Same sizing argument as the review payload's: sections and trailer are
+    // bounded against each other, so neither spends the other's room.
+    val paths = (1 to 400).map(i => f"src/generated/G$i%05d.scala").toList
+    val payload = BoundedDiff.sectionsPayload(
+      paths.map(section(_, 20)).mkString,
+      paths,
+      8 * 1024
+    )
+    assert(clue(payload.length) <= 8 * 1024, "the payload outgrew its budget")
+
   // --- the PR payload ---
 
   test("a PR diff within the threshold is sent as it is"):

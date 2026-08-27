@@ -84,6 +84,12 @@ applicable; `simple.sc` and `review.sc` are unchanged.
 > final stage then **skips**: it emits a step naming why and returns no
 > findings, leaving the run otherwise untouched.
 
+> **Amendment (2026-08-27).** The cap is **3 rounds**, not 5. Removing the
+> confidence gate (part 1) widened what counts as a reviewer that reported
+> something, so the per-round narrowing now retires far fewer reviewers. Five
+> rounds over a whole-run diff with little narrowing is the most expensive thing
+> in a run, and the last rounds yield least.
+
 This is a **deliberate exception** to ADR 0011's argument (amendment 2026-08-02,
 [adr/0011:217](0011-reviewer-roster.md)) that "it is the stage, not the branch,
 that bounds the change set". That argument holds for per-task review, and stands

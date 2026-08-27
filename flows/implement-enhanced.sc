@@ -71,7 +71,7 @@ flow(OrcaArgs(args), returnToStartBranch = true):
       reviewers = allReviewers(reviewAgent),
       task = Task(Title("The whole planned change"), plan.brief),
       diff = ReviewDiff.WholeRun,
-      maxIterations = 5,
+      maxIterations = 3,
       priorDeclines = IgnoredIssues(taskDeclines.flatMap(_.issues))
     )
 

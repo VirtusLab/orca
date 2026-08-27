@@ -2,18 +2,20 @@ package orca
 
 import orca.tools.{ChangedFile, FileChange, PendingChanges}
 
-/** Renders a change set into a prompt under a size budget, for the three
-  * callers that inline one: the default commit-message prompt
-  * ([[commitPayload]], see `orca.defaultCommitMessage`), the reviewer's initial
-  * prompt ([[reviewPayload]], see `orca.review.reviewAndFixLoop`) and the PR
-  * summariser's ([[prPayload]], see `orca.pr.summarisePr`).
+/** Renders a change set into a prompt under a size budget, for the four callers
+  * that inline one: the default commit-message prompt ([[commitPayload]], see
+  * `orca.defaultCommitMessage`), the reviewer's initial prompt
+  * ([[reviewPayload]], see `orca.review.reviewAndFixLoop`), a resumed
+  * reviewer's per-round delta ([[sectionsPayload]], see
+  * `orca.review.ReReviewChanges`) and the PR summariser's ([[prPayload]], see
+  * `orca.pr.summarisePr`).
   *
-  * The first two keep the same rule: what is left out is still named. A commit
-  * subject gets the `--stat` summary ahead of the diff; a reviewer gets a
-  * trailer listing the files the diff it was sent does not show. [[prPayload]]
-  * only marks that a cut happened. None returns more than its threshold (plus,
-  * for [[prPayload]], its marker), so a change set of any size produces a
-  * prompt that can be sent.
+  * The first three keep the same rule: what is left out is still named. A
+  * commit subject gets the `--stat` summary ahead of the diff; a reviewer gets
+  * a trailer listing the files the diff it was sent does not show.
+  * [[prPayload]] only marks that a cut happened. None returns more than its
+  * budget (plus, for [[prPayload]], its marker), so a change set of any size
+  * produces a prompt that can be sent.
   *
   * Text is assembled by plain interpolation, never a `stripMargin` block:
   * `stripMargin` runs over the interpolated result, so it would eat the leading
@@ -41,9 +43,10 @@ private[orca] object BoundedDiff:
     * while the largest, at 2.1 MB, fits no context window at all.
     *
     * Much larger than `orca.review.ReReviewChanges.InlineThreshold`, which
-    * bounds a different thing: that one keeps a resumed conversation from
-    * accumulating a copy of the diff per round, which is a cost question, and
-    * cost bites far below the size at which a request stops being sendable.
+    * bounds a different thing: that one bounds what a single re-review prompt
+    * inlines, so a resumed conversation doesn't accumulate a copy of the change
+    * set per round — a cost question, and cost bites far below the size at
+    * which a request stops being sendable.
     */
   val ReviewThreshold: Int = 128 * 1024
 
@@ -113,6 +116,85 @@ private[orca] object BoundedDiff:
         changed.filterNot(f => isShown(shown, f.path)),
         head.length
       )
+
+  /** The sections of `diff` covering `paths`, bounded to `maxChars`, with a
+    * trailer naming every one of `paths` the result does not show.
+    *
+    * The paths-only sibling of [[reviewPayload]], for a caller that has a file
+    * list rather than [[ChangedFile]]s: same whole-section cut, but with no
+    * line counts to report, so a dropped path is named on its own. A path with
+    * no section of its own in `diff` — a rename off its old name, a header git
+    * had to quote, a binary change — is named in the trailer rather than
+    * silently absent.
+    *
+    * `maxChars` is the caller's budget, not [[ReviewThreshold]]: this renders
+    * into a prompt sent every round, where the bound is what the conversation
+    * may accumulate rather than what a request can carry.
+    */
+  def sectionsPayload(
+      diff: String,
+      paths: List[String],
+      maxChars: Int
+  ): String =
+    val sections = sectionsByPath(diff)
+    val room = maxChars - pathTrailerMax(paths, maxChars)
+    val available = paths.flatMap(p => sections.get(p).map(p -> _))
+    val shown = available
+      .scanLeft(0)((used, entry) => used + entry._2.length)
+      .drop(1)
+      .zip(available)
+      .takeWhile(_._1 <= room)
+      .map(_._2)
+    shown.map(_._2).mkString +
+      pathTrailer(paths.filterNot(shown.map(_._1).toSet), maxChars)
+
+  /** A diff's per-file sections, keyed by each section's `b/` path — the path
+    * as it is after the change, which is how a caller holding git's own file
+    * list names it. A section whose header can't be read (git quotes a path
+    * containing `"` or non-ASCII bytes) contributes no entry.
+    */
+  private[orca] def sectionsByPath(diff: String): Map[String, String] =
+    diff
+      .split(s"(?m)(?=^$FileHeader)")
+      .toList
+      .flatMap(section => sectionPath(section).map(_ -> section))
+      .toMap
+
+  /** The path after the last ` b/` of a section's `diff --git` header line,
+    * `None` for the text before the first header or a header of another shape.
+    */
+  private def sectionPath(section: String): Option[String] =
+    section.linesIterator
+      .nextOption()
+      .filter(_.startsWith(FileHeader))
+      .flatMap: header =>
+        header.lastIndexOf(" b/") match
+          case -1 => None
+          case i  => Some(header.substring(i + 3))
+
+  private val PathTrailerHead: String =
+    "\n# The sections above do not show the changes to the files below — " +
+      "read those files directly.\n"
+
+  /** The note closing a cut-short section payload. Every line is a `#` comment
+    * for the same reason as [[trailer]]'s: `- path` would read as a deleted
+    * line of source.
+    */
+  private def pathTrailer(omitted: List[String], maxChars: Int): String =
+    if omitted.isEmpty then ""
+    else
+      PathTrailerHead +
+        boundedEntries(omitted.map("#   " + _), maxChars / 2)
+
+  /** The longest [[pathTrailer]] any subset of `all` can produce — what the
+    * sections have to be sized against, for the same reason as [[trailerMax]].
+    * Half the budget, mirroring [[TrailerBudget]]'s share of
+    * [[ReviewThreshold]].
+    */
+  private def pathTrailerMax(all: List[String], maxChars: Int): Int =
+    // 4 for the `#   ` prefix, 1 for the separator `boundedEntries` joins with.
+    val entries = all.map(_.length + 5).sum
+    PathTrailerHead.length + math.min(entries, maxChars / 2)
 
   /** The branch diff a PR summariser is sent: under [[ReviewThreshold]] the
     * diff itself, over it a head cut plus a marker, so at most that threshold

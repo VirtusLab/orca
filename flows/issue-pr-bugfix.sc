@@ -268,6 +268,6 @@ def planAndImplementFix[B <: BackendTag](
       task = Task(Title(s"Fix for ${issueHandle.shortRef}"), fixPlan.brief),
       userRequest = Some(issuePayload),
       diff = ReviewDiff.WholeRun,
-      maxIterations = 5,
+      maxIterations = 3,
       priorDeclines = IgnoredIssues(taskDeclines.flatMap(_.issues))
     )

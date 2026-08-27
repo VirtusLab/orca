@@ -19,19 +19,6 @@
 
 import orca.{*, given}
 
-// One custom reviewer covering everything in a single pass, rather than
-// `allReviewers` + agent-driven selection — with only one reviewer to pick
-// from, that selection call would just burn a cheap-model round-trip.
-val review = Reviewer(
-  name = "review",
-  description = "single all-round pass",
-  systemPrompt =
-    """Check whether the change correctly and completely implements the task,
-      |look for real bugs or missed edge cases, judge the clarity of what was
-      |written, and flag unnecessary complexity worth removing. Report only
-      |issues worth fixing — no nitpicks or style opinions.""".stripMargin
-)
-
 flow(OrcaArgs(args)):
   // Seeded with the prompt (rather than run with it), so the task survives a
   // resume even when a later fix-loop turn doesn't restate it.
@@ -40,8 +27,7 @@ flow(OrcaArgs(args)):
     session.run("Implement the task from the seed prompt above.")
     reviewAndFixLoop(
       coderSession = session,
-      reviewers = buildReviewers(reviewAgent, List(review)),
-      reviewerSelection = ReviewerSelector.allEveryRound,
+      reviewers = allReviewers(reviewAgent),
       // No planning stage, so the prompt is the whole task.
       task = Task(Title(userPrompt), ""),
       maxIterations = 3
