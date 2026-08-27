@@ -175,6 +175,7 @@ private[runner] class RunManifestWriterState(
             at = clock(),
             agent = t.agent,
             role = t.role,
+            model = t.model.map(_.name),
             stage = state.stageStack.headOption,
             attempt = t.attempt,
             apiCalls = t.usage.apiCalls,

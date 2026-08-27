@@ -232,6 +232,54 @@ class RoleAgentsTest extends munit.FunSuite:
       "a wired override is not foreign"
     )
 
+  test("resolveAll tags each role's agent with its label, for the cost report"):
+    val resolution = RoleAgents.resolveAll(
+      project = AgentSettings.empty,
+      global = AgentSettings.empty,
+      overrides = RoleOverrides(None, None, None),
+      agents = wiredAgents(claude = new TaggableClaude("claude")),
+      onRoleResolved = _ => ()
+    )
+    val roles = resolution.roles
+    assertEquals(
+      List(roles.planning, roles.coding, roles.review)
+        .map(a => (a.name, a.role)),
+      List(
+        ("planning", Some("planning")),
+        ("coding", Some("coding")),
+        ("review", Some("review"))
+      )
+    )
+
+  test("a name a programmatic override set deliberately is not overwritten"):
+    // The name is what sessions and selectors key off, so an override that
+    // picked one keeps it.
+    val resolution = RoleAgents.resolveAll(
+      project = AgentSettings.empty,
+      global = AgentSettings.empty,
+      overrides = RoleOverrides(
+        None,
+        Some((a: orca.AgentSet) => a.claude.withName("bob")),
+        None
+      ),
+      agents = wiredAgents(claude = new TaggableClaude("claude")),
+      onRoleResolved = _ => ()
+    )
+    assertEquals(resolution.roles.coding.name, "bob")
+
+  test("a pi-backed role is tagged too, though pi's wired default is not main"):
+    // The "still carries its backend's own default name" check reads that name
+    // off the wired agent, so a backend naming its default something else is
+    // covered without a list of names to keep in step.
+    val resolution = RoleAgents.resolveAll(
+      project = AgentSettings(coding = Some(AgentSpec(BackendTag.Pi, None))),
+      global = AgentSettings.empty,
+      overrides = RoleOverrides(None, None, None),
+      agents = wiredAgents(),
+      onRoleResolved = _ => ()
+    )
+    assertEquals(resolution.roles.coding.name, "coding")
+
   test("resolveAll warns for an override that escapes the wired set"):
     val foreign = new RecordingModelClaude(new AnyRef)
     val resolution = RoleAgents.resolveAll(
@@ -301,6 +349,22 @@ class RoleAgentsTest extends munit.FunSuite:
         : AgentCall[BackendTag.Opencode.type, O] =
       throw new UnsupportedOperationException
 
+  /** A `ClaudeAgent` stub that reports a real backend tag and actually applies
+    * `withName`/`withRole` — [[StubClaudeAgent]]'s builders return `this`, so
+    * the cost-report tagging is invisible through them.
+    */
+  private class TaggableClaude(
+      agentName: String,
+      roleTag: Option[String] = None
+  ) extends StubClaudeAgent(agentName):
+    override def role: Option[String] = roleTag
+    override private[orca] def backendTag: Option[BackendTag] =
+      Some(BackendTag.ClaudeCode)
+    override def withName(name: String): ClaudeAgent =
+      new TaggableClaude(name, roleTag)
+    override def withRole(role: String): ClaudeAgent =
+      new TaggableClaude(agentName, Some(role))
+
   /** A `ClaudeAgent` stub whose `configuredModel` mirrors the real wired
     * default (claude's Opus1M pin) — [[StubClaudeAgent]]'s bare default has
     * none, so the announcement's "show the wired default model" path needs this
@@ -354,17 +418,24 @@ class RoleAgentsTest extends munit.FunSuite:
         : AgentCall[BackendTag.Opencode.type, O] =
       throw new UnsupportedOperationException
 
-  private object NoopPi extends PiAgent:
-    val name = "noop-pi"
+  /** Named like the real wired pi (`pi`, not `main`) and honouring `withName`,
+    * so a role landing on pi exercises the tagging check against a backend
+    * whose default name differs from the others'.
+    */
+  private class NoopPiAgent(val name: String) extends PiAgent:
+    override private[orca] def backendTag: Option[BackendTag] =
+      Some(BackendTag.Pi)
     def withModel(model: Model): PiAgent = this
     def withConfig(config: AgentConfig): PiAgent = this
     def withSystemPrompt(prompt: String): PiAgent = this
-    def withName(name: String): PiAgent = this
+    def withName(newName: String): PiAgent = new NoopPiAgent(newName)
     def withTools(tools: ToolSet): PiAgent = this
     def autonomous: AutonomousTextCall[BackendTag.Pi.type] =
       throw new UnsupportedOperationException
     def resultAs[O: JsonData: Announce]: AgentCall[BackendTag.Pi.type, O] =
       throw new UnsupportedOperationException
+
+  private object NoopPi extends NoopPiAgent("pi")
 
   private object NoopGemini extends GeminiAgent:
     val name = "noop-gemini"

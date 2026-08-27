@@ -3,6 +3,7 @@ package orca.review
 import orca.{FlowContext, TestFlowContext}
 import orca.events.EventDispatcher
 import orca.agents.{
+  Agent,
   AgentInput,
   Announce,
   AutonomousAgentCall,
@@ -43,6 +44,40 @@ private class RecordingPicker(
                 captured.set(Some(r))
               case _ => ()
             response.asInstanceOf[O]
+      def interactive
+          : orca.agents.InteractiveAgentCall[BackendTag.ClaudeCode.type, O] =
+        ???
+
+/** Records the `(name, role)` its agent carried when the picker turn ran. The
+  * parameterless [[ReviewerSelector.agentDriven]] derives its picker from
+  * `ctx.reviewAgent`, so the tagging is only observable on the derived copy —
+  * hence the honoured `withName`/`withRole` (the [[StubAgent]] base returns
+  * `this`).
+  */
+private class TaggingPicker(
+    seen: AtomicReference[Option[(String, Option[String])]],
+    agentName: String = "review",
+    roleTag: Option[String] = None
+) extends StubAgent(agentName):
+  override def role: Option[String] = roleTag
+  override def withName(n: String): Agent[BackendTag.ClaudeCode.type] =
+    new TaggingPicker(seen, n, roleTag)
+  override def withRole(r: String): Agent[BackendTag.ClaudeCode.type] =
+    new TaggingPicker(seen, agentName, Some(r))
+  def resultAs[O: JsonData: Announce]
+      : AgentCall[BackendTag.ClaudeCode.type, O] =
+    new AgentCall[BackendTag.ClaudeCode.type, O]:
+      val autonomous: AutonomousAgentCall[BackendTag.ClaudeCode.type, O] =
+        new AutonomousAgentCall[BackendTag.ClaudeCode.type, O]:
+          private[orca] def runWithSession[I: AgentInput](
+              input: I,
+              session: SessionId[BackendTag.ClaudeCode.type],
+              sessionName: Option[String],
+              config: Option[AgentConfig],
+              emitPrompt: Boolean
+          )(using orca.InStage): O =
+            seen.set(Some((name, role)))
+            SelectedReviewers(Nil).asInstanceOf[O]
       def interactive
           : orca.agents.InteractiveAgentCall[BackendTag.ClaudeCode.type, O] =
         ???
@@ -215,6 +250,23 @@ class ReviewerSelectorTest extends munit.FunSuite:
         _ == "reviewer selection: picker named scla-fp, matching no reviewer"
       ),
       capture.messages.mkString("\n")
+    )
+
+  test(
+    "the default picker's turn is billed as a reviewer-role turn of its own"
+  ):
+    val seen = new AtomicReference[Option[(String, Option[String])]](None)
+    val picker = new TaggingPicker(seen)
+    val pickerCtx: FlowContext = new TestFlowContext(new EventDispatcher(Nil)):
+      override lazy val reviewAgent: Agent[ReviewB] = picker
+    val _ = ReviewerSelector.agentDriven
+      .prepare(all, Title("any"), List("src/main/scala/Foo.scala"))(using
+        pickerCtx,
+        summon[orca.InStage]
+      )(Nil)
+    assertEquals(
+      seen.get(),
+      Some((ReviewerSelector.PickerName, Some(ReviewerPrompts.Role)))
     )
 
   test("selector skips the picker LLM entirely when no reviewer is eligible"):

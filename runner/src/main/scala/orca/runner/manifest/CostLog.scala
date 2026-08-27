@@ -60,18 +60,21 @@ private[orca] enum CostRecord:
   case Run(orcaVersion: String, flow: Option[String], workDir: String)
 
   /** One LLM turn, carrying every axis an aggregate needs: total, by-role,
-    * by-agent and by-stage are all folds over these lines, so an axis missing
-    * here cannot be recovered.
+    * by-agent, by-model and by-stage are all folds over these lines, so an axis
+    * missing here cannot be recovered.
     *
-    * `cost` is `None` for a model absent from the pricing table, so such a turn
-    * shows tokens against no dollars. `attempt` is the turn's 1-based position
-    * among the turns of its call, so retried spend is separable. `session` is
-    * the key the conversation is recorded under in [[RunManifest.sessions]].
+    * `model` is `None` when the backend reported none and the caller pinned
+    * none, mirroring `OrcaEvent.TokensUsed.model`. `cost` is `None` for a model
+    * absent from the pricing table, so such a turn shows tokens against no
+    * dollars. `attempt` is the turn's 1-based position among the turns of its
+    * call, so retried spend is separable. `session` is the key the conversation
+    * is recorded under in [[RunManifest.sessions]].
     */
   case Turn(
       at: Instant,
       agent: String,
       role: Option[String],
+      model: Option[String],
       stage: Option[String],
       attempt: Int,
       apiCalls: Option[Long],

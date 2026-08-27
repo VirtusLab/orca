@@ -63,3 +63,16 @@ class PricingTest extends munit.FunSuite:
       ),
       Some(Cost(BigDecimal("0.42"), estimated = false))
     )
+
+  test("the shipped table prices claude-mythos-5"):
+    // Invitation-only, so no backend default pins it and
+    // `DefaultModelsPricedTest` can't reach the row; without this a mythos turn
+    // would show tokens against no dollars.
+    assertEquals(
+      Pricing.resolve(
+        Pricing.default.table,
+        Some(Model("claude-mythos-5")),
+        usage(input = 1_000_000L, output = 0L)
+      ),
+      Some(Cost(BigDecimal("10"), estimated = true))
+    )

@@ -184,7 +184,7 @@ class CostTrackerTest extends munit.FunSuite:
       )
     )
     assert(
-      tracker.summary.contains("claude: 30K in (29K cache write), 500 out"),
+      tracker.summary.contains("opus: 30K in (29K cache write), 500 out"),
       tracker.summary
     )
 
@@ -346,8 +346,8 @@ class CostTrackerTest extends munit.FunSuite:
       tokens("performance", Some("haiku"), usage(1_000_000L, 0L, None))
     )
     val out = tracker.summary
-    assert(out.contains("claude: 10 in, 5 out ($0.1000)"), out)
-    assert(out.contains("performance: 1M in, 0 out ($1.0000*)"), out)
+    assert(out.contains("opus: 10 in, 5 out ($0.1000)"), out)
+    assert(out.contains("haiku: 1M in, 0 out ($1.0000*)"), out)
     // Mixed → aggregate is estimated → prefix shifts; asterisk on the
     // amount drops since the word already says it.
     assert(out.contains("Estimated total: $1.1000"), out)
@@ -365,7 +365,7 @@ class CostTrackerTest extends munit.FunSuite:
       val tracker = new CostTracker(pricingAsOf)
       tracker.onEvent(tokens("claude", Some("opus"), usage(n, 0L, None)))
       assert(
-        tracker.summary.contains(s"claude: $expected in"),
+        tracker.summary.contains(s"opus: $expected in"),
         tracker.summary
       )
 
@@ -387,7 +387,7 @@ class CostTrackerTest extends munit.FunSuite:
     )
     assert(
       tracker.summary.contains(
-        "claude: 50K in (40K cache read, 5K cache write), " +
+        "opus: 50K in (40K cache read, 5K cache write), " +
           "12.5K out (1.2K reasoning)"
       ),
       tracker.summary
@@ -411,7 +411,7 @@ class CostTrackerTest extends munit.FunSuite:
     )
     assert(
       tracker.summary.contains(
-        "claude: 1.63M in (1.15M cache read, 0.48M cache write), 30.2K out"
+        "opus: 1.63M in (1.15M cache read, 0.48M cache write), 30.2K out"
       ),
       tracker.summary
     )
@@ -433,7 +433,7 @@ class CostTrackerTest extends munit.FunSuite:
       )
     )
     assert(
-      tracker.summary.contains("claude: 2M in (900 cache write), 0 out"),
+      tracker.summary.contains("opus: 2M in (900 cache write), 0 out"),
       tracker.summary
     )
 
@@ -458,7 +458,7 @@ class CostTrackerTest extends munit.FunSuite:
     )
     assert(
       tracker.summary.contains(
-        "claude: 12.41M in (11.90M cache read, 0.51M cache write), 100 out"
+        "opus: 12.41M in (11.90M cache read, 0.51M cache write), 100 out"
       ),
       tracker.summary
     )
@@ -474,7 +474,7 @@ class CostTrackerTest extends munit.FunSuite:
         usage(input = 3_000_000L, output = 100L, cost = None)
       )
     )
-    assert(tracker.summary.contains("claude: 3M in, 100 out"), tracker.summary)
+    assert(tracker.summary.contains("opus: 3M in, 100 out"), tracker.summary)
 
   test("summary drops the cache-write part when a backend reports no writes"):
     val tracker = new CostTracker(pricingAsOf)
@@ -491,31 +491,20 @@ class CostTrackerTest extends munit.FunSuite:
       )
     )
     assert(
-      tracker.summary.contains("codex: 50K in (40K cache read), 100 out"),
+      tracker.summary.contains("opus: 50K in (40K cache read), 100 out"),
       tracker.summary
     )
 
-  test("summary lists By agent lines alphabetically by their rendered label"):
-    // Sorting on the raw agent name would slot an unprefixed agent between
-    // role-prefixed ones (`reviewer: lint` < main < `reviewer: readability`
-    // by name); the reader sees labels, so labels drive the order.
+  test("summary leaves per-agent spend to the run's cost log"):
+    // The block is read at the point the user wants a verdict; the cost log
+    // carries `agent` on every turn for anyone who wants that fold.
     val tracker = new CostTracker(pricingAsOf)
     tracker.onEvent(
       tokens("lint", Some("opus"), usage(1L, 1L, None), role = Some("reviewer"))
     )
-    tracker.onEvent(tokens("main", Some("opus"), usage(1L, 1L, None)))
-    tracker.onEvent(
-      tokens(
-        "readability",
-        Some("opus"),
-        usage(1L, 1L, None),
-        role = Some("reviewer")
-      )
-    )
-    assertLabelsInOrder(
-      tracker.summary,
-      List("main", "reviewer: lint", "reviewer: readability")
-    )
+    val out = tracker.summary
+    assert(!out.contains("By agent:"), out)
+    assert(!out.contains("lint"), out)
 
   test("summary lists By model lines alphabetically by model label"):
     val tracker = new CostTracker(pricingAsOf)
@@ -590,11 +579,7 @@ class CostTrackerTest extends munit.FunSuite:
     )
     assertEquals(tracker.perRole(None), usage(100L, 50L, None))
 
-  test(
-    "summary derives a display-only role prefix per agent and adds a By role subtotal section"
-  ):
-    // `agent` stays bare; the summary derives the "reviewer: <slug>" display
-    // text purely from `role`, and adds a "By role:" subtotal section.
+  test("summary adds a By role section once some call carried a role"):
     val tracker = new CostTracker(pricingAsOf)
     tracker.onEvent(
       tokens(
@@ -606,14 +591,6 @@ class CostTrackerTest extends munit.FunSuite:
     )
     tracker.onEvent(tokens("claude", Some("opus"), usage(100L, 50L, None)))
     val out = tracker.summary
-    assert(
-      out.contains("reviewer: performance:"),
-      s"expected a role-derived display prefix; got: $out"
-    )
-    assert(
-      out.contains("  claude:"),
-      s"claude's line must stay bare; got: $out"
-    )
     assert(out.contains("By role:"), out)
     assert(out.contains("  reviewer:"), out)
 

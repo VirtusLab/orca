@@ -178,7 +178,7 @@ private[orca] object RoleAgents:
       overrideSelect: Option[AgentSet => Agent[?]],
       agents: WiredAgents
   ): RoleChoice =
-    overrideSelect match
+    val choice = overrideSelect match
       case Some(select) =>
         val agent = select(agents)
         val (harness, model) = harnessAndModel(agent, None)
@@ -209,6 +209,33 @@ private[orca] object RoleAgents:
               model,
               foreign = false
             )
+    choice.copy(agent = tagged(choice.label, choice.agent, agents))
+
+  /** Stamp the role's label onto its agent as both the cost-report `name` and
+    * the `role` axis, so the run's spend separates planning from coding from
+    * review. Done here rather than in the shipped flows because a user-written
+    * flow, the shell, and the runtime's own cheap one-shots (branch naming,
+    * default commit messages) never pass through one; `Agent.cheap` carries
+    * name and role over, so those sub-calls are covered by tagging the role
+    * agent itself.
+    *
+    * Skipped when the agent already carries a name of its own — a programmatic
+    * override may set one (`flow(codingAgent =
+    * Some(_.claude.withName("bob")))`) and that name is the identity sessions
+    * and selectors key off. "Of its own" is decided against the wired agent for
+    * this agent's OWN backend rather than a list of default names, which would
+    * go stale: the five wired defaults do not agree (pi's is `pi`, the rest
+    * `main`). An agent reporting no backend tag can't be checked this way, so
+    * it is left alone.
+    */
+  private def tagged(
+      label: String,
+      agent: Agent[?],
+      agents: WiredAgents
+  ): Agent[?] =
+    if agent.backendTag.map(agents.agentFor).exists(_.name == agent.name) then
+      agent.withName(label).withRole(label)
+    else agent
 
   /** Stands in for a role where nothing orca can see pins a model — neither the
     * settings nor the wired agent (pi and opencode pin no default). The harness

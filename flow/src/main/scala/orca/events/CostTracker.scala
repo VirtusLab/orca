@@ -31,11 +31,6 @@ class CostTracker(pricingAsOf: LocalDate) extends OrcaListener:
   private case class State(
       byAgent: Map[String, Tally] = Map.empty,
       byModel: Map[Option[Model], Tally] = Map.empty,
-      /** The role last recorded for a given agent, for display/subtotal lookup.
-        * `TokensUsed.role` is constant per agent in practice, so last-write and
-        * first-write agree. See [[byRole]] for the subtotal axis.
-        */
-      agentRoles: Map[String, Option[String]] = Map.empty,
       byRole: Map[Option[String], Tally] = Map.empty,
       /** Whether any turn spent tokens the run could not price. A bucket mixing
         * priced and unpriced turns still has a `Tally.cost`, so this cannot be
@@ -54,7 +49,6 @@ class CostTracker(pricingAsOf: LocalDate) extends OrcaListener:
       copy(
         byAgent = add(byAgent, agent, tally),
         byModel = add(byModel, model, tally),
-        agentRoles = agentRoles.updated(agent, role),
         byRole = add(byRole, role, tally),
         // A turn that spent nothing has nothing to price, so it is not a gap.
         anyUnpriced = anyUnpriced || (cost.isEmpty && usage.spentTokens)
@@ -117,18 +111,20 @@ class CostTracker(pricingAsOf: LocalDate) extends OrcaListener:
   private def costsOf[K](buckets: Map[K, Tally]): Map[K, Cost] =
     buckets.collect { case (key, Tally(_, Some(cost))) => key -> cost }
 
-  /** Two or three sections — by-agent, by-model and by-role — each sorted
-    * alphabetically by its rendered label. The by-role section appears only
+  /** One or two sections — by-role and by-model — each sorted alphabetically by
+    * its rendered label, then the run's total. The by-role section appears only
     * when some call carried a [[orca.agents.Agent.role]] tag, and then includes
-    * the `(no role)` bucket too, so it still sums to the run's total. Each
-    * by-agent line is prefixed with that agent's role when it has one (e.g.
-    * `reviewer: performance`). Cache reads, cache writes and reasoning tokens
-    * are shown parenthetically when non-zero. Token counts are rendered
-    * compactly (`1K`, `103.8K`, `3.2M`) from 1000 up, a count and its
-    * parenthetical breakdown at one shared unit (`1.63M in (1.15M cache read,
-    * 0.48M cache write)`); cost (when known) stays exact and is appended as
-    * `$X.XXXX`, with an asterisk marking an estimated figure and a trailing
-    * legend line when any estimate is present.
+    * the `(no role)` bucket too, so it still sums to the run's total. Cache
+    * reads, cache writes and reasoning tokens are shown parenthetically when
+    * non-zero. Token counts are rendered compactly (`1K`, `103.8K`, `3.2M`)
+    * from 1000 up, a count and its parenthetical breakdown at one shared unit
+    * (`1.63M in (1.15M cache read, 0.48M cache write)`); cost (when known)
+    * stays exact and is appended as `$X.XXXX`, with an asterisk marking an
+    * estimated figure and a trailing legend line when any estimate is present.
+    *
+    * Per-agent spend is deliberately absent: this block is read at the moment
+    * the user wants a verdict, and the run's `<id>-cost.jsonl` carries `agent`
+    * on every turn for anyone who wants that fold.
     *
     * A turn that spent tokens but resolved to no cost contributes nothing to
     * the total, so the total's label carries `(some turns unpriced)` and gains
@@ -141,32 +137,25 @@ class CostTracker(pricingAsOf: LocalDate) extends OrcaListener:
     val s = state.get()
     if s.byAgent.isEmpty then ""
     else
-      val agentLines = s.byAgent.toList
-        .sortBy((agent, _) => agentLabel(agent, s.agentRoles))
-        .map: (agent, t) =>
-          s"  ${agentLabel(agent, s.agentRoles)}: ${formatLine(t)}"
-      val modelLines = s.byModel.toList
-        .sortBy((model, _) => modelLabel(model))
-        .map: (model, t) =>
-          s"  ${modelLabel(model)}: ${formatLine(t)}"
       val roleLines = s.byRole.toList
         .sortBy((role, _) => roleLabel(role))
         .map: (role, t) =>
           s"  ${roleLabel(role)}: ${formatLine(t)}"
+      val modelLines = s.byModel.toList
+        .sortBy((model, _) => modelLabel(model))
+        .map: (model, t) =>
+          s"  ${modelLabel(model)}: ${formatLine(t)}"
       val anyRoleTagged = s.byRole.keys.exists(_.isDefined)
       val roleSection =
         if !anyRoleTagged then ""
-        else s"""
-                 |
-                 |By role:
-                 |${roleLines.mkString("\n")}""".stripMargin
-      s"""By agent:
-         |${agentLines.mkString("\n")}
-         |
-         |By model:
+        else s"""By role:
+                |${roleLines.mkString("\n")}
+                |
+                |""".stripMargin
+      s"""${roleSection}By model:
          |${modelLines.mkString(
           "\n"
-        )}$roleSection${totalLine(s)}${legend(s)}""".stripMargin
+        )}${totalLine(s)}${legend(s)}""".stripMargin
 
   /** The run's total, qualified when some turns could not be priced. */
   private def totalLine(s: State): String =
@@ -208,16 +197,6 @@ class CostTracker(pricingAsOf: LocalDate) extends OrcaListener:
     */
   private def roleLabel(role: Option[String]): String =
     role.getOrElse("(no role)")
-
-  /** Render a by-agent line's label: the bare agent name, prefixed with its
-    * role (looked up in `agentRoles`) when it has one. The `"reviewer: "`
-    * prefix is derived purely for display, never baked into `agent` itself.
-    */
-  private def agentLabel(
-      agent: String,
-      agentRoles: Map[String, Option[String]]
-  ): String =
-    agentRoles.get(agent).flatten.fold(agent)(role => s"$role: $agent")
 
   private def formatLine(tally: Tally): String =
     val tokens = formatUsage(tally.usage)
