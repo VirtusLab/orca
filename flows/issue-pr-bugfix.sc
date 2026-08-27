@@ -1,6 +1,6 @@
 // Bug report (owner/repo#N or URL) → repro test, fix, PR — or a triage comment.
 //> using scala 3.8.4
-//> using dep "org.virtuslab::orca:0.1.4"
+//> using dep "org.virtuslab::orca:0.1.5"
 //> using jvm 21
 
 /** Bug-report → fix flow, autonomous.

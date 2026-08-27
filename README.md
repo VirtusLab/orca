@@ -86,7 +86,7 @@ Save this as `implement.sc` and run it with your task:
 
 ```scala
 //> using scala 3.8.4
-//> using dep "org.virtuslab::orca:0.1.4"
+//> using dep "org.virtuslab::orca:0.1.5"
 //> using jvm 21
 
 import orca.{*, given}
@@ -1009,7 +1009,7 @@ scala-cli's own build metadata out of the current directory (it lands under the
 given directory instead):
 
 ```bash
-scala-cli run --workspace "${XDG_CACHE_HOME:-$HOME/.cache}/orca/shell/workspace" --jvm 21 --quiet --verbose --dep "org.virtuslab::orca-shell:0.1.4" --main-class orca.shell.Main
+scala-cli run --workspace "${XDG_CACHE_HOME:-$HOME/.cache}/orca/shell/workspace" --jvm 21 --quiet --verbose --dep "org.virtuslab::orca-shell:0.1.5" --main-class orca.shell.Main
 ```
 
 ## Documentation
