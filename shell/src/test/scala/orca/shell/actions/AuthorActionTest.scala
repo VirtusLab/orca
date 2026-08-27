@@ -134,7 +134,12 @@ class AuthorActionTest extends munit.FunSuite:
       assertEquals(call.flow, builtInFlow)
       assertEquals(
         call.flags,
-        FlowFlags(verbose = false, skipBranch = false, keepChanges = false)
+        FlowFlags(
+          verbose = false,
+          skipBranch = false,
+          keepChanges = false,
+          worktree = false
+        )
       )
       assertEquals(call.fallback, FallbackPolicy.Ask(NoPromptUi))
       assert(call.task.contains("sync issues nightly"), call.task)

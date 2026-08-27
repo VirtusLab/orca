@@ -1,7 +1,10 @@
 package orca.shell.cli
 
+import orca.OrcaArgs
 import orca.shell.actions.{FlowResolution, RunAction}
 import orca.shell.run.{FallbackPolicy, FlowFlags, FlowLauncher}
+
+import Cli.{actionFailure, complete, usageFailure, withTerminal}
 
 /** `orca run`'s behavior (ADR 0021 §10): resolve the flow, read the task
   * (argument or piped stdin), then either the forced run ([[RunAction.run]]) or
@@ -10,6 +13,11 @@ import orca.shell.run.{FallbackPolicy, FlowFlags, FlowLauncher}
   */
 private[cli] object RunCli:
 
+  /** A contradictory `--worktree` pair is refused first, before anything is
+    * resolved or spawned, saving a `scala-cli` start and its dependency
+    * resolution. The flow child refuses it too, on this same shared decision,
+    * and stays the authority — this only makes the answer immediate.
+    */
   def run(
       flowRef: String,
       task: Option[String],
@@ -18,42 +26,47 @@ private[cli] object RunCli:
       workDir: os.Path,
       tty: Boolean
   ): Int =
-    FlowResolution.resolve(flowRef, workDir) match
-      case Left(message) =>
-        Cli.diagnostic(message)
-        ExitCodes.ActionFailed
-      case Right(resolved) =>
-        readTask(task, tty, readAllStdin) match
-          case Left(message) =>
-            Cli.diagnostic(message)
-            ExitCodes.UsageError
-          case Right(taskText) =>
-            Cli.withTerminal: terminal =>
-              val result =
-                if honorPin then
-                  FlowLauncher.runHonoringPin(
-                    resolved.path,
-                    taskText,
-                    workDir,
-                    flags,
-                    terminal
-                  )
-                else
-                  RunAction.run(
-                    resolved,
-                    taskText,
-                    RunAction.RunOptions(
-                      flags = flags,
-                      fallback =
-                        FallbackPolicy.Refuse("re-run with --honor-pin")
-                    ),
-                    workDir,
-                    terminal
-                  )
-              // propagates the flow child's raw exit code (LaunchResult.Failed's
-              // exit, via Cli.exitCodeFor) — run mirrors a wrapped subprocess's
-              // status rather than the flat 0/1/2 usage-error convention.
-              Cli.exitCodeFor(result)
+    complete:
+      for
+        _ <- OrcaArgs
+          .worktreeRefusal(
+            worktree = flags.worktree,
+            skipBranch = flags.skipBranch,
+            keepChanges = flags.keepChanges
+          )
+          .toLeft(())
+          .left
+          .map(usageFailure)
+        resolved <- FlowResolution
+          .resolve(flowRef, workDir)
+          .left
+          .map(actionFailure)
+        taskText <- readTask(task, tty, readAllStdin).left.map(usageFailure)
+      yield withTerminal: terminal =>
+        val result =
+          if honorPin then
+            FlowLauncher.runHonoringPin(
+              resolved.path,
+              taskText,
+              workDir,
+              flags,
+              terminal
+            )
+          else
+            RunAction.run(
+              resolved,
+              taskText,
+              RunAction.RunOptions(
+                flags = flags,
+                fallback = FallbackPolicy.Refuse("re-run with --honor-pin")
+              ),
+              workDir,
+              terminal
+            )
+        // propagates the flow child's raw exit code (LaunchResult.Failed's
+        // exit, via Cli.exitCodeFor) — run mirrors a wrapped subprocess's
+        // status rather than the flat 0/1/2 usage-error convention.
+        Cli.exitCodeFor(result)
 
   private def readAllStdin(): String =
     String(System.in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)

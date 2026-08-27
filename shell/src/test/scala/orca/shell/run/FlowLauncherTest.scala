@@ -5,12 +5,23 @@ class FlowLauncherTest extends munit.FunSuite:
   private val flow = os.root / "home" / "u" / "flow.sc"
   private val workspaceDir = os.root / "home" / "u" / ".cache" / "workspace"
 
+  /** Only the fields under test, defaulted off. Deliberately test-local:
+    * production `FlowFlags` stays without defaults so every real construction
+    * site keeps stating each flag.
+    */
+  private def flags(
+      verbose: Boolean = false,
+      skipBranch: Boolean = false,
+      keepChanges: Boolean = false,
+      worktree: Boolean = false
+  ): FlowFlags = FlowFlags(verbose, skipBranch, keepChanges, worktree)
+
   test("argv forces --dep with a release version, before --workspace/--"):
     val result = FlowLauncher.argv(
       flow,
       Some("0.0.18"),
       "do the thing",
-      FlowFlags(verbose = false, skipBranch = false, keepChanges = false),
+      flags(),
       workspaceDir
     )
     assertEquals(
@@ -35,7 +46,7 @@ class FlowLauncherTest extends munit.FunSuite:
       flow,
       None,
       "do the thing",
-      FlowFlags(verbose = false, skipBranch = false, keepChanges = false),
+      flags(),
       workspaceDir
     )
     assertEquals(
@@ -60,7 +71,7 @@ class FlowLauncherTest extends munit.FunSuite:
       flow,
       Some("0.0.18"),
       "do the thing",
-      FlowFlags(verbose = true, skipBranch = false, keepChanges = false),
+      flags(verbose = true),
       workspaceDir
     )
     assertEquals(
@@ -93,7 +104,7 @@ class FlowLauncherTest extends munit.FunSuite:
       flow,
       Some("0.0.18"),
       "do the thing",
-      FlowFlags(verbose = false, skipBranch = true, keepChanges = false),
+      flags(skipBranch = true),
       workspaceDir
     )
     assertEquals(
@@ -123,7 +134,7 @@ class FlowLauncherTest extends munit.FunSuite:
       flow,
       None,
       "do the thing",
-      FlowFlags(verbose = true, skipBranch = true, keepChanges = false),
+      flags(verbose = true, skipBranch = true),
       workspaceDir
     )
     assertEquals(
@@ -150,7 +161,7 @@ class FlowLauncherTest extends munit.FunSuite:
       flow,
       Some("0.0.18"),
       "do the thing",
-      FlowFlags(verbose = false, skipBranch = false, keepChanges = true),
+      flags(keepChanges = true),
       workspaceDir
     )
     assertEquals(
@@ -176,13 +187,44 @@ class FlowLauncherTest extends munit.FunSuite:
     )
 
   test(
-    "argv adds every flow flag in a fixed order after --: verbose, skip-branch, keep-changes"
+    "argv adds --worktree (OrcaArgs's exact flag spelling) after -- when set"
   ):
     val result = FlowLauncher.argv(
       flow,
       None,
       "do the thing",
-      FlowFlags(verbose = true, skipBranch = true, keepChanges = true),
+      flags(worktree = true),
+      workspaceDir
+    )
+    assertEquals(
+      result,
+      Seq(
+        "scala-cli",
+        "run",
+        flow.toString,
+        "--quiet",
+        "--verbose",
+        "--workspace",
+        workspaceDir.toString,
+        "--",
+        "do the thing",
+        "--worktree"
+      )
+    )
+
+  test(
+    "argv adds every flow flag in a fixed order after --: verbose, skip-branch, keep-changes, worktree"
+  ):
+    val result = FlowLauncher.argv(
+      flow,
+      None,
+      "do the thing",
+      flags(
+        verbose = true,
+        skipBranch = true,
+        keepChanges = true,
+        worktree = true
+      ),
       workspaceDir
     )
     assertEquals(
@@ -199,7 +241,8 @@ class FlowLauncherTest extends munit.FunSuite:
         "do the thing",
         "--verbose",
         "--skip-branch",
-        "--keep-changes"
+        "--keep-changes",
+        "--worktree"
       )
     )
 
@@ -209,7 +252,7 @@ class FlowLauncherTest extends munit.FunSuite:
       spacedFlow,
       None,
       "task",
-      FlowFlags(verbose = false, skipBranch = false, keepChanges = false),
+      flags(),
       workspaceDir
     )
     assertEquals(result(2), spacedFlow.toString)
@@ -223,7 +266,7 @@ class FlowLauncherTest extends munit.FunSuite:
         flow,
         None,
         "   ",
-        FlowFlags(verbose = false, skipBranch = false, keepChanges = false),
+        flags(),
         workspaceDir
       )
     )

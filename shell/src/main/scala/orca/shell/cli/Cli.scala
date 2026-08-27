@@ -155,6 +155,10 @@ private[shell] object Cli:
       )
       keepChanges: Flag = Flag(),
       @arg(doc =
+        "run the flow in a git worktree of this repository instead of the current checkout"
+      )
+      worktree: Flag = Flag(),
+      @arg(doc =
         "run the flow's own pinned orca version instead of forcing this shell's"
       )
       honorPin: Flag = Flag()
@@ -165,7 +169,8 @@ private[shell] object Cli:
       flags = FlowFlags(
         verbose = verbose.value,
         skipBranch = skipBranch.value,
-        keepChanges = keepChanges.value
+        keepChanges = keepChanges.value,
+        worktree = worktree.value
       ),
       honorPin = honorPin.value,
       workDir = os.pwd,

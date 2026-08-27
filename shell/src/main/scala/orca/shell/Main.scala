@@ -365,7 +365,8 @@ object Main:
         flags = FlowFlags(
           verbose = false,
           skipBranch = !createBranch,
-          keepChanges = false
+          keepChanges = false,
+          worktree = false
         ),
         fallback = FallbackPolicy.Ask(ui)
       )
@@ -378,10 +379,13 @@ object Main:
     * hash of it). Runs through the exact same launch path "Run a flow" uses
     * ([[RunAction.run]]/[[orca.shell.run.FlowLauncher]]): no branch prompt —
     * the resume happens on the current branch by design, and a resumed log's
-    * `bindBranch` (`FlowLifecycle`) ignores `skipBranch` entirely, so the
-    * all-false flags passed here are exactly as correct as any other value
-    * would be. `runAction` is injectable, [[AuthorAction]]-style, so a test can
-    * record the call instead of spawning a real subprocess.
+    * `bindBranch` (`FlowLifecycle`) ignores `skipBranch` entirely, so
+    * verbose/skip-branch/keep-changes are as correct here as any other value
+    * would be. `worktree` is false only until the worktree-spanning scan lands:
+    * a run found in a worktree has to be relaunched with it set, which is what
+    * takes the relaunch back to the tree holding its progress log. `runAction`
+    * is injectable, [[AuthorAction]]-style, so a test can record the call
+    * instead of spawning a real subprocess.
     */
   private[shell] def resumeInterruptedRun(
       ui: ShellUi,
@@ -407,7 +411,8 @@ object Main:
             flags = FlowFlags(
               verbose = false,
               skipBranch = false,
-              keepChanges = false
+              keepChanges = false,
+              worktree = false
             ),
             fallback = FallbackPolicy.Ask(ui)
           )

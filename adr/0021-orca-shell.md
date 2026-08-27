@@ -851,6 +851,16 @@ the same thing (`--global`, `--json`, `--yes`). `create`/`fork` run the
 built-in authoring flow (§9) with the configured role agents — no
 harness/model/yolo flag exists for either.
 
+> **Amendment (2026-08-27).** `run` gains `--worktree`, passed straight
+> through to the flow child like `--verbose`/`--skip-branch`/`--keep-changes`.
+> `RunCli` also refuses the two contradictory pairs (`--worktree` with
+> `--skip-branch`, and with `--keep-changes`) itself, exiting 2 before any
+> `scala-cli` spawn — the child refuses them too and stays the authority, but
+> the shell holds the answer already, and spawning only to be told costs a
+> dependency resolution. Both sides call the one shared decision
+> (`OrcaArgs.worktreeRefusal`), so neither the wording nor the set of refused
+> pairs can drift.
+
 Both entry points call a shared `orca.shell.actions` package (`FlowResolution`,
 `RunAction`, `ViewAction`, `EditAction`, `AuthorAction`, `SessionAction`,
 `ConfigAction`, `StackAction`): each takes fully-resolved parameters and does

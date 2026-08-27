@@ -60,9 +60,9 @@ object OrcaArgs:
       .constructEither(args.toList)
       .flatMap: parsed =>
         worktreeRefusal(
-          parsed.worktree.value,
-          parsed.skipBranch.value,
-          parsed.keepChanges.value
+          worktree = parsed.worktree.value,
+          skipBranch = parsed.skipBranch.value,
+          keepChanges = parsed.keepChanges.value
         ).toLeft(parsed)
 
   /** Overload for scala-cli flow scripts, whose top-level `args` is

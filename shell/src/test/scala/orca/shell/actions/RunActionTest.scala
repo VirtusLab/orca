@@ -17,7 +17,12 @@ class RunActionTest extends munit.FunSuite:
       // A non-default combination, so a launcher handed defaults of its own
       // instead of these fails here.
       val flags =
-        FlowFlags(verbose = true, skipBranch = false, keepChanges = true)
+        FlowFlags(
+          verbose = true,
+          skipBranch = false,
+          keepChanges = true,
+          worktree = false
+        )
       val recording = RecordingLaunch()
 
       val result = RunAction.run(

@@ -137,7 +137,12 @@ private[shell] object AuthorAction:
       flow,
       prompt,
       sandbox,
-      FlowFlags(verbose = false, skipBranch = false, keepChanges = false),
+      FlowFlags(
+        verbose = false,
+        skipBranch = false,
+        keepChanges = false,
+        worktree = false
+      ),
       terminal
     )
     finishAuthoring(result, sandbox, params)

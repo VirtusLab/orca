@@ -64,6 +64,50 @@ class CliTest extends munit.FunSuite:
       Right(1)
     )
 
+  test(
+    "run: --worktree parses too (fails later, at flow resolution)"
+  ):
+    assertEquals(
+      invoke("run", "no-such-flow.sc", "a task", "--worktree"),
+      Right(1)
+    )
+
+  test(
+    "run: --worktree with --skip-branch is refused before the flow is resolved"
+  ):
+    // A usage error rather than the flow-not-found 1 the cases above get: the
+    // refusal runs first, so no scala-cli is ever spawned.
+    val (_, err) = capturedBoth(
+      assertEquals(
+        invoke(
+          "run",
+          "no-such-flow.sc",
+          "a task",
+          "--worktree",
+          "--skip-branch"
+        ),
+        Right(ExitCodes.UsageError)
+      )
+    )
+    assert(err.contains("--worktree") && err.contains("--skip-branch"), err)
+
+  test("run: --worktree with --keep-changes is refused the same way"):
+    val (_, err) = capturedBoth(
+      assertEquals(
+        invoke(
+          "run",
+          "no-such-flow.sc",
+          "a task",
+          "--worktree",
+          "--keep-changes"
+        ),
+        Right(ExitCodes.UsageError)
+      )
+    )
+    assert(err.contains("--worktree") && err.contains("--keep-changes"), err)
+    // Names the pair the user actually typed, not the other one.
+    assert(!err.contains("--skip-branch"), err)
+
   test("run: the required flow positional missing is a usage error"):
     assert(!parses("run"))
 
