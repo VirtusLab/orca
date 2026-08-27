@@ -120,6 +120,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     // `System.exit(1)`.
     val ranIn = new AtomicReference[Option[os.Path]](None)
     val logSeen = new AtomicReference(false)
+    val listener = new RecordingListener
     def run(): Unit =
       supervised:
         val interaction = TerminalInteraction.start(
@@ -132,6 +133,7 @@ class FlowLifecycleTest extends munit.FunSuite:
           stackSettings = Some(StackSettings.empty),
           claude = Some(_ => StubAgent.claude),
           workDir = workDir,
+          extraListeners = List(listener),
           interaction = Some(interaction)
         ):
           val ctx = summon[FlowContext]
@@ -177,6 +179,16 @@ class FlowLifecycleTest extends munit.FunSuite:
       ""
     )
     assert(!os.exists(workDir / "made-by-the-run.txt"))
+    // The user's shell never moved, so the closing block has to say where the
+    // work actually is.
+    val steps = listener.events.collect:
+      case OrcaEvent.Step(text) => text
+    assert(
+      steps.contains(
+        s"done — the work is in $worktree on branch '${branchOf(worktree)}'"
+      ),
+      steps.mkString("\n")
+    )
 
     ranIn.set(None)
     run()
@@ -3025,7 +3037,8 @@ class FlowLifecycleTest extends munit.FunSuite:
       stackSettings = StackSettings.empty,
       branchMode = BranchMode.Reused,
       untrackedOnFailure = UntrackedFiles.Remove,
-      startingCommit = None
+      startingCommit = None,
+      worktree = None
     )
     FlowLifecycle.teardownSuccess(
       git,
@@ -3082,7 +3095,8 @@ class FlowLifecycleTest extends munit.FunSuite:
       stackSettings = StackSettings.empty,
       branchMode = BranchMode.Reused,
       untrackedOnFailure = UntrackedFiles.Remove,
-      startingCommit = None
+      startingCommit = None,
+      worktree = None
     )
     TeardownPushRepo(git, remote, setup, store.path.subRelativeTo(workDir))
 
@@ -3181,7 +3195,8 @@ class FlowLifecycleTest extends munit.FunSuite:
       stackSettings = StackSettings.empty,
       branchMode = branchMode,
       untrackedOnFailure = UntrackedFiles.Remove,
-      startingCommit = startingCommit
+      startingCommit = startingCommit,
+      worktree = None
     )
 
   test(

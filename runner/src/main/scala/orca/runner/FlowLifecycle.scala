@@ -229,7 +229,11 @@ object FlowLifecycle:
       stackSettings: StackSettings,
       branchMode: BranchMode,
       untrackedOnFailure: UntrackedFiles,
-      startingCommit: Option[CommitHash]
+      startingCommit: Option[CommitHash],
+      /** The directory a `--worktree` run happens in — the closing summary
+        * names it.
+        */
+      worktree: Option[os.Path]
   )
 
   /** The branch half of [[FlowSetup]] (FP2), resolved by whichever of
@@ -375,7 +379,8 @@ object FlowLifecycle:
       stackSettings,
       binding.branchMode,
       untrackedOnFailure,
-      binding.startingCommit
+      binding.startingCommit,
+      Option.when(args.worktree.value)(workDir)
     )
 
   /** On an unborn HEAD (`git init`, no commits) every later git call that names
@@ -1194,7 +1199,7 @@ object FlowLifecycle:
           finishBranch(git, setup, returnToStartBranch)
     bestEffort("closing summary"):
       ClosingSummary
-        .lines(git.currentBranch(), changes)
+        .lines(git.currentBranch(), changes, setup.worktree)
         .foreach(line => emit(OrcaEvent.Step(line)))
 
   /** Where HEAD ends up after a successful run. A throwaway feature branch
