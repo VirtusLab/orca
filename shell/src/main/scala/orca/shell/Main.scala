@@ -99,14 +99,16 @@ object Main:
     * on every redraw (ADR 0021 §8) — a flow run started from this same menu can
     * only have just finished, so the freshest listing is worth the re-read.
     * `ResumeDetector.detect` is likewise re-evaluated every redraw (ADR 0021 §3
-    * amendment) — one `git worktree list`, a directory listing per worktree and
-    * one small file read, still cheap enough to repeat and consistent with
-    * Continue's own re-read. Re-discovering per redraw is the point: a
-    * `--worktree` run started from this very menu creates a worktree that was
-    * not there when the shell started. The `branch:` line
-    * ([[ConfigSummary.branchLine]]) is printed here for the same reason: a flow
-    * run started from this menu can leave HEAD on a new branch, so it is
-    * re-read per redraw rather than printed once with the startup summary.
+    * amendment). Both scans share ONE `WorktreeScan.dirs` resolution — the
+    * discovery is a git subprocess or two, and nothing between them can change
+    * the answer — over a bounded set of directories, so a redraw stays cheap
+    * enough to repeat and consistent with Continue's own re-read.
+    * Re-discovering per redraw is the point: a `--worktree` run started from
+    * this very menu creates a worktree that was not there when the shell
+    * started. The `branch:` line ([[ConfigSummary.branchLine]]) is printed here
+    * for the same reason: a flow run started from this menu can leave HEAD on a
+    * new branch, so it is re-read per redraw rather than printed once with the
+    * startup summary.
     */
   @tailrec private def loop(
       ui: ShellUi,
@@ -115,11 +117,15 @@ object Main:
       terminal: Terminal,
       tty: Boolean
   ): Unit =
-    val (runs, warnings) = ManifestReader.list(os.pwd, ManifestReader.pidAlive)
+    // Resolved once and shared: both scans want the same answer over the same
+    // cwd, and the discovery is a git subprocess or two.
+    val scanDirs = WorktreeScan.dirs(os.pwd)
+    val (runs, warnings) =
+      ManifestReader.list(scanDirs, ManifestReader.pidAlive)
     warnings.foreach(ShellOutput.info)
     val continueSessionCount =
       runs.headOption.map(_.manifest.sessions.size)
-    val resumeOffer = ResumeDetector.detect(WorktreeScan.dirs(os.pwd))
+    val resumeOffer = ResumeDetector.detect(scanDirs)
     ConfigSummary.branchLine(os.pwd).foreach(ShellOutput.info)
     ui.select(
       "orca shell",

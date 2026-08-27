@@ -3,6 +3,7 @@ package orca.shell
 import orca.OrcaDir
 import orca.testkit.{GitRepo, TempDirs}
 import orca.tools.Worktrees
+import ox.discard
 
 class WorktreeScanTest extends munit.FunSuite:
 
@@ -30,3 +31,20 @@ class WorktreeScanTest extends munit.FunSuite:
     // Its branch's committed progress log would otherwise become a resume
     // offer, handing that branch's task text to an agent.
     assertEquals(WorktreeScan.dirs(repo), List(repo))
+
+  test("worktrees are ranked by when each last recorded a run"):
+    val repo = GitRepo.seeded()
+    val worktrees = List("aaaaaaaaaaaa", "bbbbbbbbbbbb", "cccccccccccc").map:
+      name =>
+        val path = OrcaDir.ensureWorktrees(repo) / name
+        assertEquals(Worktrees.add(repo, path), Right(()))
+        os.makeDir.all(OrcaDir.runsPath(path))
+        path
+    // Newest run last-recorded wins; the shell's own checkout stays first.
+    os.mtime.set(OrcaDir.runsPath(worktrees(0)), 1000L).discard
+    os.mtime.set(OrcaDir.runsPath(worktrees(2)), 3000L).discard
+    os.mtime.set(OrcaDir.runsPath(worktrees(1)), 2000L).discard
+    assertEquals(
+      WorktreeScan.dirs(repo),
+      List(repo, worktrees(2), worktrees(1), worktrees(0))
+    )

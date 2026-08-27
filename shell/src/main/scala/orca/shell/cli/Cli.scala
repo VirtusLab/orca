@@ -3,6 +3,7 @@ package orca.shell.cli
 import mainargs.{Flag, ParserForMethods, Renderer, Util, arg, main}
 import org.jline.terminal.Terminal
 import orca.settings.GlobalSettings
+import orca.shell.WorktreeScan
 import orca.shell.run.{FlowFlags, LaunchResult}
 import orca.shell.ui.ShellUi
 import orca.subprocess.TtyProbe
@@ -258,7 +259,13 @@ private[shell] object Cli:
       @arg(doc = "with --list, emit JSON instead of a table")
       json: Flag = Flag()
   ): Int =
-    ContinueCli.runContinue(os.pwd, selector, list.value, json.value, isTty)
+    ContinueCli.runContinue(
+      WorktreeScan.dirs(os.pwd),
+      selector,
+      list.value,
+      json.value,
+      isTty
+    )
 
   @main(doc =
     "Show or set the global role agents (planning/coding/review).\n" +

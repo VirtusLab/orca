@@ -69,8 +69,14 @@ private[shell] object SessionPicker:
       yield Occurrence(run, session)
     val (durable, oneShot) = occurrences.partition(isDurable)
 
+    // Keyed on the working directory too: harness sessions are cwd-scoped, and
+    // flow session names are static ("implementer" in every run), so the same
+    // name in two worktrees is two different conversations about two different
+    // tasks — deduping them against each other would hide one behind the other.
     val lineages = durable
-      .groupBy(o => (o.session.agent, o.session.sessionName))
+      .groupBy(o =>
+        (o.run.manifest.workDir, o.session.agent, o.session.sessionName)
+      )
       .values
       .map(_.sortBy(recency).reverse)
       .toList
@@ -78,12 +84,21 @@ private[shell] object SessionPicker:
     val earlier = lineages.flatMap(_.tail).sortBy(recency).reverse
     val oneShotSorted = oneShot.sortBy(recency).reverse
 
-    val primaryRows = primary.map(o => resumeRow(o, primaryLabel(o)))
+    // Which directory a session is in only matters once the listing spans more
+    // than one, and then it is the only thing telling two rows apart.
+    val where =
+      if runs.map(_.manifest.workDir).distinct.sizeIs > 1 then
+        (o: Occurrence) => s" @${lastSegment(o.run.manifest.workDir)}"
+      else (_: Occurrence) => ""
+
+    val primaryRows = primary.map(o => resumeRow(o, primaryLabel(o) + where(o)))
     val earlierRows =
-      if expanded then earlier.map(o => resumeRow(o, earlierLabel(o)))
+      if expanded then
+        earlier.map(o => resumeRow(o, earlierLabel(o) + where(o)))
       else expanderRow(earlier.size, "earlier occurrence")
     val oneShotRows =
-      if expanded then oneShotSorted.map(o => resumeRow(o, oneShotLabel(o)))
+      if expanded then
+        oneShotSorted.map(o => resumeRow(o, oneShotLabel(o) + where(o)))
       else
         expanderRow(
           oneShotSorted.size,
@@ -102,6 +117,13 @@ private[shell] object SessionPicker:
     case ManifestSessionKind.OneShot | ManifestSessionKind.Unknown(_) => false
 
   private def recency(o: Occurrence): Instant = o.session.lastActiveAt
+
+  /** A recorded `workDir`'s final segment, for telling two same-named lineages
+    * apart. String-sliced, not `os.Path`-parsed: the value is manifest content,
+    * and a hand-edited one need not be an absolute path.
+    */
+  private def lastSegment(workDir: String): String =
+    workDir.split('/').filter(_.nonEmpty).lastOption.getOrElse(workDir)
 
   private def resumeRow(o: Occurrence, label: String): Choice[PickerRow] =
     Choice(
@@ -251,8 +273,15 @@ private[shell] object SessionPicker:
           notFound
         )
       case multiple =>
-        val agents = multiple.map(_._2.session.agent).distinct.mkString(", ")
-        Left(s"'$name' is ambiguous — matches agents: $agents")
+        // Same name in two worktrees matches on one agent, so naming agents
+        // alone would read as "ambiguous — matches agents: coder".
+        val agents = multiple.map(_._2.session.agent).distinct
+        val detail =
+          if agents.sizeIs > 1 then s"agents: ${agents.mkString(", ")}"
+          else
+            val dirs = multiple.map(_._2.manifest.workDir).distinct
+            s"working directories: ${dirs.mkString(", ")}"
+        Left(s"'$name' is ambiguous — matches $detail")
 
   /** [[sessionRows]]'s rows, dropping the "show more" expanders — never present
     * for [[SessionSelection]] callers (`selectByIndex` reads the fully expanded

@@ -214,7 +214,9 @@ runtime's own glyph family (`⏺`/`●`/`▶`/`▸`).
 > cannot be read costs only its own logs. Discovery is git's own worktree list
 > (`Worktrees.list`, resolved at the call site so the scan itself takes plain
 > directories and stays testable without a repository), filtered to children of
-> `.orca/worktrees/` — a worktree checked out to review someone else's branch
+> `.orca/worktrees/` and capped at the 20 most recently used (orca never removes
+> a worktree, and these scans run per redraw) — a worktree checked out to review
+> someone else's branch
 > carries that branch's committed progress log, and its recorded task text is
 > what the offer would hand an agent. The progress-log scan deliberately does
 > NOT descend into `.orca/worktrees/`; it stays one level deep.
@@ -495,6 +497,21 @@ resume is global, but the resumed context still references that directory):
 | opencode | `opencode --session <ses_…>` | high — TUI shares `opencode serve`'s store |
 | gemini | `gemini --list-sessions` → match uuid → `gemini --resume <index>` | medium — `--resume` takes latest/index, not uuid |
 | pi | `pi --session-dir <workDir>/.orca/cache/pi-sessions/<id> --continue` | medium-high — orca writes the dir itself; inferred from pi's `--continue` semantics, not yet live-verified interactively |
+
+> **Amendment (2026-08-27).** The listing spans the checkout the shell was
+> started in plus the worktrees orca made for it (`WorktreeScan.dirs`, the same
+> set the resume offer scans, §3): a `--worktree` run writes its manifests into
+> its own tree, so a shell reading only its own `.orca/cache/runs/` would omit
+> the sessions of a run it had just started. The newest-first order now runs
+> across all of them. Containment is per directory as well as per file: the
+> caller's own directory is read strictly (a symlinked `.orca` there aborts),
+> while a failure in any other — unreadable, or removed mid-redraw — becomes one
+> warning naming it rather than taking the listing down with it. Lineages are
+> keyed on the manifest's `workDir` too, since flow session names are static and
+> harness sessions are cwd-scoped: the same name in two worktrees is two
+> conversations, and the rows say which tree each is in. Reattaching needs
+> nothing further — resume already execs from the manifest's recorded
+> `workDir`, which is the worktree.
 
 > **Amendment (2026-07-28).** Pi is now durable (ADR 0018 §2.6); before the argv is
 > built, resume applies the same resumability predicate as the backend's own probe

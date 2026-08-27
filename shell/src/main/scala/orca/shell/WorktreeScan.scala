@@ -15,8 +15,19 @@ import orca.tools.Worktrees
   */
 private[shell] object WorktreeScan:
 
-  /** `workDir`, then every worktree under its repository's `.orca/worktrees/` —
-    * deduplicated, since the shell may itself be running in one of them.
+  /** How many worktrees are scanned besides `workDir`. Orca never removes a
+    * worktree and makes one per distinct task, so `.orca/worktrees/` grows for
+    * the life of the repository — while these scans run on every menu redraw.
+    * Matches `RunManifestWriter`'s own kept-runs budget.
+    */
+  private val MaxScannedWorktrees = 20
+
+  /** `workDir`, then the most recently used worktrees under its repository's
+    * `.orca/worktrees/` — deduplicated, since the shell may itself be running
+    * in one of them, and capped at [[MaxScannedWorktrees]], newest first by
+    * when each last recorded a run. A stat per worktree, not a read of its
+    * contents; a worktree nobody has run in for that long has no session anyone
+    * is about to continue.
     *
     * Just `workDir` when git has nothing to say (not a repository, git
     * unavailable): the shell's own directory is always worth scanning.
@@ -33,4 +44,17 @@ private[shell] object WorktreeScan:
       .map(OrcaDir.worktreesPath)
       .toList
       .flatMap(root => Worktrees.list(workDir).filter(_ / os.up == root))
-    workDir :: orcaMade.filterNot(_ == workDir)
+    workDir :: orcaMade
+      .filterNot(_ == workDir)
+      .sortBy(lastRunAt)
+      .reverse
+      .take(MaxScannedWorktrees)
+
+  /** When a worktree last recorded a run — the mtime of its
+    * `.orca/cache/runs/`, which `RunManifestWriter` creates as it starts and
+    * rewrites per manifest. `0` for a worktree that never ran one, or whose
+    * directory can't be read, which sorts it last rather than dropping it
+    * outright.
+    */
+  private def lastRunAt(worktree: os.Path): Long =
+    scala.util.Try(os.mtime(OrcaDir.runsPath(worktree))).getOrElse(0L)

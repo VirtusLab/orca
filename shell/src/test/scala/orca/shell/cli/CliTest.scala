@@ -968,6 +968,72 @@ class CliTest extends munit.FunSuite:
     )
 
   test(
+    "selectByName: the same name in two worktrees is ambiguous, naming the trees"
+  ):
+    // Flow session names are static, so two parallel --worktree runs on
+    // unrelated tasks both record "shared" under the same agent. They are
+    // different conversations (harness sessions are cwd-scoped) and must not
+    // resolve silently to the newer one.
+    val runs = List(
+      RecordedRun(
+        manifest(
+          workDir = "/repo/.orca/worktrees/aaaaaaaaaaaa",
+          startedAt = "2026-07-18T09:00:00Z",
+          sessions = List(durable("shared", "2026-07-18T09:30:00Z"))
+        ),
+        crashed = false
+      ),
+      RecordedRun(
+        manifest(
+          workDir = "/repo/.orca/worktrees/bbbbbbbbbbbb",
+          startedAt = "2026-07-18T08:00:00Z",
+          sessions = List(durable("shared", "2026-07-18T08:30:00Z"))
+        ),
+        crashed = false
+      )
+    )
+    assertEquals(
+      SessionPicker.selectByName(runs, "shared"),
+      Left(
+        "'shared' is ambiguous — matches working directories: " +
+          "/repo/.orca/worktrees/aaaaaaaaaaaa, /repo/.orca/worktrees/bbbbbbbbbbbb"
+      )
+    )
+    // Both are primary rows, and each says which tree it is in.
+    val labels = SessionPicker
+      .withoutExpanders(SessionPicker.sessionRows(runs, expanded = false))
+      .map(_.label)
+    assertEquals(labels.count(_.contains("★")), 2)
+    assert(labels.exists(_.contains("@aaaaaaaaaaaa")), labels.toString)
+    assert(labels.exists(_.contains("@bbbbbbbbbbbb")), labels.toString)
+
+  test(
+    "successive runs in ONE directory still collapse into a single lineage"
+  ):
+    val runs = List(
+      RecordedRun(
+        manifest(
+          startedAt = "2026-07-18T09:00:00Z",
+          sessions = List(durable("shared", "2026-07-18T09:30:00Z"))
+        ),
+        crashed = false
+      ),
+      RecordedRun(
+        manifest(
+          startedAt = "2026-07-18T08:00:00Z",
+          sessions = List(durable("shared", "2026-07-18T08:30:00Z"))
+        ),
+        crashed = false
+      )
+    )
+    val labels = SessionPicker
+      .withoutExpanders(SessionPicker.sessionRows(runs, expanded = false))
+      .map(_.label)
+    assertEquals(labels.count(_.contains("★")), 1)
+    // One directory, so nothing to disambiguate.
+    assert(!labels.exists(_.contains("@")), labels.toString)
+
+  test(
     "sessionListingRows numbers rows 1-based in the same order continue <n> uses"
   ):
     val rows = Tables.sessionListingRows(runsFixture())
@@ -1039,7 +1105,7 @@ class CliTest extends munit.FunSuite:
     val (out, err) = capturedBoth(
       assertEquals(
         ContinueCli
-          .runContinue(dir, None, list = true, json = true, tty = false),
+          .runContinue(List(dir), None, list = true, json = true, tty = false),
         ExitCodes.Ok
       )
     )
@@ -1089,7 +1155,7 @@ class CliTest extends munit.FunSuite:
     val out = captured(
       assertEquals(
         ContinueCli
-          .runContinue(dir, None, list = true, json = true, tty = false),
+          .runContinue(List(dir), None, list = true, json = true, tty = false),
         ExitCodes.Ok
       )
     )
@@ -1101,7 +1167,7 @@ class CliTest extends munit.FunSuite:
     val out = captured(
       assertEquals(
         ContinueCli
-          .runContinue(dir, None, list = true, json = false, tty = false),
+          .runContinue(List(dir), None, list = true, json = false, tty = false),
         ExitCodes.Ok
       )
     )
@@ -1151,7 +1217,7 @@ class CliTest extends munit.FunSuite:
     val (out, err) = capturedBoth(
       assertEquals(
         ContinueCli
-          .runContinue(dir, None, list = false, json = false, tty = true),
+          .runContinue(List(dir), None, list = false, json = false, tty = true),
         ExitCodes.ActionFailed
       )
     )
