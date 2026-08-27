@@ -1139,9 +1139,10 @@ object FlowLifecycle:
     * removed" case) stays fully silent; every other failure is debug-logged.
     *
     * The closing summary ([[ClosingSummary]]) straddles the whole sequence: its
-    * change set is counted at the top, while the feature branch is still
-    * checked out, and it is emitted at the very end, once [[finishBranch]] has
-    * settled which branch the user is left on.
+    * change set is counted first, while the feature branch is still checked
+    * out, and it is emitted last, once [[finishBranch]] has settled which
+    * branch the user is left on — which is why [[RunChanges]] carries the
+    * branch it was counted on.
     */
   private[orca] def teardownSuccess(
       git: GitTool,
@@ -1152,36 +1153,44 @@ object FlowLifecycle:
     // Teardown runs outside any user stage, so it mints its own
     // `WorkspaceWrite`. No LLM call happens here, so `InStage` isn't needed.
     given WorkspaceWrite = RuntimeInStage.workspaceToken()
-    val changes = bestEffortRead("count changed files"):
-      setup.startingCommit.map: base =>
-        RunChanges(base, git.changedFiles(Some(base.value)).size)
-    try
-      bestEffort("remove progress log"):
-        try
-          val _ = os.remove(setup.store.path)
-        catch case _: java.nio.file.NoSuchFileException => ()
-      // Pathspec-scoped to the log file, so uncommitted files the cleanliness
-      // policy left in the tree stay out of this bookkeeping commit;
-      // force-staged, because `.orca/` may be gitignored. A log never
-      // committed, or already removed by an earlier teardown, fails the stage
-      // or the commit — cosmetic, swallowed by bestEffort.
-      bestEffort("commit progress-log removal"):
-        git.forceCommitOnly(setup.store.path, "orca: remove progress log")
-      // Gated on the remote still carrying the log, not on the commit leg
-      // succeeding: a resumed teardown's commit finds nothing to commit yet
-      // may still owe the remote a push. The gate is also what keeps this from
-      // publishing
-      // anything the run didn't — a reused branch that had an upstream before
-      // the run only has the log upstream if this run pushed it there.
-      bestEffort("push progress-log removal"):
-        if git.upstreamHas(setup.store.path) then git.push().orThrow
-    finally
-      bestEffort("branch handoff"):
-        finishBranch(git, setup, returnToStartBranch)
-      bestEffort("closing summary"):
-        ClosingSummary
-          .lines(git.currentBranch(), changes)
-          .foreach(line => emit(OrcaEvent.Step(line)))
+    val changes =
+      try
+        // First, while the feature branch is still checked out: the count is
+        // what `git diff` against the base shows there.
+        val counted = bestEffortRead("count changed files"):
+          setup.startingCommit.map: base =>
+            RunChanges(
+              base,
+              git.trackedChangedFiles(base.value).size,
+              setup.featureBranch.value
+            )
+        bestEffort("remove progress log"):
+          try
+            val _ = os.remove(setup.store.path)
+          catch case _: java.nio.file.NoSuchFileException => ()
+        // Pathspec-scoped to the log file, so uncommitted files the cleanliness
+        // policy left in the tree stay out of this bookkeeping commit;
+        // force-staged, because `.orca/` may be gitignored. A log never
+        // committed, or already removed by an earlier teardown, fails the stage
+        // or the commit — cosmetic, swallowed by bestEffort.
+        bestEffort("commit progress-log removal"):
+          git.forceCommitOnly(setup.store.path, "orca: remove progress log")
+        // Gated on the remote still carrying the log, not on the commit leg
+        // succeeding: a resumed teardown's commit finds nothing to commit yet
+        // may still owe the remote a push. The gate is also what keeps this
+        // from publishing anything the run didn't — a reused branch that had an
+        // upstream before the run only has the log upstream if this run pushed
+        // it there.
+        bestEffort("push progress-log removal"):
+          if git.upstreamHas(setup.store.path) then git.push().orThrow
+        counted
+      finally
+        bestEffort("branch handoff"):
+          finishBranch(git, setup, returnToStartBranch)
+    bestEffort("closing summary"):
+      ClosingSummary
+        .lines(git.currentBranch(), changes)
+        .foreach(line => emit(OrcaEvent.Step(line)))
 
   /** Where HEAD ends up after a successful run. A throwaway feature branch
     * (only orca bookkeeping, no user code vs the start branch) is deleted and

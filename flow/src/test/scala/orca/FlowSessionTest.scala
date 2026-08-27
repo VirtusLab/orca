@@ -485,7 +485,7 @@ class FlowSessionTest extends FunSuite:
     )
 
   test(
-    "re-seeded session: the preamble names the commit the tree is at and warns that uncommitted work is gone"
+    "re-seeded session: the preamble names the commit the tree is at and says an unfinished stage left nothing"
   ):
     // A real repo, unlike `makeControl`'s bare temp dir, so `headCommit()` has
     // something to report.
@@ -514,8 +514,8 @@ class FlowSessionTest extends FunSuite:
       s"the preamble must name the commit; got: $prompt"
     )
     assert(
-      prompt.contains("Uncommitted work does not survive between stages"),
-      s"the preamble must say earlier edits may be gone; got: $prompt"
+      prompt.contains("a stage that did not complete left nothing behind"),
+      s"the preamble must say an unfinished stage's edits are gone; got: $prompt"
     )
 
   test(

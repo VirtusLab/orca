@@ -342,8 +342,8 @@ Each `flow(...)` run is bound to exactly one feature branch and one progress log
   modifications to tracked files (kept untracked files survive).
 - **Resume:** a re-run with the same prompt finds the progress log and resumes
   from the first incomplete stage. It says once which branch it bound, how many
-  stages it is skipping, and that the interrupted stage's uncommitted work was
-  not carried over; a re-seeded agent session is told the same. A corrupt or
+  stages are already recorded, and that the interrupted stage's uncommitted work
+  was not carried over; a re-seeded agent session is told the same. A corrupt or
   truncated progress log is detected at startup — orca warns and starts fresh
   (previous stages re-run) rather than silently mis-resuming.
 - **Success teardown:** remove the progress-log file in a final commit, and push

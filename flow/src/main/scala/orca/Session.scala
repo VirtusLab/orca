@@ -395,7 +395,9 @@ private def persistResumeWireId[B <: BackendTag](
   * caller's text verbatim and never sees this.
   *
   * The wording stays neutral about interruption because the same preamble
-  * primes a session first used mid-run, after an earlier stage completed.
+  * primes a session first used mid-run, after an earlier stage completed — and
+  * it speaks of a stage that did not complete rather than of uncommitted work
+  * in general, since a stage's own edits ARE committed at its boundary.
   */
 private def progressPreamble(
     log: Option[ProgressLog],
@@ -408,8 +410,9 @@ private def progressPreamble(
       headCommit.fold("")(c => s" The working tree is at commit $c.")
     Some(
       s"Progress so far: completed ${completed.mkString(", ")}.$tree " +
-        "Uncommitted work does not survive between stages, so read the files " +
-        "rather than assuming earlier edits are still there. Continue from here."
+        "Their work is committed; a stage that did not complete left nothing " +
+        "behind. Read the files rather than assuming what earlier stages " +
+        "left. Continue from here."
     )
 
 /** Assemble the final primed prompt from the optional preamble, optional seed,

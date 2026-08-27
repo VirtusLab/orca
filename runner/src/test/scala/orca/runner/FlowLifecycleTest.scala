@@ -66,9 +66,10 @@ class FlowLifecycleTest extends munit.FunSuite:
 
   test("success teardown: ends on start branch and removes progress-log file"):
     val workDir = GitRepo.seeded()
+    val out = new ByteArrayOutputStream()
     supervised:
       val interaction = TerminalInteraction.start(
-        out = new PrintStream(new ByteArrayOutputStream()),
+        out = new PrintStream(out),
         useColor = false,
         animated = false
       )
@@ -89,6 +90,12 @@ class FlowLifecycleTest extends munit.FunSuite:
     assertEquals(branch, "main")
     val store = ProgressStore.default(workDir, "lifecycle-success")
     assert(!os.exists(store.path), s"progress log ${store.path} should be gone")
+    // The one call site that wires the closing block to a real listener.
+    val rendered = out.toString(java.nio.charset.StandardCharsets.UTF_8)
+    assert(
+      rendered.contains("done — you are on branch 'main'"),
+      s"the closing block must reach the terminal: $rendered"
+    )
 
   test(
     "failure teardown: stays on feature branch with clean working tree and earlier commit present"
@@ -3032,13 +3039,14 @@ class FlowLifecycleTest extends munit.FunSuite:
     */
   private def closingSummary(
       git: OsGitTool,
-      setup: FlowLifecycle.FlowSetup
+      setup: FlowLifecycle.FlowSetup,
+      returnToStartBranch: Boolean
   ): List[String] =
     val emitted = new AtomicReference[List[OrcaEvent]](Nil)
     FlowLifecycle.teardownSuccess(
       git,
       setup,
-      returnToStartBranch = false,
+      returnToStartBranch,
       e => { val _ = emitted.updateAndGet(e :: _) }
     )
     emitted.get().reverse.collect { case s: OrcaEvent.Step => s.message }
@@ -3061,8 +3069,39 @@ class FlowLifecycleTest extends munit.FunSuite:
     )
 
   test(
-    "closing summary: names the branch the run ends on, the file count and the diff command"
+    "closing summary: HEAD staying on the feature branch gets the plain base diff"
   ):
+    // The default path: the branch the count was taken on is the one the user
+    // is left on, so `git diff <base>` there already shows the work.
+    val workDir = GitRepo.seeded()
+    val git = new OsGitTool(workDir)
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    val base = git.headCommit().flatMap(orca.progress.CommitHash.from).get
+    val _ = git.createBranch("closing-stay")
+    os.write(workDir / "a.txt", "one")
+    os.write(workDir / "b.txt", "two")
+    assert(git.commit("the run's work").isRight)
+    val setup = closingSetup(
+      ProgressStore.default(workDir, "closing-stay"),
+      "closing-stay",
+      BranchMode.Created,
+      Some(base)
+    )
+    assertEquals(
+      closingSummary(git, setup, returnToStartBranch = false),
+      List(
+        "done — you are on branch 'closing-stay'",
+        s"2 file(s) changed since ${base.short}",
+        s"next: git diff ${base.short}"
+      )
+    )
+
+  test(
+    "closing summary: a PR flow's return to the start branch still points the diff at the work"
+  ):
+    // Both halves of the straddle in one run: the branch line is read after the
+    // handoff (so it says 'main'), while the count and the command are taken on
+    // the feature branch — a `git diff <base>` on 'main' would print nothing.
     val workDir = GitRepo.seeded()
     val git = new OsGitTool(workDir)
     given WorkspaceWrite = WorkspaceWrite.unsafe
@@ -3078,11 +3117,11 @@ class FlowLifecycleTest extends munit.FunSuite:
       Some(base)
     )
     assertEquals(
-      closingSummary(git, setup),
+      closingSummary(git, setup, returnToStartBranch = true),
       List(
-        "done — you are on branch 'closing-work'",
+        "done — you are on branch 'main'",
         s"2 file(s) changed since ${base.short}",
-        s"next: git diff ${base.short}"
+        s"next: git diff ${base.short}..closing-work"
       )
     )
 
@@ -3101,10 +3140,9 @@ class FlowLifecycleTest extends munit.FunSuite:
       Some(base)
     )
     assertEquals(
-      closingSummary(git, setup),
+      closingSummary(git, setup, returnToStartBranch = false),
       List("done — you are on branch 'main'", "no files changed")
     )
-    assert(!branchNames(workDir).contains("closing-throwaway"))
 
   test("closing summary: no recorded starting commit omits the file count"):
     val workDir = GitRepo.seeded()
@@ -3120,7 +3158,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       startingCommit = None
     )
     assertEquals(
-      closingSummary(git, setup),
+      closingSummary(git, setup, returnToStartBranch = false),
       List("done — you are on branch 'closing-no-base'")
     )
 
@@ -3147,16 +3185,23 @@ class FlowLifecycleTest extends munit.FunSuite:
     git.forceAdd(store.path)
     val _ = git.commit("orca: progress log")
     val head = git.headCommit().flatMap(orca.progress.CommitHash.from).get
-    val emitted = new AtomicReference[List[OrcaEvent]](Nil)
-    val setup = setupForSettings(
-      workDir,
-      settingsOverride = Some(StackSettings.empty),
-      prompt = prompt,
-      emit = e => { val _ = emitted.updateAndGet(e :: _) }
+    // No settings file, so this resume arm rediscovers and commits one, moving
+    // HEAD: naming the pre-settings commit is what pins the announcement ahead
+    // of orca's own bookkeeping.
+    val canned = StackDiscoveryResult(
+      format = DiscoveredTask(commands =
+        List(DiscoveredCommand("echo fmt", "seed.txt"))
+      ),
+      lint = DiscoveredTask(),
+      test = DiscoveredTask()
     )
-    assertEquals(setup.startingCommit, Some(base))
-    val steps =
-      emitted.get().reverse.collect { case s: OrcaEvent.Step => s.message }
+    val (_, steps) =
+      setupDiscovering(workDir, CannedDiscoveryAgent(canned), prompt)
+    assertNotEquals(
+      git.headCommit().flatMap(orca.progress.CommitHash.from),
+      Some(head),
+      "the fixture must move HEAD, or the ordering isn't exercised"
+    )
     assert(
       steps.contains(
         s"on branch 'resumed-work' — this run started from ${base.short}"

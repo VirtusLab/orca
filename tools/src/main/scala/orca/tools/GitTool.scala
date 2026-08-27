@@ -337,6 +337,17 @@ trait GitTool:
     */
   def changedFiles(since: Option[String] = None): List[String]
 
+  /** [[changedFiles]] restricted to tracked paths: exactly the files `git diff
+    * <since>` renders.
+    *
+    * This exists so that a caller which prints a count NEXT TO that command
+    * prints one the command can show — orca's closing summary does. Unioning
+    * untracked paths in here (as [[changedFiles]] does, for callers that render
+    * them separately) would reintroduce the mismatch: a count of 2 above a diff
+    * showing 1.
+    */
+  def trackedChangedFiles(since: String): List[String]
+
   /** The change set a reviewer should see, as diff text and as the list of
     * paths in it — what a caller rendering a bounded diff needs, since it has
     * to name the files its diff leaves out (see `orca.BoundedDiff`).
@@ -685,6 +696,9 @@ private[orca] class OsGitTool(
 
   def changedFiles(since: Option[String]): List[String] =
     allFileStats(since, untrackedPaths()).map(_.path)
+
+  def trackedChangedFiles(since: String): List[String] =
+    allFileStats(Some(since), Nil).map(_.path)
 
   def reviewChanges(since: Option[String]): ReviewSample =
     val untracked = untrackedPaths()
