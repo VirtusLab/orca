@@ -32,6 +32,9 @@ a fuzzy rule to the one record that must not lose a finding. If the maintainer
 prefers similarity, the merge predicate is one function in `DuplicateFindings`
 and the rest of the PR is unchanged.
 
+Resolved: the dedup is dropped from PR 2 entirely — see the specification's
+out-of-scope list for the measurement behind that.
+
 ## ADRs
 
 No new ADR. Two existing ones are amended — not optional, since each states the

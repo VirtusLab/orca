@@ -50,13 +50,6 @@ gate widened what counts as an active reviewer, so per-round narrowing now
 retires far fewer of them; five rounds over a whole-run diff with little
 narrowing is the most expensive thing in a run and the last rounds yield least.
 
-**Duplicate findings.** When several reviewers report a problem at the same
-place, the fixer is given it once, naming every reviewer that raised it. A
-sixth of all findings are cross-reviewer duplicates; the confidence gate used
-to absorb them and no longer does. Each reviewer's own findings still appear
-under its own name on screen, and no reviewer is retired for having its finding
-absorbed into another's.
-
 **`simple.sc`.** The flow reviews with a single general-purpose reviewer,
 chosen to avoid a picker round-trip that costs eleven cents. Two changes
 developed through it shipped defects of exactly the kind the roster catches. It
@@ -130,9 +123,23 @@ the loops do not distinguish a finding the fixer declined from one left open at
 the round cap, so any run-level tally would be both double-counted and
 mislabelled. The per-loop announcements already state each loop's outcome.
 
-Folding findings whose titles are genuinely reworded between rounds — the
-merge rules here are deliberately exact, because wrongly merging two findings
-drops one from the record.
+Merging findings that several reviewers report at the same `file:line` into
+one entry for the fixer. It was specified here and then measured against the
+same six runs. The "sixth of all findings are duplicates" figure that motivated
+it was a misreading: 26 of those 34 findings are one reviewer re-filing its own
+finding in a later round, which the rule excludes by design and cannot see. The
+real population is 4 cross-reviewer clusters — 8 findings out of 205, about 1.3
+per run. The rule nonetheless fires on 42 findings (20.5% of all of them), and
+about 40% of those merges join two *different* problems and silently drop the
+second's description and suggestion, several of them behavioural warnings. The
+cause is structural: reviewers anchor a finding to the definition line of
+whatever they are discussing, so "no test for X", "X has a bug" and "X is in
+the wrong file" all land on the same line. The saving it bought was ~700 tokens
+per run.
+
+Folding declines whose titles are genuinely reworded between rounds. An exact
+rule cannot catch a rewording, and a fuzzy one must not: wrongly merging two
+findings drops one from the permanent record.
 
 A guaranteed reviewer-selection floor (the two reviewers it would force found
 nothing in these runs); moving the documentation beat between reviewers;

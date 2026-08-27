@@ -82,6 +82,45 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
     assert(!prompt.contains("The user's request for this run:"), prompt)
     assert(!prompt.contains("The planner's description of this task:"), prompt)
 
+  test("both templates put unchanged code in scope when a change reaches it"):
+    // The wording these replace is why the largest defect in six measured runs
+    // was missed: a reviewer read the offending lines and said nothing,
+    // because they were not part of the diff.
+    List(rendered(), reRendered()).foreach: prompt =>
+      assert(
+        prompt.contains(
+          "unchanged code is in scope precisely when the change alters what " +
+            "it can be handed"
+        ),
+        prompt
+      )
+    // Each replaced sentence stood in one template only, so each is asserted
+    // gone from the template that had it.
+    assert(!rendered().contains("Focus your findings strictly on"), rendered())
+    assert(
+      !reRendered().contains("Stay scoped to the change set"),
+      reRendered()
+    )
+
+  test("both templates ask which assumptions the change relaxes"):
+    // The enumeration is spelled out once, in the initial prompt the resumed
+    // conversation still holds; the re-review only adds what is new to it.
+    assert(
+      rendered().contains(
+        "a value that could not be absent and now can, a set that was " +
+          "bounded and now is not, an order or a uniqueness that was " +
+          "guaranteed and now is not"
+      ),
+      rendered()
+    )
+    List(rendered(), reRendered()).foreach: prompt =>
+      assert(
+        prompt.contains(
+          "is a finding against this change when the change is what breaks it."
+        ),
+        prompt
+      )
+
   test("initialReview tells reviewers the plan is not evidence"):
     val prompt = rendered()
     assert(

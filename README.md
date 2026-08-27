@@ -134,7 +134,7 @@ flow(OrcaArgs(args)):
       reviewers = allReviewers(reviewAgent),
       task = Task(Title("The whole planned change"), plan.brief),
       diff = ReviewDiff.WholeRun,
-      maxIterations = 5
+      maxIterations = 3
     )
 ```
 
@@ -718,7 +718,7 @@ stage("Final review"):
     reviewers = allReviewers(reviewAgent),
     task = Task(Title("The whole planned change"), plan.brief),
     diff = ReviewDiff.WholeRun,
-    maxIterations = 5
+    maxIterations = 3
   )
 ```
 

@@ -97,27 +97,29 @@ class BuiltInFlowsTest extends munit.FunSuite:
       i += 1
     text.substring(open, i)
 
-  test("a flow's final review reviews the whole run, with five rounds"):
+  test("a flow's final review reviews the whole run"):
     // `diff = ReviewDiff.WholeRun` is what makes the stage a whole-run review
     // rather than an empty stage-scoped one — a "Final review" stage without
-    // it reviews nothing. The cap is worth more rounds than a task loop ever
-    // had, since this is what re-checks each single pass's fixes; the number
-    // is written out here rather than exported: it is these flows' choice, not
-    // a library default for anything else to inherit. Both are pinned inside
-    // the final-review call itself, so neither can drift to another call.
-    val cap = "maxIterations\\s*=\\s*5\\b".r
+    // it reviews nothing. Pinned inside the final-review call itself, so it
+    // can't be satisfied by another call in the file.
     taskBasedFlows.foreach: name =>
       val call = finalReviewCall(name)
       assert(call.contains("diff = ReviewDiff.WholeRun"), s"$name: $call")
-      assert(cap.findFirstIn(call).isDefined, s"$name: $call")
 
-  test("the one flow with no final review pins the library's default cap"):
-    // simple.sc reviews its single task in a loop and stops there, so its cap is
-    // the library default spelled out — raising `DefaultMaxIterations` fails
-    // here until the flow follows.
-    val cap = s"maxIterations\\s*=\\s*$DefaultMaxIterations\\b".r
-    val text = resourceText("simple.sc")
-    assert(cap.findFirstIn(text).isDefined, text)
+  test("every flow's cap is the library default, spelled out"):
+    // Whole-run and per-task loops run under the same number, so there is one
+    // pin rather than two. Every cap in the file is checked, not just the first
+    // — the count test above compares counts, so a flow whose task loop and
+    // final review state different numbers passes it. Each flow still writes
+    // the number instead of inheriting it, so raising `DefaultMaxIterations`
+    // fails here until the flows follow.
+    val cap = "maxIterations\\s*=\\s*(\\d+)".r
+    val capped = indexNames.filter(resourceText(_).contains("maxIterations"))
+    assert(capped.nonEmpty, "no flow states a cap any more")
+    capped.foreach: name =>
+      val text = resourceText(name)
+      val stated = cap.findAllMatchIn(text).map(_.group(1)).toList
+      assertEquals(stated.distinct, List(DefaultMaxIterations.toString), name)
 
   private def withTempHome(body: os.Path => Unit): Unit =
     val home = os.temp.dir(prefix = "orca-built-in-flows-test")

@@ -2,18 +2,20 @@ package orca
 
 import orca.tools.{ChangedFile, FileChange, PendingChanges}
 
-/** Renders a change set into a prompt under a size budget, for the three
-  * callers that inline one: the default commit-message prompt
-  * ([[commitPayload]], see `orca.defaultCommitMessage`), the reviewer's initial
-  * prompt ([[reviewPayload]], see `orca.review.reviewAndFixLoop`) and the PR
-  * summariser's ([[prPayload]], see `orca.pr.summarisePr`).
+/** Renders a change set into a prompt under a size budget, for the four callers
+  * that inline one: the default commit-message prompt ([[commitPayload]], see
+  * `orca.defaultCommitMessage`), the reviewer's initial prompt
+  * ([[reviewPayload]], see `orca.review.reviewAndFixLoop`), a resumed
+  * reviewer's per-round delta ([[sectionsPayload]], see
+  * `orca.review.ReReviewChanges`) and the PR summariser's ([[prPayload]], see
+  * `orca.pr.summarisePr`).
   *
-  * The first two keep the same rule: what is left out is still named. A commit
-  * subject gets the `--stat` summary ahead of the diff; a reviewer gets a
-  * trailer listing the files the diff it was sent does not show. [[prPayload]]
-  * only marks that a cut happened. None returns more than its threshold (plus,
-  * for [[prPayload]], its marker), so a change set of any size produces a
-  * prompt that can be sent.
+  * The first three keep the same rule: what is left out is still named. A
+  * commit subject gets the `--stat` summary ahead of the diff; a reviewer gets
+  * a trailer listing the files the diff it was sent does not show.
+  * [[prPayload]] only marks that a cut happened. None returns more than its
+  * budget (plus, for [[prPayload]], its marker), so a change set of any size
+  * produces a prompt that can be sent.
   *
   * Text is assembled by plain interpolation, never a `stripMargin` block:
   * `stripMargin` runs over the interpolated result, so it would eat the leading
@@ -41,9 +43,10 @@ private[orca] object BoundedDiff:
     * while the largest, at 2.1 MB, fits no context window at all.
     *
     * Much larger than `orca.review.ReReviewChanges.InlineThreshold`, which
-    * bounds a different thing: that one keeps a resumed conversation from
-    * accumulating a copy of the diff per round, which is a cost question, and
-    * cost bites far below the size at which a request stops being sendable.
+    * bounds a different thing: that one bounds what a single re-review prompt
+    * inlines, so a resumed conversation accumulates at most that much per round
+    * — a cost question, and cost bites far below the size at which a request
+    * stops being sendable.
     */
   val ReviewThreshold: Int = 128 * 1024
 
@@ -113,6 +116,127 @@ private[orca] object BoundedDiff:
         changed.filterNot(f => isShown(shown, f.path)),
         head.length
       )
+
+  /** What [[sectionsPayload]] could cut for its caller. */
+  private[orca] enum SectionsCut:
+    /** At least one whole file section fit, with a trailer naming every
+      * requested path the payload does not show.
+      */
+    case Rendered(payload: String)
+
+    /** Not even the first section fit within the budget — one ordinary large
+      * file is enough. There is nothing to send, so the caller has to fall back
+      * to naming the paths.
+      */
+    case NothingFits
+
+  /** The sections of `diff` covering `paths`, bounded to `maxChars`, with a
+    * trailer naming every one of `paths` the result does not show.
+    *
+    * The paths-only sibling of [[reviewPayload]], for a caller that has a file
+    * list rather than [[ChangedFile]]s: same whole-section cut, but with no
+    * line counts to report, so a dropped path is named on its own. A path with
+    * no section of its own in `diff` — a rename, whose header names two
+    * different paths, or a header git had to quote — is named in the trailer
+    * rather than silently absent, as is a path repeated in `paths`, whose
+    * section is rendered once.
+    *
+    * `maxChars` is the caller's budget, not [[ReviewThreshold]]: this renders
+    * into a prompt sent every round, where the bound is what the conversation
+    * may accumulate rather than what a request can carry.
+    */
+  def sectionsPayload(
+      diff: String,
+      paths: List[String],
+      maxChars: Int
+  ): SectionsCut =
+    val wanted = paths.distinct
+    val sections = sectionsByPath(diff)
+    val available = wanted.flatMap(p => sections.get(p).map(p -> _))
+    val room = maxChars - pathTrailerMax(wanted, maxChars)
+    val shown = packed(available, room)(_._2.length)
+    if shown.isEmpty then SectionsCut.NothingFits
+    else
+      SectionsCut.Rendered(
+        shown.map(_._2).mkString +
+          pathTrailer(wanted.filterNot(shown.map(_._1).toSet), maxChars)
+      )
+
+  /** A diff's per-file sections, keyed by the path both halves of the header
+    * name — the path as it is after the change, which is how a caller holding
+    * git's own file list names it. A header naming two paths (a rename) or one
+    * git had to quote (a `"` or a non-ASCII byte in the name) contributes no
+    * entry: a caller that misses a section reports the file as changed, which
+    * is the safe direction.
+    */
+  private[orca] def sectionsByPath(diff: String): Map[String, String] =
+    diff
+      .split(s"(?m)(?=^$FileHeader)")
+      .toList
+      .flatMap(section => sectionPath(section).map(_ -> section))
+      .toMap
+
+  /** The path a section's `diff --git a/<path> b/<path>` header names, `None`
+    * for the text before the first header or a header of any other shape.
+    *
+    * Matched as that whole shape rather than by the last ` b/`, which a path
+    * containing ` b/` makes name a different file — and a section filed under
+    * another file's name is how an edited file gets reported as untouched.
+    */
+  private def sectionPath(section: String): Option[String] =
+    section.linesIterator
+      .nextOption()
+      .filter(_.startsWith(FileHeader))
+      .flatMap(header => unrenamedPath(header.drop(FileHeader.length)))
+
+  /** The path of an `a/<path> b/<path>` header body. Both halves have the same
+    * length, so the body's own length fixes where they split.
+    */
+  private def unrenamedPath(body: String): Option[String] =
+    val pathLen = (body.length - "a/ b/".length) / 2
+    val after = body.drop(pathLen + "a/ b/".length)
+    Option.when(
+      pathLen > 0 && body.length == 2 * pathLen + "a/ b/".length &&
+        body == s"a/$after b/$after"
+    )(after)
+
+  private val PathTrailerHead: String =
+    "\n# The sections above do not show the changes to the files below — " +
+      "read those files directly.\n"
+
+  /** The note closing a cut-short section payload. Every line is a `#` comment
+    * for the same reason as [[trailer]]'s: `- path` would read as a deleted
+    * line of source.
+    */
+  private def pathTrailer(omitted: List[String], maxChars: Int): String =
+    if omitted.isEmpty then ""
+    else
+      PathTrailerHead +
+        boundedEntries(omitted.map("#   " + _), pathTrailerBudget(maxChars))
+
+  /** Share of a sections payload's budget its trailer may take, leaving the
+    * rest for diff text. A quarter, where [[TrailerBudget]] takes half of
+    * [[ReviewThreshold]]: this budget is an order of magnitude smaller, so half
+    * of it would spend most of a round's payload on filenames.
+    */
+  private def pathTrailerBudget(maxChars: Int): Int = maxChars / 4
+
+  /** The longest [[pathTrailer]] any subset of `all` can produce — what the
+    * sections have to be sized against, for the same reason as [[trailerMax]].
+    */
+  private def pathTrailerMax(all: List[String], maxChars: Int): Int =
+    // 4 for the `#   ` prefix, 1 for the separator `boundedEntries` joins with.
+    val entries = all.map(_.length + 5).sum
+    PathTrailerHead.length + math.min(entries, pathTrailerBudget(maxChars))
+
+  /** `paths` as a `- path` list, bounded to `maxChars` and cut only between
+    * entries, marked when anything was dropped. For a prompt block that names
+    * files alongside a payload: without this the list is outside every budget,
+    * and a change set of a few hundred files makes filenames most of what is
+    * sent.
+    */
+  def pathList(paths: List[String], maxChars: Int): String =
+    boundedEntries(paths.map("- " + _), maxChars)
 
   /** The branch diff a PR summariser is sent: under [[ReviewThreshold]] the
     * diff itself, over it a head cut plus a marker, so at most that threshold
@@ -243,15 +367,24 @@ private[orca] object BoundedDiff:
     val whole = entries.mkString("\n")
     if whole.length <= maxChars then whole
     else
-      val room = maxChars - TruncationMarker.length
       // +1 per entry for the separator it will be joined with.
-      val kept = entries
-        .scanLeft(0)((used, entry) => used + entry.length + 1)
-        .drop(1)
-        .zip(entries)
-        .takeWhile(_._1 <= room)
-        .map(_._2)
+      val kept =
+        packed(entries, maxChars - TruncationMarker.length)(_.length + 1)
       if kept.isEmpty then "" else kept.mkString("\n") + TruncationMarker
+
+  /** The longest prefix of `entries` whose sizes sum to at most `room` — the
+    * cut every bounded list here makes, taken between entries rather than
+    * inside one.
+    */
+  private def packed[A](entries: List[A], room: Int)(
+      size: A => Int
+  ): List[A] =
+    entries
+      .scanLeft(0)((used, entry) => used + size(entry))
+      .drop(1)
+      .zip(entries)
+      .takeWhile(_._1 <= room)
+      .map(_._2)
 
   /** `text` cut to at most `maxChars`, marked when anything was dropped so the
     * model reads a cut-off hunk as partial rather than as the whole change. The

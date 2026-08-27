@@ -107,7 +107,7 @@ flow(
         task = Task(Title("The whole planned change"), plan.brief),
         userRequest = Some(issuePayload),
         diff = ReviewDiff.WholeRun,
-        maxIterations = 5,
+        maxIterations = 3,
         priorDeclines = IgnoredIssues(taskDeclines.flatMap(_.issues))
       )
 

@@ -641,11 +641,12 @@ private[review] class ReviewFixLoop[B <: BackendTag](
       e: RosterEntry,
       stored: Option[SessionEntry],
       current: DiffSample,
-      declined: List[IgnoredIssue]
+      declined: List[IgnoredIssue],
+      round: Int
   ): (ReviewResult, Option[SessionEntry]) =
     stored match
-      case Some(se) => resumeReview(se, current, declined)
-      case None     => firstReview(e, current.diff, declined)
+      case Some(se) => resumeReview(e, se, current, declined, round)
+      case None     => firstReview(e, current, declined, round)
 
   /** Resume a reviewer's existing session, sending what is new to it since its
     * last round: the change set ([[ReReviewChanges]]) and what the fixer
@@ -657,55 +658,55 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     * [[reviewAndFixLoop]].
     */
   private def resumeReview(
+      e: RosterEntry,
       se: SessionEntry,
       current: DiffSample,
-      declined: List[IgnoredIssue]
+      declined: List[IgnoredIssue],
+      round: Int
   ): (ReviewResult, Option[SessionEntry]) =
     val changes = ReReviewChanges.of(se.lastSent, current)
+    val prompt = ReviewLoopPrompts.reReview(changes, declined)
+    ReviewLogging.reReview(e.name, round, changes, prompt)
     val result =
-      se.chat
-        .resultAs[ReviewResult]
-        .autonomous
-        .run(ReviewLoopPrompts.reReview(changes, declined), emitPrompt = false)
+      se.chat.resultAs[ReviewResult].autonomous.run(prompt, emitPrompt = false)
     // Nothing is sent on `AlreadySeen`, so the reviewer keeps comparing against
-    // what it has seen. `PathsOnly` still records the whole diff, not the
-    // paths: the next round compares diff text, so a change that rewrites those
+    // what it has seen. A cut round still records the whole diff, not what was
+    // sent: the next round compares diff text, so a change that rewrites those
     // files without adding or removing any must still register.
     val advanced = changes match
       case ReReviewChanges.Updated(_) =>
         Some(se.copy(lastSent = LastSent.inlined(current.diff)))
-      case ReReviewChanges.TooLarge(_, _) =>
+      case ReReviewChanges.Sections(_, _, _) =>
+        Some(se.copy(lastSent = LastSent.SectionsOnly(current.diff)))
+      case ReReviewChanges.Paths(_) =>
         Some(se.copy(lastSent = LastSent.PathsOnly(current.diff)))
       case ReReviewChanges.AlreadySeen(_) => None
     (result, advanced)
 
   /** A reviewer's first call: mint a fresh [[Chat]] on the role-tagged agent so
-    * a later round can resume it. `currentDiff` seeds the initial framing, and
+    * a later round can resume it. `current` seeds the initial framing, and
     * `declined` carries the fixer's refusals to a reviewer joining after round
     * one.
     */
   private def firstReview(
       e: RosterEntry,
-      currentDiff: String,
-      declined: List[IgnoredIssue]
+      current: DiffSample,
+      declined: List[IgnoredIssue],
+      round: Int
   ): (ReviewResult, Option[SessionEntry]) =
     val chat = e.agent.withRole(ReviewerPrompts.Role).chat()
+    val prompt = ReviewLoopPrompts.initialReview(
+      task = task,
+      userRequest = userRequest,
+      diff = current.diff,
+      diffIntro = diffSource.diffIntro,
+      base = diffSource.base,
+      declined = declined
+    )
+    ReviewLogging.initialReview(e.name, round, current, prompt)
     val result =
-      chat
-        .resultAs[ReviewResult]
-        .autonomous
-        .run(
-          ReviewLoopPrompts.initialReview(
-            task = task,
-            userRequest = userRequest,
-            diff = currentDiff,
-            diffIntro = diffSource.diffIntro,
-            base = diffSource.base,
-            declined = declined
-          ),
-          emitPrompt = false
-        )
-    (result, Some(SessionEntry(chat, LastSent.inlined(currentDiff))))
+      chat.resultAs[ReviewResult].autonomous.run(prompt, emitPrompt = false)
+    (result, Some(SessionEntry(chat, LastSent.inlined(current.diff))))
 
   /** What one fork of the round's fan-out came back with — the same
     * contribution the loop state folds in, tagged with which kind of agent
@@ -739,13 +740,17 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     val current =
       if active.isEmpty then DiffSample("", Nil) else diffSource.sample()
 
+    // Rounds already recorded, so this one is the next — the number the trace
+    // labels each reviewer's prompt with.
+    val round = currentState.history.size + 1
+
     // Each agent's key index is its position here — fixed before the fan-out.
     val reviewerTasks: List[() => AgentOutcome] =
       active.zipWithIndex.map: (e, agentIndex) =>
         val stored = currentState.sessions.get(e.id)
         () =>
           val (result, newSession) =
-            reviewWithSession(e, stored, current, declined)
+            reviewWithSession(e, stored, current, declined, round)
           AgentOutcome.Reviewer(
             RoundContribution(
               e,
@@ -893,9 +898,9 @@ private[review] class ReviewFixLoop[B <: BackendTag](
       fc: FlowControl,
       ws: WorkspaceWrite
   ): FixOutcome =
-    coderSession
-      .resultAs[FixOutcome]
-      .run(FixRequest(fixInstructions, issues), emitPrompt = false)
+    val request = FixRequest(fixInstructions, issues)
+    ReviewLogging.fix(request)
+    coderSession.resultAs[FixOutcome].run(request, emitPrompt = false)
 
   /** One fix turn over `issues`: hand them to the coder, reconcile its reply
     * against what it was handed ([[FixOutcome.reconcile]]), and announce the

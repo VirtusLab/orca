@@ -153,20 +153,19 @@ object ReviewerSelector:
       val names =
         if eligible.isEmpty then Nil
         else
+          val request = ReviewerSelectionRequest(
+            taskTitle = taskTitle,
+            changedFiles = changedFiles,
+            availableReviewers = infos,
+            instructions = instructions
+          )
+          ReviewLogging.reviewerPick(request)
           // Read-only: the picker decides which reviewers to run and must not
           // edit files during selection (reading context is fine).
           agent.withReadOnly
             .resultAs[SelectedReviewers]
             .autonomous
-            .run(
-              ReviewerSelectionRequest(
-                taskTitle = taskTitle,
-                changedFiles = changedFiles,
-                availableReviewers = infos,
-                instructions = instructions
-              ),
-              emitPrompt = false
-            )
+            .run(request, emitPrompt = false)
             .names
       // Post-filter against `eligible`, not `all`, so a picker that hallucinates
       // a name pre-filtered out can't resurrect it.
