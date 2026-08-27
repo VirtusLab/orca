@@ -882,8 +882,8 @@ are indented.
 | `▶` | Stage start, or a `Step` (single-line note like a branch switch) |
 | `▸` | User's prompt at the start of an interactive session |
 | `●` | Assistant prose |
-| `⏺` | Tool call (path / command / query in grey) |
-| `⎿` | Tool result, truncated to one line (interactive calls only) |
+| `⏺` | Tool call (path / command / query in grey). Read-only calls show as a bare `⏺ read`; the trace file has the filenames |
+| `⎿` | How many times the line above repeated (`⎿ ×12`), or a tool result truncated to one line (interactive calls only) |
 | `✖` | Error |
 | `?` | Approval request, or a question for you (interactive calls only) |
 | `!` | Caveat about what Orca can enforce for this run (never indented under a stage) |

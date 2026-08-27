@@ -110,8 +110,11 @@ private[orca] object EnvCookieSweep:
     log.warn(message)
     events.onEvent(OrcaEvent.Step(message))
 
-  /** The command is unreadable for a process that exited between the scan and
-    * this call.
+  /** The pid is what the reader acts on; the command is only there to recognise
+    * it, so the executable's basename says as much as its install path (a JDK
+    * path is half a terminal row on its own). Unreadable for a process that
+    * exited between the scan and this call.
     */
   private def describe(handle: ProcessHandle): String =
-    s"${handle.pid} (${handle.info.command.orElse("?")})"
+    val command = handle.info.command.orElse("?")
+    s"${handle.pid} (${command.drop(command.lastIndexOf('/') + 1)})"

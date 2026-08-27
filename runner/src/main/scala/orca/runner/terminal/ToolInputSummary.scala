@@ -95,7 +95,13 @@ private[terminal] object ToolInputSummary:
       workDir: Option[os.Path]
   ): String = kind match
     case HeadlineKind.Path =>
-      Text.oneLine(relativise(value, workDir), maxLength)
+      // Middle-truncated, not end-truncated: a path over budget is one left
+      // absolute by `relativise`, and cutting its tail drops the filename —
+      // the only part that says which file the call touched.
+      Text.middleTruncate(
+        Text.collapseWhitespace(relativise(value, workDir)),
+        maxLength
+      )
     case HeadlineKind.Command => CommandHeadline.render(value, maxLength)
     case HeadlineKind.Search =>
       Text.oneLine(scopedPattern(value, json, workDir), maxLength)

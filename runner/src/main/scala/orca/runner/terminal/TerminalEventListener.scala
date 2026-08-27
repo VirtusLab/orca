@@ -26,6 +26,7 @@ private[runner] class TerminalEventListener(
     ErrorGlyph,
     MaxAssistantMessageLength,
     MaxStructuredResultRawLength,
+    OrcaCommitStep,
     StageEmitters,
     StageStartGlyph,
     StepGlyphStyle,
@@ -58,14 +59,31 @@ private[runner] class TerminalEventListener(
       stageEmitters.set(StageEmitters.Silent)
       output.setStatus(stack.headOption)
     case OrcaEvent.ToolUse(tool, args, agent) =>
-      val line = formatIndented(
-        ToolCallLine.format(tool, args, paint, workDir, attribution(agent))
+      // A read-only call renders as one constant line, so a run of them
+      // collapses in `TerminalOutput` (see `ReadOnlyTools`); everything else
+      // shows what it acted on.
+      val (name, input) =
+        if ReadOnlyTools.contains(tool) then (ReadOnlyTools.DisplayName, "{}")
+        else (tool, args)
+      output.log(
+        formatIndented(
+          ToolCallLine.format(
+            name,
+            input,
+            paint,
+            workDir,
+            attribution(agent),
+            currentIndent
+          )
+        )
       )
-      output.log(line)
     case _: OrcaEvent.TokensUsed =>
       () // Token accounting is owned by CostTracker.
     case OrcaEvent.Step(message) =>
-      output.log(formatStepLine(message))
+      // Orca's own bookkeeping commits are the runtime's, not the user's work:
+      // they'd read as progress on the task. The trace file keeps them.
+      if !message.startsWith(OrcaCommitStep) then
+        output.log(formatStepLine(message))
     case OrcaEvent.Caveat(message) =>
       // No `formatIndented`, unlike every sibling arm: it is run-scoped.
       output.log(paint(CaveatStyle, s"$CaveatGlyph ") + message)
@@ -80,27 +98,44 @@ private[runner] class TerminalEventListener(
         case Some("") => ()
         case Some(s)  => output.log(formatStepLine(s))
         case None =>
-          val collapsed = Text.oneLine(raw, MaxStructuredResultRawLength)
+          val collapsed = Text.oneLine(
+            raw,
+            bodyBudget(MaxStructuredResultRawLength, AssistantGlyph, None)
+          )
           val glyph = paint(AssistantGlyphStyle, s"$AssistantGlyph ")
           output.log(formatIndented(glyph + collapsed))
     case OrcaEvent.UserPrompt(text) =>
       // One line so a long task description doesn't dominate the log; empty
       // payloads dropped.
-      val collapsed = Text.oneLine(text, MaxAssistantMessageLength)
+      val collapsed = Text.oneLine(
+        text,
+        bodyBudget(MaxAssistantMessageLength, UserPromptGlyph, None)
+      )
       if collapsed.nonEmpty then
         val glyph = paint(UserPromptStyle, s"$UserPromptGlyph ")
         output.log(formatIndented(glyph + collapsed))
     case OrcaEvent.AssistantMessage(text, agent) =>
       // One line per prose turn; empty payloads (turn-without-prose) dropped.
-      val collapsed = Text.oneLine(text, MaxAssistantMessageLength)
+      val who = attribution(agent)
+      val collapsed =
+        Text.oneLine(
+          text,
+          bodyBudget(MaxAssistantMessageLength, AssistantGlyph, who)
+        )
       if collapsed.nonEmpty then
         val glyph = paint(AssistantGlyphStyle, s"$AssistantGlyph ")
-        val who = AgentAttribution.prefix(attribution(agent), paint)
-        output.log(formatIndented(glyph + who + collapsed))
-    case OrcaEvent.Error(message) =>
-      output.log(
-        formatIndented(paint(fansi.Color.Red, s"$ErrorGlyph $message"))
-      )
+        output.log(
+          formatIndented(
+            glyph + AgentAttribution.prefix(who, paint) + collapsed
+          )
+        )
+    case OrcaEvent.Error(message, agent) =>
+      // Named even when it is the stage's only emitter, unlike every other
+      // arm: the line exists to say WHICH agent failed, and the stage error
+      // that follows carries no name of its own.
+      val glyph = paint(fansi.Color.Red, s"$ErrorGlyph ")
+      val who = AgentAttribution.prefix(agent, paint)
+      output.log(formatIndented(glyph + who + paint(fansi.Color.Red, message)))
     case _: OrcaEvent.SessionCommitted =>
       () // Session/manifest tracking (ADR 0021 §8) is RunManifestWriter's job.
 
@@ -122,6 +157,22 @@ private[runner] class TerminalEventListener(
       stageEmitters.updateAndGet(_.plus(name)) match
         case StageEmitters.One(_) => None
         case _                    => Some(name)
+
+  /** What is left of `max` for a line's body once the stage indent, the glyph
+    * and any agent prefix are paid for — the caps bound the rendered line, not
+    * the text alone.
+    */
+  private def bodyBudget(
+      max: Int,
+      glyph: String,
+      agent: Option[String]
+  ): Int =
+    LineBudget.remaining(
+      max,
+      currentIndent.length,
+      LineBudget.glyphWidth(glyph),
+      LineBudget.attributionWidth(agent)
+    )
 
   /** A `▶` step line: magenta-bold glyph, neutral body — matching the
     * assistant-prose styling so the "primary content" accent stays consistent.
@@ -155,7 +206,12 @@ private[runner] object TerminalEventListener:
       case _                      => Many
 
   val StageStartGlyph: String = "▶"
+
+  /** Never rendered — it exists so the tests that pin ADR 0008's "no `✔` ever
+    * appears in the log" invariant have the glyph to assert the absence of.
+    */
   val StageDoneGlyph: String = "✔"
+
   val ErrorGlyph: String = "✖"
   val AssistantGlyph: String = "●"
 
@@ -196,3 +252,9 @@ private[runner] object TerminalEventListener:
     * `Announce[O]` summary was provided (ADR 0008).
     */
   val MaxStructuredResultRawLength: Int = 200
+
+  /** `Step` messages starting with this are orca's own bookkeeping commits
+    * (`GitTool.commit`'s `Committed: ` echo of an `orca: `-prefixed message),
+    * which the log leaves out.
+    */
+  private val OrcaCommitStep: String = "Committed: orca: "

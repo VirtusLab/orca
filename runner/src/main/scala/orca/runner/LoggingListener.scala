@@ -46,7 +46,8 @@ private[orca] class LoggingListener extends OrcaListener:
         t.cost.fold("(none)")(_.amount.toString),
         t.usage
       )
-    case OrcaEvent.Error(message) => log.error("error: {}", message)
+    case OrcaEvent.Error(message, agent) =>
+      log.error("error ({}): {}", agent.getOrElse("flow"), message)
     case e: OrcaEvent.SessionCommitted =>
       log.debug(
         "session committed: harness={} clientId={} wireId={} sessionName={} agent={} role={}",

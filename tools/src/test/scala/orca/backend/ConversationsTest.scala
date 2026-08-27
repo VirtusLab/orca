@@ -346,8 +346,8 @@ class ConversationsTest extends munit.FunSuite:
       case other      => fail(s"expected one answer; got $other")
     assert(
       recorder.events.exists {
-        case OrcaEvent.Error(msg) => msg.contains("ask_user")
-        case _                    => false
+        case OrcaEvent.Error(msg, _) => msg.contains("ask_user")
+        case _                       => false
       },
       recorder.events
     )
@@ -551,13 +551,19 @@ class ConversationsTest extends munit.FunSuite:
       )
     )
 
-  test("a Tool-mode structured call renders its closing prose turn"):
-    // In Tool mode the payload never streams as reply text, so withholding the
-    // closing turn would only lose genuine narration.
+  test("a Tool-mode structured call withholds its closing prose turn"):
+    // That turn signs off on work the StructuredResult states in full. Both
+    // Tool-mode drivers suppress the schema-exit tool call itself, so nothing
+    // turn-opening follows the sign-off to release it — while the narration
+    // ahead of a real tool call still renders.
     val recorder = new RecordingListener
     val conv = new ScriptedConversation(
       List(
-        ConversationEvent.AssistantTextDelta("Writing the plan now."),
+        ConversationEvent.AssistantTextDelta("Reading the file first."),
+        ConversationEvent.AssistantTurnEnd,
+        ConversationEvent.AssistantToolCall("Read", """{"file":"stats.py"}"""),
+        ConversationEvent.AssistantTurnEnd,
+        ConversationEvent.AssistantTextDelta("Reviewed it; no issues found."),
         ConversationEvent.AssistantTurnEnd
       ),
       Right(sampleResult),
@@ -568,7 +574,10 @@ class ConversationsTest extends munit.FunSuite:
       supervised(Conversations.drainAutonomous(conv, AutoApprove.All, recorder))
     assertEquals(
       recorder.events,
-      List(OrcaEvent.AssistantMessage("Writing the plan now."))
+      List(
+        OrcaEvent.AssistantMessage("Reading the file first."),
+        OrcaEvent.ToolUse("Read", """{"file":"stats.py"}""")
+      )
     )
 
   test(

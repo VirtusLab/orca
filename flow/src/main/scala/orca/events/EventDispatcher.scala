@@ -47,8 +47,8 @@ class EventDispatcher(listeners: List[OrcaListener]) extends OrcaListener:
               // failure isn't lost. Raw stderr may tear the status row, but this
               // path fires only when a listener is broken.
               val payload = event match
-                case OrcaEvent.Error(message) => s" (event error: $message)"
-                case _                        => ""
+                case OrcaEvent.Error(message, _) => s" (event error: $message)"
+                case _                           => ""
               System.err.println(
                 s"[orca] listener ${l.getClass.getName} failed on " +
                   s"${event.getClass.getSimpleName}: ${e.getMessage}$payload (listener disabled)"
