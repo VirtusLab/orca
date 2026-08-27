@@ -69,7 +69,18 @@ private[orca] object WorktreeRun:
     // embedded git repository.
     val _ = OrcaDir.ensureWorktrees(mainCheckout)
     Worktrees.add(invokingDir, path) match
-      case Right(()) => Right(path)
+      case Right(()) =>
+        // git leaves a new worktree detached, and a detached checkout's current
+        // branch reads back as the literal "HEAD" — which the run would record
+        // as its progress header's starting branch, and which resume then
+        // refuses as an unsafe ref, leaving the run neither resumable nor
+        // restartable. So it starts on a branch of its own, named after the
+        // same task hash; the run's feature branch is cut from there as usual.
+        Worktrees
+          .startBranch(path, s"orca-worktree-${path.last}")
+          .map(_ => path)
+          .left
+          .map(message => s"could not create the worktree at $path: $message")
       case Left(WorktreeAddFailure.NoCommitsYet) =>
         Left(FlowLifecycle.noCommitsMessage)
       case Left(WorktreeAddFailure.GitFailed(message)) =>

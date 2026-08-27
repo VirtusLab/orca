@@ -438,6 +438,17 @@ the wrong branch.
   > `git reset --hard` and destroys kept modifications to tracked files. Kept
   > untracked files survive: R5's clean is skipped for this run too, for the
   > reason its own text gives.
+
+  > **Amendment (2026-08-27).** `OrcaArgs.worktree` (`--worktree`) runs the flow
+  > in `.orca/worktrees/<prompt hash>` of this repository instead of the current
+  > checkout. Such a run always meets this requirement's clean case: a worktree
+  > is created from a commit, so its tree is clean by construction and the
+  > dirty-tree prompt never fires. Uncommitted work in the invoking checkout
+  > stays there. `--worktree` is therefore refused with `--keep-changes` (the
+  > files it names are in the other checkout and do not come along) and with
+  > `--skip-branch` (git will not check the current branch out a second time in
+  > a new worktree). Both refusals happen in `OrcaArgs.parse`, before setup, the
+  > banner, or any git call.
 - **R5** — On **successful** exit the progress-log file is removed in a final
   commit, and a feature branch left with no changes other than the progress log is
   deleted (throwaway-branch cleanup). That removal commit is also pushed, but only

@@ -27,6 +27,20 @@ class WorktreeRunTest extends munit.FunSuite:
     // The main checkout plus exactly one worktree: no second one was created.
     assertEquals(Worktrees.list(repo), List(repo, first))
 
+  test("a new worktree is put on a branch of its own, not left detached"):
+    val repo = GitRepo.seeded()
+    val path = resolved(repo, "task A")
+    // Detached would read back as the literal "HEAD", which the run would
+    // record as its starting branch and resume would then refuse.
+    assertNotEquals(
+      os.proc("git", "rev-parse", "--abbrev-ref", "HEAD")
+        .call(cwd = path)
+        .out
+        .text()
+        .trim,
+      "HEAD"
+    )
+
   test("resolving from inside the worktree lands on that same worktree"):
     val repo = GitRepo.seeded()
     val path = resolved(repo, "task A")
@@ -44,7 +58,7 @@ class WorktreeRunTest extends munit.FunSuite:
     val path = resolved(repo, "task A")
     // What `git clean -xdf` in the main checkout removes: the marker only, the
     // worktree itself skipped as a repository.
-    os.remove(OrcaDir.worktreesPath(repo) / ".gitignore")
+    os.remove(OrcaDir.worktreesPath(repo) / ".gitignore").discard
     assertEquals(WorktreeRun.resolve(repo, "task A"), Right(path))
     assert(os.exists(OrcaDir.worktreesPath(repo) / ".gitignore"))
 

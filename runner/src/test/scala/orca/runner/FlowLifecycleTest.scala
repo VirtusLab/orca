@@ -41,7 +41,14 @@ import orca.progress.{
   StageEntry
 }
 import orca.runner.terminal.TerminalInteraction
-import orca.tools.{FsTool, GitHubTool, GitTool, OsGitTool, UntrackedFiles}
+import orca.tools.{
+  FsTool,
+  GitHubTool,
+  GitTool,
+  OsGitTool,
+  UntrackedFiles,
+  Worktrees
+}
 import mainargs.Flag
 import ox.supervised
 import ox.either.orThrow
@@ -96,6 +103,115 @@ class FlowLifecycleTest extends munit.FunSuite:
       rendered.contains("done — you are on branch 'main'"),
       s"the closing block must reach the terminal: $rendered"
     )
+
+  test(
+    "--worktree: the run happens in the worktree, the invoking checkout is untouched, and a re-run returns to it"
+  ):
+    val workDir = GitRepo.seeded()
+    val prompt = "worktree-run"
+    def branchOf(dir: os.Path): String =
+      os.proc("git", "rev-parse", "--abbrev-ref", "HEAD")
+        .call(cwd = dir)
+        .out
+        .text()
+        .trim
+    // Recorded from inside the body rather than asserted there: a failed
+    // assertion would escape as a body failure, which `flow()` answers with
+    // `System.exit(1)`.
+    val ranIn = new AtomicReference[Option[os.Path]](None)
+    val logSeen = new AtomicReference(false)
+    def run(): Unit =
+      supervised:
+        val interaction = TerminalInteraction.start(
+          out = new PrintStream(new ByteArrayOutputStream()),
+          useColor = false,
+          animated = false
+        )
+        flow(
+          args = OrcaArgs(prompt, worktree = Flag(true)),
+          stackSettings = Some(StackSettings.empty),
+          claude = Some(_ => StubAgent.claude),
+          workDir = workDir,
+          interaction = Some(interaction)
+        ):
+          val ctx = summon[FlowContext]
+          val _ = stage("worktree-stage"):
+            ranIn.set(Some(ctx.workDir))
+            logSeen.set(
+              os.exists(ProgressStore.default(ctx.workDir, prompt).path)
+            )
+            os.write.over(ctx.workDir / "made-by-the-run.txt", "worktree work")
+            "ok"
+
+    run()
+    // Built from the two pieces the derivation is made of, not by calling the
+    // resolver: that is a write, and the expectation must not come from the
+    // code under test.
+    val worktree =
+      OrcaDir.worktreesPath(workDir) / ProgressStore.hashPrompt(prompt)
+    assertEquals(ranIn.get(), Some(worktree), "the run must happen there")
+    assert(logSeen.get(), "the progress log must live inside the worktree")
+    // The session manifest is the one consumer above `runFlow`, so it is what
+    // pins resolution to `flow()`: were it to move down into `runFlow`, the
+    // manifest would land in the invoking checkout while everything else moved.
+    // `RunManifestWriter.start` creates its runs directory when constructed;
+    // the manifest file itself waits for a committed session, which a stubbed
+    // run never has.
+    assert(
+      os.exists(OrcaDir.runsPath(worktree)),
+      "the session manifest must be written inside the worktree"
+    )
+    assert(
+      !os.exists(OrcaDir.runsPath(workDir)),
+      "the invoking checkout must get no run manifest"
+    )
+    // The work is on a branch of the worktree's own — neither the detached
+    // start point nor the invoking checkout's branch.
+    assertNotEquals(branchOf(worktree), "HEAD")
+    assertNotEquals(branchOf(worktree), "main")
+    assertEquals(os.read(worktree / "made-by-the-run.txt"), "worktree work")
+    // The invoking checkout never moved.
+    assertEquals(branchOf(workDir), "main")
+    assertEquals(
+      os.proc("git", "status", "--porcelain").call(cwd = workDir).out.text(),
+      ""
+    )
+    assert(!os.exists(workDir / "made-by-the-run.txt"))
+
+    ranIn.set(None)
+    run()
+    assertEquals(ranIn.get(), Some(worktree), "a re-run returns to it")
+    assertEquals(Worktrees.list(workDir), List(workDir, worktree))
+
+  test(
+    "--worktree: a failed run in the worktree is resumable, not refused"
+  ):
+    val invokedIn = GitRepo.seeded()
+    val prompt = "worktree-resume"
+    val worktree = WorktreeRun
+      .resolve(invokedIn, prompt)
+      .getOrElse(fail("the worktree must resolve"))
+    val store = ProgressStore.default(worktree, prompt)
+    val stageOneRuns = new AtomicInteger(0)
+
+    val _ = intercept[SurfacedFlowFailure]:
+      runFlowForTest(worktree, prompt, store):
+        val _ = stage("stage-one"):
+          stageOneRuns.incrementAndGet()
+          "one-done"
+        val _ = stage[String]("stage-two"):
+          throw new RuntimeException("boom")
+
+    // A worktree left detached records `startingBranch` as the literal "HEAD",
+    // which resume refuses as an unsafe ref — the run would be unresumable and
+    // unrestartable, its log still on disk.
+    runFlowForTest(worktree, prompt, store):
+      val _ = stage("stage-one"):
+        stageOneRuns.incrementAndGet()
+        "one-done"
+      val _ = stage("stage-two"):
+        "two-done"
+    assertEquals(stageOneRuns.get(), 1, "stage one must replay, not re-run")
 
   test(
     "failure teardown: stays on feature branch with clean working tree and earlier commit present"

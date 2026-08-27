@@ -98,6 +98,17 @@ private[orca] object Worktrees:
           )
         )
 
+  /** Put `worktree` on branch `name`, creating it at the current HEAD or
+    * resetting it there if it already exists (`checkout -B`). For a freshly
+    * [[add]]ed worktree, which git leaves detached — a state whose
+    * `currentBranch()` reads back as the literal "HEAD", which orca refuses to
+    * record as a run's starting branch.
+    */
+  def startBranch(worktree: os.Path, name: String): Either[String, Unit] =
+    val result = git(worktree, "checkout", "-B", name)
+    if result.exitCode == 0 then Right(())
+    else Left(result.err.text().trim)
+
   /** Git prints absolute paths for both reads above; anything else means the
     * command did not do what was asked, which is "not known" rather than a
     * failure to raise at a caller that has nowhere to put one — `os.Path`

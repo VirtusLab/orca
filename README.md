@@ -61,8 +61,9 @@ orca run implement.sc "add a rate limiter to /login"
 ```
 
 Useful flags: `--skip-branch` (continue on the current branch instead of
-creating one) and `--keep-changes` (leave uncommitted files in place instead of
-stashing them).
+creating one), `--keep-changes` (leave uncommitted files in place instead of
+stashing them) and `--worktree` (run in a git worktree of this repository
+instead of the current checkout).
 
 In every mode, which agent (and model) handles the planning, coding, and review
 roles comes from `settings.properties` — written for you by the shell's
@@ -337,6 +338,17 @@ Each `flow(...)` run is bound to exactly one feature branch and one progress log
   stashes. A run that already has a progress log — a resume, or one too broken
   to read — always stashes and ignores `--keep-changes`, so an interrupted
   stage's partial work can't leak into the stage that re-runs.
+  `--worktree` (`OrcaArgs.worktree`) runs the whole flow in
+  `.orca/worktrees/<hash>` of this repository — a second checkout, keyed on the
+  same prompt hash as the progress log, created on the first run and reused by
+  every later one for that task. It isolates the run: two tasks can run at once
+  without sharing a checkout or a branch. Uncommitted work does NOT come along —
+  a worktree is made from a commit — so `--worktree` is refused with
+  `--skip-branch` and with `--keep-changes`. The first run in a worktree pays a
+  cold build (no build outputs, no dependencies, none of the untracked local
+  config a project may need), an editor or indexer that ignores `.gitignore`
+  will see the second checkout, and orca never removes it: clean up with `git
+  worktree remove .orca/worktrees/<hash>`.
   Sharp edge: kept files are unprotected until that first stage commit — a
   failure before it runs the teardown's `git reset --hard` and destroys kept
   modifications to tracked files (kept untracked files survive).
@@ -951,7 +963,7 @@ action non-interactively and exits.
 
 | Command | Key flags | Does |
 |---|---|---|
-| `orca run <flow> [task]` | `--verbose` (stack trace on abort), `--skip-branch`, `--keep-changes` (leave uncommitted files in place), `--honor-pin` (use the flow's own pinned orca version) | run a flow, propagating its exit code; task is read from stdin when omitted and piped |
+| `orca run <flow> [task]` | `--verbose` (stack trace on abort), `--skip-branch`, `--keep-changes` (leave uncommitted files in place), `--worktree` (run in a git worktree of this repository), `--honor-pin` (use the flow's own pinned orca version) | run a flow, propagating its exit code; task is read from stdin when omitted and piped |
 | `orca view <flow>` | `--plain`, `--color` | print a flow's source (highlighted when stdout is a terminal) |
 | `orca edit <flow>` | `--to project\|global` | open a flow in `$VISUAL`/`$EDITOR`/vi (`--to` required to customize a built-in) |
 | `orca create "<goal>"` | `--name <file>`, `--global` | author a new flow: the built-in `simple.sc` flow writes it in an isolated sandbox with the configured role agents; `--name` is auto-derived when omitted |
