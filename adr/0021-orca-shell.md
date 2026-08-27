@@ -206,6 +206,25 @@ runtime's own glyph family (`⏺`/`●`/`▶`/`▸`).
 > fallback. Multiple unfinished logs (different prompts, one branch) offer
 > only the newest by mtime.
 
+> **Amendment (2026-08-27).** The scan spans the checkout the shell was started
+> in plus the worktrees orca made for that repository: a `--worktree` run leaves
+> its progress log inside its own tree, so a shell scanning only its own
+> directory would either offer nothing or offer an older run. The
+> newest-by-mtime rule now orders across all of them, and a directory that
+> cannot be read costs only its own logs. Discovery is git's own worktree list
+> (`Worktrees.list`, resolved at the call site so the scan itself takes plain
+> directories and stays testable without a repository), filtered to children of
+> `.orca/worktrees/` — a worktree checked out to review someone else's branch
+> carries that branch's committed progress log, and its recorded task text is
+> what the offer would hand an agent. The progress-log scan deliberately does
+> NOT descend into `.orca/worktrees/`; it stays one level deep.
+>
+> The offer carries the directory its log was found in, and the resume RUNS
+> there. Not `--worktree`: that flag re-derives a path from the task text, which
+> is the directory holding the log only when the log was already in an orca
+> worktree of that exact prompt — otherwise it would silently start a fresh run
+> in a tree with no log, leaving the interrupted one behind.
+
 > **Amendment (2026-08-01).** A `branch: <name>` line prints directly above
 > the menu prompt, re-read on every redraw (like Continue's manifest listing
 > and the resume check) so it stays true after a flow run switches branches —

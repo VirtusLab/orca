@@ -99,8 +99,11 @@ object Main:
     * on every redraw (ADR 0021 §8) — a flow run started from this same menu can
     * only have just finished, so the freshest listing is worth the re-read.
     * `ResumeDetector.detect` is likewise re-evaluated every redraw (ADR 0021 §3
-    * amendment) — cheap (one dir listing plus one small file read) and
-    * consistent with Continue's own re-read. The `branch:` line
+    * amendment) — one `git worktree list`, a directory listing per worktree and
+    * one small file read, still cheap enough to repeat and consistent with
+    * Continue's own re-read. Re-discovering per redraw is the point: a
+    * `--worktree` run started from this very menu creates a worktree that was
+    * not there when the shell started. The `branch:` line
     * ([[ConfigSummary.branchLine]]) is printed here for the same reason: a flow
     * run started from this menu can leave HEAD on a new branch, so it is
     * re-read per redraw rather than printed once with the startup summary.
@@ -116,7 +119,7 @@ object Main:
     warnings.foreach(ShellOutput.info)
     val continueSessionCount =
       runs.headOption.map(_.manifest.sessions.size)
-    val resumeOffer = ResumeDetector.detect(os.pwd)
+    val resumeOffer = ResumeDetector.detect(WorktreeScan.dirs(os.pwd))
     ConfigSummary.branchLine(os.pwd).foreach(ShellOutput.info)
     ui.select(
       "orca shell",
@@ -394,19 +397,19 @@ object Main:
     * hash of it). Runs through the exact same launch path "Run a flow" uses
     * ([[RunAction.run]]/[[orca.shell.run.FlowLauncher]]): no branch prompt —
     * the resume happens on the current branch by design, and a resumed log's
-    * `bindBranch` (`FlowLifecycle`) ignores `skipBranch` entirely, so
-    * verbose/skip-branch/keep-changes are as correct here as any other value
-    * would be. `worktree` is false only until the worktree-spanning scan lands:
-    * a run found in a worktree has to be relaunched with it set, which is what
-    * takes the relaunch back to the tree holding its progress log. `runAction`
-    * is injectable, [[AuthorAction]]-style, so a test can record the call
-    * instead of spawning a real subprocess.
+    * `bindBranch` (`FlowLifecycle`) ignores `skipBranch` entirely, so the
+    * all-false flags passed here are exactly as correct as any other value
+    * would be — `worktree` included: the run is launched IN `run.dir`, the
+    * directory its log was found in, which is what makes this a resume. The
+    * flag would instead re-derive a path from the task text, which is the same
+    * directory only when the log happened to be in an orca-made worktree of
+    * that exact prompt. `runAction` is injectable, [[AuthorAction]]-style, so a
+    * test can record the call instead of spawning a real subprocess.
     */
   private[shell] def resumeInterruptedRun(
       ui: ShellUi,
       terminal: Terminal,
       run: InterruptedRun,
-      workDir: os.Path = os.pwd,
       runAction: (
           DiscoveredFlow,
           String,
@@ -418,7 +421,7 @@ object Main:
           // pull into this shape.
       ) => LaunchResult = RunAction.run(_, _, _, _, _)
   ): Unit =
-    FlowResolution.resolve(run.flowName, workDir) match
+    FlowResolution.resolve(run.flowName, run.dir) match
       case Left(message) => ShellOutput.error(message)
       case Right(flow) =>
         val opts =
@@ -431,7 +434,7 @@ object Main:
             ),
             fallback = FallbackPolicy.Ask(ui)
           )
-        runAction(flow, run.userPrompt, opts, workDir, terminal).discard
+        runAction(flow, run.userPrompt, opts, run.dir, terminal).discard
 
   /** Prompts for the flow's task text, re-prompting on blank input — an empty
     * `userPrompt` reaches the flow's agent directly (branch naming, the coding

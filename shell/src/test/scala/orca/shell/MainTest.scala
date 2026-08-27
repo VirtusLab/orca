@@ -1026,14 +1026,14 @@ class MainTest extends munit.FunSuite:
       )
       val run = InterruptedRun(
         flowName = "resume-flow.sc",
-        userPrompt = "fix the flaky test\nwith detail"
+        userPrompt = "fix the flaky test\nwith detail",
+        dir = workDir
       )
       var recorded: Option[(String, String)] = None
       Main.resumeInterruptedRun(
         FlowScriptedUi(),
         terminal,
         run,
-        workDir,
         runAction = (flow, task, _, _, _) =>
           recorded = Some(flow.name -> task)
           LaunchResult.Ok
@@ -1044,18 +1044,59 @@ class MainTest extends munit.FunSuite:
       )
 
   test(
+    "resumeInterruptedRun: the run happens in the directory its log was found in"
+  ):
+    withDumbTerminal: terminal =>
+      // A log found in an orca worktree resumes THERE, with no --worktree flag:
+      // the flag would re-derive a path, this runs where the log actually is.
+      val worktree = TempDirs.dir()
+      os.write(
+        worktree / ".orca" / "flows" / "resume-flow.sc",
+        "// x\n",
+        createFolders = true
+      )
+      val run = InterruptedRun(
+        flowName = "resume-flow.sc",
+        userPrompt = "fix the flaky test",
+        dir = worktree
+      )
+      var recorded: Option[(os.Path, FlowFlags)] = None
+      Main.resumeInterruptedRun(
+        FlowScriptedUi(),
+        terminal,
+        run,
+        runAction = (_, _, opts, dir, _) =>
+          recorded = Some(dir -> opts.flags)
+          LaunchResult.Ok
+      )
+      assertEquals(
+        recorded,
+        Some(
+          worktree -> FlowFlags(
+            verbose = false,
+            skipBranch = false,
+            keepChanges = false,
+            worktree = false
+          )
+        )
+      )
+
+  test(
     "resumeInterruptedRun: an unresolvable flow name reports an error and never launches"
   ):
     withDumbTerminal: terminal =>
       val workDir = TempDirs.dir()
-      val run = InterruptedRun(flowName = "no-such-flow.sc", userPrompt = "x")
+      val run = InterruptedRun(
+        flowName = "no-such-flow.sc",
+        userPrompt = "x",
+        dir = workDir
+      )
       var launched = false
       val out = captured(
         Main.resumeInterruptedRun(
           FlowScriptedUi(),
           terminal,
           run,
-          workDir,
           runAction = (_, _, _, _, _) => { launched = true; LaunchResult.Ok }
         )
       )

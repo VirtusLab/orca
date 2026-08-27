@@ -103,7 +103,8 @@ class MainMenuTest extends munit.FunSuite:
   ):
     val run = InterruptedRun(
       flowName = "implement.sc",
-      userPrompt = "fix the flaky integration test in the payments module"
+      userPrompt = "fix the flaky integration test in the payments module",
+      dir = os.root / "work"
     )
     val choices = MainMenu.choices(
       continueSessionCount = None,
@@ -123,7 +124,8 @@ class MainMenuTest extends munit.FunSuite:
   test("choices(resumeOffer = Some(...)) label drops control characters"):
     val run = InterruptedRun(
       flowName = "fix.sc",
-      userPrompt = "safe\u001b[31m text\u0007"
+      userPrompt = "safe\u001b[31m text\u0007",
+      dir = os.root / "work"
     )
     val choices = MainMenu.choices(
       continueSessionCount = None,
@@ -137,7 +139,8 @@ class MainMenuTest extends munit.FunSuite:
   ):
     val run = InterruptedRun(
       flowName = "fix.sc",
-      userPrompt = "line one\nline two"
+      userPrompt = "line one\nline two",
+      dir = os.root / "work"
     )
     val choices = MainMenu.choices(
       continueSessionCount = None,
@@ -153,7 +156,7 @@ class MainMenuTest extends munit.FunSuite:
   ):
     val withOffer = MainMenu.choices(
       continueSessionCount = None,
-      resumeOffer = Some(InterruptedRun("a.sc", "short task"))
+      resumeOffer = Some(InterruptedRun("a.sc", "short task", os.root / "work"))
     )
     val without = MainMenu
       .choices(continueSessionCount = None)
