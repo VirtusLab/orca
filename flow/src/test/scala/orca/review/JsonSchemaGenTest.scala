@@ -24,6 +24,19 @@ class JsonSchemaGenTest extends munit.FunSuite:
     val errors = compiledResultSchema.validate(sample, InputFormat.JSON)
     assert(errors.isEmpty, s"Validation errors: $errors")
 
+  test("generated schema validates an issue that names a location"):
+    // The only sample reaching the nested `Location` object's own schema path:
+    // everywhere else `location` is null, which never descends into it.
+    val sample =
+      """{"issues":[{
+        |  "title":"Hello",
+        |  "description":"hello",
+        |  "location":{"file":"orca/review/Lint.scala","line":42},
+        |  "suggestion":null
+        |}]}""".stripMargin
+    val errors = compiledResultSchema.validate(sample, InputFormat.JSON)
+    assert(errors.isEmpty, s"Validation errors: $errors")
+
   test("generated schema rejects a payload that omits a nullable field"):
     // Strict mode treats every property as required (nullability is the
     // mechanism for optionality). Omitting `suggestion` should be rejected.

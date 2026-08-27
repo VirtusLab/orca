@@ -77,9 +77,9 @@ private[review] def capExitMessage(maxIterations: Int): String =
   s"Reached max iterations ($maxIterations)"
 
 /** The headline for a round that found nothing for the fixer. A run can reach
-  * it with findings still open from earlier rounds, so it must not claim the
-  * review came back clean; the block underneath ([[formatOpenFindings]]) counts
-  * and names them.
+  * it with findings still open from earlier rounds or phases, so it must not
+  * claim the review came back clean; the block underneath
+  * ([[formatOpenFindings]]) counts and names them.
   */
 private[review] def cleanExitMessage(open: IgnoredIssues): String =
   if open.issues.isEmpty then "No review comments" else "No new findings"
@@ -434,6 +434,11 @@ def reviewAndFixLoop[B <: BackendTag](
       * loop. They seed the loop's accumulated declines: shown to reviewers from
       * round one so already-answered findings aren't re-reported from scratch,
       * and returned at exit (minus any since fixed) alongside this loop's own.
+      *
+      * An [[IgnoredIssue]] carries only a title and a reason, so a seeded
+      * decline reaches the exit block with no location — no `at file:line` line
+      * even where the reviewer that first reported it named one. Only findings
+      * this loop's own rounds evaluate can be located.
       */
     priorDeclines: IgnoredIssues = IgnoredIssues(Nil)
 )(using
@@ -515,9 +520,9 @@ def reviewAndFixLoop[B <: BackendTag](
   * alongside the lint gate; see [[reviewAndFixLoop]] for what each of the
   * shared parameters means and how the review turns are framed.
   *
-  * Nothing is silently dropped: what the fixer declined, and what it never
-  * reported on, come back in the returned [[IgnoredIssues]] with a reason and
-  * are printed at the exit.
+  * Nothing is silently dropped: what the fixer declined, what it never reported
+  * on, and what the lint gate still reports after its own re-run, come back in
+  * the returned [[IgnoredIssues]] with a reason and are printed at the exit.
   */
 def reviewThenFix[B <: BackendTag](
     coderSession: FlowSession[B],
@@ -1013,8 +1018,9 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     * backing [[reviewThenFix]]. There is no re-evaluation of reviewer findings
     * (the lint gate alone is re-checked, via [[relintAfterFix]]), so the
     * returned [[IgnoredIssues]] is the whole record of what stayed open: the
-    * fixer's declines, plus what it never reported on ([[UnaccountedReason]]) —
-    * which a loop would instead recover by reviewing again.
+    * fixer's declines, what it never reported on ([[UnaccountedReason]]) —
+    * which a loop would instead recover by reviewing again — and whatever that
+    * re-check still fails on ([[LintStillFailingReason]]).
     *
     * `fc`/`ws` are method parameters, not fields — see the file header.
     */
