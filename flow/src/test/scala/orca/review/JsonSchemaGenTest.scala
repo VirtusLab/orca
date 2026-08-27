@@ -16,7 +16,6 @@ class JsonSchemaGenTest extends munit.FunSuite:
     // with a real null rather than omitted. The schema must accept that.
     val sample =
       """{"issues":[{
-        |  "severity":"Info",
         |  "title":"Hello",
         |  "description":"hello",
         |  "location":null,
@@ -25,24 +24,11 @@ class JsonSchemaGenTest extends munit.FunSuite:
     val errors = compiledResultSchema.validate(sample, InputFormat.JSON)
     assert(errors.isEmpty, s"Validation errors: $errors")
 
-  test("generated schema rejects an unknown severity value"):
-    val invalid =
-      """{"issues":[{
-        |  "severity":"Bogus",
-        |  "title":"x",
-        |  "description":"x",
-        |  "location":null,
-        |  "suggestion":null
-        |}]}""".stripMargin
-    val errors = compiledResultSchema.validate(invalid, InputFormat.JSON)
-    assert(!errors.isEmpty, "Schema should reject unknown severity values")
-
   test("generated schema rejects a payload that omits a nullable field"):
     // Strict mode treats every property as required (nullability is the
     // mechanism for optionality). Omitting `suggestion` should be rejected.
     val invalid =
       """{"issues":[{
-        |  "severity":"Info",
         |  "title":"x",
         |  "description":"x",
         |  "location":null

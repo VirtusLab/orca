@@ -50,8 +50,8 @@ export orca.pr.{openPrFromBranch, orcaCommentMarker, summarisePr, PrSummary}
 // `buildReviewers` it into the agents `reviewAndFixLoop` takes. IgnoredIssue(s)
 // is the result type of fixLoop/reviewAndFixLoop/reviewThenFix; Lint is
 // constructed at the call site for their `lint` parameter and LintReport is
-// what the summariser-taking `lint` returns. Severity and Location are
-// ReviewIssue's field types — needed by any flow that consumes findings.
+// what the summariser-taking `lint` returns. Location is a ReviewIssue field
+// type — needed by any flow that consumes findings.
 export orca.review.{
   allReviewers,
   buildReviewers,
@@ -73,8 +73,7 @@ export orca.review.{
   ReviewerSelector,
   ReviewIssue,
   ReviewResult,
-  RosterEntry,
-  Severity
+  RosterEntry
 }
 // PushFailure is the Left of GitTool.push's Either; BuildWaitFailed the same
 // for GitHubTool.waitForBuild.

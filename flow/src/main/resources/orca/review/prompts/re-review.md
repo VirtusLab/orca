@@ -8,8 +8,8 @@ issues.
 
 Everything the initial prompt said still applies: the task it described is the
 same, a planned choice is still evidence of intent and not of correctness, fix
-cost still never lowers severity, and {{mandatoryCategories}} are still always
-reported.
+cost is still never a reason to withhold or soften a finding, and
+{{mandatoryCategories}} are still always reported.
 
 Where an earlier finding's suggestion offered alternatives ("do X, or document
 why Y is safe"), work out from the code which one was taken, and check that that

@@ -12,14 +12,12 @@ class ReviewTypesTest extends munit.FunSuite:
     val original = ReviewResult(
       issues = List(
         ReviewIssue(
-          severity = Severity.Critical,
           title = Title("Null pointer risk"),
           description = "null pointer risk",
           location = Some(Location("Foo.scala", Some(42))),
           suggestion = Some("add a null check")
         ),
         ReviewIssue(
-          severity = Severity.Info,
           title = Title("Stylistic nitpick"),
           description = "stylistic nitpick",
           location = None,
@@ -49,7 +47,6 @@ class ReviewTypesTest extends munit.FunSuite:
         0,
         List(
           ReviewIssue(
-            severity = Severity.Warning,
             title = Title("Mangled quote"),
             description = "the quote is mangled",
             location = None,

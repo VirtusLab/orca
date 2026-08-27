@@ -48,6 +48,15 @@ Confidence scores and the per-severity gate are gone. In their place:
 - **Narrowing keys on what a reviewer actually reported**, so a reviewer retires
   only on genuine silence rather than on having had its findings filtered out.
 
+> **Amendment (2026-08-27).** Severity does not stay: `Severity` and
+> `ReviewIssue.severity` are removed. Across 205 findings in six runs the label
+> produced zero Critical and 80% Info, and the fixer declined none of the 64
+> findings it received — so it never informed a decision. It follows confidence
+> out for the same reason: a self-assessed label tracks the model's mood, not
+> the defect. What the label was ordering — the exit block naming what is still
+> open — carries the finding's `file:line` instead, so a reader can find the
+> code again.
+
 Explicitly **no damping rule** for repeated declines. The round cap and the
 zero-fixed halt already bound re-litigation; a damping rule would reintroduce
 silent dropping to solve a cost problem we have not measured. Revisit if real
@@ -96,6 +105,12 @@ Reviewer prompts gain:
   chosen option resolves the concern.
 - For the mandatory-report categories above, a decline justified only by "the
   plan chose this" is **insufficient**.
+
+> **Amendment (2026-08-27).** With severity gone (see part 1's amendment), the
+> two severity-worded rules above become: a finding in the mandatory categories
+> **must always be reported**, and **fix cost is never a reason to withhold or
+> soften a finding**. The intent is unchanged — only the vocabulary, since
+> there is no longer a label to lower.
 
 ### 4. Reviewer-picker inclusion checklists
 

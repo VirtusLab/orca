@@ -137,7 +137,7 @@ class FixLoopTest extends munit.FunSuite:
     )
     assert(
       rec.steps.contains(
-        "Fixed 1, ignored 0; reviewing again after the fixes"
+        "Fixed 1, declined 0; reviewing again after the fixes"
       ),
       rec.steps.mkString("\n")
     )
@@ -149,7 +149,7 @@ class FixLoopTest extends munit.FunSuite:
       evaluate = scripted(List(ReviewResult(List(issue("a"))))),
       fix = _ => FixOutcome(Nil, List(IgnoredIssue(Title("a"), "won't fix")))
     )
-    assert(rec.steps.contains("Fixed 0, ignored 1"), rec.steps.mkString("\n"))
+    assert(rec.steps.contains("Fixed 0, declined 1"), rec.steps.mkString("\n"))
 
   test("the halt exit says why the loop stopped"):
     val rec = new Recorder
@@ -220,24 +220,57 @@ class FixLoopTest extends munit.FunSuite:
     )
     assert(
       rec.steps.contains(
-        """Unresolved findings (1):
-          |  - [Warning] still broken
+        """Findings still open (1):
+          |  - still broken
           |    max iterations (1) reached""".stripMargin
       ),
       s"cap exit must name what it left open: ${rec.steps}"
     )
 
-  test("formatIssue renders severity, title, location, and suggestion"):
+  test("an exit points at the location a round before it gave"):
+    // `IgnoredIssue` carries only a title, so the location has to be carried
+    // across rounds: only round one reports the located finding, and the exit
+    // round is clean.
+    val rec = new Recorder
+    given FlowContext = new TestFlowContext(new EventDispatcher(List(rec)))
+    val located = ReviewIssue(
+      title = Title("still broken"),
+      description = "still broken",
+      location = Some(Location("src/main/Foo.scala", Some(42))),
+      suggestion = None
+    )
+    val _ = fixLoop(
+      evaluate = scripted(
+        List(ReviewResult(List(located, issue("driver"))), ReviewResult.empty)
+      ),
+      fix = _ =>
+        FixOutcome(
+          fixed = List(Title("driver")),
+          ignored = List(IgnoredIssue(Title("still broken"), "won't fix"))
+        )
+    )
+    assert(
+      rec.steps.contains(
+        """Findings still open (1):
+          |  - still broken
+          |    at src/main/Foo.scala:42
+          |    won't fix""".stripMargin
+      ),
+      s"exit must point at the finding: ${rec.steps}"
+    )
+
+  test("formatIssue renders the key, title, location, and suggestion"):
     val real = ReviewIssue(
-      severity = Severity.Warning,
       title = Title("Unbounded growth in `processBatch`"),
       description = "Unbounded growth in `processBatch`",
       location = Some(Location("src/main/Foo.scala", Some(42))),
       suggestion = Some("stream batches instead of buffering")
     )
     val rendered = formatIssue("I1.1", real)
-    assert(rendered.startsWith("- I1.1 [Warning]"), s"missing key: $rendered")
-    assert(rendered.contains("Unbounded growth"), s"missing title: $rendered")
+    assert(
+      rendered.startsWith("- I1.1 Unbounded growth in `processBatch`"),
+      rendered
+    )
     assert(
       rendered.contains("at src/main/Foo.scala:42"),
       s"missing location: $rendered"
@@ -254,14 +287,13 @@ class FixLoopTest extends munit.FunSuite:
       "second",
       KeyedIssue.forAgent(1, List(issue("x"), issue("y")))
     )
-    assert(rendered.contains("- I2.1 [Warning] x"), rendered)
-    assert(rendered.contains("- I2.2 [Warning] y"), rendered)
+    assert(rendered.contains("- I2.1 x"), rendered)
+    assert(rendered.contains("- I2.2 y"), rendered)
 
   test("formatIssue renders a file-only location with no trailing line"):
     // A line without a file is unrepresentable (Location pairs them); this
     // pins the still-valid file-without-line case.
     val fileOnly = ReviewIssue(
-      severity = Severity.Info,
       title = Title("Nit"),
       description = "Nit",
       location = Some(Location("src/main/Foo.scala", None)),

@@ -1,4 +1,4 @@
-// Review a PR, a branch, or local changes — findings by severity, no fixes.
+// Review a PR, a branch, or local changes — a list of findings, no fixes.
 //> using scala 3.8.4
 //> using dep "org.virtuslab::orca:0.1.4"
 //> using jvm 21
@@ -15,7 +15,7 @@
   *      left.
   *   1. Runs the picked reviewers concurrently, each returning a structured
   *      `ReviewResult`.
-  *   1. Prints every finding grouped by severity, Criticals first.
+  *   1. Prints every finding, in reviewer-completion order.
   *   1. Posts the same report on the PR when the target was one — through
   *      `upsertComment`, so a re-run replaces its previous report rather than
   *      stacking a second one.
@@ -183,9 +183,9 @@ def pickReviewers(target: ReviewTarget)(using
     case Nil      => candidates
     case selected => selected
 
-/** What each reviewer is asked: findings scoped to the change, with severity,
-  * location and a suggested fix — reading the diff off disk, since a read-only
-  * reviewer cannot produce one.
+/** What each reviewer is asked: findings scoped to the change, with location
+  * and a suggested fix — reading the diff off disk, since a read-only reviewer
+  * cannot produce one.
   */
 def reviewPrompt(target: ReviewTarget): String =
   s"""Under review: ${target.summary}
@@ -195,19 +195,18 @@ def reviewPrompt(target: ReviewTarget): String =
      |anything in the repository to check a claim, but do not report issues in
      |code this change doesn't touch.
      |
-     |Report each finding with: severity (Critical / Warning / Info), a
-     |one-line title, a description with enough context to act on, the file and
-     |line where applicable, and a concrete suggested fix. Report only what is
-     |worth acting on — no nitpicks, no restating what the change already does
-     |well. If nothing in your dimension applies, report no issues."""
+     |Report each finding with: a one-line title, a description with enough
+     |context to act on, the file and line where applicable, and a concrete
+     |suggested fix. Report only what is worth acting on — no nitpicks, no
+     |restating what the change already does well. If nothing in your dimension
+     |applies, report no issues."""
     .stripMargin
 
 // ============================== report ==============================
 
 /** The whole report as markdown — printed to the console, and posted verbatim
-  * when the target is a PR. Sections follow severity (Critical first, so the
-  * top of the report is the part worth reading); within a section, findings
-  * keep the order the reviewers reported them in.
+  * when the target is a PR. One flat list: findings keep the order the
+  * reviewers reported them in, which is the only ordering key the flow has.
   */
 def renderReport(
     target: ReviewTarget,
@@ -220,18 +219,7 @@ def renderReport(
       s"across ${target.changedFiles.size} changed file(s)."
 
   if attributed.isEmpty then s"$header\n\nNo issues reported."
-  else
-    val sections = Severity.values.toList.flatMap: severity =>
-      val inSeverity = attributed.filter(_._2.severity == severity)
-      Option.when(inSeverity.nonEmpty)(renderSeverity(severity, inSeverity))
-    (header :: sections).mkString("\n\n")
-
-def renderSeverity(
-    severity: Severity,
-    issues: List[(String, ReviewIssue)]
-): String =
-  val body = issues.map(renderIssue).mkString("\n")
-  s"### $severity (${issues.size})\n\n$body"
+  else s"$header\n\n${attributed.map(renderIssue).mkString("\n")}"
 
 def renderIssue(attributed: (String, ReviewIssue)): String =
   val (reviewer, issue) = attributed

@@ -844,8 +844,8 @@ results.
 - **`orca.pr.PrSummary(title, body)`** — what `summarisePr` returns. The two
   fields feed `gh.createPr(title = …, body = …)` directly.
 - **`orca.review.ReviewIssue` / `ReviewResult`** — what reviewer agents return.
-  Issues carry severity, a `title` (shown), and a long `description` (sent to
-  the fixer).
+  Issues carry a `title` (shown), a long `description` (sent to the fixer), and
+  an optional `location`.
 - **`orca.review.FixOutcome(fixed, ignored)`** — what the fix step returns: the
   titles of issues actually fixed in code, plus titles + reasons for issues set
   aside (environmental, out of scope, false positive). The loop re-evaluates iff

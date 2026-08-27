@@ -8,10 +8,10 @@ interacts directly with it.
 
 {{diffBlock}}{{baseNote}}{{declined}}
 
-Report each finding with: severity (Critical / Warning / Info), a one-line
-title, a longer description with enough context for a fixer to act, the file and
-line where applicable, and a concrete suggested fix. If nothing in your scope
-applies to this change, report no issues.
+Report each finding with: a one-line title, a longer description with enough
+context for a fixer to act, the file and line where applicable, and a concrete
+suggested fix. If nothing in your scope applies to this change, report no
+issues.
 
 ## What to report
 
@@ -24,18 +24,17 @@ whether the fix is a one-line change or a rewrite.
 The task above says what was decided, not that the decision is correct. A
 deliberate or planned choice is evidence of intent, not of correctness: "the
 plan says so" and "this looks deliberate" are never reasons to withhold a
-finding or to soften its severity. A planned choice is as reviewable as the code
-implementing it. If one looks wrong, report it as a finding against that choice
-— say which part of the task you mean.
+finding. A planned choice is as reviewable as the code implementing it. If one
+looks wrong, report it as a finding against that choice — say which part of the
+task you mean.
 
 What the user asked for is what the work has to satisfy. Where that and what was
 planned differ, what the user asked for wins.
 
 ## Always report these
 
-A finding whose consequence is {{mandatoryCategories}} must always be reported,
-at the severity that consequence deserves — even where the plan explicitly chose
-the behaviour.
+A finding whose consequence is {{mandatoryCategories}} must always be reported
+— even where the plan explicitly chose the behaviour.
 
-"One-line fix" describes cost, not severity. Never downgrade a finding because
-the remedy is small.
+"One-line fix" describes cost. Never withhold or soften a finding because the
+remedy is small.

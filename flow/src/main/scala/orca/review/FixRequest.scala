@@ -52,9 +52,9 @@ private[review] object FixRequest:
   private def renderIssue(key: String, issue: ReviewIssue): String =
     // Exhaustive destructure: a new `ReviewIssue` field stops compiling here
     // until this prompt decides what to do with it.
-    val ReviewIssue(severity, title, description, location, suggestion) = issue
+    val ReviewIssue(title, description, location, suggestion) = issue
     val lines = List(
-      Some(s"$key [$severity] $title"),
+      Some(s"$key $title"),
       locationLine(location),
       Option.when(description.nonEmpty)(s"    $description"),
       suggestion.map(s => s"    suggestion: $s")

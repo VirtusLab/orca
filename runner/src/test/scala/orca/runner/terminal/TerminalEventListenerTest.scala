@@ -48,7 +48,7 @@ class TerminalEventListenerTest extends munit.FunSuite:
     val output = renderEvents(
       List(
         OrcaEvent.StageStarted("review"),
-        OrcaEvent.Step("[Warning] Issue summary\n  at src/Foo.scala:10"),
+        OrcaEvent.Step("Issue summary\n  at src/Foo.scala:10"),
         OrcaEvent.StageCompleted("review")
       )
     )
