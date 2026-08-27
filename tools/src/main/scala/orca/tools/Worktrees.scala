@@ -70,6 +70,13 @@ private[orca] object Worktrees:
     * HEAD, which is the wanted start point. No `--` separator either: `path` is
     * absolute, so git cannot read it as an option.
     *
+    * `--force` reclaims a path whose administrative entry outlived its
+    * directory — what `git clean -xdff` in the main checkout leaves — and only
+    * that: it still refuses a path that exists, and the other safeguard it
+    * lifts, a branch already checked out elsewhere, cannot apply without a
+    * commit-ish. Path-scoped, unlike `git worktree prune`, which would drop
+    * every stale entry in the repository, including worktrees orca never made.
+    *
     * Callers establish the repository with [[mainCheckout]] first, so a HEAD
     * that does not resolve here means a repository without commits rather than
     * no repository — asked as its own question, so neither side has to
@@ -79,7 +86,8 @@ private[orca] object Worktrees:
     if probe(cwd, "rev-parse", "--verify", "--quiet", "HEAD").isEmpty then
       Left(WorktreeAddFailure.NoCommitsYet)
     else
-      val result = git(cwd, "worktree", "add", "--detach", path.toString)
+      val result =
+        git(cwd, "worktree", "add", "--force", "--detach", path.toString)
       if result.exitCode == 0 then Right(())
       else
         val stderr = result.err.text().trim

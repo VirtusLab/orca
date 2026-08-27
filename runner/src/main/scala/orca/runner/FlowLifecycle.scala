@@ -385,11 +385,16 @@ object FlowLifecycle:
     */
   private def abortIfNoCommits(git: GitTool): Unit =
     if git.headCommit().isEmpty then
-      throw new OrcaFlowException(
-        "orca needs a git repository with at least one commit — " +
-          "initialize one if needed (git init), then make the first commit " +
-          "(git add -A && git commit -m \"initial commit\")"
-      )
+      throw new OrcaFlowException(noCommitsMessage)
+
+  /** [[abortIfNoCommits]]' wording, shared with [[WorktreeRun]]: a `--worktree`
+    * run meets both cases while resolving its directory, which happens before
+    * this lifecycle — and before any [[GitTool]] — exists.
+    */
+  private[runner] val noCommitsMessage: String =
+    "orca needs a git repository with at least one commit — " +
+      "initialize one if needed (git init), then make the first commit " +
+      "(git add -A && git commit -m \"initial commit\")"
 
   /** Refuse to start a NEW run on a branch that another run's progress log
     * already claims (ADR 0018 §2.5, R1 amendment).
