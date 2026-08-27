@@ -41,7 +41,7 @@ class FlowTest extends munit.FunSuite:
       stage[String]("risky")(throw new RuntimeException("kaboom"))
     assert(
       listener.events.exists {
-        case OrcaEvent.Error(msg) =>
+        case OrcaEvent.Error(msg, _) =>
           msg.contains("risky") && msg.contains("kaboom")
         case _ => false
       },

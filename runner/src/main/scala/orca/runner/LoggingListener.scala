@@ -21,8 +21,10 @@ private[orca] class LoggingListener extends OrcaListener:
     case OrcaEvent.StageStarted(name)   => log.info("stage start: {}", name)
     case OrcaEvent.StageCompleted(name) => log.info("stage done:  {}", name)
     case OrcaEvent.Step(message)        => log.info("step: {}", message)
-    case OrcaEvent.Caveat(message)      => log.info("caveat: {}", message)
-    case OrcaEvent.UserPrompt(text)     => log.debug("prompt sent:\n{}", text)
+    case OrcaEvent.Bookkeeping(message) =>
+      log.info("bookkeeping: {}", message)
+    case OrcaEvent.Caveat(message)  => log.info("caveat: {}", message)
+    case OrcaEvent.UserPrompt(text) => log.debug("prompt sent:\n{}", text)
     case OrcaEvent.AssistantMessage(text, agent) =>
       log.debug("assistant ({}): {}", agent.getOrElse("?"), text)
     case OrcaEvent.ToolUse(tool, args, agent) =>
@@ -46,7 +48,8 @@ private[orca] class LoggingListener extends OrcaListener:
         t.cost.fold("(none)")(_.amount.toString),
         t.usage
       )
-    case OrcaEvent.Error(message) => log.error("error: {}", message)
+    case OrcaEvent.Error(message, agent) =>
+      log.error("error ({}): {}", agent.getOrElse("flow"), message)
     case e: OrcaEvent.SessionCommitted =>
       log.debug(
         "session committed: harness={} clientId={} wireId={} sessionName={} agent={} role={}",

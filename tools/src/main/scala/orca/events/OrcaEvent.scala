@@ -35,6 +35,15 @@ enum OrcaEvent:
     */
   case Step(message: String)
 
+  /** Orca's own housekeeping on the user's branch — today the progress-log and
+    * settings commits ([[orca.tools.GitTool.commitOnly]] / `forceCommitOnly`).
+    * Distinct from [[Step]] because none of it is work on the task: the
+    * terminal log leaves it out, where it would read as progress, while the
+    * trace file keeps it. A message is never matched to decide this — the
+    * emitter picks the case.
+    */
+  case Bookkeeping(message: String)
+
   /** Something true of the whole run rather than of the stage it surfaced in —
     * today, a restriction a backend cannot apply mechanically
     * ([[orca.agents.EnforcementNotice]]). Distinct from [[Step]] because a
@@ -115,7 +124,12 @@ enum OrcaEvent:
     */
   case AssistantMessage(text: String, agent: Option[String] = None)
 
-  case Error(message: String)
+  /** A failure worth showing. `agent` names the agent whose turn produced it,
+    * carrying the same attribution as [[ToolUse]]; `None` for a failure of the
+    * flow itself (a stage that threw, `fail(...)`), which is what tells the two
+    * apart when an agent failure is followed by the stage error it caused.
+    */
+  case Error(message: String, agent: Option[String] = None)
 
   /** Fires once [[orca.backend.SessionSupport]] commits a session's client→wire
     * id mapping ([[orca.backend.SessionSupport.commit]] / `commitAfterDrain`) —
@@ -174,15 +188,18 @@ object OrcaListener:
     */
   val noop: OrcaListener = (_: OrcaEvent) => ()
 
-  /** Stamps `agentName` onto the two display events a turn produces
-    * ([[OrcaEvent.ToolUse]], [[OrcaEvent.AssistantMessage]]) on their way to
-    * `downstream`; every other event passes through untouched. Wrapped around
-    * the listener handed to a backend drain, which emits those events without
-    * knowing which agent it is running for.
+  /** Stamps `agentName` onto the three display events a turn produces
+    * ([[OrcaEvent.ToolUse]], [[OrcaEvent.AssistantMessage]],
+    * [[OrcaEvent.Error]]) on their way to `downstream`; every other event
+    * passes through untouched. Wrapped around the listener handed to a backend
+    * drain, which emits those events without knowing which agent it is running
+    * for.
     */
   def attributedTo(downstream: OrcaListener, agentName: String): OrcaListener =
     case e: OrcaEvent.ToolUse =>
       downstream.onEvent(e.copy(agent = Some(agentName)))
     case e: OrcaEvent.AssistantMessage =>
+      downstream.onEvent(e.copy(agent = Some(agentName)))
+    case e: OrcaEvent.Error =>
       downstream.onEvent(e.copy(agent = Some(agentName)))
     case other => downstream.onEvent(other)

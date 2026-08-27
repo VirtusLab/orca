@@ -85,12 +85,11 @@ Used in the event log:
 
 | Glyph | Colour | Meaning |
 | ----- | ------ | ------- |
-| `▶` | cyan | Stage start, or a `Step` (single-line note: branch switch, "discarded N issues"). No closing glyph for either. |
+| `▶` | magenta, bold | Stage start, or a `Step` (single-line note: branch switch, "discarded N issues"). No closing glyph for either. |
 | `▸` | cyan, bold | The user's prompt at the start of an interactive session. |
 | `●` | magenta, bold | An assistant prose message. In structured-output mode the JSON is suppressed during streaming and surfaced via `OrcaEvent.StructuredResult`; the listener renders the `Announce[O]` summary as `▶` if available, nothing for a deliberately-silent summary, and falls back to the raw payload under `●` only when no `Announce[O]` exists. |
-| `·` | grey | Assistant "thinking" prose. Hidden by default; `showThinking = true` reveals it. |
-| `⏺` | blue, bold | A tool call the agent is making. The headline argument follows in grey. |
-| `⎿` | grey | The result of the preceding tool call, truncated to one line. |
+| `⏺` | yellow, bold | A tool call the agent is making. The headline argument follows in grey. In the autonomous event log a read-only call shows neither argument nor agent name (see the 2026-08-27 amendment). |
+| `⎿` | grey | In an autonomous run: how many times the line above it repeated (`⎿ ×12`). On the interactive path it is instead the result of the preceding tool call, truncated to one line. |
 | `✖` | red | An error — either an `OrcaEvent.Error` from a stage that threw, or a non-fatal mid-session error. |
 | `?` | yellow | Approval request — the agent wants a tool that isn't auto-approved. |
 | `!` | yellow, bold | An `OrcaEvent.Caveat` — something true of the whole run, today a restriction a backend cannot apply mechanically. |
@@ -109,7 +108,8 @@ Glyph choices are pragmatic:
 - `▸` (vs `▶`) for the user marks the human's turn distinctly without
   introducing a third arrow shape.
 - `⏺` / `⎿` for tool call / result echo the Claude Code aesthetic;
-  changing them is fine but they should stay paired.
+  changing them is fine but they should stay paired. `⎿` also carries the
+  repeat count, so it always reads as "belonging to the line above".
 - `!` is ASCII punctuation like `?`, marking a line that isn't progress.
   It is also the one event-log line printed at zero indent whatever stage
   is open, since the caveat's scope is the run.
@@ -166,6 +166,37 @@ identical, so captured CI logs read the same as a live terminal.
   brought the bar down, the next start brought it back up) and
   doubled lines for the user without adding signal. Removing `✔`
   entirely is cleaner.
+
+## Amendment (2026-08-27): read-only calls, and budgets that count the prefix
+
+Two rules the glyph table above doesn't imply:
+
+**In the event log, a read-only tool call renders as the constant line `⏺
+read`.** No argument, and no agent prefix either — the line is identical
+whichever agent made the call. Reads were about half of every run's log lines
+while saying only that the agent is still working, which the status row already
+says. Rendering them identically lets the event log's existing repeat-collapse
+fold a run of them into one line plus `⎿ ×N`, in animated and captured modes
+alike. Dropping the agent name is what makes that hold in the reviewer fan-out,
+where reads are densest and several agents interleave: a `name: ` prefix would
+make every line distinct again and collapse nothing. Neither the filename nor
+the name is lost — the trace file records every call, with its arguments and
+its agent, at DEBUG. The name set (`orca.runner.terminal.ReadOnlyTools`) is
+display-only and best-effort: an unrecognised name is treated as mutating and
+printed in full, since a write shown as a read is the harmful direction. The
+interactive renderer (`ConversationRenderer`) is untouched — it still shows
+`⏺ Read (stats.py)` and the `⎿` result under it.
+
+**Truncation caps bound the rendered line, not the text — on the event log's
+own lines and on the tool-call line both surfaces share.** The stage indent,
+the glyph and any agent prefix come out of the body's budget, floored at 24
+characters so a deeply nested line still shows something. That is
+`TerminalEventListener`'s prose and structured-result caps plus
+`ToolCallLine`'s argument cap. The interactive renderer's other lines — the
+user's message, the `⎿` tool result, the approval prompt — still spend their
+whole cap on the body; carrying the budget into them is a separate change. A
+path over budget is truncated in the MIDDLE, keeping the leading `/` that marks
+it as outside the working directory and the filename that identifies it.
 
 ## Testing
 

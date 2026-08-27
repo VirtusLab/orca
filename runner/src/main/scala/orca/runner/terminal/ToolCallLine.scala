@@ -15,16 +15,26 @@ private[terminal] object ToolCallLine:
 
   /** `agent` names the emitting agent when the line needs attributing (see
     * [[AgentAttribution]]); `None` renders the bare `⏺ name (args)` form.
+    * `indent` is the stage indent the caller will prepend — passed rather than
+    * applied here, since everything ahead of the args eats into their width
+    * budget ([[LineBudget]]).
     */
   def format(
       name: String,
       rawInput: String,
       paint: (fansi.Attrs, String) => String,
       workDir: Option[os.Path],
-      agent: Option[String]
+      agent: Option[String],
+      indent: String
   ): String =
-    val args =
-      ToolInputSummary.summarise(rawInput, MaxInlineInputLength, workDir)
+    val budget = LineBudget.remaining(
+      MaxInlineInputLength,
+      indent.length,
+      LineBudget.glyphWidth(ToolCallGlyph),
+      AgentAttribution.width(agent),
+      name.length + 1 // the space between the tool name and its args
+    )
+    val args = ToolInputSummary.summarise(rawInput, budget, workDir)
     val head = paint(ToolNameStyle, s"$ToolCallGlyph ") +
       AgentAttribution.prefix(agent, paint) + paint(ToolNameStyle, name)
     if args.isEmpty then head else head + " " + paint(ToolArgsStyle, args)

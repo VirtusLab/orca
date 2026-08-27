@@ -9,16 +9,17 @@ import ox.{Ox, supervised}
 /** Drains a [[Conversation]] for the autonomous path, mapping conversation
   * events to [[OrcaEvent]]s and returning the awaited `AgentResult`.
   *
-  * A structured call whose payload arrives as reply text withholds the closing
-  * assistant turn so the JSON doesn't surface as an `AssistantMessage` — the
-  * caller emits it via `OrcaEvent.StructuredResult` instead. The withheld-turn
+  * A structured call withholds its closing assistant turn — the caller emits
+  * the result via `OrcaEvent.StructuredResult` instead. Where the payload
+  * arrives as reply text (`StructuredOutputMode.RawText`) that turn IS the
+  * JSON; where it arrives as a tool call (claude's `--json-schema` exit call,
+  * `StructuredOutputMode.Tool`) it is the model's sign-off restating what the
+  * `StructuredResult` states in full. Both `Tool`-mode drivers suppress the
+  * exit call itself (`ClaudeConversation.handleAssistantTurn`,
+  * `OpencodeConversation.isStructuredOutputEcho`), so no turn-opening event
+  * follows the sign-off to release it. Mid-turn narration is unaffected — a
+  * real tool call still releases the turn that announced it. The withheld-turn
   * state machine lives in [[TurnBuffer]].
-  *
-  * A backend whose structured payload arrives as a tool call instead (claude's
-  * `--json-schema` exit call, `StructuredOutputMode.Tool`) never streams it as
-  * prose, so nothing is withheld and `StructuredResult.raw` is the sole
-  * carrier. Whether that raw payload gets echoed is `Announce[O]`'s contract
-  * (ADR 0008/0009), not this drain's.
   *
   * Interactive-only events that reach this drain are handled explicitly to
   * avoid blocking the subprocess: `ApproveTool` is auto-denied and
@@ -33,23 +34,14 @@ private[orca] object Conversations:
   private enum ClosingProse:
     case Withhold, Render
 
-  /** Whether an autonomous call's closing prose turn is the structured payload:
-    * it is what the backend's wire delivers, the same fact `Prompts.autonomous`
-    * picks its delivery instruction from.
+  /** A structured call withholds its closing prose turn; a call with no schema
+    * renders it. The wire's [[StructuredOutputMode]] doesn't come into it on
+    * either path: in `RawText` the closing turn IS the payload, in `Tool` it is
+    * the sign-off restating the payload the caller emits as `StructuredResult`
+    * (see the object scaladoc), and `Prompts.interactive` asks every backend
+    * for a JSON-only final message regardless.
     */
-  private def autonomousClosingProse(conv: Conversation[?]): ClosingProse =
-    if conv.outputSchema.isEmpty then ClosingProse.Render
-    else
-      conv.structuredOutputMode match
-        case StructuredOutputMode.RawText => ClosingProse.Withhold
-        case StructuredOutputMode.Tool    => ClosingProse.Render
-
-  /** Whether an interactive call's closing prose turn is the structured
-    * payload. `Prompts.interactive` asks every backend for a JSON-only final
-    * message — it doesn't branch on `StructuredOutputMode` — so here a schema
-    * alone decides.
-    */
-  private def interactiveClosingProse(conv: Conversation[?]): ClosingProse =
+  private def closingProse(conv: Conversation[?]): ClosingProse =
     if conv.outputSchema.isDefined then ClosingProse.Withhold
     else ClosingProse.Render
 
@@ -103,9 +95,14 @@ private[orca] object Conversations:
       withheld = None
       flushCurrent()
 
-    /** Abnormal end (the drain threw mid-stream): nothing is reliably the
-      * payload, so flush everything rather than drop prose. Worst case the user
-      * sees a JSON blob once.
+    /** The drain threw while reading the stream: the turn boundary that would
+      * have told the payload from narration never arrived, so flush everything
+      * rather than drop prose. Worst case the user sees a JSON blob once.
+      *
+      * Only a throw from the iterator lands here. A failure the wire reports
+      * (an `is_error` result) closes the stream normally, so [[finishNormally]]
+      * runs and the parked turn is dropped like any other closing turn — an
+      * unfinished one still flushes from `current`.
       */
     def finishAbnormally(): Unit =
       withheld.foreach(emit)
@@ -134,7 +131,7 @@ private[orca] object Conversations:
       events: OrcaListener = OrcaListener.noop
   )(using Ox): AgentResult[B] =
     val buffer = new TurnBuffer(
-      autonomousClosingProse(conv),
+      closingProse(conv),
       text => events.onEvent(OrcaEvent.AssistantMessage(text))
     )
     try
@@ -246,10 +243,10 @@ private[orca] object Conversations:
     * boundary that closes them) is translated into `OrcaEvent.AssistantMessage`
     * on `events` — exactly like [[drainAutonomous]] — instead of being exposed
     * on the conversation's own event stream. A structured call has its closing
-    * turn withheld the same way `TurnBuffer` does (see
-    * [[interactiveClosingProse]] for why the backend's wire doesn't come into
-    * it here); the caller re-surfaces the payload via
-    * `OrcaEvent.StructuredResult` instead (see `AgentCall.runInteractiveOnce`).
+    * turn withheld the same way `TurnBuffer` does (see [[closingProse]] for why
+    * the backend's wire doesn't come into it); the caller re-surfaces the
+    * payload via `OrcaEvent.StructuredResult` instead (see
+    * `AgentCall.runInteractiveOnce`).
     *
     * Every OTHER event (tool calls/results, approvals, questions, errors, the
     * user's own messages) passes through to the returned conversation's
@@ -273,7 +270,7 @@ private[orca] object Conversations:
       def events(using Ox): Iterator[ConversationEvent] =
         ProseWithholdingIterator(
           conv.events,
-          interactiveClosingProse(conv),
+          closingProse(conv),
           text => listener.onEvent(OrcaEvent.AssistantMessage(text))
         )
 

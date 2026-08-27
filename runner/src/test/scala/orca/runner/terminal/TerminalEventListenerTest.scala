@@ -117,10 +117,90 @@ class TerminalEventListenerTest extends munit.FunSuite:
     assert(line.startsWith(glyph), line)
     assertEquals(line.stripPrefix(glyph), "no gate here")
 
-  test("errors are prefixed with an error marker"):
-    val output = renderEvents(List(OrcaEvent.Error("boom")))
-    assert(output.contains(TerminalEventListener.ErrorGlyph))
-    assert(output.contains("boom"))
+  test("a run of read-only calls collapses to one line plus a repeat count"):
+    // The count lands once a different line closes the run — here the Step.
+    val output = renderEvents(
+      List(
+        OrcaEvent.ToolUse("Read", """{"file_path":"stats.py"}"""),
+        OrcaEvent.ToolUse("Grep", """{"pattern":"variance"}"""),
+        OrcaEvent.ToolUse("Glob", """{"pattern":"**/*.py"}"""),
+        OrcaEvent.Step("done")
+      )
+    )
+    assertEquals(
+      output,
+      s"⏺ read\n  ⎿ ×3\n${TerminalEventListener.StageStartGlyph} done\n"
+    )
+
+  test("read-only calls from several agents still collapse into one line"):
+    // The reviewer fan-out interleaves emitters, so a `name: ` prefix on these
+    // lines would make every one of them distinct and collapse nothing —
+    // exactly where reads are densest.
+    val output = renderEvents(
+      List(
+        OrcaEvent
+          .ToolUse("Read", """{"file_path":"stats.py"}""", Some("alpha")),
+        OrcaEvent.ToolUse("Grep", """{"pattern":"variance"}""", Some("beta")),
+        OrcaEvent
+          .ToolUse("Read", """{"file_path":"other.py"}""", Some("alpha")),
+        OrcaEvent.Step("done")
+      )
+    )
+    assertEquals(
+      output,
+      s"⏺ read\n  ⎿ ×3\n${TerminalEventListener.StageStartGlyph} done\n"
+    )
+
+  test("an agent that only read is still counted as an emitter"):
+    // Its own lines went out bare, but the stage now has two emitters, so the
+    // next line that CAN carry a name must carry one.
+    val output = renderEvents(
+      List(
+        OrcaEvent.StageStarted("task"),
+        OrcaEvent
+          .ToolUse("Read", """{"file_path":"stats.py"}""", Some("alpha")),
+        OrcaEvent.AssistantMessage("reviewed it", Some("beta"))
+      )
+    )
+    assert(output.contains("● beta: reviewed it"), output)
+
+  test("an unrecognised tool name is treated as mutating and printed in full"):
+    // The classification is best-effort; a write shown as a read is the
+    // harmful direction, so anything unknown keeps its name and arguments.
+    val output = renderEvents(
+      List(OrcaEvent.ToolUse("mcp__docs__search", """{"query":"variance"}"""))
+    )
+    assert(output.contains("⏺ mcp__docs__search (variance)"), output)
+
+  test("orca's own bookkeeping stays out of the log"):
+    // The second commit is an agent's, and orca is developed with orca — its
+    // message reads exactly like the runtime's, so only the event tells them
+    // apart.
+    val output = renderEvents(
+      List(
+        OrcaEvent.Bookkeeping("Committed: orca: progress log"),
+        OrcaEvent.Step("Committed: orca: fix the terminal renderer")
+      )
+    )
+    assertEquals(
+      output,
+      s"${TerminalEventListener.StageStartGlyph} Committed: orca: fix the terminal renderer\n"
+    )
+
+  test("an error carrying an agent name is attributed to it"):
+    // The stage error that follows carries no name, which is what tells the
+    // agent's own failure apart from the stage's report of it.
+    val output = renderEvents(
+      List(
+        OrcaEvent.Error("turn failed: rate limited", Some("readability")),
+        OrcaEvent.Error("Stage 'review' failed: turn failed: rate limited")
+      )
+    )
+    assertEquals(
+      output,
+      "✖ readability: turn failed: rate limited\n" +
+        "✖ Stage 'review' failed: turn failed: rate limited\n"
+    )
 
   test("errors with backend terminal controls do not crash colored output"):
     val output = renderWith(
@@ -155,14 +235,35 @@ class TerminalEventListenerTest extends munit.FunSuite:
     val long = "x" * (TerminalEventListener.MaxAssistantMessageLength + 50)
     val output = renderEvents(List(OrcaEvent.AssistantMessage(long)))
     assert(output.contains("…"), output)
-    // Truncated form is bounded by the cap (plus glyph + indent).
+    // The cap bounds the whole rendered line, glyph included.
     val bodyLines = output.split('\n').filter(_.contains("x"))
     assert(
       bodyLines.forall(
-        _.length <= TerminalEventListener.MaxAssistantMessageLength + 10
+        _.length <= TerminalEventListener.MaxAssistantMessageLength
       ),
       bodyLines.toList
     )
+
+  test("an indented, agent-prefixed prose line still fits the cap"):
+    // Depth 3 plus a `name: ` prefix is the worst case in a review fan-out:
+    // indent, glyph and prefix all come out of the body's budget.
+    val output = renderEvents(
+      List(
+        OrcaEvent.StageStarted("outer"),
+        OrcaEvent.StageStarted("middle"),
+        OrcaEvent.StageStarted("inner"),
+        OrcaEvent.AssistantMessage("first", Some("main")),
+        OrcaEvent.AssistantMessage(
+          "y" * (TerminalEventListener.MaxAssistantMessageLength * 2),
+          Some("readability")
+        )
+      )
+    )
+    val line = output
+      .split('\n')
+      .find(_.contains("readability:"))
+      .getOrElse(fail(s"missing the attributed line; got: $output"))
+    assertEquals(line.length, TerminalEventListener.MaxAssistantMessageLength)
 
   test("AssistantMessage with whitespace-only body emits nothing"):
     val output = renderEvents(List(OrcaEvent.AssistantMessage("   \n\t  ")))
@@ -172,8 +273,9 @@ class TerminalEventListenerTest extends munit.FunSuite:
     val output = renderEvents(
       List(
         OrcaEvent.StageStarted("task"),
-        OrcaEvent.ToolUse("Read", """{"file_path":"stats.py"}""", Some("main")),
-        OrcaEvent.ToolUse("Read", """{"file_path":"other.py"}""", Some("main"))
+        OrcaEvent
+          .ToolUse("Write", """{"file_path":"stats.py"}""", Some("main")),
+        OrcaEvent.ToolUse("Write", """{"file_path":"other.py"}""", Some("main"))
       )
     )
     assert(!output.contains("main:"), output)
@@ -182,12 +284,13 @@ class TerminalEventListenerTest extends munit.FunSuite:
     val output = renderEvents(
       List(
         OrcaEvent.StageStarted("task"),
-        OrcaEvent.ToolUse("Read", """{"file_path":"stats.py"}""", Some("main")),
         OrcaEvent
-          .ToolUse("Read", """{"file_path":"stats.py"}""", Some("readability"))
+          .ToolUse("Write", """{"file_path":"stats.py"}""", Some("main")),
+        OrcaEvent
+          .ToolUse("Write", """{"file_path":"stats.py"}""", Some("readability"))
       )
     )
-    assert(output.contains("⏺ readability: Read (stats.py)"), output)
+    assert(output.contains("⏺ readability: Write (stats.py)"), output)
 
   test("a second agent's prose line is prefixed with its name"):
     val output = renderEvents(
