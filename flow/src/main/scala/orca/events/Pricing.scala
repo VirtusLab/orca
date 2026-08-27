@@ -184,6 +184,10 @@ object Pricing:
       // surface the field — and the CLI computes that figure at these same
       // sticker rates.
       Model("claude-fable-5") -> anthropic(10),
+      // Invitation-only, so no backend default pins it and
+      // `DefaultModelsPricedTest` never reaches this row — without it a mythos
+      // turn shows tokens against no dollars.
+      Model("claude-mythos-5") -> anthropic(10),
       Model("claude-opus-5") -> anthropic(5),
       Model("claude-opus-4-8") -> anthropic(5),
       Model("claude-opus-4-7") -> anthropic(5),
@@ -263,5 +267,5 @@ object Pricing:
         cacheWriteUsdPerMillion = 0.30
       )
     ),
-    lastUpdated = LocalDate.of(2026, 8, 2)
+    lastUpdated = LocalDate.of(2026, 8, 27)
   )

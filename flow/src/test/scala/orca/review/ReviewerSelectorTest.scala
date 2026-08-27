@@ -3,6 +3,7 @@ package orca.review
 import orca.{FlowContext, TestFlowContext}
 import orca.events.EventDispatcher
 import orca.agents.{
+  Agent,
   AgentInput,
   Announce,
   AutonomousAgentCall,
@@ -17,14 +18,28 @@ import orca.plan.Title
 import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
 
 /** Captures every `ReviewerSelectionRequest` handed to the picker and replies
-  * with a scripted `SelectedReviewers`, counting each call. Other `Agent`
-  * surface is unused.
+  * with a scripted `SelectedReviewers`, counting each call and recording the
+  * `(name, role)` the agent carried when the turn ran.
+  *
+  * `withName`/`withRole` are honoured — the [[StubAgent]] base returns `this`,
+  * so the tags [[ReviewerSelector.agentDriven]] applies are only observable on
+  * a copy that actually keeps them.
   */
 private class RecordingPicker(
     response: SelectedReviewers,
-    captured: AtomicReference[Option[ReviewerSelectionRequest]],
-    calls: AtomicInteger = new AtomicInteger(0)
-) extends StubAgent("picker"):
+    captured: AtomicReference[Option[ReviewerSelectionRequest]] =
+      new AtomicReference[Option[ReviewerSelectionRequest]](None),
+    calls: AtomicInteger = new AtomicInteger(0),
+    identity: AtomicReference[Option[(String, Option[String])]] =
+      new AtomicReference[Option[(String, Option[String])]](None),
+    agentName: String = "review",
+    roleTag: Option[String] = None
+) extends StubAgent(agentName):
+  override def role: Option[String] = roleTag
+  override def withName(n: String): Agent[BackendTag.ClaudeCode.type] =
+    new RecordingPicker(response, captured, calls, identity, n, roleTag)
+  override def withRole(r: String): Agent[BackendTag.ClaudeCode.type] =
+    new RecordingPicker(response, captured, calls, identity, agentName, Some(r))
   def resultAs[O: JsonData: Announce]
       : AgentCall[BackendTag.ClaudeCode.type, O] =
     new AgentCall[BackendTag.ClaudeCode.type, O]:
@@ -38,6 +53,7 @@ private class RecordingPicker(
               emitPrompt: Boolean
           )(using orca.InStage): O =
             val _ = calls.incrementAndGet()
+            identity.set(Some((name, role)))
             input match
               case r: ReviewerSelectionRequest =>
                 captured.set(Some(r))
@@ -215,6 +231,21 @@ class ReviewerSelectorTest extends munit.FunSuite:
         _ == "reviewer selection: picker named scla-fp, matching no reviewer"
       ),
       capture.messages.mkString("\n")
+    )
+
+  test("the picker's turn is billed as a reviewer-role turn of its own"):
+    val seen = new AtomicReference[Option[(String, Option[String])]](None)
+    val picker = new RecordingPicker(SelectedReviewers(Nil), identity = seen)
+    val pickerCtx: FlowContext = new TestFlowContext(new EventDispatcher(Nil)):
+      override lazy val reviewAgent: Agent[ReviewB] = picker
+    val _ = ReviewerSelector.agentDriven
+      .prepare(all, Title("any"), List("src/main/scala/Foo.scala"))(using
+        pickerCtx,
+        summon[orca.InStage]
+      )(Nil)
+    assertEquals(
+      seen.get(),
+      Some((ReviewerSelector.PickerName, Some(ReviewerPrompts.Role)))
     )
 
   test("selector skips the picker LLM entirely when no reviewer is eligible"):

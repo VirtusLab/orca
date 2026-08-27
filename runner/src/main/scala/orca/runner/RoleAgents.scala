@@ -11,6 +11,7 @@ import orca.agents.{
   OpencodeAgent,
   PiAgent
 }
+import orca.review.ReviewerPrompts
 import orca.settings.{AgentSettings, AgentSpec}
 
 /** The three role agents resolved for one run — every field an existentially
@@ -64,17 +65,6 @@ private[orca] object RoleAgents:
       globalSpec: Option[AgentSpec]
   ): Option[AgentSpec] = projectSpec.orElse(globalSpec)
 
-  /** Resolve the three role agents against the run's wired set — every role
-    * shares a wired backend, so events and close() behave exactly as for the
-    * wired five. An unset role defaults to claude with no model pin.
-    */
-  def resolve(settings: AgentSettings, agents: WiredAgents): ResolvedRoles =
-    ResolvedRoles(
-      planning = one(settings.planning, agents),
-      coding = one(settings.coding, agents),
-      review = one(settings.review, agents)
-    )
-
   /** Resolve all three roles AND everything derived from that resolution, so
     * the override>project>global>default precedence is encoded once. Per role:
     * apply the programmatic override if present (winning over both files), else
@@ -101,29 +91,34 @@ private[orca] object RoleAgents:
   ): RoleResolution =
     val planning =
       resolveOne(
-        "planning",
-        project.planning,
-        global.planning,
-        overrides.planning,
-        agents
+        label = "planning",
+        costRole = "planning",
+        projectSpec = project.planning,
+        globalSpec = global.planning,
+        overrideSelect = overrides.planning,
+        agents = agents
       )
     onRoleResolved(planning.agent)
     val coding =
       resolveOne(
-        "coding",
-        project.coding,
-        global.coding,
-        overrides.coding,
-        agents
+        label = "coding",
+        costRole = "coding",
+        projectSpec = project.coding,
+        globalSpec = global.coding,
+        overrideSelect = overrides.coding,
+        agents = agents
       )
     onRoleResolved(coding.agent)
     val review =
       resolveOne(
-        "review",
-        project.review,
-        global.review,
-        overrides.review,
-        agents
+        label = "review",
+        // The reviewers, lint and the picker already bill under this tag; one
+        // concept gets one bucket in the by-role block.
+        costRole = ReviewerPrompts.Role,
+        projectSpec = project.review,
+        globalSpec = global.review,
+        overrideSelect = overrides.review,
+        agents = agents
       )
     onRoleResolved(review.agent)
     val all = List(planning, coding, review)
@@ -173,12 +168,13 @@ private[orca] object RoleAgents:
 
   private def resolveOne(
       label: String,
+      costRole: String,
       projectSpec: Option[AgentSpec],
       globalSpec: Option[AgentSpec],
       overrideSelect: Option[AgentSet => Agent[?]],
       agents: WiredAgents
   ): RoleChoice =
-    overrideSelect match
+    val choice = overrideSelect match
       case Some(select) =>
         val agent = select(agents)
         val (harness, model) = harnessAndModel(agent, None)
@@ -209,6 +205,39 @@ private[orca] object RoleAgents:
               model,
               foreign = false
             )
+    choice.copy(agent = tagged(choice.label, costRole, choice.agent, agents))
+
+  /** Stamp the role onto its agent as the cost-report `name` (the role's label)
+    * and the `role` axis (`costRole`, which for review is the reviewers' own
+    * tag). Done here rather than in the shipped flows because a user-written
+    * flow, the shell, and the runtime's own cheap one-shots (branch naming,
+    * default commit messages) never pass through one; `Agent.cheap` carries
+    * name and role over, so those sub-calls are covered by tagging the role
+    * agent itself.
+    *
+    * Guards ONE channel: a role override that renames a wired agent
+    * (`flow(codingAgent = Some(_.claude.withName("bob")))`) keeps its name,
+    * since the resolved agent's name then differs from that of the wired agent
+    * for its backend. Nothing else is guarded — a name given at WIRING time
+    * (`flow(claude = Some(w => ClaudeAgents.default(w).withName("bob")))`) is
+    * the wired agent's own name, so the comparison passes and the name is
+    * replaced by the role's label. `Agent` carries no record of who set its
+    * name, and what a wrong answer costs is a mislabelled cost line and
+    * terminal attribution: nothing behavioural reads `Agent.name` (sessions key
+    * off `FlowSession.name`, rehydration off `BackendTag`).
+    *
+    * An agent reporting no backend tag has no wired agent to compare against,
+    * so it is left alone.
+    */
+  private def tagged(
+      label: String,
+      costRole: String,
+      agent: Agent[?],
+      agents: WiredAgents
+  ): Agent[?] =
+    if agent.backendTag.map(agents.agentFor).exists(_.name == agent.name) then
+      agent.withName(label).withRole(costRole)
+    else agent
 
   /** Stands in for a role where nothing orca can see pins a model — neither the
     * settings nor the wired agent (pi and opencode pin no default). The harness

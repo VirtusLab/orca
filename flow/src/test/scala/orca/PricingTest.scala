@@ -63,3 +63,13 @@ class PricingTest extends munit.FunSuite:
       ),
       Some(Cost(BigDecimal("0.42"), estimated = false))
     )
+
+  test("the shipped table prices claude-mythos-5"):
+    assertEquals(
+      Pricing.resolve(
+        Pricing.default.table,
+        Some(Model("claude-mythos-5")),
+        usage(input = 1_000_000L, output = 0L)
+      ),
+      Some(Cost(BigDecimal("10"), estimated = true))
+    )

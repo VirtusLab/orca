@@ -209,6 +209,29 @@ class CostLogTest extends munit.FunSuite:
     )
     assertEquals(turn.cost, Some(resolved))
 
+  /** Without the model on the line, the by-model split the run printed cannot
+    * be reproduced from the file — which the record's own contract promises.
+    */
+  test("a turn records the model, or None when the backend reported none"):
+    val workDir = TempDirs.dir()
+    val writer = newWriter(workDir)
+    writer.onEvent(
+      OrcaEvent.TokensUsed(
+        agent = "claude",
+        model = Some(Model("claude-sonnet-5")),
+        usage = usage(10, 1, None),
+        role = None,
+        cost = None
+      )
+    )
+    writer.onEvent(
+      OrcaEvent.TokensUsed("claude", None, usage(10, 1, None), cost = None)
+    )
+    assertEquals(
+      turns(workDir).map(_.model),
+      List(Some("claude-sonnet-5"), None)
+    )
+
   /** The run total is a read-time fold, so this pins that the lines carry
     * enough to compute one — including `estimated` surviving the addition, so a
     * mixed total can't be read as a billed figure.

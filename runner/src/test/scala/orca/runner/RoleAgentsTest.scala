@@ -15,40 +15,46 @@ import orca.agents.{
   PiAgent,
   ToolSet
 }
+import orca.review.ReviewerPrompts
 import orca.settings.{AgentSettings, AgentSpec}
 
-/** Pins [[RoleAgents.resolve]]'s pure mapping from settings to the run's
+/** Pins [[RoleAgents.resolveAll]]'s mapping from settings to the run's
   * [[WiredAgents]]: unset stays claude, a bare spec picks the matching wired
-  * backend by reference, and a model pin produces a `withModel` sibling that
-  * still shares the wired backend's identity — the same sharing
-  * [[LeadAgentIdentityTest]] pins for the `_.claude.opus` selector shape, here
-  * exercised through settings-driven resolution instead of a flow selector.
+  * backend, and a model pin produces a `withModel` sibling that still shares
+  * the wired backend's identity — the same sharing [[LeadAgentIdentityTest]]
+  * pins for the `_.claude.opus` selector shape, here exercised through
+  * settings-driven resolution instead of a flow selector.
+  *
+  * Resolution tags each role's agent, so "came from the wired agent" is
+  * asserted as shared `backendIdentity` rather than reference equality.
   */
 class RoleAgentsTest extends munit.FunSuite:
 
-  test("unset settings resolve every role to the wired claude, unchanged"):
-    val wired = wiredAgents()
-    val resolved = RoleAgents.resolve(AgentSettings.empty, wired)
-    assert(
-      resolved.planning.eq(wired.claude),
-      "planning must be the wired claude"
+  test("unset settings resolve every role to the wired claude"):
+    val token = new AnyRef
+    val roles = resolvedRoles(
+      AgentSettings.empty,
+      wiredAgents(claude = new RecordingModelClaude(token))
     )
-    assert(resolved.coding.eq(wired.claude), "coding must be the wired claude")
-    assert(resolved.review.eq(wired.claude), "review must be the wired claude")
+    assertEquals(
+      List(roles.planning, roles.coding, roles.review).map(_.backendIdentity),
+      List(Some(token), Some(token), Some(token))
+    )
 
-  test("a bare per-role spec picks the matching wired backend by reference"):
-    val wired = wiredAgents()
-    val settings = AgentSettings(
-      coding = Some(AgentSpec(BackendTag.Codex, None))
+  test("a bare per-role spec picks the matching wired backend"):
+    val token = new AnyRef
+    val roles = resolvedRoles(
+      AgentSettings(coding = Some(AgentSpec(BackendTag.Codex, None))),
+      wiredAgents(claude = new RecordingModelClaude(token))
     )
-    val resolved = RoleAgents.resolve(settings, wired)
-    assert(resolved.coding.eq(wired.codex), "coding must be the wired codex")
-    assert(
-      resolved.planning.eq(wired.claude),
-      "an unset role still defaults to the wired claude"
+    assertEquals(
+      roles.coding.backendTag,
+      Some(BackendTag.Codex),
+      "coding must be the wired codex"
     )
-    assert(
-      resolved.review.eq(wired.claude),
+    assertEquals(
+      List(roles.planning, roles.review).map(_.backendIdentity),
+      List(Some(token), Some(token)),
       "an unset role still defaults to the wired claude"
     )
 
@@ -58,22 +64,21 @@ class RoleAgentsTest extends munit.FunSuite:
   ):
     val token = new AnyRef
     val wiredClaude = new RecordingModelClaude(token)
-    val wired = wiredAgents(claude = wiredClaude)
     val settings = AgentSettings(
       planning = Some(AgentSpec(BackendTag.ClaudeCode, Some("claude-opus-x")))
     )
-    val resolved = RoleAgents.resolve(settings, wired)
+    val roles = resolvedRoles(settings, wiredAgents(claude = wiredClaude))
     assert(
-      !resolved.planning.eq(wiredClaude),
+      !roles.planning.eq(wiredClaude),
       "a model pin must produce a new sibling instance, not the wired agent " +
         "itself"
     )
     assertEquals(
-      resolved.planning.backendIdentity,
+      roles.planning.backendIdentity,
       Some(token),
       "the sibling must still share the wired backend's identity"
     )
-    resolved.planning match
+    roles.planning match
       case sibling: RecordingModelClaude =>
         assertEquals(sibling.pinnedModel, Some(Model("claude-opus-x")))
       case other =>
@@ -84,18 +89,17 @@ class RoleAgentsTest extends munit.FunSuite:
   ):
     val token = new AnyRef
     val wiredOpencode = new RecordingOpencode(token)
-    val wired = wiredAgents(opencode = wiredOpencode)
     val settings = AgentSettings(
       review = Some(AgentSpec(BackendTag.Opencode, Some("ollama/qwen-coder")))
     )
-    val resolved = RoleAgents.resolve(settings, wired)
+    val roles = resolvedRoles(settings, wiredAgents(opencode = wiredOpencode))
     assert(
-      !resolved.review.eq(wiredOpencode),
+      !roles.review.eq(wiredOpencode),
       "a model pin must produce a new sibling instance, not the wired agent " +
         "itself"
     )
-    assertEquals(resolved.review.backendIdentity, Some(token))
-    resolved.review match
+    assertEquals(roles.review.backendIdentity, Some(token))
+    roles.review match
       case sibling: RecordingOpencode =>
         assertEquals(sibling.pinnedModel, Some("ollama/qwen-coder"))
       case other =>
@@ -232,6 +236,53 @@ class RoleAgentsTest extends munit.FunSuite:
       "a wired override is not foreign"
     )
 
+  test("resolveAll tags each role's agent with its label, for the cost report"):
+    val roles = resolvedRoles(
+      AgentSettings.empty,
+      wiredAgents(claude = new TaggableClaude("claude"))
+    )
+    // The review role's cost tag is the reviewers' own, not its label: the
+    // reviewers, lint and the picker all bill under it, and the by-role block
+    // must not grow a second bucket for the same concept.
+    assertEquals(
+      List(roles.planning, roles.coding, roles.review)
+        .map(a => (a.name, a.role)),
+      List(
+        ("planning", Some("planning")),
+        ("coding", Some("coding")),
+        ("review", Some(ReviewerPrompts.Role))
+      )
+    )
+
+  test("a name a programmatic override set deliberately is not overwritten"):
+    // The name is what sessions and selectors key off, so an override that
+    // picked one keeps it.
+    val resolution = RoleAgents.resolveAll(
+      project = AgentSettings.empty,
+      global = AgentSettings.empty,
+      overrides = RoleOverrides(
+        None,
+        Some((a: orca.AgentSet) => a.claude.withName("bob")),
+        None
+      ),
+      agents = wiredAgents(claude = new TaggableClaude("claude")),
+      onRoleResolved = _ => ()
+    )
+    assertEquals(resolution.roles.coding.name, "bob")
+
+  test("a pi-backed role is tagged too, though pi's wired default is not main"):
+    // The "still carries its backend's own default name" check reads that name
+    // off the wired agent, so a backend naming its default something else is
+    // covered without a list of names to keep in step.
+    val resolution = RoleAgents.resolveAll(
+      project = AgentSettings(coding = Some(AgentSpec(BackendTag.Pi, None))),
+      global = AgentSettings.empty,
+      overrides = RoleOverrides(None, None, None),
+      agents = wiredAgents(),
+      onRoleResolved = _ => ()
+    )
+    assertEquals(resolution.roles.coding.name, "coding")
+
   test("resolveAll warns for an override that escapes the wired set"):
     val foreign = new RecordingModelClaude(new AnyRef)
     val resolution = RoleAgents.resolveAll(
@@ -248,6 +299,23 @@ class RoleAgentsTest extends munit.FunSuite:
       ),
       s"expected a foreign-agent warning: ${resolution.foreignWarnings}"
     )
+
+  /** [[RoleAgents.resolveAll]] with no global settings and no programmatic
+    * override — the settings-only path the mapping tests exercise.
+    */
+  private def resolvedRoles(
+      settings: AgentSettings,
+      agents: WiredAgents
+  ): ResolvedRoles =
+    RoleAgents
+      .resolveAll(
+        project = settings,
+        global = AgentSettings.empty,
+        overrides = RoleOverrides(None, None, None),
+        agents = agents,
+        onRoleResolved = _ => ()
+      )
+      .roles
 
   private def wiredAgents(
       claude: ClaudeAgent = StubAgent.claude,
@@ -300,6 +368,22 @@ class RoleAgentsTest extends munit.FunSuite:
     def resultAs[O: JsonData: Announce]
         : AgentCall[BackendTag.Opencode.type, O] =
       throw new UnsupportedOperationException
+
+  /** A `ClaudeAgent` stub that reports a real backend tag and actually applies
+    * `withName`/`withRole` — [[StubClaudeAgent]]'s builders return `this`, so
+    * the cost-report tagging is invisible through them.
+    */
+  private class TaggableClaude(
+      agentName: String,
+      roleTag: Option[String] = None
+  ) extends StubClaudeAgent(agentName):
+    override def role: Option[String] = roleTag
+    override private[orca] def backendTag: Option[BackendTag] =
+      Some(BackendTag.ClaudeCode)
+    override def withName(name: String): ClaudeAgent =
+      new TaggableClaude(name, roleTag)
+    override def withRole(role: String): ClaudeAgent =
+      new TaggableClaude(agentName, Some(role))
 
   /** A `ClaudeAgent` stub whose `configuredModel` mirrors the real wired
     * default (claude's Opus1M pin) — [[StubClaudeAgent]]'s bare default has
@@ -354,17 +438,24 @@ class RoleAgentsTest extends munit.FunSuite:
         : AgentCall[BackendTag.Opencode.type, O] =
       throw new UnsupportedOperationException
 
-  private object NoopPi extends PiAgent:
-    val name = "noop-pi"
+  /** Named like the real wired pi (`pi`, not `main`) and honouring `withName`,
+    * so a role landing on pi exercises the tagging check against a backend
+    * whose default name differs from the others'.
+    */
+  private class NoopPiAgent(val name: String) extends PiAgent:
+    override private[orca] def backendTag: Option[BackendTag] =
+      Some(BackendTag.Pi)
     def withModel(model: Model): PiAgent = this
     def withConfig(config: AgentConfig): PiAgent = this
     def withSystemPrompt(prompt: String): PiAgent = this
-    def withName(name: String): PiAgent = this
+    def withName(newName: String): PiAgent = new NoopPiAgent(newName)
     def withTools(tools: ToolSet): PiAgent = this
     def autonomous: AutonomousTextCall[BackendTag.Pi.type] =
       throw new UnsupportedOperationException
     def resultAs[O: JsonData: Announce]: AgentCall[BackendTag.Pi.type, O] =
       throw new UnsupportedOperationException
+
+  private object NoopPi extends NoopPiAgent("pi")
 
   private object NoopGemini extends GeminiAgent:
     val name = "noop-gemini"

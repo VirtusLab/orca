@@ -49,6 +49,13 @@ trait ReviewerSelector:
 
 object ReviewerSelector:
 
+  /** Identity the picker's turn is billed under, beside the reviewers it
+    * selects (`lint` is the other such non-reviewer under that role). It is a
+    * whole turn per loop, so it gets its own line in the run's cost log rather
+    * than disappearing into the review agent's own spend.
+    */
+  private[review] val PickerName: String = "picker"
+
   /** [[reviewAndFixLoop]]'s shipped default: [[agentDriven]] picks the set once
     * at loop start, and [[narrowingAcrossRounds]] then re-runs, each later
     * round, only the reviewers that reported something in the previous round.
@@ -78,7 +85,8 @@ object ReviewerSelector:
     * parameterless form — `reviewAndFixLoop`'s default — resolves the picker at
     * loop start as [[orca.FlowContext.reviewAgent]]`.cheap`; the overload below
     * takes the picker (and optionally retuned prompts/descriptions) explicitly.
-    * The selection is computed once, at loop start — task context doesn't
+    * Either way the turn is billed as [[PickerName]] under the reviewer cost
+    * role. The selection is computed once, at loop start — task context doesn't
     * change mid-loop — and the returned per-round function replays it, ignoring
     * history.
     *
@@ -163,6 +171,8 @@ object ReviewerSelector:
           // Read-only: the picker decides which reviewers to run and must not
           // edit files during selection (reading context is fine).
           agent.withReadOnly
+            .withName(PickerName)
+            .withRole(ReviewerPrompts.Role)
             .resultAs[SelectedReviewers]
             .autonomous
             .run(request, emitPrompt = false)

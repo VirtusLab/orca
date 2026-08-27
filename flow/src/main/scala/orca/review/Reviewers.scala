@@ -41,12 +41,13 @@ case class Reviewer(
   */
 object ReviewerPrompts:
 
-  /** Role tag applied to a reviewer's agent via `Agent.withRole` only at the
-    * loop's emission edge, never baked into the agent's `name`/identity — the
-    * roster, session map, picker, and outcomes all keep using the bare slug.
-    * Its sole job is cost attribution: `CostTracker` groups every `TokensUsed`
-    * event carrying this role and derives the `"reviewer: <slug>"` display line
-    * from it.
+  /** Role tag that gathers the whole review side of a run into one by-role
+    * subtotal: every reviewer's turn, lint, the picker, and the run's review
+    * role agent.
+    *
+    * A reviewer gets it via `Agent.withRole` at the loop's emission edge only,
+    * never baked into the agent's `name`/identity — the roster, session map,
+    * picker, and outcomes all keep using the bare slug.
     */
   val Role: String = "reviewer"
 
