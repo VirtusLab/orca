@@ -95,9 +95,14 @@ private[orca] object Conversations:
       withheld = None
       flushCurrent()
 
-    /** Abnormal end (the drain threw mid-stream): nothing is reliably the
-      * payload, so flush everything rather than drop prose. Worst case the user
-      * sees a JSON blob once.
+    /** The drain threw while reading the stream: the turn boundary that would
+      * have told the payload from narration never arrived, so flush everything
+      * rather than drop prose. Worst case the user sees a JSON blob once.
+      *
+      * Only a throw from the iterator lands here. A failure the wire reports
+      * (an `is_error` result) closes the stream normally, so [[finishNormally]]
+      * runs and the parked turn is dropped like any other closing turn — an
+      * unfinished one still flushes from `current`.
       */
     def finishAbnormally(): Unit =
       withheld.foreach(emit)

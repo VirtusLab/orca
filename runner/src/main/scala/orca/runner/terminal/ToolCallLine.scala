@@ -31,9 +31,8 @@ private[terminal] object ToolCallLine:
       MaxInlineInputLength,
       indent.length,
       LineBudget.glyphWidth(ToolCallGlyph),
-      LineBudget.attributionWidth(agent),
-      name.length + 1, // the space between the tool name and its args
-      2 // the brackets `summarise` wraps its headline in
+      AgentAttribution.width(agent),
+      name.length + 1 // the space between the tool name and its args
     )
     val args = ToolInputSummary.summarise(rawInput, budget, workDir)
     val head = paint(ToolNameStyle, s"$ToolCallGlyph ") +

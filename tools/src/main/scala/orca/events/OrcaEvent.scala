@@ -35,6 +35,15 @@ enum OrcaEvent:
     */
   case Step(message: String)
 
+  /** Orca's own housekeeping on the user's branch — today the progress-log and
+    * settings commits ([[orca.tools.GitTool.commitOnly]] / `forceCommitOnly`).
+    * Distinct from [[Step]] because none of it is work on the task: the
+    * terminal log leaves it out, where it would read as progress, while the
+    * trace file keeps it. A message is never matched to decide this — the
+    * emitter picks the case.
+    */
+  case Bookkeeping(message: String)
+
   /** Something true of the whole run rather than of the stage it surfaced in —
     * today, a restriction a backend cannot apply mechanically
     * ([[orca.agents.EnforcementNotice]]). Distinct from [[Step]] because a

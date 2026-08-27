@@ -21,8 +21,10 @@ private[orca] class LoggingListener extends OrcaListener:
     case OrcaEvent.StageStarted(name)   => log.info("stage start: {}", name)
     case OrcaEvent.StageCompleted(name) => log.info("stage done:  {}", name)
     case OrcaEvent.Step(message)        => log.info("step: {}", message)
-    case OrcaEvent.Caveat(message)      => log.info("caveat: {}", message)
-    case OrcaEvent.UserPrompt(text)     => log.debug("prompt sent:\n{}", text)
+    case OrcaEvent.Bookkeeping(message) =>
+      log.info("bookkeeping: {}", message)
+    case OrcaEvent.Caveat(message)  => log.info("caveat: {}", message)
+    case OrcaEvent.UserPrompt(text) => log.debug("prompt sent:\n{}", text)
     case OrcaEvent.AssistantMessage(text, agent) =>
       log.debug("assistant ({}): {}", agent.getOrElse("?"), text)
     case OrcaEvent.ToolUse(tool, args, agent) =>

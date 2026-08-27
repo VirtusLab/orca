@@ -32,14 +32,14 @@ class ToolInputSummaryTest extends munit.FunSuite:
 
   test("summarise middle-truncates a path too long for the budget"):
     // Out-of-workDir paths stay absolute (ADR 0008), so an over-budget path is
-    // the case that matters: both the leading `/` and the filename survive.
+    // the case that matters: both the leading `/` and the filename survive,
+    // and the 40 covers the brackets too.
     val raw =
       s"""{"file_path":"/home/user/${"nested/" * 10}Main.scala"}"""
-    val out = ToolInputSummary.summarise(raw, 40)
-    assert(out.startsWith("(/home/user/"), out)
-    assert(out.endsWith("Main.scala)"), out)
-    assert(out.contains("…"), out)
-    assertEquals(out.length, 42) // 40 plus the wrapping brackets
+    assertEquals(
+      ToolInputSummary.summarise(raw, 40),
+      "(/home/user/nested/n…/nested/Main.scala)"
+    )
 
   test("summarise extracts a field written with a space after the colon"):
     val raw = """{"file_path": "/tmp/foo.txt"}"""
@@ -63,9 +63,9 @@ class ToolInputSummaryTest extends munit.FunSuite:
     val body = List.fill(60)("line").mkString("\n")
     val raw = s"""{"description":"${body.replace("\n", "\\n")}"}"""
     val out = ToolInputSummary.summarise(raw, maxLen)
-    // 24 words ("line " × 24, less the trailing space) fill the 120-char
-    // budget, and the cut character becomes the ellipsis.
-    assertEquals(out, s"(${List.fill(24)("line").mkString(" ")}…)")
+    // 23 words and two characters of the 24th fill the 118 the brackets leave
+    // of the budget, and the cut character becomes the ellipsis.
+    assertEquals(out, s"(${List.fill(23)("line").mkString(" ")} li…)")
 
   test("summarise heads a search with its pattern, scoped to a subtree"):
     val workDir = os.Path("/tmp/orca-AbC")
@@ -134,7 +134,7 @@ class ToolInputSummaryTest extends munit.FunSuite:
     val raw = s"""{"command":"$command"}"""
     val out = ToolInputSummary.summarise(raw, maxLen)
     assert(out.endsWith("token…)"), s"cut mid-token; got: $out")
-    assert(out.length <= maxLen + 2, s"headline exceeded the cap; got: $out")
+    assert(out.length <= maxLen, s"headline exceeded the cap; got: $out")
 
   test("summarise leaves command/pattern/query unchanged when they look pathy"):
     val workDir = os.Path("/tmp/orca-AbC")

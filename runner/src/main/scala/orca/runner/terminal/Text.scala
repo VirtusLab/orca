@@ -22,18 +22,23 @@ private[terminal] object Text:
   /** Cut `s` to at most `max` characters by removing its MIDDLE: head, an
     * ellipsis, then tail. For a path this keeps both ends that identify it —
     * the leading `/` that marks it as outside the working directory, and the
-    * filename that [[truncate]] would eat. The whole trailing segment is kept
-    * when it fits, so the filename survives intact wherever it can.
+    * filename that [[truncate]] would eat. The whole trailing segment — its
+    * leading `/` included — is kept when it fits, so the filename survives
+    * intact wherever it can.
     */
   def middleTruncate(s: String, max: Int): String =
     if s.length <= max then s
-    else if max < 3 then truncate(s, max)
     else
       val keep = max - 1 // the ellipsis costs one
-      val lastSegment = s.length - s.lastIndexOf('/') - 1
+      val half = keep / 2
+      // Counted WITH its leading `/`, so the cut lands before the separator and
+      // the result still reads as a path rather than one run-on token.
+      val lastSlash = s.lastIndexOf('/')
+      val lastSegment = if lastSlash < 0 then s.length else s.length - lastSlash
+      // The whole trailing segment whenever something is left for the head; a
+      // segment that fills the budget on its own falls back to an even split.
       val tail =
-        if lastSegment <= keep - 1 then math.max(lastSegment, keep / 2)
-        else keep / 2
+        if lastSegment < keep then math.max(lastSegment, half) else half
       s"${s.take(keep - tail)}…${s.takeRight(tail)}"
 
   /** Collapse all runs of whitespace to a single space and trim. Use before

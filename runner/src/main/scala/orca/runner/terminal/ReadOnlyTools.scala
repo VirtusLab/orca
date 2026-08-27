@@ -6,9 +6,12 @@ package orca.runner.terminal
   * Reading is what an agent does most — about half of a run's log lines — and
   * each line says only that it is still working, which the status row already
   * says. Rendering them all identically lets [[TerminalOutputState]]'s
-  * repeat-collapse fold a run of them into one line plus `⎿ ×N`. The filename
-  * is not lost: `LoggingListener` records every call at DEBUG in the trace file
-  * whose path the run banner prints.
+  * repeat-collapse fold a run of them into one line plus `⎿ ×N`. The emitting
+  * agent's name is dropped for the same reason: the reviewer fan-out is where
+  * reads are densest, and a `name: ` prefix would make every line distinct
+  * again and collapse nothing. The filename and the name are not lost:
+  * `LoggingListener` records every call at DEBUG in the trace file whose path
+  * the run banner prints.
   *
   * Display-only and best-effort. An unrecognised name is treated as mutating
   * and printed in full — a write shown as a read is the harmful direction, and

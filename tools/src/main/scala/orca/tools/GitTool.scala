@@ -217,6 +217,11 @@ trait GitTool:
     * anything else dirty or untracked stays out, in contrast to [[commit]]'s
     * `add -A`. Throws `OrcaFlowException` when the path has no changes to
     * commit or on system-level failures.
+    *
+    * For the runtime's own files (the progress log, the discovered settings),
+    * so it announces itself as [[orca.events.OrcaEvent.Bookkeeping]] rather
+    * than as a [[orca.events.OrcaEvent.Step]]. Committing the flow's work is
+    * [[commit]]'s job.
     */
   def commitOnly(path: os.Path, message: String)(using WorkspaceWrite): Unit
 
@@ -472,7 +477,8 @@ trait GitTool:
   * subprocess plumbing.
   *
   * `events` publishes [[OrcaEvent.Step]]s for operations shown in the event log
-  * (branch switches, commits, pushes). Optional — defaults to
+  * (branch switches, commits, pushes), and [[OrcaEvent.Bookkeeping]] for the
+  * pathspec commits of orca's own files. Optional — defaults to
   * `OrcaListener.noop`.
   */
 private[orca] class OsGitTool(
@@ -550,7 +556,7 @@ private[orca] class OsGitTool(
     */
   private def commitPathspec(path: os.Path, message: String): Unit =
     val _ = git("commit", "-m", message, "--", path.toString)
-    step(s"Committed: $message")
+    events.onEvent(OrcaEvent.Bookkeeping(s"Committed: $message"))
 
   def forceAdd(path: os.Path)(using WorkspaceWrite): Unit =
     val _ = git("add", "-f", path.toString)

@@ -20,11 +20,8 @@ private[terminal] object LineBudget:
   def remaining(max: Int, prefixes: Int*): Int =
     math.max(Floor, max - prefixes.sum)
 
-  /** Columns a `glyph ` prefix takes: the glyph plus its separating space. */
-  def glyphWidth(glyph: String): Int = glyph.length + 1
-
-  /** Columns [[AgentAttribution.prefix]] takes — 0 when the line isn't
-    * attributed.
+  /** Columns a `glyph ` prefix takes: the glyph plus its separating space.
+    * Derived from the glyph the renderer prints rather than fixed at 2, so a
+    * marker wider than one character can't silently overrun the budget.
     */
-  def attributionWidth(agent: Option[String]): Int =
-    agent.fold(0)(_.length + ": ".length)
+  def glyphWidth(glyph: String): Int = glyph.length + 1

@@ -26,7 +26,6 @@ private[runner] class TerminalEventListener(
     ErrorGlyph,
     MaxAssistantMessageLength,
     MaxStructuredResultRawLength,
-    OrcaCommitStep,
     StageEmitters,
     StageStartGlyph,
     StepGlyphStyle,
@@ -59,31 +58,31 @@ private[runner] class TerminalEventListener(
       stageEmitters.set(StageEmitters.Silent)
       output.setStatus(stack.headOption)
     case OrcaEvent.ToolUse(tool, args, agent) =>
-      // A read-only call renders as one constant line, so a run of them
-      // collapses in `TerminalOutput` (see `ReadOnlyTools`); everything else
-      // shows what it acted on.
-      val (name, input) =
-        if ReadOnlyTools.contains(tool) then (ReadOnlyTools.DisplayName, "{}")
-        else (tool, args)
-      output.log(
-        formatIndented(
+      // Recorded before the branch: an agent whose reads go out unnamed is
+      // still an emitter, so its prose and writes get named once the stage has
+      // several (see `attribution`).
+      val who = attribution(agent)
+      val line =
+        // A read-only call renders as one constant line — no file, no agent —
+        // so a burst from any mix of agents collapses in `TerminalOutput` (see
+        // `ReadOnlyTools`); everything else shows what it acted on and who.
+        if ReadOnlyTools.contains(tool) then
           ToolCallLine.format(
-            name,
-            input,
+            ReadOnlyTools.DisplayName,
+            "{}",
             paint,
             workDir,
-            attribution(agent),
+            agent = None,
             currentIndent
           )
-        )
-      )
+        else ToolCallLine.format(tool, args, paint, workDir, who, currentIndent)
+      output.log(formatIndented(line))
     case _: OrcaEvent.TokensUsed =>
       () // Token accounting is owned by CostTracker.
     case OrcaEvent.Step(message) =>
-      // Orca's own bookkeeping commits are the runtime's, not the user's work:
-      // they'd read as progress on the task. The trace file keeps them.
-      if !message.startsWith(OrcaCommitStep) then
-        output.log(formatStepLine(message))
+      output.log(formatStepLine(message))
+    case _: OrcaEvent.Bookkeeping =>
+      () // Not the user's work; it would read as progress. The trace keeps it.
     case OrcaEvent.Caveat(message) =>
       // No `formatIndented`, unlike every sibling arm: it is run-scoped.
       output.log(paint(CaveatStyle, s"$CaveatGlyph ") + message)
@@ -150,7 +149,10 @@ private[runner] class TerminalEventListener(
     * agent's earlier lines stay bare — the log is append-only, so nothing
     * already printed can be prefixed after the fact.
     *
-    * An event carrying no agent name never counts as an emitter.
+    * An event carrying no agent name never counts as an emitter. A read-only
+    * tool line is the one that counts its emitter and then prints bare anyway:
+    * it is deliberately identical whoever made the call, so that a burst of
+    * them collapses ([[ReadOnlyTools]]).
     */
   private def attribution(agent: Option[String]): Option[String] =
     agent.flatMap: name =>
@@ -171,7 +173,7 @@ private[runner] class TerminalEventListener(
       max,
       currentIndent.length,
       LineBudget.glyphWidth(glyph),
-      LineBudget.attributionWidth(agent)
+      AgentAttribution.width(agent)
     )
 
   /** A `▶` step line: magenta-bold glyph, neutral body — matching the
@@ -252,9 +254,3 @@ private[runner] object TerminalEventListener:
     * `Announce[O]` summary was provided (ADR 0008).
     */
   val MaxStructuredResultRawLength: Int = 200
-
-  /** `Step` messages starting with this are orca's own bookkeeping commits
-    * (`GitTool.commit`'s `Committed: ` echo of an `orca: `-prefixed message),
-    * which the log leaves out.
-    */
-  private val OrcaCommitStep: String = "Committed: orca: "

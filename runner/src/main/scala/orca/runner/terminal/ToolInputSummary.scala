@@ -47,8 +47,12 @@ private[terminal] object ToolInputSummary:
       "description" -> HeadlineKind.Plain
     )
 
+  /** Columns the headline's wrapping `(`/`)` take. */
+  private val Brackets: Int = 2
+
   /** Returns an already-truncated headline suitable for rendering after the
-    * tool name. Empty string means "no args to show".
+    * tool name, at most `maxLength` characters INCLUDING the brackets a
+    * headline is wrapped in. Empty string means "no args to show".
     */
   def summarise(
       rawJson: String,
@@ -72,7 +76,7 @@ private[terminal] object ToolInputSummary:
             kind,
             value = value,
             json = collapsed,
-            maxLength = maxLength,
+            maxLength = maxLength - Brackets,
             workDir = workDir
           )
           s"($text)"
@@ -95,9 +99,9 @@ private[terminal] object ToolInputSummary:
       workDir: Option[os.Path]
   ): String = kind match
     case HeadlineKind.Path =>
-      // Middle-truncated, not end-truncated: a path over budget is one left
-      // absolute by `relativise`, and cutting its tail drops the filename —
-      // the only part that says which file the call touched.
+      // Middle-truncated, not end-truncated: cutting the tail off any path —
+      // relative ones overflow at depth too — drops the filename, the only
+      // part that says which file the call touched.
       Text.middleTruncate(
         Text.collapseWhitespace(relativise(value, workDir)),
         maxLength
