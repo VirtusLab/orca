@@ -670,15 +670,15 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     val result =
       se.chat.resultAs[ReviewResult].autonomous.run(prompt, emitPrompt = false)
     // Nothing is sent on `AlreadySeen`, so the reviewer keeps comparing against
-    // what it has seen. A `TooLarge` round still records the whole diff, not
-    // what was sent: the next round compares diff text, so a change that
-    // rewrites those files without adding or removing any must still register.
+    // what it has seen. A cut round still records the whole diff, not what was
+    // sent: the next round compares diff text, so a change that rewrites those
+    // files without adding or removing any must still register.
     val advanced = changes match
       case ReReviewChanges.Updated(_) =>
         Some(se.copy(lastSent = LastSent.inlined(current.diff)))
-      case ReReviewChanges.TooLarge(Some(_), _, _) =>
+      case ReReviewChanges.Sections(_, _, _) =>
         Some(se.copy(lastSent = LastSent.SectionsOnly(current.diff)))
-      case ReReviewChanges.TooLarge(None, _, _) =>
+      case ReReviewChanges.Paths(_) =>
         Some(se.copy(lastSent = LastSent.PathsOnly(current.diff)))
       case ReReviewChanges.AlreadySeen(_) => None
     (result, advanced)

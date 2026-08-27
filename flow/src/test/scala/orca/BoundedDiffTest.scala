@@ -240,43 +240,56 @@ class BoundedDiffTest extends munit.FunSuite:
       .map(_.drop(4))
       .toList
 
+  /** The payload of a cut that rendered something, failing the test when it
+    * rendered nothing.
+    */
+  private def cut(
+      diff: String,
+      paths: List[String],
+      maxChars: Int = 8 * 1024
+  ): String =
+    BoundedDiff.sectionsPayload(diff, paths, maxChars) match
+      case BoundedDiff.SectionsCut.Rendered(payload) => payload
+      case BoundedDiff.SectionsCut.NothingFits =>
+        fail(s"expected sections for $paths")
+
   test("the sections payload carries the requested files and nothing else"):
     val diff = section("src/A.scala", 3) + section("src/B.scala", 3)
+    assertEquals(cut(diff, List("src/B.scala")), section("src/B.scala", 3))
+
+  test("a requested path repeated in the list is rendered once"):
+    val path = "src/A.scala"
+    assertEquals(cut(section(path, 3), List(path, path)), section(path, 3))
+
+  test("a requested file too large for the budget leaves nothing to send"):
+    // A payload of nothing but a trailer would tell the reviewer that the
+    // sections above describe the change, above no sections at all.
+    val path = "src/Huge.scala"
     assertEquals(
-      BoundedDiff.sectionsPayload(diff, List("src/B.scala"), 8 * 1024),
-      section("src/B.scala", 3)
+      BoundedDiff.sectionsPayload(section(path, 2000), List(path), 8 * 1024),
+      BoundedDiff.SectionsCut.NothingFits
     )
 
-  test("a requested file too large for the budget is named, not shown"):
-    // The honest degradation to what the reviewer used to get for the whole
-    // change set: the file is named and it opens it itself.
-    val path = "src/Huge.scala"
-    val payload =
-      BoundedDiff.sectionsPayload(section(path, 2000), List(path), 8 * 1024)
-    assertEquals(rendered(payload), Nil)
-    assertEquals(unshown(payload), List(path))
-
   test("a requested path with no section of its own is named as not shown"):
-    // A rename off its old name, or a header git had to quote: the caller's
-    // file list has the path, the diff body has no section under it.
-    val payload = BoundedDiff.sectionsPayload(
+    // A rename, whose header names two paths, or a header git had to quote:
+    // the caller's file list has the path, the diff body has no section under
+    // it.
+    val payload = cut(
       section("src/A.scala", 3),
-      List("src/A.scala", "src/Renamed.scala"),
-      8 * 1024
+      List("src/A.scala", "src/Renamed.scala")
     )
     assertEquals(rendered(payload), List("src/A.scala"))
     assertEquals(unshown(payload), List("src/Renamed.scala"))
 
   test("the sections payload stays within its budget"):
     // Same sizing argument as the review payload's: sections and trailer are
-    // bounded against each other, so neither spends the other's room.
+    // bounded against each other, so neither spends the other's room — and
+    // both still render, which a budget cut to nothing would also satisfy.
     val paths = (1 to 400).map(i => f"src/generated/G$i%05d.scala").toList
-    val payload = BoundedDiff.sectionsPayload(
-      paths.map(section(_, 20)).mkString,
-      paths,
-      8 * 1024
-    )
+    val payload = cut(paths.map(section(_, 20)).mkString, paths)
     assert(clue(payload.length) <= 8 * 1024, "the payload outgrew its budget")
+    assert(rendered(payload).nonEmpty, "no section was rendered")
+    assert(unshown(payload).nonEmpty, "no omitted file was named")
 
   // --- the PR payload ---
 

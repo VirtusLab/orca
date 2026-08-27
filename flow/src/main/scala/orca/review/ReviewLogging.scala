@@ -47,9 +47,9 @@ private[review] object ReviewLogging:
   ): Unit =
     val (shape, chars, files) = changes match
       case ReReviewChanges.Updated(diff) => ("updated", diff.length, Nil)
-      case ReReviewChanges.TooLarge(sections, changed, _) =>
-        val shape = if sections.isDefined then "sections" else "paths"
-        (shape, sections.fold(0)(_.length), changed)
+      case ReReviewChanges.Sections(diff, changed, _) =>
+        ("sections", diff.length, changed)
+      case ReReviewChanges.Paths(paths) => ("paths", 0, paths)
       case ReReviewChanges.AlreadySeen(last) =>
         (s"already-seen/${lastSentShape(last)}", 0, Nil)
     log.debug(
@@ -62,22 +62,30 @@ private[review] object ReviewLogging:
       prompt
     )
 
-  /** The fix turn: which findings the coder was handed, then the prompt. */
+  /** The fix turn: which findings the coder was handed, then the prompt.
+    *
+    * Guarded rather than left to slf4j: rendering serialises the request a
+    * second time, which is wasted whenever DEBUG is off.
+    */
   def fix(request: FixRequest): Unit =
-    log.debug(
-      "fix prompt: findings={} keys={}\n{}",
-      request.issues.size,
-      joined(request.issues.map(_.key)),
-      render(request)
-    )
+    if log.isDebugEnabled then
+      log.debug(
+        "fix prompt: findings={} keys={}\n{}",
+        request.issues.size,
+        joined(request.issues.map(_.key)),
+        render(request)
+      )
 
-  /** The reviewer picker's one call, which happens before any round. */
+  /** The reviewer picker's one call, which happens before any round. Guarded
+    * for the same reason as [[fix]].
+    */
   def reviewerPick(request: ReviewerSelectionRequest): Unit =
-    log.debug(
-      "reviewer picker prompt: candidates={}\n{}",
-      joined(request.availableReviewers.map(_.name)),
-      render(request)
-    )
+    if log.isDebugEnabled then
+      log.debug(
+        "reviewer picker prompt: candidates={}\n{}",
+        joined(request.availableReviewers.map(_.name)),
+        render(request)
+      )
 
   private def render[A: AgentInput](input: A): String =
     summon[AgentInput[A]].serialize(input)

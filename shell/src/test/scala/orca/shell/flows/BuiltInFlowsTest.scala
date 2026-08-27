@@ -108,15 +108,18 @@ class BuiltInFlowsTest extends munit.FunSuite:
 
   test("every flow's cap is the library default, spelled out"):
     // Whole-run and per-task loops run under the same number, so there is one
-    // pin rather than two. Each flow still writes the number instead of
-    // inheriting it — that is what the count test above holds — so raising
-    // `DefaultMaxIterations` fails here until the flows follow.
-    val cap = s"maxIterations\\s*=\\s*$DefaultMaxIterations\\b".r
+    // pin rather than two. Every cap in the file is checked, not just the first
+    // — the count test above compares counts, so a flow whose task loop and
+    // final review state different numbers passes it. Each flow still writes
+    // the number instead of inheriting it, so raising `DefaultMaxIterations`
+    // fails here until the flows follow.
+    val cap = "maxIterations\\s*=\\s*(\\d+)".r
     val capped = indexNames.filter(resourceText(_).contains("maxIterations"))
     assert(capped.nonEmpty, "no flow states a cap any more")
     capped.foreach: name =>
       val text = resourceText(name)
-      assert(cap.findFirstIn(text).isDefined, s"$name: $text")
+      val stated = cap.findAllMatchIn(text).map(_.group(1)).toList
+      assertEquals(stated.distinct, List(DefaultMaxIterations.toString), name)
 
   private def withTempHome(body: os.Path => Unit): Unit =
     val home = os.temp.dir(prefix = "orca-built-in-flows-test")

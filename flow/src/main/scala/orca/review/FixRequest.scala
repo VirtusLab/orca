@@ -56,7 +56,17 @@ private[review] object FixRequest:
     val lines = List(
       Some(s"$key $title"),
       locationLine(location),
-      Option.when(description.nonEmpty)(s"    $description"),
+      Option.when(description.nonEmpty)(indented(description)),
       suggestion.map(s => s"    suggestion: $s")
     )
     lines.flatten.mkString("\n")
+
+  /** Every line indented, not just the first: a description runs to several
+    * lines (a co-reporter note, a reviewer's own paragraphs), and an unindented
+    * continuation reads as a new block ahead of the `suggestion:` line below
+    * it.
+    */
+  private def indented(text: String): String =
+    text.linesIterator
+      .map(line => if line.isEmpty then line else s"    $line")
+      .mkString("\n")

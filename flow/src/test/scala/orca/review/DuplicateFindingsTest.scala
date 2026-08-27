@@ -24,21 +24,17 @@ class DuplicateFindingsTest extends munit.FunSuite:
       .forAgent(agentIndex, issues.toList)
       .map(ReportedIssue(reviewer, _))
 
-  test("findings at the same file and line become one entry"):
+  test("findings at the same file and line become the first reporter's entry"):
+    // The surviving key and title are what the reader saw on screen under that
+    // reviewer's name, and what the fixer is asked to echo back.
     val merged = DuplicateFindings.merge(
       from("security", 0)(at("unchecked input", "A.scala", Some(7))) ++
         from("scala-fp", 1)(at("validate the input", "A.scala", Some(7)))
     )
-    assertEquals(merged.map(_.issue.title), List(Title("unchecked input")))
-
-  test("the surviving entry keeps the first reporter's key"):
-    // The key is what the reader saw on screen under that reviewer's name, and
-    // what the fixer is asked to echo back.
-    val merged = DuplicateFindings.merge(
-      from("security", 0)(at("unchecked input", "A.scala", Some(7))) ++
-        from("scala-fp", 1)(at("validate the input", "A.scala", Some(7)))
+    assertEquals(
+      merged.map(k => (k.key, k.issue.title)),
+      List(("I1.1", Title("unchecked input")))
     )
-    assertEquals(merged.map(_.key), List("I1.1"))
 
   test("the surviving entry names the reviewers it absorbed"):
     val merged = DuplicateFindings.merge(
@@ -59,6 +55,30 @@ class DuplicateFindingsTest extends munit.FunSuite:
         from("scala-fp", 1)(at("two", "A.scala", Some(8)))
     )
     assertEquals(merged.map(_.issue.title), List(Title("one"), Title("two")))
+
+  test("two file-scope findings in one file are not a duplicate"):
+    // `Location(file, None)` is the whole file, so two reviewers naming it are
+    // usually reporting two different things — folding them drops one.
+    val merged = DuplicateFindings.merge(
+      from("security", 0)(at("one", "A.scala", None)) ++
+        from("scala-fp", 1)(at("two", "A.scala", None))
+    )
+    assertEquals(merged.map(_.issue.title), List(Title("one"), Title("two")))
+
+  test("one reviewer's two findings on one line are not a duplicate"):
+    // A reviewer does not report the same problem twice; and naming it as its
+    // own co-reporter would read as a second reviewer confirming it.
+    val merged = DuplicateFindings.merge(
+      from("security", 0)(
+        at("one", "A.scala", Some(7)),
+        at("two", "A.scala", Some(7))
+      )
+    )
+    assertEquals(merged.map(_.issue.title), List(Title("one"), Title("two")))
+    assert(
+      merged.forall(!_.issue.description.contains("Also reported by")),
+      merged.map(_.issue.description)
+    )
 
   test("findings without a location never merge"):
     // Nothing but wording to compare, and wrongly folding two drops one from

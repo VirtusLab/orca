@@ -182,9 +182,9 @@ class ReviewChangeSetTest extends munit.FunSuite:
   test("a single file too large for the budget is named but not shown"):
     val (ctx, dir) = stagingControl()
     // Past the inline threshold the reviewer gets the changed files' sections
-    // cut to that threshold, so a resumed conversation doesn't accumulate a
-    // copy of the change set per round. One file past it on its own leaves no
-    // room for any section, which degrades to naming it.
+    // cut to that threshold, so a resumed conversation accumulates at most that
+    // much per round. One file past it on its own leaves room for no section at
+    // all, which degrades to naming the files.
     val big = (1 to 3000).map(i => s"// line $i").mkString("\n")
     val reviewer = new FakeAgent(
       "r",
@@ -206,8 +206,8 @@ class ReviewChangeSetTest extends munit.FunSuite:
     val resumePrompt = reviewer.seenPrompts
       .lift(1)
       .getOrElse(fail("the reviewer ran once; no resume happened"))
-    assert(resumePrompt.contains("#   big.scala"), resumePrompt)
-    assert(resumePrompt.contains("read those files directly"), resumePrompt)
+    assert(resumePrompt.contains("- big.scala"), resumePrompt)
+    assert(resumePrompt.contains("read them directly"), resumePrompt)
     assert(!resumePrompt.contains("// line 2999"), resumePrompt)
 
   /** A minimal per-file diff section, padded to `pad` filler lines so a sample
@@ -229,7 +229,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
       List("a.scala", "b.scala")
     )
     ReReviewChanges.of(previous, current) match
-      case ReReviewChanges.TooLarge(Some(sections), changed, unchanged) =>
+      case ReReviewChanges.Sections(sections, changed, unchanged) =>
         assertEquals(changed, List("b.scala"))
         assertEquals(unchanged, List("a.scala"))
         assert(sections.contains("+three"), sections)
@@ -241,12 +241,12 @@ class ReviewChangeSetTest extends munit.FunSuite:
     // nothing — so every path counts as changed, marked as such by the empty
     // unchanged list.
     val current = DiffSample(
-      diffSection("a.scala", "one", 4000),
-      List("a.scala")
+      diffSection("a.scala", "one", 1200) + diffSection("b.scala", "two", 1200),
+      List("a.scala", "b.scala")
     )
     ReReviewChanges.of(LastSent.NoteOnly(""), current) match
-      case ReReviewChanges.TooLarge(Some(_), changed, unchanged) =>
-        assertEquals(changed, List("a.scala"))
+      case ReReviewChanges.Sections(_, changed, unchanged) =>
+        assertEquals(changed, List("a.scala", "b.scala"))
         assertEquals(unchanged, Nil)
       case other => fail(s"expected bounded sections, got $other")
 
@@ -260,21 +260,35 @@ class ReviewChangeSetTest extends munit.FunSuite:
       DiffSample("# skipped 2 files\n" + sections, List("a.scala"))
     assertEquals(
       ReReviewChanges.of(previous, current),
-      ReReviewChanges.TooLarge(None, List("a.scala"), Nil)
+      ReReviewChanges.Paths(List("a.scala"))
     )
 
   test("the no-sections prompt tells the reviewer to read the files"):
     val prompt = ReviewLoopPrompts.reReview(
-      ReReviewChanges.TooLarge(None, List("a.scala"), Nil),
+      ReReviewChanges.Paths(List("a.scala")),
       declined = Nil
     )
     assert(prompt.contains("- a.scala"), prompt)
     assert(prompt.contains("read them directly"), prompt)
 
+  test("the whole-delta prompt offers the sections as all that fits"):
+    // Nothing counts as unchanged, so the arm below's closing list would name
+    // no file; this arm says what the payload is instead.
+    val prompt = ReviewLoopPrompts.reReview(
+      ReReviewChanges.Sections(
+        diffSection("b.scala", "three"),
+        List("b.scala"),
+        Nil
+      ),
+      declined = Nil
+    )
+    assert(prompt.contains("as much of it as fits"), prompt)
+    assert(!prompt.contains("unchanged since your previous round"), prompt)
+
   test("the delta prompt sends the sections and names the rest as unchanged"):
     val prompt = ReviewLoopPrompts.reReview(
-      ReReviewChanges.TooLarge(
-        Some(diffSection("b.scala", "three")),
+      ReReviewChanges.Sections(
+        diffSection("b.scala", "three"),
         List("b.scala"),
         List("a.scala")
       ),
@@ -322,14 +336,15 @@ class ReviewChangeSetTest extends munit.FunSuite:
       resumePrompt
     )
 
-  test("after a sections round an unchanged sample points at the sections"):
-    val (ctx, dir) = stagingControl()
-    // Round two's change set is past the inline threshold, so only the changed
-    // files' sections reach the reviewer. The fixer then claims a fix without
-    // touching the tree, so round three re-samples the same bytes — and must
-    // point the reviewer back at what it holds, not at a diff it was never
-    // sent.
-    val big = (1 to 3000).map(i => s"// line $i").mkString("\n")
+  /** A reviewer that reports the same finding twice, then goes quiet, and a
+    * fixer that claims a fix but only ever touches the tree once — so round
+    * three re-samples exactly what round two did.
+    */
+  private def repeatUntilUnchanged(
+      dir: os.Path,
+      file: String,
+      content: String
+  ): (FakeAgent, FakeAgent) =
     val reviewer = new FakeAgent(
       "r",
       outputs = List(
@@ -341,11 +356,22 @@ class ReviewChangeSetTest extends munit.FunSuite:
     val coder = new FakeAgent(
       "coder",
       outputs = List.fill(2)(FixOutcome(List(Title("real bug")), Nil)),
-      onRun = () =>
-        if !os.exists(dir / "big.scala") then commit(dir, "big.scala", big)
+      onRun = () => if !os.exists(dir / file) then commit(dir, file, content)
     )
+    (reviewer, coder)
+
+  test("after a sections round an unchanged sample points at the sections"):
+    val (ctx, dir) = stagingControl()
+    // Round two's change set is past the inline threshold, and the fixer's one
+    // file fits, so sections reach the reviewer. Round three re-samples the
+    // same bytes, and must point it back at what it holds rather than at a
+    // diff it was never sent.
+    val big = (1 to 3000).map(i => s"// line $i").mkString("\n")
+    val (reviewer, coder) =
+      repeatUntilUnchanged(dir, "fix.scala", "object Fix")
     given FlowControl = ctx
     stage("implement the widget"):
+      commit(dir, "big.scala", big)
       val _ = reviewAndFixLoop(
         coderSession = ReviewLoopFixture.coderSession(coder),
         reviewers = List(reviewer),
@@ -361,15 +387,26 @@ class ReviewChangeSetTest extends munit.FunSuite:
     )
 
   test("after a no-sections round an unchanged sample points at the file list"):
-    // The other half of the arm above: a round that could send no sections
-    // left the reviewer holding a file list, so that is what it is pointed at.
-    val prompt = ReviewLoopPrompts.reReview(
-      ReReviewChanges.AlreadySeen(LastSent.PathsOnly("some diff")),
-      declined = Nil
-    )
+    val (ctx, dir) = stagingControl()
+    // The other half of the arm above: round two's one file is too large for
+    // any section to fit, so all the reviewer holds is a file list — and that
+    // is what an unchanged round three must point it at.
+    val big = (1 to 3000).map(i => s"// line $i").mkString("\n")
+    val (reviewer, coder) = repeatUntilUnchanged(dir, "big.scala", big)
+    given FlowControl = ctx
+    stage("implement the widget"):
+      val _ = reviewAndFixLoop(
+        coderSession = ReviewLoopFixture.coderSession(coder),
+        reviewers = List(reviewer),
+        task = titled("build the widget"),
+        reviewerSelection = ReviewerSelector.allEveryRound
+      )
+    val lastPrompt = reviewer.seenPrompts
+      .lift(2)
+      .getOrElse(fail("the reviewer ran fewer than three rounds"))
     assert(
-      prompt.contains("the file list already in this conversation"),
-      prompt
+      lastPrompt.contains("the file list already in this conversation"),
+      lastPrompt
     )
 
   test("an initial diff past the cap still names every file it leaves out"):
