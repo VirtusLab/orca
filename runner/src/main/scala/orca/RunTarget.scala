@@ -31,12 +31,13 @@ enum RunTarget:
   /** A separate checkout under `.orca/worktrees/` (`--worktree`). */
   case Worktree
 
-  /** Runs on the branch already checked out, instead of creating one. */
+  // Views for the two setup decisions that turn on a single axis (which branch
+  // to bind, what to do with a dirty tree). Derived, so no caller can set one
+  // without the case that implies it.
   def skipBranch: Boolean = this match
     case CurrentBranch(_)        => true
     case NewBranch(_) | Worktree => false
 
-  /** Leaves uncommitted files in the tree instead of stashing them. */
   def keepChanges: Boolean = this match
     case NewBranch(uncommitted)     => uncommitted == Uncommitted.Keep
     case CurrentBranch(uncommitted) => uncommitted == Uncommitted.Keep

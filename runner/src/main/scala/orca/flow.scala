@@ -173,9 +173,9 @@ def flow(
   // Where the run happens. This settles before the directory's first consumer,
   // the session manifest below; everything downstream is handed `workDir`
   // explicitly, so it is the single value to change.
-  def resolveRunDir(): Either[String, os.Path] =
-    if args.target != RunTarget.Worktree then Right(workDir)
-    else
+  def resolveRunDir(): Either[String, os.Path] = args.target match
+    case RunTarget.NewBranch(_) | RunTarget.CurrentBranch(_) => Right(workDir)
+    case RunTarget.Worktree                                  =>
       // Resolution can throw as well as refuse — a symlinked or unwritable
       // `.orca`, a git that won't start. One `Left` shape for every outcome
       // keeps the reporting below the only way out.
@@ -259,9 +259,10 @@ def flow(
           System.err.println(s"[orca] $message")
           FlowOutcome.Failed
         case Right(dir) =>
-          val where =
-            if args.target == RunTarget.Worktree then s"$dir (worktree)"
-            else dir.toString
+          val where = args.target match
+            case RunTarget.Worktree => s"$dir (worktree)"
+            case RunTarget.NewBranch(_) | RunTarget.CurrentBranch(_) =>
+              dir.toString
           flowLog.info(
             "orca {} starting (workDir={})",
             OrcaBanner.version,

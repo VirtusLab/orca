@@ -405,12 +405,12 @@ object Main:
     * the resume happens on the current branch by design, and a resumed log's
     * `bindBranch` (`FlowLifecycle`) ignores `skipBranch` entirely, so the
     * default target passed here is exactly as correct as any other would be —
-    * `Worktree` included: the run is launched IN `run.dir`, the directory its
-    * log was found in, which is what makes this a resume. That target would
-    * instead re-derive a path from the task text, which is the same directory
-    * only when the log happened to be in an orca-made worktree of that exact
-    * prompt. `runAction` is injectable, [[AuthorAction]]-style, so a test can
-    * record the call instead of spawning a real subprocess.
+    * the worktree axis included: the run is launched IN `run.dir`, the
+    * directory its log was found in, which is what makes this a resume.
+    * `Worktree` would instead re-derive a path from the task text, which is the
+    * same directory only when the log happened to be in an orca-made worktree
+    * of that exact prompt. `runAction` is injectable, [[AuthorAction]]-style,
+    * so a test can record the call instead of spawning a real subprocess.
     */
   private[shell] def resumeInterruptedRun(
       ui: ShellUi,

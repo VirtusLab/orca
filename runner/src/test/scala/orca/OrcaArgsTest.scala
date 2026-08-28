@@ -44,6 +44,14 @@ class OrcaArgsTest extends munit.FunSuite:
       Right(RunTarget.NewBranch(Uncommitted.Keep))
     )
 
+  test("--skip-branch with --keep-changes: current branch, files kept"):
+    assertEquals(
+      OrcaArgs
+        .parse(Seq("--skip-branch", "--keep-changes", "do the thing"))
+        .map(_.target),
+      Right(RunTarget.CurrentBranch(Uncommitted.Keep))
+    )
+
   test("--worktree targets a worktree"):
     val result = OrcaArgs
       .parse(Seq("--worktree", "do the thing"))
