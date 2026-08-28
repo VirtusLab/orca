@@ -524,8 +524,8 @@ object FlowLifecycle:
       val dirtyCount = git.dirtyPaths().size
       val facts = DirtyTreeFacts(
         ownLogPresent = ownLog != ProgressStore.LoadResult.Absent,
-        skipBranch = args.skipBranch.value,
-        keepChanges = args.keepChanges.value,
+        skipBranch = args.target.skipBranch,
+        keepChanges = args.target.keepChanges,
         dirtyCount = dirtyCount
       )
       DirtyTreePolicy.decide(facts, tty, ask) match
@@ -548,7 +548,7 @@ object FlowLifecycle:
         WorkspaceWrite
     ): UntrackedFiles =
       if dirtyCount > 0 then
-        if args.keepChanges.value then
+        if args.target.keepChanges then
           emit(
             OrcaEvent.Step(
               "ignoring --keep-changes: this task already has a progress " +
@@ -614,8 +614,8 @@ object FlowLifecycle:
 
     /** Shared by [[bindBranch]]'s corrupt-log and absent-log arms: resolve +
       * create a fresh branch via [[freshRun]], then mint [[BranchMode]] from
-      * `args.skipBranch` (skip-branch mode never creates a branch, so it reads
-      * as `Reused`).
+      * `args.target` (skip-branch mode never creates a branch, so it reads as
+      * `Reused`).
       */
     private def freshBinding(
         startBranch: String,
@@ -644,7 +644,7 @@ object FlowLifecycle:
       BranchBinding(
         branch,
         startBranch,
-        if args.skipBranch.value then BranchMode.Reused
+        if args.target.skipBranch then BranchMode.Reused
         else BranchMode.Created,
         headAtBinding
       )
@@ -913,7 +913,7 @@ object FlowLifecycle:
     * "main" this time. [[createFreshBranch]] applies the same policy to a
     * git-level collision.
     *
-    * `args.skipBranch` skips all of this: the run binds to `startBranch`
+    * A `CurrentBranch` target skips all of this: the run binds to `startBranch`
     * verbatim via [[reuseCurrentBranch]] instead.
     */
   private def freshRun(
@@ -931,7 +931,7 @@ object FlowLifecycle:
       emit: OrcaEvent => Unit
   )(using InStage, WorkspaceWrite): FeatureBranch =
     val branch =
-      if args.skipBranch.value then
+      if args.target.skipBranch then
         reuseCurrentBranch(startBranch, protectedBranches)
       else
         val strategy =
@@ -970,7 +970,7 @@ object FlowLifecycle:
         branch = branch.value,
         promptHash = ProgressStore.hashPrompt(args.userPrompt),
         branchMode =
-          if args.skipBranch.value then BranchMode.Reused
+          if args.target.skipBranch then BranchMode.Reused
           else BranchMode.Created,
         userPrompt = Some(args.userPrompt),
         flowName = flowName,

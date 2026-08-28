@@ -120,9 +120,10 @@ private enum FlowOutcome:
   * reused after, and everything below it — git, the progress log, the session
   * manifest — uses that directory instead. A refusal (no repository, no
   * commits, something orca did not create already at the path) ends the run
-  * before any of that starts. `--worktree` cannot be combined with `skipBranch`
-  * or `keepChanges`; the pair is refused here as well as in `OrcaArgs.parse`,
-  * since an `OrcaArgs` built by hand never passed through the parser.
+  * before any of that starts. `--worktree` combines with neither
+  * `--skip-branch` nor `--keep-changes`, and `RunTarget` — what `args` carries
+  * those three flags as — has no case for either pair, so the refusal happens
+  * once, converting argv (`OrcaArgs.parse`).
   *
   * Overrides default to `None` so the runtime can build the default lazily —
   * `TerminalInteraction` in particular takes the resolved `workDir`, which
@@ -173,17 +174,13 @@ def flow(
   // the session manifest below; everything downstream is handed `workDir`
   // explicitly, so it is the single value to change.
   def resolveRunDir(): Either[String, os.Path] =
-    OrcaArgs
-      .worktreeRefusal(args)
-      .toLeft(())
-      .flatMap: _ =>
-        if !args.worktree.value then Right(workDir)
-        else
-          // Resolution can throw as well as refuse — a symlinked or unwritable
-          // `.orca`, a git that won't start. One `Left` shape for every outcome
-          // keeps the reporting below the only way out.
-          try WorktreeRun.resolve(workDir, args.userPrompt)
-          catch case NonFatal(e) => Left(TextUtil.throwableMessage(e))
+    if args.target != RunTarget.Worktree then Right(workDir)
+    else
+      // Resolution can throw as well as refuse — a symlinked or unwritable
+      // `.orca`, a git that won't start. One `Left` shape for every outcome
+      // keeps the reporting below the only way out.
+      try WorktreeRun.resolve(workDir, args.userPrompt)
+      catch case NonFatal(e) => Left(TextUtil.throwableMessage(e))
 
   // The run proper. Everything under here uses `dir`, never `workDir`.
   def runIn(dir: os.Path): FlowOutcome =
@@ -263,7 +260,8 @@ def flow(
           FlowOutcome.Failed
         case Right(dir) =>
           val where =
-            if args.worktree.value then s"$dir (worktree)" else dir.toString
+            if args.target == RunTarget.Worktree then s"$dir (worktree)"
+            else dir.toString
           flowLog.info(
             "orca {} starting (workDir={})",
             OrcaBanner.version,
@@ -315,7 +313,7 @@ private[orca] def runFlow(
     wiring: FlowWiring = FlowWiring(),
     pricing: PriceList = Pricing.default
 )(body: FlowControl ?=> Unit): Unit =
-  val debug = OrcaDebug.enabled || args.verbose.value
+  val debug = OrcaDebug.enabled || args.verbose
   // Acquire both guards before `supervised:` (neither needs an `Ox` scope) so a
   // violation is caught before any git mutation. See [[FlowLock]] for the
   // two-layer rationale and release-ordering symmetry.
