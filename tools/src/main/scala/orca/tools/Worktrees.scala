@@ -46,9 +46,12 @@ private[orca] enum StartBranchFailure:
   * working directory is fixed before its body runs, so no flow can use these.
   * They run during startup, before any tool exists.
   *
-  * The two reads answer "not known" (`None` / empty) rather than failing, so a
-  * caller outside a git repository — or one scanning on every menu redraw — has
-  * nothing to handle. [[add]] is a write, so its failure is returned.
+  * The reads answer "not known" rather than failing — `None`, an empty list, a
+  * fail-closed `false` — so a caller outside a git repository, or one scanning
+  * on every menu redraw, has nothing to handle. [[mainCheckoutOrReason]] is the
+  * exception: it names why it could not answer, for the caller that has to put
+  * the refusal into words. The writes, [[add]] and [[startBranch]], return
+  * their failures.
   */
 private[orca] object Worktrees:
 
