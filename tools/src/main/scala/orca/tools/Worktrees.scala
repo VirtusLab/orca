@@ -70,14 +70,7 @@ private[orca] object Worktrees:
     * consulted, which derives the main worktree the same parent-assuming way.
     */
   def mainCheckout(cwd: os.Path): Option[os.Path] =
-    mainCheckout(cwd, list(cwd))
-
-  /** [[mainCheckout]] for a caller that has already run [[list]] — the linked
-    * worktree branch below needs it, and spawning git twice for one answer is
-    * what this overload avoids. By-name: the main-checkout case never looks.
-    */
-  def mainCheckout(cwd: os.Path, worktrees: => List[os.Path]): Option[os.Path] =
-    mainCheckoutOrReason(cwd, worktrees).toOption
+    mainCheckoutOrReason(cwd).toOption
 
   def mainCheckoutOrReason(
       cwd: os.Path

@@ -17,12 +17,24 @@ class WorktreeScanTest extends munit.FunSuite:
     assertEquals(Worktrees.add(repo, worktree), Right(()))
     assertEquals(WorktreeScan.dirs(repo).all, List(repo, worktree))
 
-  test("the shell's own directory is never listed twice"):
+  test("a worktree scans only itself, not the checkout that made it"):
     val repo = GitRepo.seeded()
     val worktree = OrcaDir.ensureWorktrees(repo) / "0123456789ab"
     assertEquals(Worktrees.add(repo, worktree), Right(()))
-    // Run from inside the worktree: git lists it too, and it must not repeat.
+    // git lists the checkout and the worktree from either one; the scan is
+    // scoped to the `.orca/worktrees/` of the directory it is asked about, and
+    // a worktree's own is empty.
     assertEquals(WorktreeScan.dirs(worktree).all, List(worktree))
+
+  test("a worktree does not scan its siblings"):
+    val repo = GitRepo.seeded()
+    val ours = OrcaDir.ensureWorktrees(repo) / "0123456789ab"
+    val sibling = OrcaDir.ensureWorktrees(repo) / "ba9876543210"
+    assertEquals(Worktrees.add(repo, ours), Right(()))
+    assertEquals(Worktrees.add(repo, sibling), Right(()))
+    assertEquals(WorktreeScan.dirs(ours).all, List(ours))
+    // Both are visible from the checkout they hang off.
+    assertEquals(WorktreeScan.dirs(repo).all.toSet, Set(repo, ours, sibling))
 
   test("a worktree orca did not create is left out"):
     val repo = GitRepo.seeded()

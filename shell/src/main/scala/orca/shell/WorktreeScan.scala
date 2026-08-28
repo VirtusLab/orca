@@ -35,9 +35,17 @@ private[shell] object WorktreeScan:
     */
   private[shell] val MaxScannedWorktrees = 20
 
-  /** `workDir` plus the most recently used worktrees under its repository's
-    * `.orca/worktrees/` — deduplicated, since the shell may itself be running
-    * in one of them, and capped at [[MaxScannedWorktrees]].
+  /** `workDir` plus the most recently used worktrees orca made FOR `workDir` —
+    * the registered worktrees directly under its own `.orca/worktrees/` —
+    * capped at [[MaxScannedWorktrees]].
+    *
+    * Scoped to one checkout because that is how the data is stored: `.orca/` is
+    * per-checkout, and a worktree's runs leave their progress log and session
+    * manifests in the worktree, not in the checkout that created it. So the
+    * checkout that made the worktrees sees itself and all of them, while a
+    * worktree — whose own `.orca/worktrees/` is empty — sees only itself. To
+    * survey every run in the repository, run the shell from the checkout the
+    * worktrees hang off.
     *
     * Only `workDir` when git has nothing to say (not a repository, git
     * unavailable): the shell's own directory is always worth scanning.
@@ -45,22 +53,15 @@ private[shell] object WorktreeScan:
     * Deliberately NOT every worktree git reports. A progress log is committed
     * repo content, so a worktree checked out to review someone else's branch
     * carries that branch's log — and its `userPrompt` is the task text the
-    * resume offer would hand an agent verbatim. Only the trees orca made for
-    * this repository are its own runs.
+    * resume offer would hand an agent verbatim.
     */
   def dirs(workDir: os.Path): ScanDirs =
-    // One `git worktree list` for both the main-checkout derivation and the
-    // filter below: `mainCheckout` falls back to the list whenever `workDir` is
-    // itself a linked worktree, which would otherwise spawn git twice.
-    val worktrees = Worktrees.list(workDir)
-    val orcaMade = Worktrees
-      .mainCheckout(workDir, worktrees)
-      .map(OrcaDir.worktreesPath)
-      .fold(List.empty[os.Path])(root => worktrees.filter(_ / os.up == root))
+    val root = OrcaDir.worktreesPath(workDir)
     ScanDirs(
       workDir,
-      orcaMade
-        .filterNot(_ == workDir)
+      Worktrees
+        .list(workDir)
+        .filter(_ / os.up == root)
         // Decorate-sort-undecorate: `sortBy` re-evaluates its key on every
         // comparison, and this key is a syscall per call.
         .map(dir => (lastRunAt(dir), dir))
