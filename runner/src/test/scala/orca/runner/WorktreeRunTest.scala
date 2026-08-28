@@ -131,7 +131,10 @@ class WorktreeRunTest extends munit.FunSuite:
       .left
       .getOrElse(fail("expected a refusal"))
     assert(refusal.contains(branch), refusal)
-    assert(refusal.contains(path.toString), refusal)
+    // The remedy names the branch, which is what holds the commits. Removing
+    // the worktree does not help: the next run recreates it detached and hits
+    // this same refusal.
+    assert(refusal.contains(s"git branch -D $branch"), refusal)
 
   test("isWorktreeRun recognises orca's own worktree and nothing else"):
     val repo = GitRepo.seeded()

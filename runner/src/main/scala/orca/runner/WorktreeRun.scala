@@ -147,7 +147,8 @@ private[orca] object WorktreeRun:
       case Left(StartBranchFailure.WouldLoseCommits(name)) =>
         Left(
           s"branch '$name' already has commits this run would not start from " +
-            s"— orca will not move it; merge or delete it, or remove $path"
+            s"— orca will not move it; merge it, or delete it with " +
+            s"git branch -D $name"
         )
       case Left(StartBranchFailure.GitFailed(message)) =>
         // This runs before the run lock, whose directory is the one being
