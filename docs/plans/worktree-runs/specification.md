@@ -65,10 +65,16 @@ Orca's own stage commits are unaffected either way: they commit through the
 At startup, with `--worktree` given:
 
 - **Nothing at the derived path** — create it, detached, at the current HEAD
-  of the invoking checkout. Detached, because orca names the run's feature
-  branch with a model call during setup, which happens after the worktree
-  already exists; the branch is then created inside the worktree by the normal
-  branch binding, exactly as it is for a non-worktree run.
+  of the invoking checkout, then immediately put it on a branch named
+  `orca-worktree-<promptHash>`. It is created detached because orca names the
+  run's *feature* branch with a model call during setup, which happens after
+  the worktree already exists — but it cannot be left detached: a detached
+  worktree records the literal `HEAD` as the run's starting branch, which
+  recovery then refuses as an unsafe ref, so an interrupted worktree run could
+  never be resumed. The feature branch is created on top of
+  `orca-worktree-<promptHash>` by the normal branch binding, exactly as it is
+  for a non-worktree run. Orca will not move that branch once it has gained
+  commits; a re-run of the task refuses instead.
 - **A registered worktree of this repository at that path** — reuse it. This
   is what makes a resumed run land back where its progress log is.
 - **A directory that is not a registered worktree of this repository** —
@@ -161,11 +167,14 @@ if it turns out to be needed.
 
 ## Lifetime
 
-Orca never removes a worktree. A failed run's worktree holds the progress log
-that resumes it, and a successful run's worktree holds the branch with the
-work on it — in both cases removing it would destroy something the user still
-wants. Cleanup is `git worktree remove`, which works normally on the nested
-path, and the closing summary is where the user learns the path to hand it.
+Orca never removes a worktree, and never removes the
+`orca-worktree-<promptHash>` branch it puts that worktree on. A failed run's
+worktree holds the progress log that resumes it, and a successful run's
+worktree holds the branch with the work on it — in both cases removing it
+would destroy something the user still wants. Full cleanup is therefore two
+commands, `git worktree remove` (which works normally on the nested path) and
+`git branch -D orca-worktree-<promptHash>`; the closing summary is where the
+user learns the path to hand the first one.
 
 Nothing else deletes it by accident. `git clean -xdf` in the main checkout
 skips it, reporting `Skipping repository .orca/worktrees/<hash>` — git treats
