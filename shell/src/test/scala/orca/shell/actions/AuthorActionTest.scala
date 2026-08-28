@@ -1,6 +1,7 @@
 package orca.shell.actions
 
 import org.jline.terminal.{Terminal, TerminalBuilder}
+import orca.{RunTarget, Uncommitted}
 import orca.shell.ShellVersion
 import orca.shell.create.{CreateTarget, CreateTier}
 import orca.shell.flows.{BuiltInFlows, DiscoveredFlow, FlowOrigin}
@@ -136,9 +137,7 @@ class AuthorActionTest extends munit.FunSuite:
         call.flags,
         FlowFlags(
           verbose = false,
-          skipBranch = false,
-          keepChanges = false,
-          worktree = false
+          target = RunTarget.NewBranch(Uncommitted.Stash)
         )
       )
       assertEquals(call.fallback, FallbackPolicy.Ask(NoPromptUi))

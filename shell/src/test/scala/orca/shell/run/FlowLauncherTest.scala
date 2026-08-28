@@ -1,5 +1,7 @@
 package orca.shell.run
 
+import orca.{RunTarget, Uncommitted}
+
 class FlowLauncherTest extends munit.FunSuite:
 
   private val flow = os.root / "home" / "u" / "flow.sc"
@@ -7,14 +9,12 @@ class FlowLauncherTest extends munit.FunSuite:
 
   /** Only the fields under test, defaulted off. Deliberately test-local:
     * production `FlowFlags` stays without defaults so every real construction
-    * site keeps stating each flag.
+    * site keeps stating what it launches.
     */
   private def flags(
       verbose: Boolean = false,
-      skipBranch: Boolean = false,
-      keepChanges: Boolean = false,
-      worktree: Boolean = false
-  ): FlowFlags = FlowFlags(verbose, skipBranch, keepChanges, worktree)
+      target: RunTarget = RunTarget.NewBranch(Uncommitted.Stash)
+  ): FlowFlags = FlowFlags(verbose, target)
 
   test("argv forces --dep with a release version, before --workspace/--"):
     val result = FlowLauncher.argv(
@@ -104,7 +104,7 @@ class FlowLauncherTest extends munit.FunSuite:
       flow,
       Some("0.0.18"),
       "do the thing",
-      flags(skipBranch = true),
+      flags(target = RunTarget.CurrentBranch(Uncommitted.Stash)),
       workspaceDir
     )
     assertEquals(
@@ -134,7 +134,10 @@ class FlowLauncherTest extends munit.FunSuite:
       flow,
       None,
       "do the thing",
-      flags(verbose = true, skipBranch = true),
+      flags(
+        verbose = true,
+        target = RunTarget.CurrentBranch(Uncommitted.Stash)
+      ),
       workspaceDir
     )
     assertEquals(
@@ -161,7 +164,7 @@ class FlowLauncherTest extends munit.FunSuite:
       flow,
       Some("0.0.18"),
       "do the thing",
-      flags(keepChanges = true),
+      flags(target = RunTarget.NewBranch(Uncommitted.Keep)),
       workspaceDir
     )
     assertEquals(
@@ -187,13 +190,13 @@ class FlowLauncherTest extends munit.FunSuite:
     )
 
   test(
-    "argv adds --worktree (OrcaArgs's exact flag spelling) after -- when set"
+    "argv adds --worktree (OrcaArgs's exact flag spelling) after the flow's own --verbose"
   ):
     val result = FlowLauncher.argv(
       flow,
       None,
       "do the thing",
-      flags(worktree = true),
+      flags(verbose = true, target = RunTarget.Worktree),
       workspaceDir
     )
     assertEquals(
@@ -208,12 +211,13 @@ class FlowLauncherTest extends munit.FunSuite:
         workspaceDir.toString,
         "--",
         "do the thing",
+        "--verbose",
         "--worktree"
       )
     )
 
   test(
-    "argv adds every flow flag in a fixed order after --: verbose, skip-branch, keep-changes, worktree"
+    "argv adds every flag a single run can carry, in a fixed order after --"
   ):
     val result = FlowLauncher.argv(
       flow,
@@ -221,9 +225,7 @@ class FlowLauncherTest extends munit.FunSuite:
       "do the thing",
       flags(
         verbose = true,
-        skipBranch = true,
-        keepChanges = true,
-        worktree = true
+        target = RunTarget.CurrentBranch(Uncommitted.Keep)
       ),
       workspaceDir
     )
@@ -241,8 +243,7 @@ class FlowLauncherTest extends munit.FunSuite:
         "do the thing",
         "--verbose",
         "--skip-branch",
-        "--keep-changes",
-        "--worktree"
+        "--keep-changes"
       )
     )
 

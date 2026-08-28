@@ -6,7 +6,9 @@ import orca.{
   FlowContext,
   OrcaArgs,
   OrcaDir,
+  RunTarget,
   StackSettings,
+  Uncommitted,
   WorkspaceWrite,
   runFlow,
   stage,
@@ -49,7 +51,6 @@ import orca.tools.{
   UntrackedFiles,
   Worktrees
 }
-import mainargs.Flag
 import ox.supervised
 import ox.either.orThrow
 
@@ -129,7 +130,7 @@ class FlowLifecycleTest extends munit.FunSuite:
           animated = false
         )
         flow(
-          args = OrcaArgs(prompt, worktree = Flag(true)),
+          args = OrcaArgs(prompt, target = RunTarget.Worktree),
           stackSettings = Some(StackSettings.empty),
           claude = Some(_ => StubAgent.claude),
           workDir = workDir,
@@ -704,7 +705,10 @@ class FlowLifecycleTest extends munit.FunSuite:
     val _ = writeForeignLog(workDir, branch = "my-work")
     val thrown = intercept[orca.OrcaFlowException]:
       val _ = FlowLifecycle.setup(
-        args = OrcaArgs("a brand new task", skipBranch = Flag(true)),
+        args = OrcaArgs(
+          "a brand new task",
+          target = RunTarget.CurrentBranch(Uncommitted.Stash)
+        ),
         agent = StubAgent.claude,
         git = git,
         workDir = workDir,
@@ -881,7 +885,8 @@ class FlowLifecycleTest extends munit.FunSuite:
     val prompt = "skip-branch starting commit"
     val store = ProgressStore.default(workDir, prompt)
     val setup = FlowLifecycle.setup(
-      args = OrcaArgs(prompt, skipBranch = Flag(true)),
+      args =
+        OrcaArgs(prompt, target = RunTarget.CurrentBranch(Uncommitted.Stash)),
       agent = StubAgent.claude,
       git = git,
       workDir = workDir,
@@ -2216,7 +2221,8 @@ class FlowLifecycleTest extends munit.FunSuite:
         animated = false
       )
       flow(
-        args = OrcaArgs(prompt, skipBranch = Flag(true)),
+        args =
+          OrcaArgs(prompt, target = RunTarget.CurrentBranch(Uncommitted.Stash)),
         stackSettings = Some(StackSettings.empty),
         claude = Some(_ => StubAgent.claude),
         workDir = workDir,
@@ -2266,7 +2272,10 @@ class FlowLifecycleTest extends munit.FunSuite:
           animated = false
         )
         runFlow(
-          args = OrcaArgs(prompt, skipBranch = Flag(true)),
+          args = OrcaArgs(
+            prompt,
+            target = RunTarget.CurrentBranch(Uncommitted.Stash)
+          ),
           stackSettings = Some(StackSettings.empty),
           wiring = FlowWiring(claude = Some(_ => StubAgent.claude)),
           workDir = workDir,
@@ -2313,7 +2322,10 @@ class FlowLifecycleTest extends munit.FunSuite:
           animated = false
         )
         runFlow(
-          args = OrcaArgs(prompt, skipBranch = Flag(true)),
+          args = OrcaArgs(
+            prompt,
+            target = RunTarget.CurrentBranch(Uncommitted.Stash)
+          ),
           stackSettings = Some(StackSettings.empty),
           wiring = FlowWiring(claude = Some(_ => StubAgent.claude)),
           workDir = workDir,
@@ -2353,7 +2365,10 @@ class FlowLifecycleTest extends munit.FunSuite:
           animated = false
         )
         runFlow(
-          args = OrcaArgs(prompt, skipBranch = Flag(true)),
+          args = OrcaArgs(
+            prompt,
+            target = RunTarget.CurrentBranch(Uncommitted.Stash)
+          ),
           stackSettings = Some(StackSettings.empty),
           wiring = FlowWiring(claude = Some(_ => StubAgent.claude)),
           workDir = workDir,
@@ -2437,7 +2452,8 @@ class FlowLifecycleTest extends munit.FunSuite:
         animated = false
       )
       flow(
-        args = OrcaArgs(prompt, skipBranch = Flag(true)),
+        args =
+          OrcaArgs(prompt, target = RunTarget.CurrentBranch(Uncommitted.Stash)),
         stackSettings = Some(StackSettings.empty),
         claude = Some(_ => StubAgent.claude),
         workDir = workDir,
@@ -2502,7 +2518,8 @@ class FlowLifecycleTest extends munit.FunSuite:
         animated = false
       )
       flow(
-        args = OrcaArgs(prompt, skipBranch = Flag(true)),
+        args =
+          OrcaArgs(prompt, target = RunTarget.CurrentBranch(Uncommitted.Stash)),
         stackSettings = Some(StackSettings.empty),
         claude = Some(_ => StubAgent.claude),
         workDir = workDir,
@@ -2572,7 +2589,8 @@ class FlowLifecycleTest extends munit.FunSuite:
         animated = false
       )
       flow(
-        args = OrcaArgs(prompt, skipBranch = Flag(true)),
+        args =
+          OrcaArgs(prompt, target = RunTarget.CurrentBranch(Uncommitted.Stash)),
         stackSettings = Some(StackSettings.empty),
         claude = Some(_ => StubAgent.claude),
         workDir = workDir,
@@ -2608,7 +2626,8 @@ class FlowLifecycleTest extends munit.FunSuite:
         animated = false
       )
       flow(
-        args = OrcaArgs(prompt, skipBranch = Flag(true)),
+        args =
+          OrcaArgs(prompt, target = RunTarget.CurrentBranch(Uncommitted.Stash)),
         stackSettings = Some(StackSettings.empty),
         claude = Some(_ => StubAgent.claude),
         workDir = workDir,
@@ -2658,7 +2677,8 @@ class FlowLifecycleTest extends munit.FunSuite:
         animated = false
       )
       flow(
-        args = OrcaArgs(prompt, skipBranch = Flag(true)),
+        args =
+          OrcaArgs(prompt, target = RunTarget.CurrentBranch(Uncommitted.Stash)),
         stackSettings = Some(StackSettings.empty),
         claude = Some(_ => StubAgent.claude),
         workDir = workDir,
@@ -2701,7 +2721,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         animated = false
       )
       flow(
-        args = OrcaArgs(prompt, keepChanges = Flag(true)),
+        args = OrcaArgs(prompt, target = RunTarget.NewBranch(Uncommitted.Keep)),
         stackSettings = Some(StackSettings.empty),
         claude = Some(_ => StubAgent.claude),
         workDir = workDir,
@@ -2781,7 +2801,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         animated = false
       )
       flow(
-        args = OrcaArgs(prompt, keepChanges = Flag(true)),
+        args = OrcaArgs(prompt, target = RunTarget.NewBranch(Uncommitted.Keep)),
         stackSettings = Some(StackSettings.empty),
         claude = Some(_ => StubAgent.claude),
         workDir = workDir,
@@ -2923,7 +2943,8 @@ class FlowLifecycleTest extends munit.FunSuite:
           animated = false
         )
         runFlow(
-          args = OrcaArgs(prompt, keepChanges = Flag(true)),
+          args =
+            OrcaArgs(prompt, target = RunTarget.NewBranch(Uncommitted.Keep)),
           stackSettings = Some(StackSettings.empty),
           wiring = FlowWiring(claude = Some(_ => StubAgent.claude)),
           workDir = workDir,
@@ -2962,7 +2983,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         animated = false
       )
       flow(
-        args = OrcaArgs(prompt, keepChanges = Flag(true)),
+        args = OrcaArgs(prompt, target = RunTarget.NewBranch(Uncommitted.Keep)),
         stackSettings = Some(StackSettings.empty),
         claude = Some(_ => StubAgent.claude),
         workDir = workDir,
@@ -3003,7 +3024,8 @@ class FlowLifecycleTest extends munit.FunSuite:
         animated = false
       )
       flow(
-        args = OrcaArgs(prompt, skipBranch = Flag(true)),
+        args =
+          OrcaArgs(prompt, target = RunTarget.CurrentBranch(Uncommitted.Stash)),
         stackSettings = Some(StackSettings.empty),
         claude = Some(_ => StubAgent.claude),
         workDir = workDir,
@@ -3503,7 +3525,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         animated = false
       )
       flow(
-        args = OrcaArgs(prompt, keepChanges = Flag(true)),
+        args = OrcaArgs(prompt, target = RunTarget.NewBranch(Uncommitted.Keep)),
         stackSettings = Some(StackSettings.empty),
         claude = Some(_ => StubAgent.claude),
         workDir = workDir,
