@@ -20,6 +20,32 @@ private[shell] enum MenuItem:
 private[shell] enum ChangeMode:
   case Hand, Agent
 
+/** Where a run's work goes, asked via [[MainMenu.runTargetChoices]] once the
+  * flow and the task text are settled.
+  *
+  * One choice on one axis, rather than a branch confirm followed by a worktree
+  * confirm: the two answers are not independent — orca refuses `--worktree`
+  * together with `--skip-branch` — and asking them separately makes the illegal
+  * pair expressible, leaving prompt order to prevent it. A worktree run creates
+  * a branch of its own, so all three cases here are branch-creating or not in
+  * exactly one way.
+  */
+private[shell] enum RunTarget:
+  /** A branch orca creates in this checkout — the default. */
+  case NewBranch
+
+  /** The branch checked out now; the flow commits onto it (`--skip-branch`). */
+  case CurrentBranch
+
+  /** A separate checkout under `.orca/worktrees/` (`--worktree`). */
+  case Worktree
+
+  /** Runs on the branch already checked out, instead of a new one. */
+  def skipBranch: Boolean = this == RunTarget.CurrentBranch
+
+  /** Runs in a worktree rather than the invoking checkout. */
+  def worktree: Boolean = this == RunTarget.Worktree
+
 private[shell] object MainMenu:
 
   /** Fixed ADR §3 order. Conditional items are ABSENT when inapplicable, never
@@ -88,6 +114,24 @@ private[shell] object MainMenu:
       "With an agent — describe the changes and let it work"
     ),
     Choice(ChangeMode.Hand, "By hand — open in your editor")
+  )
+
+  /** [[RunTarget]]'s rows, in the order they are offered. `NewBranch` leads
+    * because it is the default, and the position is load-bearing rather than
+    * cosmetic: `ConsoleUiShell` cannot honor `preselect`, so the first row is
+    * what the cursor starts on and what Enter picks.
+    */
+  val runTargetChoices: List[Choice[RunTarget]] = List(
+    Choice(RunTarget.NewBranch, "A new branch in this checkout"),
+    Choice(
+      RunTarget.CurrentBranch,
+      "The branch checked out now — the flow commits onto it"
+    ),
+    Choice(
+      RunTarget.Worktree,
+      "A new worktree — a separate checkout under .orca/worktrees/, " +
+        "leaving this one untouched"
+    )
   )
 
   /** `"Resume interrupted run — <flow>: <first ~40 chars of task>"`. The task

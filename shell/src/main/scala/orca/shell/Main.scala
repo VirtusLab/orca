@@ -362,10 +362,10 @@ object Main:
       case UiOutcome.Cancelled      => None
       case UiOutcome.Selected(tier) => Some(tier)
 
-  /** Selects a flow, prompts for the task text, whether to create a branch and
-    * whether to run in a worktree, then hands off to [[RunAction.run]]. Verbose
-    * is not exposed here in v1 — a later task can add a verbose confirm
-    * alongside session tracking.
+  /** Selects a flow, prompts for the task text and for where the run's work
+    * should go ([[RunTarget]]), then hands off to [[RunAction.run]]. Verbose is
+    * not exposed here in v1 — a later task can add a verbose confirm alongside
+    * session tracking.
     */
   private[shell] def runFlow(
       ui: ShellUi,
@@ -387,15 +387,14 @@ object Main:
         pickFlow(ui, "Run which flow?", _, promoteByName(FlagshipFlow, _))
       )
       task <- promptTask(ui)
-      createBranch <- promptCreateBranch(ui)
-      worktree <- promptWorktree(ui, createBranch)
+      target <- promptRunTarget(ui)
     do
       val opts = RunAction.RunOptions(
         flags = FlowFlags(
           verbose = false,
-          skipBranch = !createBranch,
+          skipBranch = target.skipBranch,
           keepChanges = false,
-          worktree = worktree
+          worktree = target.worktree
         ),
         fallback = FallbackPolicy.Ask(ui)
       )
@@ -460,42 +459,26 @@ object Main:
         promptTask(ui)
       case UiOutcome.Selected(text) => Some(text)
 
-  /** "Create a new branch for this run?" confirm (default yes — Enter keeps
-    * today's behavior); declining runs in skip-branch mode instead (ADR 0018
-    * amendment), continuing on the current branch — the handoff-from-harness
-    * case where the user already planned work on a branch carrying plan files.
+  /** "Where should this run's work go?" — the run's destination as ONE choice
+    * ([[RunTarget]]). Enter keeps today's behavior because `NewBranch` is the
+    * FIRST row, which is where both backends start the cursor; `preselect` only
+    * marks it on [[orca.shell.ui.NumberedUi]] and is a documented no-op on the
+    * tty backend, so the ordering is what carries the default, not this.
+    * `CurrentBranch` is skip-branch mode (ADR 0018 amendment): the
+    * handoff-from-harness case, where the user already planned work on a branch
+    * carrying plan files. `Worktree` is `--worktree`, which orca refuses
+    * together with `--skip-branch` (`OrcaArgs.worktreeRefusal`) — one choice
+    * cannot express that pair, where two independent confirms could.
     * `private[shell]` so a scripted-UI test can drive it directly.
     */
-  private[shell] def promptCreateBranch(ui: ShellUi): Option[Boolean] =
-    ui.confirm(
-      "Create a new branch for this run? (choosing 'no': the flow makes " +
-        "its changes on the current branch)",
-      default = true
+  private[shell] def promptRunTarget(ui: ShellUi): Option[RunTarget] =
+    ui.select(
+      "Where should this run's work go?",
+      MainMenu.runTargetChoices,
+      preselect = Some(RunTarget.NewBranch)
     ) match
-      case UiOutcome.Cancelled   => None
-      case UiOutcome.Selected(v) => Some(v)
-
-  /** "Run in a git worktree?" confirm (default no — Enter keeps today's
-    * behavior), asked only when the run is creating a branch. `--worktree` and
-    * running on the current branch are refused together
-    * (`OrcaArgs.worktreeRefusal`), so asking the two questions independently
-    * would invite a combination orca then rejects. `private[shell]` so a
-    * scripted-UI test can drive it directly.
-    */
-  private[shell] def promptWorktree(
-      ui: ShellUi,
-      createBranch: Boolean
-  ): Option[Boolean] =
-    if !createBranch then Some(false)
-    else
-      ui.confirm(
-        "Run in a git worktree of this repository? (choosing 'yes': the flow " +
-          "works in a separate checkout under .orca/worktrees/, leaving this " +
-          "one untouched)",
-        default = false
-      ) match
-        case UiOutcome.Cancelled   => None
-        case UiOutcome.Selected(v) => Some(v)
+      case UiOutcome.Cancelled        => None
+      case UiOutcome.Selected(target) => Some(target)
 
   /** "How should the changes be made?" (ADR 0021 §6/§9 amendment) —
     * [[MainMenu.modeChoices]]'s hand-vs-agent prompt, shared by Edit/Create/
