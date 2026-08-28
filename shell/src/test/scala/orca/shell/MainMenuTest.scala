@@ -103,11 +103,13 @@ class MainMenuTest extends munit.FunSuite:
   ):
     val run = InterruptedRun(
       flowName = "implement.sc",
-      userPrompt = "fix the flaky integration test in the payments module"
+      userPrompt = "fix the flaky integration test in the payments module",
+      dir = os.root / "work"
     )
     val choices = MainMenu.choices(
       continueSessionCount = None,
-      resumeOffer = Some(run)
+      resumeOffer = Some(run),
+      workDir = run.dir
     )
     assertEquals(
       choices.map(_.value).take(2),
@@ -123,11 +125,13 @@ class MainMenuTest extends munit.FunSuite:
   test("choices(resumeOffer = Some(...)) label drops control characters"):
     val run = InterruptedRun(
       flowName = "fix.sc",
-      userPrompt = "safe\u001b[31m text\u0007"
+      userPrompt = "safe\u001b[31m text\u0007",
+      dir = os.root / "work"
     )
     val choices = MainMenu.choices(
       continueSessionCount = None,
-      resumeOffer = Some(run)
+      resumeOffer = Some(run),
+      workDir = run.dir
     )
     val label = choices.find(_.value == MenuItem.ResumeRun).get.label
     assert(!label.exists(_.isControl), label)
@@ -137,11 +141,13 @@ class MainMenuTest extends munit.FunSuite:
   ):
     val run = InterruptedRun(
       flowName = "fix.sc",
-      userPrompt = "line one\nline two"
+      userPrompt = "line one\nline two",
+      dir = os.root / "work"
     )
     val choices = MainMenu.choices(
       continueSessionCount = None,
-      resumeOffer = Some(run)
+      resumeOffer = Some(run),
+      workDir = run.dir
     )
     assertEquals(
       choices.find(_.value == MenuItem.ResumeRun).map(_.label),
@@ -153,7 +159,7 @@ class MainMenuTest extends munit.FunSuite:
   ):
     val withOffer = MainMenu.choices(
       continueSessionCount = None,
-      resumeOffer = Some(InterruptedRun("a.sc", "short task"))
+      resumeOffer = Some(InterruptedRun("a.sc", "short task", os.root / "work"))
     )
     val without = MainMenu
       .choices(continueSessionCount = None)
@@ -170,3 +176,19 @@ class MainMenuTest extends munit.FunSuite:
       byValue(MenuItem.EditSettings),
       "Edit settings — open the project or global settings file in your editor"
     )
+
+  test("the resume offer names the worktree when the log is not in this tree"):
+    val run = InterruptedRun(
+      flowName = "implement.sc",
+      userPrompt = "fix the flaky test",
+      dir = os.root / "repo" / ".orca" / "worktrees" / "ab12cd34"
+    )
+    val label = MainMenu
+      .choices(
+        continueSessionCount = None,
+        resumeOffer = Some(run),
+        workDir = os.root / "repo"
+      )
+      .find(_.value == MenuItem.ResumeRun)
+      .map(_.label)
+    assert(label.exists(_.endsWith("(in ab12cd34)")), label.toString)

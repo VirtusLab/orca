@@ -1,5 +1,6 @@
 package orca.shell.cli
 
+import orca.shell.ScanDirs
 import orca.shell.actions.SessionAction
 import orca.shell.sessions.{ManifestReader, SessionPicker, SessionSelection}
 
@@ -11,18 +12,21 @@ import Cli.{actionFailure, complete, requireTty, usageFailure, withTerminal}
   */
 private[cli] object ContinueCli:
 
-  /** `continue`'s full behavior over an explicit `workDir`/`tty` (test seam) —
-    * tests seed `workDir` with `.orca/cache/runs/` manifests and simulate
-    * either a terminal or a pipe via `tty`.
+  /** `continue`'s full behavior over explicit `dirs`/`tty` (test seam) — tests
+    * seed each directory with `.orca/cache/runs/` manifests and simulate either
+    * a terminal or a pipe via `tty`. The directories arrive resolved
+    * ([[orca.shell.WorktreeScan.dirs]], at the real entry point), so nothing
+    * here spawns git.
     */
   private[cli] def runContinue(
-      workDir: os.Path,
+      dirs: ScanDirs,
       selector: Option[String],
       list: Boolean,
       json: Boolean,
       tty: Boolean
   ): Int =
-    val (runs, warnings) = ManifestReader.list(workDir, ManifestReader.pidAlive)
+    val (runs, warnings) =
+      ManifestReader.list(dirs.own, dirs.worktrees, ManifestReader.pidAlive)
     warnings.foreach(Cli.diagnostic)
     if list then
       Tables.printSessionListing(runs, json)

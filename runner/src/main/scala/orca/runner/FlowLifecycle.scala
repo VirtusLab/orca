@@ -229,7 +229,12 @@ object FlowLifecycle:
       stackSettings: StackSettings,
       branchMode: BranchMode,
       untrackedOnFailure: UntrackedFiles,
-      startingCommit: Option[CommitHash]
+      startingCommit: Option[CommitHash],
+      /** The orca worktree the run happened in, when it happened in one —
+        * `--worktree`, or a resume the shell relaunched into one without the
+        * flag. The closing summary names it.
+        */
+      worktree: Option[os.Path]
   )
 
   /** The branch half of [[FlowSetup]] (FP2), resolved by whichever of
@@ -375,7 +380,11 @@ object FlowLifecycle:
       stackSettings,
       binding.branchMode,
       untrackedOnFailure,
-      binding.startingCommit
+      binding.startingCommit,
+      // From where the run IS, not from the flag: the shell relaunches a resume
+      // inside the worktree its log was found in WITHOUT `--worktree` (the flag
+      // would re-derive a path), and that run has to name the tree too.
+      Option.when(WorktreeRun.isWorktreeRun(workDir))(workDir)
     )
 
   /** On an unborn HEAD (`git init`, no commits) every later git call that names
@@ -385,11 +394,7 @@ object FlowLifecycle:
     */
   private def abortIfNoCommits(git: GitTool): Unit =
     if git.headCommit().isEmpty then
-      throw new OrcaFlowException(
-        "orca needs a git repository with at least one commit — " +
-          "initialize one if needed (git init), then make the first commit " +
-          "(git add -A && git commit -m \"initial commit\")"
-      )
+      throw new OrcaFlowException(GitPreconditions.needsRepoWithCommit)
 
   /** Refuse to start a NEW run on a branch that another run's progress log
     * already claims (ADR 0018 §2.5, R1 amendment).
@@ -1189,7 +1194,7 @@ object FlowLifecycle:
           finishBranch(git, setup, returnToStartBranch)
     bestEffort("closing summary"):
       ClosingSummary
-        .lines(git.currentBranch(), changes)
+        .lines(git.currentBranch(), changes, setup.worktree)
         .foreach(line => emit(OrcaEvent.Step(line)))
 
   /** Where HEAD ends up after a successful run. A throwaway feature branch

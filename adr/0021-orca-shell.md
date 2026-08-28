@@ -206,6 +206,35 @@ runtime's own glyph family (`⏺`/`●`/`▶`/`▸`).
 > fallback. Multiple unfinished logs (different prompts, one branch) offer
 > only the newest by mtime.
 
+> **Amendment (2026-08-27).** The scan spans the checkout the shell was started
+> in plus the worktrees orca made FOR THAT CHECKOUT — the ones under its own
+> `.orca/worktrees/`, matching where the data lives, since `.orca/` is
+> per-checkout. So the checkout that made the worktrees sees itself and all of
+> them, while a worktree, whose own `.orca/worktrees/` is empty, sees only
+> itself; surveying every run means running the shell from the checkout the
+> worktrees hang off. A `--worktree` run leaves
+> its progress log inside its own tree, so a shell scanning only its own
+> directory would either offer nothing or offer an older run. The
+> newest-by-mtime rule now orders across all of them, and a directory that
+> cannot be read costs only its own logs. Discovery is git's own worktree list
+> (`Worktrees.list`, resolved at the call site so the scan itself takes plain
+> directories and stays testable without a repository), filtered to children of
+> `.orca/worktrees/` and capped at the 20 most recently used (orca never removes
+> a worktree, and these scans run per redraw) — a worktree checked out to review
+> someone else's branch
+> carries that branch's committed progress log, and its recorded task text is
+> what the offer would hand an agent. The progress-log scan deliberately does
+> NOT descend into `.orca/worktrees/`; it stays one level deep.
+>
+> The offer carries the directory its log was found in, names it in the menu
+> label when it is not the shell's own, and the resume RUNS there. No
+> shell-voice notice on top: the child recognises an orca worktree from its own
+> working directory rather than from the flag, so its closing summary already
+> names the tree and offers a `git -C` diff for it. Not `--worktree`: that flag re-derives a path from the task text, which
+> is the directory holding the log only when the log was already in an orca
+> worktree of that exact prompt — otherwise it would silently start a fresh run
+> in a tree with no log, leaving the interrupted one behind.
+
 > **Amendment (2026-08-01).** A `branch: <name>` line prints directly above
 > the menu prompt, re-read on every redraw (like Continue's manifest listing
 > and the resume check) so it stays true after a flow run switches branches —
@@ -476,6 +505,21 @@ resume is global, but the resumed context still references that directory):
 | opencode | `opencode --session <ses_…>` | high — TUI shares `opencode serve`'s store |
 | gemini | `gemini --list-sessions` → match uuid → `gemini --resume <index>` | medium — `--resume` takes latest/index, not uuid |
 | pi | `pi --session-dir <workDir>/.orca/cache/pi-sessions/<id> --continue` | medium-high — orca writes the dir itself; inferred from pi's `--continue` semantics, not yet live-verified interactively |
+
+> **Amendment (2026-08-27).** The listing spans the checkout the shell was
+> started in plus the worktrees orca made for it (`WorktreeScan.dirs`, the same
+> set the resume offer scans, §3): a `--worktree` run writes its manifests into
+> its own tree, so a shell reading only its own `.orca/cache/runs/` would omit
+> the sessions of a run it had just started. The newest-first order now runs
+> across all of them. Containment is per directory as well as per file: the
+> caller's own directory is read strictly (a symlinked `.orca` there aborts),
+> while a failure in any other — unreadable, or removed mid-redraw — becomes one
+> warning naming it rather than taking the listing down with it. Lineages are
+> keyed on the manifest's `workDir` too, since flow session names are static and
+> harness sessions are cwd-scoped: the same name in two worktrees is two
+> conversations, and the rows say which tree each is in. Reattaching needs
+> nothing further — resume already execs from the manifest's recorded
+> `workDir`, which is the worktree.
 
 > **Amendment (2026-07-28).** Pi is now durable (ADR 0018 §2.6); before the argv is
 > built, resume applies the same resumability predicate as the backend's own probe
@@ -850,6 +894,16 @@ The subcommand set mirrors every main-menu action, one short verb each, no
 the same thing (`--global`, `--json`, `--yes`). `create`/`fork` run the
 built-in authoring flow (§9) with the configured role agents — no
 harness/model/yolo flag exists for either.
+
+> **Amendment (2026-08-27).** `run` gains `--worktree`, passed straight
+> through to the flow child like `--verbose`/`--skip-branch`/`--keep-changes`.
+> `RunCli` also refuses the two contradictory pairs (`--worktree` with
+> `--skip-branch`, and with `--keep-changes`) itself, exiting 2 before any
+> `scala-cli` spawn — the child refuses them too and stays the authority, but
+> the shell holds the answer already, and spawning only to be told costs a
+> dependency resolution. Both sides call the one shared decision
+> (`OrcaArgs.worktreeRefusal`), so neither the wording nor the set of refused
+> pairs can drift.
 
 Both entry points call a shared `orca.shell.actions` package (`FlowResolution`,
 `RunAction`, `ViewAction`, `EditAction`, `AuthorAction`, `SessionAction`,

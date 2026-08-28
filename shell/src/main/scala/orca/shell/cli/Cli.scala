@@ -3,6 +3,7 @@ package orca.shell.cli
 import mainargs.{Flag, ParserForMethods, Renderer, Util, arg, main}
 import org.jline.terminal.Terminal
 import orca.settings.GlobalSettings
+import orca.shell.WorktreeScan
 import orca.shell.run.{FlowFlags, LaunchResult}
 import orca.shell.ui.ShellUi
 import orca.subprocess.TtyProbe
@@ -155,6 +156,10 @@ private[shell] object Cli:
       )
       keepChanges: Flag = Flag(),
       @arg(doc =
+        "run the flow in a git worktree of this repository instead of the current checkout"
+      )
+      worktree: Flag = Flag(),
+      @arg(doc =
         "run the flow's own pinned orca version instead of forcing this shell's"
       )
       honorPin: Flag = Flag()
@@ -165,7 +170,8 @@ private[shell] object Cli:
       flags = FlowFlags(
         verbose = verbose.value,
         skipBranch = skipBranch.value,
-        keepChanges = keepChanges.value
+        keepChanges = keepChanges.value,
+        worktree = worktree.value
       ),
       honorPin = honorPin.value,
       workDir = os.pwd,
@@ -253,7 +259,13 @@ private[shell] object Cli:
       @arg(doc = "with --list, emit JSON instead of a table")
       json: Flag = Flag()
   ): Int =
-    ContinueCli.runContinue(os.pwd, selector, list.value, json.value, isTty)
+    ContinueCli.runContinue(
+      WorktreeScan.dirs(os.pwd),
+      selector,
+      list.value,
+      json.value,
+      isTty
+    )
 
   @main(doc =
     "Show or set the global role agents (planning/coding/review).\n" +

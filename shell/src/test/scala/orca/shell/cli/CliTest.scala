@@ -9,6 +9,7 @@ import orca.runner.manifest.{
   RunManifest
 }
 import orca.settings.{AgentSettings, AgentSpec, SettingsFile}
+import orca.shell.ScanDirs
 import orca.shell.create.CreateTier
 import orca.shell.flows.{DiscoveredFlow, FlowOrigin}
 import orca.shell.run.LaunchResult
@@ -63,6 +64,50 @@ class CliTest extends munit.FunSuite:
       invoke("run", "no-such-flow.sc", "a task", "--keep-changes"),
       Right(1)
     )
+
+  test(
+    "run: --worktree parses too (fails later, at flow resolution)"
+  ):
+    assertEquals(
+      invoke("run", "no-such-flow.sc", "a task", "--worktree"),
+      Right(1)
+    )
+
+  test(
+    "run: --worktree with --skip-branch is refused before the flow is resolved"
+  ):
+    // A usage error rather than the flow-not-found 1 the cases above get: the
+    // refusal runs first, so no scala-cli is ever spawned.
+    val (_, err) = capturedBoth(
+      assertEquals(
+        invoke(
+          "run",
+          "no-such-flow.sc",
+          "a task",
+          "--worktree",
+          "--skip-branch"
+        ),
+        Right(ExitCodes.UsageError)
+      )
+    )
+    assert(err.contains("--worktree") && err.contains("--skip-branch"), err)
+
+  test("run: --worktree with --keep-changes is refused the same way"):
+    val (_, err) = capturedBoth(
+      assertEquals(
+        invoke(
+          "run",
+          "no-such-flow.sc",
+          "a task",
+          "--worktree",
+          "--keep-changes"
+        ),
+        Right(ExitCodes.UsageError)
+      )
+    )
+    assert(err.contains("--worktree") && err.contains("--keep-changes"), err)
+    // Names the pair the user actually typed, not the other one.
+    assert(!err.contains("--skip-branch"), err)
 
   test("run: the required flow positional missing is a usage error"):
     assert(!parses("run"))
@@ -924,6 +969,72 @@ class CliTest extends munit.FunSuite:
     )
 
   test(
+    "selectByName: the same name in two worktrees is ambiguous, naming the trees"
+  ):
+    // Flow session names are static, so two parallel --worktree runs on
+    // unrelated tasks both record "shared" under the same agent. They are
+    // different conversations (harness sessions are cwd-scoped) and must not
+    // resolve silently to the newer one.
+    val runs = List(
+      RecordedRun(
+        manifest(
+          workDir = "/repo/.orca/worktrees/aaaaaaaaaaaa",
+          startedAt = "2026-07-18T09:00:00Z",
+          sessions = List(durable("shared", "2026-07-18T09:30:00Z"))
+        ),
+        crashed = false
+      ),
+      RecordedRun(
+        manifest(
+          workDir = "/repo/.orca/worktrees/bbbbbbbbbbbb",
+          startedAt = "2026-07-18T08:00:00Z",
+          sessions = List(durable("shared", "2026-07-18T08:30:00Z"))
+        ),
+        crashed = false
+      )
+    )
+    assertEquals(
+      SessionPicker.selectByName(runs, "shared"),
+      Left(
+        "'shared' is ambiguous — matches working directories: " +
+          "/repo/.orca/worktrees/aaaaaaaaaaaa, /repo/.orca/worktrees/bbbbbbbbbbbb"
+      )
+    )
+    // Both are primary rows, and each says which tree it is in.
+    val labels = SessionPicker
+      .withoutExpanders(SessionPicker.sessionRows(runs, expanded = false))
+      .map(_.label)
+    assertEquals(labels.count(_.contains("★")), 2)
+    assert(labels.exists(_.contains("@aaaaaaaaaaaa")), labels.toString)
+    assert(labels.exists(_.contains("@bbbbbbbbbbbb")), labels.toString)
+
+  test(
+    "successive runs in ONE directory still collapse into a single lineage"
+  ):
+    val runs = List(
+      RecordedRun(
+        manifest(
+          startedAt = "2026-07-18T09:00:00Z",
+          sessions = List(durable("shared", "2026-07-18T09:30:00Z"))
+        ),
+        crashed = false
+      ),
+      RecordedRun(
+        manifest(
+          startedAt = "2026-07-18T08:00:00Z",
+          sessions = List(durable("shared", "2026-07-18T08:30:00Z"))
+        ),
+        crashed = false
+      )
+    )
+    val labels = SessionPicker
+      .withoutExpanders(SessionPicker.sessionRows(runs, expanded = false))
+      .map(_.label)
+    assertEquals(labels.count(_.contains("★")), 1)
+    // One directory, so nothing to disambiguate.
+    assert(!labels.exists(_.contains("@")), labels.toString)
+
+  test(
     "sessionListingRows numbers rows 1-based in the same order continue <n> uses"
   ):
     val rows = Tables.sessionListingRows(runsFixture())
@@ -995,7 +1106,13 @@ class CliTest extends munit.FunSuite:
     val (out, err) = capturedBoth(
       assertEquals(
         ContinueCli
-          .runContinue(dir, None, list = true, json = true, tty = false),
+          .runContinue(
+            ScanDirs(dir, Nil),
+            None,
+            list = true,
+            json = true,
+            tty = false
+          ),
         ExitCodes.Ok
       )
     )
@@ -1039,13 +1156,100 @@ class CliTest extends munit.FunSuite:
       createFolders = true
     )
 
+  private def writeSessionManifest(dir: os.Path, workDir: String): Unit =
+    val json =
+      s"""{
+        |  "orcaVersion": "0.0.test",
+        |  "workDir": "$workDir",
+        |  "pid": 1,
+        |  "startedAt": "2026-07-18T09:00:00Z",
+        |  "outcome": "succeeded",
+        |  "sessions": [{
+        |    "harness": "ClaudeCode",
+        |    "wireId": "uuid",
+        |    "agent": "main",
+        |    "sessionName": "implementer",
+        |    "kind": "durable",
+        |    "firstSeenAt": "2026-07-18T09:00:00Z",
+        |    "lastActiveAt": "2026-07-18T09:00:00Z"
+        |  }]
+        |}""".stripMargin
+    os.write(
+      dir / ".orca" / "cache" / "runs" / "a.json",
+      json,
+      createFolders = true
+    )
+
+  test("runContinue --list: rows across worktrees say which tree each is in"):
+    val checkout = TempDirs.dir()
+    val worktree = TempDirs.dir()
+    // The same static flow session name in two trees — the suffix is the only
+    // thing telling the user which one `orca continue <n>` reattaches to.
+    writeSessionManifest(checkout, "/repo")
+    writeSessionManifest(worktree, "/repo/.orca/worktrees/ab12cd34")
+    val out = captured(
+      assertEquals(
+        ContinueCli.runContinue(
+          ScanDirs(checkout, List(worktree)),
+          None,
+          list = true,
+          json = false,
+          tty = false
+        ),
+        ExitCodes.Ok
+      )
+    )
+    assert(out.contains("implementer @repo"), out)
+    assert(out.contains("implementer @ab12cd34"), out)
+
+  test("runContinue --list: one directory, so no tree suffix on the row"):
+    val checkout = TempDirs.dir()
+    writeSessionManifest(checkout, "/repo")
+    val out = captured(
+      assertEquals(
+        ContinueCli.runContinue(
+          ScanDirs(checkout, Nil),
+          None,
+          list = true,
+          json = false,
+          tty = false
+        ),
+        ExitCodes.Ok
+      )
+    )
+    assert(out.contains("implementer"), out)
+    assert(!out.contains("@"), out)
+
+  test("runContinue --list --json: each row carries its run's workDir"):
+    val checkout = TempDirs.dir()
+    writeSessionManifest(checkout, "/repo")
+    val out = captured(
+      assertEquals(
+        ContinueCli.runContinue(
+          ScanDirs(checkout, Nil),
+          None,
+          list = true,
+          json = true,
+          tty = false
+        ),
+        ExitCodes.Ok
+      )
+    )
+    assert(out.contains("\"workDir\":\"/repo\""), out)
+
   test("runContinue --list --json: a crashed run reports crashed=true"):
     val dir = TempDirs.dir()
     writeCrashedManifest(dir)
     val out = captured(
       assertEquals(
         ContinueCli
-          .runContinue(dir, None, list = true, json = true, tty = false),
+          .runContinue(
+            ScanDirs(dir, Nil),
+            None,
+            list = true,
+            json = true,
+            tty = false
+          ),
         ExitCodes.Ok
       )
     )
@@ -1057,7 +1261,13 @@ class CliTest extends munit.FunSuite:
     val out = captured(
       assertEquals(
         ContinueCli
-          .runContinue(dir, None, list = true, json = false, tty = false),
+          .runContinue(
+            ScanDirs(dir, Nil),
+            None,
+            list = true,
+            json = false,
+            tty = false
+          ),
         ExitCodes.Ok
       )
     )
@@ -1107,7 +1317,13 @@ class CliTest extends munit.FunSuite:
     val (out, err) = capturedBoth(
       assertEquals(
         ContinueCli
-          .runContinue(dir, None, list = false, json = false, tty = true),
+          .runContinue(
+            ScanDirs(dir, Nil),
+            None,
+            list = false,
+            json = false,
+            tty = true
+          ),
         ExitCodes.ActionFailed
       )
     )

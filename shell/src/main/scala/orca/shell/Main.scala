@@ -99,11 +99,16 @@ object Main:
     * on every redraw (ADR 0021 §8) — a flow run started from this same menu can
     * only have just finished, so the freshest listing is worth the re-read.
     * `ResumeDetector.detect` is likewise re-evaluated every redraw (ADR 0021 §3
-    * amendment) — cheap (one dir listing plus one small file read) and
-    * consistent with Continue's own re-read. The `branch:` line
-    * ([[ConfigSummary.branchLine]]) is printed here for the same reason: a flow
-    * run started from this menu can leave HEAD on a new branch, so it is
-    * re-read per redraw rather than printed once with the startup summary.
+    * amendment). Both scans share ONE `WorktreeScan.dirs` resolution — the
+    * discovery is a git subprocess or two, and nothing between them can change
+    * the answer — over a bounded set of directories, so a redraw stays cheap
+    * enough to repeat and consistent with Continue's own re-read.
+    * Re-discovering per redraw is the point: a `--worktree` run started from
+    * this very menu creates a worktree that was not there when the shell
+    * started. The `branch:` line ([[ConfigSummary.branchLine]]) is printed here
+    * for the same reason: a flow run started from this menu can leave HEAD on a
+    * new branch, so it is re-read per redraw rather than printed once with the
+    * startup summary.
     */
   @tailrec private def loop(
       ui: ShellUi,
@@ -112,15 +117,23 @@ object Main:
       terminal: Terminal,
       tty: Boolean
   ): Unit =
-    val (runs, warnings) = ManifestReader.list(os.pwd, ManifestReader.pidAlive)
+    // Resolved once and shared: both scans want the same answer over the same
+    // cwd, and the discovery is a git subprocess or two.
+    val scanDirs = WorktreeScan.dirs(os.pwd)
+    val (runs, warnings) =
+      ManifestReader.list(
+        scanDirs.own,
+        scanDirs.worktrees,
+        ManifestReader.pidAlive
+      )
     warnings.foreach(ShellOutput.info)
     val continueSessionCount =
       runs.headOption.map(_.manifest.sessions.size)
-    val resumeOffer = ResumeDetector.detect(os.pwd)
+    val resumeOffer = ResumeDetector.detect(scanDirs.all)
     ConfigSummary.branchLine(os.pwd).foreach(ShellOutput.info)
     ui.select(
       "orca shell",
-      MainMenu.choices(continueSessionCount, resumeOffer)
+      MainMenu.choices(continueSessionCount, resumeOffer, scanDirs.own)
     ) match
       case UiOutcome.Cancelled                      => ()
       case UiOutcome.Selected(MenuItem.Exit)        => ()
@@ -349,27 +362,43 @@ object Main:
       case UiOutcome.Cancelled      => None
       case UiOutcome.Selected(tier) => Some(tier)
 
-  /** Selects a flow, prompts for the task text and whether to create a branch,
-    * then hands off to [[RunAction.run]]. Verbose is not exposed here in v1 — a
-    * later task can add a verbose confirm alongside session tracking.
+  /** Selects a flow, prompts for the task text and for where the run's work
+    * should go ([[RunTarget]]), then hands off to [[RunAction.run]]. Verbose is
+    * not exposed here in v1 — a later task can add a verbose confirm alongside
+    * session tracking.
     */
-  private def runFlow(ui: ShellUi, terminal: Terminal): Unit =
+  private[shell] def runFlow(
+      ui: ShellUi,
+      terminal: Terminal,
+      workDir: os.Path = os.pwd,
+      // `runAction` is injectable like `resumeInterruptedRun`'s — see its note
+      // on why the default is spelled as a lambda; `workDir` is the usual
+      // explicit-directory test seam.
+      runAction: (
+          DiscoveredFlow,
+          String,
+          RunAction.RunOptions,
+          os.Path,
+          Terminal
+      ) => LaunchResult = RunAction.run(_, _, _, _, _)
+  ): Unit =
     for
-      flow <- listFlows().flatMap(
+      flow <- listFlows(workDir).flatMap(
         pickFlow(ui, "Run which flow?", _, promoteByName(FlagshipFlow, _))
       )
       task <- promptTask(ui)
-      createBranch <- promptCreateBranch(ui)
+      target <- promptRunTarget(ui)
     do
       val opts = RunAction.RunOptions(
         flags = FlowFlags(
           verbose = false,
-          skipBranch = !createBranch,
-          keepChanges = false
+          skipBranch = target.skipBranch,
+          keepChanges = false,
+          worktree = target.worktree
         ),
         fallback = FallbackPolicy.Ask(ui)
       )
-      RunAction.run(flow, task, opts, os.pwd, terminal).discard
+      runAction(flow, task, opts, workDir, terminal).discard
 
   /** Resumes `run` (ADR 0021 §3 amendment): resolves its recorded flow name
     * against the current catalog and launches it with the recorded task text
@@ -380,14 +409,17 @@ object Main:
     * the resume happens on the current branch by design, and a resumed log's
     * `bindBranch` (`FlowLifecycle`) ignores `skipBranch` entirely, so the
     * all-false flags passed here are exactly as correct as any other value
-    * would be. `runAction` is injectable, [[AuthorAction]]-style, so a test can
-    * record the call instead of spawning a real subprocess.
+    * would be — `worktree` included: the run is launched IN `run.dir`, the
+    * directory its log was found in, which is what makes this a resume. The
+    * flag would instead re-derive a path from the task text, which is the same
+    * directory only when the log happened to be in an orca-made worktree of
+    * that exact prompt. `runAction` is injectable, [[AuthorAction]]-style, so a
+    * test can record the call instead of spawning a real subprocess.
     */
   private[shell] def resumeInterruptedRun(
       ui: ShellUi,
       terminal: Terminal,
       run: InterruptedRun,
-      workDir: os.Path = os.pwd,
       runAction: (
           DiscoveredFlow,
           String,
@@ -399,7 +431,7 @@ object Main:
           // pull into this shape.
       ) => LaunchResult = RunAction.run(_, _, _, _, _)
   ): Unit =
-    FlowResolution.resolve(run.flowName, workDir) match
+    FlowResolution.resolve(run.flowName, run.dir) match
       case Left(message) => ShellOutput.error(message)
       case Right(flow) =>
         val opts =
@@ -407,11 +439,12 @@ object Main:
             flags = FlowFlags(
               verbose = false,
               skipBranch = false,
-              keepChanges = false
+              keepChanges = false,
+              worktree = false
             ),
             fallback = FallbackPolicy.Ask(ui)
           )
-        runAction(flow, run.userPrompt, opts, workDir, terminal).discard
+        runAction(flow, run.userPrompt, opts, run.dir, terminal).discard
 
   /** Prompts for the flow's task text, re-prompting on blank input — an empty
     * `userPrompt` reaches the flow's agent directly (branch naming, the coding
@@ -426,20 +459,26 @@ object Main:
         promptTask(ui)
       case UiOutcome.Selected(text) => Some(text)
 
-  /** "Create a new branch for this run?" confirm (default yes — Enter keeps
-    * today's behavior); declining runs in skip-branch mode instead (ADR 0018
-    * amendment), continuing on the current branch — the handoff-from-harness
-    * case where the user already planned work on a branch carrying plan files.
+  /** "Where should this run's work go?" — the run's destination as ONE choice
+    * ([[RunTarget]]). Enter keeps today's behavior because `NewBranch` is the
+    * FIRST row, which is where both backends start the cursor; `preselect` only
+    * marks it on [[orca.shell.ui.NumberedUi]] and is a documented no-op on the
+    * tty backend, so the ordering is what carries the default, not this.
+    * `CurrentBranch` is skip-branch mode (ADR 0018 amendment): the
+    * handoff-from-harness case, where the user already planned work on a branch
+    * carrying plan files. `Worktree` is `--worktree`, which orca refuses
+    * together with `--skip-branch` (`OrcaArgs.worktreeRefusal`) — one choice
+    * cannot express that pair, where two independent confirms could.
     * `private[shell]` so a scripted-UI test can drive it directly.
     */
-  private[shell] def promptCreateBranch(ui: ShellUi): Option[Boolean] =
-    ui.confirm(
-      "Create a new branch for this run? (choosing 'no': the flow makes " +
-        "its changes on the current branch)",
-      default = true
+  private[shell] def promptRunTarget(ui: ShellUi): Option[RunTarget] =
+    ui.select(
+      "Where should this run's work go?",
+      MainMenu.runTargetChoices,
+      preselect = Some(RunTarget.NewBranch)
     ) match
-      case UiOutcome.Cancelled   => None
-      case UiOutcome.Selected(v) => Some(v)
+      case UiOutcome.Cancelled        => None
+      case UiOutcome.Selected(target) => Some(target)
 
   /** "How should the changes be made?" (ADR 0021 §6/§9 amendment) —
     * [[MainMenu.modeChoices]]'s hand-vs-agent prompt, shared by Edit/Create/
@@ -729,8 +768,10 @@ object Main:
     * needs [[pickFlow]]'s `reorder` (promoting [[FlagshipFlow]]) instead of its
     * default alphabetical order.
     */
-  private def listFlows(): Option[List[DiscoveredFlow]] =
-    FlowResolution.list(os.pwd) match
+  private def listFlows(
+      workDir: os.Path = os.pwd
+  ): Option[List[DiscoveredFlow]] =
+    FlowResolution.list(workDir) match
       case Left(message) =>
         ShellOutput.error(message)
         None

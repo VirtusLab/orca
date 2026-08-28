@@ -17,16 +17,54 @@ private[shell] case class RecordedRun(manifest: RunManifest, crashed: Boolean)
   */
 private[shell] object ManifestReader:
 
-  /** Newest-first by `startedAt`. A manifest with [[ManifestOutcome.Running]]
-    * whose `pid` is no longer alive is a crashed run — its sessions are still
-    * offered, per ADR 0021 §8. Reads `.orca/cache/runs/` passively
-    * ([[OrcaDir.runsPath]], not [[OrcaDir.cacheRunsPath]]) — an absent or empty
-    * directory yields `(Nil, Nil)` without creating anything on disk. A file
-    * that fails to parse as JSON, or doesn't match the `RunManifest` schema —
-    * which includes a timestamp that isn't an `Instant` — is skipped with a
-    * warning naming the file rather than aborting the whole listing.
+  /** Newest-first by `startedAt` across `own` and every directory in
+    * `otherWorktrees` — a `--worktree` run keeps its manifests in its own tree,
+    * so the listing spans the shell's checkout and orca's worktrees of it
+    * ([[orca.shell.WorktreeScan.dirs]] picks them). Git is never asked here:
+    * the directories arrive resolved, which is what lets these tests seed bare
+    * temp directories.
+    *
+    * `own` is the directory the caller is standing in and is read strictly: a
+    * symlinked `.orca` there redirects a read of the user's own tree, and
+    * aborting is the signal. The others are read guarded — one warning each —
+    * since the shell neither created nor controls them for the length of a
+    * redraw (another orca process finishing, a `git worktree remove` in another
+    * terminal, a tree left unreadable by a run under a different uid). Two
+    * parameters rather than one list, because that is the whole difference
+    * between them.
+    *
+    * A manifest with [[ManifestOutcome.Running]] whose `pid` is no longer alive
+    * is a crashed run — its sessions are still offered, per ADR 0021 §8. Each
+    * directory's `.orca/cache/runs/` is read passively ([[OrcaDir.runsPath]],
+    * not [[OrcaDir.cacheRunsPath]]) — absent or empty contributes nothing and
+    * creates nothing on disk. A file that fails to parse as JSON, or doesn't
+    * match the `RunManifest` schema — which includes a timestamp that isn't an
+    * `Instant` — is skipped with a warning naming the file rather than aborting
+    * the whole listing.
     */
   def list(
+      own: os.Path,
+      otherWorktrees: List[os.Path],
+      pidAlive: Long => Boolean
+  ): (List[RecordedRun], List[String]) =
+    val perDir =
+      readRunsDir(own, pidAlive) :: otherWorktrees.map(guarded(_, pidAlive))
+    (
+      perDir.flatMap(_._1).sortBy(_.manifest.startedAt).reverse,
+      perDir.flatMap(_._2)
+    )
+
+  private def guarded(
+      workDir: os.Path,
+      pidAlive: Long => Boolean
+  ): (List[RecordedRun], List[String]) =
+    try readRunsDir(workDir, pidAlive)
+    catch case NonFatal(e) => (Nil, List(s"skipping $workDir: ${firstLine(e)}"))
+
+  /** One directory's manifests, in reverse file order (the caller sorts), and
+    * its warnings in file order.
+    */
+  private def readRunsDir(
       workDir: os.Path,
       pidAlive: Long => Boolean
   ): (List[RecordedRun], List[String]) =
@@ -49,7 +87,7 @@ private[shell] object ManifestReader:
                     RecordedRun(manifest, crashed(manifest, pidAlive)) :: runs,
                     warnings
                   )
-      (runs.sortBy(_.manifest.startedAt).reverse, warnings.reverse)
+      (runs, warnings.reverse)
 
   /** An outcome this build doesn't know (a newer build's manifest) is a run
     * that reached some terminal state, not a crashed one — only `Running`
@@ -71,9 +109,9 @@ private[shell] object ManifestReader:
     *
     * Only the first line of a decode failure is reported. jsoniter appends a
     * multi-line hex dump of the buffer to its message, and `Main`'s loop
-    * reprints every warning on each menu redraw, for up to 20 kept manifests —
-    * so the untrimmed message paints the menu over. Same trimming, and same
-    * reason, as `ProgressStore.parseLog`.
+    * reprints every warning on each menu redraw, for up to 20 kept manifests in
+    * each scanned directory — so the untrimmed message paints the menu over.
+    * Same trimming, and same reason, as `ProgressStore.parseLog`.
     */
   private def readManifest(file: os.Path): Either[String, RunManifest] =
     try

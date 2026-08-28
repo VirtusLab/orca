@@ -52,7 +52,8 @@ class ManifestRoundTripTest extends munit.FunSuite:
       )
       writer.finish(RunOutcome.Succeeded)
 
-    val (runs, warnings) = ManifestReader.list(workDir, pidAlive = _ => true)
+    val (runs, warnings) =
+      ManifestReader.list(workDir, Nil, pidAlive = _ => true)
     assertEquals(warnings, Nil)
     assertEquals(runs.size, 1)
     assertEquals(runs.head.crashed, false)

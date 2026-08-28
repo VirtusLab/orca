@@ -25,6 +25,11 @@ private[cli] object Tables:
   private[cli] case class SessionRow(
       index: Int,
       sessionName: String,
+      /** The run's working directory: the listing spans worktrees, so two rows
+        * can otherwise be identical — and `continue <name>` then refuses them
+        * as ambiguous, naming directories the listing never showed.
+        */
+      workDir: String,
       kind: String,
       stage: Option[String],
       harness: String,
@@ -60,6 +65,7 @@ private[cli] object Tables:
           SessionRow(
             index = i + 1,
             sessionName = session.sessionName.getOrElse(session.agent),
+            workDir = selection.manifest.workDir,
             kind = session.kind.wireName,
             stage = session.stage,
             harness = SessionPicker.harnessSettingsName(session.harness),
@@ -77,12 +83,15 @@ private[cli] object Tables:
     if asJson then println(writeToString(rows))
     else if rows.isEmpty then println("(no sessions recorded)")
     else
+      // The same decision the interactive picker makes, over the same runs.
+      val tag = SessionPicker.dirTag(runs)
       val cols = rows.map: r =>
         val status =
           if r.resumable then ""
           else s"  not resumable: ${r.reason.getOrElse("")}"
         val sessionName =
-          r.sessionName + (if r.crashed then " (crashed)" else "")
+          r.sessionName +
+            (if r.crashed then " (crashed)" else "") + tag(r.workDir)
         (
           r.index.toString,
           sessionName,

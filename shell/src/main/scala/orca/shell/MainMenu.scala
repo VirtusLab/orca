@@ -20,6 +20,32 @@ private[shell] enum MenuItem:
 private[shell] enum ChangeMode:
   case Hand, Agent
 
+/** Where a run's work goes, asked via [[MainMenu.runTargetChoices]] once the
+  * flow and the task text are settled.
+  *
+  * One choice on one axis, rather than a branch confirm followed by a worktree
+  * confirm: the two answers are not independent — orca refuses `--worktree`
+  * together with `--skip-branch` — and asking them separately makes the illegal
+  * pair expressible, leaving prompt order to prevent it. A worktree run creates
+  * a branch of its own, so all three cases here are branch-creating or not in
+  * exactly one way.
+  */
+private[shell] enum RunTarget:
+  /** A branch orca creates in this checkout — the default. */
+  case NewBranch
+
+  /** The branch checked out now; the flow commits onto it (`--skip-branch`). */
+  case CurrentBranch
+
+  /** A separate checkout under `.orca/worktrees/` (`--worktree`). */
+  case Worktree
+
+  /** Runs on the branch already checked out, instead of a new one. */
+  def skipBranch: Boolean = this == RunTarget.CurrentBranch
+
+  /** Runs in a worktree rather than the invoking checkout. */
+  def worktree: Boolean = this == RunTarget.Worktree
+
 private[shell] object MainMenu:
 
   /** Fixed ADR §3 order. Conditional items are ABSENT when inapplicable, never
@@ -30,7 +56,10 @@ private[shell] object MainMenu:
     */
   def choices(
       continueSessionCount: Option[Int],
-      resumeOffer: Option[InterruptedRun] = None
+      resumeOffer: Option[InterruptedRun] = None,
+      // The shell's own directory, to tell a resume that happens here from one
+      // that happens in a worktree. Defaulted for the tests that don't care.
+      workDir: os.Path = os.pwd
   ): List[Choice[MenuItem]] =
     val continueChoice = continueSessionCount.map(count =>
       Choice(
@@ -39,7 +68,9 @@ private[shell] object MainMenu:
       )
     )
     val resumeChoice =
-      resumeOffer.map(run => Choice(MenuItem.ResumeRun, resumeLabel(run)))
+      resumeOffer.map(run =>
+        Choice(MenuItem.ResumeRun, resumeLabel(run, workDir))
+      )
     List(
       Choice(MenuItem.RunFlow, "Run a flow")
     ) ++ resumeChoice.toList ++ List(
@@ -85,11 +116,33 @@ private[shell] object MainMenu:
     Choice(ChangeMode.Hand, "By hand — open in your editor")
   )
 
+  /** [[RunTarget]]'s rows, in the order they are offered. `NewBranch` leads
+    * because it is the default, and the position is load-bearing rather than
+    * cosmetic: `ConsoleUiShell` cannot honor `preselect`, so the first row is
+    * what the cursor starts on and what Enter picks.
+    */
+  val runTargetChoices: List[Choice[RunTarget]] = List(
+    Choice(RunTarget.NewBranch, "A new branch in this checkout"),
+    Choice(
+      RunTarget.CurrentBranch,
+      "The branch checked out now — the flow commits onto it"
+    ),
+    Choice(
+      RunTarget.Worktree,
+      "A new worktree — a separate checkout under .orca/worktrees/, " +
+        "leaving this one untouched"
+    )
+  )
+
   /** `"Resume interrupted run — <flow>: <first ~40 chars of task>"`. The task
     * comes from a committed header and is often multi-line (`Main.promptTask`
     * reads multi-line), so it reaches the menu row through
     * [[TextUtil.onelinePreview]].
     */
-  private def resumeLabel(run: InterruptedRun): String =
+  private def resumeLabel(run: InterruptedRun, workDir: os.Path): String =
     val task = TextUtil.onelinePreview(run.userPrompt, 40)
-    s"Resume interrupted run — ${run.flowName}: $task"
+    // The log can be in one of orca's worktrees, and the run resumes THERE —
+    // an offer that read like any other would send the user's work to a
+    // directory they were never shown.
+    val where = if run.dir == workDir then "" else s" (in ${run.dir.last})"
+    s"Resume interrupted run — ${run.flowName}: $task$where"

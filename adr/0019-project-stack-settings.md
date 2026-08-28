@@ -113,6 +113,9 @@ flips to the safe direction:
     CACHEDIR.TAG           # backup/sync tools skip the dir
     flow.lock
     lint-*.txt             # spilled lint output
+  worktrees/
+    .gitignore             # written by orca, contains "*" (self-ignoring)
+    <hash>/                # a --worktree run's own checkout
 ```
 
 - Ephemeral state moves under `.orca/cache/`, which orca creates with a
@@ -126,6 +129,16 @@ flips to the safe direction:
   `Lint`, and `ProgressStore` each create `.orca` independently, and `Lint`
   resolves it against `os.pwd` where the others use `workDir` — reconciled
   while moving).
+
+  > **Amendment (2026-08-27).** `worktrees/` is the exception to this rule: it
+  > is ignored but not ephemeral, and deliberately sits OUTSIDE `cache/`. A
+  > `--worktree` run's checkout holds unmerged work, and after a failure the
+  > only copy of the progress log that resumes it — neither belongs under a
+  > `CACHEDIR.TAG` announcing the directory as safe to delete, which is why
+  > `worktrees/` gets the self-ignoring `.gitignore` and no tag. `OrcaDir` is
+  > the one helper that writes that marker, as for `cache/` above, and it
+  > writes it before the first worktree is created: without it, `git add -A` in
+  > the checkout stages the worktree as an embedded git repository.
 - The progress-log `forceAdd` **stays**. It is load-bearing, not a hack: in a
   repo that still gitignores `.orca/`, a plain stage `git add -A` would skip
   the log, and failure teardown's `reset --hard` would then leave an on-disk

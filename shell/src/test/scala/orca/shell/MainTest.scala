@@ -13,7 +13,7 @@ import orca.shell.actions.{SettingsEditAction, StackAction}
 import orca.shell.create.CreateTier
 import orca.shell.flows.{DiscoveredFlow, FlowOrigin}
 import orca.shell.resume.InterruptedRun
-import orca.shell.run.LaunchResult
+import orca.shell.run.{FlowFlags, LaunchResult}
 import orca.shell.sessions.{RecordedRun, SessionPicker, SessionSelection}
 import orca.shell.ui.{Choice, ShellUi, UiOutcome}
 import orca.testkit.TempDirs
@@ -21,11 +21,12 @@ import orca.testkit.TempDirs
 import java.time.Instant
 
 /** Answers a single fixed `confirm` outcome, recording the question it was
-  * asked; every other prompt is unsupported — [[Main.rediscoverStack]] and
-  * [[Main.promptCreateBranch]] only ever call `confirm`.
+  * asked and the default offered; every other prompt is unsupported —
+  * [[Main.rediscoverStack]] only ever calls `confirm`.
   */
 private class ConfirmOnlyUi(outcome: UiOutcome[Boolean]) extends ShellUi:
   var recordedQuestion: Option[String] = None
+  var recordedDefault: Option[Boolean] = None
   def select[A](
       title: String,
       choices: List[Choice[A]],
@@ -34,35 +35,40 @@ private class ConfirmOnlyUi(outcome: UiOutcome[Boolean]) extends ShellUi:
     throw new UnsupportedOperationException("rediscoverStack doesn't select")
   def confirm(question: String, default: Boolean): UiOutcome[Boolean] =
     recordedQuestion = Some(question)
+    recordedDefault = Some(default)
     outcome
   def input(prompt: String, default: Option[String] = None): UiOutcome[String] =
     throw new UnsupportedOperationException("rediscoverStack doesn't input")
   def inputMultiline(prompt: String): UiOutcome[String] =
     throw new UnsupportedOperationException("rediscoverStack doesn't input")
 
-/** Records every `select` call's shown choices (in shown order) and always
-  * answers with the fixed `outcome` — used to verify [[Main.pickFlow]] hands
-  * `ui.select` the ALREADY-reordered list, not just that the pure
-  * `promoteByName`/`reorder` helper computes the right order in isolation.
-  * `confirm`/`input` are unsupported: `pickFlow` never calls them.
+/** Records every `select` call's shown choices (in shown order) and the
+  * preselection offered, and always answers with the fixed `outcome` — used to
+  * verify [[Main.pickFlow]] hands `ui.select` the ALREADY-reordered list (not
+  * just that the pure `promoteByName`/`reorder` helper computes the right order
+  * in isolation), and that [[Main.promptRunTarget]] offers all three
+  * destinations with the default preselected. `confirm`/`input` are
+  * unsupported: neither caller uses them.
   */
-private class RecordingSelectUi(outcome: UiOutcome[DiscoveredFlow])
-    extends ShellUi:
-  private var shown: List[List[Choice[DiscoveredFlow]]] = Nil
-  def recordedChoices: List[List[Choice[DiscoveredFlow]]] = shown
+private class RecordingSelectUi[T](outcome: UiOutcome[T]) extends ShellUi:
+  private var shown: List[List[Choice[T]]] = Nil
+  private var preselected: List[Option[T]] = Nil
+  def recordedChoices: List[List[Choice[T]]] = shown
+  def recordedPreselect: Option[Option[T]] = preselected.headOption
   def select[A](
       title: String,
       choices: List[Choice[A]],
       preselect: Option[A] = None
   ): UiOutcome[A] =
-    shown = shown :+ choices.asInstanceOf[List[Choice[DiscoveredFlow]]]
+    shown = shown :+ choices.asInstanceOf[List[Choice[T]]]
+    preselected = preselected :+ preselect.asInstanceOf[Option[T]]
     outcome.asInstanceOf[UiOutcome[A]]
   def confirm(question: String, default: Boolean): UiOutcome[Boolean] =
-    throw new UnsupportedOperationException("pickFlow doesn't confirm")
+    throw new UnsupportedOperationException("neither caller confirms")
   def input(prompt: String, default: Option[String] = None): UiOutcome[String] =
-    throw new UnsupportedOperationException("pickFlow doesn't input")
+    throw new UnsupportedOperationException("neither caller inputs")
   def inputMultiline(prompt: String): UiOutcome[String] =
-    throw new UnsupportedOperationException("pickFlow doesn't input")
+    throw new UnsupportedOperationException("neither caller inputs")
 
 /** Counts calls to `select`/`inputMultiline`/`input` and replays queued
   * outcomes for each — used to verify `Main.createNewFlow`/`createForkFlow`
@@ -73,11 +79,13 @@ private class RecordingSelectUi(outcome: UiOutcome[DiscoveredFlow])
 private class FlowScriptedUi(
     selectScript: List[UiOutcome[Any]] = Nil,
     inputMultilineScript: List[UiOutcome[String]] = Nil,
-    inputScript: List[UiOutcome[String]] = Nil
+    inputScript: List[UiOutcome[String]] = Nil,
+    confirmScript: List[UiOutcome[Boolean]] = Nil
 ) extends ShellUi:
   private var pendingSelect = selectScript
   private var pendingInputMultiline = inputMultilineScript
   private var pendingInput = inputScript
+  private var pendingConfirm = confirmScript
   var selectCount = 0
   var inputMultilineCount = 0
   var inputCount = 0
@@ -93,9 +101,13 @@ private class FlowScriptedUi(
     outcome.asInstanceOf[UiOutcome[A]]
 
   def confirm(question: String, default: Boolean): UiOutcome[Boolean] =
-    throw new UnsupportedOperationException(
-      "createNewFlow/createForkFlow don't confirm"
-    )
+    if pendingConfirm.isEmpty then
+      throw new UnsupportedOperationException(
+        "createNewFlow/createForkFlow don't confirm"
+      )
+    val outcome = pendingConfirm.head
+    pendingConfirm = pendingConfirm.tail
+    outcome
 
   def input(prompt: String, default: Option[String] = None): UiOutcome[String] =
     inputCount += 1
@@ -530,7 +542,7 @@ class MainTest extends munit.FunSuite:
   test(
     "pickFlow: the run picker's reorder promotes implement.sc to the front of what ui.select shows"
   ):
-    val ui = new RecordingSelectUi(UiOutcome.Cancelled)
+    val ui = new RecordingSelectUi[DiscoveredFlow](UiOutcome.Cancelled)
     val _ =
       Main.pickFlow(
         ui,
@@ -546,47 +558,89 @@ class MainTest extends munit.FunSuite:
   test(
     "pickFlow: view/edit pickers (no reorder given) stay alphabetical"
   ):
-    val ui = new RecordingSelectUi(UiOutcome.Cancelled)
+    val ui = new RecordingSelectUi[DiscoveredFlow](UiOutcome.Cancelled)
     val _ = Main.pickFlow(ui, "View which flow?", threeFlows)
     assertEquals(
       ui.recordedChoices.head.map(_.value.name),
       List("alpha.sc", "implement.sc", "zeta.sc")
     )
 
-  // --- promptCreateBranch (the branch-creation confirm before a run) ---
+  // --- promptRunTarget (where the run's work goes, asked as one choice) ---
 
-  test("promptCreateBranch: the question explains what declining does"):
-    val ui = ConfirmOnlyUi(UiOutcome.Selected(true))
-    assertEquals(Main.promptCreateBranch(ui), Some(true))
+  test("promptRunTarget: the three destinations are offered, new branch first"):
+    val ui = RecordingSelectUi(UiOutcome.Selected(RunTarget.NewBranch))
+    assertEquals(Main.promptRunTarget(ui), Some(RunTarget.NewBranch))
     assertEquals(
-      ui.recordedQuestion,
-      Some(
-        "Create a new branch for this run? (choosing 'no': the flow makes " +
-          "its changes on the current branch)"
-      )
+      ui.recordedChoices.head.map(_.value),
+      List(RunTarget.NewBranch, RunTarget.CurrentBranch, RunTarget.Worktree)
     )
 
   test(
-    "promptCreateBranch: confirming (Enter's default) keeps normal branch-creating behavior"
+    "promptRunTarget: a new branch leads the rows and is marked preselected"
   ):
-    assertEquals(
-      Main.promptCreateBranch(ConfirmOnlyUi(UiOutcome.Selected(true))),
-      Some(true)
-    )
+    val ui = RecordingSelectUi(UiOutcome.Selected(RunTarget.NewBranch))
+    assertEquals(Main.promptRunTarget(ui), Some(RunTarget.NewBranch))
+    assertEquals(ui.recordedPreselect, Some(Some(RunTarget.NewBranch)))
 
-  test(
-    "promptCreateBranch: declining selects skip-branch mode (caller negates to skipBranch = true)"
-  ):
+  test("promptRunTarget: cancelling aborts the run"):
     assertEquals(
-      Main.promptCreateBranch(ConfirmOnlyUi(UiOutcome.Selected(false))),
-      Some(false)
-    )
-
-  test("promptCreateBranch: cancelling aborts the run"):
-    assertEquals(
-      Main.promptCreateBranch(ConfirmOnlyUi(UiOutcome.Cancelled)),
+      Main.promptRunTarget(RecordingSelectUi[RunTarget](UiOutcome.Cancelled)),
       None
     )
+
+  test("RunTarget: each destination maps to one flag pair, never both"):
+    // The pair orca refuses (`--worktree` with `--skip-branch`) has no case
+    // that produces it — which is the point of asking once rather than twice.
+    assertEquals(
+      RunTarget.values.toList.map(t => (t.skipBranch, t.worktree)),
+      List((false, false), (true, false), (false, true))
+    )
+
+  // --- runFlow (the interactive launch path) ---
+
+  test("runFlow: the chosen destination reaches the launcher's flags"):
+    withDumbTerminal: terminal =>
+      val workDir = TempDirs.dir()
+      os.write(
+        workDir / ".orca" / "flows" / "run-flow.sc",
+        "// x\n",
+        createFolders = true
+      )
+      val flow = DiscoveredFlow(
+        name = "run-flow.sc",
+        description = None,
+        origin = FlowOrigin.Project,
+        path = workDir / ".orca" / "flows" / "run-flow.sc",
+        shadows = Nil
+      )
+      // Pick the flow, type the task, then pick the worktree destination.
+      val ui = FlowScriptedUi(
+        selectScript = List(
+          UiOutcome.Selected(flow),
+          UiOutcome.Selected(RunTarget.Worktree)
+        ),
+        inputMultilineScript = List(UiOutcome.Selected("do the thing"))
+      )
+      var recorded: Option[FlowFlags] = None
+      Main.runFlow(
+        ui,
+        terminal,
+        workDir,
+        runAction = (_, _, opts, _, _) =>
+          recorded = Some(opts.flags)
+          LaunchResult.Ok
+      )
+      assertEquals(
+        recorded,
+        Some(
+          FlowFlags(
+            verbose = false,
+            skipBranch = false,
+            keepChanges = false,
+            worktree = true
+          )
+        )
+      )
 
   // --- editFlow / createNewFlow / createForkFlow (ADR 0021 §6/§9 amendment:
   // hand-vs-agent mode) ---
@@ -931,14 +985,14 @@ class MainTest extends munit.FunSuite:
       )
       val run = InterruptedRun(
         flowName = "resume-flow.sc",
-        userPrompt = "fix the flaky test\nwith detail"
+        userPrompt = "fix the flaky test\nwith detail",
+        dir = workDir
       )
       var recorded: Option[(String, String)] = None
       Main.resumeInterruptedRun(
         FlowScriptedUi(),
         terminal,
         run,
-        workDir,
         runAction = (flow, task, _, _, _) =>
           recorded = Some(flow.name -> task)
           LaunchResult.Ok
@@ -949,18 +1003,59 @@ class MainTest extends munit.FunSuite:
       )
 
   test(
+    "resumeInterruptedRun: the run happens in the directory its log was found in"
+  ):
+    withDumbTerminal: terminal =>
+      // A log found in an orca worktree resumes THERE, with no --worktree flag:
+      // the flag would re-derive a path, this runs where the log actually is.
+      val worktree = TempDirs.dir()
+      os.write(
+        worktree / ".orca" / "flows" / "resume-flow.sc",
+        "// x\n",
+        createFolders = true
+      )
+      val run = InterruptedRun(
+        flowName = "resume-flow.sc",
+        userPrompt = "fix the flaky test",
+        dir = worktree
+      )
+      var recorded: Option[(os.Path, FlowFlags)] = None
+      Main.resumeInterruptedRun(
+        FlowScriptedUi(),
+        terminal,
+        run,
+        runAction = (_, _, opts, dir, _) =>
+          recorded = Some(dir -> opts.flags)
+          LaunchResult.Ok
+      )
+      assertEquals(
+        recorded,
+        Some(
+          worktree -> FlowFlags(
+            verbose = false,
+            skipBranch = false,
+            keepChanges = false,
+            worktree = false
+          )
+        )
+      )
+
+  test(
     "resumeInterruptedRun: an unresolvable flow name reports an error and never launches"
   ):
     withDumbTerminal: terminal =>
       val workDir = TempDirs.dir()
-      val run = InterruptedRun(flowName = "no-such-flow.sc", userPrompt = "x")
+      val run = InterruptedRun(
+        flowName = "no-such-flow.sc",
+        userPrompt = "x",
+        dir = workDir
+      )
       var launched = false
       val out = captured(
         Main.resumeInterruptedRun(
           FlowScriptedUi(),
           terminal,
           run,
-          workDir,
           runAction = (_, _, _, _, _) => { launched = true; LaunchResult.Ok }
         )
       )

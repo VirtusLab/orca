@@ -35,6 +35,27 @@ class OrcaArgsTest extends munit.FunSuite:
       Right(false)
     )
 
+  test("--worktree flag sets worktree = true"):
+    val result = OrcaArgs
+      .parse(Seq("--worktree", "do the thing"))
+      .toOption
+      .getOrElse(fail("expected successful parse"))
+    assertEquals(result.userPrompt, "do the thing")
+    assertEquals(result.worktree.value, true)
+
+  test("--worktree with --skip-branch is refused, naming both flags"):
+    assertRefused(Seq("--worktree", "--skip-branch", "x"), "--skip-branch")
+
+  test("--worktree with --keep-changes is refused, naming both flags"):
+    assertRefused(Seq("--worktree", "--keep-changes", "x"), "--keep-changes")
+
+  private def assertRefused(argv: Seq[String], otherFlag: String): Unit =
+    OrcaArgs.parse(argv) match
+      case Left(msg) =>
+        assert(msg.contains("--worktree"), msg)
+        assert(msg.contains(otherFlag), msg)
+      case Right(r) => fail(s"expected a refusal, got $r")
+
   test("unknown flags yield a Left with an error message"):
     OrcaArgs.parse(Seq("--nonexistent")) match
       case Left(msg) => assert(msg.nonEmpty)

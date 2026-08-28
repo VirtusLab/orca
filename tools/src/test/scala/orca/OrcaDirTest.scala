@@ -37,6 +37,30 @@ class OrcaDirTest extends munit.FunSuite:
     assert(os.isDir(root))
     assert(!os.exists(root / "cache"))
 
+  test("worktreesPath points at .orca/worktrees without creating it"):
+    val wd = TempDirs.dir()
+    assertEquals(OrcaDir.worktreesPath(wd), wd / ".orca" / "worktrees")
+    assert(!os.exists(wd / ".orca"))
+
+  test("ensureWorktrees writes the .gitignore but no CACHEDIR.TAG"):
+    val wd = TempDirs.dir()
+    val worktrees = OrcaDir.ensureWorktrees(wd)
+    assertEquals(worktrees, wd / ".orca" / "worktrees")
+    assertEquals(
+      os.read(worktrees / ".gitignore"),
+      "# Automatically created by orca.\n*\n"
+    )
+    assert(!os.exists(worktrees / "CACHEDIR.TAG"))
+
+  test("ensureWorktrees aborts on a symlinked .orca/worktrees"):
+    val wd = TempDirs.dir()
+    val outside = TempDirs.dir() / "outside-worktrees"
+    os.makeDir.all(outside)
+    os.makeDir.all(OrcaDir.rootPath(wd))
+    os.symlink(OrcaDir.worktreesPath(wd), outside)
+    intercept[OrcaFlowException](OrcaDir.ensureWorktrees(wd)).discard
+    assert(os.list(outside).isEmpty, "no write must go through the symlink")
+
   test("flowsPath points at .orca/flows without creating it"):
     val wd = TempDirs.dir()
     assertEquals(OrcaDir.flowsPath(wd), wd / ".orca" / "flows")
