@@ -207,7 +207,12 @@ runtime's own glyph family (`⏺`/`●`/`▶`/`▸`).
 > only the newest by mtime.
 
 > **Amendment (2026-08-27).** The scan spans the checkout the shell was started
-> in plus the worktrees orca made for that repository: a `--worktree` run leaves
+> in plus the worktrees orca made FOR THAT CHECKOUT — the ones under its own
+> `.orca/worktrees/`, matching where the data lives, since `.orca/` is
+> per-checkout. So the checkout that made the worktrees sees itself and all of
+> them, while a worktree, whose own `.orca/worktrees/` is empty, sees only
+> itself; surveying every run means running the shell from the checkout the
+> worktrees hang off. A `--worktree` run leaves
 > its progress log inside its own tree, so a shell scanning only its own
 > directory would either offer nothing or offer an older run. The
 > newest-by-mtime rule now orders across all of them, and a directory that
