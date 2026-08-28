@@ -1,6 +1,6 @@
 package orca.shell.cli
 
-import orca.OrcaArgs
+import orca.RunTarget
 import orca.shell.actions.{FlowResolution, RunAction}
 import orca.shell.run.{FallbackPolicy, FlowFlags, FlowLauncher}
 
@@ -13,36 +13,33 @@ import Cli.{actionFailure, complete, usageFailure, withTerminal}
   */
 private[cli] object RunCli:
 
-  /** A contradictory `--worktree` pair is refused first, before anything is
-    * resolved or spawned, saving a `scala-cli` start and its dependency
-    * resolution. The flow child refuses it too, on this same shared decision,
-    * and stays the authority — this only makes the answer immediate.
+  /** `target` arrives unvalidated — a `Left` is the refusal
+    * [[orca.RunTarget.from]] returned for a contradictory `--worktree` pair. It
+    * is refused first, before anything is resolved or spawned, saving a
+    * `scala-cli` start and its dependency resolution; the flow child refuses
+    * the same argv on the same shared decision and stays the authority, this
+    * only makes the answer immediate. Below the refusal only the validated
+    * target exists, so no launch path can be handed a pair orca refuses.
     */
   def run(
       flowRef: String,
       task: Option[String],
-      flags: FlowFlags,
+      verbose: Boolean,
+      target: Either[String, RunTarget],
       honorPin: Boolean,
       workDir: os.Path,
       tty: Boolean
   ): Int =
     complete:
       for
-        _ <- OrcaArgs
-          .worktreeRefusal(
-            worktree = flags.worktree,
-            skipBranch = flags.skipBranch,
-            keepChanges = flags.keepChanges
-          )
-          .toLeft(())
-          .left
-          .map(usageFailure)
+        runTarget <- target.left.map(usageFailure)
         resolved <- FlowResolution
           .resolve(flowRef, workDir)
           .left
           .map(actionFailure)
         taskText <- readTask(task, tty, readAllStdin).left.map(usageFailure)
       yield withTerminal: terminal =>
+        val flags = FlowFlags(verbose, runTarget)
         val result =
           if honorPin then
             FlowLauncher.runHonoringPin(

@@ -1,7 +1,7 @@
 package orca.shell
 
 import org.jline.terminal.{Terminal, TerminalBuilder}
-import orca.StackSettings
+import orca.{RunTarget, StackSettings, Uncommitted}
 import orca.runner.manifest.{
   ManifestOutcome,
   ManifestSession,
@@ -567,33 +567,31 @@ class MainTest extends munit.FunSuite:
 
   // --- promptRunTarget (where the run's work goes, asked as one choice) ---
 
+  private val newBranch = RunTarget.NewBranch(Uncommitted.Stash)
+
   test("promptRunTarget: the three destinations are offered, new branch first"):
-    val ui = RecordingSelectUi(UiOutcome.Selected(RunTarget.NewBranch))
-    assertEquals(Main.promptRunTarget(ui), Some(RunTarget.NewBranch))
+    val ui = RecordingSelectUi(UiOutcome.Selected(newBranch))
+    assertEquals(Main.promptRunTarget(ui), Some(newBranch))
     assertEquals(
       ui.recordedChoices.head.map(_.value),
-      List(RunTarget.NewBranch, RunTarget.CurrentBranch, RunTarget.Worktree)
+      List(
+        newBranch,
+        RunTarget.CurrentBranch(Uncommitted.Stash),
+        RunTarget.Worktree
+      )
     )
 
   test(
     "promptRunTarget: a new branch leads the rows and is marked preselected"
   ):
-    val ui = RecordingSelectUi(UiOutcome.Selected(RunTarget.NewBranch))
-    assertEquals(Main.promptRunTarget(ui), Some(RunTarget.NewBranch))
-    assertEquals(ui.recordedPreselect, Some(Some(RunTarget.NewBranch)))
+    val ui = RecordingSelectUi(UiOutcome.Selected(newBranch))
+    assertEquals(Main.promptRunTarget(ui), Some(newBranch))
+    assertEquals(ui.recordedPreselect, Some(Some(newBranch)))
 
   test("promptRunTarget: cancelling aborts the run"):
     assertEquals(
       Main.promptRunTarget(RecordingSelectUi[RunTarget](UiOutcome.Cancelled)),
       None
-    )
-
-  test("RunTarget: each destination maps to one flag pair, never both"):
-    // The pair orca refuses (`--worktree` with `--skip-branch`) has no case
-    // that produces it — which is the point of asking once rather than twice.
-    assertEquals(
-      RunTarget.values.toList.map(t => (t.skipBranch, t.worktree)),
-      List((false, false), (true, false), (false, true))
     )
 
   // --- runFlow (the interactive launch path) ---
@@ -632,14 +630,7 @@ class MainTest extends munit.FunSuite:
       )
       assertEquals(
         recorded,
-        Some(
-          FlowFlags(
-            verbose = false,
-            skipBranch = false,
-            keepChanges = false,
-            worktree = true
-          )
-        )
+        Some(FlowFlags(verbose = false, target = RunTarget.Worktree))
       )
 
   // --- editFlow / createNewFlow / createForkFlow (ADR 0021 §6/§9 amendment:
@@ -1033,9 +1024,7 @@ class MainTest extends munit.FunSuite:
         Some(
           worktree -> FlowFlags(
             verbose = false,
-            skipBranch = false,
-            keepChanges = false,
-            worktree = false
+            target = RunTarget.NewBranch(Uncommitted.Stash)
           )
         )
       )

@@ -2,9 +2,10 @@ package orca.shell.cli
 
 import mainargs.{Flag, ParserForMethods, Renderer, Util, arg, main}
 import org.jline.terminal.Terminal
+import orca.RunTarget
 import orca.settings.GlobalSettings
 import orca.shell.WorktreeScan
-import orca.shell.run.{FlowFlags, LaunchResult}
+import orca.shell.run.LaunchResult
 import orca.shell.ui.ShellUi
 import orca.subprocess.TtyProbe
 
@@ -167,11 +168,11 @@ private[shell] object Cli:
     RunCli.run(
       flowRef = flow,
       task = task,
-      flags = FlowFlags(
-        verbose = verbose.value,
+      verbose = verbose.value,
+      target = RunTarget.from(
+        worktree = worktree.value,
         skipBranch = skipBranch.value,
-        keepChanges = keepChanges.value,
-        worktree = worktree.value
+        keepChanges = keepChanges.value
       ),
       honorPin = honorPin.value,
       workDir = os.pwd,

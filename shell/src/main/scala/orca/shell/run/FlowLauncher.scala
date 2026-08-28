@@ -1,6 +1,7 @@
 package orca.shell.run
 
 import org.jline.terminal.Terminal
+import orca.RunTarget
 import orca.shell.ShellVersion
 import orca.shell.flows.BuiltInFlows
 import orca.shell.ui.{ShellOutput, ShellUi, UiOutcome}
@@ -27,16 +28,12 @@ private[shell] enum FallbackPolicy:
   * adjacent same-typed positional Booleans that a call site could silently
   * transpose without a compile error.
   *
-  * `worktree` combines with neither `skipBranch` nor `keepChanges`; a builder
-  * that can produce either pair has to ask `OrcaArgs.worktreeRefusal` (as
-  * [[orca.shell.cli.RunCli]] does), or the flow child refuses it after a spawn.
+  * `target` is the run's destination as one [[orca.RunTarget]] rather than the
+  * three flags it renders to, so the combinations orca refuses (`--worktree`
+  * with `--skip-branch` or `--keep-changes`) cannot be handed to a launch path
+  * at all.
   */
-private[shell] case class FlowFlags(
-    verbose: Boolean,
-    skipBranch: Boolean,
-    keepChanges: Boolean,
-    worktree: Boolean
-)
+private[shell] case class FlowFlags(verbose: Boolean, target: RunTarget)
 
 /** Runs a selected flow as a `scala-cli run` child inheriting the shell's
   * terminal (ADR 0021 §2). By default the shell forces its own orca version via
@@ -84,16 +81,16 @@ private[shell] object FlowLauncher:
       .getOrElse(Seq.empty)
 
   /** `scala-cli run <flow> --quiet --verbose [--dep ...] --workspace <dir> --
-    * <task> [--verbose] [--skip-branch] [--keep-changes] [--worktree]`. The
-    * `--verbose` before `--` is scala-cli's own ([[loggingArgs]]); the one
-    * after is the flow's, parsed by its own `OrcaArgs` — which spells its flags
-    * `--verbose`/`--skip-branch`/`--keep-changes`/`--worktree`, so they land
-    * after `--` alongside the task text, not before it. `--workspace` relocates
-    * scala-cli's own `.scala-build`/`.bsp` build metadata to `workspaceDir`
-    * ([[resolveWorkspaceDir]]) instead of next to `flow` — load-bearing for a
-    * Project-tier flow, whose script lives inside the user's own repo
-    * (`<repo>/.orca/flows/<name>.sc`), same pollution class the `orca` shim's
-    * own `--workspace` fixes (ADR 0021 §1 amendment).
+    * <task> [--verbose] [<target flags>]`. The `--verbose` before `--` is
+    * scala-cli's own ([[loggingArgs]]); everything after `--` is the flow's
+    * own, parsed by its `OrcaArgs`, so it lands alongside the task text rather
+    * than before it — the destination flags come from
+    * [[orca.RunTarget.toArgv]], which is where their spelling lives.
+    * `--workspace` relocates scala-cli's own `.scala-build`/`.bsp` build
+    * metadata to `workspaceDir` ([[resolveWorkspaceDir]]) instead of next to
+    * `flow` — load-bearing for a Project-tier flow, whose script lives inside
+    * the user's own repo (`<repo>/.orca/flows/<name>.sc`), same pollution class
+    * the `orca` shim's own `--workspace` fixes (ADR 0021 §1 amendment).
     *
     * Requires `task` to be non-blank — `Main.promptTask` re-prompts on blank
     * input before this is ever called, so an empty task here means a caller
@@ -111,17 +108,12 @@ private[shell] object FlowLauncher:
       "task text must be non-blank — Main.promptTask re-prompts before calling"
     )
     val verboseArgs = if flags.verbose then Seq("--verbose") else Seq.empty
-    val skipBranchArgs =
-      if flags.skipBranch then Seq("--skip-branch") else Seq.empty
-    val keepChangesArgs =
-      if flags.keepChanges then Seq("--keep-changes") else Seq.empty
-    val worktreeArgs = if flags.worktree then Seq("--worktree") else Seq.empty
     Seq("scala-cli", "run", flow.toString) ++
       loggingArgs ++
       depArgs(orcaVersion) ++
       Seq("--workspace", workspaceDir.toString) ++
       Seq("--", task) ++
-      verboseArgs ++ skipBranchArgs ++ keepChangesArgs ++ worktreeArgs
+      verboseArgs ++ flags.target.toArgv
 
   /** The compile probe's argv — same `--workspace` treatment as [[argv]], and
     * for the same reason: without it, the probe (run whenever the forced
