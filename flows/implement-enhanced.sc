@@ -1,6 +1,6 @@
 // Plan (self-reviewed), implement per task, update docs, then open a PR.
 //> using scala 3.8.4
-//> using dep "org.virtuslab::orca:0.1.5"
+//> using dep "org.virtuslab::orca:0.1.6"
 //> using jvm 21
 
 /** Autonomous planning + coding flow that lands the work on its own branch and

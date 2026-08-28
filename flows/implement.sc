@@ -1,6 +1,6 @@
 // Plan a prompt into tasks, review each once, then loop a review over the run.
 //> using scala 3.8.4
-//> using dep "org.virtuslab::orca:0.1.5"
+//> using dep "org.virtuslab::orca:0.1.6"
 //> using jvm 21
 
 /** Autonomous planning + coding flow — the README example.
