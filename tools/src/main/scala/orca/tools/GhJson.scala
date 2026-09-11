@@ -47,6 +47,14 @@ private[tools] case class GhPrListJson(
     url: String
 ) derives ConfiguredJsonValueCodec
 
+/** What `gh repo view --json url` returns for the repository gh resolves from
+  * the checkout's remotes: the browser URL, which carries host, owner and repo
+  * together for [[OsGitHubTool.availability]].
+  */
+private[tools] case class GhRepoViewJson(
+    url: String
+) derives ConfiguredJsonValueCodec
+
 private[tools] case class GhUserJson(login: String)
     derives ConfiguredJsonValueCodec
 

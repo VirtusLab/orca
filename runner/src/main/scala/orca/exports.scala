@@ -76,12 +76,14 @@ export orca.review.{
   RosterEntry
 }
 // PushFailure is the Left of GitTool.push's Either; BuildWaitFailed the same
-// for GitHubTool.waitForBuild.
+// for GitHubTool.waitForBuild; GitHubAvailability is what gh.availability()
+// answers with.
 export orca.tools.{
   BuildOutcome,
   BuildStatus,
   BuildWaitFailed,
   Comment,
+  GitHubAvailability,
   Issue,
   IssueHandle,
   PrHandle,

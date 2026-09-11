@@ -7,7 +7,8 @@ import orca.subprocess.{
   CliResult,
   CliRunner,
   PipedCliProcess,
-  StubCliRunner
+  StubCliRunner,
+  ThrowingCliRunner
 }
 import ox.either.orThrow
 import ox.scheduling.Schedule
@@ -78,6 +79,153 @@ class OsGitHubToolTest extends munit.FunSuite:
     new SequencedCliRunner(
       CliResult(0, "feat\n", "") +: createResult +: rest.toList
     )
+
+  // ── availability ─────────────────────────────────────────────────────────
+
+  // An `availability()` probe runs `git config --get remote.origin.url`, then
+  // `gh auth status`, then `gh repo view` — in that order. The repo gh reports
+  // is deliberately not the one in the origin path: the probe answers with the
+  // repository gh resolved, which is the one `gh pr create` would target.
+  private val repoViewJson =
+    """{"url":"https://ghe.example.com/acme/widgets"}"""
+
+  test("availability answers with the repository gh resolved, not the origin"):
+    val cli = new SequencedCliRunner(
+      List(
+        CliResult(0, "git@ghe.example.com:acme/widgets-old.git\n", ""),
+        CliResult(0, "Logged in to ghe.example.com", ""),
+        CliResult(0, repoViewJson, "")
+      )
+    )
+    assertEquals(
+      new OsGitHubTool(cli).availability(),
+      GitHubAvailability.Available("ghe.example.com", "acme", "widgets")
+    )
+
+  test("availability passes the origin host to gh auth status"):
+    val cli = new SequencedCliRunner(
+      List(
+        CliResult(0, "git@ghe.example.com:acme/widgets-old.git\n", ""),
+        CliResult(0, "Logged in to ghe.example.com", ""),
+        CliResult(0, repoViewJson, "")
+      )
+    )
+    val _ = new OsGitHubTool(cli).availability()
+    assertEquals(
+      cli.calls(1).args,
+      List("gh", "auth", "status", "--hostname", "ghe.example.com")
+    )
+
+  test(
+    "availability reports NotGitHub when gh has no login for a non-GitHub host"
+  ):
+    // gh only ever logs in to GitHub, so a host it cannot authenticate is
+    // taken to be something else — here, GitLab.
+    val cli = new SequencedCliRunner(
+      List(
+        CliResult(0, "git@gitlab.com:acme/widgets.git\n", ""),
+        CliResult(1, "", "You are not logged into any GitHub hosts.")
+      )
+    )
+    assertEquals(
+      new OsGitHubTool(cli).availability(),
+      GitHubAvailability.NotGitHub("gitlab.com")
+    )
+
+  test("availability reports NotGitHub for a remote with no host at all"):
+    // A clone from a local path — what the `orca create` sandbox makes. The
+    // remote itself is the answer, and gh is never asked about it.
+    val cli = new SequencedCliRunner(
+      List(CliResult(0, "/srv/repos/widgets.git\n", ""))
+    )
+    assertEquals(
+      new OsGitHubTool(cli).availability(),
+      GitHubAvailability.NotGitHub("/srv/repos/widgets.git")
+    )
+    assertEquals(cli.callCount, 1)
+
+  test("availability reports NoRemote when origin is unset"):
+    // `git config --get` exits 1 for a key that isn't there.
+    val cli = new SequencedCliRunner(List(CliResult(1, "", "")))
+    assertEquals(
+      new OsGitHubTool(cli).availability(),
+      GitHubAvailability.NoRemote
+    )
+
+  test(
+    "availability reports Unreachable with gh's reason on a github.com auth failure"
+  ):
+    val cli = new SequencedCliRunner(
+      List(
+        CliResult(0, "https://github.com/acme/widgets.git\n", ""),
+        CliResult(1, "", "You are not logged into any GitHub hosts.\n")
+      )
+    )
+    assertEquals(
+      new OsGitHubTool(cli).availability(),
+      GitHubAvailability.Unreachable(
+        "github.com",
+        "You are not logged into any GitHub hosts."
+      )
+    )
+
+  test("availability names the next action when a failing gh says nothing"):
+    // `gh auth status` reports on stdout and can fail silently, so the reason
+    // must not come back empty — it is the whole diagnostic the user gets.
+    val cli = new SequencedCliRunner(
+      List(
+        CliResult(0, "https://github.com/acme/widgets.git\n", ""),
+        CliResult(1, "", "")
+      )
+    )
+    val reason = new OsGitHubTool(cli).availability() match
+      case GitHubAvailability.Unreachable("github.com", reason) => reason
+      case other => fail(s"expected Unreachable, got: $other")
+    assert(reason.contains("gh auth login --hostname github.com"), reason)
+
+  test("availability reports Unreachable when gh repo view fails"):
+    // The login is good but this checkout's repo isn't readable — gh's own
+    // words are what the user sees.
+    val cli = new SequencedCliRunner(
+      List(
+        CliResult(0, "https://github.com/acme/widgets.git\n", ""),
+        CliResult(0, "Logged in to github.com", ""),
+        CliResult(1, "", "GraphQL: Could not resolve to a Repository")
+      )
+    )
+    assertEquals(
+      new OsGitHubTool(cli).availability(),
+      GitHubAvailability.Unreachable(
+        "github.com",
+        "GraphQL: Could not resolve to a Repository"
+      )
+    )
+
+  test(
+    "availability reports Unreachable on a gh repo view payload it cannot read"
+  ):
+    val cli = new SequencedCliRunner(
+      List(
+        CliResult(0, "https://github.com/acme/widgets.git\n", ""),
+        CliResult(0, "Logged in to github.com", ""),
+        CliResult(0, "not json", "")
+      )
+    )
+    val reason = new OsGitHubTool(cli).availability() match
+      case GitHubAvailability.Unreachable("github.com", reason) => reason
+      case other => fail(s"expected Unreachable, got: $other")
+    assert(reason.contains("gh repo view"), reason)
+
+  test("availability reports Unreachable when gh cannot be run at all"):
+    val cli = new ThrowingCliRunner(
+      failWhen = _.headOption.contains("gh"),
+      otherwise = CliResult(0, "https://github.com/acme/widgets.git\n", "")
+    )
+    val reason = new OsGitHubTool(cli).availability() match
+      case GitHubAvailability.Unreachable("github.com", reason) => reason
+      case other => fail(s"expected Unreachable, got: $other")
+    assert(reason.contains("could not run gh"), reason)
+    assert(reason.contains("cli.github.com"), reason)
 
   test("createPr resolves the current branch and passes it as --head"):
     val cli = createPrRunner(

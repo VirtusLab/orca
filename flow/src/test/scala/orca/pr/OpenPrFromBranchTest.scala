@@ -61,6 +61,7 @@ class OpenPrFromBranchTest extends FunSuite:
     */
   private class RecordingGh(calls: ConcurrentLinkedQueue[String])
       extends GitHubTool:
+    def availability() = nyi("availability")
     def createPr(title: String, body: String)(using WorkspaceWrite) =
       calls.add("createPr"): Unit
       Right(PrHandle("github.com", "acme", "widgets", 1))

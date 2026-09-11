@@ -10,6 +10,7 @@ import ox.resilience.{ResultPolicy, RetryConfig, retry}
 import ox.scheduling.Schedule
 
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
+import scala.util.control.NonFatal
 
 /** A handle to an open pull request. `host` is the GitHub host the PR lives on
   * — `github.com` or a GitHub Enterprise hostname — and every gh call taking
@@ -195,11 +196,46 @@ final class NoChecksConfigured(grace: FiniteDuration)
         "repo has no CI workflow configured"
     )
 
+/** What [[GitHubTool.availability]] found: whether a PR can be opened from this
+  * checkout, and against which host.
+  */
+enum GitHubAvailability:
+  /** The checkout has no `origin` remote — there is nothing to open a PR
+    * against.
+    */
+  case NoRemote
+
+  /** `origin` is not a GitHub remote orca can use: `remote` is its host, or the
+    * remote URL itself when it has no host (a local path). Also the answer for
+    * a host gh cannot be asked about, since gh only ever logs in to GitHub — a
+    * GitHub Enterprise host the user has not run `gh auth login --hostname` for
+    * lands here.
+    */
+  case NotGitHub(remote: String)
+
+  /** `origin` is on github.com, but gh can't talk to it — not installed, not
+    * logged in, or the host is down. `reason` is gh's own explanation where it
+    * gave one.
+    */
+  case Unreachable(host: String, reason: String)
+
+  /** A PR can be opened against `owner`/`repo` on `host` — the repository gh
+    * resolves from this checkout, which is the one `gh pr create` would target.
+    */
+  case Available(host: String, owner: String, repo: String)
+
 /** GitHub adapter usable from flow scripts — the handle behind the `gh`
   * accessor. Creates pull requests, reads issues and their comments, reads and
   * writes PR comments, and polls GitHub's check-run status.
   */
 trait GitHubTool:
+  /** Read-only probe: can a PR be opened from this checkout, and where to. Asks
+    * git for the `origin` remote and gh for its login state, writing nothing —
+    * so a flow can branch on the answer before committing to a PR-opening
+    * stage.
+    */
+  def availability(): GitHubAvailability
+
   /** Open a PR from the current branch as it exists on the remote: the branch
     * must already be pushed to the repo the PR targets (fork clones are
     * unsupported), and commits made locally after the last push are not
@@ -307,6 +343,108 @@ private[orca] class OsGitHubTool(
         _.isInstanceOf[OrcaFlowException]
       )
     )
+
+  def availability(): GitHubAvailability =
+    import GitHubAvailability.*
+    originUrl() match
+      case None => NoRemote
+      case Some(url) =>
+        OsGitTool.remoteHost(url) match
+          case None => NotGitHub(url)
+          case Some(host) =>
+            authStatus(host) match
+              case Right(()) => repoGhResolves(host)
+              // gh only ever logs in to GitHub, so a host it cannot answer for
+              // is taken to be something else. github.com is the exception: it
+              // is GitHub whether or not gh works, so there a failure is the
+              // user's auth, the network, or a gh that would not run.
+              case Left(reason) if host == GitHubDotCom =>
+                Unreachable(host, reason)
+              case Left(_) => NotGitHub(host)
+
+  /** The `origin` remote's URL, or `None` when the checkout has no such remote
+    * — `git config --get` exits 1 when the key is unset. A git that will not
+    * run at all answers the same way, so the probe reports "no remote" rather
+    * than aborting the flow.
+    */
+  private def originUrl(): Option[String] =
+    try
+      val result = cli.run(
+        Seq("git", "config", "--get", "remote.origin.url"),
+        env = OsGitTool.nonInteractiveEnv,
+        cwd = workDir
+      )
+      Option.when(result.exitCode == 0)(result.stdout.trim).filter(_.nonEmpty)
+    catch case NonFatal(_) => None
+
+  /** Whether gh is logged in to `host`, with gh's own explanation when not. */
+  private def authStatus(host: String): Either[String, Unit] =
+    tryRunGh("auth", "status", "--hostname", host) match
+      case Left(reason)                      => Left(reason)
+      case Right(auth) if auth.exitCode == 0 => Right(())
+      case Right(auth) =>
+        Left(
+          ghReason(
+            auth,
+            s"gh auth status --hostname $host failed (exit ${auth.exitCode})" +
+              s" — run `gh auth login --hostname $host`"
+          )
+        )
+
+  /** The repository gh resolves from this checkout — the fork parent or the `gh
+    * repo set-default` choice where those apply, i.e. the repository `gh pr
+    * create` would target. Host, owner and repo all come out of the one `url`
+    * gh reports, so the three name a single repository; `gitHost` only labels
+    * the failures, where there is no gh answer to take one from.
+    */
+  private def repoGhResolves(gitHost: String): GitHubAvailability =
+    tryRunGh("repo", "view", "--json", "url") match
+      case Left(reason) => GitHubAvailability.Unreachable(gitHost, reason)
+      case Right(view) if view.exitCode != 0 =>
+        GitHubAvailability.Unreachable(
+          gitHost,
+          ghReason(
+            view,
+            s"gh repo view failed (exit ${view.exitCode}) — run `gh repo view" +
+              " --json url` in this checkout to see why"
+          )
+        )
+      case Right(view) =>
+        repoFromView(view.stdout) match
+          case Right(available) => available
+          case Left(reason) => GitHubAvailability.Unreachable(gitHost, reason)
+
+  /** Read `gh repo view --json url` output. Decoding happens here, behind an
+    * `Either`, so a payload gh never documented is an answer from the probe
+    * rather than an exception out of it.
+    */
+  private def repoFromView(stdout: String): Either[String, GitHubAvailability] =
+    try
+      val url = readFromString[GhRepoViewJson](stdout).url
+      RepoUrlPattern
+        .findFirstMatchIn(url)
+        .map(m =>
+          GitHubAvailability.Available(m.group(1), m.group(2), m.group(3))
+        )
+        .toRight(
+          s"gh named the repository '$url', which is not " +
+            "https://<host>/<owner>/<repo>"
+        )
+    catch
+      case NonFatal(e) =>
+        Left(
+          s"could not read `gh repo view` output (${e.getMessage}) — run `gh" +
+            " repo view --json url` in this checkout to see what gh printed"
+        )
+
+  /** Run `gh` once for [[availability]], reporting a `gh` that could not be
+    * started as a `Left` reason: `os.proc` throws when the binary is missing —
+    * and when the working directory or the binary itself is unusable — and the
+    * probe answers rather than aborting the flow.
+    */
+  private def tryRunGh(args: String*): Either[String, CliResult] =
+    try Right(runGhResult(args*))
+    catch case NonFatal(e) => Left(cannotRunGh(e))
 
   def createPr(title: String, body: String)(using
       WorkspaceWrite
@@ -661,6 +799,36 @@ private[orca] class OsGitHubTool(
     "api" +: host.fold(args)(h => "--hostname" +: h +: args)
 
 private[orca] object OsGitHubTool:
+
+  /** The one host that is GitHub whether or not gh can log in to it. */
+  private val GitHubDotCom = "github.com"
+
+  /** `https://<host>/<owner>/<repo>` — the shape of `gh repo view --json url`
+    * output, from which [[OsGitHubTool.availability]] takes the whole identity
+    * of the repository gh resolved. Host charset as in [[PrHandle]].
+    */
+  private val RepoUrlPattern =
+    """https?://([A-Za-z0-9.-]+(?::\d+)?)/([^/]+)/([^/?#]+?)(?:\.git)?/?$""".r
+
+  /** Reason for a `gh` that could not be started. Names the likely cause
+    * without asserting it: a missing binary is the common one, but an unusable
+    * working directory or a non-executable `gh` throws the same way.
+    */
+  private def cannotRunGh(e: Throwable): String =
+    s"could not run gh (${e.getMessage}) — if it is not installed, get it " +
+      "from https://cli.github.com, then run `gh auth login`"
+
+  /** A user-facing reason for a `gh` call that exited non-zero: its stderr,
+    * else its stdout — `gh auth status` reports there and can fail silently —
+    * else `fallback`, so the reason is never blank.
+    */
+  private def ghReason(result: CliResult, fallback: String): String =
+    List(result.stderr, result.stdout)
+      .map(_.trim)
+      .find(_.nonEmpty)
+      .getOrElse(
+        fallback
+      )
 
   /** Issue-side calls name no host: an [[IssueHandle]] carries none — the
     * `<owner>/<repo>#<number>` form asserts no host at all — so gh resolves it
