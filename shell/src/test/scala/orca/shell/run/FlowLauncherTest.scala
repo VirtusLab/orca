@@ -216,6 +216,30 @@ class FlowLauncherTest extends munit.FunSuite:
       )
     )
 
+  test("argv adds --worktree alone, with nothing between it and the task"):
+    val result = FlowLauncher.argv(
+      flow,
+      None,
+      "do the thing",
+      flags(target = RunTarget.Worktree),
+      workspaceDir
+    )
+    assertEquals(
+      result,
+      Seq(
+        "scala-cli",
+        "run",
+        flow.toString,
+        "--quiet",
+        "--verbose",
+        "--workspace",
+        workspaceDir.toString,
+        "--",
+        "do the thing",
+        "--worktree"
+      )
+    )
+
   test(
     "argv adds every flag a single run can carry, in a fixed order after --"
   ):
