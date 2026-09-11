@@ -31,8 +31,17 @@ private[orca] object WorktreeRun:
     * yet. `invokingDir` is where orca was started, which may itself be a
     * worktree of the repository — the answer is the same either way.
     *
-    * `Left` is a message for the user: no repository or no commits to start
-    * from, something already occupying the path, or git's own refusal.
+    * `Left` is a sentence for the user, one of:
+    *   - no git repository around `invokingDir`, or one with no commit to start
+    *     from;
+    *   - a repository whose main checkout cannot be named — a
+    *     `--separate-git-dir` or submodule layout, or a git too old to answer
+    *     the query;
+    *   - something other than a worktree of this repository already at the
+    *     path;
+    *   - the run's own branch already carries commits that putting the worktree
+    *     back on it would strand;
+    *   - git's own refusal of the create or of the branch step.
     */
   def resolve(
       invokingDir: os.Path,

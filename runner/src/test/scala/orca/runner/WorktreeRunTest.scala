@@ -88,10 +88,7 @@ class WorktreeRunTest extends munit.FunSuite:
     val path = resolved(repo, "task A")
     git(repo, "worktree", "remove", "--force", path.toString)
     os.makeDir.all(path)
-    val refusal = WorktreeRun
-      .resolve(repo, "task A")
-      .left
-      .getOrElse(fail("expected a refusal"))
+    val refusal = refusalOf(repo)
     assert(refusal.contains(path.toString), refusal)
 
   test("outside a git repository, orca's own wording is used"):
@@ -105,6 +102,25 @@ class WorktreeRunTest extends munit.FunSuite:
       WorktreeRun.resolve(GitRepo.empty(), "task A"),
       Left(GitPreconditions.needsRepoWithCommit)
     )
+
+  test("a main worktree that is not a checkout is named as the reason"):
+    val checkout = GitRepo.seededSeparateGitDir()
+    val worktree = checkout / os.up / "wt"
+    assertEquals(Worktrees.add(checkout, worktree), Right(()))
+    // Resolving from here finds no main checkout, and the user is told it is
+    // the repository's layout — not that they have no repository.
+    val refusal = refusalOf(worktree)
+    assert(refusal.contains("--separate-git-dir"), refusal)
+
+  test("a git that does not answer the query is named as the reason"):
+    // rev-parse prints one path per line, so a repository path holding a
+    // newline makes the answer unreadable — as does a git too old for
+    // `--path-format`, which is what the user is pointed at.
+    val repo = TempDirs.dir() / "two\nlines"
+    os.makeDir.all(repo)
+    git(repo, "init", "-b", "main")
+    val refusal = refusalOf(repo)
+    assert(refusal.contains("git 2.31 or newer"), refusal)
 
   test("reuse puts a detached worktree back on its branch"):
     val repo = GitRepo.seeded()
@@ -126,10 +142,7 @@ class WorktreeRunTest extends munit.FunSuite:
     // Detached BEHIND the branch, so putting the run back on it would strand
     // that commit — which is what orca refuses to do.
     git(path, "checkout", "--detach", "-q", "HEAD~1")
-    val refusal = WorktreeRun
-      .resolve(repo, "task A")
-      .left
-      .getOrElse(fail("expected a refusal"))
+    val refusal = refusalOf(repo)
     assert(refusal.contains(branch), refusal)
     // The remedy names the branch, which is what holds the commits. Removing
     // the worktree does not help: the next run recreates it detached and hits
@@ -150,6 +163,12 @@ class WorktreeRunTest extends munit.FunSuite:
     WorktreeRun
       .resolve(repo, userPrompt)
       .getOrElse(fail("expected a resolved worktree"))
+
+  private def refusalOf(cwd: os.Path): String =
+    WorktreeRun
+      .resolve(cwd, "task A")
+      .left
+      .getOrElse(fail("expected a refusal"))
 
   private def git(cwd: os.Path, args: String*): Unit =
     os.proc("git" +: args).call(cwd = cwd).discard

@@ -40,17 +40,7 @@ class WorktreesTest extends munit.FunSuite:
     assertEquals(Worktrees.mainCheckout(path), Some(repo))
 
   test("mainCheckout answers the checkout when the git dir lives outside it"):
-    val root = TempDirs.dir()
-    val checkout = root / "checkout"
-    os.makeDir.all(checkout)
-    git(
-      checkout,
-      "init",
-      "-q",
-      "-b",
-      "main",
-      s"--separate-git-dir=${root / "gitdir"}"
-    ).discard
+    val checkout = GitRepo.seededSeparateGitDir()
     assertEquals(Worktrees.mainCheckout(checkout), Some(checkout))
 
   test("mainCheckout is empty outside a git repository"):
@@ -110,24 +100,23 @@ class WorktreesTest extends munit.FunSuite:
     assertEquals(Worktrees.headBranch(path), Some("wt-branch"))
     assertEquals(gitOut(path, "rev-parse", "--abbrev-ref", "HEAD"), "wt-branch")
 
+  test("a worktree that cannot be read reads as not on a branch"):
+    val repo = GitRepo.seeded()
+    val path = repo / "wt"
+    assertEquals(Worktrees.add(repo, path), Right(()))
+    assertEquals(Worktrees.startBranch(path, "wt-branch"), Right(()))
+    // What `git clean -xdff` leaves: git cannot be started in a directory that
+    // is not there, so the branch it was on a moment ago is not an answer any
+    // more. os-lib spawns from a thread of its own, so the failed exec also
+    // prints a stack trace to stderr — the probe catches it, and the test log
+    // shows it even while passing.
+    os.remove.all(path)
+    assertEquals(Worktrees.headBranch(path), None)
+    assert(!Worktrees.onABranch(path), "unknown must not read as on a branch")
+
   test("mainCheckout never answers the git dir, even from a linked worktree"):
-    val root = TempDirs.dir()
-    val checkout = root / "checkout"
-    os.makeDir.all(checkout)
-    git(
-      checkout,
-      "init",
-      "-q",
-      "-b",
-      "main",
-      s"--separate-git-dir=${root / "gitdir"}"
-    ).discard
-    git(checkout, "config", "user.email", "t@e.com").discard
-    git(checkout, "config", "user.name", "T").discard
-    os.write(checkout / "seed.txt", "seed")
-    git(checkout, "add", "-A").discard
-    git(checkout, "commit", "-q", "-m", "seed").discard
-    val worktree = root / "wt"
+    val checkout = GitRepo.seededSeparateGitDir()
+    val worktree = checkout / os.up / "wt"
     assertEquals(Worktrees.add(checkout, worktree), Right(()))
     // git names the git dir as the main worktree here, so there is no checkout
     // to answer with: refusing beats writing a worktree inside `.git`.
