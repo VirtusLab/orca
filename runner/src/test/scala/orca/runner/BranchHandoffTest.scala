@@ -4,8 +4,9 @@ import orca.{RunTarget, Uncommitted}
 import orca.tools.PrHandle
 
 /** Tests for the rule that decides where a successful run leaves HEAD. The
-  * product is small enough to state whole: three targets × opened/no PR, plus
-  * the worktree override.
+  * `CurrentBranch`/`Worktree` arm never reads `openedPr`, so those targets are
+  * stated once, with a PR — the case that would be `ReturnToStart` if the arm
+  * did read it.
   */
 class BranchHandoffTest extends munit.FunSuite:
 
@@ -36,20 +37,8 @@ class BranchHandoffTest extends munit.FunSuite:
       BranchHandoff.StayPut
     )
 
-  test("a skip-branch run without a PR stays put"):
-    assertEquals(
-      BranchHandoff.of(currentBranch, None, None),
-      BranchHandoff.StayPut
-    )
-
   test("a worktree run stays put even with a PR"):
     assertEquals(
       BranchHandoff.of(RunTarget.Worktree, Some(os.pwd), pr),
-      BranchHandoff.StayPut
-    )
-
-  test("a worktree run without a PR stays put"):
-    assertEquals(
-      BranchHandoff.of(RunTarget.Worktree, Some(os.pwd), None),
       BranchHandoff.StayPut
     )

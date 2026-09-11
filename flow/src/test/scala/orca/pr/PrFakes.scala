@@ -17,8 +17,16 @@ import orca.agents.{
   SessionId,
   ToolSet
 }
-import orca.tools.{GitHubAvailability, GitHubTool, GitTool, OsGitTool, PrHandle}
-import orca.progress.{BranchMode, ProgressHeader, ProgressStore}
+import orca.tools.{
+  GitHubAvailability,
+  GitHubTool,
+  GitTool,
+  OsGitTool,
+  PrCreateFailed,
+  PrHandle,
+  PushFailure
+}
+import orca.progress.{BranchMode, CommitHash, ProgressHeader, ProgressStore}
 import orca.testkit.{GitRepo, PushlessGit, StubGitHubTool}
 import orca.events.{EventDispatcher, OrcaListener}
 
@@ -38,8 +46,10 @@ private[pr] val samplePr: PrHandle =
 private[pr] class RecordingGit(
     underlying: GitTool,
     calls: ConcurrentLinkedQueue[String],
-    branchDiff: String
-) extends PushlessGit(underlying, branchDiff):
+    branchDiff: String,
+    pushAnswer: => Either[PushFailure, Unit],
+    base: => String
+) extends PushlessGit(underlying, branchDiff, pushAnswer, base):
   override def push()(using WorkspaceWrite) =
     calls.add("push"): Unit
     super.push()
@@ -51,14 +61,15 @@ private[pr] class RecordingGit(
   */
 private[pr] class RecordingGh(
     calls: ConcurrentLinkedQueue[String],
-    availabilityAnswer: => GitHubAvailability
+    availabilityAnswer: => GitHubAvailability,
+    createPrAnswer: => Either[PrCreateFailed, PrHandle] = Right(samplePr)
 ) extends StubGitHubTool:
   override def availability(): GitHubAvailability =
     calls.add("availability"): Unit
     availabilityAnswer
   override def createPr(title: String, body: String)(using WorkspaceWrite) =
     calls.add("createPr"): Unit
-    Right(samplePr)
+    createPrAnswer
 
 /** Records the prompt it was sent and returns a fixed [[PrSummary]]. */
 private[pr] class StubSummariser extends Agent[BackendTag.ClaudeCode.type]:
@@ -95,22 +106,46 @@ private[pr] class PrTestControl(
     dispatcher: EventDispatcher,
     recordingGit: GitTool,
     recordingGh: GitHubTool,
-    store: ProgressStore
-) extends TestFlowControl(dispatcher, recordingGit, store, "p"):
+    store: ProgressStore,
+    runStartedAt: Option[CommitHash]
+) extends TestFlowControl(
+      dispatcher,
+      recordingGit,
+      store,
+      "p",
+      startingCommit = runStartedAt
+    ):
   override lazy val gh: GitHubTool = recordingGh
 
-/** A seeded repo with a run header written, ready for the PR helpers to stage
-  * into. Repo and store are returned together so a second control can be built
-  * over the same pair, which is how a resumed run is exercised.
+/** A seeded repo on the `feat/test` branch the header names, with a run header
+  * written, ready for the PR helpers to stage into. Repo and store are returned
+  * together so a second control can be built over the same pair, which is how a
+  * resumed run is exercised.
+  *
+  * `withCode` decides whether the branch carries anything but orca's own files
+  * — what the PR helpers check before opening a PR for the run.
   */
-private[pr] def seededPrRepo(): (os.Path, ProgressStore) =
+private[pr] def seededPrRepo(
+    withCode: Boolean = true
+): (os.Path, ProgressStore) =
   val dir = GitRepo.seeded()
+  val _ = os.proc("git", "checkout", "-b", "feat/test").call(cwd = dir)
+  if withCode then
+    os.write(dir / "code.txt", "real code")
+    val _ = os.proc("git", "add", "code.txt").call(cwd = dir)
+    val _ = os.proc("git", "commit", "-m", "work").call(cwd = dir)
   val store = ProgressStore.default(dir, "p")
   given WorkspaceWrite = WorkspaceWrite.unsafe
   store.writeHeader(
     ProgressHeader("main", "feat/test", "deadbeef", BranchMode.Created)
   )
   (dir, store)
+
+/** The branch the run's header says it started on, which the PR helpers measure
+  * "did this run change code" against.
+  */
+private[pr] def startBranchOf(store: ProgressStore): String =
+  store.load().map(_.header.startingBranch).getOrElse("main")
 
 /** A control over `dir`/`store` whose `git`/`gh` record into `calls` and whose
   * events reach `listener`. `availability` is only reached by a helper that
@@ -122,11 +157,23 @@ private[pr] def prControl(
     listener: OrcaListener,
     calls: ConcurrentLinkedQueue[String],
     branchDiff: String = "stub-diff",
-    availability: => GitHubAvailability = nyi("availability")
+    availability: => GitHubAvailability = nyi("availability"),
+    createPr: => Either[PrCreateFailed, PrHandle] = Right(samplePr),
+    push: => Either[PushFailure, Unit] = Right(()),
+    base: => String = "main"
 ): FlowControl =
   new PrTestControl(
     new EventDispatcher(List(listener)),
-    new RecordingGit(new OsGitTool(dir), calls, branchDiff),
-    new RecordingGh(calls, availability),
-    store
+    new RecordingGit(new OsGitTool(dir), calls, branchDiff, push, base),
+    new RecordingGh(calls, availability, createPr),
+    store,
+    // Where the run started, as the runtime records it: the tip of the branch
+    // the header names.
+    CommitHash.from(
+      os.proc("git", "rev-parse", startBranchOf(store))
+        .call(cwd = dir)
+        .out
+        .text()
+        .trim
+    )
   )

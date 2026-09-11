@@ -133,8 +133,8 @@ class OsGitHubToolTest extends munit.FunSuite:
     )
 
   test("availability reports NoHost for a remote with no host at all"):
-    // A clone from a local path — what the `orca create` sandbox makes. The
-    // remote itself is the answer, and gh is never asked about it.
+    // A clone from a local path. The remote itself is the answer, and gh is
+    // never asked about it.
     val cli = new SequencedCliRunner(
       List(CliResult(0, "/srv/repos/widgets.git\n", ""))
     )
@@ -216,13 +216,31 @@ class OsGitHubToolTest extends munit.FunSuite:
       case other => fail(s"expected Unreachable, got: $other")
     assert(reason.contains("gh repo view"), reason)
 
-  test("availability reports Unreachable when gh cannot be run at all"):
-    val cli = new ThrowingCliRunner(
-      failWhen = _.headOption.contains("gh"),
-      otherwise = CliResult(0, "https://github.com/acme/widgets.git\n", "")
+  test("availability reports Unreachable when gh repo view names an http URL"):
+    // `PrHandle.fromUrl` parses https only, so a host promised as Available
+    // here would break `createPr` after the PR was already opened.
+    val cli = new SequencedCliRunner(
+      List(
+        CliResult(0, "https://ghe.example.com/acme/widgets.git\n", ""),
+        CliResult(0, "Logged in to ghe.example.com", ""),
+        CliResult(0, """{"url":"http://ghe.example.com/acme/widgets"}""", "")
+      )
     )
     val reason = new OsGitHubTool(cli).availability() match
-      case GitHubAvailability.Unreachable("github.com", reason) => reason
+      case GitHubAvailability.Unreachable("ghe.example.com", reason) => reason
+      case other => fail(s"expected Unreachable, got: $other")
+    assert(reason.contains("https://<host>/<owner>/<repo>"), reason)
+
+  test("availability reports Unreachable off github.com when gh cannot be run"):
+    // A gh that will not start says nothing about the host, so it must not be
+    // read as "this host is not GitHub" — the next action is installing gh.
+    // The arm does not look at the host, so this stands for github.com too.
+    val cli = new ThrowingCliRunner(
+      failWhen = _.headOption.contains("gh"),
+      otherwise = CliResult(0, "git@ghe.example.com:acme/widgets.git\n", "")
+    )
+    val reason = new OsGitHubTool(cli).availability() match
+      case GitHubAvailability.Unreachable("ghe.example.com", reason) => reason
       case other => fail(s"expected Unreachable, got: $other")
     assert(reason.contains("could not run gh"), reason)
     assert(reason.contains("cli.github.com"), reason)
@@ -394,6 +412,18 @@ class OsGitHubToolTest extends munit.FunSuite:
     val _ = gh.readIssue(IssueHandle("acme", "widgets", 7))
     val args = cli.lastCall.getOrElse(fail("expected a call")).args
     assert(!args.contains("--hostname"), args)
+
+  test("a gh api read on a PR handle targets the PR's host"):
+    // The read legs pass the host at their own call sites, so they are pinned
+    // separately from the mutating ones below.
+    val (cli, gh) = stubGh(CliResult(0, "[]", ""))
+    val _ =
+      gh.readPrComments(PrHandle("ghe.example.com", "acme", "widgets", 42))
+    val args = cli.lastCall.getOrElse(fail("expected a call")).args
+    assert(
+      args.containsSlice(Seq("api", "--hostname", "ghe.example.com")),
+      args
+    )
 
   test("a gh api call on a PR handle targets the PR's host"):
     val (cli, gh) = stubGh(CliResult(0, "", ""))

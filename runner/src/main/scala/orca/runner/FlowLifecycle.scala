@@ -32,7 +32,7 @@ import orca.progress.{
 }
 import orca.settings.{AgentSettings, SettingsFile, SettingsScope}
 import orca.subprocess.TtyProbe
-import orca.tools.{GitTool, UntrackedFiles}
+import orca.tools.{GitTool, PrHandle, UntrackedFiles}
 import org.slf4j.LoggerFactory
 import ox.either.orThrow
 
@@ -125,6 +125,7 @@ object FlowLifecycle:
       ctx.git,
       flowSetup,
       BranchHandoff.of(target, flowSetup.worktree, ctx.openedPr),
+      ctx.openedPr,
       ctx.emit
     )
 
@@ -1159,6 +1160,7 @@ object FlowLifecycle:
       git: GitTool,
       setup: FlowSetup,
       handoff: BranchHandoff,
+      openedPr: Option[PrHandle],
       emit: OrcaEvent => Unit
   ): Unit =
     // Teardown runs outside any user stage, so it mints its own
@@ -1197,7 +1199,7 @@ object FlowLifecycle:
         counted
       finally
         bestEffort("branch handoff"):
-          finishBranch(git, setup, handoff)
+          finishBranch(git, setup, handoff, openedPr)
     bestEffort("closing summary"):
       ClosingSummary
         .lines(git.currentBranch(), changes, setup.worktree)
@@ -1218,14 +1220,20 @@ object FlowLifecycle:
     * accepted: with `branchMode = Reused`, a [[BranchHandoff.ReturnToStart]]
     * can still `checkout` a tampered `startingBranch` — navigation only, never
     * destructive.
+    *
+    * A branch a PR was opened from is never deleted, however empty it looks
+    * against the start branch: the PR is open against what was pushed, and the
+    * user needs the branch to answer it.
     */
   private def finishBranch(
       git: GitTool,
       setup: FlowSetup,
-      handoff: BranchHandoff
+      handoff: BranchHandoff,
+      openedPr: Option[PrHandle]
   )(using WorkspaceWrite): Unit =
     val throwaway =
-      setup.branchMode == BranchMode.Created &&
+      openedPr.isEmpty &&
+        setup.branchMode == BranchMode.Created &&
         setup.featureBranch.value != setup.startBranch &&
         !git.branchHasChangesExcludingOrca(
           setup.startBranch,

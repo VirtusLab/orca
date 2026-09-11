@@ -1767,7 +1767,6 @@ class FlowLifecycleTest extends munit.FunSuite:
       prompt: String,
       store: ProgressStore,
       extraListeners: List[OrcaListener] = Nil,
-      target: RunTarget = RunTarget.NewBranch(Uncommitted.Stash),
       claude: ClaudeAgent = StubAgent.claude,
       gh: Option[GitHubTool] = None,
       git: Option[GitTool] = None
@@ -1779,7 +1778,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         animated = false
       )
       runFlow(
-        args = OrcaArgs(prompt, target = target),
+        args = OrcaArgs(prompt),
         stackSettings = Some(StackSettings.empty),
         wiring = FlowWiring(claude = Some(_ => claude), gh = gh, git = git),
         workDir = workDir,
@@ -3137,7 +3136,13 @@ class FlowLifecycleTest extends munit.FunSuite:
       startingCommit = None,
       worktree = None
     )
-    FlowLifecycle.teardownSuccess(git, setup, BranchHandoff.StayPut, _ => ())
+    FlowLifecycle.teardownSuccess(
+      git,
+      setup,
+      BranchHandoff.StayPut,
+      None,
+      _ => ()
+    )
     assert(
       branchNames(workDir).contains("reused-branch"),
       "the reused branch must survive teardown when orca did not create it"
@@ -3173,11 +3178,14 @@ class FlowLifecycleTest extends munit.FunSuite:
   test(
     "teardownSuccess with ReturnToStart checks out the start branch and keeps the feature branch"
   ):
+    // `ReturnToStart` only arises when a PR was opened, so the fixture states
+    // that pair rather than one the runtime cannot hand it.
     val (git, workDir, setup) = handoffFixture(withCode = true)
     FlowLifecycle.teardownSuccess(
       git,
       setup,
       BranchHandoff.ReturnToStart,
+      Some(handoffPr),
       _ => ()
     )
     assertEquals(git.currentBranch(), "main")
@@ -3185,18 +3193,44 @@ class FlowLifecycleTest extends munit.FunSuite:
 
   test("teardownSuccess with StayPut leaves HEAD on the feature branch"):
     val (git, _, setup) = handoffFixture(withCode = true)
-    FlowLifecycle.teardownSuccess(git, setup, BranchHandoff.StayPut, _ => ())
+    FlowLifecycle.teardownSuccess(
+      git,
+      setup,
+      BranchHandoff.StayPut,
+      None,
+      _ => ()
+    )
     assertEquals(git.currentBranch(), "feat/work")
 
-  test("teardownSuccess deletes a throwaway branch whatever the handoff says"):
-    // Nothing but orca bookkeeping landed on the branch, so it goes either way
-    // — the delete is not the handoff's decision. Under StayPut, landing on
-    // `main` can only be the delete's doing.
-    BranchHandoff.values.foreach: handoff =>
-      val (git, workDir, setup) = handoffFixture(withCode = false)
-      FlowLifecycle.teardownSuccess(git, setup, handoff, _ => ())
-      assertEquals(git.currentBranch(), "main", handoff.toString)
-      assertEquals(branchNames(workDir), Set("main"), handoff.toString)
+  test("teardownSuccess keeps an empty branch a PR was opened from"):
+    // The PR is open against what was pushed, so the branch has to stay even
+    // though it carries nothing but orca's log against the start branch.
+    val (git, workDir, setup) = handoffFixture(withCode = false)
+    FlowLifecycle.teardownSuccess(
+      git,
+      setup,
+      BranchHandoff.ReturnToStart,
+      Some(handoffPr),
+      _ => ()
+    )
+    assert(branchNames(workDir).contains("feat/work"), branchNames(workDir))
+    assertEquals(git.currentBranch(), "main")
+
+  test("teardownSuccess deletes a throwaway branch when no PR was opened"):
+    // Nothing but orca bookkeeping landed on the branch and there is no PR to
+    // answer, so it goes. `StayPut` is the only handoff this pairs with — a
+    // run that opened no PR — and landing on `main` can only be the delete's
+    // doing; the test above covers the other side.
+    val (git, workDir, setup) = handoffFixture(withCode = false)
+    FlowLifecycle.teardownSuccess(
+      git,
+      setup,
+      BranchHandoff.StayPut,
+      None,
+      _ => ()
+    )
+    assertEquals(git.currentBranch(), "main")
+    assertEquals(branchNames(workDir), Set("main"))
 
   private val TeardownPushBranch = "teardown-push-branch"
 
@@ -3271,7 +3305,13 @@ class FlowLifecycleTest extends munit.FunSuite:
     repo.commitLog()
     repo.git.push().orThrow
     FlowLifecycle
-      .teardownSuccess(repo.git, repo.setup, BranchHandoff.StayPut, _ => ())
+      .teardownSuccess(
+        repo.git,
+        repo.setup,
+        BranchHandoff.StayPut,
+        None,
+        _ => ()
+      )
     val files = remoteFiles(repo.remote)
     assert(!files.linesIterator.contains(repo.logRelPath.toString), files)
 
@@ -3280,7 +3320,13 @@ class FlowLifecycleTest extends munit.FunSuite:
     given WorkspaceWrite = WorkspaceWrite.unsafe
     repo.commitLog()
     FlowLifecycle
-      .teardownSuccess(repo.git, repo.setup, BranchHandoff.StayPut, _ => ())
+      .teardownSuccess(
+        repo.git,
+        repo.setup,
+        BranchHandoff.StayPut,
+        None,
+        _ => ()
+      )
     assertEquals(remoteRefs(repo.remote).trim, "")
 
   test("teardownSuccess pushes nothing when the upstream never got the log"):
@@ -3293,7 +3339,13 @@ class FlowLifecycleTest extends munit.FunSuite:
     val before = remoteTip(repo.remote)
     repo.commitLog()
     FlowLifecycle
-      .teardownSuccess(repo.git, repo.setup, BranchHandoff.StayPut, _ => ())
+      .teardownSuccess(
+        repo.git,
+        repo.setup,
+        BranchHandoff.StayPut,
+        None,
+        _ => ()
+      )
     assertEquals(remoteTip(repo.remote), before)
 
   /** The closing block's Step messages, in emission order, from a direct
@@ -3309,6 +3361,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       git,
       setup,
       handoff,
+      None,
       e => { val _ = emitted.updateAndGet(e :: _) }
     )
     emitted.get().reverse.collect { case s: OrcaEvent.Step => s.message }

@@ -35,21 +35,46 @@ def openPrFromBranch(
     context: Option[String] = None,
     instructions: String = PrPrompts.Summarise
 )(using FlowContext, FlowControl): PrHandle =
-  stage("Push branch"):
-    git.push().orThrow
-
-  val summary = stage("Generate PR title and description"):
-    summarisePr(
-      agent = summarisingAgent,
-      diff = git.diffVsBase(git.defaultBase()),
-      context = context,
-      instructions = instructions
-    )
-
-  val handle = stage("Open PR"):
-    gh.createPr(title = title(summary), body = body(summary)).orThrow
-
+  pushBranch()
+  val summary =
+    summarise(summarisingAgent, git.defaultBase(), context, instructions)
+  val handle = createPr(title(summary), body(summary))
   // Outside the stage on purpose: a resumed run replays the recorded handle
   // without running the body, and the lifecycle still has to learn about it.
   recordOpenedPr(handle)
   handle
+
+// The three stages, one per file-private helper, so [[openPrIfGitHub]] can run
+// the same sequence while treating the two remote-facing legs as best effort.
+
+/** Push the branch as its own stage: a stage commits only on completion, so
+  * pushing together with the summarise (or the preceding edits) would be
+  * fragile on resume.
+  */
+private[pr] def pushBranch()(using FlowContext, FlowControl): Unit =
+  stage("Push branch"):
+    git.push().orThrow
+
+/** Summarise the branch-vs-`base` diff. `base` is by-name so a resumed run,
+  * whose recorded summary replays without the body, does not resolve it.
+  */
+private[pr] def summarise(
+    summarisingAgent: Agent[?],
+    base: => String,
+    context: Option[String],
+    instructions: String
+)(using FlowContext, FlowControl): PrSummary =
+  stage("Generate PR title and description"):
+    summarisePr(
+      agent = summarisingAgent,
+      diff = git.diffVsBase(base),
+      context = context,
+      instructions = instructions
+    )
+
+private[pr] def createPr(title: String, body: String)(using
+    FlowContext,
+    FlowControl
+): PrHandle =
+  stage("Open PR"):
+    gh.createPr(title = title, body = body).orThrow

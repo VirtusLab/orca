@@ -2,7 +2,7 @@ package orca.pr
 
 import munit.FunSuite
 import orca.{BoundedDiff, FlowControl}
-import orca.tools.PrHandle
+import orca.tools.{BranchNotPushed, PrCreateFailed, PrHandle}
 import orca.events.{OrcaEvent, OrcaListener}
 
 import scala.jdk.CollectionConverters.*
@@ -57,6 +57,24 @@ class OpenPrFromBranchTest extends FunSuite:
     assertEquals(
       r.stages,
       List("Push branch", "Generate PR title and description", "Open PR")
+    )
+
+  test("openPrFromBranch throws when the PR cannot be opened"):
+    // The contract its best-effort sibling deliberately does not share: the
+    // issue flows exist to open a PR, so a refusal must fail the run.
+    val (dir, store) = seededPrRepo()
+    val control = prControl(
+      dir,
+      store,
+      _ => (),
+      new ConcurrentLinkedQueue[String](),
+      createPr = Left(new BranchNotPushed)
+    )
+    val _ = intercept[PrCreateFailed](
+      openPrFromBranch(summarisingAgent = new StubSummariser())(using
+        control,
+        control
+      )
     )
 
   test("openPrFromBranch reports the handle to the lifecycle"):

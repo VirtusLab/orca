@@ -29,9 +29,10 @@ private[runner] object BranchHandoff:
     * `worktree` is checked independently of `target`, because a shell resume
     * relaunched without `--worktree` still runs inside one.
     *
-    * The throwaway-branch delete is not this decision: a feature branch holding
-    * nothing but orca's bookkeeping is deleted (and HEAD moved back) whatever
-    * the handoff says.
+    * The throwaway-branch delete is a separate decision, but it reads the same
+    * PR: a feature branch holding nothing but orca's bookkeeping is deleted
+    * (and HEAD moved back) when the run opened none, whatever the handoff says.
+    * See `FlowLifecycle.finishBranch`.
     */
   def of(
       target: RunTarget,

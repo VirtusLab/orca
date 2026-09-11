@@ -7,11 +7,8 @@ import orca.tools.PrHandle
   * [[orca.runner.DefaultFlowContext]] and the test doubles), so a test double
   * cannot drift from production semantics.
   *
-  * The lifecycle will read it at teardown to decide where to leave the
-  * checkout: a new-branch run that opened a PR has somewhere to send the user,
-  * so it returns to the branch it started from. A worktree run and a
-  * `--skip-branch` run never change what is checked out, whether or not a PR
-  * was opened.
+  * Read at teardown to decide where the run leaves the checkout —
+  * `orca.runner.BranchHandoff` owns that rule.
   *
   * Recorded rather than inferred, because a flow can open its PR through
   * [[orca.pr.openPrFromBranch]], through [[orca.pr.openPrIfGitHub]], or with a
