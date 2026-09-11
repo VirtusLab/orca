@@ -212,8 +212,8 @@ enum GitHubAvailability:
     */
   case NotGitHub(host: String)
 
-  /** `origin` has no host to ask about at all: a clone from a local path, as
-    * the `orca create` sandbox makes. `remote` is the whole remote URL.
+  /** `origin` has no host to ask gh about at all — a local path or a bare
+    * repository (`/srv/repos/widgets.git`). `remote` is the whole remote URL.
     */
   case NoHost(remote: String)
 

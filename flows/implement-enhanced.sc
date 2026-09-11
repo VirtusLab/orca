@@ -17,18 +17,19 @@
   *   1. Updates the project's docs (README, doc-comments) from what the tasks
   *      changed, as its own stage and commit — so the docs land in the PR.
   *   1. Reviews everything the run changed, docs included.
-  *   1. Pushes the feature branch.
-  *   1. Opens a PR with a cheap-model-generated title + description from the
-  *      full branch diff, when the repository is on a GitHub `gh` can reach. A
-  *      human picks the PR up from there. Off GitHub the run says so in one
-  *      line and still finishes, leaving the work on the branch.
+  *   1. When the repository is on GitHub: pushes the feature branch, opens a PR
+  *      with a cheap-model-generated title + description from the full branch
+  *      diff — a human picks it up from there — and hands the checkout back on
+  *      the branch the run started from. Otherwise nothing is pushed: the run
+  *      says so in one line and ends on the feature branch, with the work
+  *      committed either way.
   *
   * ```bash
   * scala-cli run implement-enhanced.sc -- "Add a multiply function to the calculator crate"
   * ```
   *
-  * Requires the configured role agents logged in (`claude` by default); `gh`
-  * authenticated only for the PR.
+  * Requires the configured role agents logged in (`claude` by default); `gh` is
+  * optional.
   */
 
 import orca.{*, given}
@@ -75,4 +76,4 @@ flow(OrcaArgs(args)):
       priorDeclines = IgnoredIssues(taskDeclines.flatMap(_.issues))
     )
 
-  val _ = openPrIfGitHub(summarisingAgent = codingAgent.cheap)
+  openPrIfGitHub(summarisingAgent = codingAgent.cheap)

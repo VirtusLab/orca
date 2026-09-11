@@ -137,6 +137,10 @@ flow(OrcaArgs(args)):
       diff = ReviewDiff.WholeRun,
       maxIterations = 3
     )
+
+  // Best effort: opens a PR when the checkout is on a GitHub `gh` can reach,
+  // and says why in one line when it isn't.
+  openPrIfGitHub(summarisingAgent = codingAgent.cheap)
 ```
 
 ```bash
@@ -145,8 +149,10 @@ scala-cli run implement.sc -- "Add a rate-limiter to the /login endpoint"
 
 Each flow starts by creating a feature branch, named by a short
 cheap-model-generated label derived from the prompt (slugged; pass `branchNaming
-= ...` to override). This flow opens no PR, so on success you're left on the
-feature branch, ready to test or open a PR by hand — see [The flow
+= ...` to override). On success the flow opens a PR when the repository is on a
+GitHub `gh` can reach, and hands you back the branch you started on — the work
+is on the PR. Otherwise it says so in one line and leaves you on the feature
+branch, ready to test or open a PR by hand — see [The flow
 lifecycle](#the-flow-lifecycle) for the full success/failure/resume behavior.
 
 If the flow is interrupted — user intervention or an intermittent error — just
@@ -784,6 +790,9 @@ PR utilities, available via `import orca.pr.*`:
 | Method | Use |
 |---|---|
 | `summarisePr(agent, diff, context?, instructions?)` | Fold a branch diff into a `PrSummary(title, body)` for `gh.createPr`. `context` is an optional preamble (originating issue link, user prompt, etc.) the model anchors the description to. A diff too large to send is cut short. Use a cheap model (`claude.cheap`, `codingAgent.cheap`). |
+| `openPrFromBranch(summarisingAgent, title?, body?, context?, instructions?): PrHandle` | Push the feature branch and open a PR for it, as three stages: push → summarise → create. Requires a GitHub remote and a logged-in `gh` — without either the run fails. `title`/`body` rewrite the generated text (`body = s => s"${s.body}\n\nCloses #42."`). |
+| `openPrIfGitHub(summarisingAgent, title?, body?, context?, instructions?): Option[PrHandle]` | `openPrFromBranch` where a PR can be opened, and one reported line where it can't: no remote, a remote that isn't GitHub, or a GitHub `gh` cannot reach. Returns `None` then, and the run finishes. The step every code-producing built-in flow ends with. |
+| `recordOpenedPr(pr)` | Tell the lifecycle a PR was opened, so the run hands the checkout back on the branch it started from. Only for a flow that opens its PR with a bare `gh.createPr` — the two helpers above record it themselves. |
 
 ### Customising prompts
 
