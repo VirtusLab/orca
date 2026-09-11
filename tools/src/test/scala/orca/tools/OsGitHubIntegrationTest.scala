@@ -33,6 +33,6 @@ class OsGitHubIntegrationTest extends munit.FunSuite:
     // GitHub's /issues/{n}/comments endpoint is shared between issues and PRs;
     // Hello-World #1 is stable public data.
     val gh = new OsGitHubTool(OsProcCliRunner)
-    val handle = PrHandle("octocat", "Hello-World", 1)
+    val handle = PrHandle("github.com", "octocat", "Hello-World", 1)
     val comments = gh.readPrComments(handle)
     assert(comments.forall(_.author.nonEmpty))

@@ -65,7 +65,7 @@ class OsGitHubToolTest extends munit.FunSuite:
     ): PipedCliProcess =
       throw new UnsupportedOperationException("not supported in this stub")
 
-  private val samplePr = PrHandle("acme", "widgets", 42)
+  private val samplePr = PrHandle("github.com", "acme", "widgets", 42)
 
   /** Responses for a `createPr` call: the leading `git rev-parse` resolving the
     * head branch (`feat`), then the given `gh pr create` result, then any
@@ -102,6 +102,16 @@ class OsGitHubToolTest extends munit.FunSuite:
     )
     val gh = new OsGitHubTool(cli)
     assertEquals(gh.createPr("feat: hi", "hello").orThrow, samplePr)
+
+  test("createPr keeps the host of a GitHub Enterprise PR URL"):
+    val cli = createPrRunner(
+      CliResult(0, "https://ghe.example.com/acme/widgets/pull/42\n", "")
+    )
+    val gh = new OsGitHubTool(cli)
+    assertEquals(
+      gh.createPr("feat: hi", "hello").orThrow,
+      PrHandle("ghe.example.com", "acme", "widgets", 42)
+    )
 
   test("createPr emits a Step event with the opened PR URL"):
     val listener = new CapturingListener
@@ -221,10 +231,34 @@ class OsGitHubToolTest extends munit.FunSuite:
     val (cli, gh) = stubGh(CliResult(0, "", ""))
     gh.updatePr(samplePr, "Fix overflow", "full description")
     val args = cli.lastCall.getOrElse(fail("expected a call")).args
-    assert(args.containsSlice(Seq("gh", "api", "-X", "PATCH")))
+    assertEquals(args.take(2), List("gh", "api"))
+    assert(args.containsSlice(Seq("-X", "PATCH")))
     assert(args.contains("repos/acme/widgets/pulls/42"))
     assert(args.containsSlice(Seq("-f", "title=Fix overflow")))
     assert(args.containsSlice(Seq("-f", "body=full description")))
+
+  test("a gh api call on an issue names no host, leaving that to gh"):
+    // An issue ref carries no host, so gh must resolve it (GH_HOST, else the
+    // authenticated host) rather than orca pinning it to github.com.
+    val json =
+      """{"title":"t","body":"b","user":{"login":"a"},"state":"open"}"""
+    val (cli, gh) = stubGh(CliResult(0, json, ""))
+    val _ = gh.readIssue(IssueHandle("acme", "widgets", 7))
+    val args = cli.lastCall.getOrElse(fail("expected a call")).args
+    assert(!args.contains("--hostname"), args)
+
+  test("a gh api call on a PR handle targets the PR's host"):
+    val (cli, gh) = stubGh(CliResult(0, "", ""))
+    gh.updatePr(
+      PrHandle("ghe.example.com", "acme", "widgets", 42),
+      "Fix overflow",
+      "full description"
+    )
+    val args = cli.lastCall.getOrElse(fail("expected a call")).args
+    assert(
+      args.containsSlice(Seq("api", "--hostname", "ghe.example.com")),
+      args
+    )
 
   test("writeComment invokes gh pr comment with the body"):
     val (cli, gh) = stubGh(CliResult(0, "", ""))
@@ -232,6 +266,18 @@ class OsGitHubToolTest extends munit.FunSuite:
     val args = cli.lastCall.getOrElse(fail("expected a call")).args
     assert(args.containsSlice(Seq("gh", "pr", "comment", "42")))
     assert(args.containsSlice(Seq("--body", "nit: whitespace")))
+
+  test("a --repo call on a PR handle names the host as HOST/OWNER/REPO"):
+    val (cli, gh) = stubGh(CliResult(0, "", ""))
+    gh.writeComment(
+      PrHandle("ghe.example.com", "acme", "widgets", 42),
+      "nit: whitespace"
+    )
+    val args = cli.lastCall.getOrElse(fail("expected a call")).args
+    assert(
+      args.containsSlice(Seq("--repo", "ghe.example.com/acme/widgets")),
+      args
+    )
 
   test(
     "writeComment(IssueHandle, body) invokes gh issue comment with the body"
@@ -532,6 +578,19 @@ class OsGitHubToolTest extends munit.FunSuite:
         case _                   => false
     )
 
+  test("createPr keeps the host when reusing an existing GitHub Enterprise PR"):
+    val prListJson =
+      """[{"number":42,"url":"https://ghe.example.com/acme/widgets/pull/42"}]"""
+    val cli = createPrRunner(
+      CliResult(1, "", "a pull request for branch 'feat' already exists"),
+      CliResult(0, prListJson, "")
+    )
+    val gh = new OsGitHubTool(cli, readRetry = Schedule.immediate)
+    assertEquals(
+      gh.createPr("feat: hi", "hello").orThrow,
+      PrHandle("ghe.example.com", "acme", "widgets", 42)
+    )
+
   test("the --head rev-parse carries OsGitTool.nonInteractiveEnv"):
     // The git rev-parse resolving --head must carry the same non-interactive
     // env as every other git invocation — otherwise a stalled
@@ -592,7 +651,8 @@ class OsGitHubToolTest extends munit.FunSuite:
       "no comment-create call must be made on the PATCH path"
     )
     val patchCall = cli.calls.last
-    assert(patchCall.args.containsSlice(Seq("gh", "api", "-X", "PATCH")))
+    assertEquals(patchCall.args.take(2), List("gh", "api"))
+    assert(patchCall.args.containsSlice(Seq("-X", "PATCH")))
     // The path must include the comment id 99
     assert(patchCall.args.exists(_.contains("/comments/99")))
     // The body must include both the new text and the marker

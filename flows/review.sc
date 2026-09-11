@@ -101,7 +101,8 @@ flow(OrcaArgs(args)):
     stage("Post report on the PR"):
       val issue = IssueHandle.parseOrThrow(ref)
       gh.upsertComment(
-        PrHandle(issue.owner, issue.repo, issue.number),
+        // A PR ref parsed as an issue carries no host, so github.com it is.
+        PrHandle("github.com", issue.owner, issue.repo, issue.number),
         orcaCommentMarker(userPrompt, "review"),
         report
       )

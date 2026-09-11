@@ -63,7 +63,7 @@ class OpenPrFromBranchTest extends FunSuite:
       extends GitHubTool:
     def createPr(title: String, body: String)(using WorkspaceWrite) =
       calls.add("createPr"): Unit
-      Right(PrHandle("acme", "widgets", 1))
+      Right(PrHandle("github.com", "acme", "widgets", 1))
     def updatePr(pr: PrHandle, title: String, body: String)(using
         WorkspaceWrite
     ) =
@@ -176,7 +176,7 @@ class OpenPrFromBranchTest extends FunSuite:
 
   test("openPrFromBranch runs push, summarise, create as three ordered stages"):
     val r = run("stub-diff")
-    assertEquals(r.handle, PrHandle("acme", "widgets", 1))
+    assertEquals(r.handle, PrHandle("github.com", "acme", "widgets", 1))
     // Push before PR: the resume-critical stage split.
     assertEquals(r.calls, List("push", "createPr"))
     assertEquals(

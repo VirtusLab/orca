@@ -11,15 +11,39 @@ import ox.scheduling.Schedule
 
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
 
-/** A handle to an open pull request. `derives JsonData` so a `stage` can record
+/** A handle to an open pull request. `host` is the GitHub host the PR lives on
+  * — `github.com` or a GitHub Enterprise hostname — and every gh call taking
+  * this handle is routed back to it. `derives JsonData` so a `stage` can record
   * and replay a `PrHandle` result (ADR 0018 §3.2).
   */
-case class PrHandle(owner: String, repo: String, number: Int) derives JsonData:
+case class PrHandle(host: String, owner: String, repo: String, number: Int)
+    derives JsonData:
   /** Canonical GitHub short-form `<owner>/<repo>#<number>`. */
   def shortRef: String = s"$owner/$repo#$number"
 
   /** Browser URL for the PR. */
-  def url: String = s"https://github.com/$owner/$repo/pull/$number"
+  def url: String = s"https://$host/$owner/$repo/pull/$number"
+
+object PrHandle:
+  // The host is spliced into `gh` arguments and back into `url`, so it is
+  // restricted to a hostname charset with an optional port: userinfo (`@`),
+  // `?` and `#` must not survive parsing, or `url` would render a link
+  // pointing somewhere other than where it reads. Same rationale as
+  // `IssueHandle.Owner` below. Only `https` is accepted, since `url` renders
+  // `https` back.
+  private val UrlPattern =
+    """https://([A-Za-z0-9.-]+(?::\d+)?)/([^/]+)/([^/]+)/pull/(\d+)""".r
+
+  /** The first PR browser URL in `s` as a handle — the inverse of `url`, kept
+    * next to it so the two halves of the format stay in step. The host is
+    * captured, so a PR URL on a GitHub Enterprise instance parses into a handle
+    * that keeps talking to that instance.
+    */
+  def fromUrl(s: String): Option[PrHandle] =
+    UrlPattern
+      .findFirstMatchIn(s)
+      .map: m =>
+        PrHandle(m.group(1), m.group(2), m.group(3), m.group(4).toInt)
 
 case class IssueHandle(owner: String, repo: String, number: Int):
   /** Canonical GitHub short-form `<owner>/<repo>#<number>`. */
@@ -284,9 +308,6 @@ private[orca] class OsGitHubTool(
       )
     )
 
-  private val PrUrlPattern =
-    """https://github\.com/([^/]+)/([^/]+)/pull/(\d+)""".r
-
   def createPr(title: String, body: String)(using
       WorkspaceWrite
   ): Either[PrCreateFailed, PrHandle] =
@@ -312,9 +333,8 @@ private[orca] class OsGitHubTool(
     )
     if result.exitCode == 0 then
       val output = result.stdout.trim
-      PrUrlPattern.findFirstMatchIn(output) match
-        case Some(m) =>
-          val pr = PrHandle(m.group(1), m.group(2), m.group(3).toInt)
+      PrHandle.fromUrl(output) match
+        case Some(pr) =>
           events.onEvent(OrcaEvent.Step(s"Opened PR: ${pr.url}"))
           Right(pr)
         case None =>
@@ -372,15 +392,16 @@ private[orca] class OsGitHubTool(
       "--json",
       "number,url"
     )
-    readFromString[List[GhPrListJson]](output).headOption.flatMap: entry =>
-      PrUrlPattern
-        .findFirstMatchIn(entry.url)
-        .map: m =>
-          PrHandle(m.group(1), m.group(2), m.group(3).toInt)
+    readFromString[List[GhPrListJson]](output).headOption
+      .flatMap(entry => PrHandle.fromUrl(entry.url))
+
+  /** gh's fully qualified `HOST/OWNER/REPO` `--repo` form. */
+  private def repoRef(pr: PrHandle): String =
+    s"${pr.host}/${pr.owner}/${pr.repo}"
 
   def readIssue(issue: IssueHandle): Issue =
-    val output = ghRead(
-      "api",
+    val output = ghReadApi(
+      NoHost,
       s"repos/${issue.owner}/${issue.repo}/issues/${issue.number}"
     )
     val parsed = readFromString[GhIssueJson](output)
@@ -392,21 +413,22 @@ private[orca] class OsGitHubTool(
     )
 
   def readIssueComments(issue: IssueHandle): List[Comment] =
-    readCommentsAt(issue.owner, issue.repo, issue.number)
+    readCommentsAt(NoHost, issue.owner, issue.repo, issue.number)
 
   def readPrComments(pr: PrHandle): List[Comment] =
     // The `/issues/{n}/comments` endpoint returns conversation comments for
     // both issues and PRs. Line-level review comments live at
     // `/pulls/{n}/comments` and aren't covered here.
-    readCommentsAt(pr.owner, pr.repo, pr.number)
+    readCommentsAt(Some(pr.host), pr.owner, pr.repo, pr.number)
 
   private def readCommentsAt(
+      host: Option[String],
       owner: String,
       repo: String,
       number: Int
   ): List[Comment] =
-    val output = ghRead(
-      "api",
+    val output = ghReadApi(
+      host,
       "--paginate",
       s"repos/$owner/$repo/issues/$number/comments"
     )
@@ -420,8 +442,8 @@ private[orca] class OsGitHubTool(
     // GraphQL query selecting `projectCards`, which fails on repos where GitHub
     // has sunset Projects (classic). The REST PATCH endpoint doesn't touch
     // projects.
-    val _ = ghMutate(
-      "api",
+    val _ = ghMutateApi(
+      Some(pr.host),
       "-X",
       "PATCH",
       s"repos/${pr.owner}/${pr.repo}/pulls/${pr.number}",
@@ -438,7 +460,7 @@ private[orca] class OsGitHubTool(
       "comment",
       pr.number.toString,
       "--repo",
-      s"${pr.owner}/${pr.repo}",
+      repoRef(pr),
       "--body",
       body
     )
@@ -459,13 +481,20 @@ private[orca] class OsGitHubTool(
   def upsertComment(pr: PrHandle, marker: String, body: String)(using
       WorkspaceWrite
   ): Unit =
-    upsertCommentAt(pr.owner, pr.repo, pr.number, marker, body):
+    upsertCommentAt(Some(pr.host), pr.owner, pr.repo, pr.number, marker, body):
       writeComment(pr, _)
 
   def upsertComment(issue: IssueHandle, marker: String, body: String)(using
       WorkspaceWrite
   ): Unit =
-    upsertCommentAt(issue.owner, issue.repo, issue.number, marker, body):
+    upsertCommentAt(
+      NoHost,
+      issue.owner,
+      issue.repo,
+      issue.number,
+      marker,
+      body
+    ):
       writeComment(issue, _)
 
   /** Shared upsert logic for both PR and issue targets. PATCHes the first
@@ -473,6 +502,7 @@ private[orca] class OsGitHubTool(
     * is `<body>\n\n<marker>` so future re-runs can locate the same comment.
     */
   private def upsertCommentAt(
+      host: Option[String],
       owner: String,
       repo: String,
       number: Int,
@@ -480,11 +510,11 @@ private[orca] class OsGitHubTool(
       body: String
   )(createFn: String => Unit): Unit =
     val markedBody = s"$body\n\n$marker"
-    fetchIdentifiedComments(owner, repo, number).find(
+    fetchIdentifiedComments(host, owner, repo, number).find(
       _.body.contains(marker)
     ) match
       case Some(existing) =>
-        patchComment(owner, repo, existing.id, markedBody)
+        patchComment(host, owner, repo, existing.id, markedBody)
       case None =>
         createFn(markedBody)
 
@@ -492,12 +522,13 @@ private[orca] class OsGitHubTool(
     * [[upsertCommentAt]]. The ids never leak into the public API.
     */
   private def fetchIdentifiedComments(
+      host: Option[String],
       owner: String,
       repo: String,
       number: Int
   ): List[GhIdentifiedCommentJson] =
-    val output = ghRead(
-      "api",
+    val output = ghReadApi(
+      host,
       "--paginate",
       s"repos/$owner/$repo/issues/$number/comments"
     )
@@ -505,13 +536,14 @@ private[orca] class OsGitHubTool(
 
   /** PATCH an existing issue/PR comment body via the REST API. */
   private def patchComment(
+      host: Option[String],
       owner: String,
       repo: String,
       id: Long,
       body: String
   ): Unit =
-    val _ = ghMutate(
-      "api",
+    val _ = ghMutateApi(
+      host,
       "-X",
       "PATCH",
       s"repos/$owner/$repo/issues/comments/$id",
@@ -525,7 +557,7 @@ private[orca] class OsGitHubTool(
       "view",
       pr.number.toString,
       "--repo",
-      s"${pr.owner}/${pr.repo}",
+      repoRef(pr),
       "--json",
       "statusCheckRollup"
     )
@@ -613,7 +645,28 @@ private[orca] class OsGitHubTool(
     */
   private def ghMutate(args: String*): String = runGh(args*)
 
+  /** [[ghRead]] against a `gh api` endpoint on `host`. */
+  private def ghReadApi(host: Option[String], args: String*): String =
+    ghRead(apiArgs(host, args)*)
+
+  /** [[ghMutate]] against a `gh api` endpoint on `host`. */
+  private def ghMutateApi(host: Option[String], args: String*): String =
+    ghMutate(apiArgs(host, args)*)
+
+  /** Arguments for a `gh api` call. `None` leaves the host to gh's own
+    * resolution — `GH_HOST`, else the authenticated host — which is what an
+    * [[IssueHandle]] needs, carrying no host of its own.
+    */
+  private def apiArgs(host: Option[String], args: Seq[String]): Seq[String] =
+    "api" +: host.fold(args)(h => "--hostname" +: h +: args)
+
 private[orca] object OsGitHubTool:
+
+  /** Issue-side calls name no host: an [[IssueHandle]] carries none — the
+    * `<owner>/<repo>#<number>` form asserts no host at all — so gh resolves it
+    * the way it would on the command line, honouring `GH_HOST`.
+    */
+  private val NoHost: Option[String] = None
 
   /** Default retry for idempotent read-only `gh` calls: bounded exponential
     * backoff. Injectable on the constructor so tests can use a no-delay

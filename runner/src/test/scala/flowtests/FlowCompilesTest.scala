@@ -258,7 +258,7 @@ object FlowCanary:
           orcaCommentMarker(userPrompt, "reject"),
           "updated verdict"
         )
-        val pr = PrHandle("acme", "widgets", 7)
+        val pr = PrHandle("github.com", "acme", "widgets", 7)
         val _ = gh.readPrComments(pr)
         gh.writeComment(pr, "pr comment")
         gh.updatePr(pr, "new title", "new body")

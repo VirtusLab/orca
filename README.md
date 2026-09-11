@@ -862,9 +862,11 @@ results.
   so you cannot accidentally pass a Claude session to Codex.
 - **`orca.Title`** — opaque `String` alias for short labels (`Task.title`,
   `ReviewIssue.title`); `Title("…")` to construct, `.value` to read.
-- **`orca.tools.PrHandle(owner, repo, number)`** — handle to an open pull
-  request, returned by `gh.createPr`. `derives JsonData` so a stage can record
-  it: a push-and-open-PR stage is the checkpoint before a CI wait.
+- **`orca.tools.PrHandle(host, owner, repo, number)`** — handle to an open pull
+  request, returned by `gh.createPr`. `host` is `github.com` or a GitHub
+  Enterprise hostname, and every `gh` call taking the handle is routed to it.
+  `derives JsonData` so a stage can record it: a push-and-open-PR stage is the
+  checkpoint before a CI wait.
 - **`orca.pr.PrSummary(title, body)`** — what `summarisePr` returns. The two
   fields feed `gh.createPr(title = …, body = …)` directly.
 - **`orca.review.ReviewIssue` / `ReviewResult`** — what reviewer agents return.
