@@ -325,31 +325,36 @@ Each `flow(...)` run is bound to exactly one feature branch and one progress log
 
 - **Start:** stash a dirty working tree with a warning (recover with `git stash
   pop`); create + checkout the feature branch; write and commit the progress log
-  header. `--skip-branch` (`OrcaArgs.skipBranch`) binds the run to the CURRENT
+  header. The three flags below reach a flow as one `OrcaArgs.target`
+  (`RunTarget`), which has no case for a combination orca refuses.
+  `--skip-branch` (`RunTarget.CurrentBranch`) binds the run to the CURRENT
   branch instead of creating one — for continuing work already planned on a
   branch — refusing on a protected branch or detached HEAD. On a FRESH
   `--skip-branch` run a dirty tree is tolerated, not stashed: uncommitted or
   untracked files (e.g. plan files left by a planning harness) stay in place for
   the flow, and get swept into the first stage's commit. `--keep-changes`
-  (`OrcaArgs.keepChanges`) does the same on a FRESH run in either branch mode —
-  in normal mode the files survive branch creation and reach the new branch in
-  that first stage commit. With neither flag, a dirty tree on a fresh run is put
-  to the user: stash (the default), keep, or abort; with no terminal to ask, it
-  stashes. A run that already has a progress log — a resume, or one too broken
-  to read — always stashes and ignores `--keep-changes`, so an interrupted
-  stage's partial work can't leak into the stage that re-runs.
-  `--worktree` (`OrcaArgs.worktree`) runs the whole flow in
+  (`Uncommitted.Keep` on either branch case) does the same on a FRESH run in
+  either branch mode — in normal mode the files survive branch creation and
+  reach the new branch in that first stage commit. With neither flag, a dirty
+  tree on a fresh run is put to the user: stash (the default), keep, or abort;
+  with no terminal to ask, it stashes. A run that already has a progress log —
+  a resume, or one too broken to read — always stashes and ignores
+  `--keep-changes`, so an interrupted stage's partial work can't leak into the
+  stage that re-runs.
+  `--worktree` (`RunTarget.Worktree`) runs the whole flow in
   `.orca/worktrees/<hash>` of this repository — a second checkout, keyed on the
   same prompt hash as the progress log, created on the first run and reused by
   every later one for that task. It isolates the run: two tasks can run at once
   without sharing a checkout or a branch. Uncommitted work does NOT come along —
   a worktree is made from a commit — so `--worktree` is refused with
-  `--skip-branch` and with `--keep-changes`. The first run in a worktree pays a
-  cold build (no build outputs, no dependencies, none of the untracked local
-  config a project may need), an editor or indexer that ignores `.gitignore`
-  will see the second checkout, and orca never removes it. The run starts on an
-  `orca-worktree-<hash>` branch orca also never deletes, so full cleanup is `git
-  worktree remove .orca/worktrees/<hash>` **and** `git branch -d
+  `--skip-branch` and with `--keep-changes`: `RunTarget.Worktree` carries
+  neither a branch mode nor an `Uncommitted`, so the pair is refused while argv
+  is parsed and has no representation after that. The first run in a worktree
+  pays a cold build (no build outputs, no dependencies, none of the untracked
+  local config a project may need), an editor or indexer that ignores
+  `.gitignore` will see the second checkout, and orca never removes it. The run
+  starts on an `orca-worktree-<hash>` branch orca also never deletes, so full
+  cleanup is `git worktree remove .orca/worktrees/<hash>` **and** `git branch -d
   orca-worktree-<hash>`; a re-run of the task refuses rather than moving that
   branch if it has gained commits since.
   Sharp edge: kept files are unprotected until that first stage commit — a

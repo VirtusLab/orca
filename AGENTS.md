@@ -44,7 +44,8 @@ site rather than rewiring modules.
 The user-facing surface lives in `package orca` (the `flow` entry, the tool
 accessors — including `planningAgent`/`codingAgent`/`reviewAgent`, the
 backend-agnostic role accessors (ADR 0020) — `stage`/`display`/`fail`,
-`JsonData`, `OrcaArgs`). Implementations live in
+`JsonData`, `OrcaArgs` and the `RunTarget` its flags parse into).
+Implementations live in
 focused subpackages: `orca.tools` (os-backed git/gh/fs impls + their traits),
 `orca.agents` + `orca.backend` (LLM SPI, `SessionSupport`,
 conversation driver), `orca.subprocess` (subprocess shim), `orca.sweep`

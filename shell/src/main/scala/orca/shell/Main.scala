@@ -1,6 +1,7 @@
 package orca.shell
 
 import org.jline.terminal.Terminal
+import orca.{RunTarget, Uncommitted}
 import orca.settings.GlobalSettings
 import orca.shell.actions.{
   AuthorAction,
@@ -390,12 +391,7 @@ object Main:
       target <- promptRunTarget(ui)
     do
       val opts = RunAction.RunOptions(
-        flags = FlowFlags(
-          verbose = false,
-          skipBranch = target.skipBranch,
-          keepChanges = false,
-          worktree = target.worktree
-        ),
+        flags = FlowFlags(verbose = false, target = target),
         fallback = FallbackPolicy.Ask(ui)
       )
       runAction(flow, task, opts, workDir, terminal).discard
@@ -408,13 +404,13 @@ object Main:
     * ([[RunAction.run]]/[[orca.shell.run.FlowLauncher]]): no branch prompt —
     * the resume happens on the current branch by design, and a resumed log's
     * `bindBranch` (`FlowLifecycle`) ignores `skipBranch` entirely, so the
-    * all-false flags passed here are exactly as correct as any other value
-    * would be — `worktree` included: the run is launched IN `run.dir`, the
-    * directory its log was found in, which is what makes this a resume. The
-    * flag would instead re-derive a path from the task text, which is the same
-    * directory only when the log happened to be in an orca-made worktree of
-    * that exact prompt. `runAction` is injectable, [[AuthorAction]]-style, so a
-    * test can record the call instead of spawning a real subprocess.
+    * default target passed here is exactly as correct as any other would be —
+    * the worktree axis included: the run is launched IN `run.dir`, the
+    * directory its log was found in, which is what makes this a resume.
+    * `Worktree` would instead re-derive a path from the task text, which is the
+    * same directory only when the log happened to be in an orca-made worktree
+    * of that exact prompt. `runAction` is injectable, [[AuthorAction]]-style,
+    * so a test can record the call instead of spawning a real subprocess.
     */
   private[shell] def resumeInterruptedRun(
       ui: ShellUi,
@@ -438,9 +434,7 @@ object Main:
           RunAction.RunOptions(
             flags = FlowFlags(
               verbose = false,
-              skipBranch = false,
-              keepChanges = false,
-              worktree = false
+              target = RunTarget.NewBranch(Uncommitted.Stash)
             ),
             fallback = FallbackPolicy.Ask(ui)
           )
@@ -467,15 +461,15 @@ object Main:
     * `CurrentBranch` is skip-branch mode (ADR 0018 amendment): the
     * handoff-from-harness case, where the user already planned work on a branch
     * carrying plan files. `Worktree` is `--worktree`, which orca refuses
-    * together with `--skip-branch` (`OrcaArgs.worktreeRefusal`) — one choice
-    * cannot express that pair, where two independent confirms could.
-    * `private[shell]` so a scripted-UI test can drive it directly.
+    * together with `--skip-branch` — one choice cannot express that pair, where
+    * two independent confirms could. `private[shell]` so a scripted-UI test can
+    * drive it directly.
     */
   private[shell] def promptRunTarget(ui: ShellUi): Option[RunTarget] =
     ui.select(
       "Where should this run's work go?",
       MainMenu.runTargetChoices,
-      preselect = Some(RunTarget.NewBranch)
+      preselect = Some(RunTarget.NewBranch(Uncommitted.Stash))
     ) match
       case UiOutcome.Cancelled        => None
       case UiOutcome.Selected(target) => Some(target)

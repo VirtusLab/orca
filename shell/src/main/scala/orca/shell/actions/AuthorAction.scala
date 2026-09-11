@@ -1,7 +1,7 @@
 package orca.shell.actions
 
 import org.jline.terminal.Terminal
-import orca.OrcaDir
+import orca.{OrcaDir, RunTarget, Uncommitted}
 import orca.shell.ShellVersion
 import orca.shell.create.{
   AuthoringSandbox,
@@ -139,9 +139,7 @@ private[shell] object AuthorAction:
       sandbox,
       FlowFlags(
         verbose = false,
-        skipBranch = false,
-        keepChanges = false,
-        worktree = false
+        target = RunTarget.NewBranch(Uncommitted.Stash)
       ),
       terminal
     )

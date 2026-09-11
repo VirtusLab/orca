@@ -905,6 +905,12 @@ harness/model/yolo flag exists for either.
 > (`OrcaArgs.worktreeRefusal`), so neither the wording nor the set of refused
 > pairs can drift.
 
+> **Amendment (2026-08-28).** That shared decision is now `RunTarget.from`,
+> which returns the run's destination as one value instead of an optional
+> refusal string. Both parsers convert their raw flags through it, so a refused
+> pair cannot be carried past argv — `FlowFlags` holds a `RunTarget`, and every
+> launch path takes one.
+
 Both entry points call a shared `orca.shell.actions` package (`FlowResolution`,
 `RunAction`, `ViewAction`, `EditAction`, `AuthorAction`, `SessionAction`,
 `ConfigAction`, `StackAction`): each takes fully-resolved parameters and does

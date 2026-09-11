@@ -454,6 +454,12 @@ the wrong branch.
   > `--skip-branch` (git will not check the current branch out a second time in
   > a new worktree). Both refusals happen in `OrcaArgs.parse`, before setup, the
   > banner, or any git call.
+
+  > **Amendment (2026-08-28).** The three flags above no longer reach a run as
+  > separate fields: `OrcaArgs.target` is one `RunTarget` —
+  > `NewBranch(Uncommitted)`, `CurrentBranch(Uncommitted)` or `Worktree`, which
+  > carries neither — so a refused pair has no representation past
+  > `OrcaArgs.parse`, which is where it is still refused.
 - **R5** — On **successful** exit the progress-log file is removed in a final
   commit, and a feature branch left with no changes other than the progress log is
   deleted (throwaway-branch cleanup). That removal commit is also pushed, but only

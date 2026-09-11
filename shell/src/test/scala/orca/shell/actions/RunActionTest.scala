@@ -1,5 +1,6 @@
 package orca.shell.actions
 
+import orca.{RunTarget, Uncommitted}
 import orca.shell.flows.{DiscoveredFlow, FlowOrigin}
 import orca.shell.run.{FallbackPolicy, FlowFlags, LaunchResult}
 
@@ -19,9 +20,7 @@ class RunActionTest extends munit.FunSuite:
       val flags =
         FlowFlags(
           verbose = true,
-          skipBranch = false,
-          keepChanges = true,
-          worktree = false
+          target = RunTarget.NewBranch(Uncommitted.Keep)
         )
       val recording = RecordingLaunch()
 

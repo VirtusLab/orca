@@ -1,11 +1,14 @@
 package orca
 
-import mainargs.Flag
-
 class OrcaArgsTest extends munit.FunSuite:
 
   test("parses an empty argv into defaults (empty prompt, verbose off)"):
-    assertEquals(OrcaArgs.parse(Nil), Right(OrcaArgs("", Flag())))
+    assertEquals(
+      OrcaArgs.parse(Nil),
+      Right(
+        OrcaArgs("", verbose = false, RunTarget.NewBranch(Uncommitted.Stash))
+      )
+    )
 
   test("a single positional argument becomes userPrompt"):
     val result = OrcaArgs
@@ -13,7 +16,7 @@ class OrcaArgsTest extends munit.FunSuite:
       .toOption
       .getOrElse(fail("expected successful parse"))
     assertEquals(result.userPrompt, "implement feature X")
-    assertEquals(result.verbose.value, false)
+    assertEquals(result.verbose, false)
 
   test("--verbose flag sets verbose = true"):
     val result = OrcaArgs
@@ -21,27 +24,41 @@ class OrcaArgsTest extends munit.FunSuite:
       .toOption
       .getOrElse(fail("expected successful parse"))
     assertEquals(result.userPrompt, "do the thing")
-    assertEquals(result.verbose.value, true)
+    assertEquals(result.verbose, true)
 
-  test("--skip-branch flag sets skipBranch = true; absent defaults to false"):
+  test("--skip-branch targets the current branch; absent, a new one"):
     val result = OrcaArgs
       .parse(Seq("--skip-branch", "do the thing"))
       .toOption
       .getOrElse(fail("expected successful parse"))
     assertEquals(result.userPrompt, "do the thing")
-    assertEquals(result.skipBranch.value, true)
+    assertEquals(result.target, RunTarget.CurrentBranch(Uncommitted.Stash))
     assertEquals(
-      OrcaArgs.parse(Seq("do the thing")).map(_.skipBranch.value),
-      Right(false)
+      OrcaArgs.parse(Seq("do the thing")).map(_.target),
+      Right(RunTarget.NewBranch(Uncommitted.Stash))
     )
 
-  test("--worktree flag sets worktree = true"):
+  test("--keep-changes keeps uncommitted files on the chosen branch"):
+    assertEquals(
+      OrcaArgs.parse(Seq("--keep-changes", "do the thing")).map(_.target),
+      Right(RunTarget.NewBranch(Uncommitted.Keep))
+    )
+
+  test("--skip-branch with --keep-changes: current branch, files kept"):
+    assertEquals(
+      OrcaArgs
+        .parse(Seq("--skip-branch", "--keep-changes", "do the thing"))
+        .map(_.target),
+      Right(RunTarget.CurrentBranch(Uncommitted.Keep))
+    )
+
+  test("--worktree targets a worktree"):
     val result = OrcaArgs
       .parse(Seq("--worktree", "do the thing"))
       .toOption
       .getOrElse(fail("expected successful parse"))
     assertEquals(result.userPrompt, "do the thing")
-    assertEquals(result.worktree.value, true)
+    assertEquals(result.target, RunTarget.Worktree)
 
   test("--worktree with --skip-branch is refused, naming both flags"):
     assertRefused(Seq("--worktree", "--skip-branch", "x"), "--skip-branch")
