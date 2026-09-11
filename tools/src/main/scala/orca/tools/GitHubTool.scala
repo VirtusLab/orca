@@ -217,9 +217,10 @@ enum GitHubAvailability:
     */
   case NoHost(remote: String)
 
-  /** `origin` is on github.com, but gh can't talk to it — not installed, not
-    * logged in, or the host is down. `reason` is gh's own explanation where it
-    * gave one.
+  /** `host` is GitHub — github.com, or a host gh is logged in to — but gh gave
+    * no usable answer for it: not installed, not logged in to github.com, or a
+    * `gh repo view` that failed. `reason` is gh's own explanation where it gave
+    * one.
     */
   case Unreachable(host: String, reason: String)
 
