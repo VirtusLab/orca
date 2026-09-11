@@ -46,7 +46,10 @@ is passed.
 
 Exit codes: 0 success, 1 action failure, 2 usage error — `orca run`
 propagates the flow's own exit code. On success the flow has committed its
-work on a branch; report that branch (and any PR) to the user.
+work on a branch; report that branch (and any PR) to the user. The code flows
+end by opening a PR when the repository is on GitHub — the run then hands the
+checkout back to the branch it started on, so the work is on the feature branch
+behind the PR, not on the branch you are left standing on.
 
 If a run is interrupted, re-run the same `orca run` command: flows are
 resumable and pick up from the last committed stage.
