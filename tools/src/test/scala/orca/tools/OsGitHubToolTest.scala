@@ -132,7 +132,7 @@ class OsGitHubToolTest extends munit.FunSuite:
       GitHubAvailability.NotGitHub("gitlab.com")
     )
 
-  test("availability reports NotGitHub for a remote with no host at all"):
+  test("availability reports NoHost for a remote with no host at all"):
     // A clone from a local path — what the `orca create` sandbox makes. The
     // remote itself is the answer, and gh is never asked about it.
     val cli = new SequencedCliRunner(
@@ -140,7 +140,7 @@ class OsGitHubToolTest extends munit.FunSuite:
     )
     assertEquals(
       new OsGitHubTool(cli).availability(),
-      GitHubAvailability.NotGitHub("/srv/repos/widgets.git")
+      GitHubAvailability.NoHost("/srv/repos/widgets.git")
     )
     assertEquals(cli.callCount, 1)
 

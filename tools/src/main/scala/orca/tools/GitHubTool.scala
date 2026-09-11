@@ -205,13 +205,17 @@ enum GitHubAvailability:
     */
   case NoRemote
 
-  /** `origin` is not a GitHub remote orca can use: `remote` is its host, or the
-    * remote URL itself when it has no host (a local path). Also the answer for
-    * a host gh cannot be asked about, since gh only ever logs in to GitHub — a
-    * GitHub Enterprise host the user has not run `gh auth login --hostname` for
-    * lands here.
+  /** `origin` names a host gh cannot be asked about, since gh only ever logs in
+    * to GitHub — a GitHub Enterprise host the user has not run `gh auth login
+    * --hostname <host>` for lands here, as does a host that is simply not
+    * GitHub.
     */
-  case NotGitHub(remote: String)
+  case NotGitHub(host: String)
+
+  /** `origin` has no host to ask about at all: a clone from a local path, as
+    * the `orca create` sandbox makes. `remote` is the whole remote URL.
+    */
+  case NoHost(remote: String)
 
   /** `origin` is on github.com, but gh can't talk to it — not installed, not
     * logged in, or the host is down. `reason` is gh's own explanation where it
@@ -350,7 +354,7 @@ private[orca] class OsGitHubTool(
       case None => NoRemote
       case Some(url) =>
         OsGitTool.remoteHost(url) match
-          case None => NotGitHub(url)
+          case None => NoHost(url)
           case Some(host) =>
             authStatus(host) match
               case Right(()) => repoGhResolves(host)

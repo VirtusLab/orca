@@ -44,7 +44,8 @@ private[orca] class DefaultFlowContext[
       */
     private[orca] val startingCommit: Option[CommitHash]
 ) extends FlowControl,
-      orca.StageFrames:
+      orca.StageFrames,
+      orca.OpenedPrRecord:
 
   // Each role's backend tag, pinned from its type parameter — concrete here so
   // the role accessors are concretely typed and sessions thread.

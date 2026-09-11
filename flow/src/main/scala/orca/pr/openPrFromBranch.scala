@@ -11,6 +11,10 @@ import ox.either.orThrow
   * completion, so pushing in the same stage as the summarise (or the preceding
   * edits) would be fragile on resume.
   *
+  * Requires a GitHub remote and a logged-in `gh`: without them the push or the
+  * create fails the run. A flow that should finish without a PR when the
+  * checkout isn't on GitHub calls [[openPrIfGitHub]] instead.
+  *
   * The diff handed to the summariser is the branch-vs-base diff
   * (`git.diffVsBase(git.defaultBase())`). A branch too large to summarise is
   * cut short by [[summarisePr]].
@@ -21,7 +25,8 @@ import ox.either.orThrow
   * pass `context` to anchor it to the originating issue/prompt.
   *
   * `gh.createPr` is idempotent by head branch: a re-run that already opened the
-  * PR gets the existing handle back rather than failing. Returns that handle.
+  * PR gets the existing handle back rather than failing. Returns that handle,
+  * and reports it through [[recordOpenedPr]].
   */
 def openPrFromBranch(
     summarisingAgent: Agent[?],
@@ -41,5 +46,10 @@ def openPrFromBranch(
       instructions = instructions
     )
 
-  stage("Open PR"):
+  val handle = stage("Open PR"):
     gh.createPr(title = title(summary), body = body(summary)).orThrow
+
+  // Outside the stage on purpose: a resumed run replays the recorded handle
+  // without running the body, and the lifecycle still has to learn about it.
+  recordOpenedPr(handle)
+  handle
