@@ -19,21 +19,21 @@
   *   1. Reviews everything the run changed, docs included.
   *   1. Pushes the feature branch.
   *   1. Opens a PR with a cheap-model-generated title + description from the
-  *      full branch diff. A human picks the PR up from there.
+  *      full branch diff, when the repository is on a GitHub `gh` can reach. A
+  *      human picks the PR up from there. Off GitHub the run says so in one
+  *      line and still finishes, leaving the work on the branch.
   *
   * ```bash
   * scala-cli run implement-enhanced.sc -- "Add a multiply function to the calculator crate"
   * ```
   *
-  * Requires the configured role agents logged in (`claude` by default) and
-  * `gh` authenticated.
+  * Requires the configured role agents logged in (`claude` by default); `gh`
+  * authenticated only for the PR.
   */
 
 import orca.{*, given}
 
-// Opens a PR at the end, so return to the starting branch afterward (the
-// default is to stay on the feature branch, for no-PR flows).
-flow(OrcaArgs(args), returnToStartBranch = true):
+flow(OrcaArgs(args)):
   val plan = stage("Plan"):
     Plan.autonomous
       .from(userPrompt, planningAgent)
@@ -75,4 +75,4 @@ flow(OrcaArgs(args), returnToStartBranch = true):
       priorDeclines = IgnoredIssues(taskDeclines.flatMap(_.issues))
     )
 
-  openPrFromBranch(summarisingAgent = codingAgent.cheap)
+  val _ = openPrIfGitHub(summarisingAgent = codingAgent.cheap)

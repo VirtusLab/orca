@@ -276,7 +276,7 @@ Top-level, available via `import orca.*`:
 
 | Method | Signature | Use |
 |---|---|---|
-| `flow(args, ...)(body)` | `flow(args: OrcaArgs, branchNaming?, stackSettings?, planningAgent?, codingAgent?, reviewAgent?, returnToStartBranch = false, progressStore?)(body)` | Entry point. Creates one feature branch + one progress log for the run. The three role agents (below) resolve from settings — see [Settings](#settings) — defaulting to claude; `planningAgent`/`codingAgent`/`reviewAgent` here are per-role programmatic overrides (`Some(_.claude.opus)`) that win over both settings files. Branch naming defaults to a short cheap-model-generated label (slugged); pass `branchNaming = Some(BranchNamingStrategy.issue(handle))` to override (e.g. for issue flows). `stackSettings = Some(StackSettings(...))` pins the run's [stack settings](#settings) — the settings file's stack portion is then neither read nor written (the escape hatch for a language-specific flow; its agent keys are still honoured). See [The flow lifecycle](#the-flow-lifecycle) for the full branch/teardown behavior. |
+| `flow(args, ...)(body)` | `flow(args: OrcaArgs, branchNaming?, stackSettings?, planningAgent?, codingAgent?, reviewAgent?, progressStore?)(body)` | Entry point. Creates one feature branch + one progress log for the run. The three role agents (below) resolve from settings — see [Settings](#settings) — defaulting to claude; `planningAgent`/`codingAgent`/`reviewAgent` here are per-role programmatic overrides (`Some(_.claude.opus)`) that win over both settings files. Branch naming defaults to a short cheap-model-generated label (slugged); pass `branchNaming = Some(BranchNamingStrategy.issue(handle))` to override (e.g. for issue flows). `stackSettings = Some(StackSettings(...))` pins the run's [stack settings](#settings) — the settings file's stack portion is then neither read nor written (the escape hatch for a language-specific flow; its agent keys are still honoured). See [The flow lifecycle](#the-flow-lifecycle) for the full branch/teardown behavior. |
 | `planningAgent` (in-body accessor) | `planningAgent: Agent[ctx.PlanB]` | The planning-role agent, resolved from settings — see [Coding agent tools](#coding-agent-tools). Hand it to `Plan.*`. |
 | `codingAgent` (in-body accessor) | `codingAgent: Agent[ctx.CodeB]` | The coding-role agent — the run's primary: implementer sessions, branch naming, stack discovery, default commit messages. |
 | `reviewAgent` (in-body accessor) | `reviewAgent: Agent[ctx.ReviewB]` | The review-role agent: `allReviewers(reviewAgent)`, the reviewer-picker and the lint summariser default to its tiers. |
@@ -370,11 +370,13 @@ Each `flow(...)` run is bound to exactly one feature branch and one progress log
   it when the remote branch still carries the log (i.e. the flow pushed). A
   throwaway feature branch (no substantive changes vs the starting branch) is
   deleted and HEAD returns to the starting branch. Otherwise the feature branch
-  is kept and HEAD **stays on it by default** (so you end on the work); pass
-  `returnToStartBranch = true` — for flows that open a PR — to return HEAD to
-  the starting branch instead. The run then closes by naming the branch you are
-  left on, how many files changed since the commit it started from, and the
-  `git diff` that shows them.
+  is kept, and where HEAD lands follows the run: a run that created a branch and
+  **opened a PR** hands you back the branch you started on (the work is on the
+  PR). Every other run leaves you where you were — on the feature branch when no
+  PR was opened or under `--skip-branch`, and untouched under `--worktree`,
+  where the work is in the separate checkout the summary names. The run then
+  closes by naming the branch you are left on, how many files changed since the
+  commit it started from, and the `git diff` that shows them.
 - **Failure teardown:** discard the failed stage's uncommitted partial edits —
   `git reset --hard` for tracked files, plus `git clean -fd` for the files it
   newly created; stay on the feature branch so a re-run resumes in place.

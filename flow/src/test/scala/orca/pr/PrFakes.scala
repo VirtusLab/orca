@@ -19,10 +19,9 @@ import orca.agents.{
 }
 import orca.tools.{GitHubAvailability, GitHubTool, GitTool, OsGitTool, PrHandle}
 import orca.progress.{BranchMode, ProgressHeader, ProgressStore}
-import orca.testkit.GitRepo
+import orca.testkit.{GitRepo, PushlessGit, StubGitHubTool}
 import orca.events.{EventDispatcher, OrcaListener}
 
-import scala.concurrent.duration.FiniteDuration
 import java.util.concurrent.ConcurrentLinkedQueue
 
 /** An endpoint the PR helpers never reach. */
@@ -33,69 +32,33 @@ private[pr] def nyi(m: String): Nothing =
 private[pr] val samplePr: PrHandle =
   PrHandle("github.com", "acme", "widgets", 1)
 
-/** Records `push`; stubs `defaultBase` and answers `diffVsBase` with
-  * `branchDiff` (no remote in the temp repo); delegates the writes the `stage`
-  * runtime performs (`forceAdd`, `commit`, `uncommittedDiff`) to `underlying`
-  * so stage commits actually land.
+/** [[PushlessGit]] that also records the push, so a test can pin when the PR
+  * helpers pushed relative to their other calls.
   */
 private[pr] class RecordingGit(
     underlying: GitTool,
     calls: ConcurrentLinkedQueue[String],
     branchDiff: String
-) extends GitTool:
-  export underlying.{push => _, defaultBase => _, diffVsBase => _, *}
-
-  def push()(using WorkspaceWrite) =
+) extends PushlessGit(underlying, branchDiff):
+  override def push()(using WorkspaceWrite) =
     calls.add("push"): Unit
-    Right(())
-  def defaultBase(): String = "main"
-  def diffVsBase(base: String): String = branchDiff
+    super.push()
 
 /** Records `availability` and `createPr`, answering the former with
   * `availabilityAnswer` and the latter with [[samplePr]]; every other endpoint
-  * is unreached by the PR helpers. `availabilityAnswer` is by-name so a suite
+  * refuses, from [[StubGitHubTool]]. `availabilityAnswer` is by-name so a suite
   * whose helper never probes can pass [[nyi]].
   */
 private[pr] class RecordingGh(
     calls: ConcurrentLinkedQueue[String],
     availabilityAnswer: => GitHubAvailability
-) extends GitHubTool:
-  def availability(): GitHubAvailability =
+) extends StubGitHubTool:
+  override def availability(): GitHubAvailability =
     calls.add("availability"): Unit
     availabilityAnswer
-  def createPr(title: String, body: String)(using WorkspaceWrite) =
+  override def createPr(title: String, body: String)(using WorkspaceWrite) =
     calls.add("createPr"): Unit
     Right(samplePr)
-  def updatePr(pr: PrHandle, title: String, body: String)(using
-      WorkspaceWrite
-  ) =
-    nyi("updatePr")
-  def readIssue(issue: orca.tools.IssueHandle) = nyi("readIssue")
-  def readIssueComments(issue: orca.tools.IssueHandle) = nyi(
-    "readIssueComments"
-  )
-  def readPrComments(pr: PrHandle) = nyi("readPrComments")
-  def writeComment(pr: PrHandle, body: String)(using WorkspaceWrite) =
-    nyi("writeComment")
-  def writeComment(issue: orca.tools.IssueHandle, body: String)(using
-      WorkspaceWrite
-  ) = nyi("writeComment")
-  def upsertComment(pr: PrHandle, marker: String, body: String)(using
-      WorkspaceWrite
-  ) = nyi("upsertComment")
-  def upsertComment(
-      issue: orca.tools.IssueHandle,
-      marker: String,
-      body: String
-  )(using
-      WorkspaceWrite
-  ) = nyi("upsertComment")
-  def buildStatus(pr: PrHandle) = nyi("buildStatus")
-  def waitForBuild(
-      pr: PrHandle,
-      timeout: FiniteDuration,
-      noChecksGrace: FiniteDuration
-  ) = nyi("waitForBuild")
 
 /** Records the prompt it was sent and returns a fixed [[PrSummary]]. */
 private[pr] class StubSummariser extends Agent[BackendTag.ClaudeCode.type]:

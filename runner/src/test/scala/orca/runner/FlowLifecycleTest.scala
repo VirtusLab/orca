@@ -17,12 +17,15 @@ import orca.{
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.agents.{
   Agent,
+  AgentInput,
   Announce,
+  AutonomousAgentCall,
   AutonomousTextCall,
   BackendTag,
   ClaudeAgent,
   CodexAgent,
   GeminiAgent,
+  InteractiveAgentCall,
   JsonData,
   AgentCall,
   AgentConfig,
@@ -45,18 +48,21 @@ import orca.progress.{
 import orca.runner.terminal.TerminalInteraction
 import orca.tools.{
   FsTool,
+  GitHubAvailability,
   GitHubTool,
   GitTool,
   OsGitTool,
+  PrHandle,
   UntrackedFiles,
   Worktrees
 }
+import orca.pr.PrSummary
 import ox.supervised
 import ox.either.orThrow
 
 import java.io.{ByteArrayOutputStream, PrintStream}
 import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
-import orca.testkit.{GitRepo, TempDirs}
+import orca.testkit.{GitRepo, PushlessGit, StubGitHubTool, TempDirs}
 
 /** Flow lifecycle tests: success/failure teardown and resume. Each uses a real
   * temp git repo (`GitRepo.seeded()`) and a null-sink `TerminalInteraction` so
@@ -502,7 +508,6 @@ class FlowLifecycleTest extends munit.FunSuite:
           interaction = Some(interaction),
           extraListeners = Nil,
           branchNaming = None,
-          returnToStartBranch = false,
           progressStore = None,
           wiring = FlowWiring(claude =
             Some(_ => throw new RuntimeException("factory boom"))
@@ -1489,7 +1494,6 @@ class FlowLifecycleTest extends munit.FunSuite:
           interaction = Some(interaction),
           extraListeners = Nil,
           branchNaming = None,
-          returnToStartBranch = false,
           progressStore = Some(store)
         ):
           val _ = stage("never-runs"):
@@ -1744,7 +1748,6 @@ class FlowLifecycleTest extends munit.FunSuite:
         interaction = Some(interaction),
         extraListeners = Nil,
         branchNaming = None,
-        returnToStartBranch = false,
         progressStore = Some(store),
         wiring = FlowWiring(claude = Some(_ => recorder))
       ):
@@ -1763,7 +1766,11 @@ class FlowLifecycleTest extends munit.FunSuite:
       workDir: os.Path,
       prompt: String,
       store: ProgressStore,
-      extraListeners: List[OrcaListener] = Nil
+      extraListeners: List[OrcaListener] = Nil,
+      target: RunTarget = RunTarget.NewBranch(Uncommitted.Stash),
+      claude: ClaudeAgent = StubAgent.claude,
+      gh: Option[GitHubTool] = None,
+      git: Option[GitTool] = None
   )(body: orca.FlowControl ?=> Unit): Unit =
     supervised:
       val interaction = TerminalInteraction.start(
@@ -1772,14 +1779,13 @@ class FlowLifecycleTest extends munit.FunSuite:
         animated = false
       )
       runFlow(
-        args = OrcaArgs(prompt),
+        args = OrcaArgs(prompt, target = target),
         stackSettings = Some(StackSettings.empty),
-        wiring = FlowWiring(claude = Some(_ => StubAgent.claude)),
+        wiring = FlowWiring(claude = Some(_ => claude), gh = gh, git = git),
         workDir = workDir,
         interaction = Some(interaction),
         extraListeners = extraListeners,
         branchNaming = None,
-        returnToStartBranch = false,
         progressStore = Some(store)
       )(body)
 
@@ -1833,7 +1839,6 @@ class FlowLifecycleTest extends munit.FunSuite:
           interaction = Some(interaction),
           extraListeners = Nil,
           branchNaming = None,
-          returnToStartBranch = false,
           progressStore = None,
           wiring = FlowWiring(
             claude = Some(_ => StubAgent.claude),
@@ -1926,47 +1931,122 @@ class FlowLifecycleTest extends munit.FunSuite:
       s"feature branch '$featureBranchName' must be kept; branches: $branches"
     )
 
-  test(
-    "success teardown with returnToStartBranch=true returns to start, keeps branch"
-  ):
-    val workDir = GitRepo.seeded()
-    val prompt = "code-flow-return"
+  // ── the PR-driven branch handoff ─────────────────────────────────────────
+
+  private val handoffPr = PrHandle("github.com", "acme", "widgets", 7)
+
+  /** A `gh` that answers the [[openPrIfGitHub]] probe with `answer` and opens
+    * [[handoffPr]]; the lifecycle touches nothing else on it.
+    */
+  private class StubGh(answer: GitHubAvailability) extends StubGitHubTool:
+    override def availability(): GitHubAvailability = answer
+    override def createPr(title: String, body: String)(using WorkspaceWrite) =
+      Right(handoffPr)
+
+  /** A claude whose structured call answers with a fixed [[PrSummary]] — what
+    * the summarise stage of [[openPrIfGitHub]] needs.
+    */
+  private class SummarisingClaude extends StubClaudeAgent("summariser"):
+    override def resultAs[O: JsonData: Announce]
+        : AgentCall[BackendTag.ClaudeCode.type, O] =
+      new AgentCall[BackendTag.ClaudeCode.type, O]:
+        val autonomous: AutonomousAgentCall[BackendTag.ClaudeCode.type, O] =
+          new AutonomousAgentCall[BackendTag.ClaudeCode.type, O]:
+            private[orca] def runWithSession[I](
+                input: I,
+                session: SessionId[BackendTag.ClaudeCode.type],
+                sessionName: Option[String],
+                config: Option[AgentConfig],
+                emitPrompt: Boolean
+            )(using in: AgentInput[I], _s: orca.InStage): O =
+              PrSummary("Generated title", "Generated body").asInstanceOf[O]
+        def interactive: InteractiveAgentCall[BackendTag.ClaudeCode.type, O] =
+          throw new UnsupportedOperationException
+
+  /** Where one `openPrIfGitHub` run left the checkout. */
+  private case class HandoffRun(
+      head: String,
+      featureBranch: String,
+      branches: Set[String]
+  )
+
+  /** A run that writes a file and then calls [[openPrIfGitHub]], against a `gh`
+    * answering `answer`.
+    */
+  private def handoffRun(
+      answer: GitHubAvailability,
+      workDir: os.Path = GitRepo.seeded()
+  ): HandoffRun =
+    val prompt = "pr-handoff"
+    val store = ProgressStore.default(workDir, prompt)
     val git = new OsGitTool(workDir)
-    var featureBranchName = ""
-    supervised:
-      val interaction = TerminalInteraction.start(
-        out = new PrintStream(new ByteArrayOutputStream()),
-        useColor = false,
-        animated = false
-      )
-      flow(
-        args = OrcaArgs(prompt),
-        stackSettings = Some(StackSettings.empty),
-        claude = Some(_ => StubAgent.claude),
-        workDir = workDir,
-        interaction = Some(interaction),
-        returnToStartBranch = true
-      ):
-        featureBranchName = summon[orca.FlowContext].git.currentBranch()
-        val _ = stage("write code"):
-          os.write(workDir / "code.txt", "real code")
-          "done"
-    // HEAD returns to the starting branch, but the feature branch is kept (it
-    // holds the work / backs the PR).
-    assertEquals(git.currentBranch(), "main")
-    val branches = os
-      .proc("git", "branch", "--format=%(refname:short)")
-      .call(cwd = workDir)
-      .out
-      .text()
-      .linesIterator
-      .map(_.trim)
-      .filter(_.nonEmpty)
-      .toSet
+    var featureBranch = ""
+    runFlowForTest(
+      workDir,
+      prompt,
+      store,
+      claude = new SummarisingClaude,
+      gh = Some(new StubGh(answer)),
+      git = Some(new PushlessGit(new OsGitTool(workDir)))
+    ):
+      featureBranch = summon[FlowContext].git.currentBranch()
+      val _ = stage("write code"):
+        os.write(workDir / "code.txt", "real code")
+        "done"
+      val _ =
+        orca.pr.openPrIfGitHub(summarisingAgent = summon[FlowContext].claude)
+    HandoffRun(git.currentBranch(), featureBranch, branchNames(workDir))
+
+  test("a new-branch run that opened a PR is handed back its start branch"):
+    val r = handoffRun(GitHubAvailability.Available("github.com", "a", "w"))
+    assertEquals(r.head, "main")
     assert(
-      branches.contains(featureBranchName),
-      s"feature branch '$featureBranchName' must be kept; branches: $branches"
+      r.branches.contains(r.featureBranch),
+      s"the branch behind the PR must be kept; branches: ${r.branches}"
     )
+
+  test("a new-branch run that opened no PR stays on the feature branch"):
+    // The work is only on the branch, so the user is left standing on it.
+    val r = handoffRun(GitHubAvailability.NotGitHub("gitlab.com"))
+    assertEquals(r.head, r.featureBranch)
+
+  test("a run inside a worktree that opened a PR stays on the work"):
+    // The worktree reports RunTarget.NewBranch — a resume relaunched without
+    // --worktree looks exactly like this — so `flowSetup.worktree` is the only
+    // thing keeping teardown from checking the worktree's own branch out.
+    val repo = GitRepo.seeded()
+    val worktree = WorktreeRun.resolve(repo, "pr-handoff") match
+      case Right(dir) => dir
+      case Left(msg)  => fail(s"could not create the worktree: $msg")
+    val r =
+      handoffRun(GitHubAvailability.Available("github.com", "a", "w"), worktree)
+    assertEquals(r.head, r.featureBranch)
+    assert(
+      !r.head.startsWith("orca-worktree-"),
+      s"the run must be left on its feature branch, not ${r.head}"
+    )
+
+  test("a flow that opens its PR with a bare gh.createPr is handed back too"):
+    // `recordOpenedPr` is the whole coupling between "opened a PR" and the
+    // handoff for a flow that does not go through the PR helpers.
+    val workDir = GitRepo.seeded()
+    val prompt = "bare-create-pr"
+    val store = ProgressStore.default(workDir, prompt)
+    val git = new OsGitTool(workDir)
+    runFlowForTest(
+      workDir,
+      prompt,
+      store,
+      gh = Some(new StubGh(GitHubAvailability.NoRemote)),
+      git = Some(new PushlessGit(new OsGitTool(workDir)))
+    ):
+      val _ = stage("write code"):
+        os.write(workDir / "code.txt", "real code")
+        "done"
+      val pr = stage("open PR"):
+        summon[FlowContext].gh.createPr("t", "b").orThrow
+      orca.pr.recordOpenedPr(pr)
+    assertEquals(git.currentBranch(), "main")
 
   test("R5: failure teardown keeps feature branch regardless of code changes"):
     // A flow that crashes must NOT delete the branch — it needs to stay for resume.
@@ -2180,7 +2260,6 @@ class FlowLifecycleTest extends munit.FunSuite:
           interaction = Some(interaction),
           extraListeners = List(listener),
           branchNaming = Some(BranchNamingStrategy.fromText("main")),
-          returnToStartBranch = false,
           progressStore = Some(store)
         ):
           val _ = stage("never-runs")("x")
@@ -2282,7 +2361,6 @@ class FlowLifecycleTest extends munit.FunSuite:
           interaction = Some(interaction),
           extraListeners = Nil,
           branchNaming = None,
-          returnToStartBranch = false,
           progressStore = Some(store)
         ):
           val _ = stage[String]("crash"):
@@ -2332,7 +2410,6 @@ class FlowLifecycleTest extends munit.FunSuite:
           interaction = Some(interaction),
           extraListeners = List(listener),
           branchNaming = None,
-          returnToStartBranch = false,
           progressStore = Some(store)
         ):
           val _ = stage("never-runs")("x")
@@ -2375,7 +2452,6 @@ class FlowLifecycleTest extends munit.FunSuite:
           interaction = Some(interaction),
           extraListeners = List(listener),
           branchNaming = None,
-          returnToStartBranch = false,
           progressStore = Some(store)
         ):
           val _ = stage("never-runs")("x")
@@ -2951,7 +3027,6 @@ class FlowLifecycleTest extends munit.FunSuite:
           interaction = Some(interaction),
           extraListeners = Nil,
           branchNaming = None,
-          returnToStartBranch = false,
           progressStore = Some(store)
         ):
           val _ = stage[String]("crash"):
@@ -3062,16 +3137,66 @@ class FlowLifecycleTest extends munit.FunSuite:
       startingCommit = None,
       worktree = None
     )
-    FlowLifecycle.teardownSuccess(
-      git,
-      setup,
-      returnToStartBranch = false,
-      _ => ()
-    )
+    FlowLifecycle.teardownSuccess(git, setup, BranchHandoff.StayPut, _ => ())
     assert(
       branchNames(workDir).contains("reused-branch"),
       "the reused branch must survive teardown when orca did not create it"
     )
+
+  /** A repo on a `feat/work` branch orca created, with `code` committed there
+    * when `withCode`, and the [[FlowLifecycle.FlowSetup]] teardown expects.
+    */
+  private def handoffFixture(
+      withCode: Boolean
+  ): (OsGitTool, os.Path, FlowLifecycle.FlowSetup) =
+    val workDir = GitRepo.seeded() // "main"
+    val git = new OsGitTool(workDir)
+    val store = ProgressStore.default(workDir, "handoff")
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    val _ = git.createBranch("feat/work")
+    if withCode then
+      os.write(workDir / "code.txt", "real code")
+      git.forceCommitOnly(workDir / "code.txt", "work")
+    val setup = FlowLifecycle.FlowSetup(
+      store = store,
+      featureBranch =
+        FeatureBranch.resolveReused("feat/work", Set.empty).toOption.get,
+      startBranch = "main",
+      stackSettings = StackSettings.empty,
+      branchMode = BranchMode.Created,
+      untrackedOnFailure = UntrackedFiles.Remove,
+      startingCommit = None,
+      worktree = None
+    )
+    (git, workDir, setup)
+
+  test(
+    "teardownSuccess with ReturnToStart checks out the start branch and keeps the feature branch"
+  ):
+    val (git, workDir, setup) = handoffFixture(withCode = true)
+    FlowLifecycle.teardownSuccess(
+      git,
+      setup,
+      BranchHandoff.ReturnToStart,
+      _ => ()
+    )
+    assertEquals(git.currentBranch(), "main")
+    assert(branchNames(workDir).contains("feat/work"), branchNames(workDir))
+
+  test("teardownSuccess with StayPut leaves HEAD on the feature branch"):
+    val (git, _, setup) = handoffFixture(withCode = true)
+    FlowLifecycle.teardownSuccess(git, setup, BranchHandoff.StayPut, _ => ())
+    assertEquals(git.currentBranch(), "feat/work")
+
+  test("teardownSuccess deletes a throwaway branch whatever the handoff says"):
+    // Nothing but orca bookkeeping landed on the branch, so it goes either way
+    // — the delete is not the handoff's decision. Under StayPut, landing on
+    // `main` can only be the delete's doing.
+    BranchHandoff.values.foreach: handoff =>
+      val (git, workDir, setup) = handoffFixture(withCode = false)
+      FlowLifecycle.teardownSuccess(git, setup, handoff, _ => ())
+      assertEquals(git.currentBranch(), "main", handoff.toString)
+      assertEquals(branchNames(workDir), Set("main"), handoff.toString)
 
   private val TeardownPushBranch = "teardown-push-branch"
 
@@ -3146,12 +3271,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     repo.commitLog()
     repo.git.push().orThrow
     FlowLifecycle
-      .teardownSuccess(
-        repo.git,
-        repo.setup,
-        returnToStartBranch = false,
-        _ => ()
-      )
+      .teardownSuccess(repo.git, repo.setup, BranchHandoff.StayPut, _ => ())
     val files = remoteFiles(repo.remote)
     assert(!files.linesIterator.contains(repo.logRelPath.toString), files)
 
@@ -3160,12 +3280,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     given WorkspaceWrite = WorkspaceWrite.unsafe
     repo.commitLog()
     FlowLifecycle
-      .teardownSuccess(
-        repo.git,
-        repo.setup,
-        returnToStartBranch = false,
-        _ => ()
-      )
+      .teardownSuccess(repo.git, repo.setup, BranchHandoff.StayPut, _ => ())
     assertEquals(remoteRefs(repo.remote).trim, "")
 
   test("teardownSuccess pushes nothing when the upstream never got the log"):
@@ -3178,12 +3293,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val before = remoteTip(repo.remote)
     repo.commitLog()
     FlowLifecycle
-      .teardownSuccess(
-        repo.git,
-        repo.setup,
-        returnToStartBranch = false,
-        _ => ()
-      )
+      .teardownSuccess(repo.git, repo.setup, BranchHandoff.StayPut, _ => ())
     assertEquals(remoteTip(repo.remote), before)
 
   /** The closing block's Step messages, in emission order, from a direct
@@ -3192,13 +3302,13 @@ class FlowLifecycleTest extends munit.FunSuite:
   private def closingSummary(
       git: OsGitTool,
       setup: FlowLifecycle.FlowSetup,
-      returnToStartBranch: Boolean
+      handoff: BranchHandoff
   ): List[String] =
     val emitted = new AtomicReference[List[OrcaEvent]](Nil)
     FlowLifecycle.teardownSuccess(
       git,
       setup,
-      returnToStartBranch,
+      handoff,
       e => { val _ = emitted.updateAndGet(e :: _) }
     )
     emitted.get().reverse.collect { case s: OrcaEvent.Step => s.message }
@@ -3241,7 +3351,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       Some(base)
     )
     assertEquals(
-      closingSummary(git, setup, returnToStartBranch = false),
+      closingSummary(git, setup, BranchHandoff.StayPut),
       List(
         "done — you are on branch 'closing-stay'",
         s"2 file(s) changed since ${base.short}",
@@ -3270,7 +3380,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       Some(base)
     )
     assertEquals(
-      closingSummary(git, setup, returnToStartBranch = true),
+      closingSummary(git, setup, BranchHandoff.ReturnToStart),
       List(
         "done — you are on branch 'main'",
         s"2 file(s) changed since ${base.short}",
@@ -3293,7 +3403,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       Some(base)
     )
     assertEquals(
-      closingSummary(git, setup, returnToStartBranch = false),
+      closingSummary(git, setup, BranchHandoff.StayPut),
       List("done — you are on branch 'main'", "no files changed")
     )
 
@@ -3311,7 +3421,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       startingCommit = None
     )
     assertEquals(
-      closingSummary(git, setup, returnToStartBranch = false),
+      closingSummary(git, setup, BranchHandoff.StayPut),
       List("done — you are on branch 'closing-no-base'")
     )
 
@@ -3672,7 +3782,6 @@ class FlowLifecycleTest extends munit.FunSuite:
           interaction = Some(interaction),
           extraListeners = List(listener),
           branchNaming = None,
-          returnToStartBranch = false,
           progressStore = Some(store),
           wiring = FlowWiring(claude = Some(_ => thrower))
         ):
@@ -3707,7 +3816,6 @@ class FlowLifecycleTest extends munit.FunSuite:
           interaction = Some(interaction),
           extraListeners = List(listener),
           branchNaming = None,
-          returnToStartBranch = false,
           progressStore = Some(store),
           wiring = FlowWiring(
             claude = Some(_ => StubAgent.claude),
@@ -3781,7 +3889,6 @@ class FlowLifecycleTest extends munit.FunSuite:
         interaction = Some(interaction),
         extraListeners = Nil,
         branchNaming = None,
-        returnToStartBranch = false,
         progressStore = None
       ):
         innerThrown =
@@ -3794,7 +3901,6 @@ class FlowLifecycleTest extends munit.FunSuite:
               interaction = Some(interaction),
               extraListeners = Nil,
               branchNaming = None,
-              returnToStartBranch = false,
               progressStore = None
             )(())
             None
@@ -3842,7 +3948,6 @@ class FlowLifecycleTest extends munit.FunSuite:
           interaction = Some(interaction),
           extraListeners = Nil,
           branchNaming = None,
-          returnToStartBranch = false,
           progressStore = None
         ):
           ()
@@ -3888,7 +3993,6 @@ class FlowLifecycleTest extends munit.FunSuite:
           interaction = Some(interaction),
           extraListeners = Nil,
           branchNaming = None,
-          returnToStartBranch = false,
           progressStore = None
         ):
           summon[FlowContext].emit(OrcaEvent.Step("ran"))
@@ -3924,7 +4028,6 @@ class FlowLifecycleTest extends munit.FunSuite:
         interaction = Some(interaction),
         extraListeners = Nil,
         branchNaming = None,
-        returnToStartBranch = false,
         progressStore = None
       ):
         val _ = stage[String]("write"):
