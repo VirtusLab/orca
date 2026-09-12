@@ -48,13 +48,14 @@ flow(OrcaArgs(args)):
   // Everything the run changed, reviewed in one loop: each task's single pass
   // took the fixer's word for its own fixes, and this is what checks them. The
   // per-task declines seed the loop, so its reviewers don't re-report findings
-  // the fixer already answered.
+  // the fixer already answered. A higher cap than the library default: nothing
+  // reviews again after this loop.
   stage("Final review"):
     reviewAndFixLoop(
       coderSession = session,
       reviewers = allReviewers(reviewAgent),
       task = Task(Title("The whole planned change"), plan.brief),
       diff = ReviewDiff.WholeRun,
-      maxIterations = 3,
+      maxIterations = 5,
       priorDeclines = IgnoredIssues(taskDeclines.flatMap(_.issues))
     )

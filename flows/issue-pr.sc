@@ -23,7 +23,8 @@
   *   1. On proceed: implements each task and reviews it in a single pass, then
   *      loops a review over everything the run changed.
   *   1. Pushes the branch and opens a PR with a cheap-model-generated title
-  *      and description.
+  *      and description, plus a section listing whatever the final review
+  *      left unfixed.
   *
   * The feature branch is named deterministically from the issue number
   * (`fix/issue-<n>`), so a re-run after a crash lands on the same branch.
@@ -99,20 +100,22 @@ flow(
     // Everything the run changed, reviewed in one loop: each task's single pass
     // took the fixer's word for its own fixes, and this is what checks them.
     // The per-task declines seed the loop, so its reviewers don't re-report
-    // findings the fixer already answered.
-    stage("Final review"):
+    // findings the fixer already answered. A higher cap than the library
+    // default: nothing reviews again after this loop.
+    val openFindings = stage("Final review"):
       reviewAndFixLoop(
         coderSession = session,
         reviewers = allReviewers(reviewAgent),
         task = Task(Title("The whole planned change"), plan.brief),
         userRequest = Some(issuePayload),
         diff = ReviewDiff.WholeRun,
-        maxIterations = 3,
+        maxIterations = 5,
         priorDeclines = IgnoredIssues(taskDeclines.flatMap(_.issues))
       )
 
     openPrFromBranch(
       summarisingAgent = codingAgent.cheap,
+      openFindings = openFindings,
       body = summary =>
         s"""${summary.body}
            |

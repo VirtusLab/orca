@@ -106,19 +106,36 @@ class BuiltInFlowsTest extends munit.FunSuite:
       val call = finalReviewCall(name)
       assert(call.contains("diff = ReviewDiff.WholeRun"), s"$name: $call")
 
-  test("every flow's cap is the library default, spelled out"):
-    // Whole-run and per-task loops run under the same number, so there is one
-    // pin rather than two. Every cap in the file is checked, not just the first
-    // — the count test above compares counts, so a flow whose task loop and
-    // final review state different numbers passes it. Each flow still writes
-    // the number instead of inheriting it, so raising `DefaultMaxIterations`
-    // fails here until the flows follow.
-    val cap = "maxIterations\\s*=\\s*(\\d+)".r
-    val capped = indexNames.filter(resourceText(_).contains("maxIterations"))
-    assert(capped.nonEmpty, "no flow states a cap any more")
-    capped.foreach: name =>
-      val text = resourceText(name)
-      val stated = cap.findAllMatchIn(text).map(_.group(1)).toList
+  /** The cap every whole-run final review states. Above `DefaultMaxIterations`
+    * because nothing reviews again after that loop: what it leaves open ships,
+    * listed in the PR.
+    */
+  private val FinalReviewCap: Int = 5
+
+  private val statedCap = "maxIterations\\s*=\\s*(\\d+)".r
+
+  test("every final review states the final-review cap"):
+    // Pinned inside the final-review call itself, so a cap stated elsewhere in
+    // the file can't satisfy it.
+    taskBasedFlows.foreach: name =>
+      val stated =
+        statedCap.findAllMatchIn(finalReviewCall(name)).map(_.group(1)).toList
+      assertEquals(stated, List(FinalReviewCap.toString), name)
+
+  test("every cap outside a final review is the library default, spelled out"):
+    // Each flow writes the number instead of inheriting it, so raising
+    // `DefaultMaxIterations` fails here until the flows follow.
+    val outside = indexNames
+      .map: name =>
+        val text = resourceText(name)
+        val rest =
+          if taskBasedFlows.contains(name) then
+            text.replace(finalReviewCall(name), "")
+          else text
+        name -> statedCap.findAllMatchIn(rest).map(_.group(1)).toList
+      .filter((_, stated) => stated.nonEmpty)
+    assert(outside.nonEmpty, "no flow states a cap outside a final review")
+    outside.foreach: (name, stated) =>
       assertEquals(stated.distinct, List(DefaultMaxIterations.toString), name)
 
   private def withTempHome(body: os.Path => Unit): Unit =

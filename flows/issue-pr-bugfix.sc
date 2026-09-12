@@ -31,7 +31,8 @@
   *   1. Plans + implements the fix on the same branch, reviewing each task in
   *      a single pass, then loops a review over everything the run changed.
   *   1. Pushes the fix and regenerates the PR title + description from the
-  *      full branch diff.
+  *      full branch diff, plus a section listing whatever the final review
+  *      left unfixed.
   *
   * The feature branch is named deterministically from the issue number
   * (`fix/issue-<n>`), so a re-run after a crash lands on the same branch.
@@ -135,7 +136,7 @@ flow(
       display(s"CI red on ${pr.shortRef} — reproduction confirmed")
 
       confirmReproductionMatches(pr, issue)
-      planAndImplementFix(session, issuePayload)
+      val openFindings = planAndImplementFix(session, issuePayload)
 
       // Again later than the task edits above, so the fix commits exist.
       stage("Push fix + finalise PR"):
@@ -145,12 +146,14 @@ flow(
             "that makes it pass.",
           issue
         )
+        val closes = s"""${finalSum.body}
+                        |
+                        |Closes ${issueHandle.shortRef}.""".stripMargin
         gh.updatePr(
           pr,
           title = finalSum.title,
-          body = s"""${finalSum.body}
-                    |
-                    |Closes ${issueHandle.shortRef}.""".stripMargin
+          body = (closes :: renderOpenFindings(openFindings).toList)
+            .mkString("\n\n")
         )
 
 // ============================ pipeline helpers ============================
@@ -228,11 +231,13 @@ def confirmReproductionMatches(pr: PrHandle, issue: Issue)(using
   *
   * `issuePayload` is what reviewers are shown as the user's request: the run's
   * prompt is only an issue reference.
+  *
+  * Returns what the final review left open, for the PR body.
   */
 def planAndImplementFix[B <: BackendTag](
     session: FlowSession[B],
     issuePayload: String
-)(using FlowControl): Unit =
+)(using FlowControl): IgnoredIssues =
   val fixPlan = stage("Plan the fix"):
     Plan.autonomous
       .from(
@@ -260,7 +265,8 @@ def planAndImplementFix[B <: BackendTag](
   // Everything the run changed — the failing test and the fix alike — reviewed
   // in one loop: each task's single pass took the fixer's word for its own
   // fixes, and this is what checks them. The per-task declines seed the loop,
-  // so its reviewers don't re-report findings the fixer already answered.
+  // so its reviewers don't re-report findings the fixer already answered. A
+  // higher cap than the library default: nothing reviews again after this loop.
   stage("Final review"):
     reviewAndFixLoop(
       coderSession = session,
@@ -268,6 +274,6 @@ def planAndImplementFix[B <: BackendTag](
       task = Task(Title(s"Fix for ${issueHandle.shortRef}"), fixPlan.brief),
       userRequest = Some(issuePayload),
       diff = ReviewDiff.WholeRun,
-      maxIterations = 3,
+      maxIterations = 5,
       priorDeclines = IgnoredIssues(taskDeclines.flatMap(_.issues))
     )

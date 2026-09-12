@@ -410,7 +410,8 @@ object FlowCanary:
           )
 
   /** `implement-enhanced.sc`: plan → `.reviewed` → the seeded implementer
-    * session → task loop with `taskPrompt` → `openPrFromBranch`.
+    * session → task loop with `taskPrompt` → `openPrFromBranch` carrying what
+    * the loops left open.
     */
   def enhancedImplementFlowShape(): Unit =
     flow(OrcaArgs()):
@@ -419,8 +420,8 @@ object FlowCanary:
 
       val session = claude.session("implementer", seed = plan.brief)
 
-      for task <- plan.tasks do
-        stage(s"task: ${task.title}"):
+      val declines =
+        for task <- plan.tasks yield stage(s"task: ${task.title}"):
           val _ = session.run(plan.taskPrompt(task))
           reviewAndFixLoop(
             coderSession = session,
@@ -428,7 +429,10 @@ object FlowCanary:
             task = task
           )
 
-      val _ = openPrFromBranch(summarisingAgent = claude.haiku)
+      val _ = openPrFromBranch(
+        summarisingAgent = claude.haiku,
+        openFindings = IgnoredIssues(declines.flatMap(_.issues))
+      )
 
   /** Role agents (ADR 0020): the three role accessors hand out backend-pinned
     * agents (so their sessions thread), and the per-role programmatic overrides
@@ -517,6 +521,7 @@ object FlowCanary:
 
         val _ = openPrFromBranch(
           summarisingAgent = claude.haiku,
+          openFindings = IgnoredIssues(Nil),
           body =
             summary => s"${summary.body}\n\nCloses ${issueHandle.shortRef}."
         )
