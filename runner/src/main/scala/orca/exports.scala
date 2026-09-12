@@ -44,8 +44,15 @@ export orca.agents.{
 }
 export orca.plan.{BugReportMatch, Plan, Sessioned, Task, Title, Triage, Verdict}
 // PrSummary is the result type of openPrFromBranch and summarisePr;
-// orcaCommentMarker is the idempotency marker gh.upsertComment keys on.
-export orca.pr.{openPrFromBranch, orcaCommentMarker, summarisePr, PrSummary}
+// orcaCommentMarker is the idempotency marker gh.upsertComment keys on;
+// renderOpenFindings is for a flow that writes its own PR body.
+export orca.pr.{
+  openPrFromBranch,
+  orcaCommentMarker,
+  renderOpenFindings,
+  summarisePr,
+  PrSummary
+}
 // Reviewer-customisation surface: compose your own `List[Reviewer]` and
 // `buildReviewers` it into the agents `reviewAndFixLoop` takes. IgnoredIssue(s)
 // is the result type of fixLoop/reviewAndFixLoop/reviewThenFix; Lint is

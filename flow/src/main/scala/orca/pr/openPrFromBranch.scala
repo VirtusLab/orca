@@ -2,6 +2,7 @@ package orca.pr
 
 import orca.{FlowContext, FlowControl, gh, git, stage}
 import orca.agents.Agent
+import orca.review.IgnoredIssues
 import orca.tools.PrHandle
 
 import ox.either.orThrow
@@ -20,11 +21,18 @@ import ox.either.orThrow
   * s"${s.body}\n\nCloses #42."`. Point `summarisingAgent` at a cheap model and
   * pass `context` to anchor it to the originating issue/prompt.
   *
+  * `openFindings` is what the run's review loop returned still open; it goes
+  * into the body after `body`'s text as its own section
+  * ([[renderOpenFindings]]), never through the summariser. Required, not
+  * defaulted: a flow that forgets it would open a PR that says nothing about
+  * findings it left unfixed.
+  *
   * `gh.createPr` is idempotent by head branch: a re-run that already opened the
   * PR gets the existing handle back rather than failing. Returns that handle.
   */
 def openPrFromBranch(
     summarisingAgent: Agent[?],
+    openFindings: IgnoredIssues,
     title: PrSummary => String = _.title,
     body: PrSummary => String = _.body,
     context: Option[String] = None,
@@ -42,4 +50,7 @@ def openPrFromBranch(
     )
 
   stage("Open PR"):
-    gh.createPr(title = title(summary), body = body(summary)).orThrow
+    val prBody =
+      (body(summary) :: renderOpenFindings(openFindings).toList)
+        .mkString("\n\n")
+    gh.createPr(title = title(summary), body = prBody).orThrow

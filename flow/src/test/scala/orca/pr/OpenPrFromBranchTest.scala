@@ -16,6 +16,8 @@ import orca.agents.{
   SessionId,
   ToolSet
 }
+import orca.plan.Title
+import orca.review.{IgnoredIssue, IgnoredIssues}
 import orca.tools.{GitHubTool, GitTool, OsGitTool, PrHandle}
 import orca.progress.{BranchMode, ProgressHeader, ProgressStore}
 import orca.testkit.GitRepo
@@ -31,7 +33,8 @@ import java.util.concurrent.ConcurrentLinkedQueue
   * `gh.createPr`. Recording `git`/`gh` doubles capture call order; a real
   * [[TestFlowControl]] runs the actual `stage` machinery so the emitted stage
   * boundaries are real. Also pins that the branch diff reaches the summariser
-  * bounded; how it is cut is [[orca.BoundedDiffTest]].
+  * bounded; how it is cut is [[orca.BoundedDiffTest]]. Open findings reach the
+  * body as a section; what the section says is [[RenderOpenFindingsTest]].
   */
 class OpenPrFromBranchTest extends FunSuite:
 
@@ -56,13 +59,15 @@ class OpenPrFromBranchTest extends FunSuite:
     def defaultBase(): String = "main"
     def diffVsBase(base: String): String = branchDiff
 
-  /** Records `createPr` and hands back a fixed handle; every other endpoint is
-    * unreached by `openPrFromBranch`.
+  /** Records `createPr` and the body it was given, and hands back a fixed
+    * handle; every other endpoint is unreached by `openPrFromBranch`.
     */
   private class RecordingGh(calls: ConcurrentLinkedQueue[String])
       extends GitHubTool:
+    var prBody: String = ""
     def createPr(title: String, body: String)(using WorkspaceWrite) =
       calls.add("createPr"): Unit
+      prBody = body
       Right(PrHandle("acme", "widgets", 1))
     def updatePr(pr: PrHandle, title: String, body: String)(using
         WorkspaceWrite
@@ -139,10 +144,14 @@ class OpenPrFromBranchTest extends FunSuite:
       handle: PrHandle,
       calls: List[String],
       stages: List[String],
-      prompt: String
+      prompt: String,
+      prBody: String
   )
 
-  private def run(branchDiff: String): Run =
+  private def run(
+      branchDiff: String,
+      openFindings: IgnoredIssues = IgnoredIssues(Nil)
+  ): Run =
     val calls = new ConcurrentLinkedQueue[String]()
     val stages = new ConcurrentLinkedQueue[String]()
     val listener: OrcaListener =
@@ -156,22 +165,25 @@ class OpenPrFromBranchTest extends FunSuite:
       ProgressHeader("main", "feat/test", "deadbeef", BranchMode.Created)
     )
     val summariser = new StubSummariser()
+    val gh = new RecordingGh(calls)
     given FlowControl = new PrTestControl(
       new EventDispatcher(List(listener)),
       new RecordingGit(new OsGitTool(dir), calls, branchDiff),
-      new RecordingGh(calls),
+      gh,
       store
     )
 
     val handle = openPrFromBranch(
       summarisingAgent = summariser,
+      openFindings = openFindings,
       body = summary => s"${summary.body}\n\nCloses #1."
     )
     Run(
       handle,
       calls.asScala.toList,
       stages.asScala.toList,
-      summariser.captured
+      summariser.captured,
+      gh.prBody
     )
 
   test("openPrFromBranch runs push, summarise, create as three ordered stages"):
@@ -183,6 +195,19 @@ class OpenPrFromBranchTest extends FunSuite:
       r.stages,
       List("Push branch", "Generate PR title and description", "Open PR")
     )
+
+  test("open findings follow the flow's body as their own section"):
+    val open = IgnoredIssues(
+      List(IgnoredIssue(Title("Null check missing"), "max iterations reached"))
+    )
+    val r = run("stub-diff", open)
+    assertEquals(
+      r.prBody,
+      "Generated body\n\nCloses #1.\n\n" + renderOpenFindings(open).get
+    )
+
+  test("with nothing open the body is the flow's own, nothing appended"):
+    assertEquals(run("stub-diff").prBody, "Generated body\n\nCloses #1.")
 
   test("a branch too large to summarise reaches the agent cut short"):
     // Unbounded, this is the prompt no context window takes, and it is rebuilt
