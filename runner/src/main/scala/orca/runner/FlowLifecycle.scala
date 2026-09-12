@@ -27,11 +27,12 @@ import orca.progress.{
   RecoveryCheck,
   ScannedProgressLog,
   SessionRecord,
+  ThrowawayBranch,
   UnsafeBranchRefRefused
 }
 import orca.settings.{AgentSettings, SettingsFile, SettingsScope}
 import orca.subprocess.TtyProbe
-import orca.tools.{GitTool, UntrackedFiles}
+import orca.tools.{GitTool, PrHandle, UntrackedFiles}
 import org.slf4j.LoggerFactory
 import ox.either.orThrow
 
@@ -67,7 +68,6 @@ object FlowLifecycle:
   private[orca] def run(
       ctx: DefaultFlowContext[?, ?, ?],
       flowSetup: FlowSetup,
-      returnToStartBranch: Boolean,
       debug: Boolean
   )(body: FlowControl ?=> Unit): Unit =
     val log = LoggerFactory.getLogger("orca.flow")
@@ -120,7 +120,13 @@ object FlowLifecycle:
               )
             )
         throw f
-    teardownSuccess(ctx.git, flowSetup, returnToStartBranch, ctx.emit)
+    teardownSuccess(
+      ctx.git,
+      flowSetup,
+      BranchHandoff.of(flowSetup.branchMode, flowSetup.worktree, ctx.openedPr),
+      ctx.openedPr,
+      ctx.emit
+    )
 
   /** Replay the persisted resume-wire-id map (ADR 0018 §2.6) into each
     * session's own agent's in-memory registry, so a resumed run resumes against
@@ -1152,7 +1158,8 @@ object FlowLifecycle:
   private[orca] def teardownSuccess(
       git: GitTool,
       setup: FlowSetup,
-      returnToStartBranch: Boolean,
+      handoff: BranchHandoff,
+      openedPr: Option[PrHandle],
       emit: OrcaEvent => Unit
   ): Unit =
     // Teardown runs outside any user stage, so it mints its own
@@ -1191,40 +1198,36 @@ object FlowLifecycle:
         counted
       finally
         bestEffort("branch handoff"):
-          finishBranch(git, setup, returnToStartBranch)
+          finishBranch(git, setup, handoff, openedPr)
     bestEffort("closing summary"):
       ClosingSummary
         .lines(git.currentBranch(), changes, setup.worktree)
         .foreach(line => emit(OrcaEvent.Step(line)))
 
   /** Where HEAD ends up after a successful run. A throwaway feature branch
-    * (only orca bookkeeping, no user code vs the start branch) is deleted and
-    * HEAD returns to the starting branch. Otherwise the feature branch is kept,
-    * and `returnToStartBranch` chooses where HEAD lands — stay on the feature
-    * branch (the default) or return to the starting branch (PR flows).
-    * Best-effort and success-path-only; never deletes start/protected branches.
+    * ([[ThrowawayBranch]]: created by orca, only orca bookkeeping vs the start
+    * branch) is deleted and HEAD returns to the starting branch. Otherwise the
+    * feature branch is kept, and `handoff` ([[BranchHandoff]]) chooses where
+    * HEAD lands. Best-effort and success-path-only; never deletes
+    * start/protected branches.
     *
-    * The throwaway-delete is additionally gated on `setup.branchMode`: a branch
-    * orca did not create (`Reused`, skip-branch mode) must never be deleted,
-    * even if a tampered header's `startingBranch` is crafted to name some
-    * existing branch that happens to diff-blank against the feature branch —
-    * that `startingBranch` cross-check doesn't otherwise exist (unlike
-    * `branch`'s R30 check against the actual current branch). Residual,
-    * accepted: with `branchMode = Reused`, `returnToStartBranch` can still
-    * `checkout` a tampered `startingBranch` — navigation only, never
-    * destructive.
+    * A branch a PR was opened from is never deleted, however empty it looks
+    * against the start branch: the PR is open against what was pushed, and the
+    * user needs the branch to answer it.
     */
   private def finishBranch(
       git: GitTool,
       setup: FlowSetup,
-      returnToStartBranch: Boolean
+      handoff: BranchHandoff,
+      openedPr: Option[PrHandle]
   )(using WorkspaceWrite): Unit =
     val throwaway =
-      setup.branchMode == BranchMode.Created &&
-        setup.featureBranch.value != setup.startBranch &&
-        !git.branchHasChangesExcludingOrca(
-          setup.startBranch,
-          setup.featureBranch.value
+      openedPr.isEmpty &&
+        ThrowawayBranch.isThrowaway(
+          git,
+          setup.branchMode,
+          startBranch = setup.startBranch,
+          featureBranch = setup.featureBranch.value
         )
     if throwaway then
       // The start branch existed when this run began, so a plain `checkout`
@@ -1232,8 +1235,11 @@ object FlowLifecycle:
       // to paper over by creating it anew.
       git.checkout(setup.startBranch).orThrow
       git.deleteBranch(setup.featureBranch.value)
-    else if returnToStartBranch then git.checkout(setup.startBranch).orThrow
-    // else: stay on the feature branch (the default).
+    else
+      handoff match
+        case BranchHandoff.ReturnToStart =>
+          git.checkout(setup.startBranch).orThrow
+        case BranchHandoff.StayPut => ()
 
   /** Failure teardown (ADR 0018 §2.5): discard the failed stage's uncommitted
     * partial edits with `git reset --hard` (which restores the last committed

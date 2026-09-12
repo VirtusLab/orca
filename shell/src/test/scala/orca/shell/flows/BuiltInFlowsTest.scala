@@ -121,6 +121,52 @@ class BuiltInFlowsTest extends munit.FunSuite:
       val stated = cap.findAllMatchIn(text).map(_.group(1)).toList
       assertEquals(stated.distinct, List(DefaultMaxIterations.toString), name)
 
+  /** A flow's last statement, as its last non-blank line. */
+  private def lastStatement(name: String): String =
+    resourceText(name).linesIterator.filter(_.trim.nonEmpty).toList.last.trim
+
+  test("every code-producing flow ends with a best-effort PR step"):
+    // Two exact sets that partition the flows by which PR helper they use, so a
+    // code-producing flow that drops the step — or reaches for the
+    // GitHub-requiring one — shows up here, and so does a `review.sc` that
+    // grows a PR step it should not have.
+    val bestEffort = List(
+      "implement-enhanced.sc",
+      "implement-interactive.sc",
+      "implement.sc",
+      "simple.sc"
+    )
+    assertEquals(
+      indexNames.filter(resourceText(_).contains("openPrIfGitHub(")).sorted,
+      bestEffort
+    )
+    assertEquals(
+      indexNames.filter(resourceText(_).contains("openPrFromBranch(")).sorted,
+      List("issue-pr.sc")
+    )
+    // "Ends with", not merely "calls": the step pushes the branch and describes
+    // it from the whole branch diff, so a call placed above the final review
+    // would summarise work the review then keeps changing.
+    bestEffort.foreach: name =>
+      assert(lastStatement(name).startsWith("openPrIfGitHub("), name)
+
+  test("a flow that opens its own PR records it for the lifecycle"):
+    // `issue-pr-bugfix.sc` opens its PR with a bare `gh.createPr`, so the
+    // handle only reaches the lifecycle — and the run only ends on the start
+    // branch — if the flow records it itself.
+    assert(
+      resourceText("issue-pr-bugfix.sc").contains("recordOpenedPr("),
+      "issue-pr-bugfix.sc must record the PR it opens"
+    )
+
+  test("no flow's header claims the removed branch-handoff flag"):
+    // The argument itself no longer compiles; this catches the prose left
+    // behind in a header, which no compile does.
+    assertEquals(
+      indexNames.filter(resourceText(_).contains("returnToStartBranch")),
+      Nil
+    )
+
   private def withTempHome(body: os.Path => Unit): Unit =
     val home = os.temp.dir(prefix = "orca-built-in-flows-test")
     try body(home)

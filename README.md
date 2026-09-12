@@ -137,6 +137,10 @@ flow(OrcaArgs(args)):
       diff = ReviewDiff.WholeRun,
       maxIterations = 3
     )
+
+  // Best effort: opens a PR when the checkout is on a GitHub `gh` can reach,
+  // and says why in one line when it isn't.
+  openPrIfGitHub(summarisingAgent = codingAgent.cheap)
 ```
 
 ```bash
@@ -145,8 +149,10 @@ scala-cli run implement.sc -- "Add a rate-limiter to the /login endpoint"
 
 Each flow starts by creating a feature branch, named by a short
 cheap-model-generated label derived from the prompt (slugged; pass `branchNaming
-= ...` to override). This flow opens no PR, so on success you're left on the
-feature branch, ready to test or open a PR by hand — see [The flow
+= ...` to override). On success the flow opens a PR when the repository is on a
+GitHub `gh` can reach, and hands you back the branch you started on — the work
+is on the PR. Otherwise it says so in one line and leaves you on the feature
+branch, ready to test or open a PR by hand — see [The flow
 lifecycle](#the-flow-lifecycle) for the full success/failure/resume behavior.
 
 If the flow is interrupted — user intervention or an intermittent error — just
@@ -193,7 +199,7 @@ backend's model accessors and backend-specific extras:
 | `pi` | `withModel(Model)` | [Pi](https://pi.dev/) coding agent backend, driven through `pi --mode rpc`. Pi handles provider/model selection through its own CLI configuration; pin a model with `pi.withModel(Model("provider/model"))`. Interactive calls can ask clarifying questions via Orca's `ask_user` bridge. |
 | `gemini` | `flash`, `cheap` (→ flash), `withModel(Model)` | Google Gemini CLI coding/reviewing agent, driven via `gemini --output-format stream-json`. Bare `gemini` pins **Gemini 2.5 Pro**; use `gemini.flash` for cheaper one-shot calls. Structured output is prompt-enforced (Gemini has no schema flag); `withReadOnly` maps to `--approval-mode plan`. See [ADR 0015](adr/0015-gemini-stream-json-driver.md). |
 | `git` | `createBranch`, `checkout`, `ensureClean`, `commit`, `forceAdd`, `push`, `currentBranch`, `headCommit`, `uncommittedDiff`, `changedFiles`, `reviewChanges`, `pendingChanges`, `diffVsBase`, `defaultBase`, `discardUncommitted`, `deleteBranch`, `branchHasChangesExcludingOrca` | Git operations against the working tree. Recoverable failures (`BranchAlreadyExists`, `BranchNotFound`, `NothingToCommit`, `PushFailure` — `NonFastForward`/`RemoteDeclined`) surface as `Either`; `.orThrow` converts a `Left` back to an exception when the case is unexpected. `forceAdd`, `discardUncommitted`, `deleteBranch` are used by the flow runtime for bookkeeping and teardown. `uncommittedDiff` covers the whole repository minus `.orca/` bookkeeping, tracked files only, and is empty once the work is committed — `diffVsBase` is the branch-wide view. `reviewChanges` is what `reviewAndFixLoop` hands reviewers: that diff plus the contents of files new to the repo, together with the list of every path in the change set and how much of each changed. It takes an optional commit to compare against (`headCommit` reads one) so work already committed still shows up. `changedFiles` is the path list on its own, for a consumer gating on file names — the diff text alone names neither a binary change nor a rename, and leaves a trailing tab on a path containing a space. `pendingChanges` describes what the next commit will include: a `--stat` summary, the new files, and the diff. |
-| `gh` | `createPr`, `updatePr`, `readIssue`, `readIssueComments`, `readPrComments`, `writeComment(pr, body)` / `writeComment(issue, body)`, `upsertComment(pr, marker, body)` / `upsertComment(issue, marker, body)`, `buildStatus`, `waitForBuild` | GitHub PR + CI integration via the `gh` CLI. `createPr` is idempotent by branch (returns the existing PR if one is open); `upsertComment` finds a prior comment carrying `marker` and edits it in place (see [Authoring rules](#authoring-rules) for the re-run pattern). `updatePr` replaces a PR's title + body. `waitForBuild` returns `Either[BuildWaitFailed, …]`. |
+| `gh` | `availability`, `createPr`, `updatePr`, `readIssue`, `readIssueComments`, `readPrComments`, `writeComment(pr, body)` / `writeComment(issue, body)`, `upsertComment(pr, marker, body)` / `upsertComment(issue, marker, body)`, `buildStatus`, `waitForBuild` | GitHub PR + CI integration via the `gh` CLI. `availability` is a read-only probe of whether a PR can be opened from this checkout, answering with a [`GitHubAvailability`](#data-structures). `createPr` is idempotent by branch (returns the existing PR if one is open); `upsertComment` finds a prior comment carrying `marker` and edits it in place (see [Authoring rules](#authoring-rules) for the re-run pattern). `updatePr` replaces a PR's title + body. `waitForBuild` returns `Either[BuildWaitFailed, …]`. |
 | `fs` | `read`, `write`, `list` | Working-tree file I/O. `read` returns `Option[String]` so a missing file is a branch point, not an exception. |
 
 The runtime owns git: every write-capable agent turn is told not to commit,
@@ -276,7 +282,7 @@ Top-level, available via `import orca.*`:
 
 | Method | Signature | Use |
 |---|---|---|
-| `flow(args, ...)(body)` | `flow(args: OrcaArgs, branchNaming?, stackSettings?, planningAgent?, codingAgent?, reviewAgent?, returnToStartBranch = false, progressStore?)(body)` | Entry point. Creates one feature branch + one progress log for the run. The three role agents (below) resolve from settings — see [Settings](#settings) — defaulting to claude; `planningAgent`/`codingAgent`/`reviewAgent` here are per-role programmatic overrides (`Some(_.claude.opus)`) that win over both settings files. Branch naming defaults to a short cheap-model-generated label (slugged); pass `branchNaming = Some(BranchNamingStrategy.issue(handle))` to override (e.g. for issue flows). `stackSettings = Some(StackSettings(...))` pins the run's [stack settings](#settings) — the settings file's stack portion is then neither read nor written (the escape hatch for a language-specific flow; its agent keys are still honoured). See [The flow lifecycle](#the-flow-lifecycle) for the full branch/teardown behavior. |
+| `flow(args, ...)(body)` | `flow(args: OrcaArgs, branchNaming?, stackSettings?, planningAgent?, codingAgent?, reviewAgent?, progressStore?)(body)` | Entry point. Creates one feature branch + one progress log for the run. The three role agents (below) resolve from settings — see [Settings](#settings) — defaulting to claude; `planningAgent`/`codingAgent`/`reviewAgent` here are per-role programmatic overrides (`Some(_.claude.opus)`) that win over both settings files. Branch naming defaults to a short cheap-model-generated label (slugged); pass `branchNaming = Some(BranchNamingStrategy.issue(handle))` to override (e.g. for issue flows). `stackSettings = Some(StackSettings(...))` pins the run's [stack settings](#settings) — the settings file's stack portion is then neither read nor written (the escape hatch for a language-specific flow; its agent keys are still honoured). See [The flow lifecycle](#the-flow-lifecycle) for the full branch/teardown behavior. |
 | `planningAgent` (in-body accessor) | `planningAgent: Agent[ctx.PlanB]` | The planning-role agent, resolved from settings — see [Coding agent tools](#coding-agent-tools). Hand it to `Plan.*`. |
 | `codingAgent` (in-body accessor) | `codingAgent: Agent[ctx.CodeB]` | The coding-role agent — the run's primary: implementer sessions, branch naming, stack discovery, default commit messages. |
 | `reviewAgent` (in-body accessor) | `reviewAgent: Agent[ctx.ReviewB]` | The review-role agent: `allReviewers(reviewAgent)`, the reviewer-picker and the lint summariser default to its tiers. |
@@ -313,7 +319,8 @@ slot is typed `AgentWiring => Ox ?=> OpencodeAgent`.
 Every side-effecting call — git mutations (`commit`/`push`/`discardUncommitted`/…),
 `fs.write`, `gh` writes, every `agent.*.run` — must happen inside a `stage`
 body, and **the compiler enforces it**: a mutation outside a stage doesn't
-compile. Pure reads (`git.uncommittedDiff`, `git.changedFiles`, `gh.readIssue`, `fs.read`),
+compile. Pure reads (`git.uncommittedDiff`, `git.changedFiles`, `gh.readIssue`,
+`gh.availability`, `fs.read`),
 `display`, and `fail` run anywhere; `agent.session(name, seed)` runs outside a
 stage too — it records a session, not a side effect. Where to *place* effects is
 covered by the [Authoring rules](#authoring-rules).
@@ -370,11 +377,13 @@ Each `flow(...)` run is bound to exactly one feature branch and one progress log
   it when the remote branch still carries the log (i.e. the flow pushed). A
   throwaway feature branch (no substantive changes vs the starting branch) is
   deleted and HEAD returns to the starting branch. Otherwise the feature branch
-  is kept and HEAD **stays on it by default** (so you end on the work); pass
-  `returnToStartBranch = true` — for flows that open a PR — to return HEAD to
-  the starting branch instead. The run then closes by naming the branch you are
-  left on, how many files changed since the commit it started from, and the
-  `git diff` that shows them.
+  is kept, and where HEAD lands follows the run: a run that created a branch and
+  **opened a PR** hands you back the branch you started on (the work is on the
+  PR). Every other run leaves you where you were — on the feature branch when no
+  PR was opened or under `--skip-branch`, and untouched under `--worktree`,
+  where the work is in the separate checkout the summary names. The run then
+  closes by naming the branch you are left on, how many files changed since the
+  commit it started from, and the `git diff` that shows them.
 - **Failure teardown:** discard the failed stage's uncommitted partial edits —
   `git reset --hard` for tracked files, plus `git clean -fd` for the files it
   newly created; stay on the feature branch so a re-run resumes in place.
@@ -782,6 +791,9 @@ PR utilities, available via `import orca.pr.*`:
 | Method | Use |
 |---|---|
 | `summarisePr(agent, diff, context?, instructions?)` | Fold a branch diff into a `PrSummary(title, body)` for `gh.createPr`. `context` is an optional preamble (originating issue link, user prompt, etc.) the model anchors the description to. A diff too large to send is cut short. Use a cheap model (`claude.cheap`, `codingAgent.cheap`). |
+| `openPrFromBranch(summarisingAgent, title?, body?, context?, instructions?): PrHandle` | Push the feature branch and open a PR for it, as three stages: push → summarise → create. Requires a GitHub remote and a logged-in `gh` — without either the run fails. `title`/`body` rewrite the generated text (`body = s => s"${s.body}\n\nCloses #42."`). |
+| `openPrIfGitHub(summarisingAgent, title?, body?, context?, instructions?): Option[PrHandle]` | Probes `gh.availability` outside any stage, then runs `openPrFromBranch`'s push → summarise → create when the checkout is on GitHub. Where it isn't — no remote, a remote that isn't GitHub, a GitHub `gh` cannot reach, a run that changed no code, or a push/create the remote refuses — it emits one `Step` saying why, returns `None`, and the run finishes. The step every code-producing built-in flow ends with. |
+| `recordOpenedPr(pr)` | Tell the lifecycle a PR was opened, so the run hands the checkout back on the branch it started from. Only for a flow that opens its PR with a bare `gh.createPr` — the two helpers above record it themselves. |
 
 ### Customising prompts
 
@@ -862,9 +874,20 @@ results.
   so you cannot accidentally pass a Claude session to Codex.
 - **`orca.Title`** — opaque `String` alias for short labels (`Task.title`,
   `ReviewIssue.title`); `Title("…")` to construct, `.value` to read.
-- **`orca.tools.PrHandle(owner, repo, number)`** — handle to an open pull
-  request, returned by `gh.createPr`. `derives JsonData` so a stage can record
-  it: a push-and-open-PR stage is the checkpoint before a CI wait.
+- **`orca.tools.PrHandle(host, owner, repo, number)`** — handle to an open pull
+  request, returned by `gh.createPr`. `host` is `github.com` or a GitHub
+  Enterprise hostname, and every `gh` call taking the handle is routed to it.
+  `derives JsonData` so a stage can record it: a push-and-open-PR stage is the
+  checkpoint before a CI wait. `IssueHandle` carries no host, so the issue
+  flows read their issue from gh's default host (`GH_HOST`, else the host gh is
+  logged in to).
+- **`orca.tools.GitHubAvailability`** — what `gh.availability` answers with.
+  `Available(host, owner, repo)`: the repository gh resolves, on github.com or a
+  GitHub Enterprise host. `NoRemote`: no `origin`. `NoHost(remote)`: `origin`
+  has no host (a local path). `NotGitHub(host)`: gh has no login for that host,
+  so a GHES host needs `gh auth login --hostname <host>`. `Unreachable(host,
+  reason)`: the host is GitHub, but gh could not answer for it — `reason` is
+  gh's own words.
 - **`orca.pr.PrSummary(title, body)`** — what `summarisePr` returns. The two
   fields feed `gh.createPr(title = …, body = …)` directly.
 - **`orca.review.ReviewIssue` / `ReviewResult`** — what reviewer agents return.
@@ -974,7 +997,7 @@ action non-interactively and exits.
 | `orca run <flow> [task]` | `--verbose` (stack trace on abort), `--skip-branch`, `--keep-changes` (leave uncommitted files in place), `--worktree` (run in a git worktree of this repository), `--honor-pin` (use the flow's own pinned orca version) | run a flow, propagating its exit code; task is read from stdin when omitted and piped |
 | `orca view <flow>` | `--plain`, `--color` | print a flow's source (highlighted when stdout is a terminal) |
 | `orca edit <flow>` | `--to project\|global` | open a flow in `$VISUAL`/`$EDITOR`/vi (`--to` required to customize a built-in) |
-| `orca create "<goal>"` | `--name <file>`, `--global` | author a new flow: the built-in `simple.sc` flow writes it in an isolated sandbox with the configured role agents; `--name` is auto-derived when omitted |
+| `orca create "<goal>"` | `--name <file>`, `--global` | author a new flow: the built-in `simple.sc` flow writes it in an isolated sandbox with the configured role agents; `--name` is auto-derived when omitted. The sandbox is a fresh repository with no remote, so the flow's closing PR step opens nothing and says so |
 | `orca fork <source> "<changes>"` | `--name <file>`, `--global` | fork an existing flow, the same way |
 | `orca continue [selector]` | `--list`, `--json` | resume a recorded harness session (no selector = newest); `selector` is an index or session name |
 | `orca config` | `--planning-agent`, `--coding-agent`, `--review-agent`, each taking `harness[:model]`; or `--edit project\|global` | show the configured role agents, set any subset, or hand-edit that tier's settings file in `$VISUAL`/`$EDITOR`/vi (created from its template if absent) |

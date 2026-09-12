@@ -139,7 +139,6 @@ def flow(
     planningAgent: Option[AgentSet => Agent[?]] = None,
     codingAgent: Option[AgentSet => Agent[?]] = None,
     reviewAgent: Option[AgentSet => Agent[?]] = None,
-    returnToStartBranch: Boolean = false,
     progressStore: Option[ProgressStore] = None,
     // Agent factories share the `AgentWiring => Ox ?=> Agent` shape — see
     // FlowWiring's scaladoc.
@@ -212,7 +211,6 @@ def flow(
             planningAgent = planningAgent,
             codingAgent = codingAgent,
             reviewAgent = reviewAgent,
-            returnToStartBranch = returnToStartBranch,
             progressStore = progressStore,
             flowName = flowName,
             pricing = pricing,
@@ -303,7 +301,6 @@ private[orca] def runFlow(
     planningAgent: Option[AgentSet => Agent[?]] = None,
     codingAgent: Option[AgentSet => Agent[?]] = None,
     reviewAgent: Option[AgentSet => Agent[?]] = None,
-    returnToStartBranch: Boolean,
     progressStore: Option[ProgressStore],
     globalSettingsPath: os.Path = GlobalSettings.default,
     // `ORCA_FLOW_NAME`, forwarded into a freshly-written progress header (see
@@ -388,7 +385,6 @@ private[orca] def runFlow(
             FlowLifecycle.run(
               ctx,
               flowSetup,
-              returnToStartBranch = returnToStartBranch,
               debug = debug
             )(body)
           finally ctx.close()

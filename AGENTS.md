@@ -214,10 +214,12 @@ most easily broken:
 
 Build/test/format commands and the gated integration suites are in
 [CONTRIBUTING.md](CONTRIBUTING.md). Unit tests use in-memory fakes
-(`StubCliRunner` / `SpawnStubCliRunner`, `FakeAgent`, `FakePipedCliProcess`,
-`TestFlowContext` / `TestFlowControl`) and the shared `orca.testkit.GitRepo`
-temp-repo fixture (published via `tools % test->test`) — no network, no real
-filesystem outside `os.temp.dir()`.
+(`StubCliRunner` / `SpawnStubCliRunner` / `ThrowingCliRunner`, `FakeAgent`,
+`FakePipedCliProcess`, `TestFlowContext` / `TestFlowControl`) and the shared
+`orca.testkit` fixtures — the `GitRepo` temp repo, `StubGitHubTool` (every `gh`
+endpoint refusing, override the ones a suite reaches) and `PushlessGit` (the
+real git with the remote-facing calls stubbed) — published via `tools %
+test->test`; no network, no real filesystem outside `os.temp.dir()`.
 
 ### Debugging backend breakage
 

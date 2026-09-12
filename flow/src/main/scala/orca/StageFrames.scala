@@ -72,10 +72,14 @@ private[orca] trait StageFrames:
     */
   private final class Frame(val path: String, val baseCommit: Option[String]):
     private var counts: Map[String, Int] = Map.empty
+    def peek(name: String): Int = counts.getOrElse(name, 0)
     def next(name: String): Int =
-      val n = counts.getOrElse(name, 0)
+      val n = peek(name)
       counts = counts.updated(name, n + 1)
       n
+    def childId(name: String, occurrence: Int): String =
+      val segment = s"$name#$occurrence"
+      if path.isEmpty then segment else s"$path/$segment"
 
   // The root frame (path "") is the flow body; it is never popped.
   private var frames: List[Frame] = List(new Frame("", None))
@@ -88,10 +92,17 @@ private[orca] trait StageFrames:
   def enterStage(name: String, baseCommit: Option[String]): String =
     assertOwnerThread("stage(...)")
     val parent = frames.head
-    val segment = s"$name#${parent.next(name)}"
-    val id = if parent.path.isEmpty then segment else s"${parent.path}/$segment"
+    val id = parent.childId(name, parent.next(name))
     frames = new Frame(id, baseCommit) :: frames
     id
+
+  /** The id the next [[enterStage]] for `name` in the current scope would mint,
+    * without minting it.
+    */
+  def peekStageId(name: String): String =
+    assertOwnerThread("peekStageId(...)")
+    val parent = frames.head
+    parent.childId(name, parent.peek(name))
 
   def stageBaseCommit: Option[String] = frames.head.baseCommit
 

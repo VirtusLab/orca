@@ -27,10 +27,10 @@ private[runner] object ClosingSummary:
   /** One line per fact, each emitted as its own `OrcaEvent.Step` so listeners
     * that render an event per line keep them aligned.
     *
-    * When HEAD has left the branch the count was taken on (a PR flow's
-    * `returnToStartBranch`), the command is a range diff and names that branch
-    * — a plain `git diff <base>` would run against the branch the user landed
-    * on and show none of the work.
+    * When HEAD has left the branch the count was taken on (a run that opened a
+    * PR is handed back its start branch), the command is a range diff and names
+    * that branch — a plain `git diff <base>` would run against the branch the
+    * user landed on and show none of the work.
     *
     * `worktree` is the run's own checkout when it had one (`--worktree`). The
     * user's shell never moved there, so the first line names the directory the

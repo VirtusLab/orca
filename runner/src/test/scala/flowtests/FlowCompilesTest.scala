@@ -258,7 +258,7 @@ object FlowCanary:
           orcaCommentMarker(userPrompt, "reject"),
           "updated verdict"
         )
-        val pr = PrHandle("acme", "widgets", 7)
+        val pr = PrHandle("github.com", "acme", "widgets", 7)
         val _ = gh.readPrComments(pr)
         gh.writeComment(pr, "pr comment")
         gh.updatePr(pr, "new title", "new body")
@@ -410,7 +410,8 @@ object FlowCanary:
           )
 
   /** `implement-enhanced.sc`: plan → `.reviewed` → the seeded implementer
-    * session → task loop with `taskPrompt` → `openPrFromBranch`.
+    * session → task loop with `taskPrompt` → `openPrIfGitHub`, the best-effort
+    * PR step every code-producing flow ends with.
     */
   def enhancedImplementFlowShape(): Unit =
     flow(OrcaArgs()):
@@ -428,7 +429,7 @@ object FlowCanary:
             task = task
           )
 
-      val _ = openPrFromBranch(summarisingAgent = claude.haiku)
+      val _ = openPrIfGitHub(summarisingAgent = claude.haiku)
 
   /** Role agents (ADR 0020): the three role accessors hand out backend-pinned
     * agents (so their sessions thread), and the per-role programmatic overrides
@@ -563,6 +564,10 @@ object FlowCanary:
           val pr: PrHandle = stage("Push + open tentative PR"):
             git.push().orThrow
             gh.createPr(title = summary, body = "Failing test only.").orThrow
+
+          // Outside the stage: a resume replays the recorded handle without
+          // running the body, and the lifecycle still has to learn about it.
+          recordOpenedPr(pr)
 
           // `waitForBuild` is a pure polling read — outside any stage.
           if gh

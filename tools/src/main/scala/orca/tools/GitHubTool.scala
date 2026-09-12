@@ -3,23 +3,14 @@ package orca.tools
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import orca.{OrcaFlowException, WorkspaceWrite}
 import orca.events.{OrcaEvent, OrcaListener}
-import orca.agents.JsonData
 import orca.subprocess.{CliResult, CliRunner}
+import orca.util.TextUtil
 import ox.sleep
 import ox.resilience.{ResultPolicy, RetryConfig, retry}
 import ox.scheduling.Schedule
 
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
-
-/** A handle to an open pull request. `derives JsonData` so a `stage` can record
-  * and replay a `PrHandle` result (ADR 0018 §3.2).
-  */
-case class PrHandle(owner: String, repo: String, number: Int) derives JsonData:
-  /** Canonical GitHub short-form `<owner>/<repo>#<number>`. */
-  def shortRef: String = s"$owner/$repo#$number"
-
-  /** Browser URL for the PR. */
-  def url: String = s"https://github.com/$owner/$repo/pull/$number"
+import scala.util.control.NonFatal
 
 case class IssueHandle(owner: String, repo: String, number: Int):
   /** Canonical GitHub short-form `<owner>/<repo>#<number>`. */
@@ -176,6 +167,13 @@ final class NoChecksConfigured(grace: FiniteDuration)
   * writes PR comments, and polls GitHub's check-run status.
   */
 trait GitHubTool:
+  /** Read-only probe: can a PR be opened from this checkout, and where to. Asks
+    * git for the `origin` remote and gh for its login state, writing nothing —
+    * so a flow can branch on the answer before committing to a PR-opening
+    * stage.
+    */
+  def availability(): GitHubAvailability
+
   /** Open a PR from the current branch as it exists on the remote: the branch
     * must already be pushed to the repo the PR targets (fork clones are
     * unsupported), and commits made locally after the last push are not
@@ -284,8 +282,129 @@ private[orca] class OsGitHubTool(
       )
     )
 
-  private val PrUrlPattern =
-    """https://github\.com/([^/]+)/([^/]+)/pull/(\d+)""".r
+  /** [[readRetryConfig]] for the probe's legs, which keep the raw result: the
+    * same schedule, retrying the non-zero exit itself rather than the exception
+    * [[runGh]] turns it into. A gh that cannot start is not retried, as in
+    * [[readRetryConfig]].
+    */
+  private val probeRetryConfig: RetryConfig[Throwable, CliResult] =
+    RetryConfig(
+      readRetry,
+      ResultPolicy(isSuccess = _.exitCode == 0, isWorthRetrying = _ => false)
+    )
+
+  def availability(): GitHubAvailability =
+    import GitHubAvailability.*
+    originUrl() match
+      case None => NoRemote
+      case Some(url) =>
+        OsGitTool.remoteHost(url) match
+          case None => NoHost(url)
+          case Some(host) =>
+            authStatus(host) match
+              case AuthProbe.LoggedIn => repoGhResolves(host)
+              // A gh that will not start says nothing about the host, so it
+              // cannot be evidence that the host isn't GitHub.
+              case AuthProbe.GhUnusable(reason) => Unreachable(host, reason)
+              // gh ran and has no login for the host: on github.com that is
+              // the user's auth or the network, anywhere else it is how a
+              // non-GitHub host presents, since gh only logs in to GitHub.
+              case AuthProbe.NoLogin(reason) =>
+                if host == GitHubDotCom then Unreachable(host, reason)
+                else NotGitHub(host)
+
+  /** The `origin` remote's URL, or `None` when the checkout has no such remote
+    * — `git config --get` exits 1 when the key is unset. A git that will not
+    * run at all answers the same way, so the probe reports "no remote" rather
+    * than aborting the flow.
+    */
+  private def originUrl(): Option[String] =
+    try
+      val result = cli.run(
+        Seq("git", "config", "--get", "remote.origin.url"),
+        env = OsGitTool.nonInteractiveEnv,
+        cwd = workDir
+      )
+      Option.when(result.exitCode == 0)(result.stdout.trim).filter(_.nonEmpty)
+    catch case NonFatal(_) => None
+
+  /** What `gh auth status --hostname <host>` answered. [[NoLogin]] and
+    * [[GhUnusable]] are kept apart because only the first says anything about
+    * the host: gh refusing to start is the same answer on every host.
+    */
+  private enum AuthProbe:
+    case LoggedIn
+    case NoLogin(reason: String)
+    case GhUnusable(reason: String)
+
+  private def authStatus(host: String): AuthProbe =
+    tryRunGh("auth", "status", "--hostname", host) match
+      case Left(reason)                      => AuthProbe.GhUnusable(reason)
+      case Right(auth) if auth.exitCode == 0 => AuthProbe.LoggedIn
+      case Right(auth) =>
+        AuthProbe.NoLogin(
+          ghReason(
+            auth,
+            s"gh auth status --hostname $host failed (exit ${auth.exitCode})" +
+              s" — run `gh auth login --hostname $host`"
+          )
+        )
+
+  /** The repository gh resolves from this checkout — the fork parent or the `gh
+    * repo set-default` choice where those apply, i.e. the repository `gh pr
+    * create` would target. Host, owner and repo all come out of the one `url`
+    * gh reports, so the three name a single repository; `gitHost` only labels
+    * the failures, where there is no gh answer to take one from.
+    */
+  private def repoGhResolves(gitHost: String): GitHubAvailability =
+    tryRunGh("repo", "view", "--json", "url") match
+      case Left(reason) => GitHubAvailability.Unreachable(gitHost, reason)
+      case Right(view) if view.exitCode != 0 =>
+        GitHubAvailability.Unreachable(
+          gitHost,
+          ghReason(
+            view,
+            s"gh repo view failed (exit ${view.exitCode}) — run `gh repo view" +
+              " --json url` in this checkout to see why"
+          )
+        )
+      case Right(view) =>
+        repoFromView(view.stdout) match
+          case Right(available) => available
+          case Left(reason) => GitHubAvailability.Unreachable(gitHost, reason)
+
+  /** Read `gh repo view --json url` output. Decoding happens here, behind an
+    * `Either`, so a payload gh never documented is an answer from the probe
+    * rather than an exception out of it.
+    */
+  private def repoFromView(stdout: String): Either[String, GitHubAvailability] =
+    try
+      val url = readFromString[GhRepoViewJson](stdout).url
+      (OsGitTool.remoteHost(url), RepoUrlPattern.findFirstMatchIn(url)) match
+        case (Some(host), Some(m)) =>
+          Right(GitHubAvailability.Available(host, m.group(1), m.group(2)))
+        case _ =>
+          Left(
+            s"gh named the repository '$url', which is not " +
+              "https://<host>/<owner>/<repo>"
+          )
+    catch
+      case NonFatal(e) =>
+        Left(
+          "could not read `gh repo view` output " +
+            s"(${TextUtil.throwableMessage(e, firstLineOnly = true)}) — run " +
+            "`gh repo view --json url` in this checkout to see what gh printed"
+        )
+
+  /** Run a read-only `gh` for [[availability]], retrying a non-zero exit as
+    * [[ghRead]] does, and reporting a `gh` that could not be started as a
+    * `Left` reason: `os.proc` throws when the binary is missing — and when the
+    * working directory or the binary itself is unusable — and the probe answers
+    * rather than aborting the flow.
+    */
+  private def tryRunGh(args: String*): Either[String, CliResult] =
+    try Right(retry(probeRetryConfig)(runGhResult(args*)))
+    catch case NonFatal(e) => Left(cannotRunGh(e))
 
   def createPr(title: String, body: String)(using
       WorkspaceWrite
@@ -312,9 +431,8 @@ private[orca] class OsGitHubTool(
     )
     if result.exitCode == 0 then
       val output = result.stdout.trim
-      PrUrlPattern.findFirstMatchIn(output) match
-        case Some(m) =>
-          val pr = PrHandle(m.group(1), m.group(2), m.group(3).toInt)
+      PrHandle.fromUrl(output) match
+        case Some(pr) =>
           events.onEvent(OrcaEvent.Step(s"Opened PR: ${pr.url}"))
           Right(pr)
         case None =>
@@ -372,17 +490,16 @@ private[orca] class OsGitHubTool(
       "--json",
       "number,url"
     )
-    readFromString[List[GhPrListJson]](output).headOption.flatMap: entry =>
-      PrUrlPattern
-        .findFirstMatchIn(entry.url)
-        .map: m =>
-          PrHandle(m.group(1), m.group(2), m.group(3).toInt)
+    readFromString[List[GhPrListJson]](output).headOption
+      .flatMap(entry => PrHandle.fromUrl(entry.url))
+
+  /** gh's fully qualified `HOST/OWNER/REPO` `--repo` form. */
+  private def repoRef(pr: PrHandle): String =
+    s"${pr.host}/${pr.owner}/${pr.repo}"
 
   def readIssue(issue: IssueHandle): Issue =
-    val output = ghRead(
-      "api",
-      s"repos/${issue.owner}/${issue.repo}/issues/${issue.number}"
-    )
+    val target = GhTarget(issue)
+    val output = ghReadApi(target.host, target.issuePath)
     val parsed = readFromString[GhIssueJson](output)
     Issue(
       title = parsed.title,
@@ -392,24 +509,16 @@ private[orca] class OsGitHubTool(
     )
 
   def readIssueComments(issue: IssueHandle): List[Comment] =
-    readCommentsAt(issue.owner, issue.repo, issue.number)
+    readCommentsAt(GhTarget(issue))
 
   def readPrComments(pr: PrHandle): List[Comment] =
     // The `/issues/{n}/comments` endpoint returns conversation comments for
     // both issues and PRs. Line-level review comments live at
     // `/pulls/{n}/comments` and aren't covered here.
-    readCommentsAt(pr.owner, pr.repo, pr.number)
+    readCommentsAt(GhTarget(pr))
 
-  private def readCommentsAt(
-      owner: String,
-      repo: String,
-      number: Int
-  ): List[Comment] =
-    val output = ghRead(
-      "api",
-      "--paginate",
-      s"repos/$owner/$repo/issues/$number/comments"
-    )
+  private def readCommentsAt(target: GhTarget): List[Comment] =
+    val output = ghReadApi(target.host, "--paginate", target.commentsPath)
     readFromString[List[GhCommentJson]](output).map: c =>
       Comment(author = c.user.login, body = c.body)
 
@@ -420,8 +529,8 @@ private[orca] class OsGitHubTool(
     // GraphQL query selecting `projectCards`, which fails on repos where GitHub
     // has sunset Projects (classic). The REST PATCH endpoint doesn't touch
     // projects.
-    val _ = ghMutate(
-      "api",
+    val _ = ghMutateApi(
+      Some(pr.host),
       "-X",
       "PATCH",
       s"repos/${pr.owner}/${pr.repo}/pulls/${pr.number}",
@@ -438,7 +547,7 @@ private[orca] class OsGitHubTool(
       "comment",
       pr.number.toString,
       "--repo",
-      s"${pr.owner}/${pr.repo}",
+      repoRef(pr),
       "--body",
       body
     )
@@ -459,13 +568,13 @@ private[orca] class OsGitHubTool(
   def upsertComment(pr: PrHandle, marker: String, body: String)(using
       WorkspaceWrite
   ): Unit =
-    upsertCommentAt(pr.owner, pr.repo, pr.number, marker, body):
+    upsertCommentAt(GhTarget(pr), marker, body):
       writeComment(pr, _)
 
   def upsertComment(issue: IssueHandle, marker: String, body: String)(using
       WorkspaceWrite
   ): Unit =
-    upsertCommentAt(issue.owner, issue.repo, issue.number, marker, body):
+    upsertCommentAt(GhTarget(issue), marker, body):
       writeComment(issue, _)
 
   /** Shared upsert logic for both PR and issue targets. PATCHes the first
@@ -473,18 +582,14 @@ private[orca] class OsGitHubTool(
     * is `<body>\n\n<marker>` so future re-runs can locate the same comment.
     */
   private def upsertCommentAt(
-      owner: String,
-      repo: String,
-      number: Int,
+      target: GhTarget,
       marker: String,
       body: String
   )(createFn: String => Unit): Unit =
     val markedBody = s"$body\n\n$marker"
-    fetchIdentifiedComments(owner, repo, number).find(
-      _.body.contains(marker)
-    ) match
+    fetchIdentifiedComments(target).find(_.body.contains(marker)) match
       case Some(existing) =>
-        patchComment(owner, repo, existing.id, markedBody)
+        patchComment(target, existing.id, markedBody)
       case None =>
         createFn(markedBody)
 
@@ -492,29 +597,18 @@ private[orca] class OsGitHubTool(
     * [[upsertCommentAt]]. The ids never leak into the public API.
     */
   private def fetchIdentifiedComments(
-      owner: String,
-      repo: String,
-      number: Int
+      target: GhTarget
   ): List[GhIdentifiedCommentJson] =
-    val output = ghRead(
-      "api",
-      "--paginate",
-      s"repos/$owner/$repo/issues/$number/comments"
-    )
+    val output = ghReadApi(target.host, "--paginate", target.commentsPath)
     readFromString[List[GhIdentifiedCommentJson]](output)
 
   /** PATCH an existing issue/PR comment body via the REST API. */
-  private def patchComment(
-      owner: String,
-      repo: String,
-      id: Long,
-      body: String
-  ): Unit =
-    val _ = ghMutate(
-      "api",
+  private def patchComment(target: GhTarget, id: Long, body: String): Unit =
+    val _ = ghMutateApi(
+      target.host,
       "-X",
       "PATCH",
-      s"repos/$owner/$repo/issues/comments/$id",
+      s"repos/${target.owner}/${target.repo}/issues/comments/$id",
       "-f",
       s"body=$body"
     )
@@ -525,7 +619,7 @@ private[orca] class OsGitHubTool(
       "view",
       pr.number.toString,
       "--repo",
-      s"${pr.owner}/${pr.repo}",
+      repoRef(pr),
       "--json",
       "statusCheckRollup"
     )
@@ -613,7 +707,76 @@ private[orca] class OsGitHubTool(
     */
   private def ghMutate(args: String*): String = runGh(args*)
 
+  /** [[ghRead]] against a `gh api` endpoint on `host`. */
+  private def ghReadApi(host: Option[String], args: String*): String =
+    ghRead(apiArgs(host, args)*)
+
+  /** [[ghMutate]] against a `gh api` endpoint on `host`. */
+  private def ghMutateApi(host: Option[String], args: String*): String =
+    ghMutate(apiArgs(host, args)*)
+
+  /** Arguments for a `gh api` call. `None` leaves the host to gh's own
+    * resolution — `GH_HOST`, else the authenticated host — which is what an
+    * [[IssueHandle]] needs, carrying no host of its own.
+    */
+  private def apiArgs(host: Option[String], args: Seq[String]): Seq[String] =
+    "api" +: host.fold(args)(h => "--hostname" +: h +: args)
+
 private[orca] object OsGitHubTool:
+
+  /** The `gh api` coordinates of one issue or PR: which host to name (`None`
+    * leaves it to gh, which is what an [[IssueHandle]] carries no answer for)
+    * and the `repos/<owner>/<repo>/issues/<n>` the comment endpoints share.
+    * Built from a handle, so a host can never be paired with another handle's
+    * owner/repo.
+    */
+  private case class GhTarget(
+      host: Option[String],
+      owner: String,
+      repo: String,
+      number: Int
+  ):
+    def issuePath: String = s"repos/$owner/$repo/issues/$number"
+    def commentsPath: String = s"$issuePath/comments"
+
+  private object GhTarget:
+    def apply(pr: PrHandle): GhTarget =
+      GhTarget(Some(pr.host), pr.owner, pr.repo, pr.number)
+    def apply(issue: IssueHandle): GhTarget =
+      GhTarget(None, issue.owner, issue.repo, issue.number)
+
+  /** The one host that is GitHub whether or not gh can log in to it. */
+  private val GitHubDotCom = "github.com"
+
+  /** The owner and repo of a `https://<host>/<owner>/<repo>` URL — the shape of
+    * `gh repo view --json url` output, from which [[OsGitHubTool.availability]]
+    * takes the identity of the repository gh resolved. The host comes from
+    * [[OsGitTool.remoteHost]], the one place a host is read out of a URL, so it
+    * is the same host — port stripped — the probe asked `gh auth status` about.
+    * Only `https` is accepted, since that is what [[PrHandle.fromUrl]] parses
+    * back when the PR is opened.
+    */
+  private val RepoUrlPattern =
+    """^https://[^/]+/([^/]+)/([^/?#]+?)(?:\.git)?/?$""".r
+
+  /** Reason for a `gh` that could not be started. Names the likely cause
+    * without asserting it: a missing binary is the common one, but an unusable
+    * working directory or a non-executable `gh` throws the same way.
+    */
+  private def cannotRunGh(e: Throwable): String =
+    s"could not run gh (${e.getMessage}) — if it is not installed, get it " +
+      "from https://cli.github.com, then run `gh auth login`"
+
+  /** A user-facing reason for a `gh` call that exited non-zero: its stderr,
+    * else its stdout — `gh auth status` reports there and can fail silently —
+    * else `fallback`, so the reason is never blank. Collapsed onto one line,
+    * since it is spliced into a single `Step`.
+    */
+  private def ghReason(result: CliResult, fallback: String): String =
+    List(result.stderr, result.stdout)
+      .map(out => TextUtil.collapseWhitespace(out.trim))
+      .find(_.nonEmpty)
+      .getOrElse(fallback)
 
   /** Default retry for idempotent read-only `gh` calls: bounded exponential
     * backoff. Injectable on the constructor so tests can use a no-delay

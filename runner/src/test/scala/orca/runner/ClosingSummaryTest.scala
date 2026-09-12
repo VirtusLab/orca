@@ -39,7 +39,7 @@ class ClosingSummaryTest extends munit.FunSuite:
     )
 
   test("HEAD leaving the counted branch still names the branch with the work"):
-    // What a `returnToStartBranch` flow leaves: HEAD back on the branch the
+    // What a run that opened a PR leaves: HEAD back on the branch the
     // worktree was created on, which holds none of the run's commits.
     assertEquals(
       ClosingSummary.lines(

@@ -11,6 +11,10 @@ import ox.either.orThrow
   * completion, so pushing in the same stage as the summarise (or the preceding
   * edits) would be fragile on resume.
   *
+  * Requires a GitHub remote and a logged-in `gh`: without them the push or the
+  * create fails the run. A flow that should finish without a PR when the
+  * checkout isn't on GitHub calls [[openPrIfGitHub]] instead.
+  *
   * The diff handed to the summariser is the branch-vs-base diff
   * (`git.diffVsBase(git.defaultBase())`). A branch too large to summarise is
   * cut short by [[summarisePr]].
@@ -21,7 +25,8 @@ import ox.either.orThrow
   * pass `context` to anchor it to the originating issue/prompt.
   *
   * `gh.createPr` is idempotent by head branch: a re-run that already opened the
-  * PR gets the existing handle back rather than failing. Returns that handle.
+  * PR gets the existing handle back rather than failing. Returns that handle,
+  * and reports it through [[recordOpenedPr]].
   */
 def openPrFromBranch(
     summarisingAgent: Agent[?],
@@ -30,16 +35,49 @@ def openPrFromBranch(
     context: Option[String] = None,
     instructions: String = PrPrompts.Summarise
 )(using FlowContext, FlowControl): PrHandle =
-  stage("Push branch"):
+  pushBranch()
+  val summary =
+    summarise(summarisingAgent, git.defaultBase(), context, instructions)
+  val handle = createPr(title(summary), body(summary))
+  // Outside the stage on purpose: a resumed run replays the recorded handle
+  // without running the body, and the lifecycle still has to learn about it.
+  recordOpenedPr(handle)
+  handle
+
+// The three stages, one per file-private helper, so [[openPrIfGitHub]] can run
+// the same sequence while treating the two remote-facing legs as best effort.
+
+/** Push the branch as its own stage: a stage commits only on completion, so
+  * pushing together with the summarise (or the preceding edits) would be
+  * fragile on resume.
+  */
+private[pr] def pushBranch()(using FlowContext, FlowControl): Unit =
+  stage(PushStage):
     git.push().orThrow
 
-  val summary = stage("Generate PR title and description"):
+/** The push stage's name; [[openPrIfGitHub]] asks whether it is recorded. */
+private[pr] val PushStage: String = "Push branch"
+
+/** Summarise the branch-vs-`base` diff. `base` is by-name so a resumed run,
+  * whose recorded summary replays without the body, does not resolve it.
+  */
+private[pr] def summarise(
+    summarisingAgent: Agent[?],
+    base: => String,
+    context: Option[String],
+    instructions: String
+)(using FlowContext, FlowControl): PrSummary =
+  stage("Generate PR title and description"):
     summarisePr(
       agent = summarisingAgent,
-      diff = git.diffVsBase(git.defaultBase()),
+      diff = git.diffVsBase(base),
       context = context,
       instructions = instructions
     )
 
+private[pr] def createPr(title: String, body: String)(using
+    FlowContext,
+    FlowControl
+): PrHandle =
   stage("Open PR"):
-    gh.createPr(title = title(summary), body = body(summary)).orThrow
+    gh.createPr(title = title, body = body).orThrow

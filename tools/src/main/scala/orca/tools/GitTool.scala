@@ -1223,7 +1223,7 @@ private[orca] object OsGitTool:
     * URL forms (`scheme://[user@]host[:port]/path`). `None` for local paths or
     * anything without a recognisable host.
     */
-  private def remoteHost(url: String): Option[String] =
+  private[tools] def remoteHost(url: String): Option[String] =
     val scpLike = """^[^@/]+@([^:/]+):.*""".r
     val urlLike = """^[a-zA-Z][a-zA-Z0-9+.\-]*://(?:[^@/]+@)?([^:/]+).*""".r
     url.trim match

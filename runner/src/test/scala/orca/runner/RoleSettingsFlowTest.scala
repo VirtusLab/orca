@@ -486,7 +486,6 @@ class RoleSettingsFlowTest extends munit.FunSuite:
         planningAgent = planningOverride,
         codingAgent = codingOverride,
         reviewAgent = reviewOverride,
-        returnToStartBranch = false,
         progressStore = None,
         globalSettingsPath = globalSettingsPath,
         wiring = wiring

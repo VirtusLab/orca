@@ -3,6 +3,7 @@ package orca
 import language.experimental.captureChecking
 
 import orca.progress.{CommitHash, ProgressStore}
+import orca.tools.PrHandle
 
 import scala.annotation.implicitNotFound
 
@@ -47,6 +48,17 @@ trait FlowControl extends FlowContext, caps.ExclusiveCapability:
   /** Pop the frame opened by the matching [[enterStage]]. */
   def exitStage(): Unit
 
+  /** The id the next `stage(name)` in the current scope would get — see
+    * [[StageFrames.peekStageId]].
+    */
+  def peekStageId(name: String): String
+
+  /** Whether the progress log holds a result for the next `stage(name)` in the
+    * current scope — i.e. whether that stage would replay rather than run.
+    */
+  private[orca] def stageRecorded(name: String): Boolean =
+    progressStore.load().exists(_.entries.exists(_.id == peekStageId(name)))
+
   /** The commit the innermost open stage started from — the baseline for the
     * change set that stage has produced, whether or not it has since been
     * committed. `None` when no such commit was recorded (ADR 0018 §2.1).
@@ -76,6 +88,17 @@ trait FlowControl extends FlowContext, caps.ExclusiveCapability:
     * fork fails immediately instead of racing the progress log.
     */
   private[orca] def assertOwnerThread(what: String): Unit
+
+  /** Record that this run opened `pr` — implemented by [[OpenedPrRecord]].
+    * Flows reach it through [[orca.pr.recordOpenedPr]]; the PR-opening helpers
+    * call it themselves.
+    */
+  private[orca] def recordOpenedPr(pr: PrHandle): Unit
+
+  /** The PR this run opened, if any. See [[OpenedPrRecord]] for what the
+    * lifecycle does with it.
+    */
+  private[orca] def openedPr: Option[PrHandle]
 
   /** Next occurrence index for a session `name` in this run: 0 for the first
     * `agent.session(name, ...)`, 1 for the second, and so on. Keyed per-name

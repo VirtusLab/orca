@@ -98,10 +98,30 @@ flow(OrcaArgs(args)):
   display(report)
 
   target.prRef.foreach: ref =>
+    // The ref names no host (`owner/repo#42` carries none), so ask gh which
+    // host this checkout is on rather than assuming github.com — a GitHub
+    // Enterprise checkout must get its report, not a same-named repo elsewhere.
+    val host = gh.availability() match
+      case GitHubAvailability.Available(host, _, _) => host
+      case GitHubAvailability.NoRemote              =>
+        fail(s"cannot post the report on $ref: this checkout has no remote " +
+          "— add a GitHub origin, or read the report above")
+      case GitHubAvailability.NoHost(remote) =>
+        fail(s"cannot post the report on $ref: origin is a local remote " +
+          s"($remote) — point origin at the GitHub repository, or read the " +
+          "report above")
+      case GitHubAvailability.NotGitHub(host) =>
+        fail(s"cannot post the report on $ref: origin is on $host — if that " +
+          s"is a GitHub Enterprise host, run `gh auth login --hostname $host` " +
+          "and re-run")
+      case GitHubAvailability.Unreachable(host, reason) =>
+        fail(s"cannot post the report on $ref: cannot reach GitHub ($host) " +
+          s"— $reason; post the report above on the PR yourself")
+
     stage("Post report on the PR"):
       val issue = IssueHandle.parseOrThrow(ref)
       gh.upsertComment(
-        PrHandle(issue.owner, issue.repo, issue.number),
+        PrHandle(host, issue.owner, issue.repo, issue.number),
         orcaCommentMarker(userPrompt, "review"),
         report
       )

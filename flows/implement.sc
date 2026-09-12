@@ -1,4 +1,4 @@
-// Plan a prompt into tasks, review each once, then loop a review over the run.
+// Plan a prompt into tasks, review each once, loop a review, then open a PR.
 //> using scala 3.8.4
 //> using dep "org.virtuslab::orca:0.1.6"
 //> using jvm 21
@@ -10,6 +10,11 @@
   * a review over everything the run changed, checking the per-task fixes with
   * fresh eyes.
   *
+  * The run then opens a PR when the repository is on GitHub, and hands the
+  * checkout back on the branch it started from — the work is on the PR.
+  * Otherwise it says so in one line and ends on the feature branch, with the
+  * work committed either way.
+  *
   * `examples/runnable/01-simple/create-test-project.sh` seeds a calculator
   * crate into a temp dir and copies this script alongside it; from there:
   *
@@ -17,8 +22,8 @@
   * scala-cli run implement.sc -- "Add a multiply function to the calculator crate"
   * ```
   *
-  * Requires the configured role agents logged in (`claude` by default); the
-  * seeded calculator example also needs `cargo` on PATH.
+  * Requires the configured role agents logged in (`claude` by default); `gh` is
+  * optional. The seeded calculator example also needs `cargo` on PATH.
   *
   * For the variant where the planner can ask clarifying questions, see
   * `implement-interactive.sc`.
@@ -55,3 +60,5 @@ flow(OrcaArgs(args)):
       maxIterations = 3,
       priorDeclines = IgnoredIssues(taskDeclines.flatMap(_.issues))
     )
+
+  openPrIfGitHub(summarisingAgent = codingAgent.cheap)

@@ -69,11 +69,9 @@ val issueHandle = IssueHandle.parseOrThrow(orcaArgs.userPrompt)
 
 val CiTimeout = 30.minutes
 
-// Opens a PR, so return to the starting branch afterward.
 flow(
   orcaArgs,
-  branchNaming = Some(BranchNamingStrategy.issue(issueHandle)),
-  returnToStartBranch = true
+  branchNaming = Some(BranchNamingStrategy.issue(issueHandle))
 ):
   val issue = gh.readIssue(issueHandle)
 
@@ -126,6 +124,10 @@ flow(
                     |
                     |Closes ${issueHandle.shortRef}.""".stripMargin
         ).orThrow
+
+      // Outside the stage: a resume replays the recorded handle without running
+      // the body, and the lifecycle still has to learn a PR exists.
+      recordOpenedPr(pr)
 
       if gh.waitForBuild(pr, CiTimeout).orThrow.outcome == BuildOutcome.Success
       then
