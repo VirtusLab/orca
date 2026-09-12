@@ -8,7 +8,6 @@ import orca.{
   OrcaArgs,
   OrcaDir,
   OrcaFlowException,
-  RunTarget,
   RuntimeInStage,
   StackSettings,
   WorkspaceWrite
@@ -28,6 +27,7 @@ import orca.progress.{
   RecoveryCheck,
   ScannedProgressLog,
   SessionRecord,
+  ThrowawayBranch,
   UnsafeBranchRefRefused
 }
 import orca.settings.{AgentSettings, SettingsFile, SettingsScope}
@@ -68,7 +68,6 @@ object FlowLifecycle:
   private[orca] def run(
       ctx: DefaultFlowContext[?, ?, ?],
       flowSetup: FlowSetup,
-      target: RunTarget,
       debug: Boolean
   )(body: FlowControl ?=> Unit): Unit =
     val log = LoggerFactory.getLogger("orca.flow")
@@ -124,7 +123,7 @@ object FlowLifecycle:
     teardownSuccess(
       ctx.git,
       flowSetup,
-      BranchHandoff.of(target, flowSetup.worktree, ctx.openedPr),
+      BranchHandoff.of(flowSetup.branchMode, flowSetup.worktree, ctx.openedPr),
       ctx.openedPr,
       ctx.emit
     )
@@ -1206,20 +1205,11 @@ object FlowLifecycle:
         .foreach(line => emit(OrcaEvent.Step(line)))
 
   /** Where HEAD ends up after a successful run. A throwaway feature branch
-    * (only orca bookkeeping, no user code vs the start branch) is deleted and
-    * HEAD returns to the starting branch. Otherwise the feature branch is kept,
-    * and `handoff` ([[BranchHandoff]]) chooses where HEAD lands. Best-effort
-    * and success-path-only; never deletes start/protected branches.
-    *
-    * The throwaway-delete is additionally gated on `setup.branchMode`: a branch
-    * orca did not create (`Reused`, skip-branch mode) must never be deleted,
-    * even if a tampered header's `startingBranch` is crafted to name some
-    * existing branch that happens to diff-blank against the feature branch —
-    * that `startingBranch` cross-check doesn't otherwise exist (unlike
-    * `branch`'s R30 check against the actual current branch). Residual,
-    * accepted: with `branchMode = Reused`, a [[BranchHandoff.ReturnToStart]]
-    * can still `checkout` a tampered `startingBranch` — navigation only, never
-    * destructive.
+    * ([[ThrowawayBranch]]: created by orca, only orca bookkeeping vs the start
+    * branch) is deleted and HEAD returns to the starting branch. Otherwise the
+    * feature branch is kept, and `handoff` ([[BranchHandoff]]) chooses where
+    * HEAD lands. Best-effort and success-path-only; never deletes
+    * start/protected branches.
     *
     * A branch a PR was opened from is never deleted, however empty it looks
     * against the start branch: the PR is open against what was pushed, and the
@@ -1233,11 +1223,11 @@ object FlowLifecycle:
   )(using WorkspaceWrite): Unit =
     val throwaway =
       openedPr.isEmpty &&
-        setup.branchMode == BranchMode.Created &&
-        setup.featureBranch.value != setup.startBranch &&
-        !git.branchHasChangesExcludingOrca(
-          setup.startBranch,
-          setup.featureBranch.value
+        ThrowawayBranch.isThrowaway(
+          git,
+          setup.branchMode,
+          startBranch = setup.startBranch,
+          featureBranch = setup.featureBranch.value
         )
     if throwaway then
       // The start branch existed when this run began, so a plain `checkout`

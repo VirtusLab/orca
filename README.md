@@ -878,7 +878,9 @@ results.
   request, returned by `gh.createPr`. `host` is `github.com` or a GitHub
   Enterprise hostname, and every `gh` call taking the handle is routed to it.
   `derives JsonData` so a stage can record it: a push-and-open-PR stage is the
-  checkpoint before a CI wait.
+  checkpoint before a CI wait. `IssueHandle` carries no host, so the issue
+  flows read their issue from gh's default host (`GH_HOST`, else the host gh is
+  logged in to).
 - **`orca.tools.GitHubAvailability`** — what `gh.availability` answers with.
   `Available(host, owner, repo)`: the repository gh resolves, on github.com or a
   GitHub Enterprise host. `NoRemote`: no `origin`. `NoHost(remote)`: `origin`

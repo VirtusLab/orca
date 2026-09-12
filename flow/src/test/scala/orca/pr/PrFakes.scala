@@ -123,10 +123,13 @@ private[pr] class PrTestControl(
   * resumed run is exercised.
   *
   * `withCode` decides whether the branch carries anything but orca's own files
-  * — what the PR helpers check before opening a PR for the run.
+  * — what the PR helpers check before opening a PR for the run. `branchMode` is
+  * the header's: a `Reused` header names `feat/test` as the starting branch
+  * too, as a `--skip-branch` run's does.
   */
 private[pr] def seededPrRepo(
-    withCode: Boolean = true
+    withCode: Boolean = true,
+    branchMode: BranchMode = BranchMode.Created
 ): (os.Path, ProgressStore) =
   val dir = GitRepo.seeded()
   val _ = os.proc("git", "checkout", "-b", "feat/test").call(cwd = dir)
@@ -136,8 +139,11 @@ private[pr] def seededPrRepo(
     val _ = os.proc("git", "commit", "-m", "work").call(cwd = dir)
   val store = ProgressStore.default(dir, "p")
   given WorkspaceWrite = WorkspaceWrite.unsafe
+  val startingBranch = branchMode match
+    case BranchMode.Created => "main"
+    case BranchMode.Reused  => "feat/test"
   store.writeHeader(
-    ProgressHeader("main", "feat/test", "deadbeef", BranchMode.Created)
+    ProgressHeader(startingBranch, "feat/test", "deadbeef", branchMode)
   )
   (dir, store)
 

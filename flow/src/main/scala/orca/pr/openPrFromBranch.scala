@@ -52,8 +52,11 @@ def openPrFromBranch(
   * fragile on resume.
   */
 private[pr] def pushBranch()(using FlowContext, FlowControl): Unit =
-  stage("Push branch"):
+  stage(PushStage):
     git.push().orThrow
+
+/** The push stage's name; [[openPrIfGitHub]] asks whether it is recorded. */
+private[pr] val PushStage: String = "Push branch"
 
 /** Summarise the branch-vs-`base` diff. `base` is by-name so a resumed run,
   * whose recorded summary replays without the body, does not resolve it.

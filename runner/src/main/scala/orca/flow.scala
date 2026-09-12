@@ -385,7 +385,6 @@ private[orca] def runFlow(
             FlowLifecycle.run(
               ctx,
               flowSetup,
-              target = args.target,
               debug = debug
             )(body)
           finally ctx.close()

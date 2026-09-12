@@ -4,6 +4,7 @@ import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import orca.{OrcaFlowException, WorkspaceWrite}
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.subprocess.{CliResult, CliRunner}
+import orca.util.TextUtil
 import ox.sleep
 import ox.resilience.{ResultPolicy, RetryConfig, retry}
 import ox.scheduling.Schedule
@@ -281,6 +282,17 @@ private[orca] class OsGitHubTool(
       )
     )
 
+  /** [[readRetryConfig]] for the probe's legs, which keep the raw result: the
+    * same schedule, retrying the non-zero exit itself rather than the exception
+    * [[runGh]] turns it into. A gh that cannot start is not retried, as in
+    * [[readRetryConfig]].
+    */
+  private val probeRetryConfig: RetryConfig[Throwable, CliResult] =
+    RetryConfig(
+      readRetry,
+      ResultPolicy(isSuccess = _.exitCode == 0, isWorthRetrying = _ => false)
+    )
+
   def availability(): GitHubAvailability =
     import GitHubAvailability.*
     originUrl() match
@@ -368,29 +380,30 @@ private[orca] class OsGitHubTool(
   private def repoFromView(stdout: String): Either[String, GitHubAvailability] =
     try
       val url = readFromString[GhRepoViewJson](stdout).url
-      RepoUrlPattern
-        .findFirstMatchIn(url)
-        .map(m =>
-          GitHubAvailability.Available(m.group(1), m.group(2), m.group(3))
-        )
-        .toRight(
-          s"gh named the repository '$url', which is not " +
-            "https://<host>/<owner>/<repo>"
-        )
+      (OsGitTool.remoteHost(url), RepoUrlPattern.findFirstMatchIn(url)) match
+        case (Some(host), Some(m)) =>
+          Right(GitHubAvailability.Available(host, m.group(1), m.group(2)))
+        case _ =>
+          Left(
+            s"gh named the repository '$url', which is not " +
+              "https://<host>/<owner>/<repo>"
+          )
     catch
       case NonFatal(e) =>
         Left(
-          s"could not read `gh repo view` output (${e.getMessage}) — run `gh" +
-            " repo view --json url` in this checkout to see what gh printed"
+          "could not read `gh repo view` output " +
+            s"(${TextUtil.throwableMessage(e, firstLineOnly = true)}) — run " +
+            "`gh repo view --json url` in this checkout to see what gh printed"
         )
 
-  /** Run `gh` once for [[availability]], reporting a `gh` that could not be
-    * started as a `Left` reason: `os.proc` throws when the binary is missing —
-    * and when the working directory or the binary itself is unusable — and the
-    * probe answers rather than aborting the flow.
+  /** Run a read-only `gh` for [[availability]], retrying a non-zero exit as
+    * [[ghRead]] does, and reporting a `gh` that could not be started as a
+    * `Left` reason: `os.proc` throws when the binary is missing — and when the
+    * working directory or the binary itself is unusable — and the probe answers
+    * rather than aborting the flow.
     */
   private def tryRunGh(args: String*): Either[String, CliResult] =
-    try Right(runGhResult(args*))
+    try Right(retry(probeRetryConfig)(runGhResult(args*)))
     catch case NonFatal(e) => Left(cannotRunGh(e))
 
   def createPr(title: String, body: String)(using
@@ -735,14 +748,16 @@ private[orca] object OsGitHubTool:
   /** The one host that is GitHub whether or not gh can log in to it. */
   private val GitHubDotCom = "github.com"
 
-  /** `https://<host>/<owner>/<repo>` — the shape of `gh repo view --json url`
-    * output, from which [[OsGitHubTool.availability]] takes the whole identity
-    * of the repository gh resolved. Scheme and host charset as in [[PrHandle]],
-    * so a URL this accepts is one [[PrHandle.fromUrl]] can parse back when the
-    * PR is opened.
+  /** The owner and repo of a `https://<host>/<owner>/<repo>` URL — the shape of
+    * `gh repo view --json url` output, from which [[OsGitHubTool.availability]]
+    * takes the identity of the repository gh resolved. The host comes from
+    * [[OsGitTool.remoteHost]], the one place a host is read out of a URL, so it
+    * is the same host — port stripped — the probe asked `gh auth status` about.
+    * Only `https` is accepted, since that is what [[PrHandle.fromUrl]] parses
+    * back when the PR is opened.
     */
   private val RepoUrlPattern =
-    """https://([A-Za-z0-9.-]+(?::\d+)?)/([^/]+)/([^/?#]+?)(?:\.git)?/?$""".r
+    """^https://[^/]+/([^/]+)/([^/?#]+?)(?:\.git)?/?$""".r
 
   /** Reason for a `gh` that could not be started. Names the likely cause
     * without asserting it: a missing binary is the common one, but an unusable
@@ -754,15 +769,14 @@ private[orca] object OsGitHubTool:
 
   /** A user-facing reason for a `gh` call that exited non-zero: its stderr,
     * else its stdout — `gh auth status` reports there and can fail silently —
-    * else `fallback`, so the reason is never blank.
+    * else `fallback`, so the reason is never blank. Collapsed onto one line,
+    * since it is spliced into a single `Step`.
     */
   private def ghReason(result: CliResult, fallback: String): String =
     List(result.stderr, result.stdout)
-      .map(_.trim)
+      .map(out => TextUtil.collapseWhitespace(out.trim))
       .find(_.nonEmpty)
-      .getOrElse(
-        fallback
-      )
+      .getOrElse(fallback)
 
   /** Default retry for idempotent read-only `gh` calls: bounded exponential
     * backoff. Injectable on the constructor so tests can use a no-delay

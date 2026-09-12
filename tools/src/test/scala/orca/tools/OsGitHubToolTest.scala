@@ -89,6 +89,68 @@ class OsGitHubToolTest extends munit.FunSuite:
   private val repoViewJson =
     """{"url":"https://ghe.example.com/acme/widgets"}"""
 
+  /** A tool whose probe never retries, so a failing gh answers at once. */
+  private def probeGh(cli: CliRunner): OsGitHubTool =
+    new OsGitHubTool(cli, readRetry = Schedule.immediate.maxRetries(0))
+
+  test("availability retries a gh leg that fails once, like every read"):
+    val cli = new SequencedCliRunner(
+      List(
+        CliResult(0, "https://ghe.example.com/acme/widgets.git\n", ""),
+        CliResult(1, "", """Post "https://ghe.example.com/api/graphql": EOF"""),
+        CliResult(0, "Logged in to ghe.example.com", ""),
+        CliResult(0, repoViewJson, "")
+      )
+    )
+    val gh = new OsGitHubTool(cli, readRetry = Schedule.immediate.maxRetries(2))
+    assertEquals(
+      gh.availability(),
+      GitHubAvailability.Available("ghe.example.com", "acme", "widgets")
+    )
+    assertEquals(cli.callCount, 4) // one failed auth status, then success
+
+  test("availability drops the port gh names, as the origin host has none"):
+    // `remoteHost` strips the port from the origin, and that is the host gh
+    // was asked about — so it is the host the answer carries too.
+    val cli = new SequencedCliRunner(
+      List(
+        CliResult(0, "https://ghe.example.com:8443/acme/widgets.git\n", ""),
+        CliResult(0, "Logged in to ghe.example.com", ""),
+        CliResult(
+          0,
+          """{"url":"https://ghe.example.com:8443/acme/widgets"}""",
+          ""
+        )
+      )
+    )
+    assertEquals(
+      probeGh(cli).availability(),
+      GitHubAvailability.Available("ghe.example.com", "acme", "widgets")
+    )
+
+  test("availability folds gh's multi-line reason onto one line"):
+    // `gh auth status` reports over several lines; the reason lands in a single
+    // Step, which a newline would tear.
+    val cli = new SequencedCliRunner(
+      List(
+        CliResult(0, "https://github.com/acme/widgets.git\n", ""),
+        CliResult(
+          1,
+          "",
+          "github.com\n  X Failed to log in to github.com account foo\n" +
+            "  - The token in GITHUB_TOKEN is invalid.\n"
+        )
+      )
+    )
+    assertEquals(
+      probeGh(cli).availability(),
+      GitHubAvailability.Unreachable(
+        "github.com",
+        "github.com X Failed to log in to github.com account foo - The token " +
+          "in GITHUB_TOKEN is invalid."
+      )
+    )
+
   test("availability answers with the repository gh resolved, not the origin"):
     val cli = new SequencedCliRunner(
       List(
@@ -98,7 +160,7 @@ class OsGitHubToolTest extends munit.FunSuite:
       )
     )
     assertEquals(
-      new OsGitHubTool(cli).availability(),
+      probeGh(cli).availability(),
       GitHubAvailability.Available("ghe.example.com", "acme", "widgets")
     )
 
@@ -110,7 +172,7 @@ class OsGitHubToolTest extends munit.FunSuite:
         CliResult(0, repoViewJson, "")
       )
     )
-    val _ = new OsGitHubTool(cli).availability()
+    val _ = probeGh(cli).availability()
     assertEquals(
       cli.calls(1).args,
       List("gh", "auth", "status", "--hostname", "ghe.example.com")
@@ -128,7 +190,7 @@ class OsGitHubToolTest extends munit.FunSuite:
       )
     )
     assertEquals(
-      new OsGitHubTool(cli).availability(),
+      probeGh(cli).availability(),
       GitHubAvailability.NotGitHub("gitlab.com")
     )
 
@@ -139,7 +201,7 @@ class OsGitHubToolTest extends munit.FunSuite:
       List(CliResult(0, "/srv/repos/widgets.git\n", ""))
     )
     assertEquals(
-      new OsGitHubTool(cli).availability(),
+      probeGh(cli).availability(),
       GitHubAvailability.NoHost("/srv/repos/widgets.git")
     )
     assertEquals(cli.callCount, 1)
@@ -148,7 +210,7 @@ class OsGitHubToolTest extends munit.FunSuite:
     // `git config --get` exits 1 for a key that isn't there.
     val cli = new SequencedCliRunner(List(CliResult(1, "", "")))
     assertEquals(
-      new OsGitHubTool(cli).availability(),
+      probeGh(cli).availability(),
       GitHubAvailability.NoRemote
     )
 
@@ -162,7 +224,7 @@ class OsGitHubToolTest extends munit.FunSuite:
       )
     )
     assertEquals(
-      new OsGitHubTool(cli).availability(),
+      probeGh(cli).availability(),
       GitHubAvailability.Unreachable(
         "github.com",
         "You are not logged into any GitHub hosts."
@@ -178,7 +240,7 @@ class OsGitHubToolTest extends munit.FunSuite:
         CliResult(1, "", "")
       )
     )
-    val reason = new OsGitHubTool(cli).availability() match
+    val reason = probeGh(cli).availability() match
       case GitHubAvailability.Unreachable("github.com", reason) => reason
       case other => fail(s"expected Unreachable, got: $other")
     assert(reason.contains("gh auth login --hostname github.com"), reason)
@@ -194,7 +256,7 @@ class OsGitHubToolTest extends munit.FunSuite:
       )
     )
     assertEquals(
-      new OsGitHubTool(cli).availability(),
+      probeGh(cli).availability(),
       GitHubAvailability.Unreachable(
         "github.com",
         "GraphQL: Could not resolve to a Repository"
@@ -211,7 +273,7 @@ class OsGitHubToolTest extends munit.FunSuite:
         CliResult(0, "not json", "")
       )
     )
-    val reason = new OsGitHubTool(cli).availability() match
+    val reason = probeGh(cli).availability() match
       case GitHubAvailability.Unreachable("github.com", reason) => reason
       case other => fail(s"expected Unreachable, got: $other")
     assert(reason.contains("gh repo view"), reason)
@@ -226,7 +288,7 @@ class OsGitHubToolTest extends munit.FunSuite:
         CliResult(0, """{"url":"http://ghe.example.com/acme/widgets"}""", "")
       )
     )
-    val reason = new OsGitHubTool(cli).availability() match
+    val reason = probeGh(cli).availability() match
       case GitHubAvailability.Unreachable("ghe.example.com", reason) => reason
       case other => fail(s"expected Unreachable, got: $other")
     assert(reason.contains("https://<host>/<owner>/<repo>"), reason)
@@ -239,7 +301,7 @@ class OsGitHubToolTest extends munit.FunSuite:
       failWhen = _.headOption.contains("gh"),
       otherwise = CliResult(0, "git@ghe.example.com:acme/widgets.git\n", "")
     )
-    val reason = new OsGitHubTool(cli).availability() match
+    val reason = probeGh(cli).availability() match
       case GitHubAvailability.Unreachable("ghe.example.com", reason) => reason
       case other => fail(s"expected Unreachable, got: $other")
     assert(reason.contains("could not run gh"), reason)

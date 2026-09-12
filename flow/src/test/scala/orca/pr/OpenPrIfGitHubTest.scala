@@ -8,7 +8,7 @@ import orca.tools.{
   PrHandle,
   PushFailure
 }
-import orca.{OrcaFlowException, WorkspaceWrite}
+import orca.{FlowControl, OrcaFlowException, WorkspaceWrite}
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.progress.{BranchMode, ProgressHeader, ProgressStore}
 import orca.testkit.GitRepo
@@ -39,11 +39,12 @@ class OpenPrIfGitHubTest extends FunSuite:
   private def run(
       availability: GitHubAvailability,
       withCode: Boolean = true,
+      branchMode: BranchMode = BranchMode.Created,
       createPr: => Either[PrCreateFailed, PrHandle] = Right(samplePr),
       push: => Either[PushFailure, Unit] = Right(()),
       base: => String = "main"
   ): Run =
-    val (dir, store) = seededPrRepo(withCode)
+    val (dir, store) = seededPrRepo(withCode, branchMode)
     val calls = new ConcurrentLinkedQueue[String]()
     val stages = new ConcurrentLinkedQueue[String]()
     val steps = new ConcurrentLinkedQueue[String]()
@@ -124,6 +125,7 @@ class OpenPrIfGitHubTest extends FunSuite:
   test("on GitHub, the probe runs first and the PR is opened"):
     val r = run(GitHubAvailability.Available("github.com", "acme", "widgets"))
     assertEquals(r.result, Some(samplePr))
+    assertEquals(r.openedPr, Some(samplePr))
     assertEquals(r.calls, List("availability", "push", "createPr"))
     // gh resolves the base repo from the checkout's remotes, so where the PR
     // lands is named before the push rather than only in the resulting URL.
@@ -144,6 +146,18 @@ class OpenPrIfGitHubTest extends FunSuite:
     assert(r.steps.last.contains("changed no code"), r.steps.last)
     // Nothing is announced for a PR that is not going to be opened.
     assert(!r.steps.exists(_.contains("Opening a PR on")), r.steps)
+
+  test("a run on a reused branch opens its PR without the no-code check"):
+    // Under --skip-branch the header's starting branch IS the run's branch, so
+    // a diff between the two would say "no code" whatever the run committed.
+    // The lifecycle never treats a reused branch as throwaway either.
+    val r = run(
+      GitHubAvailability.Available("github.com", "acme", "widgets"),
+      withCode = false,
+      branchMode = BranchMode.Reused
+    )
+    assertEquals(r.result, Some(samplePr))
+    assertEquals(r.calls, List("availability", "push", "createPr"))
 
   test(
     "the no-code check measures the run's start point, not the default base"
@@ -218,6 +232,51 @@ class OpenPrIfGitHubTest extends FunSuite:
     assertEquals(r.openedPr, None)
     assert(r.steps.last.contains("could not push the branch"), r.steps.last)
     assert(r.steps.last.contains("Permission to acme/widgets"), r.steps.last)
+
+  test("a create that throws outside orca's own exceptions is reported too"):
+    // gh output the tool cannot parse (the already-exists lookup decodes JSON)
+    // throws a plain runtime exception; best effort absorbs it like the rest.
+    val r = run(
+      GitHubAvailability.Available("github.com", "acme", "widgets"),
+      createPr = throw new RuntimeException("unexpected end of input\nat 0x0")
+    )
+    assertEquals(r.result, None)
+    assertEquals(r.openedPr, None)
+    assert(r.steps.last.contains("could not open a PR"), r.steps.last)
+    assert(r.steps.last.contains("unexpected end of input"), r.steps.last)
+    // Only the first line: the reason lands in one Step.
+    assert(!r.steps.last.contains("\n"), r.steps.last)
+
+  test("a resumed run replays its opened PR even when the probe now says no"):
+    // The first attempt pushed and opened the PR; on resume the push stage is
+    // recorded, so the probe is not consulted — its answer could only hide a
+    // PR that already exists — and the replayed handle reaches the lifecycle.
+    val (dir, store) = seededPrRepo()
+    val summariser = new StubSummariser()
+    def attempt(
+        availability: GitHubAvailability,
+        calls: ConcurrentLinkedQueue[String]
+    ): (Option[PrHandle], FlowControl) =
+      val control =
+        prControl(dir, store, _ => (), calls, availability = availability)
+      val result = openPrIfGitHub(summarisingAgent = summariser)(using
+        control,
+        control
+      )
+      (result, control)
+
+    val _ = attempt(
+      GitHubAvailability.Available("github.com", "acme", "widgets"),
+      new ConcurrentLinkedQueue[String]()
+    )
+    val resumedCalls = new ConcurrentLinkedQueue[String]()
+    val (result, resumed) = attempt(
+      GitHubAvailability.Unreachable("github.com", "gh: connection refused"),
+      resumedCalls
+    )
+    assertEquals(resumedCalls.asScala.toList, Nil, "stages were re-run")
+    assertEquals(result, Some(samplePr))
+    assertEquals(resumed.openedPr, Some(samplePr))
 
   test("a refused PR creation is reported, not thrown"):
     // `createPr` models its refusals as values and `openPrFromBranch` throws
