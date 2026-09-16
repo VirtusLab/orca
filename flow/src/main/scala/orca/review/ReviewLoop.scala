@@ -468,6 +468,11 @@ def reviewAndFixLoop[B <: BackendTag](
           )
           ReviewDiffSource.wholeRun(ctx.git, c)
     case ReviewDiff.Pinned(d) => Some(ReviewDiffSource.Pinned(d))
+  // One seeding home for both arms below. `recordIgnored` collapses duplicate
+  // titles in `additions` but refreshes `existing` in place, so seeds have to
+  // arrive as additions — and a flow merges per-task declines, where two tasks
+  // can decline the same title.
+  val seededDeclines = recordIgnored(IgnoredIssues(Nil), priorDeclines.issues)
   diffSource match
     case None =>
       ctx.emit(
@@ -482,7 +487,7 @@ def reviewAndFixLoop[B <: BackendTag](
       // what a clean review returns, and a skipped review must not read as
       // one. The seeds stay in: nothing after this loop reports them.
       recordIgnored(
-        priorDeclines,
+        seededDeclines,
         List(
           IgnoredIssue(
             Title("whole-run review"),
@@ -506,7 +511,7 @@ def reviewAndFixLoop[B <: BackendTag](
           fixInstructions = fixInstructions,
           diffSource = source
         )
-      )(using ctx, ev).run(maxIterations, priorDeclines)(using fc, ws)
+      )(using ctx, ev).run(maxIterations, seededDeclines)(using fc, ws)
 
 /** One review round over the enclosing stage's changes and, if it found
   * anything, one fix turn — then done. The fixer's `fixed` claims are taken on
@@ -942,13 +947,14 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     * threading the immutable [[ReviewLoopState]] (reviewer history + sessions)
     * through each round.
     *
-    * `priorDeclines` seeds the accumulated set — see [[reviewAndFixLoop]].
+    * `priorDeclines` seeds the accumulated set, already collapsed by title —
+    * see [[reviewAndFixLoop]].
     *
     * `fc`/`ws` are method parameters, not fields — see the file header.
     */
   def run(
       maxIterations: Int,
-      priorDeclines: IgnoredIssues = IgnoredIssues(Nil)
+      priorDeclines: IgnoredIssues
   )(using fc: FlowControl, ws: WorkspaceWrite): IgnoredIssues =
     // A progress marker, not a committing stage: the enclosing implement-task
     // stage already names the work and owns the commit (ADR 0018 §2.2).
@@ -1012,14 +1018,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
               round.state,
               seenLocations
             )
-    // Seeded through `recordIgnored` so duplicate titles across the seeds
-    // collapse the way the loop's own accumulation would collapse them.
-    loop(
-      recordIgnored(IgnoredIssues(Nil), priorDeclines.issues),
-      0,
-      ReviewLoopState.empty,
-      Map.empty
-    )
+    loop(priorDeclines, 0, ReviewLoopState.empty, Map.empty)
 
   /** One [[evaluate]] round and, if it reported anything, one [[fixTurn]] —
     * backing [[reviewThenFix]]. There is no re-evaluation of reviewer findings

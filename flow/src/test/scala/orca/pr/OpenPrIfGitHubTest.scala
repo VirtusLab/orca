@@ -11,6 +11,8 @@ import orca.tools.{
   PushFailure
 }
 import orca.{OutsideStage, WorkspaceWrite}
+import orca.plan.Title
+import orca.review.{IgnoredIssue, IgnoredIssues}
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.progress.{
   BranchMode,
@@ -38,7 +40,8 @@ class OpenPrIfGitHubTest extends FunSuite:
       stages: List[String],
       steps: List[String],
       errors: List[String],
-      published: Option[PublishedWork]
+      published: Option[PublishedWork],
+      prBodies: List[String]
   )
 
   private val available =
@@ -60,10 +63,19 @@ class OpenPrIfGitHubTest extends FunSuite:
       createPr: => Either[PrCreateFailed, PrHandle] = Right(samplePr),
       push: => Either[PushFailure, Unit] = Right(()),
       base: => Either[NoDefaultBase, String] = Right("main"),
-      store: ProgressStore => ProgressStore = identity
+      store: ProgressStore => ProgressStore = identity,
+      openFindings: IgnoredIssues = IgnoredIssues(Nil)
   ): Run =
     val (dir, seededStore) = seededPrRepo(withCode, branchMode, startBranch)
-    runOver(dir, store(seededStore), availability, createPr, push, base)
+    runOver(
+      dir,
+      store(seededStore),
+      availability,
+      createPr,
+      push,
+      base,
+      openFindings = openFindings
+    )
 
   /** [[run]] over a repo and store the test prepared itself. `beforeRun` gets
     * the repo once the control is built, for a test that must break the repo
@@ -77,12 +89,14 @@ class OpenPrIfGitHubTest extends FunSuite:
       push: => Either[PushFailure, Unit] = Right(()),
       base: => Either[NoDefaultBase, String] = Right("main"),
       summariser: StubSummariser = new StubSummariser(),
-      beforeRun: os.Path => Unit = _ => ()
+      beforeRun: os.Path => Unit = _ => (),
+      openFindings: IgnoredIssues = IgnoredIssues(Nil)
   ): Run =
     val calls = new ConcurrentLinkedQueue[String]()
     val stages = new ConcurrentLinkedQueue[String]()
     val steps = new ConcurrentLinkedQueue[String]()
     val errors = new ConcurrentLinkedQueue[String]()
+    val bodies = new ConcurrentLinkedQueue[String]()
     val listener: OrcaListener =
       case OrcaEvent.StageStarted(name) => stages.add(name): Unit
       case OrcaEvent.Step(message)      => steps.add(message): Unit
@@ -97,21 +111,22 @@ class OpenPrIfGitHubTest extends FunSuite:
       availability = availability,
       createPr = createPr,
       push = push,
-      base = base
+      base = base,
+      prBodies = bodies
     )
     beforeRun(dir)
-    val result = openPrIfGitHub(summarisingAgent = summariser)(using
-      control,
-      control,
-      summon[OutsideStage]
-    )
+    val result = openPrIfGitHub(
+      summarisingAgent = summariser,
+      openFindings = openFindings
+    )(using control, control, summon[OutsideStage])
     Run(
       result,
       calls.asScala.toList,
       stages.asScala.toList,
       steps.asScala.toList,
       errors.asScala.toList,
-      store.load().flatMap(_.published)
+      store.load().flatMap(_.published),
+      bodies.asScala.toList
     )
 
   /** Every skip leg leaves the run as it found it, so assert that once and let
@@ -131,7 +146,10 @@ class OpenPrIfGitHubTest extends FunSuite:
       """
       given orca.FlowControl = ???
       given orca.InStage = orca.InStage.unsafe
-      openPrIfGitHub(summarisingAgent = new StubSummariser())
+      openPrIfGitHub(
+        summarisingAgent = new StubSummariser(),
+        openFindings = orca.review.IgnoredIssues(Nil)
+      )
       """
     )
     assert(
@@ -163,6 +181,17 @@ class OpenPrIfGitHubTest extends FunSuite:
     assert(
       r.steps.head.contains("Opening a PR on github.com/acme/widgets"),
       r.steps
+    )
+
+  test("open findings reach the body of the PR this step opens"):
+    // The step every code-producing built-in flow ends with, so the section
+    // has to survive the best-effort path too, not only openPrFromBranch's.
+    val open = IgnoredIssues(
+      List(IgnoredIssue(Title("Null check missing"), "max iterations reached"))
+    )
+    assertEquals(
+      run(available, openFindings = open).prBodies,
+      List(bodyWithOpenFindings("Generated body", open))
     )
 
   test("a run on a reused branch opens its PR without the no-code check"):

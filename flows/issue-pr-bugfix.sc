@@ -153,8 +153,7 @@ flow(
         gh.updatePr(
           pr,
           title = finalSum.title,
-          body = (closes :: renderOpenFindings(openFindings).toList)
-            .mkString("\n\n")
+          body = bodyWithOpenFindings(closes, openFindings)
         )
 
 // ============================ pipeline helpers ============================

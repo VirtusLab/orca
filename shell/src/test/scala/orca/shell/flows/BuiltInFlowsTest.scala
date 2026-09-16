@@ -89,12 +89,17 @@ class BuiltInFlowsTest extends munit.FunSuite:
     val from = open + "reviewAndFixLoop".length
     var depth = 0
     var i = from
-    while i == from || depth > 0 do
+    while i < text.length && (i == from || depth > 0) do
       text(i) match
         case '(' => depth += 1
         case ')' => depth -= 1
         case _   => ()
       i += 1
+    assert(
+      depth == 0,
+      s"$name's reviewAndFixLoop call never closes — the scan counts every " +
+        "paren, a string's or a comment's included"
+    )
     text.substring(open, i)
 
   test("a flow's final review reviews the whole run"):
@@ -114,12 +119,14 @@ class BuiltInFlowsTest extends munit.FunSuite:
 
   private val statedCap = "maxIterations\\s*=\\s*(\\d+)".r
 
-  test("every final review states the final-review cap"):
+  test("the final-review cap exceeds the library default"):
     assert(
       FinalReviewCap > DefaultMaxIterations,
       s"the final-review cap ($FinalReviewCap) must exceed the default " +
         s"($DefaultMaxIterations): nothing reviews again after that loop"
     )
+
+  test("every final review states the final-review cap"):
     // Pinned inside the final-review call itself, so a cap stated elsewhere in
     // the file can't satisfy it.
     taskBasedFlows.foreach: name =>
@@ -143,13 +150,14 @@ class BuiltInFlowsTest extends munit.FunSuite:
     outside.foreach: (name, stated) =>
       assertEquals(stated.distinct, List(DefaultMaxIterations.toString), name)
 
-  /** A flow's last statement: from the last line at the flow body's own
-    * indentation to the end, so a call spread over several lines is whole.
+  /** A flow's last statement: from the last line where one starts — flow-body
+    * indentation, opening with a name — to the end, so a call spread over
+    * several lines is whole, its own closing paren included.
     */
   private def lastStatement(name: String): String =
     val fromEnd =
       resourceText(name).linesIterator.toList.reverse.dropWhile(_.trim.isEmpty)
-    val (deeper, rest) = fromEnd.span(!_.matches("  \\S.*"))
+    val (deeper, rest) = fromEnd.span(!_.matches("  [A-Za-z].*"))
     (rest.headOption.toList ++ deeper.reverse).mkString("\n")
 
   /** The flows that finish with [[orca.pr.openPrIfGitHub]]. */
@@ -160,8 +168,18 @@ class BuiltInFlowsTest extends munit.FunSuite:
     "simple.sc"
   )
 
+  /** The flows that finish with [[orca.pr.openPrFromBranch]]. */
+  private val requiredPrFlows = List("issue-pr.sc")
+
+  /** The flows that open their PR with a bare `gh.createPr`: no helper writes
+    * the body or records the handle, so each does both itself. Derived, so a
+    * second such flow is covered by the rules below rather than skipped.
+    */
+  private def ownBodyPrFlows: List[String] =
+    indexNames.filter(resourceText(_).contains("gh.createPr(")).sorted
+
   test("every code-producing flow takes the best-effort PR step"):
-    // Two exact sets that partition the flows by which PR helper they use, so a
+    // Three exact sets that partition the flows by how they open their PR, so a
     // code-producing flow that drops the step — or reaches for the
     // GitHub-requiring one — shows up here, and so does a `review.sc` that
     // grows a PR step it should not have.
@@ -171,8 +189,9 @@ class BuiltInFlowsTest extends munit.FunSuite:
     )
     assertEquals(
       indexNames.filter(resourceText(_).contains("openPrFromBranch(")).sorted,
-      List("issue-pr.sc")
+      requiredPrFlows
     )
+    assertEquals(ownBodyPrFlows, List("issue-pr-bugfix.sc"))
 
   test("the best-effort PR step is each flow's last statement"):
     // "Ends with", not merely "calls": the step pushes the branch and describes
@@ -185,13 +204,24 @@ class BuiltInFlowsTest extends munit.FunSuite:
       )
 
   test("a flow that opens its own PR records it for the lifecycle"):
-    // `issue-pr-bugfix.sc` opens its PR with a bare `gh.createPr`, so the
-    // handle only reaches the lifecycle — and the run only ends on the start
-    // branch — if the flow records it itself.
-    assert(
-      resourceText("issue-pr-bugfix.sc").contains("recordOpenedPr("),
-      "issue-pr-bugfix.sc must record the PR it opens"
-    )
+    // A bare `gh.createPr` hands the flow the handle, so it only reaches the
+    // lifecycle — and the run only ends on the start branch — if the flow
+    // records it itself.
+    ownBodyPrFlows.foreach: name =>
+      assert(resourceText(name).contains("recordOpenedPr("), name)
+
+  test("every flow that opens a PR hands it what its review left open"):
+    // The whole point of the required `openFindings` parameter: a flow that
+    // drops it opens a PR saying nothing about the findings it shipped. The
+    // argument must be the review stage's own value — `IgnoredIssues(Nil)`
+    // satisfies the compiler and is exactly the regression to catch.
+    (bestEffortPrFlows ++ requiredPrFlows).foreach: name =>
+      val text = resourceText(name)
+      assert(text.contains("openFindings = openFindings"), name)
+      assert(text.contains("val openFindings = stage("), name)
+    // A flow writing its own body appends the section itself.
+    ownBodyPrFlows.foreach: name =>
+      assert(resourceText(name).contains("bodyWithOpenFindings("), name)
 
   private def withTempHome(body: os.Path => Unit): Unit =
     val home = os.temp.dir(prefix = "orca-built-in-flows-test")

@@ -93,7 +93,7 @@ applicable; `simple.sc` and `review.sc` are unchanged.
 > **Amendment (2026-09-12).** The cap is back to **5 rounds** for the built-in
 > flows' whole-run final review. Nothing reviews after this loop, and what it
 > leaves open is now listed in the PR body, so a round cut on cost is a finding
-> the PR reports open instead. The cost argument no longer decides it.
+> the PR reports open instead.
 
 This is a **deliberate exception** to ADR 0011's argument (amendment 2026-08-02,
 [adr/0011:217](0011-reviewer-roster.md)) that "it is the stage, not the branch,

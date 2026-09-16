@@ -72,10 +72,16 @@ class ReviewTypesTest extends munit.FunSuite:
         .contains("\n  |a| b|")
     )
 
-  test("IgnoredIssues.format renders title and reason"):
-    val issues =
-      IgnoredIssues(List(IgnoredIssue(Title("Style nit"), "accepted")))
-    assertEquals(issues.format, "- Style nit: accepted")
+  test("IgnoredIssues round-trips through JSON"):
+    // A stage result a resume replays and the PR body then reads back, over an
+    // opaque `Title`.
+    val original = IgnoredIssues(
+      List(IgnoredIssue(Title("Null check missing"), "max iterations reached"))
+    )
+    assertEquals(
+      readFromString[IgnoredIssues](writeToString(original)),
+      original
+    )
 
   test("IgnoredIssues.format keeps a multi-line reason on one bullet"):
     val issues = IgnoredIssues(

@@ -1024,6 +1024,33 @@ class ReviewAndFixTest extends munit.FunSuite:
       IgnoredIssues(seeded :: skippedWholeRunReview.issues)
     )
 
+  test("seeds sharing a title collapse before a skipped review adds its own"):
+    // A flow merges per-task declines, so two tasks whose fixers declined the
+    // same title arrive as two seeds; the PR body must carry one bullet.
+    val steps = new ReviewLoopFixture.StepCapture
+    given FlowControl =
+      ReviewLoopFixture.controlWithoutStartingCommit(steps.dispatcher)
+    val result = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
+      reviewers = List(new FakeAgent("never-runs")),
+      task = titled("final review"),
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      diff = ReviewDiff.WholeRun,
+      priorDeclines = IgnoredIssues(
+        List(
+          IgnoredIssue(Title("nit"), "task one declined it"),
+          IgnoredIssue(Title("nit"), "task two declined it too")
+        )
+      )
+    )
+    assertEquals(
+      result,
+      IgnoredIssues(
+        IgnoredIssue(Title("nit"), "task two declined it too") ::
+          skippedWholeRunReview.issues
+      )
+    )
+
   test("seeded declines reach round one's reviewers and return at exit"):
     // `priorDeclines` carries what per-task fixers already declined into a
     // final loop: shown as declined from round one — so reviewers don't

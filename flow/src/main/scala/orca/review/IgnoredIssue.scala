@@ -5,14 +5,12 @@ import orca.plan.Title
 import orca.util.TextUtil
 
 case class IgnoredIssue(title: Title, reason: String) derives JsonData:
-  /** `title` on one line, for a bullet that must not split: a reviewer writes
-    * it, so it can arrive with its own line breaks.
+  /** A reviewer writes the title, so it can arrive with its own line breaks;
+    * this is the form for a bullet that must not split.
     */
   def titleLine: String = oneLine(title.value)
 
-  /** `reason` on one line, as [[titleLine]]; the fixer writes it. Empty when
-    * the reason is blank.
-    */
+  /** [[titleLine]] for the reason, which the fixer writes. */
   def reasonLine: String = oneLine(reason)
 
 private def oneLine(text: String): String =

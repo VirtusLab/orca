@@ -129,7 +129,7 @@ flow(OrcaArgs(args)):
 
   // Each task's single pass took the fixer's word for its own fixes; this loop
   // over everything the run changed is what checks them.
-  stage("Final review"):
+  val openFindings = stage("Final review"):
     reviewAndFixLoop(
       coderSession = session,
       reviewers = allReviewers(reviewAgent),
@@ -139,8 +139,12 @@ flow(OrcaArgs(args)):
     )
 
   // Best effort: opens a PR when the checkout is on a GitHub `gh` can reach,
-  // and says why in one line when it isn't.
-  openPrIfGitHub(summarisingAgent = codingAgent.cheap)
+  // and says why in one line when it isn't. What the loop left open is listed
+  // in the PR body.
+  openPrIfGitHub(
+    summarisingAgent = codingAgent.cheap,
+    openFindings = openFindings
+  )
 ```
 
 ```bash
@@ -757,8 +761,9 @@ stage("Final review"):
 ```
 
 The cap is above the library default of 3 because nothing reviews again after
-this loop. The flows that open a PR hand what it returns to `openPrFromBranch`,
-which lists every finding still open in the PR body.
+this loop. Each flow hands what it returns to its PR step
+(`openPrIfGitHub`/`openPrFromBranch`), which lists every finding still open in
+the PR body.
 
 A change set past 128 KiB is cut down before it is sent: the reviewer gets as
 many whole files as fit, then a list naming every other changed file with its
@@ -798,8 +803,8 @@ PR utilities, available via `import orca.pr.*`:
 | `summarisePr(agent, diff, context?, instructions?)` | Fold a branch diff into a `PrSummary(title, body)` for `gh.createPr`. `context` is an optional preamble (originating issue link, user prompt, etc.) the model anchors the description to. A diff too large to send is cut short. Use a cheap model (`claude.cheap`, `codingAgent.cheap`). |
 | `openPrFromBranch(summarisingAgent, openFindings, title?, body?, context?, instructions?): PrHandle` | Push the feature branch and open a PR for it, as three stages: push → summarise → create. Requires a GitHub remote and a logged-in `gh` — without either the run fails. `openFindings` is the `IgnoredIssues` the run's final review returned; each entry is listed under "Open review findings" as its title and reason, verbatim — nothing says where a finding points (none open: no section). `title`/`body` rewrite the generated text (`body = s => s"${s.body}\n\nCloses #42."`). Opening the PR is a top-level step of a flow and this runs its own stages, so it does not compile inside one. |
 | `openPrIfGitHub(summarisingAgent, openFindings, title?, body?, context?, instructions?): Option[PrHandle]` | Probes `gh.availability` outside any stage, then runs `openPrFromBranch`'s push → summarise → create when the checkout is on GitHub. Where it isn't — no remote, a remote that isn't GitHub, a GitHub `gh` cannot reach, a run that changed no code, or a push/create the remote refuses — it emits one `Step` saying why, returns `None`, and the run finishes. A resume replays what its push and create stages recorded, a refusal included. The step every code-producing built-in flow ends with; like `openPrFromBranch`, it does not compile inside a stage. |
-| `bodyWithOpenFindings(body, open)` | `body` with the "Open review findings" section appended, or `body` unchanged when nothing is open — the assembly the two helpers above use, for a flow that writes its own PR body (`gh.updatePr`). |
-| `recordOpenedPr(pr)` | Record the PR's URL as the run's published work, so the run hands the checkout back on the branch it started from and the closing summary names the PR. Only for a flow that opens its PR with a bare `gh.createPr` — the two helpers above record it themselves. Call it inside the stage that opened the PR (it needs that stage's `WorkspaceWrite`): the stage's commit carries the record, and a resume reads it back without re-running the body. |
+| `bodyWithOpenFindings(body, open)` | `body` with the "Open review findings" section appended, or `body` unchanged when nothing is open — the assembly `openPrFromBranch`/`openPrIfGitHub` use, for a flow that writes its own PR body (`gh.updatePr`). |
+| `recordOpenedPr(pr)` | Record the PR's URL as the run's published work, so the run hands the checkout back on the branch it started from and the closing summary names the PR. Only for a flow that opens its PR with a bare `gh.createPr` — `openPrFromBranch`/`openPrIfGitHub` record it themselves. Call it inside the stage that opened the PR (it needs that stage's `WorkspaceWrite`): the stage's commit carries the record, and a resume reads it back without re-running the body. |
 
 ### Customising prompts
 

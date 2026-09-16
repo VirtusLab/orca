@@ -536,7 +536,8 @@ object FlowCanary:
   /** `issue-pr-bugfix.sc`: the push-after-edit authoring rule (ADR 0018).
     * "Write failing test" commits the test; a LATER "Push + open PR" stage
     * pushes it. Also covers `triage`, `waitForBuild` outside a stage,
-    * `session.run` in a nested helper, and the final push+updatePr stage.
+    * `session.run` in a nested helper, and the final push+updatePr stage whose
+    * hand-written body goes through `bodyWithOpenFindings`.
     */
   def bugfixFlowShape(): Unit =
     import scala.concurrent.duration.DurationInt
@@ -597,8 +598,8 @@ object FlowCanary:
               .from(s"Fix ${issueHandle.shortRef}", claude)
               .reviewed(claude)
               .value
-          for task <- fixPlan.tasks do
-            stage(s"task: ${task.title}"):
+          val declines =
+            for task <- fixPlan.tasks yield stage(s"task: ${task.title}"):
               val _ = session.run(fixPlan.taskPrompt(task))
               // An explicit override beats the settings file; the summariser
               // rides on the coding role's cheap tier via `codingAgent`.
@@ -617,7 +618,10 @@ object FlowCanary:
             gh.updatePr(
               pr,
               title = "fix: " + summary,
-              body = "Failing test + fix."
+              body = bodyWithOpenFindings(
+                "Failing test + fix.",
+                IgnoredIssues(declines.flatMap(_.issues))
+              )
             )
 
 object StackSettingsCanary:

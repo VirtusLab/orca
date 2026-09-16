@@ -12,8 +12,9 @@
   * re-prompted on a re-run.
   *
   * The run then opens a PR when the repository is on GitHub and hands back the
-  * branch it started from — the work is on the PR. Otherwise it says so in one
-  * line and ends on the feature branch; the work is committed either way.
+  * branch it started from — the work is on the PR, its description listing
+  * whatever the final review left unfixed. Otherwise it says so in one line
+  * and ends on the feature branch; the work is committed either way.
   *
   * `examples/runnable/02-interactive/create-test-project.sh` seeds a calculator
   * crate into a temp dir and copies this script alongside it; from there:
@@ -54,7 +55,7 @@ flow(OrcaArgs(args)):
   // per-task declines seed the loop, so its reviewers don't re-report findings
   // the fixer already answered. A higher cap than the library default: nothing
   // reviews again after this loop.
-  stage("Final review"):
+  val openFindings = stage("Final review"):
     reviewAndFixLoop(
       coderSession = session,
       reviewers = allReviewers(reviewAgent),
@@ -64,4 +65,7 @@ flow(OrcaArgs(args)):
       priorDeclines = IgnoredIssues(taskDeclines.flatMap(_.issues))
     )
 
-  openPrIfGitHub(summarisingAgent = codingAgent.cheap)
+  openPrIfGitHub(
+    summarisingAgent = codingAgent.cheap,
+    openFindings = openFindings
+  )

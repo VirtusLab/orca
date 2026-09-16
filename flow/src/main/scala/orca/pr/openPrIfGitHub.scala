@@ -12,6 +12,7 @@ import orca.{
 import orca.agents.{Agent, JsonData, given}
 import orca.events.OrcaEvent
 import orca.progress.ThrowawayBranch
+import orca.review.IgnoredIssues
 import orca.tools.{GitHubAvailability, NoDefaultBase, PrHandle}
 import orca.util.TextUtil
 
@@ -29,12 +30,15 @@ import scala.util.control.NonFatal
   * and a run that still succeeds. A flow that must have its PR calls
   * [[openPrFromBranch]], which throws instead.
   *
-  * Parameters are [[openPrFromBranch]]'s, passed straight through. Like it,
-  * this does not compile inside a stage: opening the PR is a top-level step of
-  * a flow, and this runs its own stages.
+  * Parameters are [[openPrFromBranch]]'s, passed straight through —
+  * `openFindings` included, so a PR opened here lists what the run's review
+  * left open the same way. Like [[openPrFromBranch]], this does not compile
+  * inside a stage: opening the PR is a top-level step of a flow, and this runs
+  * its own stages.
   */
 def openPrIfGitHub(
     summarisingAgent: Agent[?],
+    openFindings: IgnoredIssues,
     title: PrSummary => String = _.title,
     body: PrSummary => String = _.body,
     context: Option[String] = None,
@@ -57,13 +61,15 @@ def openPrIfGitHub(
     case Some(reason) => skipped(reason)
     case None =>
       pushThenCreate(
-        base,
-        push,
-        summarisingAgent,
-        title,
-        body,
-        context,
-        instructions
+        base = base,
+        push = push,
+        summarisingAgent = summarisingAgent,
+        title = title,
+        // Composed once here, so the open findings reach the body without
+        // being threaded through the legs below.
+        body = summary => bodyWithOpenFindings(body(summary), openFindings),
+        context = context,
+        instructions = instructions
       )
 
 /** Why a fresh run stops before its first write, or `None` to go ahead.
