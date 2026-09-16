@@ -39,11 +39,19 @@ private[tools] case class GhIdentifiedCommentJson(
 ) derives ConfiguredJsonValueCodec
 
 /** Minimal PR fields from `gh pr list --json number,url`, used by
-  * [[OsGitHubTool.findOpenPr]] to map a head branch to an open PR. The
-  * owner/repo/number are extracted from the URL via [[PrUrlPattern]].
+  * [[OsGitHubTool.findOpenPr]] to map a head branch to an open PR. The handle
+  * is extracted from the URL via [[PrHandle.fromUrl]].
   */
 private[tools] case class GhPrListJson(
     number: Int,
+    url: String
+) derives ConfiguredJsonValueCodec
+
+/** What `gh repo view --json url` returns for the repository gh resolves from
+  * the checkout's remotes: the browser URL, which carries host, owner and repo
+  * together for [[OsGitHubTool.availability]].
+  */
+private[tools] case class GhRepoViewJson(
     url: String
 ) derives ConfiguredJsonValueCodec
 

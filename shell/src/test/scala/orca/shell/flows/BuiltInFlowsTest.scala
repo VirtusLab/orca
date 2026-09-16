@@ -121,6 +121,56 @@ class BuiltInFlowsTest extends munit.FunSuite:
       val stated = cap.findAllMatchIn(text).map(_.group(1)).toList
       assertEquals(stated.distinct, List(DefaultMaxIterations.toString), name)
 
+  /** A flow's last statement: from the last line at the flow body's own
+    * indentation to the end, so a call spread over several lines is whole.
+    */
+  private def lastStatement(name: String): String =
+    val fromEnd =
+      resourceText(name).linesIterator.toList.reverse.dropWhile(_.trim.isEmpty)
+    val (deeper, rest) = fromEnd.span(!_.matches("  \\S.*"))
+    (rest.headOption.toList ++ deeper.reverse).mkString("\n")
+
+  /** The flows that finish with [[orca.pr.openPrIfGitHub]]. */
+  private val bestEffortPrFlows = List(
+    "implement-enhanced.sc",
+    "implement-interactive.sc",
+    "implement.sc",
+    "simple.sc"
+  )
+
+  test("every code-producing flow takes the best-effort PR step"):
+    // Two exact sets that partition the flows by which PR helper they use, so a
+    // code-producing flow that drops the step — or reaches for the
+    // GitHub-requiring one — shows up here, and so does a `review.sc` that
+    // grows a PR step it should not have.
+    assertEquals(
+      indexNames.filter(resourceText(_).contains("openPrIfGitHub(")).sorted,
+      bestEffortPrFlows
+    )
+    assertEquals(
+      indexNames.filter(resourceText(_).contains("openPrFromBranch(")).sorted,
+      List("issue-pr.sc")
+    )
+
+  test("the best-effort PR step is each flow's last statement"):
+    // "Ends with", not merely "calls": the step pushes the branch and describes
+    // it from the whole branch diff, so a call placed above the final review
+    // would summarise work the review then keeps changing.
+    bestEffortPrFlows.foreach: name =>
+      assert(
+        lastStatement(name).matches("(?s)\\s*(?:val _ = )?openPrIfGitHub\\(.*"),
+        s"$name ends with: ${lastStatement(name)}"
+      )
+
+  test("a flow that opens its own PR records it for the lifecycle"):
+    // `issue-pr-bugfix.sc` opens its PR with a bare `gh.createPr`, so the
+    // handle only reaches the lifecycle — and the run only ends on the start
+    // branch — if the flow records it itself.
+    assert(
+      resourceText("issue-pr-bugfix.sc").contains("recordOpenedPr("),
+      "issue-pr-bugfix.sc must record the PR it opens"
+    )
+
   private def withTempHome(body: os.Path => Unit): Unit =
     val home = os.temp.dir(prefix = "orca-built-in-flows-test")
     try body(home)

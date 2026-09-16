@@ -99,9 +99,25 @@ flow(OrcaArgs(args)):
 
   target.prRef.foreach: ref =>
     stage("Post report on the PR"):
+      // `owner/repo#42` names no host, so ask gh which one this checkout is
+      // on — a GitHub Enterprise checkout must get its report, not a
+      // same-named repo elsewhere. Inside the stage, so a resume replays the
+      // record instead of asking gh again.
+      val host = gh.availability() match
+        case GitHubAvailability.Available(host, _, _) => host
+        case GitHubAvailability.Unavailable(why) =>
+          fail(s"cannot post the report on $ref: ${why.explanation} — post " +
+            "the report above on the PR yourself")
+
       val issue = IssueHandle.parseOrThrow(ref)
+
       gh.upsertComment(
-        PrHandle(issue.owner, issue.repo, issue.number),
+        PrHandle(
+          host = host,
+          owner = issue.owner,
+          repo = issue.repo,
+          number = issue.number
+        ),
         orcaCommentMarker(userPrompt, "review"),
         report
       )

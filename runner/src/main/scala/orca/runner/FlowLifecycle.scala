@@ -27,6 +27,7 @@ import orca.progress.{
   RecoveryCheck,
   ScannedProgressLog,
   SessionRecord,
+  ThrowawayBranch,
   UnsafeBranchRefRefused
 }
 import orca.settings.{AgentSettings, SettingsFile, SettingsScope}
@@ -67,7 +68,6 @@ object FlowLifecycle:
   private[orca] def run(
       ctx: DefaultFlowContext[?, ?, ?],
       flowSetup: FlowSetup,
-      returnToStartBranch: Boolean,
       debug: Boolean
   )(body: FlowControl ?=> Unit): Unit =
     val log = LoggerFactory.getLogger("orca.flow")
@@ -120,7 +120,9 @@ object FlowLifecycle:
               )
             )
         throw f
-    teardownSuccess(ctx.git, flowSetup, returnToStartBranch, ctx.emit)
+    // Read before teardownSuccess deletes the log.
+    val published = PublishedState.from(ctx.progressStore.loadDetailed())
+    teardownSuccess(ctx.git, flowSetup, published, ctx.emit)
 
   /** Replay the persisted resume-wire-id map (ADR 0018 §2.6) into each
     * session's own agent's in-memory registry, so a resumed run resumes against
@@ -269,9 +271,9 @@ object FlowLifecycle:
     * [[abortIfBranchBusy]] and [[SetupSession.applyCleanlinessPolicy]]. A
     * pre-stash read can see a dirty working copy, which is why the peek never
     * routes fresh-vs-resume — that stays with the post-stash authoritative read
-    * below. The busy check only ever refuses, and a dirty own log reads at
-    * worst as `Corrupt`, which it treats like `Absent`: no resumable run of
-    * mine here, so another run's claim on this branch still stands.
+    * below. The busy check only ever refuses, and a dirty own log that fails to
+    * load is treated like an absent one: no resumable run of mine here, so
+    * another run's claim on this branch still stands.
     *
     * Cleanliness policy: the peek's facts feed [[DirtyTreePolicy.decide]] (the
     * decision table lives there), and [[SetupSession.applyCleanlinessPolicy]]
@@ -574,10 +576,11 @@ object FlowLifecycle:
         UntrackedFiles.Keep
 
     /** Bind the run to a branch + progress log — resume onto the header's
-      * branch for a valid log, warn and start fresh from a corrupt one, or
-      * start fresh when none exists. This is the AUTHORITATIVE
-      * `store.loadDetailed()` read; see [[setup]]'s doc for why it always runs
-      * after the cleanliness decision.
+      * branch for a valid log, warn and start fresh from a corrupt one, start
+      * fresh when none exists, and abort on one that cannot be read, since the
+      * fresh start would replace a file that may still hold a resumable run.
+      * This is the AUTHORITATIVE `store.loadDetailed()` read; see [[setup]]'s
+      * doc for why it always runs after the cleanliness decision.
       */
     def bindBranch(
         startBranch: String,
@@ -588,6 +591,12 @@ object FlowLifecycle:
         case ProgressStore.LoadResult.Corrupt(reason) =>
           warnCorruptLog(reason)
           freshBinding(startBranch, protectedBranches, discovered)
+        case ProgressStore.LoadResult.Unreadable(reason) =>
+          throw new OrcaFlowException(
+            s"progress log at ${store.path} exists but cannot be read " +
+              s"($reason) — it may be a resumable run, so fix its permissions " +
+              "to resume it, or delete the file to start fresh"
+          )
         case ProgressStore.LoadResult.Absent =>
           freshBinding(startBranch, protectedBranches, discovered)
         case ProgressStore.LoadResult.Loaded(progressLog) =>
@@ -1149,10 +1158,10 @@ object FlowLifecycle:
     * branch the user is left on — which is why [[RunChanges]] carries the
     * branch it was counted on.
     */
-  private[orca] def teardownSuccess(
+  private[runner] def teardownSuccess(
       git: GitTool,
       setup: FlowSetup,
-      returnToStartBranch: Boolean,
+      published: PublishedState,
       emit: OrcaEvent => Unit
   ): Unit =
     // Teardown runs outside any user stage, so it mints its own
@@ -1191,40 +1200,36 @@ object FlowLifecycle:
         counted
       finally
         bestEffort("branch handoff"):
-          finishBranch(git, setup, returnToStartBranch)
+          finishBranch(git, setup, published)
     bestEffort("closing summary"):
       ClosingSummary
-        .lines(git.currentBranch(), changes, setup.worktree)
+        .lines(git.currentBranch(), changes, setup.worktree, published.work)
         .foreach(line => emit(OrcaEvent.Step(line)))
 
   /** Where HEAD ends up after a successful run. A throwaway feature branch
-    * (only orca bookkeeping, no user code vs the start branch) is deleted and
-    * HEAD returns to the starting branch. Otherwise the feature branch is kept,
-    * and `returnToStartBranch` chooses where HEAD lands — stay on the feature
-    * branch (the default) or return to the starting branch (PR flows).
-    * Best-effort and success-path-only; never deletes start/protected branches.
+    * ([[ThrowawayBranch]]) is deleted and HEAD returns to the starting branch.
+    * Otherwise the feature branch is kept, and [[BranchHandoff]] chooses where
+    * HEAD lands. Best-effort and success-path-only; never deletes
+    * start/protected branches.
     *
-    * The throwaway-delete is additionally gated on `setup.branchMode`: a branch
-    * orca did not create (`Reused`, skip-branch mode) must never be deleted,
-    * even if a tampered header's `startingBranch` is crafted to name some
-    * existing branch that happens to diff-blank against the feature branch —
-    * that `startingBranch` cross-check doesn't otherwise exist (unlike
-    * `branch`'s R30 check against the actual current branch). Residual,
-    * accepted: with `branchMode = Reused`, `returnToStartBranch` can still
-    * `checkout` a tampered `startingBranch` — navigation only, never
-    * destructive.
+    * The delete runs only on a [[PublishedState.NotPublished]] log — a branch
+    * whose log records published work, or whose log could not be read at all,
+    * is kept however empty it looks against the start branch: what was
+    * published points at what was pushed, and the user needs the branch to
+    * answer it.
     */
   private def finishBranch(
       git: GitTool,
       setup: FlowSetup,
-      returnToStartBranch: Boolean
+      published: PublishedState
   )(using WorkspaceWrite): Unit =
     val throwaway =
-      setup.branchMode == BranchMode.Created &&
-        setup.featureBranch.value != setup.startBranch &&
-        !git.branchHasChangesExcludingOrca(
-          setup.startBranch,
-          setup.featureBranch.value
+      published.allowsBranchDelete &&
+        ThrowawayBranch.isThrowaway(
+          git,
+          setup.branchMode,
+          startBranch = setup.startBranch,
+          featureBranch = setup.featureBranch.value
         )
     if throwaway then
       // The start branch existed when this run began, so a plain `checkout`
@@ -1232,8 +1237,11 @@ object FlowLifecycle:
       // to paper over by creating it anew.
       git.checkout(setup.startBranch).orThrow
       git.deleteBranch(setup.featureBranch.value)
-    else if returnToStartBranch then git.checkout(setup.startBranch).orThrow
-    // else: stay on the feature branch (the default).
+    else
+      BranchHandoff.of(setup.branchMode, setup.worktree, published) match
+        case BranchHandoff.ReturnToStart =>
+          git.checkout(setup.startBranch).orThrow
+        case BranchHandoff.StayPut => ()
 
   /** Failure teardown (ADR 0018 §2.5): discard the failed stage's uncommitted
     * partial edits with `git reset --hard` (which restores the last committed

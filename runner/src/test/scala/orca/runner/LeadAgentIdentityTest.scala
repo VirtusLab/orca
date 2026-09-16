@@ -165,7 +165,6 @@ class LeadAgentIdentityTest extends munit.FunSuite:
           interaction = Some(interaction()),
           extraListeners = List(listener),
           branchNaming = None,
-          returnToStartBranch = false,
           progressStore = None,
           wiring = FlowWiring(
             claude = Some(_ => agents.claude),
@@ -232,7 +231,6 @@ class LeadAgentIdentityTest extends munit.FunSuite:
           interaction = Some(interaction()),
           extraListeners = Nil,
           branchNaming = None,
-          returnToStartBranch = false,
           progressStore = None,
           wiring = FlowWiring(
             claude = Some(_ => agents.claude),

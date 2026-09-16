@@ -419,6 +419,14 @@ the wrong branch.
   exception — see R5 — where HEAD always returns to the starting branch.) On
   **failure** the flow stays on the feature branch, so a re-run resumes in place —
   HEAD is already on the right branch and the committed log is in the working tree.
+
+  > **Amendment (2026-09-11).** The flow no longer asks: `returnToStartBranch`
+  > is gone from `flow`/`runFlow`, and the handoff is derived per run
+  > (`BranchHandoff.of`) from the run target, the worktree, and whether the run
+  > opened a PR (recorded through `orca.pr.recordOpenedPr`). HEAD returns to the
+  > starting branch only for a `RunTarget.NewBranch` run, outside a worktree,
+  > that opened one; `--skip-branch` and `--worktree` never move the checkout.
+  > The throwaway-branch exception (R5) is unchanged.
 - **R4** — On flow start a dirty working tree is stashed, with a user-visible
   warning, so the flow begins clean.
 
@@ -525,7 +533,6 @@ def flow[B <: BackendTag](        // B inferred from the selector, never written
     // … existing tool overrides …
     branchNaming: Option[BranchNamingStrategy] = None,
     //   ^ None ⇒ slug the prompt; or Some(BranchNamingStrategy.issue(handle)) for issue flows
-    returnToStartBranch: Boolean = false,  // R3; false ⇒ stay on the feature branch
     progressStore: Option[ProgressStore] = None     // §2.4; pluggable path + format
 )(body: FlowControl ?=> Unit): Unit  // body is non-generic; `B` is pinned into FlowContext.LeadB
 ```

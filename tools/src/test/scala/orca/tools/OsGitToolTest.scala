@@ -152,12 +152,12 @@ class OsGitToolTest extends munit.FunSuite:
       val _ = os
         .proc("git", "update-ref", "refs/remotes/origin/main", "HEAD")
         .call(cwd = dir)
-      assertEquals(git.defaultBase(), "origin/main")
+      assertEquals(git.defaultBase(), Right("origin/main"))
 
-  test("defaultBase throws when no candidate ref exists"):
+  test("defaultBase answers Left when no candidate ref exists"):
     withRepo: (git, _) =>
       // No remote-tracking refs at all → none of the fallbacks resolve.
-      val _ = intercept[orca.OrcaFlowException](git.defaultBase())
+      assert(git.defaultBase().isLeft)
 
   test("defaultBranch reads the remote HEAD's short name"):
     withSeededRepo: (git, dir) =>
@@ -362,6 +362,12 @@ class OsGitToolTest extends munit.FunSuite:
     assert(!OsGitTool.isGithubRemote("git@gitlab.com:me/repo.git"))
     assert(!OsGitTool.isGithubRemote("https://github.example.com/me/repo.git"))
     assert(!OsGitTool.isGithubRemote("/local/path/repo.git"))
+
+  test("remoteHost reads a userless scp-style remote"):
+    assertEquals(OsGitTool.remoteHost("myserver:/srv/repo"), Some("myserver"))
+
+  test("remoteHost reads a single-letter prefix as a drive, not a host"):
+    assertEquals(OsGitTool.remoteHost("c:/repos/widgets"), None)
 
   test("pushArgs adds no credential helper for a non-github remote"):
     assertEquals(

@@ -65,7 +65,8 @@ class OsGitHubToolTest extends munit.FunSuite:
     ): PipedCliProcess =
       throw new UnsupportedOperationException("not supported in this stub")
 
-  private val samplePr = PrHandle("acme", "widgets", 42)
+  private val samplePr =
+    PrHandle(host = "github.com", owner = "acme", repo = "widgets", number = 42)
 
   /** Responses for a `createPr` call: the leading `git rev-parse` resolving the
     * head branch (`feat`), then the given `gh pr create` result, then any
@@ -78,6 +79,314 @@ class OsGitHubToolTest extends munit.FunSuite:
     new SequencedCliRunner(
       CliResult(0, "feat\n", "") +: createResult +: rest.toList
     )
+
+  // ── availability ─────────────────────────────────────────────────────────
+
+  // An `availability()` probe runs `git ls-remote --get-url origin`, then
+  // `gh auth token`, then `gh repo view` — in that order. The repo gh reports
+  // is deliberately not the one in the origin path: the probe answers with the
+  // repository gh resolved, which is the one `gh pr create` would target.
+  private val repoViewJson =
+    """{"url":"https://ghe.example.com/acme/widgets"}"""
+
+  private val originGhe =
+    CliResult(0, "https://ghe.example.com/acme/widgets.git\n", "")
+  private val originGitHub =
+    CliResult(0, "https://github.com/acme/widgets.git\n", "")
+  private val tokenPresent = CliResult(0, "gho_token\n", "")
+
+  /** A tool whose probe never retries, so a failing gh answers at once. */
+  private def probeGh(cli: CliRunner): OsGitHubTool =
+    new OsGitHubTool(cli, readRetry = Schedule.immediate.maxRetries(0))
+
+  /** A tool whose probe retries twice, with no delay. */
+  private def retryingProbeGh(cli: CliRunner): OsGitHubTool =
+    new OsGitHubTool(cli, readRetry = Schedule.immediate.maxRetries(2))
+
+  test("availability retries a repo view that fails once on the network"):
+    val cli = new SequencedCliRunner(
+      List(
+        originGhe,
+        tokenPresent,
+        CliResult(1, "", "dial tcp: lookup ghe.example.com: no such host"),
+        CliResult(0, repoViewJson, "")
+      )
+    )
+    assertEquals(
+      retryingProbeGh(cli).availability(),
+      GitHubAvailability.Available(
+        host = "ghe.example.com",
+        owner = "acme",
+        repo = "widgets"
+      )
+    )
+    assertEquals(cli.callCount, 4) // one failed repo view, then success
+
+  test("availability answers a missing credential with exactly one gh call"):
+    // No credential is a local fact: a retry could not change it, so the user
+    // is not kept waiting through the backoff before the one-line answer.
+    val cli = new SequencedCliRunner(
+      List(
+        originGitHub,
+        CliResult(1, "", "no oauth token found for github.com\n")
+      )
+    )
+    assertEquals(
+      retryingProbeGh(cli).availability(),
+      GitHubAvailability.Unavailable(
+        GitHubUnavailable.Unreachable(
+          "github.com",
+          "no oauth token found for github.com"
+        )
+      )
+    )
+    assertEquals(cli.calls.count(_.args.head == "gh"), 1)
+
+  test("availability does not retry a repo view gh answers with HTTP 404"):
+    val cli = new SequencedCliRunner(
+      List(
+        originGitHub,
+        tokenPresent,
+        CliResult(1, "", "gh: Not Found (HTTP 404)")
+      )
+    )
+    assertEquals(
+      retryingProbeGh(cli).availability(),
+      GitHubAvailability.Unavailable(
+        GitHubUnavailable.Unreachable("github.com", "gh: Not Found (HTTP 404)")
+      )
+    )
+    assertEquals(cli.callCount, 3)
+
+  test("availability refuses the port gh names, as PrHandle would"):
+    // Available would promise a PR whose handle `PrHandle.fromUrl` then
+    // refuses; the probe answers that the host is unsupported instead.
+    val cli = new SequencedCliRunner(
+      List(
+        CliResult(0, "https://ghe.example.com:8443/acme/widgets.git\n", ""),
+        tokenPresent,
+        CliResult(
+          0,
+          """{"url":"https://ghe.example.com:8443/acme/widgets"}""",
+          ""
+        )
+      )
+    )
+    val reason = probeGh(cli).availability() match
+      case GitHubAvailability.Unavailable(
+            GitHubUnavailable.Unreachable("ghe.example.com", reason)
+          ) =>
+        reason
+      case other => fail(s"expected Unreachable, got: $other")
+    assert(reason.contains("https://ghe.example.com:8443/acme/widgets"), reason)
+
+  test("availability folds gh's multi-line reason onto one line"):
+    // gh reports over several lines; the reason lands in a single Step, which
+    // a newline would tear.
+    val cli = new SequencedCliRunner(
+      List(
+        originGitHub,
+        tokenPresent,
+        CliResult(
+          1,
+          "",
+          "GraphQL: Could not resolve to a Repository with the name " +
+            "'acme/widgets'.\n  (repository)\n"
+        )
+      )
+    )
+    assertEquals(
+      probeGh(cli).availability(),
+      GitHubAvailability.Unavailable(
+        GitHubUnavailable.Unreachable(
+          "github.com",
+          "GraphQL: Could not resolve to a Repository with the name " +
+            "'acme/widgets'. (repository)"
+        )
+      )
+    )
+
+  test("availability answers with the repository gh resolved, not the origin"):
+    val cli = new SequencedCliRunner(
+      List(
+        CliResult(0, "git@ghe.example.com:acme/widgets-old.git\n", ""),
+        tokenPresent,
+        CliResult(0, repoViewJson, "")
+      )
+    )
+    assertEquals(
+      probeGh(cli).availability(),
+      GitHubAvailability.Available(
+        host = "ghe.example.com",
+        owner = "acme",
+        repo = "widgets"
+      )
+    )
+
+  test("availability asks git for origin's URL, then gh about its host"):
+    // `git ls-remote --get-url` answers with the URL git would actually use
+    // (an `insteadOf` alias resolved), and the credential is asked for on the
+    // host taken out of it.
+    val cli = new SequencedCliRunner(
+      List(
+        CliResult(0, "git@ghe.example.com:acme/widgets-old.git\n", ""),
+        tokenPresent,
+        CliResult(0, repoViewJson, "")
+      )
+    )
+    val _ = probeGh(cli).availability()
+    assertEquals(
+      cli.calls.map(_.args),
+      List(
+        List("git", "ls-remote", "--get-url", "origin"),
+        List("gh", "auth", "token", "--hostname", "ghe.example.com"),
+        List("gh", "repo", "view", "--json", "url")
+      )
+    )
+
+  test(
+    "availability reports NotGitHub when gh has no credential for a non-GitHub host"
+  ):
+    // gh only ever logs in to GitHub, so a host it holds nothing for is taken
+    // to be something else — here, GitLab.
+    val cli = new SequencedCliRunner(
+      List(
+        CliResult(0, "git@gitlab.com:acme/widgets.git\n", ""),
+        CliResult(1, "", "no oauth token found for gitlab.com")
+      )
+    )
+    assertEquals(
+      probeGh(cli).availability(),
+      GitHubAvailability.Unavailable(GitHubUnavailable.NotGitHub("gitlab.com"))
+    )
+
+  test("availability reports NoHost for a remote with no host at all"):
+    // A clone from a local path. The remote itself is the answer, and gh is
+    // never asked about it.
+    val cli = new SequencedCliRunner(
+      List(CliResult(0, "/srv/repos/widgets.git\n", ""))
+    )
+    assertEquals(
+      probeGh(cli).availability(),
+      GitHubAvailability.Unavailable(
+        GitHubUnavailable.NoHost("/srv/repos/widgets.git")
+      )
+    )
+    assertEquals(cli.callCount, 1)
+
+  test("availability reports NoRemote when origin is unset"):
+    // `git ls-remote --get-url` echoes the name back, exit 0, for a remote
+    // that is not there.
+    val cli = new SequencedCliRunner(List(CliResult(0, "origin\n", "")))
+    assertEquals(
+      probeGh(cli).availability(),
+      GitHubAvailability.Unavailable(GitHubUnavailable.NoRemote)
+    )
+
+  test("availability names the next action when a failing gh says nothing"):
+    // The reason must not come back empty — it is the whole diagnostic the
+    // user gets.
+    val cli = new SequencedCliRunner(
+      List(originGitHub, CliResult(1, "", ""))
+    )
+    val reason = probeGh(cli).availability() match
+      case GitHubAvailability.Unavailable(
+            GitHubUnavailable.Unreachable("github.com", reason)
+          ) =>
+        reason
+      case other => fail(s"expected Unreachable, got: $other")
+    assert(reason.contains("gh auth login --hostname github.com"), reason)
+
+  test(
+    "availability reports Unreachable on a gh repo view payload it cannot read"
+  ):
+    val cli = new SequencedCliRunner(
+      List(originGitHub, tokenPresent, CliResult(0, "not json", ""))
+    )
+    val reason = probeGh(cli).availability() match
+      case GitHubAvailability.Unavailable(
+            GitHubUnavailable.Unreachable("github.com", reason)
+          ) =>
+        reason
+      case other => fail(s"expected Unreachable, got: $other")
+    assert(reason.contains("gh repo view"), reason)
+
+  test("availability reports Unreachable when gh repo view names an http URL"):
+    // `PrHandle.fromUrl` parses https only, so a host promised as Available
+    // here would break `createPr` after the PR was already opened.
+    val cli = new SequencedCliRunner(
+      List(
+        originGhe,
+        tokenPresent,
+        CliResult(0, """{"url":"http://ghe.example.com/acme/widgets"}""", "")
+      )
+    )
+    val reason = probeGh(cli).availability() match
+      case GitHubAvailability.Unavailable(
+            GitHubUnavailable.Unreachable("ghe.example.com", reason)
+          ) =>
+        reason
+      case other => fail(s"expected Unreachable, got: $other")
+    assert(reason.contains("https://<host>/<owner>/<repo>"), reason)
+
+  test(
+    "availability reports GitUnusable, not NoRemote, when git cannot be run"
+  ):
+    // A git that will not start says nothing about the remotes, so the answer
+    // must not send the user to add an origin the checkout may well have.
+    val cli = new CliRunner:
+      def run(
+          args: Seq[String],
+          stdin: String,
+          env: Map[String, String],
+          cwd: os.Path
+      ): CliResult =
+        throw new java.io.IOException("Cannot run program \"git\"")
+      def spawnPiped(
+          args: Seq[String],
+          env: Map[String, String],
+          cwd: os.Path,
+          pipeStderr: Boolean
+      ): PipedCliProcess =
+        throw new UnsupportedOperationException("not supported in this stub")
+    val reason = probeGh(cli).availability() match
+      case GitHubAvailability.Unavailable(
+            GitHubUnavailable.GitUnusable(reason)
+          ) =>
+        reason
+      case other => fail(s"expected GitUnusable, got: $other")
+    assert(reason.contains("Cannot run program \"git\""), reason)
+
+  test("availability reports Unreachable off github.com when gh cannot be run"):
+    // A gh that will not start says nothing about the host, so it must not be
+    // read as "this host is not GitHub" — the next action is installing gh.
+    // The arm does not look at the host, so this stands for github.com too.
+    val cli = new CliRunner:
+      def run(
+          args: Seq[String],
+          stdin: String,
+          env: Map[String, String],
+          cwd: os.Path
+      ): CliResult =
+        // What `os.proc` throws for a binary that is not on the PATH.
+        if args.headOption.contains("gh") then
+          throw new java.io.IOException("Cannot run program \"gh\"")
+        else CliResult(0, "git@ghe.example.com:acme/widgets.git\n", "")
+      def spawnPiped(
+          args: Seq[String],
+          env: Map[String, String],
+          cwd: os.Path,
+          pipeStderr: Boolean
+      ): PipedCliProcess =
+        throw new UnsupportedOperationException("not supported in this stub")
+    val reason = probeGh(cli).availability() match
+      case GitHubAvailability.Unavailable(
+            GitHubUnavailable.Unreachable("ghe.example.com", reason)
+          ) =>
+        reason
+      case other => fail(s"expected Unreachable, got: $other")
+    assert(reason.contains("could not run gh"), reason)
+    assert(reason.contains("cli.github.com"), reason)
 
   test("createPr resolves the current branch and passes it as --head"):
     val cli = createPrRunner(
@@ -102,6 +411,21 @@ class OsGitHubToolTest extends munit.FunSuite:
     )
     val gh = new OsGitHubTool(cli)
     assertEquals(gh.createPr("feat: hi", "hello").orThrow, samplePr)
+
+  test("createPr keeps the host of a GitHub Enterprise PR URL"):
+    val cli = createPrRunner(
+      CliResult(0, "https://ghe.example.com/acme/widgets/pull/42\n", "")
+    )
+    val gh = new OsGitHubTool(cli)
+    assertEquals(
+      gh.createPr("feat: hi", "hello").orThrow,
+      PrHandle(
+        host = "ghe.example.com",
+        owner = "acme",
+        repo = "widgets",
+        number = 42
+      )
+    )
 
   test("createPr emits a Step event with the opened PR URL"):
     val listener = new CapturingListener
@@ -221,10 +545,58 @@ class OsGitHubToolTest extends munit.FunSuite:
     val (cli, gh) = stubGh(CliResult(0, "", ""))
     gh.updatePr(samplePr, "Fix overflow", "full description")
     val args = cli.lastCall.getOrElse(fail("expected a call")).args
-    assert(args.containsSlice(Seq("gh", "api", "-X", "PATCH")))
+    assertEquals(args.take(2), List("gh", "api"))
+    assert(args.containsSlice(Seq("-X", "PATCH")))
     assert(args.contains("repos/acme/widgets/pulls/42"))
     assert(args.containsSlice(Seq("-f", "title=Fix overflow")))
     assert(args.containsSlice(Seq("-f", "body=full description")))
+
+  test("a gh api call on an issue names no host, leaving that to gh"):
+    // An issue ref carries no host, so gh must resolve it (GH_HOST, else the
+    // authenticated host) rather than orca pinning it to github.com.
+    val json =
+      """{"title":"t","body":"b","user":{"login":"a"},"state":"open"}"""
+    val (cli, gh) = stubGh(CliResult(0, json, ""))
+    val _ = gh.readIssue(IssueHandle("acme", "widgets", 7))
+    val args = cli.lastCall.getOrElse(fail("expected a call")).args
+    assert(!args.contains("--hostname"), args)
+
+  test("a gh api read on a PR handle targets the PR's host"):
+    // The read legs pass the host at their own call sites, so they are pinned
+    // separately from the mutating ones below.
+    val (cli, gh) = stubGh(CliResult(0, "[]", ""))
+    val _ =
+      gh.readPrComments(
+        PrHandle(
+          host = "ghe.example.com",
+          owner = "acme",
+          repo = "widgets",
+          number = 42
+        )
+      )
+    val args = cli.lastCall.getOrElse(fail("expected a call")).args
+    assert(
+      args.containsSlice(Seq("api", "--hostname", "ghe.example.com")),
+      args
+    )
+
+  test("a gh api call on a PR handle targets the PR's host"):
+    val (cli, gh) = stubGh(CliResult(0, "", ""))
+    gh.updatePr(
+      PrHandle(
+        host = "ghe.example.com",
+        owner = "acme",
+        repo = "widgets",
+        number = 42
+      ),
+      "Fix overflow",
+      "full description"
+    )
+    val args = cli.lastCall.getOrElse(fail("expected a call")).args
+    assert(
+      args.containsSlice(Seq("api", "--hostname", "ghe.example.com")),
+      args
+    )
 
   test("writeComment invokes gh pr comment with the body"):
     val (cli, gh) = stubGh(CliResult(0, "", ""))
@@ -232,6 +604,23 @@ class OsGitHubToolTest extends munit.FunSuite:
     val args = cli.lastCall.getOrElse(fail("expected a call")).args
     assert(args.containsSlice(Seq("gh", "pr", "comment", "42")))
     assert(args.containsSlice(Seq("--body", "nit: whitespace")))
+
+  test("a --repo call on a PR handle names the host as HOST/OWNER/REPO"):
+    val (cli, gh) = stubGh(CliResult(0, "", ""))
+    gh.writeComment(
+      PrHandle(
+        host = "ghe.example.com",
+        owner = "acme",
+        repo = "widgets",
+        number = 42
+      ),
+      "nit: whitespace"
+    )
+    val args = cli.lastCall.getOrElse(fail("expected a call")).args
+    assert(
+      args.containsSlice(Seq("--repo", "ghe.example.com/acme/widgets")),
+      args
+    )
 
   test(
     "writeComment(IssueHandle, body) invokes gh issue comment with the body"
@@ -532,6 +921,24 @@ class OsGitHubToolTest extends munit.FunSuite:
         case _                   => false
     )
 
+  test("createPr keeps the host when reusing an existing GitHub Enterprise PR"):
+    val prListJson =
+      """[{"number":42,"url":"https://ghe.example.com/acme/widgets/pull/42"}]"""
+    val cli = createPrRunner(
+      CliResult(1, "", "a pull request for branch 'feat' already exists"),
+      CliResult(0, prListJson, "")
+    )
+    val gh = new OsGitHubTool(cli, readRetry = Schedule.immediate)
+    assertEquals(
+      gh.createPr("feat: hi", "hello").orThrow,
+      PrHandle(
+        host = "ghe.example.com",
+        owner = "acme",
+        repo = "widgets",
+        number = 42
+      )
+    )
+
   test("the --head rev-parse carries OsGitTool.nonInteractiveEnv"):
     // The git rev-parse resolving --head must carry the same non-interactive
     // env as every other git invocation — otherwise a stalled
@@ -592,7 +999,8 @@ class OsGitHubToolTest extends munit.FunSuite:
       "no comment-create call must be made on the PATCH path"
     )
     val patchCall = cli.calls.last
-    assert(patchCall.args.containsSlice(Seq("gh", "api", "-X", "PATCH")))
+    assertEquals(patchCall.args.take(2), List("gh", "api"))
+    assert(patchCall.args.containsSlice(Seq("-X", "PATCH")))
     // The path must include the comment id 99
     assert(patchCall.args.exists(_.contains("/comments/99")))
     // The body must include both the new text and the marker

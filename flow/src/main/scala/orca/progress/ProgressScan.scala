@@ -1,7 +1,6 @@
 package orca.progress
 
 import orca.OrcaDir
-import scala.util.control.NonFatal
 
 /** A progress log found by [[ProgressScan.progressLogs]]: its path plus the
   * header it parsed cleanly to.
@@ -32,23 +31,18 @@ object ProgressScan:
         .filter(p => !os.isLink(p) && os.isFile(p) && isProgressLogName(p.last))
         .toList
 
-  /** [[progressLogPaths]] with each log's header parsed. A corrupt log is
-    * skipped silently: a scan reports the runs it can read, and one bad file
-    * must cost only itself — callers reason about the logs they got back, so
-    * dropping the whole list would read as "no runs in flight".
+  /** [[progressLogPaths]] with each log's header parsed. A log that does not
+    * load — corrupt, or unreadable — is skipped silently: a scan reports the
+    * runs it can read, and one bad file must cost only itself; callers reason
+    * about the logs they got back, so dropping the whole list would read as "no
+    * runs in flight".
     */
   def progressLogs(workDir: os.Path): List[ScannedProgressLog] =
     progressLogPaths(workDir).flatMap: path =>
-      // Defensive, not covered by a test: `load()` already folds unparseable
-      // content into `None`, so only an IO failure (a file unreadable, or
-      // deleted between the listing and the read) lands here — and it gets the
-      // same per-log skip rather than sinking the scan.
-      try
-        ProgressStore
-          .at(workDir, path)
-          .load()
-          .map(log => ScannedProgressLog(path, log.header))
-      catch case NonFatal(_) => None
+      ProgressStore
+        .at(workDir, path)
+        .load()
+        .map(log => ScannedProgressLog(path, log.header))
 
   private def isProgressLogName(name: String): Boolean =
     name.matches("progress-[0-9a-f]{12}\\.json")

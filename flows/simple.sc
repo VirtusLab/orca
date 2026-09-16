@@ -1,4 +1,4 @@
-// Implement a task directly — no planning stage — with up to three review rounds.
+// Implement a task directly — no planning stage — review it, then open a PR.
 //> using scala 3.8.4
 //> using dep "org.virtuslab::orca:0.1.6"
 //> using jvm 21
@@ -10,11 +10,18 @@
   * flow file, a one-line fix) where splitting into a plan first is pure
   * overhead.
   *
+  * The run then opens a PR when the repository is on GitHub and hands back the
+  * branch it started from — the work is on the PR. Otherwise it says so in one
+  * line and ends on the feature branch; the work is committed either way.
+  * Under `orca create` / `orca fork` that is always the skip: the authoring
+  * sandbox is a local repository with no remote.
+  *
   * ```bash
   * scala-cli run simple.sc -- "Add a .gitignore entry for build artifacts"
   * ```
   *
-  * Requires the configured role agents logged in (`claude` by default).
+  * Requires the configured role agents logged in (`claude` by default); `gh` is
+  * optional.
   */
 
 import orca.{*, given}
@@ -32,3 +39,5 @@ flow(OrcaArgs(args)):
       task = Task(Title(userPrompt), ""),
       maxIterations = 3
     )
+
+  openPrIfGitHub(summarisingAgent = codingAgent.cheap)
