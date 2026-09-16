@@ -35,46 +35,34 @@ private[orca] class McpHost private[mcp] (val port: Int, stopFn: () => Unit)
 
 private[orca] object McpHost:
 
-  /** Chars one tool result returns in total, success or error, across every
-    * text block it carries. Past this the tail is dropped and the result says
-    * so, so a single call costs a bounded number of tokens rather than the
-    * turn's whole context.
+  /** Chars any one tool result returns, on either channel. Past this the tail
+    * is dropped and the result says so, so a single call costs a bounded number
+    * of tokens rather than the turn's whole context.
     */
   private[mcp] val MaxOutputChars: Int = 60000
 
-  /** Names the cut so the agent can narrow its request instead of assuming it
-    * saw everything.
-    */
   private val CutMarker: String =
     s"\n\n[cut after $MaxOutputChars characters — narrow the request]"
 
-  /** Spend [[MaxOutputChars]] across the result's blocks in order: text that
-    * fits passes through, the block that overruns the budget is cut and marked,
-    * and what follows it is dropped. Non-text content spends no budget — it
-    * carries no text to cut.
+  /** Apply [[MaxOutputChars]], naming the cut so the agent can narrow its
+    * request instead of assuming it saw everything.
     */
-  private def bounded(content: List[ToolContent]): List[ToolContent] =
-    def spend(left: Int, rest: List[ToolContent]): List[ToolContent] =
-      rest match
-        case Nil => Nil
-        case (t: ToolContent.Text) :: tail =>
-          if t.text.length <= left then t :: spend(left - t.text.length, tail)
-          else List(t.copy(text = t.text.take(left) + CutMarker))
-        case other :: tail => other :: spend(left, tail)
-    spend(MaxOutputChars, content)
+  private def bounded(text: String): String =
+    if text.length <= MaxOutputChars then text
+    else text.take(MaxOutputChars) + CutMarker
 
   private def bounded(
       result: ToolResult[NoStructuredOutput]
   ): ToolResult[NoStructuredOutput] =
-    result.copy(content = bounded(result.content))
+    result.copy(content = result.content.map:
+      case t: ToolContent.Text => t.copy(text = bounded(t.text))
+      case other               => other
+    )
 
   /** The two guarantees every result served here carries: its text stays within
     * [[MaxOutputChars]] whether the result is an error or not, and a handler
     * that throws yields a tool error rather than a transport failure the agent
     * cannot read.
-    *
-    * Text is the only channel to bound: [[NoStructuredOutput]] rules out a
-    * structured payload, and other content carries no text.
     */
   private def guardedResult(
       result: => ToolResult[NoStructuredOutput]
@@ -85,10 +73,11 @@ private[orca] object McpHost:
         bounded(ToolResult.error(Option(e.getMessage).getOrElse(e.toString)))
 
   /** Put a tool's logic behind [[guardedResult]]. [[start]] applies this to
-    * every tool it binds, which is what makes the guarantees structural: a tool
-    * cannot opt out of them by forgetting. Tools are fixed to
-    * [[NoStructuredOutput]] so that holds by type — a structured payload would
-    * be a second channel this guard does not see.
+    * every tool it binds, so the guard is not something a tool opts into.
+    *
+    * The [[NoStructuredOutput]] bound keeps a second, unbounded channel out of
+    * reach: `withStructured` moves the type parameter, and `ServerTool` is
+    * invariant in it, so a tool built that way no longer fits [[start]]'s list.
     */
   private[mcp] def guarded[I](
       t: ServerTool[I, NoStructuredOutput, Identity, ServerContext[Identity]]

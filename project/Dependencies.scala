@@ -5,6 +5,8 @@ object Dependencies {
     val scala = "3.8.4"
     val osLib = "0.11.8"
     val jsoniter = "2.38.17"
+    // Tapir and sttp-apispec follow what V.chimp's chimp-server declares, so
+    // the classpath resolves to a single version of each; bump them together.
     val tapir = "1.13.31"
     val sttpApispec = "0.11.10"
     val ox = "1.0.5"
