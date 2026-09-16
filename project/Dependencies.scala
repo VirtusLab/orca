@@ -5,7 +5,7 @@ object Dependencies {
     val scala = "3.8.4"
     val osLib = "0.11.8"
     val jsoniter = "2.38.17"
-    val tapir = "1.13.25"
+    val tapir = "1.13.31"
     val sttpApispec = "0.11.10"
     val ox = "1.0.5"
     val mainargs = "0.7.6"
