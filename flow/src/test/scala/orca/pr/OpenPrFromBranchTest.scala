@@ -2,7 +2,9 @@ package orca.pr
 
 import munit.FunSuite
 import orca.{BoundedDiff, OutsideStage}
+import orca.plan.Title
 import orca.progress.PublishedWork
+import orca.review.{IgnoredIssue, IgnoredIssues}
 import orca.tools.{BranchNotPushed, PrCreateFailed, PrHandle}
 import orca.events.{OrcaEvent, OrcaListener}
 
@@ -15,7 +17,9 @@ import java.util.concurrent.ConcurrentLinkedQueue
   * `gh.createPr`. Recording `git`/`gh` doubles capture call order; a real
   * [[orca.TestFlowControl]] runs the actual `stage` machinery so the emitted
   * stage boundaries are real. Also pins that the branch diff reaches the
-  * summariser bounded; how it is cut is [[orca.BoundedDiffTest]].
+  * summariser bounded; how it is cut is [[orca.BoundedDiffTest]]. Open findings
+  * reach the body as a section; what the section says is
+  * [[BodyWithOpenFindingsTest]].
   */
 class OpenPrFromBranchTest extends FunSuite:
 
@@ -25,21 +29,28 @@ class OpenPrFromBranchTest extends FunSuite:
       calls: List[String],
       stages: List[String],
       prompt: String,
-      published: Option[PublishedWork]
+      published: Option[PublishedWork],
+      prBody: String
   )
 
-  private def run(branchDiff: String): Run =
+  private def run(
+      branchDiff: String,
+      openFindings: IgnoredIssues = IgnoredIssues(Nil)
+  ): Run =
     val (dir, store) = seededPrRepo()
     val calls = new ConcurrentLinkedQueue[String]()
     val stages = new ConcurrentLinkedQueue[String]()
+    val bodies = new ConcurrentLinkedQueue[String]()
     val listener: OrcaListener =
       case OrcaEvent.StageStarted(name) => stages.add(name): Unit
       case _                            => ()
 
     val summariser = new StubSummariser()
-    val control = prControl(dir, store, listener, calls, branchDiff)
+    val control =
+      prControl(dir, store, listener, calls, branchDiff, prBodies = bodies)
     val handle = openPrFromBranch(
       summarisingAgent = summariser,
+      openFindings = openFindings,
       body = summary => s"${summary.body}\n\nCloses #1."
     )(using control, control, summon[OutsideStage])
     Run(
@@ -47,7 +58,8 @@ class OpenPrFromBranchTest extends FunSuite:
       calls.asScala.toList,
       stages.asScala.toList,
       summariser.captured,
-      store.load().flatMap(_.published)
+      store.load().flatMap(_.published),
+      bodies.asScala.toList.headOption.getOrElse(fail("createPr never ran"))
     )
 
   test("openPrFromBranch runs push, summarise, create as three ordered stages"):
@@ -77,7 +89,10 @@ class OpenPrFromBranchTest extends FunSuite:
       createPr = Left(new BranchNotPushed)
     )
     val _ = intercept[PrCreateFailed](
-      openPrFromBranch(summarisingAgent = new StubSummariser())(using
+      openPrFromBranch(
+        summarisingAgent = new StubSummariser(),
+        openFindings = IgnoredIssues(Nil)
+      )(using
         control,
         control,
         summon[OutsideStage]
@@ -89,11 +104,10 @@ class OpenPrFromBranchTest extends FunSuite:
     val summariser = new StubSummariser()
     def attempt(calls: ConcurrentLinkedQueue[String]): PrHandle =
       val control = prControl(dir, store, _ => (), calls)
-      openPrFromBranch(summarisingAgent = summariser)(using
-        control,
-        control,
-        summon[OutsideStage]
-      )
+      openPrFromBranch(
+        summarisingAgent = summariser,
+        openFindings = IgnoredIssues(Nil)
+      )(using control, control, summon[OutsideStage])
 
     val _ = attempt(new ConcurrentLinkedQueue[String]())
     val resumedCalls = new ConcurrentLinkedQueue[String]()
@@ -106,6 +120,21 @@ class OpenPrFromBranchTest extends FunSuite:
       store.load().flatMap(_.published),
       Some(PublishedWork(samplePr.url))
     )
+
+  test("open findings follow the flow's body as their own section"):
+    val open = IgnoredIssues(
+      List(IgnoredIssue(Title("Null check missing"), "max iterations reached"))
+    )
+    val body = run("stub-diff", open).prBody
+    assert(
+      body.startsWith(
+        "Generated body\n\nCloses #1.\n\n## Open review findings"
+      ),
+      body
+    )
+
+  test("with nothing open the body is the flow's own, nothing appended"):
+    assertEquals(run("stub-diff").prBody, "Generated body\n\nCloses #1.")
 
   test("a branch too large to summarise reaches the agent cut short"):
     // Unbounded, this is the prompt no context window takes, and it is rebuilt

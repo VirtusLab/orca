@@ -2034,7 +2034,10 @@ class FlowLifecycleTest extends munit.FunSuite:
         os.write(workDir / "code.txt", "real code")
         "done"
       val _ =
-        orca.pr.openPrIfGitHub(summarisingAgent = summon[FlowContext].claude)
+        orca.pr.openPrIfGitHub(
+          summarisingAgent = summon[FlowContext].claude,
+          openFindings = orca.review.IgnoredIssues(Nil)
+        )
     HandoffRun(git.currentBranch(), featureBranch)
 
   test("a new-branch run that opened a PR is handed back its start branch"):

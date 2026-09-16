@@ -59,18 +59,21 @@ private[pr] class RecordingGit(
 /** Records `availability` and `createPr` and answers them with
   * `availabilityAnswer` / `createPrAnswer`; every other endpoint refuses, from
   * [[StubGitHubTool]]. `availabilityAnswer` is by-name so a suite whose helper
-  * never probes can pass [[nyi]].
+  * never probes can pass [[nyi]]. Each `createPr` body also lands in `bodies`,
+  * for a test asserting on the text a helper assembled.
   */
 private[pr] class RecordingGh(
     calls: ConcurrentLinkedQueue[String],
     availabilityAnswer: => GitHubAvailability,
-    createPrAnswer: => Either[PrCreateFailed, PrHandle] = Right(samplePr)
+    createPrAnswer: => Either[PrCreateFailed, PrHandle] = Right(samplePr),
+    bodies: ConcurrentLinkedQueue[String]
 ) extends StubGitHubTool:
   override def availability(): GitHubAvailability =
     calls.add("availability"): Unit
     availabilityAnswer
   override def createPr(title: String, body: String)(using WorkspaceWrite) =
     calls.add("createPr"): Unit
+    bodies.add(body): Unit
     createPrAnswer
 
 /** Records the prompt it was sent and answers `answer` — a fixed [[PrSummary]]
@@ -171,7 +174,8 @@ private[pr] def startBranchOf(store: ProgressStore): String =
 
 /** A control over `dir`/`store` whose `git`/`gh` record into `calls` and whose
   * events reach `listener`. `availability` is only reached by a helper that
-  * probes, so it defaults to refusing.
+  * probes, so it defaults to refusing. `prBodies` collects what `createPr` was
+  * given, for a test that reads it back.
   */
 private[pr] def prControl(
     dir: os.Path,
@@ -182,12 +186,14 @@ private[pr] def prControl(
     availability: => GitHubAvailability = nyi("availability"),
     createPr: => Either[PrCreateFailed, PrHandle] = Right(samplePr),
     push: => Either[PushFailure, Unit] = Right(()),
-    base: => Either[NoDefaultBase, String] = Right("main")
+    base: => Either[NoDefaultBase, String] = Right("main"),
+    prBodies: ConcurrentLinkedQueue[String] =
+      new ConcurrentLinkedQueue[String]()
 ): FlowControl =
   new PrTestControl(
     new EventDispatcher(List(listener)),
     new RecordingGit(new OsGitTool(dir), calls, branchDiff, push, base),
-    new RecordingGh(calls, availability, createPr),
+    new RecordingGh(calls, availability, createPr, prBodies),
     store,
     // Where the run started, as the runtime records it: the tip of the branch
     // the header names.

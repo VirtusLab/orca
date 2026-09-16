@@ -77,11 +77,9 @@ private[review] def formatOpenFindings(
 ): Option[String] =
   Option.when(open.nonEmpty):
     val lines = open.flatMap: i =>
-      // The fixer writes the reason, so it can arrive with its own line breaks;
-      // collapsing them keeps continuation lines under the bullet.
-      val reason = i.reason.trim.replaceAll("\\s+", " ")
+      val reason = i.reasonLine
       val bullet = TextWrap.wrap(
-        s"  - ${i.title.value}",
+        s"  - ${i.titleLine}",
         maxWidth = WrapWidth,
         continuation = "    "
       )
