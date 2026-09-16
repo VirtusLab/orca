@@ -45,11 +45,14 @@ export orca.agents.{
 export orca.plan.{BugReportMatch, Plan, Sessioned, Task, Title, Triage, Verdict}
 // PrSummary is the result type of openPrFromBranch and summarisePr;
 // orcaCommentMarker is the idempotency marker gh.upsertComment keys on;
-// renderOpenFindings is for a flow that writes its own PR body.
+// recordOpenedPr is for a flow that opens its PR with a bare gh.createPr, and
+// bodyWithOpenFindings builds that PR's body.
 export orca.pr.{
+  bodyWithOpenFindings,
   openPrFromBranch,
+  openPrIfGitHub,
   orcaCommentMarker,
-  renderOpenFindings,
+  recordOpenedPr,
   summarisePr,
   PrSummary
 }
@@ -82,15 +85,20 @@ export orca.review.{
   ReviewResult,
   RosterEntry
 }
-// PushFailure is the Left of GitTool.push's Either; BuildWaitFailed the same
-// for GitHubTool.waitForBuild.
+// PushFailure is the Left of GitTool.push's Either, NoDefaultBase of
+// GitTool.defaultBase's; BuildWaitFailed the same for GitHubTool.waitForBuild;
+// GitHubAvailability is what gh.availability() answers with, GitHubUnavailable
+// the reason inside its Unavailable arm.
 export orca.tools.{
   BuildOutcome,
   BuildStatus,
   BuildWaitFailed,
   Comment,
+  GitHubAvailability,
+  GitHubUnavailable,
   Issue,
   IssueHandle,
+  NoDefaultBase,
   PrHandle,
   PushFailure
 }

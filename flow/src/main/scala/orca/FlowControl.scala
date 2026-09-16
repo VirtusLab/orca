@@ -47,6 +47,17 @@ trait FlowControl extends FlowContext, caps.ExclusiveCapability:
   /** Pop the frame opened by the matching [[enterStage]]. */
   def exitStage(): Unit
 
+  /** The id the next `stage(name)` in the current scope would get — see
+    * [[StageFrames.peekStageId]].
+    */
+  private[orca] def peekStageId(name: String): String
+
+  /** Whether the progress log holds an entry for the next `stage(name)` in the
+    * current scope.
+    */
+  private[orca] def stageRecorded(name: String): Boolean =
+    progressStore.load().exists(_.entries.exists(_.id == peekStageId(name)))
+
   /** The commit the innermost open stage started from — the baseline for the
     * change set that stage has produced, whether or not it has since been
     * committed. `None` when no such commit was recorded (ADR 0018 §2.1).

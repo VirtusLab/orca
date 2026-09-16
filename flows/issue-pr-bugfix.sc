@@ -70,11 +70,9 @@ val issueHandle = IssueHandle.parseOrThrow(orcaArgs.userPrompt)
 
 val CiTimeout = 30.minutes
 
-// Opens a PR, so return to the starting branch afterward.
 flow(
   orcaArgs,
-  branchNaming = Some(BranchNamingStrategy.issue(issueHandle)),
-  returnToStartBranch = true
+  branchNaming = Some(BranchNamingStrategy.issue(issueHandle))
 ):
   val issue = gh.readIssue(issueHandle)
 
@@ -121,12 +119,15 @@ flow(
       // A later stage than the edit above, so the test commit exists to push.
       val pr = stage("Push + open tentative PR"):
         git.push().orThrow
-        gh.createPr(
+        val handle = gh.createPr(
           title = summary,
           body = s"""Failing test only — fix pending.
                     |
                     |Closes ${issueHandle.shortRef}.""".stripMargin
         ).orThrow
+        // Inside the stage, so its commit carries the record for a resume.
+        recordOpenedPr(handle)
+        handle
 
       if gh.waitForBuild(pr, CiTimeout).orThrow.outcome == BuildOutcome.Success
       then
@@ -168,7 +169,7 @@ def prSummary(note: String, issue: Issue)(using
 ): PrSummary =
   summarisePr(
     agent = codingAgent.cheap,
-    diff = git.diffVsBase(git.defaultBase()),
+    diff = git.diffVsBase(git.defaultBase().orThrow),
     context = Some(
       s"""Originating issue: ${issueHandle.shortRef}
          |Issue title: ${issue.title}

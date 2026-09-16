@@ -1,5 +1,7 @@
 package orca.tools
 
+import orca.subprocess.CliResult
+
 /** Pins the recoverable-failure stderr/stdout predicates against realistic git
   * and gh output. These match human-readable CLI text (the tools expose no
   * machine-readable signal for these cases), so the samples here double as
@@ -73,3 +75,49 @@ class CliFailurePredicatesTest extends munit.FunSuite:
     assert(!OsGitHubTool.isPrAlreadyExists(combined))
     assert(!OsGitHubTool.isNoCommitsToPr(combined))
     assert(!OsGitHubTool.isBranchNotPushed(combined))
+
+  test("classifyFailure reads a network or GitHub outage as Transient"):
+    List(
+      """Post "https://api.github.com/graphql": dial tcp 140.82.121.6:443: connect: connection refused""",
+      """Post "https://api.github.com/graphql": dial tcp: lookup api.github.com: no such host""",
+      """Post "https://api.github.com/graphql": EOF""",
+      """Post "https://api.github.com/graphql": net/http: TLS handshake timeout""",
+      """Post "https://api.github.com/graphql": dial tcp 140.82.121.6:443: i/o timeout""",
+      """Post "https://api.github.com/graphql": read tcp 10.0.0.2:51234->140.82.121.6:443: read: connection reset by peer""",
+      // gh's own wording when offline or the name will not resolve.
+      "error connecting to api.github.com\n" +
+        "check your internet connection or https://githubstatus.com",
+      "gh: Service Unavailable (HTTP 503)",
+      "gh: API rate limit exceeded for user ID 1 (HTTP 429)"
+    ).foreach: stderr =>
+      assertEquals(
+        OsGitHubTool.classifyFailure(CliResult(1, "", stderr)),
+        OsGitHubTool.GhFailure.Transient,
+        stderr
+      )
+
+  test("classifyFailure reads a refusal, or nothing it knows, as Hard"):
+    List(
+      "gh: Not Found (HTTP 404)",
+      "gh: Bad credentials (HTTP 401)",
+      "gh: Resource not accessible by integration (HTTP 403)",
+      "GraphQL: Could not resolve to a Repository with the name 'a/b'. (repository)",
+      // A repository name carrying a transient-looking word is still a refusal.
+      "GraphQL: Could not resolve to a Repository with the name 'acme/timeout-cache'. (repository)",
+      "GraphQL: Could not resolve to a Repository with the name 'acme/tls'. (repository)",
+      "GraphQL: Could not resolve to a Repository with the name 'acme/eof'. (repository)",
+      ""
+    ).foreach: stderr =>
+      assertEquals(
+        OsGitHubTool.classifyFailure(CliResult(1, "", stderr)),
+        OsGitHubTool.GhFailure.Hard,
+        stderr
+      )
+
+  test("classifyFailure reads a signature gh printed on stdout too"):
+    assertEquals(
+      OsGitHubTool.classifyFailure(
+        CliResult(1, "gh: Service Unavailable (HTTP 503)", "")
+      ),
+      OsGitHubTool.GhFailure.Transient
+    )

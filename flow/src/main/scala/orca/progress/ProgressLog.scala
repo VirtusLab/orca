@@ -106,14 +106,20 @@ case class SessionRecord(
     backend: Option[String] = None
 ) derives JsonData
 
-/** An append-only log of stage outcomes and session records for one flow run,
-  * keyed by its header. The custom [[JsonData]] instance below tolerates
-  * missing collection fields so logs round-trip across software versions.
+/** One flow run's persisted state, keyed by its header: the outcome of each
+  * completed stage, the sessions it minted, and where it published its work.
+  * The custom [[JsonData]] instance below tolerates missing collection fields
+  * so logs round-trip across software versions.
+  *
+  * `published` is [[PublishedWork]] for a run that published. Its `None`
+  * default falls under the same tolerant-decoding exception as
+  * [[ProgressHeader]]'s optional fields.
   */
 case class ProgressLog(
     header: ProgressHeader,
     entries: List[StageEntry],
-    sessions: List[SessionRecord] = Nil
+    sessions: List[SessionRecord] = Nil,
+    published: Option[PublishedWork] = None
 )
 
 object ProgressLog:

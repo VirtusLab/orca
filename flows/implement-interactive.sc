@@ -1,4 +1,4 @@
-// Plan interactively, asking clarifying questions, then implement the tasks.
+// Plan interactively, asking clarifying questions, implement, then open a PR.
 //> using scala 3.8.4
 //> using dep "org.virtuslab::orca:0.1.6"
 //> using jvm 21
@@ -11,6 +11,10 @@
   * producing the plan. A planning stage that already completed is not
   * re-prompted on a re-run.
   *
+  * The run then opens a PR when the repository is on GitHub and hands back the
+  * branch it started from — the work is on the PR. Otherwise it says so in one
+  * line and ends on the feature branch; the work is committed either way.
+  *
   * `examples/runnable/02-interactive/create-test-project.sh` seeds a calculator
   * crate into a temp dir and copies this script alongside it; from there:
   *
@@ -21,8 +25,8 @@
   * The trailing "Ask the user which." pushes the planner to call `ask_user`
   * rather than guessing.
   *
-  * Requires the configured role agents logged in (`claude` by default); the
-  * seeded calculator example also needs `cargo` on PATH.
+  * Requires the configured role agents logged in (`claude` by default); `gh` is
+  * optional. The seeded calculator example also needs `cargo` on PATH.
   */
 
 import orca.{*, given}
@@ -59,3 +63,5 @@ flow(OrcaArgs(args)):
       maxIterations = 5,
       priorDeclines = IgnoredIssues(taskDeclines.flatMap(_.issues))
     )
+
+  openPrIfGitHub(summarisingAgent = codingAgent.cheap)

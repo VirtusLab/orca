@@ -1,6 +1,6 @@
 package orca.pr
 
-import orca.{FlowContext, FlowControl, gh, git, stage}
+import orca.{FlowContext, FlowControl, OutsideStage, gh, git, stage}
 import orca.agents.Agent
 import orca.review.IgnoredIssues
 import orca.tools.PrHandle
@@ -11,6 +11,10 @@ import ox.either.orThrow
   * [[stage]]s: push → summarise → create. Split because a stage commits only on
   * completion, so pushing in the same stage as the summarise (or the preceding
   * edits) would be fragile on resume.
+  *
+  * Requires a GitHub remote and a logged-in `gh`: without them the push or the
+  * create fails the run. A flow that should finish without a PR when the
+  * checkout isn't on GitHub calls [[openPrIfGitHub]] instead.
   *
   * The diff handed to the summariser is the branch-vs-base diff
   * (`git.diffVsBase(git.defaultBase())`). A branch too large to summarise is
@@ -23,12 +27,17 @@ import ox.either.orThrow
   *
   * `openFindings` is what the run's review loop returned still open; it goes
   * into the body after `body`'s text as its own section
-  * ([[renderOpenFindings]]), never through the summariser. Required, not
+  * ([[bodyWithOpenFindings]]), never through the summariser. Required, not
   * defaulted: a flow that forgets it would open a PR that says nothing about
   * findings it left unfixed.
   *
   * `gh.createPr` is idempotent by head branch: a re-run that already opened the
-  * PR gets the existing handle back rather than failing. Returns that handle.
+  * PR gets the existing handle back rather than failing. Returns that handle,
+  * recorded as the run's published work through [[recordOpenedPr]] inside the
+  * create stage.
+  *
+  * Does not compile inside a stage: opening the PR is a top-level step of a
+  * flow, and this runs its own stages.
   */
 def openPrFromBranch(
     summarisingAgent: Agent[?],
@@ -37,20 +46,53 @@ def openPrFromBranch(
     body: PrSummary => String = _.body,
     context: Option[String] = None,
     instructions: String = PrPrompts.Summarise
-)(using FlowContext, FlowControl): PrHandle =
-  stage("Push branch"):
+)(using FlowContext, FlowControl, OutsideStage): PrHandle =
+  pushBranch()
+  val summary =
+    summarise(
+      summarisingAgent,
+      git.defaultBase().orThrow,
+      context,
+      instructions
+    )
+  createPr(
+    title(summary),
+    bodyWithOpenFindings(body(summary), openFindings)
+  )
+
+// The stage names and `summarise` are shared with [[openPrIfGitHub]], which
+// runs the same sequence with its own best-effort push and create.
+
+private def pushBranch()(using FlowContext, FlowControl): Unit =
+  stage(PushStage):
     git.push().orThrow
 
-  val summary = stage("Generate PR title and description"):
+private[pr] val PushStage: String = "Push branch"
+private[pr] val SummariseStage: String = "Generate PR title and description"
+private[pr] val CreateStage: String = "Open PR"
+
+/** Summarise the branch-vs-`base` diff. `base` is by-name so a resumed run,
+  * whose recorded summary replays without the body, does not resolve it.
+  */
+private[pr] def summarise(
+    summarisingAgent: Agent[?],
+    base: => String,
+    context: Option[String],
+    instructions: String
+)(using FlowContext, FlowControl): PrSummary =
+  stage(SummariseStage):
     summarisePr(
       agent = summarisingAgent,
-      diff = git.diffVsBase(git.defaultBase()),
+      diff = git.diffVsBase(base),
       context = context,
       instructions = instructions
     )
 
-  stage("Open PR"):
-    val prBody =
-      (body(summary) :: renderOpenFindings(openFindings).toList)
-        .mkString("\n\n")
-    gh.createPr(title = title(summary), body = prBody).orThrow
+private def createPr(title: String, body: String)(using
+    FlowContext,
+    FlowControl
+): PrHandle =
+  stage(CreateStage):
+    val pr = gh.createPr(title = title, body = body).orThrow
+    recordOpenedPr(pr)
+    pr

@@ -13,8 +13,9 @@ package flowtests
 
 import orca.{*, given}
 // Deliberately NOT in the `orca.*` export wildcard: a recoverable `createPr`
-// failure, referenced by name in `flows/implement-enhanced.sc`. Pinning it
-// here keeps the "import it explicitly" requirement honest.
+// failure a flow matching on it imports by name. Pinning it here keeps the
+// "import it explicitly" requirement honest.
+
 import orca.tools.PrAlreadyExists
 import orca.agents.AgentConfig
 
@@ -258,7 +259,12 @@ object FlowCanary:
           orcaCommentMarker(userPrompt, "reject"),
           "updated verdict"
         )
-        val pr = PrHandle("acme", "widgets", 7)
+        val pr = PrHandle(
+          host = "github.com",
+          owner = "acme",
+          repo = "widgets",
+          number = 7
+        )
         val _ = gh.readPrComments(pr)
         gh.writeComment(pr, "pr comment")
         gh.updatePr(pr, "new title", "new body")
@@ -274,7 +280,7 @@ object FlowCanary:
         git.push().orThrow
         val summary = summarisePr(
           agent = claude.haiku,
-          diff = git.diffVsBase(git.defaultBase())
+          diff = git.diffVsBase(git.defaultBase().orThrow)
         )
         gh.createPr(title = summary.title, body = summary.body) match
           case Left(_: PrAlreadyExists) => ()
@@ -410,8 +416,9 @@ object FlowCanary:
           )
 
   /** `implement-enhanced.sc`: plan → `.reviewed` → the seeded implementer
-    * session → task loop with `taskPrompt` → `openPrFromBranch` carrying what
-    * the loops left open.
+    * session → task loop with `taskPrompt` → `openPrIfGitHub`, the best-effort
+    * PR step every code-producing flow ends with, carrying what the loops left
+    * open.
     */
   def enhancedImplementFlowShape(): Unit =
     flow(OrcaArgs()):
@@ -429,7 +436,7 @@ object FlowCanary:
             task = task
           )
 
-      val _ = openPrFromBranch(
+      val _ = openPrIfGitHub(
         summarisingAgent = claude.haiku,
         openFindings = IgnoredIssues(declines.flatMap(_.issues))
       )
@@ -567,7 +574,11 @@ object FlowCanary:
           // (Authoring rule R8: push must be in a later stage than the edit.)
           val pr: PrHandle = stage("Push + open tentative PR"):
             git.push().orThrow
-            gh.createPr(title = summary, body = "Failing test only.").orThrow
+            val handle =
+              gh.createPr(title = summary, body = "Failing test only.").orThrow
+            // Inside the stage, so its commit carries the record for a resume.
+            recordOpenedPr(handle)
+            handle
 
           // `waitForBuild` is a pure polling read — outside any stage.
           if gh

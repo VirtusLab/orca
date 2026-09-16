@@ -52,11 +52,9 @@ import orca.{*, given}
 val orcaArgs = OrcaArgs(args)
 val issueHandle = IssueHandle.parseOrThrow(orcaArgs.userPrompt)
 
-// Opens a PR, so return to the starting branch afterward.
 flow(
   orcaArgs,
-  branchNaming = Some(BranchNamingStrategy.issue(issueHandle)),
-  returnToStartBranch = true
+  branchNaming = Some(BranchNamingStrategy.issue(issueHandle))
 ):
   val issue = gh.readIssue(issueHandle)
 
