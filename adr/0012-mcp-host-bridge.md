@@ -46,12 +46,13 @@ the spawned `claude` subprocess via `.mcp.json` + `--mcp-config`.
   signals. `take()` is the consumer side: returns the next pending
   question plus a closure that delivers the answer.
 
-- **`AskUserMcpServer`** (`orca.tools.claude.mcp`) — wraps chimp's
-  `McpServer` for one `ask_user(question: String): String` tool. Built
-  on Tapir + Netty-sync; binds 127.0.0.1 on an ephemeral port. The
-  handler is `in => ToolResult.text(bridge.ask(in.question))` — chimp
-  serialises the rest. Implements `AutoCloseable`; the server's `close()` stops
-  the Netty binding.
+- **`AskUserMcpServer`** (`orca.tools.claude.mcp`) — defines one
+  `ask_user(question: String): String` tool and mounts it on an
+  **`McpHost`**, which wraps chimp's `McpServer(...).endpoint(...)` on
+  Tapir + Netty-sync, binds 127.0.0.1 on an ephemeral port, and is the
+  `AutoCloseable` whose `close()` stops the binding. The handler is
+  `in => ToolResult.text(bridge.ask(in.question))` — chimp serialises
+  the rest.
 
 - **`ClaudeBackend.openConversation`** — builds the bridge + server,
   writes `<workDir>/.orca/cache/mcp-<port>.json` (port-suffixed so
@@ -90,10 +91,10 @@ the spawned `claude` subprocess via `.mcp.json` + `--mcp-config`.
 Already at SoftwareMill; built on Tapir-sync; ships an MCP-spec-compliant
 JSON-RPC endpoint as a `ServerEndpoint[Any, Identity]` that drops into
 the same Netty-sync stack the rest of the codebase uses. ~30 lines of
-glue to register one tool. Pinned to `chimp-server` `0.5.2`; orca pins
-Tapir (`V.tapir`) and Ox (`V.ox`) itself, kept at least as new as what
-chimp declares, so the classpath stays single-resolved — check both pins
-when bumping chimp.
+glue to register one tool. Pinned to `chimp-server` `0.5.2`, which drives
+orca's Tapir pin (`V.tapir` = `1.13.31`, what chimp declares) so the
+classpath stays single-resolved; Ox (`V.ox` = `1.0.5`) is orca's own —
+recheck the Tapir pin when bumping chimp.
 
 ### Why HTTP transport, not stdio
 
@@ -104,10 +105,11 @@ Two reasons:
    would require either a side-channel (named pipe / Unix socket) or
    re-implementing the same dance via a wrapper script. HTTP on
    `127.0.0.1` is one fewer indirection.
-2. chimp does ship a stdio transport, but it serves over the hosting
-   process's own stdin/stdout. For a server Claude Code spawns that
-   process is not orca, so reaching the bridge would still need the
-   side-channel from 1.
+2. `chimp-server` does ship `ServerStdioTransport` alongside
+   `ServerHttpTransport` — only the streaming variants live in the
+   per-effect-system modules — but a stdio server talks over its own
+   process's stdin/stdout, and for one Claude Code spawns that process
+   is not orca. It saves none of the indirection in 1.
 
 ### Lifecycle
 
