@@ -84,9 +84,9 @@ lazy val tools = (project in file("tools"))
       ox,
       jsonSchemaValidator,
       // The shared MCP server (orca.backend.mcp.AskUserMcpServer) is consumed
-      // by the claude, codex and gemini backends, so chimp + the netty backend
-      // live here — tools already hosts the cross-backend orca.backend
-      // package — rather than in any single backend module.
+      // by the claude, codex and gemini backends, so chimp-server + the netty
+      // backend live here — tools already hosts the cross-backend
+      // orca.backend package — rather than in any single backend module.
       chimp,
       tapirNettySync
     )

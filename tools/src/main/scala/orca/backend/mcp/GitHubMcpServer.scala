@@ -1,6 +1,6 @@
 package orca.backend.mcp
 
-import chimp.*
+import chimp.server.*
 import io.circe.Codec
 import orca.tools.{Comment, GitHubTool, Issue, IssueHandle}
 import ox.Ox
@@ -44,7 +44,7 @@ private[orca] object GitHubMcpServer:
           "number sequence, so either kind of number works."
       )
       .input[GitHubIssueInput]
-      .handle(in => read(github, in))
+      .handle(in => ToolResult.fromEither(read(github, in)))
     McpHost.start(List(issueTool), ToolTimeout)
 
   /** `IssueHandle.parse` does the validation: `owner` and `repo` are spliced

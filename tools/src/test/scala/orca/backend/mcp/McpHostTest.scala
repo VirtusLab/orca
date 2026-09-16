@@ -1,8 +1,10 @@
 package orca.backend.mcp
 
-import chimp.tool
+import chimp.protocol.ToolContent
+import chimp.server.{NoStructuredOutput, ServerContext, ToolResult, tool}
 import io.circe.Codec
 import ox.supervised
+import sttp.shared.Identity
 import sttp.tapir.Schema
 
 import java.net.URI
@@ -17,32 +19,41 @@ class McpHostTest extends munit.FunSuite:
     * guard, not the handler, is what these tests are about.
     */
   private def resultOf(
-      logic: Probe => Either[String, String]
-  ): Either[String, String] =
+      logic: Probe => ToolResult[NoStructuredOutput]
+  ): ToolResult[NoStructuredOutput] =
     McpHost
       .guarded(tool("probe").input[Probe].handle(logic))
-      .logic(Probe(""), Nil)
+      .logic(Probe(""), ServerContext.noop[Identity], Nil)
+
+  private def texts(result: ToolResult[?]): List[String] =
+    result.content.collect:
+      case t: ToolContent.Text => t.text
 
   test("a result of exactly the cap passes through whole"):
     val text = "x" * McpHost.MaxOutputChars
-    assertEquals(resultOf(_ => Right(text)), Right(text))
+    val result = resultOf(_ => ToolResult.text(text))
+    assert(!result.isError)
+    assertEquals(texts(result), List(text))
 
   test("a result one char over the cap is cut, and names the cut"):
     val out =
-      resultOf(_ => Right("x" * (McpHost.MaxOutputChars + 1))).toOption.get
+      texts(
+        resultOf(_ => ToolResult.text("x" * (McpHost.MaxOutputChars + 1)))
+      ).head
     assert(out.startsWith("x" * McpHost.MaxOutputChars), out.take(80))
     assert(out.endsWith("characters — narrow the request]"), out.takeRight(80))
 
   test("an error over the cap is cut too: it costs the same tokens"):
-    val out =
-      resultOf(_ => Left("x" * (McpHost.MaxOutputChars + 1))).left.toOption.get
+    val result =
+      resultOf(_ => ToolResult.error("x" * (McpHost.MaxOutputChars + 1)))
+    assert(result.isError)
+    val out = texts(result).head
     assert(out.endsWith("characters — narrow the request]"), out.takeRight(80))
 
   test("a handler that throws returns a tool error rather than escaping"):
-    assertEquals(
-      resultOf(_ => throw new RuntimeException("gh exploded")),
-      Left("gh exploded")
-    )
+    val result = resultOf(_ => throw new RuntimeException("gh exploded"))
+    assert(result.isError)
+    assertEquals(texts(result), List("gh exploded"))
 
   test("a bound tool answers a throwing call over the wire, cut to the cap"):
     // The one thing the tests above cannot see: that `start` puts this guard in

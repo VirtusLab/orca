@@ -1,6 +1,13 @@
 package orca.backend.mcp
 
-import chimp.{ServerTool, mcpEndpoint}
+import chimp.protocol.ToolContent
+import chimp.server.{
+  McpServer,
+  NoStructuredOutput,
+  ServerContext,
+  ServerTool,
+  ToolResult
+}
 import ox.{Ox, useCloseableInScope}
 import sttp.shared.Identity
 import sttp.tapir.server.netty.sync.NettySyncServer
@@ -28,41 +35,67 @@ private[orca] class McpHost private[mcp] (val port: Int, stopFn: () => Unit)
 
 private[orca] object McpHost:
 
-  /** Chars any one tool result returns, on either channel. Past this the tail
-    * is dropped and the result says so, so a single call costs a bounded number
-    * of tokens rather than the turn's whole context.
+  /** Chars one tool result returns in total, success or error, across every
+    * text block it carries. Past this the tail is dropped and the result says
+    * so, so a single call costs a bounded number of tokens rather than the
+    * turn's whole context.
     */
   private[mcp] val MaxOutputChars: Int = 60000
 
-  /** Apply [[MaxOutputChars]], naming the cut so the agent can narrow its
-    * request instead of assuming it saw everything.
+  /** Names the cut so the agent can narrow its request instead of assuming it
+    * saw everything.
     */
-  private def bounded(output: String): String =
-    if output.length <= MaxOutputChars then output
-    else
-      output.take(MaxOutputChars) +
-        s"\n\n[cut after $MaxOutputChars characters — narrow the request]"
+  private val CutMarker: String =
+    s"\n\n[cut after $MaxOutputChars characters — narrow the request]"
 
-  /** The two guarantees every result served here carries: neither channel
-    * exceeds [[MaxOutputChars]], and a handler that throws yields a tool error
-    * rather than a transport failure the agent cannot read.
+  /** Spend [[MaxOutputChars]] across the result's blocks in order: text that
+    * fits passes through, the block that overruns the budget is cut and marked,
+    * and what follows it is dropped. Non-text content spends no budget — it
+    * carries no text to cut.
+    */
+  private def bounded(content: List[ToolContent]): List[ToolContent] =
+    def spend(left: Int, rest: List[ToolContent]): List[ToolContent] =
+      rest match
+        case Nil => Nil
+        case (t: ToolContent.Text) :: tail =>
+          if t.text.length <= left then t :: spend(left - t.text.length, tail)
+          else List(t.copy(text = t.text.take(left) + CutMarker))
+        case other :: tail => other :: spend(left, tail)
+    spend(MaxOutputChars, content)
+
+  private def bounded(
+      result: ToolResult[NoStructuredOutput]
+  ): ToolResult[NoStructuredOutput] =
+    result.copy(content = bounded(result.content))
+
+  /** The two guarantees every result served here carries: its text stays within
+    * [[MaxOutputChars]] whether the result is an error or not, and a handler
+    * that throws yields a tool error rather than a transport failure the agent
+    * cannot read.
+    *
+    * Text is the only channel to bound: [[NoStructuredOutput]] rules out a
+    * structured payload, and other content carries no text.
     */
   private def guardedResult(
-      result: => Either[String, String]
-  ): Either[String, String] =
-    try result.map(bounded).left.map(bounded)
+      result: => ToolResult[NoStructuredOutput]
+  ): ToolResult[NoStructuredOutput] =
+    try bounded(result)
     catch
       case NonFatal(e) =>
-        Left(bounded(Option(e.getMessage).getOrElse(e.toString)))
+        bounded(ToolResult.error(Option(e.getMessage).getOrElse(e.toString)))
 
   /** Put a tool's logic behind [[guardedResult]]. [[start]] applies this to
     * every tool it binds, which is what makes the guarantees structural: a tool
-    * cannot opt out of them by forgetting.
+    * cannot opt out of them by forgetting. Tools are fixed to
+    * [[NoStructuredOutput]] so that holds by type — a structured payload would
+    * be a second channel this guard does not see.
     */
   private[mcp] def guarded[I](
-      t: ServerTool[I, Identity]
-  ): ServerTool[I, Identity] =
-    t.copy(logic = (in, headers) => guardedResult(t.logic(in, headers)))
+      t: ServerTool[I, NoStructuredOutput, Identity, ServerContext[Identity]]
+  ): ServerTool[I, NoStructuredOutput, Identity, ServerContext[Identity]] =
+    t.copy(logic =
+      (in, ctx, headers) => guardedResult(t.logic(in, ctx, headers))
+    )
 
   /** Bind `tools` on a fresh port in the enclosing scope, each [[guarded]].
     *
@@ -76,7 +109,9 @@ private[orca] object McpHost:
     * otherwise strand the binding's event-loop threads for the life of the JVM.
     */
   private[mcp] def start(
-      tools: List[ServerTool[?, Identity]],
+      tools: List[
+        ServerTool[?, NoStructuredOutput, Identity, ServerContext[Identity]]
+      ],
       toolTimeout: FiniteDuration
   )(using Ox): McpHost =
     val binding = NettySyncServer()
@@ -84,7 +119,9 @@ private[orca] object McpHost:
       .modifyConfig(
         _.requestTimeout(toolTimeout).idleTimeout(toolTimeout + 1.minute)
       )
-      .addEndpoint(mcpEndpoint(tools.map(t => guarded(t)), List("mcp")))
+      .addEndpoint(
+        McpServer(tools = tools.map(t => guarded(t))).endpoint(List("mcp"))
+      )
       .start()
     val stopped = new java.util.concurrent.atomic.AtomicBoolean(false)
     useCloseableInScope(

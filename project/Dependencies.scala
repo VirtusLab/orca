@@ -14,7 +14,7 @@ object Dependencies {
     val munit = "1.1.1"
     val munitScalacheck = "1.3.0"
     val jsonSchemaValidator = "1.5.4"
-    val chimp = "0.1.8"
+    val chimp = "0.5.2"
     val logback = "1.5.18"
   }
 
@@ -59,9 +59,12 @@ object Dependencies {
   val jsonSchemaValidator =
     "com.networknt" % "json-schema-validator" % V.jsonSchemaValidator % Test
 
-  // chimp bundles an MCP server endpoint as a Tapir ServerEndpoint; pair it
-  // with the Netty-sync interpreter to mount it on an Ox-friendly stack.
-  val chimp = "com.softwaremill.chimp" %% "core" % V.chimp
+  // chimp-server bundles an MCP server endpoint as a Tapir ServerEndpoint;
+  // pair it with the Netty-sync interpreter to mount it on an Ox-friendly
+  // stack. chimp-server-ox is not needed: it only adds the Ox-based
+  // streaming transports (HTTP and stdio), and orca's MCP traffic is plain
+  // request/response HTTP, which this module already serves.
+  val chimp = "com.softwaremill.chimp" %% "chimp-server" % V.chimp
   val tapirNettySync =
     "com.softwaremill.sttp.tapir" %% "tapir-netty-server-sync" % V.tapir
 

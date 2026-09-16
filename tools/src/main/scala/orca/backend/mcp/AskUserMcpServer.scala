@@ -1,6 +1,6 @@
 package orca.backend.mcp
 
-import chimp.*
+import chimp.server.*
 import io.circe.Codec
 import ox.Ox
 import sttp.tapir.Schema
@@ -51,7 +51,7 @@ private[orca] object AskUserMcpServer:
             "typed answer."
         )
         .input[AskUserInput]
-        .handle(in => Right(bridge.ask(in.question)))
+        .handle(in => ToolResult.text(bridge.ask(in.question)))
     McpHost.start(List(askUserTool), ToolTimeout)
 
   /** Short system-prompt hint telling the agent it has an `ask_user` tool for
