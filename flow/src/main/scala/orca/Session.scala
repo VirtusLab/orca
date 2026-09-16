@@ -22,12 +22,11 @@ import scala.util.NotGiven
   * check as the backstop.
   */
 @implicitNotFound(
-  "agent.session(...), recordOpenedPr(...), openPrFromBranch(...) and " +
-    "openPrIfGitHub(...) must be called outside a stage, at the flow-body top " +
-    "level: mint sessions before stages and run them inside stages via the " +
-    "FlowSession handle (session.run / session.resultAs[...].run); return a " +
-    "PR handle from the stage that opened it and record it after that stage " +
-    "returns; the PR helpers run their own stages."
+  "agent.session(...), openPrFromBranch(...) and openPrIfGitHub(...) must be " +
+    "called outside a stage, at the flow-body top level: mint sessions before " +
+    "stages and run them inside stages via the FlowSession handle " +
+    "(session.run / session.resultAs[...].run); the PR helpers run their own " +
+    "stages."
 )
 final class OutsideStage private ()
 object OutsideStage:

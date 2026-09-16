@@ -6,6 +6,7 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
 }
 import orca.{OrcaDir, WorkspaceWrite}
 import orca.agents.JsonData
+import orca.tools.PrHandle
 import scala.util.control.NonFatal
 
 /** Persistent store for a single flow run's [[ProgressLog]].
@@ -26,9 +27,9 @@ trait ProgressStore:
   def load(): Option[ProgressLog]
 
   /** Distinguishes an absent log (normal fresh run) from a present-but-
-    * unparseable one (corrupt or truncated — the caller starts fresh but WARNS,
-    * since the user may have expected a resume). Used by the lifecycle's resume
-    * decision.
+    * unparseable one (corrupt, truncated or unreadable — the caller starts
+    * fresh but WARNS, since the user may have expected a resume). Used by the
+    * lifecycle's resume decision.
     */
   def loadDetailed(): ProgressStore.LoadResult
 
@@ -53,6 +54,13 @@ trait ProgressStore:
     * get-or-create is best-effort until a stage commit has carried the log.
     */
   def upsertSession(record: SessionRecord)(using WorkspaceWrite): Unit
+
+  /** Record the PR this run opened; last write wins. Requires [[writeHeader]]
+    * first; otherwise it throws. Does NOT commit — the enclosing stage's commit
+    * carries it, so a failure teardown's `git reset --hard` erases a record the
+    * stage never completed (the retry re-opens; `gh.createPr` is idempotent).
+    */
+  def recordOpenedPr(pr: PrHandle)(using WorkspaceWrite): Unit
 
 object ProgressStore:
 
@@ -102,7 +110,7 @@ private class OsProgressStore(workDir: os.Path, val path: os.Path)
 
   def loadDetailed(): ProgressStore.LoadResult =
     if !os.exists(path) then ProgressStore.LoadResult.Absent
-    else parseLog(os.read(path))
+    else parseLog()
 
   def writeHeader(header: ProgressHeader)(using WorkspaceWrite): Unit =
     writeLog(ProgressLog(header, Nil))
@@ -113,10 +121,14 @@ private class OsProgressStore(workDir: os.Path, val path: os.Path)
   def upsertSession(record: SessionRecord)(using WorkspaceWrite): Unit =
     writeLog(upsertSessionRecord(currentLogOrThrow("upsertSession"), record))
 
-  /** Read-modify-write precondition for [[appendEntry]] / [[upsertSession]]:
-    * both require a log to already exist. Routed through [[loadDetailed]] so an
-    * `Absent` log (writeHeader never ran) and a `Corrupt` one (a torn write or
-    * external edit mid-run) get distinct messages.
+  def recordOpenedPr(pr: PrHandle)(using WorkspaceWrite): Unit =
+    writeLog(currentLogOrThrow("recordOpenedPr").copy(openedPr = Some(pr)))
+
+  /** Read-modify-write precondition for [[appendEntry]] / [[upsertSession]] /
+    * [[recordOpenedPr]]: all require a log to already exist. Routed through
+    * [[loadDetailed]] so an `Absent` log (writeHeader never ran) and a
+    * `Corrupt` one (a torn write or external edit mid-run) get distinct
+    * messages.
     */
   private def currentLogOrThrow(callerName: String): ProgressLog =
     loadDetailed() match
@@ -183,10 +195,12 @@ private class OsProgressStore(workDir: os.Path, val path: os.Path)
         if os.exists(tmp) then os.remove(tmp): Unit
         throw e
 
-  private def parseLog(json: String): ProgressStore.LoadResult =
+  // The read sits inside the try: a path that exists but is not a readable
+  // file (a directory left by a failed teardown) is `Corrupt`, not a throw.
+  private def parseLog(): ProgressStore.LoadResult =
     try
       ProgressStore.LoadResult.Loaded(
-        readFromString[ProgressLog](json)(using codec)
+        readFromString[ProgressLog](os.read(path))(using codec)
       )
     catch
       case NonFatal(e) =>

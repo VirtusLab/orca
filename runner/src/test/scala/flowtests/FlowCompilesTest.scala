@@ -569,11 +569,11 @@ object FlowCanary:
           // (Authoring rule R8: push must be in a later stage than the edit.)
           val pr: PrHandle = stage("Push + open tentative PR"):
             git.push().orThrow
-            gh.createPr(title = summary, body = "Failing test only.").orThrow
-
-          // Outside the stage: a resume replays the recorded handle without
-          // running the body, and the lifecycle still has to learn about it.
-          recordOpenedPr(pr)
+            val handle =
+              gh.createPr(title = summary, body = "Failing test only.").orThrow
+            // Inside the stage, so its commit carries the record for a resume.
+            recordOpenedPr(handle)
+            handle
 
           // `waitForBuild` is a pure polling read — outside any stage.
           if gh

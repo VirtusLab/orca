@@ -105,7 +105,7 @@ class OpenPrIfGitHubTest extends FunSuite:
       stages.asScala.toList,
       steps.asScala.toList,
       errors.asScala.toList,
-      control.openedPr
+      store.load().flatMap(_.openedPr)
     )
 
   /** Every skip leg leaves the run as it found it, so assert that once and let
@@ -258,7 +258,7 @@ class OpenPrIfGitHubTest extends FunSuite:
     // one line, no stage error.
     assertEquals(r.errors, Nil)
 
-  test("a resume with every stage recorded re-records the PR without a base"):
+  test("a resume with every stage recorded reports the PR without a base"):
     // The first attempt opened the PR. On resume every stage replays, so
     // nothing needs the base branch — neither the probe nor git is asked, and
     // the PR that exists is reported again.
@@ -267,7 +267,6 @@ class OpenPrIfGitHubTest extends FunSuite:
     val r = runOver(dir, store, available, base = baseForced)
     assertEquals(r.calls, Nil, "stages were re-run")
     assertEquals(r.result, Some(samplePr))
-    assertEquals(r.openedPr, Some(samplePr))
     assert(!r.steps.exists(_.contains("no PR opened")), r.steps)
 
   test("a resume replays a recorded push refusal without asking the remote"):
@@ -327,6 +326,13 @@ class OpenPrIfGitHubTest extends FunSuite:
       run(available, store = new UnrecordableStages(_))
     assert(e.getMessage.contains("disk full"), e.getMessage)
 
+  test("a create whose record cannot be written fails the run"):
+    // The PR exists, but the log the lifecycle reads it from does not: that is
+    // orca's own failure, outside the best-effort absorb around `gh.createPr`.
+    val e = intercept[IllegalStateException]:
+      run(available, store = new UnrecordablePr(_))
+    assert(e.getMessage.contains("disk full"), e.getMessage)
+
   /** `underlying` as a run finds it when its header cannot be read. */
   private class UnloadableHeader(underlying: ProgressStore)
       extends ProgressStore:
@@ -340,4 +346,10 @@ class OpenPrIfGitHubTest extends FunSuite:
       extends ProgressStore:
     export underlying.{appendEntry => _, *}
     def appendEntry(entry: StageEntry)(using WorkspaceWrite): Unit =
+      throw new IllegalStateException("disk full")
+
+  /** `underlying` with the PR record failing, as it does on a full disk. */
+  private class UnrecordablePr(underlying: ProgressStore) extends ProgressStore:
+    export underlying.{recordOpenedPr => _, *}
+    def recordOpenedPr(pr: PrHandle)(using WorkspaceWrite): Unit =
       throw new IllegalStateException("disk full")

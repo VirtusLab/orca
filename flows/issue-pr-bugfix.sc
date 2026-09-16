@@ -118,16 +118,15 @@ flow(
       // A later stage than the edit above, so the test commit exists to push.
       val pr = stage("Push + open tentative PR"):
         git.push().orThrow
-        gh.createPr(
+        val handle = gh.createPr(
           title = summary,
           body = s"""Failing test only — fix pending.
                     |
                     |Closes ${issueHandle.shortRef}.""".stripMargin
         ).orThrow
-
-      // Outside the stage: a resume replays the recorded handle without running
-      // the body, and the lifecycle still has to learn a PR exists.
-      recordOpenedPr(pr)
+        // Inside the stage, so its commit carries the record for a resume.
+        recordOpenedPr(handle)
+        handle
 
       if gh.waitForBuild(pr, CiTimeout).orThrow.outcome == BuildOutcome.Success
       then

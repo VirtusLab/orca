@@ -1,27 +1,24 @@
 package orca.pr
 
-import orca.{FlowControl, OrcaFlowException, OutsideStage}
+import orca.{FlowControl, WorkspaceWrite}
 import orca.tools.PrHandle
 
-/** Tell the run's lifecycle that `pr` was opened; its teardown reads that to
+/** Record `pr` as the PR this run opened; the lifecycle's teardown reads it to
   * decide where the run leaves the checkout.
   *
-  * Callable only outside a stage — after the stage that created the PR
-  * returns: a resumed run replays a stage's recorded result without running
-  * its body, so a call from inside would be skipped and the lifecycle would
-  * never learn the PR exists.
+  * Call it inside the stage that opened the PR, so the stage's commit carries
+  * the record and a resumed run reads it back without re-running the body. A
+  * flow cannot mint [[WorkspaceWrite]] outside a stage body, which is what
+  * places the call.
   *
   * Only a flow that opens its PR with a bare `gh.createPr` needs this;
   * [[openPrFromBranch]] and [[openPrIfGitHub]] record the handle themselves.
   */
 def recordOpenedPr(pr: PrHandle)(using
     control: FlowControl,
-    outside: OutsideStage
+    w: WorkspaceWrite
 ): Unit =
-  if control.inStage then
-    throw new OrcaFlowException(
-      "recordOpenedPr(...) must be called outside a stage: return the handle " +
-        "from the stage that opened the PR and record it after that stage " +
-        "returns."
-    )
-  control.recordOpenedPr(pr)
+  // The write is a file read-modify-write with no other runtime guard on
+  // `WorkspaceWrite`, so a call from a fork must fail here.
+  control.assertOwnerThread("recordOpenedPr(...)")
+  control.progressStore.recordOpenedPr(pr)

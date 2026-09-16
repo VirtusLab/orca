@@ -167,12 +167,11 @@ final class NoChecksConfigured(grace: FiniteDuration)
   * writes PR comments, and polls GitHub's check-run status.
   */
 trait GitHubTool:
-  /** Read-only probe: can a PR be opened from this checkout, and where to.
-    * Asks git for the `origin` remote and gh for a credential and the
-    * repository it resolves, writing nothing — so a flow can branch on the
-    * answer before committing to a PR-opening stage. Only a passing network
-    * failure is waited out; no remote, no credential and no such repository
-    * are answered at once.
+  /** Read-only probe: can a PR be opened from this checkout, and where to. Asks
+    * git for the `origin` remote and gh for a credential and the repository it
+    * resolves, writing nothing — so a flow can branch on the answer before
+    * committing to a PR-opening stage. Only a passing network failure is waited
+    * out; no remote, no credential and no such repository are answered at once.
     */
   def availability(): GitHubAvailability
 
@@ -303,7 +302,7 @@ private[orca] class OsGitHubTool(
     )
 
   def availability(): GitHubAvailability =
-    import GitHubAvailability.{Available, Unavailable}
+    import GitHubAvailability.Unavailable
     import GitHubUnavailable.*
     originUrl() match
       case OriginProbe.GitUnusable(reason) => Unavailable(GitUnusable(reason))
@@ -366,10 +365,10 @@ private[orca] class OsGitHubTool(
     catch case NonFatal(e) => CredentialProbe.GhUnusable(cannotRunGh(e))
 
   /** The repository gh resolves from this checkout — the fork parent or the `gh
-    * repo set-default` choice where those apply, i.e. what `gh pr create`
-    * would target. Host, owner and repo all come out of the one `url` gh
-    * reports, so the three name a single repository; `gitHost` only labels the
-    * failures, which have no gh answer to take a host from.
+    * repo set-default` choice where those apply, i.e. what `gh pr create` would
+    * target. Host, owner and repo all come out of the one `url` gh reports, so
+    * the three name a single repository; `gitHost` only labels the failures,
+    * which have no gh answer to take a host from.
     */
   private def repoGhResolves(gitHost: String): GitHubAvailability =
     def unreachable(reason: String): GitHubAvailability =

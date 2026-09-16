@@ -26,8 +26,10 @@ import ox.either.orThrow
   *
   * `gh.createPr` is idempotent by head branch: a re-run that already opened the
   * PR gets the existing handle back rather than failing. Returns that handle,
-  * and reports it through [[recordOpenedPr]] — which is why this runs its own
-  * stages and does not compile inside one.
+  * recorded through [[recordOpenedPr]] inside the create stage.
+  *
+  * Does not compile inside a stage: opening the PR is a top-level step of a
+  * flow, and this runs its own stages.
   */
 def openPrFromBranch(
     summarisingAgent: Agent[?],
@@ -44,9 +46,7 @@ def openPrFromBranch(
       context,
       instructions
     )
-  val handle = createPr(title(summary), body(summary))
-  recordOpenedPr(handle)
-  handle
+  createPr(title(summary), body(summary))
 
 // The stage names and `summarise` are shared with [[openPrIfGitHub]], which
 // runs the same sequence with its own best-effort push and create.
@@ -81,4 +81,6 @@ private def createPr(title: String, body: String)(using
     FlowControl
 ): PrHandle =
   stage(CreateStage):
-    gh.createPr(title = title, body = body).orThrow
+    val pr = gh.createPr(title = title, body = body).orThrow
+    recordOpenedPr(pr)
+    pr

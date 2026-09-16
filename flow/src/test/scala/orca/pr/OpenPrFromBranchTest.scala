@@ -1,7 +1,7 @@
 package orca.pr
 
 import munit.FunSuite
-import orca.{BoundedDiff, FlowControl, OutsideStage}
+import orca.{BoundedDiff, OutsideStage}
 import orca.tools.{BranchNotPushed, PrCreateFailed, PrHandle}
 import orca.events.{OrcaEvent, OrcaListener}
 
@@ -46,13 +46,13 @@ class OpenPrFromBranchTest extends FunSuite:
       calls.asScala.toList,
       stages.asScala.toList,
       summariser.captured,
-      control.openedPr
+      store.load().flatMap(_.openedPr)
     )
 
   test("openPrFromBranch runs push, summarise, create as three ordered stages"):
     val r = run("stub-diff")
     assertEquals(r.handle, samplePr)
-    assertEquals(r.openedPr, Some(samplePr), "the lifecycle was not told")
+    assertEquals(r.openedPr, Some(samplePr), "the PR was not recorded")
     // Push before PR: the resume-critical stage split.
     assertEquals(r.calls, List("push", "createPr"))
     assertEquals(
@@ -79,26 +79,22 @@ class OpenPrFromBranchTest extends FunSuite:
       )
     )
 
-  test("a resumed run records the handle its replayed stage hands back"):
-    // The record is taken outside the "Open PR" stage for exactly this case: a
-    // resume replays the recorded handle without running the body, and the
-    // lifecycle still has to learn the PR exists.
+  test("a resumed run hands back the replayed handle without re-running"):
     val (dir, store) = seededPrRepo()
     val summariser = new StubSummariser()
-    def attempt(calls: ConcurrentLinkedQueue[String]): FlowControl =
+    def attempt(calls: ConcurrentLinkedQueue[String]): PrHandle =
       val control = prControl(dir, store, _ => (), calls)
-      val _ = openPrFromBranch(summarisingAgent = summariser)(using
+      openPrFromBranch(summarisingAgent = summariser)(using
         control,
         control,
         summon[OutsideStage]
       )
-      control
 
     val _ = attempt(new ConcurrentLinkedQueue[String]())
     val resumedCalls = new ConcurrentLinkedQueue[String]()
     val resumed = attempt(resumedCalls)
     assertEquals(resumedCalls.asScala.toList, Nil, "stages were re-run")
-    assertEquals(resumed.openedPr, Some(samplePr))
+    assertEquals(resumed, samplePr)
 
   test("a branch too large to summarise reaches the agent cut short"):
     // Unbounded, this is the prompt no context window takes, and it is rebuilt

@@ -68,8 +68,7 @@ class CommitMessageTest extends munit.FunSuite:
       private[orca] val startingCommit: Option[orca.progress.CommitHash] = None
   ) extends FlowControl,
         ReportedErrorsSupport,
-        StageFrames,
-        OpenedPrRecord:
+        StageFrames:
     import orca.agents.{
       ClaudeAgent,
       CodexAgent,

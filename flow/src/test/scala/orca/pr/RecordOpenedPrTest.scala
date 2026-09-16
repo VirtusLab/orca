@@ -1,42 +1,39 @@
 package orca.pr
 
 import munit.FunSuite
-import orca.{FlowControl, OrcaFlowException, stage}
+import orca.{FlowControl, stage}
 
+import scala.jdk.CollectionConverters.*
 import java.util.concurrent.ConcurrentLinkedQueue
 
-/** Pins the two layers of [[recordOpenedPr]]'s outside-a-stage guard: the
-  * direct in-stage call is rejected at compile time, the one routed through a
-  * FlowControl-only helper at runtime.
+/** Pins [[recordOpenedPr]]'s placement: it compiles only inside a stage, and
+  * what it writes there outlives a resume that replays the stage.
   */
 class RecordOpenedPrTest extends FunSuite:
 
-  test("recordOpenedPr directly inside a stage body does not compile"):
+  test("recordOpenedPr outside a stage does not compile"):
     val errors = compileErrors(
       """
       given FlowControl = ???
-      given orca.InStage = orca.InStage.unsafe
       recordOpenedPr(samplePr)
       """
     )
     assert(
-      errors.contains("must be called outside a stage") &&
-        errors.contains("recordOpenedPr(...)"),
-      s"expected the OutsideStage implicitNotFound message, got: $errors"
+      errors.contains("must be made inside a `stage(...)` body") &&
+        errors.contains("(using WorkspaceWrite)"),
+      s"expected the WorkspaceWrite implicitNotFound message, got: $errors"
     )
 
-  test("recordOpenedPr inside a stage via a FlowControl-only helper throws"):
+  test("the recorded PR survives a replayed create stage"):
     val (dir, store) = seededPrRepo()
-    given control: FlowControl = prControl(
-      dir,
-      store,
-      _ => (),
-      new ConcurrentLinkedQueue[String]()
-    )
-    def recordInHelper()(using FlowControl): Unit = recordOpenedPr(samplePr)
-    val e = intercept[OrcaFlowException]:
-      stage("open"):
-        recordInHelper()
+    def open(calls: ConcurrentLinkedQueue[String]): Unit =
+      given FlowControl = prControl(dir, store, _ => (), calls)
+      val _ = stage("open"):
+        calls.add("body"): Unit
+        recordOpenedPr(samplePr)
         "done"
-    assert(e.getMessage.contains("after that stage returns"), e.getMessage)
-    assertEquals(control.openedPr, None)
+    open(new ConcurrentLinkedQueue[String]())
+    val resumed = new ConcurrentLinkedQueue[String]()
+    open(resumed)
+    assertEquals(resumed.asScala.toList, Nil, "the body re-ran")
+    assertEquals(store.load().flatMap(_.openedPr), Some(samplePr))

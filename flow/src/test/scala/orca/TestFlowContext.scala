@@ -78,8 +78,7 @@ class TestFlowControl(
     private[orca] val startingCommit: Option[CommitHash] = None
 ) extends FlowControl,
       ReportedErrorsSupport,
-      StageFrames,
-      OpenedPrRecord:
+      StageFrames:
   private def stub(name: String) =
     throw new NotImplementedError(s"$name is not wired in TestFlowControl")
 

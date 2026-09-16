@@ -120,7 +120,9 @@ object FlowLifecycle:
               )
             )
         throw f
-    teardownSuccess(ctx.git, flowSetup, ctx.openedPr, ctx.emit)
+    // Read before teardownSuccess: removing the log is its first act.
+    val openedPr = ctx.progressStore.load().flatMap(_.openedPr)
+    teardownSuccess(ctx.git, flowSetup, openedPr, ctx.emit)
 
   /** Replay the persisted resume-wire-id map (ADR 0018 §2.6) into each
     * session's own agent's in-memory registry, so a resumed run resumes against
@@ -1200,8 +1202,8 @@ object FlowLifecycle:
   /** Where HEAD ends up after a successful run. A throwaway feature branch
     * ([[ThrowawayBranch]]) is deleted and HEAD returns to the starting branch.
     * Otherwise the feature branch is kept, and [[BranchHandoff]] chooses where
-    * HEAD lands.
-    * Best-effort and success-path-only; never deletes start/protected branches.
+    * HEAD lands. Best-effort and success-path-only; never deletes
+    * start/protected branches.
     *
     * A branch a PR was opened from is never deleted, however empty it looks
     * against the start branch: the PR is open against what was pushed, and the

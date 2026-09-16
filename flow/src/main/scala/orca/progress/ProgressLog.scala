@@ -5,6 +5,7 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.{
   ConfiguredJsonValueCodec
 }
 import orca.agents.{JsonData, given}
+import orca.tools.PrHandle
 import orca.util.RawJson
 import sttp.tapir.Schema
 
@@ -109,11 +110,17 @@ case class SessionRecord(
 /** An append-only log of stage outcomes and session records for one flow run,
   * keyed by its header. The custom [[JsonData]] instance below tolerates
   * missing collection fields so logs round-trip across software versions.
+  *
+  * `openedPr` is the PR this run opened: written by the stage that opened it,
+  * so the stage commit carries it, and read by the lifecycle before teardown
+  * removes the log. Its `None` default falls under the same tolerant-decoding
+  * exception as [[ProgressHeader]]'s optional fields.
   */
 case class ProgressLog(
     header: ProgressHeader,
     entries: List[StageEntry],
-    sessions: List[SessionRecord] = Nil
+    sessions: List[SessionRecord] = Nil,
+    openedPr: Option[PrHandle] = None
 )
 
 object ProgressLog:

@@ -5,6 +5,7 @@ import orca.{
   FlowControl,
   OrcaFlowException,
   OutsideStage,
+  WorkspaceWrite,
   gh,
   git,
   stage
@@ -29,8 +30,9 @@ import scala.util.control.NonFatal
   * and a run that still succeeds. A flow that must have its PR calls
   * [[openPrFromBranch]], which throws instead.
   *
-  * Parameters are [[openPrFromBranch]]'s, passed straight through. Records the
-  * handle like [[openPrFromBranch]], so it does not compile inside a stage.
+  * Parameters are [[openPrFromBranch]]'s, passed straight through. Like it,
+  * this does not compile inside a stage: opening the PR is a top-level step of
+  * a flow, and this runs its own stages.
   */
 def openPrIfGitHub(
     summarisingAgent: Agent[?],
@@ -107,8 +109,8 @@ private def probe(using FlowContext): Probe =
       )
 
 /** The reason the summarise stage could not diff against `base`, or `None`. A
-  * recorded summarise stage replays without asking git, so `base` is not
-  * forced — a resume with every stage recorded still re-records its PR.
+  * recorded summarise stage replays without asking git, so `base` is not forced
+  * — a resume with every stage recorded still re-records its PR.
   */
 private def baseStopReason(base: => Either[NoDefaultBase, String])(using
     control: FlowControl
@@ -137,8 +139,7 @@ private def pushThenCreate(
     instructions: String
 )(using
     ctx: FlowContext,
-    control: FlowControl,
-    outside: OutsideStage
+    control: FlowControl
 ): Option[PrHandle] =
   pushBestEffort() match
     case PushAttempt.Refused(reason) => skipped(refusalLine(reason, push))
@@ -152,9 +153,7 @@ private def pushThenCreate(
           createBestEffort(title(summary), body(summary)) match
             case CreateAttempt.Refused(reason) =>
               skipped(refusalLine(reason, create))
-            case CreateAttempt.Opened(pr) =>
-              recordOpenedPr(pr)
-              Some(pr)
+            case CreateAttempt.Opened(pr) => Some(pr)
 
 /** Where a best-effort stage's result comes from: this run, or the record of an
   * earlier attempt. Read before the stage runs — afterwards it is always
@@ -211,14 +210,25 @@ private def createBestEffort(title: String, body: String)(using
       "could not open a PR",
       "open it yourself from the pushed branch"
     )(gh.createPr(title = title, body = body))
-      .fold(CreateAttempt.Refused(_), CreateAttempt.Opened(_))
+      .fold(CreateAttempt.Refused(_), pr => opened(pr))
+
+/** Record the handle before the stage records its own result, so one stage
+  * commit carries both. Outside [[attempt]] on purpose: a log that cannot be
+  * written fails the run.
+  */
+private def opened(pr: PrHandle)(using
+    FlowControl,
+    WorkspaceWrite
+): CreateAttempt =
+  recordOpenedPr(pr)
+  CreateAttempt.Opened(pr)
 
 /** Run one remote-facing leg, turning the refusal it returns or whatever it
   * throws into the line this step reports. `git.push` and `gh.createPr` answer
-  * the refusals they recognise as a `Left`; the rest (auth, network, a
-  * rejected ruleset, gh output that will not parse) throw, so anything
-  * non-fatal is absorbed too. Only the message's first line is kept: the
-  * reason is spliced into a single `Step`.
+  * the refusals they recognise as a `Left`; the rest (auth, network, a rejected
+  * ruleset, gh output that will not parse) throw, so anything non-fatal is
+  * absorbed too. Only the message's first line is kept: the reason is spliced
+  * into a single `Step`.
   */
 private def attempt[E <: OrcaFlowException, T](what: String, next: String)(
     leg: => Either[E, T]
