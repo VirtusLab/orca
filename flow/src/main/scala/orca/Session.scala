@@ -17,13 +17,17 @@ import scala.util.NotGiven
 
 /** Compile-time evidence that no [[InStage]] capability is in scope — i.e. the
   * call site is lexically outside a `stage(...)` body. Lexical only: a helper
-  * taking just `(using FlowControl)` that mints inside a stage still compiles,
-  * so `agent.session`'s runtime in-stage check remains the backstop.
+  * taking just `(using FlowControl)` that is invoked inside a stage still
+  * compiles, so each door that takes this evidence keeps a runtime in-stage
+  * check as the backstop.
   */
 @implicitNotFound(
-  "agent.session(...) must be called outside a stage: mint sessions at the " +
-    "flow-body top level, before stages, and run them inside stages via the " +
-    "FlowSession handle (session.run / session.resultAs[...].run)."
+  "agent.session(...), recordOpenedPr(...), openPrFromBranch(...) and " +
+    "openPrIfGitHub(...) must be called outside a stage, at the flow-body top " +
+    "level: mint sessions before stages and run them inside stages via the " +
+    "FlowSession handle (session.run / session.resultAs[...].run); return a " +
+    "PR handle from the stage that opened it and record it after that stage " +
+    "returns; the PR helpers run their own stages."
 )
 final class OutsideStage private ()
 object OutsideStage:

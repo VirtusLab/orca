@@ -184,6 +184,20 @@ object PushFailure:
   final class RemoteDeclined(reason: String)
       extends PushFailure(s"push declined by remote: $reason")
 
+/** [[GitTool.defaultBase]] found no ref to diff against. `cause` names the refs
+  * tried, for a caller wording the remedy itself.
+  */
+final class NoDefaultBase
+    extends OrcaFlowException(
+      s"no default base ref found: ${NoDefaultBase.Cause}. Either set the " +
+        "remote's HEAD (`git remote set-head origin -a`) or pass an explicit " +
+        "base to diffVsBase."
+    ):
+  def cause: String = NoDefaultBase.Cause
+
+object NoDefaultBase:
+  private val Cause = "tried origin/HEAD, origin/main, origin/master"
+
 /** Git adapter usable from flow scripts — the handle behind the `git` accessor.
   * Wraps branch, commit, and diff operations against the working repository.
   */
@@ -415,11 +429,11 @@ trait GitTool:
   /** Best-effort default base ref for "branch vs main" diffs. Tries
     * `origin/HEAD` first, then falls back to `origin/main` and `origin/master`.
     *
-    * Throws `OrcaFlowException` when none of these refs can be resolved —
-    * typically the repo has no remote configured, in which case the caller can
-    * substitute a local branch name (e.g. `"main"`).
+    * `Left(NoDefaultBase)` when none of these refs resolves — typically the
+    * repo has no remote configured, in which case the caller can substitute a
+    * local branch name (e.g. `"main"`).
     */
-  def defaultBase(): String
+  def defaultBase(): Either[NoDefaultBase, String]
 
   /** `git show [--stat] <rev> [-- <paths>]` — a commit's message plus its diff,
     * or, under [[ShowDetail.StatOnly]], just its changed-file summary. `paths`
@@ -874,16 +888,10 @@ private[orca] class OsGitTool(
   def diffVsBase(base: String): String =
     marked(gitCapped("diff", s"$base...HEAD"))
 
-  def defaultBase(): String =
+  def defaultBase(): Either[NoDefaultBase, String] =
     originHead()
       .orElse(List("origin/main", "origin/master").find(refExists))
-      .getOrElse(
-        throw OrcaFlowException(
-          "no default base ref found: tried origin/HEAD, origin/main, origin/master. " +
-            "Either set the remote's HEAD (`git remote set-head origin -a`) or " +
-            "pass an explicit base to diffVsBase."
-        )
-      )
+      .toRight(new NoDefaultBase)
 
   /** The remote's recorded `origin/HEAD`, in git's shortest unambiguous
     * spelling of the target — usually `origin/<branch>`, but a longer form when
@@ -1219,17 +1227,21 @@ private[orca] object OsGitTool:
       "GIT_SSH_COMMAND" -> s"$baseSsh -o BatchMode=yes"
     )
 
-  /** Host of a git remote URL, for both `scp`-like SSH (`git@host:path`) and
+  /** Host of a git remote URL, for both `scp`-like SSH (`[user@]host:path`) and
     * URL forms (`scheme://[user@]host[:port]/path`). `None` for local paths or
     * anything without a recognisable host.
     */
   private[tools] def remoteHost(url: String): Option[String] =
     val scpLike = """^[^@/]+@([^:/]+):.*""".r
     val urlLike = """^[a-zA-Z][a-zA-Z0-9+.\-]*://(?:[^@/]+@)?([^:/]+).*""".r
+    // Userless `host:path`, as git reads it: no `/` before the first `:`, and
+    // two-plus characters so a Windows drive (`c:/repos`) is a path, not a host.
+    val userlessScp = """^([^:/]{2,}):(?!//).*""".r
     url.trim match
-      case scpLike(host) => Some(host)
-      case urlLike(host) => Some(host)
-      case _             => None
+      case scpLike(host)     => Some(host)
+      case urlLike(host)     => Some(host)
+      case userlessScp(host) => Some(host)
+      case _                 => None
 
   private[tools] def isGithubRemote(url: String): Boolean =
     remoteHost(url).contains("github.com")

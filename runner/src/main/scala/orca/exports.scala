@@ -83,20 +83,24 @@ export orca.review.{
   ReviewResult,
   RosterEntry
 }
-// PushFailure is the Left of GitTool.push's Either; BuildWaitFailed the same
-// for GitHubTool.waitForBuild; GitHubAvailability is what gh.availability()
-// answers with.
+// PushFailure is the Left of GitTool.push's Either, NoDefaultBase of
+// GitTool.defaultBase's; BuildWaitFailed the same for GitHubTool.waitForBuild;
+// GitHubAvailability is what gh.availability() answers with, GitHubUnavailable
+// the reason inside its Unavailable arm.
 export orca.tools.{
   BuildOutcome,
   BuildStatus,
   BuildWaitFailed,
   Comment,
   GitHubAvailability,
+  GitHubUnavailable,
   Issue,
   IssueHandle,
+  NoDefaultBase,
   PrHandle,
   PushFailure
 }
+
 export orca.tools.opencode.OpencodeLauncher
 // Agent-override surface: the wiring an override factory receives, plus each
 // backend's default-agent factory (`ClaudeAgents.default(w).opus`, …).

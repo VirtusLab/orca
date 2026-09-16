@@ -13,8 +13,9 @@ package flowtests
 
 import orca.{*, given}
 // Deliberately NOT in the `orca.*` export wildcard: a recoverable `createPr`
-// failure, referenced by name in `flows/implement-enhanced.sc`. Pinning it
-// here keeps the "import it explicitly" requirement honest.
+// failure a flow matching on it imports by name. Pinning it here keeps the
+// "import it explicitly" requirement honest.
+
 import orca.tools.PrAlreadyExists
 import orca.agents.AgentConfig
 
@@ -258,7 +259,12 @@ object FlowCanary:
           orcaCommentMarker(userPrompt, "reject"),
           "updated verdict"
         )
-        val pr = PrHandle("github.com", "acme", "widgets", 7)
+        val pr = PrHandle(
+          host = "github.com",
+          owner = "acme",
+          repo = "widgets",
+          number = 7
+        )
         val _ = gh.readPrComments(pr)
         gh.writeComment(pr, "pr comment")
         gh.updatePr(pr, "new title", "new body")
@@ -274,7 +280,7 @@ object FlowCanary:
         git.push().orThrow
         val summary = summarisePr(
           agent = claude.haiku,
-          diff = git.diffVsBase(git.defaultBase())
+          diff = git.diffVsBase(git.defaultBase().orThrow)
         )
         gh.createPr(title = summary.title, body = summary.body) match
           case Left(_: PrAlreadyExists) => ()

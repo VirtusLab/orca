@@ -20,11 +20,11 @@ object IssueHandle:
   // Owner and repo are restricted to GitHub's own name charsets rather than
   // "anything but a separator": both are spliced into `gh api` request paths,
   // so `?`, `#` and `..` must not survive parsing.
-  private val Owner = """[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?"""
+  private[tools] val Owner = """[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?"""
   // Dots are legal in repo names (`foo.github.io`), but a segment of *only*
   // dots is not a repo — it's `.`/`..` path traversal, so require at least one
   // non-dot character. Anchor-free, since this is spliced mid-pattern.
-  private val Repo = """[A-Za-z0-9._-]*[A-Za-z0-9_-][A-Za-z0-9._-]*"""
+  private[tools] val Repo = """[A-Za-z0-9._-]*[A-Za-z0-9_-][A-Za-z0-9._-]*"""
 
   private val ShortRefPattern =
     s"""\\s*($Owner)/($Repo)#(\\d+)\\s*""".r
@@ -168,9 +168,11 @@ final class NoChecksConfigured(grace: FiniteDuration)
   */
 trait GitHubTool:
   /** Read-only probe: can a PR be opened from this checkout, and where to. Asks
-    * git for the `origin` remote and gh for its login state, writing nothing —
-    * so a flow can branch on the answer before committing to a PR-opening
-    * stage.
+    * git for the `origin` remote and gh for a credential and the repository it
+    * resolves, writing nothing — so a flow can branch on the answer before
+    * committing to a PR-opening stage. Answers at once where a retry could not
+    * change the answer (no remote, no credential, no such repository); waits
+    * out a passing network failure only.
     */
   def availability(): GitHubAvailability
 
@@ -282,73 +284,86 @@ private[orca] class OsGitHubTool(
       )
     )
 
-  /** [[readRetryConfig]] for the probe's legs, which keep the raw result: the
-    * same schedule, retrying the non-zero exit itself rather than the exception
-    * [[runGh]] turns it into. A gh that cannot start is not retried, as in
-    * [[readRetryConfig]].
+  /** [[readRetryConfig]] for the probe's `gh repo view`, which keeps the raw
+    * result: the same schedule, retrying a non-zero exit only while
+    * [[classifyFailure]] reads it as [[GhFailure.Transient]]. A gh that cannot
+    * start is not retried, as in [[readRetryConfig]].
     */
   private val probeRetryConfig: RetryConfig[Throwable, CliResult] =
     RetryConfig(
       readRetry,
-      ResultPolicy(isSuccess = _.exitCode == 0, isWorthRetrying = _ => false)
+      ResultPolicy(
+        isSuccess = r =>
+          r.exitCode == 0 || (classifyFailure(r) match
+            case GhFailure.Hard      => true
+            case GhFailure.Transient => false
+          ),
+        isWorthRetrying = _ => false
+      )
     )
 
   def availability(): GitHubAvailability =
-    import GitHubAvailability.*
+    import GitHubAvailability.{Available, Unavailable}
+    import GitHubUnavailable.*
     originUrl() match
-      case None => NoRemote
-      case Some(url) =>
+      case OriginProbe.GitUnusable(reason) => Unavailable(GitUnusable(reason))
+      case OriginProbe.NoOrigin            => Unavailable(NoRemote)
+      case OriginProbe.Origin(url) =>
         OsGitTool.remoteHost(url) match
-          case None => NoHost(url)
+          case None => Unavailable(NoHost(url))
           case Some(host) =>
-            authStatus(host) match
-              case AuthProbe.LoggedIn => repoGhResolves(host)
+            credential(host) match
+              case CredentialProbe.Present => repoGhResolves(host)
               // A gh that will not start says nothing about the host, so it
               // cannot be evidence that the host isn't GitHub.
-              case AuthProbe.GhUnusable(reason) => Unreachable(host, reason)
-              // gh ran and has no login for the host: on github.com that is
-              // the user's auth or the network, anywhere else it is how a
-              // non-GitHub host presents, since gh only logs in to GitHub.
-              case AuthProbe.NoLogin(reason) =>
-                if host == GitHubDotCom then Unreachable(host, reason)
-                else NotGitHub(host)
+              case CredentialProbe.GhUnusable(reason) =>
+                Unavailable(Unreachable(host, reason))
+              // gh ran and holds no credential for the host: on github.com
+              // that is the user's auth, anywhere else it is how a non-GitHub
+              // host presents, since gh only logs in to GitHub.
+              case CredentialProbe.Absent(reason) =>
+                if host == GitHubDotCom then
+                  Unavailable(Unreachable(host, reason))
+                else Unavailable(NotGitHub(host))
 
-  /** The `origin` remote's URL, or `None` when the checkout has no such remote
-    * — `git config --get` exits 1 when the key is unset. A git that will not
-    * run at all answers the same way, so the probe reports "no remote" rather
-    * than aborting the flow.
+  /** The `origin` remote's URL as git resolves it — `url.<base>.insteadOf`
+    * applied — or [[OriginProbe.NoOrigin]] when the checkout has no such
+    * remote: `git ls-remote --get-url` then echoes the name back and exits 0. A
+    * git that will not run at all is reported rather than aborting the flow.
     */
-  private def originUrl(): Option[String] =
+  private def originUrl(): OriginProbe =
     try
       val result = cli.run(
-        Seq("git", "config", "--get", "remote.origin.url"),
+        Seq("git", "ls-remote", "--get-url", "origin"),
         env = OsGitTool.nonInteractiveEnv,
         cwd = workDir
       )
-      Option.when(result.exitCode == 0)(result.stdout.trim).filter(_.nonEmpty)
-    catch case NonFatal(_) => None
+      Option
+        .when(result.exitCode == 0)(result.stdout.trim)
+        .filter(url => url.nonEmpty && url != "origin")
+        .fold(OriginProbe.NoOrigin)(OriginProbe.Origin(_))
+    catch
+      case NonFatal(e) =>
+        OriginProbe.GitUnusable(
+          TextUtil.throwableMessage(e, firstLineOnly = true)
+        )
 
-  /** What `gh auth status --hostname <host>` answered. [[NoLogin]] and
-    * [[GhUnusable]] are kept apart because only the first says anything about
-    * the host: gh refusing to start is the same answer on every host.
+  /** What `gh auth token --hostname <host>` answered — a local config read,
+    * never retried.
     */
-  private enum AuthProbe:
-    case LoggedIn
-    case NoLogin(reason: String)
-    case GhUnusable(reason: String)
-
-  private def authStatus(host: String): AuthProbe =
-    tryRunGh("auth", "status", "--hostname", host) match
-      case Left(reason)                      => AuthProbe.GhUnusable(reason)
-      case Right(auth) if auth.exitCode == 0 => AuthProbe.LoggedIn
-      case Right(auth) =>
-        AuthProbe.NoLogin(
+  private def credential(host: String): CredentialProbe =
+    try
+      val result = runGhResult("auth", "token", "--hostname", host)
+      if result.exitCode == 0 then CredentialProbe.Present
+      else
+        CredentialProbe.Absent(
           ghReason(
-            auth,
-            s"gh auth status --hostname $host failed (exit ${auth.exitCode})" +
+            result,
+            s"gh holds no credential for $host (exit ${result.exitCode})" +
               s" — run `gh auth login --hostname $host`"
           )
         )
+    catch case NonFatal(e) => CredentialProbe.GhUnusable(cannotRunGh(e))
 
   /** The repository gh resolves from this checkout — the fork parent or the `gh
     * repo set-default` choice where those apply, i.e. the repository `gh pr
@@ -357,11 +372,14 @@ private[orca] class OsGitHubTool(
     * the failures, where there is no gh answer to take one from.
     */
   private def repoGhResolves(gitHost: String): GitHubAvailability =
-    tryRunGh("repo", "view", "--json", "url") match
-      case Left(reason) => GitHubAvailability.Unreachable(gitHost, reason)
+    def unreachable(reason: String): GitHubAvailability =
+      GitHubAvailability.Unavailable(
+        GitHubUnavailable.Unreachable(gitHost, reason)
+      )
+    tryRepoView() match
+      case Left(reason) => unreachable(reason)
       case Right(view) if view.exitCode != 0 =>
-        GitHubAvailability.Unreachable(
-          gitHost,
+        unreachable(
           ghReason(
             view,
             s"gh repo view failed (exit ${view.exitCode}) — run `gh repo view" +
@@ -371,7 +389,7 @@ private[orca] class OsGitHubTool(
       case Right(view) =>
         repoFromView(view.stdout) match
           case Right(available) => available
-          case Left(reason) => GitHubAvailability.Unreachable(gitHost, reason)
+          case Left(reason)     => unreachable(reason)
 
   /** Read `gh repo view --json url` output. Decoding happens here, behind an
     * `Either`, so a payload gh never documented is an answer from the probe
@@ -380,9 +398,15 @@ private[orca] class OsGitHubTool(
   private def repoFromView(stdout: String): Either[String, GitHubAvailability] =
     try
       val url = readFromString[GhRepoViewJson](stdout).url
-      (OsGitTool.remoteHost(url), RepoUrlPattern.findFirstMatchIn(url)) match
-        case (Some(host), Some(m)) =>
-          Right(GitHubAvailability.Available(host, m.group(1), m.group(2)))
+      url.stripSuffix("/").stripSuffix(".git") match
+        case RepoUrlPattern(host, owner, repo) =>
+          Right(
+            GitHubAvailability.Available(
+              host = host,
+              owner = owner,
+              repo = repo
+            )
+          )
         case _ =>
           Left(
             s"gh named the repository '$url', which is not " +
@@ -396,14 +420,16 @@ private[orca] class OsGitHubTool(
             "`gh repo view --json url` in this checkout to see what gh printed"
         )
 
-  /** Run a read-only `gh` for [[availability]], retrying a non-zero exit as
-    * [[ghRead]] does, and reporting a `gh` that could not be started as a
-    * `Left` reason: `os.proc` throws when the binary is missing — and when the
-    * working directory or the binary itself is unusable — and the probe answers
-    * rather than aborting the flow.
+  /** `gh repo view --json url` under [[probeRetryConfig]], reporting a `gh`
+    * that could not be started as a `Left` reason: `os.proc` throws when the
+    * binary is missing — and when the working directory or the binary itself is
+    * unusable — and the probe answers rather than aborting the flow.
     */
-  private def tryRunGh(args: String*): Either[String, CliResult] =
-    try Right(retry(probeRetryConfig)(runGhResult(args*)))
+  private def tryRepoView(): Either[String, CliResult] =
+    try
+      Right(
+        retry(probeRetryConfig)(runGhResult("repo", "view", "--json", "url"))
+      )
     catch case NonFatal(e) => Left(cannotRunGh(e))
 
   def createPr(title: String, body: String)(using
@@ -748,24 +774,70 @@ private[orca] object OsGitHubTool:
   /** The one host that is GitHub whether or not gh can log in to it. */
   private val GitHubDotCom = "github.com"
 
-  /** The owner and repo of a `https://<host>/<owner>/<repo>` URL — the shape of
-    * `gh repo view --json url` output, from which [[OsGitHubTool.availability]]
-    * takes the identity of the repository gh resolved. The host comes from
-    * [[OsGitTool.remoteHost]], the one place a host is read out of a URL, so it
-    * is the same host — port stripped — the probe asked `gh auth status` about.
-    * Only `https` is accepted, since that is what [[PrHandle.fromUrl]] parses
-    * back when the PR is opened.
+  /** What git said about the `origin` remote. [[NoOrigin]] and [[GitUnusable]]
+    * are kept apart because only the first is an answer about the checkout: a
+    * git that could not be run says nothing about its remotes.
+    */
+  private enum OriginProbe:
+    case Origin(url: String)
+    case NoOrigin
+    case GitUnusable(reason: String)
+
+  /** What `gh auth token --hostname <host>` answered. [[Absent]] and
+    * [[GhUnusable]] are kept apart because only the first says anything about
+    * the host: gh refusing to start is the same answer on every host.
+    */
+  private enum CredentialProbe:
+    case Present
+    case Absent(reason: String)
+    case GhUnusable(reason: String)
+
+  /** Host, owner and repo of a `https://<host>/<owner>/<repo>` URL — the shape
+    * of `gh repo view --json url` output, from which
+    * [[OsGitHubTool.availability]] takes the identity of the repository gh
+    * resolved. A port is refused, as [[PrHandle.fromUrl]] refuses it when the
+    * PR is opened: gh's `--hostname` takes none. Only `https` is accepted, for
+    * the same reason.
     */
   private val RepoUrlPattern =
-    """^https://[^/]+/([^/]+)/([^/?#]+?)(?:\.git)?/?$""".r
+    s"""^https://([A-Za-z0-9.-]+)/(${IssueHandle.Owner})/(${IssueHandle.Repo})$$""".r
+
+  /** How a failed `gh` call should be treated: retried, or answered at once. */
+  private[tools] enum GhFailure:
+    /** The network or GitHub itself was not available for the moment. */
+    case Transient
+
+    /** gh's answer will not change on a retry — no permission, no such
+      * repository, or anything the probe does not recognise as transient.
+      */
+    case Hard
+
+  /** Read a non-zero `gh` exit as [[GhFailure.Transient]] only on the
+    * signatures gh's HTTP client and GitHub give for a passing outage: a
+    * connection that could not be made or was cut, a name that would not
+    * resolve, a timeout, a TLS failure, HTTP 5xx, or rate limiting (429). Both
+    * streams are read, since gh can fail with nothing on stderr. Everything
+    * else, HTTP 401/403/404 included, is [[GhFailure.Hard]] — an unrecognised
+    * failure waits out no backoff.
+    */
+  private[tools] def classifyFailure(result: CliResult): GhFailure =
+    val output = result.stderr + "\n" + result.stdout
+    if TransientSignature.findFirstIn(output).isDefined then GhFailure.Transient
+    else GhFailure.Hard
+
+  // `timeout`, `tls` and `EOF` are matched in the forms Go's net/http and gh
+  // print them, not bare: a repository name can contain the word.
+  private val TransientSignature =
+    """(?i)dial tcp|error connecting to|check your internet connection|connection (?:refused|reset)|no such host|i/o timeout|timeout exceeded|Client\.Timeout|handshake timeout|timed out|tls:|TLS handshake|(?-i:unexpected EOF|: EOF)|rate limit|HTTP (?:5\d\d|429)""".r
 
   /** Reason for a `gh` that could not be started. Names the likely cause
     * without asserting it: a missing binary is the common one, but an unusable
     * working directory or a non-executable `gh` throws the same way.
     */
   private def cannotRunGh(e: Throwable): String =
-    s"could not run gh (${e.getMessage}) — if it is not installed, get it " +
-      "from https://cli.github.com, then run `gh auth login`"
+    s"could not run gh (${TextUtil.throwableMessage(e, firstLineOnly = true)})" +
+      " — if it is not installed, get it from https://cli.github.com, then " +
+      "run `gh auth login`"
 
   /** A user-facing reason for a `gh` call that exited non-zero: its stderr,
     * else its stdout — `gh auth status` reports there and can fail silently —

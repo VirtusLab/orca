@@ -1,6 +1,6 @@
 package orca.pr
 
-import orca.{FlowContext, FlowControl, gh, git, stage}
+import orca.{FlowContext, FlowControl, OutsideStage, gh, git, stage}
 import orca.agents.Agent
 import orca.tools.PrHandle
 
@@ -26,7 +26,8 @@ import ox.either.orThrow
   *
   * `gh.createPr` is idempotent by head branch: a re-run that already opened the
   * PR gets the existing handle back rather than failing. Returns that handle,
-  * and reports it through [[recordOpenedPr]].
+  * and reports it through [[recordOpenedPr]] — which is why this runs its own
+  * stages and does not compile inside one.
   */
 def openPrFromBranch(
     summarisingAgent: Agent[?],
@@ -34,29 +35,34 @@ def openPrFromBranch(
     body: PrSummary => String = _.body,
     context: Option[String] = None,
     instructions: String = PrPrompts.Summarise
-)(using FlowContext, FlowControl): PrHandle =
+)(using FlowContext, FlowControl, OutsideStage): PrHandle =
   pushBranch()
   val summary =
-    summarise(summarisingAgent, git.defaultBase(), context, instructions)
+    summarise(
+      summarisingAgent,
+      git.defaultBase().orThrow,
+      context,
+      instructions
+    )
   val handle = createPr(title(summary), body(summary))
-  // Outside the stage on purpose: a resumed run replays the recorded handle
-  // without running the body, and the lifecycle still has to learn about it.
   recordOpenedPr(handle)
   handle
 
-// The three stages, one per file-private helper, so [[openPrIfGitHub]] can run
-// the same sequence while treating the two remote-facing legs as best effort.
+// The three stages. Their names and `summarise` are shared with
+// [[openPrIfGitHub]], which runs the same sequence with its own best-effort
+// push and create.
 
 /** Push the branch as its own stage: a stage commits only on completion, so
   * pushing together with the summarise (or the preceding edits) would be
   * fragile on resume.
   */
-private[pr] def pushBranch()(using FlowContext, FlowControl): Unit =
+private def pushBranch()(using FlowContext, FlowControl): Unit =
   stage(PushStage):
     git.push().orThrow
 
-/** The push stage's name; [[openPrIfGitHub]] asks whether it is recorded. */
 private[pr] val PushStage: String = "Push branch"
+private[pr] val SummariseStage: String = "Generate PR title and description"
+private[pr] val CreateStage: String = "Open PR"
 
 /** Summarise the branch-vs-`base` diff. `base` is by-name so a resumed run,
   * whose recorded summary replays without the body, does not resolve it.
@@ -67,7 +73,7 @@ private[pr] def summarise(
     context: Option[String],
     instructions: String
 )(using FlowContext, FlowControl): PrSummary =
-  stage("Generate PR title and description"):
+  stage(SummariseStage):
     summarisePr(
       agent = summarisingAgent,
       diff = git.diffVsBase(base),
@@ -75,9 +81,9 @@ private[pr] def summarise(
       instructions = instructions
     )
 
-private[pr] def createPr(title: String, body: String)(using
+private def createPr(title: String, body: String)(using
     FlowContext,
     FlowControl
 ): PrHandle =
-  stage("Open PR"):
+  stage(CreateStage):
     gh.createPr(title = title, body = body).orThrow

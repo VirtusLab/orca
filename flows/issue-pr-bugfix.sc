@@ -167,7 +167,7 @@ def prSummary(note: String, issue: Issue)(using
 ): PrSummary =
   summarisePr(
     agent = codingAgent.cheap,
-    diff = git.diffVsBase(git.defaultBase()),
+    diff = git.diffVsBase(git.defaultBase().orThrow),
     context = Some(
       s"""Originating issue: ${issueHandle.shortRef}
          |Issue title: ${issue.title}

@@ -21,6 +21,7 @@ import orca.tools.{
   GitHubAvailability,
   GitHubTool,
   GitTool,
+  NoDefaultBase,
   OsGitTool,
   PrCreateFailed,
   PrHandle,
@@ -38,7 +39,7 @@ private[pr] def nyi(m: String): Nothing =
 
 /** The handle [[RecordingGh.createPr]] hands back. */
 private[pr] val samplePr: PrHandle =
-  PrHandle("github.com", "acme", "widgets", 1)
+  PrHandle(host = "github.com", owner = "acme", repo = "widgets", number = 1)
 
 /** [[PushlessGit]] that also records the push, so a test can pin when the PR
   * helpers pushed relative to their other calls.
@@ -48,7 +49,7 @@ private[pr] class RecordingGit(
     calls: ConcurrentLinkedQueue[String],
     branchDiff: String,
     pushAnswer: => Either[PushFailure, Unit],
-    base: => String
+    base: => Either[NoDefaultBase, String]
 ) extends PushlessGit(underlying, branchDiff, pushAnswer, base):
   override def push()(using WorkspaceWrite) =
     calls.add("push"): Unit
@@ -71,8 +72,12 @@ private[pr] class RecordingGh(
     calls.add("createPr"): Unit
     createPrAnswer
 
-/** Records the prompt it was sent and returns a fixed [[PrSummary]]. */
-private[pr] class StubSummariser extends Agent[BackendTag.ClaudeCode.type]:
+/** Records the prompt it was sent and answers `answer` — a fixed [[PrSummary]]
+  * unless a test makes the summarise stage fail.
+  */
+private[pr] class StubSummariser(
+    answer: => PrSummary = PrSummary("Generated title", "Generated body")
+) extends Agent[BackendTag.ClaudeCode.type]:
   var captured: String = ""
   val name: String = "summariser"
   def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
@@ -94,8 +99,7 @@ private[pr] class StubSummariser extends Agent[BackendTag.ClaudeCode.type]:
               emitPrompt: Boolean
           )(using in: AgentInput[I], _s: orca.InStage): O =
             captured = in.serialize(input)
-            PrSummary("Generated title", "Generated body")
-              .asInstanceOf[O]
+            answer.asInstanceOf[O]
       def interactive: InteractiveAgentCall[BackendTag.ClaudeCode.type, O] =
         nyi("interactive")
 
@@ -125,13 +129,22 @@ private[pr] class PrTestControl(
   * `withCode` decides whether the branch carries anything but orca's own files
   * — what the PR helpers check before opening a PR for the run. `branchMode` is
   * the header's: a `Reused` header names `feat/test` as the starting branch
-  * too, as a `--skip-branch` run's does.
+  * too, as a `--skip-branch` run's does. A `startBranch` other than `main` is
+  * created one commit ahead of `main`, and `feat/test` branches from it — so a
+  * helper measuring the run against the default base instead of its start point
+  * sees that commit.
   */
 private[pr] def seededPrRepo(
     withCode: Boolean = true,
-    branchMode: BranchMode = BranchMode.Created
+    branchMode: BranchMode = BranchMode.Created,
+    startBranch: String = "main"
 ): (os.Path, ProgressStore) =
   val dir = GitRepo.seeded()
+  if startBranch != "main" then
+    val _ = os.proc("git", "checkout", "-b", startBranch).call(cwd = dir)
+    os.write(dir / "ahead.txt", "earlier work")
+    val _ = os.proc("git", "add", "ahead.txt").call(cwd = dir)
+    val _ = os.proc("git", "commit", "-m", "earlier").call(cwd = dir)
   val _ = os.proc("git", "checkout", "-b", "feat/test").call(cwd = dir)
   if withCode then
     os.write(dir / "code.txt", "real code")
@@ -140,7 +153,7 @@ private[pr] def seededPrRepo(
   val store = ProgressStore.default(dir, "p")
   given WorkspaceWrite = WorkspaceWrite.unsafe
   val startingBranch = branchMode match
-    case BranchMode.Created => "main"
+    case BranchMode.Created => startBranch
     case BranchMode.Reused  => "feat/test"
   store.writeHeader(
     ProgressHeader(startingBranch, "feat/test", "deadbeef", branchMode)
@@ -166,7 +179,7 @@ private[pr] def prControl(
     availability: => GitHubAvailability = nyi("availability"),
     createPr: => Either[PrCreateFailed, PrHandle] = Right(samplePr),
     push: => Either[PushFailure, Unit] = Right(()),
-    base: => String = "main"
+    base: => Either[NoDefaultBase, String] = Right("main")
 ): FlowControl =
   new PrTestControl(
     new EventDispatcher(List(listener)),

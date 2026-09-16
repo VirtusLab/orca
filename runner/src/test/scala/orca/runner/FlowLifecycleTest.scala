@@ -1932,13 +1932,15 @@ class FlowLifecycleTest extends munit.FunSuite:
 
   // ── the PR-driven branch handoff ─────────────────────────────────────────
 
-  private val handoffPr = PrHandle("github.com", "acme", "widgets", 7)
+  private val handoffPr =
+    PrHandle(host = "github.com", owner = "acme", repo = "widgets", number = 7)
 
-  /** A `gh` that answers the [[openPrIfGitHub]] probe with `answer` and opens
-    * [[handoffPr]]; the lifecycle touches nothing else on it.
+  /** A `gh` on GitHub that opens [[handoffPr]]; the lifecycle touches nothing
+    * else on it.
     */
-  private class StubGh(answer: GitHubAvailability) extends StubGitHubTool:
-    override def availability(): GitHubAvailability = answer
+  private class StubGh extends StubGitHubTool:
+    override def availability(): GitHubAvailability =
+      GitHubAvailability.Available(host = "github.com", owner = "a", repo = "w")
     override def createPr(title: String, body: String)(using WorkspaceWrite) =
       Right(handoffPr)
 
@@ -1963,19 +1965,10 @@ class FlowLifecycleTest extends munit.FunSuite:
           throw new UnsupportedOperationException
 
   /** Where one `openPrIfGitHub` run left the checkout. */
-  private case class HandoffRun(
-      head: String,
-      featureBranch: String,
-      branches: Set[String]
-  )
+  private case class HandoffRun(head: String, featureBranch: String)
 
-  /** A run that writes a file and then calls [[openPrIfGitHub]], against a `gh`
-    * answering `answer`.
-    */
-  private def handoffRun(
-      answer: GitHubAvailability,
-      workDir: os.Path = GitRepo.seeded()
-  ): HandoffRun =
+  /** A run that writes a file and then calls [[openPrIfGitHub]] on GitHub. */
+  private def handoffRun(workDir: os.Path = GitRepo.seeded()): HandoffRun =
     val prompt = "pr-handoff"
     val store = ProgressStore.default(workDir, prompt)
     val git = new OsGitTool(workDir)
@@ -1985,7 +1978,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       prompt,
       store,
       claude = new SummarisingClaude,
-      gh = Some(new StubGh(answer)),
+      gh = Some(new StubGh),
       git = Some(new PushlessGit(new OsGitTool(workDir)))
     ):
       featureBranch = summon[FlowContext].git.currentBranch()
@@ -1994,20 +1987,10 @@ class FlowLifecycleTest extends munit.FunSuite:
         "done"
       val _ =
         orca.pr.openPrIfGitHub(summarisingAgent = summon[FlowContext].claude)
-    HandoffRun(git.currentBranch(), featureBranch, branchNames(workDir))
+    HandoffRun(git.currentBranch(), featureBranch)
 
   test("a new-branch run that opened a PR is handed back its start branch"):
-    val r = handoffRun(GitHubAvailability.Available("github.com", "a", "w"))
-    assertEquals(r.head, "main")
-    assert(
-      r.branches.contains(r.featureBranch),
-      s"the branch behind the PR must be kept; branches: ${r.branches}"
-    )
-
-  test("a new-branch run that opened no PR stays on the feature branch"):
-    // The work is only on the branch, so the user is left standing on it.
-    val r = handoffRun(GitHubAvailability.NotGitHub("gitlab.com"))
-    assertEquals(r.head, r.featureBranch)
+    assertEquals(handoffRun().head, "main")
 
   test("a run inside a worktree that opened a PR stays on the work"):
     // The worktree reports RunTarget.NewBranch — a resume relaunched without
@@ -2017,37 +2000,15 @@ class FlowLifecycleTest extends munit.FunSuite:
     val worktree = WorktreeRun.resolve(repo, "pr-handoff") match
       case Right(dir) => dir
       case Left(msg)  => fail(s"could not create the worktree: $msg")
-    val r =
-      handoffRun(GitHubAvailability.Available("github.com", "a", "w"), worktree)
+    val r = handoffRun(worktree)
     assertEquals(r.head, r.featureBranch)
     assert(
       !r.head.startsWith("orca-worktree-"),
       s"the run must be left on its feature branch, not ${r.head}"
     )
 
-  test("a flow that opens its PR with a bare gh.createPr is handed back too"):
-    // `recordOpenedPr` is the whole coupling between "opened a PR" and the
-    // handoff for a flow that does not go through the PR helpers.
-    val workDir = GitRepo.seeded()
-    val prompt = "bare-create-pr"
-    val store = ProgressStore.default(workDir, prompt)
-    val git = new OsGitTool(workDir)
-    runFlowForTest(
-      workDir,
-      prompt,
-      store,
-      gh = Some(new StubGh(GitHubAvailability.NoRemote)),
-      git = Some(new PushlessGit(new OsGitTool(workDir)))
-    ):
-      val _ = stage("write code"):
-        os.write(workDir / "code.txt", "real code")
-        "done"
-      val pr = stage("open PR"):
-        summon[FlowContext].gh.createPr("t", "b").orThrow
-      orca.pr.recordOpenedPr(pr)
-    assertEquals(git.currentBranch(), "main")
-
   test("R5: failure teardown keeps feature branch regardless of code changes"):
+
     // A flow that crashes must NOT delete the branch — it needs to stay for resume.
     val workDir = GitRepo.seeded()
     val prompt = "failure-keeps-branch"
@@ -3139,7 +3100,6 @@ class FlowLifecycleTest extends munit.FunSuite:
     FlowLifecycle.teardownSuccess(
       git,
       setup,
-      BranchHandoff.StayPut,
       None,
       _ => ()
     )
@@ -3175,41 +3135,25 @@ class FlowLifecycleTest extends munit.FunSuite:
     )
     (git, workDir, setup)
 
-  test(
-    "teardownSuccess with ReturnToStart checks out the start branch and keeps the feature branch"
-  ):
-    // `ReturnToStart` only arises when a PR was opened, so the fixture states
-    // that pair rather than one the runtime cannot hand it.
-    val (git, workDir, setup) = handoffFixture(withCode = true)
-    FlowLifecycle.teardownSuccess(
-      git,
-      setup,
-      BranchHandoff.ReturnToStart,
-      Some(handoffPr),
-      _ => ()
-    )
-    assertEquals(git.currentBranch(), "main")
-    assert(branchNames(workDir).contains("feat/work"), branchNames(workDir))
-
   test("teardownSuccess with StayPut leaves HEAD on the feature branch"):
     val (git, _, setup) = handoffFixture(withCode = true)
     FlowLifecycle.teardownSuccess(
       git,
       setup,
-      BranchHandoff.StayPut,
       None,
       _ => ()
     )
     assertEquals(git.currentBranch(), "feat/work")
 
-  test("teardownSuccess keeps an empty branch a PR was opened from"):
+  test(
+    "teardownSuccess keeps an empty branch a PR was opened from and returns to the start branch"
+  ):
     // The PR is open against what was pushed, so the branch has to stay even
     // though it carries nothing but orca's log against the start branch.
     val (git, workDir, setup) = handoffFixture(withCode = false)
     FlowLifecycle.teardownSuccess(
       git,
       setup,
-      BranchHandoff.ReturnToStart,
       Some(handoffPr),
       _ => ()
     )
@@ -3225,7 +3169,6 @@ class FlowLifecycleTest extends munit.FunSuite:
     FlowLifecycle.teardownSuccess(
       git,
       setup,
-      BranchHandoff.StayPut,
       None,
       _ => ()
     )
@@ -3308,7 +3251,6 @@ class FlowLifecycleTest extends munit.FunSuite:
       .teardownSuccess(
         repo.git,
         repo.setup,
-        BranchHandoff.StayPut,
         None,
         _ => ()
       )
@@ -3323,7 +3265,6 @@ class FlowLifecycleTest extends munit.FunSuite:
       .teardownSuccess(
         repo.git,
         repo.setup,
-        BranchHandoff.StayPut,
         None,
         _ => ()
       )
@@ -3342,7 +3283,6 @@ class FlowLifecycleTest extends munit.FunSuite:
       .teardownSuccess(
         repo.git,
         repo.setup,
-        BranchHandoff.StayPut,
         None,
         _ => ()
       )
@@ -3354,14 +3294,13 @@ class FlowLifecycleTest extends munit.FunSuite:
   private def closingSummary(
       git: OsGitTool,
       setup: FlowLifecycle.FlowSetup,
-      handoff: BranchHandoff
+      openedPr: Option[PrHandle]
   ): List[String] =
     val emitted = new AtomicReference[List[OrcaEvent]](Nil)
     FlowLifecycle.teardownSuccess(
       git,
       setup,
-      handoff,
-      None,
+      openedPr,
       e => { val _ = emitted.updateAndGet(e :: _) }
     )
     emitted.get().reverse.collect { case s: OrcaEvent.Step => s.message }
@@ -3404,7 +3343,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       Some(base)
     )
     assertEquals(
-      closingSummary(git, setup, BranchHandoff.StayPut),
+      closingSummary(git, setup, None),
       List(
         "done — you are on branch 'closing-stay'",
         s"2 file(s) changed since ${base.short}",
@@ -3433,7 +3372,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       Some(base)
     )
     assertEquals(
-      closingSummary(git, setup, BranchHandoff.ReturnToStart),
+      closingSummary(git, setup, Some(handoffPr)),
       List(
         "done — you are on branch 'main'",
         s"2 file(s) changed since ${base.short}",
@@ -3456,7 +3395,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       Some(base)
     )
     assertEquals(
-      closingSummary(git, setup, BranchHandoff.StayPut),
+      closingSummary(git, setup, None),
       List("done — you are on branch 'main'", "no files changed")
     )
 
@@ -3474,7 +3413,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       startingCommit = None
     )
     assertEquals(
-      closingSummary(git, setup, BranchHandoff.StayPut),
+      closingSummary(git, setup, None),
       List("done — you are on branch 'closing-no-base'")
     )
 

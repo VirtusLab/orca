@@ -1,7 +1,7 @@
 package orca.pr
 
 import munit.FunSuite
-import orca.{BoundedDiff, FlowControl}
+import orca.{BoundedDiff, FlowControl, OutsideStage}
 import orca.tools.{BranchNotPushed, PrCreateFailed, PrHandle}
 import orca.events.{OrcaEvent, OrcaListener}
 
@@ -40,7 +40,7 @@ class OpenPrFromBranchTest extends FunSuite:
     val handle = openPrFromBranch(
       summarisingAgent = summariser,
       body = summary => s"${summary.body}\n\nCloses #1."
-    )(using control, control)
+    )(using control, control, summon[OutsideStage])
     Run(
       handle,
       calls.asScala.toList,
@@ -52,6 +52,7 @@ class OpenPrFromBranchTest extends FunSuite:
   test("openPrFromBranch runs push, summarise, create as three ordered stages"):
     val r = run("stub-diff")
     assertEquals(r.handle, samplePr)
+    assertEquals(r.openedPr, Some(samplePr), "the lifecycle was not told")
     // Push before PR: the resume-critical stage split.
     assertEquals(r.calls, List("push", "createPr"))
     assertEquals(
@@ -73,12 +74,10 @@ class OpenPrFromBranchTest extends FunSuite:
     val _ = intercept[PrCreateFailed](
       openPrFromBranch(summarisingAgent = new StubSummariser())(using
         control,
-        control
+        control,
+        summon[OutsideStage]
       )
     )
-
-  test("openPrFromBranch reports the handle to the lifecycle"):
-    assertEquals(run("stub-diff").openedPr, Some(samplePr))
 
   test("a resumed run records the handle its replayed stage hands back"):
     // The record is taken outside the "Open PR" stage for exactly this case: a
@@ -90,7 +89,8 @@ class OpenPrFromBranchTest extends FunSuite:
       val control = prControl(dir, store, _ => (), calls)
       val _ = openPrFromBranch(summarisingAgent = summariser)(using
         control,
-        control
+        control,
+        summon[OutsideStage]
       )
       control
 

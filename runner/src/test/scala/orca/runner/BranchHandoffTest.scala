@@ -9,7 +9,9 @@ import orca.tools.PrHandle
   */
 class BranchHandoffTest extends munit.FunSuite:
 
-  private val pr = Some(PrHandle("github.com", "acme", "widgets", 1))
+  private val pr = Some(
+    PrHandle(host = "github.com", owner = "acme", repo = "widgets", number = 1)
+  )
 
   test("a created-branch run that opened a PR returns to its start branch"):
     assertEquals(

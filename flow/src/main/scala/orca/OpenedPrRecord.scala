@@ -34,4 +34,6 @@ private[orca] trait OpenedPrRecord:
     opened = Some(pr)
 
   /** The PR this run opened, or `None` when it opened none. */
-  private[orca] def openedPr: Option[PrHandle] = opened
+  private[orca] def openedPr: Option[PrHandle] =
+    assertOwnerThread("openedPr")
+    opened

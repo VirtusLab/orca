@@ -51,11 +51,12 @@ trait FlowControl extends FlowContext, caps.ExclusiveCapability:
   /** The id the next `stage(name)` in the current scope would get — see
     * [[StageFrames.peekStageId]].
     */
-  def peekStageId(name: String): String
+  private[orca] def peekStageId(name: String): String
 
-  /** Whether the progress log holds a result for the next `stage(name)` in the
-    * current scope — i.e. whether that stage would replay rather than run.
+  /** Whether the progress log holds an entry for the next `stage(name)` in the
+    * current scope.
     */
+
   private[orca] def stageRecorded(name: String): Boolean =
     progressStore.load().exists(_.entries.exists(_.id == peekStageId(name)))
 

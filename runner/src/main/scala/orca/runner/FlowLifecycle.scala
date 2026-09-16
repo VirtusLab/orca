@@ -120,13 +120,7 @@ object FlowLifecycle:
               )
             )
         throw f
-    teardownSuccess(
-      ctx.git,
-      flowSetup,
-      BranchHandoff.of(flowSetup.branchMode, flowSetup.worktree, ctx.openedPr),
-      ctx.openedPr,
-      ctx.emit
-    )
+    teardownSuccess(ctx.git, flowSetup, ctx.openedPr, ctx.emit)
 
   /** Replay the persisted resume-wire-id map (ADR 0018 §2.6) into each
     * session's own agent's in-memory registry, so a resumed run resumes against
@@ -1158,7 +1152,6 @@ object FlowLifecycle:
   private[orca] def teardownSuccess(
       git: GitTool,
       setup: FlowSetup,
-      handoff: BranchHandoff,
       openedPr: Option[PrHandle],
       emit: OrcaEvent => Unit
   ): Unit =
@@ -1198,7 +1191,7 @@ object FlowLifecycle:
         counted
       finally
         bestEffort("branch handoff"):
-          finishBranch(git, setup, handoff, openedPr)
+          finishBranch(git, setup, openedPr)
     bestEffort("closing summary"):
       ClosingSummary
         .lines(git.currentBranch(), changes, setup.worktree)
@@ -1207,9 +1200,8 @@ object FlowLifecycle:
   /** Where HEAD ends up after a successful run. A throwaway feature branch
     * ([[ThrowawayBranch]]: created by orca, only orca bookkeeping vs the start
     * branch) is deleted and HEAD returns to the starting branch. Otherwise the
-    * feature branch is kept, and `handoff` ([[BranchHandoff]]) chooses where
-    * HEAD lands. Best-effort and success-path-only; never deletes
-    * start/protected branches.
+    * feature branch is kept, and [[BranchHandoff]] chooses where HEAD lands.
+    * Best-effort and success-path-only; never deletes start/protected branches.
     *
     * A branch a PR was opened from is never deleted, however empty it looks
     * against the start branch: the PR is open against what was pushed, and the
@@ -1218,7 +1210,6 @@ object FlowLifecycle:
   private def finishBranch(
       git: GitTool,
       setup: FlowSetup,
-      handoff: BranchHandoff,
       openedPr: Option[PrHandle]
   )(using WorkspaceWrite): Unit =
     val throwaway =
@@ -1236,7 +1227,7 @@ object FlowLifecycle:
       git.checkout(setup.startBranch).orThrow
       git.deleteBranch(setup.featureBranch.value)
     else
-      handoff match
+      BranchHandoff.of(setup.branchMode, setup.worktree, openedPr) match
         case BranchHandoff.ReturnToStart =>
           git.checkout(setup.startBranch).orThrow
         case BranchHandoff.StayPut => ()
