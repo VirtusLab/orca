@@ -19,23 +19,15 @@ import ox.either.orThrow
 
 import scala.util.control.NonFatal
 
-/** [[openPrFromBranch]] where a PR can be opened, and nothing but one reported
-  * line where it can't — for a flow that should finish its work either way.
-  * Returns the handle when a PR was opened, `None` when it wasn't.
+/** [[openPrFromBranch]] where a PR can be opened, one reported line where it
+  * can't — for a flow that should finish its work either way. Returns the
+  * handle when a PR was opened, `None` when it wasn't.
   *
   * Best effort covers the whole step, not just the probe: a refused push, a
   * base branch git cannot resolve, and a `gh pr create` that comes back
   * empty-handed all end the same way — one `Step` naming the reason, `None`,
   * and a run that still succeeds. A flow that must have its PR calls
   * [[openPrFromBranch]], which throws instead.
-  *
-  * The checks before the first write — the probe (`gh.availability()`), the
-  * has-anything-changed check and the base branch — run outside any stage: they
-  * only read, and a run that skips the PR must not leave a recorded stage that
-  * a resume would replay as "done". They run only while the push stage is
-  * unrecorded: a resume replays that stage's result instead — the push it made,
-  * or the refusal it recorded — so it finishes the step rather than answering
-  * "no PR" for a PR it may already have opened.
   *
   * Parameters are [[openPrFromBranch]]'s, passed straight through. Records the
   * handle like [[openPrFromBranch]], so it does not compile inside a stage.
@@ -51,8 +43,11 @@ def openPrIfGitHub(
     control: FlowControl,
     outside: OutsideStage
 ): Option[PrHandle] =
-  // Resolved at most once, and only by a check or a stage that runs.
   lazy val base = git.defaultBase()
+  // The pre-flight checks only read, so they must not record a stage a resume
+  // would replay as "done" — and on a resume they are skipped entirely: the
+  // push stage's recorded result decides the step, so a PR already opened is
+  // not answered with "no PR".
   val push = provenance(PushStage)
   val stop = push match
     case Provenance.Replayed => None
@@ -70,10 +65,9 @@ def openPrIfGitHub(
         instructions
       )
 
-/** Why a fresh run stops before its first write, or `None` to go ahead. Where
-  * the PR will land is announced once every check has passed, and before the
-  * push, because gh resolves the target from the checkout's remotes rather than
-  * from anything the run wrote.
+/** Why a fresh run stops before its first write, or `None` to go ahead.
+  * Announces where the PR will land once the checks pass, before the push: gh
+  * takes the target from the checkout's remotes, not from what the run pushed.
   */
 private def stopReason(base: => Either[NoDefaultBase, String])(using
     ctx: FlowContext,
@@ -112,10 +106,9 @@ private def probe(using FlowContext): Probe =
           "PR yourself"
       )
 
-/** The reason the summarise stage could not diff against `base`, or `None` —
-  * without forcing `base` when that stage is recorded: its recorded summary
-  * replays and git is not asked, so a resume with every stage recorded still
-  * re-records the PR it opened.
+/** The reason the summarise stage could not diff against `base`, or `None`. A
+  * recorded summarise stage replays without asking git, so `base` is not
+  * forced — a resume with every stage recorded still re-records its PR.
   */
 private def baseStopReason(base: => Either[NoDefaultBase, String])(using
     control: FlowControl
@@ -126,13 +119,13 @@ private def baseStopReason(base: => Either[NoDefaultBase, String])(using
       s"cannot work out the base branch (${e.cause}), no PR opened — run " +
         "`git remote set-head origin -a` and open the PR yourself"
 
-/** [[openPrFromBranch]]'s three stages with the two remote-facing legs under
+/** [[openPrFromBranch]]'s three stages, the two remote-facing legs under
   * [[attempt]], each recording its refusal as the stage's result. The base is
-  * checked after the push, since a resume enters here without [[stopReason]].
-  * The summarise stage is deliberately NOT wrapped: a summariser that fails or
-  * answers unparseably is a failure of the run, not a GitHub answer this step
-  * should absorb. `push` is where the push stage's result comes from, read
-  * before the stage ran.
+  * re-checked after the push, since a resume enters here without
+  * [[stopReason]]. The summarise stage is deliberately NOT wrapped: a
+  * summariser that fails or answers unparseably is a failure of the run, not a
+  * GitHub answer this step should absorb. `push` is where the push stage's
+  * result comes from, read before the stage ran.
   */
 private def pushThenCreate(
     base: => Either[NoDefaultBase, String],
@@ -222,10 +215,10 @@ private def createBestEffort(title: String, body: String)(using
 
 /** Run one remote-facing leg, turning the refusal it returns or whatever it
   * throws into the line this step reports. `git.push` and `gh.createPr` answer
-  * the refusals they recognise as a `Left`; the rest of a leg's failures (auth,
-  * network, a rejected ruleset, gh output that will not parse) throw their own
-  * exceptions, so anything non-fatal is absorbed too. Only the first line of
-  * the message is kept: the reason is spliced into a single `Step`.
+  * the refusals they recognise as a `Left`; the rest (auth, network, a
+  * rejected ruleset, gh output that will not parse) throw, so anything
+  * non-fatal is absorbed too. Only the message's first line is kept: the
+  * reason is spliced into a single `Step`.
   */
 private def attempt[E <: OrcaFlowException, T](what: String, next: String)(
     leg: => Either[E, T]
@@ -237,10 +230,10 @@ private def attempt[E <: OrcaFlowException, T](what: String, next: String)(
   catch case NonFatal(e) => Left(report(e))
 
 /** Whether this run's branch carries anything but orca's own bookkeeping —
-  * [[ThrowawayBranch]]'s rule, over the same progress header the lifecycle
-  * reads. A run that cannot be measured — no readable header, or a start branch
-  * git no longer resolves — gets its PR; the lifecycle never deletes a branch a
-  * PR was opened from, so the two cannot strand one between them.
+  * [[ThrowawayBranch]]'s rule, over the progress header the lifecycle reads. A
+  * run that cannot be measured (no readable header, or a start branch git no
+  * longer resolves) gets its PR; the lifecycle never deletes a branch a PR was
+  * opened from, so neither can strand the branch.
   */
 private def runChangedCode(using
     ctx: FlowContext,
@@ -258,8 +251,7 @@ private def runChangedCode(using
         )
       catch case NonFatal(_) => true
 
-/** Report why no PR was opened, as the single line the run shows for the step
-  * it didn't take.
+/** Report why no PR was opened — the run's single line for the skipped step.
   */
 private def skipped(message: String)(using ctx: FlowContext): None.type =
   ctx.emit(OrcaEvent.Step(message))

@@ -167,12 +167,12 @@ final class NoChecksConfigured(grace: FiniteDuration)
   * writes PR comments, and polls GitHub's check-run status.
   */
 trait GitHubTool:
-  /** Read-only probe: can a PR be opened from this checkout, and where to. Asks
-    * git for the `origin` remote and gh for a credential and the repository it
-    * resolves, writing nothing — so a flow can branch on the answer before
-    * committing to a PR-opening stage. Answers at once where a retry could not
-    * change the answer (no remote, no credential, no such repository); waits
-    * out a passing network failure only.
+  /** Read-only probe: can a PR be opened from this checkout, and where to.
+    * Asks git for the `origin` remote and gh for a credential and the
+    * repository it resolves, writing nothing — so a flow can branch on the
+    * answer before committing to a PR-opening stage. Only a passing network
+    * failure is waited out; no remote, no credential and no such repository
+    * are answered at once.
     */
   def availability(): GitHubAvailability
 
@@ -285,7 +285,7 @@ private[orca] class OsGitHubTool(
     )
 
   /** [[readRetryConfig]] for the probe's `gh repo view`, which keeps the raw
-    * result: the same schedule, retrying a non-zero exit only while
+    * result: same schedule, retrying a non-zero exit only while
     * [[classifyFailure]] reads it as [[GhFailure.Transient]]. A gh that cannot
     * start is not retried, as in [[readRetryConfig]].
     */
@@ -327,9 +327,9 @@ private[orca] class OsGitHubTool(
                 else Unavailable(NotGitHub(host))
 
   /** The `origin` remote's URL as git resolves it — `url.<base>.insteadOf`
-    * applied — or [[OriginProbe.NoOrigin]] when the checkout has no such
-    * remote: `git ls-remote --get-url` then echoes the name back and exits 0. A
-    * git that will not run at all is reported rather than aborting the flow.
+    * applied — or [[OriginProbe.NoOrigin]] when there is no such remote: `git
+    * ls-remote --get-url` then echoes the name back and exits 0. A git that
+    * will not run at all is reported rather than aborting the flow.
     */
   private def originUrl(): OriginProbe =
     try
@@ -366,10 +366,10 @@ private[orca] class OsGitHubTool(
     catch case NonFatal(e) => CredentialProbe.GhUnusable(cannotRunGh(e))
 
   /** The repository gh resolves from this checkout — the fork parent or the `gh
-    * repo set-default` choice where those apply, i.e. the repository `gh pr
-    * create` would target. Host, owner and repo all come out of the one `url`
-    * gh reports, so the three name a single repository; `gitHost` only labels
-    * the failures, where there is no gh answer to take one from.
+    * repo set-default` choice where those apply, i.e. what `gh pr create`
+    * would target. Host, owner and repo all come out of the one `url` gh
+    * reports, so the three name a single repository; `gitHost` only labels the
+    * failures, which have no gh answer to take a host from.
     */
   private def repoGhResolves(gitHost: String): GitHubAvailability =
     def unreachable(reason: String): GitHubAvailability =
@@ -391,9 +391,9 @@ private[orca] class OsGitHubTool(
           case Right(available) => available
           case Left(reason)     => unreachable(reason)
 
-  /** Read `gh repo view --json url` output. Decoding happens here, behind an
-    * `Either`, so a payload gh never documented is an answer from the probe
-    * rather than an exception out of it.
+  /** Read `gh repo view --json url` output. Decoding sits behind the `Either`
+    * so a payload gh never documented is an answer from the probe rather than
+    * an exception out of it.
     */
   private def repoFromView(stdout: String): Either[String, GitHubAvailability] =
     try
@@ -420,10 +420,9 @@ private[orca] class OsGitHubTool(
             "`gh repo view --json url` in this checkout to see what gh printed"
         )
 
-  /** `gh repo view --json url` under [[probeRetryConfig]], reporting a `gh`
-    * that could not be started as a `Left` reason: `os.proc` throws when the
-    * binary is missing — and when the working directory or the binary itself is
-    * unusable — and the probe answers rather than aborting the flow.
+  /** `gh repo view --json url` under [[probeRetryConfig]]. A gh that could not
+    * be started comes back as a `Left` reason — the probe answers rather than
+    * aborting the flow.
     */
   private def tryRepoView(): Either[String, CliResult] =
     try
@@ -742,8 +741,7 @@ private[orca] class OsGitHubTool(
     ghMutate(apiArgs(host, args)*)
 
   /** Arguments for a `gh api` call. `None` leaves the host to gh's own
-    * resolution — `GH_HOST`, else the authenticated host — which is what an
-    * [[IssueHandle]] needs, carrying no host of its own.
+    * resolution: `GH_HOST`, else the authenticated host.
     */
   private def apiArgs(host: Option[String], args: Seq[String]): Seq[String] =
     "api" +: host.fold(args)(h => "--hostname" +: h +: args)
@@ -751,10 +749,9 @@ private[orca] class OsGitHubTool(
 private[orca] object OsGitHubTool:
 
   /** The `gh api` coordinates of one issue or PR: which host to name (`None`
-    * leaves it to gh, which is what an [[IssueHandle]] carries no answer for)
-    * and the `repos/<owner>/<repo>/issues/<n>` the comment endpoints share.
-    * Built from a handle, so a host can never be paired with another handle's
-    * owner/repo.
+    * leaves it to gh, since an [[IssueHandle]] carries none) and the
+    * `repos/<owner>/<repo>/issues/<n>` the comment endpoints share. Built from
+    * a handle, so a host can never be paired with another handle's owner/repo.
     */
   private case class GhTarget(
       host: Option[String],
@@ -794,10 +791,9 @@ private[orca] object OsGitHubTool:
 
   /** Host, owner and repo of a `https://<host>/<owner>/<repo>` URL — the shape
     * of `gh repo view --json url` output, from which
-    * [[OsGitHubTool.availability]] takes the identity of the repository gh
-    * resolved. A port is refused, as [[PrHandle.fromUrl]] refuses it when the
-    * PR is opened: gh's `--hostname` takes none. Only `https` is accepted, for
-    * the same reason.
+    * [[OsGitHubTool.availability]] takes the repository gh resolved. A port is
+    * refused, as [[PrHandle.fromUrl]] refuses it when the PR is opened: gh's
+    * `--hostname` takes none.
     */
   private val RepoUrlPattern =
     s"""^https://([A-Za-z0-9.-]+)/(${IssueHandle.Owner})/(${IssueHandle.Repo})$$""".r
@@ -817,8 +813,7 @@ private[orca] object OsGitHubTool:
     * connection that could not be made or was cut, a name that would not
     * resolve, a timeout, a TLS failure, HTTP 5xx, or rate limiting (429). Both
     * streams are read, since gh can fail with nothing on stderr. Everything
-    * else, HTTP 401/403/404 included, is [[GhFailure.Hard]] — an unrecognised
-    * failure waits out no backoff.
+    * else, HTTP 401/403/404 included, is [[GhFailure.Hard]].
     */
   private[tools] def classifyFailure(result: CliResult): GhFailure =
     val output = result.stderr + "\n" + result.stdout

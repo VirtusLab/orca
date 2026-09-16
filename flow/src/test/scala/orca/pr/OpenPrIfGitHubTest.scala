@@ -17,13 +17,11 @@ import orca.progress.{BranchMode, ProgressLog, ProgressStore, StageEntry}
 import scala.jdk.CollectionConverters.*
 import java.util.concurrent.ConcurrentLinkedQueue
 
-/** Tests for [[openPrIfGitHub]] — the best-effort wrapper around
-  * [[openPrFromBranch]]. When the probe says no PR can be opened, the run is
-  * left untouched: no stage is entered (a recorded stage would replay as "done"
-  * on resume), neither `git.push` nor `gh.createPr` runs, and the lifecycle is
-  * told no PR exists. When a leg refuses mid-way the stages have run, and what
-  * matters is that the refusal comes back as a line and `None` rather than an
-  * exception. Either way the user gets one line saying why.
+/** Tests for [[openPrIfGitHub]]. Two shapes of skip: the probe refusing before
+  * anything runs, where the run must be left untouched — no stage entered (one
+  * would replay as "done" on resume), no `git.push`, no `gh.createPr`, no PR
+  * recorded; and a leg refusing mid-way, where the stages have run and the
+  * refusal must come back as a line and `None` rather than an exception.
   */
 class OpenPrIfGitHubTest extends FunSuite:
 

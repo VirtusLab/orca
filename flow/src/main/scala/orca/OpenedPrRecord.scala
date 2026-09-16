@@ -2,24 +2,21 @@ package orca
 
 import orca.tools.PrHandle
 
-/** Per-run record of the pull request a flow opened, shared by every
-  * [[FlowControl]] implementation (production
-  * [[orca.runner.DefaultFlowContext]] and the test doubles), so a test double
-  * cannot drift from production semantics.
+/** Per-run record of the pull request a flow opened, mixed into every
+  * [[FlowControl]] — production and test doubles alike — so a double cannot
+  * drift from production semantics.
   *
   * Read at teardown to decide where the run leaves the checkout —
   * `orca.runner.BranchHandoff` owns that rule.
   *
-  * Recorded rather than inferred, because a flow can open its PR through
-  * [[orca.pr.openPrFromBranch]], through [[orca.pr.openPrIfGitHub]], or with a
-  * bare `gh.createPr` — the last of which tells the lifecycle by calling
-  * [[orca.pr.recordOpenedPr]].
+  * Recorded rather than inferred: a flow can also open its PR with a bare
+  * `gh.createPr`, and then says so through [[orca.pr.recordOpenedPr]].
   *
   * Thread-affine like [[StageFrames]]: one `FlowControl` per top-level
-  * `flow(...)`, single-threaded (R12, ADR 0018 §2.2). The var is plain because
-  * [[StageFrames.assertOwnerThread]] enforces that — [[recordOpenedPr]] is
-  * public API for flow scripts, so a call from an `ox.fork` has to fail loudly
-  * rather than write a handle the teardown read may never see.
+  * `flow(...)`, single-threaded (R12, ADR 0018 §2.2). The plain var is safe
+  * because [[StageFrames.assertOwnerThread]] enforces that — a
+  * [[recordOpenedPr]] from an `ox.fork` must fail loudly rather than write a
+  * handle the teardown read may never see.
   */
 private[orca] trait OpenedPrRecord:
   this: StageFrames =>

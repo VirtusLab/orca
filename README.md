@@ -891,7 +891,6 @@ results.
   gh's own words), or `GitUnusable(reason)` (git itself could not be run, so
   nothing is known about the checkout). `why.explanation` renders that as one
   line to put a flow's own next action after.
-
 - **`orca.pr.PrSummary(title, body)`** — what `summarisePr` returns. The two
   fields feed `gh.createPr(title = …, body = …)` directly.
 - **`orca.review.ReviewIssue` / `ReviewResult`** — what reviewer agents return.

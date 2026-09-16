@@ -99,11 +99,10 @@ flow(OrcaArgs(args)):
 
   target.prRef.foreach: ref =>
     stage("Post report on the PR"):
-      // The ref names no host (`owner/repo#42` carries none), so ask gh which
-      // host this checkout is on rather than assuming github.com — a GitHub
-      // Enterprise checkout must get its report, not a same-named repo
-      // elsewhere. Probed inside the stage so a resume of a run that already
-      // posted replays the record instead of asking gh again.
+      // `owner/repo#42` names no host, so ask gh which one this checkout is
+      // on — a GitHub Enterprise checkout must get its report, not a
+      // same-named repo elsewhere. Inside the stage, so a resume replays the
+      // record instead of asking gh again.
       val host = gh.availability() match
         case GitHubAvailability.Available(host, _, _) => host
         case GitHubAvailability.Unavailable(why) =>

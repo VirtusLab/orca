@@ -100,7 +100,6 @@ export orca.tools.{
   PrHandle,
   PushFailure
 }
-
 export orca.tools.opencode.OpencodeLauncher
 // Agent-override surface: the wiring an override factory receives, plus each
 // backend's default-agent factory (`ClaudeAgents.default(w).opus`, …).

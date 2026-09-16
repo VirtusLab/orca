@@ -10,11 +10,11 @@
   * flow file, a one-line fix) where splitting into a plan first is pure
   * overhead.
   *
-  * The run then opens a PR when the repository is on GitHub, and hands the
-  * checkout back on the branch it started from — the work is on the PR.
-  * Otherwise it says so in one line and ends on the feature branch, with the
-  * work committed either way. Under `orca create` / `orca fork` that is always
-  * the skip: the authoring sandbox is a local repository with no remote.
+  * The run then opens a PR when the repository is on GitHub and hands back the
+  * branch it started from — the work is on the PR. Otherwise it says so in one
+  * line and ends on the feature branch; the work is committed either way.
+  * Under `orca create` / `orca fork` that is always the skip: the authoring
+  * sandbox is a local repository with no remote.
   *
   * ```bash
   * scala-cli run simple.sc -- "Add a .gitignore entry for build artifacts"

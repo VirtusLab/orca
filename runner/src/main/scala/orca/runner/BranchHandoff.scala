@@ -27,14 +27,12 @@ private[runner] object BranchHandoff:
     *     worktree, on its own branch, and the user's is untouched either way.
     *
     * `branchMode` is the run's, read from its progress header, so a resume
-    * relaunched with different flags still hands off the way the run was bound;
-    * `worktree` is likewise checked on its own, because a shell resume
-    * relaunched without `--worktree` still runs inside one.
+    * relaunched with different flags still hands off the way the run was
+    * bound; `worktree` is checked on its own for the same reason — a shell
+    * resume relaunched without `--worktree` still runs inside one.
     *
-    * The throwaway-branch delete is a separate decision, but it reads the same
-    * PR: a feature branch holding nothing but orca's bookkeeping is deleted
-    * (and HEAD moved back) when the run opened none, whatever the handoff says.
-    * See `FlowLifecycle.finishBranch`.
+    * The throwaway-branch delete is a separate decision that reads the same PR
+    * — see `FlowLifecycle.finishBranch`.
     */
   def of(
       branchMode: BranchMode,

@@ -19,10 +19,9 @@ enum GitHubUnavailable:
     */
   case NoRemote
 
-  /** `origin` names a host gh holds no credential for, and gh only ever logs in
-    * to GitHub — a GitHub Enterprise host the user has not run `gh auth login
-    * --hostname <host>` for lands here, as does a host that is simply not
-    * GitHub.
+  /** `origin` names a host gh holds no credential for. gh only ever logs in to
+    * GitHub, so this is either a GitHub Enterprise host missing its `gh auth
+    * login --hostname <host>`, or a host that is not GitHub at all.
     */
   case NotGitHub(host: String)
 
@@ -33,7 +32,7 @@ enum GitHubUnavailable:
 
   /** `host` is GitHub — github.com, or a host gh holds a credential for — but
     * gh gave no usable answer for it: not installed, no credential for
-    * github.com, or a `gh repo view` that failed (a passing network failure is
+    * github.com, or a failed `gh repo view` (a passing network failure is
     * retried first; no permission or no such repository is not). `reason` is
     * gh's own explanation where it gave one.
     */

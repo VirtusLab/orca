@@ -11,10 +11,9 @@
   * producing the plan. A planning stage that already completed is not
   * re-prompted on a re-run.
   *
-  * The run then opens a PR when the repository is on GitHub, and hands the
-  * checkout back on the branch it started from — the work is on the PR.
-  * Otherwise it says so in one line and ends on the feature branch, with the
-  * work committed either way.
+  * The run then opens a PR when the repository is on GitHub and hands back the
+  * branch it started from — the work is on the PR. Otherwise it says so in one
+  * line and ends on the feature branch; the work is committed either way.
   *
   * `examples/runnable/02-interactive/create-test-project.sh` seeds a calculator
   * crate into a temp dir and copies this script alongside it; from there:

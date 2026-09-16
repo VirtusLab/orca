@@ -55,10 +55,10 @@ private[pr] class RecordingGit(
     calls.add("push"): Unit
     super.push()
 
-/** Records `availability` and `createPr`, answering the former with
-  * `availabilityAnswer` and the latter with [[samplePr]]; every other endpoint
-  * refuses, from [[StubGitHubTool]]. `availabilityAnswer` is by-name so a suite
-  * whose helper never probes can pass [[nyi]].
+/** Records `availability` and `createPr` and answers them with
+  * `availabilityAnswer` / `createPrAnswer`; every other endpoint refuses, from
+  * [[StubGitHubTool]]. `availabilityAnswer` is by-name so a suite whose helper
+  * never probes can pass [[nyi]].
   */
 private[pr] class RecordingGh(
     calls: ConcurrentLinkedQueue[String],
@@ -121,18 +121,17 @@ private[pr] class PrTestControl(
     ):
   override lazy val gh: GitHubTool = recordingGh
 
-/** A seeded repo on the `feat/test` branch the header names, with a run header
-  * written, ready for the PR helpers to stage into. Repo and store are returned
-  * together so a second control can be built over the same pair, which is how a
-  * resumed run is exercised.
+/** A seeded repo on the `feat/test` branch its written header names, ready for
+  * the PR helpers to stage into. Repo and store come back together so a second
+  * control can be built over the same pair — that is how a resumed run is
+  * exercised.
   *
   * `withCode` decides whether the branch carries anything but orca's own files
-  * — what the PR helpers check before opening a PR for the run. `branchMode` is
-  * the header's: a `Reused` header names `feat/test` as the starting branch
-  * too, as a `--skip-branch` run's does. A `startBranch` other than `main` is
-  * created one commit ahead of `main`, and `feat/test` branches from it — so a
-  * helper measuring the run against the default base instead of its start point
-  * sees that commit.
+  * — what the PR helpers check before opening a PR. A `Reused` header names
+  * `feat/test` as the starting branch too, as a `--skip-branch` run's does. A
+  * `startBranch` other than `main` is created one commit ahead of `main`, with
+  * `feat/test` branching from it — so a helper measuring the run against the
+  * default base instead of its start point sees that commit.
   */
 private[pr] def seededPrRepo(
     withCode: Boolean = true,

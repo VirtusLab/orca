@@ -1198,9 +1198,9 @@ object FlowLifecycle:
         .foreach(line => emit(OrcaEvent.Step(line)))
 
   /** Where HEAD ends up after a successful run. A throwaway feature branch
-    * ([[ThrowawayBranch]]: created by orca, only orca bookkeeping vs the start
-    * branch) is deleted and HEAD returns to the starting branch. Otherwise the
-    * feature branch is kept, and [[BranchHandoff]] chooses where HEAD lands.
+    * ([[ThrowawayBranch]]) is deleted and HEAD returns to the starting branch.
+    * Otherwise the feature branch is kept, and [[BranchHandoff]] chooses where
+    * HEAD lands.
     * Best-effort and success-path-only; never deletes start/protected branches.
     *
     * A branch a PR was opened from is never deleted, however empty it looks

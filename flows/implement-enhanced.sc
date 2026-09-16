@@ -19,10 +19,9 @@
   *   1. Reviews everything the run changed, docs included.
   *   1. When the repository is on GitHub: pushes the feature branch, opens a PR
   *      with a cheap-model-generated title + description from the full branch
-  *      diff — a human picks it up from there — and hands the checkout back on
-  *      the branch the run started from. Otherwise nothing is pushed: the run
-  *      says so in one line and ends on the feature branch, with the work
-  *      committed either way.
+  *      diff, and hands back the branch the run started from — a human picks
+  *      the PR up from there. Otherwise nothing is pushed: the run says so in
+  *      one line and ends on the feature branch, work committed either way.
   *
   * ```bash
   * scala-cli run implement-enhanced.sc -- "Add a multiply function to the calculator crate"

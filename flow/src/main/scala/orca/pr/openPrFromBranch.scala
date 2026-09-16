@@ -48,14 +48,9 @@ def openPrFromBranch(
   recordOpenedPr(handle)
   handle
 
-// The three stages. Their names and `summarise` are shared with
-// [[openPrIfGitHub]], which runs the same sequence with its own best-effort
-// push and create.
+// The stage names and `summarise` are shared with [[openPrIfGitHub]], which
+// runs the same sequence with its own best-effort push and create.
 
-/** Push the branch as its own stage: a stage commits only on completion, so
-  * pushing together with the summarise (or the preceding edits) would be
-  * fragile on resume.
-  */
 private def pushBranch()(using FlowContext, FlowControl): Unit =
   stage(PushStage):
     git.push().orThrow

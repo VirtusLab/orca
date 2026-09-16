@@ -3,16 +3,15 @@ package orca.testkit
 import orca.WorkspaceWrite
 import orca.tools.{GitTool, NoDefaultBase, PushFailure}
 
-/** The real git with the two calls that need a remote stubbed — `push` answers
-  * `pushAnswer` without one and `defaultBase` answers `main` instead of
-  * resolving `origin/HEAD` — and `diffVsBase` answering the fixed `branchDiff`,
-  * so a test driving the PR helpers needs no remote and its summariser sees a
-  * small diff. Everything else is `underlying`, so branch and commit work is
-  * real.
+/** The real git with the calls that need a remote stubbed — `push` and
+  * `defaultBase` answer `pushAnswer` / `base`, `diffVsBase` the fixed
+  * `branchDiff` — so a test driving the PR helpers needs no remote and its
+  * summariser sees a small diff. Everything else is `underlying`, so branch
+  * and commit work is real.
   *
-  * `pushAnswer` and `base` are by-name: a test pins a refused push or an
-  * unresolvable base with a `Left`, and the failures git throws rather than
-  * models (no permission, no network) by throwing from the expression itself.
+  * `pushAnswer` and `base` are by-name: a test pins a refusal with a `Left`,
+  * and the failures git throws rather than models (no permission, no network)
+  * by throwing from the expression itself.
   */
 class PushlessGit(
     underlying: GitTool,

@@ -56,7 +56,6 @@ trait FlowControl extends FlowContext, caps.ExclusiveCapability:
   /** Whether the progress log holds an entry for the next `stage(name)` in the
     * current scope.
     */
-
   private[orca] def stageRecorded(name: String): Boolean =
     progressStore.load().exists(_.entries.exists(_.id == peekStageId(name)))
 
@@ -91,8 +90,7 @@ trait FlowControl extends FlowContext, caps.ExclusiveCapability:
   private[orca] def assertOwnerThread(what: String): Unit
 
   /** Record that this run opened `pr` — implemented by [[OpenedPrRecord]].
-    * Flows reach it through [[orca.pr.recordOpenedPr]]; the PR-opening helpers
-    * call it themselves.
+    * Flows reach it through [[orca.pr.recordOpenedPr]].
     */
   private[orca] def recordOpenedPr(pr: PrHandle): Unit
 
