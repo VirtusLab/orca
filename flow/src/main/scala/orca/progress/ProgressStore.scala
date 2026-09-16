@@ -6,7 +6,6 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
 }
 import orca.{OrcaDir, WorkspaceWrite}
 import orca.agents.JsonData
-import orca.tools.PrHandle
 import scala.util.control.NonFatal
 
 /** Persistent store for a single flow run's [[ProgressLog]].
@@ -53,14 +52,16 @@ trait ProgressStore:
     */
   def upsertSession(record: SessionRecord)(using WorkspaceWrite): Unit
 
-  /** Record the PR this run opened; last write wins. Requires [[writeHeader]]
-    * first; otherwise it throws. Does NOT commit — the enclosing stage's commit
-    * carries it, so a failure teardown's `git reset --hard` erases a record the
-    * stage never completed. The retry then re-opens: `gh.createPr` hands back
-    * the PR that already exists as long as its `findOpenPr` lookup locates it,
-    * and refuses otherwise.
+  /** Record where this run published its work; last write wins.
+    *
+    * Requires [[writeHeader]] first; otherwise it throws. Does NOT commit — the
+    * enclosing stage's commit carries it, so a failure teardown's `git reset
+    * --hard` erases a record the stage never completed. The retry then
+    * re-publishes, which is sound only as far as the forge call is idempotent:
+    * `gh.createPr` hands back the PR that already exists as long as its
+    * `findOpenPr` lookup locates it, and refuses otherwise.
     */
-  def recordOpenedPr(pr: PrHandle)(using WorkspaceWrite): Unit
+  def recordPublished(work: PublishedWork)(using WorkspaceWrite): Unit
 
 object ProgressStore:
 
@@ -157,11 +158,11 @@ private class OsProgressStore(workDir: os.Path, val path: os.Path)
   def upsertSession(record: SessionRecord)(using WorkspaceWrite): Unit =
     writeLog(upsertSessionRecord(currentLogOrThrow("upsertSession"), record))
 
-  def recordOpenedPr(pr: PrHandle)(using WorkspaceWrite): Unit =
-    writeLog(currentLogOrThrow("recordOpenedPr").copy(openedPr = Some(pr)))
+  def recordPublished(work: PublishedWork)(using WorkspaceWrite): Unit =
+    writeLog(currentLogOrThrow("recordPublished").copy(published = Some(work)))
 
   /** Read-modify-write precondition for [[appendEntry]] / [[upsertSession]] /
-    * [[recordOpenedPr]]: all require a log to already exist. Routed through
+    * [[recordPublished]]: all require a log to already exist. Routed through
     * [[loadDetailed]] so an `Absent` log (writeHeader never ran), a `Corrupt`
     * one (a torn write or external edit mid-run) and an `Unreadable` one get
     * distinct messages.

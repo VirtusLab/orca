@@ -12,7 +12,13 @@ import orca.tools.{
 }
 import orca.{OutsideStage, WorkspaceWrite}
 import orca.events.{OrcaEvent, OrcaListener}
-import orca.progress.{BranchMode, ProgressLog, ProgressStore, StageEntry}
+import orca.progress.{
+  BranchMode,
+  ProgressLog,
+  ProgressStore,
+  PublishedWork,
+  StageEntry
+}
 
 import scala.jdk.CollectionConverters.*
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -32,7 +38,7 @@ class OpenPrIfGitHubTest extends FunSuite:
       stages: List[String],
       steps: List[String],
       errors: List[String],
-      openedPr: Option[PrHandle]
+      published: Option[PublishedWork]
   )
 
   private val available =
@@ -105,7 +111,7 @@ class OpenPrIfGitHubTest extends FunSuite:
       stages.asScala.toList,
       steps.asScala.toList,
       errors.asScala.toList,
-      store.load().flatMap(_.openedPr)
+      store.load().flatMap(_.published)
     )
 
   /** Every skip leg leaves the run as it found it, so assert that once and let
@@ -115,7 +121,7 @@ class OpenPrIfGitHubTest extends FunSuite:
     assertEquals(r.result, None)
     assertEquals(r.stages, Nil)
     assertEquals(r.calls, List("availability"))
-    assertEquals(r.openedPr, None)
+    assertEquals(r.published, None)
     assertEquals(r.steps.size, 1)
     assert(r.steps.head.contains("no PR opened"), r.steps.head)
     assertEquals(r.errors, Nil)
@@ -150,7 +156,7 @@ class OpenPrIfGitHubTest extends FunSuite:
   test("on GitHub, the probe runs first and the PR is opened"):
     val r = run(available)
     assertEquals(r.result, Some(samplePr))
-    assertEquals(r.openedPr, Some(samplePr))
+    assertEquals(r.published, Some(PublishedWork(samplePr.url)))
     assertEquals(r.calls, List("availability", "push", "createPr"))
     // gh resolves the base repo from the checkout's remotes, so where the PR
     // lands is named before the push rather than only in the resulting URL.
@@ -174,7 +180,7 @@ class OpenPrIfGitHubTest extends FunSuite:
     // measuring against `main` would see develop's commit and open one.
     val r = run(available, withCode = false, startBranch = "develop")
     assertEquals(r.result, None)
-    assertEquals(r.openedPr, None)
+    assertEquals(r.published, None)
     assertEquals(r.calls, List("availability"))
     assert(r.steps.last.contains("changed no code"), r.steps.last)
     // Nothing is announced for a PR that is not going to be opened.
@@ -225,7 +231,7 @@ class OpenPrIfGitHubTest extends FunSuite:
       push = Left(new PushFailure.RemoteDeclined("protected branch"))
     )
     assertEquals(r.result, None)
-    assertEquals(r.openedPr, None)
+    assertEquals(r.published, None)
     assertEquals(r.calls, List("availability", "push"))
     assert(r.steps.last.contains("could not push the branch"), r.steps.last)
     assert(!r.steps.last.contains("will not retry"), r.steps.last)
@@ -240,7 +246,7 @@ class OpenPrIfGitHubTest extends FunSuite:
       createPr = throw new RuntimeException("unexpected end of input\nat 0x0")
     )
     assertEquals(r.result, None)
-    assertEquals(r.openedPr, None)
+    assertEquals(r.published, None)
     assert(r.steps.last.contains("could not open a PR"), r.steps.last)
     assert(r.steps.last.contains("unexpected end of input"), r.steps.last)
     // Only the first line: the reason lands in one Step.
@@ -251,7 +257,7 @@ class OpenPrIfGitHubTest extends FunSuite:
     // them; best effort turns them back into one line and a finished run.
     val r = run(available, createPr = Left(new BranchNotPushed))
     assertEquals(r.result, None)
-    assertEquals(r.openedPr, None)
+    assertEquals(r.published, None)
     assert(r.steps.last.contains("could not open a PR"), r.steps.last)
     assert(r.steps.last.contains("no PR opened"), r.steps.last)
     // The refusal is the stage's result, not its failure: the user sees the
@@ -269,7 +275,7 @@ class OpenPrIfGitHubTest extends FunSuite:
     assertEquals(r.result, Some(samplePr))
     // The record the first attempt wrote is what teardown reads, so it has to
     // outlive the resume that replays the stage.
-    assertEquals(r.openedPr, Some(samplePr))
+    assertEquals(r.published, Some(PublishedWork(samplePr.url)))
 
   test("a resume replays a recorded push refusal without asking the remote"):
     // The refusal is the push stage's result, so it replays like any other:
@@ -285,7 +291,7 @@ class OpenPrIfGitHubTest extends FunSuite:
     val r = runOver(dir, store, available, base = baseForced)
     assertEquals(r.calls, Nil)
     assertEquals(r.result, None)
-    assertEquals(r.openedPr, None)
+    assertEquals(r.published, None)
     assert(r.steps.last.contains("could not push the branch"), r.steps.last)
     assert(r.steps.last.contains("orca will not retry"), r.steps.last)
 
@@ -351,6 +357,6 @@ class OpenPrIfGitHubTest extends FunSuite:
 
   /** `underlying` with the PR record failing, as it does on a full disk. */
   private class UnrecordablePr(underlying: ProgressStore) extends ProgressStore:
-    export underlying.{recordOpenedPr => _, *}
-    def recordOpenedPr(pr: PrHandle)(using WorkspaceWrite): Unit =
+    export underlying.{recordPublished => _, *}
+    def recordPublished(work: PublishedWork)(using WorkspaceWrite): Unit =
       throw new IllegalStateException("disk full")

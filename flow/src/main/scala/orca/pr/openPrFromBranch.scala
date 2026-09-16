@@ -26,7 +26,8 @@ import ox.either.orThrow
   *
   * `gh.createPr` is idempotent by head branch: a re-run that already opened the
   * PR gets the existing handle back rather than failing. Returns that handle,
-  * recorded through [[recordOpenedPr]] inside the create stage.
+  * recorded as the run's published work through [[recordOpenedPr]] inside the
+  * create stage.
   *
   * Does not compile inside a stage: opening the PR is a top-level step of a
   * flow, and this runs its own stages.

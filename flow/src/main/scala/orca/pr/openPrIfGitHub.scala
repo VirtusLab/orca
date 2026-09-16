@@ -236,8 +236,7 @@ private def attempt[E <: OrcaFlowException, T](what: String, next: String)(
   * [[ThrowawayBranch]]'s rule, over the progress header the lifecycle reads. A
   * run that cannot be measured (no readable header, or a start branch git no
   * longer resolves) gets its PR; the lifecycle deletes a branch only when its
-  * log records no PR, so only a log that loses the record — one written before
-  * `openedPr` existed — leaves the two to strand a branch.
+  * log records nothing published, so the two never strand a branch.
   */
 private def runChangedCode(using
     ctx: FlowContext,

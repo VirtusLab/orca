@@ -1,10 +1,10 @@
 package orca.pr
 
 import orca.{FlowControl, WorkspaceWrite}
+import orca.progress.PublishedWork
 import orca.tools.PrHandle
 
-/** Record `pr` as the PR this run opened; the lifecycle's teardown reads it to
-  * decide where the run leaves the checkout.
+/** Record `pr` as this run's [[PublishedWork]]; only its URL is kept.
   *
   * Call it inside the stage that opened the PR, so the stage's commit carries
   * the record and a resumed run reads it back without re-running the body. A
@@ -21,4 +21,4 @@ def recordOpenedPr(pr: PrHandle)(using
   // The write is a file read-modify-write with no other runtime guard on
   // `WorkspaceWrite`, so a call from a fork must fail here.
   control.assertOwnerThread("recordOpenedPr(...)")
-  control.progressStore.recordOpenedPr(pr)
+  control.progressStore.recordPublished(PublishedWork(pr.url))

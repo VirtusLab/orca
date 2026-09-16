@@ -1,6 +1,6 @@
 package orca.runner
 
-import orca.progress.CommitHash
+import orca.progress.{CommitHash, PublishedWork}
 
 /** What a run produced, measured against the commit it started from, on the
   * branch `countedOn` — the feature branch, where the work is. Absent when no
@@ -36,11 +36,15 @@ private[runner] object ClosingSummary:
     * user's shell never moved there, so the first line names the directory the
     * work is in instead of saying they are on that branch, and the diff is
     * scoped with `-C` so it runs from where they are actually standing.
+    *
+    * `published` names where the run published the work, right after the line
+    * saying where it is locally — the two answer the same question.
     */
   def lines(
       branch: String,
       changes: Option[RunChanges],
-      worktree: Option[os.Path]
+      worktree: Option[os.Path],
+      published: Option[PublishedWork]
   ): List[String] =
     // Without a worktree the sentence is about HEAD, which is `branch` by
     // definition. With one it is about where the work is, so it names the
@@ -51,7 +55,7 @@ private[runner] object ClosingSummary:
     def where(on: String): String = worktree match
       case None       => s"done — you are on branch '$branch'"
       case Some(path) => s"done — the work is in $path on branch '$on'"
-    changes match
+    val summary = changes match
       case None => List(where(branch))
       case Some(RunChanges(_, 0, _)) =>
         List(where(branch), "no files changed")
@@ -73,3 +77,7 @@ private[runner] object ClosingSummary:
           s"$files file(s) changed since ${base.short}",
           s"next: $diff $target"
         )
+    // Second, right after the `where` line every arm opens with.
+    summary.head +:
+      published.map(w => s"published at ${w.reference}").toList ++:
+      summary.tail

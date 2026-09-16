@@ -121,8 +121,8 @@ object FlowLifecycle:
             )
         throw f
     // Read before teardownSuccess deletes the log.
-    val openedPr = OpenedPr.from(ctx.progressStore.loadDetailed())
-    teardownSuccess(ctx.git, flowSetup, openedPr, ctx.emit)
+    val published = PublishedState.from(ctx.progressStore.loadDetailed())
+    teardownSuccess(ctx.git, flowSetup, published, ctx.emit)
 
   /** Replay the persisted resume-wire-id map (ADR 0018 §2.6) into each
     * session's own agent's in-memory registry, so a resumed run resumes against
@@ -1158,10 +1158,10 @@ object FlowLifecycle:
     * branch the user is left on — which is why [[RunChanges]] carries the
     * branch it was counted on.
     */
-  private[orca] def teardownSuccess(
+  private[runner] def teardownSuccess(
       git: GitTool,
       setup: FlowSetup,
-      openedPr: OpenedPr,
+      published: PublishedState,
       emit: OrcaEvent => Unit
   ): Unit =
     // Teardown runs outside any user stage, so it mints its own
@@ -1200,10 +1200,10 @@ object FlowLifecycle:
         counted
       finally
         bestEffort("branch handoff"):
-          finishBranch(git, setup, openedPr)
+          finishBranch(git, setup, published)
     bestEffort("closing summary"):
       ClosingSummary
-        .lines(git.currentBranch(), changes, setup.worktree)
+        .lines(git.currentBranch(), changes, setup.worktree, published.work)
         .foreach(line => emit(OrcaEvent.Step(line)))
 
   /** Where HEAD ends up after a successful run. A throwaway feature branch
@@ -1212,20 +1212,19 @@ object FlowLifecycle:
     * HEAD lands. Best-effort and success-path-only; never deletes
     * start/protected branches.
     *
-    * The delete runs only on an [[OpenedPr.NotOpened]] log — a branch whose log
-    * records a PR, or whose log could not be read at all, is kept however empty
-    * it looks against the start branch: the PR is open against what was pushed,
-    * and the user needs the branch to answer it. A log whose `openedPr` is
-    * absent because the run that opened the PR wrote its log before the field
-    * existed reads as `NotOpened`, so that one case can still lose a branch.
+    * The delete runs only on a [[PublishedState.NotPublished]] log — a branch
+    * whose log records published work, or whose log could not be read at all,
+    * is kept however empty it looks against the start branch: what was
+    * published points at what was pushed, and the user needs the branch to
+    * answer it.
     */
   private def finishBranch(
       git: GitTool,
       setup: FlowSetup,
-      openedPr: OpenedPr
+      published: PublishedState
   )(using WorkspaceWrite): Unit =
     val throwaway =
-      openedPr.allowsBranchDelete &&
+      published.allowsBranchDelete &&
         ThrowawayBranch.isThrowaway(
           git,
           setup.branchMode,
@@ -1239,7 +1238,7 @@ object FlowLifecycle:
       git.checkout(setup.startBranch).orThrow
       git.deleteBranch(setup.featureBranch.value)
     else
-      BranchHandoff.of(setup.branchMode, setup.worktree, openedPr.handle) match
+      BranchHandoff.of(setup.branchMode, setup.worktree, published) match
         case BranchHandoff.ReturnToStart =>
           git.checkout(setup.startBranch).orThrow
         case BranchHandoff.StayPut => ()

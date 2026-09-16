@@ -2,6 +2,7 @@ package orca.pr
 
 import munit.FunSuite
 import orca.{FlowControl, OrcaFlowException, stage}
+import orca.progress.PublishedWork
 
 import ox.{fork, supervised}
 import scala.jdk.CollectionConverters.*
@@ -38,7 +39,10 @@ class RecordOpenedPrTest extends FunSuite:
     val resumed = new ConcurrentLinkedQueue[String]()
     open(resumed)
     assertEquals(resumed.asScala.toList, Nil, "the body re-ran")
-    assertEquals(store.load().flatMap(_.openedPr), Some(samplePr))
+    assertEquals(
+      store.load().flatMap(_.published),
+      Some(PublishedWork(samplePr.url))
+    )
 
   test(
     "recordOpenedPr called from a fork inside a stage throws the R12 message"

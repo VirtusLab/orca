@@ -1,7 +1,6 @@
 package orca.runner
 
 import orca.progress.BranchMode
-import orca.tools.PrHandle
 
 /** Where a successful run leaves HEAD, derived from the run rather than asked
   * for by the flow script — see [[BranchHandoff.of]] for the rule.
@@ -16,11 +15,12 @@ private[runner] enum BranchHandoff:
 
 private[runner] object BranchHandoff:
   /** The handoff for a run bound in `branchMode` that happened in `worktree`
-    * and opened `openedPr`:
+    * and left `published` behind:
     *
-    *   - `Created` — [[ReturnToStart]] when the run opened a PR: the work is on
-    *     the PR, so the user is handed back the branch they were on. Without a
-    *     PR the work is only on the feature branch, so HEAD stays there.
+    *   - `Created` — [[ReturnToStart]] when the run published its work: it was
+    *     pushed before it was recorded, so the user is handed back the branch
+    *     they were on. Unpublished, the work is only on the feature branch, so
+    *     HEAD stays there.
     *   - `Reused` (`--skip-branch`) — always [[StayPut]]: the run never left
     *     the user's branch, so it must not move them off it.
     *   - inside a worktree — always [[StayPut]]: the checkout is orca's own
@@ -32,15 +32,15 @@ private[runner] object BranchHandoff:
     * relaunched without `--worktree` still runs inside one.
     *
     * The throwaway-branch delete is a separate decision over the same
-    * [[OpenedPr]] — see `FlowLifecycle.finishBranch`.
+    * [[PublishedState]] — see `FlowLifecycle.finishBranch`.
     */
   def of(
       branchMode: BranchMode,
       worktree: Option[os.Path],
-      openedPr: Option[PrHandle]
+      published: PublishedState
   ): BranchHandoff =
     branchMode match
       case BranchMode.Created =>
-        if worktree.isEmpty && openedPr.isDefined then ReturnToStart
+        if worktree.isEmpty && published.isPublished then ReturnToStart
         else StayPut
       case BranchMode.Reused => StayPut

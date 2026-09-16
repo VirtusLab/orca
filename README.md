@@ -382,8 +382,9 @@ Each `flow(...)` run is bound to exactly one feature branch and one progress log
   PR). Every other run leaves you where you were — on the feature branch when no
   PR was opened or under `--skip-branch`, and untouched under `--worktree`,
   where the work is in the separate checkout the summary names. The run then
-  closes by naming the branch you are left on, how many files changed since the
-  commit it started from, and the `git diff` that shows them.
+  closes by naming the branch you are left on, the PR it opened if it opened
+  one, how many files changed since the commit it started from, and the `git
+  diff` that shows them.
 - **Failure teardown:** discard the failed stage's uncommitted partial edits —
   `git reset --hard` for tracked files, plus `git clean -fd` for the files it
   newly created; stay on the feature branch so a re-run resumes in place.
@@ -793,7 +794,7 @@ PR utilities, available via `import orca.pr.*`:
 | `summarisePr(agent, diff, context?, instructions?)` | Fold a branch diff into a `PrSummary(title, body)` for `gh.createPr`. `context` is an optional preamble (originating issue link, user prompt, etc.) the model anchors the description to. A diff too large to send is cut short. Use a cheap model (`claude.cheap`, `codingAgent.cheap`). |
 | `openPrFromBranch(summarisingAgent, title?, body?, context?, instructions?): PrHandle` | Push the feature branch and open a PR for it, as three stages: push → summarise → create. Requires a GitHub remote and a logged-in `gh` — without either the run fails. `title`/`body` rewrite the generated text (`body = s => s"${s.body}\n\nCloses #42."`). Opening the PR is a top-level step of a flow and this runs its own stages, so it does not compile inside one. |
 | `openPrIfGitHub(summarisingAgent, title?, body?, context?, instructions?): Option[PrHandle]` | Probes `gh.availability` outside any stage, then runs `openPrFromBranch`'s push → summarise → create when the checkout is on GitHub. Where it isn't — no remote, a remote that isn't GitHub, a GitHub `gh` cannot reach, a run that changed no code, or a push/create the remote refuses — it emits one `Step` saying why, returns `None`, and the run finishes. A resume replays what its push and create stages recorded, a refusal included. The step every code-producing built-in flow ends with; like `openPrFromBranch`, it does not compile inside a stage. |
-| `recordOpenedPr(pr)` | Tell the lifecycle a PR was opened, so the run hands the checkout back on the branch it started from. Only for a flow that opens its PR with a bare `gh.createPr` — the two helpers above record it themselves. Call it inside the stage that opened the PR (it needs that stage's `WorkspaceWrite`): the stage's commit carries the record, and a resume reads it back without re-running the body. |
+| `recordOpenedPr(pr)` | Record the PR's URL as the run's published work, so the run hands the checkout back on the branch it started from and the closing summary names the PR. Only for a flow that opens its PR with a bare `gh.createPr` — the two helpers above record it themselves. Call it inside the stage that opened the PR (it needs that stage's `WorkspaceWrite`): the stage's commit carries the record, and a resume reads it back without re-running the body. |
 
 ### Customising prompts
 

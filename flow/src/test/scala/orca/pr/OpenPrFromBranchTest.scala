@@ -2,6 +2,7 @@ package orca.pr
 
 import munit.FunSuite
 import orca.{BoundedDiff, OutsideStage}
+import orca.progress.PublishedWork
 import orca.tools.{BranchNotPushed, PrCreateFailed, PrHandle}
 import orca.events.{OrcaEvent, OrcaListener}
 
@@ -24,7 +25,7 @@ class OpenPrFromBranchTest extends FunSuite:
       calls: List[String],
       stages: List[String],
       prompt: String,
-      openedPr: Option[PrHandle]
+      published: Option[PublishedWork]
   )
 
   private def run(branchDiff: String): Run =
@@ -46,13 +47,17 @@ class OpenPrFromBranchTest extends FunSuite:
       calls.asScala.toList,
       stages.asScala.toList,
       summariser.captured,
-      store.load().flatMap(_.openedPr)
+      store.load().flatMap(_.published)
     )
 
   test("openPrFromBranch runs push, summarise, create as three ordered stages"):
     val r = run("stub-diff")
     assertEquals(r.handle, samplePr)
-    assertEquals(r.openedPr, Some(samplePr), "the PR was not recorded")
+    assertEquals(
+      r.published,
+      Some(PublishedWork(samplePr.url)),
+      "the PR was not recorded"
+    )
     // Push before PR: the resume-critical stage split.
     assertEquals(r.calls, List("push", "createPr"))
     assertEquals(
@@ -97,7 +102,10 @@ class OpenPrFromBranchTest extends FunSuite:
     assertEquals(resumed, samplePr)
     // The record the first attempt wrote is what teardown reads, so it has to
     // outlive the resume that replays the stage.
-    assertEquals(store.load().flatMap(_.openedPr), Some(samplePr))
+    assertEquals(
+      store.load().flatMap(_.published),
+      Some(PublishedWork(samplePr.url))
+    )
 
   test("a branch too large to summarise reaches the agent cut short"):
     // Unbounded, this is the prompt no context window takes, and it is rebuilt

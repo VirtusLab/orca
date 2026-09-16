@@ -42,6 +42,7 @@ import orca.progress.{
   FeatureBranch,
   ProgressHeader,
   ProgressStore,
+  PublishedWork,
   SessionRecord,
   StageEntry
 }
@@ -1978,6 +1979,10 @@ class FlowLifecycleTest extends munit.FunSuite:
   private val handoffPr =
     PrHandle(host = "github.com", owner = "acme", repo = "widgets", number = 7)
 
+  /** [[handoffPr]] as the lifecycle reads it back out of the progress log. */
+  private val handoffPublished =
+    PublishedState.Published(PublishedWork(handoffPr.url))
+
   /** A `gh` on GitHub that opens [[handoffPr]]; the lifecycle touches nothing
     * else on it.
     */
@@ -2036,10 +2041,10 @@ class FlowLifecycleTest extends munit.FunSuite:
     assertEquals(handoffRun().head, "main")
 
   test("a run that recorded a PR keeps the empty branch it was opened from"):
-    // Pins the read/teardown pair: `run` reads `openedPr` out of the log
+    // Pins the read/teardown pair: `run` reads `published` out of the log
     // BEFORE teardown deletes the log, and the branch carries nothing but
-    // orca's own commits — so a read taken after the call would see no PR and
-    // delete it.
+    // orca's own commits — so a read taken after the call would see nothing
+    // published and delete it.
     val workDir = GitRepo.seeded()
     val prompt = "recorded-pr-throwaway"
     val store = ProgressStore.default(workDir, prompt)
@@ -3162,7 +3167,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     FlowLifecycle.teardownSuccess(
       git,
       setup,
-      OpenedPr.NotOpened,
+      PublishedState.NotPublished,
       _ => ()
     )
     assert(
@@ -3202,40 +3207,62 @@ class FlowLifecycleTest extends munit.FunSuite:
     FlowLifecycle.teardownSuccess(
       git,
       setup,
-      OpenedPr.NotOpened,
+      PublishedState.NotPublished,
       _ => ()
     )
     assertEquals(git.currentBranch(), "feat/work")
 
   test(
-    "teardownSuccess keeps an empty branch a PR was opened from and returns to the start branch"
+    "teardownSuccess keeps an empty branch the run published from and returns to the start branch"
   ):
-    // The PR is open against what was pushed, so the branch has to stay even
-    // though it carries nothing but orca's log against the start branch.
+    // What was published points at what was pushed, so the branch has to stay
+    // even though it carries nothing but orca's log against the start branch.
     val (git, workDir, setup) = handoffFixture(withCode = false)
     FlowLifecycle.teardownSuccess(
       git,
       setup,
-      OpenedPr.Opened(handoffPr),
+      handoffPublished,
       _ => ()
     )
     assert(branchNames(workDir).contains("feat/work"), branchNames(workDir))
     assertEquals(git.currentBranch(), "main")
 
-  test("teardownSuccess deletes a throwaway branch when no PR was opened"):
-    // Nothing but orca bookkeeping landed on the branch and there is no PR to
-    // answer, so it goes. `StayPut` is the only handoff this pairs with — a
-    // run that opened no PR — and landing on `main` can only be the delete's
-    // doing; the test above covers the other side.
+  test("teardownSuccess deletes a throwaway branch when nothing was published"):
+    // Nothing but orca bookkeeping landed on the branch and there is nothing
+    // published to answer, so it goes. `StayPut` is the only handoff this
+    // pairs with — an unpublished run — and landing on `main` can only be the
+    // delete's doing; the test above covers the other side.
     val (git, workDir, setup) = handoffFixture(withCode = false)
     FlowLifecycle.teardownSuccess(
       git,
       setup,
-      OpenedPr.NotOpened,
+      PublishedState.NotPublished,
       _ => ()
     )
     assertEquals(git.currentBranch(), "main")
     assertEquals(branchNames(workDir), Set("main"))
+
+  test(
+    "a run whose progress log cannot be read keeps the branch it may have published from"
+  ):
+    // Both links of the Unknown arm in one run: a log that does not parse
+    // classifies as Unknown rather than NotPublished, and Unknown blocks the
+    // throwaway auto-delete on a branch carrying nothing but orca's own
+    // commits — the log may have recorded published work, and the branch it
+    // was pushed from cannot be recovered.
+    val workDir = GitRepo.seeded()
+    val prompt = "corrupt-log-throwaway"
+    val store = ProgressStore.default(workDir, prompt)
+    var featureBranch = ""
+    runFlowForTest(workDir, prompt, store):
+      featureBranch = summon[FlowContext].git.currentBranch()
+      val _ = stage("no-op"):
+        "done"
+      os.write.over(store.path, "not json")
+    assert(
+      branchNames(workDir).contains(featureBranch),
+      s"'$featureBranch' must survive teardown: ${branchNames(workDir)}"
+    )
 
   private val TeardownPushBranch = "teardown-push-branch"
 
@@ -3313,7 +3340,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       .teardownSuccess(
         repo.git,
         repo.setup,
-        OpenedPr.NotOpened,
+        PublishedState.NotPublished,
         _ => ()
       )
     val files = remoteFiles(repo.remote)
@@ -3327,7 +3354,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       .teardownSuccess(
         repo.git,
         repo.setup,
-        OpenedPr.NotOpened,
+        PublishedState.NotPublished,
         _ => ()
       )
     assertEquals(remoteRefs(repo.remote).trim, "")
@@ -3345,7 +3372,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       .teardownSuccess(
         repo.git,
         repo.setup,
-        OpenedPr.NotOpened,
+        PublishedState.NotPublished,
         _ => ()
       )
     assertEquals(remoteTip(repo.remote), before)
@@ -3356,13 +3383,13 @@ class FlowLifecycleTest extends munit.FunSuite:
   private def closingSummary(
       git: OsGitTool,
       setup: FlowLifecycle.FlowSetup,
-      openedPr: OpenedPr
+      published: PublishedState
   ): List[String] =
     val emitted = new AtomicReference[List[OrcaEvent]](Nil)
     FlowLifecycle.teardownSuccess(
       git,
       setup,
-      openedPr,
+      published,
       e => { val _ = emitted.updateAndGet(e :: _) }
     )
     emitted.get().reverse.collect { case s: OrcaEvent.Step => s.message }
@@ -3405,7 +3432,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       Some(base)
     )
     assertEquals(
-      closingSummary(git, setup, OpenedPr.NotOpened),
+      closingSummary(git, setup, PublishedState.NotPublished),
       List(
         "done — you are on branch 'closing-stay'",
         s"2 file(s) changed since ${base.short}",
@@ -3414,11 +3441,13 @@ class FlowLifecycleTest extends munit.FunSuite:
     )
 
   test(
-    "closing summary: a PR flow's return to the start branch still points the diff at the work"
+    "closing summary: a published run names the reference and points the diff at the work"
   ):
     // Both halves of the straddle in one run: the branch line is read after the
     // handoff (so it says 'main'), while the count and the command are taken on
     // the feature branch — a `git diff <base>` on 'main' would print nothing.
+    // The published line is the only difference from the unpublished runs
+    // below.
     val workDir = GitRepo.seeded()
     val git = new OsGitTool(workDir)
     given WorkspaceWrite = WorkspaceWrite.unsafe
@@ -3434,9 +3463,10 @@ class FlowLifecycleTest extends munit.FunSuite:
       Some(base)
     )
     assertEquals(
-      closingSummary(git, setup, OpenedPr.Opened(handoffPr)),
+      closingSummary(git, setup, handoffPublished),
       List(
         "done — you are on branch 'main'",
+        s"published at ${handoffPr.url}",
         s"2 file(s) changed since ${base.short}",
         s"next: git diff ${base.short}..closing-work"
       )
@@ -3457,7 +3487,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       Some(base)
     )
     assertEquals(
-      closingSummary(git, setup, OpenedPr.NotOpened),
+      closingSummary(git, setup, PublishedState.NotPublished),
       List("done — you are on branch 'main'", "no files changed")
     )
 
@@ -3475,7 +3505,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       startingCommit = None
     )
     assertEquals(
-      closingSummary(git, setup, OpenedPr.NotOpened),
+      closingSummary(git, setup, PublishedState.NotPublished),
       List("done — you are on branch 'closing-no-base'")
     )
 
