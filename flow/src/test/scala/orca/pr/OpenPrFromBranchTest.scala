@@ -26,6 +26,7 @@ import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
 import scala.concurrent.duration.FiniteDuration
 import scala.jdk.CollectionConverters.*
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.atomic.AtomicReference
 
 /** Tests for [[openPrFromBranch]] — push → summarise → create as three
   * resume-safe stages. Pins the structure: three stages in fixed order, with
@@ -64,10 +65,10 @@ class OpenPrFromBranchTest extends FunSuite:
     */
   private class RecordingGh(calls: ConcurrentLinkedQueue[String])
       extends GitHubTool:
-    var prBody: String = ""
+    val prBody = new AtomicReference[Option[String]](None)
     def createPr(title: String, body: String)(using WorkspaceWrite) =
       calls.add("createPr"): Unit
-      prBody = body
+      prBody.set(Some(body))
       Right(PrHandle("acme", "widgets", 1))
     def updatePr(pr: PrHandle, title: String, body: String)(using
         WorkspaceWrite
@@ -183,7 +184,7 @@ class OpenPrFromBranchTest extends FunSuite:
       calls.asScala.toList,
       stages.asScala.toList,
       summariser.captured,
-      gh.prBody
+      gh.prBody.get.getOrElse(fail("createPr was never called"))
     )
 
   test("openPrFromBranch runs push, summarise, create as three ordered stages"):

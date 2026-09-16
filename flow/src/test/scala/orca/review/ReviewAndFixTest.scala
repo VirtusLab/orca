@@ -1003,6 +1003,27 @@ class ReviewAndFixTest extends munit.FunSuite:
       steps.messages.mkString("\n")
     )
 
+  test("a skipped whole-run review still returns the seeded declines"):
+    // The skip entry is added to `priorDeclines`, not returned instead of
+    // them: the PR body reads this result, and nothing after the final loop
+    // reports the per-task declines.
+    val steps = new ReviewLoopFixture.StepCapture
+    given FlowControl =
+      ReviewLoopFixture.controlWithoutStartingCommit(steps.dispatcher)
+    val seeded = IgnoredIssue(Title("nit"), "the shape is deliberate")
+    val result = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
+      reviewers = List(new FakeAgent("never-runs")),
+      task = titled("final review"),
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      diff = ReviewDiff.WholeRun,
+      priorDeclines = IgnoredIssues(List(seeded))
+    )
+    assertEquals(
+      result,
+      IgnoredIssues(seeded :: skippedWholeRunReview.issues)
+    )
+
   test("seeded declines reach round one's reviewers and return at exit"):
     // `priorDeclines` carries what per-task fixers already declined into a
     // final loop: shown as declined from round one — so reviewers don't

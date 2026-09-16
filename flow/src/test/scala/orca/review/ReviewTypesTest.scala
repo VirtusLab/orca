@@ -76,3 +76,9 @@ class ReviewTypesTest extends munit.FunSuite:
     val issues =
       IgnoredIssues(List(IgnoredIssue(Title("Style nit"), "accepted")))
     assertEquals(issues.format, "- Style nit: accepted")
+
+  test("IgnoredIssues.format keeps a multi-line reason on one bullet"):
+    val issues = IgnoredIssues(
+      List(IgnoredIssue(Title("Style nit"), "out of\n  scope:\nsee plan"))
+    )
+    assertEquals(issues.format, "- Style nit: out of scope: see plan")

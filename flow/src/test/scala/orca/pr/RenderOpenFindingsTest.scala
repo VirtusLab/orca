@@ -18,6 +18,9 @@ class RenderOpenFindingsTest extends FunSuite:
     )
     val rendered = renderOpenFindings(open).getOrElse(fail("no section"))
     assert(rendered.startsWith("## Open review findings\n"), rendered)
+    // The lead has to own up to the fixer's declines: the loop returns them in
+    // the same list as what stayed open at the cap.
+    assert(rendered.contains("including findings the fixer declined"), rendered)
     assertEquals(
       rendered.linesIterator.filter(_.startsWith("- ")).toList,
       List(
@@ -32,3 +35,10 @@ class RenderOpenFindingsTest extends FunSuite:
     )
     val rendered = renderOpenFindings(open).getOrElse(fail("no section"))
     assert(rendered.endsWith("- Rename foo — out of scope: see plan"), rendered)
+
+  test("a multi-line title is collapsed onto its bullet"):
+    val open = IgnoredIssues(
+      List(IgnoredIssue(Title("Rename\n  foo"), "out of scope"))
+    )
+    val rendered = renderOpenFindings(open).getOrElse(fail("no section"))
+    assert(rendered.endsWith("- Rename foo — out of scope"), rendered)

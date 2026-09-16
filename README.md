@@ -786,7 +786,7 @@ PR utilities, available via `import orca.pr.*`:
 | Method | Use |
 |---|---|
 | `summarisePr(agent, diff, context?, instructions?)` | Fold a branch diff into a `PrSummary(title, body)` for `gh.createPr`. `context` is an optional preamble (originating issue link, user prompt, etc.) the model anchors the description to. A diff too large to send is cut short. Use a cheap model (`claude.cheap`, `codingAgent.cheap`). |
-| `openPrFromBranch(summarisingAgent, openFindings, title?, body?, context?, instructions?)` | Push the feature branch, `summarisePr` its diff vs base, and `gh.createPr` — three stages, so a resume never re-pushes or re-summarises. `openFindings` is the `IgnoredIssues` the run's final review returned; each entry is appended to the body verbatim under "Open review findings" (none: no section). `title`/`body` rewrite the generated `PrSummary`. |
+| `openPrFromBranch(summarisingAgent, openFindings, title?, body?, context?, instructions?)` | Push the feature branch, `summarisePr` its diff vs base, and `gh.createPr` — three stages, so a resume never re-pushes or re-summarises. `openFindings` is the `IgnoredIssues` the run's final review returned; each entry is listed under "Open review findings" as its title and reason, verbatim — nothing says where a finding points (none open: no section). `title`/`body` rewrite the generated `PrSummary`. |
 | `renderOpenFindings(open)` | The "Open review findings" section on its own (`Option[String]`, `None` when nothing is open), for a flow that writes its own PR body. |
 
 ### Customising prompts

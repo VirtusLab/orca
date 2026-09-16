@@ -478,9 +478,11 @@ def reviewAndFixLoop[B <: BackendTag](
             "fresh clone). Start a fresh run if you need this review"
         )
       )
-      // One entry, not an empty result: an empty result is what a clean review
-      // returns, and a skipped review must not read as one.
-      IgnoredIssues(
+      // One entry on top of the seeds, not an empty result: an empty result is
+      // what a clean review returns, and a skipped review must not read as
+      // one. The seeds stay in: nothing after this loop reports them.
+      recordIgnored(
+        priorDeclines,
         List(
           IgnoredIssue(
             Title("whole-run review"),

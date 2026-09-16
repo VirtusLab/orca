@@ -115,6 +115,11 @@ class BuiltInFlowsTest extends munit.FunSuite:
   private val statedCap = "maxIterations\\s*=\\s*(\\d+)".r
 
   test("every final review states the final-review cap"):
+    assert(
+      FinalReviewCap > DefaultMaxIterations,
+      s"the final-review cap ($FinalReviewCap) must exceed the default " +
+        s"($DefaultMaxIterations): nothing reviews again after that loop"
+    )
     // Pinned inside the final-review call itself, so a cap stated elsewhere in
     // the file can't satisfy it.
     taskBasedFlows.foreach: name =>
