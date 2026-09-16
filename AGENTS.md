@@ -311,6 +311,17 @@ them.
 - Every user-facing refusal names the next action; every destructive-looking
   automatic operation (stash, reset, delete) states its purpose in the same
   breath.
+- Orca's interfaces and the documents it persists name git concepts, never a
+  specific forge. A rule that needs to know whether the run published its work
+  records that it published, and where, as a display reference — not a handle
+  from the service that took it. The forge-specific type stays in the package
+  that talks to that forge.
+- New mutable state is a design question, not a style one. The sanctioned
+  exceptions above license themselves and nothing else, so "it follows an
+  existing precedent" does not settle it: before adding a `var`, a mutable
+  collection or an `AtomicReference` field, work out what the state is for and
+  where else it could live — the progress log usually already carries it — and
+  say in the PR which alternatives you rejected and why.
 
 ### Versioning (0.x)
 
