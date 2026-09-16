@@ -107,9 +107,10 @@ case class SessionRecord(
     backend: Option[String] = None
 ) derives JsonData
 
-/** An append-only log of stage outcomes and session records for one flow run,
-  * keyed by its header. The custom [[JsonData]] instance below tolerates
-  * missing collection fields so logs round-trip across software versions.
+/** One flow run's persisted state, keyed by its header: the outcome of each
+  * completed stage, the sessions it minted, and the PR it opened. The custom
+  * [[JsonData]] instance below tolerates missing collection fields so logs
+  * round-trip across software versions.
   *
   * `openedPr` is the PR this run opened: written by the stage that opened it,
   * so the stage commit carries it, and read by the lifecycle before teardown

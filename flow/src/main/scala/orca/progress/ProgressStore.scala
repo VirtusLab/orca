@@ -21,15 +21,13 @@ trait ProgressStore:
     */
   def path: os.Path
 
-  /** Lenient load for the runtime's frequent reads: absent and corrupt both
-    * collapse to `None`. Use [[loadDetailed]] where the difference matters.
+  /** Lenient load for the runtime's frequent reads: every non-`Loaded` outcome
+    * collapses to `None`. Use [[loadDetailed]] where the difference matters.
     */
   def load(): Option[ProgressLog]
 
-  /** Distinguishes an absent log (normal fresh run) from a present-but-
-    * unparseable one (corrupt, truncated or unreadable — the caller starts
-    * fresh but WARNS, since the user may have expected a resume). Used by the
-    * lifecycle's resume decision.
+  /** Classifies the log for callers that must act differently per outcome — the
+    * lifecycle's resume decision. See [[ProgressStore.LoadResult]].
     */
   def loadDetailed(): ProgressStore.LoadResult
 
@@ -58,16 +56,30 @@ trait ProgressStore:
   /** Record the PR this run opened; last write wins. Requires [[writeHeader]]
     * first; otherwise it throws. Does NOT commit — the enclosing stage's commit
     * carries it, so a failure teardown's `git reset --hard` erases a record the
-    * stage never completed (the retry re-opens; `gh.createPr` is idempotent).
+    * stage never completed. The retry then re-opens: `gh.createPr` hands back
+    * the PR that already exists as long as its `findOpenPr` lookup locates it,
+    * and refuses otherwise.
     */
   def recordOpenedPr(pr: PrHandle)(using WorkspaceWrite): Unit
 
 object ProgressStore:
 
-  /** Outcome of [[ProgressStore.loadDetailed]]. */
+  /** Outcome of [[ProgressStore.loadDetailed]]. The two failure arms are split
+    * because they call for opposite actions: content orca wrote and cannot
+    * parse is safe to replace with a fresh log, while a log it could not read
+    * at all may still be a resumable run, and overwriting it would destroy one.
+    */
   enum LoadResult:
+    /** No file at the path — the normal fresh run. */
     case Absent
+
+    /** The file was read but does not parse: truncated, or externally edited.
+      */
     case Corrupt(reason: String)
+
+    /** The read itself failed — permissions, or a directory at the path. */
+    case Unreadable(reason: String)
+
     case Loaded(log: ProgressLog)
 
   /** Default OS-backed store: JSON at `<workDir>/.orca/progress-<hash>.json`.
@@ -108,9 +120,33 @@ private class OsProgressStore(workDir: os.Path, val path: os.Path)
       case ProgressStore.LoadResult.Loaded(log) => Some(log)
       case _                                    => None
 
+  // Read and parse are classified apart, since they mean different things: a
+  // missing file is `Absent`, any other read failure is `Unreadable`, and only
+  // content orca read but cannot parse is `Corrupt`. Absence is the read's own
+  // `NoSuchFileException` rather than an `os.exists` pre-check, so there is no
+  // window between the two for the file to vanish in — teardown's own
+  // `os.remove` runs against this same path.
   def loadDetailed(): ProgressStore.LoadResult =
-    if !os.exists(path) then ProgressStore.LoadResult.Absent
-    else parseLog()
+    val content =
+      try Right(os.read(path))
+      catch
+        case _: java.nio.file.NoSuchFileException =>
+          Left(ProgressStore.LoadResult.Absent)
+        case NonFatal(e) =>
+          Left(ProgressStore.LoadResult.Unreadable(describe(e)))
+    content match
+      case Left(result) => result
+      case Right(text) =>
+        try
+          ProgressStore.LoadResult.Loaded(
+            readFromString[ProgressLog](text)(using codec)
+          )
+        catch case NonFatal(e) => ProgressStore.LoadResult.Corrupt(describe(e))
+
+  private def describe(e: Throwable): String =
+    val firstLine =
+      Option(e.getMessage).flatMap(_.linesIterator.nextOption()).getOrElse("")
+    s"${e.getClass.getSimpleName}: $firstLine"
 
   def writeHeader(header: ProgressHeader)(using WorkspaceWrite): Unit =
     writeLog(ProgressLog(header, Nil))
@@ -126,9 +162,9 @@ private class OsProgressStore(workDir: os.Path, val path: os.Path)
 
   /** Read-modify-write precondition for [[appendEntry]] / [[upsertSession]] /
     * [[recordOpenedPr]]: all require a log to already exist. Routed through
-    * [[loadDetailed]] so an `Absent` log (writeHeader never ran) and a
-    * `Corrupt` one (a torn write or external edit mid-run) get distinct
-    * messages.
+    * [[loadDetailed]] so an `Absent` log (writeHeader never ran), a `Corrupt`
+    * one (a torn write or external edit mid-run) and an `Unreadable` one get
+    * distinct messages.
     */
   private def currentLogOrThrow(callerName: String): ProgressLog =
     loadDetailed() match
@@ -140,6 +176,10 @@ private class OsProgressStore(workDir: os.Path, val path: os.Path)
       case ProgressStore.LoadResult.Corrupt(reason) =>
         throw IllegalStateException(
           s"$callerName found a corrupted log at $path: $reason"
+        )
+      case ProgressStore.LoadResult.Unreadable(reason) =>
+        throw IllegalStateException(
+          s"$callerName could not read the log at $path: $reason"
         )
 
   private def upsertEntry(log: ProgressLog, entry: StageEntry): ProgressLog =
@@ -194,20 +234,3 @@ private class OsProgressStore(workDir: os.Path, val path: os.Path)
       case NonFatal(e) =>
         if os.exists(tmp) then os.remove(tmp): Unit
         throw e
-
-  // The read sits inside the try: a path that exists but is not a readable
-  // file (a directory left by a failed teardown) is `Corrupt`, not a throw.
-  private def parseLog(): ProgressStore.LoadResult =
-    try
-      ProgressStore.LoadResult.Loaded(
-        readFromString[ProgressLog](os.read(path))(using codec)
-      )
-    catch
-      case NonFatal(e) =>
-        val firstLine =
-          Option(e.getMessage)
-            .flatMap(_.linesIterator.nextOption())
-            .getOrElse("")
-        ProgressStore.LoadResult.Corrupt(
-          s"${e.getClass.getSimpleName}: $firstLine"
-        )

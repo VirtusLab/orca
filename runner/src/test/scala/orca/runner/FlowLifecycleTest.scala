@@ -635,6 +635,49 @@ class FlowLifecycleTest extends munit.FunSuite:
     assertEquals(loaded.get.header.branch, setup.featureBranch.value)
     assertEquals(loaded.get.entries, Nil)
 
+  test(
+    "setup: a log it cannot READ aborts, naming both ways out"
+  ):
+    // The fresh-run path would replace the file (`os.move(replaceExisting)`
+    // needs write permission on the directory, not read permission on the
+    // target), silently destroying a run that may still be resumable. Driven
+    // through the store: a real unreadable file is one `snapshotLog` cannot
+    // read either, so setup would fail before reaching the binding.
+    val workDir = GitRepo.seeded()
+    val prompt = "unreadable-log"
+    val git = new OsGitTool(workDir)
+    val thrown = intercept[orca.OrcaFlowException]:
+      val _ = FlowLifecycle.setup(
+        args = OrcaArgs(prompt),
+        agent = StubAgent.claude,
+        git = git,
+        workDir = workDir,
+        branchNaming = None,
+        resolution = FlowLifecycle
+          .readSettings(workDir, noGlobalSettings, Some(StackSettings.empty))
+          .stack,
+        stackOverridden = true,
+        store = new UnreadableLog(ProgressStore.default(workDir, prompt)),
+        emit = _ => ()
+      )
+    assert(thrown.getMessage.contains("cannot be read"), thrown.getMessage)
+    assert(thrown.getMessage.contains("permissions"), thrown.getMessage)
+    assert(thrown.getMessage.contains("delete the file"), thrown.getMessage)
+    assertEquals(
+      branchNames(workDir),
+      Set("main"),
+      "the abort must land before any branch is created"
+    )
+
+  /** `underlying` with a log that is present but cannot be read — file
+    * permissions, or a directory at the path.
+    */
+  private class UnreadableLog(underlying: ProgressStore) extends ProgressStore:
+    export underlying.{load => _, loadDetailed => _, *}
+    def load(): Option[orca.progress.ProgressLog] = None
+    def loadDetailed(): ProgressStore.LoadResult =
+      ProgressStore.LoadResult.Unreadable("AccessDeniedException: denied")
+
   // --- refusing a fresh run on a branch another run claims (R1 amendment) ---
 
   /** Writes a FOREIGN progress log — a different prompt, hence a different file
@@ -1992,6 +2035,25 @@ class FlowLifecycleTest extends munit.FunSuite:
   test("a new-branch run that opened a PR is handed back its start branch"):
     assertEquals(handoffRun().head, "main")
 
+  test("a run that recorded a PR keeps the empty branch it was opened from"):
+    // Pins the read/teardown pair: `run` reads `openedPr` out of the log
+    // BEFORE teardown deletes the log, and the branch carries nothing but
+    // orca's own commits — so a read taken after the call would see no PR and
+    // delete it.
+    val workDir = GitRepo.seeded()
+    val prompt = "recorded-pr-throwaway"
+    val store = ProgressStore.default(workDir, prompt)
+    var featureBranch = ""
+    runFlowForTest(workDir, prompt, store):
+      featureBranch = summon[FlowContext].git.currentBranch()
+      val _ = stage("open PR"):
+        orca.pr.recordOpenedPr(handoffPr)
+        "done"
+    assert(
+      branchNames(workDir).contains(featureBranch),
+      s"'$featureBranch' must survive teardown: ${branchNames(workDir)}"
+    )
+
   test("a run inside a worktree that opened a PR stays on the work"):
     // The worktree reports RunTarget.NewBranch — a resume relaunched without
     // --worktree looks exactly like this — so `flowSetup.worktree` is the only
@@ -3100,7 +3162,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     FlowLifecycle.teardownSuccess(
       git,
       setup,
-      None,
+      OpenedPr.NotOpened,
       _ => ()
     )
     assert(
@@ -3140,7 +3202,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     FlowLifecycle.teardownSuccess(
       git,
       setup,
-      None,
+      OpenedPr.NotOpened,
       _ => ()
     )
     assertEquals(git.currentBranch(), "feat/work")
@@ -3154,7 +3216,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     FlowLifecycle.teardownSuccess(
       git,
       setup,
-      Some(handoffPr),
+      OpenedPr.Opened(handoffPr),
       _ => ()
     )
     assert(branchNames(workDir).contains("feat/work"), branchNames(workDir))
@@ -3169,7 +3231,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     FlowLifecycle.teardownSuccess(
       git,
       setup,
-      None,
+      OpenedPr.NotOpened,
       _ => ()
     )
     assertEquals(git.currentBranch(), "main")
@@ -3251,7 +3313,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       .teardownSuccess(
         repo.git,
         repo.setup,
-        None,
+        OpenedPr.NotOpened,
         _ => ()
       )
     val files = remoteFiles(repo.remote)
@@ -3265,7 +3327,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       .teardownSuccess(
         repo.git,
         repo.setup,
-        None,
+        OpenedPr.NotOpened,
         _ => ()
       )
     assertEquals(remoteRefs(repo.remote).trim, "")
@@ -3283,7 +3345,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       .teardownSuccess(
         repo.git,
         repo.setup,
-        None,
+        OpenedPr.NotOpened,
         _ => ()
       )
     assertEquals(remoteTip(repo.remote), before)
@@ -3294,7 +3356,7 @@ class FlowLifecycleTest extends munit.FunSuite:
   private def closingSummary(
       git: OsGitTool,
       setup: FlowLifecycle.FlowSetup,
-      openedPr: Option[PrHandle]
+      openedPr: OpenedPr
   ): List[String] =
     val emitted = new AtomicReference[List[OrcaEvent]](Nil)
     FlowLifecycle.teardownSuccess(
@@ -3343,7 +3405,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       Some(base)
     )
     assertEquals(
-      closingSummary(git, setup, None),
+      closingSummary(git, setup, OpenedPr.NotOpened),
       List(
         "done — you are on branch 'closing-stay'",
         s"2 file(s) changed since ${base.short}",
@@ -3372,7 +3434,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       Some(base)
     )
     assertEquals(
-      closingSummary(git, setup, Some(handoffPr)),
+      closingSummary(git, setup, OpenedPr.Opened(handoffPr)),
       List(
         "done — you are on branch 'main'",
         s"2 file(s) changed since ${base.short}",
@@ -3395,7 +3457,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       Some(base)
     )
     assertEquals(
-      closingSummary(git, setup, None),
+      closingSummary(git, setup, OpenedPr.NotOpened),
       List("done — you are on branch 'main'", "no files changed")
     )
 
@@ -3413,7 +3475,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       startingCommit = None
     )
     assertEquals(
-      closingSummary(git, setup, None),
+      closingSummary(git, setup, OpenedPr.NotOpened),
       List("done — you are on branch 'closing-no-base'")
     )
 

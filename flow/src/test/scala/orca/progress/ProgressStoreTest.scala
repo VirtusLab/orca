@@ -126,16 +126,27 @@ class ProgressStoreTest extends FunSuite:
         fail(s"expected Corrupt, got $other")
     assertEquals(store.load(), None: Option[ProgressLog])
 
-  test("a directory at the log path is Corrupt, not a thrown read"):
+  test("a directory at the log path is Unreadable, not Corrupt"):
+    // The read failed, so nothing is known about the content — a fresh start
+    // would replace whatever is there.
     val workDir = TempDirs.dir()
     val store = ProgressStore.default(workDir, "my prompt")
     os.makeDir.all(store.path)
     store.loadDetailed() match
-      case ProgressStore.LoadResult.Corrupt(reason) =>
-        assert(reason.nonEmpty, "corrupt reason must be non-empty")
+      case ProgressStore.LoadResult.Unreadable(reason) =>
+        assert(reason.nonEmpty, "unreadable reason must be non-empty")
       case other =>
-        fail(s"expected Corrupt, got $other")
+        fail(s"expected Unreadable, got $other")
     assertEquals(store.load(), None: Option[ProgressLog])
+
+  test("a log removed after it was written is Absent, not Corrupt"):
+    // Teardown removes the log while the runtime still reads it; a vanished
+    // file must not read as a corrupt one.
+    val workDir = TempDirs.dir()
+    val store = ProgressStore.default(workDir, "my prompt")
+    store.writeHeader(header)
+    val _ = os.remove(store.path)
+    assertEquals(store.loadDetailed(), ProgressStore.LoadResult.Absent)
 
   test("appendEntry before writeHeader throws the absent-log message"):
     val workDir = TempDirs.dir()

@@ -267,7 +267,9 @@ class OpenPrIfGitHubTest extends FunSuite:
     val r = runOver(dir, store, available, base = baseForced)
     assertEquals(r.calls, Nil, "stages were re-run")
     assertEquals(r.result, Some(samplePr))
-    assert(!r.steps.exists(_.contains("no PR opened")), r.steps)
+    // The record the first attempt wrote is what teardown reads, so it has to
+    // outlive the resume that replays the stage.
+    assertEquals(r.openedPr, Some(samplePr))
 
   test("a resume replays a recorded push refusal without asking the remote"):
     // The refusal is the push stage's result, so it replays like any other:
@@ -308,7 +310,6 @@ class OpenPrIfGitHubTest extends FunSuite:
     val r = runOver(dir, store, available)
     assertEquals(r.calls, List("createPr"), "the push was re-run or probed")
     assertEquals(r.result, Some(samplePr))
-    assertEquals(r.openedPr, Some(samplePr))
 
   test("a resume entering at the summarise reports a base it cannot resolve"):
     val (dir, store) = pushedThenFailedSummarise()

@@ -31,8 +31,8 @@ private[runner] object BranchHandoff:
     * `worktree` is checked on its own for the same reason — a shell resume
     * relaunched without `--worktree` still runs inside one.
     *
-    * The throwaway-branch delete is a separate decision that reads the same PR
-    * — see `FlowLifecycle.finishBranch`.
+    * The throwaway-branch delete is a separate decision over the same
+    * [[OpenedPr]] — see `FlowLifecycle.finishBranch`.
     */
   def of(
       branchMode: BranchMode,

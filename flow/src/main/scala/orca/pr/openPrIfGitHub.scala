@@ -5,7 +5,6 @@ import orca.{
   FlowControl,
   OrcaFlowException,
   OutsideStage,
-  WorkspaceWrite,
   gh,
   git,
   stage
@@ -209,19 +208,13 @@ private def createBestEffort(title: String, body: String)(using
     attempt(
       "could not open a PR",
       "open it yourself from the pushed branch"
-    )(gh.createPr(title = title, body = body))
-      .fold(CreateAttempt.Refused(_), pr => opened(pr))
-
-/** Record the handle before the stage records its own result, so one stage
-  * commit carries both. Outside [[attempt]] on purpose: a log that cannot be
-  * written fails the run.
-  */
-private def opened(pr: PrHandle)(using
-    FlowControl,
-    WorkspaceWrite
-): CreateAttempt =
-  recordOpenedPr(pr)
-  CreateAttempt.Opened(pr)
+    )(gh.createPr(title = title, body = body)) match
+      case Left(reason) => CreateAttempt.Refused(reason)
+      case Right(pr)    =>
+        // Inside the stage, so its commit carries the record, and outside
+        // `attempt`, so a log that cannot be written fails the run.
+        recordOpenedPr(pr)
+        CreateAttempt.Opened(pr)
 
 /** Run one remote-facing leg, turning the refusal it returns or whatever it
   * throws into the line this step reports. `git.push` and `gh.createPr` answer
@@ -242,8 +235,9 @@ private def attempt[E <: OrcaFlowException, T](what: String, next: String)(
 /** Whether this run's branch carries anything but orca's own bookkeeping —
   * [[ThrowawayBranch]]'s rule, over the progress header the lifecycle reads. A
   * run that cannot be measured (no readable header, or a start branch git no
-  * longer resolves) gets its PR; the lifecycle never deletes a branch a PR was
-  * opened from, so neither can strand the branch.
+  * longer resolves) gets its PR; the lifecycle deletes a branch only when its
+  * log records no PR, so only a log that loses the record — one written before
+  * `openedPr` existed — leaves the two to strand a branch.
   */
 private def runChangedCode(using
     ctx: FlowContext,

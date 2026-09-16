@@ -32,6 +32,7 @@ import orca.testkit.{GitRepo, PushlessGit, StubGitHubTool}
 import orca.events.{EventDispatcher, OrcaListener}
 
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.atomic.AtomicReference
 
 /** An endpoint the PR helpers never reach. */
 private[pr] def nyi(m: String): Nothing =
@@ -78,7 +79,10 @@ private[pr] class RecordingGh(
 private[pr] class StubSummariser(
     answer: => PrSummary = PrSummary("Generated title", "Generated body")
 ) extends Agent[BackendTag.ClaudeCode.type]:
-  var captured: String = ""
+  private val prompt = new AtomicReference[String]("")
+
+  /** The prompt this summariser was last sent. */
+  def captured: String = prompt.get()
   val name: String = "summariser"
   def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
     nyi("autonomous")
@@ -98,7 +102,7 @@ private[pr] class StubSummariser(
               config: Option[AgentConfig],
               emitPrompt: Boolean
           )(using in: AgentInput[I], _s: orca.InStage): O =
-            captured = in.serialize(input)
+            prompt.set(in.serialize(input))
             answer.asInstanceOf[O]
       def interactive: InteractiveAgentCall[BackendTag.ClaudeCode.type, O] =
         nyi("interactive")

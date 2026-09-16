@@ -32,7 +32,7 @@ import orca.progress.{
 }
 import orca.settings.{AgentSettings, SettingsFile, SettingsScope}
 import orca.subprocess.TtyProbe
-import orca.tools.{GitTool, PrHandle, UntrackedFiles}
+import orca.tools.{GitTool, UntrackedFiles}
 import org.slf4j.LoggerFactory
 import ox.either.orThrow
 
@@ -120,8 +120,8 @@ object FlowLifecycle:
               )
             )
         throw f
-    // Read before teardownSuccess: removing the log is its first act.
-    val openedPr = ctx.progressStore.load().flatMap(_.openedPr)
+    // Read before teardownSuccess deletes the log.
+    val openedPr = OpenedPr.from(ctx.progressStore.loadDetailed())
     teardownSuccess(ctx.git, flowSetup, openedPr, ctx.emit)
 
   /** Replay the persisted resume-wire-id map (ADR 0018 §2.6) into each
@@ -271,9 +271,9 @@ object FlowLifecycle:
     * [[abortIfBranchBusy]] and [[SetupSession.applyCleanlinessPolicy]]. A
     * pre-stash read can see a dirty working copy, which is why the peek never
     * routes fresh-vs-resume — that stays with the post-stash authoritative read
-    * below. The busy check only ever refuses, and a dirty own log reads at
-    * worst as `Corrupt`, which it treats like `Absent`: no resumable run of
-    * mine here, so another run's claim on this branch still stands.
+    * below. The busy check only ever refuses, and a dirty own log that fails to
+    * load is treated like an absent one: no resumable run of mine here, so
+    * another run's claim on this branch still stands.
     *
     * Cleanliness policy: the peek's facts feed [[DirtyTreePolicy.decide]] (the
     * decision table lives there), and [[SetupSession.applyCleanlinessPolicy]]
@@ -576,10 +576,11 @@ object FlowLifecycle:
         UntrackedFiles.Keep
 
     /** Bind the run to a branch + progress log — resume onto the header's
-      * branch for a valid log, warn and start fresh from a corrupt one, or
-      * start fresh when none exists. This is the AUTHORITATIVE
-      * `store.loadDetailed()` read; see [[setup]]'s doc for why it always runs
-      * after the cleanliness decision.
+      * branch for a valid log, warn and start fresh from a corrupt one, start
+      * fresh when none exists, and abort on one that cannot be read, since the
+      * fresh start would replace a file that may still hold a resumable run.
+      * This is the AUTHORITATIVE `store.loadDetailed()` read; see [[setup]]'s
+      * doc for why it always runs after the cleanliness decision.
       */
     def bindBranch(
         startBranch: String,
@@ -590,6 +591,12 @@ object FlowLifecycle:
         case ProgressStore.LoadResult.Corrupt(reason) =>
           warnCorruptLog(reason)
           freshBinding(startBranch, protectedBranches, discovered)
+        case ProgressStore.LoadResult.Unreadable(reason) =>
+          throw new OrcaFlowException(
+            s"progress log at ${store.path} exists but cannot be read " +
+              s"($reason) — it may be a resumable run, so fix its permissions " +
+              "to resume it, or delete the file to start fresh"
+          )
         case ProgressStore.LoadResult.Absent =>
           freshBinding(startBranch, protectedBranches, discovered)
         case ProgressStore.LoadResult.Loaded(progressLog) =>
@@ -1154,7 +1161,7 @@ object FlowLifecycle:
   private[orca] def teardownSuccess(
       git: GitTool,
       setup: FlowSetup,
-      openedPr: Option[PrHandle],
+      openedPr: OpenedPr,
       emit: OrcaEvent => Unit
   ): Unit =
     // Teardown runs outside any user stage, so it mints its own
@@ -1205,17 +1212,20 @@ object FlowLifecycle:
     * HEAD lands. Best-effort and success-path-only; never deletes
     * start/protected branches.
     *
-    * A branch a PR was opened from is never deleted, however empty it looks
-    * against the start branch: the PR is open against what was pushed, and the
-    * user needs the branch to answer it.
+    * The delete runs only on an [[OpenedPr.NotOpened]] log — a branch whose log
+    * records a PR, or whose log could not be read at all, is kept however empty
+    * it looks against the start branch: the PR is open against what was pushed,
+    * and the user needs the branch to answer it. A log whose `openedPr` is
+    * absent because the run that opened the PR wrote its log before the field
+    * existed reads as `NotOpened`, so that one case can still lose a branch.
     */
   private def finishBranch(
       git: GitTool,
       setup: FlowSetup,
-      openedPr: Option[PrHandle]
+      openedPr: OpenedPr
   )(using WorkspaceWrite): Unit =
     val throwaway =
-      openedPr.isEmpty &&
+      openedPr.allowsBranchDelete &&
         ThrowawayBranch.isThrowaway(
           git,
           setup.branchMode,
@@ -1229,7 +1239,7 @@ object FlowLifecycle:
       git.checkout(setup.startBranch).orThrow
       git.deleteBranch(setup.featureBranch.value)
     else
-      BranchHandoff.of(setup.branchMode, setup.worktree, openedPr) match
+      BranchHandoff.of(setup.branchMode, setup.worktree, openedPr.handle) match
         case BranchHandoff.ReturnToStart =>
           git.checkout(setup.startBranch).orThrow
         case BranchHandoff.StayPut => ()

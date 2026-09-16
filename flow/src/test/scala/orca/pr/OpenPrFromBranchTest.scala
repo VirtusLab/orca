@@ -95,6 +95,9 @@ class OpenPrFromBranchTest extends FunSuite:
     val resumed = attempt(resumedCalls)
     assertEquals(resumedCalls.asScala.toList, Nil, "stages were re-run")
     assertEquals(resumed, samplePr)
+    // The record the first attempt wrote is what teardown reads, so it has to
+    // outlive the resume that replays the stage.
+    assertEquals(store.load().flatMap(_.openedPr), Some(samplePr))
 
   test("a branch too large to summarise reaches the agent cut short"):
     // Unbounded, this is the prompt no context window takes, and it is rebuilt
