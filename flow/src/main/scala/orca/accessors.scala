@@ -1,5 +1,6 @@
 package orca
 
+import orca.review.ReviewerCatalog
 import orca.tools.FsTool
 import orca.tools.GitTool
 import orca.tools.GitHubTool
@@ -61,3 +62,11 @@ def codingAgent(using ctx: FlowContext): Agent[ctx.CodeB] = ctx.codingAgent
   * helper-authoring caveat shared by all three role accessors.
   */
 def reviewAgent(using ctx: FlowContext): Agent[ctx.ReviewB] = ctx.reviewAgent
+
+/** The reviewer definitions this run works from — the shipped set with any
+  * `.orca/reviewers/` or user-global `.md` file layered over it. `allReviewers`
+  * and `minimalReviewers` read it for you; reach for it directly to pick a
+  * subset yourself.
+  */
+def reviewerCatalog(using ctx: FlowContext): ReviewerCatalog =
+  ctx.reviewerCatalog

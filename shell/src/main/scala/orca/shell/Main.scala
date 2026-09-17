@@ -2,7 +2,7 @@ package orca.shell
 
 import org.jline.terminal.Terminal
 import orca.{RunTarget, Uncommitted}
-import orca.settings.GlobalSettings
+import orca.settings.ConfigHome
 import orca.shell.actions.{
   AuthorAction,
   AuthorParams,
@@ -18,7 +18,8 @@ import orca.shell.actions.{
 }
 import orca.shell.cli.{Cli, CliHelp}
 import orca.shell.create.{CreateTarget, CreateTier, FlowAuthoring}
-import orca.shell.flows.{DiscoveredFlow, FlowEditor, FlowOrigin}
+import orca.discovery.Origin
+import orca.shell.flows.{DiscoveredFlow, FlowEditor}
 import orca.shell.resume.{InterruptedRun, ResumeDetector}
 import orca.shell.run.{FallbackPolicy, FlowFlags, LaunchResult}
 import orca.shell.sessions.{ManifestReader, RecordedRun, SessionPicker}
@@ -69,7 +70,7 @@ object Main:
       // there's no terminal to erase, only a redirected stream to pollute.
       if tty then print(ShellOutput.AnsiClearBelow)
       val ui = ShellUi.make(terminal)
-      val globalSettingsPath = GlobalSettings.default
+      val globalSettingsPath = ConfigHome.default.settings
       val wizard = Wizard(ui, PathProbe.resolves(_, os.pwd), globalSettingsPath)
       runWizardIfFirstRun(wizard, globalSettingsPath)
       printConfigSummary(globalSettingsPath, os.pwd)
@@ -201,15 +202,15 @@ object Main:
     * is the new one. `spawnEditor` is injectable, like [[editSettings]]'s own
     * seam, so a test can fake the editor exiting instead of spawning a real
     * subprocess; `workDir`/`globalFlows` are likewise explicit (rather than
-    * reading `os.pwd`/[[GlobalSettings.defaultFlows]] internally), so a test
-    * can point the built-in-customize branch at temp dirs. `private[shell]` so
-    * a scripted-UI test can drive it directly.
+    * reading `os.pwd`/[[ConfigHome]]'s `flows` internally), so a test can point
+    * the built-in-customize branch at temp dirs. `private[shell]` so a
+    * scripted-UI test can drive it directly.
     */
   private[shell] def editFlow(
       ui: ShellUi,
       terminal: Terminal,
       workDir: os.Path = os.pwd,
-      globalFlows: os.Path = GlobalSettings.defaultFlows,
+      globalFlows: os.Path = ConfigHome.default.flows,
       spawnEditor: (Terminal, os.Path) => Int = EditAction.editInPlace
   ): Unit =
     selectFlow(ui, "Edit which flow?").foreach: flow =>
@@ -232,7 +233,7 @@ object Main:
       globalFlows: os.Path,
       spawnEditor: (Terminal, os.Path) => Int
   ): Unit =
-    if flow.origin != FlowOrigin.BuiltIn then
+    if flow.origin != Origin.BuiltIn then
       spawnEditor(terminal, flow.path).discard
     else
       pickTier(ui, builtInCustomizeTitle(flow), globalFlows).foreach: tier =>
@@ -256,7 +257,7 @@ object Main:
       globalFlows: os.Path
   ): Unit =
     flow.origin match
-      case FlowOrigin.BuiltIn =>
+      case Origin.BuiltIn =>
         pickTier(ui, builtInCustomizeTitle(flow), globalFlows).foreach: tier =>
           FlowEditor.customizeTarget(flow, tier, workDir, globalFlows) match
             case Left(message) => ShellOutput.error(message)
@@ -269,7 +270,7 @@ object Main:
                 workDir,
                 globalFlows
               )
-      case FlowOrigin.Project =>
+      case Origin.Project =>
         editByAgent(
           ui,
           terminal,
@@ -278,7 +279,7 @@ object Main:
           workDir,
           globalFlows
         )
-      case FlowOrigin.Global =>
+      case Origin.Global =>
         editByAgent(ui, terminal, flow, CreateTier.Global, workDir, globalFlows)
 
   /** Prompts for the changes and runs the overwrite-in-place authoring flow
@@ -492,7 +493,7 @@ object Main:
       ui: ShellUi,
       terminal: Terminal,
       workDir: os.Path = os.pwd,
-      globalFlows: os.Path = GlobalSettings.defaultFlows,
+      globalFlows: os.Path = ConfigHome.default.flows,
       spawnEditor: (Terminal, os.Path) => Int = EditAction.editInPlace
   ): Unit =
     pickChangeMode(ui).foreach:
@@ -591,7 +592,7 @@ object Main:
       ui: ShellUi,
       terminal: Terminal,
       workDir: os.Path = os.pwd,
-      globalFlows: os.Path = GlobalSettings.defaultFlows,
+      globalFlows: os.Path = ConfigHome.default.flows,
       spawnEditor: (Terminal, os.Path) => Int = EditAction.editInPlace
   ): Unit =
     for
@@ -799,10 +800,10 @@ object Main:
   private def flowChoice(flow: DiscoveredFlow): Choice[DiscoveredFlow] =
     val shadows =
       if flow.shadows.isEmpty then ""
-      else s" [shadows ${flow.shadows.map(_.originLabel).mkString(", ")}]"
+      else s" [shadows ${flow.shadows.map(_.label).mkString(", ")}]"
     val description = flow.description.getOrElse("(no description)")
     val label =
-      s"${flow.name} — $description [${flow.origin.originLabel}]$shadows"
+      s"${flow.name} — $description [${flow.origin.label}]$shadows"
     Choice(flow, label)
 
   /** "Clear stack settings (format/lint/test) — re-detected on the next flow

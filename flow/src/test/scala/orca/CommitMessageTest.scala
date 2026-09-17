@@ -65,7 +65,9 @@ class CommitMessageTest extends munit.FunSuite:
       val workDir: os.Path,
       val userPrompt: String = "p",
       val stackSettings: StackSettings = StackSettings.empty,
-      private[orca] val startingCommit: Option[orca.progress.CommitHash] = None
+      private[orca] val startingCommit: Option[orca.progress.CommitHash] = None,
+      val reviewerCatalog: orca.review.ReviewerCatalog =
+        orca.review.ReviewerCatalog.builtIn
   ) extends FlowControl,
         ReportedErrorsSupport,
         StageFrames:

@@ -77,6 +77,8 @@ export orca.review.{
   LintReport,
   Location,
   Reviewer,
+  ReviewerAgent,
+  ReviewerCatalog,
   ReviewerPrompts,
   ReviewBatch,
   ReviewDiff,

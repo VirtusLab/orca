@@ -2,6 +2,8 @@ package orca.review
 
 import orca.agents.Agent
 
+import scala.util.matching.Regex
+
 // The vocabulary `reviewAndFixLoop` and every [[ReviewerSelector]] speak about
 // the configured reviewers. Kept out of `ReviewLoop.scala` so the loop file
 // holds only the loop, and out of capture checking, which none of it needs.
@@ -24,21 +26,36 @@ private[review] object ReviewerId:
   * defences.
   */
 final class RosterEntry private[review] (
-    private[review] val agent: Agent[?],
+    private val reviewer: ReviewerAgent[?],
     private[review] val id: ReviewerId
 ):
   /** The reviewer's bare slug — its identity, and what the picker LLM is shown
-    * and asked to echo. The `reviewer` cost-attribution role tag is applied
-    * only later, at the loop's emission edge.
+    * and asked to echo. The cost-attribution role tag
+    * ([[ReviewerPrompts.Role]]) is applied only later, at the loop's emission
+    * edge.
     */
-  def name: String = agent.name
+  def name: String = reviewer.definition.name
+
+  /** The reviewer's purpose blurb, from its definition. */
+  def description: String = reviewer.definition.description
+
+  /** The reviewer's `files:` filter, from its definition. */
+  def filePattern: Option[Regex] = reviewer.definition.filePattern
+
+  /** Whether the reviewer applies to `changedFiles` — see
+    * [[Reviewer.appliesTo]].
+    */
+  def appliesTo(changedFiles: List[String]): Boolean =
+    reviewer.definition.appliesTo(changedFiles)
+
+  private[review] def agent: Agent[?] = reviewer.agent
 
 private[review] object RosterEntry:
-  /** The whole roster, each agent wrapped once. The only place a [[ReviewerId]]
-    * is minted.
+  /** The whole roster, each reviewer wrapped once. The only place a
+    * [[ReviewerId]] is minted.
     */
-  def roster(agents: List[Agent[?]]): List[RosterEntry] =
-    agents.zipWithIndex.map((a, i) => new RosterEntry(a, ReviewerId(i)))
+  def roster(reviewers: List[ReviewerAgent[?]]): List[RosterEntry] =
+    reviewers.zipWithIndex.map((r, i) => new RosterEntry(r, ReviewerId(i)))
 
 /** One round of reviews, with each reviewer's individual outcome preserved and
   * kept in configured order, so the loop can decide which reviewers to re-run

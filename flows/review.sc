@@ -10,7 +10,7 @@
   * piped straight in (`git diff | orca run review.sc`). A resolver stage works
   * out what that refers to and materialises the diff once; from there the flow:
   *
-  *   1. Narrows the shipped reviewer roster to the ones whose `files:` pattern
+  *   1. Narrows the run's reviewer roster to the ones whose `files:` pattern
   *      matches the changed paths, then has a cheap-tier agent pick from what's
   *      left.
   *   1. Runs the picked reviewers concurrently, each returning a structured
@@ -82,16 +82,20 @@ flow(OrcaArgs(args)):
     PickedReviewers(pickReviewers(target).map(_.name))
 
   val findings = stage("Run reviewers"):
-    val agents = buildReviewers(
+    val reviewers = buildReviewers(
       reviewAgent,
-      ReviewerPrompts.all.filter(r => picked.names.contains(r.name))
+      reviewerCatalog.all.filter(r => picked.names.contains(r.name))
     )
     // Results come back in completion order, hence the pairing with the
     // reviewer's name.
-    AllFindings(Par.mapUnordered(4)(agents): a =>
+    AllFindings(Par.mapUnordered(4)(reviewers): r =>
       ReviewerFindings(
-        a.name,
-        a.resultAs[ReviewResult].autonomous.run(reviewPrompt(target)).issues
+        r.definition.name,
+        r.agent
+          .resultAs[ReviewResult]
+          .autonomous
+          .run(reviewPrompt(target))
+          .issues
       ))
 
   val report = renderReport(target, findings.byReviewer)
@@ -168,10 +172,7 @@ def pickReviewers(target: ReviewTarget)(using
     FlowContext,
     InStage
 ): List[Reviewer] =
-  val candidates = ReviewerPrompts.all.filter: r =>
-    ReviewerPrompts.filePatternsBySlug
-      .get(r.name)
-      .forall(p => target.changedFiles.exists(f => p.findFirstIn(f).isDefined))
+  val candidates = reviewerCatalog.all.filter(_.appliesTo(target.changedFiles))
 
   val listing = candidates
     .map(r => s"- ${r.name}: ${r.description}")

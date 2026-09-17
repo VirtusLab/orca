@@ -2,7 +2,7 @@ package orca.shell.create
 
 import orca.OrcaDir
 import orca.agents.BackendTag
-import orca.settings.{AgentSpec, GlobalSettings, SettingsFile, SettingsScope}
+import orca.settings.{AgentSpec, ConfigHome, SettingsFile, SettingsScope}
 import orca.shell.ShellVersion
 import orca.util.PromptResource
 import ox.discard
@@ -247,7 +247,7 @@ private[shell] object FlowAuthoring:
     * harness is slow, absent, or unreachable.
     */
   def suggestFilenameForGoal(goal: String): String =
-    suggestFilename(configuredCodingAgent(GlobalSettings.default), goal)
+    suggestFilename(configuredCodingAgent(ConfigHome.default.settings), goal)
 
   /** The fork target's filename: `<source-stem>-<descriptor>.sc`, where the
     * descriptor is the cheap harness call's answer to [[forkSlugPrompt]]. The
@@ -268,7 +268,7 @@ private[shell] object FlowAuthoring:
     val stem = toKebab(sourceName.stripSuffix(".sc"))
     val descriptor = runner(
       slugArgv(
-        configuredCodingAgent(GlobalSettings.default),
+        configuredCodingAgent(ConfigHome.default.settings),
         forkSlugPrompt(sourceName, sourceDescription, changes)
       ),
       timeoutMillis
@@ -324,7 +324,7 @@ private[shell] object FlowAuthoring:
 
   /** Pure path arithmetic for the tier choice (ADR 0021 §9) — no I/O, so
     * unit-testable without touching a real filesystem. `globalFlows` is
-    * `GlobalSettings.defaultFlows` (or a test double), matching
+    * `ConfigHome.default.flows` (or a test double), matching
     * [[orca.shell.flows.FlowEditor.customizeTarget]]'s convention of taking the
     * resolved path rather than re-deriving it from env/home here.
     */

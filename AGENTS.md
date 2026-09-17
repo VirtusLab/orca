@@ -293,41 +293,15 @@ with a test pinning the observed wire shape.
 
 ### Review-derived rules
 
-Distilled from recurring review findings; violations keep reappearing without
-them.
+The rules distilled from recurring review findings live in
+[`.orca/reviewers/orca.md`](.orca/reviewers/orca.md) — the reviewer orca runs
+against every Scala change here, discovered per
+[ADR 0023](adr/0023-reviewer-discovery.md). Read it before writing code. Those
+rules have no second copy: they change there or not at all.
 
-- A domain mode is an enum, never a `Boolean` or a raw string compared to
-  literals; two flags/Options whose combinations include impossible states are
-  one ADT.
-- Three-plus same-typed adjacent parameters (or two whose swap compiles) get
-  named arguments at every call site, or a small case class.
-- A wire field's absence semantics is decided ONCE, at decode — never
-  re-defaulted per call site. Parse protocol strings into enums at the
-  boundary (`Unknown(raw)` for unrecognized values); match exhaustively
-  downstream.
-- One decision, one home: when the same mapping/derivation appears in a second
-  place, extract it. Display/summary code consumes the production resolver —
-  it never mirrors the rule with its own copy.
-- Code that generates code (templates, skeletons, prompts claiming
-  compilability) is tested by actually compiling/executing the artifact —
-  substring assertions don't count.
-- Terminal escape sequences are written with explicit unicode escapes (backslash-u001b), never
-  raw embedded bytes; when moving such code, compare with `cat -A` — ordinary
-  diffs render the sequences invisibly.
-- Every user-facing refusal names the next action; every destructive-looking
-  automatic operation (stash, reset, delete) states its purpose in the same
-  breath.
-- Orca's interfaces and the documents it persists name git concepts, never a
-  specific forge. A rule that needs to know whether the run published its work
-  records that it published, and where, as a display reference — not a handle
-  from the service that took it. The forge-specific type stays in the package
-  that talks to that forge.
-- New mutable state is a design question, not a style one. The sanctioned
-  exceptions above license themselves and nothing else, so "it follows an
-  existing precedent" does not settle it: before adding a `var`, a mutable
-  collection or an `AtomicReference` field, work out what the state is for and
-  where else it could live — the progress log usually already carries it — and
-  say in the PR which alternatives you rejected and why.
+That file also condenses rules the sections below own in full — comments,
+capability tokens, `.orca` writes, subprocesses, and 0.x versioning. Change one
+of those and change the condensed line with it.
 
 ### Versioning (0.x)
 

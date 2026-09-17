@@ -10,7 +10,7 @@ import orca.tools.opencode.OpencodeBackend
 import orca.tools.pi.PiBackend
 
 import ox.supervised
-import orca.testkit.TempDirs
+import orca.testkit.{RepoRoot, TempDirs}
 
 /** The [[AutoApprove]] values the matrix distinguishes. `Only` is split by
   * emptiness because "pre-approve nothing" is a shape some backends encode as
@@ -261,13 +261,4 @@ class EnforcementTableTest extends munit.FunSuite:
     if run.sizeIs == ApproveShape.values.length then "*"
     else run.map(_.label).mkString(" / ")
 
-  /** AGENTS.md's text. sbt forks tests with the module directory as the working
-    * directory, so the repository root is found by walking up.
-    */
-  private def agentsMd: String =
-    val root = Iterator
-      .iterate(os.pwd)(_ / os.up)
-      .takeWhile(_ != os.root)
-      .find(dir => os.exists(dir / "AGENTS.md"))
-      .getOrElse(fail(s"no AGENTS.md above ${os.pwd}"))
-    os.read(root / "AGENTS.md")
+  private def agentsMd: String = os.read(RepoRoot.dir / "AGENTS.md")

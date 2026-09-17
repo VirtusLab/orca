@@ -1,0 +1,57 @@
+package orca.runner
+
+import orca.{AgentSet, OrcaArgs, StackSettings, runFlow}
+import orca.agents.Agent
+import orca.events.{OrcaEvent, OrcaListener}
+import orca.settings.ConfigHome
+import orca.testkit.TempDirs
+import orca.runner.terminal.TerminalInteraction
+import ox.supervised
+
+import java.io.{ByteArrayOutputStream, PrintStream}
+import java.util.concurrent.atomic.AtomicReference
+
+/** Drives `runFlow` end to end over stub agents, for the suites that assert on
+  * what setup resolves before the body runs. The config home defaults to a
+  * directory that doesn't exist, so no test reads the developer's `~/.config`.
+  */
+object FlowHarness:
+
+  def driveFlow(
+      workDir: os.Path,
+      wiring: FlowWiring,
+      flowName: String = "flow-harness",
+      configHome: ConfigHome = absentConfigHome(),
+      stackSettings: Option[StackSettings] = None,
+      planningOverride: Option[AgentSet => Agent[?]] = None,
+      codingOverride: Option[AgentSet => Agent[?]] = None,
+      reviewOverride: Option[AgentSet => Agent[?]] = None,
+      listeners: List[OrcaListener] = Nil
+  )(body: orca.FlowControl ?=> Unit): Unit =
+    supervised:
+      val interaction = TerminalInteraction.start(
+        out = new PrintStream(new ByteArrayOutputStream()),
+        useColor = false,
+        animated = false
+      )
+      runFlow(
+        args = OrcaArgs(flowName),
+        workDir = workDir,
+        interaction = Some(interaction),
+        extraListeners = listeners,
+        branchNaming = None,
+        stackSettings = stackSettings,
+        planningAgent = planningOverride,
+        codingAgent = codingOverride,
+        reviewAgent = reviewOverride,
+        progressStore = None,
+        configHome = configHome,
+        wiring = wiring
+      )(body)
+
+  /** A config home whose tier files and directories don't exist. */
+  def absentConfigHome(): ConfigHome = ConfigHome(TempDirs.dir() / "orca")
+
+  def recordSteps(sink: AtomicReference[List[String]]): OrcaListener =
+    case OrcaEvent.Step(msg) => val _ = sink.updateAndGet(_ :+ msg)
+    case _                   => ()

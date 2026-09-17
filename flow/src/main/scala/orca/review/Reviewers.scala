@@ -1,7 +1,11 @@
 package orca.review
 
+import orca.{FlowContext, OrcaFlowException}
 import orca.agents.{BackendTag, Agent}
-import orca.util.PromptResource
+import orca.util.{ParsedPrompt, PromptResource}
+
+import ox.either
+import ox.either.ok
 
 import scala.util.matching.Regex
 
@@ -12,17 +16,144 @@ import scala.util.matching.Regex
   * the selector drops the reviewer before the picker LLM sees it.
   *
   * Public so a flow can define its own reviewers alongside the shipped
-  * [[ReviewerPrompts]] set: build a `List[Reviewer]`, turn it into agents with
-  * [[buildReviewers]], and hand that to [[reviewAndFixLoop]]. To make
-  * [[ReviewerSelector.agentDriven]] purpose-aware of custom reviewers, pass
-  * matching `descriptions`/`filePatterns` maps keyed by `name`.
+  * [[ReviewerPrompts]] set: build a `List[Reviewer]`, turn it into
+  * [[ReviewerAgent]]s with [[buildReviewers]], and hand those to
+  * [[reviewAndFixLoop]]. A custom reviewer is described and gated by its own
+  * fields, like a shipped one.
   */
 case class Reviewer(
     name: String,
     description: String,
     systemPrompt: String,
     filePattern: Option[Regex] = None
+):
+  // The picker's whole decision rests on the description, so a blank one is
+  // rejected where the reviewer is built rather than noticed at selection time.
+  // The same abort type discovery raises, so both sites report a broken
+  // reviewer the same way.
+  if description.isBlank then
+    throw new OrcaFlowException(
+      s"reviewer '$name' has an empty description — the reviewer-picker " +
+        "decides from it; give the reviewer a one-line purpose blurb"
+    )
+
+  /** Whether this reviewer applies to a change set. An empty `changedFiles` is
+    * "unknown", not "nothing changed" — a pinned diff can miss files its text
+    * doesn't name — so every reviewer applies then.
+    */
+  def appliesTo(changedFiles: List[String]): Boolean =
+    changedFiles.isEmpty ||
+      filePattern.forall(rx => changedFiles.exists(rx.findFirstIn(_).isDefined))
+
+/** A reviewer ready to run: its [[Reviewer]] definition and the agent
+  * [[buildReviewers]] built from it. Only [[buildReviewers]] can mint one, so
+  * `agent` always carries `definition.name`, `definition.systemPrompt` and the
+  * read-only gate — the loop reads the display name off `definition` and runs
+  * the turn on `agent`, and the two cannot disagree.
+  *
+  * A flow wanting different base agents per reviewer concatenates calls:
+  * `buildReviewers(strong, List(security)) ++ buildReviewers(cheap, rest)`.
+  */
+final case class ReviewerAgent[B <: BackendTag] private[review] (
+    definition: Reviewer,
+    agent: Agent[B]
 )
+
+/** Why one reviewer prompt file could not be turned into a [[Reviewer]].
+  * `source` names the file, so the message says which one to fix.
+  */
+private[review] enum ReviewerPromptFailure:
+  case NoFrontmatter(slug: String, source: String)
+  case MalformedFrontmatter(slug: String, source: String)
+  case Symlinked(source: String)
+  case DuplicateSlug(slug: String, dir: String, files: List[String])
+  case Unreadable(source: String, reason: String)
+  case MissingDescription(slug: String, source: String)
+  case MissingBody(slug: String, source: String)
+  case InvalidFilePattern(
+      slug: String,
+      source: String,
+      pattern: String,
+      reason: String
+  )
+
+private[review] object ReviewerPromptFailure:
+  extension (failure: ReviewerPromptFailure)
+    /** What the author is told, naming the file and what to do about it. */
+    def message: String = failure match
+      case NoFrontmatter(slug, source) =>
+        s"reviewer '$slug' ($source) has no frontmatter block — add one at " +
+          "the top: '---', a 'description:' line, then '---'"
+      case Symlinked(source) =>
+        s"$source is a symlink — refusing to read a reviewer prompt through " +
+          "it; copy the file into the directory instead of linking it"
+      case DuplicateSlug(slug, dir, files) =>
+        s"reviewer '$slug' is claimed by more than one file in $dir " +
+          s"(${files.mkString(", ")}) — reviewer names are compared " +
+          "case-insensitively; keep one"
+      case Unreadable(source, reason) =>
+        s"$source cannot be read: $reason"
+      case MalformedFrontmatter(slug, source) =>
+        s"reviewer '$slug' ($source) has a frontmatter block the parser " +
+          "could not read — it must open with '---' on the first line, close " +
+          "with '---', and hold `key: value` lines"
+      case MissingDescription(slug, source) =>
+        s"reviewer '$slug' ($source) has no 'description:' in its " +
+          "frontmatter — add one saying what the reviewer checks"
+      case MissingBody(slug, source) =>
+        s"reviewer '$slug' ($source) has no body below the closing '---' — " +
+          "the body is the reviewer's system prompt"
+      case InvalidFilePattern(slug, source, pattern, reason) =>
+        s"reviewer '$slug' ($source) has an invalid 'files:' regex " +
+          s"'$pattern': $reason"
+
+/** Build a [[Reviewer]] from one parsed reviewer prompt file. `slug` is the
+  * reviewer's identity — a `name:` key in the frontmatter is ignored.
+  * `description:` and a non-empty body are required, and `files:`, when
+  * present, must be a valid regex.
+  *
+  * The one conversion for both sources: the shipped prompts under
+  * `src/main/resources` and the `.md` files [[ReviewerCatalog]] discovers. The
+  * failure is a value because the two differ in what to do with it — a broken
+  * shipped resource is a defect, a broken discovered file is the author's to
+  * correct, and discovery reports every bad file at once.
+  */
+private[review] def reviewerFrom(
+    slug: String,
+    parsed: ParsedPrompt,
+    source: String
+): Either[ReviewerPromptFailure, Reviewer] =
+  either:
+    // Only README/`_`-prefixed names are exempted earlier, by filename — so a
+    // file that never opened a block reaches here and is told to add one,
+    // rather than being told its block is unreadable.
+    if !parsed.hasFrontmatter then
+      Left(ReviewerPromptFailure.NoFrontmatter(slug, source)).ok()
+    if parsed.metadata.isEmpty then
+      Left(ReviewerPromptFailure.MalformedFrontmatter(slug, source)).ok()
+    val description = parsed.metadata
+      .get("description")
+      .filterNot(_.isBlank)
+      .toRight(ReviewerPromptFailure.MissingDescription(slug, source))
+      .ok()
+    // An instruction-less reviewer still costs a turn and still reports
+    // nothing, which reads exactly like a clean review.
+    if parsed.body.isBlank then
+      Left(ReviewerPromptFailure.MissingBody(slug, source)).ok()
+    val filePattern = parsed.metadata.get("files").filter(_.nonEmpty) match
+      case None          => None
+      case Some(pattern) =>
+        // `Regex` signals only by throwing; this is the bridge to a value.
+        val compiled =
+          try Right(pattern.r)
+          catch
+            case e: java.util.regex.PatternSyntaxException =>
+              Left(
+                ReviewerPromptFailure
+                  .InvalidFilePattern(slug, source, pattern, e.getDescription)
+              )
+        Some(compiled.ok())
+    Reviewer(slug, description, parsed.body, filePattern)
 
 /** Canonical reviewer definitions the library ships with. Each entry reads from
   * a `.md` resource under `src/main/resources/orca/review/prompts/reviewers/`
@@ -34,9 +165,8 @@ case class Reviewer(
   *     picker when at least one changed file matches (optional).
   *
   * Public as the customization surface: reference individual reviewers
-  * ([[CodeFunctionality]], [[Security]], …), the preset lists ([[all]],
-  * [[minimal]]), or the selector-feeding maps ([[descriptionsBySlug]],
-  * [[filePatternsBySlug]]) when composing your own reviewer list. Pair with
+  * ([[CodeFunctionality]], [[Security]], …) or the preset lists ([[all]],
+  * [[minimal]]) when composing your own reviewer list. Pair with
   * [[buildReviewers]].
   */
 object ReviewerPrompts:
@@ -51,18 +181,12 @@ object ReviewerPrompts:
     */
   val Role: String = "reviewer"
 
+  // A shipped prompt that doesn't parse is a packaging defect, not something a
+  // user can fix, so it fails the object's initialization rather than a run.
   private def load(slug: String): Reviewer =
-    val parsed = PromptResource.loadWithMetadata(
-      s"/orca/review/prompts/reviewers/$slug.md"
-    )
-    val description = parsed.metadata.getOrElse(
-      "description",
-      throw new RuntimeException(
-        s"reviewer '$slug' is missing 'description' in its frontmatter"
-      )
-    )
-    val filePattern = parsed.metadata.get("files").map(_.r)
-    Reviewer(slug, description, parsed.body, filePattern)
+    val path = s"/orca/review/prompts/reviewers/$slug.md"
+    reviewerFrom(slug, PromptResource.loadWithMetadata(path), path)
+      .fold(f => throw new RuntimeException(f.message), identity)
 
   val CodeFunctionality: Reviewer = load("code-functionality")
   val CodeStructure: Reviewer = load("code-structure")
@@ -97,57 +221,57 @@ object ReviewerPrompts:
     Test
   )
 
-  /** Descriptions keyed by the bare reviewer slug.
-    * [[ReviewerSelector.agentDriven]] consults this by default so the picker
-    * gets each reviewer's purpose alongside its name. Covers every shipped
-    * reviewer.
-    */
-  val descriptionsBySlug: Map[String, String] =
-    all.map(r => r.name -> r.description).toMap
-
-  /** File-filter regexes keyed by the bare reviewer slug. The selector drops
-    * reviewers whose pattern doesn't match any of the iteration's changed
-    * files, before the picker LLM sees them. Only reviewers that declared a
-    * `files:` frontmatter entry appear here.
-    */
-  val filePatternsBySlug: Map[String, Regex] =
-    all.flatMap(r => r.filePattern.map(p => r.name -> p)).toMap
-
-/** Build Agents for every reviewer the library ships with. The default picker
+/** Build a [[ReviewerAgent]] for every reviewer in the run's
+  * [[orca.FlowContext.reviewerCatalog]]: the shipped set, plus whatever
+  * `.orca/reviewers/` and the user-global reviewer directory add, with a
+  * same-named file replacing the shipped reviewer it names. The default picker
   * ([[ReviewerSelector.agentDriven]]) narrows the active set per task, so
   * passing the full list isn't wasteful.
   */
-def allReviewers[B <: BackendTag](base: Agent[B]): List[Agent[B]] =
-  buildReviewers(base, ReviewerPrompts.all)
+def allReviewers[B <: BackendTag](base: Agent[B])(using
+    ctx: FlowContext
+): List[ReviewerAgent[B]] =
+  buildReviewers(base, ctx.reviewerCatalog.all)
 
-/** Build Agents for the small universally-applicable subset
-  * ([[ReviewerPrompts.minimal]] — correctness, test quality, clarity). Pick
-  * this when the full set is overkill or the flow only touches small diffs.
+/** Build [[ReviewerAgent]]s for the small universally-applicable subset
+  * (correctness, test quality, clarity). Pick this when the full set is
+  * overkill or the flow only touches small diffs.
+  *
+  * A reviewer discovered under a slug nothing ships is in this list too — a
+  * project that ships one means it for small diffs as well. One that shadows a
+  * shipped reviewer replaces it only where that reviewer already appears, so a
+  * file named after a shipped reviewer outside this subset (`security`, say)
+  * changes [[allReviewers]] and leaves this list alone.
   */
-def minimalReviewers[B <: BackendTag](base: Agent[B]): List[Agent[B]] =
-  buildReviewers(base, ReviewerPrompts.minimal)
+def minimalReviewers[B <: BackendTag](base: Agent[B])(using
+    ctx: FlowContext
+): List[ReviewerAgent[B]] =
+  buildReviewers(base, ctx.reviewerCatalog.minimal)
 
-/** Layer each reviewer's system prompt onto the base tool, name it with the
-  * bare reviewer slug, and gate every reviewer to read-only access. A
-  * reviewer's job is to *report* issues, not fix them; without `withReadOnly`
-  * the agent inherits the base tool's permissions (typically `AutoApprove.All`)
-  * and could edit files mid-review. Reads stay available so the agent can
-  * verify claims beyond the diff.
+/** Pair each reviewer definition with the agent that runs it: its system prompt
+  * layered onto the base tool, named with the bare reviewer slug and gated to
+  * read-only access. A reviewer's job is to *report* issues, not fix them;
+  * without `withReadOnly` the agent inherits the base tool's permissions
+  * (typically `AutoApprove.All`) and could edit files mid-review. Reads stay
+  * available so the agent can verify claims beyond the diff.
   *
   * How strongly that gate holds is per backend and per turn — AGENTS.md's
   * enforcement table is the answer. The run says so when it isn't mechanical
   * (`EnforcementNotice`), and the read-only rule is in every such turn's prompt
   * either way.
   *
-  * Public so a flow can build agents from a custom [[Reviewer]] list rather
+  * Public so a flow can build reviewers from a custom [[Reviewer]] list rather
   * than being limited to the [[allReviewers]] / [[minimalReviewers]] presets.
   */
 def buildReviewers[B <: BackendTag](
     base: Agent[B],
     reviewers: List[Reviewer]
-): List[Agent[B]] =
+): List[ReviewerAgent[B]] =
   reviewers.map: r =>
-    base
-      .withSystemPrompt(r.systemPrompt)
-      .withName(r.name)
-      .withReadOnly
+    ReviewerAgent(
+      r,
+      base
+        .withSystemPrompt(r.systemPrompt)
+        .withName(r.name)
+        .withReadOnly
+    )

@@ -1,7 +1,8 @@
 package orca.shell.actions
 
 import orca.{RunTarget, Uncommitted}
-import orca.shell.flows.{DiscoveredFlow, FlowOrigin}
+import orca.discovery.Origin
+import orca.shell.flows.DiscoveredFlow
 import orca.shell.run.{FallbackPolicy, FlowFlags, LaunchResult}
 
 class RunActionTest extends munit.FunSuite:
@@ -11,7 +12,7 @@ class RunActionTest extends munit.FunSuite:
       val flow = DiscoveredFlow(
         name = "implement.sc",
         description = None,
-        origin = FlowOrigin.Project,
+        origin = Origin.Project,
         path = os.root / "flows" / "implement.sc",
         shadows = Nil
       )

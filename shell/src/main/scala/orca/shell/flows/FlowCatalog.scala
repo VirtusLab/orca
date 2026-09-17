@@ -1,18 +1,6 @@
 package orca.shell.flows
 
-/** Which of the three tiers (ADR 0021 §5) a flow was read from. */
-private[shell] enum FlowOrigin:
-  case Project, Global, BuiltIn
-
-private[shell] object FlowOrigin:
-  /** The tier's user-facing label, as shown in flow-listing rows and shadow
-    * annotations (ADR 0021 §5).
-    */
-  extension (origin: FlowOrigin)
-    def originLabel: String = origin match
-      case FlowOrigin.Project => "project"
-      case FlowOrigin.Global  => "global"
-      case FlowOrigin.BuiltIn => "built-in"
+import orca.discovery.{Origin, TierPrecedence}
 
 /** One flow-listing row: the winning tier's script plus the tiers it shadowed,
   * so the menu can annotate `[shadows global, built-in]`.
@@ -20,9 +8,9 @@ private[shell] object FlowOrigin:
 private[shell] case class DiscoveredFlow(
     name: String,
     description: Option[String],
-    origin: FlowOrigin,
+    origin: Origin,
     path: os.Path,
-    shadows: List[FlowOrigin]
+    shadows: List[Origin]
 )
 
 /** Discovers `.sc` flow scripts across the three tiers and resolves per-name
@@ -42,40 +30,46 @@ private[shell] object FlowCatalog:
       globalFlows: os.Path,
       builtIns: os.Path
   ): List[DiscoveredFlow] =
-    val byTier = List(
-      FlowOrigin.Project -> scriptsByName(projectFlows),
-      FlowOrigin.Global -> scriptsByName(globalFlows),
-      FlowOrigin.BuiltIn -> scriptsByName(builtIns)
-    )
-    val names = byTier.flatMap(_._2.keySet).distinct.sorted
-    names.map(name => resolve(name, byTier))
-
-  /** The tiers that contain `name`, in precedence order (winner first). */
-  private def resolve(
-      name: String,
-      byTier: List[(FlowOrigin, Map[String, os.Path])]
-  ): DiscoveredFlow =
-    val hits = byTier.collect:
-      case (origin, files) if files.contains(name) => origin -> files(name)
-    val (winnerOrigin, winnerPath) = hits.head
-    DiscoveredFlow(
-      name = name,
-      description = FlowDescription.ofFile(winnerPath),
-      origin = winnerOrigin,
-      path = winnerPath,
-      shadows = hits.tail.map(_._1)
-    )
+    TierPrecedence
+      .resolve(
+        List(
+          Origin.Project -> scriptsByName(projectFlows, Origin.Project),
+          Origin.Global -> scriptsByName(globalFlows, Origin.Global),
+          Origin.BuiltIn -> scriptsByName(builtIns, Origin.BuiltIn)
+        )
+      )
+      .map: winner =>
+        DiscoveredFlow(
+          name = winner.key,
+          description = FlowDescription.ofFile(winner.value),
+          origin = winner.tier,
+          path = winner.value,
+          shadows = winner.shadows
+        )
 
   /** `*.sc` files directly in `dir`, keyed by filename; empty if `dir` doesn't
-    * exist. Symlinked entries are excluded (`os.isLink`, lstat/no-follow): a
-    * committed symlink `x.sc` (or a symlinked tier dir, guarded upstream at the
-    * project tier by `OrcaDir.assertNoOrcaSymlinks`) would otherwise let View
-    * disclose, and Edit write through to, a target outside the tree.
+    * exist.
+    *
+    * A symlinked entry is excluded in the PROJECT tier only (`os.isLink`,
+    * lstat/no-follow): that directory is committed and orca runs against
+    * arbitrary cloned repos, so a committed symlink `x.sc` (or a symlinked tier
+    * dir, guarded upstream by `OrcaDir.assertNoOrcaSymlinks`) would otherwise
+    * let View disclose, and Edit write through to, a target outside the tree.
+    * The global tier is the user's own config home and the built-in tier is
+    * orca's own extraction cache, so both are read through links the way
+    * reviewers read theirs (ADR 0023) — a dotfiles manager that links each file
+    * in is normal there. A link with no target fails `os.isFile` and is dropped
+    * like any other unusable entry.
     */
-  private def scriptsByName(dir: os.Path): Map[String, os.Path] =
+  private def scriptsByName(
+      dir: os.Path,
+      origin: Origin
+  ): Map[String, os.Path] =
     if !os.isDir(dir) then Map.empty
     else
+      val refusesLinks = origin == Origin.Project
       os.list(dir)
-        .filter(p => !os.isLink(p) && os.isFile(p) && p.last.endsWith(".sc"))
+        .filter(p => !(refusesLinks && os.isLink(p)))
+        .filter(p => os.isFile(p) && p.last.endsWith(".sc"))
         .map(p => p.last -> p)
         .toMap

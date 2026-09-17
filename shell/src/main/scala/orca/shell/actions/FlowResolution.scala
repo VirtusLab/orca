@@ -1,14 +1,14 @@
 package orca.shell.actions
 
 import orca.OrcaDir
-import orca.settings.GlobalSettings
+import orca.settings.ConfigHome
 import orca.shell.ShellVersion
+import orca.discovery.Origin
 import orca.shell.flows.{
   BuiltInFlows,
   DiscoveredFlow,
   FlowCatalog,
-  FlowDescription,
-  FlowOrigin
+  FlowDescription
 }
 
 import scala.util.Try
@@ -33,7 +33,7 @@ private[shell] object FlowResolution:
       Right(
         FlowCatalog.list(
           OrcaDir.flowsPath(workDir),
-          GlobalSettings.defaultFlows,
+          ConfigHome.default.flows,
           BuiltInFlows.extracted(sys.env.get, os.home, ShellVersion.value)
         )
       )
@@ -44,8 +44,8 @@ private[shell] object FlowResolution:
     * directly off disk; otherwise it's a catalog name (`.sc` suffix optional),
     * looked up in [[list]] with the same project > global > built-in precedence
     * the interactive picker shows. A path-resolved flow reports
-    * [[FlowOrigin.Project]] with no shadowed tiers — it isn't a catalog entry,
-    * but Project matches how it behaves (edited in place, never offered a
+    * [[Origin.Project]] with no shadowed tiers — it isn't a catalog entry, but
+    * Project matches how it behaves (edited in place, never offered a
     * customize-into-a-tier step).
     */
   def resolve(ref: String, workDir: os.Path): Either[String, DiscoveredFlow] =
@@ -120,7 +120,7 @@ private[shell] object FlowResolution:
     DiscoveredFlow(
       name = path.last,
       description = FlowDescription.ofFile(path),
-      origin = FlowOrigin.Project,
+      origin = Origin.Project,
       path = path,
       shadows = Nil
     )

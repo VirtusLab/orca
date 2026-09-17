@@ -72,13 +72,16 @@ class ReviewerSelectorTest extends munit.FunSuite:
   private given orca.InStage = orca.InStage.unsafe
 
   private val scalaFp: RosterEntry =
-    new RosterEntry(new FakeAgent("scala-fp"), ReviewerId(0))
+    new RosterEntry(
+      asReviewer(
+        new FakeAgent("scala-fp"),
+        filePattern = Some("""\.scala$""".r)
+      ),
+      ReviewerId(0)
+    )
   private val generic: RosterEntry =
-    new RosterEntry(new FakeAgent("generic"), ReviewerId(1))
+    new RosterEntry(asReviewer(new FakeAgent("generic")), ReviewerId(1))
   private val all: List[RosterEntry] = List(scalaFp, generic)
-
-  private val filePatterns =
-    Map("scala-fp" -> """\.scala$""".r)
 
   /** A [[ReviewLoopFixture.StepCapture]] behind its own [[FlowContext]]. */
   private class SelectorSteps extends ReviewLoopFixture.StepCapture:
@@ -93,10 +96,7 @@ class ReviewerSelectorTest extends munit.FunSuite:
       SelectedReviewers(List("scala-fp", "generic")),
       captured
     )
-    val selector = ReviewerSelector.agentDriven(
-      agent = picker,
-      filePatterns = filePatterns
-    )
+    val selector = ReviewerSelector.agentDriven(agent = picker)
     val picked =
       selector.prepare(all, Title("any"), List("src/lib.rs"))(Nil)
     // Even though the picker tried to include scala-fp, it was never offered
@@ -107,6 +107,27 @@ class ReviewerSelectorTest extends munit.FunSuite:
     assertEquals(
       captured.get().map(_.availableReviewers.map(_.name)),
       Some(List("generic"))
+    )
+
+  test("the picker is shown each reviewer's own description"):
+    // A reviewer the library does not ship: its description can only reach the
+    // picker off its own definition.
+    val captured = new AtomicReference[Option[ReviewerSelectionRequest]](None)
+    val picker =
+      new RecordingPicker(SelectedReviewers(List("bespoke")), captured)
+    val bespoke = new RosterEntry(
+      asReviewer(
+        new FakeAgent("bespoke"),
+        description = "checks the widget wiring"
+      ),
+      ReviewerId(0)
+    )
+    val _ = ReviewerSelector
+      .agentDriven(agent = picker)
+      .prepare(List(bespoke), Title("any"), List("Widget.scala"))(Nil)
+    assertEquals(
+      captured.get().map(_.availableReviewers),
+      Some(List(ReviewerInfo("bespoke", "checks the widget wiring")))
     )
 
   test("picker reply resolves reviewers by bare slug"):
@@ -128,10 +149,7 @@ class ReviewerSelectorTest extends munit.FunSuite:
   ):
     val captured = new AtomicReference[Option[ReviewerSelectionRequest]](None)
     val picker = new RecordingPicker(SelectedReviewers(Nil), captured)
-    val selector = ReviewerSelector.agentDriven(
-      agent = picker,
-      filePatterns = filePatterns
-    )
+    val selector = ReviewerSelector.agentDriven(agent = picker)
     // scala-fp is filtered out for a .rs change; generic is eligible. The
     // picker picks nothing, so the floor falls back to the eligible set.
     val picked =
@@ -144,10 +162,7 @@ class ReviewerSelectorTest extends munit.FunSuite:
       SelectedReviewers(List("scala-fp", "generic")),
       captured
     )
-    val selector = ReviewerSelector.agentDriven(
-      agent = picker,
-      filePatterns = filePatterns
-    )
+    val selector = ReviewerSelector.agentDriven(agent = picker)
     val picked = selector.prepare(
       all,
       Title("any"),
@@ -164,10 +179,7 @@ class ReviewerSelectorTest extends munit.FunSuite:
       SelectedReviewers(List("scala-fp")),
       captured
     )
-    val selector = ReviewerSelector.agentDriven(
-      agent = picker,
-      filePatterns = filePatterns
-    )
+    val selector = ReviewerSelector.agentDriven(agent = picker)
     // No changed files means the diff didn't say which files changed, not that
     // none did: the pre-filter is skipped, so scala-fp reaches the picker.
     val picked = selector.prepare(all, Title("any"), Nil)(Nil)
@@ -180,10 +192,8 @@ class ReviewerSelectorTest extends munit.FunSuite:
   test("an empty diff announces the skipped file-pattern filter"):
     val capture = new SelectorSteps
     val captured = new AtomicReference[Option[ReviewerSelectionRequest]](None)
-    val selector = ReviewerSelector.agentDriven(
-      agent =
-        new RecordingPicker(SelectedReviewers(List("scala-fp")), captured),
-      filePatterns = filePatterns
+    val selector = ReviewerSelector.agentDriven(agent =
+      new RecordingPicker(SelectedReviewers(List("scala-fp")), captured)
     )
     val _ = selector.prepare(all, Title("any"), Nil)(using
       capture.ctx,
@@ -255,10 +265,7 @@ class ReviewerSelectorTest extends munit.FunSuite:
       captured
     )
     val onlyScala = List(scalaFp)
-    val selector = ReviewerSelector.agentDriven(
-      agent = picker,
-      filePatterns = filePatterns
-    )
+    val selector = ReviewerSelector.agentDriven(agent = picker)
     val picked =
       selector.prepare(onlyScala, Title("any"), List("src/lib.rs"))(Nil)
     assertEquals(picked, Nil)

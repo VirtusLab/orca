@@ -2,6 +2,7 @@ package orca.runner
 
 import orca.{FlowControl, StackSettings}
 import orca.progress.{CommitHash, ProgressStore}
+import orca.review.ReviewerCatalog
 import orca.tools.{FsTool, GitHubTool, GitTool}
 import orca.agents.{Agent, BackendTag}
 import orca.events.{OrcaEvent, OrcaListener}
@@ -38,6 +39,11 @@ private[orca] class DefaultFlowContext[
       * the loops it calls) sees one immutable value.
       */
     val stackSettings: StackSettings,
+    /** The reviewer definitions this run works from (shipped set + discovered
+      * tiers): resolved by `runFlow` before the context exists, so it arrives
+      * frozen like `stackSettings`.
+      */
+    val reviewerCatalog: ReviewerCatalog,
     /** The commit the run started from (see
       * [[orca.FlowControl.startingCommit]]) — like `stackSettings`, resolved by
       * `FlowLifecycle.setup` before the context exists, so it arrives frozen.

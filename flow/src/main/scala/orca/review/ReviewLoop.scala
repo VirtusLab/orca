@@ -21,7 +21,7 @@ import orca.{
 }
 import orca.plan.{Task, Title}
 
-import orca.agents.{BackendTag, Agent, Chat}
+import orca.agents.{BackendTag, Chat}
 import orca.events.OrcaEvent
 
 import orca.util.TextUtil
@@ -40,6 +40,14 @@ private[review] enum LoopStep:
 
   /** Issues remain and the cap hasn't been hit — hand them to `fix`. */
   case NeedsFix
+
+/** How many of a round's agent turns run at once — the selected reviewers plus
+  * the lint gate, which shares the budget. Each is an agent subprocess, so the
+  * width is capped independently of the roster, which a project extends by
+  * dropping files in `.orca/reviewers/` (ADR 0023). The gate is queued first,
+  * so sharing the budget never postpones it.
+  */
+private[review] val MaxConcurrentReviewTasks: Int = 8
 
 /** How many fix attempts [[fixLoop]] and [[reviewAndFixLoop]] allow before
   * giving up. Named once so the two can't drift apart. Public because the
@@ -385,7 +393,7 @@ private case class RoundOutcome(
   */
 def reviewAndFixLoop[B <: BackendTag](
     coderSession: FlowSession[B],
-    reviewers: List[Agent[?]],
+    reviewers: List[ReviewerAgent[?]],
     /** The work under review. Reviewers are shown its title and its
       * description, alongside `userRequest`, each labelled — so a reviewer can
       * tell what the user asked for apart from what the planner decided, and
@@ -533,7 +541,7 @@ def reviewAndFixLoop[B <: BackendTag](
   */
 def reviewThenFix[B <: BackendTag](
     coderSession: FlowSession[B],
-    reviewers: List[Agent[?]],
+    reviewers: List[ReviewerAgent[?]],
     task: Task,
     userRequest: Option[String] = None,
     formatCommands: Configured[List[String]] = Configured.FromSettings,
@@ -599,7 +607,7 @@ private def resolveLint(
   */
 private[review] case class ReviewLoopConfig[B <: BackendTag](
     coderSession: FlowSession[B],
-    reviewers: List[Agent[?]],
+    reviewers: List[ReviewerAgent[?]],
     reviewerSelection: ReviewerSelector,
     task: Task,
     userRequest: String,
@@ -796,12 +804,23 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     // type to `() => AgentOutcome` so their capture sets unify into the single
     // `C^` CheckedPar.mapParUnordered binds below. Deleting it breaks the CC
     // compile.
-    val tasks = reviewerTasks.++[() => AgentOutcome](lintTaskOpt.toList)
+    //
+    // Lint goes first because `mapParUnordered` draws in order: at the cap the
+    // gate would otherwise wait for a reviewer to finish, and a round where the
+    // two must make progress together would stall. `collectRound` keys
+    // reviewers by id and picks lint out by type, so the order reaches nothing
+    // downstream.
+    val tasks = lintTaskOpt.toList.++[() => AgentOutcome](reviewerTasks)
     if tasks.isEmpty then RoundOutcome(Nil, currentState)
     else
       val outcomes: List[AgentOutcome] =
-        // The fan out the file header's capture checking guards.
-        CheckedPar.mapParUnordered(tasks.size)(tasks):
+        // The fan out the file header's capture checking guards. The width is
+        // fixed, not `tasks.size`: the roster is user-extensible (ADR 0023) and
+        // each task is an agent subprocess. `collectRound` restores configured
+        // order from completion order, so narrowing costs latency only.
+        CheckedPar.mapParUnordered(tasks.size.min(MaxConcurrentReviewTasks))(
+          tasks
+        ):
           // Display the bare slug — the `reviewer` role tag is a cost-report
           // grouping detail, not part of what the user sees.
           case AgentOutcome.Reviewer(c) =>

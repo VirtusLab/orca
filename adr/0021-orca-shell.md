@@ -328,13 +328,21 @@ Three tiers, one listing:
   `.claude/commands/`.
 - **Global**: `$XDG_CONFIG_HOME/orca/flows/` — config home, not data home
   (user-authored, dotfile-portable; fish-functions precedent), sharing
-  `GlobalSettings`' config-home resolution.
+  `ConfigHome`'s config-home resolution.
 - **Built-in**: shipped with the shell (§7).
 
 Precedence project > global > built-in, keyed by filename — one menu row per
 name showing the winner's description and origin label, with a
 `shadows <tier>` annotation so shadowing is visible; no UI to run a shadowed
 tier in v1.
+
+A symlinked `*.sc` is skipped in the project tier only: that directory is
+committed and orca runs against arbitrary cloned repos, so View would disclose,
+and Edit write through to, a target outside the tree. The global tier is the
+user's own config home and the built-in tier is orca's own extraction cache, so
+both are read through links — ADR 0023 reads reviewer tiers the same way, and a
+dotfiles manager that links each file in is normal. A listing is a menu, so a
+link with no target is dropped rather than failing the listing.
 
 Description rule: the first line, within the file's leading block of blank
 lines / `//` comments / `//>` directives, that is a `//` comment (not a

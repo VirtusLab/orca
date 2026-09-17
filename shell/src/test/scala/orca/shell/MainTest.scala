@@ -11,7 +11,8 @@ import orca.runner.manifest.{
 import orca.settings.SettingsFile
 import orca.shell.actions.{SettingsEditAction, StackAction}
 import orca.shell.create.CreateTier
-import orca.shell.flows.{DiscoveredFlow, FlowOrigin}
+import orca.discovery.Origin
+import orca.shell.flows.DiscoveredFlow
 import orca.shell.resume.InterruptedRun
 import orca.shell.run.{FlowFlags, LaunchResult}
 import orca.shell.sessions.{RecordedRun, SessionPicker, SessionSelection}
@@ -495,7 +496,7 @@ class MainTest extends munit.FunSuite:
     DiscoveredFlow(
       name = name,
       description = None,
-      origin = FlowOrigin.BuiltIn,
+      origin = Origin.BuiltIn,
       path = os.root / s"$name",
       shadows = Nil
     )
@@ -506,7 +507,7 @@ class MainTest extends munit.FunSuite:
     */
   private def flowAt(
       name: String,
-      origin: FlowOrigin,
+      origin: Origin,
       path: os.Path
   ): DiscoveredFlow =
     DiscoveredFlow(
@@ -607,7 +608,7 @@ class MainTest extends munit.FunSuite:
       val flow = DiscoveredFlow(
         name = "run-flow.sc",
         description = None,
-        origin = FlowOrigin.Project,
+        origin = Origin.Project,
         path = workDir / ".orca" / "flows" / "run-flow.sc",
         shadows = Nil
       )
@@ -671,7 +672,7 @@ class MainTest extends munit.FunSuite:
   ):
     withDumbTerminal: terminal =>
       val source =
-        flowAt("my-flow.sc", FlowOrigin.Project, TempDirs.dir() / "my-flow.sc")
+        flowAt("my-flow.sc", Origin.Project, TempDirs.dir() / "my-flow.sc")
       val ui = FlowScriptedUi(selectScript =
         List(UiOutcome.Selected(source), UiOutcome.Selected(ChangeMode.Hand))
       )
@@ -690,7 +691,7 @@ class MainTest extends munit.FunSuite:
       val workDir = TempDirs.dir()
       val sourcePath = TempDirs.dir() / "my-flow.sc"
       os.write(sourcePath, "// x\n")
-      val source = flowAt("my-flow.sc", FlowOrigin.BuiltIn, sourcePath)
+      val source = flowAt("my-flow.sc", Origin.BuiltIn, sourcePath)
       val ui = FlowScriptedUi(selectScript =
         List(
           UiOutcome.Selected(source),
@@ -733,7 +734,7 @@ class MainTest extends munit.FunSuite:
   ):
     withDumbTerminal: terminal =>
       val source =
-        flowAt("my-flow.sc", FlowOrigin.Project, os.root / "my-flow.sc")
+        flowAt("my-flow.sc", Origin.Project, os.root / "my-flow.sc")
       val ui = FlowScriptedUi(
         selectScript = List(
           UiOutcome.Selected(source),
@@ -939,7 +940,7 @@ class MainTest extends munit.FunSuite:
       val workDir = TempDirs.dir()
       val sourcePath = TempDirs.dir() / "implement.sc"
       os.write(sourcePath, "// source content\n")
-      val source = flowAt("implement.sc", FlowOrigin.Global, sourcePath)
+      val source = flowAt("implement.sc", Origin.Global, sourcePath)
       val ui = FlowScriptedUi(selectScript =
         List(
           UiOutcome.Selected(source),
