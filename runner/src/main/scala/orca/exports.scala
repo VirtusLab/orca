@@ -78,6 +78,7 @@ export orca.review.{
   Location,
   Reviewer,
   ReviewerAgent,
+  ReviewerCatalog,
   ReviewerPrompts,
   ReviewBatch,
   ReviewDiff,

@@ -2,6 +2,9 @@ package orca.review
 
 class ReviewerRosterTest extends munit.FunSuite:
 
+  private given orca.FlowContext =
+    new orca.TestFlowContext(new orca.events.EventDispatcher(Nil))
+
   test(
     "a roster entry reads its name, description and file pattern off the reviewer definition"
   ):

@@ -1,5 +1,6 @@
 package orca.review
 
+import orca.FlowContext
 import orca.agents.{BackendTag, Agent}
 import orca.util.{ParsedPrompt, PromptResource}
 
@@ -59,6 +60,7 @@ final case class ReviewerAgent[B <: BackendTag] private[review] (
   * `source` names the file, so the message says which one to fix.
   */
 private[review] enum ReviewerPromptFailure:
+  case MalformedFrontmatter(slug: String, source: String)
   case MissingDescription(slug: String, source: String)
   case MissingBody(slug: String, source: String)
   case InvalidFilePattern(
@@ -72,6 +74,10 @@ private[review] object ReviewerPromptFailure:
   extension (failure: ReviewerPromptFailure)
     /** What the author is told, naming the file and what to do about it. */
     def message: String = failure match
+      case MalformedFrontmatter(slug, source) =>
+        s"reviewer '$slug' ($source) has a frontmatter block the parser " +
+          "could not read — it must open with '---' on the first line, close " +
+          "with '---', and hold `key: value` lines"
       case MissingDescription(slug, source) =>
         s"reviewer '$slug' ($source) has no 'description:' in its " +
           "frontmatter — add one saying what the reviewer checks"
@@ -99,6 +105,10 @@ private[review] def reviewerFrom(
     source: String
 ): Either[ReviewerPromptFailure, Reviewer] =
   either:
+    // Reached only for a file that opened a frontmatter block: one that never
+    // did is a document, and discovery skips it before this point.
+    if parsed.metadata.isEmpty then
+      Left(ReviewerPromptFailure.MalformedFrontmatter(slug, source)).ok()
     val description = parsed.metadata
       .get("description")
       .filter(_.nonEmpty)
@@ -189,21 +199,32 @@ object ReviewerPrompts:
     Test
   )
 
-/** Build a [[ReviewerAgent]] for every reviewer the library ships with. The
-  * default picker ([[ReviewerSelector.agentDriven]]) narrows the active set per
-  * task, so passing the full list isn't wasteful.
+/** Build a [[ReviewerAgent]] for every reviewer in the run's
+  * [[orca.FlowContext.reviewerCatalog]]: the shipped set, plus whatever
+  * `.orca/reviewers/` and the user-global reviewer directory add, with a
+  * same-named file replacing the shipped reviewer it names. The default picker
+  * ([[ReviewerSelector.agentDriven]]) narrows the active set per task, so
+  * passing the full list isn't wasteful.
   */
-def allReviewers[B <: BackendTag](base: Agent[B]): List[ReviewerAgent[B]] =
-  buildReviewers(base, ReviewerPrompts.all)
+def allReviewers[B <: BackendTag](base: Agent[B])(using
+    ctx: FlowContext
+): List[ReviewerAgent[B]] =
+  buildReviewers(base, ctx.reviewerCatalog.all)
 
 /** Build [[ReviewerAgent]]s for the small universally-applicable subset
-  * ([[ReviewerPrompts.minimal]] — correctness, test quality, clarity). Pick
-  * this when the full set is overkill or the flow only touches small diffs.
+  * (correctness, test quality, clarity). Pick this when the full set is
+  * overkill or the flow only touches small diffs.
+  *
+  * A reviewer discovered under a slug nothing ships is in this list too — a
+  * project that ships one means it for small diffs as well. One that shadows a
+  * shipped reviewer replaces it only where that reviewer already appears, so a
+  * file named after a shipped reviewer outside this subset (`security`, say)
+  * changes [[allReviewers]] and leaves this list alone.
   */
-def minimalReviewers[B <: BackendTag](
-    base: Agent[B]
+def minimalReviewers[B <: BackendTag](base: Agent[B])(using
+    ctx: FlowContext
 ): List[ReviewerAgent[B]] =
-  buildReviewers(base, ReviewerPrompts.minimal)
+  buildReviewers(base, ctx.reviewerCatalog.minimal)
 
 /** Pair each reviewer definition with the agent that runs it: its system prompt
   * layered onto the base tool, named with the bare reviewer slug and gated to

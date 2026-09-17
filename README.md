@@ -490,6 +490,55 @@ written to .orca/settings.properties — review and edit as needed.
 Runs with an existing, stack-complete file — the steady state, including CI —
 make no model call.
 
+**Reviewer prompts.** Reviewers come from three tiers, read once per run before
+setup like the settings files:
+
+- **`{workDir}/.orca/reviewers/*.md`** — committed project reviewers.
+- **`$XDG_CONFIG_HOME/orca/reviewers/*.md`**, defaulting to
+  `~/.config/orca/reviewers/` — your own, across every project.
+- The eight reviewers orca ships with.
+
+A reviewer's identity is its filename stem — `.orca/reviewers/orca.md` is the
+reviewer `orca` — compared case-insensitively. A file whose stem matches a
+lower tier replaces it, keeping its position in the roster; anything else is
+appended, sorted by name. Project beats global beats built-in, so
+`.orca/reviewers/scala-fp.md` retunes the shipped `scala-fp` for this project
+without changing how many reviewers run. A reviewer that adds a new name joins
+both `allReviewers` and `minimalReviewers`; one that shadows a shipped reviewer
+runs wherever that shipped reviewer runs, so shadowing `scala-fp` leaves
+`minimalReviewers` — correctness, clarity, tests — alone. The picker narrows
+per task as usual.
+
+Each file is frontmatter plus a body, the same shape the shipped ones use:
+
+```markdown
+---
+description: Checks the project's own layering rules.
+files: \.scala$
+---
+
+## Scope
+
+Review only the layering of the changed files...
+```
+
+`description:` is required — the reviewer-picker decides from it. `files:` is
+optional: a regex matched against each changed path, so the reviewer is only
+offered when the change touches a file it applies to. The body is the
+reviewer's system prompt. A `name:` key, if present, is ignored.
+
+An `.md` file that opens no frontmatter block at all is a document, not a
+reviewer, so the directory can hold its own `README.md`. Anything else malformed
+— a frontmatter block that doesn't close, a missing `description:`, an empty
+body, an invalid `files:` regex, a symlinked prompt, two files claiming one name
+— aborts the run before any tree mutation, naming every bad file at once; a
+reviewer silently dropped from the roster would read as a clean review. When a tier contributes
+anything, setup says so:
+
+```text
+discovered reviewers: orca (project); scala-fp (project, shadows built-in)
+```
+
 <details>
 <summary>Discovery internals and the <code>.orca/</code> directory</summary>
 
@@ -704,8 +753,9 @@ Review utilities, available via `import orca.review.*`:
 | `lint(commands, summariser, instructions)` | As above, but summarising into an existing `Lint.summariser(agent)` conversation instead of a fresh one per call, so a gate run several times within one stage resumes the session rather than re-establishing it each round. Stop reusing a summariser once it has reported: it can repeat those findings on a later call whose commands no longer show them. `reviewAndFixLoop` does this for you. |
 | `reviewAndFixLoop(coderSession, reviewers, task, userRequest?, ..., formatCommands?, lint?, maxIterations?, fixInstructions?)` | Run reviewers against `task: Task`, collect their findings, hand them to the `coderSession` (a `FlowSession`) to fix, re-evaluate. Reviewers are asked to report only what they believe should be fixed, and every finding they report reaches the fixer — nothing filters them in between. Reviewers see the task's title and description under separate labels, plus the user's request — the run's prompt by default, or `userRequest` when the prompt is only a pointer, like an issue reference. Keeping them apart is what lets a reviewer report a finding against the planner's choice rather than only against the code. A flow with no planning stage passes its prompt as the title and an empty description. Halts when reviewers come back clean, the fixer reports no fixes, or `maxIterations` fix attempts have run (default 3, so up to four evaluation rounds). Every exit names the findings it leaves open and why each is still open. Whatever is still open at that point — the findings the fixer declined, didn't account for, or that were first reported in the round that hit the cap — comes back in the returned `IgnoredIssues` with a reason. `formatCommands: Configured[List[String]]` runs before each review round; `lint: Configured[Lint]` runs alongside the reviewers each round — both default to the project's [stack settings](#settings), see below. |
 | `reviewThenFix(coderSession, reviewers, task, userRequest?, formatCommands?, lint?)` | One round of the above and, if it found anything, one fix turn — then done. Nothing re-reviews a reviewer finding, so the fixer's claim that it fixed one is taken on trust; the lint gate is the exception, re-run over the fixer's edits and given one more fix turn if it still fails. Reviewers are picked once (`ReviewerSelector.agentDriven`) and the change set is the enclosing stage's, as above. What the fixer declined, what it never reported on, and what the lint gate still fails on, come back in the returned `IgnoredIssues` with a reason. Use it per task where a later stage reviews the same code again — a whole-run `reviewAndFixLoop`, below — and pay for the loop where nothing else re-reviews the fixes. |
-| `allReviewers(base)` | All eight canonical reviewers (code-functionality, test, readability, code-structure, simplicity, performance, security, scala-fp) as `ReviewerAgent`s — each one its `Reviewer` definition plus a read-only agent built from `base`. |
-| `minimalReviewers(base)` | Universally-applicable subset (code-functionality, readability, test), same shape. Pair with the default LLM-driven selector when the full set is overkill. |
+| `allReviewers(base)` | Every reviewer in the run's catalog (the eight canonical ones — code-functionality, test, readability, code-structure, simplicity, performance, security, scala-fp — plus whatever `.orca/reviewers/` and the global tier add, see [Settings](#settings)) as `ReviewerAgent`s: each one its `Reviewer` definition plus a read-only agent built from `base`. |
+| `minimalReviewers(base)` | Universally-applicable subset (code-functionality, readability, test) plus every discovered reviewer, same shape. Pair with the default LLM-driven selector when the full set is overkill. |
+| `reviewerCatalog` (in-body accessor) | The run's resolved reviewer definitions — `.all` and `.minimal` are what the two above build from. Filter it to pick a subset yourself. |
 | `fixLoop(evaluate, fix, ...)` | Lower-level evaluate/fix loop over your own two functions — no reviewers, no sessions, no diff. Shares `reviewAndFixLoop`'s stop policy and `maxIterations` default, not its machinery. |
 
 `reviewAndFixLoop`'s stack-dependent parameters are three-state
@@ -793,9 +843,11 @@ unless nothing is known about the change set, in which case it stays eligible.
 The selector reads each reviewer's name, description and pattern off its
 `Reviewer`, so your own reviewers are described and gated the same way.
 
-To swap or extend the reviewer set, compose your own `List[Reviewer]` from
-`ReviewerPrompts` (the shipped entries, `ReviewerPrompts.all`/`.minimal`, and/or
-your own `Reviewer(name, description, systemPrompt)`) and turn it into
+To swap or extend the reviewer set for one project, drop `.md` files in
+`.orca/reviewers/` — no code changes (see [Settings](#settings)). To do it from
+the flow, compose your own `List[Reviewer]` from `reviewerCatalog.all` (the
+run's resolved set), `ReviewerPrompts` (the shipped entries alone), and/or your
+own `Reviewer(name, description, systemPrompt)`, then turn it into
 `ReviewerAgent`s with `buildReviewers(base, list)`.
 
 PR utilities, available via `import orca.pr.*`:

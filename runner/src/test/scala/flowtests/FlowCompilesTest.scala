@@ -167,7 +167,12 @@ object FlowCanary:
         )
         val list: List[Reviewer] = ReviewerPrompts.minimal :+ custom
         val _: List[ReviewerAgent[?]] = buildReviewers(claude, list)
+        // Resolve inside a stage, where `FlowControl` is the ambient
+        // `FlowContext` these read the run's catalog from.
         val _: List[ReviewerAgent[?]] = allReviewers(claude)
+        val _: List[ReviewerAgent[?]] = minimalReviewers(claude)
+        val _: ReviewerCatalog = reviewerCatalog
+        val _: List[Reviewer] = reviewerCatalog.all
 
   /** `flows/review.sc`: reviewers run for their findings alone, with no coder
     * session and no fix loop. Pins the roster's file filters, a parallel
@@ -177,12 +182,23 @@ object FlowCanary:
   def reviewOnlyShape(): Unit =
     flow(OrcaArgs()):
       stage("review"):
-        val _: List[Option[Regex]] = ReviewerPrompts.all.map(_.filePattern)
-        val reviewers = buildReviewers(reviewAgent, ReviewerPrompts.all)
+        val candidates: List[Reviewer] = narrowToChangedFiles()
+        val _: List[Option[Regex]] = candidates.map(_.filePattern)
+        val reviewers = buildReviewers(reviewAgent, candidates)
         val results: List[ReviewResult] = Par.mapUnordered(4)(reviewers): r =>
           r.agent.resultAs[ReviewResult].autonomous.run(r.definition.name)
         val _: List[Option[Location]] =
           results.flatMap(_.issues).map(_.location)
+
+  /** `flows/review.sc`'s `pickReviewers` is a top-level helper, so it resolves
+    * the catalog against a bare `FlowContext` — not the `FlowControl` a stage
+    * body supplies. Pins that shape separately.
+    */
+  private def narrowToChangedFiles()(using
+      FlowContext,
+      InStage
+  ): List[Reviewer] =
+    reviewerCatalog.all.filter(_.appliesTo(List("a.scala")))
 
   /** Config overrides must be reachable as unqualified names so users can write
     * `flow(args = ..., workDir = ...)` straight from `import orca.*`.

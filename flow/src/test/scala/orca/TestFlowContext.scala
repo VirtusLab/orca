@@ -10,6 +10,7 @@ import orca.agents.{
   OpencodeAgent,
   PiAgent
 }
+import orca.review.ReviewerCatalog
 import orca.progress.{BranchMode, CommitHash, ProgressHeader, ProgressStore}
 import orca.testkit.GitRepo
 import orca.tools.FsTool
@@ -39,7 +40,8 @@ class TestFlowContext(
     dispatcher: EventDispatcher,
     val userPrompt: String = "",
     val workDir: os.Path = orca.testkit.TempDirs.dir(),
-    val stackSettings: StackSettings = StackSettings.empty
+    val stackSettings: StackSettings = StackSettings.empty,
+    val reviewerCatalog: ReviewerCatalog = ReviewerCatalog.builtIn
 ) extends FlowContext,
       ReportedErrorsSupport:
   private def stub(name: String) =
@@ -75,7 +77,8 @@ class TestFlowControl(
     lead: Option[Agent[BackendTag.ClaudeCode.type]] = None,
     val workDir: os.Path = orca.testkit.TempDirs.dir(),
     val stackSettings: StackSettings = StackSettings.empty,
-    private[orca] val startingCommit: Option[CommitHash] = None
+    private[orca] val startingCommit: Option[CommitHash] = None,
+    val reviewerCatalog: ReviewerCatalog = ReviewerCatalog.builtIn
 ) extends FlowControl,
       ReportedErrorsSupport,
       StageFrames:
@@ -117,6 +120,7 @@ object TestFlowControl:
       userPrompt: String = "p",
       lead: Option[Agent[BackendTag.ClaudeCode.type]] = None,
       stackSettings: StackSettings = StackSettings.empty,
+      reviewerCatalog: ReviewerCatalog = ReviewerCatalog.builtIn,
       // False models a run left with no whole-run diff base: no header recorded
       // one, or the one it recorded was dropped as unusable. Everything else
       // about the fixture is unchanged.
@@ -151,7 +155,8 @@ object TestFlowControl:
         lead,
         dir,
         stackSettings,
-        startingCommit
+        startingCommit,
+        reviewerCatalog
       ),
       dir
     )

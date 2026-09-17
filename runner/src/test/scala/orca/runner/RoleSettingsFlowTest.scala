@@ -1,13 +1,6 @@
 package orca.runner
 
-import orca.{
-  FlowContext,
-  OrcaArgs,
-  OrcaDir,
-  OrcaFlowException,
-  StackSettings,
-  runFlow
-}
+import orca.{FlowContext, OrcaDir, OrcaFlowException, StackSettings}
 import orca.agents.{
   Agent,
   AgentCall,
@@ -25,14 +18,11 @@ import orca.agents.{
   SessionId,
   ToolSet
 }
-import orca.events.{OrcaEvent, OrcaListener}
+import orca.events.OrcaListener
 import orca.settings.SettingsFile
 import orca.testkit.{GitRepo, TempDirs}
 import orca.tools.OsGitTool
-import orca.runner.terminal.TerminalInteraction
-import ox.supervised
 
-import java.io.{ByteArrayOutputStream, PrintStream}
 import java.util.concurrent.atomic.AtomicReference
 
 /** End-to-end coverage of settings-driven role resolution through `runFlow`
@@ -437,12 +427,10 @@ class RoleSettingsFlowTest extends munit.FunSuite:
     os.write(path, content, createFolders = true)
     path
 
-  private def absentGlobal(): os.Path =
-    TempDirs.dir() / "orca" / "settings.properties"
+  private def absentGlobal(): os.Path = FlowHarness.absentGlobalSettings()
 
   private def recordSteps(sink: AtomicReference[List[String]]): OrcaListener =
-    case OrcaEvent.Step(msg) => val _ = sink.updateAndGet(_ :+ msg)
-    case _                   => ()
+    FlowHarness.recordSteps(sink)
 
   private def wiringWith(
       claude: orca.agents.ClaudeAgent,
@@ -470,26 +458,17 @@ class RoleSettingsFlowTest extends munit.FunSuite:
       listeners: List[OrcaListener] = Nil,
       wiring: FlowWiring
   )(body: orca.FlowControl ?=> Unit): Unit =
-    supervised:
-      val interaction = TerminalInteraction.start(
-        out = new PrintStream(new ByteArrayOutputStream()),
-        useColor = false,
-        animated = false
-      )
-      runFlow(
-        args = OrcaArgs("role-settings"),
-        workDir = workDir,
-        interaction = Some(interaction),
-        extraListeners = listeners,
-        branchNaming = None,
-        stackSettings = stackSettings,
-        planningAgent = planningOverride,
-        codingAgent = codingOverride,
-        reviewAgent = reviewOverride,
-        progressStore = None,
-        globalSettingsPath = globalSettingsPath,
-        wiring = wiring
-      )(body)
+    FlowHarness.driveFlow(
+      workDir = workDir,
+      wiring = wiring,
+      flowName = "role-settings",
+      globalSettingsPath = globalSettingsPath,
+      stackSettings = stackSettings,
+      planningOverride = planningOverride,
+      codingOverride = codingOverride,
+      reviewOverride = reviewOverride,
+      listeners = listeners
+    )(body)
 
   /** A malformed settings file (project or global) must surface as a
     * `SurfacedFlowFailure` and leave HEAD on the starting branch — the abort

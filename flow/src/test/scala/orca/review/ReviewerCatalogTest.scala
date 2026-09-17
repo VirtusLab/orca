@@ -143,6 +143,26 @@ class ReviewerCatalogTest extends munit.FunSuite:
       intercept[OrcaFlowException](ReviewerCatalog.discover(project, global))
     assert(e.getMessage.contains((project / "orca.md").toString), e.getMessage)
 
+  test("an unterminated frontmatter block aborts, not silently skipped"):
+    val (project, global) = dirs()
+    os.write(
+      project / "orca.md",
+      "---\ndescription: checks the thing\n\n## Scope\n",
+      createFolders = true
+    )
+    val e =
+      intercept[OrcaFlowException](ReviewerCatalog.discover(project, global))
+    assert(e.getMessage.contains("frontmatter"), e.getMessage)
+
+  test("two files claiming one slug in a tier abort"):
+    val (project, global) = dirs()
+    val _ = writeReviewer(project, "orca")
+    val _ = writeReviewer(project, "Orca")
+    val e =
+      intercept[OrcaFlowException](ReviewerCatalog.discover(project, global))
+    assert(e.getMessage.contains("Orca.md"), e.getMessage)
+    assert(e.getMessage.contains("orca.md"), e.getMessage)
+
   test("a reviewer file with no description aborts, naming the file"):
     val (project, global) = dirs()
     os.write(

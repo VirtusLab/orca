@@ -42,13 +42,15 @@ private[orca] case class DiscoveredReviewer(
     shadows: List[ReviewerOrigin]
 )
 
-/** The reviewer definitions a run works from. `discovered` is the whole of it:
-  * [[all]] and [[minimal]] are the shipped lists with each discovered slug
-  * substituted in where it already sits, and the rest appended — so a catalog
-  * cannot describe a reviewer its roster doesn't run.
+/** The reviewer definitions a run works from, reachable in a flow body as
+  * `reviewerCatalog`. [[all]] and [[minimal]] are the shipped lists with each
+  * discovered slug substituted in where it already sits, and the rest appended
+  * — both derived from the one `discovered` list, so a catalog cannot describe
+  * a reviewer its roster doesn't run. [[ReviewerCatalog.discover]] is the only
+  * way to build one with anything in it.
   */
-private[orca] case class ReviewerCatalog(
-    discovered: List[DiscoveredReviewer]
+final class ReviewerCatalog private[review] (
+    private[orca] val discovered: List[DiscoveredReviewer]
 ):
   /** Every reviewer this run can pick from, shipped order preserved. */
   lazy val all: List[Reviewer] = withDiscovered(ReviewerPrompts.all)
@@ -63,7 +65,7 @@ private[orca] case class ReviewerCatalog(
     * `None` when the run works from the shipped set alone and there is nothing
     * to report. Names only the discovered entries, not the whole roster.
     */
-  def describe: Option[String] =
+  private[orca] def describe: Option[String] =
     Option.when(discovered.nonEmpty):
       val entries = discovered.map: d =>
         val shadowed =
@@ -82,10 +84,10 @@ private[orca] case class ReviewerCatalog(
   private def withDiscovered(base: List[Reviewer]): List[Reviewer] =
     base.map(r => discoveredBySlug.getOrElse(r.name, r)) ++ added
 
-private[orca] object ReviewerCatalog:
+object ReviewerCatalog:
 
   /** The shipped set alone — no tier directory contributed anything. */
-  val builtIn: ReviewerCatalog = ReviewerCatalog(Nil)
+  private[orca] val builtIn: ReviewerCatalog = new ReviewerCatalog(Nil)
 
   /** Read both file tiers and resolve them against the shipped set.
     *
@@ -104,7 +106,10 @@ private[orca] object ReviewerCatalog:
     * calling, as every other `.orca` read path does. The per-file check below
     * does not cover a symlinked tier directory.
     */
-  def discover(projectDir: os.Path, globalDir: os.Path): ReviewerCatalog =
+  private[orca] def discover(
+      projectDir: os.Path,
+      globalDir: os.Path
+  ): ReviewerCatalog =
     val byTier = List(
       ReviewerFileTier.Project -> reviewerFiles(projectDir),
       ReviewerFileTier.Global -> reviewerFiles(globalDir)
@@ -120,7 +125,7 @@ private[orca] object ReviewerCatalog:
         "cannot read the reviewers for this run:\n" +
           failures.map(f => s"  - ${f.message}").mkString("\n")
       )
-    ReviewerCatalog(discovered)
+    new ReviewerCatalog(discovered)
 
   /** The tiers defining `slug`, winner first, with the shipped set appended as
     * the last thing a file tier can shadow.
@@ -151,9 +156,12 @@ private[orca] object ReviewerCatalog:
   /** Reviewer `.md` files directly in `dir`, keyed by lower-cased filename
     * stem; empty if `dir` doesn't exist.
     *
-    * A `.md` file with no frontmatter block at all is a document, not a broken
+    * A `.md` file that opens no frontmatter block is a document, not a broken
     * reviewer, and is skipped: the directory is committed, so it holds the
-    * project's own notes and `README.md` alongside the prompts.
+    * project's own notes and `README.md` alongside the prompts. One that opens
+    * a block the parser then can't read is a broken reviewer, and
+    * [[reviewerFrom]] reports it — the exemption is deliberately narrow,
+    * because a dropped reviewer reads as a clean review.
     *
     * A symlinked `.md` aborts instead. Reading one would make a file from
     * outside the tree the system prompt of a reviewer that runs on every
@@ -172,9 +180,19 @@ private[orca] object ReviewerCatalog:
             s"$link is a symlink — refusing to read a reviewer prompt through " +
               "it; copy the file into the directory instead of linking it"
           )
-      markdown
+      val files = markdown
         .filter(os.isFile)
         .map(p => ReviewerFile(p, PromptResource.parseWithMetadata(os.read(p))))
-        .filter(_.parsed.metadata.nonEmpty)
-        .map(f => f.path.baseName.toLowerCase(Locale.ROOT) -> f)
-        .toMap
+        .filter(_.parsed.hasFrontmatter)
+      val bySlug = files.groupBy(_.path.baseName.toLowerCase(Locale.ROOT))
+      // Slugs are compared lower-cased, so on a case-sensitive filesystem two
+      // files can claim one; picking a winner would drop the other silently.
+      bySlug
+        .find(_._2.sizeIs > 1)
+        .foreach: (slug, colliding) =>
+          throw new OrcaFlowException(
+            s"reviewer '$slug' is claimed by more than one file in $dir " +
+              s"(${colliding.map(_.path.last).sorted.mkString(", ")}) — " +
+              "reviewer names are compared case-insensitively; keep one"
+          )
+      bySlug.view.mapValues(_.head).toMap

@@ -3,6 +3,11 @@ package orca.review
 import orca.agents.{Announce, BackendTag, JsonData, AgentCall, Agent}
 class AllReviewersTest extends munit.FunSuite:
 
+  // `allReviewers`/`minimalReviewers` read the run's catalog; the default one
+  // is the shipped set.
+  private given orca.FlowContext =
+    new orca.TestFlowContext(new orca.events.EventDispatcher(Nil))
+
   /** Agent that records every `withSystemPrompt` call into a shared buffer (so
     * renamed copies still feed the same record) and otherwise behaves as a
     * no-op stub. `withName` returns a fresh instance carrying the new name so
@@ -44,6 +49,27 @@ class AllReviewersTest extends munit.FunSuite:
         r.description.nonEmpty,
         s"reviewer '${r.name}' has an empty description"
       )
+
+  test("the presets build from the run's catalog, not the shipped set"):
+    val extra =
+      Reviewer("orca", "checks orca's own rules", systemPrompt = "## Scope")
+    // Shadows the file-level built-in context for this test only.
+    given orca.FlowContext = new orca.TestFlowContext(
+      new orca.events.EventDispatcher(Nil),
+      reviewerCatalog = new ReviewerCatalog(
+        List(DiscoveredReviewer(extra, ReviewerFileTier.Project, Nil))
+      )
+    )
+    val base = new RecordingTool
+    assertEquals(
+      allReviewers(base).map(_.definition.name),
+      ReviewerPrompts.all.map(_.name) :+ "orca"
+    )
+    assertEquals(
+      minimalReviewers(new RecordingTool).map(_.definition.name),
+      ReviewerPrompts.minimal.map(_.name) :+ "orca"
+    )
+    assert(base.seen.contains("## Scope"), base.seen.toString)
 
   test("a reviewer cannot be built with a blank description"):
     // The picker is handed `- <name>: <description>`; a blank one leaves it

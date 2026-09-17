@@ -5,7 +5,13 @@ package orca.util
   */
 private[orca] case class ParsedPrompt(
     metadata: Map[String, String],
-    body: String
+    body: String,
+    /** Whether the text opened a `---` frontmatter block at all. A file without
+      * one carries no metadata by design; one that opened a block and still has
+      * empty `metadata` has a block the parser could not read — unterminated,
+      * mis-delimited, or holding no `key: value` line.
+      */
+    hasFrontmatter: Boolean
 )
 
 /** Loads prompt templates from classpath resources, one `.md` file per template
@@ -69,11 +75,15 @@ private[orca] object PromptResource:
     // endings, or a BOM an editor added; the delimiter scan below matches
     // neither, and would report the frontmatter as missing rather than absent.
     val text = raw.stripPrefix("\uFEFF").replace("\r\n", "\n")
-    if !text.startsWith("---\n") then ParsedPrompt(Map.empty, text)
+    // Looser than the `---\n` the parse below needs: `--- ` with a trailing
+    // space, or `---` at EOF, is a frontmatter attempt that failed, not a file
+    // that never tried.
+    val opened = text.startsWith("---")
+    if !text.startsWith("---\n") then ParsedPrompt(Map.empty, text, opened)
     else
       val afterOpen = text.substring(4) // skip "---\n"
       val closeIdx = afterOpen.indexOf("\n---")
-      if closeIdx < 0 then ParsedPrompt(Map.empty, text)
+      if closeIdx < 0 then ParsedPrompt(Map.empty, text, hasFrontmatter = true)
       else
         val frontmatter = afterOpen.substring(0, closeIdx)
         // skip past "\n---" plus the trailing newline (if present)
@@ -85,7 +95,7 @@ private[orca] object PromptResource:
         val metadata = frontmatter.linesIterator
           .flatMap(parseFrontmatterLine)
           .toMap
-        ParsedPrompt(metadata, body)
+        ParsedPrompt(metadata, body, hasFrontmatter = true)
 
   private def parseFrontmatterLine(line: String): Option[(String, String)] =
     val trimmed = line.stripTrailing

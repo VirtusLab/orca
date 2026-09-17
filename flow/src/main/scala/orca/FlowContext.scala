@@ -5,6 +5,7 @@ import orca.tools.FsTool
 import orca.tools.GitTool
 import orca.tools.GitHubTool
 import orca.agents.{Agent, BackendTag}
+import orca.review.ReviewerCatalog
 
 import scala.annotation.implicitNotFound
 
@@ -93,6 +94,14 @@ trait FlowContext extends AgentSet:
     * the run.
     */
   def stackSettings: StackSettings
+
+  /** The reviewer definitions this run works from: the shipped set with the
+    * project's `.orca/reviewers/` and the user-global directory layered over
+    * it. Resolved once at run start, like [[stackSettings]], and frozen for the
+    * run — what [[orca.review.allReviewers]] and
+    * [[orca.review.minimalReviewers]] build their agents from.
+    */
+  def reviewerCatalog: ReviewerCatalog
 
   def userPrompt: String
   def emit(event: OrcaEvent): Unit

@@ -21,6 +21,7 @@ import orca.agents.{
   Prompts
 }
 import orca.progress.ProgressStore
+import orca.review.ReviewerCatalog
 import orca.runner.{
   DefaultFlowContext,
   FlowLifecycle,
@@ -288,8 +289,8 @@ def flow(
   *
   * `extraListeners` is the listener set beyond the interaction's own (the CLI
   * wrapper adds its [[CostTracker]] here); a [[LoggingListener]] is always
-  * appended. `globalSettingsPath` is overridden only by tests, which must never
-  * read the developer's real `~/.config`.
+  * appended. `globalSettingsPath` and `globalReviewersPath` are overridden only
+  * by tests, which must never read the developer's real `~/.config`.
   */
 private[orca] def runFlow(
     args: OrcaArgs,
@@ -303,6 +304,7 @@ private[orca] def runFlow(
     reviewAgent: Option[AgentSet => Agent[?]] = None,
     progressStore: Option[ProgressStore],
     globalSettingsPath: os.Path = GlobalSettings.default,
+    globalReviewersPath: os.Path = GlobalSettings.defaultReviewers,
     // `ORCA_FLOW_NAME`, forwarded into a freshly-written progress header (see
     // `FlowLifecycle.setup`'s own scaladoc) — `flow()` passes its real
     // `sys.env` reading; `None` for every other caller (tests, a nested
@@ -367,6 +369,7 @@ private[orca] def runFlow(
             codingAgent = codingAgent,
             reviewAgent = reviewAgent,
             globalSettingsPath = globalSettingsPath,
+            globalReviewersPath = globalReviewersPath,
             branchNaming = branchNaming,
             dispatcher = dispatcher,
             agents = agents,
@@ -416,6 +419,7 @@ private def buildContext(
     codingAgent: Option[AgentSet => Agent[?]],
     reviewAgent: Option[AgentSet => Agent[?]],
     globalSettingsPath: os.Path,
+    globalReviewersPath: os.Path,
     branchNaming: Option[BranchNamingStrategy],
     dispatcher: OrcaListener,
     agents: WiredAgents,
@@ -465,6 +469,18 @@ private def buildContext(
         dispatcher.onEvent(OrcaEvent.Step(warning))
       dispatcher.onEvent(OrcaEvent.Step(resolution.announcement))
       (resolution.roles, read)
+    // The run's reviewer definitions, resolved once and frozen. Inside
+    // `surfaced` and before setup for the same reason as the settings above: a
+    // malformed reviewer file aborts before any tree mutation.
+    val reviewerCatalog = surfaced:
+      val projectReviewersPath = OrcaDir.reviewersPath(workDir)
+      // `ReviewerCatalog.discover` reads through `os.isDir`, which follows
+      // links, so the tier directory is guarded here.
+      OrcaDir.assertNoOrcaSymlinks(workDir, projectReviewersPath)
+      val catalog =
+        ReviewerCatalog.discover(projectReviewersPath, globalReviewersPath)
+      catalog.describe.foreach(d => dispatcher.onEvent(OrcaEvent.Step(d)))
+      catalog
     // Setup (branch + log binding, stack discovery) runs BEFORE the context so
     // its outcome is a constructor input; it drives the CODING role.
     val flowSetup = surfaced(
@@ -503,6 +519,7 @@ private def buildContext(
           fs = fsTool,
           progressStore = store,
           stackSettings = flowSetup.stackSettings,
+          reviewerCatalog = reviewerCatalog,
           startingCommit = flowSetup.startingCommit
         )
     transferred = true
