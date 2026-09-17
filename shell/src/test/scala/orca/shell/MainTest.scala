@@ -143,6 +143,7 @@ class MainTest extends munit.FunSuite:
   private def durable(
       agent: String = "main",
       sessionName: String = "main",
+      sessionDetail: String = "",
       stage: Option[String] = None,
       lastActiveAt: String = "2026-07-18T10:00:00Z",
       harness: String = "ClaudeCode",
@@ -157,6 +158,7 @@ class MainTest extends munit.FunSuite:
       role = None,
       stage = stage,
       sessionName = Some(sessionName),
+      sessionDetail = Some(sessionDetail),
       kind = ManifestSessionKind.Durable,
       firstSeenAt = Instant.parse(lastActiveAt),
       lastActiveAt = Instant.parse(lastActiveAt)
@@ -179,6 +181,7 @@ class MainTest extends munit.FunSuite:
       role = role,
       stage = stage,
       sessionName = None,
+      sessionDetail = None,
       kind = ManifestSessionKind.OneShot,
       firstSeenAt = Instant.parse(lastActiveAt),
       lastActiveAt = Instant.parse(lastActiveAt)
@@ -387,6 +390,36 @@ class MainTest extends munit.FunSuite:
       List(
         "★ main — latest (no stage yet) [claude]",
         "… show 1 one-shot session (reviews, plan steps)"
+      )
+    )
+
+  test(
+    "sessionRows keeps two sessions sharing a name apart by their detail"
+  ):
+    val run = RecordedRun(
+      manifest(sessions =
+        List(
+          durable(
+            agent = "coder",
+            sessionName = "implementer",
+            sessionDetail = "task 1: parse the input",
+            lastActiveAt = "2026-07-18T09:00:00Z"
+          ),
+          durable(
+            agent = "coder",
+            sessionName = "implementer",
+            sessionDetail = "task 2: wire the parser",
+            lastActiveAt = "2026-07-18T09:05:00Z"
+          )
+        )
+      ),
+      crashed = false
+    )
+    assertEquals(
+      SessionPicker.sessionRows(List(run), expanded = false).map(_.label),
+      List(
+        "★ implementer (task 2: wire the parser) — latest (no stage yet) [claude]",
+        "★ implementer (task 1: parse the input) — latest (no stage yet) [claude]"
       )
     )
 

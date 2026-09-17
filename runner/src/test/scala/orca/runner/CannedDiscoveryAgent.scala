@@ -1,6 +1,7 @@
 package orca.runner
 
 import orca.agents.{
+  SessionKey,
   AgentCall,
   AgentConfig,
   AgentInput,
@@ -29,7 +30,7 @@ private[runner] class CannedDiscoveryAgent(produce: () => StackDiscoveryResult)
           private[orca] def runWithSession[I: AgentInput](
               input: I,
               session: SessionId[BackendTag.ClaudeCode.type],
-              sessionName: Option[String],
+              sessionKey: Option[SessionKey],
               config: Option[AgentConfig],
               emitPrompt: Boolean
           )(using orca.InStage): O =

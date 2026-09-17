@@ -489,6 +489,18 @@ are excluded automatically.
 > event instead of joining the progress log by `clientId`. The reserved
 > `interactive` kind is gone; re-adding it is additive.
 
+> **Amendment (2026-09-17).** `SessionCommitted` carries the whole
+> `SessionKey` — name *and* detail (ADR 0018 §2.6) — and the manifest records
+> the detail in an added optional `sessionDetail`, so N per-task sessions
+> sharing a name are no longer indistinguishable rows. A manifest without the
+> field reads as a key with an empty detail. Two consequences for the picker
+> described below: a durable lineage is keyed by `(agent, name, detail)`
+> rather than `(agent, name)`, and every row shows `name (detail)`.
+> `orca continue <name>` still matches the name alone — several sessions
+> under one name in one working tree resolve to the most recently active,
+> exactly as a single lineage's occurrences did; a name spanning agents or
+> working trees is still refused as ambiguous.
+
 **Shell side**: after a flow run (and on entry, from existing manifests,
 newest first) the "continue a session" item lists one row per durable
 `(agent, sessionName)` lineage — `★ <sessionName> — latest (stage: <stage>)

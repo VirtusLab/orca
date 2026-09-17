@@ -5,12 +5,13 @@ import orca.agents.{
   BackendTag,
   Agent,
   SessionId,
+  SessionKey,
   AgentInput,
   Announce,
   JsonData
 }
 import orca.events.OrcaEvent
-import orca.progress.{ProgressLog, SessionKey, SessionRecord}
+import orca.progress.{ProgressLog, SessionRecord}
 
 import scala.annotation.implicitNotFound
 import scala.util.NotGiven
@@ -62,11 +63,11 @@ final class FlowSession[B <: BackendTag] private[orca] (
       * an ephemeral continuation via `agent.chat(id)`.
       */
     val id: SessionId[B],
-    /** The name half of the session's key. Carried onto every turn's
+    /** The key this session was minted under. Carried onto every turn's
       * `OrcaEvent.SessionCommitted`, which is what names the session in the run
-      * manifest; the detail half stays in the progress log.
+      * manifest and tells same-named sessions apart in the shell's picker.
       */
-    private[orca] val name: String
+    private[orca] val key: SessionKey
 ):
 
   /** Run the agent autonomously against this session on free-form `prompt`,
@@ -94,7 +95,7 @@ final class FlowSession[B <: BackendTag] private[orca] (
       .runWithSession(
         effectivePrompt(agent, id, prompt),
         id,
-        sessionName = Some(name),
+        sessionKey = Some(key),
         config = None,
         emitPrompt = true
       )
@@ -107,7 +108,7 @@ final class FlowSession[B <: BackendTag] private[orca] (
     * [[FlowSessionCall]]).
     */
   def resultAs[O: JsonData: Announce]: FlowSessionCall[B, O] =
-    new FlowSessionCall(agent, id, name)
+    new FlowSessionCall(agent, id, key)
 
 /** Structured-durable gateway for a [[FlowSession]] (obtained via
   * [[FlowSession.resultAs]]). Fixes the output type `O`, and exposes a single
@@ -117,7 +118,7 @@ final class FlowSession[B <: BackendTag] private[orca] (
 final class FlowSessionCall[B <: BackendTag, O] private[orca] (
     agent: Agent[B],
     id: SessionId[B],
-    name: String
+    key: SessionKey
 )(using JsonData[O], Announce[O]):
 
   /** Held as a val so schema derivation (`JsonSchemaGen`) fails fast at
@@ -147,7 +148,7 @@ final class FlowSessionCall[B <: BackendTag, O] private[orca] (
       .runWithSession(
         effectivePrompt(agent, id, serialized),
         id,
-        sessionName = Some(name),
+        sessionKey = Some(key),
         config = None,
         emitPrompt = emitPrompt
       )
@@ -161,11 +162,11 @@ extension [B <: BackendTag](agent: Agent[B])
   /** Get-or-create a durable [[FlowSession]] keyed by `(name, detail)` in this
     * run's log.
     *
-    * `name` is the session's role — `implementer`, `final-fixer` — and the only
-    * half of the key that leaves the log: it names the session in the run
-    * manifest and is what `orca continue <name>` matches. `detail` says which
-    * session under that name this is — the task it serves, or what a
-    * one-per-run session covers — and is what a reader sees beside the name.
+    * `name` is the session's role — `implementer`, `final-fixer` — and is what
+    * `orca continue <name>` matches. `detail` says which session under that
+    * name this is — the task it serves, or what a one-per-run session covers.
+    * Both reach the run manifest, where the detail is what tells two sessions
+    * sharing a name apart.
     *
     * Reserves a [[SessionId]] and records key + id + seed in the progress log,
     * then returns a [[FlowSession]] wrapping it; the backend conversation is
@@ -224,7 +225,7 @@ extension [B <: BackendTag](agent: Agent[B])
       )
     val key = SessionKey(name, detail)
     fc.claimSessionKey(key)
-    new FlowSession(agent, resolveSessionId(agent, key, seed), name)
+    new FlowSession(agent, resolveSessionId(agent, key, seed), key)
 
 /** The reuse-or-mint decision behind `agent.session(name, detail, seed)`: look
   * up any session already recorded at `key` and either reuse it (backend tag

@@ -2,6 +2,7 @@ package orca.review
 
 import orca.{FlowContext, FlowSession, InStage, StackSettings, TestFlowControl}
 import orca.agents.{
+  SessionKey,
   Agent,
   AgentCall,
   AgentConfig,
@@ -49,7 +50,11 @@ object ReviewLoopFixture:
       agent: Agent[BackendTag.ClaudeCode.type],
       id: String = "s"
   ): FlowSession[BackendTag.ClaudeCode.type] =
-    new FlowSession(agent, SessionId[BackendTag.ClaudeCode.type](id), "coder")
+    new FlowSession(
+      agent,
+      SessionId[BackendTag.ClaudeCode.type](id),
+      SessionKey("coder", "")
+    )
 
   /** A [[TestFlowControl]] (a real temp git repo + progress store) wired to
     * `dispatcher`, so the loop's `emit`s reach the suite's listeners and the
@@ -145,7 +150,7 @@ private[review] class FakeAgentCall[O](
       private[orca] def runWithSession[I: AgentInput](
           input: I,
           session: SessionId[BackendTag.ClaudeCode.type],
-          sessionName: Option[String],
+          sessionKey: Option[SessionKey],
           config: Option[AgentConfig],
           emitPrompt: Boolean
       )(using InStage): O =

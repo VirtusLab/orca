@@ -224,19 +224,21 @@ private[runner] class RunManifestWriterState(
   /** Upsert-by-dedup-key (mirrors `ProgressStore`'s upsert idiom): the same
     * session re-firing `SessionCommitted` on a later turn (retries, resumed
     * durable calls) updates `stage`/`lastActiveAt` in place (last-write-wins),
-    * while `firstSeenAt` is preserved from the first sighting. `sessionName`
+    * while `firstSeenAt` is preserved from the first sighting. The minted key
     * (and the `kind` derived from it) is kept once seen, because a chat turn
-    * continuing the same durable session carries no name.
+    * continuing the same durable session carries none.
     */
   private def upsertSession(event: OrcaEvent.SessionCommitted): List[Entry] =
     val harness = event.harness
     val wireId = event.wireId
-    val key = OrcaEvent.sessionKey(event.clientId, wireId)
+    val conversationKey = OrcaEvent.conversationKey(event.clientId, wireId)
     val now = clock()
     val stage = state.stageStack.headOption
-    val existing =
-      state.entries.find(e => e.harness == harness && e.dedupKey == key)
-    val name = event.sessionName.orElse(existing.flatMap(_.session.sessionName))
+    val existing = state.entries.find(e =>
+      e.harness == harness && e.dedupKey == conversationKey
+    )
+    val minted =
+      event.sessionKey.orElse(existing.flatMap(_.session.mintedKey))
     val session = ManifestSession(
       harness = harness,
       wireId = wireId,
@@ -246,16 +248,18 @@ private[runner] class RunManifestWriterState(
       agent = event.agent,
       role = event.role,
       stage = stage,
-      sessionName = name,
-      kind = ManifestSessionKind.of(name),
+      sessionName = minted.map(_.name),
+      sessionDetail = minted.map(_.detail),
+      kind = ManifestSessionKind.of(minted),
       firstSeenAt = existing.map(_.session.firstSeenAt).getOrElse(now),
       lastActiveAt = now
     )
-    val entry = Entry(harness, key, session)
+    val entry = Entry(harness, conversationKey, session)
     existing match
       case Some(_) =>
         state.entries.map: e =>
-          if e.harness == harness && e.dedupKey == key then entry else e
+          if e.harness == harness && e.dedupKey == conversationKey then entry
+          else e
       case None => state.entries :+ entry
 
   /** Atomic rewrite of the whole manifest — the `ProgressStore.writeLog`

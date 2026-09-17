@@ -2,6 +2,7 @@ package orca.runner
 
 import orca.{FlowContext, OrcaDir, OrcaFlowException, StackSettings}
 import orca.agents.{
+  SessionKey,
   Agent,
   AgentCall,
   AgentConfig,
@@ -543,7 +544,7 @@ class RoleSettingsFlowTest extends munit.FunSuite:
             private[orca] def runWithSession[I: AgentInput](
                 input: I,
                 session: SessionId[BackendTag.Codex.type],
-                sessionName: Option[String],
+                sessionKey: Option[SessionKey],
                 config: Option[AgentConfig],
                 emitPrompt: Boolean
             )(using orca.InStage): O =

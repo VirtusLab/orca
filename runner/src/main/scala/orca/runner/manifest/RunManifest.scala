@@ -6,7 +6,7 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
   JsonWriter
 }
 import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
-import orca.agents.JsonData
+import orca.agents.{JsonData, SessionKey}
 
 import java.time.Instant
 
@@ -65,11 +65,11 @@ private[orca] enum ManifestSessionKind:
 private[orca] object ManifestSessionKind:
   private val known: List[ManifestSessionKind] = List(Durable, OneShot)
 
-  /** `Durable` exactly when the commit event carries the name an
+  /** `Durable` exactly when the commit event carries the key an
     * `agent.session(name, detail, seed)` call minted the session under.
     */
-  def of(sessionName: Option[String]): ManifestSessionKind =
-    if sessionName.isDefined then Durable else OneShot
+  def of(sessionKey: Option[SessionKey]): ManifestSessionKind =
+    if sessionKey.isDefined then Durable else OneShot
 
   given codec: JsonValueCodec[ManifestSessionKind] with
     def decodeValue(
@@ -89,6 +89,12 @@ private[orca] object ManifestSessionKind:
   * durable is known for the session, which is exactly when [[resumable]] is
   * `false` and `reason` explains why. Every backend keeps durable sessions, so
   * `None` means the id isn't known yet, not that the backend can't resume.
+  *
+  * `sessionName` and `sessionDetail` are the two halves of the key a flow
+  * minted a durable session under; read them through [[mintedKey]], which
+  * settles what an absent detail means. They are flat optional strings, not one
+  * nested value, because the manifest is persisted and `sessionName` is a
+  * string on the wire — a detail is added beside it, additively.
   */
 private[orca] case class ManifestSession(
     harness: String,
@@ -98,6 +104,7 @@ private[orca] case class ManifestSession(
     role: Option[String],
     stage: Option[String],
     sessionName: Option[String],
+    sessionDetail: Option[String],
     kind: ManifestSessionKind,
     firstSeenAt: Instant,
     lastActiveAt: Instant
@@ -106,6 +113,14 @@ private[orca] case class ManifestSession(
     * wire id, so there is nothing here that could drift from [[wireId]].
     */
   def resumable: Boolean = wireId.isDefined
+
+  /** The key the flow minted this session under, for a durable one. Absence of
+    * `sessionDetail` is resolved here, once: a named session without one reads
+    * as a key with an empty detail, which [[SessionKey.label]] renders as the
+    * bare name. `None` for a one-shot, which was minted under no key.
+    */
+  def mintedKey: Option[SessionKey] =
+    sessionName.map(SessionKey(_, sessionDetail.getOrElse("")))
 
 /** A per-run manifest written to
   * `.orca/cache/runs/<startedAt-epoch-ms>-<pid>.json`, read by the shell to

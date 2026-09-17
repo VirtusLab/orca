@@ -63,7 +63,7 @@ class CostLogTest extends munit.FunSuite:
           harness = "claude",
           clientId = "client-1",
           wireId = Some("wire-1"),
-          sessionName = None,
+          sessionKey = None,
           agent = "claude",
           role = None
         )
@@ -134,7 +134,7 @@ class CostLogTest extends munit.FunSuite:
           harness = "claude",
           clientId = "client-1",
           wireId = Some("wire-1"),
-          sessionName = None,
+          sessionKey = None,
           agent = "claude",
           role = None
         )

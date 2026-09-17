@@ -20,6 +20,7 @@ class ResumeCommandTest extends munit.FunSuite:
       role = None,
       stage = None,
       sessionName = None,
+      sessionDetail = None,
       kind = ManifestSessionKind.OneShot,
       firstSeenAt = Instant.parse("2026-07-18T10:00:00Z"),
       lastActiveAt = Instant.parse("2026-07-18T10:00:00Z")

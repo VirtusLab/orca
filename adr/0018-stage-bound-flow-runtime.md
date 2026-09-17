@@ -711,6 +711,13 @@ list output and opencode's directory-scoping should be pinned when the probes la
 >   independently-overridable `sessionExists`/`resumeWireId`/`registerSession` hooks
 >   this section describes; see AGENTS.md's "Sessions" section for the current model.
 
+> **Amendment (2026-09-17).** Both halves of the key travel, not just `name`:
+> `OrcaEvent.SessionCommitted` carries the whole `SessionKey`, and the run
+> manifest records the detail beside the name (ADR 0021 §8 amendment,
+> 2026-09-17), so per-task sessions sharing a role are distinguishable rows
+> rather than N identical `implementer` entries. `orca continue <name>` still
+> addresses a session by name alone.
+
 > **Amendment (2026-07-28).** Pi is durable too: the table above no longer has a
 > probe-less row, and the 2026-07-06 amendment's `Ephemeral(registry)` (pi) tagging no
 > longer holds — every backend is `durable(scheme, probe)`, with `ephemeral` kept as a

@@ -2,7 +2,8 @@ package orca
 
 import language.experimental.captureChecking
 
-import orca.progress.{CommitHash, ProgressStore, SessionKey}
+import orca.agents.SessionKey
+import orca.progress.{CommitHash, ProgressStore}
 
 import scala.annotation.implicitNotFound
 

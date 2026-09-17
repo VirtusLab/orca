@@ -17,6 +17,7 @@ import orca.{
 }
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.agents.{
+  SessionKey,
   Agent,
   AgentInput,
   Announce,
@@ -2082,7 +2083,7 @@ class FlowLifecycleTest extends munit.FunSuite:
             private[orca] def runWithSession[I](
                 input: I,
                 session: SessionId[BackendTag.ClaudeCode.type],
-                sessionName: Option[String],
+                sessionKey: Option[SessionKey],
                 config: Option[AgentConfig],
                 emitPrompt: Boolean
             )(using in: AgentInput[I], _s: orca.InStage): O =

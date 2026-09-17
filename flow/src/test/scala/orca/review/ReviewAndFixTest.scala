@@ -3,6 +3,7 @@ package orca.review
 import orca.{Configured, FlowContext, FlowControl, StackSettings}
 import orca.plan.{Task, Title}
 import orca.agents.{
+  SessionKey,
   AgentInput,
   Announce,
   AutonomousAgentCall,
@@ -44,7 +45,7 @@ private class TokenEmittingReviewer(
           private[orca] def runWithSession[I: AgentInput](
               i: I,
               session: SessionId[BackendTag.ClaudeCode.type],
-              sessionName: Option[String],
+              sessionKey: Option[SessionKey],
               c: Option[AgentConfig],
               emitPrompt: Boolean
           )(using orca.InStage): O =
@@ -97,7 +98,7 @@ private class SeedProbingCoder(
           private[orca] def runWithSession[I: AgentInput](
               input: I,
               session: SessionId[BackendTag.ClaudeCode.type],
-              sessionName: Option[String],
+              sessionKey: Option[SessionKey],
               config: Option[AgentConfig],
               emitPrompt: Boolean
           )(using orca.InStage): O =

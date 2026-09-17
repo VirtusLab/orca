@@ -197,7 +197,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
         makeCall(backend).autonomous.runWithSession(
           "next step",
           sid,
-          sessionName = None,
+          sessionKey = None,
           config = None,
           emitPrompt = true
         )
@@ -743,7 +743,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
       ).interactive.runWithSession(
         "anything",
         clientSid,
-        sessionName = None,
+        sessionKey = None,
         config = None
       )
       assertEquals(answer, Answer(3))
