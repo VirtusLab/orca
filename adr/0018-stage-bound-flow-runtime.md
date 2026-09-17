@@ -626,12 +626,11 @@ strategy and the progress store are overridable (R21).
   If the probe is absent or says gone, resume falls back to re-seed (R23).
 - **R23** — A session is obtained via a get-or-create (`agent.session`) keyed by
   `(name, detail)` and recorded in the log under that key, so a retry reuses it rather
-  than minting a second. `name` is the role (`implementer`, `final-fixer`) and is
-  restricted to letters, digits, `-` and `_` — it is the half that travels, naming the
-  session in the run manifest; `detail` is free text saying which session under that
-  name this is, typically the task it serves, and is empty for the one session its name
-  ever has. The two are compared by exact string equality; neither is hashed, and
-  neither becomes a filename or a wire token. Identity is therefore semantic, not
+  than minting a second. `name` is the role (`implementer`, `final-fixer`) — the half
+  that travels, naming the session in the run manifest; `detail` is required free text
+  saying which session under that name this is: the task it serves, or what a
+  one-per-run session covers. The two are compared by exact string equality; neither is
+  hashed, and neither becomes a filename or a wire token. Identity is therefore semantic, not
   positional: inserting, reordering or skipping other `session(...)` calls between runs
   leaves a key alone, and a changed detail — a re-plan rewording the task it names — is
   a different session, minted fresh and primed from the seed rather than resuming the
@@ -818,7 +817,8 @@ flow(OrcaArgs(args), _.claude):                          // required agent selec
   // Get-or-create the implementer session (pure: id reserved, backend created on
   // first use). The seed (plan brief) primes it on first use, and is replayed if the
   // backend session is lost on resume.
-  val session = agent.session("implement", seed = plan.brief)
+  val session =
+    agent.session("implement", detail = "the whole plan", seed = plan.brief)
 
   for task <- plan.tasks do
     stage(s"task: ${task.title}"):                       // skipped on resume if already done
@@ -858,7 +858,8 @@ val issueHandle = IssueHandle.parseOrThrow(orcaArgs.userPrompt)
 
 flow(orcaArgs, _.claude, branchNaming = Some(BranchNamingStrategy.issue(issueHandle))):
   val issue   = gh.readIssue(issueHandle)                            // read
-  val session = claude.session("fix", seed = issue.body)             // get-or-create
+  val session =                                                      // get-or-create
+    claude.session("fix", detail = "the reported bug", seed = issue.body)
   val triage  = stage("Triage"):                                     // LLM → staged
     Plan.autonomous.triage(report(issue), claude).value
 

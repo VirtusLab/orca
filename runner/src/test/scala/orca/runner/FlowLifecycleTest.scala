@@ -11,6 +11,7 @@ import orca.{
   Uncommitted,
   WorkspaceWrite,
   runFlow,
+  session,
   stage,
   flow
 }
@@ -450,6 +451,83 @@ class FlowLifecycleTest extends munit.FunSuite:
       git.currentBranch(),
       startBranch,
       "a successful in-place resumed run returns to the original start branch"
+    )
+
+  test(
+    "runFlow resumes a per-task session loop: recorded stages replay and every task session resolves to its recorded id"
+  ):
+    // Two runs over the SAME repo/prompt/store, each through its own
+    // `runFlow` — so the resumed run gets a fresh FlowControl, whose set of
+    // keys claimed this execution starts empty. The first run commits all
+    // three task stages (each commit carries the session records written
+    // before it) and then crashes in the final stage.
+    val workDir = GitRepo.seeded()
+    val prompt = "resume-session-loop"
+    val store = ProgressStore.default(workDir, prompt)
+    val agent = StubAgent.claude
+    val tasks = List("parse the input", "wire it up", "document it")
+    val bodyRuns = new AtomicInteger(0)
+    val firstMints = new AtomicReference[List[(String, String)]](Nil)
+    val resumedMints = new AtomicReference[List[(String, String)]](Nil)
+    val firstResults = new AtomicReference[List[String]](Nil)
+    val resumedResults = new AtomicReference[List[String]](Nil)
+    val rewordedId = new AtomicReference[String]("")
+
+    // Each mint is recorded as (detail, session id), in mint order.
+    def taskLoop(
+        mints: AtomicReference[List[(String, String)]]
+    )(using orca.FlowControl): List[String] =
+      for (task, n) <- tasks.zipWithIndex yield
+        val detail = s"task ${n + 1}: $task"
+        val session =
+          agent.session("implementer", detail = detail, seed = "brief")
+        val _ = mints.updateAndGet(_ :+ (detail, session.id.value))
+        stage(s"Task: $task"):
+          val _ = bodyRuns.incrementAndGet()
+          os.write(workDir / s"task-$n.txt", task)
+          s"done: $task"
+
+    val _ = intercept[SurfacedFlowFailure]:
+      runFlowForTest(workDir, prompt, store):
+        firstResults.set(taskLoop(firstMints))
+        val _ = stage[String]("Final review"):
+          throw new RuntimeException("boom")
+    assertEquals(bodyRuns.get(), 3, "every task body runs in the first run")
+
+    // Resumed run: the same loop, plus a mint under a detail the log doesn't
+    // carry — the re-planned-task case.
+    runFlowForTest(workDir, prompt, store):
+      resumedResults.set(taskLoop(resumedMints))
+      rewordedId.set(
+        agent
+          .session(
+            "implementer",
+            detail = "task 1: parse the input, reworded",
+            seed = "brief"
+          )
+          .id
+          .value
+      )
+      val _ = stage("Final review"):
+        "reviewed"
+
+    assertEquals(
+      bodyRuns.get(),
+      3,
+      "recorded task stages must replay, not re-run their bodies"
+    )
+    assertEquals(
+      resumedResults.get(),
+      firstResults.get(),
+      "each replayed stage must hand back its recorded result"
+    )
+    // Same keys in the same order, each resolving to the id the first run
+    // persisted — and re-minting them did not trip the duplicate-key guard,
+    // which would have aborted the run before these were collected.
+    assertEquals(resumedMints.get(), firstMints.get())
+    assert(
+      !firstMints.get().map(_._2).contains(rewordedId.get()),
+      s"a detail the log doesn't carry must mint a fresh id; got: ${rewordedId.get()}"
     )
 
   test(

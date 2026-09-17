@@ -84,7 +84,11 @@ flow(
 
   // Writes the failing test only; the fix tasks and the final review get their
   // own sessions (see `planAndImplementFix`).
-  val reproducer = codingAgent.session("reproducer", seed = issue.body)
+  val reproducer = codingAgent.session(
+    "reproducer",
+    detail = "a failing test for the reported bug",
+    seed = issue.body
+  )
 
   val triage: Triage = stage("Triage"):
     // Read-only: the triager reads/greps to verify the report, changes nothing.
@@ -251,7 +255,11 @@ def planAndImplementFix(
   // below: a session spanning the run re-sends every earlier task's transcript
   // on every later API call. None of them wrote the failing test; it is
   // committed, so they read it off the branch.
-  val finalFixer = codingAgent.session("final-fixer", seed = fixPlan.brief)
+  val finalFixer = codingAgent.session(
+    "final-fixer",
+    detail = "the whole fix",
+    seed = fixPlan.brief
+  )
 
   val taskDeclines =
     for (task, n) <- fixPlan.tasks.zipWithIndex yield

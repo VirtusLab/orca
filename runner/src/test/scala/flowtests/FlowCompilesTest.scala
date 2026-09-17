@@ -43,7 +43,8 @@ object FlowCanary:
       // persisted); the raw `resultAs[O]` door is exercised with ephemeral
       // (fresh / `.id`) sessions only — never a durable-session id. Minting
       // must sit outside the stage (OutsideStage rejects it inside).
-      val session = claude.session("plan", seed = userPrompt)
+      val session =
+        claude.session("plan", detail = "the task", seed = userPrompt)
       stage("plan"):
         val _ = session.resultAs[FlowPlan].run(userPrompt)
         val _ = session.resultAs[FlowPlan].run("follow up")
@@ -60,7 +61,8 @@ object FlowCanary:
   def continuedSession(): Unit =
     flow(OrcaArgs()):
       // Durable free-text continuation goes through the FlowSession door.
-      val session = claude.session("impl", seed = userPrompt)
+      val session =
+        claude.session("impl", detail = "the task", seed = userPrompt)
       stage("impl"):
         val _ = session.run("kick off")
         val _ = session.run("keep going")
@@ -95,7 +97,8 @@ object FlowCanary:
     flow(OrcaArgs()):
       // Named, durable, rehydratable coder session (has a SessionRecord, so a
       // resume can rehydrate it) — NOT a session id carried as a stage result.
-      val session = claude.session("plan", seed = userPrompt)
+      val session =
+        claude.session("plan", detail = "the task", seed = userPrompt)
       // The planning turn is interactive, which FlowSession deliberately does
       // not offer (see the FlowSession scaladoc); run it on a Chat adopting
       // the session id (`agent.chat(session.id)`). The stage persists ONLY
@@ -121,7 +124,8 @@ object FlowCanary:
     */
   def customFanOutSurface(): Unit =
     flow(OrcaArgs()):
-      val coder = claude.session("implementer", seed = userPrompt)
+      val coder =
+        claude.session("implementer", detail = "the task", seed = userPrompt)
       stage("review"):
         val _ = coder.run("implement the task")
         val reviewers = List(claude.sonnet.withReadOnly, codex.withReadOnly)
@@ -397,7 +401,8 @@ object FlowCanary:
       val plan: Plan = stage("Plan"):
         Plan.autonomous.from(userPrompt, claude).value
 
-      val session = claude.session("implementer", seed = plan.brief)
+      val session =
+        claude.session("implementer", detail = "the task", seed = plan.brief)
 
       for task <- plan.tasks do
         stage(s"task: ${task.title}"):
@@ -419,7 +424,8 @@ object FlowCanary:
       val plan: Plan = stage("Plan"):
         Plan.interactive.from(userPrompt, claude).value
 
-      val session = claude.session("implementer", seed = plan.brief)
+      val session =
+        claude.session("implementer", detail = "the task", seed = plan.brief)
 
       for task <- plan.tasks do
         stage(s"task: ${task.title}"):
@@ -440,7 +446,8 @@ object FlowCanary:
       val plan: Plan = stage("Plan"):
         Plan.autonomous.from(userPrompt, claude).reviewed(claude).value
 
-      val session = claude.session("implementer", seed = plan.brief)
+      val session =
+        claude.session("implementer", detail = "the task", seed = plan.brief)
 
       val declines =
         for task <- plan.tasks yield stage(s"task: ${task.title}"):
@@ -471,8 +478,10 @@ object FlowCanary:
     ):
       // Sessions are minted at the flow-body top level (outside any stage) and
       // thread because each role accessor is backend-pinned.
-      val planSession = planningAgent.session("plan", seed = userPrompt)
-      val implSession = codingAgent.session("impl", seed = userPrompt)
+      val planSession =
+        planningAgent.session("plan", detail = "the task", seed = userPrompt)
+      val implSession =
+        codingAgent.session("impl", detail = "the task", seed = userPrompt)
       stage("roles"):
         val _ = planSession.run(userPrompt)
         val _ = implSession.run(userPrompt)
@@ -489,7 +498,8 @@ object FlowCanary:
       val plan: Plan = stage("Plan"):
         Plan.autonomous.from(userPrompt, claude.opus).value
 
-      val session = claude.session("implementer", seed = plan.brief)
+      val session =
+        claude.session("implementer", detail = "the task", seed = plan.brief)
       val reviewers: List[ReviewerAgent[?]] = allReviewers(codex)
 
       for task <- plan.tasks do
@@ -530,7 +540,8 @@ object FlowCanary:
           gh.writeComment(issueHandle, rejectionBody)
 
       maybePlan.foreach: plan =>
-        val session = claude.session("implementer", seed = plan.brief)
+        val session =
+          claude.session("implementer", detail = "the task", seed = plan.brief)
 
         for task <- plan.tasks do
           stage(s"task: ${task.title}"):
@@ -565,7 +576,8 @@ object FlowCanary:
       // Pure read outside any stage.
       val issue: Issue = gh.readIssue(issueHandle)
 
-      val session = claude.session("fixer", seed = issue.body)
+      val session =
+        claude.session("fixer", detail = "the task", seed = issue.body)
 
       val triage: Triage = stage("Triage"):
         Plan.autonomous.triage(issue.body, claude).value
@@ -667,7 +679,8 @@ object StackSettingsCanary:
     val _: Configured[List[String]] = Configured.FromSettings
     val _: Configured[List[String]] = Configured.Use(List("cargo fmt"))
     flow(OrcaArgs()):
-      val session = claude.session("implementer", seed = userPrompt)
+      val session =
+        claude.session("implementer", detail = "the task", seed = userPrompt)
       val _ = stage("task"):
         reviewAndFixLoop(
           coderSession = session,

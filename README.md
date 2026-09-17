@@ -104,15 +104,17 @@ flow(OrcaArgs(args)):
   val plan = stage("Plan"):
     Plan.autonomous.from(userPrompt, planningAgent).value  
 
-  // Get-or-create the implementer session on the coding role, seeded with the
-  // plan's brief (primes it on first use, replayed if the backend session is
-  // lost on resume).
-  val session = codingAgent.session("implementer", seed = plan.brief)
-
   // One stage per task: each stage commits its work + a progress-log entry as
   // one commit. Completed stages are skipped on resume — re-running the same
-  // prompt picks up from the first incomplete task.
-  for task <- plan.tasks do
+  // prompt picks up from the first incomplete task. Each task gets its own
+  // session, keyed by that task and seeded with the plan's brief (which primes
+  // it on first use, and is replayed if the backend session is lost on resume).
+  for (task, n) <- plan.tasks.zipWithIndex do
+    val session = codingAgent.session(
+      "implementer",
+      detail = s"task ${n + 1}: ${task.title}",
+      seed = plan.brief
+    )
     stage(s"Task: ${task.title}"):
       session.run(task.description)
       reviewThenFix(
@@ -187,7 +189,7 @@ the [Metals](https://scalameta.org/metals/) VSCode extension.
 The following are available inside a `flow(...) { ... }`.
 
 The five coding agents — `claude`, `codex`, `opencode`, `pi`, `gemini` — share
-one call surface. Durable: `session(name, seed): FlowSession` → `.run(prompt)` /
+one call surface. Durable: `session(name, detail, seed): FlowSession` → `.run(prompt)` /
 `.resultAs[O].run(input)`. One-shot: `run(prompt)`,
 `resultAs[O].{autonomous,interactive}.run(input)`. Ephemeral multi-turn:
 `chat(): Chat` → `.run(prompt)` / `.resultAs[O]...run(input)`. Common tuning:
@@ -221,7 +223,7 @@ A minimal Pi-backed flow looks the same; Pi reads your normal Pi configuration:
 
 ```scala
 flow(OrcaArgs(args)):
-  val session = pi.session("run", seed = userPrompt)
+  val session = pi.session("run", detail = "the whole prompt", seed = userPrompt)
   stage("Run"):
     session.run(userPrompt)
 ```
@@ -590,11 +592,11 @@ construction.
 - **Durable — `agent.session(name, detail, seed)`.** A get-or-create keyed by
   `(name, detail)`, returning a `FlowSession` handle that survives crash/resume:
   the same key resumes the same session (with a warning if this call's seed
-  differs, rather than silently resuming the wrong one). `name` is the role —
-  letters, digits, `-` and `_`, and what names the session in `orca continue`
-  and the run manifest. `detail` says which session under that role this is —
-  the task it serves, typically — as free text; leave it out for a session its
-  name has only one of. Minting one key twice in a run is an error, not silent
+  differs, rather than silently resuming the wrong one). `name` is the role, and
+  what names the session in `orca continue` and the run manifest. `detail` is
+  free text saying which session under that role this is — the task it serves,
+  or what a one-per-run session covers ("the whole planned change"). Both are
+  required. Minting one key twice in a run is an error, not silent
   sharing: give the second call a detail of its own. A *changed* detail is a
   different session, so a re-plan that rewords a task gives that task a fresh
   session primed from the seed rather than resuming the old wording's
@@ -751,8 +753,8 @@ splits `autonomous` / `interactive`:
 Every cell returns `Sessioned[B, <result>]` — the result paired with the
 (ephemeral) `Chat` that produced it. Continue that conversation in-run
 (`chat.run(task)`; continuations have write access), or `.value` it and start a
-fresh, durable implementer session via `agent.session("implementer", seed =
-plan.brief)` — the chat does not survive a crash/resume, so every shipped
+fresh, durable implementer session via `agent.session("implementer", detail =
+task, seed = plan.brief)` — the chat does not survive a crash/resume, so every shipped
 example takes `.value`. Destructure when you want both: `val Sessioned(chat,
 plan) = Plan.autonomous.from(...)`.
 
@@ -928,7 +930,8 @@ results.
   derives and announces its own branch separately (see
   [`BranchNamingStrategy`](#the-flow-lifecycle)). `description` is the planner's
   epic summary; `brief` is a concise codebase briefing always included (feed it
-  to `agent.session("implementer", seed = plan.brief)`, which threads it as the
+  to `agent.session("implementer", detail = task, seed = plan.brief)`, which
+  threads it as the
   seed). `taskPrompt(task)` prepends the brief to a task's description.
 - **`orca.plan.Task(title, description)`** — `title` is the human-readable label
   shown in the event log.

@@ -161,12 +161,11 @@ extension [B <: BackendTag](agent: Agent[B])
   /** Get-or-create a durable [[FlowSession]] keyed by `(name, detail)` in this
     * run's log.
     *
-    * `name` is the session's role — `implementer`, `final-fixer` — restricted
-    * to letters, digits, `-` and `_`, and the only half of the key that leaves
-    * the log: it names the session in the run manifest and is what `orca
-    * continue <name>` matches. `detail` says which session under that name this
-    * is, typically the task it serves; it is free text, and empty — the default
-    * — is the key for the one session its name ever has.
+    * `name` is the session's role — `implementer`, `final-fixer` — and the only
+    * half of the key that leaves the log: it names the session in the run
+    * manifest and is what `orca continue <name>` matches. `detail` says which
+    * session under that name this is — the task it serves, or what a
+    * one-per-run session covers — and is what a reader sees beside the name.
     *
     * Reserves a [[SessionId]] and records key + id + seed in the progress log,
     * then returns a [[FlowSession]] wrapping it; the backend conversation is
@@ -195,11 +194,12 @@ extension [B <: BackendTag](agent: Agent[B])
     * carries the log — the retry then mints a fresh session and re-seeds (see
     * `ProgressStore.upsertSession`).
     */
-  def session(name: String, detail: String = "", seed: String)(using
+  def session(name: String, detail: String, seed: String)(using
       fc: FlowControl,
       outside: OutsideStage
   ): FlowSession[B] =
-    validateSessionName(name)
+    // An empty name decodes ambiguously; treat it as an authoring defect.
+    require(name.nonEmpty, "session name must be non-empty")
     // A session minted inside a stage that gets skipped on resume would never
     // re-mint, leaving later stages driving a handle nothing recorded — so
     // require the flow-body top level (ADR 0018 §2.6). [[OutsideStage]] rejects
@@ -214,20 +214,6 @@ extension [B <: BackendTag](agent: Agent[B])
     val key = SessionKey(name, detail)
     fc.claimSessionKey(key)
     new FlowSession(agent, resolveSessionId(agent, key, seed), name)
-
-private val SessionNamePattern = "[A-Za-z0-9_-]+".r
-
-/** Names are shown as-is in the run manifest and matched by `orca continue
-  * <name>`, so they stay bare identifiers; anything a reader would have to
-  * quote belongs in the session's detail instead.
-  */
-private def validateSessionName(name: String): Unit =
-  if !SessionNamePattern.matches(name) then
-    throw new OrcaFlowException(
-      s"session name '$name' is not usable — use letters, digits, '-' and " +
-        "'_' (e.g. \"implementer\"), and pass free text as the session's " +
-        "detail instead."
-    )
 
 /** The reuse-or-mint decision behind `agent.session(name, detail, seed)`: look
   * up any session already recorded at `key` and either reuse it (backend tag

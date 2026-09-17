@@ -150,10 +150,11 @@ most easily broken:
 
   Sessions have explicit identity: `agent.session(name, detail, seed)` keys a
   `SessionRecord` by `(name, detail)`, compared for exact string equality.
-  `name` is the role (letters, digits, `-`, `_`; it is what reaches
-  `OrcaEvent.SessionCommitted` and the manifest), `detail` free text naming
-  which session under that role this is — the task, typically — and empty for a
-  one-per-run session. Neither is hashed or turned into a filename. Reordering
+  `name` is the role (it is what reaches `OrcaEvent.SessionCommitted` and the
+  manifest), `detail` required free text naming which session under that role
+  this is — the task, or what a one-per-run session covers. Neither is hashed
+  or turned into a filename, and only `name` is validated (non-empty).
+  Reordering
   or skipping *other* `session(...)` calls between runs doesn't re-key this one;
   a changed detail is a different session. Minting one key twice in a single
   execution throws (`FlowControl.claimSessionKey`); re-minting it on resume is

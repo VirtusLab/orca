@@ -75,13 +75,6 @@ class SessionTest extends FunSuite:
     assertEquals(log.sessions.head.seed, "plan brief")
     assertEquals(log.sessions.head.id, id.id.value)
 
-  test("agent.session without a detail keys the session under an empty detail"):
-    val (store, dir) = freshStore()
-    val fc = makeControl(store, dir)
-    val agent = new StubAgent
-    val _ = agent.session("final-fixer", seed = "plan brief")(using fc)
-    assertEquals(store.load().get.sessions.head.detail, "")
-
   test("two details under one name are two sessions"):
     val (store, dir) = freshStore()
     val fc = makeControl(store, dir)
@@ -154,7 +147,7 @@ class SessionTest extends FunSuite:
 
     // Run 1: only "implementer" is requested.
     val implementerRun1 =
-      agent.session("implementer", seed = "brief")(using
+      agent.session("implementer", detail = "task 1", seed = "brief")(using
         makeControl(store, dir)
       )
 
@@ -163,24 +156,27 @@ class SessionTest extends FunSuite:
     // before "implementer". Keying by (name, detail) means this insertion must
     // not perturb "implementer"'s identity.
     val fc2 = makeControl(store, dir)
-    val _ = agent.session("planner", seed = "plan seed")(using fc2)
+    val _ = agent.session("planner", detail = "the plan", seed = "plan seed")(
+      using fc2
+    )
     val implementerRun2 =
-      agent.session("implementer", seed = "brief")(using fc2)
+      agent.session("implementer", detail = "task 1", seed = "brief")(using fc2)
 
     assertEquals(implementerRun2.id, implementerRun1.id)
 
   test("resume with a matching seed emits no divergence warning"):
     val (store, dir) = freshStore()
     val agent = new StubAgent
-    val _ = agent.session("implementer", seed = "plan brief")(using
-      makeControl(
-        store,
-        dir
+    val _ =
+      agent.session("implementer", detail = "task 1", seed = "plan brief")(using
+        makeControl(
+          store,
+          dir
+        )
       )
-    )
     val recorder = new RecordingListener
     val _ =
-      agent.session("implementer", seed = "plan brief")(using
+      agent.session("implementer", detail = "task 1", seed = "plan brief")(using
         makeControl(store, dir, List(recorder))
       )
     assert(
@@ -194,14 +190,20 @@ class SessionTest extends FunSuite:
     val agent = new StubAgent:
       override private[orca] def backendTag: Option[BackendTag] =
         Some(BackendTag.Codex)
-    val _ = agent.session("implementer", seed = "plan brief")(using fc)
+    val _ =
+      agent.session("implementer", detail = "task 1", seed = "plan brief")(using
+        fc
+      )
     assertEquals(store.load().get.sessions.head.backend, Some("Codex"))
 
   test("first agent.session call records no backend when the agent has none"):
     val (store, dir) = freshStore()
     val fc = makeControl(store, dir)
     val agent = new StubAgent
-    val _ = agent.session("implementer", seed = "plan brief")(using fc)
+    val _ =
+      agent.session("implementer", detail = "task 1", seed = "plan brief")(using
+        fc
+      )
     assertEquals(store.load().get.sessions.head.backend, None)
 
   test("resume with a divergent seed at the same key warns loudly"):
@@ -237,7 +239,7 @@ class SessionTest extends FunSuite:
       override private[orca] def backendTag: Option[BackendTag] =
         Some(BackendTag.Codex)
     val originalId =
-      codexAgent.session("implementer", seed = "brief")(using
+      codexAgent.session("implementer", detail = "task 1", seed = "brief")(using
         makeControl(store, dir)
       )
     assertEquals(store.load().get.sessions.head.backend, Some("Codex"))
@@ -250,8 +252,8 @@ class SessionTest extends FunSuite:
         Some(BackendTag.ClaudeCode)
     val recorder = new RecordingListener
     val resumedId =
-      claudeAgent.session("implementer", seed = "brief")(using
-        makeControl(store, dir, List(recorder))
+      claudeAgent.session("implementer", detail = "task 1", seed = "brief")(
+        using makeControl(store, dir, List(recorder))
       )
 
     assert(
@@ -287,7 +289,11 @@ class SessionTest extends FunSuite:
       override private[orca] def backendTag: Option[BackendTag] =
         Some(BackendTag.Codex)
     val _ =
-      codexAgent.session("implementer", seed = "original seed")(using
+      codexAgent.session(
+        "implementer",
+        detail = "task 1",
+        seed = "original seed"
+      )(using
         makeControl(store, dir)
       )
 
@@ -296,7 +302,11 @@ class SessionTest extends FunSuite:
         Some(BackendTag.ClaudeCode)
     val recorder = new RecordingListener
     val _ =
-      claudeAgent.session("implementer", seed = "different seed")(using
+      claudeAgent.session(
+        "implementer",
+        detail = "task 1",
+        seed = "different seed"
+      )(using
         makeControl(store, dir, List(recorder))
       )
 
@@ -324,7 +334,7 @@ class SessionTest extends FunSuite:
     store.upsertSession(
       SessionRecord(
         name = "implementer",
-        detail = "",
+        detail = "task 1",
         id = "../../etc/passwd",
         seed = "brief"
       )
@@ -332,7 +342,7 @@ class SessionTest extends FunSuite:
     val agent = new StubAgent
     val recorder = new RecordingListener
     val resumedId =
-      agent.session("implementer", seed = "brief")(using
+      agent.session("implementer", detail = "task 1", seed = "brief")(using
         makeControl(store, dir, List(recorder))
       )
     assertNotEquals(resumedId.id.value, "../../etc/passwd")
@@ -352,37 +362,15 @@ class SessionTest extends FunSuite:
     val (store, dir) = freshStore()
     val fc = makeControl(store, dir)
     val agent = new StubAgent
-    intercept[OrcaFlowException]:
-      agent.session("", seed = "seed")(using fc)
-
-  test("a name carrying anything but letters, digits, '-' and '_' is rejected"):
-    val (store, dir) = freshStore()
-    val fc = makeControl(store, dir)
-    val agent = new StubAgent
-    val ex = intercept[OrcaFlowException]:
-      agent.session("final fixer", seed = "seed")(using fc)
-    assert(
-      ex.getMessage.contains("detail"),
-      s"the refusal must point at the detail as the home for free text; got: ${ex.getMessage}"
-    )
-
-  test("hyphens and underscores are valid in a name"):
-    val (store, dir) = freshStore()
-    val fc = makeControl(store, dir)
-    val agent = new StubAgent
-    val _ = agent.session("final-fixer", seed = "seed")(using fc)
-    val _ = agent.session("final_fixer", seed = "seed")(using fc)
-    assertEquals(
-      store.load().get.sessions.map(_.name),
-      List("final-fixer", "final_fixer")
-    )
+    intercept[IllegalArgumentException]:
+      agent.session("", detail = "task 1", seed = "seed")(using fc)
 
   test("agent.session returns a FlowSession whose .id is the recorded id"):
     val (store, dir) = freshStore()
     val fc = makeControl(store, dir)
     val agent = new StubAgent
     val session: FlowSession[BackendTag.ClaudeCode.type] =
-      agent.session("implementer", seed = "brief")(using fc)
+      agent.session("implementer", detail = "task 1", seed = "brief")(using fc)
     val recorded = store.load().get.sessions.head
     assertEquals(session.id.value, recorded.id)
 
@@ -397,7 +385,7 @@ class SessionTest extends FunSuite:
       given FlowControl = ???
       given orca.InStage = orca.InStage.unsafe
       val agent = new StubAgent
-      val _ = agent.session("implementer", seed = "seed")
+      val _ = agent.session("implementer", detail = "task 1", seed = "seed")
       """
     )
     assert(
@@ -412,7 +400,7 @@ class SessionTest extends FunSuite:
     given FlowControl = makeControl(store, dir)
     val agent = new StubAgent
     def mintInHelper()(using FlowControl): Unit =
-      val _ = agent.session("implementer", seed = "seed")
+      val _ = agent.session("implementer", detail = "task 1", seed = "seed")
     intercept[OrcaFlowException]:
       stage("outer"):
         mintInHelper()
