@@ -108,6 +108,8 @@ flips to the safe direction:
 .orca/
   settings.properties      # committed project metadata
   progress-<hash>.json     # committed during runs (as today)
+  reviewers/
+    <name>.md              # committed project reviewer prompts (ADR 0023)
   cache/
     .gitignore             # written by orca, contains "*" (self-ignoring)
     CACHEDIR.TAG           # backup/sync tools skip the dir

@@ -527,13 +527,16 @@ optional: a regex matched against each changed path, so the reviewer is only
 offered when the change touches a file it applies to. The body is the
 reviewer's system prompt. A `name:` key, if present, is ignored.
 
-An `.md` file that opens no frontmatter block at all is a document, not a
-reviewer, so the directory can hold its own `README.md`. Anything else malformed
-— a frontmatter block that doesn't close, a missing `description:`, an empty
-body, an invalid `files:` regex, a symlinked prompt, two files claiming one name
-— aborts the run before any tree mutation, naming every bad file at once; a
-reviewer silently dropped from the roster would read as a clean review. When a tier contributes
-anything, setup says so:
+`README.md` and any `_`-prefixed name sit in the directory as documents. Every
+other `.md` must parse as a reviewer: a missing or unterminated frontmatter
+block, a missing `description:`, an empty body, an invalid `files:` regex, or
+two files claiming one name abort the run before any tree mutation, naming every
+bad file at once — a reviewer silently dropped from the roster would read as a
+clean review. A symlinked prompt aborts too, but only in `.orca/reviewers/`:
+that directory is committed and orca runs against repos it did not write, while
+the global tier is your own config home and is read through links like
+`settings.properties` beside it. When a tier contributes
+anything, the run says so:
 
 ```text
 discovered reviewers: orca (project); scala-fp (project, shadows built-in)

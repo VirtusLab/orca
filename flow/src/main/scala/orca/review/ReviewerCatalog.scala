@@ -111,8 +111,14 @@ object ReviewerCatalog:
       globalDir: os.Path
   ): ReviewerCatalog =
     val byTier = List(
-      ReviewerFileTier.Project -> reviewerFiles(projectDir),
-      ReviewerFileTier.Global -> reviewerFiles(globalDir)
+      ReviewerFileTier.Project -> reviewerFiles(
+        projectDir,
+        ReviewerFileTier.Project
+      ),
+      ReviewerFileTier.Global -> reviewerFiles(
+        globalDir,
+        ReviewerFileTier.Global
+      )
     )
     val (failures, discovered) = byTier
       .flatMap(_._2.keySet)
@@ -153,37 +159,49 @@ object ReviewerCatalog:
     */
   private case class ReviewerFile(path: os.Path, parsed: ParsedPrompt)
 
+  /** Names a `.md` file may carry to sit in a reviewer directory without being
+    * one. Anything else without frontmatter is an author who forgot the block,
+    * not a document — and a reviewer dropped for that reads as a clean review.
+    */
+  private def isDocument(path: os.Path): Boolean =
+    val stem = path.baseName.toLowerCase(Locale.ROOT)
+    stem == "readme" || stem.startsWith("_")
+
   /** Reviewer `.md` files directly in `dir`, keyed by lower-cased filename
     * stem; empty if `dir` doesn't exist.
     *
-    * A `.md` file that opens no frontmatter block is a document, not a broken
-    * reviewer, and is skipped: the directory is committed, so it holds the
-    * project's own notes and `README.md` alongside the prompts. One that opens
-    * a block the parser then can't read is a broken reviewer, and
-    * [[reviewerFrom]] reports it — the exemption is deliberately narrow,
-    * because a dropped reviewer reads as a clean review.
+    * [[isDocument]] names the files that may sit here without being reviewers.
+    * Every other `.md` must parse as one: a block the parser can't read, or no
+    * block at all, is a broken reviewer and [[reviewerFrom]] reports it.
     *
-    * A symlinked `.md` aborts instead. Reading one would make a file from
-    * outside the tree the system prompt of a reviewer that runs on every
-    * review; skipping it silently would drop a reviewer the user installed and
-    * let the review come back clean without it.
+    * A symlinked `.md` under the PROJECT tier aborts: that directory is
+    * committed, and orca runs against arbitrary cloned repos, so reading
+    * through a link there would make a file from outside the tree a reviewer's
+    * system prompt (ADR 0019's rule). The global tier is the user's own config
+    * home, read through links like `settings.properties` beside it — a dotfiles
+    * manager that links each file in is normal there.
     */
-  private def reviewerFiles(dir: os.Path): Map[String, ReviewerFile] =
+  private def reviewerFiles(
+      dir: os.Path,
+      tier: ReviewerFileTier
+  ): Map[String, ReviewerFile] =
     if !os.isDir(dir) then Map.empty
     else
       val markdown = os.list(dir).filter(_.last.endsWith(".md"))
-      // `os.isLink` is lstat/no-follow, so this catches a dangling link too.
-      markdown
-        .find(os.isLink)
-        .foreach: link =>
-          throw new OrcaFlowException(
-            s"$link is a symlink — refusing to read a reviewer prompt through " +
-              "it; copy the file into the directory instead of linking it"
-          )
+      if tier == ReviewerFileTier.Project then
+        // `os.isLink` is lstat/no-follow, so this catches a dangling link too.
+        markdown
+          .find(os.isLink)
+          .foreach: link =>
+            throw new OrcaFlowException(
+              s"$link is a symlink — refusing to read a reviewer prompt " +
+                "through it; copy the file into the directory instead of " +
+                "linking it"
+            )
       val files = markdown
+        .filterNot(isDocument)
         .filter(os.isFile)
         .map(p => ReviewerFile(p, PromptResource.parseWithMetadata(os.read(p))))
-        .filter(_.parsed.hasFrontmatter)
       val bySlug = files.groupBy(_.path.baseName.toLowerCase(Locale.ROOT))
       // Slugs are compared lower-cased, so on a case-sensitive filesystem two
       // files can claim one; picking a winner would drop the other silently.

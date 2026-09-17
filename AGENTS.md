@@ -322,6 +322,9 @@ them.
   collection or an `AtomicReference` field, work out what the state is for and
   where else it could live — the progress log usually already carries it — and
   say in the PR which alternatives you rejected and why.
+- Project-specific review rules live in `.orca/reviewers/*.md`, discovered per
+  [ADR 0023](adr/0023-reviewer-discovery.md); a file named after a shipped
+  reviewer replaces it for this project.
 
 ### Versioning (0.x)
 

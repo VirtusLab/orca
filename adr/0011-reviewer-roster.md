@@ -227,3 +227,18 @@ Every reviewer prompt is a `.md` file with YAML frontmatter
 > empty, and that each round's re-sample carries the fixer's later edits,
 > committed or not, to every reviewer that runs that round — a resumed reviewer
 > included, and it receives only what changed since the round it last saw.
+
+> **Amendment (2026-09-17).** The roster is no longer only what this ADR ships.
+> [ADR 0023](0023-reviewer-discovery.md) adds two file tiers around it —
+> `{workDir}/.orca/reviewers/*.md` and `$XDG_CONFIG_HOME/orca/reviewers/*.md` —
+> resolved project > global > built-in by filename stem, so a project overrides
+> a shipped reviewer by naming a file after it.
+>
+> **"Prompt format" above is superseded** by ADR 0023's frontmatter contract,
+> which is what user-authored files must follow: it predates the `files:` key,
+> and the shape it describes (`name:` honoured, an intro line, an `## Output`
+> section) is not what the shipped prompts use.
+>
+> ADR 0023 also moves a reviewer's description and `files:` pattern off
+> `ReviewerPrompts`' by-name maps onto the reviewer itself, so a discovered
+> reviewer cannot reach the picker as a bare name — see it for both.

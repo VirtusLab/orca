@@ -124,16 +124,27 @@ class ReviewerCatalogTest extends munit.FunSuite:
     os.write(project / "notes.txt", "not a reviewer", createFolders = true)
     assertEquals(ReviewerCatalog.discover(project, global).discovered, Nil)
 
-  test("an .md file with no frontmatter is a document, not a broken reviewer"):
+  test("README.md and _-prefixed files sit in the directory as documents"):
     val (project, global) = dirs()
-    os.write(
-      project / "README.md",
-      "# Reviewers\n\nDrop a reviewer prompt here.\n",
-      createFolders = true
-    )
+    val doc = "# Reviewers\n\nDrop a reviewer prompt here.\n"
+    os.write(project / "README.md", doc, createFolders = true)
+    os.write(project / "_draft.md", doc, createFolders = true)
     assertEquals(ReviewerCatalog.discover(project, global).discovered, Nil)
 
-  test("a symlinked .md file aborts, naming the link"):
+  test("any other .md with no frontmatter aborts, not silently skipped"):
+    // Forgetting the frontmatter block is the likely authoring mistake; the
+    // reviewer would otherwise vanish from the roster with nothing said.
+    val (project, global) = dirs()
+    os.write(
+      project / "orca.md",
+      "## Scope\n\nCheck things.\n",
+      createFolders = true
+    )
+    val e =
+      intercept[OrcaFlowException](ReviewerCatalog.discover(project, global))
+    assert(e.getMessage.contains("frontmatter"), e.getMessage)
+
+  test("a symlinked .md in the project tier aborts, naming the link"):
     val (project, global) = dirs()
     val outside = writeReviewer(TempDirs.dir("orca-outside-"), "orca")
     os.makeDir.all(project)
@@ -142,6 +153,16 @@ class ReviewerCatalogTest extends munit.FunSuite:
     val e =
       intercept[OrcaFlowException](ReviewerCatalog.discover(project, global))
     assert(e.getMessage.contains((project / "orca.md").toString), e.getMessage)
+
+  test("a symlinked .md in the global tier is followed"):
+    // The user's own config home, where a dotfiles manager links each file in.
+    val (project, global) = dirs()
+    val outside = writeReviewer(TempDirs.dir("orca-outside-"), "orca")
+    os.makeDir.all(global)
+    os.symlink(global / "orca.md", outside)
+    assert(os.isLink(global / "orca.md"), "the fixture must be a symlink")
+    val catalog = ReviewerCatalog.discover(project, global)
+    assertEquals(named(catalog.all), named(ReviewerPrompts.all) :+ "orca")
 
   test("an unterminated frontmatter block aborts, not silently skipped"):
     val (project, global) = dirs()
