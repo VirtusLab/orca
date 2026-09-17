@@ -247,18 +247,17 @@ def planAndImplementFix(
       .reviewed(planningAgent)
       .value
 
-  // One coder session per task, and one more for the final review: a session
-  // spanning the run re-sends every earlier task's transcript on every later
-  // API call. None of them wrote the failing test — it is committed, so they
-  // read it off the branch.
-  val taskSessions =
-    List.fill(fixPlan.tasks.size)(
-      codingAgent.session("fixer", seed = fixPlan.brief)
-    )
+  // A session per unit of work — this one for the final review, one per task
+  // below: a session spanning the run re-sends every earlier task's transcript
+  // on every later API call. None of them wrote the failing test; it is
+  // committed, so they read it off the branch.
   val finalFixer = codingAgent.session("final-fixer", seed = fixPlan.brief)
 
   val taskDeclines =
-    for (task, session) <- fixPlan.tasks.zip(taskSessions) yield
+    for task <- fixPlan.tasks yield
+      // Outside the stage, not in it — a stage body is skipped on resume, and
+      // the mint must not be.
+      val session = codingAgent.session("fixer", seed = fixPlan.brief)
       stage(s"Task: ${task.title}"):
         session.run(fixPlan.taskPrompt(task))
         // Don't gate this review on the tests: the branch carries a

@@ -41,18 +41,17 @@ flow(OrcaArgs(args)):
       .reviewed(planningAgent)
       .value
 
-  // One coder session per task, one for the docs pass and one for the final
-  // review: a session spanning the run re-sends every earlier task's transcript
-  // on every later API call.
-  val taskSessions =
-    List.fill(plan.tasks.size)(
-      codingAgent.session("implementer", seed = plan.brief)
-    )
+  // A session per unit of work — these two for the docs pass and the final
+  // review, one per task below: a session spanning the run re-sends every
+  // earlier task's transcript on every later API call.
   val documenter = codingAgent.session("documenter", seed = plan.brief)
   val finalFixer = codingAgent.session("final-fixer", seed = plan.brief)
 
   val taskDeclines =
-    for (task, session) <- plan.tasks.zip(taskSessions) yield
+    for task <- plan.tasks yield
+      // Outside the stage, not in it — a stage body is skipped on resume, and
+      // the mint must not be.
+      val session = codingAgent.session("implementer", seed = plan.brief)
       stage(s"Task: ${task.title}"):
         session.run(task.description)
         reviewThenFix(

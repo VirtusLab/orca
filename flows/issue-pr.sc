@@ -82,17 +82,16 @@ flow(
       )
 
   maybePlan.foreach: plan =>
-    // One coder session per task, and one more for the final review: a session
-    // spanning the run re-sends every earlier task's transcript on every later
-    // API call.
-    val taskSessions =
-      List.fill(plan.tasks.size)(
-        codingAgent.session("implementer", seed = plan.brief)
-      )
+    // A session per unit of work — this one for the final review, one per task
+    // below: a session spanning the run re-sends every earlier task's
+    // transcript on every later API call.
     val finalFixer = codingAgent.session("final-fixer", seed = plan.brief)
 
     val taskDeclines =
-      for (task, session) <- plan.tasks.zip(taskSessions) yield
+      for task <- plan.tasks yield
+        // Outside the stage, not in it — a stage body is skipped on resume,
+        // and the mint must not be.
+        val session = codingAgent.session("implementer", seed = plan.brief)
         stage(s"Task: ${task.title}"):
           session.run(task.description)
           reviewThenFix(
