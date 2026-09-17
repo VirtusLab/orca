@@ -1,7 +1,7 @@
 package orca.review
 
-import orca.OrcaFlowException
-import orca.testkit.TempDirs
+import orca.{OrcaDir, OrcaFlowException}
+import orca.testkit.{RepoRoot, TempDirs}
 
 class ReviewerCatalogTest extends munit.FunSuite:
 
@@ -27,6 +27,30 @@ class ReviewerCatalogTest extends munit.FunSuite:
 
   private def named(reviewers: List[Reviewer]): List[String] =
     reviewers.map(_.name)
+
+  test("this repository's own .orca/reviewers file loads"):
+    // Through the same path production discovery uses, so renaming the tier
+    // directory fails here rather than quietly finding nothing.
+    val projectDir = OrcaDir.reviewersPath(RepoRoot.dir)
+    val catalog =
+      ReviewerCatalog.discover(projectDir, TempDirs.dir() / "absent")
+    val reviewer = catalog.all
+      .find(_.name == "orca")
+      .getOrElse(fail(s"no reviewer named 'orca' in $projectDir"))
+    assert(reviewer.appliesTo(List("Foo.scala")), reviewer.filePattern.toString)
+    assert(
+      reviewer.appliesTo(List("flows/x.sc")),
+      reviewer.filePattern.toString
+    )
+    assert(
+      !reviewer.appliesTo(List("README.md")),
+      reviewer.filePattern.toString
+    )
+    // `orca` is not a shipped slug, so it is additive rather than a shadow.
+    assertEquals(
+      catalog.discovered.find(_.reviewer.name == "orca").map(_.shadows),
+      Some(Nil)
+    )
 
   test("project reviewers nothing ships are added to all and minimal, sorted"):
     val (project, global) = dirs()

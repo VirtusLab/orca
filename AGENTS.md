@@ -322,9 +322,17 @@ them.
   collection or an `AtomicReference` field, work out what the state is for and
   where else it could live — the progress log usually already carries it — and
   say in the PR which alternatives you rejected and why.
+- Agents here are trusted but fallible, not adversarial. A design argument or a
+  review finding whose only justification is what a malicious agent could do is
+  out of scope: guard against mistakes, not against an attacker inside the run.
+- `.orca/settings.properties` is committed on purpose — never report its
+  presence as an accidental commit. Its `format`/`lint`/`test` values are shell
+  commands orca runs, so those stay ordinary reviewable code.
 - Project-specific review rules live in `.orca/reviewers/*.md`, discovered per
   [ADR 0023](adr/0023-reviewer-discovery.md); a file named after a shipped
-  reviewer replaces it for this project.
+  reviewer replaces it for this project. This section is mirrored by
+  `.orca/reviewers/orca.md` — a rule added or amended here changes there too,
+  or the project reviewer enforces a stale set.
 
 ### Versioning (0.x)
 
