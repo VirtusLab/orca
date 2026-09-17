@@ -168,7 +168,6 @@ object FlowCanary:
         val list: List[Reviewer] = ReviewerPrompts.minimal :+ custom
         val _: List[ReviewerAgent[?]] = buildReviewers(claude, list)
         val _: List[ReviewerAgent[?]] = allReviewers(claude)
-        val _: Map[String, String] = ReviewerPrompts.descriptionsBySlug
 
   /** `flows/review.sc`: reviewers run for their findings alone, with no coder
     * session and no fix loop. Pins the roster's file filters, a parallel
@@ -178,7 +177,7 @@ object FlowCanary:
   def reviewOnlyShape(): Unit =
     flow(OrcaArgs()):
       stage("review"):
-        val _: Map[String, Regex] = ReviewerPrompts.filePatternsBySlug
+        val _: List[Option[Regex]] = ReviewerPrompts.all.map(_.filePattern)
         val reviewers = buildReviewers(reviewAgent, ReviewerPrompts.all)
         val results: List[ReviewResult] = Par.mapUnordered(4)(reviewers): r =>
           r.agent.resultAs[ReviewResult].autonomous.run(r.definition.name)

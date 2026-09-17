@@ -14,16 +14,29 @@ import scala.util.matching.Regex
   * Public so a flow can define its own reviewers alongside the shipped
   * [[ReviewerPrompts]] set: build a `List[Reviewer]`, turn it into
   * [[ReviewerAgent]]s with [[buildReviewers]], and hand those to
-  * [[reviewAndFixLoop]]. To make [[ReviewerSelector.agentDriven]] purpose-aware
-  * of custom reviewers, pass matching `descriptions`/`filePatterns` maps keyed
-  * by `name`.
+  * [[reviewAndFixLoop]]. A custom reviewer is described and gated by its own
+  * fields, like a shipped one.
   */
 case class Reviewer(
     name: String,
     description: String,
     systemPrompt: String,
     filePattern: Option[Regex] = None
-)
+):
+  // The picker's whole decision rests on the description, so a blank one is
+  // rejected where the reviewer is built rather than noticed at selection time.
+  require(
+    description.nonEmpty,
+    s"reviewer '$name' must have a non-empty description"
+  )
+
+  /** Whether this reviewer applies to a change set. An empty `changedFiles` is
+    * "unknown", not "nothing changed" — a pinned diff can miss files its text
+    * doesn't name — so every reviewer applies then.
+    */
+  def appliesTo(changedFiles: List[String]): Boolean =
+    changedFiles.isEmpty ||
+      filePattern.forall(rx => changedFiles.exists(rx.findFirstIn(_).isDefined))
 
 /** A reviewer ready to run: its [[Reviewer]] definition and the agent
   * [[buildReviewers]] built from it. Only [[buildReviewers]] can mint one, so
@@ -49,9 +62,8 @@ final case class ReviewerAgent[B <: BackendTag] private[review] (
   *     picker when at least one changed file matches (optional).
   *
   * Public as the customization surface: reference individual reviewers
-  * ([[CodeFunctionality]], [[Security]], …), the preset lists ([[all]],
-  * [[minimal]]), or the selector-feeding maps ([[descriptionsBySlug]],
-  * [[filePatternsBySlug]]) when composing your own reviewer list. Pair with
+  * ([[CodeFunctionality]], [[Security]], …) or the preset lists ([[all]],
+  * [[minimal]]) when composing your own reviewer list. Pair with
   * [[buildReviewers]].
   */
 object ReviewerPrompts:
@@ -70,12 +82,14 @@ object ReviewerPrompts:
     val parsed = PromptResource.loadWithMetadata(
       s"/orca/review/prompts/reviewers/$slug.md"
     )
-    val description = parsed.metadata.getOrElse(
-      "description",
-      throw new RuntimeException(
-        s"reviewer '$slug' is missing 'description' in its frontmatter"
+    val description = parsed.metadata
+      .get("description")
+      .filter(_.nonEmpty)
+      .getOrElse(
+        throw new RuntimeException(
+          s"reviewer '$slug' is missing 'description' in its frontmatter"
+        )
       )
-    )
     val filePattern = parsed.metadata.get("files").map(_.r)
     Reviewer(slug, description, parsed.body, filePattern)
 
@@ -111,22 +125,6 @@ object ReviewerPrompts:
     Readability,
     Test
   )
-
-  /** Descriptions keyed by the bare reviewer slug.
-    * [[ReviewerSelector.agentDriven]] consults this by default so the picker
-    * gets each reviewer's purpose alongside its name. Covers every shipped
-    * reviewer.
-    */
-  val descriptionsBySlug: Map[String, String] =
-    all.map(r => r.name -> r.description).toMap
-
-  /** File-filter regexes keyed by the bare reviewer slug. The selector drops
-    * reviewers whose pattern doesn't match any of the iteration's changed
-    * files, before the picker LLM sees them. Only reviewers that declared a
-    * `files:` frontmatter entry appear here.
-    */
-  val filePatternsBySlug: Map[String, Regex] =
-    all.flatMap(r => r.filePattern.map(p => r.name -> p)).toMap
 
 /** Build a [[ReviewerAgent]] for every reviewer the library ships with. The
   * default picker ([[ReviewerSelector.agentDriven]]) narrows the active set per

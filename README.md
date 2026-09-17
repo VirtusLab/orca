@@ -784,12 +784,14 @@ keeps the loop going), the round's full selection runs again and a step says so.
 | `default` | The above: `narrowingAcrossRounds(agentDriven)`. |
 | `allEveryRound` | The whole supplied roster, every round; no picker. |
 | `agentDriven` | Pick once with `reviewAgent.cheap`, replay that pick every round. |
-| `agentDriven(agent, instructions?, descriptions?, filePatterns?)` | As above with a chosen picker model and briefs. |
+| `agentDriven(agent, instructions?)` | As above with a chosen picker model and brief. |
 | `narrowingAcrossRounds(base)` | Adds the per-round narrowing over any `base`. |
 
 A reviewer declaring a `files:` pattern in its frontmatter (of the shipped set,
 only `scala-fp`) is offered to the picker only when a changed file matches it —
 unless nothing is known about the change set, in which case it stays eligible.
+The selector reads each reviewer's name, description and pattern off its
+`Reviewer`, so your own reviewers are described and gated the same way.
 
 To swap or extend the reviewer set, compose your own `List[Reviewer]` from
 `ReviewerPrompts` (the shipped entries, `ReviewerPrompts.all`/`.minimal`, and/or

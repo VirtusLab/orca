@@ -13,8 +13,6 @@ import orca.agents.Agent
 import orca.plan.Title
 import orca.util.TextUtil
 
-import scala.util.matching.Regex
-
 /** Picks which reviewers run on each iteration of [[reviewAndFixLoop]].
   *
   * Two-phase: [[prepare]] is called ONCE at loop start with the loop-constant
@@ -84,16 +82,14 @@ object ReviewerSelector:
   /** Asks a picker LLM which reviewers are worth running for a given task. The
     * parameterless form — `reviewAndFixLoop`'s default — resolves the picker at
     * loop start as [[orca.FlowContext.reviewAgent]]`.cheap`; the overload below
-    * takes the picker (and optionally retuned prompts/descriptions) explicitly.
-    * Either way the turn is billed as [[PickerName]] under the reviewer cost
-    * role. The selection is computed once, at loop start — task context doesn't
-    * change mid-loop — and the returned per-round function replays it, ignoring
+    * takes the picker (and optionally a retuned brief) explicitly. Either way
+    * the turn is billed as [[PickerName]] under the reviewer cost role. The
+    * selection is computed once, at loop start — task context doesn't change
+    * mid-loop — and the returned per-round function replays it, ignoring
     * history.
     *
-    * The picker sees each reviewer as a `(name, description)` pair.
-    * `descriptions` defaults to [[ReviewerPrompts.descriptionsBySlug]]; supply
-    * a custom map (keyed by bare slug) when overriding the default set. If the
-    * picker would see all-empty descriptions, a one-time `Step` warning fires.
+    * The picker sees each reviewer as the `(name, description)` pair off its
+    * [[Reviewer]] definition, so a custom reviewer describes itself.
     *
     * The picker is handed the task title, the changed file names and those
     * descriptions, and runs under [[orca.agents.ToolSet.ReadOnly]] in the
@@ -104,12 +100,11 @@ object ReviewerSelector:
     * shell happens to be there, and to include a reviewer whenever it is
     * unsure.
     *
-    * `filePatterns` is a code-side pre-filter applied before the LLM call:
-    * reviewers whose pattern doesn't match any of `changedFiles` are dropped,
-    * so the picker can't pick them. The default
-    * ([[ReviewerPrompts.filePatternsBySlug]]) constrains only reviewers that
-    * declared a `files:` frontmatter entry. See [[eligibleForPicker]] for what
-    * an empty `changedFiles` means here.
+    * A reviewer's `filePattern` is a code-side pre-filter applied before the
+    * LLM call: one whose pattern matches none of `changedFiles` is dropped, so
+    * the picker can't pick it. A reviewer that sets no `filePattern` is never
+    * constrained. See [[eligibleForPicker]] for what an empty `changedFiles`
+    * means here.
     *
     * Pick a cheap model (e.g. `claude.haiku`) — the decision is small, though
     * the agent does open a few files to make it. Override `instructions` to
@@ -132,9 +127,7 @@ object ReviewerSelector:
     */
   def agentDriven(
       agent: Agent[?],
-      instructions: String = ReviewLoopPrompts.SelectReviewers,
-      descriptions: Map[String, String] = ReviewerPrompts.descriptionsBySlug,
-      filePatterns: Map[String, Regex] = ReviewerPrompts.filePatternsBySlug
+      instructions: String = ReviewLoopPrompts.SelectReviewers
   ): ReviewerSelector = new ReviewerSelector:
     def prepare(
         all: List[RosterEntry],
@@ -144,27 +137,15 @@ object ReviewerSelector:
         ctx: FlowContext,
         ev: InStage
     ): List[ReviewBatch] -> List[RosterEntry] =
-      val eligible = eligibleForPicker(all, filePatterns, changedFiles)
-      val infos = eligible.map: r =>
-        ReviewerInfo(
-          name = r.name,
-          description = descriptions.getOrElse(r.name, "")
-        )
-      if eligible.nonEmpty && infos.forall(_.description.isEmpty) then
-        ctx.emit(
-          OrcaEvent.Step(
-            "reviewer selection: no descriptions matched the supplied " +
-              "reviewers (custom reviewers without matching description " +
-              "keys?). The picker will see names only."
-          )
-        )
+      val eligible = eligibleForPicker(all, changedFiles)
       val names =
         if eligible.isEmpty then Nil
         else
           val request = ReviewerSelectionRequest(
             taskTitle = taskTitle,
             changedFiles = changedFiles,
-            availableReviewers = infos,
+            availableReviewers =
+              eligible.map(e => ReviewerInfo(e.name, e.description)),
             instructions = instructions
           )
           ReviewLogging.reviewerPick(request)
@@ -250,8 +231,8 @@ object ReviewerSelector:
                 )
                 active
 
-  /** The reviewers [[agentDriven]] offers its picker: every reviewer with no
-    * `files:` pattern, plus those whose pattern matches a changed file.
+  /** The reviewers [[agentDriven]] offers its picker: every reviewer that
+    * [[Reviewer.appliesTo]] the change set.
     *
     * An empty `changedFiles` is read as "unknown", not "nothing changed": a
     * [[ReviewDiff.Pinned]] diff can miss files its diff text doesn't name.
@@ -261,11 +242,10 @@ object ReviewerSelector:
     */
   private def eligibleForPicker(
       all: List[RosterEntry],
-      filePatterns: Map[String, Regex],
       changedFiles: List[String]
   )(using ctx: FlowContext): List[RosterEntry] =
     if changedFiles.isEmpty then
-      val gated = all.map(_.name).filter(filePatterns.contains)
+      val gated = all.filter(_.filePattern.isDefined).map(_.name)
       if gated.nonEmpty then
         ctx.emit(
           OrcaEvent.Step(
@@ -274,9 +254,4 @@ object ReviewerSelector:
               s"eligible (${gated.mkString(", ")})"
           )
         )
-      all
-    else
-      all.filter: e =>
-        filePatterns
-          .get(e.name)
-          .forall(rx => changedFiles.exists(rx.findFirstIn(_).isDefined))
+    all.filter(_.appliesTo(changedFiles))

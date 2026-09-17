@@ -42,6 +42,12 @@ final class RosterEntry private[review] (
   /** The reviewer's `files:` filter, from its definition. */
   def filePattern: Option[Regex] = reviewer.definition.filePattern
 
+  /** Whether the reviewer applies to `changedFiles` — see
+    * [[Reviewer.appliesTo]].
+    */
+  def appliesTo(changedFiles: List[String]): Boolean =
+    reviewer.definition.appliesTo(changedFiles)
+
   private[review] def agent: Agent[?] = reviewer.agent
 
 private[review] object RosterEntry:

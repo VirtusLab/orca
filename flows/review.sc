@@ -172,10 +172,7 @@ def pickReviewers(target: ReviewTarget)(using
     FlowContext,
     InStage
 ): List[Reviewer] =
-  val candidates = ReviewerPrompts.all.filter: r =>
-    ReviewerPrompts.filePatternsBySlug
-      .get(r.name)
-      .forall(p => target.changedFiles.exists(f => p.findFirstIn(f).isDefined))
+  val candidates = ReviewerPrompts.all.filter(_.appliesTo(target.changedFiles))
 
   val listing = candidates
     .map(r => s"- ${r.name}: ${r.description}")

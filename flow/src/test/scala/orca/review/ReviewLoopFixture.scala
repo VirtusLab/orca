@@ -19,6 +19,8 @@ import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
 import orca.plan.{Task, Title}
 import orca.progress.CommitHash
 
+import scala.util.matching.Regex
+
 /** Shared fixture construction for the `reviewAndFixLoop` tests.
   *
   * The loop takes one [[FlowSession]] (coder + session bundle) and drives its
@@ -191,14 +193,17 @@ private[review] def issue(desc: String): ReviewIssue =
   )
 
 /** A [[ReviewerAgent]] over `agent`, its definition named after the agent —
-  * what the loop entry points take. The system prompt is empty: a fake agent
-  * ignores it.
+  * what the loop entry points take. `description` and `filePattern` are what
+  * [[ReviewerSelector.agentDriven]] reads off the definition. The system prompt
+  * is empty: a fake agent ignores it.
   */
 private[review] def asReviewer(
-    agent: Agent[BackendTag.ClaudeCode.type]
+    agent: Agent[BackendTag.ClaudeCode.type],
+    description: String = "reviews things",
+    filePattern: Option[Regex] = None
 ): ReviewerAgent[BackendTag.ClaudeCode.type] =
   ReviewerAgent(
-    Reviewer(agent.name, "reviews things", systemPrompt = ""),
+    Reviewer(agent.name, description, systemPrompt = "", filePattern),
     agent
   )
 
