@@ -35,9 +35,11 @@ shipped reviewers running beside you.
   include impossible states are one ADT. Protocol strings are parsed into an
   enum at the boundary (`Unknown(raw)` for unrecognised values) and matched
   exhaustively downstream.
-- **Modelling**: three or more same-typed adjacent parameters take named
-  arguments or a case class; a wire field's absence is decided once, at decode;
-  one decision, one home.
+- **Modelling**: three or more same-typed adjacent parameters — or two whose
+  swap compiles — take named arguments or a case class; a wire field's absence
+  is decided once, at decode, never re-defaulted per call site; one decision,
+  one home, so display and summary code consumes the production resolver
+  instead of mirroring the rule.
 - **Invisible in a diff**: terminal escapes are written as explicit unicode
   escapes (`\u001b`), never raw bytes; code that generates code — prompts,
   skeletons, templates — is tested by compiling or running the artifact, not by

@@ -287,53 +287,11 @@ with a test pinning the observed wire shape.
 
 ### Review-derived rules
 
-Distilled from recurring review findings; violations keep reappearing without
-them.
-
-- A domain mode is an enum, never a `Boolean` or a raw string compared to
-  literals; two flags/Options whose combinations include impossible states are
-  one ADT.
-- Three-plus same-typed adjacent parameters (or two whose swap compiles) get
-  named arguments at every call site, or a small case class.
-- A wire field's absence semantics is decided ONCE, at decode — never
-  re-defaulted per call site. Parse protocol strings into enums at the
-  boundary (`Unknown(raw)` for unrecognized values); match exhaustively
-  downstream.
-- One decision, one home: when the same mapping/derivation appears in a second
-  place, extract it. Display/summary code consumes the production resolver —
-  it never mirrors the rule with its own copy.
-- Code that generates code (templates, skeletons, prompts claiming
-  compilability) is tested by actually compiling/executing the artifact —
-  substring assertions don't count.
-- Terminal escape sequences are written with explicit unicode escapes (backslash-u001b), never
-  raw embedded bytes; when moving such code, compare with `cat -A` — ordinary
-  diffs render the sequences invisibly.
-- Every user-facing refusal names the next action; every destructive-looking
-  automatic operation (stash, reset, delete) states its purpose in the same
-  breath.
-- Orca's interfaces and the documents it persists name git concepts, never a
-  specific forge. A rule that needs to know whether the run published its work
-  records that it published, and where, as a display reference — not a handle
-  from the service that took it. The forge-specific type stays in the package
-  that talks to that forge.
-- New mutable state is a design question, not a style one. The sanctioned
-  exceptions above license themselves and nothing else, so "it follows an
-  existing precedent" does not settle it: before adding a `var`, a mutable
-  collection or an `AtomicReference` field, work out what the state is for and
-  where else it could live — the progress log usually already carries it — and
-  say in the PR which alternatives you rejected and why.
-- Agents here are trusted but fallible, not adversarial. A design argument or a
-  review finding whose only justification is what a malicious agent could do is
-  out of scope: guard against mistakes, not against an attacker inside the run.
-- `.orca/settings.properties` is committed on purpose — never report its
-  presence as an accidental commit. Its `format`/`lint`/`test` values are shell
-  commands orca runs, so those stay ordinary reviewable code.
-- Project-specific review rules live in `.orca/reviewers/*.md`, discovered per
-  [ADR 0023](adr/0023-reviewer-discovery.md); a file named after a shipped
-  reviewer replaces it for this project. `.orca/reviewers/orca.md` distils this
-  section plus the comment, capability, `.orca`-write, subprocess and 0.x rules
-  elsewhere in this file — amend it whenever any rule it carries changes, or
-  the project reviewer enforces a stale set.
+This project's rules live in [`.orca/reviewers/orca.md`](.orca/reviewers/orca.md)
+— the reviewer orca runs against every Scala change here, discovered per
+[ADR 0023](adr/0023-reviewer-discovery.md). Read it before writing code. It is
+distilled from recurring review findings, and it is the only copy: a rule
+changes there or not at all.
 
 ### Versioning (0.x)
 

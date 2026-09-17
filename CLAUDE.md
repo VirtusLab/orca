@@ -12,4 +12,4 @@ then start the work.
 When a change would add mutable state — a `var`, a mutable collection or an
 `AtomicReference` field — research the alternatives in a separate agent and
 have a second agent critique the recommendation before implementing either.
-AGENTS.md's review-derived rules say what the result must record.
+`.orca/reviewers/orca.md` says what the result must record.
