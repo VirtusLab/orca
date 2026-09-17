@@ -522,10 +522,13 @@ files: \.scala$
 Review only the layering of the changed files...
 ```
 
-`description:` is required — the reviewer-picker decides from it. `files:` is
-optional: a regex matched against each changed path, so the reviewer is only
-offered when the change touches a file it applies to. The body is the
-reviewer's system prompt. A `name:` key, if present, is ignored.
+`description:` is required and must be a single line — the reviewer-picker
+decides from it. The value is the rest of that line, so a YAML block scalar
+(`>`, `|`, `>-`, `|-`) or a wrapped continuation leaves a description of `>` or
+half a sentence: nothing aborts, and the picker never selects that reviewer.
+`files:` is optional: a regex matched against each changed path, so the
+reviewer is only offered when the change touches a file it applies to. The body
+is the reviewer's system prompt. A `name:` key, if present, is ignored.
 
 `README.md` and any `_`-prefixed name sit in the directory as documents. Every
 other `.md` must parse as a reviewer: a missing or unterminated frontmatter

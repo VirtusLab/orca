@@ -76,7 +76,10 @@ What the shipped prompts already use, and now the contract for user-authored
 files too (`reviewerFrom`). This section supersedes ADR 0011's "Prompt format",
 which predates both the `files:` key and the current body shape:
 
-- `description:` — **required**. The reviewer-picker decides from it.
+- `description:` — **required**, and a single line. The value is the rest of
+  that line, so a YAML block scalar (`>`, `|`, `>-`, `|-`) or a wrapped
+  continuation leaves a description of `>` or half a sentence — not blank, so
+  nothing aborts, and the picker never selects that reviewer.
 - `files:` — optional regex, substring-matched against each changed path
   (`Reviewer.appliesTo`). A reviewer that sets none is never file-gated.
 - `name:` — ignored. The filename stem is the identity.
