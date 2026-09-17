@@ -172,8 +172,11 @@ and `minimal` alone — tier and shadow provenance is runner-internal, and
 - A user's own reviewers follow them across projects via the global tier.
 - The picker sees every reviewer's real purpose, discovered or shipped, because
   there is one place a description can come from.
-- Reviewer tiers read exactly like flow tiers (ADR 0021 §5): same precedence,
-  same labels, same "shadows" vocabulary.
+- Reviewer tiers read like flow tiers (ADR 0021 §5): same precedence, same
+  labels, same "shadows" vocabulary, and the same symlink policy — refused in
+  the project tier, followed in the others. A bad reviewer file aborts the run
+  where a bad flow is only left out of the menu, because an unused reviewer
+  reads as a clean review.
 
 **Negative**
 

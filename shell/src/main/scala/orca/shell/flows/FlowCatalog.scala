@@ -33,9 +33,9 @@ private[shell] object FlowCatalog:
     TierPrecedence
       .resolve(
         List(
-          Origin.Project -> scriptsByName(projectFlows),
-          Origin.Global -> scriptsByName(globalFlows),
-          Origin.BuiltIn -> scriptsByName(builtIns)
+          Origin.Project -> scriptsByName(projectFlows, Origin.Project),
+          Origin.Global -> scriptsByName(globalFlows, Origin.Global),
+          Origin.BuiltIn -> scriptsByName(builtIns, Origin.BuiltIn)
         )
       )
       .map: winner =>
@@ -48,15 +48,28 @@ private[shell] object FlowCatalog:
         )
 
   /** `*.sc` files directly in `dir`, keyed by filename; empty if `dir` doesn't
-    * exist. Symlinked entries are excluded (`os.isLink`, lstat/no-follow): a
-    * committed symlink `x.sc` (or a symlinked tier dir, guarded upstream at the
-    * project tier by `OrcaDir.assertNoOrcaSymlinks`) would otherwise let View
-    * disclose, and Edit write through to, a target outside the tree.
+    * exist.
+    *
+    * A symlinked entry is excluded in the PROJECT tier only (`os.isLink`,
+    * lstat/no-follow): that directory is committed and orca runs against
+    * arbitrary cloned repos, so a committed symlink `x.sc` (or a symlinked tier
+    * dir, guarded upstream by `OrcaDir.assertNoOrcaSymlinks`) would otherwise
+    * let View disclose, and Edit write through to, a target outside the tree.
+    * The global tier is the user's own config home and the built-in tier is
+    * orca's own extraction cache, so both are read through links the way
+    * reviewers read theirs (ADR 0023) — a dotfiles manager that links each file
+    * in is normal there. A link with no target fails `os.isFile` and is dropped
+    * like any other unusable entry.
     */
-  private def scriptsByName(dir: os.Path): Map[String, os.Path] =
+  private def scriptsByName(
+      dir: os.Path,
+      origin: Origin
+  ): Map[String, os.Path] =
     if !os.isDir(dir) then Map.empty
     else
+      val refusesLinks = origin == Origin.Project
       os.list(dir)
-        .filter(p => !os.isLink(p) && os.isFile(p) && p.last.endsWith(".sc"))
+        .filter(p => !(refusesLinks && os.isLink(p)))
+        .filter(p => os.isFile(p) && p.last.endsWith(".sc"))
         .map(p => p.last -> p)
         .toMap

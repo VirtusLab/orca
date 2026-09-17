@@ -83,7 +83,7 @@ class FlowCatalogTest extends munit.FunSuite:
 
     assertEquals(result.map(_.name), List("alpha.sc", "zeta.sc"))
 
-  test("a symlinked .sc file in a tier dir is excluded from the catalog"):
+  test("a symlinked .sc file in the project tier is excluded from the catalog"):
     val project = TempDirs.dir()
     val global = TempDirs.dir()
     val builtIn = TempDirs.dir()
@@ -94,6 +94,22 @@ class FlowCatalogTest extends munit.FunSuite:
     val result = FlowCatalog.list(project, global, builtIn)
 
     assertEquals(result, Nil)
+
+  test(
+    "a symlinked .sc file in the global tier is listed, read through the link"
+  ):
+    val project = TempDirs.dir()
+    val global = TempDirs.dir()
+    val builtIn = TempDirs.dir()
+    val stowed = TempDirs.dir() / "release.sc"
+    os.write(stowed, "// Stowed version.\nval x = 1")
+    os.symlink(global / "release.sc", stowed)
+
+    val result = FlowCatalog.list(project, global, builtIn)
+
+    assertEquals(result.map(_.name), List("release.sc"))
+    assertEquals(result.head.origin, Origin.Global)
+    assertEquals(result.head.description, Some("Stowed version."))
 
   test("a flow with no leading description is listed with description None"):
     val project = TempDirs.dir()
