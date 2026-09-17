@@ -76,6 +76,8 @@ class ReviewerCatalogTest extends munit.FunSuite:
     )
     val catalog = ReviewerCatalog.discover(project, global)
     assertEquals(named(catalog.all), named(ReviewerPrompts.all))
+    // `scala-fp` is outside `minimal`, so a shadow of it adds nothing there.
+    assertEquals(named(catalog.minimal), named(ReviewerPrompts.minimal))
     val scalaFp = catalog.all.find(_.name == "scala-fp").get
     assertEquals(scalaFp.description, "our own scala rules")
     assertEquals(
@@ -166,7 +168,29 @@ class ReviewerCatalogTest extends munit.FunSuite:
     )
     val e =
       intercept[OrcaFlowException](ReviewerCatalog.discover(project, global))
-    assert(e.getMessage.contains("frontmatter"), e.getMessage)
+    assert(e.getMessage.contains("has no frontmatter block"), e.getMessage)
+
+  test(
+    "a symlink and a duplicate slug are reported alongside a malformed file"
+  ):
+    val (project, global) = dirs()
+    val _ = writeReviewer(project, "alpha", description = "")
+    val _ = writeReviewer(project, "zeta")
+    val _ = writeReviewer(project, "Zeta")
+    os.symlink(project / "linked.md", writeReviewer(global, "elsewhere"))
+    val e =
+      intercept[OrcaFlowException](ReviewerCatalog.discover(project, global))
+    assert(e.getMessage.contains("alpha"), e.getMessage)
+    assert(e.getMessage.contains("'zeta' is claimed"), e.getMessage)
+    assert(e.getMessage.contains("linked.md is a symlink"), e.getMessage)
+
+  test("a dangling symlink in the global tier is reported, not dropped"):
+    val (project, global) = dirs()
+    os.makeDir.all(global)
+    os.symlink(global / "orca.md", global / "gone.md")
+    val e =
+      intercept[OrcaFlowException](ReviewerCatalog.discover(project, global))
+    assert(e.getMessage.contains("cannot be read"), e.getMessage)
 
   test("a symlinked .md in the project tier aborts, naming the link"):
     val (project, global) = dirs()
@@ -197,7 +221,10 @@ class ReviewerCatalogTest extends munit.FunSuite:
     )
     val e =
       intercept[OrcaFlowException](ReviewerCatalog.discover(project, global))
-    assert(e.getMessage.contains("frontmatter"), e.getMessage)
+    assert(
+      e.getMessage.contains("block the parser could not read"),
+      e.getMessage
+    )
 
   test("two files claiming one slug in a tier abort"):
     val (project, global) = dirs()
@@ -220,6 +247,14 @@ class ReviewerCatalogTest extends munit.FunSuite:
     assert(e.getMessage.contains((project / "orca.md").toString), e.getMessage)
     assert(e.getMessage.contains("description:"), e.getMessage)
 
+  test("a whitespace-only description aborts like a missing one"):
+    // Quoted, so the frontmatter parser's own trim doesn't collapse it.
+    val (project, global) = dirs()
+    val _ = writeReviewer(project, "orca", description = "\"  \"")
+    val e =
+      intercept[OrcaFlowException](ReviewerCatalog.discover(project, global))
+    assert(e.getMessage.contains("description:"), e.getMessage)
+
   test("a reviewer file with no body aborts"):
     val (project, global) = dirs()
     val _ = writeReviewer(project, "orca", body = "   ")
@@ -233,15 +268,6 @@ class ReviewerCatalogTest extends munit.FunSuite:
     val e =
       intercept[OrcaFlowException](ReviewerCatalog.discover(project, global))
     assert(e.getMessage.contains("files:"), e.getMessage)
-
-  test("every malformed file is named in one message"):
-    val (project, global) = dirs()
-    val _ = writeReviewer(project, "alpha", description = "")
-    val _ = writeReviewer(project, "zeta", files = Some("""(""""))
-    val e =
-      intercept[OrcaFlowException](ReviewerCatalog.discover(project, global))
-    assert(e.getMessage.contains("alpha"), e.getMessage)
-    assert(e.getMessage.contains("zeta"), e.getMessage)
 
   test("builtIn is the shipped set with nothing discovered"):
     assertEquals(ReviewerCatalog.builtIn.all, ReviewerPrompts.all)

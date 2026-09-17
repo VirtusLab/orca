@@ -30,6 +30,11 @@ shipped reviewers running beside you.
 - **Writes under `.orca/`** go through `OrcaDir.ensureRoot`/`ensureCache`, and
   prefer `os.write` over `os.write.over`.
 - **Subprocesses capture stderr** — `QuietProc.call` or a `CliRunner`.
+- **Enums, not flags**: a domain mode is an enum, never a `Boolean` or a raw
+  string compared to literals; two flags or `Option`s whose combinations
+  include impossible states are one ADT. Protocol strings are parsed into an
+  enum at the boundary (`Unknown(raw)` for unrecognised values) and matched
+  exhaustively downstream.
 - **Modelling**: three or more same-typed adjacent parameters take named
   arguments or a case class; a wire field's absence is decided once, at decode;
   one decision, one home.

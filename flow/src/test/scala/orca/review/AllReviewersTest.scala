@@ -74,14 +74,6 @@ class AllReviewersTest extends munit.FunSuite:
   test("a reviewer cannot be built with a blank description"):
     // The picker is handed `- <name>: <description>`; a blank one leaves it
     // guessing from the slug for the whole loop.
-    val _ = intercept[IllegalArgumentException](
-      Reviewer("my-thing", "", systemPrompt = "…")
-    )
-
-  test("minimalReviewers exposes the small subset"):
-    val base = new RecordingTool
-    val names = minimalReviewers(base).map(_.definition.name)
-    assertEquals(
-      names,
-      ReviewerPrompts.minimal.map(_.name)
+    val _ = intercept[orca.OrcaFlowException](
+      Reviewer("my-thing", " ", systemPrompt = "…")
     )

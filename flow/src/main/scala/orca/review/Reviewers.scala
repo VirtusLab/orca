@@ -1,6 +1,6 @@
 package orca.review
 
-import orca.FlowContext
+import orca.{FlowContext, OrcaFlowException}
 import orca.agents.{BackendTag, Agent}
 import orca.util.{ParsedPrompt, PromptResource}
 
@@ -29,10 +29,13 @@ case class Reviewer(
 ):
   // The picker's whole decision rests on the description, so a blank one is
   // rejected where the reviewer is built rather than noticed at selection time.
-  require(
-    description.nonEmpty,
-    s"reviewer '$name' must have a non-empty description"
-  )
+  // The same abort type discovery raises, so both sites report a broken
+  // reviewer the same way.
+  if description.isBlank then
+    throw new OrcaFlowException(
+      s"reviewer '$name' has an empty description — the reviewer-picker " +
+        "decides from it; give the reviewer a one-line purpose blurb"
+    )
 
   /** Whether this reviewer applies to a change set. An empty `changedFiles` is
     * "unknown", not "nothing changed" — a pinned diff can miss files its text
@@ -60,7 +63,11 @@ final case class ReviewerAgent[B <: BackendTag] private[review] (
   * `source` names the file, so the message says which one to fix.
   */
 private[review] enum ReviewerPromptFailure:
+  case NoFrontmatter(slug: String, source: String)
   case MalformedFrontmatter(slug: String, source: String)
+  case Symlinked(source: String)
+  case DuplicateSlug(slug: String, dir: String, files: List[String])
+  case Unreadable(source: String, reason: String)
   case MissingDescription(slug: String, source: String)
   case MissingBody(slug: String, source: String)
   case InvalidFilePattern(
@@ -74,6 +81,18 @@ private[review] object ReviewerPromptFailure:
   extension (failure: ReviewerPromptFailure)
     /** What the author is told, naming the file and what to do about it. */
     def message: String = failure match
+      case NoFrontmatter(slug, source) =>
+        s"reviewer '$slug' ($source) has no frontmatter block — add one at " +
+          "the top: '---', a 'description:' line, then '---'"
+      case Symlinked(source) =>
+        s"$source is a symlink — refusing to read a reviewer prompt through " +
+          "it; copy the file into the directory instead of linking it"
+      case DuplicateSlug(slug, dir, files) =>
+        s"reviewer '$slug' is claimed by more than one file in $dir " +
+          s"(${files.mkString(", ")}) — reviewer names are compared " +
+          "case-insensitively; keep one"
+      case Unreadable(source, reason) =>
+        s"$source cannot be read: $reason"
       case MalformedFrontmatter(slug, source) =>
         s"reviewer '$slug' ($source) has a frontmatter block the parser " +
           "could not read — it must open with '---' on the first line, close " +
@@ -105,13 +124,16 @@ private[review] def reviewerFrom(
     source: String
 ): Either[ReviewerPromptFailure, Reviewer] =
   either:
-    // Reached only for a file that opened a frontmatter block: one that never
-    // did is a document, and discovery skips it before this point.
+    // Only README/`_`-prefixed names are exempted earlier, by filename — so a
+    // file that never opened a block reaches here and is told to add one,
+    // rather than being told its block is unreadable.
+    if !parsed.hasFrontmatter then
+      Left(ReviewerPromptFailure.NoFrontmatter(slug, source)).ok()
     if parsed.metadata.isEmpty then
       Left(ReviewerPromptFailure.MalformedFrontmatter(slug, source)).ok()
     val description = parsed.metadata
       .get("description")
-      .filter(_.nonEmpty)
+      .filterNot(_.isBlank)
       .toRight(ReviewerPromptFailure.MissingDescription(slug, source))
       .ok()
     // An instruction-less reviewer still costs a turn and still reports

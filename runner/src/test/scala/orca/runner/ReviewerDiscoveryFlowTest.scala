@@ -57,6 +57,20 @@ class ReviewerDiscoveryFlowTest extends munit.FunSuite:
     // The abort precedes `ensureClean` and any branch creation.
     assertEquals(new OsGitTool(workDir).currentBranch(), startBranch)
 
+  test("a symlinked .orca/reviewers directory aborts before the branch"):
+    // `os.isDir` follows links, so the per-file check cannot see this; the
+    // guard is `OrcaDir.assertNoOrcaSymlinks` at the discovery call site.
+    val workDir = GitRepo.seeded()
+    val outside = TempDirs.dir("orca-outside-")
+    writeReviewer(outside, "from outside the tree")
+    os.makeDir.all(OrcaDir.rootPath(workDir))
+    os.symlink(OrcaDir.reviewersPath(workDir), outside)
+    val startBranch = new OsGitTool(workDir).currentBranch()
+    val e = intercept[SurfacedFlowFailure]:
+      driveFlow(workDir)(fail("the body must not run"))
+    assert(e.cause.getMessage.contains("symlink"), e.cause.getMessage)
+    assertEquals(new OsGitTool(workDir).currentBranch(), startBranch)
+
   private def writeReviewer(dir: os.Path, description: String): Unit =
     os.write(
       dir / "orca.md",

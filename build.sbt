@@ -185,6 +185,19 @@ lazy val runner = (project in file("runner"))
     // enforce.
     Test / parallelExecution := false,
     Test / javaOptions += buildVersionProperty.value,
+    // `flow(...)` resolves the global settings file and reviewer directory from
+    // the config home, so the tests here that drive it would otherwise read —
+    // and abort on — whatever the developer keeps in ~/.config/orca. Scoped to
+    // this module rather than `commonSettings` because the var reaches every
+    // subprocess a test spawns, and `gh` takes its auth from
+    // $XDG_CONFIG_HOME/gh (`tools`' integration suite needs the real login).
+    // Created here, so a tool that expects its config home to exist finds an
+    // empty one rather than a missing path.
+    Test / envVars += {
+      val configHome = (Test / target).value / "xdg-config"
+      IO.createDirectory(configHome)
+      "XDG_CONFIG_HOME" -> configHome.getAbsolutePath
+    },
     libraryDependencies ++= Seq(ox, mainargs, jline, fansi, jsoniterMacros)
   )
 

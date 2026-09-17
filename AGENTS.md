@@ -330,9 +330,10 @@ them.
   commands orca runs, so those stay ordinary reviewable code.
 - Project-specific review rules live in `.orca/reviewers/*.md`, discovered per
   [ADR 0023](adr/0023-reviewer-discovery.md); a file named after a shipped
-  reviewer replaces it for this project. This section is mirrored by
-  `.orca/reviewers/orca.md` — a rule added or amended here changes there too,
-  or the project reviewer enforces a stale set.
+  reviewer replaces it for this project. `.orca/reviewers/orca.md` distils this
+  section plus the comment, capability, `.orca`-write, subprocess and 0.x rules
+  elsewhere in this file — amend it whenever any rule it carries changes, or
+  the project reviewer enforces a stale set.
 
 ### Versioning (0.x)
 

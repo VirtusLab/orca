@@ -1,7 +1,7 @@
 package orca.review
 
 import orca.OrcaFlowException
-import orca.util.{ParsedPrompt, PromptResource}
+import orca.util.{ParsedPrompt, PromptResource, TextUtil}
 
 import java.util.Locale
 
@@ -110,22 +110,20 @@ object ReviewerCatalog:
       projectDir: os.Path,
       globalDir: os.Path
   ): ReviewerCatalog =
-    val byTier = List(
-      ReviewerFileTier.Project -> reviewerFiles(
-        projectDir,
-        ReviewerFileTier.Project
-      ),
-      ReviewerFileTier.Global -> reviewerFiles(
-        globalDir,
-        ReviewerFileTier.Global
-      )
+    val scans = List(
+      ReviewerFileTier.Project -> scan(projectDir, ReviewerFileTier.Project),
+      ReviewerFileTier.Global -> scan(globalDir, ReviewerFileTier.Global)
     )
-    val (failures, discovered) = byTier
+    val byTier = scans.map((tier, s) => tier -> s.files)
+    val (parseFailures, discovered) = byTier
       .flatMap(_._2.keySet)
       .distinct
       .sorted
       .map(resolve(_, byTier))
       .partitionMap(identity)
+    // Both tiers are scanned before anything is raised, so one run names every
+    // bad file: a symlink or a collision does not hide the file after it.
+    val failures = scans.flatMap(_._2.failures) ++ parseFailures
     if failures.nonEmpty then
       throw new OrcaFlowException(
         "cannot read the reviewers for this run:\n" +
@@ -133,8 +131,10 @@ object ReviewerCatalog:
       )
     new ReviewerCatalog(discovered)
 
-  /** The tiers defining `slug`, winner first, with the shipped set appended as
-    * the last thing a file tier can shadow.
+  /** The reviewer `slug` resolves to — parsed from the highest-precedence tier
+    * defining it, recording the tiers it shadows (the shipped set last) — or
+    * the failure that file's contents raised. `slug` comes from the tiers' own
+    * key sets, so at least one tier defines it.
     */
   private def resolve(
       slug: String,
@@ -159,58 +159,85 @@ object ReviewerCatalog:
     */
   private case class ReviewerFile(path: os.Path, parsed: ParsedPrompt)
 
+  /** What one tier directory holds: the files that parsed, keyed by slug, and
+    * every reason another entry could not be used. Failures are values so
+    * [[discover]] reports the whole directory in one message rather than
+    * stopping at the first bad entry.
+    */
+  private case class ReviewerScan(
+      failures: List[ReviewerPromptFailure],
+      files: Map[String, ReviewerFile]
+  )
+
   /** Names a `.md` file may carry to sit in a reviewer directory without being
     * one. Anything else without frontmatter is an author who forgot the block,
     * not a document — and a reviewer dropped for that reads as a clean review.
     */
   private def isDocument(path: os.Path): Boolean =
-    val stem = path.baseName.toLowerCase(Locale.ROOT)
-    stem == "readme" || stem.startsWith("_")
+    stemOf(path) == "readme" || stemOf(path).startsWith("_")
 
-  /** Reviewer `.md` files directly in `dir`, keyed by lower-cased filename
-    * stem; empty if `dir` doesn't exist.
+  /** A file's reviewer slug: its stem, lower-cased the way
+    * `SelectedReviewers.pick` resolves the picker's reply.
+    */
+  private def stemOf(path: os.Path): String =
+    path.baseName.toLowerCase(Locale.ROOT)
+
+  /** Scan one tier directory: every reviewer `.md` in it, plus what is wrong
+    * with the ones that cannot be used. An absent directory holds nothing.
     *
     * [[isDocument]] names the files that may sit here without being reviewers.
     * Every other `.md` must parse as one: a block the parser can't read, or no
     * block at all, is a broken reviewer and [[reviewerFrom]] reports it.
     *
-    * A symlinked `.md` under the PROJECT tier aborts: that directory is
+    * A symlinked `.md` under the PROJECT tier is refused: that directory is
     * committed, and orca runs against arbitrary cloned repos, so reading
     * through a link there would make a file from outside the tree a reviewer's
     * system prompt (ADR 0019's rule). The global tier is the user's own config
     * home, read through links like `settings.properties` beside it — a dotfiles
-    * manager that links each file in is normal there.
+    * manager that links each file in is normal there; a link with no target
+    * surfaces as an unreadable file rather than vanishing from the roster.
     */
-  private def reviewerFiles(
-      dir: os.Path,
-      tier: ReviewerFileTier
-  ): Map[String, ReviewerFile] =
-    if !os.isDir(dir) then Map.empty
+  private def scan(dir: os.Path, tier: ReviewerFileTier): ReviewerScan =
+    if !os.isDir(dir) then ReviewerScan(Nil, Map.empty)
     else
-      val markdown = os.list(dir).filter(_.last.endsWith(".md"))
-      if tier == ReviewerFileTier.Project then
-        // `os.isLink` is lstat/no-follow, so this catches a dangling link too.
-        markdown
-          .find(os.isLink)
-          .foreach: link =>
-            throw new OrcaFlowException(
-              s"$link is a symlink — refusing to read a reviewer prompt " +
-                "through it; copy the file into the directory instead of " +
-                "linking it"
+      val candidates =
+        os.list(dir).filter(_.last.endsWith(".md")).filterNot(isDocument)
+      // `os.isLink` is lstat/no-follow, so this catches a dangling link too.
+      val (linked, plain) =
+        if tier == ReviewerFileTier.Project then candidates.partition(os.isLink)
+        else (IndexedSeq.empty, candidates)
+      val (readFailures, parsed) =
+        plain.filterNot(os.isDir).map(read).toList.partitionMap(identity)
+      val (collisions, unique) = parsed
+        .groupBy(f => stemOf(f.path))
+        .partitionMap:
+          case (slug, colliding) if colliding.sizeIs > 1 =>
+            Left(
+              ReviewerPromptFailure.DuplicateSlug(
+                slug,
+                dir.toString,
+                colliding.map(_.path.last).sorted
+              )
             )
-      val files = markdown
-        .filterNot(isDocument)
-        .filter(os.isFile)
-        .map(p => ReviewerFile(p, PromptResource.parseWithMetadata(os.read(p))))
-      val bySlug = files.groupBy(_.path.baseName.toLowerCase(Locale.ROOT))
-      // Slugs are compared lower-cased, so on a case-sensitive filesystem two
-      // files can claim one; picking a winner would drop the other silently.
-      bySlug
-        .find(_._2.sizeIs > 1)
-        .foreach: (slug, colliding) =>
-          throw new OrcaFlowException(
-            s"reviewer '$slug' is claimed by more than one file in $dir " +
-              s"(${colliding.map(_.path.last).sorted.mkString(", ")}) — " +
-              "reviewer names are compared case-insensitively; keep one"
-          )
-      bySlug.view.mapValues(_.head).toMap
+          case (slug, one) => Right(slug -> one.head)
+      ReviewerScan(
+        failures =
+          linked.map(p => ReviewerPromptFailure.Symlinked(p.toString)).toList
+            ++ readFailures ++ collisions.toList,
+        files = unique.toMap
+      )
+
+  /** Read and parse one candidate. A file that cannot be read at all — a link
+    * with no target, a permission error — is a failure, not an absence.
+    */
+  private def read(
+      path: os.Path
+  ): Either[ReviewerPromptFailure, ReviewerFile] =
+    try
+      Right(ReviewerFile(path, PromptResource.parseWithMetadata(os.read(path))))
+    catch
+      case e: java.io.IOException =>
+        Left(
+          ReviewerPromptFailure
+            .Unreadable(path.toString, TextUtil.throwableMessage(e))
+        )

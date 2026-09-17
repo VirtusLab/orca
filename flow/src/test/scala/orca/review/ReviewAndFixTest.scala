@@ -1413,6 +1413,59 @@ class ReviewAndFixTest extends munit.FunSuite:
       diff = ReviewDiff.Pinned("")
     )
 
+  test("a round fan-out is capped, and the lint gate still starts with it"):
+    given FlowControl = control
+    // The roster is user-extensible (ADR 0023), so the width must not follow
+    // it. A rendezvous the size of the cap pins both bounds without a timing
+    // margin: no turn returns until that many have entered, so the width
+    // cannot be narrower, and `mapParUnordered` holds it to no wider. It also
+    // fixes the first batch's entry indices at `0 until` the cap — a later
+    // task cannot be drawn while every slot is parked — so the gate's index
+    // proves it was queued ahead of the reviewers rather than behind them.
+    val batch =
+      new java.util.concurrent.CountDownLatch(MaxConcurrentReviewTasks)
+    val live = new java.util.concurrent.atomic.AtomicInteger(0)
+    val peak = new java.util.concurrent.atomic.AtomicInteger(0)
+    val entered = new java.util.concurrent.atomic.AtomicInteger(0)
+    val lintEntry = new java.util.concurrent.atomic.AtomicInteger(-1)
+
+    def turn(label: String, onEntry: Int => Unit = _ => ()): FakeAgent =
+      new FakeAgent(
+        name = label,
+        outputs = List(ReviewResult.empty),
+        onRun = () =>
+          onEntry(entered.getAndIncrement())
+          val now = live.incrementAndGet()
+          val _ = peak.updateAndGet(_.max(now))
+          batch.countDown()
+          val together = batch.await(5, java.util.concurrent.TimeUnit.SECONDS)
+          val _ = live.decrementAndGet()
+          if !together then
+            fail(
+              s"$label timed out — fewer than $MaxConcurrentReviewTasks " +
+                "turns ran at once"
+            )
+      )
+
+    val oversized =
+      (0 to MaxConcurrentReviewTasks).toList.map(i => asReviewer(turn(s"r$i")))
+    val _ = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
+      reviewers = oversized,
+      task = titled("fan-out check"),
+      lint = Configured.Use(
+        Lint(List("echo lint-output"), turn("lint", lintEntry.set))
+      ),
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      diff = ReviewDiff.Pinned("")
+    )
+    assertEquals(oversized.size, MaxConcurrentReviewTasks + 1)
+    assertEquals(peak.get(), MaxConcurrentReviewTasks)
+    assert(
+      lintEntry.get() >= 0 && lintEntry.get() < MaxConcurrentReviewTasks,
+      s"the lint gate started at ${lintEntry.get()}, not in the first batch"
+    )
+
   test("formatCommands run before every review round (impl + each fix)"):
     given FlowControl = control
     // The formatter appends one line per run. Two review rounds (issue → fix,
