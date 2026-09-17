@@ -240,10 +240,16 @@ with a test pinning the observed wire shape.
   stale server running a different Java and fail despite the current shell's
   `JAVA_HOME`.
 - `sbt ~test` re-runs tests on save.
-- For capture-checking experiments, skip sbt: flow's build materialises its
-  test classpath into
-  `flow/target/scala-*/resource_managed/test/cc-test-classpath.txt`; compile
-  fixtures directly with
+- Don't run `clean`. The incremental build is reliable and nothing here is
+  known to go stale; a profiled run lost 49 minutes to 13
+  `clean compile Test/compile test` cycles at 228 s each, against ~65 s for
+  the same work incrementally.
+- `sbt test` is what `.orca/settings.properties` configures — use it while
+  iterating, and keep the `ORCA_INTEGRATION=1` suites (CONTRIBUTING.md), which
+  shell out to real CLIs, for final verification.
+- For capture-checking experiments, take flow's test classpath once with
+  `CP=$(sbt -batch -error "export flow/Test/dependencyClasspath")`, then
+  compile fixtures directly with
   `java -cp "$CP" dotty.tools.dotc.Main -classpath "$CP" -d out Fixture.scala`.
   Verify CC enforcement claims this way — empirically, against the pinned
   compiler — before editing docs or wrappers.
