@@ -12,16 +12,31 @@ import scala.util.matching.Regex
   * the selector drops the reviewer before the picker LLM sees it.
   *
   * Public so a flow can define its own reviewers alongside the shipped
-  * [[ReviewerPrompts]] set: build a `List[Reviewer]`, turn it into agents with
-  * [[buildReviewers]], and hand that to [[reviewAndFixLoop]]. To make
-  * [[ReviewerSelector.agentDriven]] purpose-aware of custom reviewers, pass
-  * matching `descriptions`/`filePatterns` maps keyed by `name`.
+  * [[ReviewerPrompts]] set: build a `List[Reviewer]`, turn it into
+  * [[ReviewerAgent]]s with [[buildReviewers]], and hand those to
+  * [[reviewAndFixLoop]]. To make [[ReviewerSelector.agentDriven]] purpose-aware
+  * of custom reviewers, pass matching `descriptions`/`filePatterns` maps keyed
+  * by `name`.
   */
 case class Reviewer(
     name: String,
     description: String,
     systemPrompt: String,
     filePattern: Option[Regex] = None
+)
+
+/** A reviewer ready to run: its [[Reviewer]] definition and the agent
+  * [[buildReviewers]] built from it. Only [[buildReviewers]] can mint one, so
+  * `agent` always carries `definition.name`, `definition.systemPrompt` and the
+  * read-only gate — the loop reads the display name off `definition` and runs
+  * the turn on `agent`, and the two cannot disagree.
+  *
+  * A flow wanting different base agents per reviewer concatenates calls:
+  * `buildReviewers(strong, List(security)) ++ buildReviewers(cheap, rest)`.
+  */
+final case class ReviewerAgent[B <: BackendTag] private[review] (
+    definition: Reviewer,
+    agent: Agent[B]
 )
 
 /** Canonical reviewer definitions the library ships with. Each entry reads from
@@ -113,41 +128,46 @@ object ReviewerPrompts:
   val filePatternsBySlug: Map[String, Regex] =
     all.flatMap(r => r.filePattern.map(p => r.name -> p)).toMap
 
-/** Build Agents for every reviewer the library ships with. The default picker
-  * ([[ReviewerSelector.agentDriven]]) narrows the active set per task, so
-  * passing the full list isn't wasteful.
+/** Build a [[ReviewerAgent]] for every reviewer the library ships with. The
+  * default picker ([[ReviewerSelector.agentDriven]]) narrows the active set per
+  * task, so passing the full list isn't wasteful.
   */
-def allReviewers[B <: BackendTag](base: Agent[B]): List[Agent[B]] =
+def allReviewers[B <: BackendTag](base: Agent[B]): List[ReviewerAgent[B]] =
   buildReviewers(base, ReviewerPrompts.all)
 
-/** Build Agents for the small universally-applicable subset
+/** Build [[ReviewerAgent]]s for the small universally-applicable subset
   * ([[ReviewerPrompts.minimal]] — correctness, test quality, clarity). Pick
   * this when the full set is overkill or the flow only touches small diffs.
   */
-def minimalReviewers[B <: BackendTag](base: Agent[B]): List[Agent[B]] =
+def minimalReviewers[B <: BackendTag](
+    base: Agent[B]
+): List[ReviewerAgent[B]] =
   buildReviewers(base, ReviewerPrompts.minimal)
 
-/** Layer each reviewer's system prompt onto the base tool, name it with the
-  * bare reviewer slug, and gate every reviewer to read-only access. A
-  * reviewer's job is to *report* issues, not fix them; without `withReadOnly`
-  * the agent inherits the base tool's permissions (typically `AutoApprove.All`)
-  * and could edit files mid-review. Reads stay available so the agent can
-  * verify claims beyond the diff.
+/** Pair each reviewer definition with the agent that runs it: its system prompt
+  * layered onto the base tool, named with the bare reviewer slug and gated to
+  * read-only access. A reviewer's job is to *report* issues, not fix them;
+  * without `withReadOnly` the agent inherits the base tool's permissions
+  * (typically `AutoApprove.All`) and could edit files mid-review. Reads stay
+  * available so the agent can verify claims beyond the diff.
   *
   * How strongly that gate holds is per backend and per turn — AGENTS.md's
   * enforcement table is the answer. The run says so when it isn't mechanical
   * (`EnforcementNotice`), and the read-only rule is in every such turn's prompt
   * either way.
   *
-  * Public so a flow can build agents from a custom [[Reviewer]] list rather
+  * Public so a flow can build reviewers from a custom [[Reviewer]] list rather
   * than being limited to the [[allReviewers]] / [[minimalReviewers]] presets.
   */
 def buildReviewers[B <: BackendTag](
     base: Agent[B],
     reviewers: List[Reviewer]
-): List[Agent[B]] =
+): List[ReviewerAgent[B]] =
   reviewers.map: r =>
-    base
-      .withSystemPrompt(r.systemPrompt)
-      .withName(r.name)
-      .withReadOnly
+    ReviewerAgent(
+      r,
+      base
+        .withSystemPrompt(r.systemPrompt)
+        .withName(r.name)
+        .withReadOnly
+    )

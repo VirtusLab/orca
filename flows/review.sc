@@ -82,16 +82,20 @@ flow(OrcaArgs(args)):
     PickedReviewers(pickReviewers(target).map(_.name))
 
   val findings = stage("Run reviewers"):
-    val agents = buildReviewers(
+    val reviewers = buildReviewers(
       reviewAgent,
       ReviewerPrompts.all.filter(r => picked.names.contains(r.name))
     )
     // Results come back in completion order, hence the pairing with the
     // reviewer's name.
-    AllFindings(Par.mapUnordered(4)(agents): a =>
+    AllFindings(Par.mapUnordered(4)(reviewers): r =>
       ReviewerFindings(
-        a.name,
-        a.resultAs[ReviewResult].autonomous.run(reviewPrompt(target)).issues
+        r.definition.name,
+        r.agent
+          .resultAs[ReviewResult]
+          .autonomous
+          .run(reviewPrompt(target))
+          .issues
       ))
 
   val report = renderReport(target, findings.byReviewer)

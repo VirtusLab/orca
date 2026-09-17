@@ -190,6 +190,18 @@ private[review] def issue(desc: String): ReviewIssue =
     suggestion = None
   )
 
+/** A [[ReviewerAgent]] over `agent`, its definition named after the agent —
+  * what the loop entry points take. The system prompt is empty: a fake agent
+  * ignores it.
+  */
+private[review] def asReviewer(
+    agent: Agent[BackendTag.ClaudeCode.type]
+): ReviewerAgent[BackendTag.ClaudeCode.type] =
+  ReviewerAgent(
+    Reviewer(agent.name, "reviews things", systemPrompt = ""),
+    agent
+  )
+
 /** A [[ReviewerSelector]] that does nothing at prepare time and narrows each
   * round with `narrow(roster, history)`.
   */

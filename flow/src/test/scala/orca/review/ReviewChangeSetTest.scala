@@ -45,7 +45,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
       commit(dir, "widget.scala", "object Widget")
       val _ = reviewAndFixLoop(
         coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
-        reviewers = List(reviewer),
+        reviewers = List(asReviewer(reviewer)),
         task = titled("build the widget"),
         reviewerSelection = ReviewerSelector.allEveryRound
       )
@@ -72,7 +72,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
     stage("implement the widget"):
       val _ = reviewAndFixLoop(
         coderSession = ReviewLoopFixture.coderSession(coder),
-        reviewers = List(early, late),
+        reviewers = List(asReviewer(early), asReviewer(late)),
         task = titled("build the widget"),
         reviewerSelection = lateJoiner
       )
@@ -97,7 +97,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
     stage("implement the widget"):
       val _ = reviewAndFixLoop(
         coderSession = ReviewLoopFixture.coderSession(coder),
-        reviewers = List(reviewer),
+        reviewers = List(asReviewer(reviewer)),
         task = titled("build the widget"),
         reviewerSelection = ReviewerSelector.allEveryRound
       )
@@ -126,7 +126,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
     stage("implement the widget"):
       val _ = reviewAndFixLoop(
         coderSession = ReviewLoopFixture.coderSession(coder),
-        reviewers = List(reviewer),
+        reviewers = List(asReviewer(reviewer)),
         task = titled("build the widget"),
         reviewerSelection = ReviewerSelector.allEveryRound,
         diff = ReviewDiff.Pinned(
@@ -158,7 +158,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
     stage("implement the widget"):
       val _ = reviewAndFixLoop(
         coderSession = ReviewLoopFixture.coderSession(coder),
-        reviewers = List(reviewer),
+        reviewers = List(asReviewer(reviewer)),
         task = titled("build the widget"),
         reviewerSelection = ReviewerSelector.allEveryRound,
         diff = ReviewDiff.Pinned("")
@@ -199,7 +199,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
     stage("implement the widget"):
       val _ = reviewAndFixLoop(
         coderSession = ReviewLoopFixture.coderSession(coder),
-        reviewers = List(reviewer),
+        reviewers = List(asReviewer(reviewer)),
         task = titled("build the widget"),
         reviewerSelection = ReviewerSelector.allEveryRound
       )
@@ -322,7 +322,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
       commit(dir, "big.scala", big)
       val _ = reviewAndFixLoop(
         coderSession = ReviewLoopFixture.coderSession(coder),
-        reviewers = List(reviewer),
+        reviewers = List(asReviewer(reviewer)),
         task = titled("build the widget"),
         reviewerSelection = ReviewerSelector.allEveryRound
       )
@@ -374,7 +374,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
       commit(dir, "big.scala", big)
       val _ = reviewAndFixLoop(
         coderSession = ReviewLoopFixture.coderSession(coder),
-        reviewers = List(reviewer),
+        reviewers = List(asReviewer(reviewer)),
         task = titled("build the widget"),
         reviewerSelection = ReviewerSelector.allEveryRound
       )
@@ -397,7 +397,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
     stage("implement the widget"):
       val _ = reviewAndFixLoop(
         coderSession = ReviewLoopFixture.coderSession(coder),
-        reviewers = List(reviewer),
+        reviewers = List(asReviewer(reviewer)),
         task = titled("build the widget"),
         reviewerSelection = ReviewerSelector.allEveryRound
       )
@@ -432,7 +432,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
       commitAll(dir, "the work")
       val _ = reviewAndFixLoop(
         coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
-        reviewers = List(reviewer),
+        reviewers = List(asReviewer(reviewer)),
         task = titled("build the widget"),
         reviewerSelection = ReviewerSelector.allEveryRound
       )
@@ -476,8 +476,9 @@ class ReviewChangeSetTest extends munit.FunSuite:
       commit(dir, "widget.scala", "object Widget")
       val _ = reviewAndFixLoop(
         coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
-        reviewers =
-          List(new FakeAgent("r", outputs = List(ReviewResult.empty))),
+        reviewers = List(
+          asReviewer(new FakeAgent("r", outputs = List(ReviewResult.empty)))
+        ),
         task = titled("build the widget"),
         reviewerSelection = recording
       )

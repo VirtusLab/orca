@@ -34,7 +34,7 @@ class ReviewThenFixTest extends munit.FunSuite:
     given FlowControl = control(picking("x"))
     val result = reviewThenFix(
       coderSession = ReviewLoopFixture.coderSession(coder),
-      reviewers = List(reviewer),
+      reviewers = List(asReviewer(reviewer)),
       task = titled("do the thing")
     )
     assertEquals(result, IgnoredIssues(Nil))
@@ -48,7 +48,7 @@ class ReviewThenFixTest extends munit.FunSuite:
     given FlowControl = control(picking("quiet"))
     val result = reviewThenFix(
       coderSession = ReviewLoopFixture.coderSession(coder),
-      reviewers = List(reviewer),
+      reviewers = List(asReviewer(reviewer)),
       task = titled("do the thing")
     )
     assertEquals(result, IgnoredIssues(Nil))
@@ -80,7 +80,7 @@ class ReviewThenFixTest extends munit.FunSuite:
     given FlowControl = control(picking("x"))
     val result = reviewThenFix(
       coderSession = ReviewLoopFixture.coderSession(coder),
-      reviewers = List(reviewer),
+      reviewers = List(asReviewer(reviewer)),
       task = titled("do the thing")
     )
     assertEquals(
@@ -101,7 +101,7 @@ class ReviewThenFixTest extends munit.FunSuite:
     given FlowControl = control(picking("x"), steps.dispatcher)
     val result = reviewThenFix(
       coderSession = ReviewLoopFixture.coderSession(coder),
-      reviewers = List(reviewer),
+      reviewers = List(asReviewer(reviewer)),
       task = titled("do the thing")
     )
     assertEquals(
@@ -124,7 +124,7 @@ class ReviewThenFixTest extends munit.FunSuite:
     given FlowControl = control(picking("x"), steps.dispatcher)
     val _ = reviewThenFix(
       coderSession = ReviewLoopFixture.coderSession(coder),
-      reviewers = List(reviewer),
+      reviewers = List(asReviewer(reviewer)),
       task = titled("do the thing")
     )
     assert(
@@ -148,7 +148,7 @@ class ReviewThenFixTest extends munit.FunSuite:
     given FlowControl = control(picking("x"))
     val _ = reviewThenFix(
       coderSession = ReviewLoopFixture.coderSession(coder),
-      reviewers = List(reviewer),
+      reviewers = List(asReviewer(reviewer)),
       task = titled("do the thing"),
       formatCommands = Configured.Use(List(s"echo x >> '$counter'"))
     )
@@ -184,7 +184,7 @@ class ReviewThenFixTest extends munit.FunSuite:
     )
     val result = reviewThenFix(
       coderSession = ReviewLoopFixture.coderSession(coder),
-      reviewers = List(reviewer),
+      reviewers = List(asReviewer(reviewer)),
       task = titled("do the thing"),
       lint = Configured.Use(Lint(List(s"test -f '$flag'"), lintAgent))
     )
@@ -224,7 +224,7 @@ class ReviewThenFixTest extends munit.FunSuite:
     )
     val result = reviewThenFix(
       coderSession = ReviewLoopFixture.coderSession(coder),
-      reviewers = List(reviewer),
+      reviewers = List(asReviewer(reviewer)),
       task = titled("do the thing"),
       lint = Configured.Use(Lint(List("false"), lintAgent))
     )
@@ -273,7 +273,7 @@ class ReviewThenFixTest extends munit.FunSuite:
     )
     val _ = reviewThenFix(
       coderSession = ReviewLoopFixture.coderSession(coder),
-      reviewers = List(reviewer),
+      reviewers = List(asReviewer(reviewer)),
       task = titled("do the thing"),
       lint = Configured.Use(Lint(List("false"), lintAgent))
     )
@@ -299,7 +299,7 @@ class ReviewThenFixTest extends munit.FunSuite:
     given FlowControl = control(picker)
     val _ = reviewThenFix(
       coderSession = ReviewLoopFixture.coderSession(coder),
-      reviewers = List(reviewer, unpicked),
+      reviewers = List(asReviewer(reviewer), asReviewer(unpicked)),
       task = titled("do the thing")
     )
     assertEquals(picker.seenSessions.size, 1)

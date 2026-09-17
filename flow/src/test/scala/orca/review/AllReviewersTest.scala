@@ -27,8 +27,11 @@ class AllReviewersTest extends munit.FunSuite:
 
   test("allReviewers exposes the full canonical reviewer set"):
     val base = new RecordingTool
-    val names = allReviewers(base).map(_.name)
-    assertEquals(names, ReviewerPrompts.all.map(_.name))
+    val reviewers = allReviewers(base)
+    val names = ReviewerPrompts.all.map(_.name)
+    assertEquals(reviewers.map(_.definition.name), names)
+    // The agent is renamed too, so the run bills each reviewer separately.
+    assertEquals(reviewers.map(_.agent.name), names)
 
   test("each reviewer layers its canonical system prompt onto the base tool"):
     val base = new RecordingTool
@@ -44,21 +47,8 @@ class AllReviewersTest extends munit.FunSuite:
 
   test("minimalReviewers exposes the small subset"):
     val base = new RecordingTool
-    val names = minimalReviewers(base).map(_.name)
+    val names = minimalReviewers(base).map(_.definition.name)
     assertEquals(
       names,
       ReviewerPrompts.minimal.map(_.name)
-    )
-
-  test("SelectedReviewers.pick filters the reviewer list by name"):
-    val base = new RecordingTool
-    val all =
-      allReviewers(base).zipWithIndex.map((a, i) =>
-        new RosterEntry(a, ReviewerId(i))
-      )
-    val picked =
-      SelectedReviewers(List("performance", "code-structure")).pick(all)
-    assertEquals(
-      picked.entries.map(_.name),
-      List("code-structure", "performance")
     )

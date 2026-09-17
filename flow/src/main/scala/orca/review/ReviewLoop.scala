@@ -21,7 +21,7 @@ import orca.{
 }
 import orca.plan.{Task, Title}
 
-import orca.agents.{BackendTag, Agent, Chat}
+import orca.agents.{BackendTag, Chat}
 import orca.events.OrcaEvent
 
 import orca.util.TextUtil
@@ -385,7 +385,7 @@ private case class RoundOutcome(
   */
 def reviewAndFixLoop[B <: BackendTag](
     coderSession: FlowSession[B],
-    reviewers: List[Agent[?]],
+    reviewers: List[ReviewerAgent[?]],
     /** The work under review. Reviewers are shown its title and its
       * description, alongside `userRequest`, each labelled — so a reviewer can
       * tell what the user asked for apart from what the planner decided, and
@@ -533,7 +533,7 @@ def reviewAndFixLoop[B <: BackendTag](
   */
 def reviewThenFix[B <: BackendTag](
     coderSession: FlowSession[B],
-    reviewers: List[Agent[?]],
+    reviewers: List[ReviewerAgent[?]],
     task: Task,
     userRequest: Option[String] = None,
     formatCommands: Configured[List[String]] = Configured.FromSettings,
@@ -599,7 +599,7 @@ private def resolveLint(
   */
 private[review] case class ReviewLoopConfig[B <: BackendTag](
     coderSession: FlowSession[B],
-    reviewers: List[Agent[?]],
+    reviewers: List[ReviewerAgent[?]],
     reviewerSelection: ReviewerSelector,
     task: Task,
     userRequest: String,

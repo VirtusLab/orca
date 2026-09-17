@@ -166,8 +166,8 @@ object FlowCanary:
           systemPrompt = "…"
         )
         val list: List[Reviewer] = ReviewerPrompts.minimal :+ custom
-        val _: List[Agent[?]] = buildReviewers(claude, list)
-        val _: List[Agent[?]] = allReviewers(claude)
+        val _: List[ReviewerAgent[?]] = buildReviewers(claude, list)
+        val _: List[ReviewerAgent[?]] = allReviewers(claude)
         val _: Map[String, String] = ReviewerPrompts.descriptionsBySlug
 
   /** `flows/review.sc`: reviewers run for their findings alone, with no coder
@@ -179,9 +179,9 @@ object FlowCanary:
     flow(OrcaArgs()):
       stage("review"):
         val _: Map[String, Regex] = ReviewerPrompts.filePatternsBySlug
-        val agents = buildReviewers(reviewAgent, ReviewerPrompts.all)
-        val results: List[ReviewResult] = Par.mapUnordered(4)(agents): a =>
-          a.resultAs[ReviewResult].autonomous.run(a.name)
+        val reviewers = buildReviewers(reviewAgent, ReviewerPrompts.all)
+        val results: List[ReviewResult] = Par.mapUnordered(4)(reviewers): r =>
+          r.agent.resultAs[ReviewResult].autonomous.run(r.definition.name)
         val _: List[Option[Location]] =
           results.flatMap(_.issues).map(_.location)
 
@@ -475,7 +475,7 @@ object FlowCanary:
         Plan.autonomous.from(userPrompt, claude.opus).value
 
       val session = claude.session("implementer", seed = plan.brief)
-      val reviewers: List[Agent[?]] = allReviewers(codex)
+      val reviewers: List[ReviewerAgent[?]] = allReviewers(codex)
 
       for task <- plan.tasks do
         stage(s"task: ${task.title}"):
