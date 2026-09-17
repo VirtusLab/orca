@@ -254,10 +254,14 @@ def planAndImplementFix(
   val finalFixer = codingAgent.session("final-fixer", seed = fixPlan.brief)
 
   val taskDeclines =
-    for task <- fixPlan.tasks yield
+    for (task, n) <- fixPlan.tasks.zipWithIndex yield
       // Outside the stage, not in it — a stage body is skipped on resume, and
       // the mint must not be.
-      val session = codingAgent.session("fixer", seed = fixPlan.brief)
+      val session = codingAgent.session(
+        "fixer",
+        detail = s"task ${n + 1}: ${task.title}",
+        seed = fixPlan.brief
+      )
       stage(s"Task: ${task.title}"):
         session.run(fixPlan.taskPrompt(task))
         // Don't gate this review on the tests: the branch carries a

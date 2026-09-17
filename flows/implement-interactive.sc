@@ -43,10 +43,14 @@ flow(OrcaArgs(args)):
   val finalFixer = codingAgent.session("final-fixer", seed = plan.brief)
 
   val taskDeclines =
-    for task <- plan.tasks yield
+    for (task, n) <- plan.tasks.zipWithIndex yield
       // Outside the stage, not in it — a stage body is skipped on resume, and
       // the mint must not be.
-      val session = codingAgent.session("implementer", seed = plan.brief)
+      val session = codingAgent.session(
+        "implementer",
+        detail = s"task ${n + 1}: ${task.title}",
+        seed = plan.brief
+      )
       stage(s"Task: ${task.title}"):
         session.run(task.description)
         reviewThenFix(

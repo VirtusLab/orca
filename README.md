@@ -325,7 +325,7 @@ Every side-effecting call — git mutations (`commit`/`push`/`discardUncommitted
 body, and **the compiler enforces it**: a mutation outside a stage doesn't
 compile. Pure reads (`git.uncommittedDiff`, `git.changedFiles`, `gh.readIssue`,
 `gh.availability`, `fs.read`),
-`display`, and `fail` run anywhere; `agent.session(name, seed)` runs outside a
+`display`, and `fail` run anywhere; `agent.session(name, detail, seed)` runs outside a
 stage too — it records a session, not a side effect. Where to *place* effects is
 covered by the [Authoring rules](#authoring-rules).
 
@@ -578,7 +578,7 @@ you which one you're on:
 |---|---|---|---|
 | `agent.run(prompt)` | one-shot | no | yes |
 | `agent.chat()` → `chat.run(prompt)` | ephemeral multi-turn | no | yes |
-| `agent.session(name, seed)` → `session.run(prompt)` | durable | yes (resumable identity; re-seeded if the backend lost the conversation) | no |
+| `agent.session(name, detail, seed)` → `session.run(prompt)` | durable | yes (resumable identity; re-seeded if the backend lost the conversation) | no |
 
 The rule: **name + seed ⇒ durable; anonymous ⇒ gone on crash.** Structured
 output mirrors it (`agent.resultAs[O].{autonomous,interactive}.run(input)`,
@@ -587,12 +587,19 @@ exists only on the ephemeral rungs — a live human steering a turn can't be
 replayed from a seed, so durable interactive sessions don't exist by
 construction.
 
-- **Durable — `agent.session(name, seed)`.** A get-or-create keyed by `name`,
-  returning a `FlowSession` handle that survives crash/resume: the same `name`
-  resumes the same session (with a warning if this call's seed differs, rather
-  than silently resuming the wrong one). Callable only outside a stage (the
-  compiler rejects an in-stage mint); its runs happen inside stages, on the
-  flow thread.
+- **Durable — `agent.session(name, detail, seed)`.** A get-or-create keyed by
+  `(name, detail)`, returning a `FlowSession` handle that survives crash/resume:
+  the same key resumes the same session (with a warning if this call's seed
+  differs, rather than silently resuming the wrong one). `name` is the role —
+  letters, digits, `-` and `_`, and what names the session in `orca continue`
+  and the run manifest. `detail` says which session under that role this is —
+  the task it serves, typically — as free text; leave it out for a session its
+  name has only one of. Minting one key twice in a run is an error, not silent
+  sharing: give the second call a detail of its own. A *changed* detail is a
+  different session, so a re-plan that rewords a task gives that task a fresh
+  session primed from the seed rather than resuming the old wording's
+  conversation. Callable only outside a stage (the compiler rejects an in-stage
+  mint); its runs happen inside stages, on the flow thread.
 - **Ephemeral — `agent.chat()`.** A `Chat` handle continuing one conversation
   across `.run` calls *within this run only* — no seeding, no persistence. Runs
   need only the shared `InStage` capability, so chats work inside a
@@ -602,7 +609,8 @@ construction.
   from a fork (turns are not persisted; one live continuation at a time).
 
 ```scala
-val session = agent.session("implementer", seed = plan.brief)
+val session =
+  agent.session("implementer", detail = task.title, seed = plan.brief)
 session.run(task.description)
 
 val chats = Par.mapUnordered(4)(reviewers): r =>
@@ -642,7 +650,7 @@ structural conventions you choose to follow as a flow author.
 1. **Reads outside, mutations inside.** Only side-effecting work goes in a
    stage. Pure reads (`git.uncommittedDiff`, `gh.readIssue`, `fs.read`, `gh.waitForBuild`)
    run outside stages — staging them wastes commits and checkpoints.
-   `agent.session(name, seed)` also belongs outside stages (see
+   `agent.session(name, detail, seed)` also belongs outside stages (see
    [Sessions](#sessions)).
 
 2. **Push lives in a later stage than the edit that produced it.** A stage
@@ -937,7 +945,7 @@ results.
 - **`orca.plan.BugReportMatch`** — the agent's decision on whether a CI failure
   matches the original report.
 - **`orca.FlowSession[B]`** — durable, resumable session handle returned by
-  `agent.session(name, seed)`. Bundles the agent with its `SessionId`; call
+  `agent.session(name, detail, seed)`. Bundles the agent with its `SessionId`; call
   `.run(prompt)` or `.resultAs[O].run(input)` on it to drive the agent, with
   automatic seed/preamble replay (when the backend conversation isn't live) and
   resume-wire-id persistence. `agent.chat(session.id)` adopts its conversation

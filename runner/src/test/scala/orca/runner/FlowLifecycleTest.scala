@@ -1600,7 +1600,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val store = storeWith(
       SessionRecord(
         name = "s",
-        occurrence = 0,
+        detail = "",
         id = "c-1",
         seed = "s",
         resumeWireId = Some("srv-9"),
@@ -1620,7 +1620,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val store = storeWith(
       SessionRecord(
         name = "s",
-        occurrence = 0,
+        detail = "",
         id = "old-1",
         seed = "s",
         resumeWireId = Some("srv-1")
@@ -1637,7 +1637,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val store = storeWith(
       SessionRecord(
         name = "s",
-        occurrence = 0,
+        detail = "",
         id = "x-1",
         seed = "s",
         resumeWireId = Some("srv-2"),
@@ -1674,7 +1674,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val badIdStore = storeWith(
       SessionRecord(
         name = "s",
-        occurrence = 0,
+        detail = "",
         id = "../../etc/passwd",
         seed = "s",
         resumeWireId = Some("srv-3")
@@ -1702,7 +1702,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val badWireStore = storeWith(
       SessionRecord(
         name = "s",
-        occurrence = 0,
+        detail = "",
         id = "c-2",
         seed = "s",
         resumeWireId = Some(".*")
@@ -1769,7 +1769,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     store.upsertSession(
       SessionRecord(
         name = "s",
-        occurrence = 0,
+        detail = "",
         id = "client-uuid",
         seed = "brief",
         resumeWireId = Some("ses_server_1")
@@ -3844,7 +3844,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     store.upsertSession(
       SessionRecord(
         name = "s",
-        occurrence = 0,
+        detail = "",
         id = "client-uuid",
         seed = "brief",
         resumeWireId = Some("ses_server_1")
