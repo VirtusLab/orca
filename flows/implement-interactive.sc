@@ -6,15 +6,13 @@
 /** Interactive planning + coding flow.
   *
   * Same shape as `implement.sc` — a single review pass per task, then a
-  * whole-run review loop — but the planner can drive a conversation: on
-  * an underspecified prompt it calls the `ask_user` tool to clarify before
+  * whole-run review loop — but the planner can drive a conversation: on an
+  * underspecified prompt it calls the `ask_user` tool to clarify before
   * producing the plan. A planning stage that already completed is not
   * re-prompted on a re-run.
   *
-  * The run then opens a PR when the repository is on GitHub and hands back the
-  * branch it started from — the work is on the PR, its description listing
-  * whatever the final review left unfixed. Otherwise it says so in one line
-  * and ends on the feature branch; the work is committed either way.
+  * A PR follows when the repository is on GitHub; otherwise the run says so and
+  * ends on the feature branch, work committed either way.
   *
   * `examples/runnable/02-interactive/create-test-project.sh` seeds a calculator
   * crate into a temp dir and copies this script alongside it; from there:
@@ -36,10 +34,8 @@ flow(OrcaArgs(args)):
   val plan = stage("Plan"):
     Plan.interactive.from(userPrompt, planningAgent).value
 
-  // Autonomous sessions for implementing and fixing alike — ask_user was only
-  // needed while planning. One per unit of work: this one for the final review,
-  // one per task below, since a session spanning the run re-sends every earlier
-  // task's transcript on every later API call.
+  // Implementing and fixing are autonomous — `ask_user` was only needed while
+  // planning.
   val finalFixer = codingAgent.session(
     "final-fixer",
     detail = "the whole planned change",
@@ -48,8 +44,6 @@ flow(OrcaArgs(args)):
 
   val taskDeclines =
     for (task, n) <- plan.tasks.zipWithIndex yield
-      // Outside the stage, not in it — a stage body is skipped on resume, and
-      // the mint must not be.
       val session = codingAgent.session(
         "implementer",
         detail = s"task ${n + 1}: ${task.title}",
@@ -63,11 +57,7 @@ flow(OrcaArgs(args)):
           task = task
         )
 
-  // Everything the run changed, reviewed in one loop: each task's single pass
-  // took the fixer's word for its own fixes, and this is what checks them. The
-  // per-task declines seed the loop, so its reviewers don't re-report findings
-  // the fixer already answered. A higher cap than the library default: nothing
-  // reviews again after this loop.
+  // Nothing reviews again after this loop, hence the raised iteration cap.
   val openFindings = stage("Final review"):
     reviewAndFixLoop(
       coderSession = finalFixer,

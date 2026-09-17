@@ -13,8 +13,8 @@
   * why it was rejected, or a PR implementing it. Only the second writes any
   * code.
   *
-  * Given a `<owner>/<repo>#<number>` reference or a GitHub issue URL (the
-  * user's prompt), the flow:
+  * Given a `<owner>/<repo>#<number>` reference to an issue, or its GitHub URL,
+  * the flow:
   *
   *   1. Reads the issue from GitHub.
   *   1. Skeptically assesses the report against the repo (claims, missing
@@ -47,8 +47,8 @@
 
 import orca.{*, given}
 
-// Parse the issue handle up-front so it can seed the deterministic branch
-// naming strategy passed to `flow`. A parse failure exits before the flow.
+// Parsed before `flow` so it can seed the deterministic branch naming; a parse
+// failure exits before the run starts.
 val orcaArgs = OrcaArgs(args)
 val issueHandle = IssueHandle.parseOrThrow(orcaArgs.userPrompt)
 
@@ -65,9 +65,8 @@ flow(
        |
        |${issue.body}""".stripMargin
 
-  // Stage returns (plan, rejectionBody): exactly one of (Some(plan), "") or
-  // (None, body). Splitting the verdict and the comment into two stages means
-  // a crash between them doesn't double-post the comment on resume.
+  // Verdict and comment are separate stages, so a crash between them doesn't
+  // double-post the comment on resume.
   val (maybePlan, rejectionBody) = stage("Assess and plan"):
     Plan.autonomous.assessThenPlan(issuePayload, planningAgent).value match
       case Verdict.Rejection(_, body) => (None: Option[Plan], body)
@@ -82,9 +81,6 @@ flow(
       )
 
   maybePlan.foreach: plan =>
-    // A session per unit of work — this one for the final review, one per task
-    // below: a session spanning the run re-sends every earlier task's
-    // transcript on every later API call.
     val finalFixer = codingAgent.session(
       "final-fixer",
       detail = "the whole planned change",
@@ -93,8 +89,6 @@ flow(
 
     val taskDeclines =
       for (task, n) <- plan.tasks.zipWithIndex yield
-        // Outside the stage, not in it — a stage body is skipped on resume,
-        // and the mint must not be.
         val session = codingAgent.session(
           "implementer",
           detail = s"task ${n + 1}: ${task.title}",
@@ -109,11 +103,7 @@ flow(
             userRequest = Some(issuePayload)
           )
 
-    // Everything the run changed, reviewed in one loop: each task's single pass
-    // took the fixer's word for its own fixes, and this is what checks them.
-    // The per-task declines seed the loop, so its reviewers don't re-report
-    // findings the fixer already answered. A higher cap than the library
-    // default: nothing reviews again after this loop.
+    // Nothing reviews again after this loop, hence the raised iteration cap.
     val openFindings = stage("Final review"):
       reviewAndFixLoop(
         coderSession = finalFixer,

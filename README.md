@@ -189,8 +189,8 @@ the [Metals](https://scalameta.org/metals/) VSCode extension.
 The following are available inside a `flow(...) { ... }`.
 
 The five coding agents — `claude`, `codex`, `opencode`, `pi`, `gemini` — share
-one call surface. Durable: `session(name, detail, seed): FlowSession` → `.run(prompt)` /
-`.resultAs[O].run(input)`. One-shot: `run(prompt)`,
+one call surface. Durable: `session(name, detail, seed): FlowSession` →
+`.run(prompt)` / `.resultAs[O].run(input)`. One-shot: `run(prompt)`,
 `resultAs[O].{autonomous,interactive}.run(input)`. Ephemeral multi-turn:
 `chat(): Chat` → `.run(prompt)` / `.resultAs[O]...run(input)`. Common tuning:
 `withModel`, `withCheapModel`, `withConfig`, `withSystemPrompt`, `withName`,
@@ -327,9 +327,9 @@ Every side-effecting call — git mutations (`commit`/`push`/`discardUncommitted
 body, and **the compiler enforces it**: a mutation outside a stage doesn't
 compile. Pure reads (`git.uncommittedDiff`, `git.changedFiles`, `gh.readIssue`,
 `gh.availability`, `fs.read`),
-`display`, and `fail` run anywhere; `agent.session(name, detail, seed)` runs outside a
-stage too — it records a session, not a side effect. Where to *place* effects is
-covered by the [Authoring rules](#authoring-rules).
+`display`, and `fail` run anywhere; `agent.session(name, detail, seed)` runs
+outside a stage too — it records a session, not a side effect. Where to *place*
+effects is covered by the [Authoring rules](#authoring-rules).
 
 ### The flow lifecycle
 
@@ -596,12 +596,12 @@ construction.
   what names the session in `orca continue` and the run manifest. `detail` is
   free text saying which session under that role this is — the task it serves,
   or what a one-per-run session covers ("the whole planned change"). Both are
-  required. Minting one key twice in a run is an error, not silent
-  sharing: give the second call a detail of its own. A *changed* detail is a
-  different session, so a re-plan that rewords a task gives that task a fresh
-  session primed from the seed rather than resuming the old wording's
-  conversation. Callable only outside a stage (the compiler rejects an in-stage
-  mint); its runs happen inside stages, on the flow thread.
+  required. Minting one key twice in a run is an error, not silent sharing:
+  give the second call a detail of its own. A *changed* detail is a different
+  session, so a re-plan that rewords a task gives that task a fresh session
+  primed from the seed rather than resuming the old wording's conversation.
+  Callable only outside a stage (the compiler rejects an in-stage mint); its
+  runs happen inside stages, on the flow thread.
 - **Ephemeral — `agent.chat()`.** A `Chat` handle continuing one conversation
   across `.run` calls *within this run only* — no seeding, no persistence. Runs
   need only the shared `InStage` capability, so chats work inside a
@@ -754,9 +754,9 @@ Every cell returns `Sessioned[B, <result>]` — the result paired with the
 (ephemeral) `Chat` that produced it. Continue that conversation in-run
 (`chat.run(task)`; continuations have write access), or `.value` it and start a
 fresh, durable implementer session via `agent.session("implementer", detail =
-task, seed = plan.brief)` — the chat does not survive a crash/resume, so every shipped
-example takes `.value`. Destructure when you want both: `val Sessioned(chat,
-plan) = Plan.autonomous.from(...)`.
+task, seed = plan.brief)` — the chat does not survive a crash/resume, so every
+shipped example takes `.value`. Destructure when you want both: `val
+Sessioned(chat, plan) = Plan.autonomous.from(...)`.
 
 From a `Sessioned[B, Plan]`, an optional `.reviewed(agent)` step refines the
 plan before implementing — the planner critiques its own draft, producing an
@@ -931,8 +931,8 @@ results.
   [`BranchNamingStrategy`](#the-flow-lifecycle)). `description` is the planner's
   epic summary; `brief` is a concise codebase briefing always included (feed it
   to `agent.session("implementer", detail = task, seed = plan.brief)`, which
-  threads it as the
-  seed). `taskPrompt(task)` prepends the brief to a task's description.
+  threads it as the seed). `taskPrompt(task)` prepends the brief to a task's
+  description.
 - **`orca.plan.Task(title, description)`** — `title` is the human-readable label
   shown in the event log.
 - **`orca.plan.Sessioned(chat, value)`** — every `Plan.{autonomous,
@@ -948,9 +948,10 @@ results.
 - **`orca.plan.BugReportMatch`** — the agent's decision on whether a CI failure
   matches the original report.
 - **`orca.FlowSession[B]`** — durable, resumable session handle returned by
-  `agent.session(name, detail, seed)`. Bundles the agent with its `SessionId`; call
-  `.run(prompt)` or `.resultAs[O].run(input)` on it to drive the agent, with
-  automatic seed/preamble replay (when the backend conversation isn't live) and
+  `agent.session(name, detail, seed)`. Bundles the agent with its `SessionId`;
+  call `.run(prompt)` or `.resultAs[O].run(input)` on it to drive the agent,
+  with automatic seed/preamble replay (when the backend conversation isn't live)
+  and
   resume-wire-id persistence. `agent.chat(session.id)` adopts its conversation
   as an ephemeral `Chat` (the fork-side escape hatch).
 - **`orca.agents.Chat[B]`** — ephemeral multi-turn conversation handle from

@@ -66,7 +66,7 @@ private[orca] object ManifestSessionKind:
   private val known: List[ManifestSessionKind] = List(Durable, OneShot)
 
   /** `Durable` exactly when the commit event carries the name an
-    * `agent.session(name, seed)` call minted the session under.
+    * `agent.session(name, detail, seed)` call minted the session under.
     */
   def of(sessionName: Option[String]): ManifestSessionKind =
     if sessionName.isDefined then Durable else OneShot

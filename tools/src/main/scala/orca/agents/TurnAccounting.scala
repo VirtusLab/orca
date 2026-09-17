@@ -10,8 +10,8 @@ import orca.events.{OrcaEvent, OrcaListener, TurnDebit, Usage}
   * and a path that forgets the session key or the model fallback can't exist.
   *
   * @param sessionName
-  *   the name a durable `agent.session(name, seed)` minted this session under;
-  *   `None` for one-shot and chat turns.
+  *   the name a durable `agent.session(name, detail, seed)` minted this session
+  *   under; `None` for one-shot and chat turns.
   * @param pinned
   *   the model the caller configured, used wherever the turn itself reports
   *   none.

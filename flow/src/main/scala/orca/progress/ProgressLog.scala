@@ -106,8 +106,8 @@ case class SessionKey(name: String, detail: String):
   * `None` when the minting agent carries no backend tag (a stub agent) — falls
   * back to the lead. A value matching no known `wireName` (an edited log) is
   * skipped with a warning rather than guessed (`FlowLifecycle.targetAgent`);
-  * `agent.session(name, seed)`'s reuse arm self-heals a stale tag from a
-  * lead-backend swap.
+  * `agent.session(name, detail, seed)`'s reuse arm self-heals a stale tag from
+  * a lead-backend swap.
   */
 case class SessionRecord(
     name: String,

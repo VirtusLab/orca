@@ -37,10 +37,6 @@
   * The feature branch is named deterministically from the issue number
   * (`fix/issue-<n>`), so a re-run after a crash lands on the same branch.
   *
-  * The flow reads top-to-bottom below; the per-step helpers
-  * (`confirmReproductionMatches`, `planAndImplementFix`, `prSummary`) are
-  * defined at the bottom of the file.
-  *
   * Usage — pass `<owner>/<repo>#<number>` or the issue's github.com URL (no
   * query string or `#...` anchor):
   *
@@ -63,8 +59,8 @@
 import orca.{*, given}
 import scala.concurrent.duration.DurationInt
 
-// Parse the issue handle up-front so it can seed the deterministic branch
-// naming strategy passed to `flow`. A parse failure exits before the flow.
+// Parsed before `flow` so it can seed the deterministic branch naming; a parse
+// failure exits before the run starts.
 val orcaArgs = OrcaArgs(args)
 val issueHandle = IssueHandle.parseOrThrow(orcaArgs.userPrompt)
 
@@ -82,8 +78,6 @@ flow(
        |
        |${issue.body}""".stripMargin
 
-  // Writes the failing test only; the fix tasks and the final review get their
-  // own sessions (see `planAndImplementFix`).
   val reproducer = codingAgent.session(
     "reproducer",
     detail = "a failing test for the reported bug",
@@ -91,7 +85,6 @@ flow(
   )
 
   val triage: Triage = stage("Triage"):
-    // Read-only: the triager reads/greps to verify the report, changes nothing.
     Plan.autonomous.triage(issuePayload, planningAgent).value
 
   triage match
@@ -143,7 +136,7 @@ flow(
       display(s"CI red on ${pr.shortRef} — reproduction confirmed")
 
       confirmReproductionMatches(pr, issue)
-      val openFindings = planAndImplementFix(issuePayload)
+      val openFindings = planAndImplementFix(issuePayload, failingTestPath)
 
       // Again later than the task edits above, so the fix commits exist.
       stage("Push fix + finalise PR"):
@@ -184,10 +177,10 @@ def prSummary(note: String, issue: Issue)(using
   )
 
 /** Confirm the CI failure matches the original report. Both sub-stages are
-  * one-shot calls on the coding role — fresh session, no seed needed. The
-  * excerpt-picking is cheap-tier work; the verdict is not, since a wrong
-  * "matches" lets a bogus reproduction through and a wrong "doesn't" aborts a
-  * sound one.
+  * one-shot calls — nothing here is continued later, so neither needs a
+  * session. The excerpt-picking is cheap-tier work; the verdict is not, since a
+  * wrong "matches" lets a bogus reproduction through and a wrong "doesn't"
+  * aborts a sound one.
   */
 def confirmReproductionMatches(pr: PrHandle, issue: Issue)(using
     FlowControl
@@ -233,47 +226,52 @@ def confirmReproductionMatches(pr: PrHandle, issue: Issue)(using
   * changed.
   *
   * `issuePayload` is what reviewers are shown as the user's request: the run's
-  * prompt is only an issue reference.
+  * prompt is only an issue reference. `failingTestPath` is the committed
+  * reproduction the fix has to turn green.
   *
   * Returns what the final review left open, for the PR body.
   */
 def planAndImplementFix(
-    issuePayload: String
+    issuePayload: String,
+    failingTestPath: String
 )(using FlowControl): IgnoredIssues =
   val fixPlan = stage("Plan the fix"):
     Plan.autonomous
       .from(
-        s"""Implement the fix for ${issueHandle.shortRef}. A failing
-           |test is already on this branch — the fix must make it pass
-           |without regressing other tests.""".stripMargin,
+        s"""Implement the fix for ${issueHandle.shortRef}. The failing test
+           |at `$failingTestPath` is already committed on this branch — the
+           |fix must make it pass without regressing other
+           |tests.""".stripMargin,
         planningAgent
       )
       .reviewed(planningAgent)
       .value
 
-  // A session per unit of work — this one for the final review, one per task
-  // below: a session spanning the run re-sends every earlier task's transcript
-  // on every later API call. None of them wrote the failing test; it is
-  // committed, so they read it off the branch.
+  // No session below wrote the failing test, so the seed names it: the seed is
+  // all they get back when a resume finds the conversation gone.
+  val fixSeed =
+    s"""${fixPlan.brief}
+       |
+       |A failing test at `$failingTestPath` is already committed on this
+       |branch; the fix must make it pass.""".stripMargin
+
   val finalFixer = codingAgent.session(
     "final-fixer",
     detail = "the whole fix",
-    seed = fixPlan.brief
+    seed = fixSeed
   )
 
   val taskDeclines =
     for (task, n) <- fixPlan.tasks.zipWithIndex yield
-      // Outside the stage, not in it — a stage body is skipped on resume, and
-      // the mint must not be.
       val session = codingAgent.session(
         "fixer",
         detail = s"task ${n + 1}: ${task.title}",
-        seed = fixPlan.brief
+        seed = fixSeed
       )
       stage(s"Task: ${task.title}"):
-        session.run(fixPlan.taskPrompt(task))
-        // Don't gate this review on the tests: the branch carries a
-        // deliberately failing one until the last fix task lands.
+        session.run(task.description)
+        // No test gate on this review: the branch carries a deliberately
+        // failing test until the last fix task lands.
         reviewThenFix(
           coderSession = session,
           reviewers = allReviewers(reviewAgent),
@@ -281,11 +279,7 @@ def planAndImplementFix(
           userRequest = Some(issuePayload)
         )
 
-  // Everything the run changed — the failing test and the fix alike — reviewed
-  // in one loop: each task's single pass took the fixer's word for its own
-  // fixes, and this is what checks them. The per-task declines seed the loop,
-  // so its reviewers don't re-report findings the fixer already answered. A
-  // higher cap than the library default: nothing reviews again after this loop.
+  // Nothing reviews again after this loop, hence the raised iteration cap.
   stage("Final review"):
     reviewAndFixLoop(
       coderSession = finalFixer,
