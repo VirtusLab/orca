@@ -39,19 +39,20 @@ the spawned `claude` subprocess via `.mcp.json` + `--mcp-config`.
 
 ### Components
 
-- **`AskUserBridge`** (`orca.tools.claude.mcp`) — synchronous rendezvous
+- **`AskUserBridge`** (`orca.backend.mcp`) — synchronous rendezvous
   between the MCP handler thread (Netty worker) and the host. One
   `Channel[(question, replyChannel)]` queue; each `ask(q)` enqueues its
   own per-call reply channel, blocks on it, returns when the host
   signals. `take()` is the consumer side: returns the next pending
   question plus a closure that delivers the answer.
 
-- **`AskUserMcpServer`** (`orca.tools.claude.mcp`) — wraps chimp's
-  `mcpEndpoint` for one `ask_user(question: String): String` tool. Built
-  on Tapir + Netty-sync; binds 127.0.0.1 on an ephemeral port. The
-  handler is `in => Right(bridge.ask(in.question))` — chimp serialises
-  the rest. Implements `AutoCloseable`; the server's `close()` stops
-  the Netty binding.
+- **`AskUserMcpServer`** (`orca.backend.mcp`) — defines one
+  `ask_user(question: String): String` tool and mounts it on an
+  **`McpHost`**, which wraps chimp's `McpServer(...).endpoint(...)` on
+  Tapir + Netty-sync, binds 127.0.0.1 on an ephemeral port, and is the
+  `AutoCloseable` whose `close()` stops the binding. The handler is
+  `in => ToolResult.text(bridge.ask(in.question))` — chimp serialises
+  the rest.
 
 - **`ClaudeBackend.openConversation`** — builds the bridge + server,
   writes `<workDir>/.orca/cache/mcp-<port>.json` (port-suffixed so
@@ -90,20 +91,17 @@ the spawned `claude` subprocess via `.mcp.json` + `--mcp-config`.
 Already at SoftwareMill; built on Tapir-sync; ships an MCP-spec-compliant
 JSON-RPC endpoint as a `ServerEndpoint[Any, Identity]` that drops into
 the same Netty-sync stack the rest of the codebase uses. ~30 lines of
-glue to register one tool. Pinned to `0.1.8` — bumped Tapir to `1.13.18`
-and Ox to `1.0.2` to keep the classpath single-resolved.
+glue to register one tool. Pinned to `chimp-server` `0.5.2`, against
+Tapir `1.13.31` (`V.tapir`) and Ox `1.0.5` (`V.ox`).
 
 ### Why HTTP transport, not stdio
 
-Two reasons:
-
-1. Stdio MCP servers are spawned by Claude Code itself; getting a
-   reference back to the orca host process for the `ask_user` handler
-   would require either a side-channel (named pipe / Unix socket) or
-   re-implementing the same dance via a wrapper script. HTTP on
-   `127.0.0.1` is one fewer indirection.
-2. The chimp 0.1.8 module ships HTTP only; the stdio transport would
-   need separate machinery.
+Stdio MCP servers are spawned by Claude Code itself; getting a
+reference back to the orca host process for the `ask_user` handler would
+require either a side-channel (named pipe / Unix socket) or
+re-implementing the same dance via a wrapper script. HTTP on
+`127.0.0.1` is one fewer indirection. (`chimp-server` does ship a stdio
+transport — that is not what rules it out.)
 
 ### Lifecycle
 

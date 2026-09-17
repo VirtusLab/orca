@@ -1,6 +1,6 @@
 package orca.backend.mcp
 
-import chimp.*
+import chimp.server.*
 import io.circe.Codec
 import orca.tools.{GitReadFailed, GitTool, ShowDetail}
 import ox.Ox
@@ -79,10 +79,10 @@ private[orca] object RepoMcpServer:
     McpHost.start(List(showTool, fileAtTool), ToolTimeout)
 
   /** Map a read outcome onto MCP's success/error channels. */
-  private type ToolResult = Either[String, String]
-
-  private def render(result: Either[GitReadFailed, String]): ToolResult =
-    result.left.map(_.getMessage)
+  private def render(
+      result: Either[GitReadFailed, String]
+  ): ToolResult[NoStructuredOutput] =
+    ToolResult.fromEither(result.left.map(_.getMessage))
 
   /** System-prompt hint naming the tools. Read-only turns have no shell, so
     * without this the agent has no reason to look for them.

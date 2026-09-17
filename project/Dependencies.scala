@@ -5,7 +5,9 @@ object Dependencies {
     val scala = "3.8.4"
     val osLib = "0.11.8"
     val jsoniter = "2.38.17"
-    val tapir = "1.13.25"
+    // Tapir and sttp-apispec follow what V.chimp's chimp-server declares, so
+    // the classpath resolves to a single version of each; bump them together.
+    val tapir = "1.13.31"
     val sttpApispec = "0.11.10"
     val ox = "1.0.5"
     val mainargs = "0.7.6"
@@ -14,7 +16,7 @@ object Dependencies {
     val munit = "1.1.1"
     val munitScalacheck = "1.3.0"
     val jsonSchemaValidator = "1.5.4"
-    val chimp = "0.1.8"
+    val chimp = "0.5.2"
     val logback = "1.5.18"
   }
 
@@ -59,9 +61,12 @@ object Dependencies {
   val jsonSchemaValidator =
     "com.networknt" % "json-schema-validator" % V.jsonSchemaValidator % Test
 
-  // chimp bundles an MCP server endpoint as a Tapir ServerEndpoint; pair it
-  // with the Netty-sync interpreter to mount it on an Ox-friendly stack.
-  val chimp = "com.softwaremill.chimp" %% "core" % V.chimp
+  // chimp-server bundles an MCP server endpoint as a Tapir ServerEndpoint;
+  // pair it with the Netty-sync interpreter to mount it on an Ox-friendly
+  // stack. chimp-server-ox is not needed: it only adds the Ox-based
+  // streaming transports (HTTP and stdio), and orca's MCP traffic is plain
+  // request/response HTTP, which this module already serves.
+  val chimp = "com.softwaremill.chimp" %% "chimp-server" % V.chimp
   val tapirNettySync =
     "com.softwaremill.sttp.tapir" %% "tapir-netty-server-sync" % V.tapir
 

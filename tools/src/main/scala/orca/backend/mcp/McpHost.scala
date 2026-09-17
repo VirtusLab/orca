@@ -1,6 +1,13 @@
 package orca.backend.mcp
 
-import chimp.{ServerTool, mcpEndpoint}
+import chimp.protocol.ToolContent
+import chimp.server.{
+  McpServer,
+  NoStructuredOutput,
+  ServerContext,
+  ServerTool,
+  ToolResult
+}
 import ox.{Ox, useCloseableInScope}
 import sttp.shared.Identity
 import sttp.tapir.server.netty.sync.NettySyncServer
@@ -34,35 +41,50 @@ private[orca] object McpHost:
     */
   private[mcp] val MaxOutputChars: Int = 60000
 
+  private val CutMarker: String =
+    s"\n\n[cut after $MaxOutputChars characters — narrow the request]"
+
   /** Apply [[MaxOutputChars]], naming the cut so the agent can narrow its
     * request instead of assuming it saw everything.
     */
-  private def bounded(output: String): String =
-    if output.length <= MaxOutputChars then output
-    else
-      output.take(MaxOutputChars) +
-        s"\n\n[cut after $MaxOutputChars characters — narrow the request]"
+  private def bounded(text: String): String =
+    if text.length <= MaxOutputChars then text
+    else text.take(MaxOutputChars) + CutMarker
 
-  /** The two guarantees every result served here carries: neither channel
-    * exceeds [[MaxOutputChars]], and a handler that throws yields a tool error
-    * rather than a transport failure the agent cannot read.
+  private def bounded(
+      result: ToolResult[NoStructuredOutput]
+  ): ToolResult[NoStructuredOutput] =
+    result.copy(content = result.content.map:
+      case t: ToolContent.Text => t.copy(text = bounded(t.text))
+      case other               => other
+    )
+
+  /** The two guarantees every result served here carries: its text stays within
+    * [[MaxOutputChars]] whether the result is an error or not, and a handler
+    * that throws yields a tool error rather than a transport failure the agent
+    * cannot read.
     */
   private def guardedResult(
-      result: => Either[String, String]
-  ): Either[String, String] =
-    try result.map(bounded).left.map(bounded)
+      result: => ToolResult[NoStructuredOutput]
+  ): ToolResult[NoStructuredOutput] =
+    try bounded(result)
     catch
       case NonFatal(e) =>
-        Left(bounded(Option(e.getMessage).getOrElse(e.toString)))
+        bounded(ToolResult.error(Option(e.getMessage).getOrElse(e.toString)))
 
   /** Put a tool's logic behind [[guardedResult]]. [[start]] applies this to
-    * every tool it binds, which is what makes the guarantees structural: a tool
-    * cannot opt out of them by forgetting.
+    * every tool it binds, so the guard is not something a tool opts into.
+    *
+    * The [[NoStructuredOutput]] bound keeps a second, unbounded channel out of
+    * reach: `withStructured` moves the type parameter, and `ServerTool` is
+    * invariant in it, so a tool built that way no longer fits [[start]]'s list.
     */
   private[mcp] def guarded[I](
-      t: ServerTool[I, Identity]
-  ): ServerTool[I, Identity] =
-    t.copy(logic = (in, headers) => guardedResult(t.logic(in, headers)))
+      t: ServerTool[I, NoStructuredOutput, Identity, ServerContext[Identity]]
+  ): ServerTool[I, NoStructuredOutput, Identity, ServerContext[Identity]] =
+    t.copy(logic =
+      (in, ctx, headers) => guardedResult(t.logic(in, ctx, headers))
+    )
 
   /** Bind `tools` on a fresh port in the enclosing scope, each [[guarded]].
     *
@@ -76,7 +98,9 @@ private[orca] object McpHost:
     * otherwise strand the binding's event-loop threads for the life of the JVM.
     */
   private[mcp] def start(
-      tools: List[ServerTool[?, Identity]],
+      tools: List[
+        ServerTool[?, NoStructuredOutput, Identity, ServerContext[Identity]]
+      ],
       toolTimeout: FiniteDuration
   )(using Ox): McpHost =
     val binding = NettySyncServer()
@@ -84,7 +108,9 @@ private[orca] object McpHost:
       .modifyConfig(
         _.requestTimeout(toolTimeout).idleTimeout(toolTimeout + 1.minute)
       )
-      .addEndpoint(mcpEndpoint(tools.map(t => guarded(t)), List("mcp")))
+      .addEndpoint(
+        McpServer(tools = tools.map(t => guarded(t))).endpoint(List("mcp"))
+      )
       .start()
     val stopped = new java.util.concurrent.atomic.AtomicBoolean(false)
     useCloseableInScope(
