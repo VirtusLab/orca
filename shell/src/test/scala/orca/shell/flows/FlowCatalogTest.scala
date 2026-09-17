@@ -1,5 +1,6 @@
 package orca.shell.flows
 
+import orca.discovery.Origin
 import orca.testkit.TempDirs
 
 class FlowCatalogTest extends munit.FunSuite:
@@ -21,10 +22,10 @@ class FlowCatalogTest extends munit.FunSuite:
 
     assertEquals(result.map(_.name), List("release.sc"))
     val f = result.head
-    assertEquals(f.origin, FlowOrigin.Project)
+    assertEquals(f.origin, Origin.Project)
     assertEquals(f.path, project / "release.sc")
     assertEquals(f.description, Some("Project version."))
-    assertEquals(f.shadows, List(FlowOrigin.Global, FlowOrigin.BuiltIn))
+    assertEquals(f.shadows, List(Origin.Global, Origin.BuiltIn))
 
   test("a global-only flow has no shadows and origin Global"):
     val project = TempDirs.dir()
@@ -35,7 +36,7 @@ class FlowCatalogTest extends munit.FunSuite:
     val result = FlowCatalog.list(project, global, builtIn)
 
     assertEquals(result.length, 1)
-    assertEquals(result.head.origin, FlowOrigin.Global)
+    assertEquals(result.head.origin, Origin.Global)
     assertEquals(result.head.shadows, Nil)
 
   test("a built-in-only flow has no shadows and origin BuiltIn"):
@@ -47,7 +48,7 @@ class FlowCatalogTest extends munit.FunSuite:
     val result = FlowCatalog.list(project, global, builtIn)
 
     assertEquals(result.length, 1)
-    assertEquals(result.head.origin, FlowOrigin.BuiltIn)
+    assertEquals(result.head.origin, Origin.BuiltIn)
     assertEquals(result.head.shadows, Nil)
 
   test("a non-.sc file in a tier dir is ignored"):

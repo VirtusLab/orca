@@ -11,7 +11,8 @@ import orca.runner.manifest.{
 import orca.settings.{AgentSettings, AgentSpec, SettingsFile}
 import orca.shell.ScanDirs
 import orca.shell.create.CreateTier
-import orca.shell.flows.{DiscoveredFlow, FlowOrigin}
+import orca.discovery.Origin
+import orca.shell.flows.DiscoveredFlow
 import orca.shell.run.LaunchResult
 import orca.shell.sessions.{RecordedRun, SessionPicker, SessionSelection}
 import orca.testkit.TempDirs
@@ -752,9 +753,9 @@ class CliTest extends munit.FunSuite:
     val flow = DiscoveredFlow(
       name = "x.sc",
       description = Some("does a thing"),
-      origin = FlowOrigin.Project,
+      origin = Origin.Project,
       path = os.root / "tmp" / "x.sc",
-      shadows = List(FlowOrigin.Global, FlowOrigin.BuiltIn)
+      shadows = List(Origin.Global, Origin.BuiltIn)
     )
     val row = Tables.toFlowRow(flow)
     assertEquals(row.name, "x.sc")

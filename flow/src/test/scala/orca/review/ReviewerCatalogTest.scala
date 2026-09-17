@@ -1,6 +1,7 @@
 package orca.review
 
 import orca.{OrcaDir, OrcaFlowException}
+import orca.discovery.Origin
 import orca.testkit.{RepoRoot, TempDirs}
 
 class ReviewerCatalogTest extends munit.FunSuite:
@@ -83,7 +84,7 @@ class ReviewerCatalogTest extends munit.FunSuite:
     assertEquals(
       catalog.discovered.map(d => (d.reviewer.name, d.tier, d.shadows)),
       List(
-        ("scala-fp", ReviewerFileTier.Project, List(ReviewerOrigin.BuiltIn))
+        ("scala-fp", ReviewerFileTier.Project, List(Origin.BuiltIn))
       )
     )
 
@@ -97,7 +98,7 @@ class ReviewerCatalogTest extends munit.FunSuite:
     assertEquals(catalog.all.find(_.name == "scala-fp").get.description, "ours")
     assertEquals(
       catalog.discovered.map(_.shadows),
-      List(List(ReviewerOrigin.BuiltIn))
+      List(List(Origin.BuiltIn))
     )
 
   test("a discovered file's body and files: become the prompt and pattern"):
@@ -123,7 +124,7 @@ class ReviewerCatalogTest extends munit.FunSuite:
     )
     assertEquals(
       catalog.discovered.map(d => (d.tier, d.shadows)),
-      List((ReviewerFileTier.Project, List(ReviewerOrigin.Global)))
+      List((ReviewerFileTier.Project, List(Origin.Global)))
     )
 
   test("a global reviewer is picked up when the project has none"):

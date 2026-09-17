@@ -18,7 +18,8 @@ import orca.shell.actions.{
 }
 import orca.shell.cli.{Cli, CliHelp}
 import orca.shell.create.{CreateTarget, CreateTier, FlowAuthoring}
-import orca.shell.flows.{DiscoveredFlow, FlowEditor, FlowOrigin}
+import orca.discovery.Origin
+import orca.shell.flows.{DiscoveredFlow, FlowEditor}
 import orca.shell.resume.{InterruptedRun, ResumeDetector}
 import orca.shell.run.{FallbackPolicy, FlowFlags, LaunchResult}
 import orca.shell.sessions.{ManifestReader, RecordedRun, SessionPicker}
@@ -232,7 +233,7 @@ object Main:
       globalFlows: os.Path,
       spawnEditor: (Terminal, os.Path) => Int
   ): Unit =
-    if flow.origin != FlowOrigin.BuiltIn then
+    if flow.origin != Origin.BuiltIn then
       spawnEditor(terminal, flow.path).discard
     else
       pickTier(ui, builtInCustomizeTitle(flow), globalFlows).foreach: tier =>
@@ -256,7 +257,7 @@ object Main:
       globalFlows: os.Path
   ): Unit =
     flow.origin match
-      case FlowOrigin.BuiltIn =>
+      case Origin.BuiltIn =>
         pickTier(ui, builtInCustomizeTitle(flow), globalFlows).foreach: tier =>
           FlowEditor.customizeTarget(flow, tier, workDir, globalFlows) match
             case Left(message) => ShellOutput.error(message)
@@ -269,7 +270,7 @@ object Main:
                 workDir,
                 globalFlows
               )
-      case FlowOrigin.Project =>
+      case Origin.Project =>
         editByAgent(
           ui,
           terminal,
@@ -278,7 +279,7 @@ object Main:
           workDir,
           globalFlows
         )
-      case FlowOrigin.Global =>
+      case Origin.Global =>
         editByAgent(ui, terminal, flow, CreateTier.Global, workDir, globalFlows)
 
   /** Prompts for the changes and runs the overwrite-in-place authoring flow
@@ -799,10 +800,10 @@ object Main:
   private def flowChoice(flow: DiscoveredFlow): Choice[DiscoveredFlow] =
     val shadows =
       if flow.shadows.isEmpty then ""
-      else s" [shadows ${flow.shadows.map(_.originLabel).mkString(", ")}]"
+      else s" [shadows ${flow.shadows.map(_.label).mkString(", ")}]"
     val description = flow.description.getOrElse("(no description)")
     val label =
-      s"${flow.name} — $description [${flow.origin.originLabel}]$shadows"
+      s"${flow.name} — $description [${flow.origin.label}]$shadows"
     Choice(flow, label)
 
   /** "Clear stack settings (format/lint/test) — re-detected on the next flow

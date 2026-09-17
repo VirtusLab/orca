@@ -4,7 +4,8 @@ import org.jline.terminal.{Terminal, TerminalBuilder}
 import orca.{RunTarget, Uncommitted}
 import orca.shell.ShellVersion
 import orca.shell.create.{CreateTarget, CreateTier}
-import orca.shell.flows.{BuiltInFlows, DiscoveredFlow, FlowOrigin}
+import orca.discovery.Origin
+import orca.shell.flows.{BuiltInFlows, DiscoveredFlow}
 import orca.shell.run.{FallbackPolicy, FlowFlags, FlowLauncher, LaunchResult}
 import orca.shell.ui.{Choice, ShellUi, UiOutcome}
 import orca.testkit.{GitRepo, TempDirs}
@@ -95,7 +96,7 @@ class AuthorActionTest extends munit.FunSuite:
     DiscoveredFlow(
       name = "implement.sc",
       description = None,
-      origin = FlowOrigin.Project,
+      origin = Origin.Project,
       path = sourcePath,
       shadows = Nil
     )

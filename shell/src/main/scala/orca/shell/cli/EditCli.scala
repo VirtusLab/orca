@@ -3,7 +3,8 @@ package orca.shell.cli
 import orca.settings.GlobalSettings
 import orca.shell.actions.{EditAction, FlowResolution}
 import orca.shell.create.CreateTier
-import orca.shell.flows.{DiscoveredFlow, FlowOrigin}
+import orca.discovery.Origin
+import orca.shell.flows.DiscoveredFlow
 
 import Cli.{actionFailure, complete, requireTty, usageFailure, withTerminal}
 
@@ -31,7 +32,7 @@ private[cli] object EditCli:
       to: Option[String],
       workDir: os.Path
   ): Either[CliFailure, Int] =
-    if flow.origin != FlowOrigin.BuiltIn then
+    if flow.origin != Origin.BuiltIn then
       if to.isDefined then
         Left(usageFailure("--to only applies when customizing a built-in flow"))
       // propagates the editor child's raw exit code — same

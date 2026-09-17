@@ -1,23 +1,10 @@
 package orca.review
 
 import orca.OrcaFlowException
+import orca.discovery.{Origin, TierPrecedence, TierWinner}
 import orca.util.{ParsedPrompt, PromptResource, TextUtil}
 
 import java.util.Locale
-
-/** Which tier a reviewer in the resolved roster came from. */
-private[orca] enum ReviewerOrigin:
-  case Project, Global, BuiltIn
-
-private[orca] object ReviewerOrigin:
-  /** The tier's user-facing label, as shown in the step that names what was
-    * discovered.
-    */
-  extension (origin: ReviewerOrigin)
-    def label: String = origin match
-      case ReviewerOrigin.Project => "project"
-      case ReviewerOrigin.Global  => "global"
-      case ReviewerOrigin.BuiltIn => "built-in"
 
 /** The two tiers a reviewer `.md` file can be discovered in. `BuiltIn` is not
   * one of them: the shipped set is read from the classpath, never from a
@@ -26,11 +13,9 @@ private[orca] object ReviewerOrigin:
 private[orca] enum ReviewerFileTier:
   case Project, Global
 
-private[orca] object ReviewerFileTier:
-  extension (tier: ReviewerFileTier)
-    def origin: ReviewerOrigin = tier match
-      case ReviewerFileTier.Project => ReviewerOrigin.Project
-      case ReviewerFileTier.Global  => ReviewerOrigin.Global
+  def origin: Origin = this match
+    case ReviewerFileTier.Project => Origin.Project
+    case ReviewerFileTier.Global  => Origin.Global
 
 /** One reviewer found on disk: the definition parsed from the winning tier's
   * file, plus every lower-precedence tier defining the same slug — including
@@ -39,7 +24,7 @@ private[orca] object ReviewerFileTier:
 private[orca] case class DiscoveredReviewer(
     reviewer: Reviewer,
     tier: ReviewerFileTier,
-    shadows: List[ReviewerOrigin]
+    shadows: List[Origin]
 )
 
 /** The reviewer definitions a run works from, reachable in a flow body as
@@ -114,12 +99,9 @@ object ReviewerCatalog:
       ReviewerFileTier.Project -> scan(projectDir, ReviewerFileTier.Project),
       ReviewerFileTier.Global -> scan(globalDir, ReviewerFileTier.Global)
     )
-    val byTier = scans.map((tier, s) => tier -> s.files)
-    val (parseFailures, discovered) = byTier
-      .flatMap(_._2.keySet)
-      .distinct
-      .sorted
-      .map(resolve(_, byTier))
+    val (parseFailures, discovered) = TierPrecedence
+      .resolve(scans.map((tier, s) => tier -> s.files))
+      .map(discoveredFrom)
       .partitionMap(identity)
     // Both tiers are scanned before anything is raised, so one run names every
     // bad file: a symlink or a collision does not hide the file after it.
@@ -131,28 +113,23 @@ object ReviewerCatalog:
       )
     new ReviewerCatalog(discovered)
 
-  /** The reviewer `slug` resolves to — parsed from the highest-precedence tier
-    * defining it, recording the tiers it shadows (the shipped set last) — or
-    * the failure that file's contents raised. `slug` comes from the tiers' own
-    * key sets, so at least one tier defines it.
+  /** The reviewer `winner`'s file defines, recording the tiers it shadows (the
+    * shipped set last) — or the failure that file's contents raised.
     */
-  private def resolve(
-      slug: String,
-      byTier: List[(ReviewerFileTier, Map[String, ReviewerFile])]
+  private def discoveredFrom(
+      winner: TierWinner[ReviewerFileTier, ReviewerFile]
   ): Either[ReviewerPromptFailure, DiscoveredReviewer] =
-    val hits = byTier.collect:
-      case (tier, files) if files.contains(slug) => tier -> files(slug)
-    val (winner, file) = hits.head
+    val slug = winner.key
     val builtInShadow =
-      if ReviewerPrompts.all.exists(_.name == slug) then
-        List(ReviewerOrigin.BuiltIn)
+      if ReviewerPrompts.all.exists(_.name == slug) then List(Origin.BuiltIn)
       else Nil
-    reviewerFrom(slug, file.parsed, file.path.toString).map: reviewer =>
-      DiscoveredReviewer(
-        reviewer = reviewer,
-        tier = winner,
-        shadows = hits.tail.map(_._1.origin) ++ builtInShadow
-      )
+    reviewerFrom(slug, winner.value.parsed, winner.value.path.toString).map:
+      reviewer =>
+        DiscoveredReviewer(
+          reviewer = reviewer,
+          tier = winner.tier,
+          shadows = winner.shadows.map(_.origin) ++ builtInShadow
+        )
 
   /** One candidate file, read once: its path, for the message a malformed one
     * raises, and its parsed frontmatter and body.

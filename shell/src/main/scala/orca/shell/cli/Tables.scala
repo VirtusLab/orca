@@ -123,9 +123,9 @@ private[cli] object Tables:
     FlowRow(
       flow.name,
       flow.description,
-      flow.origin.originLabel,
+      flow.origin.label,
       flow.path.toString,
-      flow.shadows.map(_.originLabel)
+      flow.shadows.map(_.label)
     )
 
   private[cli] def printFlows(
@@ -141,11 +141,11 @@ private[cli] object Tables:
       val cols = flows.map: f =>
         val shadows =
           if f.shadows.isEmpty then ""
-          else s"shadows ${f.shadows.map(_.originLabel).mkString(", ")}"
+          else s"shadows ${f.shadows.map(_.label).mkString(", ")}"
         (
           f.name,
           f.description.getOrElse("(no description)"),
-          f.origin.originLabel,
+          f.origin.label,
           shadows
         )
       val header = ("name", "description", "origin", "")
