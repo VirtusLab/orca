@@ -287,11 +287,15 @@ with a test pinning the observed wire shape.
 
 ### Review-derived rules
 
-This project's rules live in [`.orca/reviewers/orca.md`](.orca/reviewers/orca.md)
-— the reviewer orca runs against every Scala change here, discovered per
-[ADR 0023](adr/0023-reviewer-discovery.md). Read it before writing code. It is
-distilled from recurring review findings, and it is the only copy: a rule
-changes there or not at all.
+The rules distilled from recurring review findings live in
+[`.orca/reviewers/orca.md`](.orca/reviewers/orca.md) — the reviewer orca runs
+against every Scala change here, discovered per
+[ADR 0023](adr/0023-reviewer-discovery.md). Read it before writing code. Those
+rules have no second copy: they change there or not at all.
+
+That file also condenses rules the sections below own in full — comments,
+capability tokens, `.orca` writes, subprocesses, and 0.x versioning. Change one
+of those and change the condensed line with it.
 
 ### Versioning (0.x)
 
