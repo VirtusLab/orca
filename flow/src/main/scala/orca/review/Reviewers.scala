@@ -1,7 +1,10 @@
 package orca.review
 
 import orca.agents.{BackendTag, Agent}
-import orca.util.PromptResource
+import orca.util.{ParsedPrompt, PromptResource}
+
+import ox.either
+import ox.either.ok
 
 import scala.util.matching.Regex
 
@@ -52,6 +55,74 @@ final case class ReviewerAgent[B <: BackendTag] private[review] (
     agent: Agent[B]
 )
 
+/** Why one reviewer prompt file could not be turned into a [[Reviewer]].
+  * `source` names the file, so the message says which one to fix.
+  */
+private[review] enum ReviewerPromptFailure:
+  case MissingDescription(slug: String, source: String)
+  case MissingBody(slug: String, source: String)
+  case InvalidFilePattern(
+      slug: String,
+      source: String,
+      pattern: String,
+      reason: String
+  )
+
+private[review] object ReviewerPromptFailure:
+  extension (failure: ReviewerPromptFailure)
+    /** What the author is told, naming the file and what to do about it. */
+    def message: String = failure match
+      case MissingDescription(slug, source) =>
+        s"reviewer '$slug' ($source) has no 'description:' in its " +
+          "frontmatter — add one saying what the reviewer checks"
+      case MissingBody(slug, source) =>
+        s"reviewer '$slug' ($source) has no body below the closing '---' — " +
+          "the body is the reviewer's system prompt"
+      case InvalidFilePattern(slug, source, pattern, reason) =>
+        s"reviewer '$slug' ($source) has an invalid 'files:' regex " +
+          s"'$pattern': $reason"
+
+/** Build a [[Reviewer]] from one parsed reviewer prompt file. `slug` is the
+  * reviewer's identity — a `name:` key in the frontmatter is ignored.
+  * `description:` and a non-empty body are required, and `files:`, when
+  * present, must be a valid regex.
+  *
+  * The one conversion for both sources: the shipped prompts under
+  * `src/main/resources` and the `.md` files [[ReviewerCatalog]] discovers. The
+  * failure is a value because the two differ in what to do with it — a broken
+  * shipped resource is a defect, a broken discovered file is the author's to
+  * correct, and discovery reports every bad file at once.
+  */
+private[review] def reviewerFrom(
+    slug: String,
+    parsed: ParsedPrompt,
+    source: String
+): Either[ReviewerPromptFailure, Reviewer] =
+  either:
+    val description = parsed.metadata
+      .get("description")
+      .filter(_.nonEmpty)
+      .toRight(ReviewerPromptFailure.MissingDescription(slug, source))
+      .ok()
+    // An instruction-less reviewer still costs a turn and still reports
+    // nothing, which reads exactly like a clean review.
+    if parsed.body.isBlank then
+      Left(ReviewerPromptFailure.MissingBody(slug, source)).ok()
+    val filePattern = parsed.metadata.get("files").filter(_.nonEmpty) match
+      case None          => None
+      case Some(pattern) =>
+        // `Regex` signals only by throwing; this is the bridge to a value.
+        val compiled =
+          try Right(pattern.r)
+          catch
+            case e: java.util.regex.PatternSyntaxException =>
+              Left(
+                ReviewerPromptFailure
+                  .InvalidFilePattern(slug, source, pattern, e.getDescription)
+              )
+        Some(compiled.ok())
+    Reviewer(slug, description, parsed.body, filePattern)
+
 /** Canonical reviewer definitions the library ships with. Each entry reads from
   * a `.md` resource under `src/main/resources/orca/review/prompts/reviewers/`
   * with YAML-ish frontmatter:
@@ -78,20 +149,12 @@ object ReviewerPrompts:
     */
   val Role: String = "reviewer"
 
+  // A shipped prompt that doesn't parse is a packaging defect, not something a
+  // user can fix, so it fails the object's initialization rather than a run.
   private def load(slug: String): Reviewer =
-    val parsed = PromptResource.loadWithMetadata(
-      s"/orca/review/prompts/reviewers/$slug.md"
-    )
-    val description = parsed.metadata
-      .get("description")
-      .filter(_.nonEmpty)
-      .getOrElse(
-        throw new RuntimeException(
-          s"reviewer '$slug' is missing 'description' in its frontmatter"
-        )
-      )
-    val filePattern = parsed.metadata.get("files").map(_.r)
-    Reviewer(slug, description, parsed.body, filePattern)
+    val path = s"/orca/review/prompts/reviewers/$slug.md"
+    reviewerFrom(slug, PromptResource.loadWithMetadata(path), path)
+      .fold(f => throw new RuntimeException(f.message), identity)
 
   val CodeFunctionality: Reviewer = load("code-functionality")
   val CodeStructure: Reviewer = load("code-structure")

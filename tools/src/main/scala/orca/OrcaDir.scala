@@ -139,6 +139,11 @@ private[orca] object OrcaDir:
     */
   def flowsPath(workDir: os.Path): os.Path = root(workDir) / "flows"
 
+  /** `<workDir>/.orca/reviewers` — project-tier reviewer prompts, committed
+    * like the rest of `.orca`'s root.
+    */
+  def reviewersPath(workDir: os.Path): os.Path = root(workDir) / "reviewers"
+
   /** Idempotently ensure `.orca/flows/` exists and return it. */
   def ensureFlows(workDir: os.Path): os.Path =
     val flows = flowsPath(workDir)

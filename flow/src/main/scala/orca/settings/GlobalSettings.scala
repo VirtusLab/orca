@@ -29,3 +29,11 @@ private[orca] object GlobalSettings:
     configHome(env, home) / "orca" / "flows"
 
   def defaultFlows: os.Path = flowsPath(sys.env.get, os.home)
+
+  /** `$XDG_CONFIG_HOME/orca/reviewers` — global-tier reviewer prompts, sharing
+    * this object's config-home resolution.
+    */
+  def reviewersPath(env: String => Option[String], home: os.Path): os.Path =
+    configHome(env, home) / "orca" / "reviewers"
+
+  def defaultReviewers: os.Path = reviewersPath(sys.env.get, os.home)

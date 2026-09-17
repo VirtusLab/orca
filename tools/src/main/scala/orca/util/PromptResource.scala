@@ -1,9 +1,9 @@
 package orca.util
 
-/** Parsed result of [[PromptResource.loadWithMetadata]]: frontmatter key/value
+/** Parsed result of [[PromptResource.parseWithMetadata]]: frontmatter key/value
   * pairs plus the body text below the closing `---`.
   */
-private[util] case class ParsedPrompt(
+private[orca] case class ParsedPrompt(
     metadata: Map[String, String],
     body: String
 )
@@ -59,12 +59,21 @@ private[orca] object PromptResource:
     * without a leading `---` is treated as all body, empty metadata.
     */
   def loadWithMetadata(path: String): ParsedPrompt =
-    val raw = load(path)
-    if !raw.startsWith("---\n") then ParsedPrompt(Map.empty, raw)
+    parseWithMetadata(load(path))
+
+  /** [[loadWithMetadata]] over text already in hand — a file read from disk
+    * rather than a classpath resource.
+    */
+  def parseWithMetadata(raw: String): ParsedPrompt =
+    // A hand-written or `core.autocrlf`-checked-out file arrives with CRLF
+    // endings, or a BOM an editor added; the delimiter scan below matches
+    // neither, and would report the frontmatter as missing rather than absent.
+    val text = raw.stripPrefix("\uFEFF").replace("\r\n", "\n")
+    if !text.startsWith("---\n") then ParsedPrompt(Map.empty, text)
     else
-      val afterOpen = raw.substring(4) // skip "---\n"
+      val afterOpen = text.substring(4) // skip "---\n"
       val closeIdx = afterOpen.indexOf("\n---")
-      if closeIdx < 0 then ParsedPrompt(Map.empty, raw)
+      if closeIdx < 0 then ParsedPrompt(Map.empty, text)
       else
         val frontmatter = afterOpen.substring(0, closeIdx)
         // skip past "\n---" plus the trailing newline (if present)

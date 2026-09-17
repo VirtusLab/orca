@@ -52,3 +52,10 @@ class GlobalSettingsTest extends FunSuite:
       GlobalSettings.flowsPath(Map.empty.get, home),
       home / ".config" / "orca" / "flows"
     )
+
+  test("reviewersPath uses $XDG_CONFIG_HOME/orca/reviewers when set"):
+    assertEquals(
+      GlobalSettings
+        .reviewersPath(Map("XDG_CONFIG_HOME" -> "/tmp/xdg").get, home),
+      os.Path("/tmp/xdg") / "orca" / "reviewers"
+    )
