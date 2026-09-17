@@ -2,7 +2,7 @@ package orca.shell.cli
 
 import mainargs.Flag
 import org.jline.terminal.Terminal
-import orca.settings.ConfigHome
+import orca.ConfigHome
 import orca.shell.actions.{AuthorAction, AuthorParams}
 import orca.shell.actions.FlowResolution
 import orca.shell.create.{CreateTarget, CreateTier, FlowAuthoring}

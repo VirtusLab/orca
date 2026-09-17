@@ -1,7 +1,6 @@
 package orca.runner
 
-import orca.{FlowContext, OrcaDir, StackSettings}
-import orca.settings.ConfigHome
+import orca.{ConfigHome, FlowContext, OrcaDir, StackSettings}
 import orca.testkit.{GitRepo, TempDirs}
 import orca.tools.OsGitTool
 

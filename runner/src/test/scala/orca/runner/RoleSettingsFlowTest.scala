@@ -1,6 +1,6 @@
 package orca.runner
 
-import orca.{FlowContext, OrcaDir, OrcaFlowException, StackSettings}
+import orca.{ConfigHome, FlowContext, OrcaDir, OrcaFlowException, StackSettings}
 import orca.agents.{
   Agent,
   AgentCall,
@@ -19,7 +19,7 @@ import orca.agents.{
   ToolSet
 }
 import orca.events.OrcaListener
-import orca.settings.{ConfigHome, SettingsFile}
+import orca.settings.SettingsFile
 import orca.testkit.{GitRepo, TempDirs}
 import orca.tools.OsGitTool
 

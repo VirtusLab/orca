@@ -1,4 +1,4 @@
-package orca.settings
+package orca
 
 /** The user-global config home: `$XDG_CONFIG_HOME/orca/`, defaulting to
   * `~/.config/orca/` (XDG Base Directory spec). `root` is that directory; each

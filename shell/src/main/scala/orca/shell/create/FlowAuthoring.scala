@@ -1,8 +1,8 @@
 package orca.shell.create
 
-import orca.OrcaDir
+import orca.{ConfigHome, OrcaDir}
 import orca.agents.BackendTag
-import orca.settings.{AgentSpec, ConfigHome, SettingsFile, SettingsScope}
+import orca.settings.{AgentSpec, SettingsFile, SettingsScope}
 import orca.shell.ShellVersion
 import orca.util.PromptResource
 import ox.discard

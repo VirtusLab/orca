@@ -1,4 +1,4 @@
-package orca.settings
+package orca
 
 import munit.FunSuite
 
