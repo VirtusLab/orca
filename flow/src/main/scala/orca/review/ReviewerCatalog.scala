@@ -173,6 +173,10 @@ object ReviewerCatalog:
     * home, read through links like `settings.properties` beside it — a dotfiles
     * manager that links each file in is normal there; a link with no target
     * surfaces as an unreadable file rather than vanishing from the roster.
+    *
+    * A candidate that resolves to a directory is refused too — nothing
+    * legitimate is a directory named `*.md`, and skipping one would leave the
+    * slug missing from the roster with nothing said.
     */
   private def scan(dir: os.Path, tier: ReviewerFileTier): ReviewerScan =
     if !os.isDir(dir) then ReviewerScan(Nil, Map.empty)
@@ -183,8 +187,13 @@ object ReviewerCatalog:
       val (linked, plain) =
         if tier == ReviewerFileTier.Project then candidates.partition(os.isLink)
         else (IndexedSeq.empty, candidates)
+      // After the symlink split, so a project-tier link to a directory keeps
+      // the more specific `Symlinked` message. `os.isDir` follows links, which
+      // is what catches a global-tier link to a directory; it is false for a
+      // dangling link, so that one still surfaces as unreadable.
+      val (directories, files) = plain.partition(os.isDir)
       val (readFailures, parsed) =
-        plain.filterNot(os.isDir).map(read).toList.partitionMap(identity)
+        files.map(read).toList.partitionMap(identity)
       val (collisions, unique) = parsed
         .groupBy(f => stemOf(f.path))
         .partitionMap:
@@ -200,6 +209,9 @@ object ReviewerCatalog:
       ReviewerScan(
         failures =
           linked.map(p => ReviewerPromptFailure.Symlinked(p.toString)).toList
+            ++ directories
+              .map(p => ReviewerPromptFailure.Directory(p.toString))
+              .toList
             ++ readFailures ++ collisions.toList,
         files = unique.toMap
       )

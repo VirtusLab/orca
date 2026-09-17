@@ -46,10 +46,11 @@ case class Reviewer(
       filePattern.forall(rx => changedFiles.exists(rx.findFirstIn(_).isDefined))
 
 /** A reviewer ready to run: its [[Reviewer]] definition and the agent
-  * [[buildReviewers]] built from it. Only [[buildReviewers]] can mint one, so
-  * `agent` always carries `definition.name`, `definition.systemPrompt` and the
-  * read-only gate — the loop reads the display name off `definition` and runs
-  * the turn on `agent`, and the two cannot disagree.
+  * [[buildReviewers]] built from it. [[buildReviewers]] is the only production
+  * site that mints one, and it is what keeps the pair consistent: the agent
+  * carries `definition.name`, `definition.systemPrompt` and the read-only gate.
+  * The loop reads the display name off `definition` and runs the turn on
+  * `agent`.
   *
   * A flow wanting different base agents per reviewer concatenates calls:
   * `buildReviewers(strong, List(security)) ++ buildReviewers(cheap, rest)`.
@@ -66,6 +67,7 @@ private[review] enum ReviewerPromptFailure:
   case NoFrontmatter(slug: String, source: String)
   case MalformedFrontmatter(slug: String, source: String)
   case Symlinked(source: String)
+  case Directory(source: String)
   case DuplicateSlug(slug: String, dir: String, files: List[String])
   case Unreadable(source: String, reason: String)
   case MissingDescription(slug: String, source: String)
@@ -87,6 +89,10 @@ private[review] object ReviewerPromptFailure:
       case Symlinked(source) =>
         s"$source is a symlink — refusing to read a reviewer prompt through " +
           "it; copy the file into the directory instead of linking it"
+      case Directory(source) =>
+        s"$source is a directory, not a reviewer prompt — a reviewer is a " +
+          "single '.md' file; move it aside or rename it so it does not end " +
+          "in '.md'"
       case DuplicateSlug(slug, dir, files) =>
         s"reviewer '$slug' is claimed by more than one file in $dir " +
           s"(${files.mkString(", ")}) — reviewer names are compared " +
