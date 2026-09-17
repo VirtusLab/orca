@@ -89,7 +89,7 @@ class FlowAuthoringTest extends munit.FunSuite:
     assert(text.contains("\n  | mode | effect |"), text)
 
   test("initialPrompt states the verbatim version-pinned header"):
-    assert(prompt.contains("//> using scala 3.8.4"))
+    assert(prompt.contains("//> using scala 3.9.0"))
     assert(prompt.contains("""//> using dep "org.virtuslab::orca:0.0.18""""))
     assert(prompt.contains("//> using jvm 21"))
 
@@ -723,7 +723,7 @@ class FlowAuthoringTest extends munit.FunSuite:
 
   test("skeletonFlow states the same version pins as initialPrompt"):
     val skeleton = FlowAuthoring.skeletonFlow("0.0.18")
-    assert(skeleton.contains("//> using scala 3.8.4"))
+    assert(skeleton.contains("//> using scala 3.9.0"))
     assert(skeleton.contains("""//> using dep "org.virtuslab::orca:0.0.18""""))
     assert(skeleton.contains("//> using jvm 21"))
 

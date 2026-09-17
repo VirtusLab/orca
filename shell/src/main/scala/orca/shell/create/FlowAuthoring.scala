@@ -471,7 +471,7 @@ private[shell] object FlowAuthoring:
     * local build.
     */
   /** The exact `//> using` header lines a new flow file starts with (the
-    * "3.8.4"/`21` literals are kept in lockstep with `V.scala` in
+    * "3.9.0"/`21` literals are kept in lockstep with `V.scala` in
     * `project/Dependencies.scala` by hand — `updateDocs` only rewrites
     * `.md`/`.sc` files, so this text is invisible to it). Non-release builds (a
     * dynver snapshot, or the bare `"dev"`) add `//> using repository ivy2Local`
@@ -486,7 +486,7 @@ private[shell] object FlowAuthoring:
     val ivy2LocalLine =
       if ShellVersion.isRelease(orcaVersion) then ""
       else "\n//> using repository ivy2Local"
-    s"""//> using scala 3.8.4
+    s"""//> using scala 3.9.0
        |//> using dep "org.virtuslab::orca:$orcaVersion"$ivy2LocalLine
        |//> using jvm 21""".stripMargin
 

@@ -14,7 +14,7 @@ import scala.annotation.implicitNotFound
   * Extends `caps.ExclusiveCapability` (where [[InStage]] is a
   * `SharedCapability`), so separation checking forbids two concurrent closures
   * from both capturing it — the type-level encoding of "these mutations are
-  * flow-thread-only". `ExclusiveCapability` is `@experimental` on 3.8.4, so
+  * flow-thread-only". `ExclusiveCapability` is `@experimental` on 3.9.0, so
   * this file carries `import language.experimental.captureChecking`; that
   * taints only this compilation unit, not consumers (see ADR 0018 §6).
   *
