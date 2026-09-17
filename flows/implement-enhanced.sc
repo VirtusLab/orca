@@ -41,10 +41,18 @@ flow(OrcaArgs(args)):
       .reviewed(planningAgent)
       .value
 
-  val session = codingAgent.session("implementer", seed = plan.brief)
+  // One coder session per task, one for the docs pass and one for the final
+  // review: a session spanning the run re-sends every earlier task's transcript
+  // on every later API call.
+  val taskSessions =
+    List.fill(plan.tasks.size)(
+      codingAgent.session("implementer", seed = plan.brief)
+    )
+  val documenter = codingAgent.session("documenter", seed = plan.brief)
+  val finalFixer = codingAgent.session("final-fixer", seed = plan.brief)
 
   val taskDeclines =
-    for task <- plan.tasks yield
+    for (task, session) <- plan.tasks.zip(taskSessions) yield
       stage(s"Task: ${task.title}"):
         session.run(task.description)
         reviewThenFix(
@@ -53,13 +61,14 @@ flow(OrcaArgs(args)):
           task = task
         )
 
-  // Docs pass on the implementer session — it already carries the brief and
-  // every task's context. Its own stage, so the docs commit exists before the
-  // push below.
+  // Its own stage, so the docs commit exists before the push below. The session
+  // carries the brief but implemented none of the tasks, so the prompt points
+  // it at the branch diff for what actually changed.
   stage("Update documentation"):
-    session.run(
-      "All tasks done. Update project docs (README, doc-comments) based " +
-        "on the changes made. Only update what's affected — no new sections."
+    documenter.run(
+      "All tasks are done and committed. Read what this branch changed " +
+        "(`git diff` against its base), then update project docs (README, " +
+        "doc-comments) to match. Only update what's affected — no new sections."
     )
 
   // Everything the run changed, reviewed in one loop: each task's single pass
@@ -69,7 +78,7 @@ flow(OrcaArgs(args)):
   // reviews again after this loop.
   val openFindings = stage("Final review"):
     reviewAndFixLoop(
-      coderSession = session,
+      coderSession = finalFixer,
       reviewers = allReviewers(reviewAgent),
       task = Task(Title("The whole planned change"), plan.brief),
       diff = ReviewDiff.WholeRun,

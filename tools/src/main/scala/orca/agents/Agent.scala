@@ -321,9 +321,9 @@ private[orca] object Agent:
       .orElse(lines.find(l => l.nonEmpty && !l.startsWith("```")))
       .getOrElse("")
 
-/** Bare `claude` runs Opus with the 1M-token context window (the long-lived
-  * implementer); the accessors below pin a specific tier, e.g.
-  * `claude.haiku.run("summarize this")` for a cheap fast one-shot.
+/** Bare `claude` runs Opus with the 1M-token context window (the coder); the
+  * accessors below pin a specific tier, e.g. a cheap fast one-shot with
+  * `claude.haiku.run("summarize this")`.
   */
 trait ClaudeAgent extends Agent[BackendTag.ClaudeCode.type]:
   /** Pin the Claude model for subsequent calls, overriding `AgentConfig.model`.

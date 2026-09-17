@@ -72,15 +72,15 @@ private[orca] object DefaultClaudeAgent:
   val Haiku: Model = Model("claude-haiku-4-5")
 
   /** The default coding model: Opus with the 1M-token context window, via the
-    * `[1m]` model-alias suffix. The main implementer session is long-lived and
-    * accumulates context across tasks, so 1M keeps it from overflowing ("Prompt
-    * is too long"). Cheaper one-shot calls go through `claude.sonnet` /
+    * `[1m]` model-alias suffix. A coder session runs many agentic turns over
+    * whole-branch diffs, so 1M keeps it from overflowing ("Prompt is too
+    * long"). Cheaper one-shot calls go through `claude.sonnet` /
     * `claude.haiku`.
     */
   val Opus1M: Model = Model("claude-opus-5[1m]")
 
   /** Fable: the most capable tier, above Opus. Opt in via `claude.fable` for
-    * the hardest one-shots; the long-lived implementer stays on Opus (the
-    * default) for cost. 1M context at standard pricing.
+    * the hardest one-shots; the coder stays on Opus (the default) for cost. 1M
+    * context at standard pricing.
     */
   val Fable: Model = Model("claude-fable-5")
