@@ -82,7 +82,9 @@ flow(
        |
        |${issue.body}""".stripMargin
 
-  val session = codingAgent.session("fixer", seed = issue.body)
+  // Writes the failing test only; the fix tasks and the final review get their
+  // own sessions (see `planAndImplementFix`).
+  val reproducer = codingAgent.session("reproducer", seed = issue.body)
 
   val triage: Triage = stage("Triage"):
     // Read-only: the triager reads/greps to verify the report, changes nothing.
@@ -109,7 +111,7 @@ flow(
 
     case Triage.Testable(summary, _, failingTestPath) =>
       stage("Write failing test"):
-        session.run(
+        reproducer.run(
           s"""Write the failing unit test at `$failingTestPath`. It MUST
              |fail on the current code — that's how we confirm the bug.
              |Run the project's test suite locally if you can to
@@ -137,7 +139,7 @@ flow(
       display(s"CI red on ${pr.shortRef} — reproduction confirmed")
 
       confirmReproductionMatches(pr, issue)
-      val openFindings = planAndImplementFix(session, issuePayload)
+      val openFindings = planAndImplementFix(issuePayload)
 
       // Again later than the task edits above, so the fix commits exist.
       stage("Push fix + finalise PR"):
@@ -223,19 +225,15 @@ def confirmReproductionMatches(pr: PrHandle, issue: Issue)(using
     if !verdict.matches then
       fail(s"Reproduction doesn't match the report: ${verdict.explanation}")
 
-/** Plan + implement the fix on the same branch, reusing the triage `session`,
-  * then review everything the run changed.
-  *
-  * `[B <: BackendTag]` is read off the `session` argument, so the helper
-  * accepts a session for whichever backend the settings named.
+/** Plan + implement the fix on the same branch, then review everything the run
+  * changed.
   *
   * `issuePayload` is what reviewers are shown as the user's request: the run's
   * prompt is only an issue reference.
   *
   * Returns what the final review left open, for the PR body.
   */
-def planAndImplementFix[B <: BackendTag](
-    session: FlowSession[B],
+def planAndImplementFix(
     issuePayload: String
 )(using FlowControl): IgnoredIssues =
   val fixPlan = stage("Plan the fix"):
@@ -249,8 +247,17 @@ def planAndImplementFix[B <: BackendTag](
       .reviewed(planningAgent)
       .value
 
+  // A session per unit of work — this one for the final review, one per task
+  // below: a session spanning the run re-sends every earlier task's transcript
+  // on every later API call. None of them wrote the failing test; it is
+  // committed, so they read it off the branch.
+  val finalFixer = codingAgent.session("final-fixer", seed = fixPlan.brief)
+
   val taskDeclines =
     for task <- fixPlan.tasks yield
+      // Outside the stage, not in it — a stage body is skipped on resume, and
+      // the mint must not be.
+      val session = codingAgent.session("fixer", seed = fixPlan.brief)
       stage(s"Task: ${task.title}"):
         session.run(fixPlan.taskPrompt(task))
         // Don't gate this review on the tests: the branch carries a
@@ -269,7 +276,7 @@ def planAndImplementFix[B <: BackendTag](
   // higher cap than the library default: nothing reviews again after this loop.
   stage("Final review"):
     reviewAndFixLoop(
-      coderSession = session,
+      coderSession = finalFixer,
       reviewers = allReviewers(reviewAgent),
       task = Task(Title(s"Fix for ${issueHandle.shortRef}"), fixPlan.brief),
       userRequest = Some(issuePayload),

@@ -36,12 +36,17 @@ flow(OrcaArgs(args)):
   val plan = stage("Plan"):
     Plan.interactive.from(userPrompt, planningAgent).value
 
-  // One autonomous session for implementing and fixing alike — ask_user was
-  // only needed while planning.
-  val session = codingAgent.session("implementer", seed = plan.brief)
+  // Autonomous sessions for implementing and fixing alike — ask_user was only
+  // needed while planning. One per unit of work: this one for the final review,
+  // one per task below, since a session spanning the run re-sends every earlier
+  // task's transcript on every later API call.
+  val finalFixer = codingAgent.session("final-fixer", seed = plan.brief)
 
   val taskDeclines =
     for task <- plan.tasks yield
+      // Outside the stage, not in it — a stage body is skipped on resume, and
+      // the mint must not be.
+      val session = codingAgent.session("implementer", seed = plan.brief)
       stage(s"Task: ${task.title}"):
         session.run(task.description)
         reviewThenFix(
@@ -57,7 +62,7 @@ flow(OrcaArgs(args)):
   // reviews again after this loop.
   val openFindings = stage("Final review"):
     reviewAndFixLoop(
-      coderSession = session,
+      coderSession = finalFixer,
       reviewers = allReviewers(reviewAgent),
       task = Task(Title("The whole planned change"), plan.brief),
       diff = ReviewDiff.WholeRun,
