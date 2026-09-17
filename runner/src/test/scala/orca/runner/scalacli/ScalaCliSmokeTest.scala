@@ -27,7 +27,7 @@ class ScalaCliSmokeTest extends munit.FunSuite:
   // from test code (build-definition sources aren't on the runtime/test
   // classpath), so pinned here as a literal. A stale value here fails loudly:
   // the published library's TASTy won't parse under an older scala-cli pin.
-  private val scalaVersion = "3.8.4"
+  private val scalaVersion = "3.9.0"
 
   private val version: String = sys.props.getOrElse(
     "orca.build.version",

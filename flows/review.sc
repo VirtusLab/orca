@@ -1,5 +1,5 @@
 // Review a PR, a branch, or local changes — a list of findings, no fixes.
-//> using scala 3.8.4
+//> using scala 3.9.0
 //> using dep "org.virtuslab::orca:0.1.7"
 //> using jvm 21
 

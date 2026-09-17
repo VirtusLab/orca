@@ -19,7 +19,7 @@ import scala.annotation.implicitNotFound
   * `caps.ExclusiveCapability` encodes that affinity: separation checking
   * forbids two concurrent closures from both capturing this exclusive
   * capability, so a `fork` cannot smuggle the authority to start a stage onto
-  * another thread. (That marker is `@experimental` on 3.8.4, hence this file's
+  * another thread. (That marker is `@experimental` on 3.9.0, hence this file's
   * `captureChecking` import; the taint stays local to this compilation unit —
   * see ADR 0018 §6.) At runtime, [[StageFrames]]'s owner-thread assert enforces
   * it for `enterStage`/`exitStage` and [[nextSessionOccurrence]].

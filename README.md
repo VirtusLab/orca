@@ -86,7 +86,7 @@ scala-cli run implement.sc -- "add a rate limiter to /login"
 Save this as `implement.sc` and run it with your task:
 
 ```scala
-//> using scala 3.8.4
+//> using scala 3.9.0
 //> using dep "org.virtuslab::orca:0.1.7"
 //> using jvm 21
 
