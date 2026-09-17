@@ -37,7 +37,7 @@ import orca.runner.{
   WorktreeRun
 }
 import orca.runner.manifest.{RunManifestWriter, RunOutcome}
-import orca.settings.GlobalSettings
+import orca.settings.ConfigHome
 import orca.runner.terminal.TerminalInteraction
 import orca.subprocess.OsProcCliRunner
 import org.slf4j.LoggerFactory
@@ -289,8 +289,8 @@ def flow(
   *
   * `extraListeners` is the listener set beyond the interaction's own (the CLI
   * wrapper adds its [[CostTracker]] here); a [[LoggingListener]] is always
-  * appended. `globalSettingsPath` and `globalReviewersPath` are overridden only
-  * by tests, which must never read the developer's real `~/.config`.
+  * appended. `configHome` is overridden only by tests, which must never read
+  * the developer's real `~/.config`.
   */
 private[orca] def runFlow(
     args: OrcaArgs,
@@ -303,8 +303,7 @@ private[orca] def runFlow(
     codingAgent: Option[AgentSet => Agent[?]] = None,
     reviewAgent: Option[AgentSet => Agent[?]] = None,
     progressStore: Option[ProgressStore],
-    globalSettingsPath: os.Path = GlobalSettings.default,
-    globalReviewersPath: os.Path = GlobalSettings.defaultReviewers,
+    configHome: ConfigHome = ConfigHome.default,
     // `ORCA_FLOW_NAME`, forwarded into a freshly-written progress header (see
     // `FlowLifecycle.setup`'s own scaladoc) — `flow()` passes its real
     // `sys.env` reading; `None` for every other caller (tests, a nested
@@ -368,8 +367,7 @@ private[orca] def runFlow(
             planningAgent = planningAgent,
             codingAgent = codingAgent,
             reviewAgent = reviewAgent,
-            globalSettingsPath = globalSettingsPath,
-            globalReviewersPath = globalReviewersPath,
+            configHome = configHome,
             branchNaming = branchNaming,
             dispatcher = dispatcher,
             agents = agents,
@@ -418,8 +416,7 @@ private def buildContext(
     planningAgent: Option[AgentSet => Agent[?]],
     codingAgent: Option[AgentSet => Agent[?]],
     reviewAgent: Option[AgentSet => Agent[?]],
-    globalSettingsPath: os.Path,
-    globalReviewersPath: os.Path,
+    configHome: ConfigHome,
     branchNaming: Option[BranchNamingStrategy],
     dispatcher: OrcaListener,
     agents: WiredAgents,
@@ -453,7 +450,7 @@ private def buildContext(
     // mutation (setup runs after).
     val (resolvedRoles, settingsRead) = surfaced:
       val read =
-        FlowLifecycle.readSettings(workDir, globalSettingsPath, stackSettings)
+        FlowLifecycle.readSettings(workDir, configHome.settings, stackSettings)
       // Cover each resolved role in the close guard AS it resolves, appended
       // incrementally (not from the returned `RoleResolution`) so an earlier
       // foreign role is still closed when a LATER override throws and
@@ -478,7 +475,7 @@ private def buildContext(
       // links, so the tier directory is guarded here.
       OrcaDir.assertNoOrcaSymlinks(workDir, projectReviewersPath)
       val catalog =
-        ReviewerCatalog.discover(projectReviewersPath, globalReviewersPath)
+        ReviewerCatalog.discover(projectReviewersPath, configHome.reviewers)
       catalog.describe.foreach(d => dispatcher.onEvent(OrcaEvent.Step(d)))
       catalog
     // Setup (branch + log binding, stack discovery) runs BEFORE the context so

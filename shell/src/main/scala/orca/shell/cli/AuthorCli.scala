@@ -2,7 +2,7 @@ package orca.shell.cli
 
 import mainargs.Flag
 import org.jline.terminal.Terminal
-import orca.settings.GlobalSettings
+import orca.settings.ConfigHome
 import orca.shell.actions.{AuthorAction, AuthorParams}
 import orca.shell.actions.FlowResolution
 import orca.shell.create.{CreateTarget, CreateTier, FlowAuthoring}
@@ -88,7 +88,7 @@ private[cli] object AuthorCli:
       defaultFileName: S => String,
       launch: (S, AuthorParams, ShellUi, Terminal) => LaunchResult
   ): Int =
-    val globalFlows = GlobalSettings.defaultFlows
+    val globalFlows = ConfigHome.default.flows
     complete:
       for
         _ <- requireTty(command, tty).left.map(usageFailure)

@@ -1,6 +1,6 @@
 package orca.shell.cli
 
-import orca.settings.GlobalSettings
+import orca.settings.ConfigHome
 import orca.shell.actions.{EditAction, FlowResolution}
 import orca.shell.create.CreateTier
 import orca.discovery.Origin
@@ -55,7 +55,7 @@ private[cli] object EditCli:
                 flow,
                 tier,
                 workDir,
-                GlobalSettings.defaultFlows
+                ConfigHome.default.flows
               )
             ).left.map(actionFailure)
           yield exit

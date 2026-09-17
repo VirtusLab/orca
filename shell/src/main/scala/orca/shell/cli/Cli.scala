@@ -3,7 +3,7 @@ package orca.shell.cli
 import mainargs.{Flag, ParserForMethods, Renderer, Util, arg, main}
 import org.jline.terminal.Terminal
 import orca.RunTarget
-import orca.settings.GlobalSettings
+import orca.settings.ConfigHome
 import orca.shell.WorktreeScan
 import orca.shell.run.LaunchResult
 import orca.shell.ui.ShellUi
@@ -290,7 +290,7 @@ private[shell] object Cli:
       edit: Option[String] = None
   ): Int =
     ConfigCli.run(
-      GlobalSettings.default,
+      ConfigHome.default.settings,
       planningAgent,
       codingAgent,
       reviewAgent,

@@ -34,7 +34,7 @@ A reviewer is an `.md` file with frontmatter, read from three tiers:
 | Tier | Where |
 |---|---|
 | Project | `{workDir}/.orca/reviewers/*.md` (`OrcaDir.reviewersPath`), committed |
-| Global | `$XDG_CONFIG_HOME/orca/reviewers/*.md` (`GlobalSettings.reviewersPath`, default `~/.config/orca/reviewers/`) |
+| Global | `$XDG_CONFIG_HOME/orca/reviewers/*.md` (`ConfigHome.reviewers`, default `~/.config/orca/reviewers/`) |
 | Built-in | the shipped classpath resources ADR 0011 defines |
 
 `ReviewerCatalog.discover(projectDir, globalDir)` reads the two file tiers and

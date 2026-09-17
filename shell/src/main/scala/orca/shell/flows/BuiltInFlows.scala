@@ -60,9 +60,8 @@ private[shell] object BuiltInFlows:
 
   /** Extracts the built-in flows to
     * `$XDG_CACHE_HOME/orca/shell/<version>/flows` (default `~/.cache/...`,
-    * mirroring `GlobalSettings.path`'s env handling: a relative, empty, or
-    * root-climbing `XDG_CACHE_HOME` falls back like an unset one). Returns that
-    * directory.
+    * mirroring `ConfigHome`'s env handling: a relative, empty, or root-climbing
+    * `XDG_CACHE_HOME` falls back like an unset one). Returns that directory.
     *
     * A release-looking `version` (`ShellVersion.isRelease`) extracts once,
     * keyed by the directory being *complete* — present with every indexed flow

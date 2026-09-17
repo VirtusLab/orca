@@ -19,7 +19,7 @@ import orca.agents.{
   ToolSet
 }
 import orca.events.OrcaListener
-import orca.settings.SettingsFile
+import orca.settings.{ConfigHome, SettingsFile}
 import orca.testkit.{GitRepo, TempDirs}
 import orca.tools.OsGitTool
 
@@ -74,13 +74,13 @@ class RoleSettingsFlowTest extends munit.FunSuite:
   test("project reviewAgent wins over the user-global reviewAgent"):
     val workDir = GitRepo.seeded()
     writeProject(workDir, "reviewAgent = gemini\n")
-    val globalPath = writeGlobal("reviewAgent = codex\n")
+    val globalHome = writeGlobal("reviewAgent = codex\n")
     val gemini = new StubGemini
     val codex = new StubCodex
     var review: Option[Agent[?]] = None
     driveFlow(
       workDir,
-      globalSettingsPath = globalPath,
+      configHome = globalHome,
       stackSettings = Some(StackSettings.empty),
       wiring =
         wiringWith(claude = StubAgent.claude, codex = codex, gemini = gemini)
@@ -116,8 +116,8 @@ class RoleSettingsFlowTest extends munit.FunSuite:
 
   test("a malformed user-global file aborts before any branch mutation"):
     val workDir = GitRepo.seeded()
-    val globalPath = writeGlobal("codingAgent = mistral\n")
-    assertAbortsCleanly(workDir, globalSettingsPath = globalPath)
+    val globalHome = writeGlobal("codingAgent = mistral\n")
+    assertAbortsCleanly(workDir, configHome = globalHome)
 
   test("a malformed project file aborts even under a stack override"):
     val workDir = GitRepo.seeded()
@@ -239,11 +239,11 @@ class RoleSettingsFlowTest extends munit.FunSuite:
   test("the resolved roles are announced with their per-role sources"):
     val workDir = GitRepo.seeded()
     writeProject(workDir, "codingAgent = codex\n")
-    val globalPath = writeGlobal("reviewAgent = gemini\n")
+    val globalHome = writeGlobal("reviewAgent = gemini\n")
     val steps = new AtomicReference[List[String]](Nil)
     driveFlow(
       workDir,
-      globalSettingsPath = globalPath,
+      configHome = globalHome,
       stackSettings = Some(StackSettings.empty),
       listeners = List(recordSteps(steps)),
       wiring = wiringWith(
@@ -422,12 +422,12 @@ class RoleSettingsFlowTest extends munit.FunSuite:
   private def writeProject(workDir: os.Path, content: String): Unit =
     os.write(OrcaDir.settingsPath(workDir), content, createFolders = true)
 
-  private def writeGlobal(content: String): os.Path =
-    val path = TempDirs.dir() / "orca" / "settings.properties"
-    os.write(path, content, createFolders = true)
-    path
+  private def writeGlobal(content: String): ConfigHome =
+    val home = ConfigHome(TempDirs.dir() / "orca")
+    os.write(home.settings, content, createFolders = true)
+    home
 
-  private def absentGlobal(): os.Path = FlowHarness.absentGlobalSettings()
+  private def absentGlobal(): ConfigHome = FlowHarness.absentConfigHome()
 
   private def recordSteps(sink: AtomicReference[List[String]]): OrcaListener =
     FlowHarness.recordSteps(sink)
@@ -445,12 +445,12 @@ class RoleSettingsFlowTest extends munit.FunSuite:
 
   /** Drives `runFlow` with a null-sink interaction and no progress store, so a
     * failure surfaces as a thrown `SurfacedFlowFailure` rather than a
-    * `System.exit`. `globalSettingsPath` defaults to an absent temp path so no
+    * `System.exit`. `configHome` defaults to an absent temp directory so no
     * test ever reads the developer's real `~/.config`.
     */
   private def driveFlow(
       workDir: os.Path,
-      globalSettingsPath: os.Path = absentGlobal(),
+      configHome: ConfigHome = absentGlobal(),
       stackSettings: Option[StackSettings] = None,
       planningOverride: Option[orca.AgentSet => Agent[?]] = None,
       codingOverride: Option[orca.AgentSet => Agent[?]] = None,
@@ -462,7 +462,7 @@ class RoleSettingsFlowTest extends munit.FunSuite:
       workDir = workDir,
       wiring = wiring,
       flowName = "role-settings",
-      globalSettingsPath = globalSettingsPath,
+      configHome = configHome,
       stackSettings = stackSettings,
       planningOverride = planningOverride,
       codingOverride = codingOverride,
@@ -476,14 +476,14 @@ class RoleSettingsFlowTest extends munit.FunSuite:
     */
   private def assertAbortsCleanly(
       workDir: os.Path,
-      globalSettingsPath: os.Path = absentGlobal(),
+      configHome: ConfigHome = absentGlobal(),
       stackSettings: Option[StackSettings] = None
   ): Unit =
     val startBranch = new OsGitTool(workDir).currentBranch()
     val _ = intercept[SurfacedFlowFailure]:
       driveFlow(
         workDir,
-        globalSettingsPath = globalSettingsPath,
+        configHome = configHome,
         stackSettings = stackSettings,
         wiring = wiringWith(claude = StubAgent.claude)
       )(())

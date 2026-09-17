@@ -1,6 +1,7 @@
 package orca.runner
 
 import orca.{FlowContext, OrcaDir, StackSettings}
+import orca.settings.ConfigHome
 import orca.testkit.{GitRepo, TempDirs}
 import orca.tools.OsGitTool
 
@@ -27,13 +28,13 @@ class ReviewerDiscoveryFlowTest extends munit.FunSuite:
 
   test("a user-global reviewer reaches the body's catalog and is announced"):
     val workDir = GitRepo.seeded()
-    val globalDir = TempDirs.dir() / "orca" / "reviewers"
-    writeReviewer(globalDir, "checks the user's own rules")
+    val configHome = ConfigHome(TempDirs.dir() / "orca")
+    writeReviewer(configHome.reviewers, "checks the user's own rules")
     val steps = new AtomicReference[List[String]](Nil)
     var names: List[String] = Nil
     driveFlow(
       workDir,
-      globalReviewersPath = globalDir,
+      configHome = configHome,
       listeners = List(FlowHarness.recordSteps(steps))
     ):
       names = summon[FlowContext].reviewerCatalog.all.map(_.name)
@@ -80,14 +81,14 @@ class ReviewerDiscoveryFlowTest extends munit.FunSuite:
 
   private def driveFlow(
       workDir: os.Path,
-      globalReviewersPath: os.Path = FlowHarness.absentGlobalReviewers(),
+      configHome: ConfigHome = FlowHarness.absentConfigHome(),
       listeners: List[orca.events.OrcaListener] = Nil
   )(body: orca.FlowControl ?=> Unit): Unit =
     FlowHarness.driveFlow(
       workDir = workDir,
       wiring = FlowWiring(claude = Some(_ => StubAgent.claude)),
       flowName = "reviewer-discovery",
-      globalReviewersPath = globalReviewersPath,
+      configHome = configHome,
       stackSettings = Some(StackSettings.empty),
       listeners = listeners
     )(body)

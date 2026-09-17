@@ -328,7 +328,7 @@ Three tiers, one listing:
   `.claude/commands/`.
 - **Global**: `$XDG_CONFIG_HOME/orca/flows/` — config home, not data home
   (user-authored, dotfile-portable; fish-functions precedent), sharing
-  `GlobalSettings`' config-home resolution.
+  `ConfigHome`'s config-home resolution.
 - **Built-in**: shipped with the shell (§7).
 
 Precedence project > global > built-in, keyed by filename — one menu row per

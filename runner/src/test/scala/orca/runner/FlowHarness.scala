@@ -3,6 +3,7 @@ package orca.runner
 import orca.{AgentSet, OrcaArgs, StackSettings, runFlow}
 import orca.agents.Agent
 import orca.events.{OrcaEvent, OrcaListener}
+import orca.settings.ConfigHome
 import orca.testkit.TempDirs
 import orca.runner.terminal.TerminalInteraction
 import ox.supervised
@@ -11,8 +12,8 @@ import java.io.{ByteArrayOutputStream, PrintStream}
 import java.util.concurrent.atomic.AtomicReference
 
 /** Drives `runFlow` end to end over stub agents, for the suites that assert on
-  * what setup resolves before the body runs. Both user-global tiers default to
-  * directories that don't exist, so no test reads the developer's `~/.config`.
+  * what setup resolves before the body runs. The config home defaults to a
+  * directory that doesn't exist, so no test reads the developer's `~/.config`.
   */
 object FlowHarness:
 
@@ -20,8 +21,7 @@ object FlowHarness:
       workDir: os.Path,
       wiring: FlowWiring,
       flowName: String = "flow-harness",
-      globalSettingsPath: os.Path = absentGlobalSettings(),
-      globalReviewersPath: os.Path = absentGlobalReviewers(),
+      configHome: ConfigHome = absentConfigHome(),
       stackSettings: Option[StackSettings] = None,
       planningOverride: Option[AgentSet => Agent[?]] = None,
       codingOverride: Option[AgentSet => Agent[?]] = None,
@@ -45,17 +45,12 @@ object FlowHarness:
         codingAgent = codingOverride,
         reviewAgent = reviewOverride,
         progressStore = None,
-        globalSettingsPath = globalSettingsPath,
-        globalReviewersPath = globalReviewersPath,
+        configHome = configHome,
         wiring = wiring
       )(body)
 
-  /** A global settings file that doesn't exist. */
-  def absentGlobalSettings(): os.Path =
-    TempDirs.dir() / "orca" / "settings.properties"
-
-  /** A global reviewer directory that doesn't exist. */
-  def absentGlobalReviewers(): os.Path = TempDirs.dir() / "orca" / "reviewers"
+  /** A config home whose tier files and directories don't exist. */
+  def absentConfigHome(): ConfigHome = ConfigHome(TempDirs.dir() / "orca")
 
   def recordSteps(sink: AtomicReference[List[String]]): OrcaListener =
     case OrcaEvent.Step(msg) => val _ = sink.updateAndGet(_ :+ msg)

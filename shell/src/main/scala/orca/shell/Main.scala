@@ -2,7 +2,7 @@ package orca.shell
 
 import org.jline.terminal.Terminal
 import orca.{RunTarget, Uncommitted}
-import orca.settings.GlobalSettings
+import orca.settings.ConfigHome
 import orca.shell.actions.{
   AuthorAction,
   AuthorParams,
@@ -70,7 +70,7 @@ object Main:
       // there's no terminal to erase, only a redirected stream to pollute.
       if tty then print(ShellOutput.AnsiClearBelow)
       val ui = ShellUi.make(terminal)
-      val globalSettingsPath = GlobalSettings.default
+      val globalSettingsPath = ConfigHome.default.settings
       val wizard = Wizard(ui, PathProbe.resolves(_, os.pwd), globalSettingsPath)
       runWizardIfFirstRun(wizard, globalSettingsPath)
       printConfigSummary(globalSettingsPath, os.pwd)
@@ -202,15 +202,15 @@ object Main:
     * is the new one. `spawnEditor` is injectable, like [[editSettings]]'s own
     * seam, so a test can fake the editor exiting instead of spawning a real
     * subprocess; `workDir`/`globalFlows` are likewise explicit (rather than
-    * reading `os.pwd`/[[GlobalSettings.defaultFlows]] internally), so a test
-    * can point the built-in-customize branch at temp dirs. `private[shell]` so
-    * a scripted-UI test can drive it directly.
+    * reading `os.pwd`/[[ConfigHome]]'s `flows` internally), so a test can point
+    * the built-in-customize branch at temp dirs. `private[shell]` so a
+    * scripted-UI test can drive it directly.
     */
   private[shell] def editFlow(
       ui: ShellUi,
       terminal: Terminal,
       workDir: os.Path = os.pwd,
-      globalFlows: os.Path = GlobalSettings.defaultFlows,
+      globalFlows: os.Path = ConfigHome.default.flows,
       spawnEditor: (Terminal, os.Path) => Int = EditAction.editInPlace
   ): Unit =
     selectFlow(ui, "Edit which flow?").foreach: flow =>
@@ -493,7 +493,7 @@ object Main:
       ui: ShellUi,
       terminal: Terminal,
       workDir: os.Path = os.pwd,
-      globalFlows: os.Path = GlobalSettings.defaultFlows,
+      globalFlows: os.Path = ConfigHome.default.flows,
       spawnEditor: (Terminal, os.Path) => Int = EditAction.editInPlace
   ): Unit =
     pickChangeMode(ui).foreach:
@@ -592,7 +592,7 @@ object Main:
       ui: ShellUi,
       terminal: Terminal,
       workDir: os.Path = os.pwd,
-      globalFlows: os.Path = GlobalSettings.defaultFlows,
+      globalFlows: os.Path = ConfigHome.default.flows,
       spawnEditor: (Terminal, os.Path) => Int = EditAction.editInPlace
   ): Unit =
     for

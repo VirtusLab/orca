@@ -1,7 +1,7 @@
 package orca.shell.actions
 
 import orca.OrcaDir
-import orca.settings.GlobalSettings
+import orca.settings.ConfigHome
 import orca.shell.ShellVersion
 import orca.discovery.Origin
 import orca.shell.flows.{
@@ -33,7 +33,7 @@ private[shell] object FlowResolution:
       Right(
         FlowCatalog.list(
           OrcaDir.flowsPath(workDir),
-          GlobalSettings.defaultFlows,
+          ConfigHome.default.flows,
           BuiltInFlows.extracted(sys.env.get, os.home, ShellVersion.value)
         )
       )
