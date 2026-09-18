@@ -1,6 +1,5 @@
 package orca.review
 
-import orca.plan.Title
 import orca.util.{TextUtil, TextWrap}
 
 // Rendering of review outcomes into `Step`-body text for the event log.
@@ -40,9 +39,7 @@ private[review] def formatFinding(key: String, finding: ReviewFinding): String =
   * fix prompt so a reader of either sees the same shape.
   */
 private[review] def locationLine(location: Option[Location]): Option[String] =
-  location.map:
-    case Location(f, Some(l)) => s"    at $f:$l"
-    case Location(f, None)    => s"    at $f"
+  location.map(l => s"    at ${l.text}")
 
 /** Format a reviewer's outcome as a `▶`-step body — heading line names the
   * reviewer + finding count, then bulleted finding details indented under it.
@@ -70,15 +67,10 @@ private[review] def formatReviewerOutcome(
   * No [[FixRequest]] keys here: a key numbers one round's fix list, and this
   * block spans rounds — an entry from round one carries no key the last round
   * minted.
-  *
-  * A title missing from `locations` renders without a location line.
   */
-private[review] def formatOpenFindings(
-    open: List[OpenFinding],
-    locations: Map[Title, Location]
-): Option[String] =
-  Option.when(open.nonEmpty):
-    val lines = open.flatMap: i =>
+private[review] def formatOpenFindings(open: OpenFindings): Option[String] =
+  Option.when(open.findings.nonEmpty):
+    val lines = open.findings.flatMap: i =>
       val reason = i.reasonLine
       val bullet = TextWrap.wrap(
         s"  - ${i.titleLine}",
@@ -92,5 +84,5 @@ private[review] def formatOpenFindings(
           continuation = "    "
         )
       )
-      List(Some(bullet), locationLine(locations.get(i.title)), why).flatten
-    (s"Findings still open (${open.size}):" :: lines).mkString("\n")
+      List(Some(bullet), locationLine(i.location), why).flatten
+    (s"Findings still open (${open.findings.size}):" :: lines).mkString("\n")

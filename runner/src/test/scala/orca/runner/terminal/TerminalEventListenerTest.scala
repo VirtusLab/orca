@@ -367,7 +367,7 @@ class TerminalEventListenerTest extends munit.FunSuite:
     // loop narrates per-reviewer outcomes itself) must not trigger the raw
     // fallback: that would render the JSON the summary deliberately withheld.
     val output = renderEvents(
-      List(OrcaEvent.StructuredResult("""{"issues":[]}""", Some("")))
+      List(OrcaEvent.StructuredResult("""{"findings":[]}""", Some("")))
     )
     assertEquals(output, "")
 

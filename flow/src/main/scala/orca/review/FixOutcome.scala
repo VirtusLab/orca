@@ -15,13 +15,22 @@ import orca.plan.Title
   */
 case class FixOutcome(
     fixed: List[Title],
-    declined: List[OpenFinding]
+    declined: List[DeclinedFinding]
 ) derives JsonData
+
+/** One finding the fixer refused on a turn, and the reason it gave. The wire
+  * shape the agent fills, so it holds only what the agent can know: where the
+  * finding points is the reviewer's, and [[FixOutcome.reconcile]] puts it back
+  * when it resolves the echo to the [[ReviewFinding]] that was handed out.
+  */
+case class DeclinedFinding(title: Title, reason: String) derives JsonData
 
 /** A [[FixOutcome]] resolved against the findings the fixer was handed, so
   * every handed title is in exactly one bucket and no echo is counted twice.
   *
-  * `unaccounted` is what came back in neither list, as bare titles: the reason
+  * `declined` and `unaccounted` are both whole findings once resolved, so a
+  * caller recording either as an [[OpenFinding]] still knows where it points.
+  * `unaccounted` is what came back in neither list; it carries no reason, which
   * belongs to the exit that records them, not to the reconciliation. The fix
   * prompt asks for every finding to be accounted for; when one isn't, it is
   * still open, so a loop halting here records it rather than dropping it. A
@@ -36,7 +45,7 @@ case class FixOutcome(
 private[review] case class ReconciledFixOutcome(
     fixed: List[Title],
     declined: List[OpenFinding],
-    unaccounted: List[Title],
+    unaccounted: List[ReviewFinding],
     unresolvedEchoes: List[String]
 )
 
@@ -94,18 +103,22 @@ object FixOutcome:
     // `unaccounted`.
     val fixedTitles = outcome.fixed.flatMap(t => resolve(t.value)).map(_.title)
     val declinedEntries = outcome.declined
-      .flatMap(entry => resolve(entry.title.value).map(_.title -> entry.reason))
-      .filterNot((title, _) => fixedTitles.contains(title))
-      .distinctBy((title, _) => title)
-    val accounted = (fixedTitles ++ declinedEntries.map((t, _) => t)).toSet
+      .flatMap(entry => resolve(entry.title.value).map(_ -> entry.reason))
+      .filterNot((f, _) => fixedTitles.contains(f.title))
+      .distinctBy((f, _) => f.title)
+    val accounted =
+      (fixedTitles ++ declinedEntries.map((f, _) => f.title)).toSet
     val echoes =
       outcome.fixed.map(_.value) ++ outcome.declined.map(_.title.value)
 
     ReconciledFixOutcome(
       fixed = fixedTitles.distinct,
-      declined = declinedEntries.map(OpenFinding(_, _)),
-      unaccounted =
-        findings.map(_.title).distinct.filterNot(accounted.contains),
+      declined = declinedEntries.map((f, reason) =>
+        OpenFinding(f.title, OpenReason.Declined(reason), f.location)
+      ),
+      unaccounted = findings
+        .distinctBy(_.title)
+        .filterNot(f => accounted.contains(f.title)),
       unresolvedEchoes = echoes.filter(resolve(_).isEmpty)
     )
 

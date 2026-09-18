@@ -28,5 +28,5 @@ security-sensitive surface, report no findings.
 - **TLS / transport**: disabled cert verification, plain HTTP for sensitive
   data, missing timeouts that enable resource exhaustion.
 
-Frame each finding around the vector — what an attacker gains if the finding is
-exploited.
+Frame each finding around the vector — what an attacker gains by exploiting the
+weakness you report.
