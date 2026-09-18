@@ -1,6 +1,6 @@
 package orca.shell.cli
 
-import orca.settings.ConfigHome
+import orca.ConfigHome
 import orca.shell.actions.{EditAction, FlowResolution}
 import orca.shell.create.CreateTier
 import orca.discovery.Origin

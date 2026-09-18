@@ -2,8 +2,7 @@ package orca.shell.cli
 
 import mainargs.{Flag, ParserForMethods, Renderer, Util, arg, main}
 import org.jline.terminal.Terminal
-import orca.RunTarget
-import orca.settings.ConfigHome
+import orca.{ConfigHome, RunTarget}
 import orca.shell.WorktreeScan
 import orca.shell.run.LaunchResult
 import orca.shell.ui.ShellUi

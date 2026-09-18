@@ -1,9 +1,8 @@
 package orca.runner
 
-import orca.{AgentSet, OrcaArgs, StackSettings, runFlow}
+import orca.{AgentSet, ConfigHome, OrcaArgs, StackSettings, runFlow}
 import orca.agents.Agent
 import orca.events.{OrcaEvent, OrcaListener}
-import orca.settings.ConfigHome
 import orca.testkit.TempDirs
 import orca.runner.terminal.TerminalInteraction
 import ox.supervised

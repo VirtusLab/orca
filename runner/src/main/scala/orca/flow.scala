@@ -37,7 +37,6 @@ import orca.runner.{
   WorktreeRun
 }
 import orca.runner.manifest.{RunManifestWriter, RunOutcome}
-import orca.settings.ConfigHome
 import orca.runner.terminal.TerminalInteraction
 import orca.subprocess.OsProcCliRunner
 import org.slf4j.LoggerFactory

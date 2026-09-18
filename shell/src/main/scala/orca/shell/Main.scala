@@ -1,8 +1,7 @@
 package orca.shell
 
 import org.jline.terminal.Terminal
-import orca.{RunTarget, Uncommitted}
-import orca.settings.ConfigHome
+import orca.{ConfigHome, RunTarget, Uncommitted}
 import orca.shell.actions.{
   AuthorAction,
   AuthorParams,

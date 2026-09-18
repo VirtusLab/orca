@@ -1,7 +1,6 @@
 package orca.shell.actions
 
-import orca.OrcaDir
-import orca.settings.ConfigHome
+import orca.{ConfigHome, OrcaDir}
 import orca.shell.ShellVersion
 import orca.discovery.Origin
 import orca.shell.flows.{
