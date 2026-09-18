@@ -53,7 +53,7 @@ object ReviewLoopFixture:
     new FlowSession(
       agent,
       SessionId[BackendTag.ClaudeCode.type](id),
-      SessionKey("coder", "")
+      SessionKey(name = "coder", stage = "")
     )
 
   /** A [[TestFlowControl]] (a real temp git repo + progress store) wired to

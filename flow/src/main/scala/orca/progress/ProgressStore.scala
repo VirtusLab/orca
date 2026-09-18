@@ -46,7 +46,7 @@ trait ProgressStore:
     * Requires [[writeHeader]] first; otherwise it throws. Does NOT commit — the
     * next stage commit force-adds the log and carries it. So on failure
     * teardown (`git reset --hard`) any record written since the last stage
-    * commit is erased and the retry re-seeds; `session(name, detail, seed)`'s
+    * commit is erased and the retry re-seeds; `session(name, seed)`'s
     * get-or-create is best-effort until a stage commit has carried the log.
     */
   def upsertSession(record: SessionRecord)(using WorkspaceWrite): Unit

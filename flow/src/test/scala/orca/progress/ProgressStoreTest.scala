@@ -167,7 +167,7 @@ class ProgressStoreTest extends FunSuite:
       store.upsertSession(
         SessionRecord(
           name = "implementer",
-          detail = "",
+          stage = "",
           id = "uuid",
           seed = "seed"
         )
@@ -224,7 +224,7 @@ class ProgressStoreTest extends FunSuite:
       store.upsertSession(
         SessionRecord(
           name = "implementer",
-          detail = "",
+          stage = "",
           id = "uuid",
           seed = "seed"
         )
@@ -276,7 +276,7 @@ class ProgressStoreTest extends FunSuite:
     store.writeHeader(header)
     val record = SessionRecord(
       name = "implementer",
-      detail = "",
+      stage = "",
       id = "session-uuid-1",
       seed = "plan brief"
     )
@@ -285,20 +285,20 @@ class ProgressStoreTest extends FunSuite:
     assertEquals(loaded.map(_.sessions), Some(List(record)))
 
   test(
-    "upsertSession with same name+detail replaces the record (last wins)"
+    "upsertSession with same name+stage replaces the record (last wins)"
   ):
     val workDir = TempDirs.dir()
     val store = ProgressStore.default(workDir, "my prompt")
     store.writeHeader(header)
     val first = SessionRecord(
       name = "implementer",
-      detail = "task 1",
+      stage = "Task 1#0",
       id = "first-uuid",
       seed = "old seed"
     )
     val second = SessionRecord(
       name = "implementer",
-      detail = "task 1",
+      stage = "Task 1#0",
       id = "second-uuid",
       seed = "new seed"
     )
@@ -307,19 +307,19 @@ class ProgressStoreTest extends FunSuite:
     val loaded = store.load()
     assertEquals(loaded.map(_.sessions), Some(List(second)))
 
-  test("upsertSession with different details results in two records"):
+  test("upsertSession from two stages results in two records"):
     val workDir = TempDirs.dir()
     val store = ProgressStore.default(workDir, "my prompt")
     store.writeHeader(header)
     val r0 = SessionRecord(
       name = "implementer",
-      detail = "task 1",
+      stage = "Task 1#0",
       id = "uuid-0",
       seed = "seed zero"
     )
     val r1 = SessionRecord(
       name = "implementer",
-      detail = "task 2",
+      stage = "Task 2#0",
       id = "uuid-1",
       seed = "seed one"
     )
@@ -329,20 +329,20 @@ class ProgressStoreTest extends FunSuite:
     assertEquals(loaded.map(_.sessions), Some(List(r0, r1)))
 
   test(
-    "upsertSession with the same detail but different names results in two records"
+    "upsertSession with the same stage but different names results in two records"
   ):
     val workDir = TempDirs.dir()
     val store = ProgressStore.default(workDir, "my prompt")
     store.writeHeader(header)
     val implementer = SessionRecord(
       name = "implementer",
-      detail = "task 1",
+      stage = "Task 1#0",
       id = "uuid-implementer",
       seed = "brief"
     )
     val planner = SessionRecord(
       name = "planner",
-      detail = "task 1",
+      stage = "Task 1#0",
       id = "uuid-planner",
       seed = "other brief"
     )

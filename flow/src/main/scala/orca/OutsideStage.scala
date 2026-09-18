@@ -10,9 +10,10 @@ import scala.util.NotGiven
   * [[orca.pr.openPrIfGitHub]]): each runs stages of its own, and opening the PR
   * is a top-level step of a flow rather than part of one.
   *
-  * Lexical only: a helper taking just `(using FlowControl)` that is invoked
-  * inside a stage still compiles, so a door taking this evidence needs a
-  * runtime in-stage check of its own as the backstop.
+  * Lexical only: it says nothing about the call stack. A helper declared with
+  * just `(using FlowControl)` summons this evidence at its own definition site
+  * and compiles, however deep inside a stage its callers sit; neither door
+  * taking it checks at runtime.
   */
 @implicitNotFound(
   "openPrFromBranch(...) and openPrIfGitHub(...) must be called outside a " +

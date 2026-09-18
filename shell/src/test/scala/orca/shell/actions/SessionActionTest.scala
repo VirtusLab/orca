@@ -23,7 +23,7 @@ class SessionActionTest extends munit.FunSuite:
       role = None,
       stage = stage,
       sessionName = Some("newest"),
-      sessionDetail = Some("task 2"),
+      sessionStage = Some("Task: fix a bug#0"),
       kind = ManifestSessionKind.Durable,
       firstSeenAt = Instant.parse("2026-07-18T09:00:00Z"),
       lastActiveAt = Instant.parse("2026-07-18T09:45:00Z")
@@ -41,18 +41,16 @@ class SessionActionTest extends munit.FunSuite:
       sessions = List(s)
     )
 
-  // The detail is in the notice because `continue <name>` picks the newest of
-  // the sessions sharing a name — this line is where the user sees which one.
-  test(
-    "identityNotice: names the session and its detail, harness, and workDir"
-  ):
+  // `continue <name>` picks the newest of the sessions sharing a name, so this
+  // line is where the user sees which one it landed on.
+  test("identityNotice: names the session, harness, stage, and workDir"):
     val s = session()
     assertEquals(
       SessionAction.identityNotice(
         SessionSelection(manifest(s), s, crashed = false),
         "claude"
       ),
-      "resuming session 'newest (task 2)' [claude], in /work"
+      "resuming session 'newest' [claude], in /work"
     )
 
   test("identityNotice: includes the stage when the session has one"):
@@ -62,7 +60,7 @@ class SessionActionTest extends munit.FunSuite:
         SessionSelection(manifest(s), s, crashed = false),
         "claude"
       ),
-      "resuming session 'newest (task 2)' [claude], stage 'Task: fix a bug', in /work"
+      "resuming session 'newest' [claude], stage 'Task: fix a bug', in /work"
     )
 
   private def piDir(workDir: os.Path, id: String): os.Path =

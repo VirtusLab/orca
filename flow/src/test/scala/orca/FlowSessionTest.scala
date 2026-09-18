@@ -79,7 +79,7 @@ class FlowSessionTest extends FunSuite:
     SessionId[BackendTag.ClaudeCode.type](testSessionId)
 
   /** The key every test's [[FlowSession]] is minted under. */
-  private val testSessionKey = SessionKey("coder", "task 2")
+  private val testSessionKey = SessionKey(name = "coder", stage = "Task 2#0")
 
   /** A structured result type for exercising the `resultAs[O]` durable door. */
   private case class StubResult(v: String) derives JsonData
@@ -260,7 +260,7 @@ class FlowSessionTest extends FunSuite:
       sessions = List(
         SessionRecord(
           name = "s",
-          detail = "",
+          stage = "",
           id = testSessionId,
           seed = seed
         )
@@ -283,7 +283,7 @@ class FlowSessionTest extends FunSuite:
       sessions = List(
         SessionRecord(
           name = "s",
-          detail = "",
+          stage = "",
           id = testSessionId,
           seed = seed
         )
@@ -311,7 +311,7 @@ class FlowSessionTest extends FunSuite:
       sessions = List(
         SessionRecord(
           name = "s",
-          detail = "",
+          stage = "",
           id = testSessionId,
           seed = "x"
         )
@@ -344,7 +344,7 @@ class FlowSessionTest extends FunSuite:
       sessions = List(
         SessionRecord(
           name = "s",
-          detail = "",
+          stage = "",
           id = testSessionId,
           seed = "seed",
           resumeWireId = Some("wire-1")
@@ -369,7 +369,7 @@ class FlowSessionTest extends FunSuite:
       sessions = List(
         SessionRecord(
           name = "s",
-          detail = "",
+          stage = "",
           id = testSessionId,
           seed = "x"
         )
@@ -391,7 +391,7 @@ class FlowSessionTest extends FunSuite:
       sessions = List(
         SessionRecord(
           name = "s",
-          detail = "",
+          stage = "",
           id = testSessionId,
           seed = seed
         )
@@ -464,7 +464,7 @@ class FlowSessionTest extends FunSuite:
     // NOT start with `---` (the separator only appears between context and prompt).
     val fc = makeControl(
       sessions = List(
-        SessionRecord(name = "s", detail = "", id = testSessionId, seed = "")
+        SessionRecord(name = "s", stage = "", id = testSessionId, seed = "")
       ),
       completedStages = List("triage")
     )
@@ -496,7 +496,7 @@ class FlowSessionTest extends FunSuite:
       ProgressHeader("main", "feat/test", "deadbeef", BranchMode.Created)
     )
     store.upsertSession(
-      SessionRecord(name = "s", detail = "", id = testSessionId, seed = "")
+      SessionRecord(name = "s", stage = "", id = testSessionId, seed = "")
     )
     store.appendEntry(StageEntry("triage#0", "triage", RawJson("null")))
     val git = new orca.tools.OsGitTool(dir)
@@ -532,7 +532,7 @@ class FlowSessionTest extends FunSuite:
       sessions = List(
         SessionRecord(
           name = "s",
-          detail = "",
+          stage = "",
           id = testSessionId,
           seed = seed
         )
@@ -554,8 +554,8 @@ class FlowSessionTest extends FunSuite:
     )
 
   test("run hands the session's key to the turn, for SessionCommitted"):
-    // The manifest's session name, detail and `kind` all come off the event, so
-    // the whole key has to reach the emission edge from here.
+    // The manifest's session name, minting stage and `kind` all come off the
+    // event, so the whole key has to reach the emission edge from here.
     val fc = makeControl(sessions = Nil)
     val agent = new StubAgentForSeeded(existsResult = true)
     val _ = flowSession(agent).run("prompt")(using fc)
@@ -573,7 +573,7 @@ class FlowSessionTest extends FunSuite:
       sessions = List(
         SessionRecord(
           name = "s",
-          detail = "",
+          stage = "",
           id = testSessionId,
           seed = seed
         )
@@ -593,7 +593,7 @@ class FlowSessionTest extends FunSuite:
       sessions = List(
         SessionRecord(
           name = "s",
-          detail = "",
+          stage = "",
           id = testSessionId,
           seed = "seed"
         )
@@ -624,7 +624,7 @@ class FlowSessionTest extends FunSuite:
       sessions = List(
         SessionRecord(
           name = "s",
-          detail = "",
+          stage = "",
           id = testSessionId,
           seed = "seed",
           backend = None
@@ -654,7 +654,7 @@ class FlowSessionTest extends FunSuite:
       sessions = List(
         SessionRecord(
           name = "s",
-          detail = "",
+          stage = "",
           id = testSessionId,
           seed = "seed"
         )
@@ -676,7 +676,7 @@ class FlowSessionTest extends FunSuite:
       sessions = List(
         SessionRecord(
           name = "s",
-          detail = "",
+          stage = "",
           id = testSessionId,
           seed = "seed",
           resumeWireId = Some("server-1")
@@ -706,7 +706,7 @@ class FlowSessionTest extends FunSuite:
       sessions = List(
         SessionRecord(
           name = "s",
-          detail = "",
+          stage = "",
           id = testSessionId,
           seed = seed
         )
@@ -746,7 +746,7 @@ class FlowSessionTest extends FunSuite:
       sessions = List(
         SessionRecord(
           name = "s",
-          detail = "",
+          stage = "",
           id = testSessionId,
           seed = "seed"
         )

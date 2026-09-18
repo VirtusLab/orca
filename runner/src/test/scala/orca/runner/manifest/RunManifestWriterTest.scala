@@ -186,7 +186,7 @@ class RunManifestWriterTest extends munit.FunSuite:
         harness = "claude",
         clientId = "durable-client",
         wireId = Some("w1"),
-        sessionKey = Some(SessionKey("coder", "task 2")),
+        sessionKey = Some(SessionKey(name = "coder", stage = "Task 2#0")),
         agent = "claude",
         role = None
       )
@@ -205,7 +205,10 @@ class RunManifestWriterTest extends munit.FunSuite:
     val durable = sessions.find(_.wireId.contains("w1")).get
     val oneShot = sessions.find(_.wireId.contains("w2")).get
     assertEquals(durable.kind, ManifestSessionKind.Durable)
-    assertEquals(durable.mintedKey, Some(SessionKey("coder", "task 2")))
+    assertEquals(
+      durable.mintedKey,
+      Some(SessionKey(name = "coder", stage = "Task 2#0"))
+    )
     assertEquals(oneShot.kind, ManifestSessionKind.OneShot)
     assertEquals(oneShot.mintedKey, None)
 
@@ -218,7 +221,7 @@ class RunManifestWriterTest extends munit.FunSuite:
         harness = "claude",
         clientId = "client-1",
         wireId = Some("wire-1"),
-        sessionKey = Some(SessionKey("coder", "task 2")),
+        sessionKey = Some(SessionKey(name = "coder", stage = "Task 2#0")),
         agent = "claude",
         role = None
       )
@@ -235,7 +238,10 @@ class RunManifestWriterTest extends munit.FunSuite:
     )
     val sessions = soleManifest(workDir).sessions
     assertEquals(sessions.size, 1, "same dedup key must upsert, not append")
-    assertEquals(sessions.head.mintedKey, Some(SessionKey("coder", "task 2")))
+    assertEquals(
+      sessions.head.mintedKey,
+      Some(SessionKey(name = "coder", stage = "Task 2#0"))
+    )
     assertEquals(sessions.head.kind, ManifestSessionKind.Durable)
 
   test("finish finalizes outcome and finishedAt"):

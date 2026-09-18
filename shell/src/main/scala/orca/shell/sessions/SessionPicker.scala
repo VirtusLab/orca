@@ -38,10 +38,10 @@ private[shell] object SessionPicker:
     * [[ManifestSessionKind.Durable]]` — every occurrence of it across every run
     * in `runs`, not just the newest run, since a lineage's key is stable across
     * separate flow runs (a fresh run mints a fresh `clientId`/`wireId` but
-    * reuses the same `agent.session(name, detail, ...)` key) while a single
-    * run's own durable session always upserts onto one manifest row. The detail
-    * half is part of the key, so the per-task `implementer` sessions of one run
-    * are separate lineages rather than occurrences of each other. Only the
+    * reuses the same `agent.session(name, ...)` key) while a single run's own
+    * durable session always upserts onto one manifest row. The minting stage is
+    * part of the key, so the per-task `implementer` sessions of one run are
+    * separate lineages rather than occurrences of each other. Only the
     * occurrence with the max `lastActiveAt` is shown (marked `★ ... — latest`,
     * the primary continuation target); the rest collapse behind a "show N
     * earlier occurrences" row. One-shot sessions
@@ -188,14 +188,18 @@ private[shell] object SessionPicker:
     val crashedSuffix = if o.run.crashed then " (crashed)" else ""
     s"${o.session.agent}$role$stage [$harness] (one-shot)$crashedSuffix"
 
-  /** How a session reads to a person: its minted key's
-    * [[orca.agents.SessionKey.label]], or the agent name for a one-shot (and
-    * for a malformed manifest whose [[ManifestSessionKind.Durable]] session
-    * carries no name). Every shell surface that shows a session calls this, so
-    * the picker, `continue --list` and the pre-resume notice cannot drift.
+  /** How a session reads to a person: the name it was minted under, or the
+    * agent name for a one-shot (and for a malformed manifest whose
+    * [[ManifestSessionKind.Durable]] session carries no name). Every shell
+    * surface that shows a session calls this, so the picker, `continue --list`
+    * and the pre-resume notice cannot drift.
+    *
+    * The name alone: a row's other half of the key, the minting stage, is a
+    * path id rather than prose, and every surface here already shows the
+    * session's stage in a field of its own.
     */
   private[shell] def displayName(session: ManifestSession): String =
-    session.mintedKey.map(_.label).getOrElse(session.agent)
+    session.sessionName.getOrElse(session.agent)
 
   /** The settings-file harness name (`claude`, `codex`, …) for a manifest's
     * [[BackendTag.wireName]] string, falling back to the raw string for an
@@ -210,9 +214,9 @@ private[shell] object SessionPicker:
 
   /** Resolves a `continue` selector to a session: no selector picks the newest
     * durable lineage, a numeric selector picks that 1-based row from the full
-    * (expanded) listing, and anything else is matched by session name — the
-    * name alone, never the detail, so resuming never asks a user to retype the
-    * task a session served.
+    * (expanded) listing, and anything else is matched by session name — never
+    * the stage it was minted in, so resuming never asks a user to spell out a
+    * stage path id.
     */
   private[shell] def resolveSelection(
       runs: List[RecordedRun],
@@ -284,9 +288,10 @@ private[shell] object SessionPicker:
             if selection.session.sessionName.contains(name) =>
           (choice, selection)
     // Ambiguity is decided per (working directory, agent), not per row: within
-    // one of those, the rows differ only by their sessions' detail, which tells
-    // them apart for a reader without addressing them — so `continue <name>`
-    // takes the most recent, as it does when there is only one.
+    // one of those, the rows differ only by their sessions' minting stage,
+    // which each row already shows without the user having to address it — so
+    // `continue <name>` takes the most recent, as it does when there is only
+    // one.
     val contexts =
       matches.map((_, s) => (s.manifest.workDir, s.session.agent)).distinct
     matches match

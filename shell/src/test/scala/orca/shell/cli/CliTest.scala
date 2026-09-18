@@ -1,7 +1,7 @@
 package orca.shell.cli
 
 import mainargs.ParserForMethods
-import orca.agents.BackendTag
+import orca.agents.{BackendTag, SessionKey}
 import orca.runner.manifest.{
   ManifestOutcome,
   ManifestSession,
@@ -810,7 +810,7 @@ class CliTest extends munit.FunSuite:
   private def durable(
       sessionName: String,
       lastActiveAt: String,
-      sessionDetail: String = "",
+      sessionStage: String = "",
       wireId: Option[String] = Some("uuid"),
       reason: Option[String] = None
   ): ManifestSession =
@@ -822,7 +822,7 @@ class CliTest extends munit.FunSuite:
       role = None,
       stage = None,
       sessionName = Some(sessionName),
-      sessionDetail = Some(sessionDetail),
+      sessionStage = Some(sessionStage),
       kind = ManifestSessionKind.Durable,
       firstSeenAt = Instant.parse(lastActiveAt),
       lastActiveAt = Instant.parse(lastActiveAt)
@@ -946,17 +946,17 @@ class CliTest extends munit.FunSuite:
       role = None,
       stage = None,
       sessionName = Some(sessionName),
-      sessionDetail = Some(""),
+      sessionStage = Some(""),
       kind = ManifestSessionKind.Durable,
       firstSeenAt = Instant.parse(lastActiveAt),
       lastActiveAt = Instant.parse(lastActiveAt)
     )
 
   test(
-    "selectByName: sessions under one name differ only by detail, so the newest wins"
+    "selectByName: sessions under one name differ only by stage, so the newest wins"
   ):
-    // The detail tells rows apart for a reader; it does not address them, so
-    // `continue implementer` must not start demanding one.
+    // The minting stage tells rows apart for a reader; it does not address
+    // them, so `continue implementer` must not start demanding one.
     val runs = List(
       RecordedRun(
         manifest(
@@ -965,12 +965,12 @@ class CliTest extends munit.FunSuite:
             durable(
               "implementer",
               "2026-07-18T09:30:00Z",
-              sessionDetail = "task 1: parse the input"
+              sessionStage = "Task: parse the input#0"
             ),
             durable(
               "implementer",
               "2026-07-18T10:30:00Z",
-              sessionDetail = "task 2: wire the parser"
+              sessionStage = "Task: wire the parser#0"
             )
           )
         ),
@@ -980,8 +980,12 @@ class CliTest extends munit.FunSuite:
     assertEquals(
       SessionPicker
         .selectByName(runs, "implementer")
-        .map(_.session.mintedKey.map(_.label)),
-      Right(Some("implementer (task 2: wire the parser)"))
+        .map(_.session.mintedKey),
+      Right(
+        Some(
+          SessionKey(name = "implementer", stage = "Task: wire the parser#0")
+        )
+      )
     )
 
   test(
@@ -1074,7 +1078,7 @@ class CliTest extends munit.FunSuite:
     // One directory, so nothing to disambiguate.
     assert(!labels.exists(_.contains("@")), labels.toString)
 
-  test("sessionListingRows keeps the name matchable and the detail beside it"):
+  test("sessionListingRows lists the name `continue <name>` matches"):
     val runs = List(
       RecordedRun(
         manifest(
@@ -1083,16 +1087,17 @@ class CliTest extends munit.FunSuite:
             durable(
               "implementer",
               "2026-07-18T09:30:00Z",
-              sessionDetail = "task 2: wire the parser"
+              sessionStage = "Task: wire the parser#0"
             )
           )
         ),
         crashed = false
       )
     )
-    val row = Tables.sessionListingRows(runs).head
-    assertEquals(row.sessionName, "implementer")
-    assertEquals(row.display, "implementer (task 2: wire the parser)")
+    assertEquals(
+      Tables.sessionListingRows(runs).head.sessionName,
+      "implementer"
+    )
 
   test(
     "sessionListingRows numbers rows 1-based in the same order continue <n> uses"

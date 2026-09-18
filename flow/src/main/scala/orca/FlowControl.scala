@@ -84,8 +84,8 @@ trait FlowControl extends FlowContext, caps.ExclusiveCapability:
     */
   private[orca] def assertOwnerThread(what: String): Unit
 
-  /** Claim `key` for this execution, throwing if `agent.session(...)` already
-    * minted it here — see [[StageFrames.claimSessionKey]] for why a resumed
-    * run's re-mint is not a claim conflict.
+  /** Key a session named `name` to the stage currently open and claim it,
+    * throwing if `agent.session(...)` already minted that name there — see
+    * [[StageFrames.claimSessionKey]].
     */
-  private[orca] def claimSessionKey(key: SessionKey): Unit
+  private[orca] def claimSessionKey(name: String): SessionKey

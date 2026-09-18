@@ -55,13 +55,13 @@ class ProgressLogTest extends FunSuite:
       sessions = List(
         SessionRecord(
           name = "s",
-          detail = "",
+          stage = "",
           id = "sess-uuid-1",
           seed = "plan brief"
         ),
         SessionRecord(
           name = "s",
-          detail = "task 2: rename it",
+          stage = "Task: rename it#0",
           id = "sess-uuid-2",
           seed = "other seed"
         )
@@ -77,7 +77,7 @@ class ProgressLogTest extends FunSuite:
       sessions = List(
         SessionRecord(
           name = "s",
-          detail = "",
+          stage = "",
           id = "client-uuid",
           seed = "brief",
           resumeWireId = Some("ses_server_123")
@@ -94,7 +94,7 @@ class ProgressLogTest extends FunSuite:
       sessions = List(
         SessionRecord(
           name = "s",
-          detail = "",
+          stage = "",
           id = "client-uuid",
           seed = "brief",
           resumeWireId = Some("ses_server_123"),
@@ -111,20 +111,20 @@ class ProgressLogTest extends FunSuite:
     // field; both are optional in the codec and default to None.
     val json =
       """{"header":{"startingBranch":"main","branch":"feat/old","promptHash":"abc","branchMode":{"type":"Created"}},""" +
-        """"entries":[],"sessions":[{"name":"s","detail":"","id":"u","seed":"s"}]}"""
+        """"entries":[],"sessions":[{"name":"s","stage":"","id":"u","seed":"s"}]}"""
     val codec = summon[JsonData[ProgressLog]].codec
     val decoded = readFromString[ProgressLog](json)(using codec)
     assertEquals(decoded.sessions.head.resumeWireId, None)
     assertEquals(decoded.sessions.head.backend, None)
 
-  test("SessionRecord JSON without its name/detail key fails to decode"):
-    // name/detail key the record; a log without them is not usable, so
-    // decoding fails (and the run starts a fresh log) rather than silently
-    // colliding every record on a default key. A log an older orca wrote —
-    // carrying `occurrence` and no `detail` — lands here too.
+  test("SessionRecord JSON without its name/stage key fails to decode"):
+    // name/stage key the record; a log without them is not usable, so decoding
+    // fails (and the run starts a fresh log) rather than silently colliding
+    // every record on a default key. A log an older orca wrote — carrying
+    // `detail` and no `stage` — lands here too.
     val json =
       """{"header":{"startingBranch":"main","branch":"feat/old","promptHash":"abc","branchMode":{"type":"Created"}},""" +
-        """"entries":[],"sessions":[{"name":"s","occurrence":0,"id":"u","seed":"s"}]}"""
+        """"entries":[],"sessions":[{"name":"s","detail":"d","id":"u","seed":"s"}]}"""
     val codec = summon[JsonData[ProgressLog]].codec
     val _ = intercept[JsonReaderException](
       readFromString[ProgressLog](json)(using codec)

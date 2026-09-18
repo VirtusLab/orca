@@ -68,9 +68,10 @@ case class ProgressHeader(
 case class StageEntry(id: String, name: String, resultJson: RawJson)
     derives JsonData
 
-/** A persisted session: the [[SessionKey]] fields that key it, a minted UUID,
-  * the seed string the author supplied, and — when the session is durably
-  * resumable — the wire id to resume against.
+/** A persisted session: the [[SessionKey]] fields that key it — the name, and
+  * the path id of the stage that minted it — a minted UUID, the seed string the
+  * author supplied, and, when the session is durably resumable, the wire id to
+  * resume against.
   *
   * `id` is the stable client id the framework hands across calls;
   * [[SessionRecord.resumeWireId]] is the id to put on the wire when resuming
@@ -93,18 +94,18 @@ case class StageEntry(id: String, name: String, resultJson: RawJson)
   * `None` when the minting agent carries no backend tag (a stub agent) — falls
   * back to the lead. A value matching no known `wireName` (an edited log) is
   * skipped with a warning rather than guessed (`FlowLifecycle.targetAgent`);
-  * `agent.session(name, detail, seed)`'s reuse arm self-heals a stale tag from
-  * a lead-backend swap.
+  * `agent.session(name, seed)`'s reuse arm self-heals a stale tag from a
+  * lead-backend swap.
   */
 case class SessionRecord(
     name: String,
-    detail: String,
+    stage: String,
     id: String,
     seed: String,
     resumeWireId: Option[String] = None,
     backend: Option[String] = None
 ) derives JsonData:
-  def key: SessionKey = SessionKey(name, detail)
+  def key: SessionKey = SessionKey(name = name, stage = stage)
 
 /** One flow run's persisted state, keyed by its header: the outcome of each
   * completed stage, the sessions it minted, and where it published its work.

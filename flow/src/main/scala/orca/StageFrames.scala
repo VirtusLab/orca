@@ -67,11 +67,16 @@ private[orca] trait StageFrames:
         s"$what called from a fork — forks get FlowContext only (ADR 0018 R12)"
       )
 
-  /** One open stage's scope: its own path id (the prefix children join under),
-    * the commit the stage started from, and the per-name occurrence counters
-    * for stages nested directly beneath it.
+  /** One open stage's scope: its own name and path id (the prefix children join
+    * under), the commit the stage started from, and the per-name occurrence
+    * counters for stages nested directly beneath it. The name is held rather
+    * than recovered from the path, which is opaque.
     */
-  private final class Frame(val path: String, val baseCommit: Option[String]):
+  private final class Frame(
+      val name: String,
+      val path: String,
+      val baseCommit: Option[String]
+  ):
     private var counts: Map[String, Int] = Map.empty
     def peek(name: String): Int = counts.getOrElse(name, 0)
     def next(name: String): Int =
@@ -83,7 +88,7 @@ private[orca] trait StageFrames:
       if path.isEmpty then segment else s"$path/$segment"
 
   // The root frame (path "") is the flow body; it is never popped.
-  private var frames: List[Frame] = List(new Frame("", None))
+  private var frames: List[Frame] = List(new Frame("", "", None))
 
   /** Bump the current frame's occurrence counter for `name`, push a child frame
     * recording `baseCommit`, and return its full path id. Must be called
@@ -94,7 +99,7 @@ private[orca] trait StageFrames:
     assertOwnerThread("stage(...)")
     val parent = frames.head
     val id = parent.childId(name, parent.next(name))
-    frames = new Frame(id, baseCommit) :: frames
+    frames = new Frame(name, id, baseCommit) :: frames
     id
 
   /** The id the next [[enterStage]] for `name` in the current scope would mint,
@@ -114,26 +119,33 @@ private[orca] trait StageFrames:
     assertOwnerThread("stage(...)")
     frames = frames.tail
 
-  // Flat, not per-frame: a key names one conversation for the whole run,
-  // wherever `agent.session(...)` mints it.
+  // The stage half of a key already scopes it, so one flat set covers the run.
   private var claimedSessionKeys: Set[SessionKey] = Set.empty
 
-  /** Record that this execution has minted `key`, rejecting a second mint of a
-    * key already claimed. Only mints within one execution collide: a resumed
-    * run starts with nothing claimed, so re-minting a key the log already holds
-    * is the reuse path, not a duplicate.
+  /** Key a session named `name` to the stage currently open — the flow body's
+    * root frame when there is none — and record the mint, rejecting a second
+    * mint of the same name in the same stage.
     *
-    * Only mints that actually run claim, so two colliding mints in different
-    * stages collide on the fresh run that reaches both, and not on a resume
-    * that replays one of those stages.
+    * The only way to build a [[SessionKey]] in a run, so a key is always scoped
+    * to where it was minted and always claimed.
+    *
+    * Sound because a stage body is all-or-nothing: two mints of one name in one
+    * stage either both execute or neither does, so the claim set sees both
+    * whenever it could matter. A resumed run starts with nothing claimed, so
+    * re-minting a key the log already holds is the reuse path.
     */
-  private[orca] def claimSessionKey(key: SessionKey): Unit =
+  private[orca] def claimSessionKey(name: String): SessionKey =
     assertOwnerThread("agent.session(...)")
+    val frame = frames.head
+    val key = SessionKey(name = name, stage = frame.path)
     if claimedSessionKeys.contains(key) then
+      val where =
+        if frame.path.isEmpty then "the flow body"
+        else s"stage '${frame.name}'"
       throw new OrcaFlowException(
-        s"agent.session(...) minted '${key.label}' twice in this run — both " +
-          "handles would drive one conversation. Give each call a detail " +
-          "naming what it serves (the task, say), and a second session for " +
-          "the same work a detail that says so ('task 3, pass 2')."
+        s"agent.session(...) minted '$name' twice in $where — both handles " +
+          "would drive one conversation. Rename one of them, or move it into " +
+          "a stage of its own."
       )
     claimedSessionKeys = claimedSessionKeys + key
+    key
