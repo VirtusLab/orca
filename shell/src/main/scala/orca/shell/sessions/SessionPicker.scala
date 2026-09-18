@@ -1,6 +1,6 @@
 package orca.shell.sessions
 
-import orca.agents.BackendTag
+import orca.agents.{BackendTag, SessionKey}
 import orca.runner.manifest.{ManifestSession, ManifestSessionKind}
 import orca.settings.AgentSpec
 import orca.shell.ui.Choice
@@ -51,6 +51,10 @@ private[shell] object SessionPicker:
     * sessions" row, since these are the rows that otherwise flood the picker
     * with same-named, low-value entries.
     *
+    * Two lineages that differ only in their minting stage otherwise render
+    * identically, since a row shows the session's bare name and its LAST ACTIVE
+    * stage; [[mintedInTag]] appends the minting stage to exactly those rows.
+    *
     * `expanded` reveals both collapsed groups in place, sorted the same as the
     * primary rows (newest `lastActiveAt` first). Disabling a row previews only
     * what [[ResumeCommand.staticGate]] can tell without a live harness call: an
@@ -77,9 +81,7 @@ private[shell] object SessionPicker:
     // about two different tasks — deduping them against each other would hide
     // one behind the other.
     val lineages = durable
-      .groupBy(o =>
-        (o.run.manifest.workDir, o.session.agent, o.session.mintedKey)
-      )
+      .groupBy(lineageKey)
       .values
       .map(_.sortBy(recency).reverse)
       .toList
@@ -89,11 +91,14 @@ private[shell] object SessionPicker:
 
     val tag = dirTag(runs)
     val where = (o: Occurrence) => tag(o.run.manifest.workDir)
+    val primaryLabels = primary.map(o => (o, primaryLabel(o) + where(o)))
+    val mintedIn = mintedInTag(primaryLabels)
 
-    val primaryRows = primary.map(o => resumeRow(o, primaryLabel(o) + where(o)))
+    val primaryRows =
+      primaryLabels.map((o, label) => resumeRow(o, label + mintedIn(o)))
     val earlierRows =
       if expanded then
-        earlier.map(o => resumeRow(o, earlierLabel(o) + where(o)))
+        earlier.map(o => resumeRow(o, earlierLabel(o) + where(o) + mintedIn(o)))
       else expanderRow(earlier.size, "earlier occurrence")
     val oneShotRows =
       if expanded then
@@ -116,6 +121,41 @@ private[shell] object SessionPicker:
     case ManifestSessionKind.OneShot | ManifestSessionKind.Unknown(_) => false
 
   private def recency(o: Occurrence): Instant = o.session.lastActiveAt
+
+  /** What makes two occurrences the same durable conversation. Keyed on the
+    * working directory too: harness sessions are cwd-scoped, and flow session
+    * names are static, so the same key in two worktrees is two conversations.
+    */
+  private def lineageKey(
+      o: Occurrence
+  ): (String, String, Option[SessionKey]) =
+    (o.run.manifest.workDir, o.session.agent, o.session.mintedKey)
+
+  /** How a row says which stage minted its session, given the primary rows and
+    * the labels they would otherwise carry: nothing, unless another lineage
+    * renders to the very same label, in which case the minting stage is the
+    * only half of the key left to tell them apart.
+    *
+    * It is shown nowhere else because it is a path id (`Task: add multiply#0`)
+    * rather than prose. Every row of an affected lineage carries it, primary
+    * and earlier alike.
+    */
+  private def mintedInTag(
+      primaryLabels: List[(Occurrence, String)]
+  ): Occurrence => String =
+    val ambiguous = primaryLabels
+      .groupBy((_, label) => label)
+      .values
+      .filter(_.sizeIs > 1)
+      .flatten
+      .map((o, _) => lineageKey(o))
+      .toSet
+    o =>
+      if !ambiguous(lineageKey(o)) then ""
+      else
+        o.session.sessionStage.filter(_.nonEmpty) match
+          case Some(id) => s" (minted in $id)"
+          case None     => " (minted in the flow body)"
 
   /** How a row says which tree its session is in, given the runs being
     * rendered: a suffix per `workDir`, or nothing at all when they share one —
@@ -194,9 +234,10 @@ private[shell] object SessionPicker:
     * surface that shows a session calls this, so the picker, `continue --list`
     * and the pre-resume notice cannot drift.
     *
-    * The name alone: a row's other half of the key, the minting stage, is a
-    * path id rather than prose, and every surface here already shows the
-    * session's stage in a field of its own.
+    * The name alone: the key's other half, the minting stage, is a path id
+    * rather than prose. A row's `(stage: ...)` segment is a different field —
+    * where the session was last active — so [[mintedInTag]] is what appends the
+    * minting stage where two rows need it to tell them apart.
     */
   private[shell] def displayName(session: ManifestSession): String =
     session.sessionName.getOrElse(session.agent)
@@ -288,10 +329,9 @@ private[shell] object SessionPicker:
             if selection.session.sessionName.contains(name) =>
           (choice, selection)
     // Ambiguity is decided per (working directory, agent), not per row: within
-    // one of those, the rows differ only by their sessions' minting stage,
-    // which each row already shows without the user having to address it — so
-    // `continue <name>` takes the most recent, as it does when there is only
-    // one.
+    // one of those, the rows differ only by their sessions' minting stage —
+    // a path id no user should have to spell out — so `continue <name>` takes
+    // the most recent, as it does when there is only one.
     val contexts =
       matches.map((_, s) => (s.manifest.workDir, s.session.agent)).distinct
     matches match

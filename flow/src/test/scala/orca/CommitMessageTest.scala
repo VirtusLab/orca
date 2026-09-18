@@ -13,7 +13,8 @@ import orca.agents.{
   SessionId,
   ToolSet
 }
-import orca.progress.{ProgressStore, SessionRecord}
+import orca.progress.ProgressStore
+import orca.sessions.SessionRecord
 import orca.testkit.{GitRepo, TextReplyingAgent}
 import orca.tools.{GitTool, OsGitTool}
 
@@ -63,6 +64,7 @@ class CommitMessageTest extends munit.FunSuite:
       val agentStub: Agent[BackendTag.ClaudeCode.type],
       val git: GitTool,
       val progressStore: ProgressStore,
+      val sessionStore: orca.sessions.SessionStore,
       val workDir: os.Path,
       val userPrompt: String = "p",
       val stackSettings: StackSettings = StackSettings.empty,
@@ -113,7 +115,16 @@ class CommitMessageTest extends munit.FunSuite:
         orca.progress.BranchMode.Created
       )
     )
-    body(new FlowControlWithAgent(agentStub, git, store, dir), dir)
+    body(
+      new FlowControlWithAgent(
+        agentStub,
+        git,
+        store,
+        orca.sessions.SessionStore.default(dir, "p"),
+        dir
+      ),
+      dir
+    )
 
   private def lastCommitMessage(dir: os.Path): String =
     os.proc("git", "log", "-1", "--pretty=%s").call(cwd = dir).out.text().trim
@@ -218,10 +229,9 @@ class CommitMessageTest extends munit.FunSuite:
         "done"
       val _ = stage("second"):
         os.write.over(dir / "seed.txt", "second change")
-        // What the runtime does mid-body once a session learns its wire id:
-        // rewrite the progress log, which the first stage already committed —
-        // so from here on it is a tracked file the stage diff would carry.
-        ctx.progressStore.upsertSession(
+        // A mid-body session-store write, to pin that the stage diff carries
+        // nothing from `.orca/` — the log the first stage committed included.
+        ctx.sessionStore.upsert(
           SessionRecord(
             name = "s",
             stage = "",

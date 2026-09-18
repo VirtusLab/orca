@@ -19,13 +19,8 @@ import orca.agents.{
   ToolSet,
   onWire
 }
-import orca.progress.{
-  BranchMode,
-  ProgressHeader,
-  ProgressStore,
-  StageEntry,
-  SessionRecord
-}
+import orca.progress.{BranchMode, ProgressHeader, ProgressStore, StageEntry}
+import orca.sessions.{SessionRecord, SessionStore}
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import orca.testkit.{GitRepo, TempDirs}
 import orca.util.RawJson
@@ -79,7 +74,8 @@ class FlowSessionTest extends FunSuite:
     SessionId[BackendTag.ClaudeCode.type](testSessionId)
 
   /** The key every test's [[FlowSession]] is minted under. */
-  private val testSessionKey = SessionKey(name = "coder", stage = "Task 2#0")
+  private val testSessionKey =
+    SessionKey(name = "coder", stage = StagePath.Stage("Task 2#0"))
 
   /** A structured result type for exercising the `resultAs[O]` durable door. */
   private case class StubResult(v: String) derives JsonData
@@ -223,11 +219,12 @@ class FlowSessionTest extends FunSuite:
   ): TestFlowControl =
     val dir = TempDirs.dir()
     val store = ProgressStore.default(dir, "p")
+    val sessionStore = SessionStore.default(dir, "p")
     given WorkspaceWrite = WorkspaceWrite.unsafe
     store.writeHeader(
       ProgressHeader("main", "feat/test", "deadbeef", BranchMode.Created)
     )
-    for record <- sessions do store.upsertSession(record)
+    for record <- sessions do sessionStore.upsert(record)
     for stageName <- completedStages do
       store.appendEntry(
         StageEntry(
@@ -241,6 +238,7 @@ class FlowSessionTest extends FunSuite:
       new orca.events.EventDispatcher(listeners),
       git,
       store,
+      sessionStore,
       "p"
     )
 
@@ -492,10 +490,11 @@ class FlowSessionTest extends FunSuite:
     // something to report.
     val dir = GitRepo.seeded()
     val store = ProgressStore.default(dir, "p")
+    val sessionStore = SessionStore.default(dir, "p")
     store.writeHeader(
       ProgressHeader("main", "feat/test", "deadbeef", BranchMode.Created)
     )
-    store.upsertSession(
+    sessionStore.upsert(
       SessionRecord(name = "s", stage = "", id = testSessionId, seed = "")
     )
     store.appendEntry(StageEntry("triage#0", "triage", RawJson("null")))
@@ -504,6 +503,7 @@ class FlowSessionTest extends FunSuite:
       new orca.events.EventDispatcher(Nil),
       git,
       store,
+      sessionStore,
       "p"
     )
     val agent = new StubAgentForSeeded(existsResult = false)
@@ -605,7 +605,7 @@ class FlowSessionTest extends FunSuite:
     )
     val _ = flowSession(agent).run("prompt")(using fc)
     val record =
-      fc.progressStore.load().get.sessions.find(_.id == testSessionId).get
+      fc.sessionStore.records().find(_.id == testSessionId).get
     assertEquals(record.resumeWireId, Some("server-thread-xyz"))
 
   test(
@@ -638,7 +638,7 @@ class FlowSessionTest extends FunSuite:
     )
     val _ = flowSession(agent).run("prompt")(using fc)
     val record =
-      fc.progressStore.load().get.sessions.find(_.id == testSessionId).get
+      fc.sessionStore.records().find(_.id == testSessionId).get
     assertEquals(record.resumeWireId, Some("server-thread-xyz"))
     assertEquals(
       record.backend,
@@ -664,7 +664,7 @@ class FlowSessionTest extends FunSuite:
       new StubAgentForSeeded(existsResult = false, learnedWireId = None)
     val _ = flowSession(agent).run("prompt")(using fc)
     val record =
-      fc.progressStore.load().get.sessions.find(_.id == testSessionId).get
+      fc.sessionStore.records().find(_.id == testSessionId).get
     assertEquals(record.resumeWireId, None)
 
   test(
@@ -687,7 +687,7 @@ class FlowSessionTest extends FunSuite:
       new StubAgentForSeeded(existsResult = false, learnedWireId = None)
     val _ = flowSession(agent).run("prompt")(using fc)
     val record =
-      fc.progressStore.load().get.sessions.find(_.id == testSessionId).get
+      fc.sessionStore.records().find(_.id == testSessionId).get
     assertEquals(
       record.resumeWireId,
       Some("server-1"),
@@ -738,7 +738,7 @@ class FlowSessionTest extends FunSuite:
       s"structured door must include the input; got: $prompt"
     )
     val record =
-      fc.progressStore.load().get.sessions.find(_.id == testSessionId).get
+      fc.sessionStore.records().find(_.id == testSessionId).get
     assertEquals(record.resumeWireId, Some("server-structured-1"))
 
   test("resultAs.run on a live session forwards the input verbatim"):

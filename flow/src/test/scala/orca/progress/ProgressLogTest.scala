@@ -1,7 +1,6 @@
 package orca.progress
 
 import com.github.plokhotnyuk.jsoniter_scala.core.{
-  JsonReaderException,
   readFromString,
   writeToString
 }
@@ -37,109 +36,18 @@ class ProgressLogTest extends FunSuite:
     )
     assertEquals(roundTrip(log), log)
 
-  test("ProgressLog with sessions round-trips through JsonData codec"):
-    val log = ProgressLog(
-      header = ProgressHeader(
-        startingBranch = "main",
-        branch = "feat/sessions",
-        promptHash = "abc123def456",
-        branchMode = BranchMode.Created
-      ),
-      entries = List(
-        StageEntry(
-          id = "stage-1",
-          name = "Plan",
-          resultJson = RawJson("""{"ok":true}""")
-        )
-      ),
-      sessions = List(
-        SessionRecord(
-          name = "s",
-          stage = "",
-          id = "sess-uuid-1",
-          seed = "plan brief"
-        ),
-        SessionRecord(
-          name = "s",
-          stage = "Task: rename it#0",
-          id = "sess-uuid-2",
-          seed = "other seed"
-        )
-      )
-    )
-    assertEquals(roundTrip(log), log)
-
-  test("SessionRecord round-trips with resumeWireId = Some(...)"):
-    val log = ProgressLog(
-      header =
-        ProgressHeader("main", "feat/server", "abc123", BranchMode.Created),
-      entries = Nil,
-      sessions = List(
-        SessionRecord(
-          name = "s",
-          stage = "",
-          id = "client-uuid",
-          seed = "brief",
-          resumeWireId = Some("ses_server_123")
-        )
-      )
-    )
-    assertEquals(roundTrip(log), log)
-
-  test("SessionRecord round-trips with backend = Some(...)"):
-    val log = ProgressLog(
-      header =
-        ProgressHeader("main", "feat/tagged", "abc123", BranchMode.Created),
-      entries = Nil,
-      sessions = List(
-        SessionRecord(
-          name = "s",
-          stage = "",
-          id = "client-uuid",
-          seed = "brief",
-          resumeWireId = Some("ses_server_123"),
-          backend = Some("Codex")
-        )
-      )
-    )
-    assertEquals(roundTrip(log), log)
-
-  test(
-    "SessionRecord JSON without resumeWireId/backend fields decodes both to None"
-  ):
-    // A record persisted before a run learns the wire id carries neither
-    // field; both are optional in the codec and default to None.
+  test("a log an older orca wrote, carrying session records, still decodes"):
+    // Durable session records live in `.orca/cache/` now, so the log's
+    // `sessions` array is an unknown key: skipped, rather than failing the
+    // resume of an in-flight run started under an older build. Those records
+    // are lost with it, and the resumed run re-mints and re-seeds.
     val json =
       """{"header":{"startingBranch":"main","branch":"feat/old","promptHash":"abc","branchMode":{"type":"Created"}},""" +
         """"entries":[],"sessions":[{"name":"s","stage":"","id":"u","seed":"s"}]}"""
     val codec = summon[JsonData[ProgressLog]].codec
     val decoded = readFromString[ProgressLog](json)(using codec)
-    assertEquals(decoded.sessions.head.resumeWireId, None)
-    assertEquals(decoded.sessions.head.backend, None)
-
-  test("SessionRecord JSON without its name/stage key fails to decode"):
-    // name/stage key the record; a log without them is not usable, so decoding
-    // fails (and the run starts a fresh log) rather than silently colliding
-    // every record on a default key. A log an older orca wrote — carrying
-    // `detail` and no `stage` — lands here too.
-    val json =
-      """{"header":{"startingBranch":"main","branch":"feat/old","promptHash":"abc","branchMode":{"type":"Created"}},""" +
-        """"entries":[],"sessions":[{"name":"s","detail":"d","id":"u","seed":"s"}]}"""
-    val codec = summon[JsonData[ProgressLog]].codec
-    val _ = intercept[JsonReaderException](
-      readFromString[ProgressLog](json)(using codec)
-    )
-
-  test(
-    "ProgressLog JSON without a sessions field decodes to empty sessions list (back-compat)"
-  ):
-    // JSON produced by the old format (before sessions field existed)
-    val oldJson =
-      """{"header":{"startingBranch":"main","branch":"feat/old","promptHash":"abc123","branchMode":{"type":"Created"}},"entries":[]}"""
-    val codec = summon[JsonData[ProgressLog]].codec
-    val decoded = readFromString[ProgressLog](oldJson)(using codec)
-    assertEquals(decoded.sessions, Nil)
     assertEquals(decoded.header.branch, "feat/old")
+    assertEquals(decoded.entries, Nil)
 
   test("ProgressHeader round-trips userPrompt/flowName when set"):
     val log = ProgressLog(
@@ -173,9 +81,9 @@ class ProgressLogTest extends FunSuite:
   test(
     "ProgressHeader JSON without userPrompt/flowName keys decodes both to None (old-format log)"
   ):
-    // A header persisted before these fields existed — tolerated the same way
-    // SessionRecord's own optional fields are (ProgressLog's documented
-    // tolerant decoding), so an in-flight run survives an orca upgrade.
+    // A header persisted before these fields existed — tolerated under
+    // ProgressLog's documented tolerant decoding, so an in-flight run survives
+    // an orca upgrade.
     val json =
       """{"header":{"startingBranch":"main","branch":"feat/old","promptHash":"abc","branchMode":{"type":"Created"}},""" +
         """"entries":[]}"""

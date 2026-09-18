@@ -15,6 +15,7 @@ import orca.{
 import orca.agents.{BackendTag, Agent, SessionId, WireSessionId}
 import orca.events.OrcaEvent
 import orca.util.TextUtil
+import orca.sessions.{SessionRecord, SessionStore}
 import orca.progress.{
   BranchMode,
   CommitHash,
@@ -26,7 +27,6 @@ import orca.progress.{
   ProtectedBranchRefused,
   RecoveryCheck,
   ScannedProgressLog,
-  SessionRecord,
   ThrowawayBranch,
   UnsafeBranchRefRefused
 }
@@ -84,7 +84,7 @@ object FlowLifecycle:
           log.debug("flow aborted", e)
           if debug then e.printStackTrace(System.err)
           throw SurfacedFlowFailure(e)
-    surfaced(rehydrateSessions(ctx, ctx.codingAgent, ctx.progressStore))
+    surfaced(rehydrateSessions(ctx, ctx.codingAgent, ctx.sessionStore))
     // The whole flow body runs as a top-level stage: an otherwise unhandled
     // exception surfaces as a single Error event. `teardownFailure` runs only
     // here in the body phase, so a success-teardown error can never trigger
@@ -126,21 +126,21 @@ object FlowLifecycle:
 
   /** Replay the persisted resume-wire-id map (ADR 0018 §2.6) into each
     * session's own agent's in-memory registry, so a resumed run resumes against
-    * the right wire id. For each [[orca.progress.SessionRecord]] carrying a
+    * the right wire id. For each [[orca.sessions.SessionRecord]] carrying a
     * `resumeWireId`, registers it into the agent [[targetAgent]] resolves for
-    * the record's `backend` tag. A tag matching no known backend (edited log or
-    * renamed [[BackendTag]] case) is skipped loudly via an `OrcaEvent.Step`
-    * rather than guessed. `record.id`/`wireId` are equally untrusted
-    * (log-sourced): a value that fails to parse is skipped the same loud way.
+    * the record's `backend` tag. A tag matching no known backend (an edited
+    * store or a renamed [[BackendTag]] case) is skipped loudly via an
+    * `OrcaEvent.Step` rather than guessed. `record.id`/`wireId` are equally
+    * untrusted (file-sourced): a value that fails to parse is skipped the same
+    * loud way.
     */
   private[orca] def rehydrateSessions(
       ctx: FlowContext,
       lead: Agent[?],
-      store: ProgressStore
+      store: SessionStore
   ): Unit =
     for
-      log <- store.load().toList
-      record <- log.sessions
+      record <- store.records()
       wireId <- record.resumeWireId
     do
       targetAgent(ctx, lead, record.backend) match
@@ -155,8 +155,8 @@ object FlowLifecycle:
         case Some(agent) =>
           register(ctx, agent, record, wireId)
 
-  /** Untagged records go to the lead; a tag matching no accessor (edited log,
-    * or a renamed [[BackendTag]] case) is skipped, not guessed.
+  /** Untagged records go to the lead; a tag matching no accessor (an edited
+    * store, or a renamed [[BackendTag]] case) is skipped, not guessed.
     */
   private def targetAgent(
       ctx: FlowContext,
@@ -167,7 +167,7 @@ object FlowLifecycle:
       case None    => Some(lead)
       case Some(t) => BackendTag.fromWireName(t).map(ctx.agentFor)
 
-  /** Parse `record.id`/`wire` (both log-sourced, untrusted) and register the
+  /** Parse `record.id`/`wire` (both file-sourced, untrusted) and register the
     * mapping into `agent`; a value that fails to parse is skipped with a
     * visible warning rather than rehydrated raw.
     */
@@ -226,6 +226,7 @@ object FlowLifecycle:
     */
   private[orca] case class FlowSetup(
       store: ProgressStore,
+      sessionStore: SessionStore,
       featureBranch: FeatureBranch,
       startBranch: String,
       stackSettings: StackSettings,
@@ -316,6 +317,7 @@ object FlowLifecycle:
       // gating the gitignored-settings migration warning.
       stackOverridden: Boolean,
       store: ProgressStore,
+      sessionStore: SessionStore,
       // `ORCA_FLOW_NAME`, threaded down from `flow()` rather than read here —
       // stamped into a freshly-written header (`freshRun`) so the shell's
       // "Resume interrupted run" offer (ADR 0021 §3 amendment) knows which
@@ -377,6 +379,7 @@ object FlowLifecycle:
       session.bindBranch(startBranch, protectedBranches, discovered)
     FlowSetup(
       store,
+      sessionStore,
       binding.featureBranch,
       binding.startBranch,
       stackSettings,
@@ -1143,9 +1146,10 @@ object FlowLifecycle:
         None
 
   /** Successful teardown (ADR 0018 §2.5): remove the progress-log file in a
-    * final commit so a merged branch is clean, push that commit when the branch
-    * was already published with the log on it, then hand off to
-    * [[finishBranch]] for where HEAD lands.
+    * final commit so a merged branch is clean, drop the run's cached session
+    * records with it, push that commit when the branch was already published
+    * with the log on it, then hand off to [[finishBranch]] for where HEAD
+    * lands.
     *
     * Errors during log removal, the cleanup commit, the push, or the branch
     * handoff are cosmetic on an already-successful run — every leg runs through
@@ -1182,6 +1186,10 @@ object FlowLifecycle:
           try
             val _ = os.remove(setup.store.path)
           catch case _: java.nio.file.NoSuchFileException => ()
+        // Dropped with the log, and for the same reason: a later run of this
+        // prompt is a new run, not a resume, so it must open fresh backend
+        // conversations rather than continue this one's.
+        bestEffort("remove session records")(setup.sessionStore.discard())
         // Pathspec-scoped to the log file, so uncommitted files the cleanliness
         // policy left in the tree stay out of this bookkeeping commit;
         // force-staged, because `.orca/` may be gitignored. A log never

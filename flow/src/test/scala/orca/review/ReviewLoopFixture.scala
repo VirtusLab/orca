@@ -1,5 +1,6 @@
 package orca.review
 
+import orca.StagePath
 import orca.{FlowContext, FlowSession, InStage, StackSettings, TestFlowControl}
 import orca.agents.{
   SessionKey,
@@ -53,7 +54,7 @@ object ReviewLoopFixture:
     new FlowSession(
       agent,
       SessionId[BackendTag.ClaudeCode.type](id),
-      SessionKey(name = "coder", stage = "")
+      SessionKey(name = "coder", stage = StagePath.FlowBody)
     )
 
   /** A [[TestFlowControl]] (a real temp git repo + progress store) wired to
@@ -102,6 +103,7 @@ object ReviewLoopFixture:
       dispatcher,
       base.git,
       base.progressStore,
+      base.sessionStore,
       base.userPrompt,
       lead = None,
       workDir = base.workDir,

@@ -556,7 +556,9 @@ silently. A discovery failure (backend unavailable, invalid output) aborts the
 run rather than writing a "gates off" file.
 
 `.orca/` is committed by default: settings and the progress log ride the branch,
-while scratch lives under `.orca/cache/`, which writes its own `.gitignore`. If
+while machine-local state lives under `.orca/cache/`, which writes its own
+`.gitignore` — the run manifests, and the durable session records, whose backend
+ids mean nothing in another checkout. If
 your `.gitignore` covers all of `.orca/`, every run warns to remove that line so
 settings can be committed — the cache stays ignored on its own.
 
@@ -594,14 +596,17 @@ construction.
   implicit — a per-task loop mints `implementer` inside each task's stage and
   gets one session per task, with nothing to name them by hand. Two stages can
   therefore never reach one conversation, and minting one name twice in the same
-  stage is an error rather than silent sharing: rename one, or split the stages.
+  stage is an error rather than silent sharing: give each its own `stage(...)`,
+  or rename one.
   Rename the stage and the key moves with it, so a re-plan that rewords a task
   gives that task a fresh session primed from the seed rather than resuming the
   old wording's conversation. Mint it where it is used: inside the stage that
   drives it, or outside every stage when several stages share one session. What
   you cannot do is return a handle from one stage as its result and drive it in a
   later one — `FlowSession` has no `JsonData`. Minting and running both happen on
-  the flow thread.
+  the flow thread. The record behind the handle is machine-local, not branch
+  history: it lives in `.orca/cache/`, so the stage that minted it can fail and
+  its retry still resumes the same conversation.
 - **Ephemeral — `agent.chat()`.** A `Chat` handle continuing one conversation
   across `.run` calls *within this run only* — no seeding, no persistence. Runs
   need only the shared `InStage` capability, so chats work inside a

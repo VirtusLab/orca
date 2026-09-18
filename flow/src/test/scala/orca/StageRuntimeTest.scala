@@ -328,6 +328,7 @@ class StageRuntimeTest extends munit.FunSuite:
         new EventDispatcher(List(listener)),
         git,
         store,
+        orca.sessions.SessionStore.default(dir, "p"),
         "p"
       ),
       dir

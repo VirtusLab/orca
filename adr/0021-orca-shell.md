@@ -508,10 +508,21 @@ are excluded automatically.
 > still resumes. AGENTS.md's versioning rule now says what a break like this
 > owes.
 >
-> Rows show the session's bare name, not `name (detail)`. The stage was always
-> its own segment in the picker row (`(stage: <stage>)`) and its own column in
-> `continue --list`, so a fused label would have printed it twice; `SessionRow`
-> loses `sessionDetail` and its `display` method with it. `orca continue <name>`
+> Rows show the session's bare name, not `name (detail)`; `SessionRow` loses
+> `sessionDetail` and its `display` method with it.
+>
+> The stage a row already showed — the picker's `(stage: <stage>)` segment and
+> `continue --list`'s `stage` column — is a DIFFERENT field: `ManifestSession.stage`
+> is where the session was last active, re-stamped every turn, while
+> `sessionStage` is the stage that minted it. Two lineages that differ only in
+> their minting stage therefore render identically whenever their last-active
+> stage coincides, and `continue <name>` takes the most recent of them. So the
+> minting stage is shown where it is needed: `SessionPicker.mintedInTag` appends
+> `(minted in <path id>)` to exactly those picker rows another lineage would
+> render the same as, `continue --list` gives it a `minted in` column, and
+> `SessionRow.sessionStage` carries it to `--json` so a script can tell them
+> apart. It is a path id rather than prose, which is why the picker prints it
+> only where it has to. `orca continue <name>`
 > is unchanged, including its most-recently-active tie-break within one working
 > tree and its refusal to guess across trees or agents.
 

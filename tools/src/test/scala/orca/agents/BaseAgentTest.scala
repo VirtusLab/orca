@@ -1,5 +1,6 @@
 package orca.agents
 
+import orca.StagePath
 import orca.testkit.StubEnforcementCell
 import orca.backend.{
   Conversation,
@@ -452,7 +453,8 @@ class BaseAgentTest extends munit.FunSuite:
     val _ = tool.autonomous.runWithSession(
       "prompt",
       SessionId.fresh[BackendTag.Pi.type],
-      sessionKey = Some(SessionKey(name = "coder", stage = "Task 2#0")),
+      sessionKey =
+        Some(SessionKey(name = "coder", stage = StagePath.Stage("Task 2#0"))),
       config = None,
       emitPrompt = true
     )
@@ -460,7 +462,9 @@ class BaseAgentTest extends munit.FunSuite:
       seen.get().collect { case e: OrcaEvent.SessionCommitted =>
         e.sessionKey
       },
-      List(Some(SessionKey(name = "coder", stage = "Task 2#0")))
+      List(
+        Some(SessionKey(name = "coder", stage = StagePath.Stage("Task 2#0")))
+      )
     )
 
   // A turn joins to the session that produced it only if it names that session

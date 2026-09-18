@@ -1,5 +1,6 @@
 package orca.shell.cli
 
+import orca.StagePath
 import mainargs.ParserForMethods
 import orca.agents.{BackendTag, SessionKey}
 import orca.runner.manifest.{
@@ -983,7 +984,10 @@ class CliTest extends munit.FunSuite:
         .map(_.session.mintedKey),
       Right(
         Some(
-          SessionKey(name = "implementer", stage = "Task: wire the parser#0")
+          SessionKey(
+            name = "implementer",
+            stage = StagePath.Stage("Task: wire the parser#0")
+          )
         )
       )
     )
@@ -1052,6 +1056,85 @@ class CliTest extends munit.FunSuite:
     assert(labels.exists(_.contains("@aaaaaaaaaaaa")), labels.toString)
     assert(labels.exists(_.contains("@bbbbbbbbbbbb")), labels.toString)
 
+  test("lineages differing only in their minting stage say which stage"):
+    // Two per-task `implementer` sessions of one run: same name, same harness,
+    // same (absent) last-active stage, one tree — the minting stage is all
+    // there is to tell them apart.
+    val runs = List(
+      RecordedRun(
+        manifest(
+          startedAt = "2026-07-18T09:00:00Z",
+          sessions = List(
+            durable(
+              "implementer",
+              "2026-07-18T09:30:00Z",
+              sessionStage = "Task: parse#0"
+            ),
+            durable(
+              "implementer",
+              "2026-07-18T09:40:00Z",
+              sessionStage = "Task: wire#0"
+            )
+          )
+        ),
+        crashed = false
+      )
+    )
+    val labels = SessionPicker
+      .withoutExpanders(SessionPicker.sessionRows(runs, expanded = false))
+      .map(_.label)
+    assertEquals(labels.distinct.size, 2, labels.toString)
+    assert(
+      labels.exists(_.contains("(minted in Task: parse#0)")),
+      labels.toString
+    )
+    assert(
+      labels.exists(_.contains("(minted in Task: wire#0)")),
+      labels.toString
+    )
+
+  test("a lineage nothing collides with does not print its minting stage"):
+    val runs = List(
+      RecordedRun(
+        manifest(
+          startedAt = "2026-07-18T09:00:00Z",
+          sessions = List(
+            durable(
+              "implementer",
+              "2026-07-18T09:30:00Z",
+              sessionStage = "Task: parse#0"
+            )
+          )
+        ),
+        crashed = false
+      )
+    )
+    val labels = SessionPicker
+      .withoutExpanders(SessionPicker.sessionRows(runs, expanded = false))
+      .map(_.label)
+    assert(!labels.exists(_.contains("minted in")), labels.toString)
+
+  test("sessionListingRows carries the minting stage for scripts"):
+    val runs = List(
+      RecordedRun(
+        manifest(
+          startedAt = "2026-07-18T09:00:00Z",
+          sessions = List(
+            durable(
+              "implementer",
+              "2026-07-18T09:30:00Z",
+              sessionStage = "Task: wire the parser#0"
+            )
+          )
+        ),
+        crashed = false
+      )
+    )
+    assertEquals(
+      Tables.sessionListingRows(runs).head.sessionStage,
+      Some("Task: wire the parser#0")
+    )
+
   test(
     "successive runs in ONE directory still collapse into a single lineage"
   ):
@@ -1077,27 +1160,6 @@ class CliTest extends munit.FunSuite:
     assertEquals(labels.count(_.contains("★")), 1)
     // One directory, so nothing to disambiguate.
     assert(!labels.exists(_.contains("@")), labels.toString)
-
-  test("sessionListingRows lists the name `continue <name>` matches"):
-    val runs = List(
-      RecordedRun(
-        manifest(
-          startedAt = "2026-07-18T09:00:00Z",
-          sessions = List(
-            durable(
-              "implementer",
-              "2026-07-18T09:30:00Z",
-              sessionStage = "Task: wire the parser#0"
-            )
-          )
-        ),
-        crashed = false
-      )
-    )
-    assertEquals(
-      Tables.sessionListingRows(runs).head.sessionName,
-      "implementer"
-    )
 
   test(
     "sessionListingRows numbers rows 1-based in the same order continue <n> uses"

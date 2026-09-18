@@ -45,9 +45,9 @@ import orca.progress.{
   ProgressHeader,
   ProgressStore,
   PublishedWork,
-  SessionRecord,
   StageEntry
 }
+import orca.sessions.{SessionRecord, SessionStore}
 import orca.runner.terminal.TerminalInteraction
 import orca.tools.{
   FsTool,
@@ -455,81 +455,58 @@ class FlowLifecycleTest extends munit.FunSuite:
     )
 
   test(
-    "runFlow resumes a per-task session loop: recorded stages replay, and a task whose stage is renamed gets a fresh session"
+    "runFlow resumes a per-task session loop: the task whose stage never committed re-runs onto its own recorded session"
   ):
     // Two runs over the SAME repo/prompt/store, each through its own
     // `runFlow`, so the resumed run gets a fresh FlowControl whose claimed-key
-    // set starts empty. The first run commits all three task stages (each
-    // commit carries the session record minted inside it) and then crashes in
-    // the final stage.
+    // set starts empty. Task 2 fails AFTER minting, so its stage never commits
+    // and the resume re-runs it — the only shape in which `agent.session`'s
+    // reuse branch is reachable in production.
     val workDir = GitRepo.seeded()
     val prompt = "resume-session-loop"
     val store = ProgressStore.default(workDir, prompt)
+    val sessions = SessionStore.default(workDir, prompt)
     val agent = StubAgent.claude
     val tasks = List("parse the input", "wire it up", "document it")
+    val failing = "wire it up"
     val bodyRuns = new AtomicInteger(0)
-    val firstResults = new AtomicReference[List[String]](Nil)
-    val resumedResults = new AtomicReference[List[String]](Nil)
-    val rewordedId = new AtomicReference[String]("")
-    // Snapshotted inside each body: a run that completes deletes its log.
-    val resumedSessions =
-      new AtomicReference[List[orca.progress.SessionRecord]](Nil)
+    val resumedIds = new AtomicReference[List[String]](Nil)
 
-    def taskLoop(names: List[String])(using orca.FlowControl): List[String] =
-      for task <- names yield stage(s"Task: $task"):
+    def taskLoop(failAt: Option[String])(using orca.FlowControl): List[String] =
+      for task <- tasks yield stage(s"Task: $task"):
         val _ = bodyRuns.incrementAndGet()
-        val session = agent.session("implementer", seed = "brief")
-        os.write.over(workDir / s"$task.txt", session.id.value)
-        s"done: $task"
+        val id = agent.session("implementer", seed = "brief").id.value
+        os.write.over(workDir / s"$task.txt", id)
+        if failAt.contains(task) then throw new RuntimeException("boom")
+        id
 
     val _ = intercept[SurfacedFlowFailure]:
       runFlowForTest(workDir, prompt, store):
-        firstResults.set(taskLoop(tasks))
-        val _ = stage[String]("Final review"):
-          throw new RuntimeException("boom")
-    assertEquals(bodyRuns.get(), 3, "every task body runs in the first run")
-    val firstSessions = store.load().get.sessions
+        val _ = taskLoop(Some(failing))
+    assertEquals(bodyRuns.get(), 2, "the run stops at the failing task")
+    val firstRecords = sessions.records()
     assertEquals(
-      firstSessions.map(_.stage),
-      tasks.map(t => s"Task: $t#0"),
-      "each task's session is keyed by the stage that minted it"
+      firstRecords.map(_.stage),
+      List(s"Task: ${tasks.head}#0", s"Task: $failing#0"),
+      "the failed task's record survives the failure teardown's reset"
     )
 
-    // Resumed run: the same loop, plus one extra task whose stage name the
-    // re-plan reworded — the only way a key moves.
-    val reworded = "parse the argument"
     runFlowForTest(workDir, prompt, store):
-      resumedResults.set(taskLoop(tasks))
-      rewordedId.set(stage(s"Task: $reworded"):
-        agent.session("implementer", seed = "brief").id.value
-      )
-      resumedSessions.set(store.load().get.sessions)
-      val _ = stage("Final review"):
-        "reviewed"
+      resumedIds.set(taskLoop(None))
 
     assertEquals(
       bodyRuns.get(),
-      3,
-      "recorded task stages must replay, not re-run their bodies"
+      4,
+      "the committed task replays; the failed and the unreached one run"
     )
     assertEquals(
-      resumedResults.get(),
-      firstResults.get(),
-      "each replayed stage must hand back its recorded result"
-    )
-    assertEquals(
-      resumedSessions.get().take(3),
-      firstSessions,
-      "a replayed stage re-mints nothing, so its record is untouched"
-    )
-    assertEquals(
-      resumedSessions.get().map(_.stage).drop(3),
-      List(s"Task: $reworded#0"),
-      "the reworded task's stage is a key the log doesn't carry"
+      resumedIds.get().take(2),
+      firstRecords.map(_.id),
+      "the re-run task must resolve to the session IT recorded"
     )
     assert(
-      !firstSessions.map(_.id).contains(rewordedId.get()),
-      s"a stage the log doesn't carry must mint a fresh id; got: ${rewordedId.get()}"
+      !firstRecords.map(_.id).contains(resumedIds.get()(2)),
+      s"the task that never ran must mint fresh; got: ${resumedIds.get()}"
     )
 
   test(
@@ -697,6 +674,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         .stack,
       stackOverridden = true,
       store = store,
+      sessionStore = scratchSessions(),
       emit = e => { val _ = emitted.updateAndGet(e :: _) }
     )
 
@@ -739,6 +717,7 @@ class FlowLifecycleTest extends munit.FunSuite:
           .stack,
         stackOverridden = true,
         store = new UnreadableLog(ProgressStore.default(workDir, prompt)),
+        sessionStore = scratchSessions(),
         emit = _ => ()
       )
     assert(thrown.getMessage.contains("cannot be read"), thrown.getMessage)
@@ -847,6 +826,7 @@ class FlowLifecycleTest extends munit.FunSuite:
           .stack,
         stackOverridden = true,
         store = ProgressStore.default(workDir, "a brand new task"),
+        sessionStore = scratchSessions(),
         emit = _ => ()
       )
     assert(thrown.getMessage.contains("my-work"), thrown.getMessage)
@@ -1025,6 +1005,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         .stack,
       stackOverridden = true,
       store = store,
+      sessionStore = scratchSessions(),
       emit = _ => ()
     )
     assertEquals(setup.startingCommit.map(_.value), boundAt)
@@ -1142,6 +1123,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         .stack,
       stackOverridden = settingsOverride.isDefined,
       store = store,
+      sessionStore = scratchSessions(),
       emit = e => { val _ = emitted.updateAndGet(e :: _) }
     )
     emitted.get().collect { case s: OrcaEvent.Step => s.message }
@@ -1213,6 +1195,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         .stack,
       stackOverridden = settingsOverride.isDefined,
       store = ProgressStore.default(workDir, prompt),
+      sessionStore = scratchSessions(),
       emit = emit,
       tty = tty,
       ask = ask
@@ -1262,6 +1245,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         FlowLifecycle.readSettings(workDir, noGlobalSettings, None).stack,
       stackOverridden = false,
       store = store,
+      sessionStore = scratchSessions(),
       flowName = Some("implement.sc"),
       emit = _ => ()
     )
@@ -1367,6 +1351,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         .stack,
       stackOverridden = false,
       store = ProgressStore.default(workDir, prompt),
+      sessionStore = scratchSessions(),
       emit = e => { val _ = emitted.updateAndGet(e :: _) }
     )
     (
@@ -1804,23 +1789,13 @@ class FlowLifecycleTest extends munit.FunSuite:
       s"expected an invalid-id warning; got: $steps2"
     )
 
-  /** A fresh progress store (temp dir, header already written) carrying
-    * `sessions` as its session records — the minimal fixture
+  /** A fresh session store (temp dir) carrying `sessions` — the minimal fixture
     * `rehydrateSessions` reads from.
     */
-  private def storeWith(sessions: SessionRecord*): ProgressStore =
-    val dir = TempDirs.dir()
-    val store = ProgressStore.default(dir, "rehydrate-targeted")
+  private def storeWith(sessions: SessionRecord*): SessionStore =
+    val store = SessionStore.default(TempDirs.dir(), "rehydrate-targeted")
     given WorkspaceWrite = WorkspaceWrite.unsafe
-    store.writeHeader(
-      ProgressHeader(
-        startingBranch = "main",
-        branch = "feat/rehydrate-targeted",
-        promptHash = ProgressStore.hashPrompt("rehydrate-targeted"),
-        branchMode = BranchMode.Created
-      )
-    )
-    sessions.foreach(store.upsertSession)
+    sessions.foreach(store.upsert)
     store
 
   test(
@@ -1846,17 +1821,17 @@ class FlowLifecycleTest extends munit.FunSuite:
     )
     git.forceAdd(store.path)
     val _ = git.commit("orca: progress log")
-    store.upsertSession(
-      SessionRecord(
-        name = "s",
-        stage = "",
-        id = "client-uuid",
-        seed = "brief",
-        resumeWireId = Some("ses_server_1")
+    SessionStore
+      .default(workDir, prompt)
+      .upsert(
+        SessionRecord(
+          name = "s",
+          stage = "",
+          id = "client-uuid",
+          seed = "brief",
+          resumeWireId = Some("ses_server_1")
+        )
       )
-    )
-    git.forceAdd(store.path)
-    val _ = git.commit("orca: session record")
 
     val recorder = new RecordingClaude
     supervised:
@@ -1886,6 +1861,13 @@ class FlowLifecycleTest extends munit.FunSuite:
     * TTY is needed and a body failure surfaces as a thrown exception rather
     * than a `System.exit`.
     */
+  /** A session store over a scratch directory, for fixtures that build a
+    * `FlowSetup` or call `setup` directly: neither reads the records, and
+    * `teardownSuccess` only discards them.
+    */
+  private def scratchSessions(): SessionStore =
+    SessionStore.default(TempDirs.dir(), "fixture")
+
   private def runFlowForTest(
       workDir: os.Path,
       prompt: String,
@@ -3239,6 +3221,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       FeatureBranch.resolveReused("reused-branch", Set.empty).toOption.get
     val setup = FlowLifecycle.FlowSetup(
       store = store,
+      sessionStore = scratchSessions(),
       featureBranch = featureBranch,
       startBranch = "main",
       stackSettings = StackSettings.empty,
@@ -3274,6 +3257,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       git.forceCommitOnly(workDir / "code.txt", "work")
     val setup = FlowLifecycle.FlowSetup(
       store = store,
+      sessionStore = scratchSessions(),
       featureBranch =
         FeatureBranch.resolveReused("feat/work", Set.empty).toOption.get,
       startBranch = "main",
@@ -3383,6 +3367,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       .call(cwd = workDir)
     val setup = FlowLifecycle.FlowSetup(
       store = store,
+      sessionStore = scratchSessions(),
       featureBranch = FeatureBranch
         .resolveReused(TeardownPushBranch, Set.empty)
         .toOption
@@ -3485,6 +3470,7 @@ class FlowLifecycleTest extends munit.FunSuite:
   ): FlowLifecycle.FlowSetup =
     FlowLifecycle.FlowSetup(
       store = store,
+      sessionStore = scratchSessions(),
       featureBranch =
         FeatureBranch.resolveReused(branch, Set.empty).toOption.get,
       startBranch = "main",
@@ -3921,17 +3907,17 @@ class FlowLifecycleTest extends munit.FunSuite:
     )
     git.forceAdd(store.path)
     val _ = git.commit("orca: progress log")
-    store.upsertSession(
-      SessionRecord(
-        name = "s",
-        stage = "",
-        id = "client-uuid",
-        seed = "brief",
-        resumeWireId = Some("ses_server_1")
+    SessionStore
+      .default(workDir, prompt)
+      .upsert(
+        SessionRecord(
+          name = "s",
+          stage = "",
+          id = "client-uuid",
+          seed = "brief",
+          resumeWireId = Some("ses_server_1")
+        )
       )
-    )
-    git.forceAdd(store.path)
-    val _ = git.commit("orca: session record")
 
     val thrower = new ThrowingRehydrateClaude
     val listener = new RecordingListener

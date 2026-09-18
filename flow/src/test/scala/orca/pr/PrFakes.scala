@@ -29,6 +29,7 @@ import orca.tools.{
   PushFailure
 }
 import orca.progress.{BranchMode, CommitHash, ProgressHeader, ProgressStore}
+import orca.sessions.SessionStore
 import orca.testkit.{GitRepo, PushlessGit, StubGitHubTool}
 import orca.events.{EventDispatcher, OrcaListener}
 
@@ -119,11 +120,13 @@ private[pr] class PrTestControl(
     recordingGit: GitTool,
     recordingGh: GitHubTool,
     store: ProgressStore,
+    sessions: SessionStore,
     runStartedAt: Option[CommitHash]
 ) extends TestFlowControl(
       dispatcher,
       recordingGit,
       store,
+      sessions,
       "p",
       startingCommit = runStartedAt
     ):
@@ -196,6 +199,7 @@ private[pr] def prControl(
     new RecordingGit(new OsGitTool(dir), calls, branchDiff, push, base),
     new RecordingGh(calls, availability, createPr, prBodies),
     store,
+    SessionStore.default(dir, "p"),
     // Where the run started, as the runtime records it: the tip of the branch
     // the header names.
     CommitHash.from(

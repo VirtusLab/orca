@@ -35,6 +35,12 @@ private[cli] object Tables:
       workDir: String,
       kind: String,
       stage: Option[String],
+      /** The path id of the stage that minted the session — the half of its key
+        * a row's `stage` (where it was last active) does not carry, and the
+        * only thing telling two same-named lineages apart. `None` for a
+        * one-shot, which was minted under no key.
+        */
+      sessionStage: Option[String],
       harness: String,
       lastActiveAt: String,
       resumable: Boolean,
@@ -71,6 +77,7 @@ private[cli] object Tables:
             workDir = selection.manifest.workDir,
             kind = session.kind.wireName,
             stage = session.stage,
+            sessionStage = session.sessionStage,
             harness = SessionPicker.harnessSettingsName(session.harness),
             lastActiveAt = session.lastActiveAt.toString,
             resumable = choice.isEnabled,
@@ -100,12 +107,24 @@ private[cli] object Tables:
           sessionName,
           r.kind,
           r.stage.getOrElse(""),
+          // Its own column rather than the picker's conditional marker: a
+          // listing is read to tell rows apart, and here the width is free.
+          r.sessionStage.getOrElse(""),
           r.harness,
           r.lastActiveAt,
           status
         )
       val header =
-        ("#", "session", "kind", "stage", "harness", "last active", "")
+        (
+          "#",
+          "session",
+          "kind",
+          "stage",
+          "minted in",
+          "harness",
+          "last active",
+          ""
+        )
       printTable(header +: cols)
 
   // --- list ---

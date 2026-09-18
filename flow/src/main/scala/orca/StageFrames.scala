@@ -10,12 +10,11 @@ import orca.agents.SessionKey
   * design rationale.
   *
   * '''Mechanism.''' A stack of frames — one per currently-open stage, plus a
-  * root frame (path `""`) for the flow body — scopes occurrence counters
-  * hierarchically. Each frame stores its own full path id and a `name -> count`
-  * map for the stages nested directly under it, so [[enterStage]] builds a
-  * child's id by joining `name#occurrence` onto the parent path. `enterStage`
-  * pushes the child frame, [[exitStage]] pops it, and the head is always the
-  * current scope.
+  * root frame ([[StagePath.FlowBody]]) for the flow body — scopes occurrence
+  * counters hierarchically. Each frame stores its own path and a `name ->
+  * count` map for the stages nested directly under it, so [[enterStage]] builds
+  * a child's path with [[StagePath.child]]. `enterStage` pushes the child
+  * frame, [[exitStage]] pops it, and the head is always the current scope.
   *
   * A frame also records the commit its stage started from, read back as
   * [[stageBaseCommit]] (ADR 0018 §2.1).
@@ -32,7 +31,7 @@ import orca.agents.SessionKey
   *     nested bumps would let a later same-named stage recompute a nested id
   *     and misattribute a stale or wrong-typed record.
   *   - '''Opaque paths.''' The `#`/`/`-joined path id is only ever compared for
-  *     exact equality, never parsed or reconstructed.
+  *     exact equality, never parsed or reconstructed — see [[StagePath]].
   *
   * Thread-affine: reached only through [[FlowControl]], single-threaded per
   * top-level `flow(...)` (R12, ADR 0018 §2.2), so plain vars state the real
@@ -67,14 +66,14 @@ private[orca] trait StageFrames:
         s"$what called from a fork — forks get FlowContext only (ADR 0018 R12)"
       )
 
-  /** One open stage's scope: its own name and path id (the prefix children join
+  /** One open stage's scope: its own name and path (the prefix children join
     * under), the commit the stage started from, and the per-name occurrence
     * counters for stages nested directly beneath it. The name is held rather
     * than recovered from the path, which is opaque.
     */
   private final class Frame(
       val name: String,
-      val path: String,
+      val path: StagePath,
       val baseCommit: Option[String]
   ):
     private var counts: Map[String, Int] = Map.empty
@@ -83,32 +82,30 @@ private[orca] trait StageFrames:
       val n = peek(name)
       counts = counts.updated(name, n + 1)
       n
-    def childId(name: String, occurrence: Int): String =
-      val segment = s"$name#$occurrence"
-      if path.isEmpty then segment else s"$path/$segment"
 
-  // The root frame (path "") is the flow body; it is never popped.
-  private var frames: List[Frame] = List(new Frame("", "", None))
+  // The flow body's frame; it is never popped.
+  private var frames: List[Frame] =
+    List(new Frame(name = "", path = StagePath.FlowBody, baseCommit = None))
 
   /** Bump the current frame's occurrence counter for `name`, push a child frame
-    * recording `baseCommit`, and return its full path id. Must be called
-    * exactly once per stage attempt — see the class doc's "Exactly-once bump"
-    * invariant.
+    * recording `baseCommit`, and return its path. Must be called exactly once
+    * per stage attempt — see the class doc's "Exactly-once bump" invariant.
     */
-  def enterStage(name: String, baseCommit: Option[String]): String =
+  def enterStage(name: String, baseCommit: Option[String]): StagePath.Stage =
     assertOwnerThread("stage(...)")
     val parent = frames.head
-    val id = parent.childId(name, parent.next(name))
-    frames = new Frame(name, id, baseCommit) :: frames
-    id
+    val path = parent.path.child(name, parent.next(name))
+    frames =
+      new Frame(name = name, path = path, baseCommit = baseCommit) :: frames
+    path
 
   /** The id the next [[enterStage]] for `name` in the current scope would mint,
     * without minting it.
     */
-  def peekStageId(name: String): String =
+  def peekStageId(name: String): StagePath.Stage =
     assertOwnerThread("peekStageId(...)")
     val parent = frames.head
-    parent.childId(name, parent.peek(name))
+    parent.path.child(name, parent.peek(name))
 
   def stageBaseCommit: Option[String] = frames.head.baseCommit
 
@@ -122,30 +119,38 @@ private[orca] trait StageFrames:
   // The stage half of a key already scopes it, so one flat set covers the run.
   private var claimedSessionKeys: Set[SessionKey] = Set.empty
 
-  /** Key a session named `name` to the stage currently open — the flow body's
-    * root frame when there is none — and record the mint, rejecting a second
-    * mint of the same name in the same stage.
+  /** Key a session named `name` to the stage currently open — the flow body
+    * when there is none — and record the mint, rejecting a second mint of the
+    * same name in the same stage.
     *
-    * The only way to build a [[SessionKey]] in a run, so a key is always scoped
-    * to where it was minted and always claimed.
+    * The only door that MINTS a [[SessionKey]], so a minted key is always
+    * scoped to where the call sits and always claimed. Two others rebuild a key
+    * from persisted halves: `SessionRecord.key` and
+    * `ManifestSession.mintedKey`.
     *
-    * Sound because a stage body is all-or-nothing: two mints of one name in one
-    * stage either both execute or neither does, so the claim set sees both
-    * whenever it could matter. A resumed run starts with nothing claimed, so
-    * re-minting a key the log already holds is the reuse path.
+    * For a mint inside a stage the check is sound rather than best-effort,
+    * because a stage body is all-or-nothing: two mints of one name in one stage
+    * either both execute or neither does, so the claim set sees both whenever
+    * they could collide. The flow body carries no such guarantee — two mutually
+    * exclusive mints of one name there are never both claimed — which costs the
+    * warning, not correctness: each still resolves to the single record stored
+    * at that key.
+    *
+    * A resumed run starts with nothing claimed, so re-minting a key the store
+    * already holds is the reuse path.
     */
   private[orca] def claimSessionKey(name: String): SessionKey =
     assertOwnerThread("agent.session(...)")
     val frame = frames.head
     val key = SessionKey(name = name, stage = frame.path)
     if claimedSessionKeys.contains(key) then
-      val where =
-        if frame.path.isEmpty then "the flow body"
-        else s"stage '${frame.name}'"
+      val where = frame.path match
+        case StagePath.FlowBody => "the flow body"
+        case StagePath.Stage(_) => s"stage '${frame.name}'"
       throw new OrcaFlowException(
         s"agent.session(...) minted '$name' twice in $where — both handles " +
-          "would drive one conversation. Rename one of them, or move it into " +
-          "a stage of its own."
+          "would drive one conversation. Give each its own `stage(...)`, or " +
+          "rename one of them."
       )
     claimedSessionKeys = claimedSessionKeys + key
     key

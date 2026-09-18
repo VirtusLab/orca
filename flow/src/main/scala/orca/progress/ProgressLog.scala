@@ -4,7 +4,7 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.{
   CodecMakerConfig,
   ConfiguredJsonValueCodec
 }
-import orca.agents.{JsonData, SessionKey, given}
+import orca.agents.{JsonData, given}
 import orca.util.RawJson
 import sttp.tapir.Schema
 
@@ -28,11 +28,11 @@ enum BranchMode derives JsonData:
   * `userPrompt`/`flowName` back the shell's "Resume interrupted run" offer (ADR
   * 0021 §3 amendment): the log otherwise records only `promptHash`, not the
   * prompt text itself, so a byte-identical re-run needs it spelled out here.
-  * Both are `Option` with a `None` default under the SAME tolerant- decoding
-  * exception as [[SessionRecord]]'s own optional fields (see [[ProgressLog]]'s
-  * codec) — a log written before this field existed decodes with both `None`,
-  * and the resume offer simply doesn't apply to it (an old in-flight run across
-  * an orca upgrade still resumes; it just isn't one-keystroke). `flowName` is
+  * Both are `Option` with a `None` default under the tolerant-decoding
+  * exception AGENTS.md grants this log (see [[ProgressLog]]'s codec) — a log
+  * written before this field existed decodes with both `None`, and the resume
+  * offer simply doesn't apply to it (an old in-flight run across an orca
+  * upgrade still resumes; it just isn't one-keystroke). `flowName` is
   * separately `None` for a run started outside the shell (no `ORCA_FLOW_NAME`
   * to record) even on a freshly written header.
   *
@@ -68,49 +68,15 @@ case class ProgressHeader(
 case class StageEntry(id: String, name: String, resultJson: RawJson)
     derives JsonData
 
-/** A persisted session: the [[SessionKey]] fields that key it — the name, and
-  * the path id of the stage that minted it — a minted UUID, the seed string the
-  * author supplied, and, when the session is durably resumable, the wire id to
-  * resume against.
-  *
-  * `id` is the stable client id the framework hands across calls;
-  * [[SessionRecord.resumeWireId]] is the id to put on the wire when resuming
-  * the live backend conversation (same `wireId` notion as
-  * [[orca.backend.Dispatch]]). Its value depends on the backend:
-  *   - codex/gemini/opencode: a backend-minted server-thread id (≠ `id`);
-  *   - claude/pi: equal to `id` itself — both claim the id client-side and keep
-  *     a durable transcript, so recording it re-claims the session (`--resume`
-  *     / `--continue`) on a resumed run.
-  *
-  * Persisted so a resumed run can rehydrate the in-memory map, resume against
-  * the right wire id, and reuse the same [[orca.agents.SessionId]] rather than
-  * minting a second one. `resumeWireId` is `None` until a run learns it (see
-  * `persistResumeWireId` in `orca.Session`).
-  *
-  * `backend` records the minting agent's [[orca.agents.BackendTag]] via its
-  * stable [[orca.agents.BackendTag.wireName]] (frozen independently of the case
-  * name), so targeted rehydration (`FlowLifecycle.rehydrateSessions`) knows
-  * which agent to replay `resumeWireId` into rather than assuming the lead.
-  * `None` when the minting agent carries no backend tag (a stub agent) — falls
-  * back to the lead. A value matching no known `wireName` (an edited log) is
-  * skipped with a warning rather than guessed (`FlowLifecycle.targetAgent`);
-  * `agent.session(name, seed)`'s reuse arm self-heals a stale tag from a
-  * lead-backend swap.
-  */
-case class SessionRecord(
-    name: String,
-    stage: String,
-    id: String,
-    seed: String,
-    resumeWireId: Option[String] = None,
-    backend: Option[String] = None
-) derives JsonData:
-  def key: SessionKey = SessionKey(name = name, stage = stage)
-
 /** One flow run's persisted state, keyed by its header: the outcome of each
-  * completed stage, the sessions it minted, and where it published its work.
-  * The custom [[JsonData]] instance below tolerates missing collection fields
-  * so logs round-trip across software versions.
+  * completed stage, and where it published its work. The custom [[JsonData]]
+  * instance below tolerates missing collection fields so logs round-trip across
+  * software versions.
+  *
+  * Everything here rides the feature branch, committed at each stage boundary.
+  * Machine-local state that would be meaningless in another checkout lives in
+  * `.orca/cache/` instead — the durable session records
+  * ([[orca.sessions.SessionStore]]) and the run manifest.
   *
   * `published` is [[PublishedWork]] for a run that published. Its `None`
   * default falls under the same tolerant-decoding exception as
@@ -119,7 +85,6 @@ case class SessionRecord(
 case class ProgressLog(
     header: ProgressHeader,
     entries: List[StageEntry],
-    sessions: List[SessionRecord] = Nil,
     published: Option[PublishedWork] = None
 )
 

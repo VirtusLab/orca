@@ -6,6 +6,7 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
   JsonWriter
 }
 import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
+import orca.StagePath
 import orca.agents.{JsonData, SessionKey}
 
 import java.time.Instant
@@ -124,7 +125,7 @@ private[orca] case class ManifestSession(
     */
   def mintedKey: Option[SessionKey] =
     sessionName.map(n =>
-      SessionKey(name = n, stage = sessionStage.getOrElse(""))
+      SessionKey(name = n, stage = StagePath.fromValue(sessionStage))
     )
 
 /** A per-run manifest written to
