@@ -25,7 +25,7 @@ class FixOutcomeReconcileTest extends munit.FunSuite:
     // The boundary check covers a following letter, not just a digit.
     val reconciled = FixOutcome.reconcile(
       handed("first", "second"),
-      FixOutcome(Nil, List(OpenFinding(Title("I1.2C bus timing"), "no")))
+      FixOutcome(Nil, List(DeclinedFinding(Title("I1.2C bus timing"), "no")))
     )
     assertEquals(reconciled.declined, Nil)
     assertEquals(reconciled.unresolvedEchoes, List("I1.2C bus timing"))
@@ -35,12 +35,18 @@ class FixOutcomeReconcileTest extends munit.FunSuite:
       handed("Leaks a handle"),
       FixOutcome(
         Nil,
-        List(OpenFinding(Title("  leaks   a handle "), "by design"))
+        List(DeclinedFinding(Title("  leaks   a handle "), "by design"))
       )
     )
     assertEquals(
       reconciled.declined,
-      List(OpenFinding(Title("Leaks a handle"), "by design"))
+      List(
+        OpenFinding(
+          Title("Leaks a handle"),
+          OpenReason.Declined("by design"),
+          None
+        )
+      )
     )
 
   test("a keyed echo with the which-alternative suffix resolves by key"):
@@ -88,7 +94,7 @@ class FixOutcomeReconcileTest extends munit.FunSuite:
       handed("real bug"),
       FixOutcome(
         List(Title("real bug")),
-        List(OpenFinding(Title("real bug"), "on second thoughts"))
+        List(DeclinedFinding(Title("real bug"), "on second thoughts"))
       )
     )
     assertEquals(reconciled.fixed, List(Title("real bug")))
@@ -100,18 +106,18 @@ class FixOutcomeReconcileTest extends munit.FunSuite:
     // from `declined` only to reappear as unaccounted.
     val reconciled = FixOutcome.reconcile(
       handed("duplicate", "duplicate"),
-      FixOutcome(Nil, List(OpenFinding(Title("duplicate"), "known")))
+      FixOutcome(Nil, List(DeclinedFinding(Title("duplicate"), "known")))
     )
     assertEquals(
       reconciled.declined,
-      List(OpenFinding(Title("duplicate"), "known"))
+      List(OpenFinding(Title("duplicate"), OpenReason.Declined("known"), None))
     )
     assertEquals(reconciled.unaccounted, Nil)
 
   test("an echo matching nothing is dropped and its finding left unaccounted"):
     val reconciled = FixOutcome.reconcile(
       handed("real bug"),
-      FixOutcome(Nil, List(OpenFinding(Title("something else"), "no")))
+      FixOutcome(Nil, List(DeclinedFinding(Title("something else"), "no")))
     )
-    assertEquals(reconciled.unaccounted, List(Title("real bug")))
+    assertEquals(reconciled.unaccounted, List(finding("real bug")))
     assertEquals(reconciled.unresolvedEchoes, List("something else"))

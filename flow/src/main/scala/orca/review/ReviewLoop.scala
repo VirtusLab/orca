@@ -58,8 +58,8 @@ private[review] val MaxConcurrentReviewTasks: Int = 8
 val DefaultMaxIterations: Int = 3
 
 /** The fix-loop stop policy, shared by [[fixLoop]] and [[ReviewFixLoop.run]]:
-  * done when `findings` is empty; fold `findings` into [[OpenFindings]] (reason
-  * `"max iterations (N) reached"`) once `iteration >= maxIterations`; otherwise
+  * done when `findings` is empty; fold `findings` into [[OpenFindings]] under
+  * [[OpenReason.CapReached]] once `iteration >= maxIterations`; otherwise
   * signal that `fix` should run.
   *
   * `maxIterations` counts FIX attempts, not evaluations, so a loop built on
@@ -75,7 +75,7 @@ private[review] def stopPolicy(
     LoopStep.CapReached(
       OpenFindings(
         findings.map(f =>
-          OpenFinding(f.title, s"max iterations ($maxIterations) reached")
+          OpenFinding(f.title, OpenReason.CapReached(maxIterations), f.location)
         )
       )
     )
@@ -103,33 +103,16 @@ private[review] val FixerHaltMessage: String =
 private[review] val SinglePassMessage: String =
   "Fixes applied; not reviewing again"
 
-/** The reason recorded against a finding the fixer left unaccounted for on a
-  * turn where it reported no fixes at all — the halt exits of both loops.
-  */
-private[review] val NoFixesReason: String = "fixer reported no fixes"
-
-/** The reason recorded against a finding the fixer left unaccounted for on a
-  * turn that did fix something. Only [[reviewThenFix]] records it: a loop
-  * re-evaluates instead, so there the finding either comes back or is gone.
-  */
-private[review] val UnaccountedReason: String = "fixer did not report on it"
-
-/** The reason recorded against a lint finding that survives the scoped fix turn
-  * [[ReviewFixLoop.runOnce]] gives it.
-  */
-private[review] val LintStillFailingReason: String =
-  "lint still failing after its fix turn"
-
 /** What a fix turn leaves open, for the caller to fold via [[recordOpen]]: the
   * fixer's declines, plus every finding it neither fixed nor declined, recorded
   * with `unaccountedReason`.
   */
 private def openAfterFix(
     outcome: ReconciledFixOutcome,
-    unaccountedReason: String
+    unaccountedReason: OpenReason
 ): List[OpenFinding] =
-  outcome.declined ++ outcome.unaccounted.map(
-    OpenFinding(_, unaccountedReason)
+  outcome.declined ++ outcome.unaccounted.map(f =>
+    OpenFinding(f.title, unaccountedReason, f.location)
   )
 
 /** Announce a loop exit: `headline`, then the closing block naming everything
@@ -142,21 +125,10 @@ private def openAfterFix(
   */
 private def announceExit(
     headline: String,
-    open: OpenFindings,
-    locations: Map[Title, Location]
+    open: OpenFindings
 )(using FlowContext): Unit =
   orca.display(headline)
-  formatOpenFindings(open.findings, locations).foreach(orca.display)
-
-/** `locations` extended with the location of each of `findings` that names one,
-  * so a finding recorded in one round can still be pointed at an exit rounds
-  * later.
-  */
-private def indexLocations(
-    locations: Map[Title, Location],
-    findings: List[ReviewFinding]
-): Map[Title, Location] =
-  locations ++ findings.flatMap(f => f.location.map(f.title -> _))
+  formatOpenFindings(open).foreach(orca.display)
 
 /** `existing` with `additions` merged in, keyed by title: a title `existing`
   * already carries is refreshed with the latest reason in place, a new one is
@@ -251,26 +223,21 @@ def fixLoop(
     maxIterations: Int = DefaultMaxIterations
 )(using ctx: FlowContext): OpenFindings =
   @scala.annotation.tailrec
-  def loop(
-      accumulated: OpenFindings,
-      iteration: Int,
-      locations: Map[Title, Location]
-  ): OpenFindings =
+  def loop(accumulated: OpenFindings, iteration: Int): OpenFindings =
     // A progress marker, not a committing stage (ADR 0018 §2.2).
     orca.display(s"Iteration ${iteration + 1}")
     val findings = evaluate().findings
-    val seenLocations = indexLocations(locations, findings)
     stopPolicy(
       findings,
       iteration = iteration,
       maxIterations = maxIterations
     ) match
       case LoopStep.Done =>
-        announceExit(cleanExitMessage(accumulated), accumulated, seenLocations)
+        announceExit(cleanExitMessage(accumulated), accumulated)
         accumulated
       case LoopStep.CapReached(capped) =>
         val open = recordOpen(accumulated, capped.findings)
-        announceExit(capExitMessage(maxIterations), open, seenLocations)
+        announceExit(capExitMessage(maxIterations), open)
         open
       case LoopStep.NeedsFix =>
         // One evaluator, so it is the round's only agent — index 0.
@@ -282,17 +249,16 @@ def fixLoop(
         announceFixTurn(outcome, AfterFixTurn.ReviewAgain)
         if outcome.fixed.isEmpty then
           val open =
-            recordOpen(accumulated, openAfterFix(outcome, NoFixesReason))
-          announceExit(FixerHaltMessage, open, seenLocations)
+            recordOpen(accumulated, openAfterFix(outcome, OpenReason.NoFixes))
+          announceExit(FixerHaltMessage, open)
           open
         else
           loop(
             carryPastFixes(accumulated, outcome.fixed.toSet, outcome.declined),
-            iteration + 1,
-            seenLocations
+            iteration + 1
           )
 
-  loop(OpenFindings(Nil), 0, Map.empty)
+  loop(OpenFindings(Nil), 0)
 
 /** One reviewer's live [[Chat]]. The chat bundles the role-tagged agent with
   * its conversation id, so a resume just calls the chat again.
@@ -385,12 +351,13 @@ private case class RoundOutcome(
   * fixed — an empty `fixed` means nothing new for the reviewers to find, so the
   * loop halts.
   *
-  * The `declined` entries go to the next round's reviewers, so a reviewer knows
-  * a finding was considered and refused rather than missed — the one thing in
-  * the loop it could not have worked out by reading the code. The `fixed`
-  * titles do not: a reviewer told its finding was fixed is handed the answer it
-  * exists to work out for itself. A refusal the fixer later reverses drops out
-  * of that set the round the fix is observed.
+  * Everything still open goes to the next round's reviewers, each with the
+  * reason recorded for it, so a reviewer knows a finding was considered and
+  * refused rather than missed — the one thing in the loop it could not have
+  * worked out by reading the code. The `fixed` titles do not: a reviewer told
+  * its finding was fixed is handed the answer it exists to work out for itself.
+  * A refusal the fixer later reverses drops out of that set the round the fix
+  * is observed.
   *
   * Nothing still open is lost at any exit: whatever the fixer declined or left
   * unaccounted for comes back in the returned [[OpenFindings]] with a reason,
@@ -446,12 +413,9 @@ def reviewAndFixLoop[B <: BackendTag](
       * per-task [[reviewThenFix]] calls, handed to a whole-run final loop. They
       * seed this loop's open set: shown to reviewers from round one so
       * already-answered findings aren't re-reported from scratch, and returned
-      * at exit (minus any since fixed) alongside this loop's own.
-      *
-      * An [[OpenFinding]] carries only a title and a reason, so a seeded entry
-      * reaches the exit block with no location — no `at file:line` line even
-      * where the reviewer that first reported it named one. Only findings this
-      * loop's own rounds evaluate can be located.
+      * at exit (minus any since fixed) alongside this loop's own. Each keeps
+      * the location the earlier loop recorded, so a seeded entry the exit block
+      * names still points at the code.
       */
     priorOpenFindings: OpenFindings = OpenFindings(Nil)
 )(using
@@ -504,7 +468,8 @@ def reviewAndFixLoop[B <: BackendTag](
         List(
           OpenFinding(
             Title("whole-run review"),
-            "skipped: no usable starting commit for the diff base"
+            OpenReason.ReviewSkipped,
+            location = None
           )
         )
       )
@@ -661,7 +626,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
       e: RosterEntry,
       stored: Option[SessionEntry],
       current: DiffSample,
-      open: List[OpenFinding],
+      open: OpenFindings,
       round: Int
   ): (ReviewResult, Option[SessionEntry]) =
     stored match
@@ -681,7 +646,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
       e: RosterEntry,
       se: SessionEntry,
       current: DiffSample,
-      open: List[OpenFinding],
+      open: OpenFindings,
       round: Int
   ): (ReviewResult, Option[SessionEntry]) =
     val changes = ReReviewChanges.of(se.lastSent, current)
@@ -711,7 +676,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
   private def firstReview(
       e: RosterEntry,
       current: DiffSample,
-      open: List[OpenFinding],
+      open: OpenFindings,
       round: Int
   ): (ReviewResult, Option[SessionEntry]) =
     val chat = e.agent.withRole(ReviewerPrompts.Role).chat()
@@ -749,7 +714,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
   private def runReviewersAndLint(
       active: List[RosterEntry],
       currentState: ReviewLoopState,
-      open: List[OpenFinding]
+      open: OpenFindings
   ): RoundOutcome =
     // A resumed reviewer that isn't handed the change set falls back to its own
     // `git diff HEAD`, which is empty as soon as the fixer commits — and an
@@ -891,7 +856,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
   private def evaluate(
       state: ReviewLoopState,
       selectRound: List[ReviewBatch] -> List[RosterEntry],
-      open: List[OpenFinding]
+      open: OpenFindings
   )(using WorkspaceWrite): RoundOutcome =
     // Format before reviewing so the implementation's and each fix's edits are
     // cleaned up before reviewers and the lint see them, and the committed tree
@@ -992,10 +957,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     def loop(
         accumulated: OpenFindings,
         iteration: Int,
-        state: ReviewLoopState,
-        // Location per finding evaluated so far, which [[OpenFinding]] doesn't
-        // carry and the closing block needs.
-        locations: Map[Title, Location]
+        state: ReviewLoopState
     ): OpenFindings =
       orca.display(s"Iteration ${iteration + 1}")
       // `accumulated` doubles as the open set sent to this round's reviewers:
@@ -1004,9 +966,8 @@ private[review] class ReviewFixLoop[B <: BackendTag](
       // first activated in round three still learns what was settled in round
       // one. Not split per reviewer — a [[FixOutcome]] doesn't say which
       // reviewer reported what — so every reviewer is sent the whole list.
-      val round = evaluate(state, selectRound, accumulated.findings)
+      val round = evaluate(state, selectRound, accumulated)
       val findings = round.findings.map(_.finding)
-      val seenLocations = indexLocations(locations, findings)
       stopPolicy(
         findings,
         iteration = iteration,
@@ -1015,26 +976,21 @@ private[review] class ReviewFixLoop[B <: BackendTag](
         // `ctx` explicit on the announce calls for the same given-priority
         // reason as [[prepareSelection]].
         case LoopStep.Done =>
-          announceExit(
-            cleanExitMessage(accumulated),
-            accumulated,
-            seenLocations
-          )(using
-            ctx
-          )
+          announceExit(cleanExitMessage(accumulated), accumulated)(using ctx)
           accumulated
         case LoopStep.CapReached(capped) =>
           val open = recordOpen(accumulated, capped.findings)
-          announceExit(capExitMessage(maxIterations), open, seenLocations)(using
-            ctx
-          )
+          announceExit(capExitMessage(maxIterations), open)(using ctx)
           open
         case LoopStep.NeedsFix =>
           val outcome = fixTurn(round.findings, AfterFixTurn.ReviewAgain)
           if outcome.fixed.isEmpty then
             val open =
-              recordOpen(accumulated, openAfterFix(outcome, NoFixesReason))
-            announceExit(FixerHaltMessage, open, seenLocations)(using ctx)
+              recordOpen(
+                accumulated,
+                openAfterFix(outcome, OpenReason.NoFixes)
+              )
+            announceExit(FixerHaltMessage, open)(using ctx)
             open
           else
             loop(
@@ -1044,18 +1000,17 @@ private[review] class ReviewFixLoop[B <: BackendTag](
                 outcome.declined
               ),
               iteration + 1,
-              round.state,
-              seenLocations
+              round.state
             )
-    loop(priorOpenFindings, 0, ReviewLoopState.empty, Map.empty)
+    loop(priorOpenFindings, 0, ReviewLoopState.empty)
 
   /** One [[evaluate]] round and, if it reported anything, one [[fixTurn]] —
     * backing [[reviewThenFix]]. There is no re-evaluation of reviewer findings
     * (the lint gate alone is re-checked, via [[relintAfterFix]]), so the
     * returned [[OpenFindings]] is the whole record of what stayed open: the
-    * fixer's declines, what it never reported on ([[UnaccountedReason]]) —
+    * fixer's declines, what it never reported on ([[OpenReason.Unaccounted]]) —
     * which a loop would instead recover by reviewing again — and whatever that
-    * re-check still fails on ([[LintStillFailingReason]]).
+    * re-check still fails on ([[OpenReason.LintStillFailing]]).
     *
     * `fc`/`ws` are method parameters, not fields — see the file header.
     */
@@ -1064,16 +1019,14 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     orca.display("Review & fix")
     // No round has run, so there is nothing open to send the reviewers and no
     // history for the selection to narrow over.
-    val round = evaluate(ReviewLoopState.empty, prepareSelection(), Nil)
+    val round =
+      evaluate(ReviewLoopState.empty, prepareSelection(), OpenFindings(Nil))
     val findings = round.findings.map(_.finding)
-    val roundLocations = indexLocations(Map.empty, findings)
     // `ctx` explicit on the announce calls for the same given-priority reason
     // as in `run`.
     if findings.isEmpty then
       val nothingOpen = OpenFindings(Nil)
-      announceExit(cleanExitMessage(nothingOpen), nothingOpen, roundLocations)(
-        using ctx
-      )
+      announceExit(cleanExitMessage(nothingOpen), nothingOpen)(using ctx)
       nothingOpen
     else
       val outcome = fixTurn(round.findings, AfterFixTurn.Stop)
@@ -1088,22 +1041,16 @@ private[review] class ReviewFixLoop[B <: BackendTag](
       // alike; one that fixed something leaves any unaccounted title open with
       // nothing to recover it, which the reason has to say.
       val (headline, unaccountedReason) =
-        if outcome.fixed.isEmpty then (FixerHaltMessage, NoFixesReason)
-        else (SinglePassMessage, UnaccountedReason)
+        if outcome.fixed.isEmpty then (FixerHaltMessage, OpenReason.NoFixes)
+        else (SinglePassMessage, OpenReason.Unaccounted)
       val open = recordOpen(
         OpenFindings(Nil),
         openAfterFix(outcome, unaccountedReason) ++
           lintStillFailing.map(f =>
-            OpenFinding(f.title, LintStillFailingReason)
+            OpenFinding(f.title, OpenReason.LintStillFailing, f.location)
           )
       )
-      // The re-lint runs after the round, so its findings are the one thing
-      // `roundLocations` cannot already hold.
-      announceExit(
-        headline,
-        open,
-        indexLocations(roundLocations, lintStillFailing)
-      )(using ctx)
+      announceExit(headline, open)(using ctx)
       open
 
   /** Re-run the lint gate over the fix turn's edits — the machine-checkable
@@ -1112,9 +1059,9 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     * tasks build on. A failure gets ONE fix turn scoped to it and one last
     * check; what still fails is returned — under a warning Step — as whole
     * [[ReviewFinding]]s, so the caller can record both the reason
-    * ([[LintStillFailingReason]]) and where each points. Reviewer findings stay
-    * single-pass — only this gate is re-driven, as the loop's rounds re-drive
-    * it.
+    * ([[OpenReason.LintStillFailing]]) and where each points. Reviewer findings
+    * stay single-pass — only this gate is re-driven, as the loop's rounds
+    * re-drive it.
     *
     * `state` is the round's outcome state: its resumable lint conversation, if
     * any, is reused. `fc`/`ws` are method parameters, not fields — see the file

@@ -20,11 +20,13 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
         diff = "",
         diffIntro = "Diff:",
         base = base,
-        open = Nil
+        open = OpenFindings(Nil)
       )
     )
 
-  private def reRendered(open: List[OpenFinding] = Nil): String =
+  private def reRendered(
+      open: OpenFindings = OpenFindings(Nil)
+  ): String =
     TextUtil.collapseWhitespace(
       ReviewLoopPrompts.reReview(
         ReReviewChanges.AlreadySeen(LastSent.NoteOnly("")),
@@ -186,7 +188,15 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
 
   test("reReview carries open findings as a record, not a ruling"):
     val prompt = reRendered(
-      List(OpenFinding(Title("rename the field"), "the name is on our API"))
+      OpenFindings(
+        List(
+          OpenFinding(
+            Title("rename the field"),
+            OpenReason.Declined("the name is on our API"),
+            None
+          )
+        )
+      )
     )
     assert(
       prompt.contains("- rename the field: the name is on our API"),

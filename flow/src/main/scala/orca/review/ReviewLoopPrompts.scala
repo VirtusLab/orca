@@ -46,7 +46,7 @@ object ReviewLoopPrompts:
     PromptResource.load("/orca/review/prompts/summarise-lint.md")
 
   /** The always-report categories, worded once. Substituted into both review
-    * templates at init; [[declinedBlock]] back-references the copy those
+    * templates at init; [[openFindingsBlock]] back-references the copy those
     * templates render below it.
     */
   private[review] val MandatoryCategories: String =
@@ -80,7 +80,7 @@ object ReviewLoopPrompts:
       diff: String,
       diffIntro: String,
       base: Option[String],
-      open: List[OpenFinding]
+      open: OpenFindings
   ): String =
     PromptResource.render(
       InitialReviewTemplate,
@@ -139,7 +139,7 @@ object ReviewLoopPrompts:
     */
   private[review] def reReview(
       changes: ReReviewChanges,
-      open: List[OpenFinding]
+      open: OpenFindings
   ): String =
     PromptResource.render(
       ReReviewTemplate,
@@ -155,11 +155,11 @@ object ReviewLoopPrompts:
     * failure this block exists to avoid — the point is to save a round on
     * findings that were already answered, not to withdraw them.
     */
-  private def openFindingsBlock(open: List[OpenFinding]): String =
-    if open.isEmpty then ""
+  private def openFindingsBlock(open: OpenFindings): String =
+    if open.findings.isEmpty then ""
     else
       "\n\nThese findings were reported earlier and are still open. This is " +
-        s"the reason recorded for each:\n\n${OpenFindings(open).format}" +
+        s"the reason recorded for each:\n\n${open.format}" +
         "\n\nThat is a record of what happened, not a ruling. If you still " +
         "think a finding is real, report it again and say why the reason is " +
         "wrong. \"The plan chose this\" is not on its own a sufficient " +

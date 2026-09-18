@@ -12,7 +12,7 @@ import orca.tools.{
 }
 import orca.{OutsideStage, WorkspaceWrite}
 import orca.plan.Title
-import orca.review.{OpenFinding, OpenFindings}
+import orca.review.{OpenFinding, OpenFindings, OpenReason}
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.progress.{
   BranchMode,
@@ -187,7 +187,9 @@ class OpenPrIfGitHubTest extends FunSuite:
     // The step every code-producing built-in flow ends with, so the section
     // has to survive the best-effort path too, not only openPrFromBranch's.
     val open = OpenFindings(
-      List(OpenFinding(Title("Null check missing"), "max iterations reached"))
+      List(
+        OpenFinding(Title("Null check missing"), OpenReason.CapReached(3), None)
+      )
     )
     assertEquals(
       run(available, openFindings = open).prBodies,

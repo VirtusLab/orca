@@ -37,7 +37,10 @@ class ReviewFixFlowTest extends munit.FunSuite:
     val coder = new FakeAgent(
       name = "coder",
       outputs = List(
-        FixOutcome(Nil, List(OpenFinding(Title("real problem"), "trade-off")))
+        FixOutcome(
+          Nil,
+          List(DeclinedFinding(Title("real problem"), "trade-off"))
+        )
       )
     )
 
@@ -86,6 +89,6 @@ class ReviewFixFlowTest extends munit.FunSuite:
       diff = ReviewDiff.Pinned("")
     )
     assert(
-      result.findings.exists(_.reason.contains("max iterations")),
-      s"expected a max-iterations reason; got: ${result.findings}"
+      result.findings.exists(_.reason == OpenReason.CapReached(2)),
+      s"expected a cap reason; got: ${result.findings}"
     )

@@ -63,13 +63,13 @@ class FixLoopTest extends munit.FunSuite:
         if found.map(_.title.value).toSet == Set("a", "b") then
           FixOutcome(
             fixed = List(Title("a")),
-            declined = List(OpenFinding(Title("b"), "out of scope"))
+            declined = List(DeclinedFinding(Title("b"), "out of scope"))
           )
         else FixOutcome(fixed = List(Title("c")), declined = Nil)
     )
     assertEquals(
       result.findings,
-      List(OpenFinding(Title("b"), "out of scope"))
+      List(OpenFinding(Title("b"), OpenReason.Declined("out of scope"), None))
     )
     // Iterations run under the caller's task stage (ADR 0018 §2.2), so they
     // surface as Step events rather than StageStarted.
@@ -94,7 +94,7 @@ class FixLoopTest extends munit.FunSuite:
         if found.size == 2 then
           FixOutcome(
             fixed = List(Title("driver")),
-            declined = List(OpenFinding(Title("nit"), "deliberate"))
+            declined = List(DeclinedFinding(Title("nit"), "deliberate"))
           )
         else FixOutcome(fixed = List(Title("nit")), declined = Nil)
     )
@@ -109,10 +109,13 @@ class FixLoopTest extends munit.FunSuite:
         evaluates += 1
         ReviewResult(List(i))
       ,
-      fix = _ => FixOutcome(Nil, List(OpenFinding(Title("x"), "won't fix")))
+      fix = _ => FixOutcome(Nil, List(DeclinedFinding(Title("x"), "won't fix")))
     )
     assertEquals(evaluates, 1, "must not re-evaluate when nothing was fixed")
-    assertEquals(result.findings, List(OpenFinding(Title("x"), "won't fix")))
+    assertEquals(
+      result.findings,
+      List(OpenFinding(Title("x"), OpenReason.Declined("won't fix"), None))
+    )
 
   test("records what the fixer left unaccounted when it reports no fixes"):
     given FlowContext = ctx
@@ -124,7 +127,7 @@ class FixLoopTest extends munit.FunSuite:
     )
     assertEquals(
       result.findings,
-      List(OpenFinding(Title("x"), "fixer reported no fixes"))
+      List(OpenFinding(Title("x"), OpenReason.NoFixes, None))
     )
 
   test("the fix line says another review round follows the fixes"):
@@ -147,7 +150,7 @@ class FixLoopTest extends munit.FunSuite:
     given FlowContext = new TestFlowContext(new EventDispatcher(List(rec)))
     val _ = fixLoop(
       evaluate = scripted(List(ReviewResult(List(finding("a"))))),
-      fix = _ => FixOutcome(Nil, List(OpenFinding(Title("a"), "won't fix")))
+      fix = _ => FixOutcome(Nil, List(DeclinedFinding(Title("a"), "won't fix")))
     )
     assert(rec.steps.contains("Fixed 0, declined 1"), rec.steps.mkString("\n"))
 
@@ -191,7 +194,7 @@ class FixLoopTest extends munit.FunSuite:
     )
     assertEquals(
       result.findings,
-      List(OpenFinding(Title("infinite"), "max iterations (2) reached"))
+      List(OpenFinding(Title("infinite"), OpenReason.CapReached(2), None))
     )
 
   test("the library default cap is 3 fix attempts, so 4 evaluations"):
@@ -220,9 +223,9 @@ class FixLoopTest extends munit.FunSuite:
     )
     assert(
       rec.steps.contains(
-        """Findings still open (1):
-          |  - still broken
-          |    max iterations (1) reached""".stripMargin
+        s"""Findings still open (1):
+           |  - still broken
+           |    ${OpenReason.CapReached(1).describe}""".stripMargin
       ),
       s"cap exit must name what it left open: ${rec.steps}"
     )
@@ -246,7 +249,7 @@ class FixLoopTest extends munit.FunSuite:
       fix = _ =>
         FixOutcome(
           fixed = List(Title("driver")),
-          declined = List(OpenFinding(Title("still broken"), "won't fix"))
+          declined = List(DeclinedFinding(Title("still broken"), "won't fix"))
         )
     )
     assert(

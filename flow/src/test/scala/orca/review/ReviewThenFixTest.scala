@@ -75,7 +75,7 @@ class ReviewThenFixTest extends munit.FunSuite:
       outputs = List(
         FixOutcome(
           List(Title("real")),
-          List(OpenFinding(Title("nit"), "deliberate"))
+          List(DeclinedFinding(Title("nit"), "deliberate"))
         )
       )
     )
@@ -88,8 +88,8 @@ class ReviewThenFixTest extends munit.FunSuite:
     assertEquals(
       result.findings,
       List(
-        OpenFinding(Title("nit"), "deliberate"),
-        OpenFinding(Title("forgotten"), "fixer did not report on it")
+        OpenFinding(Title("nit"), OpenReason.Declined("deliberate"), None),
+        OpenFinding(Title("forgotten"), OpenReason.Unaccounted, None)
       )
     )
 
@@ -108,7 +108,7 @@ class ReviewThenFixTest extends munit.FunSuite:
     )
     assertEquals(
       result.findings,
-      List(OpenFinding(Title("a"), "fixer reported no fixes"))
+      List(OpenFinding(Title("a"), OpenReason.NoFixes, None))
     )
     assert(
       steps.messages.contains("Fixer reported no fixes; ending review"),
@@ -233,10 +233,7 @@ class ReviewThenFixTest extends munit.FunSuite:
     assertEquals(
       result.findings,
       List(
-        OpenFinding(
-          Title("lint broke"),
-          "lint still failing after its fix turn"
-        )
+        OpenFinding(Title("lint broke"), OpenReason.LintStillFailing, None)
       )
     )
     assertEquals(coder.seenSessions.size, 2)
@@ -281,10 +278,10 @@ class ReviewThenFixTest extends munit.FunSuite:
     )
     assert(
       steps.messages.contains(
-        """Findings still open (1):
-          |  - lint broke
-          |    at src/main/Foo.scala:7
-          |    lint still failing after its fix turn""".stripMargin
+        s"""Findings still open (1):
+           |  - lint broke
+           |    at src/main/Foo.scala:7
+           |    ${OpenReason.LintStillFailing.describe}""".stripMargin
       ),
       steps.messages.mkString("\n")
     )

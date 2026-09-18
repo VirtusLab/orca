@@ -4,7 +4,7 @@ import munit.FunSuite
 import orca.{BoundedDiff, OutsideStage}
 import orca.plan.Title
 import orca.progress.PublishedWork
-import orca.review.{OpenFinding, OpenFindings}
+import orca.review.{OpenFinding, OpenFindings, OpenReason}
 import orca.tools.{BranchNotPushed, PrCreateFailed, PrHandle}
 import orca.events.{OrcaEvent, OrcaListener}
 
@@ -123,7 +123,9 @@ class OpenPrFromBranchTest extends FunSuite:
 
   test("open findings follow the flow's body as their own section"):
     val open = OpenFindings(
-      List(OpenFinding(Title("Null check missing"), "max iterations reached"))
+      List(
+        OpenFinding(Title("Null check missing"), OpenReason.CapReached(3), None)
+      )
     )
     val body = run("stub-diff", open).prBody
     assert(

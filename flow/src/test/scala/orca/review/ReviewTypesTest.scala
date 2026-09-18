@@ -76,7 +76,9 @@ class ReviewTypesTest extends munit.FunSuite:
     // A stage result a resume replays and the PR body then reads back, over an
     // opaque `Title`.
     val original = OpenFindings(
-      List(OpenFinding(Title("Null check missing"), "max iterations reached"))
+      List(
+        OpenFinding(Title("Null check missing"), OpenReason.CapReached(3), None)
+      )
     )
     assertEquals(
       readFromString[OpenFindings](writeToString(original)),
@@ -85,6 +87,12 @@ class ReviewTypesTest extends munit.FunSuite:
 
   test("OpenFindings.format keeps a multi-line reason on one bullet"):
     val findings = OpenFindings(
-      List(OpenFinding(Title("Style nit"), "out of\n  scope:\nsee plan"))
+      List(
+        OpenFinding(
+          Title("Style nit"),
+          OpenReason.Declined("out of\n  scope:\nsee plan"),
+          None
+        )
+      )
     )
     assertEquals(findings.format, "- Style nit: out of scope: see plan")
