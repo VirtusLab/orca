@@ -110,12 +110,12 @@ flow(OrcaArgs(args)):
   // session, keyed by that task and seeded with the plan's brief (which primes
   // it on first use, and is replayed if the backend session is lost on resume).
   for (task, n) <- plan.tasks.zipWithIndex do
-    val session = codingAgent.session(
-      "implementer",
-      detail = s"task ${n + 1}: ${task.title}",
-      seed = plan.brief
-    )
     stage(s"Task: ${task.title}"):
+      val session = codingAgent.session(
+        "implementer",
+        detail = s"task ${n + 1}: ${task.title}",
+        seed = plan.brief
+      )
       session.run(task.description)
       reviewThenFix(
         coderSession = session,
@@ -223,8 +223,9 @@ A minimal Pi-backed flow looks the same; Pi reads your normal Pi configuration:
 
 ```scala
 flow(OrcaArgs(args)):
-  val session = pi.session("run", detail = "the whole prompt", seed = userPrompt)
   stage("Run"):
+    val session =
+      pi.session("run", detail = "the whole prompt", seed = userPrompt)
     session.run(userPrompt)
 ```
 
@@ -328,8 +329,8 @@ body, and **the compiler enforces it**: a mutation outside a stage doesn't
 compile. Pure reads (`git.uncommittedDiff`, `git.changedFiles`, `gh.readIssue`,
 `gh.availability`, `fs.read`),
 `display`, and `fail` run anywhere; `agent.session(name, detail, seed)` runs
-outside a stage too — it records a session, not a side effect. Where to *place*
-effects is covered by the [Authoring rules](#authoring-rules).
+inside or outside a stage — it records a session, not a side effect. Where to
+*place* effects is covered by the [Authoring rules](#authoring-rules).
 
 ### The flow lifecycle
 
@@ -601,8 +602,11 @@ construction.
   give the second call a detail of its own. A *changed* detail is a different
   session, so a re-plan that rewords a task gives that task a fresh session
   primed from the seed rather than resuming the old wording's conversation.
-  Callable only outside a stage (the compiler rejects an in-stage mint); its
-  runs happen inside stages, on the flow thread.
+  Mint it where it is used: inside the stage that drives it, or above the
+  stages when several share it. A handle cannot be minted in one stage and
+  driven by a later one — `FlowSession` has no `JsonData`, so it can't leave a
+  stage as that stage's result. Minting and running both happen on the flow
+  thread.
 - **Ephemeral — `agent.chat()`.** A `Chat` handle continuing one conversation
   across `.run` calls *within this run only* — no seeding, no persistence. Runs
   need only the shared `InStage` capability, so chats work inside a
@@ -653,8 +657,8 @@ structural conventions you choose to follow as a flow author.
 1. **Reads outside, mutations inside.** Only side-effecting work goes in a
    stage. Pure reads (`git.uncommittedDiff`, `gh.readIssue`, `fs.read`, `gh.waitForBuild`)
    run outside stages — staging them wastes commits and checkpoints.
-   `agent.session(name, detail, seed)` also belongs outside stages (see
-   [Sessions](#sessions)).
+   `agent.session(name, detail, seed)` is neither — it records a session — so
+   put it where the session is used (see [Sessions](#sessions)).
 
 2. **Push lives in a later stage than the edit that produced it.** A stage
    commits only on completion: a `git.push()` in the same stage as the edit

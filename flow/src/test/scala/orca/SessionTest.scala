@@ -374,34 +374,70 @@ class SessionTest extends FunSuite:
     val recorded = store.load().get.sessions.head
     assertEquals(session.id.value, recorded.id)
 
-  // Minting outside a stage is exercised by every other test in this suite;
-  // the two tests below pin the complementary guard's two layers: minting
-  // inside a stage is rejected (a skipped stage on resume would never re-mint)
-  // — at compile time for the direct call, at runtime for the indirect one
-  // OutsideStage can't see.
-  test("agent.session directly inside a stage body does not compile"):
-    val errors = compileErrors(
-      """
-      given FlowControl = ???
-      given orca.InStage = orca.InStage.unsafe
-      val agent = new StubAgent
-      val _ = agent.session("implementer", detail = "task 1", seed = "seed")
-      """
-    )
-    assert(
-      errors.contains("must be called outside a stage"),
-      s"expected the OutsideStage implicitNotFound message, got: $errors"
+  // A session may be minted inside the stage that drives it (ADR 0018 §2.6
+  // R23). The three tests below pin what that costs and what it must still
+  // guarantee across a resume.
+  test("a session minted inside a stage is committed by that stage"):
+    val (fc, dir) = TestFlowControl.create(new EventDispatcher(Nil))
+    given FlowControl = fc
+    val agent = new StubAgent
+    val minted = stage("Implement"):
+      agent.session("implementer", detail = "task 1", seed = "brief").id.value
+    // Read through a store the stage never touched, so this sees the file the
+    // stage left on disk rather than any in-memory state.
+    val reread = ProgressStore.default(dir, "p").load().get
+    assertEquals(reread.sessions.map(_.id), List(minted))
+    assertEquals(uncommitted(dir), "", "the stage must commit the record")
+
+  test("a replayed stage does not re-mint its session"):
+    val (fc, dir) = TestFlowControl.create(new EventDispatcher(Nil))
+    val agent = new StubAgent
+    val mints = new java.util.concurrent.atomic.AtomicInteger(0)
+    def run()(using FlowControl): String =
+      stage("Implement"):
+        val _ = mints.incrementAndGet()
+        agent.session("implementer", detail = "task 1", seed = "brief").id.value
+    val first = run()(using fc)
+    val resumed = run()(using reopen(dir))
+    assertEquals(resumed, first, "the replayed result must come from the log")
+    assertEquals(mints.get(), 1, "the skipped stage's body must not run again")
+
+  test("a re-run stage resolves its session to the recorded id"):
+    val (fc, dir) = TestFlowControl.create(new EventDispatcher(Nil))
+    val agent = new StubAgent
+    // The nested stage commits the log mid-body, so the record survives the
+    // teardown reset below — the shape a stage that fails after a checkpoint
+    // leaves behind.
+    def mintThenCheckpoint()(using FlowControl): String =
+      val id =
+        agent.session("implementer", detail = "task 1", seed = "brief").id
+      stage("Checkpoint")(())
+      id.value
+
+    val _ = intercept[RuntimeException]:
+      given FlowControl = fc
+      stage[String]("Implement"):
+        val _ = mintThenCheckpoint()
+        throw new RuntimeException("boom")
+    val recorded = ProgressStore.default(dir, "p").load().get.sessions.head.id
+    val _ = os.proc("git", "reset", "--hard").call(cwd = dir)
+
+    val reMinted =
+      given FlowControl = reopen(dir)
+      stage("Implement")(mintThenCheckpoint())
+    assertEquals(reMinted, recorded)
+    assertEquals(ProgressStore.default(dir, "p").load().get.sessions.size, 1)
+
+  /** A fresh control over the same repo and store — a re-run of the flow in a
+    * new process.
+    */
+  private def reopen(dir: os.Path): TestFlowControl =
+    new TestFlowControl(
+      new EventDispatcher(Nil),
+      new OsGitTool(dir),
+      ProgressStore.default(dir, "p"),
+      "p"
     )
 
-  test(
-    "agent.session minted inside a stage via a FlowControl-only helper is rejected at runtime"
-  ):
-    val (store, dir) = freshStore()
-    given FlowControl = makeControl(store, dir)
-    val agent = new StubAgent
-    def mintInHelper()(using FlowControl): Unit =
-      val _ = agent.session("implementer", detail = "task 1", seed = "seed")
-    intercept[OrcaFlowException]:
-      stage("outer"):
-        mintInHelper()
-        "done"
+  private def uncommitted(dir: os.Path): String =
+    os.proc("git", "status", "--porcelain").call(cwd = dir).out.text().trim

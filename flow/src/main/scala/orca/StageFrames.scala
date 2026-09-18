@@ -114,19 +114,18 @@ private[orca] trait StageFrames:
     assertOwnerThread("stage(...)")
     frames = frames.tail
 
-  /** True when at least one stage frame is open — i.e. execution is inside a
-    * stage body. Used to gate `agent.session(...)` to the flow-body top level.
-    */
-  def inStage: Boolean = frames.tail.nonEmpty
-
-  // Flat, not per-frame: `agent.session(...)` must be called outside any stage,
-  // so every key is claimed in the root scope.
+  // Flat, not per-frame: a key names one conversation for the whole run,
+  // wherever `agent.session(...)` mints it.
   private var claimedSessionKeys: Set[SessionKey] = Set.empty
 
   /** Record that this execution has minted `key`, rejecting a second mint of a
     * key already claimed. Only mints within one execution collide: a resumed
     * run starts with nothing claimed, so re-minting a key the log already holds
     * is the reuse path, not a duplicate.
+    *
+    * Only mints that actually run claim, so two colliding mints in different
+    * stages collide on the fresh run that reaches both, and not on a resume
+    * that replays one of those stages.
     */
   private[orca] def claimSessionKey(key: SessionKey): Unit =
     assertOwnerThread("agent.session(...)")

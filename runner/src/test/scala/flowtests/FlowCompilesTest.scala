@@ -41,8 +41,7 @@ object FlowCanary:
     flow(OrcaArgs()):
       // Durable structured turns go through the FlowSession door (seeded,
       // persisted); the raw `resultAs[O]` door is exercised with ephemeral
-      // (fresh / `.id`) sessions only — never a durable-session id. Minting
-      // must sit outside the stage (OutsideStage rejects it inside).
+      // (fresh / `.id`) sessions only — never a durable-session id.
       val session =
         claude.session("plan", detail = "the task", seed = userPrompt)
       stage("plan"):
@@ -71,6 +70,16 @@ object FlowCanary:
         val chat: Chat[?] = claude.chat()
         val _ = chat.run("kick off")
         val _ = chat.run("keep going")
+
+  /** A session may be minted inside the stage that drives it — the shape
+    * `flows/simple.sc` uses when one stage owns the whole conversation.
+    */
+  def sessionMintedInsideItsStage(): Unit =
+    flow(OrcaArgs()):
+      stage("implement"):
+        val session =
+          claude.session("impl", detail = "the task", seed = userPrompt)
+        val _ = session.run(userPrompt)
 
   /** Every top-level accessor must resolve from `import orca.*` alone.
     */
@@ -476,8 +485,8 @@ object FlowCanary:
       codingAgent = Some(_.codex),
       reviewAgent = Some(_.claude.sonnet)
     ):
-      // Sessions are minted at the flow-body top level (outside any stage) and
-      // thread because each role accessor is backend-pinned.
+      // Sessions minted above the stages that share them thread because each
+      // role accessor is backend-pinned.
       val planSession =
         planningAgent.session("plan", detail = "the task", seed = userPrompt)
       val implSession =
