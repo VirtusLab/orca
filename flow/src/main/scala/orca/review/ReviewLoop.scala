@@ -85,13 +85,18 @@ private[review] def stopPolicy(
 private[review] def capExitMessage(maxIterations: Int): String =
   s"Reached max iterations ($maxIterations)"
 
-/** The headline for a round that found nothing for the fixer. A run can reach
-  * it with findings still open from earlier rounds or phases, so it must not
-  * claim the review came back clean; the block underneath
-  * ([[formatOpenFindings]]) counts and names them.
+/** The headline for a round that found nothing for the fixer. Only the run's
+  * first evaluation can claim the review came back clean: a later round reaches
+  * here after earlier rounds put findings on the screen, whether or not any are
+  * still open. The block underneath ([[formatOpenFindings]]) counts and names
+  * whatever is.
   */
-private[review] def cleanExitMessage(open: OpenFindings): String =
-  if open.findings.isEmpty then "No findings" else "No new findings"
+private[review] def cleanExitMessage(
+    open: OpenFindings,
+    iteration: Int
+): String =
+  if iteration == 0 && open.findings.isEmpty then "No findings"
+  else "No new findings"
 
 /** The headline shown when a loop stops because the fixer reported no fixes. */
 private[review] val FixerHaltMessage: String =
@@ -233,7 +238,7 @@ def fixLoop(
       maxIterations = maxIterations
     ) match
       case LoopStep.Done =>
-        announceExit(cleanExitMessage(accumulated), accumulated)
+        announceExit(cleanExitMessage(accumulated, iteration), accumulated)
         accumulated
       case LoopStep.CapReached(capped) =>
         val open = recordOpen(accumulated, capped.findings)
@@ -976,7 +981,9 @@ private[review] class ReviewFixLoop[B <: BackendTag](
         // `ctx` explicit on the announce calls for the same given-priority
         // reason as [[prepareSelection]].
         case LoopStep.Done =>
-          announceExit(cleanExitMessage(accumulated), accumulated)(using ctx)
+          announceExit(cleanExitMessage(accumulated, iteration), accumulated)(
+            using ctx
+          )
           accumulated
         case LoopStep.CapReached(capped) =>
           val open = recordOpen(accumulated, capped.findings)
@@ -1026,7 +1033,9 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     // as in `run`.
     if findings.isEmpty then
       val nothingOpen = OpenFindings(Nil)
-      announceExit(cleanExitMessage(nothingOpen), nothingOpen)(using ctx)
+      announceExit(cleanExitMessage(nothingOpen, iteration = 0), nothingOpen)(
+        using ctx
+      )
       nothingOpen
     else
       val outcome = fixTurn(round.findings, AfterFixTurn.Stop)

@@ -80,11 +80,11 @@ object FixOutcome:
     def bySuffixedTitle(text: String): Option[ReviewFinding] =
       val echoNorm = normalised(text)
       findings
-        .filter: i =>
-          val t = normalised(i.title.value)
+        .filter: f =>
+          val t = normalised(f.title.value)
           echoNorm.length > t.length && echoNorm.startsWith(t) &&
           !echoNorm.charAt(t.length).isLetterOrDigit
-        .distinctBy(i => normalised(i.title.value)) match
+        .distinctBy(f => normalised(f.title.value)) match
         case List(only) => Some(only)
         case _          => None
 
@@ -94,7 +94,7 @@ object FixOutcome:
         .collectFirst { case k if startsWithKey(text, k.key) => k.finding }
         .orElse(findings.find(_.title.value == text))
         .orElse(
-          findings.find(i => normalised(i.title.value) == normalised(text))
+          findings.find(f => normalised(f.title.value) == normalised(text))
         )
         .orElse(bySuffixedTitle(text))
 

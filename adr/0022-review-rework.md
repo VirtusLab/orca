@@ -49,7 +49,7 @@ Confidence scores and the per-severity gate are gone. In their place:
   only on genuine silence rather than on having had its findings filtered out.
 
 > **Amendment (2026-08-27).** Severity does not stay: `Severity` and
-> `ReviewFinding.severity` are removed. Across 205 findings in six runs the label
+> `ReviewIssue.severity` are removed. Across 205 findings in six runs the label
 > produced zero Critical and 80% Info, and the fixer declined none of the 64
 > findings it received — so it never informed a decision. It follows confidence
 > out for the same reason: a self-assessed label tracks the model's mood, not

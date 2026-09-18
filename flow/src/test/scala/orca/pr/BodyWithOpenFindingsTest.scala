@@ -2,7 +2,7 @@ package orca.pr
 
 import munit.FunSuite
 import orca.plan.Title
-import orca.review.{OpenFinding, OpenFindings, OpenReason}
+import orca.review.{Location, OpenFinding, OpenFindings, OpenReason}
 
 /** The section's own text. That a PR body carries it at all is
   * [[OpenPrFromBranchTest]] and [[OpenPrIfGitHubTest]].
@@ -33,6 +33,28 @@ class BodyWithOpenFindingsTest extends FunSuite:
         s"- Null check missing — ${OpenReason.CapReached(5).describe}",
         s"- Rename foo — ${OpenReason.NoFixes.describe}"
       )
+    )
+
+  test("a bullet names where the finding points when the reviewer said"):
+    // The reviewer that first reported it named the place, and an entry seeded
+    // from an earlier loop still carries it — so the PR body can point a reader
+    // at the code.
+    val open = OpenFindings(
+      List(
+        OpenFinding(
+          Title("Null check missing"),
+          OpenReason.NoFixes,
+          Some(Location("src/main/Foo.scala", Some(42)))
+        )
+      )
+    )
+    val rendered = bodyWithOpenFindings("Body", open)
+    assert(
+      rendered.endsWith(
+        s"- Null check missing (`src/main/Foo.scala:42`) — " +
+          OpenReason.NoFixes.describe
+      ),
+      rendered
     )
 
   test("a multi-line title and reason are collapsed onto one bullet"):

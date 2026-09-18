@@ -561,8 +561,10 @@ class ReviewAndFixTest extends munit.FunSuite:
 
   test("a reviewer joining in round three sees round one's declines"):
     given FlowControl = control
-    // Declines accumulate across rounds, so a late joiner learns what was
-    // settled before it started — not merely what the previous round settled.
+    // A decline is the one thing a reviewer cannot recover by reading the code.
+    // The set accumulates across rounds, so the late joiner's prompt — the
+    // initial one, not a resume — carries what was settled before it started,
+    // not merely what the previous round settled.
     val early = new FakeAgent(
       name = "early",
       outputs = List(
@@ -1011,10 +1013,10 @@ class ReviewAndFixTest extends munit.FunSuite:
       steps.messages.mkString("\n")
     )
 
-  test("a skipped whole-run review still returns the seeded declines"):
+  test("a skipped whole-run review adds its entry to what was seeded"):
     // The skip entry is added to `priorOpenFindings`, not returned instead of
     // them: the PR body reads this result, and nothing after the final loop
-    // reports the per-task declines.
+    // reports what the per-task runs left open.
     val steps = new ReviewLoopFixture.StepCapture
     given FlowControl =
       ReviewLoopFixture.controlWithoutStartingCommit(steps.dispatcher)
@@ -1037,8 +1039,9 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
 
   test("seeds sharing a title collapse before a skipped review adds its own"):
-    // A flow merges per-task declines, so two tasks whose fixers declined the
-    // same title arrive as two seeds; the PR body must carry one bullet.
+    // A flow merges what its per-task runs left open, so two tasks whose
+    // fixers declined the same title arrive as two seeds; the PR body must
+    // carry one bullet.
     val steps = new ReviewLoopFixture.StepCapture
     given FlowControl =
       ReviewLoopFixture.controlWithoutStartingCommit(steps.dispatcher)
@@ -1075,10 +1078,10 @@ class ReviewAndFixTest extends munit.FunSuite:
       )
     )
 
-  test("seeded declines reach round one's reviewers and return at exit"):
-    // `priorOpenFindings` carries what per-task fixers already declined into a
-    // final loop: shown as declined from round one — so reviewers don't
-    // re-report what was already answered — and still in the exit record.
+  test("seeded open findings reach round one's reviewers and return at exit"):
+    // `priorOpenFindings` carries what the per-task runs left open into a final
+    // loop: shown from round one — so reviewers don't re-report what was
+    // already answered — and still in the exit record.
     given FlowControl = control
     val reviewer = new FakeAgent("r", outputs = List(ReviewResult.empty))
     val seeded = OpenFinding(
@@ -1782,40 +1785,6 @@ class ReviewAndFixTest extends munit.FunSuite:
       emitted.contains("reviewer selection returned no reviewers this round"),
       emitted.mkString("\n")
     )
-
-  test("a reviewer joining a later round is told what the fixer declined"):
-    // The declines are the one thing a reviewer cannot recover by reading the
-    // code, and a late joiner's prompt is the initial one, not a resume.
-    given FlowControl = control
-    val early = new FakeAgent(
-      name = "early",
-      outputs = List(
-        ReviewResult(List(finding("real bug"), finding("nit"))),
-        ReviewResult.empty
-      )
-    )
-    val late = new FakeAgent("late", outputs = List(ReviewResult.empty))
-    val coder = new FakeAgent(
-      name = "coder",
-      outputs = List(
-        FixOutcome(
-          List(Title("real bug")),
-          List(DeclinedFinding(Title("nit"), "the shape is deliberate"))
-        )
-      )
-    )
-    val lateJoiner = selector: (all, history) =>
-      if history.isEmpty then all.filter(_.name == "early") else all
-    val _ = reviewAndFixLoop(
-      coderSession = ReviewLoopFixture.coderSession(coder),
-      reviewers = List(asReviewer(early), asReviewer(late)),
-      task = titled("build the widget"),
-      reviewerSelection = lateJoiner,
-      diff = ReviewDiff.Pinned("")
-    )
-    val joined = late.seenPrompts.headOption
-      .getOrElse(fail("the late reviewer never ran"))
-    assert(joined.contains("- nit: the shape is deliberate"), joined)
 
   test("a selector returning the same entry twice runs it once that round"):
     // Entries carry a `ReviewerId`, so `active.distinctBy(_.id)` collapses an

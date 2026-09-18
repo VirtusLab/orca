@@ -30,7 +30,7 @@ class FixLoopTest extends munit.FunSuite:
       if it.hasNext then it.next()
       else throw new IllegalStateException("evaluator exhausted")
 
-  test("clean first evaluation returns no declined and never calls fix"):
+  test("clean first evaluation leaves nothing open and never calls fix"):
     val rec = new Recorder
     given FlowContext = new TestFlowContext(new EventDispatcher(List(rec)))
     val result = fixLoop(
@@ -41,7 +41,7 @@ class FixLoopTest extends munit.FunSuite:
     assert(rec.steps.contains("No findings"))
 
   test(
-    "re-evaluates after a non-empty `fixed`, accumulates declined across rounds"
+    "re-evaluates after a non-empty `fixed`, accumulating what stays open"
   ):
     val rec = new Recorder
     given FlowContext = new TestFlowContext(new EventDispatcher(List(rec)))
@@ -78,7 +78,9 @@ class FixLoopTest extends munit.FunSuite:
       List("Iteration 1", "Iteration 2", "Iteration 3")
     )
 
-  test("a finding declined in one round and fixed in the next is not declined"):
+  test(
+    "a finding declined in one round and fixed in the next is not left open"
+  ):
     given FlowContext = ctx
     // The decline is only the fixer's position at the time; once it fixes the
     // same finding, carrying the old entry would report fixed work as declined.
@@ -129,6 +131,19 @@ class FixLoopTest extends munit.FunSuite:
       result.findings,
       List(OpenFinding(Title("x"), OpenReason.NoFixes, None))
     )
+
+  test("a clean round after a fixed one says no NEW findings"):
+    // Round one put findings on the screen and the fixer cleared them, so
+    // nothing is open — but "No findings" would deny what the reader just saw.
+    val rec = new Recorder
+    given FlowContext = new TestFlowContext(new EventDispatcher(List(rec)))
+    val result = fixLoop(
+      evaluate =
+        scripted(List(ReviewResult(List(finding("a"))), ReviewResult.empty)),
+      fix = _ => FixOutcome(List(Title("a")), Nil)
+    )
+    assertEquals(result, OpenFindings(Nil))
+    assert(rec.steps.contains("No new findings"), rec.steps.mkString("\n"))
 
   test("the fix line says another review round follows the fixes"):
     val rec = new Recorder
