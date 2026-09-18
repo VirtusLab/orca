@@ -1,5 +1,7 @@
 package orca
 
+import orca.progress.SessionKey
+
 /** Per-run stage-identity and stage-baseline bookkeeping shared by every
   * [[FlowControl]] implementation (production
   * [[orca.runner.DefaultFlowContext]] and the test doubles), so a test double
@@ -35,14 +37,13 @@ package orca
   * Thread-affine: reached only through [[FlowControl]], single-threaded per
   * top-level `flow(...)` (R12, ADR 0018 §2.2), so plain vars state the real
   * invariant. `ownerThread` (captured at construction) is asserted on
-  * [[enterStage]], [[exitStage]], and [[nextSessionOccurrence]], so a stray
-  * call from an `ox.fork` — always a fresh thread on the pinned ox 1.0.5 —
-  * throws instead of silently corrupting the frame stack / counters. Ox runs a
-  * `supervised:` block's own body on a fresh fork too, so `stage(...)` from the
-  * direct body of a user-opened nested scope is rejected just like an explicit
-  * `fork`. Production is unaffected: `runFlow` constructs the context inside
-  * the same `supervised:` body that runs the flow, so owner and body thread
-  * coincide.
+  * [[enterStage]], [[exitStage]], and [[claimSessionKey]], so a stray call from
+  * an `ox.fork` — always a fresh thread on the pinned ox 1.0.5 — throws instead
+  * of silently corrupting the frame stack / counters. Ox runs a `supervised:`
+  * block's own body on a fresh fork too, so `stage(...)` from the direct body
+  * of a user-opened nested scope is rejected just like an explicit `fork`.
+  * Production is unaffected: `runFlow` constructs the context inside the same
+  * `supervised:` body that runs the flow, so owner and body thread coincide.
   *
   * '''This is the only enforcement of R12 for user flow scripts.''' The
   * capture/separation checking enforcement (ADR 0018 §6) catches a
@@ -118,12 +119,22 @@ private[orca] trait StageFrames:
     */
   def inStage: Boolean = frames.tail.nonEmpty
 
-  // Session occurrences are counted flat: `agent.session(...)` must be called
-  // outside any stage, so it always mints against the root scope. Keyed
-  // per-name, mirroring a frame's stage counter.
-  private var sessionCounts: Map[String, Int] = Map.empty
-  def nextSessionOccurrence(name: String): Int =
+  // Flat, not per-frame: `agent.session(...)` must be called outside any stage,
+  // so every key is claimed in the root scope.
+  private var claimedSessionKeys: Set[SessionKey] = Set.empty
+
+  /** Record that this execution has minted `key`, rejecting a second mint of a
+    * key already claimed. Only mints within one execution collide: a resumed
+    * run starts with nothing claimed, so re-minting a key the log already holds
+    * is the reuse path, not a duplicate.
+    */
+  private[orca] def claimSessionKey(key: SessionKey): Unit =
     assertOwnerThread("agent.session(...)")
-    val n = sessionCounts.getOrElse(name, 0)
-    sessionCounts = sessionCounts.updated(name, n + 1)
-    n
+    if claimedSessionKeys.contains(key) then
+      throw new OrcaFlowException(
+        s"agent.session(...) minted '${key.label}' twice in this run — both " +
+          "handles would drive one conversation. Give each call a detail " +
+          "naming what it serves (the task, say), and a second session for " +
+          "the same work a detail that says so ('task 3, pass 2')."
+      )
+    claimedSessionKeys = claimedSessionKeys + key

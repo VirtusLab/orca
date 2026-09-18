@@ -143,16 +143,23 @@ most easily broken:
 
   The user surface is three rungs (README "Sessions"): `agent.run` (one-shot)
   / `agent.chat()` (ephemeral `Chat`, fork-safe, `InStage`-only) /
-  `agent.session(name, seed)` (durable `FlowSession`, flow-thread-only — the
-  owner-thread assert in `FlowSession.run` enforces it at runtime, and the raw
+  `agent.session(name, detail, seed)` (durable `FlowSession`, flow-thread-only —
+  the owner-thread assert in `FlowSession.run` enforces it at runtime, and the raw
   session-threading doors are `private[orca] runWithSession`, so ephemeral
   continuation is only reachable through a `Chat` handle).
 
-  Sessions have named identity: `agent.session(name, seed)` keys a
-  `SessionRecord` by `(name, occurrence)` — stage-style, via
-  `FlowControl.nextSessionOccurrence(name)` — so reordering or conditionally
-  skipping *other* `session(...)` calls between runs doesn't silently re-key
-  this one. Each record also carries the minting agent's `backend` tag, so
+  Sessions have explicit identity: `agent.session(name, detail, seed)` keys a
+  `SessionRecord` by `(name, detail)`, compared for exact string equality.
+  `name` is the role (it is what reaches `OrcaEvent.SessionCommitted` and the
+  manifest), `detail` required free text naming which session under that role
+  this is — the task, or what a one-per-run session covers. Neither is hashed
+  or turned into a filename, and only `name` is validated (non-empty).
+  Reordering
+  or skipping *other* `session(...)` calls between runs doesn't re-key this one;
+  a changed detail is a different session. Minting one key twice in a single
+  execution throws (`FlowControl.claimSessionKey`); re-minting it on resume is
+  the reuse path, since only this execution's keys are tracked. Each record also
+  carries the minting agent's `backend` tag, so
   `FlowLifecycle.rehydrateSessions` replays a resumed run's resume wire ids
   into the record's own backend's agent rather than always the lead
   (untagged/older records fall back to the lead; a tag matching none of the

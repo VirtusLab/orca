@@ -30,7 +30,11 @@ import orca.{*, given}
 flow(OrcaArgs(args)):
   // Seeded with the prompt (rather than run with it), so the task survives a
   // resume even when a later fix-loop turn doesn't restate it.
-  val session = codingAgent.session("implementer", seed = userPrompt)
+  val session = codingAgent.session(
+    "implementer",
+    detail = "the requested change",
+    seed = userPrompt
+  )
   // This flow's review runs inside the implement stage rather than after it.
   val openFindings = stage("Implement"):
     session.run("Implement the task from the seed prompt above.")

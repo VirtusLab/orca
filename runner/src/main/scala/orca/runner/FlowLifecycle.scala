@@ -147,7 +147,7 @@ object FlowLifecycle:
         case None =>
           ctx.emit(
             OrcaEvent.Step(
-              s"warning: session '${record.name}' #${record.occurrence} " +
+              s"warning: session '${record.key.label}' " +
                 s"recorded backend tag '${record.backend.getOrElse("")}' " +
                 "does not match any known backend — skipping rehydration"
             )
@@ -182,7 +182,7 @@ object FlowLifecycle:
       case _ =>
         ctx.emit(
           OrcaEvent.Step(
-            s"warning: session '${record.name}' #${record.occurrence} has an " +
+            s"warning: session '${record.key.label}' has an " +
               "invalid recorded id or wire id — skipping rehydration"
           )
         )

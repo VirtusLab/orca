@@ -2,7 +2,7 @@ package orca
 
 import language.experimental.captureChecking
 
-import orca.progress.{CommitHash, ProgressStore}
+import orca.progress.{CommitHash, ProgressStore, SessionKey}
 
 import scala.annotation.implicitNotFound
 
@@ -22,7 +22,7 @@ import scala.annotation.implicitNotFound
   * another thread. (That marker is `@experimental` on 3.9.0, hence this file's
   * `captureChecking` import; the taint stays local to this compilation unit —
   * see ADR 0018 §6.) At runtime, [[StageFrames]]'s owner-thread assert enforces
-  * it for `enterStage`/`exitStage` and [[nextSessionOccurrence]].
+  * it for `enterStage`/`exitStage` and [[claimSessionKey]].
   *
   * Not sealed: its implementation (`DefaultFlowContext`) lives in the `runner`
   * module, which depends on `flow`, not the reverse. An accepted guard-rail —
@@ -88,9 +88,8 @@ trait FlowControl extends FlowContext, caps.ExclusiveCapability:
     */
   private[orca] def assertOwnerThread(what: String): Unit
 
-  /** Next occurrence index for a session `name` in this run: 0 for the first
-    * `agent.session(name, ...)`, 1 for the second, and so on. Keyed per-name
-    * and independent of the stage frames — `agent.session(...)` is required to
-    * be called outside any stage, so it always mints against the root scope.
+  /** Claim `key` for this execution, throwing if `agent.session(...)` already
+    * minted it here — see [[StageFrames.claimSessionKey]] for why a resumed
+    * run's re-mint is not a claim conflict.
     */
-  def nextSessionOccurrence(name: String): Int
+  private[orca] def claimSessionKey(key: SessionKey): Unit

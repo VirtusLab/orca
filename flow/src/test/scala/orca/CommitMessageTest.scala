@@ -223,7 +223,7 @@ class CommitMessageTest extends munit.FunSuite:
         ctx.progressStore.upsertSession(
           SessionRecord(
             name = "s",
-            occurrence = 1,
+            detail = "",
             id = "sid",
             seed = "seed",
             resumeWireId = Some("wire"),

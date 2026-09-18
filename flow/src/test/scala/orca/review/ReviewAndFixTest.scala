@@ -1819,7 +1819,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       val control = ReviewLoopFixture.control(new EventDispatcher(Nil))
       // Record the coder session's seed under its id ("s", from the fixture).
       control.progressStore.upsertSession(
-        SessionRecord(name = "s", occurrence = 0, id = "s", seed = seed)
+        SessionRecord(name = "s", detail = "", id = "s", seed = seed)
       )
       given FlowControl = control
       val coder = new SeedProbingCoder(

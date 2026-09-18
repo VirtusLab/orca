@@ -40,9 +40,8 @@ trait ProgressStore:
     */
   def appendEntry(entry: StageEntry)(using WorkspaceWrite): Unit
 
-  /** Upsert a session record by [[SessionRecord.name]] +
-    * [[SessionRecord.occurrence]]: replaces an existing record with that key,
-    * or appends if none exists. Last write wins.
+  /** Upsert a session record by its [[SessionKey]]: replaces an existing record
+    * with that key, or appends if none exists. Last write wins.
     *
     * Requires [[writeHeader]] first; otherwise it throws. Does NOT commit — the
     * next stage commit force-adds the log and carries it. So on failure
@@ -194,9 +193,7 @@ private class OsProgressStore(workDir: os.Path, val path: os.Path)
       log: ProgressLog,
       record: SessionRecord
   ): ProgressLog =
-    val idx = log.sessions.indexWhere(r =>
-      r.name == record.name && r.occurrence == record.occurrence
-    )
+    val idx = log.sessions.indexWhere(_.key == record.key)
     val updated =
       if idx >= 0 then log.sessions.updated(idx, record)
       else log.sessions :+ record

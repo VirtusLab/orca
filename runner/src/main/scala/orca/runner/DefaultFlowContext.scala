@@ -87,5 +87,5 @@ private[orca] class DefaultFlowContext[
     reportedErrors.get().exists(_ eq e)
 
   // Stage-identity bookkeeping (enterStage/exitStage/inStage,
-  // nextSessionOccurrence) comes from the shared `StageFrames` mixin, so test
+  // claimSessionKey) comes from the shared `StageFrames` mixin, so test
   // doubles cannot drift from production.

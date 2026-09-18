@@ -68,10 +68,22 @@ case class ProgressHeader(
 case class StageEntry(id: String, name: String, resultJson: RawJson)
     derives JsonData
 
-/** A persisted session: the name + occurrence that key it (stage-style — see
-  * [[orca.FlowControl.nextSessionOccurrence]]), a minted UUID, the seed string
-  * the author supplied, and — when the session is durably resumable — the wire
-  * id to resume against.
+/** The pair that identifies a durable session: the `name` it was minted under
+  * (its role, e.g. `implementer`) and the `detail` telling it apart from the
+  * other sessions sharing that name — typically the task it serves. Free text,
+  * compared by exact string equality, and never used as a filename or a wire
+  * token, so it needs no escaping. Empty for a session that is the only one
+  * under its name.
+  */
+case class SessionKey(name: String, detail: String):
+  /** How the key reads in user-facing text: the name alone for a session with
+    * no detail, `name (detail)` otherwise.
+    */
+  def label: String = if detail.isEmpty then name else s"$name ($detail)"
+
+/** A persisted session: the [[SessionKey]] fields that key it, a minted UUID,
+  * the seed string the author supplied, and — when the session is durably
+  * resumable — the wire id to resume against.
   *
   * `id` is the stable client id the framework hands across calls;
   * [[SessionRecord.resumeWireId]] is the id to put on the wire when resuming
@@ -99,12 +111,13 @@ case class StageEntry(id: String, name: String, resultJson: RawJson)
   */
 case class SessionRecord(
     name: String,
-    occurrence: Int,
+    detail: String,
     id: String,
     seed: String,
     resumeWireId: Option[String] = None,
     backend: Option[String] = None
-) derives JsonData
+) derives JsonData:
+  def key: SessionKey = SessionKey(name, detail)
 
 /** One flow run's persisted state, keyed by its header: the outcome of each
   * completed stage, the sessions it minted, and where it published its work.

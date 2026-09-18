@@ -10,7 +10,7 @@ import orca.agents.{
   JsonData
 }
 import orca.events.OrcaEvent
-import orca.progress.{ProgressLog, SessionRecord}
+import orca.progress.{ProgressLog, SessionKey, SessionRecord}
 
 import scala.annotation.implicitNotFound
 import scala.util.NotGiven
@@ -34,9 +34,9 @@ object OutsideStage:
 
 /** A durable, resumable LLM-session handle — the single door for sessions that
   * must survive a flow crash and resume. Obtain one with `agent.session(name,
-  * seed)`. It owns the probe → seed/preamble → run → persist protocol, so a
-  * durable run can never silently skip seeding or wire-id persistence the way a
-  * bare `agent.run` / `chat.run` turn does.
+  * detail, seed)`. It owns the probe → seed/preamble → run → persist protocol,
+  * so a durable run can never silently skip seeding or wire-id persistence the
+  * way a bare `agent.run` / `chat.run` turn does.
   *
   * Use [[run]] for free-form text and [[resultAs]]`.run` for a structured `O`.
   * Both prime the conversation with the recorded seed and a progress preamble
@@ -62,9 +62,9 @@ final class FlowSession[B <: BackendTag] private[orca] (
       * an ephemeral continuation via `agent.chat(id)`.
       */
     val id: SessionId[B],
-    /** The name this session was minted under. Carried onto every turn's
+    /** The name half of the session's key. Carried onto every turn's
       * `OrcaEvent.SessionCommitted`, which is what names the session in the run
-      * manifest.
+      * manifest; the detail half stays in the progress log.
       */
     private[orca] val name: String
 ):
@@ -158,20 +158,32 @@ final class FlowSessionCall[B <: BackendTag, O] private[orca] (
   * it can depend on [[FlowControl]] while [[Agent]] stays in `tools`.
   */
 extension [B <: BackendTag](agent: Agent[B])
-  /** Get-or-create a durable [[FlowSession]] keyed by `name` + call-occurrence
-    * in this run's log, stage-style (mirrors `stage(name)`'s id, ADR 0018
-    * §2.1).
+  /** Get-or-create a durable [[FlowSession]] keyed by `(name, detail)` in this
+    * run's log.
     *
-    * Reserves a [[SessionId]] and records `(name, occurrence, id, seed)` in the
-    * progress log, then returns a [[FlowSession]] wrapping it; the backend
-    * conversation is created lazily on the handle's first gated `run`. On
-    * resume, wraps the id recorded at this `(name, occurrence)` rather than
-    * minting a second. The seed is only recorded here; [[FlowSession.run]]
-    * applies it on first use and replays it on loss.
+    * `name` is the session's role — `implementer`, `final-fixer` — and the only
+    * half of the key that leaves the log: it names the session in the run
+    * manifest and is what `orca continue <name>` matches. `detail` says which
+    * session under that name this is — the task it serves, or what a
+    * one-per-run session covers — and is what a reader sees beside the name.
     *
-    * Keying by `name` + occurrence (not call position) means identity survives
-    * inserting/reordering *other* `session(...)` calls between runs; only the
-    * order among calls sharing this `name` matters.
+    * Reserves a [[SessionId]] and records key + id + seed in the progress log,
+    * then returns a [[FlowSession]] wrapping it; the backend conversation is
+    * created lazily on the handle's first gated `run`. On resume, wraps the id
+    * recorded at this key rather than minting a second. The seed is only
+    * recorded here; [[FlowSession.run]] applies it on first use and replays it
+    * on loss.
+    *
+    * Identity is what the key says, not where the call sits: inserting,
+    * reordering or skipping other `session(...)` calls between runs leaves this
+    * one alone, while a changed `detail` — a re-plan rewording the task it
+    * names, say — is a different session, minted fresh and primed from the
+    * seed.
+    *
+    * Minting one key twice in a run throws (see
+    * [[StageFrames.claimSessionKey]]): two handles driving one conversation is
+    * an authoring mistake, and the detail is where an author asks for a second
+    * session over the same work.
     *
     * No LLM call and no commit, so it is callable outside a stage (and, minting
     * a fresh UUID, is not referentially transparent). This is the one call in
@@ -182,45 +194,41 @@ extension [B <: BackendTag](agent: Agent[B])
     * carries the log — the retry then mints a fresh session and re-seeds (see
     * `ProgressStore.upsertSession`).
     */
-  def session(name: String, seed: String)(using
+  def session(name: String, detail: String, seed: String)(using
       fc: FlowControl,
       outside: OutsideStage
   ): FlowSession[B] =
     // An empty name decodes ambiguously; treat it as an authoring defect.
     require(name.nonEmpty, "session name must be non-empty")
     // A session minted inside a stage that gets skipped on resume would never
-    // re-mint, desyncing the occurrence counter — so require the flow-body top
-    // level (ADR 0018 §2.6). [[OutsideStage]] rejects the direct in-stage call
-    // at compile time; this catches the indirect path it can't see (a
-    // FlowControl-only helper invoked from within a stage).
+    // re-mint, leaving later stages driving a handle nothing recorded — so
+    // require the flow-body top level (ADR 0018 §2.6). [[OutsideStage]] rejects
+    // the direct in-stage call at compile time; this catches the indirect path
+    // it can't see (a FlowControl-only helper invoked from within a stage).
     if fc.inStage then
       throw new OrcaFlowException(
         "agent.session(...) must be called outside a stage: mint sessions at " +
           "the flow-body top level, before stages, and run them inside stages " +
           "via the FlowSession handle (session.run / session.resultAs[...].run)."
       )
-    val occ = fc.nextSessionOccurrence(name)
-    new FlowSession(agent, resolveSessionId(agent, name, occ, seed), name)
+    val key = SessionKey(name, detail)
+    fc.claimSessionKey(key)
+    new FlowSession(agent, resolveSessionId(agent, key, seed), name)
 
-/** The reuse-or-mint decision behind `agent.session(name, seed)`: look up any
-  * session already recorded at `(name, occurrence)` and either reuse it
-  * (backend tag matches, recorded id parses) or mint a fresh one — on a backend
-  * swap, a corrupt/mismatched recorded id, or no record at all. See `session`'s
+/** The reuse-or-mint decision behind `agent.session(name, detail, seed)`: look
+  * up any session already recorded at `key` and either reuse it (backend tag
+  * matches, recorded id parses) or mint a fresh one — on a backend swap, a
+  * corrupt/mismatched recorded id, or no record at all. See `session`'s
   * scaladoc for the reuse contract each branch upholds.
   */
 private def resolveSessionId[B <: BackendTag](
     agent: Agent[B],
-    name: String,
-    occurrence: Int,
+    key: SessionKey,
     seed: String
 )(using fc: FlowControl): SessionId[B] =
-  fc.progressStore
-    .load()
-    .flatMap(
-      _.sessions.find(r => r.name == name && r.occurrence == occurrence)
-    ) match
-    case Some(recorded) => reuseOrMint(agent, name, occurrence, seed, recorded)
-    case None           => mintSession(agent, name, occurrence, seed)
+  fc.progressStore.load().flatMap(_.sessions.find(_.key == key)) match
+    case Some(recorded) => reuseOrMint(agent, key, seed, recorded)
+    case None           => mintSession(agent, key, seed)
 
 /** Backend-tag mismatch is checked before the seed diff so a swapped backend
   * reports exactly one warning (a seed-diff warning here would falsely claim
@@ -228,8 +236,7 @@ private def resolveSessionId[B <: BackendTag](
   */
 private def reuseOrMint[B <: BackendTag](
     agent: Agent[B],
-    name: String,
-    occurrence: Int,
+    key: SessionKey,
     seed: String,
     recorded: SessionRecord
 )(using fc: FlowControl): SessionId[B] =
@@ -238,8 +245,8 @@ private def reuseOrMint[B <: BackendTag](
     case Some(recordedTag) if currentTag != Some(recordedTag) =>
       // Backend swapped between runs: `recorded.id` is meaningful only in the
       // old backend's registry, so mint fresh rather than reuse it.
-      warnBackendSwap(fc, name, occurrence, recordedTag, currentTag)
-      mintSession(agent, name, occurrence, seed)
+      warnBackendSwap(fc, key, recordedTag, currentTag)
+      mintSession(agent, key, seed)
     case _ =>
       // Tags match (or the record predates tagging). The recorded id is
       // log-sourced and untrusted: parse it rather than resume against a
@@ -251,22 +258,21 @@ private def reuseOrMint[B <: BackendTag](
           // differing from this call's means the seed was edited between
           // runs, but the session is reused either way — surface the
           // divergence rather than resume silently.
-          warnIfSeedDiffers(fc, name, occurrence, recorded.seed, seed)
+          warnIfSeedDiffers(fc, key, recorded.seed, seed)
           validId
         case None =>
-          warnInvalidRecordedId(fc, name, occurrence)
-          mintSession(agent, name, occurrence, seed)
+          warnInvalidRecordedId(fc, key)
+          mintSession(agent, key, seed)
 
 private def warnBackendSwap(
     fc: FlowControl,
-    name: String,
-    occurrence: Int,
+    key: SessionKey,
     recordedTag: String,
     currentTag: Option[String]
 ): Unit =
   fc.emit(
     OrcaEvent.Step(
-      s"warning: session '$name' #$occurrence was minted on " +
+      s"warning: session '${key.label}' was minted on " +
         s"$recordedTag; this agent is " +
         s"${currentTag.getOrElse("untagged")} — minting fresh"
     )
@@ -274,50 +280,44 @@ private def warnBackendSwap(
 
 private def warnIfSeedDiffers(
     fc: FlowControl,
-    name: String,
-    occurrence: Int,
+    key: SessionKey,
     recordedSeed: String,
     seed: String
 ): Unit =
   if recordedSeed != seed then
     fc.emit(
       OrcaEvent.Step(
-        s"warning: session '$name' #$occurrence recorded seed differs " +
-          "for this name — the seed was edited; reusing the recorded session"
+        s"warning: session '${key.label}' recorded seed differs " +
+          "for this key — the seed was edited; reusing the recorded session"
       )
     )
 
-private def warnInvalidRecordedId(
-    fc: FlowControl,
-    name: String,
-    occurrence: Int
-): Unit =
+private def warnInvalidRecordedId(fc: FlowControl, key: SessionKey): Unit =
   fc.emit(
     OrcaEvent.Step(
-      s"warning: session '$name' #$occurrence has an invalid recorded id " +
+      s"warning: session '${key.label}' has an invalid recorded id " +
         "— minting fresh"
     )
   )
 
-/** Mint a fresh session id, record `(name, occurrence, id, seed, backend)` in
-  * the progress log (replacing any existing record at the same key — see
+/** Mint a fresh session id, record `(key, id, seed, backend)` in the progress
+  * log (replacing any existing record at the same key — see
   * `ProgressStore.upsertSession`), and return it. Shared by every arm of
-  * `agent.session(name, seed)`'s reuse match that must not trust a
+  * `agent.session(name, detail, seed)`'s reuse match that must not trust a
   * stale/mismatched/corrupt recorded id. Mints its own [[WorkspaceWrite]] via
   * [[RuntimeInStage]] — see `session`'s scaladoc.
   */
 private def mintSession[B <: BackendTag](
     agent: Agent[B],
-    name: String,
-    occurrence: Int,
+    key: SessionKey,
     seed: String
 )(using fc: FlowControl): SessionId[B] =
   val freshId = SessionId.fresh[B]
   given WorkspaceWrite = RuntimeInStage.workspaceToken()
   fc.progressStore.upsertSession(
     SessionRecord(
-      name = name,
-      occurrence = occurrence,
+      name = key.name,
+      detail = key.detail,
       id = freshId.value,
       seed = seed,
       backend = agent.backendTag.map(_.wireName)
@@ -349,7 +349,7 @@ private def effectivePrompt[B <: BackendTag](
     if record.exists(_.resumeWireId.isDefined) then
       fc.emit(
         OrcaEvent.Step(
-          s"warning: session '${record.fold("?")(_.name)}' — backend " +
+          s"warning: session '${record.fold("?")(_.key.label)}' — backend " +
             "conversation not found; re-seeding (prior conversation history " +
             "is lost)"
         )
