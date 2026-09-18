@@ -142,8 +142,8 @@ enum OrcaEvent:
     * ([[orca.agents.Agent.resumeWireId]]) — `None` for backends that keep
     * nothing durably resumable, so a non-resumable commit still fires
     * accurately. `sessionName` is the name the flow minted the session under
-    * (`agent.session(name, seed)`) — `None` for a one-shot or chat turn, which
-    * has no name.
+    * (`agent.session(name, detail, seed)`) — `None` for a one-shot or chat
+    * turn, which has no name.
     */
   case SessionCommitted(
       harness: String,

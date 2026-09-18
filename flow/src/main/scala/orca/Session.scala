@@ -185,6 +185,17 @@ extension [B <: BackendTag](agent: Agent[B])
     * an authoring mistake, and the detail is where an author asks for a second
     * session over the same work.
     *
+    * '''Scope a session to a unit of work''' — one task, one review stage — not
+    * to the whole run. A backend re-sends the conversation whole on every call
+    * it makes, so a session spanning the run pays for every earlier task on
+    * every later turn. Each per-unit session starts from its seed plus the
+    * completed-stage preamble instead, which is what the earlier transcript was
+    * carrying.
+    *
+    * Mint it '''outside''' the `stage(...)` that uses it and close over the
+    * handle: a stage body is skipped on resume, so a mint inside one would not
+    * re-run, leaving later stages driving a handle the log never recorded.
+    *
     * No LLM call and no commit, so it is callable outside a stage (and, minting
     * a fresh UUID, is not referentially transparent). This is the one call in
     * the family that must remain outside-stage-callable, so its store write

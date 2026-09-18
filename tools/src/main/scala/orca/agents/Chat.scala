@@ -6,7 +6,7 @@ import orca.InStage
   * exactly as capable as any other agent turn; "chat" names its lifetime, not
   * its powers. In-run only: nothing is recorded, so on a flow crash/resume the
   * conversation is gone (a durable `orca.FlowSession`, minted with
-  * `agent.session(name, seed)`, is the door for conversations that must
+  * `agent.session(name, detail, seed)`, is the door for conversations that must
   * survive).
   *
   * Runs need only [[InStage]], which crosses forks, so chats are the
