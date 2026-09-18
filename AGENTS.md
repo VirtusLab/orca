@@ -339,18 +339,25 @@ screen output and the PR body:
 - **finding** (`ReviewFinding`, `ReviewResult.findings`) — one problem a
   reviewer or the lint gate reported. `issue` is not a synonym: in this
   codebase it means a GitHub issue (`orca.tools.Issue`, `IssueHandle`).
-- **declined** (`FixOutcome.declined`) — the fixer considered a finding and
-  refused it, giving a reason. It names one way a finding stays open, not the
-  set of everything that does.
+- **declined** (`DeclinedFinding`, in `FixOutcome.declined`) — the fixer
+  considered a finding and refused it, giving a reason. It names one way a
+  finding stays open, not the set of everything that does. The wire shape the
+  fixing agent fills, so it carries title and reason and nothing else.
 - **open finding** (`OpenFinding`, `OpenFindings`) — a finding the run ends
-  without resolving, paired with the reason recorded for it: declined, never
-  reported on by the fixer, past the round cap, still failing lint, or from a
-  review that could not run at all. This is what `reviewThenFix` and
-  `reviewAndFixLoop` return, what later rounds' reviewers are shown, and what
-  the PR body lists under "Open review findings".
+  without resolving, paired with an `OpenReason`: declined, never reported on
+  by the fixer, past the round cap, still failing lint, or from a review that
+  could not run at all. This is what `reviewThenFix` and `reviewAndFixLoop`
+  return, what later rounds' reviewers are shown, and what the PR body lists
+  under "Open review findings".
 
 Don't name the open set after one of its reasons: any such name misreports the
-other four. The reason lives in the entry's `reason` field and nowhere else.
+others. `OpenReason` is where the distinction lives — its `describe` is the only
+place each reason's prose is written, so a test asserts the case, not the
+sentence.
+
+Dated records — an ADR's `Amendment (date)`, `docs/plans/*`, `docs/research/*` —
+keep the words that were current when they were written. Rename in the code and
+in undated prose; leave a dated record alone.
 
 ### Review-derived rules
 

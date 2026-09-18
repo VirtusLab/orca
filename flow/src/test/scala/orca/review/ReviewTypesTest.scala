@@ -59,6 +59,30 @@ class ReviewTypesTest extends munit.FunSuite:
       summon[AgentInput[FixRequest]].serialize(request).contains("\n  |a| b|")
     )
 
+  test("the fix prompt puts the instructions above a labelled finding list"):
+    // Every fix turn arrives in this shape; the label is what separates the
+    // caller's instructions from the findings under them.
+    val request = FixRequest(
+      "fix these",
+      KeyedFinding.forAgent(
+        0,
+        List(
+          ReviewFinding(
+            title = Title("Leaks a handle"),
+            description = "the handle is never closed",
+            location = None,
+            suggestion = None
+          )
+        )
+      )
+    )
+    assert(
+      summon[AgentInput[FixRequest]]
+        .serialize(request)
+        .startsWith("fix these\n\nFindings to fix:\nI1.1 Leaks a handle"),
+      summon[AgentInput[FixRequest]].serialize(request)
+    )
+
   test("the picker prompt keeps an instruction line that starts with `|`"):
     val request = ReviewerSelectionRequest(
       taskTitle = Title("Add a check"),

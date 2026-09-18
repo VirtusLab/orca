@@ -156,10 +156,16 @@ object ReviewLoopPrompts:
     * findings that were already answered, not to withdraw them.
     */
   private def openFindingsBlock(open: OpenFindings): String =
-    if open.findings.isEmpty then ""
+    // An entry standing for a review that never ran is no reviewer's finding,
+    // and the block below says every line is one. It reaches here only through
+    // a flow that seeds one loop's result into another's `priorOpenFindings`.
+    val reported = OpenFindings(
+      open.findings.filterNot(_.reason == OpenReason.ReviewSkipped)
+    )
+    if reported.findings.isEmpty then ""
     else
       "\n\nThese findings were reported earlier and are still open. This is " +
-        s"the reason recorded for each:\n\n${open.format}" +
+        s"the reason recorded for each:\n\n${reported.format}" +
         "\n\nThat is a record of what happened, not a ruling. If you still " +
         "think a finding is real, report it again and say why the reason is " +
         "wrong. \"The plan chose this\" is not on its own a sufficient " +

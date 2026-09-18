@@ -70,10 +70,10 @@ private[review] def formatReviewerOutcome(
   */
 private[review] def formatOpenFindings(open: OpenFindings): Option[String] =
   Option.when(open.findings.nonEmpty):
-    val lines = open.findings.flatMap: i =>
-      val reason = i.reasonLine
+    val lines = open.findings.flatMap: f =>
+      val reason = f.reasonLine
       val bullet = TextWrap.wrap(
-        s"  - ${i.titleLine}",
+        s"  - ${f.titleLine}",
         maxWidth = WrapWidth,
         continuation = "    "
       )
@@ -84,5 +84,5 @@ private[review] def formatOpenFindings(open: OpenFindings): Option[String] =
           continuation = "    "
         )
       )
-      List(Some(bullet), locationLine(i.location), why).flatten
+      List(Some(bullet), locationLine(f.location), why).flatten
     (s"Findings still open (${open.findings.size}):" :: lines).mkString("\n")
