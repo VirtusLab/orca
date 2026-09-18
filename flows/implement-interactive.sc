@@ -34,7 +34,7 @@ flow(OrcaArgs(args)):
   val plan = stage("Plan"):
     Plan.interactive.from(userPrompt, planningAgent).value
 
-  val taskDeclines =
+  val taskOpenFindings =
     for (task, n) <- plan.tasks.zipWithIndex yield
       stage(s"Task: ${task.title}"):
         // Implementing and fixing are autonomous — `ask_user` was only needed
@@ -64,7 +64,7 @@ flow(OrcaArgs(args)):
       task = Task(Title("The whole planned change"), plan.brief),
       diff = ReviewDiff.WholeRun,
       maxIterations = 5,
-      priorDeclines = IgnoredIssues(taskDeclines.flatMap(_.issues))
+      priorOpenFindings = OpenFindings(taskOpenFindings.flatMap(_.findings))
     )
 
   openPrIfGitHub(

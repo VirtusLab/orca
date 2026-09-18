@@ -1,10 +1,10 @@
 Fixes have been applied based on your earlier review. Re-review the current
 state — focus on whether your earlier findings were addressed and on any new
-issues introduced by the fix. Do not survey unrelated files, but unchanged code
+problems the fix introduced. Do not survey unrelated files, but unchanged code
 is in scope precisely when the change alters what it can be handed. If nothing
-in your scope still applies, report no issues.
+in your scope still applies, report no findings.
 
-{{changes}}{{declined}}
+{{changes}}{{openFindings}}
 
 A fix relaxes assumptions of its own — name the ones this round's changes relax
 and read the code that still relies on each. Code the change set never touches is

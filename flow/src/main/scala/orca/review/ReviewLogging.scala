@@ -71,8 +71,8 @@ private[review] object ReviewLogging:
     if log.isDebugEnabled then
       log.debug(
         "fix prompt: findings={} keys={}\n{}",
-        request.issues.size,
-        joined(request.issues.map(_.key)),
+        request.findings.size,
+        joined(request.findings.map(_.key)),
         render(request)
       )
 

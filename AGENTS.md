@@ -304,6 +304,27 @@ with a test pinning the observed wire shape.
   inline.
 - Tests target exactly one scenario each.
 
+### Review vocabulary
+
+Three words for the review loop, used the same way in identifiers, prompt text,
+screen output and the PR body:
+
+- **finding** (`ReviewFinding`, `ReviewResult.findings`) — one problem a
+  reviewer or the lint gate reported. `issue` is not a synonym: in this
+  codebase it means a GitHub issue (`orca.tools.Issue`, `IssueHandle`).
+- **declined** (`FixOutcome.declined`) — the fixer considered a finding and
+  refused it, giving a reason. It names one way a finding stays open, not the
+  set of everything that does.
+- **open finding** (`OpenFinding`, `OpenFindings`) — a finding the run ends
+  without resolving, paired with the reason recorded for it: declined, never
+  reported on by the fixer, past the round cap, still failing lint, or from a
+  review that could not run at all. This is what `reviewThenFix` and
+  `reviewAndFixLoop` return, what later rounds' reviewers are shown, and what
+  the PR body lists under "Open review findings".
+
+Don't name the open set after one of its reasons: any such name misreports the
+other four. The reason lives in the entry's `reason` field and nowhere else.
+
 ### Review-derived rules
 
 The rules distilled from recurring review findings live in
@@ -313,8 +334,8 @@ against every Scala change here, discovered per
 rules have no second copy: they change there or not at all.
 
 That file also condenses rules the sections below own in full — comments,
-capability tokens, `.orca` writes, subprocesses, and 0.x versioning. Change one
-of those and change the condensed line with it.
+capability tokens, `.orca` writes, subprocesses, review vocabulary, and 0.x
+versioning. Change one of those and change the condensed line with it.
 
 ### Versioning (0.x)
 

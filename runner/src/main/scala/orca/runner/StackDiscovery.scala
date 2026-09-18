@@ -44,7 +44,7 @@ private[runner] case class StackDiscoveryResult(
   * cheap tier (haiku) reliably misbehaves with several — stuffing the whole
   * result under the FIRST parameter. A single-property root avoids that; it
   * matches every other cheap-tier payload in production
-  * (`SelectedReviewers.names`, `ReviewResult.issues`).
+  * (`SelectedReviewers.names`, `ReviewResult.findings`).
   */
 private[runner] case class StackDiscoveryReply(result: StackDiscoveryResult)
     derives JsonData

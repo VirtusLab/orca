@@ -29,7 +29,7 @@ class ReviewFixFlowTest extends munit.FunSuite:
     given FlowControl =
       ReviewLoopFixture.control(new EventDispatcher(List(listener)))
 
-    val real = issue("real problem")
+    val real = finding("real problem")
     val reviewer = new FakeAgent(
       name = "perf",
       outputs = List(ReviewResult(List(real)))
@@ -37,7 +37,7 @@ class ReviewFixFlowTest extends munit.FunSuite:
     val coder = new FakeAgent(
       name = "coder",
       outputs = List(
-        FixOutcome(Nil, List(IgnoredIssue(Title("real problem"), "trade-off")))
+        FixOutcome(Nil, List(OpenFinding(Title("real problem"), "trade-off")))
       )
     )
 
@@ -59,15 +59,15 @@ class ReviewFixFlowTest extends munit.FunSuite:
       s"missing Step(Review & fix); got: $events"
     )
 
-  test("max iterations path surfaces leftover issues with the cap reason"):
+  test("max iterations path surfaces leftover findings with the cap reason"):
     val listener = new RecordingListener
     given FlowControl =
       ReviewLoopFixture.control(new EventDispatcher(List(listener)))
 
-    // Reviewer keeps reporting the same issue every round; coder claims it
+    // Reviewer keeps reporting the same finding every round; coder claims it
     // fixed it every round (so the loop sees progress) but the next eval
     // still finds it. The cap is the only thing that can stop this.
-    val stubborn = issue("never ends")
+    val stubborn = finding("never ends")
     val reviewer = new FakeAgent(
       name = "loud",
       outputs = List.fill(21)(ReviewResult(List(stubborn)))
@@ -86,6 +86,6 @@ class ReviewFixFlowTest extends munit.FunSuite:
       diff = ReviewDiff.Pinned("")
     )
     assert(
-      result.issues.exists(_.reason.contains("max iterations")),
-      s"expected a max-iterations reason; got: ${result.issues}"
+      result.findings.exists(_.reason.contains("max iterations")),
+      s"expected a max-iterations reason; got: ${result.findings}"
     )

@@ -10,14 +10,14 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
 class ReviewTypesTest extends munit.FunSuite:
   test("ReviewResult round-trips through JSON"):
     val original = ReviewResult(
-      issues = List(
-        ReviewIssue(
+      findings = List(
+        ReviewFinding(
           title = Title("Null pointer risk"),
           description = "null pointer risk",
           location = Some(Location("Foo.scala", Some(42))),
           suggestion = Some("add a null check")
         ),
-        ReviewIssue(
+        ReviewFinding(
           title = Title("Stylistic nitpick"),
           description = "stylistic nitpick",
           location = None,
@@ -43,10 +43,10 @@ class ReviewTypesTest extends munit.FunSuite:
     // so a quoted margin block reaches the prompt as a `|` line.
     val request = FixRequest(
       "fix these",
-      KeyedIssue.forAgent(
+      KeyedFinding.forAgent(
         0,
         List(
-          ReviewIssue(
+          ReviewFinding(
             title = Title("Mangled quote"),
             description = "the quote is mangled",
             location = None,
@@ -72,19 +72,19 @@ class ReviewTypesTest extends munit.FunSuite:
         .contains("\n  |a| b|")
     )
 
-  test("IgnoredIssues round-trips through JSON"):
+  test("OpenFindings round-trips through JSON"):
     // A stage result a resume replays and the PR body then reads back, over an
     // opaque `Title`.
-    val original = IgnoredIssues(
-      List(IgnoredIssue(Title("Null check missing"), "max iterations reached"))
+    val original = OpenFindings(
+      List(OpenFinding(Title("Null check missing"), "max iterations reached"))
     )
     assertEquals(
-      readFromString[IgnoredIssues](writeToString(original)),
+      readFromString[OpenFindings](writeToString(original)),
       original
     )
 
-  test("IgnoredIssues.format keeps a multi-line reason on one bullet"):
-    val issues = IgnoredIssues(
-      List(IgnoredIssue(Title("Style nit"), "out of\n  scope:\nsee plan"))
+  test("OpenFindings.format keeps a multi-line reason on one bullet"):
+    val findings = OpenFindings(
+      List(OpenFinding(Title("Style nit"), "out of\n  scope:\nsee plan"))
     )
-    assertEquals(issues.format, "- Style nit: out of scope: see plan")
+    assertEquals(findings.format, "- Style nit: out of scope: see plan")

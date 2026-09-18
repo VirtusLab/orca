@@ -43,13 +43,13 @@ Confidence scores and the per-severity gate are gone. In their place:
 - **Every reported finding reaches the fixer.** Nothing filters between the two.
 - A decline carries a **reason**, is **shown to later rounds** — where a
   reviewer may re-report it with a rebuttal — and is **reported at exit** in the
-  returned `IgnoredIssues`. Nothing is silently dropped.
+  returned `OpenFindings`. Nothing is silently dropped.
 - **Severity stays**, for ordering and labels only. It no longer gates anything.
 - **Narrowing keys on what a reviewer actually reported**, so a reviewer retires
   only on genuine silence rather than on having had its findings filtered out.
 
 > **Amendment (2026-08-27).** Severity does not stay: `Severity` and
-> `ReviewIssue.severity` are removed. Across 205 findings in six runs the label
+> `ReviewFinding.severity` are removed. Across 205 findings in six runs the label
 > produced zero Critical and 80% Info, and the fixer declined none of the 64
 > findings it received — so it never informed a decision. It follows confidence
 > out for the same reason: a self-assessed label tracks the model's mood, not

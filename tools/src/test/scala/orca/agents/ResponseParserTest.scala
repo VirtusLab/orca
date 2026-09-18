@@ -5,7 +5,7 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
 case class ParsedSample(name: String, count: Int)
     derives ConfiguredJsonValueCodec
 
-// Reviewer verdict shape (`{"issues":[...]}`) for the input-envelope regression.
+// A list-valued payload, for the input-envelope regression.
 case class IssuesSample(issues: List[String]) derives ConfiguredJsonValueCodec
 
 class ResponseParserTest extends munit.FunSuite:

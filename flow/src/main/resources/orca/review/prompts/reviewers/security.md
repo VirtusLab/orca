@@ -7,7 +7,7 @@ description: Reviews input validation, injection vectors (shell/SQL/path/templat
 
 Security-sensitive operations only. Other dimensions (correctness, style,
 performance, tests) belong to other reviewers. If the diff touches no
-security-sensitive surface, report no issues.
+security-sensitive surface, report no findings.
 
 ## Aspects
 
@@ -28,5 +28,5 @@ security-sensitive surface, report no issues.
 - **TLS / transport**: disabled cert verification, plain HTTP for sensitive
   data, missing timeouts that enable resource exhaustion.
 
-Frame each finding around the vector — what an attacker gains if the issue is
+Frame each finding around the vector — what an attacker gains if the finding is
 exploited.

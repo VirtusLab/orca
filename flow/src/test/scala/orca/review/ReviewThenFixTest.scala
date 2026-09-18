@@ -28,7 +28,7 @@ class ReviewThenFixTest extends munit.FunSuite:
     // Both stubs are scripted for exactly one call, so a second review round or
     // a second fix turn exhausts an iterator and throws.
     val reviewer =
-      new FakeAgent("x", outputs = List(ReviewResult(List(issue("a")))))
+      new FakeAgent("x", outputs = List(ReviewResult(List(finding("a")))))
     val coder =
       new FakeAgent("coder", outputs = List(FixOutcome(List(Title("a")), Nil)))
     given FlowControl = control(picking("x"))
@@ -37,7 +37,7 @@ class ReviewThenFixTest extends munit.FunSuite:
       reviewers = List(asReviewer(reviewer)),
       task = titled("do the thing")
     )
-    assertEquals(result, IgnoredIssues(Nil))
+    assertEquals(result, OpenFindings(Nil))
     assertEquals(reviewer.seenSessions.size, 1)
     assertEquals(coder.seenSessions.size, 1)
 
@@ -51,7 +51,7 @@ class ReviewThenFixTest extends munit.FunSuite:
       reviewers = List(asReviewer(reviewer)),
       task = titled("do the thing")
     )
-    assertEquals(result, IgnoredIssues(Nil))
+    assertEquals(result, OpenFindings(Nil))
     assert(
       coder.seenSessions.isEmpty,
       "the fixer must not run on a clean review"
@@ -65,7 +65,9 @@ class ReviewThenFixTest extends munit.FunSuite:
     val reviewer = new FakeAgent(
       name = "x",
       outputs = List(
-        ReviewResult(List(issue("real"), issue("nit"), issue("forgotten")))
+        ReviewResult(
+          List(finding("real"), finding("nit"), finding("forgotten"))
+        )
       )
     )
     val coder = new FakeAgent(
@@ -73,7 +75,7 @@ class ReviewThenFixTest extends munit.FunSuite:
       outputs = List(
         FixOutcome(
           List(Title("real")),
-          List(IgnoredIssue(Title("nit"), "deliberate"))
+          List(OpenFinding(Title("nit"), "deliberate"))
         )
       )
     )
@@ -84,10 +86,10 @@ class ReviewThenFixTest extends munit.FunSuite:
       task = titled("do the thing")
     )
     assertEquals(
-      result.issues,
+      result.findings,
       List(
-        IgnoredIssue(Title("nit"), "deliberate"),
-        IgnoredIssue(Title("forgotten"), "fixer did not report on it")
+        OpenFinding(Title("nit"), "deliberate"),
+        OpenFinding(Title("forgotten"), "fixer did not report on it")
       )
     )
 
@@ -96,7 +98,7 @@ class ReviewThenFixTest extends munit.FunSuite:
     // carries, and it is the only record of it left.
     val steps = new ReviewLoopFixture.StepCapture
     val reviewer =
-      new FakeAgent("x", outputs = List(ReviewResult(List(issue("a")))))
+      new FakeAgent("x", outputs = List(ReviewResult(List(finding("a")))))
     val coder = new FakeAgent("coder", outputs = List(FixOutcome(Nil, Nil)))
     given FlowControl = control(picking("x"), steps.dispatcher)
     val result = reviewThenFix(
@@ -105,8 +107,8 @@ class ReviewThenFixTest extends munit.FunSuite:
       task = titled("do the thing")
     )
     assertEquals(
-      result.issues,
-      List(IgnoredIssue(Title("a"), "fixer reported no fixes"))
+      result.findings,
+      List(OpenFinding(Title("a"), "fixer reported no fixes"))
     )
     assert(
       steps.messages.contains("Fixer reported no fixes; ending review"),
@@ -118,7 +120,7 @@ class ReviewThenFixTest extends munit.FunSuite:
     // another round follows would be false.
     val steps = new ReviewLoopFixture.StepCapture
     val reviewer =
-      new FakeAgent("x", outputs = List(ReviewResult(List(issue("a")))))
+      new FakeAgent("x", outputs = List(ReviewResult(List(finding("a")))))
     val coder =
       new FakeAgent("coder", outputs = List(FixOutcome(List(Title("a")), Nil)))
     given FlowControl = control(picking("x"), steps.dispatcher)
@@ -142,7 +144,7 @@ class ReviewThenFixTest extends munit.FunSuite:
     // enclosing stage commits them.
     val counter = TempDirs.dir() / "fmt-count"
     val reviewer =
-      new FakeAgent("x", outputs = List(ReviewResult(List(issue("a")))))
+      new FakeAgent("x", outputs = List(ReviewResult(List(finding("a")))))
     val coder =
       new FakeAgent("coder", outputs = List(FixOutcome(List(Title("a")), Nil)))
     given FlowControl = control(picking("x"))
@@ -164,13 +166,13 @@ class ReviewThenFixTest extends munit.FunSuite:
     given FlowControl = fc
     val flag = fc.workDir / "lint-passes"
     val reviewer =
-      new FakeAgent("x", outputs = List(ReviewResult(List(issue("a")))))
+      new FakeAgent("x", outputs = List(ReviewResult(List(finding("a")))))
     // Scripted for the two calls that reach the summariser — round one and the
     // post-fix re-check; the last check finds the flag and calls no LLM.
     val lintAgent = new FakeAgent(
       "lint-summariser",
       outputs =
-        List(ReviewResult.empty, ReviewResult(List(issue("lint broke"))))
+        List(ReviewResult.empty, ReviewResult(List(finding("lint broke"))))
     )
     val fixes = new java.util.concurrent.atomic.AtomicInteger(0)
     val coder = new FakeAgent(
@@ -188,7 +190,7 @@ class ReviewThenFixTest extends munit.FunSuite:
       task = titled("do the thing"),
       lint = Configured.Use(Lint(List(s"test -f '$flag'"), lintAgent))
     )
-    assertEquals(result, IgnoredIssues(Nil))
+    assertEquals(result, OpenFindings(Nil))
     assertEquals(coder.seenSessions.size, 2)
     assert(
       !steps.messages.exists(_.contains("lint still fails")),
@@ -203,15 +205,15 @@ class ReviewThenFixTest extends munit.FunSuite:
       ReviewLoopFixture.control(steps.dispatcher, lead = Some(picking("x")))
     given FlowControl = fc
     val reviewer =
-      new FakeAgent("x", outputs = List(ReviewResult(List(issue("a")))))
+      new FakeAgent("x", outputs = List(ReviewResult(List(finding("a")))))
     // Round one, the post-fix re-check, and the check after the lint-scoped
     // turn all reach the summariser: `false` fails silently every time.
     val lintAgent = new FakeAgent(
       "lint-summariser",
       outputs = List(
         ReviewResult.empty,
-        ReviewResult(List(issue("lint broke"))),
-        ReviewResult(List(issue("lint broke")))
+        ReviewResult(List(finding("lint broke"))),
+        ReviewResult(List(finding("lint broke")))
       )
     )
     // Two scripted turns: a third would throw.
@@ -229,9 +231,9 @@ class ReviewThenFixTest extends munit.FunSuite:
       lint = Configured.Use(Lint(List("false"), lintAgent))
     )
     assertEquals(
-      result.issues,
+      result.findings,
       List(
-        IgnoredIssue(
+        OpenFinding(
           Title("lint broke"),
           "lint still failing after its fix turn"
         )
@@ -249,8 +251,8 @@ class ReviewThenFixTest extends munit.FunSuite:
     val steps = new ReviewLoopFixture.StepCapture
     given FlowControl = control(picking("x"), steps.dispatcher)
     val reviewer =
-      new FakeAgent("x", outputs = List(ReviewResult(List(issue("a")))))
-    val lintBroke = ReviewIssue(
+      new FakeAgent("x", outputs = List(ReviewResult(List(finding("a")))))
+    val lintBroke = ReviewFinding(
       title = Title("lint broke"),
       description = "lint broke",
       location = Some(Location("src/main/Foo.scala", Some(7))),
@@ -291,7 +293,7 @@ class ReviewThenFixTest extends munit.FunSuite:
     // The picker is scripted for one call; a second would throw. `y` has no
     // outputs, so it must stay unpicked.
     val reviewer =
-      new FakeAgent("x", outputs = List(ReviewResult(List(issue("a")))))
+      new FakeAgent("x", outputs = List(ReviewResult(List(finding("a")))))
     val unpicked = new FakeAgent("y")
     val coder =
       new FakeAgent("coder", outputs = List(FixOutcome(List(Title("a")), Nil)))

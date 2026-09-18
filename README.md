@@ -778,8 +778,8 @@ Review utilities, available via `import orca.review.*`:
 |---|---|
 | `lint(commands, agent, instructions?)` | Run shell lint commands (in order, each via `bash -c`; every one runs even if an earlier one fails) and have `agent` summarise their labelled, concatenated output as a `ReviewResult`. Short output is inlined into the prompt; anything larger is written to a file under `.orca/cache/` for the agent to read, so unbounded output can't overflow the context. |
 | `lint(commands, summariser, instructions)` | As above, but summarising into an existing `Lint.summariser(agent)` conversation instead of a fresh one per call, so a gate run several times within one stage resumes the session rather than re-establishing it each round. Stop reusing a summariser once it has reported: it can repeat those findings on a later call whose commands no longer show them. `reviewAndFixLoop` does this for you. |
-| `reviewAndFixLoop(coderSession, reviewers, task, userRequest?, ..., formatCommands?, lint?, maxIterations?, fixInstructions?)` | Run reviewers against `task: Task`, collect their findings, hand them to the `coderSession` (a `FlowSession`) to fix, re-evaluate. Reviewers are asked to report only what they believe should be fixed, and every finding they report reaches the fixer — nothing filters them in between. Reviewers see the task's title and description under separate labels, plus the user's request — the run's prompt by default, or `userRequest` when the prompt is only a pointer, like an issue reference. Keeping them apart is what lets a reviewer report a finding against the planner's choice rather than only against the code. A flow with no planning stage passes its prompt as the title and an empty description. Halts when reviewers come back clean, the fixer reports no fixes, or `maxIterations` fix attempts have run (default 3, so up to four evaluation rounds). Every exit names the findings it leaves open and why each is still open. Whatever is still open at that point — the findings the fixer declined, didn't account for, or that were first reported in the round that hit the cap — comes back in the returned `IgnoredIssues` with a reason. `formatCommands: Configured[List[String]]` runs before each review round; `lint: Configured[Lint]` runs alongside the reviewers each round — both default to the project's [stack settings](#settings), see below. |
-| `reviewThenFix(coderSession, reviewers, task, userRequest?, formatCommands?, lint?)` | One round of the above and, if it found anything, one fix turn — then done. Nothing re-reviews a reviewer finding, so the fixer's claim that it fixed one is taken on trust; the lint gate is the exception, re-run over the fixer's edits and given one more fix turn if it still fails. Reviewers are picked once (`ReviewerSelector.agentDriven`) and the change set is the enclosing stage's, as above. What the fixer declined, what it never reported on, and what the lint gate still fails on, come back in the returned `IgnoredIssues` with a reason. Use it per task where a later stage reviews the same code again — a whole-run `reviewAndFixLoop`, below — and pay for the loop where nothing else re-reviews the fixes. |
+| `reviewAndFixLoop(coderSession, reviewers, task, userRequest?, ..., formatCommands?, lint?, maxIterations?, fixInstructions?)` | Run reviewers against `task: Task`, collect their findings, hand them to the `coderSession` (a `FlowSession`) to fix, re-evaluate. Reviewers are asked to report only what they believe should be fixed, and every finding they report reaches the fixer — nothing filters them in between. Reviewers see the task's title and description under separate labels, plus the user's request — the run's prompt by default, or `userRequest` when the prompt is only a pointer, like an issue reference. Keeping them apart is what lets a reviewer report a finding against the planner's choice rather than only against the code. A flow with no planning stage passes its prompt as the title and an empty description. Halts when reviewers come back clean, the fixer reports no fixes, or `maxIterations` fix attempts have run (default 3, so up to four evaluation rounds). Every exit names the findings it leaves open and why each is still open. Whatever is still open at that point — the findings the fixer declined, didn't account for, or that were first reported in the round that hit the cap — comes back in the returned `OpenFindings` with a reason. `formatCommands: Configured[List[String]]` runs before each review round; `lint: Configured[Lint]` runs alongside the reviewers each round — both default to the project's [stack settings](#settings), see below. |
+| `reviewThenFix(coderSession, reviewers, task, userRequest?, formatCommands?, lint?)` | One round of the above and, if it found anything, one fix turn — then done. Nothing re-reviews a reviewer finding, so the fixer's claim that it fixed one is taken on trust; the lint gate is the exception, re-run over the fixer's edits and given one more fix turn if it still fails. Reviewers are picked once (`ReviewerSelector.agentDriven`) and the change set is the enclosing stage's, as above. What the fixer declined, what it never reported on, and what the lint gate still fails on, come back in the returned `OpenFindings` with a reason. Use it per task where a later stage reviews the same code again — a whole-run `reviewAndFixLoop`, below — and pay for the loop where nothing else re-reviews the fixes. |
 | `allReviewers(base)` | Every reviewer in the run's catalog (the eight canonical ones — code-functionality, test, readability, code-structure, simplicity, performance, security, scala-fp — plus whatever `.orca/reviewers/` and the global tier add, see [Settings](#settings)) as `ReviewerAgent`s: each one its `Reviewer` definition plus a read-only agent built from `base`. |
 | `minimalReviewers(base)` | Universally-applicable subset (code-functionality, readability, test) plus every discovered reviewer, same shape. Pair with the default LLM-driven selector when the full set is overkill. |
 | `reviewerCatalog` (in-body accessor) | The run's resolved reviewer definitions — `.all` and `.minimal` are what the two above build from. Filter it to pick a subset yourself. |
@@ -850,10 +850,10 @@ make a request no model can accept. A pinned diff is sent as given.
 `reviewAndFixLoop`'s `reviewerSelection` defaults to `ReviewerSelector.default`,
 which narrows twice: a picker LLM on `reviewAgent`'s cheap tier chooses from the
 supplied list for round one, seeing each reviewer's description and the changed
-file paths; every later round then re-runs only the reviewers that reported an
-issue in the previous one. A reviewer that stays quiet stops costing a turn per
-round — the trade-off is that it won't see the fixes made after it stopped. If
-narrowing would leave no reviewer at all (everyone quiet, while a lint finding
+file paths; every later round then re-runs only the reviewers that reported a
+finding in the previous one. A reviewer that stays quiet stops costing a turn
+per round — the trade-off is that it won't see the fixes made after it stopped.
+If narrowing would leave no reviewer at all (everyone quiet, while a lint finding
 keeps the loop going), the round's full selection runs again and a step says so.
 
 | Selector | Behaviour |
@@ -882,7 +882,7 @@ PR utilities, available via `import orca.pr.*`:
 | Method | Use |
 |---|---|
 | `summarisePr(agent, diff, context?, instructions?)` | Fold a branch diff into a `PrSummary(title, body)` for `gh.createPr`. `context` is an optional preamble (originating issue link, user prompt, etc.) the model anchors the description to. A diff too large to send is cut short. Use a cheap model (`claude.cheap`, `codingAgent.cheap`). |
-| `openPrFromBranch(summarisingAgent, openFindings, title?, body?, context?, instructions?): PrHandle` | Push the feature branch and open a PR for it, as three stages: push → summarise → create. Requires a GitHub remote and a logged-in `gh` — without either the run fails. `openFindings` is the `IgnoredIssues` the run's final review returned; each entry is listed under "Open review findings" as its title and reason, verbatim — nothing says where a finding points (none open: no section). `title`/`body` rewrite the generated text (`body = s => s"${s.body}\n\nCloses #42."`). Opening the PR is a top-level step of a flow and this runs its own stages, so it does not compile inside one. |
+| `openPrFromBranch(summarisingAgent, openFindings, title?, body?, context?, instructions?): PrHandle` | Push the feature branch and open a PR for it, as three stages: push → summarise → create. Requires a GitHub remote and a logged-in `gh` — without either the run fails. `openFindings` is the `OpenFindings` the run's final review returned; each entry is listed under "Open review findings" as its title and reason, verbatim — nothing says where a finding points (none open: no section). `title`/`body` rewrite the generated text (`body = s => s"${s.body}\n\nCloses #42."`). Opening the PR is a top-level step of a flow and this runs its own stages, so it does not compile inside one. |
 | `openPrIfGitHub(summarisingAgent, openFindings, title?, body?, context?, instructions?): Option[PrHandle]` | Probes `gh.availability` outside any stage, then runs `openPrFromBranch`'s push → summarise → create when the checkout is on GitHub. Where it isn't — no remote, a remote that isn't GitHub, a GitHub `gh` cannot reach, a run that changed no code, or a push/create the remote refuses — it emits one `Step` saying why, returns `None`, and the run finishes. A resume replays what its push and create stages recorded, a refusal included. The step every code-producing built-in flow ends with; like `openPrFromBranch`, it does not compile inside a stage. |
 | `bodyWithOpenFindings(body, open)` | `body` with the "Open review findings" section appended, or `body` unchanged when nothing is open — the assembly `openPrFromBranch`/`openPrIfGitHub` use, for a flow that writes its own PR body (`gh.updatePr`). |
 | `recordOpenedPr(pr)` | Record the PR's URL as the run's published work, so the run hands the checkout back on the branch it started from and the closing summary names the PR. Only for a flow that opens its PR with a bare `gh.createPr` — `openPrFromBranch`/`openPrIfGitHub` record it themselves. Call it inside the stage that opened the PR (it needs that stage's `WorkspaceWrite`): the stage's commit carries the record, and a resume reads it back without re-running the body. |
@@ -967,7 +967,7 @@ results.
   exposed via `FlowSession.id`. Carries the backend identity at the type level,
   so you cannot accidentally pass a Claude session to Codex.
 - **`orca.Title`** — opaque `String` alias for short labels (`Task.title`,
-  `ReviewIssue.title`); `Title("…")` to construct, `.value` to read.
+  `ReviewFinding.title`); `Title("…")` to construct, `.value` to read.
 - **`orca.tools.PrHandle(host, owner, repo, number)`** — handle to an open pull
   request, returned by `gh.createPr`. `host` is `github.com` or a GitHub
   Enterprise hostname, and every `gh` call taking the handle is routed to it.
@@ -987,15 +987,16 @@ results.
   line to put a flow's own next action after.
 - **`orca.pr.PrSummary(title, body)`** — what `summarisePr` returns. The two
   fields feed `gh.createPr(title = …, body = …)` directly.
-- **`orca.review.ReviewIssue` / `ReviewResult`** — what reviewer agents return.
-  Issues carry a `title` (shown), a long `description` (sent to the fixer), and
-  an optional `location`.
-- **`orca.review.FixOutcome(fixed, ignored)`** — what the fix step returns: the
-  titles of issues actually fixed in code, plus titles + reasons for issues set
-  aside (environmental, out of scope, false positive). The loop re-evaluates iff
-  `fixed` is non-empty.
-- **`orca.review.IgnoredIssues`** — accumulated `IgnoredIssue(title, reason)`
-  entries surfaced by `reviewAndFixLoop` once it halts.
+- **`orca.review.ReviewFinding` / `ReviewResult`** — what reviewer agents
+  return. A finding carries a `title` (shown), a long `description` (sent to
+  the fixer), and an optional `location`.
+- **`orca.review.FixOutcome(fixed, declined)`** — what the fix step returns: the
+  titles of findings actually fixed in code, plus titles + reasons for findings
+  it refused (environmental, out of scope, false positive). The loop
+  re-evaluates iff `fixed` is non-empty.
+- **`orca.review.OpenFindings`** — accumulated `OpenFinding(title, reason)`
+  entries surfaced by `reviewAndFixLoop` once it halts: every finding the run
+  did not resolve, each with the reason recorded for it.
 - **`orca.StackSettings(format, lint, test)`** — the resolved per-project
   tooling commands (each field a `List[String]`, run via `bash -c`; empty = task
   disabled). Resolved once per run — see [Settings](#settings) — and read back

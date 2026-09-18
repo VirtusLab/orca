@@ -268,7 +268,7 @@ verified Scala 3.8.4 facts, and the raw-`ox.fork` escape hatch are recorded in
 
 Stage results reuse the existing `JsonData[A]` (tapir `Schema` + jsoniter codec)
 rather than a dedicated typeclass — `stage[T: JsonData]`. Every type that already
-travels through LLM calls (`Plan`/`PlanLike`, `Issue`, `PrHandle`, `IgnoredIssues`,
+travels through LLM calls (`Plan`/`PlanLike`, `Issue`, `PrHandle`, `OpenFindings`,
 …) is therefore a valid stage result with no extra work, and `derives JsonData` on a
 new case class is enough. The persistence path uses only the codec; the `Schema`
 rides along unused — a fair price for not maintaining a second typeclass.
