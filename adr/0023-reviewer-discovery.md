@@ -97,7 +97,10 @@ branch is created or anything is written. Every bad file is named in one
 message, so a directory is fixed in one pass.
 
 A missing `description:`, an empty body, an unreadable `files:` regex, and a
-frontmatter block that never closes — or never opens — are all malformed. The
+frontmatter block that never closes — or never opens — are all malformed. So is
+a candidate that is a directory rather than a file: nothing legitimate is a
+directory named `*.md`, and skipping one would leave the slug out of the roster
+with nothing said. The
 exemption is by **filename**, not by content: `README.md` and any `_`-prefixed
 name sit in the directory as documents, and every other `.md` must parse as a
 reviewer. A content rule would swallow the likeliest authoring mistake, an
@@ -117,7 +120,10 @@ because a reviewer the user installed and never ran reads as a clean review.
 The **global** tier is read through links. It is the user's own config home, not
 untrusted input, and `settings.properties` beside it is already read that way —
 a dotfiles manager (stow, chezmoi) that links each file in is normal there, and
-refusing would block every run until the links were replaced with copies.
+refusing would block every run until the links were replaced with copies. A
+global-tier link pointing at a directory still aborts, under the directory rule
+above. In the project tier the symlink refusal is checked first, so such a link
+is reported as a symlink — the more specific fix.
 
 ### One step, no cap
 

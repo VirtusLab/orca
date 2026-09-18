@@ -213,6 +213,40 @@ class ReviewerCatalogTest extends munit.FunSuite:
     val catalog = ReviewerCatalog.discover(project, global)
     assertEquals(named(catalog.all), named(ReviewerPrompts.all) :+ "orca")
 
+  test("a directory named like a reviewer aborts in the project tier"):
+    val (project, global) = dirs()
+    os.makeDir.all(project / "orca.md")
+    val e =
+      intercept[OrcaFlowException](ReviewerCatalog.discover(project, global))
+    assert(e.getMessage.contains("is a directory"), e.getMessage)
+
+  test("a directory named like a reviewer aborts in the global tier"):
+    val (project, global) = dirs()
+    os.makeDir.all(global / "orca.md")
+    val e =
+      intercept[OrcaFlowException](ReviewerCatalog.discover(project, global))
+    assert(e.getMessage.contains("is a directory"), e.getMessage)
+
+  test("a global-tier symlink to a directory aborts"):
+    // The global tier is read through links, so `os.isDir` resolves this one to
+    // a directory; without the check it would be dropped with nothing said.
+    val (project, global) = dirs()
+    os.makeDir.all(global)
+    os.symlink(global / "orca.md", TempDirs.dir("orca-outside-"))
+    val e =
+      intercept[OrcaFlowException](ReviewerCatalog.discover(project, global))
+    assert(e.getMessage.contains("is a directory"), e.getMessage)
+
+  test("a project-tier symlink to a directory is reported as a symlink"):
+    // The symlink split runs first, so the link gets the message that names
+    // the fix for a link rather than the generic directory one.
+    val (project, global) = dirs()
+    os.makeDir.all(project)
+    os.symlink(project / "orca.md", TempDirs.dir("orca-outside-"))
+    val e =
+      intercept[OrcaFlowException](ReviewerCatalog.discover(project, global))
+    assert(e.getMessage.contains("is a symlink"), e.getMessage)
+
   test("an unterminated frontmatter block aborts, not silently skipped"):
     val (project, global) = dirs()
     os.write(
