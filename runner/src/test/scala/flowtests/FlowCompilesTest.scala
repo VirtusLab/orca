@@ -43,7 +43,7 @@ object FlowCanary:
       // persisted); the raw `resultAs[O]` door is exercised with ephemeral
       // (fresh / `.id`) sessions only — never a durable-session id.
       val session =
-        claude.session("plan", detail = "the task", seed = userPrompt)
+        claude.session("plan", seed = userPrompt)
       stage("plan"):
         val _ = session.resultAs[FlowPlan].run(userPrompt)
         val _ = session.resultAs[FlowPlan].run("follow up")
@@ -61,7 +61,7 @@ object FlowCanary:
     flow(OrcaArgs()):
       // Durable free-text continuation goes through the FlowSession door.
       val session =
-        claude.session("impl", detail = "the task", seed = userPrompt)
+        claude.session("impl", seed = userPrompt)
       stage("impl"):
         val _ = session.run("kick off")
         val _ = session.run("keep going")
@@ -78,7 +78,7 @@ object FlowCanary:
     flow(OrcaArgs()):
       stage("implement"):
         val session =
-          claude.session("impl", detail = "the task", seed = userPrompt)
+          claude.session("impl", seed = userPrompt)
         val _ = session.run(userPrompt)
 
   /** Every top-level accessor must resolve from `import orca.*` alone.
@@ -107,7 +107,7 @@ object FlowCanary:
       // Named, durable, rehydratable coder session (has a SessionRecord, so a
       // resume can rehydrate it) — NOT a session id carried as a stage result.
       val session =
-        claude.session("plan", detail = "the task", seed = userPrompt)
+        claude.session("plan", seed = userPrompt)
       // The planning turn is interactive, which FlowSession deliberately does
       // not offer (see the FlowSession scaladoc); run it on a Chat adopting
       // the session id (`agent.chat(session.id)`). The stage persists ONLY
@@ -134,7 +134,7 @@ object FlowCanary:
   def customFanOutSurface(): Unit =
     flow(OrcaArgs()):
       val coder =
-        claude.session("implementer", detail = "the task", seed = userPrompt)
+        claude.session("implementer", seed = userPrompt)
       stage("review"):
         val _ = coder.run("implement the task")
         val reviewers = List(claude.sonnet.withReadOnly, codex.withReadOnly)
@@ -401,20 +401,19 @@ object FlowCanary:
   // so a signature drift or missing API surfaces here. Nothing runs at runtime.
   // -----------------------------------------------------------------------
 
-  /** `implement.sc`: autonomous plan → session seeded from brief → task loop
-    * with `session.run` + `reviewAndFixLoop`. The session-based shapes
-    * (`session(name, seed=)` → `FlowSession`, `session.run`) are the core ones.
+  /** `implement.sc`: autonomous plan → task loop, each stage minting its own
+    * session seeded from the brief and driving it with `session.run` +
+    * `reviewAndFixLoop`. The session-based shapes (`session(name, seed=)` →
+    * `FlowSession`, `session.run`) are the core ones.
     */
   def implementFlowShape(): Unit =
     flow(OrcaArgs()):
       val plan: Plan = stage("Plan"):
         Plan.autonomous.from(userPrompt, claude).value
 
-      val session =
-        claude.session("implementer", detail = "the task", seed = plan.brief)
-
       for task <- plan.tasks do
         stage(s"task: ${task.title}"):
+          val session = claude.session("implementer", seed = plan.brief)
           val _ = session.run(task.description)
           // reviewerSelection omitted: defaults to agentDriven(claude.cheap).
           // format/lint omitted: both default to Configured.FromSettings,
@@ -433,11 +432,9 @@ object FlowCanary:
       val plan: Plan = stage("Plan"):
         Plan.interactive.from(userPrompt, claude).value
 
-      val session =
-        claude.session("implementer", detail = "the task", seed = plan.brief)
-
       for task <- plan.tasks do
         stage(s"task: ${task.title}"):
+          val session = claude.session("implementer", seed = plan.brief)
           val _ = session.run(task.description)
           reviewAndFixLoop(
             coderSession = session,
@@ -445,21 +442,18 @@ object FlowCanary:
             task = task
           )
 
-  /** `implement-enhanced.sc`: plan → `.reviewed` → the seeded implementer
-    * session → task loop with `taskPrompt` → `openPrIfGitHub`, the best-effort
-    * PR step every code-producing flow ends with, carrying what the loops left
-    * open.
+  /** `implement-enhanced.sc`: plan → `.reviewed` → task loop with `taskPrompt`
+    * and a per-task session → `openPrIfGitHub`, the best-effort PR step every
+    * code-producing flow ends with, carrying what the loops left open.
     */
   def enhancedImplementFlowShape(): Unit =
     flow(OrcaArgs()):
       val plan: Plan = stage("Plan"):
         Plan.autonomous.from(userPrompt, claude).reviewed(claude).value
 
-      val session =
-        claude.session("implementer", detail = "the task", seed = plan.brief)
-
       val declines =
         for task <- plan.tasks yield stage(s"task: ${task.title}"):
+          val session = claude.session("implementer", seed = plan.brief)
           val _ = session.run(plan.taskPrompt(task))
           reviewAndFixLoop(
             coderSession = session,
@@ -488,9 +482,9 @@ object FlowCanary:
       // Sessions minted above the stages that share them thread because each
       // role accessor is backend-pinned.
       val planSession =
-        planningAgent.session("plan", detail = "the task", seed = userPrompt)
+        planningAgent.session("plan", seed = userPrompt)
       val implSession =
-        codingAgent.session("impl", detail = "the task", seed = userPrompt)
+        codingAgent.session("impl", seed = userPrompt)
       stage("roles"):
         val _ = planSession.run(userPrompt)
         val _ = implSession.run(userPrompt)
@@ -499,20 +493,19 @@ object FlowCanary:
 
   /** Cross-backend review — claude implements, codex reviews — pinned with
     * concrete accessors instead of the role ones. Exercises the
-    * `allReviewers(codex)` shape, `claude.opus` planning, and a docs stage
-    * reusing the implementer session (`flows/implement-enhanced.sc`).
+    * `allReviewers(codex)` shape, `claude.opus` planning, and a docs stage with
+    * a session of its own (`flows/implement-enhanced.sc`).
     */
   def crossBackendReviewShape(): Unit =
     flow(OrcaArgs()):
       val plan: Plan = stage("Plan"):
         Plan.autonomous.from(userPrompt, claude.opus).value
 
-      val session =
-        claude.session("implementer", detail = "the task", seed = plan.brief)
       val reviewers: List[ReviewerAgent[?]] = allReviewers(codex)
 
       for task <- plan.tasks do
         stage(s"task: ${task.title}"):
+          val session = claude.session("implementer", seed = plan.brief)
           val _ = session.run(task.description)
           reviewAndFixLoop(
             coderSession = session,
@@ -521,13 +514,14 @@ object FlowCanary:
           )
 
       stage("Update documentation"):
-        val _ = session.run(
+        val documenter = claude.session("documenter", seed = plan.brief)
+        val _ = documenter.run(
           "Update project docs based on the changes made."
         )
 
   /** `issue-pr.sc`: read issue outside stage, `assessThenPlan`, optional plan,
-    * session from plan brief, task loop, push, PR. Also exercises
-    * `BranchNamingStrategy.issue` and the `Verdict` match.
+    * task loop with a per-task session seeded from the plan brief, push, PR.
+    * Also exercises `BranchNamingStrategy.issue` and the `Verdict` match.
     */
   def issuePrFlowShape(): Unit =
     val orcaArgs = OrcaArgs("acme/widgets#42")
@@ -549,11 +543,9 @@ object FlowCanary:
           gh.writeComment(issueHandle, rejectionBody)
 
       maybePlan.foreach: plan =>
-        val session =
-          claude.session("implementer", detail = "the task", seed = plan.brief)
-
         for task <- plan.tasks do
           stage(s"task: ${task.title}"):
+            val session = claude.session("implementer", seed = plan.brief)
             val _ = session.run(task.description)
             reviewAndFixLoop(
               coderSession = session,
@@ -586,7 +578,7 @@ object FlowCanary:
       val issue: Issue = gh.readIssue(issueHandle)
 
       val session =
-        claude.session("fixer", detail = "the task", seed = issue.body)
+        claude.session("fixer", seed = issue.body)
 
       val triage: Triage = stage("Triage"):
         Plan.autonomous.triage(issue.body, claude).value
@@ -689,7 +681,7 @@ object StackSettingsCanary:
     val _: Configured[List[String]] = Configured.Use(List("cargo fmt"))
     flow(OrcaArgs()):
       val session =
-        claude.session("implementer", detail = "the task", seed = userPrompt)
+        claude.session("implementer", seed = userPrompt)
       val _ = stage("task"):
         reviewAndFixLoop(
           coderSession = session,

@@ -143,28 +143,55 @@ most easily broken:
 
   The user surface is three rungs (README "Sessions"): `agent.run` (one-shot)
   / `agent.chat()` (ephemeral `Chat`, fork-safe, `InStage`-only) /
-  `agent.session(name, detail, seed)` (durable `FlowSession`, flow-thread-only
+  `agent.session(name, seed)` (durable `FlowSession`, flow-thread-only
   — the owner-thread assert in `FlowSession.run` enforces it at runtime, and
   the raw session-threading doors are `private[orca] runWithSession`, so
   ephemeral continuation is only reachable through a `Chat` handle).
 
-  Sessions have explicit identity: `agent.session(name, detail, seed)` keys a
-  `SessionRecord` by `orca.agents.SessionKey(name, detail)`, compared for exact
-  string equality. `name` is the role, `detail` required free text naming which
-  session under that role this is — the task, or what a one-per-run session
-  covers. The whole key reaches `OrcaEvent.SessionCommitted`, the run manifest
-  and the shell's session picker, where `SessionKey.label` (`name`, or
-  `name (detail)`) is the single home of how it reads to a person. Neither half
-  is hashed or turned into a filename, and only `name` is validated
-  (non-empty).
+  Sessions have explicit identity: `agent.session(name, seed)` keys an
+  `orca.sessions.SessionRecord` by `orca.agents.SessionKey(name, stage)`. `name`
+  is the role; `stage` is an `orca.StagePath` — `FlowBody`, or `Stage(path id)`
+  for the stage the mint sits in — taken from `StageFrames` rather than supplied
+  by the author. The persisted spelling (`""` for the flow body) is decoded in
+  one place, `StagePath.fromValue`. Two stages therefore cannot name one
+  session, and a per-task loop needs no per-task label. The whole key reaches
+  `OrcaEvent.SessionCommitted`, the run manifest and the shell's session picker.
+  Identity and label are separate here: `SessionKey.describe` renders a key for
+  the run's own diagnostics (a stage path id carries `#0` suffixes), and a
+  session reads to a person as its bare `name` — `SessionPicker.displayName` is
+  the single home of that. A row's `(stage: ...)` segment is a DIFFERENT field,
+  the stage the session was last active in, so `SessionPicker.mintedInTag`
+  appends the minting stage to exactly those rows two lineages would otherwise
+  share, and `orca continue --list` gives it a column. Neither half of the key is
+  hashed or turned into a filename, and only `name` is validated (non-empty).
   Reordering or skipping *other* `session(...)` calls between runs doesn't
-  re-key this one; a changed detail is a different session. Minting one key
-  twice in a single execution throws (`FlowControl.claimSessionKey`); re-minting
-  it on resume is the reuse path, since only this execution's keys are tracked.
+  re-key this one; renaming the stage a mint sits in does. Minting one name
+  twice in one stage throws (`FlowControl.claimSessionKey`, the only door that
+  MINTS a key — `SessionRecord.key` and `ManifestSession.mintedKey` rebuild one
+  from persisted halves); re-minting on resume is the reuse path, since only
+  this execution's keys are tracked. For a mint inside a stage that check is
+  sound because a stage body is all-or-nothing: two mints of one name in one
+  stage both execute or neither does. The flow body offers no such guarantee —
+  two mutually exclusive mints there are never both claimed — which costs the
+  warning, not correctness.
+
+  Records live in `.orca/cache/sessions-<prompt hash>.json`
+  (`orca.sessions.SessionStore`), under the same hash as the progress log, NOT
+  in the log itself: a backend session id is a machine-local handle, and the
+  committed log is erased back to the last stage commit by the failure
+  teardown's `git reset --hard` — which is exactly the stage a resume re-runs,
+  so a record in the log could never be read back. The cache survives that
+  reset, its `git clean -fd`, and the resume-time stash, and follows the
+  directory a `--worktree` run happens in. A missing or unreadable file costs
+  nothing but a re-seed. `teardownSuccess` drops it with the log, so a later run
+  of the same prompt opens fresh conversations.
+
   A mint sits wherever the session is used — inside the driving stage, or above
-  the stages that share it; the one shape that can't be written is a mint in one
-  stage driven by a later one, since neither `FlowSession[B]` nor `SessionId[B]`
-  has a `JsonData` and so neither can leave a stage as its result.
+  the stages that share it. What R22 blocks is one specific route out of a
+  stage: neither `FlowSession[B]` nor `SessionId[B]` has a `JsonData`, so
+  neither can be a stage's result. A handle stashed in an in-memory `var` in
+  stage A and read in stage B still compiles, and fails loudly with
+  `NoSuchElementException` on the resume that skips A.
   Each record also carries the minting agent's `backend` tag, so
   `FlowLifecycle.rehydrateSessions` replays a resumed run's resume wire ids
   into the record's own backend's agent rather than always the lead
@@ -331,9 +358,11 @@ Orca is 0.x: no backwards compatibility is owed anywhere.
 - Two deliberate exceptions, both live local data that has to survive an orca
   upgrade, where invalidating it costs a user-visible feature rather than a
   re-run. Don't "fix" either under this rule:
-  - `ProgressLog`/`SessionRecord`'s tolerant decoding (documented at its
-    definition), so a mid-run resume survives the upgrade — an in-flight run's
-    log written by an older orca must still load.
+  - `ProgressLog`'s and `SessionRecord`'s tolerant decoding (documented at
+    each definition), so a mid-run resume survives the upgrade — an in-flight
+    run's log written by an older orca must still load. The records an older
+    log carried are the one thing that does not: they lived in the log and now
+    live in `.orca/cache/`, so such a run re-mints and re-seeds.
   - `RunManifest` (documented at its definition; ADR 0021 §8 amendment,
     2026-08-05), so the shell still offers "continue a session" from a manifest
     an older orca wrote. Changes to it are additive only, still with no
@@ -341,6 +370,16 @@ Orca is 0.x: no backwards compatibility is owed anywhere.
     files, and `ManifestReaderTest`'s verbatim older manifest body — are
     sanctioned, not violations of the no-fixtures rule above. `CostRecord` is
     not covered: nothing reads a cost log, and no fixture pins it.
+
+    Breaking additive-only is possible but owed an argument, because the golden
+    fixtures cannot catch a rename of a field they never carried. A PR that
+    renames or retypes a manifest field says what an older manifest loses by
+    it, and the answer has to be a degraded listing rather than a resume that
+    misfires: the five required fields and `wireId` — what the shell
+    dereferences and execs — are not renamed. ADR 0021 §8 records each break.
+    The one so far is `sessionDetail` → `sessionStage` (ADR 0018 §2.6 stage
+    keying), which costs an older manifest's per-task sessions their separate
+    picker lineages.
 - Comments (see Code style above) never narrate this either: no "was
   previously", "renamed from", "kept for compat" — state what the field/type
   means now, not its history.

@@ -82,13 +82,9 @@ flow(
 
   maybePlan.foreach: plan =>
     val taskDeclines =
-      for (task, n) <- plan.tasks.zipWithIndex yield
+      for task <- plan.tasks yield
         stage(s"Task: ${task.title}"):
-          val session = codingAgent.session(
-            "implementer",
-            detail = s"task ${n + 1}: ${task.title}",
-            seed = plan.brief
-          )
+          val session = codingAgent.session("implementer", seed = plan.brief)
           session.run(task.description)
           reviewThenFix(
             coderSession = session,
@@ -99,11 +95,7 @@ flow(
 
     // Nothing reviews again after this loop, hence the raised iteration cap.
     val openFindings = stage("Final review"):
-      val finalFixer = codingAgent.session(
-        "final-fixer",
-        detail = "the whole planned change",
-        seed = plan.brief
-      )
+      val finalFixer = codingAgent.session("final-fixer", seed = plan.brief)
       reviewAndFixLoop(
         coderSession = finalFixer,
         reviewers = allReviewers(reviewAgent),

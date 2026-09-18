@@ -11,13 +11,14 @@ import orca.agents.{
   JsonData
 }
 import orca.events.OrcaEvent
-import orca.progress.{ProgressLog, SessionRecord}
+import orca.progress.ProgressLog
+import orca.sessions.SessionRecord
 
 /** A durable, resumable LLM-session handle — the single door for sessions that
   * must survive a flow crash and resume. Obtain one with `agent.session(name,
-  * detail, seed)`. It owns the probe → seed/preamble → run → persist protocol,
-  * so a durable run can never silently skip seeding or wire-id persistence the
-  * way a bare `agent.run` / `chat.run` turn does.
+  * seed)`. It owns the probe → seed/preamble → run → persist protocol, so a
+  * durable run can never silently skip seeding or wire-id persistence the way a
+  * bare `agent.run` / `chat.run` turn does.
   *
   * Use [[run]] for free-form text and [[resultAs]]`.run` for a structured `O`.
   * Both prime the conversation with the recorded seed and a progress preamble
@@ -28,14 +29,15 @@ import orca.progress.{ProgressLog, SessionRecord}
   * `agent.chat(session.id)` adopts it as an EPHEMERAL [[orca.agents.Chat]] —
   * the way to continue this conversation from inside a fork (where the doors
   * here are banned), interactive turns included. Chat turns forfeit seeding and
-  * wire-id persistence: they are in-run only and never write back to the log,
-  * so on crash/resume the durable side finds nothing recorded for them.
+  * wire-id persistence: they are in-run only and never write back to the
+  * session store, so on crash/resume the durable side finds nothing recorded
+  * for them.
   *
   * The handle is a plain immutable value with no stage affinity of its own —
   * only the capabilities its methods require ([[InStage]], [[WorkspaceWrite]])
   * are stage-scoped. It has no `JsonData` instance, and neither does
-  * [[SessionId]], so a handle minted inside a `stage(...)` cannot leave it as
-  * that stage's result (ADR 0018 §2.6 R22).
+  * [[SessionId]], so a handle minted inside a `stage(...)` cannot be returned
+  * as that stage's result (ADR 0018 §2.6 R22).
   */
 final class FlowSession[B <: BackendTag] private[orca] (
     private[orca] val agent: Agent[B],
@@ -56,7 +58,7 @@ final class FlowSession[B <: BackendTag] private[orca] (
     * conversation isn't live (fresh first use, or lost on resume); otherwise
     * runs `prompt` as-is. Returns the run's output.
     *
-    * The seed is looked up from the progress log by matching [[id]]; a missing
+    * The seed is looked up from the session store by matching [[id]]; a missing
     * record is treated as an empty seed (does not throw). The preamble names
     * completed stages and is included only when there is at least one, so a
     * true first use gets just `seed + prompt` with no misleading "resuming"
@@ -140,32 +142,31 @@ final class FlowSessionCall[B <: BackendTag, O] private[orca] (
   * it can depend on [[FlowControl]] while [[Agent]] stays in `tools`.
   */
 extension [B <: BackendTag](agent: Agent[B])
-  /** Get-or-create a durable [[FlowSession]] keyed by `(name, detail)` in this
-    * run's log.
+  /** Get-or-create a durable [[FlowSession]], keyed in this run's log by `name`
+    * and the stage this call sits in (the flow body when it sits outside every
+    * stage).
     *
     * `name` is the session's role — `implementer`, `final-fixer` — and is what
-    * `orca continue <name>` matches. `detail` says which session under that
-    * name this is — the task it serves, or what a one-per-run session covers.
-    * Both reach the run manifest, where the detail is what tells two sessions
-    * sharing a name apart.
+    * `orca continue <name>` matches. The stage half means two stages asking for
+    * `implementer` get two conversations without either naming the other's
+    * work, so a per-task flow needs nothing beyond the loop it already has.
     *
-    * Reserves a [[SessionId]] and records key + id + seed in the progress log,
+    * Reserves a [[SessionId]] and records key + id + seed in the session store,
     * then returns a [[FlowSession]] wrapping it; the backend conversation is
     * created lazily on the handle's first gated `run`. On resume, wraps the id
     * recorded at this key rather than minting a second. The seed is only
     * recorded here; [[FlowSession.run]] applies it on first use and replays it
     * on loss.
     *
-    * Identity is what the key says, not where the call sits: inserting,
+    * Identity follows the stage, not the call's position within it: inserting,
     * reordering or skipping other `session(...)` calls between runs leaves this
-    * one alone, while a changed `detail` — a re-plan rewording the task it
-    * names, say — is a different session, minted fresh and primed from the
-    * seed.
+    * one alone. What does re-key it is moving the call into another stage, or
+    * renaming the stage it sits in — the new key has nothing recorded, so the
+    * session is minted fresh and primed from the seed.
     *
-    * Minting one key twice in a run throws (see
+    * Minting one name twice in one stage throws (see
     * [[StageFrames.claimSessionKey]]): two handles driving one conversation is
-    * an authoring mistake, and the detail is where an author asks for a second
-    * session over the same work.
+    * an authoring mistake.
     *
     * '''Scope a session to a unit of work''' — one task, one review stage — not
     * to the whole run. A backend re-sends the conversation whole on every call
@@ -177,30 +178,31 @@ extension [B <: BackendTag](agent: Agent[B])
     * '''Mint it where it is used.''' Inside the `stage(...)` that drives it
     * when one stage owns it — the mint and the turns then share that stage's
     * commit, and a resume that skips the stage skips both. Above the stages
-    * when several share one session. What is not possible is a handle minted in
-    * one stage and driven by a later one: [[FlowSession]] has no `JsonData`, so
-    * it cannot leave a stage as that stage's result.
+    * when several share one session; the key is then the flow body's, so each
+    * of those stages reaches the same session. One route between stages is
+    * closed: [[FlowSession]] has no `JsonData`, so a handle cannot be returned
+    * as a stage's result. An in-memory holder still compiles, and the read
+    * fails on the resume that skips the stage that filled it.
     *
     * No LLM call and no commit, so it is callable outside a stage as well as
     * inside one (and, minting a fresh UUID, is not referentially transparent).
-    * Its store write therefore self-mints a [[WorkspaceWrite]] via
-    * [[RuntimeInStage]] rather than taking the token explicitly. Because that
-    * write isn't committed, a failure teardown's `git reset --hard` can erase
-    * it before the next stage commit carries the log — the retry then mints a
-    * fresh session and re-seeds (see `ProgressStore.upsertSession`).
+    * Having no ambient token there, its store write self-mints a
+    * [[WorkspaceWrite]] via [[RuntimeInStage]]. The record lands in
+    * `.orca/cache/` rather than in the committed log, so it outlives the stage
+    * that minted it whether that stage completes or fails — see
+    * [[orca.sessions.SessionStore]].
     */
-  def session(name: String, detail: String, seed: String)(using
+  def session(name: String, seed: String)(using
       fc: FlowControl
   ): FlowSession[B] =
     // An empty name decodes ambiguously; treat it as an authoring defect.
     require(name.nonEmpty, "session name must be non-empty")
-    val key = SessionKey(name, detail)
-    fc.claimSessionKey(key)
+    val key = fc.claimSessionKey(name)
     new FlowSession(agent, resolveSessionId(agent, key, seed), key)
 
-/** The reuse-or-mint decision behind `agent.session(name, detail, seed)`: look
-  * up any session already recorded at `key` and either reuse it (backend tag
-  * matches, recorded id parses) or mint a fresh one — on a backend swap, a
+/** The reuse-or-mint decision behind `agent.session(name, seed)`: look up any
+  * session already recorded at `key` and either reuse it (backend tag matches,
+  * recorded id parses) or mint a fresh one — on a backend swap, a
   * corrupt/mismatched recorded id, or no record at all. See `session`'s
   * scaladoc for the reuse contract each branch upholds.
   */
@@ -209,7 +211,7 @@ private def resolveSessionId[B <: BackendTag](
     key: SessionKey,
     seed: String
 )(using fc: FlowControl): SessionId[B] =
-  fc.progressStore.load().flatMap(_.sessions.find(_.key == key)) match
+  fc.sessionStore.records().find(_.key == key) match
     case Some(recorded) => reuseOrMint(agent, key, seed, recorded)
     case None           => mintSession(agent, key, seed)
 
@@ -255,7 +257,7 @@ private def warnBackendSwap(
 ): Unit =
   fc.emit(
     OrcaEvent.Step(
-      s"warning: session '${key.label}' was minted on " +
+      s"warning: session ${key.describe} was minted on " +
         s"$recordedTag; this agent is " +
         s"${currentTag.getOrElse("untagged")} — minting fresh"
     )
@@ -270,7 +272,7 @@ private def warnIfSeedDiffers(
   if recordedSeed != seed then
     fc.emit(
       OrcaEvent.Step(
-        s"warning: session '${key.label}' recorded seed differs " +
+        s"warning: session ${key.describe} recorded seed differs " +
           "for this key — the seed was edited; reusing the recorded session"
       )
     )
@@ -278,17 +280,16 @@ private def warnIfSeedDiffers(
 private def warnInvalidRecordedId(fc: FlowControl, key: SessionKey): Unit =
   fc.emit(
     OrcaEvent.Step(
-      s"warning: session '${key.label}' has an invalid recorded id " +
+      s"warning: session ${key.describe} has an invalid recorded id " +
         "— minting fresh"
     )
   )
 
-/** Mint a fresh session id, record `(key, id, seed, backend)` in the progress
-  * log (replacing any existing record at the same key — see
-  * `ProgressStore.upsertSession`), and return it. Shared by every arm of
-  * `agent.session(name, detail, seed)`'s reuse match that must not trust a
-  * stale/mismatched/corrupt recorded id. Mints its own [[WorkspaceWrite]] via
-  * [[RuntimeInStage]] — see `session`'s scaladoc.
+/** Mint a fresh session id, record `(key, id, seed, backend)` in the session
+  * store (replacing any existing record at the same key), and return it. Shared
+  * by every arm of `agent.session(name, seed)`'s reuse match that must not
+  * trust a stale/mismatched/corrupt recorded id. Mints its own
+  * [[WorkspaceWrite]] via [[RuntimeInStage]] — see `session`'s scaladoc.
   */
 private def mintSession[B <: BackendTag](
     agent: Agent[B],
@@ -297,10 +298,10 @@ private def mintSession[B <: BackendTag](
 )(using fc: FlowControl): SessionId[B] =
   val freshId = SessionId.fresh[B]
   given WorkspaceWrite = RuntimeInStage.workspaceToken()
-  fc.progressStore.upsertSession(
+  fc.sessionStore.upsert(
     SessionRecord(
       name = key.name,
-      detail = key.detail,
+      stage = key.stage.value,
       id = freshId.value,
       seed = seed,
       backend = agent.backendTag.map(_.wireName)
@@ -322,8 +323,7 @@ private def effectivePrompt[B <: BackendTag](
 )(using fc: FlowControl): String =
   if agent.willContinue(session) then text
   else
-    val log = fc.progressStore.load()
-    val record = log.flatMap(_.sessions.find(_.id == session.value))
+    val record = fc.sessionStore.records().find(_.id == session.value)
     // A recorded wire id proves a backend conversation once existed, so a
     // failed probe here means it was lost (pruned store, another machine): the
     // rebuilt conversation gets only seed + preamble, not the prior turns.
@@ -332,13 +332,14 @@ private def effectivePrompt[B <: BackendTag](
     if record.exists(_.resumeWireId.isDefined) then
       fc.emit(
         OrcaEvent.Step(
-          s"warning: session '${record.fold("?")(_.key.label)}' — backend " +
+          s"warning: session ${record.fold("'?'")(_.key.describe)} — backend " +
             "conversation not found; re-seeding (prior conversation history " +
             "is lost)"
         )
       )
     val seed = record.map(_.seed).filter(_.nonEmpty)
-    val preamble = progressPreamble(log, fc.git.headCommit())
+    val preamble =
+      progressPreamble(fc.progressStore.load(), fc.git.headCommit())
     composePrimedPrompt(preamble, seed, text)
 
 /** After a run, persist the backend's now-learned resume wire id (durable
@@ -358,13 +359,12 @@ private def persistResumeWireId[B <: BackendTag](
   val healedTag = agent.backendTag.map(_.wireName)
   for
     wireId <- agent.resumeWireId(session)
-    log <- fc.progressStore.load()
-    record <- log.sessions.find(_.id == session.value)
+    record <- fc.sessionStore.records().find(_.id == session.value)
     if !record.resumeWireId.contains(
       wireId.value
     ) || record.backend != healedTag
   do
-    fc.progressStore.upsertSession(
+    fc.sessionStore.upsert(
       record.copy(resumeWireId = Some(wireId.value), backend = healedTag)
     )
 

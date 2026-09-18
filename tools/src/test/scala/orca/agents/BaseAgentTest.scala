@@ -1,5 +1,6 @@
 package orca.agents
 
+import orca.StagePath
 import orca.testkit.StubEnforcementCell
 import orca.backend.{
   Conversation,
@@ -440,9 +441,9 @@ class BaseAgentTest extends munit.FunSuite:
     assertEquals(committed.head.role, None)
     assertEquals(committed.head.sessionKey, None)
 
-  // The manifest classifies a session as durable off this field alone and reads
-  // its detail from it, so the key a `FlowSession` hands to `runWithSession`
-  // has to survive to the event whole.
+  // The manifest classifies a session as durable off this field alone and
+  // groups its lineages by it, so the key a `FlowSession` hands to
+  // `runWithSession` has to survive to the event whole.
   test("a named session's key reaches SessionCommitted"):
     val seen =
       new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
@@ -452,7 +453,8 @@ class BaseAgentTest extends munit.FunSuite:
     val _ = tool.autonomous.runWithSession(
       "prompt",
       SessionId.fresh[BackendTag.Pi.type],
-      sessionKey = Some(SessionKey("coder", "task 2")),
+      sessionKey =
+        Some(SessionKey(name = "coder", stage = StagePath.Stage("Task 2#0"))),
       config = None,
       emitPrompt = true
     )
@@ -460,7 +462,9 @@ class BaseAgentTest extends munit.FunSuite:
       seen.get().collect { case e: OrcaEvent.SessionCommitted =>
         e.sessionKey
       },
-      List(Some(SessionKey("coder", "task 2")))
+      List(
+        Some(SessionKey(name = "coder", stage = StagePath.Stage("Task 2#0")))
+      )
     )
 
   // A turn joins to the session that produced it only if it names that session

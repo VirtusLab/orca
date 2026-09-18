@@ -615,31 +615,44 @@ strategy and the progress store are overridable (R21).
 
 **Requirements.**
 - **R22** — Durable session identity lives in a keyed `SessionRecord`, obtained via
-  `agent.session(name, detail, seed): FlowSession[B]` and persisted in the log (with the
-  client→server map for server-id backends) — never as a stage result: neither
+  `agent.session(name, seed): FlowSession[B]` and persisted in the machine-local
+  session store (with the client→server map for server-id backends) — never as a
+  stage result: neither
   `SessionId[B]` nor `FlowSession[B]` has a `JsonData` given, so neither can be
   smuggled through `stage`'s persistence path, where it would get neither the
-  wire-map nor the seed-lookup a `SessionRecord` provides. That absence is also
-  what confines a handle minted inside a stage to that stage (R23). On resume, whether the *live* backend
+  wire-map nor the seed-lookup a `SessionRecord` provides. That blocks the
+  stage-result route out of a stage and only that route; a handle stashed in an
+  in-memory holder in one stage and read in a later one still compiles, and
+  fails loudly (`NoSuchElementException`) on the resume that skips the stage
+  that filled it. On resume, whether the *live* backend
   conversation can be continued is decided by a **non-destructive existence probe**
   (`AgentBackend.sessionExists(id)`) rather than guessed: a backend exposes one where it
   can (an on-disk session file, a list command, or a `GET`) — today every backend does.
   If the probe is absent or says gone, resume falls back to re-seed (R23).
 - **R23** — A session is obtained via a get-or-create (`agent.session`) keyed by
-  `(name, detail)` and recorded in the log under that key, so a retry reuses it rather
-  than minting a second. `name` is the role (`implementer`, `final-fixer`) — the half
-  that travels, naming the session in the run manifest; `detail` is required free text
-  saying which session under that name this is: the task it serves, or what a
-  one-per-run session covers. The two are compared by exact string equality; neither is
-  hashed, and neither becomes a filename or a wire token. Identity is therefore semantic, not
-  positional: inserting, reordering or skipping other `session(...)` calls between runs
-  leaves a key alone, and a changed detail — a re-plan rewording the task it names — is
-  a different session, minted fresh and primed from the seed rather than resuming the
-  old task's conversation. Minting one key **twice in a single execution** throws: two
-  handles writing into one conversation is an authoring mistake, and the detail is
-  where an author asks for a second session over the same work. Re-minting a key on
-  **resume** is the reuse path, not a duplicate — the run tracks only the keys minted
-  in this execution. A flow attaches a `seed` — the essential context to rebuild the
+  `(name, minting stage)` and recorded in the session store under that key, so a retry
+  reuses it rather than minting a second. `name` is the role (`implementer`, `final-fixer`) — the
+  half that travels, naming the session in the run manifest; the stage half is the path
+  id of the stage the call sits in (ADR 0018 §2.1), or the empty string for a mint in
+  the flow body outside every stage. The runtime reads it from the open frame stack;
+  an author supplies nothing. The two are compared by exact string equality; neither is
+  hashed, and neither becomes a filename or a wire token. Consequences: two stages can
+  never name one session, so a per-task loop mints `implementer` inside each task's
+  stage and gets one conversation per task with no per-task label to compose; inserting,
+  reordering or skipping other `session(...)` calls between runs leaves a key alone; and
+  moving a mint into another stage, or renaming the stage it sits in — a re-plan
+  rewording a task title — is a different session, minted fresh and primed from the seed
+  rather than resuming the old task's conversation. Minting one name **twice in one
+  stage** throws: two handles writing into one conversation is an authoring mistake, and
+  the fix is to rename one or to split the stages. Re-minting a key on **resume** is the
+  reuse path, not a duplicate — the run tracks only the keys minted in this execution.
+  For a mint inside a stage that duplicate check is sound rather than best-effort,
+  because a stage body is all-or-nothing: two mints of one name in one stage either
+  both execute or neither does, so the claim set sees both whenever they could
+  collide. The flow body's root frame offers no such guarantee — two mutually
+  exclusive mints of one name there are never both claimed — which costs the warning,
+  not correctness: each still resolves to the single record stored at that key. A flow attaches a
+  `seed` — the essential context to rebuild the
   agent if its backend conversation is lost (typically the plan brief, or the
   issue/plan when there is no brief); the runtime additionally prepends a progress
   preamble derived from the log (which stages have completed). **Re-seed is the
@@ -648,28 +661,24 @@ strategy and the progress store are overridable (R21).
   is still live, in which case it continues it. `agent.session(...)` is callable
   wherever a `FlowControl` is — inside a stage or at the flow-body top level — and the
   handle it returns is a plain value closed over by the scope that minted it. Mint it
-  where it is used: inside the stage that drives it when one stage owns it, above the
-  stages when several share it. The broken shape — minted in one stage, driven by a
-  later one — is unrepresentable by R22: with no `JsonData[FlowSession[B]]` the handle
-  cannot leave a stage as that stage's result. A mint inside a stage shares that stage's
-  commit, so a resume that skips the stage skips the mint with it, and a resume that
-  re-runs the stage re-mints the key onto the recorded id. The one thing this costs:
-  duplicate-key detection sees only mints that execute, so two colliding mints in
-  different stages collide on the fresh run that reaches both and not on a resume that
-  replays one of them.
+  where it is used: inside the stage that drives it when one stage owns it, outside
+  every stage when several share it. A resume that skips a completed stage skips its
+  mint with it; a resume that re-runs one re-mints the key onto the recorded id,
+  which holds because the record outlives the failure teardown (see the store
+  amendment below).
 
 **Design.**
 
 A flow obtains a session via `agent.session(...)` — a *get-or-create* keyed by the
-log, not a plain `new`. It is **pure**: it reserves a session id (a UUID) and records
-the key + id + seed in the log; the backend conversation is created lazily on the first
-gated `run`. So `agent.session(...)` needs no stage of its own while the actual LLM
+session store, not a plain `new`. It is **pure**: it reserves a session id (a UUID) and
+records the key + id + seed in the store; the backend conversation is created lazily on
+the first gated `run`. So `agent.session(...)` needs no stage of its own while the actual LLM
 effect stays inside one (R15). On resume it returns the recorded id. Naming it
 `session` rather than `newSession` reflects the upsert: a retry does not create a
 second session.
 
 ```scala
-val session = agent.session("implementer", detail = task.title, seed = plan.brief)
+val session = agent.session("implementer", seed = plan.brief)
 ```
 
 `seed` is a string the author composes from whatever the agent needs to rebuild
@@ -718,12 +727,87 @@ list output and opencode's directory-scoping should be pinned when the probes la
 >   independently-overridable `sessionExists`/`resumeWireId`/`registerSession` hooks
 >   this section describes; see AGENTS.md's "Sessions" section for the current model.
 
-> **Amendment (2026-09-17).** Both halves of the key travel, not just `name`:
-> `OrcaEvent.SessionCommitted` carries the whole `SessionKey`, and the run
-> manifest records the detail beside the name (ADR 0021 §8 amendment,
-> 2026-09-17), so per-task sessions sharing a role are distinguishable rows
-> rather than N identical `implementer` entries. `orca continue <name>` still
-> addresses a session by name alone.
+> **Amendment (2026-09-18).** R22/R23 above are as rewritten by stage keying;
+> what they replaced, and why, is recorded here.
+>
+> The key was `(name, detail)`, with `detail` author-supplied prose
+> (`s"task ${n + 1}: ${task.title}"` in five shipped flows). It had one live
+> defect: `StageFrames.claimedSessionKeys` records only mints that *execute*, so
+> on a resume a replayed stage's mint never claims its key, and a colliding mint
+> in another stage fell through to the reuse path and adopted the replayed
+> stage's session id — two handles, one conversation, no warning. Keying on the
+> minting stage makes that shape unrepresentable rather than merely detected, and
+> makes the duplicate check sound for the first time (a stage body is
+> all-or-nothing, so both mints of a colliding pair run or neither does).
+>
+> A positional component — "the Nth session named X in this stage" — was
+> proposed and rejected. The stage contract guarantees whole-body *replay*, not
+> deterministic *re-execution*: a stage that runs, fails and re-runs executes its
+> body twice, and the second pass can branch differently on an agent reply or a
+> live read. A conditional mint that ran on the first pass and not the second
+> shifts every later occurrence index down one, so the re-run's occurrence 0
+> adopts the first attempt's occurrence 0 — a different session. That is the same
+> silent-aliasing class this change exists to remove, so no occurrence counter.
+>
+> Identity and label separate here. Identity wants the stage *id*, which is
+> unique and carries `#0` occurrence suffixes; a label wants prose. A fused key
+> would have to either render the raw id into a picker row
+> (`implementer (Task: Add multiply#0)`) or recover the stage name by parsing an
+> id that §2.1 declares opaque. So `SessionKey` keeps identity and one diagnostic
+> rendering (`describe`), a session reads to a person as its bare `name`, and the
+> stage keeps the field it already had in every surface that lists sessions.
+>
+> `OrcaEvent.SessionCommitted` still carries the whole `SessionKey`. The run
+> manifest's `sessionDetail` becomes `sessionStage` (ADR 0021 §8 amendment,
+> 2026-09-18) — a rename, not an addition. `orca continue <name>` still addresses
+> a session by name alone.
+
+> **Amendment (2026-09-18, session store).** `SessionRecord` leaves the committed
+> progress log for `.orca/cache/sessions-<prompt hash>.json`
+> (`orca.sessions.SessionStore`), keyed by the same prompt hash as the log.
+>
+> **Why.** `ProgressStore.upsertSession` did not commit, so a record written inside a
+> stage rode that stage's completion commit or nothing. A stage that *completes*
+> replays on resume and never re-mints, so its record was never read back; a stage
+> that *fails* had its record erased by `FlowLifecycle.teardownFailure` →
+> `GitTool.discardUncommitted` → `git reset --hard`, back to the last stage commit.
+> Since every shipped flow mints inside a stage, R23's reuse branch was unreachable
+> in production: a resumed run re-minted and re-seeded a conversation that was still
+> alive.
+>
+> **Why the cache is the right home, not merely a fix.** A backend session id is a
+> machine-local handle into the coding agent's own store — meaningless in another
+> checkout or on another machine — so it was never branch history. The cache already
+> holds the run manifest for the same reason, and survives every way a run discards
+> work: `git reset --hard` (tracked files only), the teardown's `git clean -fd`
+> (no `-x`, and `.orca` excluded anyway), and the resume-time stash of a dirty tree
+> (`git stash push -u` skips ignored paths, and `.orca/cache` self-ignores). A
+> `--worktree` run derives the path from the directory it runs in, which is the
+> worktree, exactly as the progress log does — so the resumed run reads its own
+> records. A process killed before any teardown leaves the file in place, which is
+> the point.
+>
+> **What it costs.** `ProgressLog` loses its `sessions` field. A log an older orca
+> wrote still decodes (the array is an unknown key, skipped), so an in-flight run
+> survives the upgrade — but its records do not, and it re-mints and re-seeds. That
+> is the documented uniform fallback, not a new failure mode: a missing or
+> unreadable store reads as no records anywhere.
+>
+> `teardownSuccess` deletes the store beside the log, so a later run of the same
+> prompt starts fresh conversations rather than continuing a finished run's.
+>
+> The write still takes `WorkspaceWrite`: it is a read-modify-write of one shared
+> file, the same race the progress log has. `agent.session(...)` self-mints that
+> token through `RuntimeInStage` because it is callable outside any stage, not
+> because its write is uncommitted.
+
+> **Amendment (2026-09-18, stage path type).** The stage half of a `SessionKey` is
+> `orca.StagePath` — `FlowBody`, or `Stage(path id)` — rather than a `String` whose
+> empty value meant "outside every stage". `StagePath.fromValue` is the single place
+> a persisted id (absent, empty, or a path) is read back, and `StagePath.child` the
+> single place one is built, so `StageFrames`'s frames carry a `StagePath` and
+> `enterStage`/`peekStageId` return `StagePath.Stage`. The wire shape is unchanged:
+> `SessionRecord.stage` and the manifest's `sessionStage` stay plain strings.
 
 > **Amendment (2026-07-28).** Pi is durable too: the table above no longer has a
 > probe-less row, and the 2026-07-06 amendment's `Ephemeral(registry)` (pi) tagging no
@@ -829,10 +913,10 @@ flow(OrcaArgs(args), _.claude):                          // required agent selec
     Plan.autonomous.from(userPrompt, agent).value        // Plan (always briefed; has JsonData)
 
   // Get-or-create the implementer session (pure: id reserved, backend created on
-  // first use). The seed (plan brief) primes it on first use, and is replayed if the
-  // backend session is lost on resume.
-  val session =
-    agent.session("implement", detail = "the whole plan", seed = plan.brief)
+  // first use). Minted outside every stage, so its key is the flow body's and the
+  // task stages below share it. The seed (plan brief) primes it on first use, and is
+  // replayed if the backend session is lost on resume.
+  val session = agent.session("implement", seed = plan.brief)
 
   for task <- plan.tasks do
     stage(s"task: ${task.title}"):                       // skipped on resume if already done
@@ -872,8 +956,7 @@ val issueHandle = IssueHandle.parseOrThrow(orcaArgs.userPrompt)
 
 flow(orcaArgs, _.claude, branchNaming = Some(BranchNamingStrategy.issue(issueHandle))):
   val issue   = gh.readIssue(issueHandle)                            // read
-  val session =                                                      // get-or-create
-    claude.session("fix", detail = "the reported bug", seed = issue.body)
+  val session = claude.session("fix", seed = issue.body)             // get-or-create
   val triage  = stage("Triage"):                                     // LLM → staged
     Plan.autonomous.triage(report(issue), claude).value
 
@@ -990,15 +1073,16 @@ alongside.
   > not a harmless re-run. Hierarchical path ids (R10, §2.1) fix this: a nested
   > stage's id carries its parent's segment, so it can never collide with a
   > top-level (or differently-nested) stage of the same name. Sessions need no
-  > analogous scheme: their keys are content-derived (`(name, detail)` — R23),
-  > not positional, so a skipped stage shifts nothing.
-- **Session identity is semantic, not positional.** A session resumes only where
-  its `(name, detail)` key still matches the log (R23), so a re-plan that rewords a
-  task changes that task's detail and gives it a fresh session, primed from the seed.
-  That is the intended reading — the recorded conversation belonged to the task as it
-  was worded before — but it means a re-plan costs the history of every task it
-  rewords, and a flow that details its sessions by task index instead keeps the
-  history at the price of resuming a reworded task on the old wording's conversation.
+  > analogous scheme: a key names the stage that minted it (R23) and nothing about
+  > the mint's position within it, so a skipped stage shifts nothing.
+- **Session identity follows the stage, not the call's position in it.** A session
+  resumes only where its `(name, minting stage)` key still matches the log (R23). The
+  shipped flows name a task's stage after the task, so a re-plan that rewords a task
+  renames its stage and gives it a fresh session, primed from the seed. That is the
+  intended reading — the recorded conversation belonged to the task as it was worded
+  before — but it means a re-plan costs the history of every task it rewords, and a
+  flow that names its task stages by index instead keeps the history at the price of
+  resuming a reworded task on the old wording's conversation.
 - **Resume preserves files, not agent context.** File state is committed and
   restored; the LLM conversation is not. After a crash the re-seed blob restores
   only the seed (e.g. the plan), so a long implementer session resumes materially

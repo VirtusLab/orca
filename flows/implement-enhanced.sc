@@ -35,13 +35,9 @@ flow(OrcaArgs(args)):
       .value
 
   val taskDeclines =
-    for (task, n) <- plan.tasks.zipWithIndex yield
+    for task <- plan.tasks yield
       stage(s"Task: ${task.title}"):
-        val session = codingAgent.session(
-          "implementer",
-          detail = s"task ${n + 1}: ${task.title}",
-          seed = plan.brief
-        )
+        val session = codingAgent.session("implementer", seed = plan.brief)
         session.run(task.description)
         reviewThenFix(
           coderSession = session,
@@ -53,11 +49,7 @@ flow(OrcaArgs(args)):
   // documenter implemented none of the tasks, so the prompt points it at the
   // branch diff for what actually changed.
   stage("Update documentation"):
-    val documenter = codingAgent.session(
-      "documenter",
-      detail = "project docs for the whole planned change",
-      seed = plan.brief
-    )
+    val documenter = codingAgent.session("documenter", seed = plan.brief)
     documenter.run(
       "All tasks are done and committed. Read what this branch changed " +
         "(`git diff` against its base), then update project docs (README, " +
@@ -66,11 +58,7 @@ flow(OrcaArgs(args)):
 
   // Nothing reviews again after this loop, hence the raised iteration cap.
   val openFindings = stage("Final review"):
-    val finalFixer = codingAgent.session(
-      "final-fixer",
-      detail = "the whole planned change",
-      seed = plan.brief
-    )
+    val finalFixer = codingAgent.session("final-fixer", seed = plan.brief)
     reviewAndFixLoop(
       coderSession = finalFixer,
       reviewers = allReviewers(reviewAgent),

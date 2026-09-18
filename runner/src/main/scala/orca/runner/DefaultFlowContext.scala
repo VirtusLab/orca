@@ -2,6 +2,7 @@ package orca.runner
 
 import orca.{FlowControl, StackSettings}
 import orca.progress.{CommitHash, ProgressStore}
+import orca.sessions.SessionStore
 import orca.review.ReviewerCatalog
 import orca.tools.{FsTool, GitHubTool, GitTool}
 import orca.agents.{Agent, BackendTag}
@@ -34,6 +35,7 @@ private[orca] class DefaultFlowContext[
     val gh: GitHubTool,
     val fs: FsTool,
     val progressStore: ProgressStore,
+    val sessionStore: SessionStore,
     /** Resolved stack settings (ADR 0019): `FlowLifecycle.setup` resolves them
       * before the context is constructed, so they arrive frozen — the body (and
       * the loops it calls) sees one immutable value.

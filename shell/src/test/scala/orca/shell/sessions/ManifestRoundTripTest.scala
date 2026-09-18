@@ -1,5 +1,6 @@
 package orca.shell.sessions
 
+import orca.StagePath
 import orca.agents.SessionKey
 import orca.events.OrcaEvent
 import orca.testkit.Usages.usage
@@ -37,7 +38,9 @@ class ManifestRoundTripTest extends munit.FunSuite:
           harness = "claude",
           clientId = "client-1",
           wireId = Some("wire-1"),
-          sessionKey = Some(SessionKey("coder", "task 2")),
+          sessionKey = Some(
+            SessionKey(name = "coder", stage = StagePath.Stage("Task 2#0"))
+          ),
           agent = "claude",
           role = None
         )
@@ -62,7 +65,10 @@ class ManifestRoundTripTest extends munit.FunSuite:
     assertEquals(session.harness, "claude")
     assertEquals(session.wireId, Some("wire-1"))
     assertEquals(session.resumable, true)
-    assertEquals(session.mintedKey, Some(SessionKey("coder", "task 2")))
+    assertEquals(
+      session.mintedKey,
+      Some(SessionKey(name = "coder", stage = StagePath.Stage("Task 2#0")))
+    )
     assertEquals(session.stage, Some("code"))
     // The same run wrote a `-cost.jsonl` beside the manifest (the TokensUsed
     // above). The shell selects by `ext == "json"`, so it must not appear as a

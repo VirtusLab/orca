@@ -19,7 +19,7 @@ private val log = LoggerFactory.getLogger("orca.agents")
   *   - **`chat()`** — a fresh EPHEMERAL multi-turn conversation ([[Chat]]):
   *     in-run only, needs only `InStage` so it works inside a fork. Gone on
   *     crash/resume.
-  *   - **`agent.session(name, detail, seed)`** (a flow extension) — a DURABLE
+  *   - **`agent.session(name, seed)`** (a flow extension) — a DURABLE
   *     `orca.FlowSession` that survives a flow crash/resume: named, seeded, and
   *     persisted.
   *
@@ -61,7 +61,7 @@ trait Agent[B <: BackendTag]:
     * reply. Use when the agent's reply is prose / code / anything that doesn't
     * need to parse as a structured `O` (that's [[resultAs]]). To keep talking
     * within the run, mint [[chat]]; to survive a crash/resume, use
-    * `agent.session(name, detail, seed)` (a durable `orca.FlowSession`).
+    * `agent.session(name, seed)` (a durable `orca.FlowSession`).
     */
   final def run(
       prompt: String,

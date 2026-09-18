@@ -489,17 +489,42 @@ are excluded automatically.
 > event instead of joining the progress log by `clientId`. The reserved
 > `interactive` kind is gone; re-adding it is additive.
 
-> **Amendment (2026-09-17).** `SessionCommitted` carries the whole
-> `SessionKey` — name *and* detail (ADR 0018 §2.6) — and the manifest records
-> the detail in an added optional `sessionDetail`, so N per-task sessions
-> sharing a name are no longer indistinguishable rows. A manifest without the
-> field reads as a key with an empty detail. Two consequences for the picker
-> described below: a durable lineage is keyed by `(agent, name, detail)`
-> rather than `(agent, name)`, and every row shows `name (detail)`.
-> `orca continue <name>` still matches the name alone — several sessions
-> under one name in one working tree resolve to the most recently active,
-> exactly as a single lineage's occurrences did; a name spanning agents or
-> working trees is still refused as ambiguous.
+> **Amendment (2026-09-18).** Stage keying (ADR 0018 §2.6 amendment,
+> 2026-09-18) replaces the key's author-supplied `detail` with the path id of
+> the stage that minted the session, and the manifest field with it:
+> `sessionDetail` becomes `sessionStage`. A durable lineage is keyed by
+> `(workDir, agent, name, minting stage)`, so N per-task sessions sharing a name
+> are still N lineages.
+>
+> This is a rename, which the additive-only rule above forbids, and the frozen
+> golden fixtures cannot catch it — they predate `sessionDetail` and so never
+> carried the field. The break is taken deliberately, and this is what it costs:
+> a manifest an earlier build wrote reads with `sessionStage` absent, which
+> `ManifestSession.mintedKey` resolves to the flow-body key, so that run's
+> per-task sessions collapse into one lineage in the picker and the extras move
+> behind the "show N earlier occurrences" expander. Nothing the shell
+> dereferences or execs is touched — `workDir`, `pid`, `startedAt`, `outcome`,
+> `sessions` and `wireId` all keep their names — so every one of those sessions
+> still resumes. AGENTS.md's versioning rule now says what a break like this
+> owes.
+>
+> Rows show the session's bare name, not `name (detail)`; `SessionRow` loses
+> `sessionDetail` and its `display` method with it.
+>
+> The stage a row already showed — the picker's `(stage: <stage>)` segment and
+> `continue --list`'s `stage` column — is a DIFFERENT field: `ManifestSession.stage`
+> is where the session was last active, re-stamped every turn, while
+> `sessionStage` is the stage that minted it. Two lineages that differ only in
+> their minting stage therefore render identically whenever their last-active
+> stage coincides, and `continue <name>` takes the most recent of them. So the
+> minting stage is shown where it is needed: `SessionPicker.mintedInTag` appends
+> `(minted in <path id>)` to exactly those picker rows another lineage would
+> render the same as, `continue --list` gives it a `minted in` column, and
+> `SessionRow.sessionStage` carries it to `--json` so a script can tell them
+> apart. It is a path id rather than prose, which is why the picker prints it
+> only where it has to. `orca continue <name>`
+> is unchanged, including its most-recently-active tie-break within one working
+> tree and its refusal to guess across trees or agents.
 
 **Shell side**: after a flow run (and on entry, from existing manifests,
 newest first) the "continue a session" item lists one row per durable

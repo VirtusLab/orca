@@ -249,7 +249,7 @@ private[runner] class RunManifestWriterState(
       role = event.role,
       stage = stage,
       sessionName = minted.map(_.name),
-      sessionDetail = minted.map(_.detail),
+      sessionStage = minted.map(_.stage.value),
       kind = ManifestSessionKind.of(minted),
       firstSeenAt = existing.map(_.session.firstSeenAt).getOrElse(now),
       lastActiveAt = now

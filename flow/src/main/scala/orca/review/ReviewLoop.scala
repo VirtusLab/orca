@@ -370,7 +370,7 @@ private case class RoundOutcome(
   * stopped running (see [[ReviewerSelector]]).
   *
   * `coderSession` is the coder's durable [[FlowSession]] (obtain it once with
-  * `agent.session(name, detail, seed)`). Each fix turn goes through
+  * `agent.session(name, seed)`). Each fix turn goes through
   * [[FlowSession.resultAs]]`.autonomous.run`, so a coder whose backend
   * conversation is fresh or lost-on-resume is re-primed with the recorded seed
   * and progress preamble, and its learned wire id is persisted.
