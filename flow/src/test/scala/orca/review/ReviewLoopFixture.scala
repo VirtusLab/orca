@@ -191,8 +191,8 @@ private[review] class FakeAgent(
 /** A finding whose title doubles as its description, with no location or
   * suggestion — the shape the review tests assert on.
   */
-private[review] def issue(desc: String): ReviewIssue =
-  ReviewIssue(
+private[review] def finding(desc: String): ReviewFinding =
+  ReviewFinding(
     title = Title(desc),
     description = desc,
     location = None,

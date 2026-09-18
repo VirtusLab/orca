@@ -201,7 +201,7 @@ object FlowCanary:
         val results: List[ReviewResult] = Par.mapUnordered(4)(reviewers): r =>
           r.agent.resultAs[ReviewResult].autonomous.run(r.definition.name)
         val _: List[Option[Location]] =
-          results.flatMap(_.issues).map(_.location)
+          results.flatMap(_.findings).map(_.location)
 
   /** `flows/review.sc`'s `pickReviewers` is a top-level helper, so it resolves
     * the catalog against a bare `FlowContext` — not the `FlowControl` a stage
@@ -246,7 +246,7 @@ object FlowCanary:
         val _ = summary.body
 
   /** These `exports.scala` types (`Usage`, `Cost`, `CostTracker`,
-    * `IgnoredIssue`/`IgnoredIssues`, `PushFailure`) must resolve from `import
+    * `OpenFinding`/`OpenFindings`, `PushFailure`) must resolve from `import
     * orca.*` alone, with no side import.
     */
   def exportsSurface(): Unit =
@@ -259,11 +259,11 @@ object FlowCanary:
             val _: Usage = t.usage
           case _ => ()
         val _ = listener
-        val ignored: IgnoredIssues = fixLoop(
+        val open: OpenFindings = fixLoop(
           evaluate = () => ReviewResult.empty,
-          fix = _ => FixOutcome(fixed = Nil, ignored = Nil)
+          fix = _ => FixOutcome(fixed = Nil, declined = Nil)
         )
-        val _: List[IgnoredIssue] = ignored.issues
+        val _: List[OpenFinding] = open.findings
         git.push() match
           case Left(_: PushFailure.NonFastForward) => ()
           case Left(_: PushFailure.RemoteDeclined) => ()
@@ -451,7 +451,7 @@ object FlowCanary:
       val plan: Plan = stage("Plan"):
         Plan.autonomous.from(userPrompt, claude).reviewed(claude).value
 
-      val declines =
+      val taskOpenFindings =
         for task <- plan.tasks yield stage(s"task: ${task.title}"):
           val session = claude.session("implementer", seed = plan.brief)
           val _ = session.run(plan.taskPrompt(task))
@@ -463,7 +463,7 @@ object FlowCanary:
 
       val _ = openPrIfGitHub(
         summarisingAgent = claude.haiku,
-        openFindings = IgnoredIssues(declines.flatMap(_.issues))
+        openFindings = OpenFindings(taskOpenFindings.flatMap(_.findings))
       )
 
   /** Role agents (ADR 0020): the three role accessors hand out backend-pinned
@@ -555,7 +555,7 @@ object FlowCanary:
 
         val _ = openPrFromBranch(
           summarisingAgent = claude.haiku,
-          openFindings = IgnoredIssues(Nil),
+          openFindings = OpenFindings(Nil),
           body =
             summary => s"${summary.body}\n\nCloses ${issueHandle.shortRef}."
         )
@@ -626,7 +626,7 @@ object FlowCanary:
               .from(s"Fix ${issueHandle.shortRef}", claude)
               .reviewed(claude)
               .value
-          val declines =
+          val taskOpenFindings =
             for task <- fixPlan.tasks yield stage(s"task: ${task.title}"):
               val _ = session.run(fixPlan.taskPrompt(task))
               // An explicit override beats the settings file; the summariser
@@ -648,7 +648,7 @@ object FlowCanary:
               title = "fix: " + summary,
               body = bodyWithOpenFindings(
                 "Failing test + fix.",
-                IgnoredIssues(declines.flatMap(_.issues))
+                OpenFindings(taskOpenFindings.flatMap(_.findings))
               )
             )
 

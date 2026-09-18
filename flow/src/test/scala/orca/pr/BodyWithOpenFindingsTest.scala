@@ -2,7 +2,7 @@ package orca.pr
 
 import munit.FunSuite
 import orca.plan.Title
-import orca.review.{IgnoredIssue, IgnoredIssues}
+import orca.review.{OpenFinding, OpenFindings}
 
 /** The section's own text. That a PR body carries it at all is
   * [[OpenPrFromBranchTest]] and [[OpenPrIfGitHubTest]].
@@ -10,10 +10,10 @@ import orca.review.{IgnoredIssue, IgnoredIssues}
 class BodyWithOpenFindingsTest extends FunSuite:
 
   test("each open finding is one bullet with its title and reason"):
-    val open = IgnoredIssues(
+    val open = OpenFindings(
       List(
-        IgnoredIssue(Title("Null check missing"), "max iterations (5) reached"),
-        IgnoredIssue(Title("Rename foo"), "fixer reported no fixes")
+        OpenFinding(Title("Null check missing"), "max iterations (5) reached"),
+        OpenFinding(Title("Rename foo"), "fixer reported no fixes")
       )
     )
     val rendered = bodyWithOpenFindings("Body", open)
@@ -32,8 +32,8 @@ class BodyWithOpenFindingsTest extends FunSuite:
     )
 
   test("a multi-line title and reason are collapsed onto one bullet"):
-    val open = IgnoredIssues(
-      List(IgnoredIssue(Title("Rename\n  foo"), "out of\n  scope:\nsee plan"))
+    val open = OpenFindings(
+      List(OpenFinding(Title("Rename\n  foo"), "out of\n  scope:\nsee plan"))
     )
     val rendered = bodyWithOpenFindings("Body", open)
     assert(rendered.endsWith("- Rename foo — out of scope: see plan"), rendered)

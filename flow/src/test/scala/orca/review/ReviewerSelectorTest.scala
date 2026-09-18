@@ -89,7 +89,7 @@ class ReviewerSelectorTest extends munit.FunSuite:
     val ctx: FlowContext = new TestFlowContext(dispatcher)
 
   private def reported(e: RosterEntry): ReviewBatch =
-    ReviewBatch(List(e -> ReviewResult(List(issue("found something")))))
+    ReviewBatch(List(e -> ReviewResult(List(finding("found something")))))
 
   test("file-pattern reviewers are dropped before the picker sees them"):
     val captured = new AtomicReference[Option[ReviewerSelectionRequest]](None)

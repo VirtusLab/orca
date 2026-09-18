@@ -57,10 +57,10 @@ export orca.pr.{
   PrSummary
 }
 // Reviewer-customisation surface: compose your own `List[Reviewer]` and
-// `buildReviewers` it into the agents `reviewAndFixLoop` takes. IgnoredIssue(s)
+// `buildReviewers` it into the agents `reviewAndFixLoop` takes. OpenFinding(s)
 // is the result type of fixLoop/reviewAndFixLoop/reviewThenFix; Lint is
 // constructed at the call site for their `lint` parameter and LintReport is
-// what the summariser-taking `lint` returns. Location is a ReviewIssue field
+// what the summariser-taking `lint` returns. Location is a ReviewFinding field
 // type — needed by any flow that consumes findings.
 export orca.review.{
   allReviewers,
@@ -71,11 +71,11 @@ export orca.review.{
   reviewAndFixLoop,
   reviewThenFix,
   FixOutcome,
-  IgnoredIssue,
-  IgnoredIssues,
   Lint,
   LintReport,
   Location,
+  OpenFinding,
+  OpenFindings,
   Reviewer,
   ReviewerAgent,
   ReviewerCatalog,
@@ -83,7 +83,7 @@ export orca.review.{
   ReviewBatch,
   ReviewDiff,
   ReviewerSelector,
-  ReviewIssue,
+  ReviewFinding,
   ReviewResult,
   RosterEntry
 }

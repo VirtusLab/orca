@@ -20,15 +20,15 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
         diff = "",
         diffIntro = "Diff:",
         base = base,
-        declined = Nil
+        open = Nil
       )
     )
 
-  private def reRendered(declined: List[IgnoredIssue] = Nil): String =
+  private def reRendered(open: List[OpenFinding] = Nil): String =
     TextUtil.collapseWhitespace(
       ReviewLoopPrompts.reReview(
         ReReviewChanges.AlreadySeen(LastSent.NoteOnly("")),
-        declined
+        open
       )
     )
 
@@ -168,7 +168,7 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
     )
 
   test("neither template asks for a severity"):
-    // `ReviewIssue` has no such field, so a template still asking for one
+    // `ReviewFinding` has no such field, so a template still asking for one
     // would have the reviewer produce a value the schema rejects.
     List(rendered(), reRendered()).foreach: prompt =>
       assert(!prompt.toLowerCase.contains("severity"), prompt)
@@ -184,9 +184,9 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
     assert(prompt.contains("`git_file_at` at that commit"), prompt)
     assert(prompt.contains("git show abc1234:<path>"), prompt)
 
-  test("reReview carries the fixer's declines as a position, not a ruling"):
+  test("reReview carries open findings as a record, not a ruling"):
     val prompt = reRendered(
-      List(IgnoredIssue(Title("rename the field"), "the name is on our API"))
+      List(OpenFinding(Title("rename the field"), "the name is on our API"))
     )
     assert(
       prompt.contains("- rename the field: the name is on our API"),
@@ -194,8 +194,9 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
     )
     assert(
       prompt.contains(
-        "That is the fixer's position, not a ruling. If you still think a " +
-          "finding is real, report it again and say why the reason is wrong."
+        "That is a record of what happened, not a ruling. If you still " +
+          "think a finding is real, report it again and say why the reason " +
+          "is wrong."
       ),
       prompt
     )
@@ -256,14 +257,14 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
       TextUtil
         .collapseWhitespace(ReviewLoopPrompts.Fix)
         .contains(
-          "Where a comment's suggestion offers alternatives (\"do X, or " +
+          "Where a finding's suggestion offers alternatives (\"do X, or " +
             "document why Y is safe\"), say which one you took, after the " +
             "title"
         ),
       ReviewLoopPrompts.Fix
     )
 
-  test("reReview says nothing about declines when the fixer declined nothing"):
+  test("reReview says nothing about open findings when none are open"):
     // Same separator argument as the base-commit section above.
     val prompt = reRendered()
-    assert(!prompt.contains("The fixer declined"), prompt)
+    assert(!prompt.contains("These findings were reported earlier"), prompt)

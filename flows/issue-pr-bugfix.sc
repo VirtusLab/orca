@@ -229,7 +229,7 @@ def confirmReproductionMatches(pr: PrHandle, issue: Issue)(using
 def planAndImplementFix(
     issuePayload: String,
     failingTestPath: String
-)(using FlowControl): IgnoredIssues =
+)(using FlowControl): OpenFindings =
   val fixPlan = stage("Plan the fix"):
     Plan.autonomous
       .from(
@@ -250,7 +250,7 @@ def planAndImplementFix(
        |A failing test at `$failingTestPath` is already committed on this
        |branch; the fix must make it pass.""".stripMargin
 
-  val taskDeclines =
+  val taskOpenFindings =
     for task <- fixPlan.tasks yield
       stage(s"Task: ${task.title}"):
         val session = codingAgent.session("fixer", seed = fixSeed)
@@ -274,5 +274,5 @@ def planAndImplementFix(
       userRequest = Some(issuePayload),
       diff = ReviewDiff.WholeRun,
       maxIterations = 5,
-      priorDeclines = IgnoredIssues(taskDeclines.flatMap(_.issues))
+      priorOpenFindings = OpenFindings(taskOpenFindings.flatMap(_.findings))
     )

@@ -166,7 +166,7 @@ specific given are observationally identical" — is retired. When the
 raw-payload fallback landed (ADR 0008: a result with no `Announce[O]`
 renders the truncated raw JSON under `●` rather than disappearing),
 identity between the two cases silently converted every deliberately
-silent instance (`ReviewResult`, `IgnoredIssues`, `PrSummary` — types
+silent instance (`ReviewResult`, `OpenFindings`, `PrSummary` — types
 whose outcome the call site narrates itself) into a raw-JSON line on
 top of the call site's own narration.
 

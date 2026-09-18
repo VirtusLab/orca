@@ -12,7 +12,7 @@ import orca.{
 import orca.agents.{Agent, JsonData, given}
 import orca.events.OrcaEvent
 import orca.progress.ThrowawayBranch
-import orca.review.IgnoredIssues
+import orca.review.OpenFindings
 import orca.tools.{GitHubAvailability, NoDefaultBase, PrHandle}
 import orca.util.TextUtil
 
@@ -38,7 +38,7 @@ import scala.util.control.NonFatal
   */
 def openPrIfGitHub(
     summarisingAgent: Agent[?],
-    openFindings: IgnoredIssues,
+    openFindings: OpenFindings,
     title: PrSummary => String = _.title,
     body: PrSummary => String = _.body,
     context: Option[String] = None,

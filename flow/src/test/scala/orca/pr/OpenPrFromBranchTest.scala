@@ -4,7 +4,7 @@ import munit.FunSuite
 import orca.{BoundedDiff, OutsideStage}
 import orca.plan.Title
 import orca.progress.PublishedWork
-import orca.review.{IgnoredIssue, IgnoredIssues}
+import orca.review.{OpenFinding, OpenFindings}
 import orca.tools.{BranchNotPushed, PrCreateFailed, PrHandle}
 import orca.events.{OrcaEvent, OrcaListener}
 
@@ -35,7 +35,7 @@ class OpenPrFromBranchTest extends FunSuite:
 
   private def run(
       branchDiff: String,
-      openFindings: IgnoredIssues = IgnoredIssues(Nil)
+      openFindings: OpenFindings = OpenFindings(Nil)
   ): Run =
     val (dir, store) = seededPrRepo()
     val calls = new ConcurrentLinkedQueue[String]()
@@ -79,7 +79,7 @@ class OpenPrFromBranchTest extends FunSuite:
 
   test("openPrFromBranch throws when the PR cannot be opened"):
     // The contract its best-effort sibling deliberately does not share: the
-    // issue flows exist to open a PR, so a refusal must fail the run.
+    // finding flows exist to open a PR, so a refusal must fail the run.
     val (dir, store) = seededPrRepo()
     val control = prControl(
       dir,
@@ -91,7 +91,7 @@ class OpenPrFromBranchTest extends FunSuite:
     val _ = intercept[PrCreateFailed](
       openPrFromBranch(
         summarisingAgent = new StubSummariser(),
-        openFindings = IgnoredIssues(Nil)
+        openFindings = OpenFindings(Nil)
       )(using
         control,
         control,
@@ -106,7 +106,7 @@ class OpenPrFromBranchTest extends FunSuite:
       val control = prControl(dir, store, _ => (), calls)
       openPrFromBranch(
         summarisingAgent = summariser,
-        openFindings = IgnoredIssues(Nil)
+        openFindings = OpenFindings(Nil)
       )(using control, control, summon[OutsideStage])
 
     val _ = attempt(new ConcurrentLinkedQueue[String]())
@@ -122,8 +122,8 @@ class OpenPrFromBranchTest extends FunSuite:
     )
 
   test("open findings follow the flow's body as their own section"):
-    val open = IgnoredIssues(
-      List(IgnoredIssue(Title("Null check missing"), "max iterations reached"))
+    val open = OpenFindings(
+      List(OpenFinding(Title("Null check missing"), "max iterations reached"))
     )
     val body = run("stub-diff", open).prBody
     assert(

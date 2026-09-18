@@ -91,7 +91,7 @@ def lint(
   val result =
     if allClean then ReviewResult.empty
     else summariseRuns(runs, summariser, instructions)
-  LintReport(result, Option.when(result.issues.isEmpty)(summariser))
+  LintReport(result, Option.when(result.findings.isEmpty)(summariser))
 
 /** One [[lint]] call's outcome.
   *

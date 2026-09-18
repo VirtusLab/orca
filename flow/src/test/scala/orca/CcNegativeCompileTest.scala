@@ -180,7 +180,7 @@ class CcNegativeCompileTest extends munit.FunSuite:
     val errors = compileErrorsOf(
       selectorFixture(
         "history => history.headOption match { case None => all; " +
-          "case Some(batch) => batch.reviewersWithIssues }"
+          "case Some(batch) => batch.reviewersWithFindings }"
       )
     )
     assert(

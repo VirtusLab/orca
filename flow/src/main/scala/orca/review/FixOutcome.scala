@@ -3,39 +3,39 @@ package orca.review
 import orca.agents.{Announce, JsonData, given}
 import orca.plan.Title
 
-/** What the fixing agent reports back per iteration: the issues it actually
-  * fixed in the code, and the issues it chose not to fix along with a reason.
+/** What the fixing agent reports back per iteration: the findings it actually
+  * fixed in the code, and the findings it chose not to fix along with a reason.
   * Each is named by the per-turn key [[FixRequest]] gave it, followed by its
   * title.
   *
-  * The prompt requires every input issue to land in exactly one list, but a
+  * The prompt requires every input finding to land in exactly one list, but a
   * fallible agent forgets or paraphrases, so the raw reply is never read
-  * directly: [[FixOutcome.reconcile]] maps it back onto the issues that were
+  * directly: [[FixOutcome.reconcile]] maps it back onto the findings that were
   * handed out.
   */
 case class FixOutcome(
     fixed: List[Title],
-    ignored: List[IgnoredIssue]
+    declined: List[OpenFinding]
 ) derives JsonData
 
-/** A [[FixOutcome]] resolved against the issues the fixer was handed, so every
-  * handed title is in exactly one bucket and no echo is counted twice.
+/** A [[FixOutcome]] resolved against the findings the fixer was handed, so
+  * every handed title is in exactly one bucket and no echo is counted twice.
   *
   * `unaccounted` is what came back in neither list, as bare titles: the reason
   * belongs to the exit that records them, not to the reconciliation. The fix
-  * prompt asks for every issue to be accounted for; when one isn't, it is still
-  * open, so a loop halting here records it rather than dropping it. A loop that
-  * goes on to re-evaluate ignores it by name instead: the reviewer's persistent
-  * session re-reports a forgotten issue that is still real, and recording it
-  * here would report issues the next round went on to fix.
+  * prompt asks for every finding to be accounted for; when one isn't, it is
+  * still open, so a loop halting here records it rather than dropping it. A
+  * loop that goes on to re-evaluate leaves it out instead: the reviewer's
+  * persistent session re-reports a forgotten finding that is still real, and
+  * recording it here would report findings the next round went on to fix.
   *
-  * `unresolvedEchoes` is what the fixer named that matched no handed issue —
+  * `unresolvedEchoes` is what the fixer named that matched no handed finding —
   * dropped from the books, and worth announcing, since it means the reply is
   * degraded.
   */
 private[review] case class ReconciledFixOutcome(
     fixed: List[Title],
-    ignored: List[IgnoredIssue],
+    declined: List[OpenFinding],
     unaccounted: List[Title],
     unresolvedEchoes: List[String]
 )
@@ -48,29 +48,29 @@ object FixOutcome:
     */
   given Announce[FixOutcome] = Announce.from(_ => "")
 
-  /** Resolve `outcome`'s echoed entries back to the issues in `handed`.
+  /** Resolve `outcome`'s echoed entries back to the findings in `handed`.
     *
     * An echo resolves by the [[FixRequest]] key it starts with, then by exact
     * title, then by a title matched case- and whitespace-insensitively, and
     * last by the sole title the echo extends past a non-alphanumeric separator
     * — the shape of a keyless echo carrying the fix prompt's "which alternative
-    * was taken" suffix. Each handed issue takes at most one echo (`fixed` wins
-    * over `ignored`, since the fix is the stronger claim) and each echo at most
-    * one issue, so a paraphrase cannot record one real finding twice.
+    * was taken" suffix. Each handed finding takes at most one echo (`fixed`
+    * wins over `declined`, since the fix is the stronger claim) and each echo
+    * at most one finding, so a paraphrase cannot record one real finding twice.
     */
   private[review] def reconcile(
-      handed: List[KeyedIssue],
+      handed: List[KeyedFinding],
       outcome: FixOutcome
   ): ReconciledFixOutcome =
-    val issues = handed.map(_.issue)
+    val findings = handed.map(_.finding)
 
     // Titles can themselves contain " — ", so the echo is prefix-matched
     // against each full title rather than split at a separator; an echo
     // extending more than one distinct title stays unresolved rather than
     // guessed at.
-    def bySuffixedTitle(text: String): Option[ReviewIssue] =
+    def bySuffixedTitle(text: String): Option[ReviewFinding] =
       val echoNorm = normalised(text)
-      issues
+      findings
         .filter: i =>
           val t = normalised(i.title.value)
           echoNorm.length > t.length && echoNorm.startsWith(t) &&
@@ -79,30 +79,33 @@ object FixOutcome:
         case List(only) => Some(only)
         case _          => None
 
-    def resolve(echo: String): Option[ReviewIssue] =
+    def resolve(echo: String): Option[ReviewFinding] =
       val text = echo.trim
       handed
-        .collectFirst { case k if startsWithKey(text, k.key) => k.issue }
-        .orElse(issues.find(_.title.value == text))
-        .orElse(issues.find(i => normalised(i.title.value) == normalised(text)))
+        .collectFirst { case k if startsWithKey(text, k.key) => k.finding }
+        .orElse(findings.find(_.title.value == text))
+        .orElse(
+          findings.find(i => normalised(i.title.value) == normalised(text))
+        )
         .orElse(bySuffixedTitle(text))
 
     // Buckets are keyed by title throughout, so two reviewers reporting the
-    // same title cannot land one copy in `ignored` and the other in
+    // same title cannot land one copy in `declined` and the other in
     // `unaccounted`.
     val fixedTitles = outcome.fixed.flatMap(t => resolve(t.value)).map(_.title)
-    val ignoredEntries = outcome.ignored
+    val declinedEntries = outcome.declined
       .flatMap(entry => resolve(entry.title.value).map(_.title -> entry.reason))
       .filterNot((title, _) => fixedTitles.contains(title))
       .distinctBy((title, _) => title)
-    val accounted = (fixedTitles ++ ignoredEntries.map((t, _) => t)).toSet
+    val accounted = (fixedTitles ++ declinedEntries.map((t, _) => t)).toSet
     val echoes =
-      outcome.fixed.map(_.value) ++ outcome.ignored.map(_.title.value)
+      outcome.fixed.map(_.value) ++ outcome.declined.map(_.title.value)
 
     ReconciledFixOutcome(
       fixed = fixedTitles.distinct,
-      ignored = ignoredEntries.map(IgnoredIssue(_, _)),
-      unaccounted = issues.map(_.title).distinct.filterNot(accounted.contains),
+      declined = declinedEntries.map(OpenFinding(_, _)),
+      unaccounted =
+        findings.map(_.title).distinct.filterNot(accounted.contains),
       unresolvedEchoes = echoes.filter(resolve(_).isEmpty)
     )
 
