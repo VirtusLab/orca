@@ -6,8 +6,8 @@ import orca.util.TextUtil
 
 /** Why a finding is still open when the run ends — one case per way the loops
   * leave one behind. [[describe]] is the sentence a reader of the PR body or of
-  * the exit block sees; nothing but [[Declined]] takes its words from a model,
-  * so a run summary can count the rest by case.
+  * the exit block sees; nothing but [[OpenReason.Declined]] takes its words
+  * from a model, so a run summary can count the rest by case.
   */
 enum OpenReason derives JsonData:
   /** The fixer considered the finding and refused it, in `text`, its own words.
