@@ -161,6 +161,10 @@ most easily broken:
   re-key this one; a changed detail is a different session. Minting one key
   twice in a single execution throws (`FlowControl.claimSessionKey`); re-minting
   it on resume is the reuse path, since only this execution's keys are tracked.
+  A mint sits wherever the session is used — inside the driving stage, or above
+  the stages that share it; the one shape that can't be written is a mint in one
+  stage driven by a later one, since neither `FlowSession[B]` nor `SessionId[B]`
+  has a `JsonData` and so neither can leave a stage as its result.
   Each record also carries the minting agent's `backend` tag, so
   `FlowLifecycle.rehydrateSessions` replays a resumed run's resume wire ids
   into the record's own backend's agent rather than always the lead

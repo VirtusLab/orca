@@ -13,26 +13,6 @@ import orca.agents.{
 import orca.events.OrcaEvent
 import orca.progress.{ProgressLog, SessionRecord}
 
-import scala.annotation.implicitNotFound
-import scala.util.NotGiven
-
-/** Compile-time evidence that no [[InStage]] capability is in scope — i.e. the
-  * call site is lexically outside a `stage(...)` body. Lexical only: a helper
-  * taking just `(using FlowControl)` that is invoked inside a stage still
-  * compiles, so each door that takes this evidence keeps a runtime in-stage
-  * check as the backstop.
-  */
-@implicitNotFound(
-  "agent.session(...), openPrFromBranch(...) and openPrIfGitHub(...) must be " +
-    "called outside a stage, at the flow-body top level: mint sessions before " +
-    "stages and run them inside stages via the FlowSession handle " +
-    "(session.run / session.resultAs[...].run); the PR helpers run their own " +
-    "stages."
-)
-final class OutsideStage private ()
-object OutsideStage:
-  given (using NotGiven[InStage]): OutsideStage = new OutsideStage
-
 /** A durable, resumable LLM-session handle — the single door for sessions that
   * must survive a flow crash and resume. Obtain one with `agent.session(name,
   * detail, seed)`. It owns the probe → seed/preamble → run → persist protocol,
@@ -53,8 +33,9 @@ object OutsideStage:
   *
   * The handle is a plain immutable value with no stage affinity of its own —
   * only the capabilities its methods require ([[InStage]], [[WorkspaceWrite]])
-  * are stage-scoped. Mint it via `agent.session` (outside-stage only — see
-  * there) and close over it into any later `stage(...)`.
+  * are stage-scoped. It has no `JsonData` instance, and neither does
+  * [[SessionId]], so a handle minted inside a `stage(...)` cannot leave it as
+  * that stage's result (ADR 0018 §2.6 R22).
   */
 final class FlowSession[B <: BackendTag] private[orca] (
     private[orca] val agent: Agent[B],
@@ -193,36 +174,26 @@ extension [B <: BackendTag](agent: Agent[B])
     * completed-stage preamble instead, which is what the earlier transcript was
     * carrying.
     *
-    * Mint it '''outside''' the `stage(...)` that uses it and close over the
-    * handle: a stage body is skipped on resume, so a mint inside one would not
-    * re-run, leaving later stages driving a handle the log never recorded.
+    * '''Mint it where it is used.''' Inside the `stage(...)` that drives it
+    * when one stage owns it — the mint and the turns then share that stage's
+    * commit, and a resume that skips the stage skips both. Above the stages
+    * when several share one session. What is not possible is a handle minted in
+    * one stage and driven by a later one: [[FlowSession]] has no `JsonData`, so
+    * it cannot leave a stage as that stage's result.
     *
-    * No LLM call and no commit, so it is callable outside a stage (and, minting
-    * a fresh UUID, is not referentially transparent). This is the one call in
-    * the family that must remain outside-stage-callable, so its store write
-    * self-mints a [[WorkspaceWrite]] via [[RuntimeInStage]] rather than taking
-    * the token explicitly. Because that write isn't committed, a failure
-    * teardown's `git reset --hard` can erase it before the next stage commit
-    * carries the log — the retry then mints a fresh session and re-seeds (see
-    * `ProgressStore.upsertSession`).
+    * No LLM call and no commit, so it is callable outside a stage as well as
+    * inside one (and, minting a fresh UUID, is not referentially transparent).
+    * Its store write therefore self-mints a [[WorkspaceWrite]] via
+    * [[RuntimeInStage]] rather than taking the token explicitly. Because that
+    * write isn't committed, a failure teardown's `git reset --hard` can erase
+    * it before the next stage commit carries the log — the retry then mints a
+    * fresh session and re-seeds (see `ProgressStore.upsertSession`).
     */
   def session(name: String, detail: String, seed: String)(using
-      fc: FlowControl,
-      outside: OutsideStage
+      fc: FlowControl
   ): FlowSession[B] =
     // An empty name decodes ambiguously; treat it as an authoring defect.
     require(name.nonEmpty, "session name must be non-empty")
-    // A session minted inside a stage that gets skipped on resume would never
-    // re-mint, leaving later stages driving a handle nothing recorded — so
-    // require the flow-body top level (ADR 0018 §2.6). [[OutsideStage]] rejects
-    // the direct in-stage call at compile time; this catches the indirect path
-    // it can't see (a FlowControl-only helper invoked from within a stage).
-    if fc.inStage then
-      throw new OrcaFlowException(
-        "agent.session(...) must be called outside a stage: mint sessions at " +
-          "the flow-body top level, before stages, and run them inside stages " +
-          "via the FlowSession handle (session.run / session.resultAs[...].run)."
-      )
     val key = SessionKey(name, detail)
     fc.claimSessionKey(key)
     new FlowSession(agent, resolveSessionId(agent, key, seed), key)

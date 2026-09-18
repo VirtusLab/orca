@@ -86,6 +86,6 @@ private[orca] class DefaultFlowContext[
   private[orca] def errorAlreadyReported(e: Throwable): Boolean =
     reportedErrors.get().exists(_ eq e)
 
-  // Stage-identity bookkeeping (enterStage/exitStage/inStage,
+  // Stage-identity bookkeeping (enterStage/exitStage,
   // claimSessionKey) comes from the shared `StageFrames` mixin, so test
   // doubles cannot drift from production.

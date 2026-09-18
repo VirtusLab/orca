@@ -78,12 +78,6 @@ flow(
        |
        |${issue.body}""".stripMargin
 
-  val reproducer = codingAgent.session(
-    "reproducer",
-    detail = "a failing test for the reported bug",
-    seed = issue.body
-  )
-
   val triage: Triage = stage("Triage"):
     Plan.autonomous.triage(issuePayload, planningAgent).value
 
@@ -108,6 +102,11 @@ flow(
 
     case Triage.Testable(summary, _, failingTestPath) =>
       stage("Write failing test"):
+        val reproducer = codingAgent.session(
+          "reproducer",
+          detail = "a failing test for the reported bug",
+          seed = issue.body
+        )
         reproducer.run(
           s"""Write the failing unit test at `$failingTestPath`. It MUST
              |fail on the current code — that's how we confirm the bug.
@@ -255,20 +254,14 @@ def planAndImplementFix(
        |A failing test at `$failingTestPath` is already committed on this
        |branch; the fix must make it pass.""".stripMargin
 
-  val finalFixer = codingAgent.session(
-    "final-fixer",
-    detail = "the whole fix",
-    seed = fixSeed
-  )
-
   val taskDeclines =
     for (task, n) <- fixPlan.tasks.zipWithIndex yield
-      val session = codingAgent.session(
-        "fixer",
-        detail = s"task ${n + 1}: ${task.title}",
-        seed = fixSeed
-      )
       stage(s"Task: ${task.title}"):
+        val session = codingAgent.session(
+          "fixer",
+          detail = s"task ${n + 1}: ${task.title}",
+          seed = fixSeed
+        )
         session.run(task.description)
         // No test gate on this review: the branch carries a deliberately
         // failing test until the last fix task lands.
@@ -281,6 +274,11 @@ def planAndImplementFix(
 
   // Nothing reviews again after this loop, hence the raised iteration cap.
   stage("Final review"):
+    val finalFixer = codingAgent.session(
+      "final-fixer",
+      detail = "the whole fix",
+      seed = fixSeed
+    )
     reviewAndFixLoop(
       coderSession = finalFixer,
       reviewers = allReviewers(reviewAgent),

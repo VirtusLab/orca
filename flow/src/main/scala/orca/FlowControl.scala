@@ -78,11 +78,6 @@ trait FlowControl extends FlowContext, caps.ExclusiveCapability:
     */
   private[orca] def startingCommit: Option[CommitHash]
 
-  /** Whether execution is currently inside a stage body (any stage frame open).
-    * Gates `agent.session(...)` to the flow-body top level.
-    */
-  def inStage: Boolean
-
   /** Throw unless the caller is on this control's owner thread — implemented by
     * [[StageFrames]]; called by the durable run doors so `session.run` from a
     * fork fails immediately instead of racing the progress log.

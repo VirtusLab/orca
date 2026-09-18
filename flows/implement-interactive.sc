@@ -34,22 +34,16 @@ flow(OrcaArgs(args)):
   val plan = stage("Plan"):
     Plan.interactive.from(userPrompt, planningAgent).value
 
-  // Implementing and fixing are autonomous — `ask_user` was only needed while
-  // planning.
-  val finalFixer = codingAgent.session(
-    "final-fixer",
-    detail = "the whole planned change",
-    seed = plan.brief
-  )
-
   val taskDeclines =
     for (task, n) <- plan.tasks.zipWithIndex yield
-      val session = codingAgent.session(
-        "implementer",
-        detail = s"task ${n + 1}: ${task.title}",
-        seed = plan.brief
-      )
       stage(s"Task: ${task.title}"):
+        // Implementing and fixing are autonomous — `ask_user` was only needed
+        // while planning.
+        val session = codingAgent.session(
+          "implementer",
+          detail = s"task ${n + 1}: ${task.title}",
+          seed = plan.brief
+        )
         session.run(task.description)
         reviewThenFix(
           coderSession = session,
@@ -59,6 +53,11 @@ flow(OrcaArgs(args)):
 
   // Nothing reviews again after this loop, hence the raised iteration cap.
   val openFindings = stage("Final review"):
+    val finalFixer = codingAgent.session(
+      "final-fixer",
+      detail = "the whole planned change",
+      seed = plan.brief
+    )
     reviewAndFixLoop(
       coderSession = finalFixer,
       reviewers = allReviewers(reviewAgent),

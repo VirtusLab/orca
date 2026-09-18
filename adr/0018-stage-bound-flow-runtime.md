@@ -275,9 +275,9 @@ rides along unused — a fair price for not maintaining a second typeclass.
 
 The library adds `JsonData` givens for the handful of non-case-class results flows
 return — primitives, `Unit`, `Option`, `List`, small tuples (`JsonData.derived` only
-covers `Mirror` types). Deliberately absent: the opaque `SessionId[B]` (§2.6, R22) —
-a session id is a live handle, not a value to persist as a stage result, so there is
-no `JsonData[SessionId[B]]` given. A return type with no `JsonData` instance — that
+covers `Mirror` types). Deliberately absent: the opaque `SessionId[B]` and the
+`FlowSession[B]` that wraps it (§2.6, R22) — a session is a live handle, not a value
+to persist as a stage result, so neither has a `JsonData` given. A return type with no `JsonData` instance — that
 live-handle case, or a closure — fails to compile, the intended boundary. Codecs must
 round-trip losslessly: a resumed run reads the value back from JSON, so a lossy codec
 would diverge from a fresh run. A human-readable summary for the log and `display`
@@ -616,10 +616,11 @@ strategy and the progress store are overridable (R21).
 **Requirements.**
 - **R22** — Durable session identity lives in a keyed `SessionRecord`, obtained via
   `agent.session(name, detail, seed): FlowSession[B]` and persisted in the log (with the
-  client→server map for server-id backends) — never as a stage result: no
-  `JsonData[SessionId[B]]` given exists, so a `SessionId` can't be smuggled through
-  `stage`'s persistence path, where it would get neither the wire-map nor the
-  seed-lookup a `SessionRecord` provides. On resume, whether the *live* backend
+  client→server map for server-id backends) — never as a stage result: neither
+  `SessionId[B]` nor `FlowSession[B]` has a `JsonData` given, so neither can be
+  smuggled through `stage`'s persistence path, where it would get neither the
+  wire-map nor the seed-lookup a `SessionRecord` provides. That absence is also
+  what confines a handle minted inside a stage to that stage (R23). On resume, whether the *live* backend
   conversation can be continued is decided by a **non-destructive existence probe**
   (`AgentBackend.sessionExists(id)`) rather than guessed: a backend exposes one where it
   can (an on-disk session file, a list command, or a `GET`) — today every backend does.
@@ -644,19 +645,25 @@ strategy and the progress store are overridable (R21).
   preamble derived from the log (which stages have completed). **Re-seed is the
   reliable, uniform path**: on resume orca re-mints and primes the session with
   preamble + seed unless a backend existence probe (R22) confirms the recorded session
-  is still live, in which case it continues it. `agent.session(...)` must be called
-  *outside* any stage (it throws otherwise): minting inside a stage that later skips on
-  resume would never re-mint, leaving later stages driving a handle the log never
-  recorded. The handle it returns is a plain value — mint once at the flow-body top
-  level, then close over it into any later stage and drive it with `session.run` /
-  `session.resultAs[...].run`.
+  is still live, in which case it continues it. `agent.session(...)` is callable
+  wherever a `FlowControl` is — inside a stage or at the flow-body top level — and the
+  handle it returns is a plain value closed over by the scope that minted it. Mint it
+  where it is used: inside the stage that drives it when one stage owns it, above the
+  stages when several share it. The broken shape — minted in one stage, driven by a
+  later one — is unrepresentable by R22: with no `JsonData[FlowSession[B]]` the handle
+  cannot leave a stage as that stage's result. A mint inside a stage shares that stage's
+  commit, so a resume that skips the stage skips the mint with it, and a resume that
+  re-runs the stage re-mints the key onto the recorded id. The one thing this costs:
+  duplicate-key detection sees only mints that execute, so two colliding mints in
+  different stages collide on the fresh run that reaches both and not on a resume that
+  replays one of them.
 
 **Design.**
 
 A flow obtains a session via `agent.session(...)` — a *get-or-create* keyed by the
 log, not a plain `new`. It is **pure**: it reserves a session id (a UUID) and records
 the key + id + seed in the log; the backend conversation is created lazily on the first
-gated `run`. So `agent.session(...)` is callable outside a stage while the actual LLM
+gated `run`. So `agent.session(...)` needs no stage of its own while the actual LLM
 effect stays inside one (R15). On resume it returns the recorded id. Naming it
 `session` rather than `newSession` reflects the upsert: a retry does not create a
 second session.
@@ -982,11 +989,9 @@ alongside.
   > clobbered its record on re-run (different type) — a genuine misattribution,
   > not a harmless re-run. Hierarchical path ids (R10, §2.1) fix this: a nested
   > stage's id carries its parent's segment, so it can never collide with a
-  > top-level (or differently-nested) stage of the same name. Relatedly,
-  > `agent.session(...)` is now required to be minted *outside* any stage (it
-  > throws otherwise — see R23), so a skipped stage can never swallow a mint,
-  > rather than building a second, parent-scoped keying mechanism for a case
-  > real flows never hit.
+  > top-level (or differently-nested) stage of the same name. Sessions need no
+  > analogous scheme: their keys are content-derived (`(name, detail)` — R23),
+  > not positional, so a skipped stage shifts nothing.
 - **Session identity is semantic, not positional.** A session resumes only where
   its `(name, detail)` key still matches the log (R23), so a re-plan that rewords a
   task changes that task's detail and gives it a fresh session, primed from the seed.
@@ -1011,7 +1016,7 @@ alongside.
   prompts) is why the header persists the once-computed name for read-back on resume.
 - **`JsonData` coverage.** Sealed `PlanLike` needs jsoniter sum-type config;
   primitives/tuples need hand-written `JsonData` givens; codecs must be lossless (R9).
-  `SessionId[B]` deliberately has none (§2.3, §2.6, R22).
+  `SessionId[B]` and `FlowSession[B]` deliberately have none (§2.3, §2.6, R22).
 - **Custom external effects.** Built-in idempotency covers `createPr` /
   `upsertComment` (R24); a flow's own irreversible side effect must be made
   idempotent by its author or it repeats on resume.
