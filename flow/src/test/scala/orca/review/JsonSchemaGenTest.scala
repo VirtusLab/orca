@@ -15,7 +15,7 @@ class JsonSchemaGenTest extends munit.FunSuite:
     // The agent emits OpenAI-strict JSON: every nullable field is present
     // with a real null rather than omitted. The schema must accept that.
     val sample =
-      """{"issues":[{
+      """{"findings":[{
         |  "title":"Hello",
         |  "description":"hello",
         |  "location":null,
@@ -24,11 +24,11 @@ class JsonSchemaGenTest extends munit.FunSuite:
     val errors = compiledResultSchema.validate(sample, InputFormat.JSON)
     assert(errors.isEmpty, s"Validation errors: $errors")
 
-  test("generated schema validates an issue that names a location"):
+  test("generated schema validates a finding that names a location"):
     // The only sample reaching the nested `Location` object's own schema path:
     // everywhere else `location` is null, which never descends into it.
     val sample =
-      """{"issues":[{
+      """{"findings":[{
         |  "title":"Hello",
         |  "description":"hello",
         |  "location":{"file":"orca/review/Lint.scala","line":42},
@@ -41,7 +41,7 @@ class JsonSchemaGenTest extends munit.FunSuite:
     // Strict mode treats every property as required (nullability is the
     // mechanism for optionality). Omitting `suggestion` should be rejected.
     val invalid =
-      """{"issues":[{
+      """{"findings":[{
         |  "title":"x",
         |  "description":"x",
         |  "location":null
@@ -54,7 +54,7 @@ class JsonSchemaGenTest extends munit.FunSuite:
 
   test("generated schema rejects additional properties"):
     val invalid =
-      """{"issues":[],"unexpected":"x"}"""
+      """{"findings":[],"unexpected":"x"}"""
     val errors = compiledResultSchema.validate(invalid, InputFormat.JSON)
     assert(
       !errors.isEmpty,

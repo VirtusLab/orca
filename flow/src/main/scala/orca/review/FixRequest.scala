@@ -2,7 +2,7 @@ package orca.review
 
 import orca.agents.{AgentInput, JsonData, given}
 
-/** The fix instruction plus the issues handed to the coding agent each round.
+/** The fix instruction plus the findings handed to the coding agent each round.
   *
   * Lives in its own compilation unit (not `ReviewLoop.scala`) because its
   * `derives JsonData` expands the tapir `Schema` macro, whose generated code
@@ -11,7 +11,7 @@ import orca.agents.{AgentInput, JsonData, given}
   */
 private[review] case class FixRequest(
     instructions: String,
-    issues: List[KeyedIssue]
+    findings: List[KeyedFinding]
 ) derives JsonData
 
 /** A finding paired with the key the fixer is asked to echo for it. Minted per
@@ -19,10 +19,10 @@ private[review] case class FixRequest(
   * and the fix prompt, so what the fixer names in its prose ("Fix I2.1") is
   * what the reader saw on screen.
   */
-private[review] case class KeyedIssue(key: String, issue: ReviewIssue)
+private[review] case class KeyedFinding(key: String, finding: ReviewFinding)
     derives JsonData
 
-private[review] object KeyedIssue:
+private[review] object KeyedFinding:
   /** Mint the keys for one agent's findings in a round.
     *
     * Keys are positional and minted per turn, so the fixer copies them exactly
@@ -31,28 +31,31 @@ private[review] object KeyedIssue:
     * so a key is fixed before the round's agents run: they report in any order,
     * and each one's findings are shown as soon as it finishes.
     */
-  def forAgent(agentIndex: Int, issues: List[ReviewIssue]): List[KeyedIssue] =
-    issues.zipWithIndex.map((issue, n) =>
-      KeyedIssue(s"I${agentIndex + 1}.${n + 1}", issue)
+  def forAgent(
+      agentIndex: Int,
+      findings: List[ReviewFinding]
+  ): List[KeyedFinding] =
+    findings.zipWithIndex.map((finding, n) =>
+      KeyedFinding(s"I${agentIndex + 1}.${n + 1}", finding)
     )
 
 private[review] object FixRequest:
   given AgentInput[FixRequest] with
     def serialize(r: FixRequest): String =
       val formatted =
-        r.issues.map(k => renderIssue(k.key, k.issue)).mkString("\n\n")
+        r.findings.map(k => renderFinding(k.key, k.finding)).mkString("\n\n")
       // No `stripMargin`: a reviewer's description or suggestion can carry
       // markdown tables and `|`-margin blocks, which it would eat.
-      s"${r.instructions}\n\nIssues to fix:\n$formatted"
+      s"${r.instructions}\n\nFindings to fix:\n$formatted"
 
-  /** One issue as the fixer sees it. Deliberately not [[formatIssue]], the
+  /** One finding as the fixer sees it. Deliberately not [[formatFinding]], the
     * display rendering: the fixer needs the description, which the screen form
     * omits.
     */
-  private def renderIssue(key: String, issue: ReviewIssue): String =
-    // Exhaustive destructure: a new `ReviewIssue` field stops compiling here
+  private def renderFinding(key: String, finding: ReviewFinding): String =
+    // Exhaustive destructure: a new `ReviewFinding` field stops compiling here
     // until this prompt decides what to do with it.
-    val ReviewIssue(title, description, location, suggestion) = issue
+    val ReviewFinding(title, description, location, suggestion) = finding
     val lines = List(
       Some(s"$key $title"),
       locationLine(location),

@@ -59,8 +59,8 @@ class LintTest extends munit.FunSuite:
           ???
 
   private val expected = ReviewResult(
-    issues = List(
-      ReviewIssue(
+    findings = List(
+      ReviewFinding(
         Title("Unused import"),
         "unused import",
         None,

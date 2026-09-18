@@ -81,7 +81,7 @@ flow(
       )
 
   maybePlan.foreach: plan =>
-    val taskDeclines =
+    val taskOpenFindings =
       for (task, n) <- plan.tasks.zipWithIndex yield
         stage(s"Task: ${task.title}"):
           val session = codingAgent.session(
@@ -111,7 +111,7 @@ flow(
         userRequest = Some(issuePayload),
         diff = ReviewDiff.WholeRun,
         maxIterations = 5,
-        priorDeclines = IgnoredIssues(taskDeclines.flatMap(_.issues))
+        priorOpenFindings = OpenFindings(taskOpenFindings.flatMap(_.findings))
       )
 
     openPrFromBranch(

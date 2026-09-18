@@ -190,7 +190,7 @@ object ReviewerSelector:
 
   /** Wraps `base` so its pick narrows as the fix loop iterates: the first round
     * runs whatever `base` selects, and every later round keeps only those of
-    * `base`'s reviewers that reported an issue in the previous round. It
+    * `base`'s reviewers that reported a finding in the previous round. It
     * filters `base`'s per-round result and nothing else, so a reviewer `base`
     * excluded is never resurrected.
     *
@@ -215,7 +215,7 @@ object ReviewerSelector:
           history.headOption match
             case None => active
             case Some(previous) =>
-              val reported = previous.reviewersWithIssues
+              val reported = previous.reviewersWithFindings
               val narrowed = active.filter(e => reported.exists(_.id == e.id))
               // The `active.isEmpty` arm returns the same empty list the
               // fallback would; it is there to keep a base selector that picked

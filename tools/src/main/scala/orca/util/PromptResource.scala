@@ -39,12 +39,32 @@ private[orca] object PromptResource:
     finally stream.close()
 
   /** Substitute `{{name}}` placeholders in `template` with the supplied `(name
-    * -> value)` pairs. Unknown placeholders are left intact; unreferenced
-    * substitutions are ignored.
+    * -> value)` pairs. Unreferenced substitutions are ignored; a placeholder
+    * with no substitution is a defect — a template and its call site that have
+    * drifted apart — and throws rather than sending the literal `{{name}}` to
+    * an agent.
+    *
+    * Only `template` is scanned, never the result: a substituted value can
+    * itself hold `{{…}}` (a diff of a prompt file under review does), and that
+    * is content, not a placeholder.
     */
   def render(template: String, substitutions: (String, String)*): String =
+    val supplied = substitutions.map((key, _) => key).toSet
+    val unfilled = Placeholder
+      .findAllMatchIn(template)
+      .map(_.group(1))
+      .filterNot(supplied.contains)
+      .distinct
+      .toList
+    if unfilled.nonEmpty then
+      throw new RuntimeException(
+        s"prompt template placeholders with no substitution: " +
+          unfilled.mkString(", ")
+      )
     substitutions.foldLeft(template):
       case (acc, (key, value)) => acc.replace(s"{{$key}}", value)
+
+  private val Placeholder = """\{\{(\w+)\}\}""".r
 
   /** Load a resource and split YAML-ish frontmatter from the body.
     *

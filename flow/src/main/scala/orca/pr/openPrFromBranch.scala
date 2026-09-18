@@ -2,7 +2,7 @@ package orca.pr
 
 import orca.{FlowContext, FlowControl, OutsideStage, gh, git, stage}
 import orca.agents.Agent
-import orca.review.IgnoredIssues
+import orca.review.OpenFindings
 import orca.tools.PrHandle
 
 import ox.either.orThrow
@@ -41,7 +41,7 @@ import ox.either.orThrow
   */
 def openPrFromBranch(
     summarisingAgent: Agent[?],
-    openFindings: IgnoredIssues,
+    openFindings: OpenFindings,
     title: PrSummary => String = _.title,
     body: PrSummary => String = _.body,
     context: Option[String] = None,
