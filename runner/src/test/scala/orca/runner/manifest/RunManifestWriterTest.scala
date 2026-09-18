@@ -2,6 +2,7 @@ package orca.runner.manifest
 
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import orca.OrcaDir
+import orca.agents.SessionKey
 import orca.events.OrcaEvent
 import orca.testkit.Usages.usage
 import orca.testkit.TempDirs
@@ -65,7 +66,7 @@ class RunManifestWriterTest extends munit.FunSuite:
         harness = "claude",
         clientId = "client-1",
         wireId = Some("wire-1"),
-        sessionName = None,
+        sessionKey = None,
         agent = "claude",
         role = None
       )
@@ -94,7 +95,7 @@ class RunManifestWriterTest extends munit.FunSuite:
         harness = "claude",
         clientId = "client-1",
         wireId = Some("wire-1"),
-        sessionName = None,
+        sessionKey = None,
         agent = "claude",
         role = None
       )
@@ -106,7 +107,7 @@ class RunManifestWriterTest extends munit.FunSuite:
         harness = "claude",
         clientId = "client-1",
         wireId = Some("wire-1"),
-        sessionName = None,
+        sessionKey = None,
         agent = "claude",
         role = None
       )
@@ -133,7 +134,7 @@ class RunManifestWriterTest extends munit.FunSuite:
         harness = "claude",
         clientId = "client-1",
         wireId = Some("wire-1"),
-        sessionName = None,
+        sessionKey = None,
         agent = "claude",
         role = None
       )
@@ -145,7 +146,7 @@ class RunManifestWriterTest extends munit.FunSuite:
         harness = "codex",
         clientId = "client-2",
         wireId = Some("wire-2"),
-        sessionName = None,
+        sessionKey = None,
         agent = "codex",
         role = None
       )
@@ -163,7 +164,7 @@ class RunManifestWriterTest extends munit.FunSuite:
         harness = "someharness",
         clientId = "client-1",
         wireId = None,
-        sessionName = None,
+        sessionKey = None,
         agent = "some",
         role = None
       )
@@ -176,7 +177,7 @@ class RunManifestWriterTest extends munit.FunSuite:
       Some("someharness sessions do not survive the run")
     )
 
-  test("kind: durable when the event names the session, oneShot otherwise"):
+  test("kind: durable when the event carries a key, oneShot otherwise"):
     val workDir = TempDirs.dir()
     val writer =
       newWriter(workDir, fixedClock(Instant.parse("2026-07-18T10:00:00Z")))
@@ -185,7 +186,7 @@ class RunManifestWriterTest extends munit.FunSuite:
         harness = "claude",
         clientId = "durable-client",
         wireId = Some("w1"),
-        sessionName = Some("coder"),
+        sessionKey = Some(SessionKey("coder", "task 2")),
         agent = "claude",
         role = None
       )
@@ -195,7 +196,7 @@ class RunManifestWriterTest extends munit.FunSuite:
         harness = "claude",
         clientId = "oneshot-client",
         wireId = Some("w2"),
-        sessionName = None,
+        sessionKey = None,
         agent = "claude",
         role = None
       )
@@ -204,11 +205,11 @@ class RunManifestWriterTest extends munit.FunSuite:
     val durable = sessions.find(_.wireId.contains("w1")).get
     val oneShot = sessions.find(_.wireId.contains("w2")).get
     assertEquals(durable.kind, ManifestSessionKind.Durable)
-    assertEquals(durable.sessionName, Some("coder"))
+    assertEquals(durable.mintedKey, Some(SessionKey("coder", "task 2")))
     assertEquals(oneShot.kind, ManifestSessionKind.OneShot)
-    assertEquals(oneShot.sessionName, None)
+    assertEquals(oneShot.mintedKey, None)
 
-  test("a later unnamed commit on the same session keeps the durable name"):
+  test("a later keyless commit on the same session keeps the durable key"):
     val workDir = TempDirs.dir()
     val writer =
       newWriter(workDir, fixedClock(Instant.parse("2026-07-18T10:00:00Z")))
@@ -217,7 +218,7 @@ class RunManifestWriterTest extends munit.FunSuite:
         harness = "claude",
         clientId = "client-1",
         wireId = Some("wire-1"),
-        sessionName = Some("coder"),
+        sessionKey = Some(SessionKey("coder", "task 2")),
         agent = "claude",
         role = None
       )
@@ -227,14 +228,14 @@ class RunManifestWriterTest extends munit.FunSuite:
         harness = "claude",
         clientId = "client-1",
         wireId = Some("wire-1"),
-        sessionName = None,
+        sessionKey = None,
         agent = "claude",
         role = None
       )
     )
     val sessions = soleManifest(workDir).sessions
     assertEquals(sessions.size, 1, "same dedup key must upsert, not append")
-    assertEquals(sessions.head.sessionName, Some("coder"))
+    assertEquals(sessions.head.mintedKey, Some(SessionKey("coder", "task 2")))
     assertEquals(sessions.head.kind, ManifestSessionKind.Durable)
 
   test("finish finalizes outcome and finishedAt"):
@@ -251,7 +252,7 @@ class RunManifestWriterTest extends munit.FunSuite:
         harness = "claude",
         clientId = "client-1",
         wireId = Some("wire-1"),
-        sessionName = None,
+        sessionKey = None,
         agent = "claude",
         role = None
       )
@@ -278,7 +279,7 @@ class RunManifestWriterTest extends munit.FunSuite:
         harness = "claude",
         clientId = "client-1",
         wireId = Some("wire-1"),
-        sessionName = None,
+        sessionKey = None,
         agent = "claude",
         role = None
       )
@@ -299,7 +300,7 @@ class RunManifestWriterTest extends munit.FunSuite:
         harness = "claude",
         clientId = "client-1",
         wireId = Some("wire-1"),
-        sessionName = None,
+        sessionKey = None,
         agent = "claude",
         role = None
       )
@@ -345,7 +346,7 @@ class RunManifestWriterTest extends munit.FunSuite:
           harness = "claude",
           clientId = "client-1",
           wireId = Some("wire-1"),
-          sessionName = None,
+          sessionKey = None,
           agent = "claude",
           role = None
         )
@@ -428,7 +429,7 @@ class RunManifestWriterTest extends munit.FunSuite:
         harness = "claude",
         clientId = "client-1",
         wireId = Some("wire-1"),
-        sessionName = None,
+        sessionKey = None,
         agent = "claude",
         role = None
       )
@@ -463,7 +464,7 @@ class RunManifestWriterTest extends munit.FunSuite:
                 harness = "claude",
                 clientId = s"client-$t-$i",
                 wireId = Some(s"wire-$t-$i"),
-                sessionName = None,
+                sessionKey = None,
                 agent = "claude",
                 role = None
               )
@@ -517,7 +518,7 @@ class RunManifestWriterTest extends munit.FunSuite:
         harness = "claude",
         clientId = "client-1",
         wireId = Some("wire-1"),
-        sessionName = None,
+        sessionKey = None,
         agent = "claude",
         role = None
       )
@@ -537,7 +538,7 @@ class RunManifestWriterTest extends munit.FunSuite:
         harness = "claude",
         clientId = "client-1",
         wireId = Some("wire-1"),
-        sessionName = None,
+        sessionKey = None,
         agent = "claude",
         role = None
       )
@@ -560,7 +561,7 @@ class RunManifestWriterTest extends munit.FunSuite:
           harness = "claude",
           clientId = "client-1",
           wireId = Some("wire-1"),
-          sessionName = None,
+          sessionKey = None,
           agent = "claude",
           role = None
         )

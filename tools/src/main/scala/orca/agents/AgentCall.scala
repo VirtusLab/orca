@@ -34,7 +34,7 @@ trait AutonomousAgentCall[B <: BackendTag, O]:
     runWithSession(
       input,
       SessionId.fresh[B],
-      sessionName = None,
+      sessionKey = None,
       config = config,
       emitPrompt = emitPrompt
     )
@@ -43,13 +43,13 @@ trait AutonomousAgentCall[B <: BackendTag, O]:
     * against `session`, continuing it if the backend already has it this run.
     * Ephemeral — no seeding, no wire-id persistence.
     *
-    * `sessionName` is the durable name this session was minted under, carried
+    * `sessionKey` is the durable key this session was minted under, carried
     * onto `OrcaEvent.SessionCommitted`; only `orca.FlowSession` has one.
     */
   private[orca] def runWithSession[I: AgentInput](
       input: I,
       session: SessionId[B],
-      sessionName: Option[String],
+      sessionKey: Option[SessionKey],
       config: Option[AgentConfig],
       emitPrompt: Boolean
   )(using orca.InStage): O
@@ -69,18 +69,18 @@ trait InteractiveAgentCall[B <: BackendTag, O]:
     runWithSession(
       input,
       SessionId.fresh[B],
-      sessionName = None,
+      sessionKey = None,
       config = config
     )
 
-  /** The session-threading door behind [[run]] and [[Chat]]. `sessionName` is
-    * the durable name this session was minted under (see
+  /** The session-threading door behind [[run]] and [[Chat]]. `sessionKey` is
+    * the durable key this session was minted under (see
     * [[AutonomousAgentCall.runWithSession]]).
     */
   private[orca] def runWithSession[I: AgentInput](
       input: I,
       session: SessionId[B],
-      sessionName: Option[String],
+      sessionKey: Option[SessionKey],
       config: Option[AgentConfig]
   )(using orca.InStage): O
 
@@ -95,13 +95,13 @@ private[orca] trait AutonomousTextCall[B <: BackendTag]:
     * `OrcaEvent.UserPrompt` (used by internal callers producing near-identical
     * prompts in quick succession); other events fire regardless.
     *
-    * `sessionName` is the durable name this session was minted under (see
+    * `sessionKey` is the durable key this session was minted under (see
     * [[AutonomousAgentCall.runWithSession]]).
     */
   private[orca] def runWithSession(
       prompt: String,
       session: SessionId[B],
-      sessionName: Option[String],
+      sessionKey: Option[SessionKey],
       config: Option[AgentConfig],
       emitPrompt: Boolean
   )(using orca.InStage): String
@@ -156,7 +156,7 @@ class DefaultAgentCall[B <: BackendTag, O](
     private[orca] def runWithSession[I: AgentInput](
         input: I,
         session: SessionId[B],
-        sessionName: Option[String],
+        sessionKey: Option[SessionKey],
         config: Option[AgentConfig],
         emitPrompt: Boolean
     )(using orca.InStage): O =
@@ -164,17 +164,17 @@ class DefaultAgentCall[B <: BackendTag, O](
       // built before the flow ended and stored across the close boundary would
       // still reach the backend — this per-call check closes that gap.
       backend.checkNotClosed()
-      runAutonomousWithRetry(input, config, session, sessionName, emitPrompt)
+      runAutonomousWithRetry(input, config, session, sessionKey, emitPrompt)
 
   val interactive: InteractiveAgentCall[B, O] = new InteractiveAgentCall[B, O]:
     private[orca] def runWithSession[I: AgentInput](
         input: I,
         session: SessionId[B],
-        sessionName: Option[String],
+        sessionKey: Option[SessionKey],
         config: Option[AgentConfig]
     )(using orca.InStage): O =
       backend.checkNotClosed()
-      runInteractiveOnce(input, config, session, sessionName)
+      runInteractiveOnce(input, config, session, sessionKey)
 
   /** Emit a `StructuredResult` event carrying the raw payload and the
     * `Announce[O]`-derived summary — tri-state per
@@ -196,7 +196,7 @@ class DefaultAgentCall[B <: BackendTag, O](
       input: I,
       config: Option[AgentConfig],
       session: SessionId[B],
-      sessionName: Option[String],
+      sessionKey: Option[SessionKey],
       emitPrompt: Boolean
   )(using ai: AgentInput[I]): O =
     val serialized = ai.serialize(input)
@@ -212,7 +212,7 @@ class DefaultAgentCall[B <: BackendTag, O](
     // schema-wrapped form the agent sees): listeners want the question.
     if emitPrompt then events.onEvent(OrcaEvent.UserPrompt(serialized))
 
-    val accounting = turnAccounting(effective, session, sessionName)
+    val accounting = turnAccounting(effective, session, sessionKey)
 
     // Carries a parse failure into the next attempt's corrective prompt. Local
     // contract: written only in the `MalformedAgentOutputException` catch below,
@@ -313,12 +313,12 @@ class DefaultAgentCall[B <: BackendTag, O](
       input: I,
       config: Option[AgentConfig],
       session: SessionId[B],
-      sessionName: Option[String]
+      sessionKey: Option[SessionKey]
   )(using ai: AgentInput[I]): O =
     val serialized = ai.serialize(input)
     val effective = effectiveConfig(config)
     val prompt = prompts.interactive(serialized, outputSchema, effective)
-    val accounting = turnAccounting(effective, session, sessionName)
+    val accounting = turnAccounting(effective, session, sessionKey)
     // Per-turn structured-concurrency scope: `runInteractive` forks its workers
     // into this Ox, `drive` consumes them, and `cancel` (in the `finally`) tears
     // the conversation down before the scope joins — so a cancelled turn never
@@ -359,7 +359,7 @@ class DefaultAgentCall[B <: BackendTag, O](
   private def turnAccounting(
       effective: AgentConfig,
       session: SessionId[B],
-      sessionName: Option[String]
+      sessionKey: Option[SessionKey]
   ): TurnAccounting[B] =
     new TurnAccounting[B](
       events = events,
@@ -367,7 +367,7 @@ class DefaultAgentCall[B <: BackendTag, O](
       role = agentRole,
       backend = backend,
       session = session,
-      sessionName = sessionName,
+      sessionKey = sessionKey,
       pinned = effective.model
     )
 

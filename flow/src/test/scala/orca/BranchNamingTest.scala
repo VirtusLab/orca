@@ -3,6 +3,7 @@ package orca
 import orca.testkit.TextReplyingAgent
 
 import orca.agents.{
+  SessionKey,
   Announce,
   AutonomousTextCall,
   BackendTag,
@@ -42,7 +43,7 @@ class BranchNamingTest extends munit.FunSuite:
           private[orca] def runWithSession(
               prompt: String,
               session: SessionId[BackendTag.ClaudeCode.type],
-              sessionName: Option[String],
+              sessionKey: Option[SessionKey],
               config: Option[AgentConfig],
               emitPrompt: Boolean
           )(using

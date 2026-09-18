@@ -93,14 +93,14 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
       private[orca] def runWithSession(
           prompt: String,
           session: SessionId[B],
-          sessionName: Option[String],
+          sessionKey: Option[SessionKey],
           callConfig: Option[AgentConfig],
           emitPrompt: Boolean
       )(using orca.InStage): String =
         backend.checkNotClosed()
         val effective = effectiveConfig(callConfig)
         if emitPrompt then events.onEvent(OrcaEvent.UserPrompt(prompt))
-        val accounting = turnAccounting(effective, session, sessionName)
+        val accounting = turnAccounting(effective, session, sessionKey)
         val result = accounting.recording:
           backend.runAutonomous(
             prompt,
@@ -127,7 +127,7 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
         case _: OrcaEvent.AssistantMessage | _: OrcaEvent.ToolUse => ()
         case other => events.onEvent(other)
     val session = SessionId.fresh[B]
-    val accounting = turnAccounting(effective, session, sessionName = None)
+    val accounting = turnAccounting(effective, session, sessionKey = None)
     val result = accounting.recording:
       backend.runAutonomous(prompt, session, effective, quietEvents)
     accounting.succeeded(result, TurnAccounting.OnlyTurn)
@@ -148,7 +148,7 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
   private def turnAccounting(
       effective: AgentConfig,
       session: SessionId[B],
-      sessionName: Option[String]
+      sessionKey: Option[SessionKey]
   ): TurnAccounting[B] =
     new TurnAccounting[B](
       events = events,
@@ -156,7 +156,7 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
       role = role,
       backend = backend,
       session = session,
-      sessionName = sessionName,
+      sessionKey = sessionKey,
       pinned = effective.model
     )
 

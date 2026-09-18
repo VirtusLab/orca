@@ -1,6 +1,7 @@
 package orca.plan
 
 import orca.agents.{
+  SessionKey,
   AgentInput,
   Announce,
   AutonomousAgentCall,
@@ -49,7 +50,7 @@ private[plan] class CannedResultAgent[T](value: T)
           private[orca] def runWithSession[I: AgentInput](
               input: I,
               session: SessionId[BackendTag.ClaudeCode.type],
-              sessionName: Option[String],
+              sessionKey: Option[SessionKey],
               config: Option[AgentConfig],
               emitPrompt: Boolean
           )(using orca.InStage): O =

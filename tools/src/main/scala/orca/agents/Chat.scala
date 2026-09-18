@@ -35,7 +35,7 @@ final class Chat[B <: BackendTag] private[orca] (
     agent.autonomous.runWithSession(
       prompt,
       id,
-      sessionName = None,
+      sessionKey = None,
       config = config,
       emitPrompt = emitPrompt
     )
@@ -63,7 +63,7 @@ final class ChatCall[B <: BackendTag, O] private[orca] (
       call.autonomous.runWithSession(
         input,
         id,
-        sessionName = None,
+        sessionKey = None,
         config = config,
         emitPrompt = emitPrompt
       )
@@ -76,6 +76,6 @@ final class ChatCall[B <: BackendTag, O] private[orca] (
       call.interactive.runWithSession(
         input,
         id,
-        sessionName = None,
+        sessionKey = None,
         config = config
       )

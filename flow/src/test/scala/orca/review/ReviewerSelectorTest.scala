@@ -3,6 +3,7 @@ package orca.review
 import orca.{FlowContext, TestFlowContext}
 import orca.events.EventDispatcher
 import orca.agents.{
+  SessionKey,
   Agent,
   AgentInput,
   Announce,
@@ -48,7 +49,7 @@ private class RecordingPicker(
           private[orca] def runWithSession[I: AgentInput](
               input: I,
               session: SessionId[BackendTag.ClaudeCode.type],
-              sessionName: Option[String],
+              sessionKey: Option[SessionKey],
               config: Option[AgentConfig],
               emitPrompt: Boolean
           )(using orca.InStage): O =

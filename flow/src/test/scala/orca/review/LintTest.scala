@@ -3,6 +3,7 @@ package orca.review
 import orca.{FlowContext}
 import orca.plan.Title
 import orca.agents.{
+  SessionKey,
   AgentInput,
   Announce,
   AutonomousAgentCall,
@@ -41,7 +42,7 @@ class LintTest extends munit.FunSuite:
             private[orca] def runWithSession[I](
                 i: I,
                 session: SessionId[BackendTag.ClaudeCode.type],
-                sessionName: Option[String],
+                sessionKey: Option[SessionKey],
                 c: Option[AgentConfig],
                 emitPrompt: Boolean
             )(using

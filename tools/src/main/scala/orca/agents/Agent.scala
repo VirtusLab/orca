@@ -71,7 +71,7 @@ trait Agent[B <: BackendTag]:
     autonomous.runWithSession(
       prompt,
       SessionId.fresh[B],
-      sessionName = None,
+      sessionKey = None,
       config = config,
       emitPrompt = emitPrompt
     )

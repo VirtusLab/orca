@@ -33,7 +33,10 @@ class RunManifestGoldenTest extends munit.FunSuite:
     val text = scala.io.Source.fromResource(s"orca/manifest/$resource").mkString
     readFromString[RunManifest](text)(using RunManifest.codec)
 
-  /** What `golden-run-manifest.json` means, decoded. */
+  /** What `golden-run-manifest.json` means, decoded. Its durable session names
+    * no `sessionDetail`, so that field decodes absent rather than failing the
+    * file — the additive-only rule in action.
+    */
   private val finishedRun: RunManifest =
     RunManifest(
       orcaVersion = "0.1.0",
@@ -52,6 +55,7 @@ class RunManifestGoldenTest extends munit.FunSuite:
           role = Some("coding"),
           stage = Some("implement"),
           sessionName = Some("coder"),
+          sessionDetail = None,
           kind = ManifestSessionKind.Durable,
           firstSeenAt = Instant.parse("2026-08-04T09:16:03Z"),
           lastActiveAt = Instant.parse("2026-08-04T09:47:55Z")
@@ -64,6 +68,7 @@ class RunManifestGoldenTest extends munit.FunSuite:
           role = None,
           stage = None,
           sessionName = None,
+          sessionDetail = None,
           kind = ManifestSessionKind.OneShot,
           firstSeenAt = Instant.parse("2026-08-04T09:30:11Z"),
           lastActiveAt = Instant.parse("2026-08-04T09:30:44Z")
@@ -110,6 +115,7 @@ class RunManifestGoldenTest extends munit.FunSuite:
             role = None,
             stage = None,
             sessionName = None,
+            sessionDetail = None,
             kind = ManifestSessionKind.OneShot,
             firstSeenAt = Instant.parse("2026-08-04T11:02:30Z"),
             lastActiveAt = Instant.parse("2026-08-04T11:02:41Z")

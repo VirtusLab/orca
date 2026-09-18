@@ -593,10 +593,11 @@ construction.
   `(name, detail)`, returning a `FlowSession` handle that survives crash/resume:
   the same key resumes the same session (with a warning if this call's seed
   differs, rather than silently resuming the wrong one). `name` is the role, and
-  what names the session in `orca continue` and the run manifest. `detail` is
-  free text saying which session under that role this is — the task it serves,
-  or what a one-per-run session covers ("the whole planned change"). Both are
-  required. Minting one key twice in a run is an error, not silent sharing:
+  what `orca continue <name>` matches. `detail` is free text saying which
+  session under that role this is — the task it serves, or what a one-per-run
+  session covers ("the whole planned change"). Both are required, and both show
+  in the run manifest and in `orca continue`, which lists a session as
+  `name (detail)` so per-task sessions sharing a role are told apart. Minting one key twice in a run is an error, not silent sharing:
   give the second call a detail of its own. A *changed* detail is a different
   session, so a re-plan that rewords a task gives that task a fresh session
   primed from the seed rather than resuming the old wording's conversation.
@@ -1091,7 +1092,7 @@ action non-interactively and exits.
 | `orca edit <flow>` | `--to project\|global` | open a flow in `$VISUAL`/`$EDITOR`/vi (`--to` required to customize a built-in) |
 | `orca create "<goal>"` | `--name <file>`, `--global` | author a new flow: the built-in `simple.sc` flow writes it in an isolated sandbox with the configured role agents; `--name` is auto-derived when omitted. The sandbox is a fresh repository with no remote, so the flow's closing PR step opens nothing and says so |
 | `orca fork <source> "<changes>"` | `--name <file>`, `--global` | fork an existing flow, the same way |
-| `orca continue [selector]` | `--list`, `--json` | resume a recorded harness session (no selector = newest); `selector` is an index or session name |
+| `orca continue [selector]` | `--list`, `--json` | resume a recorded harness session (no selector = newest); `selector` is an index or session name — a name matching several sessions in one working tree resumes the most recent of them |
 | `orca config` | `--planning-agent`, `--coding-agent`, `--review-agent`, each taking `harness[:model]`; or `--edit project\|global` | show the configured role agents, set any subset, or hand-edit that tier's settings file in `$VISUAL`/`$EDITOR`/vi (created from its template if absent) |
 | `orca list` | `--json` | list discovered flows across the project/global/built-in tiers |
 | `orca clear-stack` | `--yes` | clear discovered stack settings so the next flow run re-detects them |

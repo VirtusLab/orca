@@ -149,11 +149,14 @@ most easily broken:
   ephemeral continuation is only reachable through a `Chat` handle).
 
   Sessions have explicit identity: `agent.session(name, detail, seed)` keys a
-  `SessionRecord` by `(name, detail)`, compared for exact string equality.
-  `name` is the role (it is what reaches `OrcaEvent.SessionCommitted` and the
-  manifest), `detail` required free text naming which session under that role
-  this is — the task, or what a one-per-run session covers. Neither is hashed
-  or turned into a filename, and only `name` is validated (non-empty).
+  `SessionRecord` by `orca.agents.SessionKey(name, detail)`, compared for exact
+  string equality. `name` is the role, `detail` required free text naming which
+  session under that role this is — the task, or what a one-per-run session
+  covers. The whole key reaches `OrcaEvent.SessionCommitted`, the run manifest
+  and the shell's session picker, where `SessionKey.label` (`name`, or
+  `name (detail)`) is the single home of how it reads to a person. Neither half
+  is hashed or turned into a filename, and only `name` is validated
+  (non-empty).
   Reordering or skipping *other* `session(...)` calls between runs doesn't
   re-key this one; a changed detail is a different session. Minting one key
   twice in a single execution throws (`FlowControl.claimSessionKey`); re-minting

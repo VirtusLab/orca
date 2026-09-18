@@ -2,6 +2,7 @@ package orca
 
 import orca.events.OrcaEvent
 import orca.agents.{
+  SessionKey,
   Announce,
   AutonomousTextCall,
   BackendTag,
@@ -38,7 +39,7 @@ class CommitMessageTest extends munit.FunSuite:
           private[orca] def runWithSession(
               prompt: String,
               session: SessionId[BackendTag.ClaudeCode.type],
-              sessionName: Option[String],
+              sessionKey: Option[SessionKey],
               config: Option[AgentConfig],
               emitPrompt: Boolean
           )(using

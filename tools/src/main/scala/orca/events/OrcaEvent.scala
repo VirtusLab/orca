@@ -1,6 +1,6 @@
 package orca.events
 
-import orca.agents.Model
+import orca.agents.{Model, SessionKey}
 
 /** Flow-level event fanned out to every registered [[OrcaListener]]. Covers
   * stage transitions, tool invocations, token usage, structured results, and
@@ -79,10 +79,10 @@ enum OrcaEvent:
     * pricing lives in the flow module, and a listener that priced the event
     * itself could disagree with the printed summary and the on-disk cost log.
     *
-    * `session` is [[OrcaEvent.sessionKey]] for the conversation this turn ran
-    * in — the same key [[SessionCommitted]] is deduplicated under, so turns and
-    * sessions join on it. Two turns of one session carry the same value; the
-    * first turn of a session is the earliest turn carrying it. `None` only
+    * `session` is [[OrcaEvent.conversationKey]] for the conversation this turn
+    * ran in — the same key [[SessionCommitted]] is deduplicated under, so turns
+    * and sessions join on it. Two turns of one session carry the same value;
+    * the first turn of a session is the earliest turn carrying it. `None` only
     * where the emitter has no conversation to name (test stubs).
     */
   case TokensUsed(
@@ -141,27 +141,29 @@ enum OrcaEvent:
     * ([[orca.runner.manifest.ManifestSession]]). `wireId` is the persistable id
     * ([[orca.agents.Agent.resumeWireId]]) — `None` for backends that keep
     * nothing durably resumable, so a non-resumable commit still fires
-    * accurately. `sessionName` is the name the flow minted the session under
+    * accurately. `sessionKey` is the key the flow minted the session under
     * (`agent.session(name, detail, seed)`) — `None` for a one-shot or chat
-    * turn, which has no name.
+    * turn, which is minted under no key.
     */
   case SessionCommitted(
       harness: String,
       clientId: String,
       wireId: Option[String],
-      sessionName: Option[String],
+      sessionKey: Option[SessionKey],
       agent: String,
       role: Option[String]
   )
 
 object OrcaEvent:
-  /** The one identity a session is known by across events: its wire id once the
-    * backend has minted one, else the client id orca allocated. Named here so
-    * [[OrcaEvent.TokensUsed.session]] and the manifest writer's session dedup
-    * key cannot drift apart — if they did, turns would stop joining to the
-    * sessions that produced them.
+  /** The one identity a backend conversation is known by across events: its
+    * wire id once the backend has minted one, else the client id orca
+    * allocated. Named here so [[OrcaEvent.TokensUsed.session]] and the manifest
+    * writer's session dedup key cannot drift apart — if they did, turns would
+    * stop joining to the sessions that produced them. Distinct from
+    * [[orca.agents.SessionKey]], which is the `(name, detail)` a flow minted a
+    * durable session under.
     */
-  def sessionKey(clientId: String, wireId: Option[String]): String =
+  def conversationKey(clientId: String, wireId: Option[String]): String =
     wireId.getOrElse(clientId)
 
 /** Sink for [[OrcaEvent]]s.

@@ -2,6 +2,7 @@ package orca.pr
 
 import orca.{FlowContext, TestFlowContext}
 import orca.agents.{
+  SessionKey,
   Agent,
   AgentCall,
   AgentConfig,
@@ -43,7 +44,7 @@ class SummarisePrTest extends munit.FunSuite:
             private[orca] def runWithSession[I](
                 input: I,
                 session: SessionId[BackendTag.ClaudeCode.type],
-                sessionName: Option[String],
+                sessionKey: Option[SessionKey],
                 config: Option[AgentConfig],
                 emitPrompt: Boolean
             )(using a: AgentInput[I], _x: orca.InStage): O =

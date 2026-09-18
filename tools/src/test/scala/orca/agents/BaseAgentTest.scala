@@ -438,11 +438,12 @@ class BaseAgentTest extends munit.FunSuite:
     assertEquals(committed.head.wireId, Some("wire-committed"))
     assertEquals(committed.head.agent, "stub")
     assertEquals(committed.head.role, None)
-    assertEquals(committed.head.sessionName, None)
+    assertEquals(committed.head.sessionKey, None)
 
-  // The manifest classifies a session as durable off this field alone, so the
-  // name a `FlowSession` hands to `runWithSession` has to survive to the event.
-  test("a named session's name reaches SessionCommitted"):
+  // The manifest classifies a session as durable off this field alone and reads
+  // its detail from it, so the key a `FlowSession` hands to `runWithSession`
+  // has to survive to the event whole.
+  test("a named session's key reaches SessionCommitted"):
     val seen =
       new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
     val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
@@ -451,15 +452,15 @@ class BaseAgentTest extends munit.FunSuite:
     val _ = tool.autonomous.runWithSession(
       "prompt",
       SessionId.fresh[BackendTag.Pi.type],
-      sessionName = Some("coder"),
+      sessionKey = Some(SessionKey("coder", "task 2")),
       config = None,
       emitPrompt = true
     )
     assertEquals(
       seen.get().collect { case e: OrcaEvent.SessionCommitted =>
-        e.sessionName
+        e.sessionKey
       },
-      List(Some("coder"))
+      List(Some(SessionKey("coder", "task 2")))
     )
 
   // A turn joins to the session that produced it only if it names that session

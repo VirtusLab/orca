@@ -4,7 +4,7 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.{
   CodecMakerConfig,
   ConfiguredJsonValueCodec
 }
-import orca.agents.{JsonData, given}
+import orca.agents.{JsonData, SessionKey, given}
 import orca.util.RawJson
 import sttp.tapir.Schema
 
@@ -67,19 +67,6 @@ case class ProgressHeader(
   */
 case class StageEntry(id: String, name: String, resultJson: RawJson)
     derives JsonData
-
-/** The pair that identifies a durable session: the `name` it was minted under
-  * (its role, e.g. `implementer`) and the `detail` telling it apart from the
-  * other sessions sharing that name — typically the task it serves. Free text,
-  * compared by exact string equality, and never used as a filename or a wire
-  * token, so it needs no escaping. Empty for a session that is the only one
-  * under its name.
-  */
-case class SessionKey(name: String, detail: String):
-  /** How the key reads in user-facing text: the name alone for a session with
-    * no detail, `name (detail)` otherwise.
-    */
-  def label: String = if detail.isEmpty then name else s"$name ($detail)"
 
 /** A persisted session: the [[SessionKey]] fields that key it, a minted UUID,
   * the seed string the author supplied, and — when the session is durably

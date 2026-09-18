@@ -8,6 +8,7 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.{
   CodecMakerConfig,
   ConfiguredJsonValueCodec
 }
+import orca.agents.SessionKey
 import orca.shell.flows.DiscoveredFlow
 import orca.shell.sessions.{RecordedRun, SessionPicker}
 import orca.shell.ui.Choice
@@ -24,7 +25,14 @@ private[cli] object Tables:
   // as written; `lastActiveAt` is the parsed instant rendered back to ISO-8601.
   private[cli] case class SessionRow(
       index: Int,
+      /** The bare name `orca continue <name>` matches, or the agent name for a
+        * one-shot, which was minted under no name.
+        */
       sessionName: String,
+      /** What tells this session apart from the others sharing its name; empty
+        * when it is the only one under that name.
+        */
+      sessionDetail: String,
       /** The run's working directory: the listing spans worktrees, so two rows
         * can otherwise be identical — and `continue <name>` then refuses them
         * as ambiguous, naming directories the listing never showed.
@@ -37,7 +45,11 @@ private[cli] object Tables:
       resumable: Boolean,
       reason: Option[String],
       crashed: Boolean
-  )
+  ):
+    /** How the session reads in the printed table. Not a JSON field — scripts
+      * get the two halves and compose their own.
+      */
+    def display: String = SessionKey(sessionName, sessionDetail).label
   // `withTransientEmpty`/`withTransientNone` false: `--json` output is for
   // scripts, which should see an always-present `reason` key (null when
   // unset) and `shadows`/similar fields rather than a silently vanishing one.
@@ -64,7 +76,9 @@ private[cli] object Tables:
           val session = selection.session
           SessionRow(
             index = i + 1,
-            sessionName = session.sessionName.getOrElse(session.agent),
+            sessionName =
+              session.mintedKey.map(_.name).getOrElse(session.agent),
+            sessionDetail = session.mintedKey.map(_.detail).getOrElse(""),
             workDir = selection.manifest.workDir,
             kind = session.kind.wireName,
             stage = session.stage,
@@ -90,8 +104,7 @@ private[cli] object Tables:
           if r.resumable then ""
           else s"  not resumable: ${r.reason.getOrElse("")}"
         val sessionName =
-          r.sessionName +
-            (if r.crashed then " (crashed)" else "") + tag(r.workDir)
+          r.display + (if r.crashed then " (crashed)" else "") + tag(r.workDir)
         (
           r.index.toString,
           sessionName,

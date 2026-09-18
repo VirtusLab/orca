@@ -810,6 +810,7 @@ class CliTest extends munit.FunSuite:
   private def durable(
       sessionName: String,
       lastActiveAt: String,
+      sessionDetail: String = "",
       wireId: Option[String] = Some("uuid"),
       reason: Option[String] = None
   ): ManifestSession =
@@ -821,6 +822,7 @@ class CliTest extends munit.FunSuite:
       role = None,
       stage = None,
       sessionName = Some(sessionName),
+      sessionDetail = Some(sessionDetail),
       kind = ManifestSessionKind.Durable,
       firstSeenAt = Instant.parse(lastActiveAt),
       lastActiveAt = Instant.parse(lastActiveAt)
@@ -944,9 +946,42 @@ class CliTest extends munit.FunSuite:
       role = None,
       stage = None,
       sessionName = Some(sessionName),
+      sessionDetail = Some(""),
       kind = ManifestSessionKind.Durable,
       firstSeenAt = Instant.parse(lastActiveAt),
       lastActiveAt = Instant.parse(lastActiveAt)
+    )
+
+  test(
+    "selectByName: sessions under one name differ only by detail, so the newest wins"
+  ):
+    // The detail tells rows apart for a reader; it does not address them, so
+    // `continue implementer` must not start demanding one.
+    val runs = List(
+      RecordedRun(
+        manifest(
+          startedAt = "2026-07-18T09:00:00Z",
+          sessions = List(
+            durable(
+              "implementer",
+              "2026-07-18T09:30:00Z",
+              sessionDetail = "task 1: parse the input"
+            ),
+            durable(
+              "implementer",
+              "2026-07-18T10:30:00Z",
+              sessionDetail = "task 2: wire the parser"
+            )
+          )
+        ),
+        crashed = false
+      )
+    )
+    assertEquals(
+      SessionPicker
+        .selectByName(runs, "implementer")
+        .map(_.session.mintedKey.map(_.label)),
+      Right(Some("implementer (task 2: wire the parser)"))
     )
 
   test(
@@ -966,7 +1001,10 @@ class CliTest extends munit.FunSuite:
     )
     assertEquals(
       SessionPicker.selectByName(runs, "shared"),
-      Left("'shared' is ambiguous — matches agents: agentA, agentB")
+      Left(
+        "'shared' is ambiguous — matches agents: agentA, agentB; " +
+          "run `orca continue --list` and pick one by its number"
+      )
     )
 
   test(
@@ -998,7 +1036,8 @@ class CliTest extends munit.FunSuite:
       SessionPicker.selectByName(runs, "shared"),
       Left(
         "'shared' is ambiguous — matches working directories: " +
-          "/repo/.orca/worktrees/aaaaaaaaaaaa, /repo/.orca/worktrees/bbbbbbbbbbbb"
+          "/repo/.orca/worktrees/aaaaaaaaaaaa, /repo/.orca/worktrees/bbbbbbbbbbbb; " +
+          "run `orca continue --list` and pick one by its number"
       )
     )
     // Both are primary rows, and each says which tree it is in.
@@ -1034,6 +1073,26 @@ class CliTest extends munit.FunSuite:
     assertEquals(labels.count(_.contains("★")), 1)
     // One directory, so nothing to disambiguate.
     assert(!labels.exists(_.contains("@")), labels.toString)
+
+  test("sessionListingRows keeps the name matchable and the detail beside it"):
+    val runs = List(
+      RecordedRun(
+        manifest(
+          startedAt = "2026-07-18T09:00:00Z",
+          sessions = List(
+            durable(
+              "implementer",
+              "2026-07-18T09:30:00Z",
+              sessionDetail = "task 2: wire the parser"
+            )
+          )
+        ),
+        crashed = false
+      )
+    )
+    val row = Tables.sessionListingRows(runs).head
+    assertEquals(row.sessionName, "implementer")
+    assertEquals(row.display, "implementer (task 2: wire the parser)")
 
   test(
     "sessionListingRows numbers rows 1-based in the same order continue <n> uses"

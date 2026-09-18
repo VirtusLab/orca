@@ -3,6 +3,7 @@ package orca
 import munit.FunSuite
 import orca.backend.{IdScheme, SessionSupport}
 import orca.agents.{
+  SessionKey,
   Announce,
   AgentInput,
   AutonomousAgentCall,
@@ -77,8 +78,8 @@ class FlowSessionTest extends FunSuite:
   private val testSession: SessionId[BackendTag.ClaudeCode.type] =
     SessionId[BackendTag.ClaudeCode.type](testSessionId)
 
-  /** The name every test's [[FlowSession]] is minted under. */
-  private val testSessionName = "coder"
+  /** The key every test's [[FlowSession]] is minted under. */
+  private val testSessionKey = SessionKey("coder", "task 2")
 
   /** A structured result type for exercising the `resultAs[O]` durable door. */
   private case class StubResult(v: String) derives JsonData
@@ -108,7 +109,7 @@ class FlowSessionTest extends FunSuite:
     override private[orca] def backendTag: Option[BackendTag] = tag
 
     private var _capturedPrompts: List[String] = Nil
-    private var _capturedSessionNames: List[Option[String]] = Nil
+    private var _capturedSessionKeys: List[Option[SessionKey]] = Nil
 
     /** The prompt the stub's most recent `run` (free-text or structured)
       * received, after preamble/seed composition.
@@ -120,11 +121,11 @@ class FlowSessionTest extends FunSuite:
       */
     def capturedPrompts: List[String] = _capturedPrompts.reverse
 
-    /** Every `sessionName` the stub's `run`s received, in call order (oldest
+    /** Every `sessionKey` the stub's `run`s received, in call order (oldest
       * first) — what the durable door hands to the emission edge.
       */
-    def capturedSessionNames: List[Option[String]] =
-      _capturedSessionNames.reverse
+    def capturedSessionKeys: List[Option[SessionKey]] =
+      _capturedSessionKeys.reverse
 
     /** The durability capability the stub exposes. `ephemeral = true` builds a
       * `SessionSupport.ephemeral` (a STABLE instance, so an in-process claim
@@ -156,10 +157,10 @@ class FlowSessionTest extends FunSuite:
     private def capture(
         prompt: String,
         session: SessionId[BackendTag.ClaudeCode.type],
-        sessionName: Option[String]
+        sessionKey: Option[SessionKey]
     ): Unit =
       _capturedPrompts = prompt :: _capturedPrompts
-      _capturedSessionNames = sessionName :: _capturedSessionNames
+      _capturedSessionKeys = sessionKey :: _capturedSessionKeys
       if ephemeral then support.register(session, session.onWire)
 
     val autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
@@ -167,11 +168,11 @@ class FlowSessionTest extends FunSuite:
         private[orca] def runWithSession(
             prompt: String,
             session: SessionId[BackendTag.ClaudeCode.type],
-            sessionName: Option[String],
+            sessionKey: Option[SessionKey],
             config: Option[AgentConfig],
             emitPrompt: Boolean
         )(using orca.InStage): String =
-          capture(prompt, session, sessionName)
+          capture(prompt, session, sessionKey)
           runResult
 
     /** Structured door stub: captures the serialized input (after preamble/seed
@@ -186,7 +187,7 @@ class FlowSessionTest extends FunSuite:
             private[orca] def runWithSession[I: AgentInput](
                 input: I,
                 session: SessionId[BackendTag.ClaudeCode.type],
-                sessionName: Option[String],
+                sessionKey: Option[SessionKey],
                 config: Option[AgentConfig],
                 emitPrompt: Boolean
             )(using
@@ -195,7 +196,7 @@ class FlowSessionTest extends FunSuite:
               capture(
                 summon[AgentInput[I]].serialize(input),
                 session,
-                sessionName
+                sessionKey
               )
               val parsed =
                 readFromString[O]("""{"v":"ok"}""")(using
@@ -244,12 +245,12 @@ class FlowSessionTest extends FunSuite:
     )
 
   /** A [[FlowSession]] over [[testSession]] and the given stub agent, minted
-    * under [[testSessionName]].
+    * under [[testSessionKey]].
     */
   private def flowSession(
       agent: StubAgentForSeeded
   ): FlowSession[BackendTag.ClaudeCode.type] =
-    new FlowSession(agent, testSession, testSessionName)
+    new FlowSession(agent, testSession, testSessionKey)
 
   // ── tests: free-text run protocol ───────────────────────────────────────────
 
@@ -552,19 +553,19 @@ class FlowSessionTest extends FunSuite:
       "a second in-process run must forward the prompt verbatim (no re-seed)"
     )
 
-  test("run hands the session's name to the turn, for SessionCommitted"):
-    // The manifest's `sessionName`/`kind` come off the event, so the name has
-    // to reach the emission edge from here.
+  test("run hands the session's key to the turn, for SessionCommitted"):
+    // The manifest's session name, detail and `kind` all come off the event, so
+    // the whole key has to reach the emission edge from here.
     val fc = makeControl(sessions = Nil)
     val agent = new StubAgentForSeeded(existsResult = true)
     val _ = flowSession(agent).run("prompt")(using fc)
-    assertEquals(agent.capturedSessionNames, List(Some(testSessionName)))
+    assertEquals(agent.capturedSessionKeys, List(Some(testSessionKey)))
 
-  test("resultAs.run hands the session's name to the turn"):
+  test("resultAs.run hands the session's key to the turn"):
     val fc = makeControl(sessions = Nil)
     val agent = new StubAgentForSeeded(existsResult = true)
     val _ = flowSession(agent).resultAs[StubResult].run("prompt")(using fc)
-    assertEquals(agent.capturedSessionNames, List(Some(testSessionName)))
+    assertEquals(agent.capturedSessionKeys, List(Some(testSessionKey)))
 
   test("run returns the output from autonomous.run; .id is the session id"):
     val seed = "seed text"
@@ -766,7 +767,7 @@ class FlowSessionTest extends FunSuite:
     val errors = compileErrors(
       """
       val agent = new StubAgentForSeeded(existsResult = true)
-      val session = new FlowSession(agent, testSession, testSessionName)
+      val session = new FlowSession(agent, testSession, testSessionKey)
       val _ = agent.chat(session)
       """
     )

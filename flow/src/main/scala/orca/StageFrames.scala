@@ -1,6 +1,6 @@
 package orca
 
-import orca.progress.SessionKey
+import orca.agents.SessionKey
 
 /** Per-run stage-identity and stage-baseline bookkeeping shared by every
   * [[FlowControl]] implementation (production

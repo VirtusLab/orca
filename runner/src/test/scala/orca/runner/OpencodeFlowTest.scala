@@ -12,6 +12,7 @@ import orca.backend.{
 }
 import orca.events.{OrcaListener, Usage}
 import orca.agents.{
+  SessionKey,
   AgentInput,
   Announce,
   AutonomousAgentCall,
@@ -156,7 +157,7 @@ class OpencodeFlowTest extends munit.FunSuite:
             private[orca] def runWithSession[I: AgentInput](
                 input: I,
                 session: SessionId[BackendTag.Opencode.type],
-                sessionName: Option[String],
+                sessionKey: Option[SessionKey],
                 config: Option[AgentConfig],
                 emitPrompt: Boolean
             )(using orca.InStage): O =

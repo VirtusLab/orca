@@ -4,6 +4,7 @@ import orca.{FlowContext, OrcaArgs, StackSettings, flow, fs, pi}
 import orca.tools.{FsTool}
 import orca.testkit.GitRepo
 import orca.agents.{
+  SessionKey,
   Announce,
   AutonomousTextCall,
   BackendTag,
@@ -75,7 +76,7 @@ class OrcaOverridesTest extends munit.FunSuite:
           private[orca] def runWithSession(
               p: String,
               session: SessionId[BackendTag.ClaudeCode.type],
-              sessionName: Option[String],
+              sessionKey: Option[SessionKey],
               c: Option[AgentConfig],
               emitPrompt: Boolean
           )(using
@@ -121,7 +122,7 @@ class OrcaOverridesTest extends munit.FunSuite:
           private[orca] def runWithSession(
               p: String,
               session: SessionId[BackendTag.Opencode.type],
-              sessionName: Option[String],
+              sessionKey: Option[SessionKey],
               c: Option[AgentConfig],
               emitPrompt: Boolean
           )(using orca.InStage): String =
@@ -186,7 +187,7 @@ class OrcaOverridesTest extends munit.FunSuite:
           private[orca] def runWithSession(
               p: String,
               session: SessionId[BackendTag.Pi.type],
-              sessionName: Option[String],
+              sessionKey: Option[SessionKey],
               c: Option[AgentConfig],
               emitPrompt: Boolean
           )(using orca.InStage): String =
@@ -235,7 +236,7 @@ class OrcaOverridesTest extends munit.FunSuite:
           private[orca] def runWithSession(
               p: String,
               session: SessionId[BackendTag.ClaudeCode.type],
-              sessionName: Option[String],
+              sessionKey: Option[SessionKey],
               c: Option[AgentConfig],
               emitPrompt: Boolean
           )(using

@@ -107,7 +107,7 @@ class AgentCallSessionCommittedTest extends munit.FunSuite:
       val answer = call.interactive.runWithSession(
         "anything",
         clientSid,
-        sessionName = None,
+        sessionKey = None,
         config = None
       )
       assertEquals(answer, SessionCommittedAnswer(3))

@@ -34,15 +34,17 @@ private[shell] object SessionPicker:
     * first, one-shots last, with two kinds of rows collapsed by default behind
     * an expander.
     *
-    * A durable lineage is a `(agent, sessionName)` pair with `kind ==
+    * A durable lineage is an `(agent, minted key)` pair with `kind ==
     * [[ManifestSessionKind.Durable]]` — every occurrence of it across every run
-    * in `runs`, not just the newest run, since a lineage's `sessionName` is
-    * stable across separate flow runs (a fresh run mints a fresh
-    * `clientId`/`wireId` but reuses the same `agent.session(name, ...)` name)
-    * while a single run's own durable session always upserts onto one manifest
-    * row. Only the occurrence with the max `lastActiveAt` is shown (marked `★
-    * ... — latest`, the primary continuation target); the rest collapse behind
-    * a "show N earlier occurrences" row. One-shot sessions
+    * in `runs`, not just the newest run, since a lineage's key is stable across
+    * separate flow runs (a fresh run mints a fresh `clientId`/`wireId` but
+    * reuses the same `agent.session(name, detail, ...)` key) while a single
+    * run's own durable session always upserts onto one manifest row. The detail
+    * half is part of the key, so the per-task `implementer` sessions of one run
+    * are separate lineages rather than occurrences of each other. Only the
+    * occurrence with the max `lastActiveAt` is shown (marked `★ ... — latest`,
+    * the primary continuation target); the rest collapse behind a "show N
+    * earlier occurrences" row. One-shot sessions
     * ([[ManifestSessionKind.OneShot]] — Plan-stage calls, reviewer-selection
     * calls, reviewer `chat()` runs) are never deduped — each is a genuinely
     * distinct fresh session — but collapse behind a single "show N one-shot
@@ -70,12 +72,13 @@ private[shell] object SessionPicker:
     val (durable, oneShot) = occurrences.partition(isDurable)
 
     // Keyed on the working directory too: harness sessions are cwd-scoped, and
-    // flow session names are static ("implementer" in every run), so the same
-    // name in two worktrees is two different conversations about two different
-    // tasks — deduping them against each other would hide one behind the other.
+    // flow session keys are static ("implementer" on the same task in every
+    // run), so the same key in two worktrees is two different conversations
+    // about two different tasks — deduping them against each other would hide
+    // one behind the other.
     val lineages = durable
       .groupBy(o =>
-        (o.run.manifest.workDir, o.session.agent, o.session.sessionName)
+        (o.run.manifest.workDir, o.session.agent, o.session.mintedKey)
       )
       .values
       .map(_.sortBy(recency).reverse)
@@ -106,7 +109,7 @@ private[shell] object SessionPicker:
 
   /** A kind this build doesn't know (a newer build's manifest) is grouped with
     * the one-shots: those rows are listed as they come, while the durable half
-    * is deduped by a `sessionName` such a session may not have.
+    * is deduped by a minted key such a session may not have.
     */
   private def isDurable(o: Occurrence): Boolean = o.session.kind match
     case ManifestSessionKind.Durable                                  => true
@@ -154,23 +157,22 @@ private[shell] object SessionPicker:
       val plural = if count == 1 then "" else "s"
       List(Choice(PickerRow.ShowMore, s"… show $count $noun$plural$suffix"))
 
-  /** `★ <sessionName> — latest (stage: <stage>) [<harness>]`, or `(no stage
-    * yet)` when the durable session hasn't entered a stage (rare — custom flows
-    * only). Falls back to the agent name if a malformed manifest somehow has a
-    * [[ManifestSessionKind.Durable]] session without a `sessionName`.
+  /** `★ <session> — latest (stage: <stage>) [<harness>]`, or `(no stage yet)`
+    * when the durable session hasn't entered a stage (rare — custom flows
+    * only).
     */
   private def primaryLabel(o: Occurrence): String =
-    val name = o.session.sessionName.getOrElse(o.session.agent)
+    val name = displayName(o.session)
     val stage = o.session.stage.fold("no stage yet")(s => s"stage: $s")
     val harness = harnessSettingsName(o.session.harness)
     val crashedSuffix = if o.run.crashed then " (crashed)" else ""
     s"★ $name — latest ($stage) [$harness]$crashedSuffix"
 
-  /** `<sessionName> — stage <stage> [<harness>] (earlier occurrence)`, shown
-    * only when the picker is expanded.
+  /** `<session> — stage <stage> [<harness>] (earlier occurrence)`, shown only
+    * when the picker is expanded.
     */
   private def earlierLabel(o: Occurrence): String =
-    val name = o.session.sessionName.getOrElse(o.session.agent)
+    val name = displayName(o.session)
     val stage = o.session.stage.fold("")(s => s" — stage $s")
     val harness = harnessSettingsName(o.session.harness)
     val crashedSuffix = if o.run.crashed then " (crashed)" else ""
@@ -186,6 +188,15 @@ private[shell] object SessionPicker:
     val crashedSuffix = if o.run.crashed then " (crashed)" else ""
     s"${o.session.agent}$role$stage [$harness] (one-shot)$crashedSuffix"
 
+  /** How a session reads to a person: its minted key's
+    * [[orca.agents.SessionKey.label]], or the agent name for a one-shot (and
+    * for a malformed manifest whose [[ManifestSessionKind.Durable]] session
+    * carries no name). Every shell surface that shows a session calls this, so
+    * the picker, `continue --list` and the pre-resume notice cannot drift.
+    */
+  private[shell] def displayName(session: ManifestSession): String =
+    session.mintedKey.map(_.label).getOrElse(session.agent)
+
   /** The settings-file harness name (`claude`, `codex`, …) for a manifest's
     * [[BackendTag.wireName]] string, falling back to the raw string for an
     * unrecognised one (the row itself is disabled in that case, so this is
@@ -199,7 +210,9 @@ private[shell] object SessionPicker:
 
   /** Resolves a `continue` selector to a session: no selector picks the newest
     * durable lineage, a numeric selector picks that 1-based row from the full
-    * (expanded) listing, and anything else is matched by session name.
+    * (expanded) listing, and anything else is matched by session name — the
+    * name alone, never the detail, so resuming never asks a user to retype the
+    * task a session served.
     */
   private[shell] def resolveSelection(
       runs: List[RecordedRun],
@@ -270,25 +283,41 @@ private[shell] object SessionPicker:
         case choice @ Choice(PickerRow.Resume(selection), _, _)
             if selection.session.sessionName.contains(name) =>
           (choice, selection)
+    // Ambiguity is decided per (working directory, agent), not per row: within
+    // one of those, the rows differ only by their sessions' detail, which tells
+    // them apart for a reader without addressing them — so `continue <name>`
+    // takes the most recent, as it does when there is only one.
+    val contexts =
+      matches.map((_, s) => (s.manifest.workDir, s.session.agent)).distinct
     matches match
-      case Nil => notFound
-      case (choice, _) :: Nil =>
+      case Nil                      => notFound
+      case _ if contexts.sizeIs > 1 => Left(ambiguity(name, matches))
+      case _ =>
+        val (newest, _) = matches.maxBy((_, s) => s.session.lastActiveAt)
         resolveRow(
-          choice,
+          newest,
           s"session '$name' isn't resumable",
           // unreachable: withoutExpanders already dropped every ShowMore row
           notFound
         )
-      case multiple =>
-        // Same name in two worktrees matches on one agent, so naming agents
-        // alone would read as "ambiguous — matches agents: coder".
-        val agents = multiple.map(_._2.session.agent).distinct
-        val detail =
-          if agents.sizeIs > 1 then s"agents: ${agents.mkString(", ")}"
-          else
-            val dirs = multiple.map(_._2.manifest.workDir).distinct
-            s"working directories: ${dirs.mkString(", ")}"
-        Left(s"'$name' is ambiguous — matches $detail")
+
+  /** Why `continue <name>` won't guess between working trees or agents, and
+    * what to do instead.
+    */
+  private def ambiguity(
+      name: String,
+      matches: List[(Choice[PickerRow], SessionSelection)]
+  ): String =
+    // Same name in two worktrees matches on one agent, so naming agents alone
+    // would read as "ambiguous — matches agents: coder".
+    val agents = matches.map(_._2.session.agent).distinct
+    val where =
+      if agents.sizeIs > 1 then s"agents: ${agents.mkString(", ")}"
+      else
+        val dirs = matches.map(_._2.manifest.workDir).distinct
+        s"working directories: ${dirs.mkString(", ")}"
+    s"'$name' is ambiguous — matches $where; run `orca continue --list` and " +
+      "pick one by its number"
 
   /** [[sessionRows]]'s rows, dropping the "show more" expanders — never present
     * for [[SessionSelection]] callers (`selectByIndex` reads the fully expanded
