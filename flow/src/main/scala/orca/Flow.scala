@@ -132,7 +132,9 @@ private def recordAndCommit[T: JsonData](
   given WorkspaceWrite = RuntimeInStage.workspaceToken()
   val message =
     commitMessage.map(_(result)).getOrElse(defaultCommitMessage(name))
-  fc.progressStore.appendEntry(StageEntry(id.value, name, RawJson(resultJson)))
+  fc.progressStore.appendEntry(
+    StageEntry(id = id.value, name = name, resultJson = RawJson(resultJson))
+  )
   fc.git.forceAdd(fc.progressStore.path)
   // The log always changed, so a clean tree is unexpected (a prior partial run
   // may already have committed this entry): log at DEBUG, never fail the stage.

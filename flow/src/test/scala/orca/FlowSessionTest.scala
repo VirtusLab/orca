@@ -75,7 +75,7 @@ class FlowSessionTest extends FunSuite:
 
   /** The key every test's [[FlowSession]] is minted under. */
   private val testSessionKey =
-    SessionKey(name = "coder", stage = StagePath.Stage("Task 2#0"))
+    SessionKey(name = "coder", stage = StagePath.fromValue("Task 2#0"))
 
   /** A structured result type for exercising the `resultAs[O]` durable door. */
   private case class StubResult(v: String) derives JsonData
@@ -497,7 +497,9 @@ class FlowSessionTest extends FunSuite:
     sessionStore.upsert(
       SessionRecord(name = "s", stage = "", id = testSessionId, seed = "")
     )
-    store.appendEntry(StageEntry("triage#0", "triage", RawJson("null")))
+    store.appendEntry(
+      StageEntry(id = "triage#0", name = "triage", resultJson = RawJson("null"))
+    )
     val git = new orca.tools.OsGitTool(dir)
     val fc = new TestFlowControl(
       new orca.events.EventDispatcher(Nil),
