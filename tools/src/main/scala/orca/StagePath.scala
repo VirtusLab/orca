@@ -1,44 +1,35 @@
 package orca
 
 /** Where something sits in a run's stage tree: at the flow body's root, or
-  * inside one stage, identified by that stage's hierarchical path id
-  * (`name#occurrence` segments joined by `/`, ADR 0018 §2.1).
+  * inside one stage, identified by that stage's [[StagePathId]].
   *
-  * The id is opaque: built by [[StagePath.child]], compared for exact equality,
-  * never parsed back into names or occurrence numbers. [[StagePath.value]] is
-  * its persisted spelling — the flow body's is the empty string, and
-  * [[StagePath.fromValue]] is the single place that reads it back, so no
-  * consumer re-decides what an empty or absent id means.
+  * [[StagePath.value]] is the persisted spelling — the flow body's is the empty
+  * string, and [[StagePath.fromValue]] is the single place that reads it back,
+  * so no consumer re-decides what an empty or absent id means.
   */
-sealed trait StagePath:
+enum StagePath:
+  case FlowBody
+  case Stage(id: StagePathId)
+
   /** The persisted spelling of this path; empty at the flow body. */
   def value: String = this match
-    case StagePath.FlowBody  => ""
-    case StagePath.Stage(id) => id
+    case FlowBody  => ""
+    case Stage(id) => id.value
 
   /** The path of a stage named `name` opening directly under this one as the
     * `occurrence`-th stage of that name in this scope.
     */
   def child(name: String, occurrence: Int): StagePath.Stage =
     val segment = s"$name#$occurrence"
-    StagePath.stageOf(this match
-      case StagePath.FlowBody  => segment
-      case StagePath.Stage(id) => s"$id/$segment"
-    )
+    StagePath.Stage(StagePathId(this match
+      case FlowBody  => segment
+      case Stage(id) => s"${id.value}/$segment"
+    ))
 
 object StagePath:
-  case object FlowBody extends StagePath
-
-  /** One stage, by its path id. The id is never empty: the empty spelling is
-    * the flow body's, so a `Stage("")` would persist as a flow body and read
-    * back as one. Hence the private constructor — a stage path comes from
-    * [[StagePath.child]] or [[StagePath.fromValue]].
-    */
-  final case class Stage private[StagePath] (id: String) extends StagePath
-
   /** Read back a persisted path id. */
   def fromValue(value: String): StagePath =
-    if value.isEmpty then FlowBody else Stage(value)
+    if value.isEmpty then FlowBody else Stage(StagePathId(value))
 
   /** Read back a path id a persisted shape may omit: absent reads as the flow
     * body, exactly as an explicitly empty id does.
@@ -46,7 +37,25 @@ object StagePath:
   def fromValue(value: Option[String]): StagePath =
     value.fold(FlowBody)(fromValue)
 
-  /** Reaches the private constructor on behalf of [[StagePath.child]], which
-    * lives outside this object.
+/** The id of one stage: `name#occurrence` segments, one per enclosing stage,
+  * joined by `/` (ADR 0018 §2.1). Compared for exact equality, never parsed
+  * back into names or occurrence numbers.
+  *
+  * Never empty, which is what keeps [[StagePath.Stage]] distinct from
+  * [[StagePath.FlowBody]]: the empty spelling is the flow body's, so a stage
+  * carrying it would persist as a flow body and read back as one. Lives beside
+  * [[StagePath]] because that invariant is the reason the type exists.
+  */
+opaque type StagePathId = String
+
+object StagePathId:
+  /** The id spelled `id`, refusing the flow body's empty spelling. Minting is
+    * internal to orca: [[StagePath.child]], which appends a `#occurrence`
+    * segment, and [[StagePath.fromValue]], which routes an empty spelling to
+    * [[StagePath.FlowBody]], are its only callers.
     */
-  private def stageOf(id: String): Stage = Stage(id)
+  private[orca] def apply(id: String): StagePathId =
+    require(id.nonEmpty, "stage path id must be non-empty")
+    id
+
+  extension (id: StagePathId) def value: String = id

@@ -25,4 +25,4 @@ case class SessionKey private[orca] (name: String, stage: StagePath):
     */
   def describe: String = stage match
     case StagePath.FlowBody  => s"'$name'"
-    case StagePath.Stage(id) => s"'$name' in stage '$id'"
+    case StagePath.Stage(id) => s"'$name' in stage '${id.value}'"
