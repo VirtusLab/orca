@@ -12,6 +12,7 @@ import orca.agents.{
 }
 import orca.review.ReviewerCatalog
 import orca.progress.{BranchMode, CommitHash, ProgressHeader, ProgressStore}
+import orca.sessions.SessionStore
 import orca.testkit.GitRepo
 import orca.tools.FsTool
 import orca.tools.GitTool
@@ -73,6 +74,7 @@ class TestFlowControl(
     dispatcher: EventDispatcher,
     val git: GitTool,
     val progressStore: ProgressStore,
+    val sessionStore: SessionStore,
     val userPrompt: String = "",
     lead: Option[Agent[BackendTag.ClaudeCode.type]] = None,
     val workDir: os.Path = orca.testkit.TempDirs.dir(),
@@ -129,6 +131,7 @@ object TestFlowControl:
     val dir = GitRepo.seeded()
     val git = new OsGitTool(dir)
     val store = ProgressStore.default(dir, userPrompt)
+    val sessions = SessionStore.default(dir, userPrompt)
     given WorkspaceWrite = WorkspaceWrite.unsafe
     // The seed commit stands in for the commit a real run binds at, so a
     // whole-run diff base is present here as it is in production.
@@ -151,6 +154,7 @@ object TestFlowControl:
         dispatcher,
         git,
         store,
+        sessions,
         userPrompt,
         lead,
         dir,

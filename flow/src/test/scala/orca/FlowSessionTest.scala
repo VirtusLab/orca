@@ -19,13 +19,8 @@ import orca.agents.{
   ToolSet,
   onWire
 }
-import orca.progress.{
-  BranchMode,
-  ProgressHeader,
-  ProgressStore,
-  StageEntry,
-  SessionRecord
-}
+import orca.progress.{BranchMode, ProgressHeader, ProgressStore, StageEntry}
+import orca.sessions.{SessionRecord, SessionStore}
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import orca.testkit.{GitRepo, TempDirs}
 import orca.util.RawJson
@@ -79,7 +74,8 @@ class FlowSessionTest extends FunSuite:
     SessionId[BackendTag.ClaudeCode.type](testSessionId)
 
   /** The key every test's [[FlowSession]] is minted under. */
-  private val testSessionKey = SessionKey("coder", "task 2")
+  private val testSessionKey =
+    SessionKey(name = "coder", stage = StagePath.FlowBody.child("Task 2", 0))
 
   /** A structured result type for exercising the `resultAs[O]` durable door. */
   private case class StubResult(v: String) derives JsonData
@@ -223,11 +219,12 @@ class FlowSessionTest extends FunSuite:
   ): TestFlowControl =
     val dir = TempDirs.dir()
     val store = ProgressStore.default(dir, "p")
+    val sessionStore = SessionStore.default(dir, "p")
     given WorkspaceWrite = WorkspaceWrite.unsafe
     store.writeHeader(
       ProgressHeader("main", "feat/test", "deadbeef", BranchMode.Created)
     )
-    for record <- sessions do store.upsertSession(record)
+    for record <- sessions do sessionStore.upsert(record)
     for stageName <- completedStages do
       store.appendEntry(
         StageEntry(
@@ -241,6 +238,7 @@ class FlowSessionTest extends FunSuite:
       new orca.events.EventDispatcher(listeners),
       git,
       store,
+      sessionStore,
       "p"
     )
 
@@ -260,7 +258,7 @@ class FlowSessionTest extends FunSuite:
       sessions = List(
         SessionRecord(
           name = "s",
-          detail = "",
+          stage = "",
           id = testSessionId,
           seed = seed
         )
@@ -283,7 +281,7 @@ class FlowSessionTest extends FunSuite:
       sessions = List(
         SessionRecord(
           name = "s",
-          detail = "",
+          stage = "",
           id = testSessionId,
           seed = seed
         )
@@ -311,7 +309,7 @@ class FlowSessionTest extends FunSuite:
       sessions = List(
         SessionRecord(
           name = "s",
-          detail = "",
+          stage = "",
           id = testSessionId,
           seed = "x"
         )
@@ -344,7 +342,7 @@ class FlowSessionTest extends FunSuite:
       sessions = List(
         SessionRecord(
           name = "s",
-          detail = "",
+          stage = "",
           id = testSessionId,
           seed = "seed",
           resumeWireId = Some("wire-1")
@@ -369,7 +367,7 @@ class FlowSessionTest extends FunSuite:
       sessions = List(
         SessionRecord(
           name = "s",
-          detail = "",
+          stage = "",
           id = testSessionId,
           seed = "x"
         )
@@ -391,7 +389,7 @@ class FlowSessionTest extends FunSuite:
       sessions = List(
         SessionRecord(
           name = "s",
-          detail = "",
+          stage = "",
           id = testSessionId,
           seed = seed
         )
@@ -464,7 +462,7 @@ class FlowSessionTest extends FunSuite:
     // NOT start with `---` (the separator only appears between context and prompt).
     val fc = makeControl(
       sessions = List(
-        SessionRecord(name = "s", detail = "", id = testSessionId, seed = "")
+        SessionRecord(name = "s", stage = "", id = testSessionId, seed = "")
       ),
       completedStages = List("triage")
     )
@@ -492,18 +490,22 @@ class FlowSessionTest extends FunSuite:
     // something to report.
     val dir = GitRepo.seeded()
     val store = ProgressStore.default(dir, "p")
+    val sessionStore = SessionStore.default(dir, "p")
     store.writeHeader(
       ProgressHeader("main", "feat/test", "deadbeef", BranchMode.Created)
     )
-    store.upsertSession(
-      SessionRecord(name = "s", detail = "", id = testSessionId, seed = "")
+    sessionStore.upsert(
+      SessionRecord(name = "s", stage = "", id = testSessionId, seed = "")
     )
-    store.appendEntry(StageEntry("triage#0", "triage", RawJson("null")))
+    store.appendEntry(
+      StageEntry(id = "triage#0", name = "triage", resultJson = RawJson("null"))
+    )
     val git = new orca.tools.OsGitTool(dir)
     val fc = new TestFlowControl(
       new orca.events.EventDispatcher(Nil),
       git,
       store,
+      sessionStore,
       "p"
     )
     val agent = new StubAgentForSeeded(existsResult = false)
@@ -532,7 +534,7 @@ class FlowSessionTest extends FunSuite:
       sessions = List(
         SessionRecord(
           name = "s",
-          detail = "",
+          stage = "",
           id = testSessionId,
           seed = seed
         )
@@ -554,8 +556,8 @@ class FlowSessionTest extends FunSuite:
     )
 
   test("run hands the session's key to the turn, for SessionCommitted"):
-    // The manifest's session name, detail and `kind` all come off the event, so
-    // the whole key has to reach the emission edge from here.
+    // The manifest's session name, minting stage and `kind` all come off the
+    // event, so the whole key has to reach the emission edge from here.
     val fc = makeControl(sessions = Nil)
     val agent = new StubAgentForSeeded(existsResult = true)
     val _ = flowSession(agent).run("prompt")(using fc)
@@ -573,7 +575,7 @@ class FlowSessionTest extends FunSuite:
       sessions = List(
         SessionRecord(
           name = "s",
-          detail = "",
+          stage = "",
           id = testSessionId,
           seed = seed
         )
@@ -593,7 +595,7 @@ class FlowSessionTest extends FunSuite:
       sessions = List(
         SessionRecord(
           name = "s",
-          detail = "",
+          stage = "",
           id = testSessionId,
           seed = "seed"
         )
@@ -605,7 +607,7 @@ class FlowSessionTest extends FunSuite:
     )
     val _ = flowSession(agent).run("prompt")(using fc)
     val record =
-      fc.progressStore.load().get.sessions.find(_.id == testSessionId).get
+      fc.sessionStore.records().find(_.id == testSessionId).get
     assertEquals(record.resumeWireId, Some("server-thread-xyz"))
 
   test(
@@ -624,7 +626,7 @@ class FlowSessionTest extends FunSuite:
       sessions = List(
         SessionRecord(
           name = "s",
-          detail = "",
+          stage = "",
           id = testSessionId,
           seed = "seed",
           backend = None
@@ -638,7 +640,7 @@ class FlowSessionTest extends FunSuite:
     )
     val _ = flowSession(agent).run("prompt")(using fc)
     val record =
-      fc.progressStore.load().get.sessions.find(_.id == testSessionId).get
+      fc.sessionStore.records().find(_.id == testSessionId).get
     assertEquals(record.resumeWireId, Some("server-thread-xyz"))
     assertEquals(
       record.backend,
@@ -654,7 +656,7 @@ class FlowSessionTest extends FunSuite:
       sessions = List(
         SessionRecord(
           name = "s",
-          detail = "",
+          stage = "",
           id = testSessionId,
           seed = "seed"
         )
@@ -664,7 +666,7 @@ class FlowSessionTest extends FunSuite:
       new StubAgentForSeeded(existsResult = false, learnedWireId = None)
     val _ = flowSession(agent).run("prompt")(using fc)
     val record =
-      fc.progressStore.load().get.sessions.find(_.id == testSessionId).get
+      fc.sessionStore.records().find(_.id == testSessionId).get
     assertEquals(record.resumeWireId, None)
 
   test(
@@ -676,7 +678,7 @@ class FlowSessionTest extends FunSuite:
       sessions = List(
         SessionRecord(
           name = "s",
-          detail = "",
+          stage = "",
           id = testSessionId,
           seed = "seed",
           resumeWireId = Some("server-1")
@@ -687,7 +689,7 @@ class FlowSessionTest extends FunSuite:
       new StubAgentForSeeded(existsResult = false, learnedWireId = None)
     val _ = flowSession(agent).run("prompt")(using fc)
     val record =
-      fc.progressStore.load().get.sessions.find(_.id == testSessionId).get
+      fc.sessionStore.records().find(_.id == testSessionId).get
     assertEquals(
       record.resumeWireId,
       Some("server-1"),
@@ -706,7 +708,7 @@ class FlowSessionTest extends FunSuite:
       sessions = List(
         SessionRecord(
           name = "s",
-          detail = "",
+          stage = "",
           id = testSessionId,
           seed = seed
         )
@@ -738,7 +740,7 @@ class FlowSessionTest extends FunSuite:
       s"structured door must include the input; got: $prompt"
     )
     val record =
-      fc.progressStore.load().get.sessions.find(_.id == testSessionId).get
+      fc.sessionStore.records().find(_.id == testSessionId).get
     assertEquals(record.resumeWireId, Some("server-structured-1"))
 
   test("resultAs.run on a live session forwards the input verbatim"):
@@ -746,7 +748,7 @@ class FlowSessionTest extends FunSuite:
       sessions = List(
         SessionRecord(
           name = "s",
-          detail = "",
+          stage = "",
           id = testSessionId,
           seed = "seed"
         )

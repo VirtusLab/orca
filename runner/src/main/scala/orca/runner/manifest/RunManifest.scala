@@ -6,6 +6,7 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
   JsonWriter
 }
 import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
+import orca.StagePath
 import orca.agents.{JsonData, SessionKey}
 
 import java.time.Instant
@@ -66,7 +67,7 @@ private[orca] object ManifestSessionKind:
   private val known: List[ManifestSessionKind] = List(Durable, OneShot)
 
   /** `Durable` exactly when the commit event carries the key an
-    * `agent.session(name, detail, seed)` call minted the session under.
+    * `agent.session(name, seed)` call minted the session under.
     */
   def of(sessionKey: Option[SessionKey]): ManifestSessionKind =
     if sessionKey.isDefined then Durable else OneShot
@@ -90,11 +91,14 @@ private[orca] object ManifestSessionKind:
   * `false` and `reason` explains why. Every backend keeps durable sessions, so
   * `None` means the id isn't known yet, not that the backend can't resume.
   *
-  * `sessionName` and `sessionDetail` are the two halves of the key a flow
-  * minted a durable session under; read them through [[mintedKey]], which
-  * settles what an absent detail means. They are flat optional strings, not one
-  * nested value, because the manifest is persisted and `sessionName` is a
-  * string on the wire — a detail is added beside it, additively.
+  * `sessionName` and `sessionStage` are the two halves of the key a flow minted
+  * a durable session under; read them through [[mintedKey]]. They are flat
+  * optional strings rather than one nested value, since the manifest is
+  * persisted and both are plain strings on the wire.
+  *
+  * `stage` is a different field: where the session was last active, re-stamped
+  * on every turn, while `sessionStage` is the stage that minted it and never
+  * changes.
   */
 private[orca] case class ManifestSession(
     harness: String,
@@ -104,7 +108,7 @@ private[orca] case class ManifestSession(
     role: Option[String],
     stage: Option[String],
     sessionName: Option[String],
-    sessionDetail: Option[String],
+    sessionStage: Option[String],
     kind: ManifestSessionKind,
     firstSeenAt: Instant,
     lastActiveAt: Instant
@@ -115,12 +119,14 @@ private[orca] case class ManifestSession(
   def resumable: Boolean = wireId.isDefined
 
   /** The key the flow minted this session under, for a durable one. Absence of
-    * `sessionDetail` is resolved here, once: a named session without one reads
-    * as a key with an empty detail, which [[SessionKey.label]] renders as the
-    * bare name. `None` for a one-shot, which was minted under no key.
+    * `sessionStage` is resolved here, once: a named session without one reads
+    * as minted in the flow body, the same as an explicitly empty stage id.
+    * `None` for a one-shot, which was minted under no key.
     */
   def mintedKey: Option[SessionKey] =
-    sessionName.map(SessionKey(_, sessionDetail.getOrElse("")))
+    sessionName.map(n =>
+      SessionKey(name = n, stage = StagePath.fromValue(sessionStage))
+    )
 
 /** A per-run manifest written to
   * `.orca/cache/runs/<startedAt-epoch-ms>-<pid>.json`, read by the shell to

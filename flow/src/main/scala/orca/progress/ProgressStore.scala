@@ -6,6 +6,7 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
 }
 import orca.{OrcaDir, WorkspaceWrite}
 import orca.agents.JsonData
+import orca.util.AtomicFile
 import scala.util.control.NonFatal
 
 /** Persistent store for a single flow run's [[ProgressLog]].
@@ -39,17 +40,6 @@ trait ProgressStore:
     * exist); otherwise it throws.
     */
   def appendEntry(entry: StageEntry)(using WorkspaceWrite): Unit
-
-  /** Upsert a session record by its [[SessionKey]]: replaces an existing record
-    * with that key, or appends if none exists. Last write wins.
-    *
-    * Requires [[writeHeader]] first; otherwise it throws. Does NOT commit — the
-    * next stage commit force-adds the log and carries it. So on failure
-    * teardown (`git reset --hard`) any record written since the last stage
-    * commit is erased and the retry re-seeds; `session(name, detail, seed)`'s
-    * get-or-create is best-effort until a stage commit has carried the log.
-    */
-  def upsertSession(record: SessionRecord)(using WorkspaceWrite): Unit
 
   /** Record where this run published its work; last write wins.
     *
@@ -154,14 +144,11 @@ private class OsProgressStore(workDir: os.Path, val path: os.Path)
   def appendEntry(entry: StageEntry)(using WorkspaceWrite): Unit =
     writeLog(upsertEntry(currentLogOrThrow("appendEntry"), entry))
 
-  def upsertSession(record: SessionRecord)(using WorkspaceWrite): Unit =
-    writeLog(upsertSessionRecord(currentLogOrThrow("upsertSession"), record))
-
   def recordPublished(work: PublishedWork)(using WorkspaceWrite): Unit =
     writeLog(currentLogOrThrow("recordPublished").copy(published = Some(work)))
 
-  /** Read-modify-write precondition for [[appendEntry]] / [[upsertSession]] /
-    * [[recordPublished]]: all require a log to already exist. Routed through
+  /** Read-modify-write precondition for [[appendEntry]] and
+    * [[recordPublished]]: both require a log to already exist. Routed through
     * [[loadDetailed]] so an `Absent` log (writeHeader never ran), a `Corrupt`
     * one (a torn write or external edit mid-run) and an `Unreadable` one get
     * distinct messages.
@@ -189,46 +176,13 @@ private class OsProgressStore(workDir: os.Path, val path: os.Path)
       else log.entries :+ entry
     log.copy(entries = updated)
 
-  private def upsertSessionRecord(
-      log: ProgressLog,
-      record: SessionRecord
-  ): ProgressLog =
-    val idx = log.sessions.indexWhere(_.key == record.key)
-    val updated =
-      if idx >= 0 then log.sessions.updated(idx, record)
-      else log.sessions :+ record
-    log.copy(sessions = updated)
-
   // Rewrite the whole file each time rather than append JSONL: the log is a
-  // single structured document whose elements `upsertEntry`/`upsertSession`
-  // mutate in place, which an append-only log can't express, and it's small and
-  // bounded so a full rewrite is negligible.
-  //
-  // Written atomically via a sibling temp file + `os.move(atomicMove = true)`:
-  // a plain `os.write.over` can tear the file if the process dies mid-write,
-  // leaving `loadDetailed()` reading `Corrupt` where a resume was expected.
+  // single structured document whose entries `upsertEntry` mutates in place,
+  // which an append-only log can't express, and it's small and bounded so a
+  // full rewrite is negligible.
   private def writeLog(log: ProgressLog): Unit =
-    val dir = OrcaDir.ensureRoot(workDir)
-    val tmp = os.temp(
-      contents = writeToString(log)(using codec),
-      dir = dir,
-      prefix = s".${path.last}.",
-      suffix = ".tmp",
-      deleteOnExit = false
+    AtomicFile.write(
+      path,
+      OrcaDir.ensureRoot(workDir),
+      writeToString(log)(using codec)
     )
-    // Wrapped so ANY failure cleans up the temp file rather than leaking it;
-    // the target is untouched on failure.
-    try
-      try os.move(tmp, path, replaceExisting = true, atomicMove = true)
-      catch
-        // Some filesystems (network mounts, some container overlay/bind mounts)
-        // reject ATOMIC_MOVE even for a same-directory rename. Torn writes are
-        // impossible there anyway (only the atomicity guarantee against
-        // concurrent readers is unavailable), so a plain move is a safe
-        // fallback.
-        case _: java.nio.file.AtomicMoveNotSupportedException =>
-          os.move(tmp, path, replaceExisting = true)
-    catch
-      case NonFatal(e) =>
-        if os.exists(tmp) then os.remove(tmp): Unit
-        throw e

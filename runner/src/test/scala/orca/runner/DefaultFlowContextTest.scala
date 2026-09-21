@@ -73,6 +73,7 @@ class DefaultFlowContextTest extends munit.FunSuite:
       gh = new OsGitHubTool(OsProcCliRunner, workDir),
       fs = new OsFsTool(workDir),
       progressStore = ProgressStore.default(workDir, "test"),
+      sessionStore = orca.sessions.SessionStore.default(workDir, "test"),
       stackSettings = StackSettings.empty,
       reviewerCatalog = orca.review.ReviewerCatalog.builtIn,
       startingCommit = None

@@ -143,7 +143,7 @@ class MainTest extends munit.FunSuite:
   private def durable(
       agent: String = "main",
       sessionName: String = "main",
-      sessionDetail: String = "",
+      sessionStage: String = "",
       stage: Option[String] = None,
       lastActiveAt: String = "2026-07-18T10:00:00Z",
       harness: String = "ClaudeCode",
@@ -158,7 +158,7 @@ class MainTest extends munit.FunSuite:
       role = None,
       stage = stage,
       sessionName = Some(sessionName),
-      sessionDetail = Some(sessionDetail),
+      sessionStage = Some(sessionStage),
       kind = ManifestSessionKind.Durable,
       firstSeenAt = Instant.parse(lastActiveAt),
       lastActiveAt = Instant.parse(lastActiveAt)
@@ -181,7 +181,7 @@ class MainTest extends munit.FunSuite:
       role = role,
       stage = stage,
       sessionName = None,
-      sessionDetail = None,
+      sessionStage = None,
       kind = ManifestSessionKind.OneShot,
       firstSeenAt = Instant.parse(lastActiveAt),
       lastActiveAt = Instant.parse(lastActiveAt)
@@ -394,7 +394,7 @@ class MainTest extends munit.FunSuite:
     )
 
   test(
-    "sessionRows keeps two sessions sharing a name apart by their detail"
+    "sessionRows keeps two sessions sharing a name apart by their minting stage"
   ):
     val run = RecordedRun(
       manifest(sessions =
@@ -402,13 +402,15 @@ class MainTest extends munit.FunSuite:
           durable(
             agent = "coder",
             sessionName = "implementer",
-            sessionDetail = "task 1: parse the input",
+            sessionStage = "Task: parse the input#0",
+            stage = Some("Task: parse the input"),
             lastActiveAt = "2026-07-18T09:00:00Z"
           ),
           durable(
             agent = "coder",
             sessionName = "implementer",
-            sessionDetail = "task 2: wire the parser",
+            sessionStage = "Task: wire the parser#0",
+            stage = Some("Task: wire the parser"),
             lastActiveAt = "2026-07-18T09:05:00Z"
           )
         )
@@ -418,8 +420,8 @@ class MainTest extends munit.FunSuite:
     assertEquals(
       SessionPicker.sessionRows(List(run), expanded = false).map(_.label),
       List(
-        "★ implementer (task 2: wire the parser) — latest (no stage yet) [claude]",
-        "★ implementer (task 1: parse the input) — latest (no stage yet) [claude]"
+        "★ implementer — latest (stage: Task: wire the parser) [claude]",
+        "★ implementer — latest (stage: Task: parse the input) [claude]"
       )
     )
 

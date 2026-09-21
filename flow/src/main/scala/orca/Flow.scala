@@ -53,12 +53,12 @@ def stage[T: JsonData](
   * log holds an entry for `id` that decodes to `T`; `None` when there's no
   * entry or it no longer decodes (fail-safe: the caller then re-runs the body).
   */
-private def resumeFrom[T: JsonData](id: String, name: String)(using
+private def resumeFrom[T: JsonData](id: StagePath.Stage, name: String)(using
     fc: FlowControl
 ): Option[T] =
   fc.progressStore
     .load()
-    .flatMap(_.entries.find(_.id == id))
+    .flatMap(_.entries.find(_.id == id.value))
     .flatMap: entry =>
       // The try is scoped to the decode only: a decode failure means the
       // stage's result type changed under this id, so fall through and re-run
@@ -81,7 +81,7 @@ private def resumeFrom[T: JsonData](id: String, name: String)(using
 
 /** Run the body fresh, then record its result and commit (steps 3–4 above). */
 private def runStage[T: JsonData](
-    id: String,
+    id: StagePath.Stage,
     name: String,
     commitMessage: Option[T => String]
 )(body: (InStage, WorkspaceWrite) ?=> T)(using fc: FlowControl): T =
@@ -118,7 +118,7 @@ private def runStage[T: JsonData](
   * gitignored); `git.commit`'s own `add -A` picks up any code changes.
   */
 private def recordAndCommit[T: JsonData](
-    id: String,
+    id: StagePath.Stage,
     name: String,
     result: T,
     commitMessage: Option[T => String]
@@ -132,7 +132,9 @@ private def recordAndCommit[T: JsonData](
   given WorkspaceWrite = RuntimeInStage.workspaceToken()
   val message =
     commitMessage.map(_(result)).getOrElse(defaultCommitMessage(name))
-  fc.progressStore.appendEntry(StageEntry(id, name, RawJson(resultJson)))
+  fc.progressStore.appendEntry(
+    StageEntry(id = id.value, name = name, resultJson = RawJson(resultJson))
+  )
   fc.git.forceAdd(fc.progressStore.path)
   // The log always changed, so a clean tree is unexpected (a prior partial run
   // may already have committed this entry): log at DEBUG, never fail the stage.

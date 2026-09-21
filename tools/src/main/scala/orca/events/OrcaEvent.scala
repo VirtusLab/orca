@@ -142,8 +142,8 @@ enum OrcaEvent:
     * ([[orca.agents.Agent.resumeWireId]]) — `None` for backends that keep
     * nothing durably resumable, so a non-resumable commit still fires
     * accurately. `sessionKey` is the key the flow minted the session under
-    * (`agent.session(name, detail, seed)`) — `None` for a one-shot or chat
-    * turn, which is minted under no key.
+    * (`agent.session(name, seed)`) — `None` for a one-shot or chat turn, which
+    * is minted under no key.
     */
   case SessionCommitted(
       harness: String,
@@ -160,7 +160,7 @@ object OrcaEvent:
     * allocated. Named here so [[OrcaEvent.TokensUsed.session]] and the manifest
     * writer's session dedup key cannot drift apart — if they did, turns would
     * stop joining to the sessions that produced them. Distinct from
-    * [[orca.agents.SessionKey]], which is the `(name, detail)` a flow minted a
+    * [[orca.agents.SessionKey]], which is the `(name, stage)` a flow minted a
     * durable session under.
     */
   def conversationKey(clientId: String, wireId: Option[String]): String =

@@ -56,7 +56,7 @@ private[orca] class LoggingListener extends OrcaListener:
         e.harness,
         e.clientId,
         e.wireId.getOrElse("(none)"),
-        e.sessionKey.fold("(none)")(_.label),
+        e.sessionKey.fold("(none)")(_.describe),
         e.agent,
         e.role.getOrElse("(none)")
       )

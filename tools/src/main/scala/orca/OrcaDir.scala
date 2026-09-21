@@ -67,6 +67,14 @@ private[orca] object OrcaDir:
     */
   def cachePath(workDir: os.Path): os.Path = root(workDir) / "cache"
 
+  /** `<workDir>/.orca/cache/sessions-<promptHash>.json` — the durable-session
+    * records of the run keyed by that prompt hash, paired with the progress log
+    * at [[progressPath]] under the same hash. Untracked, so the records survive
+    * the failure teardown's `git reset --hard` that the committed log cannot.
+    */
+  def sessionRecordsPath(workDir: os.Path, promptHash: String): os.Path =
+    cachePath(workDir) / s"sessions-$promptHash.json"
+
   /** Idempotently ensure `.orca/cache/` exists, writing its self-ignoring
     * `.gitignore` and `CACHEDIR.TAG` before returning so nothing lands in the
     * dir before the exclusion is in place. Markers are written only when

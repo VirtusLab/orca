@@ -21,6 +21,7 @@ import orca.agents.{
   Prompts
 }
 import orca.progress.ProgressStore
+import orca.sessions.SessionStore
 import orca.review.ReviewerCatalog
 import orca.runner.{
   DefaultFlowContext,
@@ -342,6 +343,10 @@ private[orca] def runFlow(
             progressStore.getOrElse(
               ProgressStore.default(workDir, args.userPrompt)
             )
+          // Not pluggable alongside `progressStore`: these records are
+          // machine-local cache under `.orca/cache/`, derived from the same
+          // (workDir, prompt) pair a resumed run re-derives.
+          val sessions = SessionStore.default(workDir, args.userPrompt)
           // One wiring bundle handed to every agent factory, so overrides and
           // defaults build against the SAME dispatcher, interaction, workDir and
           // prompts. Agent construction is pure (no subprocess spawns until the
@@ -374,6 +379,7 @@ private[orca] def runFlow(
             ghTool = ghTool,
             fsTool = fsTool,
             store = store,
+            sessions = sessions,
             flowName = flowName,
             debug = debug
           )
@@ -423,6 +429,7 @@ private def buildContext(
     ghTool: GitHubTool,
     fsTool: FsTool,
     store: ProgressStore,
+    sessions: SessionStore,
     flowName: Option[String],
     debug: Boolean
 ): (DefaultFlowContext[?, ?, ?], FlowLifecycle.FlowSetup) =
@@ -489,6 +496,7 @@ private def buildContext(
         settingsRead.stack,
         stackOverridden = stackSettings.isDefined,
         store,
+        sessions,
         flowName = flowName,
         emit = dispatcher.onEvent
       )
@@ -514,6 +522,7 @@ private def buildContext(
           gh = ghTool,
           fs = fsTool,
           progressStore = store,
+          sessionStore = sessions,
           stackSettings = flowSetup.stackSettings,
           reviewerCatalog = reviewerCatalog,
           startingCommit = flowSetup.startingCommit

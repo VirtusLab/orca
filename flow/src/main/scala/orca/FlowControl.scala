@@ -4,6 +4,7 @@ import language.experimental.captureChecking
 
 import orca.agents.SessionKey
 import orca.progress.{CommitHash, ProgressStore}
+import orca.sessions.SessionStore
 
 import scala.annotation.implicitNotFound
 
@@ -36,14 +37,21 @@ import scala.annotation.implicitNotFound
   "`stage(...)`, `agent.session(...)`, and `session.run(...)` on a FlowSession can only be called inside a `flow(...)` body — and not inside a `fork` (forks can read and emit, but can't start stages). If this is a helper that starts stages, declare it `(using FlowControl)` so its caller supplies it."
 )
 trait FlowControl extends FlowContext, caps.ExclusiveCapability:
-  /** The store backing this run's progress log. */
+  /** The store backing this run's progress log — the committed, branch-carried
+    * half of a run's state.
+    */
   def progressStore: ProgressStore
+
+  /** The store backing this run's durable session records — the machine-local
+    * half, in `.orca/cache/` (see [[orca.sessions.SessionStore]]).
+    */
+  def sessionStore: SessionStore
 
   /** Open a stage named `name` and return its full path id (e.g.
     * `outer#0/inner#0`). Called once by `stage` before the resume lookup; must
     * be balanced by [[exitStage]]. See [[StageFrames]] for the protocol.
     */
-  def enterStage(name: String, baseCommit: Option[String]): String
+  def enterStage(name: String, baseCommit: Option[String]): StagePath.Stage
 
   /** Pop the frame opened by the matching [[enterStage]]. */
   def exitStage(): Unit
@@ -51,13 +59,15 @@ trait FlowControl extends FlowContext, caps.ExclusiveCapability:
   /** The id the next `stage(name)` in the current scope would get — see
     * [[StageFrames.peekStageId]].
     */
-  private[orca] def peekStageId(name: String): String
+  private[orca] def peekStageId(name: String): StagePath.Stage
 
   /** Whether the progress log holds an entry for the next `stage(name)` in the
     * current scope.
     */
   private[orca] def stageRecorded(name: String): Boolean =
-    progressStore.load().exists(_.entries.exists(_.id == peekStageId(name)))
+    progressStore
+      .load()
+      .exists(_.entries.exists(_.id == peekStageId(name).value))
 
   /** The commit the innermost open stage started from — the baseline for the
     * change set that stage has produced, whether or not it has since been
@@ -84,8 +94,8 @@ trait FlowControl extends FlowContext, caps.ExclusiveCapability:
     */
   private[orca] def assertOwnerThread(what: String): Unit
 
-  /** Claim `key` for this execution, throwing if `agent.session(...)` already
-    * minted it here — see [[StageFrames.claimSessionKey]] for why a resumed
-    * run's re-mint is not a claim conflict.
+  /** Key a session named `name` to the stage currently open and claim it,
+    * throwing if `agent.session(...)` already minted that name there — see
+    * [[StageFrames.claimSessionKey]].
     */
-  private[orca] def claimSessionKey(key: SessionKey): Unit
+  private[orca] def claimSessionKey(name: String): SessionKey

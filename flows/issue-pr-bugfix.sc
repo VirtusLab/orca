@@ -102,11 +102,7 @@ flow(
 
     case Triage.Testable(summary, _, failingTestPath) =>
       stage("Write failing test"):
-        val reproducer = codingAgent.session(
-          "reproducer",
-          detail = "a failing test for the reported bug",
-          seed = issue.body
-        )
+        val reproducer = codingAgent.session("reproducer", seed = issue.body)
         reproducer.run(
           s"""Write the failing unit test at `$failingTestPath`. It MUST
              |fail on the current code — that's how we confirm the bug.
@@ -255,13 +251,9 @@ def planAndImplementFix(
        |branch; the fix must make it pass.""".stripMargin
 
   val taskDeclines =
-    for (task, n) <- fixPlan.tasks.zipWithIndex yield
+    for task <- fixPlan.tasks yield
       stage(s"Task: ${task.title}"):
-        val session = codingAgent.session(
-          "fixer",
-          detail = s"task ${n + 1}: ${task.title}",
-          seed = fixSeed
-        )
+        val session = codingAgent.session("fixer", seed = fixSeed)
         session.run(task.description)
         // No test gate on this review: the branch carries a deliberately
         // failing test until the last fix task lands.
@@ -274,11 +266,7 @@ def planAndImplementFix(
 
   // Nothing reviews again after this loop, hence the raised iteration cap.
   stage("Final review"):
-    val finalFixer = codingAgent.session(
-      "final-fixer",
-      detail = "the whole fix",
-      seed = fixSeed
-    )
+    val finalFixer = codingAgent.session("final-fixer", seed = fixSeed)
     reviewAndFixLoop(
       coderSession = finalFixer,
       reviewers = allReviewers(reviewAgent),

@@ -197,7 +197,11 @@ class StageRuntimeTest extends munit.FunSuite:
     locally:
       given WorkspaceWrite = WorkspaceWrite.unsafe
       ctx.progressStore.appendEntry(
-        StageEntry("typed#0", "typed", RawJson("\"not-an-int\""))
+        StageEntry(
+          id = "typed#0",
+          name = "typed",
+          resultJson = RawJson("\"not-an-int\"")
+        )
       )
     val result = stage[Int]("typed"):
       val _ = ran.incrementAndGet()
@@ -328,6 +332,7 @@ class StageRuntimeTest extends munit.FunSuite:
         new EventDispatcher(List(listener)),
         git,
         store,
+        orca.sessions.SessionStore.default(dir, "p"),
         "p"
       ),
       dir

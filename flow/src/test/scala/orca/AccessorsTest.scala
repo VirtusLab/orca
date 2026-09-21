@@ -39,4 +39,4 @@ class AccessorsTest extends munit.FunSuite:
       ctx: FlowContext,
       fc: FlowControl
   ): FlowSession[ctx.CodeB] =
-    codingAgent.session("impl", detail = "the task", seed = "seed")
+    codingAgent.session("impl", seed = "seed")

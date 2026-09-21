@@ -13,6 +13,8 @@ class CapabilitiesTest extends munit.FunSuite:
       with StageFrames:
       def progressStore: orca.progress.ProgressStore =
         throw new NotImplementedError
+      def sessionStore: orca.sessions.SessionStore =
+        throw new NotImplementedError
       private[orca] def startingCommit: Option[orca.progress.CommitHash] = None
 
   test("FlowControl satisfies a using FlowContext requirement"):
