@@ -1,7 +1,7 @@
 package orca.tools.pi
 
 import orca.OrcaDir
-import orca.backend.SystemPromptComposer
+import orca.backend.{Continuation, SystemPromptComposer}
 import orca.testkit.Usages.usage
 import orca.agents.{
   BackendTag,
@@ -268,11 +268,11 @@ class PiBackendTest extends munit.FunSuite:
     val workDir = TempDirs.dir()
     val backend = new PiBackend(new SpawnStubCliRunner(Nil), workDir = workDir)
     backend.sessions.register(sid, sid.onWire)
-    val _ = backend.sessions.willContinue(sid)
+    val _ = backend.sessions.continuation(sid)
     assert(!os.exists(workDir / ".orca"))
 
   test(
-    "willContinue is true when the committed session dir holds a transcript"
+    "continuation is Recorded when the committed session dir holds a transcript"
   ):
     val (backend, dir) = committedSession()
     os.write(
@@ -280,11 +280,11 @@ class PiBackendTest extends munit.FunSuite:
       transcript(backend.workDir),
       createFolders = true
     )
-    assert(backend.sessions.willContinue(sid))
+    assertEquals(backend.sessions.continuation(sid), Continuation.Recorded)
 
-  test("willContinue is false when the committed session dir is gone"):
+  test("continuation is Rebuild when the committed session dir is gone"):
     val (backend, _) = committedSession()
-    assert(!backend.sessions.willContinue(sid))
+    assertEquals(backend.sessions.continuation(sid), Continuation.Rebuild)
 
   test("persistableWireId is the claimed client id once the session commits"):
     val (backend, _) = committedSession()
@@ -374,7 +374,7 @@ class PiBackendTest extends munit.FunSuite:
     val _ =
       sessionDirStamped(workDir, SessionId.value(sid), cutoff.minusMillis(1))
     backend.sessions.register(sid, sid.onWire)
-    assert(!backend.sessions.willContinue(sid))
+    assertEquals(backend.sessions.continuation(sid), Continuation.Rebuild)
 
   test("a stale dir the prune trips over is skipped, sparing the rest"):
     val stale = cutoff.minusMillis(1)

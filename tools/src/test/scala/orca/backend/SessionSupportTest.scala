@@ -16,7 +16,7 @@ class SessionSupportTest extends munit.FunSuite:
   test("ClientClaimed: dispatchFor flips Fresh(claim) → Resume after commit"):
     val s = SessionSupport.durable[BackendTag.ClaudeCode.type](
       IdScheme.ClientClaimed,
-      _ => true
+      _ => false
     )
     val client = SessionId[BackendTag.ClaudeCode.type]("client-A")
     assertEquals(s.dispatchFor(client), Dispatch.Fresh(Some(client.onWire)))
@@ -26,13 +26,39 @@ class SessionSupportTest extends munit.FunSuite:
   test("ClientClaimed: distinct client ids are tracked independently"):
     val s = SessionSupport.durable[BackendTag.ClaudeCode.type](
       IdScheme.ClientClaimed,
-      _ => true
+      _ => false
     )
     val a = SessionId[BackendTag.ClaudeCode.type]("a")
     val b = SessionId[BackendTag.ClaudeCode.type]("b")
     s.register(a, a.onWire)
     assertEquals(s.dispatchFor(a), Dispatch.Resume(a.onWire))
     assertEquals(s.dispatchFor(b), Dispatch.Fresh(Some(b.onWire)))
+
+  test(
+    "ClientClaimed: a claim the backend already holds resumes, never re-claims"
+  ):
+    // A run interrupted during a session's first turn leaves the transcript
+    // written and nothing committed. Claiming that id again is what the CLIs
+    // refuse, so the next run must resume against it.
+    val s = SessionSupport.durable[BackendTag.ClaudeCode.type](
+      IdScheme.ClientClaimed,
+      _ => true
+    )
+    val client = SessionId[BackendTag.ClaudeCode.type]("interrupted-id")
+    assertEquals(s.dispatchFor(client), Dispatch.Resume(client.onWire))
+
+  test("ServerMinted: a held claim is never inferred — nothing is on the wire"):
+    // The client id never reaches a server-minting backend, so a probe that
+    // says "yes" to everything must not turn a fresh dispatch into a resume
+    // against a fabricated id.
+    val s = SessionSupport.durable[BackendTag.Codex.type](
+      IdScheme.ServerMinted,
+      _ => true
+    )
+    assertEquals(
+      s.dispatchFor(clientSid("never-on-the-wire")),
+      Dispatch.Fresh(None)
+    )
 
   test("ServerMinted: Fresh(None) before commit, Resume(server) after"):
     // Codex's contract: the client id is the framework's stable handle; the
@@ -98,31 +124,47 @@ class SessionSupportTest extends munit.FunSuite:
     assert(s.persistableWireId(id).isEmpty)
     assert(s.dispatchFor(id).isInstanceOf[Dispatch.Resume[?]])
 
-  // ── willContinue ───────────────────────────────────────────────────────────
+  // ── continuation ───────────────────────────────────────────────────────────
 
-  test("willContinue (durable) = recorded mapping AND guarded probe"):
+  test("continuation (durable) = recorded mapping AND guarded probe"):
     var probed = List.empty[String]
     val s = SessionSupport.durable[BackendTag.Codex.type](
       IdScheme.ServerMinted,
       id => { probed = id :: probed; id == "srv-1" }
     )
     val client = SessionId.fresh[BackendTag.Codex.type]
-    assert(!s.willContinue(client)) // no mapping yet — probe not called
+    // No mapping yet — a server-minting backend has no claim to probe either.
+    assertEquals(s.continuation(client), Continuation.Rebuild)
     s.register(client, WireSessionId("srv-1"))
-    assert(s.willContinue(client) && probed == List("srv-1"))
+    assertEquals(s.continuation(client), Continuation.Recorded)
+    assertEquals(probed, List("srv-1"))
 
-  test("willContinue (durable): a throwing probe is 'won't continue'"):
-    // A probe that throws counts as "won't continue".
+  test("continuation (durable): a throwing probe rebuilds"):
     val s = SessionSupport.durable[BackendTag.Codex.type](
       IdScheme.ServerMinted,
       _ => throw RuntimeException("boom")
     )
     val client = SessionId.fresh[BackendTag.Codex.type]
     s.register(client, WireSessionId("ok-id"))
-    assert(!s.willContinue(client))
+    assertEquals(s.continuation(client), Continuation.Rebuild)
 
   test(
-    "willContinue (ephemeral) reads the in-process claim (false before, true after)"
+    "continuation: a held claim with nothing recorded reads as Claimed"
+  ):
+    // What the runtime tells apart by: a conversation nothing was recorded for
+    // is one an earlier run opened and never committed, so its memory predates
+    // this run.
+    val s = SessionSupport.durable[BackendTag.ClaudeCode.type](
+      IdScheme.ClientClaimed,
+      _ => true
+    )
+    val client = SessionId.fresh[BackendTag.ClaudeCode.type]
+    assertEquals(s.continuation(client), Continuation.Claimed)
+    s.register(client, client.onWire)
+    assertEquals(s.continuation(client), Continuation.Recorded)
+
+  test(
+    "continuation (ephemeral) reads the in-process claim (Rebuild before, Recorded after)"
   ):
     // An ephemeral backend keeps no durable transcript to probe — but a
     // committed in-process claim IS a live continuation, and the CLI is
@@ -130,9 +172,13 @@ class SessionSupportTest extends munit.FunSuite:
     // re-seed every turn of a live conversation.
     val s = SessionSupport.ephemeral[BackendTag.Pi.type](IdScheme.ClientClaimed)
     val id = SessionId.fresh[BackendTag.Pi.type]
-    assert(!s.willContinue(id), "first call: no claim yet")
+    assertEquals(s.continuation(id), Continuation.Rebuild, "no claim yet")
     s.register(id, id.onWire)
-    assert(s.willContinue(id), "after commit: an in-process continuation")
+    assertEquals(
+      s.continuation(id),
+      Continuation.Recorded,
+      "after commit: an in-process continuation"
+    )
 
   // ── the two write-door guards ──────────────────────────────────────────────
 

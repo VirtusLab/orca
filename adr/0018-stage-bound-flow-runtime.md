@@ -904,6 +904,47 @@ list output and opencode's directory-scoping should be pinned when the probes la
 > prompt event (`emitPrompt = false`, as the fix turn does) carries the notice
 > without it appearing in the transcript.
 
+> **Amendment (2026-09-21, a session the backend already holds).** The R22
+> probe also decides fresh-vs-resume for a session with NOTHING recorded, on a
+> `ClientClaimed` backend. `AgentBackend.sessions` answers one of three
+> (`Continuation`): `Recorded` — live under the wire id recorded for this
+> client; `Claimed` — live under the client's own id, with nothing recorded;
+> `Rebuild` — re-seed. `dispatchFor` reads the same resolution, so `Claimed`
+> resumes rather than re-claims.
+>
+> **Why.** `resumeWireId` is committed only after a clean drain, so a run
+> interrupted during a session's FIRST turn records nothing — while the backend
+> has already written the transcript for the id orca put on the wire. Claude and
+> pi claim ids client-side, and claude refuses `--session-id` for a session it
+> already holds: the next run dispatched `Fresh(claim)` and died there. Not a
+> degradation, a failed run. It was masked while records lived in the committed
+> log, where the failure teardown's `git reset --hard` erased a failed stage's
+> record and the resume minted a fresh uuid; moving them to the cache (the
+> 2026-09-18 store amendment) made every in-stage session reach it. The same
+> resolution also covers the retry inside one run (`AgentCall` re-prompts on a
+> failure the model didn't cause), which re-claimed the same id.
+>
+> **Why resume rather than mint a fresh uuid.** The interrupted turn's prompt
+> carried the seed, so the conversation the backend holds is already primed; a
+> fresh mint would re-seed it and drop that. And nothing distinguishes an
+> interruption during turn one from one during turn two, which resumes — the
+> probe confirming the session IS this section's continue-vs-re-seed decision.
+> Re-seed stays the fallback wherever the probe says gone.
+>
+> **The notice follows.** A conversation resumed this way predates this run just
+> as a recorded one does, so the carried-over condition above widens: a recorded
+> `resumeWireId` OR `Claimed`. The two are disjoint and neither fires for a
+> conversation this run opened itself — a turn this run took records a mapping,
+> an adopted `chat` turn records one too, and both then read `Recorded` against
+> a record with no wire id.
+>
+> **What it costs.** One probe per turn while nothing is recorded (a file
+> existence check for claude, a session-dir read for pi), which the first
+> commit ends. A server-minting backend never reaches it: its client id goes
+> nowhere near the wire, so a probe on it would answer about nothing.
+> `SessionId.isSafe` gates the claim as it gates the recorded map's write
+> doors, since the id comes back from the session store.
+
 ### 2.7 External-effect idempotency
 
 **Requirements.**

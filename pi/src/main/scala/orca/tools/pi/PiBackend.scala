@@ -53,12 +53,11 @@ private[orca] class PiBackend private[pi] (
     clock: () => Instant = () => Instant.now()
 ) extends AgentBackend[BackendTag.Pi.type]:
 
-  // One session dir per Orca session id gives caller-stable continuity. Within
-  // a run, fresh-vs-resume is committed only after a successful turn, so a
-  // retried open-failure starts fresh. Across runs the mapping is rehydrated
-  // from the progress log and `--continue` is dispatched against the recorded
-  // id; whether that dir is still resumable is what `hasTranscript` answers,
-  // and the runtime re-seeds when it says no.
+  // One session dir per Orca session id gives caller-stable continuity. The
+  // claimed id is committed only after a successful turn, so both a retried
+  // open-failure and a resumed run resolve fresh-vs-resume from the dir itself:
+  // `--continue` whenever `hasTranscript` finds a transcript pi already seeded
+  // there, and a fresh seed when it says no.
 
   /** Durable: each session's transcript lives under
     * `.orca/cache/pi-sessions/<session id>/` and outlives the run, so the

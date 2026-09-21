@@ -1,6 +1,6 @@
 package orca.tools.codex
 
-import orca.backend.{SupervisedBackend, SystemPromptComposer}
+import orca.backend.{Continuation, SupervisedBackend, SystemPromptComposer}
 import orca.agents.{
   BackendTag,
   AgentConfig,
@@ -464,10 +464,10 @@ class CodexBackendTest extends munit.FunSuite:
       )
 
   test(
-    "willContinue is registry-gated: true when the mapped SERVER id has a rollout file"
+    "continuation is registry-gated: Recorded when the mapped SERVER id has a rollout file"
   ):
     // A rollout file is named with codex's SERVER id, never the client id.
-    // willContinue resolves client→server via the registry and probes THAT id.
+    // continuation resolves client→server via the registry and probes THAT id.
     val serverId = "test-session-id-123"
     val tmpSessions = TempDirs.dir()
     os.write(tmpSessions / s"rollout-2024-01-01-$serverId.jsonl", "")
@@ -478,9 +478,12 @@ class CodexBackendTest extends munit.FunSuite:
         clientSid,
         WireSessionId[BackendTag.Codex.type](serverId)
       )
-      assert(backend.sessions.willContinue(clientSid))
+      assertEquals(
+        backend.sessions.continuation(clientSid),
+        Continuation.Recorded
+      )
 
-  test("willContinue returns false when there is no client→server mapping"):
+  test("continuation is Rebuild when there is no client→server mapping"):
     // No registration: the client id resolves to no server id, so the probe
     // never runs even if a rollout file is named with the client id.
     val tmpSessions = TempDirs.dir()
@@ -491,9 +494,12 @@ class CodexBackendTest extends munit.FunSuite:
     SupervisedBackend.using(
       new CodexBackend(new SpawnStubCliRunner(Nil), tmpSessions)
     ): backend =>
-      assert(!backend.sessions.willContinue(clientSid))
+      assertEquals(
+        backend.sessions.continuation(clientSid),
+        Continuation.Rebuild
+      )
 
-  test("willContinue returns false when no matching file exists"):
+  test("continuation is Rebuild when no matching file exists"):
     val tmpSessions = TempDirs.dir()
     SupervisedBackend.using(
       new CodexBackend(new SpawnStubCliRunner(Nil), tmpSessions)
@@ -502,9 +508,12 @@ class CodexBackendTest extends munit.FunSuite:
         clientSid,
         WireSessionId[BackendTag.Codex.type]("thr-server-1")
       )
-      assert(!backend.sessions.willContinue(clientSid))
+      assertEquals(
+        backend.sessions.continuation(clientSid),
+        Continuation.Rebuild
+      )
 
-  test("willContinue returns false when the sessions dir is absent"):
+  test("continuation is Rebuild when the sessions dir is absent"):
     val missing = TempDirs.dir() / "no-such-sessions"
     SupervisedBackend.using(
       new CodexBackend(new SpawnStubCliRunner(Nil), missing)
@@ -513,10 +522,13 @@ class CodexBackendTest extends munit.FunSuite:
         clientSid,
         WireSessionId[BackendTag.Codex.type]("thr-server-1")
       )
-      assert(!backend.sessions.willContinue(clientSid))
+      assertEquals(
+        backend.sessions.continuation(clientSid),
+        Continuation.Rebuild
+      )
 
   test(
-    "willContinue returns false for a mapped SERVER id `.*` even when rollout files exist (blocks regex injection)"
+    "continuation is Rebuild for a mapped SERVER id `.*` even when rollout files exist (blocks regex injection)"
   ):
     val tmpSessions = TempDirs.dir()
     os.write(tmpSessions / "rollout-2024-01-01-some-real-id.jsonl", "")
@@ -524,9 +536,12 @@ class CodexBackendTest extends munit.FunSuite:
       new CodexBackend(new SpawnStubCliRunner(Nil), tmpSessions)
     ): backend =>
       // `register`'s SessionId.isSafe guard must refuse to record the `.*` wire
-      // id, so willContinue has no mapping to resolve and never walks the dir.
+      // id, so continuation has no mapping to resolve and never walks the dir.
       backend.sessions.register(
         clientSid,
         WireSessionId[BackendTag.Codex.type](".*")
       )
-      assert(!backend.sessions.willContinue(clientSid))
+      assertEquals(
+        backend.sessions.continuation(clientSid),
+        Continuation.Rebuild
+      )

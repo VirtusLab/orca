@@ -10,6 +10,7 @@ import orca.agents.{
   Announce,
   JsonData
 }
+import orca.backend.Continuation
 import orca.events.OrcaEvent
 import orca.progress.ProgressLog
 import orca.sessions.SessionRecord
@@ -331,26 +332,35 @@ private def effectivePrompt[B <: BackendTag](
 )(using fc: FlowControl): String =
   val turn = fc.claimTurn(session.value)
   val record = fc.sessionStore.records().find(_.id == session.value)
-  if agent.willContinue(session) then continuedPrompt(record, turn, text)
-  else rebuiltPrompt(record, text)
+  agent.continuation(session) match
+    case Continuation.Rebuild => rebuiltPrompt(record, text)
+    case live                 => continuedPrompt(record, live, turn, text)
 
 /** The prompt for a turn the backend will answer from a conversation it still
-  * holds. That memory is stale in exactly one shape: a recorded wire id means a
-  * PREVIOUS run committed a turn here, and a previous run of this task that
-  * ended without deleting its store is one that did not finish — so its
-  * uncommitted work is gone, either reset by its own failure teardown or
-  * stashed by this run's setup (ADR 0018 §2.5 R4), while the conversation
-  * remembers doing it.
+  * holds. That memory is stale whenever the conversation predates this run: a
+  * previous run of this task that ended without deleting its store is one that
+  * did not finish, so its uncommitted work is gone — either reset by its own
+  * failure teardown or stashed by this run's setup (ADR 0018 §2.5 R4) — while
+  * the conversation remembers doing it.
+  *
+  * Two shapes say the conversation predates this run, and they are disjoint: a
+  * recorded wire id means a previous run committed a turn here, and
+  * [[Continuation.Claimed]] means the backend holds it under the client's claim
+  * with nothing recorded, which only a run interrupted during its first turn
+  * leaves. A conversation this run opened itself is [[Continuation.Recorded]]
+  * against a record with no wire id, and is told nothing.
   *
   * Only on [[SessionTurn.First]]: from the second turn the uncommitted edits in
   * the tree are the ones this run's own turns made.
   */
 private def continuedPrompt(
     record: Option[SessionRecord],
+    live: Continuation,
     turn: SessionTurn,
     text: String
 ): String =
-  val carriedOver = record.exists(_.resumeWireId.isDefined)
+  val carriedOver =
+    record.exists(_.resumeWireId.isDefined) || live == Continuation.Claimed
   turn match
     case SessionTurn.First if carriedOver =>
       composePrimedPrompt(Some(InterruptedAttemptNotice), None, text)

@@ -131,18 +131,23 @@ most easily broken:
   backends do, live-verified 2026-07-08) — and the `IdScheme`: `ClientClaimed`
   (claude/pi — the client id IS the wire id, put on the wire at spawn) or
   `ServerMinted` (codex/gemini/opencode — the server mints the wire id, learned
-  from the protocol and registered after the turn). `Agent` derives `willContinue` /
+  from the protocol and registered after the turn). `Agent` derives `continuation` /
   `resumeWireId` / `registerResumeWireId` as `final` methods over the single
   `sessionSupport` hook, so a concrete tool can't wire one session operation
   while silently defaulting the others — that half-wiring is unrepresentable.
   `SessionId[B]` (the client-side handle) is split from `WireSessionId[B]`
   (what actually goes on the wire) — `SessionId#onWire` is the only
-  client→wire crossing. `willContinue` stays a best-effort, non-destructive
-  probe; when it can't confirm a live session the flow re-seeds, the uniform
-  fallback that holds on every backend. A live conversation a PREVIOUS run
-  opened (its record carries a `resumeWireId`) is told once, on its first turn
-  here, that the tree holds only what earlier stages committed — the re-seeded
-  case needs no telling, its preamble already says so.
+  client→wire crossing. `continuation` stays a best-effort, non-destructive
+  probe and answers one of three: `Recorded` (live under the recorded wire id),
+  `Claimed` (a `ClientClaimed` backend holding the conversation under the
+  client's own id with nothing recorded — a run interrupted during a session's
+  first turn) or `Rebuild`, on which the flow re-seeds, the uniform fallback
+  that holds on every backend. `dispatchFor` reads the same resolution, so a
+  `Claimed` session is resumed rather than re-claimed — claude and pi refuse an
+  id they already hold. A live conversation a PREVIOUS run opened (its record
+  carries a `resumeWireId`, or the backend answers `Claimed`) is told once, on
+  its first turn here, that the tree holds only what earlier stages committed —
+  the re-seeded case needs no telling, its preamble already says so.
 
   The user surface is three rungs (README "Sessions"): `agent.run` (one-shot)
   / `agent.chat()` (ephemeral `Chat`, fork-safe, `InStage`-only) /
