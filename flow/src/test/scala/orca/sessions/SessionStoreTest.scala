@@ -85,6 +85,17 @@ class SessionStoreTest extends FunSuite:
     assertEquals(store.records().head.resumeWireId, None)
     assertEquals(store.records().head.backend, None)
 
+  test("an unset wire id and backend tag are written as explicit nulls"):
+    // The file is read by a person debugging a resume, so the key set does not
+    // depend on how far the run got.
+    val dir = TempDirs.dir()
+    val store = SessionStore.default(dir, "p")
+    store.upsert(record())
+    assertEquals(
+      os.read(store.path),
+      """[{"name":"implementer","stage":"","id":"uuid","seed":"brief","resumeWireId":null,"backend":null}]"""
+    )
+
   test("a file that does not parse reads as no records"):
     val dir = TempDirs.dir()
     val store = SessionStore.default(dir, "p")

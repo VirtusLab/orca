@@ -137,10 +137,12 @@ private class OsSessionStore(workDir: os.Path, val path: os.Path)
     catch case _: java.nio.file.NoSuchFileException => ()
 
 private object OsSessionStore:
-  // `withTransientNone(false)` keeps `resumeWireId`/`backend` as explicit
-  // `null`s: the file is read by a person debugging a resume, and a key that
-  // vanishes when unset reads as a different shape each run.
+  // Both transient settings off, so `resumeWireId`/`backend` are written as
+  // explicit `null`s while unset: the file is read by a person debugging a
+  // resume, and a key that vanishes reads as a different shape each run.
+  // `transientNone` alone would not do it — the two fields carry `None`
+  // defaults, which `transientDefault` drops on its own.
   val codec: JsonValueCodec[List[SessionRecord]] =
     ConfiguredJsonValueCodec.derived[List[SessionRecord]](using
-      CodecMakerConfig.withTransientNone(false)
+      CodecMakerConfig.withTransientNone(false).withTransientDefault(false)
     )
