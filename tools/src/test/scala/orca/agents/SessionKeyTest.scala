@@ -16,7 +16,7 @@ class SessionKeyTest extends FunSuite:
     assertEquals(
       SessionKey(
         "implementer",
-        StagePath.Stage("Task: add multiply#0")
+        StagePath.fromValue("Task: add multiply#0")
       ).describe,
       "'implementer' in stage 'Task: add multiply#0'"
     )

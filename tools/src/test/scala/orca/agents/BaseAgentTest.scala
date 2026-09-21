@@ -453,8 +453,9 @@ class BaseAgentTest extends munit.FunSuite:
     val _ = tool.autonomous.runWithSession(
       "prompt",
       SessionId.fresh[BackendTag.Pi.type],
-      sessionKey =
-        Some(SessionKey(name = "coder", stage = StagePath.Stage("Task 2#0"))),
+      sessionKey = Some(
+        SessionKey(name = "coder", stage = StagePath.fromValue("Task 2#0"))
+      ),
       config = None,
       emitPrompt = true
     )
@@ -463,7 +464,9 @@ class BaseAgentTest extends munit.FunSuite:
         e.sessionKey
       },
       List(
-        Some(SessionKey(name = "coder", stage = StagePath.Stage("Task 2#0")))
+        Some(
+          SessionKey(name = "coder", stage = StagePath.fromValue("Task 2#0"))
+        )
       )
     )
 

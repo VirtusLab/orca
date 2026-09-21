@@ -39,7 +39,7 @@ class ManifestRoundTripTest extends munit.FunSuite:
           clientId = "client-1",
           wireId = Some("wire-1"),
           sessionKey = Some(
-            SessionKey(name = "coder", stage = StagePath.Stage("Task 2#0"))
+            SessionKey(name = "coder", stage = StagePath.fromValue("Task 2#0"))
           ),
           agent = "claude",
           role = None
@@ -67,7 +67,7 @@ class ManifestRoundTripTest extends munit.FunSuite:
     assertEquals(session.resumable, true)
     assertEquals(
       session.mintedKey,
-      Some(SessionKey(name = "coder", stage = StagePath.Stage("Task 2#0")))
+      Some(SessionKey(name = "coder", stage = StagePath.fromValue("Task 2#0")))
     )
     assertEquals(session.stage, Some("code"))
     // The same run wrote a `-cost.jsonl` beside the manifest (the TokensUsed

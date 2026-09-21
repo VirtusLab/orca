@@ -10,26 +10,32 @@ package orca
   * [[StagePath.fromValue]] is the single place that reads it back, so no
   * consumer re-decides what an empty or absent id means.
   */
-enum StagePath:
-  case FlowBody
-  case Stage(id: String)
-
+sealed trait StagePath:
   /** The persisted spelling of this path; empty at the flow body. */
   def value: String = this match
-    case FlowBody  => ""
-    case Stage(id) => id
+    case StagePath.FlowBody  => ""
+    case StagePath.Stage(id) => id
 
   /** The path of a stage named `name` opening directly under this one as the
     * `occurrence`-th stage of that name in this scope.
     */
   def child(name: String, occurrence: Int): StagePath.Stage =
     val segment = s"$name#$occurrence"
-    StagePath.Stage(this match
-      case FlowBody  => segment
-      case Stage(id) => s"$id/$segment"
+    StagePath.stageOf(this match
+      case StagePath.FlowBody  => segment
+      case StagePath.Stage(id) => s"$id/$segment"
     )
 
 object StagePath:
+  case object FlowBody extends StagePath
+
+  /** One stage, by its path id. The id is never empty: the empty spelling is
+    * the flow body's, so a `Stage("")` would persist as a flow body and read
+    * back as one. Hence the private constructor — a stage path comes from
+    * [[StagePath.child]] or [[StagePath.fromValue]].
+    */
+  final case class Stage private[StagePath] (id: String) extends StagePath
+
   /** Read back a persisted path id. */
   def fromValue(value: String): StagePath =
     if value.isEmpty then FlowBody else Stage(value)
@@ -39,3 +45,8 @@ object StagePath:
     */
   def fromValue(value: Option[String]): StagePath =
     value.fold(FlowBody)(fromValue)
+
+  /** Reaches the private constructor on behalf of [[StagePath.child]], which
+    * lives outside this object.
+    */
+  private def stageOf(id: String): Stage = Stage(id)
