@@ -101,6 +101,6 @@ trait FlowControl extends FlowContext, caps.ExclusiveCapability:
   private[orca] def claimSessionKey(name: String): SessionKey
 
   /** Claim the next turn against the conversation held under `sessionId` — see
-    * [[SessionTurns.claimTurn]].
+    * [[StageFrames.claimTurn]].
     */
   private[orca] def claimTurn(sessionId: String): SessionTurn

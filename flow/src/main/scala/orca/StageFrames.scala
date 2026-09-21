@@ -2,10 +2,26 @@ package orca
 
 import orca.agents.SessionKey
 
-/** Per-run stage-identity and stage-baseline bookkeeping shared by every
-  * [[FlowControl]] implementation (production
-  * [[orca.runner.DefaultFlowContext]] and the test doubles), so a test double
-  * can't drift from production semantics and greenwash a nesting/resume test.
+/** Where a turn sits in this run's use of one durable conversation. Minted by
+  * [[StageFrames.claimTurn]].
+  */
+private[orca] enum SessionTurn:
+  /** The run has not driven this conversation before. Only here can the
+    * conversation's memory predate the run — and so disagree with a working
+    * tree the run started from.
+    */
+  case First
+
+  /** The run has already driven this conversation, so everything it remembers
+    * doing, it did here.
+    */
+  case Later
+
+/** Per-run bookkeeping shared by every [[FlowControl]] implementation
+  * (production [[orca.runner.DefaultFlowContext]] and the test doubles), so a
+  * test double can't drift from production semantics and greenwash a
+  * nesting/resume test: stage identity and baselines, the say-once session-key
+  * claim, and which durable conversations this run has already driven.
   * Canonical description of the frame-stack protocol; see ADR 0018 §2.1 for the
   * design rationale.
   *
@@ -154,3 +170,21 @@ private[orca] trait StageFrames:
       )
     claimedSessionKeys = claimedSessionKeys + key
     key
+
+  // A session id is unique across the run, so one flat set covers it as the
+  // key set above covers keys. Plain var: the claim is reached only through the
+  // durable run doors, past their owner-thread assert.
+  private var drivenSessions: Set[String] = Set.empty
+
+  /** Claim `sessionId`'s next turn: [[SessionTurn.First]] exactly once per
+    * conversation per run, [[SessionTurn.Later]] after that.
+    *
+    * Claimed on every turn, whatever the turn then does with the answer — a
+    * conversation opened by this run's own first turn must not read as first
+    * again on its second.
+    */
+  private[orca] def claimTurn(sessionId: String): SessionTurn =
+    if drivenSessions.contains(sessionId) then SessionTurn.Later
+    else
+      drivenSessions = drivenSessions + sessionId
+      SessionTurn.First

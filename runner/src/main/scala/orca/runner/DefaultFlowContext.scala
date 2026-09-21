@@ -52,8 +52,7 @@ private[orca] class DefaultFlowContext[
       */
     private[orca] val startingCommit: Option[CommitHash]
 ) extends FlowControl,
-      orca.StageFrames,
-      orca.SessionTurns:
+      orca.StageFrames:
 
   // Each role's backend tag, pinned from its type parameter — concrete here so
   // the role accessors are concretely typed and sessions thread.
@@ -89,7 +88,6 @@ private[orca] class DefaultFlowContext[
   private[orca] def errorAlreadyReported(e: Throwable): Boolean =
     reportedErrors.get().exists(_ eq e)
 
-  // Stage-identity bookkeeping (enterStage/exitStage,
-  // claimSessionKey) comes from the shared `StageFrames` mixin and the per-run
-  // turn claim from `SessionTurns`, so test doubles cannot drift from
-  // production.
+  // Stage-identity bookkeeping (enterStage/exitStage, claimSessionKey) and the
+  // per-run turn claim come from the shared `StageFrames` mixin, so test
+  // doubles cannot drift from production.

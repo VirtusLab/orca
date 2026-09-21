@@ -29,10 +29,10 @@ import orca.sessions.SessionRecord
   * '''Escape hatch:''' [[id]] exposes the underlying [[SessionId]];
   * `agent.chat(session.id)` adopts it as an EPHEMERAL [[orca.agents.Chat]] —
   * the way to continue this conversation from inside a fork (where the doors
-  * here are banned), interactive turns included. Chat turns forfeit seeding and
-  * wire-id persistence: they are in-run only and never write back to the
-  * session store, so on crash/resume the durable side finds nothing recorded
-  * for them.
+  * here are banned), interactive turns included. Chat turns forfeit seeding,
+  * the interrupted-attempt notice and wire-id persistence: they are in-run only
+  * and never write back to the session store, so on crash/resume the durable
+  * side finds nothing recorded for them.
   *
   * The handle is a plain immutable value with no stage affinity of its own —
   * only the capabilities its methods require ([[InStage]], [[WorkspaceWrite]])
@@ -77,10 +77,9 @@ final class FlowSession[B <: BackendTag] private[orca] (
       ws: WorkspaceWrite
   ): String =
     fc.assertOwnerThread("session.run(...)")
-    val turn = fc.claimTurn(id.value)
     val output = agent.autonomous
       .runWithSession(
-        effectivePrompt(agent, id, turn, prompt),
+        effectivePrompt(agent, id, prompt),
         id,
         sessionKey = Some(key),
         config = None,
@@ -130,11 +129,10 @@ final class FlowSessionCall[B <: BackendTag, O] private[orca] (
       ws: WorkspaceWrite
   ): O =
     fc.assertOwnerThread("session.run(...)")
-    val turn = fc.claimTurn(id.value)
     val serialized = ai.serialize(input)
     val output = call.autonomous
       .runWithSession(
-        effectivePrompt(agent, id, turn, serialized),
+        effectivePrompt(agent, id, serialized),
         id,
         sessionKey = Some(key),
         config = None,
@@ -321,13 +319,17 @@ private def mintSession[B <: BackendTag](
   * wire id afterward is each caller's own last step (see
   * [[persistResumeWireId]]), since the two doors run different underlying
   * calls.
+  *
+  * The turn claim is taken here rather than at each door: both doors reach this
+  * exactly once per turn, on either branch, so no turn can run unclaimed and
+  * read as first twice.
   */
 private def effectivePrompt[B <: BackendTag](
     agent: Agent[B],
     session: SessionId[B],
-    turn: SessionTurn,
     text: String
 )(using fc: FlowControl): String =
+  val turn = fc.claimTurn(session.value)
   val record = fc.sessionStore.records().find(_.id == session.value)
   if agent.willContinue(session) then continuedPrompt(record, turn, text)
   else rebuiltPrompt(record, text)
@@ -383,12 +385,8 @@ private def rebuiltPrompt(record: Option[SessionRecord], text: String)(using
   *
   * Points at the files rather than ordering a redo: a run killed between stages
   * leaves a fully committed tree, where nothing is missing and the fact is
-  * merely vacuous.
-  *
-  * The stash is deliberately unmentioned. It exists only when the previous
-  * attempt was killed rather than torn down, `git stash pop` can conflict, and
-  * the person — whom the resume banner tells about it, with that command — is
-  * the one who can judge that.
+  * merely vacuous. The stash is deliberately unmentioned — ADR 0018 §2.6's
+  * carried-over-conversations amendment says why.
   */
 private val InterruptedAttemptNotice: String =
   "The previous attempt at this run was interrupted. The working tree holds " +

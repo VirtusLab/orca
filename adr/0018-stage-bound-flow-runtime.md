@@ -855,10 +855,16 @@ list output and opencode's directory-scoping should be pinned when the probes la
 > absence and the runtime re-seeds, and the probe applies the same cutoff, so a dir
 > another process is about to prune already reads as absent.
 
-> **Amendment (2026-09-21, resumed live conversations).** A run that resumes a
-> progress log tells each durable session whose backend conversation it carried
-> over, on that session's first turn of the run, that the working tree holds
-> only what earlier stages committed.
+> **Amendment (2026-09-21, carried-over live conversations).** A durable
+> session is told, on the first turn this run takes against it, that the working
+> tree holds only what earlier stages committed — whenever its record carries a
+> `resumeWireId` (a previous run committed a turn there) and the probe says that
+> conversation is still live.
+>
+> **That pair is the trigger, not "the run resumed a log".** The two come apart:
+> a corrupt log makes the run bind fresh, while the session store, which is not
+> the log and outlives it, still holds the carried-over conversations — and they
+> are told. A run-level "am I resuming" flag would miss them.
 >
 > **Why.** The seed and the progress preamble above are applied only when the
 > conversation is NOT live, which is backwards for the one case where the
@@ -881,6 +887,22 @@ list output and opencode's directory-scoping should be pinned when the probes la
 > killed rather than torn down; popping it can conflict, and the person — who
 > is told about it, with `git stash pop`, in the resume banner — is the one who
 > can judge that. Redoing the work is what the agent can do unaided.
+>
+> **Adopted chats are not told.** `agent.chat(session.id)` continues the same
+> conversation as an ephemeral `Chat`, which needs only `InStage` and so runs
+> inside a fork; the claim and the notice sit behind `FlowControl`, which a fork
+> never holds — moving them to the chat door would hand a fork the flow thread's
+> per-run state. So a flow continuing a carried-over conversation that way is
+> untold, and a durable turn after such a chat turn is still that conversation's
+> first, telling it uncommitted edits are gone while the chat turn's edits sit in
+> the tree. What the notice asks for — read the files — stays right in both
+> cases.
+>
+> **Two limits of the premise.** A finished run's teardown discards its session
+> store best-effort, so a discard that fails leaves the next run of the same
+> prompt told a previous attempt was interrupted. And a turn that suppresses its
+> prompt event (`emitPrompt = false`, as the fix turn does) carries the notice
+> without it appearing in the transcript.
 
 ### 2.7 External-effect idempotency
 

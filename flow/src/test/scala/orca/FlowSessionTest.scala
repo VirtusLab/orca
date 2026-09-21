@@ -52,14 +52,15 @@ class FlowSessionTest extends FunSuite:
     */
   private def stubSupport(
       exists: Boolean,
-      learnedWireId: Option[String]
+      learnedWireId: Option[String],
+      session: SessionId[BackendTag.ClaudeCode.type]
   ): SessionSupport[BackendTag.ClaudeCode.type] =
     val support = SessionSupport
       .durable[BackendTag.ClaudeCode.type](IdScheme.ServerMinted, _ => exists)
     (if exists then Some("live-session-wire") else learnedWireId)
       .foreach(w =>
         support.register(
-          testSession,
+          session,
           WireSessionId[BackendTag.ClaudeCode.type](w)
         )
       )
@@ -88,13 +89,17 @@ class FlowSessionTest extends FunSuite:
     *   path.
     * @param runResult
     *   The text `autonomous.run` echoes back.
+    * @param durableSession
+    *   The session id the durable fixture registers a wire mapping for — the
+    *   one `willContinue` can answer `true` for.
     */
   private class StubAgentForSeeded(
       existsResult: Boolean,
       runResult: String = "ok",
       learnedWireId: Option[String] = None,
       ephemeral: Boolean = false,
-      tag: Option[BackendTag] = None
+      tag: Option[BackendTag] = None,
+      durableSession: SessionId[BackendTag.ClaudeCode.type] = testSession
   ) extends Agent[BackendTag.ClaudeCode.type]:
     val name: String = "stub-seeded"
 
@@ -134,7 +139,7 @@ class FlowSessionTest extends FunSuite:
         SessionSupport.ephemeral[BackendTag.ClaudeCode.type](
           IdScheme.ClientClaimed
         )
-      else stubSupport(existsResult, learnedWireId)
+      else stubSupport(existsResult, learnedWireId, durableSession)
 
     /** Drives `willContinue` (via the mapping-gated probe) and `resumeWireId` —
       * `learnedWireId` mirrors a server-id backend's persist path,
@@ -246,16 +251,30 @@ class FlowSessionTest extends FunSuite:
     * turn against — what tells the runtime a live conversation predates this
     * run.
     */
-  private def carriedOver: List[SessionRecord] =
-    List(
-      SessionRecord(
-        name = "s",
-        stage = "",
-        id = testSessionId,
-        seed = "seed",
-        resumeWireId = Some("wire-1")
-      )
+  private def carriedOverRecord(name: String, id: String): SessionRecord =
+    SessionRecord(
+      name = name,
+      stage = "",
+      id = id,
+      seed = "seed",
+      resumeWireId = Some("wire-1")
     )
+
+  private def carriedOver: List[SessionRecord] =
+    List(carriedOverRecord("s", testSessionId))
+
+  /** The notice's operative instruction — the half that tells the agent what to
+    * do about the tree, and what an inverted body would lose.
+    */
+  private val NoticeInstruction =
+    "Read the files rather than relying on what you remember writing"
+
+  /** A second durable conversation, for the per-conversation claim. */
+  private val otherSessionId = "test-session-uuid-5678"
+  private val otherSession: SessionId[BackendTag.ClaudeCode.type] =
+    SessionId[BackendTag.ClaudeCode.type](otherSessionId)
+  private val otherSessionKey =
+    SessionKey(name = "reviewer", stage = StagePath.FlowBody.child("Task 3", 0))
 
   /** A [[FlowSession]] over [[testSession]] and the given stub agent, minted
     * under [[testSessionKey]].
@@ -300,6 +319,16 @@ class FlowSessionTest extends FunSuite:
       s"expected the interrupted-attempt notice; got: $prompt"
     )
     assert(
+      prompt.contains(
+        "working tree holds only what earlier stages committed"
+      ),
+      s"the notice must say what the tree holds; got: $prompt"
+    )
+    assert(
+      prompt.contains(NoticeInstruction),
+      s"the notice must send the agent to the files; got: $prompt"
+    )
+    assert(
       prompt.endsWith("continue the task"),
       s"the caller's prompt must follow the notice; got: $prompt"
     )
@@ -331,8 +360,40 @@ class FlowSessionTest extends FunSuite:
     val _ = flowSession(agent).run("continue")(using fc)
     val prompt = agent.capturedPrompt.getOrElse(fail("no prompt captured"))
     assert(
+      prompt.contains("a stage that did not complete left nothing behind"),
+      s"the preamble must be the telling here; got: $prompt"
+    )
+    assert(
       !prompt.contains("The previous attempt at this run was interrupted."),
-      s"a re-seeded session must not carry the notice; got: $prompt"
+      s"a re-seeded session must not carry the notice too; got: $prompt"
+    )
+
+  test(
+    "a second carried-over conversation is told on its own first turn"
+  ):
+    // One flag per run would leave every conversation after the first untold,
+    // though each one's memory predates the run just as the first's does. The
+    // two records need distinct names: the store keys a record by (name,
+    // stage).
+    val fc = makeControl(sessions =
+      List(
+        carriedOverRecord("s", testSessionId),
+        carriedOverRecord("other", otherSessionId)
+      )
+    )
+    val first = new StubAgentForSeeded(existsResult = true)
+    val second =
+      new StubAgentForSeeded(existsResult = true, durableSession = otherSession)
+    val _ = flowSession(first).run("first conversation")(using fc)
+    val _ = new FlowSession(second, otherSession, otherSessionKey)
+      .run("second conversation")(using fc)
+    assert(
+      first.capturedPrompt.exists(_.contains(NoticeInstruction)),
+      s"the first conversation must be told; got: ${first.capturedPrompt}"
+    )
+    assert(
+      second.capturedPrompt.exists(_.contains(NoticeInstruction)),
+      s"the second conversation must be told too; got: ${second.capturedPrompt}"
     )
 
   test(
@@ -822,6 +883,22 @@ class FlowSessionTest extends FunSuite:
     val record =
       fc.sessionStore.records().find(_.id == testSessionId).get
     assertEquals(record.resumeWireId, Some("server-structured-1"))
+
+  test(
+    "resultAs.run tells a carried-over conversation on its first turn"
+  ):
+    // The fix turn drives this door exclusively, so a resume whose first
+    // durable turn is a fix turn depends on it.
+    val fc = makeControl(sessions = carriedOver)
+    val agent = new StubAgentForSeeded(existsResult = true)
+    val _ = flowSession(agent)
+      .resultAs[StubResult]
+      .run("continue the task")(using fc)
+    val prompt = agent.capturedPrompt.getOrElse(fail("no prompt captured"))
+    assert(
+      prompt.contains(NoticeInstruction),
+      s"the structured door must carry the notice; got: $prompt"
+    )
 
   test("resultAs.run on a live session forwards the input verbatim"):
     val fc = makeControl(

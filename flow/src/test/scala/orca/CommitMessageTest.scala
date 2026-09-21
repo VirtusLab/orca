@@ -73,8 +73,7 @@ class CommitMessageTest extends munit.FunSuite:
         orca.review.ReviewerCatalog.builtIn
   ) extends FlowControl,
         ReportedErrorsSupport,
-        StageFrames,
-        SessionTurns:
+        StageFrames:
     import orca.agents.{
       ClaudeAgent,
       CodexAgent,

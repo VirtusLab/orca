@@ -85,8 +85,10 @@ trait Agent[B <: BackendTag]:
   /** Adopt an existing conversation id as an EPHEMERAL chat — the escape hatch
     * for continuing a durable `FlowSession`'s conversation where its own doors
     * can't go (inside a fork): `agent.chat(coder.id)`. Turns run here are NOT
-    * persisted — on crash/resume the durable side finds nothing recorded. One
-    * live continuation at a time: concurrent turns against the same backend
+    * persisted — on crash/resume the durable side finds nothing recorded — and
+    * are not primed: a conversation a previous run carried over is not told
+    * here that its uncommitted work is gone (ADR 0018 §2.6). One live
+    * continuation at a time: concurrent turns against the same backend
     * conversation fail.
     */
   final def chat(continueFrom: SessionId[B]): Chat[B] =
