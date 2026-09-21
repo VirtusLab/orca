@@ -139,7 +139,10 @@ most easily broken:
   (what actually goes on the wire) — `SessionId#onWire` is the only
   client→wire crossing. `willContinue` stays a best-effort, non-destructive
   probe; when it can't confirm a live session the flow re-seeds, the uniform
-  fallback that holds on every backend.
+  fallback that holds on every backend. A live conversation a PREVIOUS run
+  opened (its record carries a `resumeWireId`) is told once, on its first turn
+  here, that the tree holds only what earlier stages committed — the re-seeded
+  case needs no telling, its preamble already says so.
 
   The user surface is three rungs (README "Sessions"): `agent.run` (one-shot)
   / `agent.chat()` (ephemeral `Chat`, fork-safe, `InStage`-only) /

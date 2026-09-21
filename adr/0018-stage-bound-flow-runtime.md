@@ -855,6 +855,33 @@ list output and opencode's directory-scoping should be pinned when the probes la
 > absence and the runtime re-seeds, and the probe applies the same cutoff, so a dir
 > another process is about to prune already reads as absent.
 
+> **Amendment (2026-09-21, resumed live conversations).** A run that resumes a
+> progress log tells each durable session whose backend conversation it carried
+> over, on that session's first turn of the run, that the working tree holds
+> only what earlier stages committed.
+>
+> **Why.** The seed and the progress preamble above are applied only when the
+> conversation is NOT live, which is backwards for the one case where the
+> agent's memory is stale. On resume the conversation survives — the run
+> continues it rather than re-seeding — while the interrupted stage's
+> uncommitted edits do not: setup stashes the dirty tree (R4), and a previous
+> attempt that reached its failure teardown had already reset it. Nothing told
+> the agent. Observed live: a coder answered "already done — I created both
+> files in my previous turn", the stage reviewed an empty diff, and the run
+> recovered only because a reviewer reported the file missing.
+>
+> **Once per session, not per turn.** `reviewThenFix` drives one session for
+> several fix turns inside a stage. From the second turn on, the uncommitted
+> edits in the tree are that turn's own work, so repeating the notice would
+> report missing work that is not missing. A session whose conversation was
+> lost is not told either: it re-seeds, and the preamble already says an
+> unfinished stage left nothing behind.
+>
+> **The stash is not mentioned.** It exists only when the previous attempt was
+> killed rather than torn down; popping it can conflict, and the person — who
+> is told about it, with `git stash pop`, in the resume banner — is the one who
+> can judge that. Redoing the work is what the agent can do unaided.
+
 ### 2.7 External-effect idempotency
 
 **Requirements.**

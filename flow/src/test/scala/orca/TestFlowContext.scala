@@ -83,7 +83,8 @@ class TestFlowControl(
     val reviewerCatalog: ReviewerCatalog = ReviewerCatalog.builtIn
 ) extends FlowControl,
       ReportedErrorsSupport,
-      StageFrames:
+      StageFrames,
+      SessionTurns:
   private def stub(name: String) =
     throw new NotImplementedError(s"$name is not wired in TestFlowControl")
 
@@ -107,10 +108,11 @@ class TestFlowControl(
 
   def emit(event: OrcaEvent): Unit = dispatcher.onEvent(event)
 
-  // Stage-identity bookkeeping (enterStage/exitStage and
-  // claimSessionKey) is inherited from the shared `StageFrames` mixin — the
-  // SAME implementation production uses, so this double can't diverge from
-  // production nesting/resume semantics and greenwash a test.
+  // Stage-identity bookkeeping (enterStage/exitStage and claimSessionKey) is
+  // inherited from the shared `StageFrames` mixin, and the per-run turn claim
+  // from `SessionTurns` — the SAME implementations production uses, so this
+  // double can't diverge from production nesting/resume semantics and
+  // greenwash a test.
 
 object TestFlowControl:
   /** Build a `TestFlowControl` over a fresh temp git repo (with one seed commit

@@ -10,7 +10,8 @@ class CapabilitiesTest extends munit.FunSuite:
   private def stubCtrl: FlowControl =
     new TestFlowContext(new EventDispatcher(Nil))
       with FlowControl
-      with StageFrames:
+      with StageFrames
+      with SessionTurns:
       def progressStore: orca.progress.ProgressStore =
         throw new NotImplementedError
       def sessionStore: orca.sessions.SessionStore =

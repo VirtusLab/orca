@@ -242,6 +242,21 @@ class FlowSessionTest extends FunSuite:
       "p"
     )
 
+  /** A record whose `resumeWireId` is set is one a PREVIOUS run committed a
+    * turn against — what tells the runtime a live conversation predates this
+    * run.
+    */
+  private def carriedOver: List[SessionRecord] =
+    List(
+      SessionRecord(
+        name = "s",
+        stage = "",
+        id = testSessionId,
+        seed = "seed",
+        resumeWireId = Some("wire-1")
+      )
+    )
+
   /** A [[FlowSession]] over [[testSession]] and the given stub agent, minted
     * under [[testSessionKey]].
     */
@@ -271,6 +286,71 @@ class FlowSessionTest extends FunSuite:
       agent.capturedPrompt,
       Some(originalPrompt),
       "live session must pass prompt verbatim"
+    )
+
+  test(
+    "conversation carried over from a previous run: its first turn is told the tree lost the uncommitted work"
+  ):
+    val fc = makeControl(sessions = carriedOver)
+    val agent = new StubAgentForSeeded(existsResult = true)
+    val _ = flowSession(agent).run("continue the task")(using fc)
+    val prompt = agent.capturedPrompt.getOrElse(fail("no prompt captured"))
+    assert(
+      prompt.contains("The previous attempt at this run was interrupted."),
+      s"expected the interrupted-attempt notice; got: $prompt"
+    )
+    assert(
+      prompt.endsWith("continue the task"),
+      s"the caller's prompt must follow the notice; got: $prompt"
+    )
+
+  test(
+    "carried-over conversation: the notice is said once, not on every turn"
+  ):
+    // The fixer drives one session for several turns inside a stage; from the
+    // second turn the uncommitted edits in the tree are this run's own.
+    val fc = makeControl(sessions = carriedOver)
+    val agent = new StubAgentForSeeded(existsResult = true)
+    val session = flowSession(agent)
+    val _ = session.run("first")(using fc)
+    val _ = session.run("second")(using fc)
+    assertEquals(
+      agent.capturedPrompts(1),
+      "second",
+      "a later turn must forward the prompt verbatim"
+    )
+
+  test(
+    "carried-over conversation the backend lost: re-seeded, and not also told"
+  ):
+    // The seed + preamble path already says an unfinished stage left nothing
+    // behind, so a second telling would be a duplicate.
+    val fc =
+      makeControl(sessions = carriedOver, completedStages = List("triage"))
+    val agent = new StubAgentForSeeded(existsResult = false)
+    val _ = flowSession(agent).run("continue")(using fc)
+    val prompt = agent.capturedPrompt.getOrElse(fail("no prompt captured"))
+    assert(
+      !prompt.contains("The previous attempt at this run was interrupted."),
+      s"a re-seeded session must not carry the notice; got: $prompt"
+    )
+
+  test(
+    "conversation opened by THIS run: a later turn is not told, though the record carries a wire id"
+  ):
+    // The stub claims the id after its first turn, so turn 2 finds the
+    // conversation live — the shape of a session whose recorded conversation
+    // was gone and which this run reopened. The turn claim is taken on every
+    // turn, so turn 2 is not mistaken for the first.
+    val fc = makeControl(sessions = carriedOver)
+    val agent = new StubAgentForSeeded(existsResult = false, ephemeral = true)
+    val session = flowSession(agent)
+    val _ = session.run("first")(using fc)
+    val _ = session.run("second")(using fc)
+    assertEquals(
+      agent.capturedPrompts(1),
+      "second",
+      "a conversation this run opened must not be told its work was lost"
     )
 
   test(

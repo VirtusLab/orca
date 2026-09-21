@@ -22,8 +22,9 @@ import orca.sessions.SessionRecord
   *
   * Use [[run]] for free-form text and [[resultAs]]`.run` for a structured `O`.
   * Both prime the conversation with the recorded seed and a progress preamble
-  * when the backend conversation isn't live (first use or lost on resume), then
-  * persist the backend's learned resume wire id.
+  * when the backend conversation isn't live (first use or lost on resume), and
+  * with the interrupted-attempt notice when it IS live but a previous run
+  * opened it, then persist the backend's learned resume wire id.
   *
   * '''Escape hatch:''' [[id]] exposes the underlying [[SessionId]];
   * `agent.chat(session.id)` adopts it as an EPHEMERAL [[orca.agents.Chat]] —
@@ -55,8 +56,10 @@ final class FlowSession[B <: BackendTag] private[orca] (
 
   /** Run the agent autonomously against this session on free-form `prompt`,
     * priming it with the recorded seed + a progress preamble if the backend
-    * conversation isn't live (fresh first use, or lost on resume); otherwise
-    * runs `prompt` as-is. Returns the run's output.
+    * conversation isn't live (fresh first use, or lost on resume), and with the
+    * interrupted-attempt notice on the first turn this run takes against a
+    * conversation a previous run opened; otherwise runs `prompt` as-is. Returns
+    * the run's output.
     *
     * The seed is looked up from the session store by matching [[id]]; a missing
     * record is treated as an empty seed (does not throw). The preamble names
@@ -74,9 +77,10 @@ final class FlowSession[B <: BackendTag] private[orca] (
       ws: WorkspaceWrite
   ): String =
     fc.assertOwnerThread("session.run(...)")
+    val turn = fc.claimTurn(id.value)
     val output = agent.autonomous
       .runWithSession(
-        effectivePrompt(agent, id, prompt),
+        effectivePrompt(agent, id, turn, prompt),
         id,
         sessionKey = Some(key),
         config = None,
@@ -126,10 +130,11 @@ final class FlowSessionCall[B <: BackendTag, O] private[orca] (
       ws: WorkspaceWrite
   ): O =
     fc.assertOwnerThread("session.run(...)")
+    val turn = fc.claimTurn(id.value)
     val serialized = ai.serialize(input)
     val output = call.autonomous
       .runWithSession(
-        effectivePrompt(agent, id, serialized),
+        effectivePrompt(agent, id, turn, serialized),
         id,
         sessionKey = Some(key),
         config = None,
@@ -310,37 +315,86 @@ private def mintSession[B <: BackendTag](
   freshId
 
 /** Probe → prime step shared by [[FlowSession.run]] and
-  * [[FlowSessionCall.run]]: if the backend conversation for `session` is live,
-  * `text` is returned verbatim; otherwise the recorded seed and progress
-  * preamble are prepended. Persisting the learned wire id afterward is each
-  * caller's own last step (see [[persistResumeWireId]]), since the two doors
-  * run different underlying calls.
+  * [[FlowSessionCall.run]]: a live backend conversation gets `text` (with the
+  * interrupted-attempt notice on this run's first turn against it), a fresh or
+  * lost one the recorded seed and progress preamble. Persisting the learned
+  * wire id afterward is each caller's own last step (see
+  * [[persistResumeWireId]]), since the two doors run different underlying
+  * calls.
   */
 private def effectivePrompt[B <: BackendTag](
     agent: Agent[B],
     session: SessionId[B],
+    turn: SessionTurn,
     text: String
 )(using fc: FlowControl): String =
-  if agent.willContinue(session) then text
-  else
-    val record = fc.sessionStore.records().find(_.id == session.value)
-    // A recorded wire id proves a backend conversation once existed, so a
-    // failed probe here means it was lost (pruned store, another machine): the
-    // rebuilt conversation gets only seed + preamble, not the prior turns.
-    // Surface that — silently degraded context is hard to debug. A record
-    // without a wire id is a plain first use, no warning.
-    if record.exists(_.resumeWireId.isDefined) then
-      fc.emit(
-        OrcaEvent.Step(
-          s"warning: session ${record.fold("'?'")(_.key.describe)} — backend " +
-            "conversation not found; re-seeding (prior conversation history " +
-            "is lost)"
-        )
+  val record = fc.sessionStore.records().find(_.id == session.value)
+  if agent.willContinue(session) then continuedPrompt(record, turn, text)
+  else rebuiltPrompt(record, text)
+
+/** The prompt for a turn the backend will answer from a conversation it still
+  * holds. That memory is stale in exactly one shape: a recorded wire id means a
+  * PREVIOUS run committed a turn here, and a previous run of this task that
+  * ended without deleting its store is one that did not finish — so its
+  * uncommitted work is gone, either reset by its own failure teardown or
+  * stashed by this run's setup (ADR 0018 §2.5 R4), while the conversation
+  * remembers doing it.
+  *
+  * Only on [[SessionTurn.First]]: from the second turn the uncommitted edits in
+  * the tree are the ones this run's own turns made.
+  */
+private def continuedPrompt(
+    record: Option[SessionRecord],
+    turn: SessionTurn,
+    text: String
+): String =
+  val carriedOver = record.exists(_.resumeWireId.isDefined)
+  turn match
+    case SessionTurn.First if carriedOver =>
+      composePrimedPrompt(Some(InterruptedAttemptNotice), None, text)
+    case SessionTurn.First | SessionTurn.Later => text
+
+/** The prompt for a turn against a conversation the backend does not hold — a
+  * first use, or one lost since the run that opened it — rebuilt from the
+  * recorded seed and the progress preamble.
+  */
+private def rebuiltPrompt(record: Option[SessionRecord], text: String)(using
+    fc: FlowControl
+): String =
+  // A recorded wire id proves a backend conversation once existed, so a
+  // failed probe here means it was lost (pruned store, another machine): the
+  // rebuilt conversation gets only seed + preamble, not the prior turns.
+  // Surface that — silently degraded context is hard to debug. A record
+  // without a wire id is a plain first use, no warning.
+  if record.exists(_.resumeWireId.isDefined) then
+    fc.emit(
+      OrcaEvent.Step(
+        s"warning: session ${record.fold("'?'")(_.key.describe)} — backend " +
+          "conversation not found; re-seeding (prior conversation history " +
+          "is lost)"
       )
-    val seed = record.map(_.seed).filter(_.nonEmpty)
-    val preamble =
-      progressPreamble(fc.progressStore.load(), fc.git.headCommit())
-    composePrimedPrompt(preamble, seed, text)
+    )
+  val seed = record.map(_.seed).filter(_.nonEmpty)
+  val preamble =
+    progressPreamble(fc.progressStore.load(), fc.git.headCommit())
+  composePrimedPrompt(preamble, seed, text)
+
+/** What a live conversation is told about the tree it is resuming onto.
+  *
+  * Points at the files rather than ordering a redo: a run killed between stages
+  * leaves a fully committed tree, where nothing is missing and the fact is
+  * merely vacuous.
+  *
+  * The stash is deliberately unmentioned. It exists only when the previous
+  * attempt was killed rather than torn down, `git stash pop` can conflict, and
+  * the person — whom the resume banner tells about it, with that command — is
+  * the one who can judge that.
+  */
+private val InterruptedAttemptNotice: String =
+  "The previous attempt at this run was interrupted. The working tree holds " +
+    "only what earlier stages committed — edits made in an earlier turn and " +
+    "never committed are not in it. Read the files rather than relying on " +
+    "what you remember writing."
 
 /** After a run, persist the backend's now-learned resume wire id (durable
   * backends only — one without a probe returns `None`), so a resumed run can
