@@ -48,7 +48,11 @@ jobs:
       # points JAVA_HOME at its own JDK 17 — sbt then rejects `-release 21`.
       # setup-java runs second so JAVA_HOME ends up on 21. scala-cli picks its
       # own JVM per script (`//> using jvm 21`).
+      # `apps` defaults to `sbtn`, which pulls the newest sbt release zip from
+      # GitHub. Nothing here uses sbtn, and that download has failed the job.
       - uses: VirtusLab/scala-cli-setup@v1
+        with:
+          apps: scala-cli
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
