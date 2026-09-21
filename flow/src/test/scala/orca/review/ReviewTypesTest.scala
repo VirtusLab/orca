@@ -10,14 +10,14 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
 class ReviewTypesTest extends munit.FunSuite:
   test("ReviewResult round-trips through JSON"):
     val original = ReviewResult(
-      issues = List(
-        ReviewIssue(
+      findings = List(
+        ReviewFinding(
           title = Title("Null pointer risk"),
           description = "null pointer risk",
           location = Some(Location("Foo.scala", Some(42))),
           suggestion = Some("add a null check")
         ),
-        ReviewIssue(
+        ReviewFinding(
           title = Title("Stylistic nitpick"),
           description = "stylistic nitpick",
           location = None,
@@ -43,10 +43,10 @@ class ReviewTypesTest extends munit.FunSuite:
     // so a quoted margin block reaches the prompt as a `|` line.
     val request = FixRequest(
       "fix these",
-      KeyedIssue.forAgent(
+      KeyedFinding.forAgent(
         0,
         List(
-          ReviewIssue(
+          ReviewFinding(
             title = Title("Mangled quote"),
             description = "the quote is mangled",
             location = None,
@@ -57,6 +57,30 @@ class ReviewTypesTest extends munit.FunSuite:
     )
     assert(
       summon[AgentInput[FixRequest]].serialize(request).contains("\n  |a| b|")
+    )
+
+  test("the fix prompt puts the instructions above a labelled finding list"):
+    // Every fix turn arrives in this shape; the label is what separates the
+    // caller's instructions from the findings under them.
+    val request = FixRequest(
+      "fix these",
+      KeyedFinding.forAgent(
+        0,
+        List(
+          ReviewFinding(
+            title = Title("Leaks a handle"),
+            description = "the handle is never closed",
+            location = None,
+            suggestion = None
+          )
+        )
+      )
+    )
+    assert(
+      summon[AgentInput[FixRequest]]
+        .serialize(request)
+        .startsWith("fix these\n\nFindings to fix:\nI1.1 Leaks a handle"),
+      summon[AgentInput[FixRequest]].serialize(request)
     )
 
   test("the picker prompt keeps an instruction line that starts with `|`"):
@@ -72,19 +96,27 @@ class ReviewTypesTest extends munit.FunSuite:
         .contains("\n  |a| b|")
     )
 
-  test("IgnoredIssues round-trips through JSON"):
+  test("OpenFindings round-trips through JSON"):
     // A stage result a resume replays and the PR body then reads back, over an
     // opaque `Title`.
-    val original = IgnoredIssues(
-      List(IgnoredIssue(Title("Null check missing"), "max iterations reached"))
+    val original = OpenFindings(
+      List(
+        OpenFinding(Title("Null check missing"), OpenReason.CapReached(3), None)
+      )
     )
     assertEquals(
-      readFromString[IgnoredIssues](writeToString(original)),
+      readFromString[OpenFindings](writeToString(original)),
       original
     )
 
-  test("IgnoredIssues.format keeps a multi-line reason on one bullet"):
-    val issues = IgnoredIssues(
-      List(IgnoredIssue(Title("Style nit"), "out of\n  scope:\nsee plan"))
+  test("OpenFindings.format keeps a multi-line reason on one bullet"):
+    val findings = OpenFindings(
+      List(
+        OpenFinding(
+          Title("Style nit"),
+          OpenReason.Declined("out of\n  scope:\nsee plan"),
+          None
+        )
+      )
     )
-    assertEquals(issues.format, "- Style nit: out of scope: see plan")
+    assertEquals(findings.format, "- Style nit: out of scope: see plan")

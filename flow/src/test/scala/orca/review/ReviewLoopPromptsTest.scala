@@ -1,7 +1,15 @@
 package orca.review
 
+import orca.agents.given
 import orca.plan.{Task, Title}
-import orca.util.TextUtil
+import orca.util.{JsonSchemaGen, TextUtil}
+
+import scala.compiletime.constValueTuple
+import scala.deriving.Mirror
+
+/** The field names of a case class, as the codec and the schema spell them. */
+private inline def fieldNames[A](using m: Mirror.ProductOf[A]): List[String] =
+  constValueTuple[m.MirroredElemLabels].productIterator.map(_.toString).toList
 
 class ReviewLoopPromptsTest extends munit.FunSuite:
 
@@ -20,15 +28,17 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
         diff = "",
         diffIntro = "Diff:",
         base = base,
-        declined = Nil
+        open = OpenFindings(Nil)
       )
     )
 
-  private def reRendered(declined: List[IgnoredIssue] = Nil): String =
+  private def reRendered(
+      open: OpenFindings = OpenFindings(Nil)
+  ): String =
     TextUtil.collapseWhitespace(
       ReviewLoopPrompts.reReview(
         ReReviewChanges.AlreadySeen(LastSent.NoteOnly("")),
-        declined
+        open
       )
     )
 
@@ -168,7 +178,7 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
     )
 
   test("neither template asks for a severity"):
-    // `ReviewIssue` has no such field, so a template still asking for one
+    // `ReviewFinding` has no such field, so a template still asking for one
     // would have the reviewer produce a value the schema rejects.
     List(rendered(), reRendered()).foreach: prompt =>
       assert(!prompt.toLowerCase.contains("severity"), prompt)
@@ -184,9 +194,37 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
     assert(prompt.contains("`git_file_at` at that commit"), prompt)
     assert(prompt.contains("git show abc1234:<path>"), prompt)
 
-  test("reReview carries the fixer's declines as a position, not a ruling"):
+  test("the open-findings block does not credit the list to the fixer"):
+    // The list holds whatever any exit left open — the cap, a skipped review, a
+    // finding the fixer never reported on — so naming the fixer would tell a
+    // reviewer four of the five reasons wrongly.
     val prompt = reRendered(
-      List(IgnoredIssue(Title("rename the field"), "the name is on our API"))
+      OpenFindings(
+        List(
+          OpenFinding(Title("rename the field"), OpenReason.NoFixes, None)
+        )
+      )
+    )
+    assert(
+      prompt.contains(
+        "These findings were reported earlier and are still open. This is " +
+          "the reason recorded for each:"
+      ),
+      prompt
+    )
+    assert(!prompt.contains("declined"), prompt)
+
+  test("reReview carries open findings as a record, not a ruling"):
+    val prompt = reRendered(
+      OpenFindings(
+        List(
+          OpenFinding(
+            Title("rename the field"),
+            OpenReason.Declined("the name is on our API"),
+            None
+          )
+        )
+      )
     )
     assert(
       prompt.contains("- rename the field: the name is on our API"),
@@ -194,8 +232,9 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
     )
     assert(
       prompt.contains(
-        "That is the fixer's position, not a ruling. If you still think a " +
-          "finding is real, report it again and say why the reason is wrong."
+        "That is a record of what happened, not a ruling. If you still " +
+          "think a finding is real, report it again and say why the reason " +
+          "is wrong."
       ),
       prompt
     )
@@ -251,19 +290,46 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
       prompt
     )
 
+  test("the open-findings block leaves out a review that never ran"):
+    // That entry stands for the review, not for anything a reviewer reported,
+    // so a block introducing every line as a reported finding must drop it.
+    val prompt = reRendered(
+      OpenFindings(
+        List(
+          OpenFinding(Title("whole-run review"), OpenReason.ReviewSkipped, None)
+        )
+      )
+    )
+    assert(!prompt.contains("These findings were reported earlier"), prompt)
+    assert(!prompt.contains("whole-run review"), prompt)
+
+  test("the fix prompt names every field the fixer's reply must fill"):
+    // The prompt tells the agent which list a finding goes in, in prose; the
+    // schema is what the reply is held to. A rename on one side alone would
+    // leave the agent filling a field the prompt never mentions.
+    val fields = fieldNames[FixOutcome]
+    val schema = JsonSchemaGen[FixOutcome]
+    assert(fields.nonEmpty, "FixOutcome has no fields to check")
+    fields.foreach: field =>
+      assert(schema.contains(s"\"$field\""), s"$field missing from $schema")
+      assert(
+        ReviewLoopPrompts.Fix.contains(s"`$field`"),
+        s"$field missing from the fix prompt: ${ReviewLoopPrompts.Fix}"
+      )
+
   test("Fix asks which alternative was taken"):
     assert(
       TextUtil
         .collapseWhitespace(ReviewLoopPrompts.Fix)
         .contains(
-          "Where a comment's suggestion offers alternatives (\"do X, or " +
+          "Where a finding's suggestion offers alternatives (\"do X, or " +
             "document why Y is safe\"), say which one you took, after the " +
             "title"
         ),
       ReviewLoopPrompts.Fix
     )
 
-  test("reReview says nothing about declines when the fixer declined nothing"):
+  test("reReview says nothing about open findings when none are open"):
     // Same separator argument as the base-commit section above.
     val prompt = reRendered()
-    assert(!prompt.contains("The fixer declined"), prompt)
+    assert(!prompt.contains("These findings were reported earlier"), prompt)

@@ -256,7 +256,7 @@ def minimalReviewers[B <: BackendTag](base: Agent[B])(using
 
 /** Pair each reviewer definition with the agent that runs it: its system prompt
   * layered onto the base tool, named with the bare reviewer slug and gated to
-  * read-only access. A reviewer's job is to *report* issues, not fix them;
+  * read-only access. A reviewer's job is to *report* findings, not fix them;
   * without `withReadOnly` the agent inherits the base tool's permissions
   * (typically `AutoApprove.All`) and could edit files mid-review. Reads stay
   * available so the agent can verify claims beyond the diff.

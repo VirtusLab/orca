@@ -54,11 +54,13 @@ class ReviewChangeSetTest extends munit.FunSuite:
 
   test("a reviewer joining a later round sees an edit the fixer committed"):
     val (ctx, dir) = stagingControl()
-    // Round one runs `early` alone; its issue triggers a fix turn that commits.
-    // Round two admits `late`, whose first prompt must carry that commit.
+    // Round one runs `early` alone; its finding triggers a fix turn that
+    // commits. Round two admits `late`, whose first prompt must carry that
+    // commit.
     val early = new FakeAgent(
       "early",
-      outputs = List(ReviewResult(List(issue("real bug"))), ReviewResult.empty)
+      outputs =
+        List(ReviewResult(List(finding("real bug"))), ReviewResult.empty)
     )
     val late = new FakeAgent("late", outputs = List(ReviewResult.empty))
     val coder = new FakeAgent(
@@ -86,7 +88,8 @@ class ReviewChangeSetTest extends munit.FunSuite:
     // before the loop, so round one's sample is empty and round two's is not.
     val reviewer = new FakeAgent(
       "r",
-      outputs = List(ReviewResult(List(issue("real bug"))), ReviewResult.empty)
+      outputs =
+        List(ReviewResult(List(finding("real bug"))), ReviewResult.empty)
     )
     val coder = new FakeAgent(
       "coder",
@@ -116,7 +119,8 @@ class ReviewChangeSetTest extends munit.FunSuite:
     // lets that branch take its paths from git.
     val reviewer = new FakeAgent(
       "r",
-      outputs = List(ReviewResult(List(issue("real bug"))), ReviewResult.empty)
+      outputs =
+        List(ReviewResult(List(finding("real bug"))), ReviewResult.empty)
     )
     val coder = new FakeAgent(
       "coder",
@@ -148,7 +152,8 @@ class ReviewChangeSetTest extends munit.FunSuite:
     // sent.
     val reviewer = new FakeAgent(
       "r",
-      outputs = List(ReviewResult(List(issue("real bug"))), ReviewResult.empty)
+      outputs =
+        List(ReviewResult(List(finding("real bug"))), ReviewResult.empty)
     )
     val coder = new FakeAgent(
       "coder",
@@ -188,7 +193,8 @@ class ReviewChangeSetTest extends munit.FunSuite:
     val big = (1 to 3000).map(i => s"// line $i").mkString("\n")
     val reviewer = new FakeAgent(
       "r",
-      outputs = List(ReviewResult(List(issue("real bug"))), ReviewResult.empty)
+      outputs =
+        List(ReviewResult(List(finding("real bug"))), ReviewResult.empty)
     )
     val coder = new FakeAgent(
       "coder",
@@ -266,7 +272,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
   test("the no-sections prompt tells the reviewer to read the files"):
     val prompt = ReviewLoopPrompts.reReview(
       ReReviewChanges.Paths(List("a.scala")),
-      declined = Nil
+      open = OpenFindings(Nil)
     )
     assert(prompt.contains("- a.scala"), prompt)
     assert(prompt.contains("read them directly"), prompt)
@@ -280,7 +286,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
         List("b.scala"),
         Nil
       ),
-      declined = Nil
+      open = OpenFindings(Nil)
     )
     assert(prompt.contains("as much of it as fits"), prompt)
     assert(!prompt.contains("unchanged since your previous round"), prompt)
@@ -292,7 +298,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
         List("b.scala"),
         List("a.scala")
       ),
-      declined = Nil
+      open = OpenFindings(Nil)
     )
     assert(prompt.contains("+three"), prompt)
     assert(prompt.contains("- a.scala"), prompt)
@@ -310,7 +316,8 @@ class ReviewChangeSetTest extends munit.FunSuite:
     val big = (1 to 3000).map(i => s"// line $i").mkString("\n")
     val reviewer = new FakeAgent(
       "r",
-      outputs = List(ReviewResult(List(issue("real bug"))), ReviewResult.empty)
+      outputs =
+        List(ReviewResult(List(finding("real bug"))), ReviewResult.empty)
     )
     val coder = new FakeAgent(
       "coder",
@@ -348,8 +355,8 @@ class ReviewChangeSetTest extends munit.FunSuite:
     val reviewer = new FakeAgent(
       "r",
       outputs = List(
-        ReviewResult(List(issue("real bug"))),
-        ReviewResult(List(issue("real bug"))),
+        ReviewResult(List(finding("real bug"))),
+        ReviewResult(List(finding("real bug"))),
         ReviewResult.empty
       )
     )

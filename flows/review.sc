@@ -63,8 +63,8 @@ case class ResolvedTarget(target: ReviewTarget) derives JsonData
 
 case class PickedReviewers(names: List[String]) derives JsonData
 
-/** One reviewer's findings, named so the report can attribute each issue. */
-case class ReviewerFindings(reviewer: String, issues: List[ReviewIssue])
+/** One reviewer's findings, named so the report can attribute each one. */
+case class ReviewerFindings(reviewer: String, findings: List[ReviewFinding])
     derives JsonData
 
 case class AllFindings(byReviewer: List[ReviewerFindings]) derives JsonData
@@ -95,7 +95,7 @@ flow(OrcaArgs(args)):
           .resultAs[ReviewResult]
           .autonomous
           .run(reviewPrompt(target))
-          .issues
+          .findings
       ))
 
   val report = renderReport(target, findings.byReviewer)
@@ -209,14 +209,14 @@ def reviewPrompt(target: ReviewTarget): String =
      |
      |The complete diff is in `$DiffPath` — read it first. Review only what it
      |changes, plus the code that interacts directly with it; you may read
-     |anything in the repository to check a claim, but do not report issues in
+     |anything in the repository to check a claim, but do not report findings in
      |code this change doesn't touch.
      |
      |Report each finding with: a one-line title, a description with enough
      |context to act on, the file and line where applicable, and a concrete
      |suggested fix. Report only what is worth acting on — no nitpicks, no
      |restating what the change already does well. If nothing in your dimension
-     |applies, report no issues."""
+     |applies, report no findings."""
     .stripMargin
 
 // ============================== report ==============================
@@ -229,22 +229,22 @@ def renderReport(
     target: ReviewTarget,
     byReviewer: List[ReviewerFindings]
 ): String =
-  val attributed = byReviewer.flatMap(f => f.issues.map(i => f.reviewer -> i))
+  val attributed = byReviewer.flatMap(r => r.findings.map(r.reviewer -> _))
   val header =
     s"## Review: ${target.summary}\n\n" +
       s"${attributed.size} finding(s) from ${byReviewer.size} reviewer(s) " +
       s"across ${target.changedFiles.size} changed file(s)."
 
-  if attributed.isEmpty then s"$header\n\nNo issues reported."
-  else s"$header\n\n${attributed.map(renderIssue).mkString("\n")}"
+  if attributed.isEmpty then s"$header\n\nNo findings reported."
+  else s"$header\n\n${attributed.map(renderFinding).mkString("\n")}"
 
-def renderIssue(attributed: (String, ReviewIssue)): String =
-  val (reviewer, issue) = attributed
-  val where = issue.location
+def renderFinding(attributed: (String, ReviewFinding)): String =
+  val (reviewer, finding) = attributed
+  val where = finding.location
     .map:
       case Location(file, Some(line)) => s" — `$file:$line`"
       case Location(file, None)       => s" — `$file`"
     .getOrElse("")
-  val suggestion = issue.suggestion.fold("")(s => s"\n  - suggestion: $s")
-  s"- **${issue.title}** ($reviewer)$where\n" +
-    s"  - ${issue.description}$suggestion"
+  val suggestion = finding.suggestion.fold("")(s => s"\n  - suggestion: $s")
+  s"- **${finding.title}** ($reviewer)$where\n" +
+    s"  - ${finding.description}$suggestion"

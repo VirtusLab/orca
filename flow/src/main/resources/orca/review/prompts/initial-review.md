@@ -7,12 +7,12 @@ change alters what it can be handed.
 
 {{diffIntro}}
 
-{{diffBlock}}{{baseNote}}{{declined}}
+{{diffBlock}}{{baseNote}}{{openFindings}}
 
 Report each finding with: a one-line title, a longer description with enough
 context for a fixer to act, the file and line where applicable, and a concrete
 suggested fix. If nothing in your scope applies to this change, report no
-issues.
+findings.
 
 ## What to report
 

@@ -12,7 +12,7 @@ import orca.tools.{
 }
 import orca.{OutsideStage, WorkspaceWrite}
 import orca.plan.Title
-import orca.review.{IgnoredIssue, IgnoredIssues}
+import orca.review.{OpenFinding, OpenFindings, OpenReason}
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.progress.{
   BranchMode,
@@ -64,7 +64,7 @@ class OpenPrIfGitHubTest extends FunSuite:
       push: => Either[PushFailure, Unit] = Right(()),
       base: => Either[NoDefaultBase, String] = Right("main"),
       store: ProgressStore => ProgressStore = identity,
-      openFindings: IgnoredIssues = IgnoredIssues(Nil)
+      openFindings: OpenFindings = OpenFindings(Nil)
   ): Run =
     val (dir, seededStore) = seededPrRepo(withCode, branchMode, startBranch)
     runOver(
@@ -90,7 +90,7 @@ class OpenPrIfGitHubTest extends FunSuite:
       base: => Either[NoDefaultBase, String] = Right("main"),
       summariser: StubSummariser = new StubSummariser(),
       beforeRun: os.Path => Unit = _ => (),
-      openFindings: IgnoredIssues = IgnoredIssues(Nil)
+      openFindings: OpenFindings = OpenFindings(Nil)
   ): Run =
     val calls = new ConcurrentLinkedQueue[String]()
     val stages = new ConcurrentLinkedQueue[String]()
@@ -148,7 +148,7 @@ class OpenPrIfGitHubTest extends FunSuite:
       given orca.InStage = orca.InStage.unsafe
       openPrIfGitHub(
         summarisingAgent = new StubSummariser(),
-        openFindings = orca.review.IgnoredIssues(Nil)
+        openFindings = orca.review.OpenFindings(Nil)
       )
       """
     )
@@ -186,8 +186,10 @@ class OpenPrIfGitHubTest extends FunSuite:
   test("open findings reach the body of the PR this step opens"):
     // The step every code-producing built-in flow ends with, so the section
     // has to survive the best-effort path too, not only openPrFromBranch's.
-    val open = IgnoredIssues(
-      List(IgnoredIssue(Title("Null check missing"), "max iterations reached"))
+    val open = OpenFindings(
+      List(
+        OpenFinding(Title("Null check missing"), OpenReason.CapReached(3), None)
+      )
     )
     assertEquals(
       run(available, openFindings = open).prBodies,

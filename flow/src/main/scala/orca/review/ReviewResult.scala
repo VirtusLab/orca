@@ -3,7 +3,7 @@ package orca.review
 import orca.agents.{Announce, JsonData, given}
 
 case class ReviewResult(
-    issues: List[ReviewIssue]
+    findings: List[ReviewFinding]
 ) derives JsonData
 
 object ReviewResult:

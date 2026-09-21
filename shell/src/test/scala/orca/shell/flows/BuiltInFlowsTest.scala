@@ -213,7 +213,7 @@ class BuiltInFlowsTest extends munit.FunSuite:
   test("every flow that opens a PR hands it what its review left open"):
     // The whole point of the required `openFindings` parameter: a flow that
     // drops it opens a PR saying nothing about the findings it shipped. The
-    // argument must be the review stage's own value — `IgnoredIssues(Nil)`
+    // argument must be the review stage's own value — `OpenFindings(Nil)`
     // satisfies the compiler and is exactly the regression to catch.
     (bestEffortPrFlows ++ requiredPrFlows).foreach: name =>
       val text = resourceText(name)

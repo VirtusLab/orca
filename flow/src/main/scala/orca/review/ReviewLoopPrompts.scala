@@ -15,7 +15,7 @@ import orca.util.PromptResource
   *   reviewers = allReviewers(claude),
   *   task = task,
   *   fixInstructions = ReviewLoopPrompts.Fix +
-  *     "\n\nIf you delete a test, mention it in the ignored reason."
+  *     "\n\nIf you delete a test, mention it in the declined reason."
   * )
   * }}}
   *
@@ -24,7 +24,7 @@ import orca.util.PromptResource
 object ReviewLoopPrompts:
 
   /** Used by [[reviewAndFixLoop]]'s fix step. Tells the agent to classify every
-    * input issue as `fixed` (title) or `ignored` (title + reason). The loop
+    * input finding as `fixed` (title) or `declined` (title + reason). The loop
     * relies on `fixed` being non-empty to justify re-evaluating, so any
     * override should preserve that contract.
     */
@@ -46,7 +46,7 @@ object ReviewLoopPrompts:
     PromptResource.load("/orca/review/prompts/summarise-lint.md")
 
   /** The always-report categories, worded once. Substituted into both review
-    * templates at init; [[declinedBlock]] back-references the copy those
+    * templates at init; [[openFindingsBlock]] back-references the copy those
     * templates render below it.
     */
   private[review] val MandatoryCategories: String =
@@ -71,7 +71,7 @@ object ReviewLoopPrompts:
     * the repo at that commit, and a reviewer with no way to do so is
     * unaffected.
     *
-    * `declined` matters for a reviewer first activated after round one — see
+    * `open` matters for a reviewer first activated after round one — see
     * [[reviewAndFixLoop]].
     */
   def initialReview(
@@ -80,7 +80,7 @@ object ReviewLoopPrompts:
       diff: String,
       diffIntro: String,
       base: Option[String],
-      declined: List[IgnoredIssue]
+      open: OpenFindings
   ): String =
     PromptResource.render(
       InitialReviewTemplate,
@@ -89,7 +89,7 @@ object ReviewLoopPrompts:
       "diffIntro" -> diffIntro,
       "diffBlock" -> diffBlock(diff),
       "baseNote" -> baseNote(base),
-      "declined" -> declinedBlock(declined)
+      "openFindings" -> openFindingsBlock(open)
     )
 
   /** The task's context as labelled sections under the title: what the user
@@ -134,36 +134,43 @@ object ReviewLoopPrompts:
     * including the base commit, which the initial prompt named and this one
     * therefore doesn't repeat.
     *
-    * `declined` is every refusal the fixer has made and not since fixed — see
-    * [[reviewAndFixLoop]].
+    * `open` is every finding still open, each with the reason recorded for it —
+    * see [[reviewAndFixLoop]].
     */
   private[review] def reReview(
       changes: ReReviewChanges,
-      declined: List[IgnoredIssue]
+      open: OpenFindings
   ): String =
     PromptResource.render(
       ReReviewTemplate,
       "changes" -> changesBlock(changes),
-      "declined" -> declinedBlock(declined)
+      "openFindings" -> openFindingsBlock(open)
     )
 
-  /** The fixer's declines as a paragraph after the change set, carrying its own
-    * leading blank line for the same reason as [[baseNote]].
+  /** The findings still open as a paragraph after the change set, carrying its
+    * own leading blank line for the same reason as [[baseNote]].
     *
-    * Worded as the fixer's position rather than a verdict on the finding. A
-    * reviewer told "this was settled" would stop checking, which is the failure
-    * this block exists to avoid — the point is to save a round on findings the
-    * fixer has already answered, not to withdraw them.
+    * Worded as a record of what happened rather than a verdict on the finding.
+    * A reviewer told "this was settled" would stop checking, which is the
+    * failure this block exists to avoid — the point is to save a round on
+    * findings that were already answered, not to withdraw them.
     */
-  private def declinedBlock(declined: List[IgnoredIssue]): String =
-    if declined.isEmpty then ""
+  private def openFindingsBlock(open: OpenFindings): String =
+    // An entry standing for a review that never ran is no reviewer's finding,
+    // and the block below says every line is one. It reaches here only through
+    // a flow that seeds one loop's result into another's `priorOpenFindings`.
+    val reported = OpenFindings(
+      open.findings.filterNot(_.reason == OpenReason.ReviewSkipped)
+    )
+    if reported.findings.isEmpty then ""
     else
-      "\n\nThe fixer declined to fix these findings, and gave this reason " +
-        s"for each:\n\n${IgnoredIssues(declined).format}\n\nThat is the " +
-        "fixer's position, not a ruling. If you still think a finding is " +
-        "real, report it again and say why the reason is wrong. \"The plan " +
-        "chose this\" is not on its own a sufficient answer for a finding " +
-        "in the always-report categories below — re-report such a finding."
+      "\n\nThese findings were reported earlier and are still open. This is " +
+        s"the reason recorded for each:\n\n${reported.format}" +
+        "\n\nThat is a record of what happened, not a ruling. If you still " +
+        "think a finding is real, report it again and say why the reason is " +
+        "wrong. \"The plan chose this\" is not on its own a sufficient " +
+        "answer for a finding in the always-report categories below — " +
+        "re-report such a finding."
 
   private def changesBlock(changes: ReReviewChanges): String =
     changes match

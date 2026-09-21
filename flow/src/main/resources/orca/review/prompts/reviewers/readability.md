@@ -26,4 +26,4 @@ reviewers. Don't chase formatting the project's formatter handles.
 - **Local consistency**: similar things named or structured differently across
   the change.
 
-Don't manufacture problems — when the code reads well, report no issues.
+Don't manufacture problems — when the code reads well, report no findings.

@@ -7,10 +7,10 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
 }
 import sttp.tapir.Schema
 
-/** Short user-facing label for a `Plan.Task` or `ReviewIssue` — the one-line
+/** Short user-facing label for a `Plan.Task` or `ReviewFinding` — the one-line
   * tag rendered in the event log, shown in the `## Task: …` markdown header,
-  * and used by the fixing agent to identify which issue it addressed. Opaque
-  * over `String` so the compiler rejects accidental mixing with `description`,
+  * and echoed by the fixing agent to say which one it addressed. Opaque over
+  * `String` so the compiler rejects accidental mixing with `description`,
   * `reason`, or raw user input.
   */
 opaque type Title = String

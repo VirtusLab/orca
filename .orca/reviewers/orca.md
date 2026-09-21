@@ -21,6 +21,11 @@ shipped reviewers running beside you.
 - **No back-compat machinery**, and no default values on domain or persisted
   fields; the two exceptions are ProgressLog/SessionRecord tolerant decoding
   and RunManifest additive changes.
+- **Review vocabulary**: a reviewer or the lint gate reports a `finding`
+  (`ReviewFinding`); `DeclinedFinding` is the fixer refusing one, with a reason
+  it wrote; `OpenFinding(s)` is what the run leaves unresolved, each with an
+  `OpenReason`. `issue` means a GitHub issue. Don't name the open set after one
+  of its reasons, and don't rename inside a dated record.
 - **Comments are present-tense facts**: no history ("no longer", "renamed
   from"), no plan or epic labels, no teaching Scala mechanics; in `flows/*.sc`,
   only facts about that file.

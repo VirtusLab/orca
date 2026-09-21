@@ -29,7 +29,7 @@ import java.util.concurrent.atomic.AtomicReference
   * [[AgentBackend]] — to pin the actual leak: without `FixOutcome`'s `Announce`
   * instance, `emitStructuredResult` resolves the catch-all and the raw JSON
   * renders under the same `●` glyph as prose (ADR 0008), on top of the fix
-  * loop's own "Fixed N, ignored N" line.
+  * loop's own "Fixed N, declined N" line.
   */
 private class CannedBackend(output: String)
     extends AgentBackend[BackendTag.Pi.type]
@@ -76,7 +76,7 @@ class FixOutcomeAnnounceTest extends munit.FunSuite:
     "the fix turn's StructuredResult carries Some(\"\"), not the raw-JSON fallback"
   ):
     val backend = new CannedBackend(
-      """{"fixed":["Fix the thing"],"ignored":[]}"""
+      """{"fixed":["Fix the thing"],"declined":[]}"""
     )
     val seen = AtomicReference[List[OrcaEvent]](Nil)
     val call = new DefaultAgentCall[BackendTag.Pi.type, FixOutcome](

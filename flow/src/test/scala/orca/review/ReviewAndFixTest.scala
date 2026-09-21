@@ -117,7 +117,7 @@ class ReviewAndFixTest extends munit.FunSuite:
   private def control: FlowControl =
     ReviewLoopFixture.control(new EventDispatcher(Nil))
 
-  test("returns empty IgnoredIssues when no reviewer reports issues"):
+  test("returns empty OpenFindings when no reviewer reports findings"):
     given FlowControl = control
     val silentReviewer = new FakeAgent(
       name = "quiet",
@@ -131,7 +131,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewerSelection = ReviewerSelector.allEveryRound,
       diff = ReviewDiff.Pinned("")
     )
-    assertEquals(result, IgnoredIssues(Nil))
+    assertEquals(result, OpenFindings(Nil))
 
   test("every finding a reviewer reports reaches the fixer"):
     // Nothing between the reviewer and the fix turn filters findings: all
@@ -141,7 +141,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       name = "mixed",
       outputs = List(
         ReviewResult(
-          List(issue("a"), issue("b"), issue("c"))
+          List(finding("a"), finding("b"), finding("c"))
         )
       )
     )
@@ -169,11 +169,11 @@ class ReviewAndFixTest extends munit.FunSuite:
     given FlowControl = ReviewLoopFixture.control(steps.dispatcher)
     val first = new FakeAgent(
       name = "first",
-      outputs = List(ReviewResult(List(issue("a"), issue("b"))))
+      outputs = List(ReviewResult(List(finding("a"), finding("b"))))
     )
     val second = new FakeAgent(
       name = "second",
-      outputs = List(ReviewResult(List(issue("c"))))
+      outputs = List(ReviewResult(List(finding("c"))))
     )
     val coder = new FakeAgent("coder", outputs = List(FixOutcome(Nil, Nil)))
     val _ = reviewAndFixLoop(
@@ -215,7 +215,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     // headline must not read as an all-clear.
     val steps = new ReviewLoopFixture.StepCapture
     given FlowControl = ReviewLoopFixture.control(steps.dispatcher)
-    val nit = ReviewIssue(
+    val nit = ReviewFinding(
       title = Title("nit"),
       description = "nit",
       location = Some(Location("src/main/Widget.scala", Some(12))),
@@ -224,7 +224,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val reviewer = new FakeAgent(
       name = "loud",
       outputs = List(
-        ReviewResult(List(issue("driver"), nit)),
+        ReviewResult(List(finding("driver"), nit)),
         ReviewResult.empty
       )
     )
@@ -233,7 +233,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       outputs = List(
         FixOutcome(
           List(Title("driver")),
-          List(IgnoredIssue(Title("nit"), "deliberate"))
+          List(DeclinedFinding(Title("nit"), "deliberate"))
         )
       )
     )
@@ -263,7 +263,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     given FlowControl = ReviewLoopFixture.control(steps.dispatcher)
     val reviewer = new FakeAgent(
       name = "loud",
-      outputs = List.fill(2)(ReviewResult(List(issue("stubborn"))))
+      outputs = List.fill(2)(ReviewResult(List(finding("stubborn"))))
     )
     val coder = new FakeAgent(
       name = "coder",
@@ -278,12 +278,12 @@ class ReviewAndFixTest extends munit.FunSuite:
       diff = ReviewDiff.Pinned("")
     )
     val emitted = steps.messages
-    assert(emitted.contains("Reached max iterations (1)"), emitted.mkString)
+    assert(emitted.contains(capExitMessage(1)), emitted.mkString)
     assert(
       emitted.contains(
-        """Findings still open (1):
-          |  - stubborn
-          |    max iterations (1) reached""".stripMargin
+        s"""Findings still open (1):
+           |  - stubborn
+           |    ${OpenReason.CapReached(1).describe}""".stripMargin
       ),
       emitted.mkString("\n")
     )
@@ -295,7 +295,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       name = "loud",
       outputs = List(
         ReviewResult(
-          List(issue("race in the driver"))
+          List(finding("race in the driver"))
         )
       )
     )
@@ -304,7 +304,9 @@ class ReviewAndFixTest extends munit.FunSuite:
       outputs = List(
         FixOutcome(
           Nil,
-          List(IgnoredIssue(Title("race in the driver"), "the lock covers it"))
+          List(
+            DeclinedFinding(Title("race in the driver"), "the lock covers it")
+          )
         )
       )
     )
@@ -333,8 +335,8 @@ class ReviewAndFixTest extends munit.FunSuite:
     val reviewer = new FakeAgent(
       name = "loud",
       outputs = List(
-        ReviewResult(List(issue("driver"), issue("nit"))),
-        ReviewResult(List(issue("stubborn")))
+        ReviewResult(List(finding("driver"), finding("nit"))),
+        ReviewResult(List(finding("stubborn")))
       )
     )
     val coder = new FakeAgent(
@@ -342,7 +344,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       outputs = List(
         FixOutcome(
           List(Title("driver")),
-          List(IgnoredIssue(Title("nit"), "deliberate"))
+          List(DeclinedFinding(Title("nit"), "deliberate"))
         )
       )
     )
@@ -355,10 +357,10 @@ class ReviewAndFixTest extends munit.FunSuite:
       diff = ReviewDiff.Pinned("")
     )
     assertEquals(
-      result.issues,
+      result.findings,
       List(
-        IgnoredIssue(Title("nit"), "deliberate"),
-        IgnoredIssue(Title("stubborn"), "max iterations (1) reached")
+        OpenFinding(Title("nit"), OpenReason.Declined("deliberate"), None),
+        OpenFinding(Title("stubborn"), OpenReason.CapReached(1), None)
       )
     )
 
@@ -372,11 +374,11 @@ class ReviewAndFixTest extends munit.FunSuite:
       outputs = List(
         ReviewResult(
           List(
-            issue("nit"),
-            issue("driver")
+            finding("nit"),
+            finding("driver")
           )
         ),
-        ReviewResult(List(issue("nit"))),
+        ReviewResult(List(finding("nit"))),
         ReviewResult.empty
       )
     )
@@ -385,7 +387,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       outputs = List(
         FixOutcome(
           List(Title("driver")),
-          List(IgnoredIssue(Title("nit"), "deliberate"))
+          List(DeclinedFinding(Title("nit"), "deliberate"))
         ),
         FixOutcome(List(Title("nit")), Nil)
       )
@@ -397,13 +399,13 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewerSelection = ReviewerSelector.allEveryRound,
       diff = ReviewDiff.Pinned("")
     )
-    assertEquals(result, IgnoredIssues(Nil))
+    assertEquals(result, OpenFindings(Nil))
     val roundThree = reviewer.seenPrompts
       .lift(2)
       .getOrElse(fail(s"expected three review rounds: ${reviewer.seenPrompts}"))
     assert(!roundThree.contains("deliberate"), roundThree)
 
-  test("the fix prompt carries each issue's description"):
+  test("the fix prompt carries each finding's description"):
     // Reviewers are asked for "a longer description with enough context for a
     // fixer to act"; the display rendering drops it, so the fix prompt has its
     // own.
@@ -413,7 +415,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       outputs = List(
         ReviewResult(
           List(
-            ReviewIssue(
+            ReviewFinding(
               title = Title("leaks a handle"),
               description = "DESCRIPTION-MARKER: the stream is never closed",
               location = None,
@@ -439,18 +441,18 @@ class ReviewAndFixTest extends munit.FunSuite:
     assert(fixPrompt.contains("DESCRIPTION-MARKER"), fixPrompt)
 
   test("a paraphrased fixer reply records the finding once, not twice"):
-    // The echoed title matches no handed issue, so it is dropped from the books
-    // and named in a Step, and the finding surfaces once, as unaccounted.
+    // The echoed title matches no handed finding, so it is dropped from the
+    // books and named in a Step, and the finding surfaces once, as unaccounted.
     val steps = new ReviewLoopFixture.StepCapture
     given FlowControl = ReviewLoopFixture.control(steps.dispatcher)
     val reviewer = new FakeAgent(
       name = "loud",
-      outputs = List(ReviewResult(List(issue("real bug"))))
+      outputs = List(ReviewResult(List(finding("real bug"))))
     )
     val coder = new FakeAgent(
       name = "coder",
       outputs = List(
-        FixOutcome(Nil, List(IgnoredIssue(Title("A real bug"), "not a bug")))
+        FixOutcome(Nil, List(DeclinedFinding(Title("A real bug"), "not a bug")))
       )
     )
     val result = reviewAndFixLoop(
@@ -461,13 +463,13 @@ class ReviewAndFixTest extends munit.FunSuite:
       diff = ReviewDiff.Pinned("")
     )
     assertEquals(
-      result.issues,
-      List(IgnoredIssue(Title("real bug"), "fixer reported no fixes"))
+      result.findings,
+      List(OpenFinding(Title("real bug"), OpenReason.NoFixes, None))
     )
     val emitted = steps.messages
     assert(
       emitted.contains(
-        "Fixer named A real bug, which matched no issue it was handed"
+        "Fixer named A real bug, which matched no finding it was handed"
       ),
       emitted.mkString("\n")
     )
@@ -483,8 +485,8 @@ class ReviewAndFixTest extends munit.FunSuite:
       outputs = List.fill(2)(
         ReviewResult(
           List(
-            issue("nit"),
-            issue("real bug")
+            finding("nit"),
+            finding("real bug")
           )
         )
       )
@@ -494,9 +496,9 @@ class ReviewAndFixTest extends munit.FunSuite:
       outputs = List(
         FixOutcome(
           List(Title("real bug")),
-          List(IgnoredIssue(Title("nit"), "deliberate"))
+          List(DeclinedFinding(Title("nit"), "deliberate"))
         ),
-        FixOutcome(Nil, List(IgnoredIssue(Title("nit"), "still deliberate")))
+        FixOutcome(Nil, List(DeclinedFinding(Title("nit"), "still deliberate")))
       )
     )
     val result = reviewAndFixLoop(
@@ -507,10 +509,14 @@ class ReviewAndFixTest extends munit.FunSuite:
       diff = ReviewDiff.Pinned("")
     )
     assertEquals(
-      result.issues,
+      result.findings,
       List(
-        IgnoredIssue(Title("nit"), "still deliberate"),
-        IgnoredIssue(Title("real bug"), "fixer reported no fixes")
+        OpenFinding(
+          Title("nit"),
+          OpenReason.Declined("still deliberate"),
+          None
+        ),
+        OpenFinding(Title("real bug"), OpenReason.NoFixes, None)
       )
     )
 
@@ -524,11 +530,11 @@ class ReviewAndFixTest extends munit.FunSuite:
       outputs = List(
         ReviewResult(
           List(
-            issue("nit"),
-            issue("real bug")
+            finding("nit"),
+            finding("real bug")
           )
         ),
-        ReviewResult(List(issue("nit")))
+        ReviewResult(List(finding("nit")))
       )
     )
     val coder = new FakeAgent(
@@ -536,7 +542,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       outputs = List(
         FixOutcome(
           List(Title("real bug")),
-          List(IgnoredIssue(Title("nit"), "deliberate"))
+          List(DeclinedFinding(Title("nit"), "deliberate"))
         ),
         FixOutcome(Nil, Nil)
       )
@@ -549,21 +555,23 @@ class ReviewAndFixTest extends munit.FunSuite:
       diff = ReviewDiff.Pinned("")
     )
     assertEquals(
-      result.issues,
-      List(IgnoredIssue(Title("nit"), "fixer reported no fixes"))
+      result.findings,
+      List(OpenFinding(Title("nit"), OpenReason.NoFixes, None))
     )
 
   test("a reviewer joining in round three sees round one's declines"):
     given FlowControl = control
-    // Declines accumulate across rounds, so a late joiner learns what was
-    // settled before it started — not merely what the previous round settled.
+    // A decline is the one thing a reviewer cannot recover by reading the code.
+    // The set accumulates across rounds, so the late joiner's prompt — the
+    // initial one, not a resume — carries what was settled before it started,
+    // not merely what the previous round settled.
     val early = new FakeAgent(
       name = "early",
       outputs = List(
         ReviewResult(
-          List(issue("a"), issue("b"))
+          List(finding("a"), finding("b"))
         ),
-        ReviewResult(List(issue("c"))),
+        ReviewResult(List(finding("c"))),
         ReviewResult.empty
       )
     )
@@ -573,7 +581,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       outputs = List(
         FixOutcome(
           List(Title("a")),
-          List(IgnoredIssue(Title("b"), "by design"))
+          List(DeclinedFinding(Title("b"), "by design"))
         ),
         FixOutcome(List(Title("c")), Nil)
       )
@@ -591,26 +599,26 @@ class ReviewAndFixTest extends munit.FunSuite:
       .getOrElse(fail("the late reviewer never ran"))
     assert(joined.contains("- b: by design"), joined)
 
-  test("runs multiple reviewers and merges their issues"):
+  test("runs multiple reviewers and merges their findings"):
     given FlowControl = control
-    val issueA = issue("A")
-    val issueB = issue("B")
+    val findingA = finding("A")
+    val findingB = finding("B")
     val reviewerA = new FakeAgent(
       name = "a",
-      outputs = List(ReviewResult(List(issueA)))
+      outputs = List(ReviewResult(List(findingA)))
     )
     val reviewerB = new FakeAgent(
       name = "b",
-      outputs = List(ReviewResult(List(issueB)))
+      outputs = List(ReviewResult(List(findingB)))
     )
     val coder = new FakeAgent(
       name = "coder",
       outputs = List(
         FixOutcome(
           fixed = Nil,
-          ignored = List(
-            IgnoredIssue(Title("A"), "ok-a"),
-            IgnoredIssue(Title("B"), "ok-b")
+          declined = List(
+            DeclinedFinding(Title("A"), "ok-a"),
+            DeclinedFinding(Title("B"), "ok-b")
           )
         )
       )
@@ -622,7 +630,10 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewerSelection = ReviewerSelector.allEveryRound,
       diff = ReviewDiff.Pinned("")
     )
-    assertEquals(result.issues.map(_.title).toSet, Set(Title("A"), Title("B")))
+    assertEquals(
+      result.findings.map(_.title).toSet,
+      Set(Title("A"), Title("B"))
+    )
 
   test(
     "reviewer is called with the same session id on every iteration"
@@ -630,7 +641,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     // Cross-iteration session-threading contract: a reviewer's first call mints
     // its own chat, and every subsequent call resumes the SAME conversation.
     given FlowControl = control
-    val stubborn = issue("never ends")
+    val stubborn = finding("never ends")
     val reviewer = new FakeAgent(
       name = "loud",
       outputs = List.fill(4)(ReviewResult(List(stubborn)))
@@ -665,7 +676,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     // and carries forward.
     val loud = new FakeAgent(
       name = "loud",
-      outputs = List.fill(3)(ReviewResult(List(issue("never ends"))))
+      outputs = List.fill(3)(ReviewResult(List(finding("never ends"))))
     )
     val summariser = new FakeAgent(
       name = "summariser",
@@ -704,7 +715,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       new FakeAgent(name = "quiet", outputs = List.fill(2)(ReviewResult.empty))
     val summariser = new FakeAgent(
       name = "summariser",
-      outputs = List.fill(2)(ReviewResult(List(issue("lint-found"))))
+      outputs = List.fill(2)(ReviewResult(List(finding("lint-found"))))
     )
     val coder = new FakeAgent(
       name = "coder",
@@ -927,7 +938,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val reviewer = new FakeAgent(
       name = "capturing",
       outputs =
-        List(ReviewResult(List(issue("needs fixing"))), ReviewResult.empty)
+        List(ReviewResult(List(finding("needs fixing"))), ReviewResult.empty)
     )
     val coder = new FakeAgent(
       name = "coder",
@@ -949,12 +960,9 @@ class ReviewAndFixTest extends munit.FunSuite:
   /** The entry every skipped whole-run review returns, so a caller can tell a
     * skip from a clean review without a new type.
     */
-  private val skippedWholeRunReview = IgnoredIssues(
+  private val skippedWholeRunReview = OpenFindings(
     List(
-      IgnoredIssue(
-        Title("whole-run review"),
-        "skipped: no usable starting commit for the diff base"
-      )
+      OpenFinding(Title("whole-run review"), OpenReason.ReviewSkipped, None)
     )
   )
 
@@ -1005,30 +1013,35 @@ class ReviewAndFixTest extends munit.FunSuite:
       steps.messages.mkString("\n")
     )
 
-  test("a skipped whole-run review still returns the seeded declines"):
-    // The skip entry is added to `priorDeclines`, not returned instead of
+  test("a skipped whole-run review adds its entry to what was seeded"):
+    // The skip entry is added to `priorOpenFindings`, not returned instead of
     // them: the PR body reads this result, and nothing after the final loop
-    // reports the per-task declines.
+    // reports what the per-task runs left open.
     val steps = new ReviewLoopFixture.StepCapture
     given FlowControl =
       ReviewLoopFixture.controlWithoutStartingCommit(steps.dispatcher)
-    val seeded = IgnoredIssue(Title("nit"), "the shape is deliberate")
+    val seeded = OpenFinding(
+      Title("nit"),
+      OpenReason.Declined("the shape is deliberate"),
+      None
+    )
     val result = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
       reviewers = List(asReviewer(new FakeAgent("never-runs"))),
       task = titled("final review"),
       reviewerSelection = ReviewerSelector.allEveryRound,
       diff = ReviewDiff.WholeRun,
-      priorDeclines = IgnoredIssues(List(seeded))
+      priorOpenFindings = OpenFindings(List(seeded))
     )
     assertEquals(
       result,
-      IgnoredIssues(seeded :: skippedWholeRunReview.issues)
+      OpenFindings(seeded :: skippedWholeRunReview.findings)
     )
 
   test("seeds sharing a title collapse before a skipped review adds its own"):
-    // A flow merges per-task declines, so two tasks whose fixers declined the
-    // same title arrive as two seeds; the PR body must carry one bullet.
+    // A flow merges what its per-task runs left open, so two tasks whose
+    // fixers declined the same title arrive as two seeds; the PR body must
+    // carry one bullet.
     val steps = new ReviewLoopFixture.StepCapture
     given FlowControl =
       ReviewLoopFixture.controlWithoutStartingCommit(steps.dispatcher)
@@ -1038,35 +1051,51 @@ class ReviewAndFixTest extends munit.FunSuite:
       task = titled("final review"),
       reviewerSelection = ReviewerSelector.allEveryRound,
       diff = ReviewDiff.WholeRun,
-      priorDeclines = IgnoredIssues(
+      priorOpenFindings = OpenFindings(
         List(
-          IgnoredIssue(Title("nit"), "task one declined it"),
-          IgnoredIssue(Title("nit"), "task two declined it too")
+          OpenFinding(
+            Title("nit"),
+            OpenReason.Declined("task one declined it"),
+            None
+          ),
+          OpenFinding(
+            Title("nit"),
+            OpenReason.Declined("task two declined it too"),
+            None
+          )
         )
       )
     )
     assertEquals(
       result,
-      IgnoredIssues(
-        IgnoredIssue(Title("nit"), "task two declined it too") ::
-          skippedWholeRunReview.issues
+      OpenFindings(
+        OpenFinding(
+          Title("nit"),
+          OpenReason.Declined("task two declined it too"),
+          None
+        ) ::
+          skippedWholeRunReview.findings
       )
     )
 
-  test("seeded declines reach round one's reviewers and return at exit"):
-    // `priorDeclines` carries what per-task fixers already declined into a
-    // final loop: shown as declined from round one — so reviewers don't
-    // re-report what was already answered — and still in the exit record.
+  test("seeded open findings reach round one's reviewers and return at exit"):
+    // `priorOpenFindings` carries what the per-task runs left open into a final
+    // loop: shown from round one — so reviewers don't re-report what was
+    // already answered — and still in the exit record.
     given FlowControl = control
     val reviewer = new FakeAgent("r", outputs = List(ReviewResult.empty))
-    val seeded = IgnoredIssue(Title("nit"), "the shape is deliberate")
+    val seeded = OpenFinding(
+      Title("nit"),
+      OpenReason.Declined("the shape is deliberate"),
+      None
+    )
     val result = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
       reviewers = List(asReviewer(reviewer)),
       task = titled("final review"),
       reviewerSelection = ReviewerSelector.allEveryRound,
       diff = ReviewDiff.Pinned(""),
-      priorDeclines = IgnoredIssues(List(seeded))
+      priorOpenFindings = OpenFindings(List(seeded))
     )
     val sent = reviewer.seenPrompts.headOption
       .getOrElse(fail("the reviewer was never called"))
@@ -1074,7 +1103,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       sent.contains("- nit: the shape is deliberate"),
       s"seeded decline missing from the round-one prompt: $sent"
     )
-    assertEquals(result, IgnoredIssues(List(seeded)))
+    assertEquals(result, OpenFindings(List(seeded)))
 
   test("the fixer's declines reach the next round's reviewer, its fixes don't"):
     // A decline is the one thing a reviewer cannot recover by reading the tree:
@@ -1085,7 +1114,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val reviewer = new FakeAgent(
       name = "loud",
       outputs = List(
-        ReviewResult(List(issue("real bug"), issue("nit"))),
+        ReviewResult(List(finding("real bug"), finding("nit"))),
         ReviewResult.empty
       )
     )
@@ -1094,7 +1123,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       outputs = List(
         FixOutcome(
           List(Title("real bug")),
-          List(IgnoredIssue(Title("nit"), "the shape is deliberate"))
+          List(DeclinedFinding(Title("nit"), "the shape is deliberate"))
         )
       )
     )
@@ -1121,10 +1150,10 @@ class ReviewAndFixTest extends munit.FunSuite:
     "an agentDriven reviewerSelection narrows the active set via its picker LLM"
   ):
     given FlowControl = control
-    val issueX = issue("only-x")
+    val findingX = finding("only-x")
     val reviewerX = new FakeAgent(
       name = "x",
-      outputs = List(ReviewResult(List(issueX)))
+      outputs = List(ReviewResult(List(findingX)))
     )
     val reviewerY = new FakeAgent(
       name = "y"
@@ -1137,8 +1166,9 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
     val coder = new FakeAgent(
       name = "coder",
-      outputs =
-        List(FixOutcome(Nil, List(IgnoredIssue(Title("only-x"), "accepted"))))
+      outputs = List(
+        FixOutcome(Nil, List(DeclinedFinding(Title("only-x"), "accepted")))
+      )
     )
     val result = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
@@ -1148,8 +1178,8 @@ class ReviewAndFixTest extends munit.FunSuite:
       diff = ReviewDiff.Pinned("")
     )
     assertEquals(
-      result.issues,
-      List(IgnoredIssue(Title("only-x"), "accepted"))
+      result.findings,
+      List(OpenFinding(Title("only-x"), OpenReason.Declined("accepted"), None))
     )
 
   test(
@@ -1161,17 +1191,17 @@ class ReviewAndFixTest extends munit.FunSuite:
     // the default picker draws the reviewer pick from the coder's outputs
     // (then the fix) — proving selection routed through the context's lead.
     // "y" (empty outputs) would throw if the picker failed to narrow it out.
-    val issueX = issue("only-x")
+    val findingX = finding("only-x")
     val reviewerX = new FakeAgent(
       name = "x",
-      outputs = List(ReviewResult(List(issueX)))
+      outputs = List(ReviewResult(List(findingX)))
     )
     val reviewerY = new FakeAgent(name = "y")
     val coder = new FakeAgent(
       name = "coder",
       outputs = List(
         SelectedReviewers(List("x")),
-        FixOutcome(Nil, List(IgnoredIssue(Title("only-x"), "accepted")))
+        FixOutcome(Nil, List(DeclinedFinding(Title("only-x"), "accepted")))
       )
     )
     given FlowControl =
@@ -1183,8 +1213,8 @@ class ReviewAndFixTest extends munit.FunSuite:
       diff = ReviewDiff.Pinned("")
     )
     assertEquals(
-      result.issues,
-      List(IgnoredIssue(Title("only-x"), "accepted"))
+      result.findings,
+      List(OpenFinding(Title("only-x"), OpenReason.Declined("accepted"), None))
     )
     assert(reviewerX.seenSessions.nonEmpty, "the picked reviewer must run")
     assert(
@@ -1202,7 +1232,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       new FakeAgent(name = "quiet", outputs = List.fill(3)(ReviewResult.empty))
     val loud = new FakeAgent(
       name = "loud",
-      outputs = List.fill(3)(ReviewResult(List(issue("stubborn"))))
+      outputs = List.fill(3)(ReviewResult(List(finding("stubborn"))))
     )
     val coder = new FakeAgent(
       name = "coder",
@@ -1232,7 +1262,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       new FakeAgent(name = "quiet", outputs = List.fill(3)(ReviewResult.empty))
     val summariser = new FakeAgent(
       name = "summariser",
-      outputs = List.fill(3)(ReviewResult(List(issue("lint-found"))))
+      outputs = List.fill(3)(ReviewResult(List(finding("lint-found"))))
     )
     val coder = new FakeAgent(
       name = "coder",
@@ -1260,17 +1290,18 @@ class ReviewAndFixTest extends munit.FunSuite:
     "explicit allEveryRound reviewerSelection skips the LLM picker entirely"
   ):
     given FlowControl = control
-    val issueX = issue("only-x")
+    val findingX = finding("only-x")
     val reviewerX = new FakeAgent(
       name = "x",
-      outputs = List(ReviewResult(List(issueX)))
+      outputs = List(ReviewResult(List(findingX)))
     )
     // The coder's promptOutputs is empty: if the loop wrongly invokes the
     // picker against `coder`, the empty iterator throws and the test fails.
     val coder = new FakeAgent(
       name = "coder",
-      outputs =
-        List(FixOutcome(Nil, List(IgnoredIssue(Title("only-x"), "accepted"))))
+      outputs = List(
+        FixOutcome(Nil, List(DeclinedFinding(Title("only-x"), "accepted")))
+      )
     )
     val result = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
@@ -1280,8 +1311,8 @@ class ReviewAndFixTest extends munit.FunSuite:
       diff = ReviewDiff.Pinned("")
     )
     assertEquals(
-      result.issues,
-      List(IgnoredIssue(Title("only-x"), "accepted"))
+      result.findings,
+      List(OpenFinding(Title("only-x"), OpenReason.Declined("accepted"), None))
     )
 
   test("the round's opening Step names every agent it runs"):
@@ -1469,14 +1500,14 @@ class ReviewAndFixTest extends munit.FunSuite:
 
   test("formatCommands run before every review round (impl + each fix)"):
     given FlowControl = control
-    // The formatter appends one line per run. Two review rounds (issue → fix,
+    // The formatter appends one line per run. Two review rounds (finding → fix,
     // then clean) mean it must run twice — once before reviewing the
     // implementation, once before re-reviewing the fix.
     val counter = TempDirs.dir() / "fmt-count"
     val reviewer = new FakeAgent(
       name = "r",
       outputs =
-        List(ReviewResult(List(issue("needs fixing"))), ReviewResult.empty)
+        List(ReviewResult(List(finding("needs fixing"))), ReviewResult.empty)
     )
     val coder = new FakeAgent(
       name = "coder",
@@ -1558,7 +1589,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val fmtLog = TempDirs.dir() / "fmt-log"
     val lead = new FakeAgent(
       name = "lead",
-      outputs = List(ReviewResult(List(issue("lint-found"))))
+      outputs = List(ReviewResult(List(finding("lint-found"))))
     )
     given FlowControl = ReviewLoopFixture.control(
       new EventDispatcher(Nil),
@@ -1572,7 +1603,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val coder = new FakeAgent(
       name = "coder",
       outputs = List(
-        FixOutcome(Nil, List(IgnoredIssue(Title("lint-found"), "accepted")))
+        FixOutcome(Nil, List(DeclinedFinding(Title("lint-found"), "accepted")))
       )
     )
     val result = reviewAndFixLoop(
@@ -1584,8 +1615,10 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
     assertEquals(os.read.lines(fmtLog).toList, List("first", "second"))
     assertEquals(
-      result.issues,
-      List(IgnoredIssue(Title("lint-found"), "accepted"))
+      result.findings,
+      List(
+        OpenFinding(Title("lint-found"), OpenReason.Declined("accepted"), None)
+      )
     )
 
   test("FromSettings + empty settings: no format, no lint (≡ omission)"):
@@ -1602,7 +1635,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewerSelection = ReviewerSelector.allEveryRound,
       diff = ReviewDiff.Pinned("")
     )
-    assertEquals(result, IgnoredIssues(Nil))
+    assertEquals(result, OpenFindings(Nil))
 
   test("Configured.Off keeps both gates off despite non-empty settings"):
     // Settings define format + lint, but the call opts out. The format
@@ -1627,7 +1660,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       lint = Configured.Off,
       diff = ReviewDiff.Pinned("")
     )
-    assertEquals(result, IgnoredIssues(Nil))
+    assertEquals(result, OpenFindings(Nil))
     assert(!os.exists(fmtLog), "format must not run under Configured.Off")
 
   test("Configured.Use beats non-empty settings"):
@@ -1655,7 +1688,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       lint = Configured.Use(Lint(List("echo overridden"), summariser)),
       diff = ReviewDiff.Pinned("")
     )
-    assertEquals(result, IgnoredIssues(Nil))
+    assertEquals(result, OpenFindings(Nil))
     assertEquals(os.read.lines(fmtLog).toList, List("explicit"))
 
   test("reviewer LLM runs are tagged with the cost role"):
@@ -1693,13 +1726,14 @@ class ReviewAndFixTest extends munit.FunSuite:
     given FlowControl = control
     val rosterX = new FakeAgent(
       name = "x",
-      outputs = List(ReviewResult(List(issue("from-x"))))
+      outputs = List(ReviewResult(List(finding("from-x"))))
     )
     val rosterY = new FakeAgent(name = "y") // no outputs: throws if run
     val onlyX = selector((all, _) => all.filter(_.name == "x"))
     val coder = new FakeAgent(
       name = "coder",
-      outputs = List(FixOutcome(Nil, List(IgnoredIssue(Title("from-x"), "ok"))))
+      outputs =
+        List(FixOutcome(Nil, List(DeclinedFinding(Title("from-x"), "ok"))))
     )
     val result = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
@@ -1708,7 +1742,10 @@ class ReviewAndFixTest extends munit.FunSuite:
       task = titled("roster-bound selection"),
       diff = ReviewDiff.Pinned("")
     )
-    assertEquals(result.issues, List(IgnoredIssue(Title("from-x"), "ok")))
+    assertEquals(
+      result.findings,
+      List(OpenFinding(Title("from-x"), OpenReason.Declined("ok"), None))
+    )
     assert(rosterX.seenSessions.nonEmpty, "the selected reviewer must run")
     assert(
       rosterY.seenSessions.isEmpty,
@@ -1717,7 +1754,7 @@ class ReviewAndFixTest extends munit.FunSuite:
 
   test("an empty selection runs no reviewers and stops the round honestly"):
     // An empty selection means exactly what it says: no reviewers run this
-    // round. With no issues found, the shared stop policy converges — the loop
+    // round. With nothing found, the shared stop policy converges — the loop
     // never resurrects the roster behind the selector's back, and the
     // (empty-output) coder is never asked to fix anything. The round says so,
     // since converging on nothing is otherwise indistinguishable from a clean
@@ -1740,48 +1777,14 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
     assertEquals(
       result,
-      IgnoredIssues(Nil),
-      "empty selection ⇒ no issues ⇒ loop stops with nothing accumulated"
+      OpenFindings(Nil),
+      "empty selection ⇒ no findings ⇒ loop stops with nothing accumulated"
     )
     val emitted = steps.messages
     assert(
       emitted.contains("reviewer selection returned no reviewers this round"),
       emitted.mkString("\n")
     )
-
-  test("a reviewer joining a later round is told what the fixer declined"):
-    // The declines are the one thing a reviewer cannot recover by reading the
-    // code, and a late joiner's prompt is the initial one, not a resume.
-    given FlowControl = control
-    val early = new FakeAgent(
-      name = "early",
-      outputs = List(
-        ReviewResult(List(issue("real bug"), issue("nit"))),
-        ReviewResult.empty
-      )
-    )
-    val late = new FakeAgent("late", outputs = List(ReviewResult.empty))
-    val coder = new FakeAgent(
-      name = "coder",
-      outputs = List(
-        FixOutcome(
-          List(Title("real bug")),
-          List(IgnoredIssue(Title("nit"), "the shape is deliberate"))
-        )
-      )
-    )
-    val lateJoiner = selector: (all, history) =>
-      if history.isEmpty then all.filter(_.name == "early") else all
-    val _ = reviewAndFixLoop(
-      coderSession = ReviewLoopFixture.coderSession(coder),
-      reviewers = List(asReviewer(early), asReviewer(late)),
-      task = titled("build the widget"),
-      reviewerSelection = lateJoiner,
-      diff = ReviewDiff.Pinned("")
-    )
-    val joined = late.seenPrompts.headOption
-      .getOrElse(fail("the late reviewer never ran"))
-    assert(joined.contains("- nit: the shape is deliberate"), joined)
 
   test("a selector returning the same entry twice runs it once that round"):
     // Entries carry a `ReviewerId`, so `active.distinctBy(_.id)` collapses an
@@ -1791,12 +1794,13 @@ class ReviewAndFixTest extends munit.FunSuite:
     given FlowControl = control
     val rosterX = new FakeAgent(
       name = "x",
-      outputs = List(ReviewResult(List(issue("from-x"))))
+      outputs = List(ReviewResult(List(finding("from-x"))))
     )
     val dupSelector = selector((all, _) => all ++ all)
     val coder = new FakeAgent(
       name = "coder",
-      outputs = List(FixOutcome(Nil, List(IgnoredIssue(Title("from-x"), "ok"))))
+      outputs =
+        List(FixOutcome(Nil, List(DeclinedFinding(Title("from-x"), "ok"))))
     )
     val result = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
@@ -1806,7 +1810,10 @@ class ReviewAndFixTest extends munit.FunSuite:
       diff = ReviewDiff.Pinned("")
     )
     assertEquals(rosterX.seenSessions.size, 1)
-    assertEquals(result.issues, List(IgnoredIssue(Title("from-x"), "ok")))
+    assertEquals(
+      result.findings,
+      List(OpenFinding(Title("from-x"), OpenReason.Declined("ok"), None))
+    )
 
   test(
     "fix turn seeds a fresh coder session but not a live one"
@@ -1825,11 +1832,11 @@ class ReviewAndFixTest extends munit.FunSuite:
       given FlowControl = control
       val coder = new SeedProbingCoder(
         existsResult = existsResult,
-        fixOutcome = FixOutcome(Nil, List(IgnoredIssue(Title("x"), "ok")))
+        fixOutcome = FixOutcome(Nil, List(DeclinedFinding(Title("x"), "ok")))
       )
       val reviewer = new FakeAgent(
         name = "r",
-        outputs = List(ReviewResult(List(issue("x"))))
+        outputs = List(ReviewResult(List(finding("x"))))
       )
       val _ = reviewAndFixLoop(
         coderSession = ReviewLoopFixture.coderSession(coder),
