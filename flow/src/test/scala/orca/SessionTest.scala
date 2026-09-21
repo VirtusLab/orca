@@ -65,6 +65,9 @@ class SessionTest extends FunSuite:
 
   private val commitMessage: Option[String => String] = Some(_ => "m")
 
+  /** For an outer stage whose result is the ids its inner stages minted. */
+  private val idsCommitMessage: Option[List[String] => String] = Some(_ => "m")
+
   test("a mint outside every stage is keyed to the flow body"):
     val dir = TempDirs.dir()
     val agent = new StubAgent
@@ -139,6 +142,46 @@ class SessionTest extends FunSuite:
     assert(
       !recorded.contains(resumed(2)),
       s"the iteration that never ran must mint fresh; got: ${resumed(2)}"
+    )
+
+  test("a mint inside a nested stage is keyed to the inner stage's path"):
+    val (fc, dir) = TestFlowControl.create(new EventDispatcher(Nil))
+    given FlowControl = fc
+    val agent = new StubAgent
+    val _ = stage("Implement", commitMessage):
+      stage("Task", commitMessage):
+        agent.session("implementer", seed = "brief").id.value
+    assertEquals(records(dir).map(_.stage), List("Implement#0/Task#0"))
+
+  test("two inner stages under one outer mint two sessions"):
+    val (fc, _) = TestFlowControl.create(new EventDispatcher(Nil))
+    given FlowControl = fc
+    val agent = new StubAgent
+    val ids = stage("Implement", idsCommitMessage):
+      for _ <- (0 until 2).toList
+      yield stage("Task", commitMessage):
+        agent.session("implementer", seed = "brief").id.value
+    assertEquals(ids.distinct.size, 2, s"expected two sessions; got: $ids")
+
+  test("an inner stage re-run on resume resolves its own recorded session"):
+    // A failing inner stage takes its outer down, so the resume re-runs the
+    // outer: the completed inner replays, and the failed one must land back on
+    // the id recorded under its own nested path.
+    val (fc, dir) = TestFlowControl.create(new EventDispatcher(Nil))
+    val agent = new StubAgent
+    def run(failAt: Option[Int])(using FlowControl): List[String] =
+      stage("Implement", idsCommitMessage):
+        for i <- (0 until 2).toList
+        yield stage("Task", commitMessage):
+          val id = agent.session("implementer", seed = "brief").id.value
+          if failAt.contains(i) then throw new RuntimeException(id)
+          id
+    val _ = intercept[RuntimeException](run(Some(1))(using fc))
+    val recorded = records(dir).map(_.id)
+    assertEquals(
+      run(None)(using control(dir)),
+      recorded,
+      "the replayed and the re-run inner stage each land on their own record"
     )
 
   test("a re-run stage does not adopt a replayed stage's session"):
