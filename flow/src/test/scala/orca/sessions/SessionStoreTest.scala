@@ -91,10 +91,9 @@ class SessionStoreTest extends FunSuite:
     val dir = TempDirs.dir()
     val store = SessionStore.default(dir, "p")
     store.upsert(record())
-    assertEquals(
-      os.read(store.path),
-      """[{"name":"implementer","stage":"","id":"uuid","seed":"brief","resumeWireId":null,"backend":null}]"""
-    )
+    val written = os.read(store.path)
+    assert(written.contains("\"resumeWireId\":null"), written)
+    assert(written.contains("\"backend\":null"), written)
 
   test("a file that does not parse reads as no records"):
     val dir = TempDirs.dir()

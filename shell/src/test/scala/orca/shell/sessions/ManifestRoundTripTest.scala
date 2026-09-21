@@ -24,6 +24,8 @@ class ManifestRoundTripTest extends munit.FunSuite:
     "a durable, resumable session survives the real writer -> real reader round trip"
   ):
     val workDir = TempDirs.dir()
+    val coderKey =
+      SessionKey(name = "coder", stage = StagePath.FlowBody.child("Task 2", 0))
     supervised:
       given BufferCapacity = BufferCapacity(8)
       val writer = RunManifestWriter.start(
@@ -38,9 +40,7 @@ class ManifestRoundTripTest extends munit.FunSuite:
           harness = "claude",
           clientId = "client-1",
           wireId = Some("wire-1"),
-          sessionKey = Some(
-            SessionKey(name = "coder", stage = StagePath.fromValue("Task 2#0"))
-          ),
+          sessionKey = Some(coderKey),
           agent = "claude",
           role = None
         )
@@ -67,7 +67,7 @@ class ManifestRoundTripTest extends munit.FunSuite:
     assertEquals(session.resumable, true)
     assertEquals(
       session.mintedKey,
-      Some(SessionKey(name = "coder", stage = StagePath.fromValue("Task 2#0")))
+      Some(coderKey)
     )
     assertEquals(session.stage, Some("code"))
     // The same run wrote a `-cost.jsonl` beside the manifest (the TokensUsed

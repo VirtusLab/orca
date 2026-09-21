@@ -145,23 +145,20 @@ class SessionTest extends FunSuite:
     )
 
   test("a mint inside a nested stage is keyed to the inner stage's path"):
+    // Two inner stages, so the assertion pins both halves of the nested key:
+    // the outer prefix each inner path carries, and an occurrence counter that
+    // runs per scope rather than across the whole run.
     val (fc, dir) = TestFlowControl.create(new EventDispatcher(Nil))
     given FlowControl = fc
     val agent = new StubAgent
-    val _ = stage("Implement", commitMessage):
-      stage("Task", commitMessage):
-        agent.session("implementer", seed = "brief").id.value
-    assertEquals(records(dir).map(_.stage), List("Implement#0/Task#0"))
-
-  test("two inner stages under one outer mint two sessions"):
-    val (fc, _) = TestFlowControl.create(new EventDispatcher(Nil))
-    given FlowControl = fc
-    val agent = new StubAgent
-    val ids = stage("Implement", idsCommitMessage):
+    val _ = stage("Implement", idsCommitMessage):
       for _ <- (0 until 2).toList
       yield stage("Task", commitMessage):
         agent.session("implementer", seed = "brief").id.value
-    assertEquals(ids.distinct.size, 2, s"expected two sessions; got: $ids")
+    assertEquals(
+      records(dir).map(_.stage),
+      List("Implement#0/Task#0", "Implement#0/Task#1")
+    )
 
   test("an inner stage re-run on resume resolves its own recorded session"):
     // A failing inner stage takes its outer down, so the resume re-runs the

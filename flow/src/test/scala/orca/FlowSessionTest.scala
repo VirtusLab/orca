@@ -75,7 +75,7 @@ class FlowSessionTest extends FunSuite:
 
   /** The key every test's [[FlowSession]] is minted under. */
   private val testSessionKey =
-    SessionKey(name = "coder", stage = StagePath.fromValue("Task 2#0"))
+    SessionKey(name = "coder", stage = StagePath.FlowBody.child("Task 2", 0))
 
   /** A structured result type for exercising the `resultAs[O]` durable door. */
   private case class StubResult(v: String) derives JsonData

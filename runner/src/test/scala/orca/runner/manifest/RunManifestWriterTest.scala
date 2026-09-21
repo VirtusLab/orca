@@ -24,6 +24,10 @@ import java.time.Instant
   */
 class RunManifestWriterTest extends munit.FunSuite:
 
+  /** The key the durable-session cases commit under and expect back. */
+  private val coderKey =
+    SessionKey(name = "coder", stage = StagePath.FlowBody.child("Task 2", 0))
+
   private def fixedClock(instants: Instant*): () => Instant =
     val it = instants.iterator
     () => if it.hasNext then it.next() else instants.last
@@ -187,9 +191,7 @@ class RunManifestWriterTest extends munit.FunSuite:
         harness = "claude",
         clientId = "durable-client",
         wireId = Some("w1"),
-        sessionKey = Some(
-          SessionKey(name = "coder", stage = StagePath.fromValue("Task 2#0"))
-        ),
+        sessionKey = Some(coderKey),
         agent = "claude",
         role = None
       )
@@ -210,7 +212,7 @@ class RunManifestWriterTest extends munit.FunSuite:
     assertEquals(durable.kind, ManifestSessionKind.Durable)
     assertEquals(
       durable.mintedKey,
-      Some(SessionKey(name = "coder", stage = StagePath.fromValue("Task 2#0")))
+      Some(coderKey)
     )
     assertEquals(oneShot.kind, ManifestSessionKind.OneShot)
     assertEquals(oneShot.mintedKey, None)
@@ -224,9 +226,7 @@ class RunManifestWriterTest extends munit.FunSuite:
         harness = "claude",
         clientId = "client-1",
         wireId = Some("wire-1"),
-        sessionKey = Some(
-          SessionKey(name = "coder", stage = StagePath.fromValue("Task 2#0"))
-        ),
+        sessionKey = Some(coderKey),
         agent = "claude",
         role = None
       )
@@ -245,7 +245,7 @@ class RunManifestWriterTest extends munit.FunSuite:
     assertEquals(sessions.size, 1, "same dedup key must upsert, not append")
     assertEquals(
       sessions.head.mintedKey,
-      Some(SessionKey(name = "coder", stage = StagePath.fromValue("Task 2#0")))
+      Some(coderKey)
     )
     assertEquals(sessions.head.kind, ManifestSessionKind.Durable)
 

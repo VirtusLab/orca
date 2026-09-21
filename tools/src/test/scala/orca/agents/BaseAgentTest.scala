@@ -445,6 +445,8 @@ class BaseAgentTest extends munit.FunSuite:
   // groups its lineages by it, so the key a `FlowSession` hands to
   // `runWithSession` has to survive to the event whole.
   test("a named session's key reaches SessionCommitted"):
+    val coderKey =
+      SessionKey(name = "coder", stage = StagePath.FlowBody.child("Task 2", 0))
     val seen =
       new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
     val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
@@ -453,9 +455,7 @@ class BaseAgentTest extends munit.FunSuite:
     val _ = tool.autonomous.runWithSession(
       "prompt",
       SessionId.fresh[BackendTag.Pi.type],
-      sessionKey = Some(
-        SessionKey(name = "coder", stage = StagePath.fromValue("Task 2#0"))
-      ),
+      sessionKey = Some(coderKey),
       config = None,
       emitPrompt = true
     )
@@ -463,11 +463,7 @@ class BaseAgentTest extends munit.FunSuite:
       seen.get().collect { case e: OrcaEvent.SessionCommitted =>
         e.sessionKey
       },
-      List(
-        Some(
-          SessionKey(name = "coder", stage = StagePath.fromValue("Task 2#0"))
-        )
-      )
+      List(Some(coderKey))
     )
 
   // A turn joins to the session that produced it only if it names that session

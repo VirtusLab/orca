@@ -986,7 +986,7 @@ class CliTest extends munit.FunSuite:
         Some(
           SessionKey(
             name = "implementer",
-            stage = StagePath.fromValue("Task: wire the parser#0")
+            stage = StagePath.FlowBody.child("Task: wire the parser", 0)
           )
         )
       )
