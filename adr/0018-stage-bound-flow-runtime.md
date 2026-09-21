@@ -749,6 +749,18 @@ list output and opencode's directory-scoping should be pinned when the probes la
 > adopts the first attempt's occurrence 0 — a different session. That is the same
 > silent-aliasing class this change exists to remove, so no occurrence counter.
 >
+> The path id it keys on carries a positional component of its own, inherited
+> from §2.1 rather than introduced here: a stage body that re-runs and opens a
+> different number of same-named nested stages on the second pass shifts those
+> inner path ids, and the keys of the sessions minted inside them shift with
+> them. A slot that replays from the log mints nothing, so a shifted mint lands
+> either past everything the first pass recorded — a fresh session primed from
+> the seed, the uniform fallback — or on the slot of the stage whose failure
+> caused the re-run, continuing that stage's conversation. Two same-named stages
+> at one occurrence in one scope being one identity is what §2.1's ids already
+> say; the session key now says it too. No shipped flow opens a varying number of
+> same-named nested stages.
+>
 > Identity and label separate here. Identity wants the stage *id*, which is
 > unique and carries `#0` occurrence suffixes; a label wants prose. A fused key
 > would have to either render the raw id into a picker row
@@ -786,6 +798,20 @@ list output and opencode's directory-scoping should be pinned when the probes la
 > worktree, exactly as the progress log does — so the resumed run reads its own
 > records. A process killed before any teardown leaves the file in place, which is
 > the point.
+>
+> **Why not the run manifest.** The manifest is untracked and event-derived too,
+> carries `sessionName`, `sessionStage` and a wire id, and `orca continue` reads
+> it back across processes — but it recovers sessions for a person choosing one
+> to continue, and the store for a run resuming itself. It is keyed by run
+> instance (`.orca/cache/runs/<startedAt epoch ms>-<pid>.json`), so a resumed run
+> writes a new file and reading records back would mean scanning the runs
+> directory and disambiguating; the store's path comes from the prompt hash, as
+> the log's does. Manifests are pruned to a bounded number of runs
+> (`RunManifestWriter.pruneOldRuns`), so retention can drop a record whose run is
+> still resumable. `ManifestSession` carries no seed, and the seed is what
+> re-primes a session whose backend conversation is gone. The direction is
+> opposite as well: the manifest is output a listener writes for the shell; the
+> store is input the run reads back mid-flight (`resolveSessionId`).
 >
 > **What it costs.** `ProgressLog` loses its `sessions` field. A log an older orca
 > wrote still decodes (the array is an unknown key, skipped), so an in-flight run
