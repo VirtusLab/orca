@@ -22,17 +22,23 @@ the task yourself when that fits better.
 Requires `orca` installed (one-line curl install — see the README's
 "Getting set up" / "Orca Shell" sections).
 
-Capture the output in a temporary file, and give the user its path before
-the run starts, so they can follow it (`tail -f`):
+Capture the output in a temporary file, so the user can follow it
+(`tail -f`). Runs are long, so use two separate commands:
 
-```bash
-log=$(mktemp -t orca-run.XXXXXX.log)
-echo "Orca output: $log"
-orca run implement.sc "<task description>" > "$log" 2>&1
-```
+1. Create the file, and give the user its path before starting the run:
 
-Read the file (e.g. its tail) to check the result; repeat its path in your
-final report.
+   ```bash
+   mktemp -t orca-run.XXXXXX.log
+   ```
+
+2. Start the run in the background, with the literal path from step 1:
+
+   ```bash
+   orca run implement.sc "<task description>" > <path> 2>&1; echo "orca exit code: $?" >> <path>
+   ```
+
+When it finishes, read the file's tail to check the result; repeat its path
+in your final report.
 
 `implement.sc` is the default flow; run `orca list` to see other flows
 across the project/global/built-in tiers.
