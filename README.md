@@ -336,7 +336,9 @@ Each `flow(...)` run is bound to exactly one feature branch and one progress log
 - **Start:** stash a dirty working tree with a warning (recover with `git stash
   pop`); create + checkout the feature branch; write and commit the progress log
   header. The three flags below reach a flow as one `OrcaArgs.target`
-  (`RunTarget`), which has no case for a combination orca refuses.
+  (`RunTarget`), which has no case for a combination orca refuses. A script can
+  also set that field itself — `flow(OrcaArgs(args).copy(target =
+  RunTarget.Worktree))` — which overrides whatever the flags said.
   `--skip-branch` (`RunTarget.CurrentBranch`) binds the run to the CURRENT
   branch instead of creating one — for continuing work already planned on a
   branch — refusing on a protected branch or detached HEAD. On a FRESH
