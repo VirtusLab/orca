@@ -74,7 +74,7 @@ object Pricing:
   private val AliasSuffix: String = "[1m]"
 
   /** An Anthropic row from its input rate alone: they all follow the published
-    * ratios — cache read 0.10× input, output 5×, cache write 2×.
+    * ratios — cache read 0.10× input (unless given), output 5×, cache write 2×.
     *
     * The 2× is the one-hour-TTL tier. Claude Code requests `ttl: "1h"`, and the
     * CLI's own usage breakdown confirms it: across measured runs every
@@ -84,9 +84,15 @@ object Pricing:
     * override the table for pi-heavy use.
     */
   private def anthropic(inputUsdPerMillion: BigDecimal): ModelPricing =
+    anthropic(inputUsdPerMillion, inputUsdPerMillion * BigDecimal("0.10"))
+
+  private def anthropic(
+      inputUsdPerMillion: BigDecimal,
+      cacheReadUsdPerMillion: BigDecimal
+  ): ModelPricing =
     ModelPricing(
       inputUsdPerMillion = inputUsdPerMillion,
-      cacheReadUsdPerMillion = inputUsdPerMillion * BigDecimal("0.10"),
+      cacheReadUsdPerMillion = cacheReadUsdPerMillion,
       outputUsdPerMillion = inputUsdPerMillion * 5,
       cacheWriteUsdPerMillion = inputUsdPerMillion * 2
     )
@@ -183,31 +189,53 @@ object Pricing:
       // from the CLI, so these are mostly safety nets for sessions that didn't
       // surface the field — and the CLI computes that figure at these same
       // sticker rates.
+      Model("claude-fable-5-1") -> anthropic(10, BigDecimal("0.25")),
       Model("claude-fable-5") -> anthropic(10),
       // Invitation-only, so no backend default pins it and
-      // `DefaultModelsPricedTest` never reaches this row — without it a mythos
-      // turn shows tokens against no dollars.
+      // `DefaultModelsPricedTest` never reaches these rows — without them a
+      // mythos turn shows tokens against no dollars.
+      Model("claude-mythos-5-1") -> anthropic(10, BigDecimal("0.25")),
       Model("claude-mythos-5") -> anthropic(10),
+      Model("claude-opus-5-5") -> anthropic(4, BigDecimal("0.20")),
       Model("claude-opus-5") -> anthropic(5),
       Model("claude-opus-4-8") -> anthropic(5),
       Model("claude-opus-4-7") -> anthropic(5),
       Model("claude-opus-4-6") -> anthropic(5),
       Model("claude-opus-4-5") -> anthropic(5),
       Model("claude-opus-4-1") -> anthropic(15),
-      // Sonnet's sticker input rate. Anthropic's introductory $2/$10 promotion
-      // ends 2026-08-31, after which the standard $3/$15 encoded here applies.
-      Model("claude-sonnet-5") -> anthropic(3),
+      Model("claude-sonnet-5") -> anthropic(2),
       Model("claude-sonnet-4-6") -> anthropic(3),
       Model("claude-sonnet-4-5") -> anthropic(3),
       Model("claude-haiku-4-5") -> anthropic(1),
       // --- OpenAI (codex, opencode) ---
-      // The GPT-5.6 family prices cache writes separately, at 1.25× input;
-      // earlier models have no write charge, so their rate is plain input.
+      // The GPT-5.6 and GPT-6 families price cache writes separately, at 1.25×
+      // input; earlier models have no write charge, so their rate is plain
+      // input. These are the short-context rates: prompts above 272K tokens
+      // bill higher, so long-context turns are under-estimated.
+      Model("gpt-6-astra") -> ModelPricing(
+        inputUsdPerMillion = 10,
+        cacheReadUsdPerMillion = 1,
+        outputUsdPerMillion = 50,
+        cacheWriteUsdPerMillion = 12.50
+      ),
+      Model("gpt-6-sol") -> ModelPricing(
+        inputUsdPerMillion = 2,
+        cacheReadUsdPerMillion = 0.20,
+        outputUsdPerMillion = 10,
+        cacheWriteUsdPerMillion = 2.50
+      ),
+      Model("gpt-6-luna") -> ModelPricing(
+        inputUsdPerMillion = 0.10,
+        cacheReadUsdPerMillion = 0.01,
+        outputUsdPerMillion = 0.50,
+        cacheWriteUsdPerMillion = 0.125
+      ),
+      // Promotional rate, announced to last at least through 2026-11-21.
       Model("gpt-5.6-sol") -> ModelPricing(
-        inputUsdPerMillion = 5,
-        cacheReadUsdPerMillion = 0.50,
-        outputUsdPerMillion = 30,
-        cacheWriteUsdPerMillion = 6.25
+        inputUsdPerMillion = 4,
+        cacheReadUsdPerMillion = 0.40,
+        outputUsdPerMillion = 20,
+        cacheWriteUsdPerMillion = 5
       ),
       Model("gpt-5.6-terra") -> ModelPricing(
         inputUsdPerMillion = 2.00,
@@ -239,21 +267,40 @@ object Pricing:
         outputUsdPerMillion = 0.40,
         cacheWriteUsdPerMillion = 0.05
       ),
-      // codex CLI 0.125.x default
       Model("gpt-5.4-mini") -> ModelPricing(
         inputUsdPerMillion = 0.75,
         cacheReadUsdPerMillion = 0.075,
         outputUsdPerMillion = 4.50,
         cacheWriteUsdPerMillion = 0.75
       ),
-      // Gemini (paid tier). 2.5 Pro is tiered on prompt size; these are the
-      // ≤200k-token rates — prompts above 200k bill double ($2.50 in / $15
+      // Gemini (paid tier). Pro is tiered on prompt size; these are the
+      // ≤200k-token rates — prompts above 200k bill more (3.1 Pro: $4 in / $18
       // out), so a long-context flow, which is the usual shape here, is
-      // UNDER-estimated by up to half. gemini emits no cost on the wire, so these
-      // table rates × token counts are the only cost signal. The cache-write
-      // rate is inert — the adapter never reports writes — and is set to the
-      // input rate: implicit caching has no write charge, and explicit
-      // caching bills storage per hour, which a token count can't express.
+      // UNDER-estimated. gemini emits no cost on the wire, so these table
+      // rates × token counts are the only cost signal. The cache-write rate is
+      // inert — the adapter never reports writes — and is set to the input
+      // rate: implicit caching has no write charge, and explicit caching bills
+      // storage per hour, which a token count can't express.
+      Model("gemini-3.1-pro-preview") -> ModelPricing(
+        inputUsdPerMillion = 2,
+        cacheReadUsdPerMillion = 0.20,
+        outputUsdPerMillion = 12,
+        cacheWriteUsdPerMillion = 2
+      ),
+      // Promotional rate until 2026-12-31; $1.50 / $0.15 / $7.50 from
+      // 2027-01-01.
+      Model("gemini-3.8-flash") -> ModelPricing(
+        inputUsdPerMillion = 0.75,
+        cacheReadUsdPerMillion = 0.075,
+        outputUsdPerMillion = 3.75,
+        cacheWriteUsdPerMillion = 0.75
+      ),
+      Model("gemini-3.5-flash") -> ModelPricing(
+        inputUsdPerMillion = 1.50,
+        cacheReadUsdPerMillion = 0.15,
+        outputUsdPerMillion = 9,
+        cacheWriteUsdPerMillion = 1.50
+      ),
       Model("gemini-2.5-pro") -> ModelPricing(
         inputUsdPerMillion = 1.25,
         cacheReadUsdPerMillion = 0.125,
@@ -267,5 +314,5 @@ object Pricing:
         cacheWriteUsdPerMillion = 0.30
       )
     ),
-    lastUpdated = LocalDate.of(2026, 8, 27)
+    lastUpdated = LocalDate.of(2026, 9, 22)
   )

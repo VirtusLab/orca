@@ -52,11 +52,12 @@ class DefaultGeminiAgentTest extends munit.FunSuite:
     ): tool =>
       val _ = tool.run("q")
       assert(
-        runner.calls.head.containsSlice(Seq("--model", "gemini-2.5-pro")),
+        runner.calls.head
+          .containsSlice(Seq("--model", "gemini-3.1-pro-preview")),
         s"expected the pro pin; got: ${runner.calls.head}"
       )
 
-  test("flash opts the model down to gemini-2.5-flash"):
+  test("flash opts the model down to gemini-3.8-flash"):
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     toolWith(
       runner,
@@ -64,7 +65,7 @@ class DefaultGeminiAgentTest extends munit.FunSuite:
     ): tool =>
       val _ = tool.flash.run("q")
       assert(
-        runner.calls.head.containsSlice(Seq("--model", "gemini-2.5-flash")),
+        runner.calls.head.containsSlice(Seq("--model", "gemini-3.8-flash")),
         s"expected the flash pin; got: ${runner.calls.head}"
       )
 

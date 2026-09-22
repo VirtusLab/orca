@@ -302,9 +302,9 @@ class RoleSettingsFlowTest extends munit.FunSuite:
     assertEquals(
       announcements,
       List(
-        "agents: planning=claude:claude-opus-5[1m] (default), " +
+        "agents: planning=claude:claude-opus-5-5[1m] (default), " +
           "coding=codex:<harness default> (project), " +
-          "review=claude:claude-opus-5[1m] (default)"
+          "review=claude:claude-opus-5-5[1m] (default)"
       ),
       s"expected the wired default model for the unpinned roles: ${steps.get()}"
     )
@@ -500,7 +500,7 @@ class RoleSettingsFlowTest extends munit.FunSuite:
     */
   private class DefaultModelClaude extends StubClaudeAgent("claude"):
     override private[orca] def configuredModel: Option[Model] =
-      Some(Model("claude-opus-5[1m]"))
+      Some(Model("claude-opus-5-5[1m]"))
 
   /** A `CodexAgent` stub: every builder returns `this`, every call throws. */
   private class StubCodex extends CodexAgent:
