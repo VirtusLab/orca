@@ -54,7 +54,7 @@ cat <<EOF
 
 Next steps:
   cd $DEST
-  scala-cli run implement-interactive.sc -- "$PROMPT"
+  scala-cli run --workspace "\$(mktemp -d)" implement-interactive.sc -- "$PROMPT"
 
 The trailing "Ask the user which." pushes the planner to call ask_user
 rather than guessing the operation. Type the answer at the prompt and

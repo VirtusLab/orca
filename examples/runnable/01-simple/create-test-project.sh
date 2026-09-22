@@ -50,5 +50,5 @@ cat <<EOF
 
 Next steps:
   cd $DEST
-  scala-cli run implement.sc -- "$PROMPT"
+  scala-cli run --workspace "\$(mktemp -d)" implement.sc -- "$PROMPT"
 EOF

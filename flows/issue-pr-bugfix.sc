@@ -41,8 +41,8 @@
   * query string or `#...` anchor):
   *
   * ```bash
-  * scala-cli run issue-pr-bugfix.sc -- "acme/widgets#42"
-  * scala-cli run issue-pr-bugfix.sc -- "https://github.com/acme/widgets/issues/42"
+  * scala-cli run --workspace "$(mktemp -d)" issue-pr-bugfix.sc -- "acme/widgets#42"
+  * scala-cli run --workspace "$(mktemp -d)" issue-pr-bugfix.sc -- "https://github.com/acme/widgets/issues/42"
   * ```
   *
   * Use the same form on re-runs: the progress log and the issue-comment marker

@@ -18,7 +18,7 @@
   * so and ends on the feature branch, work committed either way.
   *
   * ```bash
-  * scala-cli run implement-enhanced.sc -- "Add a multiply function to the calculator crate"
+  * scala-cli run --workspace "$(mktemp -d)" implement-enhanced.sc -- "Add a multiply function to the calculator crate"
   * ```
   *
   * Requires the configured role agents logged in (`claude` by default); `gh` is

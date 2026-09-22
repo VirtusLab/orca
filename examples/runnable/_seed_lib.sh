@@ -72,10 +72,14 @@ USAGE
 maybe_run() {
   local flow_script="$1" prompt="$2"
   [[ "${RUN:-0}" -eq 1 ]] || return 0
+  # Build elsewhere: a '.scala-build' in the seeded repo would leave the
+  # working tree dirty and send the flow down its auto-stash path.
+  local workspace
+  workspace="$(mktemp -d)"
   echo
-  echo "[orca] --run: cd $DEST && scala-cli run $flow_script -- \"$prompt\""
+  echo "[orca] --run: cd $DEST && scala-cli run --workspace $workspace $flow_script -- \"$prompt\""
   cd "$DEST"
-  exec scala-cli run "$flow_script" -- "$prompt"
+  exec scala-cli run --workspace "$workspace" "$flow_script" -- "$prompt"
 }
 
 # warn_run_unsupported <reason>

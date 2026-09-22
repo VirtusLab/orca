@@ -17,7 +17,7 @@
   * crate into a temp dir and copies this script alongside it; from there:
   *
   * ```bash
-  * scala-cli run implement.sc -- "Add a multiply function to the calculator crate"
+  * scala-cli run --workspace "$(mktemp -d)" implement.sc -- "Add a multiply function to the calculator crate"
   * ```
   *
   * Requires the configured role agents logged in (`claude` by default); `gh` is

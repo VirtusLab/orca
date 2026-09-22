@@ -15,7 +15,7 @@
   * `orca fork` it is always the latter: the authoring sandbox has no remote.
   *
   * ```bash
-  * scala-cli run simple.sc -- "Add a .gitignore entry for build artifacts"
+  * scala-cli run --workspace "$(mktemp -d)" simple.sc -- "Add a .gitignore entry for build artifacts"
   * ```
   *
   * Requires the configured role agents logged in (`claude` by default); `gh` is

@@ -29,8 +29,8 @@
   * `simple.sc`.
   *
   * ```bash
-  * scala-cli run review.sc -- "acme/widgets#42"
-  * scala-cli run review.sc -- "the uncommitted changes"
+  * scala-cli run --workspace "$(mktemp -d)" review.sc -- "acme/widgets#42"
+  * scala-cli run --workspace "$(mktemp -d)" review.sc -- "the uncommitted changes"
   * git diff | orca run review.sc
   * ```
   *
