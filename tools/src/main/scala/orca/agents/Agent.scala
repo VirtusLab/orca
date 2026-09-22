@@ -255,11 +255,12 @@ trait Agent[B <: BackendTag]:
     * (`_.claude.opus`, `.withReadOnly`, …) share the same token because they
     * share the same backend object; independently-built backends of the same
     * kind get different tokens even though [[backendTag]] can't tell them
-    * apart. [[orca.runner.DefaultFlowContext]] uses this to distinguish a
-    * selector-derived sibling of a wired agent (safe) from a foreign agent
-    * (event-blind, leaked past `close()`) — a plain `Agent eq Agent` check
-    * can't, since the wrappers differ. `BaseAgent` overrides it to the shared
-    * `AgentBackend.closedFlag` reference.
+    * apart. [[orca.runner.RoleAgents]] uses this (via
+    * `WiredAgents.isWiredBackend`) to tell a selector-derived sibling of a
+    * wired agent from a foreign agent, which is event-blind and must be closed
+    * separately — a plain `Agent eq Agent` check can't, since the wrappers
+    * differ. `BaseAgent` overrides it to the shared `AgentBackend.closedFlag`
+    * reference.
     *
     * Compared by REFERENCE (`eq`), never `==`: structural equality would
     * false-positive two independently-built backends as the same one.
@@ -303,7 +304,7 @@ trait Agent[B <: BackendTag]:
 
   /** Release background resources this agent's backend owns. Delegates to
     * [[orca.backend.AgentBackend.close]]; a stub without a backend keeps the
-    * no-op default. The runtime calls this from `DefaultFlowContext.close()`.
+    * no-op default. The runtime calls this when the flow run ends.
     */
   private[orca] def close(): Unit = ()
 

@@ -91,7 +91,7 @@ which predates both the `files:` key and the current body shape:
 
 ### Malformed files abort before any tree mutation
 
-Discovery runs inside `buildContext`'s `surfaced` bracket, after the settings
+Discovery runs inside `runInContext`'s `surfaced` bracket, after the settings
 read and **before** `FlowLifecycle.setup` — so a bad file stops the run before a
 branch is created or anything is written. Every bad file is named in one
 message, so a directory is fixed in one pass.
@@ -115,7 +115,7 @@ reading through a link there would make a file from outside the tree a
 reviewer's system prompt — ADR 0019's rule. Aborting rather than skipping,
 because a reviewer the user installed and never ran reads as a clean review.
 `os.isDir` follows links, so the tier directory itself is guarded by
-`OrcaDir.assertNoOrcaSymlinks` at the call site in `buildContext`.
+`OrcaDir.assertNoOrcaSymlinks` at the call site in `runInContext`.
 
 The **global** tier is read through links. It is the user's own config home, not
 untrusted input, and `settings.properties` beside it is already read that way —

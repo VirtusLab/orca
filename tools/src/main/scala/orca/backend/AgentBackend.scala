@@ -192,10 +192,11 @@ trait AgentBackend[B <: BackendTag](
   def structuredOutputMode: StructuredOutputMode
 
   /** Release background resources this backend owns (processes, servers, drain
-    * forks). Called by the runtime in the flow body's `finally`, BEFORE the
-    * flow scope joins its forks — a resource whose teardown unblocks a
-    * non-interruptible read must happen here, not in a `releaseAfterScope`
-    * finalizer (Ox runs those after the join). Idempotent; default no-op.
+    * forks). Called by the runtime when the run's resource scope ends, BEFORE
+    * the flow's `supervised` scope joins its forks — a resource whose teardown
+    * unblocks a non-interruptible read must be released here, not in a
+    * `supervised` scope's `releaseAfterScope` (Ox runs those after the join).
+    * Idempotent; default no-op.
     */
   def close(): Unit = ()
 
