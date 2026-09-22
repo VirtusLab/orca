@@ -21,10 +21,7 @@ enum Dispatch[B <: BackendTag]:
   case Fresh(claim: Option[WireSessionId[B]])
   case Resume(wireId: WireSessionId[B])
 
-  /** This dispatch with the wire ids dropped, as
-    * [[AgentBackend.enforcementCell]] takes it — that classification needs to
-    * know only which of the two this is.
-    */
+  /** As [[AgentBackend.enforcementCell]] takes it — wire ids dropped. */
   def asTurnDispatch: TurnDispatch = this match
     case Dispatch.Fresh(_)  => TurnDispatch.Fresh
     case Dispatch.Resume(_) => TurnDispatch.Resumed
@@ -94,9 +91,8 @@ final class SessionSupport[B <: BackendTag] private (
   private val wireIds =
     new java.util.concurrent.ConcurrentHashMap[String, String]()
 
-  /** The fresh-vs-resume decision for `client`: `Resume` with the wire id the
-    * conversation is live under, otherwise `Fresh` with a claim per the
-    * [[IdScheme]].
+  /** The fresh-vs-resume decision for `client`, with a claim per the
+    * [[IdScheme]] when it is fresh.
     */
   def dispatchFor(client: SessionId[B]): Dispatch[B] =
     resumeWire(client) match
@@ -154,18 +150,15 @@ final class SessionSupport[B <: BackendTag] private (
     val _ = wireIds.putIfAbsent(SessionId.value(client), wire)
 
   /** The wire id `client`'s next turn resumes against, or `None` when that turn
-    * opens a fresh conversation: the recorded mapping, else a claim the backend
-    * still holds. [[continuation]] answers the same question and says which of
-    * the two it was, so a dispatch can never resume a conversation the prompt
-    * side treats as gone.
+    * opens a fresh conversation. [[continuation]] answers the same question and
+    * says which of the two it was, so a dispatch can never resume a
+    * conversation the prompt side treats as gone.
     */
   private def resumeWire(client: SessionId[B]): Option[WireSessionId[B]] =
     recordedWire(client).orElse(heldClaim(client))
 
-  /** The wire id recorded for `client`, or `None` when no mapping is known.
-    * Every id in the map already passed [[orca.agents.SessionId.isSafe]] at its
-    * write door ([[register]] or [[commitAfterDrain]]), so no re-check is
-    * needed.
+  /** Every id in the map already passed [[orca.agents.SessionId.isSafe]] at its
+    * write door ([[register]] or [[commitAfterDrain]]), so no re-check here.
     */
   private def recordedWire(client: SessionId[B]): Option[WireSessionId[B]] =
     Option(wireIds.get(SessionId.value(client))).map(WireSessionId[B](_))
@@ -225,10 +218,7 @@ final class SessionSupport[B <: BackendTag] private (
 
   /** What the next call on `client` will do with the backend's conversation,
     * and — when it continues one — whether that conversation predates this run
-    * ([[Continuation.Claimed]]). The durable-session runtime asks this before
-    * deciding whether to re-inject the seed + progress preamble and whether to
-    * tell the conversation its uncommitted work is gone;
-    * [[Continuation.Rebuild]] is always safe.
+    * ([[Continuation.Claimed]]). [[Continuation.Rebuild]] is always safe.
     *
     * For a durable backend a recorded wire id is confirmed by the `probe`,
     * which must NOT create, mutate, or resume the session. An ephemeral backend

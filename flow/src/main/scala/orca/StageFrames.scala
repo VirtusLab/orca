@@ -51,14 +51,14 @@ private[orca] enum SessionTurn:
   *
   * Thread-affine: reached only through [[FlowControl]], single-threaded per
   * top-level `flow(...)` (R12, ADR 0018 §2.2), so plain vars state the real
-  * invariant. `ownerThread` (captured at construction) is asserted on
-  * [[enterStage]], [[exitStage]], and [[claimSessionKey]], so a stray call from
-  * an `ox.fork` — always a fresh thread on the pinned ox 1.0.5 — throws instead
-  * of silently corrupting the frame stack / counters. Ox runs a `supervised:`
-  * block's own body on a fresh fork too, so `stage(...)` from the direct body
-  * of a user-opened nested scope is rejected just like an explicit `fork`.
-  * Production is unaffected: `runFlow` constructs the context inside the same
-  * `supervised:` body that runs the flow, so owner and body thread coincide.
+  * invariant. `ownerThread` (captured at construction) is asserted on every
+  * door that touches them, so a stray call from an `ox.fork` — always a fresh
+  * thread on the pinned ox 1.0.5 — throws instead of silently corrupting the
+  * frame stack / counters. Ox runs a `supervised:` block's own body on a fresh
+  * fork too, so `stage(...)` from the direct body of a user-opened nested scope
+  * is rejected just like an explicit `fork`. Production is unaffected:
+  * `runFlow` constructs the context inside the same `supervised:` body that
+  * runs the flow, so owner and body thread coincide.
   *
   * '''This is the only enforcement of R12 for user flow scripts.''' The
   * capture/separation checking enforcement (ADR 0018 §6) catches a
@@ -172,8 +172,7 @@ private[orca] trait StageFrames:
     key
 
   // A session id is unique across the run, so one flat set covers it as the
-  // key set above covers keys. Plain var: the claim is reached only through the
-  // durable run doors, past their owner-thread assert.
+  // key set above covers keys.
   private var drivenSessions: Set[String] = Set.empty
 
   /** Claim `sessionId`'s next turn: [[SessionTurn.First]] exactly once per
@@ -184,6 +183,7 @@ private[orca] trait StageFrames:
     * again on its second.
     */
   private[orca] def claimTurn(sessionId: String): SessionTurn =
+    assertOwnerThread("session.run(...)")
     if drivenSessions.contains(sessionId) then SessionTurn.Later
     else
       drivenSessions = drivenSessions + sessionId
