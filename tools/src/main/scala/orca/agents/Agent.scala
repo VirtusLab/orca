@@ -361,7 +361,7 @@ trait CodexAgent extends Agent[BackendTag.Codex.type]:
   def mini: CodexAgent
 
   /** Pin any codex model the installed `codex-cli` offers, beyond `mini` — e.g.
-    * `codex.withModel(Model("gpt-5.6-sol"))`.
+    * `codex.withModel(Model("gpt-6-astra"))`.
     */
   def withModel(model: Model): CodexAgent
 
@@ -369,7 +369,7 @@ trait CodexAgent extends Agent[BackendTag.Codex.type]:
 
 /** OpenCode spans providers, so its model accessors are provider-prefixed (the
   * prefix keeps the vendor explicit at the call site). The openai accessors
-  * follow OpenAI's durable capability tiers — sol (flagship), terra (balanced),
+  * follow OpenAI's durable capability tiers — astra (flagship), sol (balanced),
   * luna (efficiency) — the same way the anthropic accessors follow
   * opus/sonnet/haiku. [[withModel]] takes any `provider/model` id — including
   * self-hosted ones, e.g. `ollama/llama3.1`.
@@ -378,8 +378,8 @@ trait OpencodeAgent extends Agent[BackendTag.Opencode.type]:
   def anthropicOpus: OpencodeAgent
   def anthropicSonnet: OpencodeAgent
   def anthropicHaiku: OpencodeAgent
+  def openaiAstra: OpencodeAgent
   def openaiSol: OpencodeAgent
-  def openaiTerra: OpencodeAgent
   def openaiLuna: OpencodeAgent
 
   /** Base cheap variant is anthropic haiku; [[DefaultOpencodeAgent]] overrides
@@ -411,7 +411,7 @@ trait GeminiAgent extends Agent[BackendTag.Gemini.type]:
   def flash: GeminiAgent
 
   /** Pin any Gemini model id beyond `flash`, e.g.
-    * `gemini.withModel(Model("gemini-2.5-pro"))`.
+    * `gemini.withModel(Model("gemini-3.5-flash"))`.
     */
   def withModel(model: Model): GeminiAgent
 

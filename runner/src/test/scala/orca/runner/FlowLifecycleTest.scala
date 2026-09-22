@@ -4352,7 +4352,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     def anthropicSonnet = this
     def anthropicHaiku = this
     def openaiSol = this
-    def openaiTerra = this
+    def openaiAstra = this
     def openaiLuna = this
     def withModel(providerModel: String) = this
     def withConfig(c: AgentConfig) = this

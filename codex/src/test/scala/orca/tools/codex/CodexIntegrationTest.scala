@@ -131,7 +131,7 @@ class CodexIntegrationTest extends munit.FunSuite:
         prompt = "Reply with the single word: READY.",
         session = fresh,
         config = AgentConfig(
-          model = Some(Model("gpt-5.5")),
+          model = Some(Model("gpt-6-sol")),
           systemPrompt = Some("You are a terse reviewer."),
           tools = ToolSet.ReadOnly
         )
@@ -154,7 +154,7 @@ class CodexIntegrationTest extends munit.FunSuite:
           prompt = "Reply with the single word: READY.",
           session = fresh,
           config = AgentConfig(
-            model = Some(Model("gpt-5.6-terra")),
+            model = Some(Model("gpt-0-orca-invalid")),
             systemPrompt = Some("You are a terse reviewer."),
             tools = ToolSet.ReadOnly
           )
@@ -184,7 +184,7 @@ class CodexIntegrationTest extends munit.FunSuite:
             "respond with JSON only (no commentary): {\"issues\":[]}",
         session = fresh,
         displayPrompt = "structured tool-then-answer",
-        config = unsandboxed.copy(model = Some(Model("gpt-5.4-mini"))),
+        config = unsandboxed.copy(model = Some(Model("gpt-6-luna"))),
         outputSchema = Some(
           """{"type":"object","properties":{"issues":{"type":"array","items":{"type":"string"}}},"required":["issues"],"additionalProperties":false}"""
         )

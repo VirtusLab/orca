@@ -137,7 +137,7 @@ class RoleAgentsTest extends munit.FunSuite:
     )
     assert(
       resolution.announcement.contains(
-        "planning=claude:claude-opus-5[1m] (default)"
+        "planning=claude:claude-opus-5-5[1m] (default)"
       ),
       s"expected the wired default model in the segment: ${resolution.announcement}"
     )
@@ -172,7 +172,7 @@ class RoleAgentsTest extends munit.FunSuite:
       onRoleResolved = _ => ()
     )
     assert(
-      resolution.announcement.contains("coding=codex:gpt-5.6-sol (project)"),
+      resolution.announcement.contains("coding=codex:gpt-6-sol (project)"),
       s"expected the wired codex's own model: ${resolution.announcement}"
     )
 
@@ -354,7 +354,7 @@ class RoleAgentsTest extends munit.FunSuite:
     def anthropicSonnet: OpencodeAgent = this
     def anthropicHaiku: OpencodeAgent = this
     def openaiSol: OpencodeAgent = this
-    def openaiTerra: OpencodeAgent = this
+    def openaiAstra: OpencodeAgent = this
     def openaiLuna: OpencodeAgent = this
     override private[orca] def backendIdentity: Option[AnyRef] = Some(token)
     def withModel(providerModel: String): OpencodeAgent =
@@ -392,7 +392,7 @@ class RoleAgentsTest extends munit.FunSuite:
     */
   private class DefaultModelClaude extends StubClaudeAgent("claude"):
     override private[orca] def configuredModel: Option[Model] =
-      Some(Model("claude-opus-5[1m]"))
+      Some(Model("claude-opus-5-5[1m]"))
 
   private class NoopCodexAgent extends CodexAgent:
     val name = "noop-codex"
@@ -417,7 +417,7 @@ class RoleAgentsTest extends munit.FunSuite:
   private class DefaultModelCodex extends NoopCodexAgent:
     override val name = "codex"
     override private[orca] def configuredModel: Option[Model] =
-      Some(Model("gpt-5.6-sol"))
+      Some(Model("gpt-6-sol"))
 
   private object NoopOpencode extends OpencodeAgent:
     val name = "noop-opencode"
@@ -425,7 +425,7 @@ class RoleAgentsTest extends munit.FunSuite:
     def anthropicSonnet: OpencodeAgent = this
     def anthropicHaiku: OpencodeAgent = this
     def openaiSol: OpencodeAgent = this
-    def openaiTerra: OpencodeAgent = this
+    def openaiAstra: OpencodeAgent = this
     def openaiLuna: OpencodeAgent = this
     def withModel(providerModel: String): OpencodeAgent = this
     def withConfig(config: AgentConfig): OpencodeAgent = this

@@ -29,7 +29,7 @@ private[orca] class DefaultGeminiAgent(
   /** Pin the cheap-and-fast model variant. Newer `gemini` CLI versions may
     * rename the id — callers override via `withConfig`.
     */
-  def flash: GeminiAgent = withModel(Model("gemini-2.5-flash"))
+  def flash: GeminiAgent = withModel(Model("gemini-3.8-flash"))
 
   protected def copyTool(
       config: AgentConfig = config,
@@ -48,7 +48,8 @@ private[orca] class DefaultGeminiAgent(
 
 private[orca] object DefaultGeminiAgent:
 
-  /** The strong default model that bare `gemini` pins; `flash` opts down. Newer
-    * `gemini` CLI versions may rename the id — override via `withConfig` if so.
+  /** The strong default model that bare `gemini` pins; `flash` opts down. The
+    * only 3.x Pro, still a preview; Google may rename it on GA — override via
+    * `withConfig` if so.
     */
-  val Pro: Model = Model("gemini-2.5-pro")
+  val Pro: Model = Model("gemini-3.1-pro-preview")

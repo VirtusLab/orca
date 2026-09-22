@@ -34,9 +34,9 @@ private[shell] object ModelCatalog:
         )
       case BackendTag.Codex =>
         List(
-          "gpt-5.6-sol" -> "flagship",
-          "gpt-5.6-terra" -> "balanced",
-          "gpt-5.6-luna" -> "fast"
+          "gpt-6-sol" -> "recommended",
+          "gpt-6-astra" -> "most capable",
+          "gpt-6-luna" -> "fast"
         )
       case _ => Nil
 
