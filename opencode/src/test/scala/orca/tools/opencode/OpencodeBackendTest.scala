@@ -1,7 +1,7 @@
 package orca.tools.opencode
 
 import orca.OrcaFlowException
-import orca.backend.StreamSource
+import orca.backend.{Continuation, StreamSource}
 import orca.agents.{
   BackendTag,
   AgentConfig,
@@ -234,7 +234,7 @@ class OpencodeBackendTest extends munit.FunSuite:
     assert(handle.closed, "backend.close() must close the server handle")
 
   test(
-    "willContinue never spawns the server when there is no client→server " +
+    "continuation never spawns the server when there is no client→server " +
       "mapping (the no-spurious-spawn guarantee)"
   ):
     supervised:
@@ -245,7 +245,7 @@ class OpencodeBackendTest extends munit.FunSuite:
         new FakeHandle(fail("must not spawn"))
       )
       val client = fresh
-      assert(!backend.sessions.willContinue(client))
+      assertEquals(backend.sessions.continuation(client), Continuation.Rebuild)
 
   test(
     "a probe with a rehydrated wire id spawns the server and returns its answer"
@@ -266,10 +266,10 @@ class OpencodeBackendTest extends munit.FunSuite:
         client,
         WireSessionId[BackendTag.Opencode.type]("ses_server1")
       )
-      assert(backend.sessions.willContinue(client))
+      assertEquals(backend.sessions.continuation(client), Continuation.Recorded)
 
   test(
-    "willContinue returns false when there is no client→server mapping"
+    "continuation is Rebuild when there is no client→server mapping"
   ):
     supervised:
       // Server started (would answer 200), but the probed client id was never
@@ -283,7 +283,7 @@ class OpencodeBackendTest extends munit.FunSuite:
       val _ =
         backend.runAutonomous("hi", fresh, AgentConfig())
       // A different, unmapped client id resolves to no server id → false.
-      assert(!backend.sessions.willContinue(fresh))
+      assertEquals(backend.sessions.continuation(fresh), Continuation.Rebuild)
 
   test("probeSession returns true when getStatus is 200"):
     supervised:
@@ -301,7 +301,7 @@ class OpencodeBackendTest extends munit.FunSuite:
       assert(!backend.probeSession("ses_missing", http))
 
   test(
-    "willContinue probes the SERVER id: true after a turn maps client→server"
+    "continuation probes the SERVER id: Recorded after a turn maps client→server"
   ):
     supervised:
       val existingId = "ses_server1"
@@ -315,10 +315,10 @@ class OpencodeBackendTest extends munit.FunSuite:
       val _ =
         backend.runAutonomous("hi", client, AgentConfig())
       // Probing the CLIENT id resolves to the server id, which the server has.
-      assert(backend.sessions.willContinue(client))
+      assertEquals(backend.sessions.continuation(client), Continuation.Recorded)
 
   test(
-    "willContinue returns false when the mapped server id is unknown to the server"
+    "continuation is Rebuild when the mapped server id is unknown to the server"
   ):
     supervised:
       val http = new FakeHttp(turn("ses_server1", "stop", Nil), _ => 404)
@@ -327,7 +327,7 @@ class OpencodeBackendTest extends munit.FunSuite:
       val _ =
         backend.runAutonomous("hi", client, AgentConfig())
       // client → ses_server1 is mapped, but the server now 404s for it.
-      assert(!backend.sessions.willContinue(client))
+      assertEquals(backend.sessions.continuation(client), Continuation.Rebuild)
 
   test(
     "probeSession returns false when getStatus throws (verifies NonFatal catch)"
@@ -340,7 +340,7 @@ class OpencodeBackendTest extends munit.FunSuite:
       assert(!backend.probeSession("ses_abc", http))
 
   test(
-    "willContinue returns false for a malicious mapped server id (slashes)"
+    "continuation is Rebuild for a malicious mapped server id (slashes)"
   ):
     supervised:
       val http = new FakeHttp(Nil, _ => 200) // would return 200 if called
@@ -351,10 +351,10 @@ class OpencodeBackendTest extends munit.FunSuite:
         client,
         WireSessionId[BackendTag.Opencode.type]("a/b")
       )
-      assert(!backend.sessions.willContinue(client))
+      assertEquals(backend.sessions.continuation(client), Continuation.Rebuild)
 
   test(
-    "willContinue returns false for a malicious mapped server id (query/fragment chars)"
+    "continuation is Rebuild for a malicious mapped server id (query/fragment chars)"
   ):
     supervised:
       val http = new FakeHttp(Nil, _ => 200)
@@ -364,7 +364,7 @@ class OpencodeBackendTest extends munit.FunSuite:
         client,
         WireSessionId[BackendTag.Opencode.type]("x?y#z")
       )
-      assert(!backend.sessions.willContinue(client))
+      assertEquals(backend.sessions.continuation(client), Continuation.Rebuild)
 
   test(
     "a session-creation failure never opens the SSE stream (open-path leak)"

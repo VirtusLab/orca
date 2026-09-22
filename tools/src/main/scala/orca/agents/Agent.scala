@@ -85,8 +85,10 @@ trait Agent[B <: BackendTag]:
   /** Adopt an existing conversation id as an EPHEMERAL chat — the escape hatch
     * for continuing a durable `FlowSession`'s conversation where its own doors
     * can't go (inside a fork): `agent.chat(coder.id)`. Turns run here are NOT
-    * persisted — on crash/resume the durable side finds nothing recorded. One
-    * live continuation at a time: concurrent turns against the same backend
+    * persisted — on crash/resume the durable side finds nothing recorded — and
+    * are not primed: a conversation a previous run carried over is not told
+    * here that its uncommitted work is gone (ADR 0018 §2.6). One live
+    * continuation at a time: concurrent turns against the same backend
     * conversation fail.
     */
   final def chat(continueFrom: SessionId[B]): Chat[B] =
@@ -226,7 +228,7 @@ trait Agent[B <: BackendTag]:
   def withSelfManagedGit: Agent[B] = this
 
   /** The backend's session-durability capability, or `None` for tools without a
-    * backend. The ONLY overridable session hook — the `willContinue` /
+    * backend. The ONLY overridable session hook — the `continuation` /
     * `resumeWireId` / `registerResumeWireId` trio below is `final`, implemented
     * uniformly through this, so a tool exposes its backend's whole
     * [[orca.backend.SessionSupport]] or nothing, never a partial mix.
@@ -265,14 +267,18 @@ trait Agent[B <: BackendTag]:
     */
   private[orca] def backendIdentity: Option[AnyRef] = None
 
-  /** Will the NEXT call on `session` continue an already-live conversation
-    * (rather than open a fresh one that needs re-seeding)? The durable-session
-    * runtime asks this before deciding whether to re-inject the seed + progress
-    * preamble — see [[orca.backend.SessionSupport.willContinue]]. Returns
-    * `false` (safe re-seed) when a concrete tool can't reach a backend.
+  /** What the NEXT call on `session` does with the backend's conversation:
+    * continue one it already holds, or open a fresh one that needs re-seeding —
+    * see [[orca.backend.SessionSupport.continuation]]. A concrete tool that
+    * can't reach a backend answers [[orca.backend.Continuation.Rebuild]], the
+    * safe re-seed.
     */
-  final def willContinue(session: SessionId[B]): Boolean =
-    sessionSupport.exists(_.willContinue(session))
+  final def continuation(
+      session: SessionId[B]
+  ): orca.backend.Continuation =
+    sessionSupport.fold(orca.backend.Continuation.Rebuild)(
+      _.continuation(session)
+    )
 
   /** The [[WireSessionId]] to resume `client` ([[SessionId]], orca's stable
     * handle) against, or `None` if unknown or not durably resumable — equal to

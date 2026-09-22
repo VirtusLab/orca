@@ -64,7 +64,7 @@ private class TokenEmittingReviewer(
         ???
 
 /** A coder stub for the fix-turn seeding test: captures the prompt its
-  * structured `run` receives and drives `willContinue` via a real durable
+  * structured `run` receives and drives the continuation via a real durable
   * [[SessionSupport]], so a test can exercise both the fresh (re-seed) and live
   * (no re-seed) branches of the fix turn. Always returns `fixOutcome`.
   */

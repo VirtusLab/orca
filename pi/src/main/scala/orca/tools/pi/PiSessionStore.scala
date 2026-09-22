@@ -51,8 +51,9 @@ private[orca] object PiSessionStore:
 
   private def hasResumableTranscript(dir: os.Path, workDir: os.Path): Boolean =
     // At least one matching `*.jsonl`, not exactly one: a first turn that
-    // failed after pi seeded the dir is retried fresh and seeds a second file,
-    // and `--continue` picks the most recent — the one the retry wrote.
+    // failed before pi wrote an acceptable header is retried fresh and seeds a
+    // second file, and `--continue` picks the most recent — the one the retry
+    // wrote.
     try
       os.isDir(dir) &&
         os.list

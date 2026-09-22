@@ -165,7 +165,7 @@ private[orca] class OpencodeBackend(
       // No `server.started &&` guard: opencode persists sessions in a global
       // on-disk DB that a freshly (lazily) spawned server resumes, so the probe
       // must be allowed to force the spawn. Safe because
-      // `SessionSupport.willContinue` short-circuits on no mapped wire id, so
+      // `SessionSupport` probes a server-minted id only when one is mapped, so
       // the forced spawn only fires on a genuine resume — when the server is
       // about to be needed anyway.
       id => probeSession(id, server.http)

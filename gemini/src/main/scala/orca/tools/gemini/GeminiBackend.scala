@@ -60,8 +60,8 @@ private[orca] class GeminiBackend(
     * persisted to the progress log and rehydrated on resume. The existence
     * probe runs `gemini --list-sessions` and scans for the resolved SERVER id
     * (substring) — gemini mints its own id; the caller's stable id never
-    * appears there. [[SessionSupport.willContinue]] resolves the mapping first,
-    * so it returns `false` when no server id is mapped (including an id
+    * appears there. [[SessionSupport.continuation]] resolves the mapping first,
+    * so it reports `Rebuild` when no server id is mapped (including an id
     * rejected by the [[orca.agents.SessionId.isSafe]] guard at commit time), on
     * non-zero exit, or on any exception.
     */

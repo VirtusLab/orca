@@ -10,9 +10,11 @@ import orca.agents.{
   Announce,
   JsonData
 }
+import orca.backend.Continuation
 import orca.events.OrcaEvent
 import orca.progress.ProgressLog
 import orca.sessions.SessionRecord
+import orca.util.PromptResource
 
 /** A durable, resumable LLM-session handle — the single door for sessions that
   * must survive a flow crash and resume. Obtain one with `agent.session(name,
@@ -22,16 +24,17 @@ import orca.sessions.SessionRecord
   *
   * Use [[run]] for free-form text and [[resultAs]]`.run` for a structured `O`.
   * Both prime the conversation with the recorded seed and a progress preamble
-  * when the backend conversation isn't live (first use or lost on resume), then
-  * persist the backend's learned resume wire id.
+  * when the backend conversation isn't live (first use or lost on resume), and
+  * with the interrupted-attempt notice when it IS live but a previous run
+  * opened it, then persist the backend's learned resume wire id.
   *
   * '''Escape hatch:''' [[id]] exposes the underlying [[SessionId]];
   * `agent.chat(session.id)` adopts it as an EPHEMERAL [[orca.agents.Chat]] —
   * the way to continue this conversation from inside a fork (where the doors
-  * here are banned), interactive turns included. Chat turns forfeit seeding and
-  * wire-id persistence: they are in-run only and never write back to the
-  * session store, so on crash/resume the durable side finds nothing recorded
-  * for them.
+  * here are banned), interactive turns included. Chat turns forfeit seeding,
+  * the interrupted-attempt notice and wire-id persistence: they are in-run only
+  * and never write back to the session store, so on crash/resume the durable
+  * side finds nothing recorded for them.
   *
   * The handle is a plain immutable value with no stage affinity of its own —
   * only the capabilities its methods require ([[InStage]], [[WorkspaceWrite]])
@@ -54,15 +57,10 @@ final class FlowSession[B <: BackendTag] private[orca] (
 ):
 
   /** Run the agent autonomously against this session on free-form `prompt`,
-    * priming it with the recorded seed + a progress preamble if the backend
-    * conversation isn't live (fresh first use, or lost on resume); otherwise
-    * runs `prompt` as-is. Returns the run's output.
+    * primed as the class scaladoc describes. Returns the run's output.
     *
-    * The seed is looked up from the session store by matching [[id]]; a missing
-    * record is treated as an empty seed (does not throw). The preamble names
-    * completed stages and is included only when there is at least one, so a
-    * true first use gets just `seed + prompt` with no misleading "resuming"
-    * text.
+    * A session store holding no record for [[id]] is an empty seed, not an
+    * error.
     *
     * The [[WorkspaceWrite]] token is taken explicitly rather than self-minted,
     * making "durable runs are flow-thread-only, never from a `fork`" a
@@ -151,12 +149,9 @@ extension [B <: BackendTag](agent: Agent[B])
     * `implementer` get two conversations without either naming the other's
     * work, so a per-task flow needs nothing beyond the loop it already has.
     *
-    * Reserves a [[SessionId]] and records key + id + seed in the session store,
-    * then returns a [[FlowSession]] wrapping it; the backend conversation is
-    * created lazily on the handle's first gated `run`. On resume, wraps the id
-    * recorded at this key rather than minting a second. The seed is only
-    * recorded here; [[FlowSession.run]] applies it on first use and replays it
-    * on loss.
+    * The backend conversation is created lazily on the handle's first gated
+    * `run`. The seed is only recorded here; [[FlowSession.run]] applies it on
+    * first use and replays it on loss.
     *
     * Identity follows the stage, not the call's position within it: inserting,
     * reordering or skipping other `session(...)` calls between runs leaves this
@@ -187,10 +182,8 @@ extension [B <: BackendTag](agent: Agent[B])
     * No LLM call and no commit, so it is callable outside a stage as well as
     * inside one (and, minting a fresh UUID, is not referentially transparent).
     * Having no ambient token there, its store write self-mints a
-    * [[WorkspaceWrite]] via [[RuntimeInStage]]. The record lands in
-    * `.orca/cache/` rather than in the committed log, so it outlives the stage
-    * that minted it whether that stage completes or fails — see
-    * [[orca.sessions.SessionStore]].
+    * [[WorkspaceWrite]] via [[RuntimeInStage]]; the record outlives the minting
+    * stage either way — see [[orca.sessions.SessionStore]].
     */
   def session(name: String, seed: String)(using
       fc: FlowControl
@@ -200,11 +193,8 @@ extension [B <: BackendTag](agent: Agent[B])
     val key = fc.claimSessionKey(name)
     new FlowSession(agent, resolveSessionId(agent, key, seed), key)
 
-/** The reuse-or-mint decision behind `agent.session(name, seed)`: look up any
-  * session already recorded at `key` and either reuse it (backend tag matches,
-  * recorded id parses) or mint a fresh one — on a backend swap, a
-  * corrupt/mismatched recorded id, or no record at all. See `session`'s
-  * scaladoc for the reuse contract each branch upholds.
+/** The reuse-or-mint decision behind `agent.session(name, seed)`. See
+  * `session`'s scaladoc for the reuse contract each branch upholds.
   */
 private def resolveSessionId[B <: BackendTag](
     agent: Agent[B],
@@ -239,10 +229,8 @@ private def reuseOrMint[B <: BackendTag](
       // parse failure mints fresh like the tag-mismatch case.
       SessionId.parse[B](recorded.id) match
         case Some(validId) =>
-          // Reuse is the safe fallback (ADR 0018 §2.6): a recorded seed
-          // differing from this call's means the seed was edited between
-          // runs, but the session is reused either way — surface the
-          // divergence rather than resume silently.
+          // Reuse is the safe fallback (ADR 0018 §2.6): a seed edited
+          // between runs is surfaced as a warning, never a re-mint.
           warnIfSeedDiffers(fc, key, recorded.seed, seed)
           validId
         case None =>
@@ -285,11 +273,8 @@ private def warnInvalidRecordedId(fc: FlowControl, key: SessionKey): Unit =
     )
   )
 
-/** Mint a fresh session id, record `(key, id, seed, backend)` in the session
-  * store (replacing any existing record at the same key), and return it. Shared
-  * by every arm of `agent.session(name, seed)`'s reuse match that must not
-  * trust a stale/mismatched/corrupt recorded id. Mints its own
-  * [[WorkspaceWrite]] via [[RuntimeInStage]] — see `session`'s scaladoc.
+/** Mints its own [[WorkspaceWrite]] via [[RuntimeInStage]] — see `session`'s
+  * scaladoc.
   */
 private def mintSession[B <: BackendTag](
     agent: Agent[B],
@@ -309,48 +294,89 @@ private def mintSession[B <: BackendTag](
   )
   freshId
 
-/** Probe → prime step shared by [[FlowSession.run]] and
-  * [[FlowSessionCall.run]]: if the backend conversation for `session` is live,
-  * `text` is returned verbatim; otherwise the recorded seed and progress
-  * preamble are prepended. Persisting the learned wire id afterward is each
-  * caller's own last step (see [[persistResumeWireId]]), since the two doors
-  * run different underlying calls.
+/** Probe → prime step shared by both durable doors. Persisting the learned wire
+  * id afterward is each caller's own last step (see [[persistResumeWireId]]),
+  * since the two doors run different underlying calls.
+  *
+  * The turn claim is taken here rather than at each door: both doors reach this
+  * exactly once per turn, on either branch, so no turn can run unclaimed and
+  * read as first twice.
   */
 private def effectivePrompt[B <: BackendTag](
     agent: Agent[B],
     session: SessionId[B],
     text: String
 )(using fc: FlowControl): String =
-  if agent.willContinue(session) then text
-  else
-    val record = fc.sessionStore.records().find(_.id == session.value)
-    // A recorded wire id proves a backend conversation once existed, so a
-    // failed probe here means it was lost (pruned store, another machine): the
-    // rebuilt conversation gets only seed + preamble, not the prior turns.
-    // Surface that — silently degraded context is hard to debug. A record
-    // without a wire id is a plain first use, no warning.
-    if record.exists(_.resumeWireId.isDefined) then
-      fc.emit(
-        OrcaEvent.Step(
-          s"warning: session ${record.fold("'?'")(_.key.describe)} — backend " +
-            "conversation not found; re-seeding (prior conversation history " +
-            "is lost)"
-        )
+  val turn = fc.claimTurn(session.value)
+  val record = fc.sessionStore.records().find(_.id == session.value)
+  agent.continuation(session) match
+    case Continuation.Rebuild => rebuiltPrompt(record, text)
+    case live                 => continuedPrompt(record, live, turn, text)
+
+/** The prompt for a turn the backend will answer from a conversation it still
+  * holds. Only a conversation that predates this run is told its uncommitted
+  * work is gone, and only on this run's first turn against it — from the
+  * second, the uncommitted edits in the tree are this run's own (ADR 0018 §2.6,
+  * carried-over live conversations).
+  *
+  * Predating this run has two shapes: a recorded wire id, left by a previous
+  * run that committed a turn here, and [[Continuation.Claimed]], left by one
+  * interrupted during its first turn. A conversation this run opened itself is
+  * [[Continuation.Recorded]] with no wire id recorded, and is told nothing.
+  */
+private def continuedPrompt(
+    record: Option[SessionRecord],
+    live: Continuation,
+    turn: SessionTurn,
+    text: String
+): String =
+  val carriedOver =
+    record.exists(_.resumeWireId.isDefined) || live == Continuation.Claimed
+  turn match
+    case SessionTurn.First if carriedOver =>
+      composePrimedPrompt(Some(InterruptedAttemptNotice), None, text)
+    case SessionTurn.First | SessionTurn.Later => text
+
+/** The prompt for a turn against a conversation the backend does not hold — a
+  * first use, or one lost since the run that opened it — rebuilt from the
+  * recorded seed and the progress preamble.
+  */
+private def rebuiltPrompt(record: Option[SessionRecord], text: String)(using
+    fc: FlowControl
+): String =
+  // A recorded wire id proves a conversation once existed, so a failed probe
+  // means it was lost (pruned store, another machine) and the rebuild drops
+  // its prior turns; silently degraded context is hard to debug. No wire id is
+  // a plain first use.
+  if record.exists(_.resumeWireId.isDefined) then
+    fc.emit(
+      OrcaEvent.Step(
+        s"warning: session ${record.fold("'?'")(_.key.describe)} — backend " +
+          "conversation not found; re-seeding (prior conversation history " +
+          "is lost)"
       )
-    val seed = record.map(_.seed).filter(_.nonEmpty)
-    val preamble =
-      progressPreamble(fc.progressStore.load(), fc.git.headCommit())
-    composePrimedPrompt(preamble, seed, text)
+    )
+  val seed = record.map(_.seed).filter(_.nonEmpty)
+  val preamble =
+    progressPreamble(fc.progressStore.load(), fc.git.headCommit())
+  composePrimedPrompt(preamble, seed, text)
+
+/** Points at the files rather than ordering a redo: a run killed between stages
+  * leaves a fully committed tree, where nothing is missing and the order would
+  * be vacuous. The stash is deliberately unmentioned — ADR 0018 §2.6's
+  * carried-over-conversations amendment says why.
+  */
+private val InterruptedAttemptNotice: String =
+  PromptResource.load("/orca/prompts/interrupted-attempt.md").strip()
 
 /** After a run, persist the backend's now-learned resume wire id (durable
   * backends only — one without a probe returns `None`), so a resumed run can
   * rehydrate the map and probe the right session. Also self-heals
   * [[SessionRecord.backend]] from `None` (an untagged record) to `agent`'s
-  * current tag, on the very run that just proved this `agent` owns it, rather
-  * than waiting for a second `session(...)` call. Upserts only when the learned
-  * wire id or the healed tag differs from what is recorded, so a no-op run
-  * writes nothing. Takes the [[WorkspaceWrite]] token explicitly to keep these
-  * writes flow-thread-only (ADR 0018 §6).
+  * current tag, on the very run that just proved this `agent` owns it. Upserts
+  * only when something differs, so a no-op run writes nothing. Takes the
+  * [[WorkspaceWrite]] token explicitly to keep these writes flow-thread-only
+  * (ADR 0018 §6).
   */
 private def persistResumeWireId[B <: BackendTag](
     agent: Agent[B],
@@ -369,16 +395,10 @@ private def persistResumeWireId[B <: BackendTag](
     )
 
 /** Compose the progress preamble from completed stage names in the log and the
-  * commit the working tree sits at. Returns `None` if there are no completed
-  * entries (first run).
+  * commit the working tree sits at. `None` when no stage has completed.
   *
   * `headCommit` is passed in rather than read here, so the rendered text is a
   * function of the arguments alone.
-  *
-  * This reaches a model only where [[effectivePrompt]] injects it — when the
-  * backend conversation is fresh or lost. That is the common resumed-run case
-  * but not every one: an agent whose conversation is still live gets the
-  * caller's text verbatim and never sees this.
   *
   * The wording stays neutral about interruption because the same preamble
   * primes a session first used mid-run, after an earlier stage completed — and
@@ -390,21 +410,21 @@ private def progressPreamble(
     headCommit: Option[String]
 ): Option[String] =
   val completed = log.map(_.entries.map(_.name)).getOrElse(Nil)
-  if completed.isEmpty then None
-  else
-    val tree =
-      headCommit.fold("")(c => s" The working tree is at commit $c.")
-    Some(
-      s"Progress so far: completed ${completed.mkString(", ")}.$tree " +
-        "Their work is committed; a stage that did not complete left nothing " +
-        "behind. Read the files rather than assuming what earlier stages " +
-        "left. Continue from here."
+  Option.when(completed.nonEmpty):
+    PromptResource.render(
+      ProgressPreambleTemplate,
+      "completed" -> completed.mkString(", "),
+      // Substituted mid-sentence, so the clause carries its own leading space
+      // and is empty when the repo has no commit to name.
+      "tree" -> headCommit.fold("")(c => s" The working tree is at commit $c.")
     )
 
-/** Assemble the final primed prompt from the optional preamble, optional seed,
-  * and the caller's prompt, omitting absent parts cleanly. The `---` separator
-  * appears ONLY when there is a non-empty context (preamble or seed); when
-  * neither is present the prompt is returned verbatim.
+private val ProgressPreambleTemplate: String =
+  PromptResource.load("/orca/prompts/progress-preamble.md").strip()
+
+/** Assemble the final primed prompt, omitting absent parts: with neither
+  * preamble nor seed the caller's prompt is returned verbatim, with no leading
+  * separator.
   */
 private def composePrimedPrompt(
     preamble: Option[String],

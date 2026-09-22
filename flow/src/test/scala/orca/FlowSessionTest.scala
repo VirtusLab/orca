@@ -29,9 +29,9 @@ import orca.util.RawJson
   * seed/preamble → run → persist protocol (ADR 0018 §2.6).
   *
   * Each scenario constructs a [[FlowSession]] directly over a
-  * [[StubAgentForSeeded]] (whose `willContinue` and `run` behaviours are
-  * injected at construction time) and a fixed [[testSession]] id, and asserts
-  * on `capturedPrompt` (what the prompt looked like after preamble/seed
+  * [[StubAgentForSeeded]] (whose continuation and `run` behaviours are injected
+  * at construction time) and a fixed [[testSession]] id, and asserts on
+  * `capturedPrompt` (what the prompt looked like after preamble/seed
   * composition) and on the persisted [[SessionRecord]].
   */
 class FlowSessionTest extends FunSuite:
@@ -43,23 +43,24 @@ class FlowSessionTest extends FunSuite:
 
   /** Builds the durability capability the stubs expose through
     * `sessionSupport`, seeding it via the public `register` door. Both
-    * `willContinue` and `resumeWireId` route through it (the trio is `final` on
-    * [[Agent]], and the probe only runs for a recorded mapping). A safe
-    * placeholder wire id is registered when `exists` is wanted so the probe
-    * (which returns `exists`) runs; otherwise the caller-supplied
-    * `learnedWireId`, if any, is registered, which is what `resumeWireId`
-    * surfaces for persistence.
+    * `continuation` and `resumeWireId` route through it (the trio is `final` on
+    * [[Agent]], and a server-minted id is probed only once a mapping is
+    * recorded). A safe placeholder wire id is registered when `exists` is
+    * wanted so the probe (which returns `exists`) runs; otherwise the
+    * caller-supplied `learnedWireId`, if any, is registered, which is what
+    * `resumeWireId` surfaces for persistence.
     */
   private def stubSupport(
       exists: Boolean,
-      learnedWireId: Option[String]
+      learnedWireId: Option[String],
+      session: SessionId[BackendTag.ClaudeCode.type]
   ): SessionSupport[BackendTag.ClaudeCode.type] =
     val support = SessionSupport
       .durable[BackendTag.ClaudeCode.type](IdScheme.ServerMinted, _ => exists)
     (if exists then Some("live-session-wire") else learnedWireId)
       .foreach(w =>
         support.register(
-          testSession,
+          session,
           WireSessionId[BackendTag.ClaudeCode.type](w)
         )
       )
@@ -80,21 +81,44 @@ class FlowSessionTest extends FunSuite:
   /** A structured result type for exercising the `resultAs[O]` durable door. */
   private case class StubResult(v: String) derives JsonData
 
+  /** Which session-durability shape a stub exposes — the three the durable door
+    * has to tell apart.
+    */
+  private enum StubDurability:
+    /** Durable and server-minted: the fixture records a mapping, and the probe
+      * answers the stub's `existsResult`.
+      */
+    case Probed
+
+    /** Ephemeral: no transcript to probe, so the in-run claim is all there is.
+      */
+    case InProcess
+
+    /** Durable and client-claimed, with nothing recorded: the backend holds a
+      * conversation under the client's own id. What a run interrupted during a
+      * session's first turn leaves behind.
+      */
+    case HeldClaim
+
   /** Controllable Agent stub for seeded-run tests.
     *
     * @param existsResult
-    *   The value the durable probe (and so `willContinue`) returns — set `true`
-    *   to exercise the "live session" branch, `false` to exercise the re-seed
-    *   path.
+    *   The value the durable probe returns — set `true` to exercise the "live
+    *   session" branch, `false` to exercise the re-seed path. Read only under
+    *   [[StubDurability.Probed]].
     * @param runResult
     *   The text `autonomous.run` echoes back.
+    * @param durableSession
+    *   The session id the durable fixture registers a wire mapping for — the
+    *   one a continuation can answer `Recorded` for.
     */
   private class StubAgentForSeeded(
       existsResult: Boolean,
       runResult: String = "ok",
       learnedWireId: Option[String] = None,
-      ephemeral: Boolean = false,
-      tag: Option[BackendTag] = None
+      durability: StubDurability = StubDurability.Probed,
+      tag: Option[BackendTag] = None,
+      durableSession: SessionId[BackendTag.ClaudeCode.type] = testSession
   ) extends Agent[BackendTag.ClaudeCode.type]:
     val name: String = "stub-seeded"
 
@@ -123,32 +147,34 @@ class FlowSessionTest extends FunSuite:
     def capturedSessionKeys: List[Option[SessionKey]] =
       _capturedSessionKeys.reverse
 
-    /** The durability capability the stub exposes. `ephemeral = true` builds a
-      * `SessionSupport.ephemeral` (a STABLE instance, so an in-process claim
-      * persists across runs); otherwise the durable probe fixture whose
-      * `willContinue`/`resumeWireId` are driven by
-      * `existsResult`/`learnedWireId`.
+    /** The durability capability the stub exposes (a STABLE instance, so a
+      * claim recorded by one run persists into the next). `learnedWireId`
+      * mirrors a server-id backend's persist path.
       */
     private val support: SessionSupport[BackendTag.ClaudeCode.type] =
-      if ephemeral then
-        SessionSupport.ephemeral[BackendTag.ClaudeCode.type](
-          IdScheme.ClientClaimed
-        )
-      else stubSupport(existsResult, learnedWireId)
+      durability match
+        case StubDurability.InProcess =>
+          SessionSupport.ephemeral[BackendTag.ClaudeCode.type](
+            IdScheme.ClientClaimed
+          )
+        case StubDurability.HeldClaim =>
+          SessionSupport.durable[BackendTag.ClaudeCode.type](
+            IdScheme.ClientClaimed,
+            _ => true
+          )
+        case StubDurability.Probed =>
+          stubSupport(existsResult, learnedWireId, durableSession)
 
-    /** Drives `willContinue` (via the mapping-gated probe) and `resumeWireId` —
-      * `learnedWireId` mirrors a server-id backend's persist path,
-      * `None`/`ephemeral` a backend with nothing durable to resume.
-      */
+    /** Drives `continuation` and `resumeWireId`. */
     override private[orca] def sessionSupport
         : Option[SessionSupport[BackendTag.ClaudeCode.type]] =
       Some(support)
 
     /** Record the prompt and, for the ephemeral shape, claim the id — a real
       * ephemeral backend records the claim after a clean turn (via
-      * `Conversations.drainAndCommit`), so `willContinue` flips true on the
-      * next in-process run. `register` is the stable log-skip door and the id
-      * is a safe UUID, so it commits.
+      * `Conversations.drainAndCommit`), so the next in-process run continues
+      * it. `register` is the stable log-skip door and the id is a safe UUID, so
+      * it commits.
       */
     private def capture(
         prompt: String,
@@ -157,7 +183,8 @@ class FlowSessionTest extends FunSuite:
     ): Unit =
       _capturedPrompts = prompt :: _capturedPrompts
       _capturedSessionKeys = sessionKey :: _capturedSessionKeys
-      if ephemeral then support.register(session, session.onWire)
+      if durability == StubDurability.InProcess then
+        support.register(session, session.onWire)
 
     val autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
       new AutonomousTextCall[BackendTag.ClaudeCode.type]:
@@ -242,6 +269,35 @@ class FlowSessionTest extends FunSuite:
       "p"
     )
 
+  /** A record whose `resumeWireId` is set is one a PREVIOUS run committed a
+    * turn against — what tells the runtime a live conversation predates this
+    * run.
+    */
+  private def carriedOverRecord(name: String, id: String): SessionRecord =
+    SessionRecord(
+      name = name,
+      stage = "",
+      id = id,
+      seed = "seed",
+      resumeWireId = Some("wire-1")
+    )
+
+  private def carriedOver: List[SessionRecord] =
+    List(carriedOverRecord("s", testSessionId))
+
+  /** The notice's operative instruction — the half that tells the agent what to
+    * do about the tree, and what an inverted body would lose.
+    */
+  private val NoticeInstruction =
+    "Read the files rather than relying on what you remember writing"
+
+  /** A second durable conversation, for the per-conversation claim. */
+  private val otherSessionId = "test-session-uuid-5678"
+  private val otherSession: SessionId[BackendTag.ClaudeCode.type] =
+    SessionId[BackendTag.ClaudeCode.type](otherSessionId)
+  private val otherSessionKey =
+    SessionKey(name = "reviewer", stage = StagePath.FlowBody.child("Task 3", 0))
+
   /** A [[FlowSession]] over [[testSession]] and the given stub agent, minted
     * under [[testSessionKey]].
     */
@@ -271,6 +327,149 @@ class FlowSessionTest extends FunSuite:
       agent.capturedPrompt,
       Some(originalPrompt),
       "live session must pass prompt verbatim"
+    )
+
+  test(
+    "conversation carried over from a previous run: its first turn is told the tree lost the uncommitted work"
+  ):
+    val fc = makeControl(sessions = carriedOver)
+    val agent = new StubAgentForSeeded(existsResult = true)
+    val _ = flowSession(agent).run("continue the task")(using fc)
+    val prompt = agent.capturedPrompt.getOrElse(fail("no prompt captured"))
+    assert(
+      prompt.contains("The previous attempt at this run was interrupted."),
+      s"expected the interrupted-attempt notice; got: $prompt"
+    )
+    assert(
+      prompt.contains(
+        "working tree holds only what earlier stages committed"
+      ),
+      s"the notice must say what the tree holds; got: $prompt"
+    )
+    assert(
+      prompt.contains(NoticeInstruction),
+      s"the notice must send the agent to the files; got: $prompt"
+    )
+    assert(
+      prompt.endsWith("continue the task"),
+      s"the caller's prompt must follow the notice; got: $prompt"
+    )
+
+  test(
+    "conversation the backend still holds with nothing recorded: told, and resumed rather than re-seeded"
+  ):
+    // A run interrupted during a client-claimed session's FIRST turn commits no
+    // wire id, so the record carries none — but the backend wrote the
+    // transcript and holds the conversation under the claimed id. It is
+    // continued, and its memory predates this run just as a recorded one's
+    // does.
+    val fc = makeControl(sessions =
+      List(
+        SessionRecord(
+          name = "s",
+          stage = "",
+          id = testSessionId,
+          seed = "You are a planning agent."
+        )
+      )
+    )
+    val agent = new StubAgentForSeeded(
+      existsResult = false,
+      durability = StubDurability.HeldClaim
+    )
+    val _ = flowSession(agent).run("continue the task")(using fc)
+    val prompt = agent.capturedPrompt.getOrElse(fail("no prompt captured"))
+    assert(
+      prompt.contains(NoticeInstruction),
+      s"an interrupted first turn's conversation must be told; got: $prompt"
+    )
+    assert(
+      !prompt.contains("You are a planning agent."),
+      s"a continued conversation must not be re-seeded; got: $prompt"
+    )
+
+  test(
+    "carried-over conversation: the notice is said once, not on every turn"
+  ):
+    // The fixer drives one session for several turns inside a stage; from the
+    // second turn the uncommitted edits in the tree are this run's own.
+    val fc = makeControl(sessions = carriedOver)
+    val agent = new StubAgentForSeeded(existsResult = true)
+    val session = flowSession(agent)
+    val _ = session.run("first")(using fc)
+    val _ = session.run("second")(using fc)
+    assertEquals(
+      agent.capturedPrompts(1),
+      "second",
+      "a later turn must forward the prompt verbatim"
+    )
+
+  test(
+    "carried-over conversation the backend lost: re-seeded, and not also told"
+  ):
+    // The seed + preamble path already says an unfinished stage left nothing
+    // behind, so a second telling would be a duplicate.
+    val fc =
+      makeControl(sessions = carriedOver, completedStages = List("triage"))
+    val agent = new StubAgentForSeeded(existsResult = false)
+    val _ = flowSession(agent).run("continue")(using fc)
+    val prompt = agent.capturedPrompt.getOrElse(fail("no prompt captured"))
+    assert(
+      prompt.contains("a stage that did not complete left nothing behind"),
+      s"the preamble must be the telling here; got: $prompt"
+    )
+    assert(
+      !prompt.contains("The previous attempt at this run was interrupted."),
+      s"a re-seeded session must not carry the notice too; got: $prompt"
+    )
+
+  test(
+    "a second carried-over conversation is told on its own first turn"
+  ):
+    // One flag per run would leave every conversation after the first untold,
+    // though each one's memory predates the run just as the first's does. The
+    // two records need distinct names: the store keys a record by (name,
+    // stage).
+    val fc = makeControl(sessions =
+      List(
+        carriedOverRecord("s", testSessionId),
+        carriedOverRecord("other", otherSessionId)
+      )
+    )
+    val first = new StubAgentForSeeded(existsResult = true)
+    val second =
+      new StubAgentForSeeded(existsResult = true, durableSession = otherSession)
+    val _ = flowSession(first).run("first conversation")(using fc)
+    val _ = new FlowSession(second, otherSession, otherSessionKey)
+      .run("second conversation")(using fc)
+    assert(
+      first.capturedPrompt.exists(_.contains(NoticeInstruction)),
+      s"the first conversation must be told; got: ${first.capturedPrompt}"
+    )
+    assert(
+      second.capturedPrompt.exists(_.contains(NoticeInstruction)),
+      s"the second conversation must be told too; got: ${second.capturedPrompt}"
+    )
+
+  test(
+    "conversation opened by THIS run: a later turn is not told, though the record carries a wire id"
+  ):
+    // The stub claims the id after its first turn, so turn 2 finds the
+    // conversation live — the shape of a session whose recorded conversation
+    // was gone and which this run reopened. The turn claim is taken on every
+    // turn, so turn 2 is not mistaken for the first.
+    val fc = makeControl(sessions = carriedOver)
+    val agent = new StubAgentForSeeded(
+      existsResult = false,
+      durability = StubDurability.InProcess
+    )
+    val session = flowSession(agent)
+    val _ = session.run("first")(using fc)
+    val _ = session.run("second")(using fc)
+    assertEquals(
+      agent.capturedPrompts(1),
+      "second",
+      "a conversation this run opened must not be told its work was lost"
     )
 
   test(
@@ -525,9 +724,8 @@ class FlowSessionTest extends FunSuite:
     "Ephemeral session: a second in-process run does NOT re-prime"
   ):
     // An ephemeral backend has no durable transcript to probe, so an
-    // exists-based probe would re-seed every task of a loop;
-    // `willContinue` reads the in-process claim, so a live continuation runs the
-    // prompt verbatim. The stub claims the id after each run (as a real
+    // exists-based probe would re-seed every task of a loop; the continuation
+    // reads the in-process claim, so a live one runs the prompt verbatim. The stub claims the id after each run (as a real
     // drainAndCommit does), so the SECOND run must NOT re-inject seed/preamble.
     val seed = "You are a planning agent."
     val fc = makeControl(
@@ -540,7 +738,10 @@ class FlowSessionTest extends FunSuite:
         )
       )
     )
-    val agent = new StubAgentForSeeded(existsResult = false, ephemeral = true)
+    val agent = new StubAgentForSeeded(
+      existsResult = false,
+      durability = StubDurability.InProcess
+    )
     val fs = flowSession(agent)
     val _ = fs.run("task one")(using fc)
     val _ = fs.run("task two")(using fc)
@@ -742,6 +943,22 @@ class FlowSessionTest extends FunSuite:
     val record =
       fc.sessionStore.records().find(_.id == testSessionId).get
     assertEquals(record.resumeWireId, Some("server-structured-1"))
+
+  test(
+    "resultAs.run tells a carried-over conversation on its first turn"
+  ):
+    // The fix turn drives this door exclusively, so a resume whose first
+    // durable turn is a fix turn depends on it.
+    val fc = makeControl(sessions = carriedOver)
+    val agent = new StubAgentForSeeded(existsResult = true)
+    val _ = flowSession(agent)
+      .resultAs[StubResult]
+      .run("continue the task")(using fc)
+    val prompt = agent.capturedPrompt.getOrElse(fail("no prompt captured"))
+    assert(
+      prompt.contains(NoticeInstruction),
+      s"the structured door must carry the notice; got: $prompt"
+    )
 
   test("resultAs.run on a live session forwards the input verbatim"):
     val fc = makeControl(

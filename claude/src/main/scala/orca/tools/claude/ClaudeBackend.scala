@@ -119,10 +119,10 @@ private[orca] class ClaudeBackend(
   /** Claude's sessions live on disk (`~/.claude/projects/.../<id>.jsonl`) and
     * outlive the process, so it is durable: the claim survives a restart
     * (rehydrated on resume so a resumed task uses `--resume`), and existence is
-    * a best-effort transcript-file probe. Because
-    * [[SessionSupport.willContinue]] resolves the recorded mapping first, the
-    * probe only runs for an id already known: a stray transcript for a
-    * never-claimed id reports `false`, which is safe since the caller re-seeds.
+    * a best-effort transcript-file probe. The probe also answers for a claimed
+    * id with no mapping recorded — a transcript under an id orca minted is one
+    * an earlier run put on the wire, and claiming it again is what the CLI
+    * refuses.
     */
   val tag: BackendTag.ClaudeCode.type = BackendTag.ClaudeCode
 

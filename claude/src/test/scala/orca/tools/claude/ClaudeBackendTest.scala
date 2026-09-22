@@ -1,6 +1,11 @@
 package orca.tools.claude
 
-import orca.backend.{Interaction, SupervisedBackend, SystemPromptComposer}
+import orca.backend.{
+  Continuation,
+  Interaction,
+  SupervisedBackend,
+  SystemPromptComposer
+}
 import orca.backend.mcp.{GitHubMcpServer, RepoMcpServer}
 import orca.agents.{
   BackendTag,
@@ -535,7 +540,9 @@ class ClaudeBackendTest extends munit.FunSuite:
   ):
     // The session mapping is recorded only after `new ClaudeConversation`
     // succeeds, so a first call that throws (e.g. is_error from the result
-    // message) doesn't wedge the bookkeeping.
+    // message) doesn't wedge the bookkeeping. The stub CLI writes no
+    // transcript, so there is no claim on disk either and the retry opens the
+    // session the first call failed to.
     val sid = SessionId[BackendTag.ClaudeCode.type](
       "33333333-3333-3333-3333-333333333333"
     )
@@ -562,7 +569,31 @@ class ClaudeBackendTest extends munit.FunSuite:
       )
 
   test(
-    "willContinue returns true when the id is claimed and the transcript exists"
+    "a session the previous run left on disk is resumed, not re-claimed"
+  ):
+    // A run interrupted during a durable session's first turn writes the
+    // transcript and commits nothing, so the next run finds the id recorded
+    // with no wire id. `--session-id` on an id claude already knows is refused,
+    // which would fail the run outright.
+    val tmpProjects = TempDirs.dir()
+    val cwd = TempDirs.dir()
+    val slug = ClaudeBackend.cwdSlug(cwd)
+    os.makeDir.all(tmpProjects / slug)
+    os.write(tmpProjects / slug / s"${SessionId.value(freshSid)}.jsonl", "")
+    val runner = new SpawnStubCliRunner(List(successfulProcess()))
+    SupervisedBackend.using(
+      new ClaudeBackend(runner, projectsDir = tmpProjects, workDir = cwd)
+    ): backend =>
+      val _ = backend.runAutonomous("continue", freshSid, AgentConfig())
+      val args = runner.calls.head
+      assert(
+        args.containsSlice(Seq("--resume", SessionId.value(freshSid))),
+        s"expected a resume against the interrupted session; got: $args"
+      )
+      assert(!args.contains("--session-id"), args)
+
+  test(
+    "continuation is Recorded when the id is claimed and the transcript exists"
   ):
     val tmpProjects = TempDirs.dir()
     val cwd = TempDirs.dir()
@@ -577,13 +608,16 @@ class ClaudeBackendTest extends munit.FunSuite:
       )
     ): backend =>
       backend.sessions.register(freshSid, freshSid.onWire)
-      assert(backend.sessions.willContinue(freshSid))
+      assertEquals(
+        backend.sessions.continuation(freshSid),
+        Continuation.Recorded
+      )
 
   test(
     "workDir is shared, by construction, between the actual spawn cwd and the session-existence probe"
   ):
     // `workDir` is fixed once at construction and BOTH the probe (via
-    // `sessions.willContinue`) and the real subprocess spawn (via
+    // `sessions.continuation`) and the real subprocess spawn (via
     // `runAutonomous` → `cli.spawnPiped(..., cwd = workDir)`) read that SAME
     // field, so no per-call value can drift out of sync. A backend constructed
     // with a worktree-style `workDir` (!= the process cwd) must probe AND spawn
@@ -609,8 +643,9 @@ class ClaudeBackendTest extends munit.FunSuite:
     ): backend =>
       assertEquals(backend.workDir, flowWorkDir)
       backend.sessions.register(freshSid, freshSid.onWire)
-      assert(
-        backend.sessions.willContinue(freshSid),
+      assertEquals(
+        backend.sessions.continuation(freshSid),
+        Continuation.Recorded,
         "probe must read the constructor's workDir"
       )
       val _ = backend.runAutonomous("x", freshSid, AgentConfig())
@@ -628,15 +663,18 @@ class ClaudeBackendTest extends munit.FunSuite:
       new ClaudeBackend(new SpawnStubCliRunner(Nil), projectsDir = tmpProjects)
     ): backend =>
       backend.sessions.register(freshSid, freshSid.onWire)
-      assert(!backend.sessions.willContinue(freshSid))
+      assertEquals(
+        backend.sessions.continuation(freshSid),
+        Continuation.Rebuild
+      )
 
   test(
-    "willContinue returns false when the transcript is present but never claimed"
+    "continuation is Claimed when the transcript is present but nothing is recorded"
   ):
-    // Existence is only answered for an id the bookkeeping knows (claimed this
-    // run or rehydrated). A stray transcript for an id we never claimed reports
-    // false — outcome-preserving, since dispatch would say `Fresh` and the CLI
-    // would refuse the duplicate `--session-id` anyway.
+    // What a run interrupted during a session's first turn leaves behind:
+    // claude wrote the transcript, the drain never committed. The id is one
+    // orca minted, so that transcript is this session's — resume it rather
+    // than re-claim an id the CLI refuses to create twice.
     val tmpProjects = TempDirs.dir()
     val cwd = TempDirs.dir()
     val slug = ClaudeBackend.cwdSlug(cwd)
@@ -649,10 +687,13 @@ class ClaudeBackendTest extends munit.FunSuite:
         workDir = cwd
       )
     ): backend =>
-      assert(!backend.sessions.willContinue(freshSid))
+      assertEquals(
+        backend.sessions.continuation(freshSid),
+        Continuation.Claimed
+      )
 
   test(
-    "willContinue returns false when the id is claimed but the transcript is absent"
+    "continuation is Rebuild when the id is claimed but the transcript is absent"
   ):
     val tmpProjects = TempDirs.dir()
     val cwd = TempDirs.dir()
@@ -664,9 +705,12 @@ class ClaudeBackendTest extends munit.FunSuite:
       )
     ): backend =>
       backend.sessions.register(freshSid, freshSid.onWire)
-      assert(!backend.sessions.willContinue(freshSid))
+      assertEquals(
+        backend.sessions.continuation(freshSid),
+        Continuation.Rebuild
+      )
 
-  test("willContinue returns false when the projects dir is absent"):
+  test("continuation is Rebuild when the projects dir is absent"):
     val missing = TempDirs.dir() / "no-such-dir"
     val cwd = TempDirs.dir()
     SupervisedBackend.using(
@@ -677,10 +721,13 @@ class ClaudeBackendTest extends munit.FunSuite:
       )
     ): backend =>
       backend.sessions.register(freshSid, freshSid.onWire)
-      assert(!backend.sessions.willContinue(freshSid))
+      assertEquals(
+        backend.sessions.continuation(freshSid),
+        Continuation.Rebuild
+      )
 
   test(
-    "willContinue returns false for a malicious id with path traversal chars"
+    "continuation is Rebuild for a malicious id with path traversal chars"
   ):
     val tmpProjects = TempDirs.dir()
     val cwd = TempDirs.dir()
@@ -694,7 +741,10 @@ class ClaudeBackendTest extends munit.FunSuite:
       val maliciousId =
         SessionId[BackendTag.ClaudeCode.type]("../../etc/passwd")
       // `register`'s SessionId.isSafe guard must refuse to record the
-      // traversal id in the first place, so `willContinue` finds no mapping
-      // and never reaches the probe.
+      // traversal id, and the claim arm applies the same guard, so neither
+      // route reaches the probe with a traversal path.
       backend.sessions.register(maliciousId, maliciousId.onWire)
-      assert(!backend.sessions.willContinue(maliciousId))
+      assertEquals(
+        backend.sessions.continuation(maliciousId),
+        Continuation.Rebuild
+      )

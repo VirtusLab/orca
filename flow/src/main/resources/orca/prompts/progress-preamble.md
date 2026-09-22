@@ -1,0 +1,1 @@
+Progress so far: completed {{completed}}.{{tree}} Their work is committed; a stage that did not complete left nothing behind. Read the files rather than assuming what earlier stages left. Continue from here.

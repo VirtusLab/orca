@@ -855,6 +855,96 @@ list output and opencode's directory-scoping should be pinned when the probes la
 > absence and the runtime re-seeds, and the probe applies the same cutoff, so a dir
 > another process is about to prune already reads as absent.
 
+> **Amendment (2026-09-21, carried-over live conversations).** A durable
+> session is told, on the first turn this run takes against it, that the working
+> tree holds only what earlier stages committed — whenever its record carries a
+> `resumeWireId` (a previous run committed a turn there) and the probe says that
+> conversation is still live.
+>
+> **That pair is the trigger, not "the run resumed a log".** The two come apart:
+> a corrupt log makes the run bind fresh, while the session store, which is not
+> the log and outlives it, still holds the carried-over conversations — and they
+> are told. A run-level "am I resuming" flag would miss them.
+>
+> **Why.** The seed and the progress preamble above are applied only when the
+> conversation is NOT live, which is backwards for the one case where the
+> agent's memory is stale. On resume the conversation survives — the run
+> continues it rather than re-seeding — while the interrupted stage's
+> uncommitted edits do not: setup stashes the dirty tree (R4), and a previous
+> attempt that reached its failure teardown had already reset it. Nothing told
+> the agent. Observed live: a coder answered "already done — I created both
+> files in my previous turn", the stage reviewed an empty diff, and the run
+> recovered only because a reviewer reported the file missing.
+>
+> **Once per session, not per turn.** `reviewThenFix` drives one session for
+> several fix turns inside a stage. From the second turn on, the uncommitted
+> edits in the tree are that turn's own work, so repeating the notice would
+> report missing work that is not missing. A session whose conversation was
+> lost is not told either: it re-seeds, and the preamble already says an
+> unfinished stage left nothing behind.
+>
+> **The stash is not mentioned.** It exists only when the previous attempt was
+> killed rather than torn down; popping it can conflict, and the person — who
+> is told about it, with `git stash pop`, in the resume banner — is the one who
+> can judge that. Redoing the work is what the agent can do unaided.
+>
+> **Adopted chats are not told.** `agent.chat(session.id)` continues the same
+> conversation as an ephemeral `Chat`, which needs only `InStage` and so runs
+> inside a fork; the claim and the notice sit behind `FlowControl`, which a fork
+> never holds — moving them to the chat door would hand a fork the flow thread's
+> per-run state. So a flow continuing a carried-over conversation that way is
+> untold, and a durable turn after such a chat turn is still that conversation's
+> first, telling it uncommitted edits are gone while the chat turn's edits sit in
+> the tree. What the notice asks for — read the files — stays right in both
+> cases.
+>
+> **Two limits of the premise.** A finished run's teardown discards its session
+> store best-effort, so a discard that fails leaves the next run of the same
+> prompt told a previous attempt was interrupted. And a turn that suppresses its
+> prompt event (`emitPrompt = false`, as the fix turn does) carries the notice
+> without it appearing in the transcript.
+
+> **Amendment (2026-09-21, a session the backend already holds).** The R22
+> probe also decides fresh-vs-resume for a session with NOTHING recorded, on a
+> `ClientClaimed` backend. `AgentBackend.sessions` answers one of three
+> (`Continuation`): `Recorded` — live under the wire id recorded for this
+> client; `Claimed` — live under the client's own id, with nothing recorded;
+> `Rebuild` — re-seed. `dispatchFor` reads the same resolution, so `Claimed`
+> resumes rather than re-claims.
+>
+> **Why.** `resumeWireId` is committed only after a clean drain, so a run
+> interrupted during a session's FIRST turn records nothing — while the backend
+> has already written the transcript for the id orca put on the wire. Claude and
+> pi claim ids client-side, and claude refuses `--session-id` for a session it
+> already holds: the next run dispatched `Fresh(claim)` and died there. Not a
+> degradation, a failed run. It was masked while records lived in the committed
+> log, where the failure teardown's `git reset --hard` erased a failed stage's
+> record and the resume minted a fresh uuid; moving them to the cache (the
+> 2026-09-18 store amendment) made every in-stage session reach it. The same
+> resolution also covers the retry inside one run (`AgentCall` re-prompts on a
+> failure the model didn't cause), which re-claimed the same id.
+>
+> **Why resume rather than mint a fresh uuid.** The interrupted turn's prompt
+> carried the seed, so the conversation the backend holds is already primed; a
+> fresh mint would re-seed it and drop that. And nothing distinguishes an
+> interruption during turn one from one during turn two, which resumes — the
+> probe confirming the session IS this section's continue-vs-re-seed decision.
+> Re-seed stays the fallback wherever the probe says gone.
+>
+> **The notice follows.** A conversation resumed this way predates this run just
+> as a recorded one does, so the carried-over condition above widens: a recorded
+> `resumeWireId` OR `Claimed`. The two are disjoint and neither fires for a
+> conversation this run opened itself — a turn this run took records a mapping,
+> an adopted `chat` turn records one too, and both then read `Recorded` against
+> a record with no wire id.
+>
+> **What it costs.** One probe per turn while nothing is recorded (a file
+> existence check for claude, a session-dir read for pi), which the first
+> commit ends. A server-minting backend never reaches it: its client id goes
+> nowhere near the wire, so a probe on it would answer about nothing.
+> `SessionId.isSafe` gates the claim as it gates the recorded map's write
+> doors, since the id comes back from the session store.
+
 ### 2.7 External-effect idempotency
 
 **Requirements.**

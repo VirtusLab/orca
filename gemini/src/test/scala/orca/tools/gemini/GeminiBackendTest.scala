@@ -1,6 +1,6 @@
 package orca.tools.gemini
 
-import orca.backend.{SupervisedBackend, SystemPromptComposer}
+import orca.backend.{Continuation, SupervisedBackend, SystemPromptComposer}
 import orca.agents.{
   BackendTag,
   AgentConfig,
@@ -302,7 +302,7 @@ class GeminiBackendTest extends munit.FunSuite:
       assert(finalPrompt.contains("ask_user"))
       assert(finalPrompt.contains("list files"))
 
-  // willContinue probes the SERVER id, not the client id: it resolves the
+  // continuation probes the SERVER id, not the client id: it resolves the
   // client→server mapping first (gemini mints its own id), then scans
   // `--list-sessions` for that server id. A `registerSession` seeds the map.
 
@@ -311,7 +311,7 @@ class GeminiBackendTest extends munit.FunSuite:
     WireSessionId[BackendTag.Gemini.type]("sess-abc-123")
 
   test(
-    "willContinue probes the SERVER id: true when it appears in --list-sessions"
+    "continuation probes the SERVER id: Recorded when it appears in --list-sessions"
   ):
     // clientForProbe ("client-uuid") and serverForProbe ("sess-abc-123") are
     // distinct. The stub stdout contains the server id but NOT the client id, so
@@ -327,44 +327,56 @@ class GeminiBackendTest extends munit.FunSuite:
     val stub = new StubCliRunner(CliResult(0, listOutput, ""))
     SupervisedBackend.using(new GeminiBackend(stub)): backend =>
       backend.sessions.register(clientForProbe, serverForProbe)
-      assert(backend.sessions.willContinue(clientForProbe))
+      assertEquals(
+        backend.sessions.continuation(clientForProbe),
+        Continuation.Recorded
+      )
       // Verify the probe used the correct command.
       val probeArgs = stub.calls.head.args
       assertEquals(
         probeArgs,
         List("gemini", "--list-sessions"),
-        s"willContinue must invoke exactly `gemini --list-sessions`; got: $probeArgs"
+        s"the probe must invoke exactly `gemini --list-sessions`; got: $probeArgs"
       )
 
   test(
-    "willContinue returns false when there is no client→server mapping"
+    "continuation is Rebuild when there is no client→server mapping"
   ):
     // No registerSession: the client id maps to nothing, so the probe must not
     // run (and must not pass the client id to --list-sessions).
     val stub =
       new StubCliRunner(CliResult(0, "client-uuid  2024-01-01T00:00:00", ""))
     SupervisedBackend.using(new GeminiBackend(stub)): backend =>
-      assert(!backend.sessions.willContinue(clientForProbe))
+      assertEquals(
+        backend.sessions.continuation(clientForProbe),
+        Continuation.Rebuild
+      )
 
   test(
-    "willContinue returns false when the server id is not in the output"
+    "continuation is Rebuild when the server id is not in the output"
   ):
     val stub =
       new StubCliRunner(CliResult(0, "sess-other  2024-01-01T00:00:00", ""))
     SupervisedBackend.using(new GeminiBackend(stub)): backend =>
       backend.sessions.register(clientForProbe, serverForProbe)
-      assert(!backend.sessions.willContinue(clientForProbe))
+      assertEquals(
+        backend.sessions.continuation(clientForProbe),
+        Continuation.Rebuild
+      )
 
   test(
-    "willContinue returns false when gemini --list-sessions exits non-zero"
+    "continuation is Rebuild when gemini --list-sessions exits non-zero"
   ):
     val stub = new StubCliRunner(CliResult(1, "sess-abc-123", ""))
     SupervisedBackend.using(new GeminiBackend(stub)): backend =>
       backend.sessions.register(clientForProbe, serverForProbe)
-      assert(!backend.sessions.willContinue(clientForProbe))
+      assertEquals(
+        backend.sessions.continuation(clientForProbe),
+        Continuation.Rebuild
+      )
 
   test(
-    "willContinue returns false when the cli runner throws (verifies NonFatal catch)"
+    "continuation is Rebuild when the cli runner throws (verifies NonFatal catch)"
   ):
     val stub = new StubCliRunner():
       override def run(
@@ -375,14 +387,20 @@ class GeminiBackendTest extends munit.FunSuite:
       ): CliResult = throw new RuntimeException("binary not found")
     SupervisedBackend.using(new GeminiBackend(stub)): backend =>
       backend.sessions.register(clientForProbe, serverForProbe)
-      assert(!backend.sessions.willContinue(clientForProbe))
+      assertEquals(
+        backend.sessions.continuation(clientForProbe),
+        Continuation.Rebuild
+      )
 
   test(
-    "willContinue returns false for a malicious server id containing path chars"
+    "continuation is Rebuild for a malicious server id containing path chars"
   ):
     val maliciousServer =
       WireSessionId[BackendTag.Gemini.type]("../../etc/passwd")
     val stub = new StubCliRunner(CliResult(0, "../../etc/passwd", ""))
     SupervisedBackend.using(new GeminiBackend(stub)): backend =>
       backend.sessions.register(clientForProbe, maliciousServer)
-      assert(!backend.sessions.willContinue(clientForProbe))
+      assertEquals(
+        backend.sessions.continuation(clientForProbe),
+        Continuation.Rebuild
+      )

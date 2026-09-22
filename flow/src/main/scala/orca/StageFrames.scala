@@ -2,10 +2,26 @@ package orca
 
 import orca.agents.SessionKey
 
-/** Per-run stage-identity and stage-baseline bookkeeping shared by every
-  * [[FlowControl]] implementation (production
-  * [[orca.runner.DefaultFlowContext]] and the test doubles), so a test double
-  * can't drift from production semantics and greenwash a nesting/resume test.
+/** Where a turn sits in this run's use of one durable conversation. Minted by
+  * [[StageFrames.claimTurn]].
+  */
+private[orca] enum SessionTurn:
+  /** The run has not driven this conversation before. Only here can the
+    * conversation's memory predate the run — and so disagree with a working
+    * tree the run started from.
+    */
+  case First
+
+  /** The run has already driven this conversation, so everything it remembers
+    * doing, it did here.
+    */
+  case Later
+
+/** Per-run bookkeeping shared by every [[FlowControl]] implementation
+  * (production [[orca.runner.DefaultFlowContext]] and the test doubles), so a
+  * test double can't drift from production semantics and greenwash a
+  * nesting/resume test: stage identity and baselines, the say-once session-key
+  * claim, and which durable conversations this run has already driven.
   * Canonical description of the frame-stack protocol; see ADR 0018 §2.1 for the
   * design rationale.
   *
@@ -35,14 +51,14 @@ import orca.agents.SessionKey
   *
   * Thread-affine: reached only through [[FlowControl]], single-threaded per
   * top-level `flow(...)` (R12, ADR 0018 §2.2), so plain vars state the real
-  * invariant. `ownerThread` (captured at construction) is asserted on
-  * [[enterStage]], [[exitStage]], and [[claimSessionKey]], so a stray call from
-  * an `ox.fork` — always a fresh thread on the pinned ox 1.0.5 — throws instead
-  * of silently corrupting the frame stack / counters. Ox runs a `supervised:`
-  * block's own body on a fresh fork too, so `stage(...)` from the direct body
-  * of a user-opened nested scope is rejected just like an explicit `fork`.
-  * Production is unaffected: `runFlow` constructs the context inside the same
-  * `supervised:` body that runs the flow, so owner and body thread coincide.
+  * invariant. `ownerThread` (captured at construction) is asserted on every
+  * door that touches them, so a stray call from an `ox.fork` — always a fresh
+  * thread on the pinned ox 1.0.5 — throws instead of silently corrupting the
+  * frame stack / counters. Ox runs a `supervised:` block's own body on a fresh
+  * fork too, so `stage(...)` from the direct body of a user-opened nested scope
+  * is rejected just like an explicit `fork`. Production is unaffected:
+  * `runFlow` constructs the context inside the same `supervised:` body that
+  * runs the flow, so owner and body thread coincide.
   *
   * '''This is the only enforcement of R12 for user flow scripts.''' The
   * capture/separation checking enforcement (ADR 0018 §6) catches a
@@ -154,3 +170,21 @@ private[orca] trait StageFrames:
       )
     claimedSessionKeys = claimedSessionKeys + key
     key
+
+  // A session id is unique across the run, so one flat set covers it as the
+  // key set above covers keys.
+  private var drivenSessions: Set[String] = Set.empty
+
+  /** Claim `sessionId`'s next turn: [[SessionTurn.First]] exactly once per
+    * conversation per run, [[SessionTurn.Later]] after that.
+    *
+    * Claimed on every turn, whatever the turn then does with the answer — a
+    * conversation opened by this run's own first turn must not read as first
+    * again on its second.
+    */
+  private[orca] def claimTurn(sessionId: String): SessionTurn =
+    assertOwnerThread("session.run(...)")
+    if drivenSessions.contains(sessionId) then SessionTurn.Later
+    else
+      drivenSessions = drivenSessions + sessionId
+      SessionTurn.First
