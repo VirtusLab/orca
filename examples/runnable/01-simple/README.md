@@ -55,5 +55,5 @@ the invocation is just the file name — no `<path-to-orca>` chasing:
 
 ```bash
 cd /tmp/orca-01-simple-…
-scala-cli run implement.sc -- "Add a multiply function to the calculator crate"
+scala-cli run --workspace "$(mktemp -d)" implement.sc -- "Add a multiply function to the calculator crate"
 ```

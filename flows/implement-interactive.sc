@@ -18,7 +18,7 @@
   * crate into a temp dir and copies this script alongside it; from there:
   *
   * ```bash
-  * scala-cli run implement-interactive.sc -- "Add a new arithmetic operation to the calculator crate. Ask the user which."
+  * scala-cli run --workspace "$(mktemp -d)" implement-interactive.sc -- "Add a new arithmetic operation to the calculator crate. Ask the user which."
   * ```
   *
   * The trailing "Ask the user which." pushes the planner to call `ask_user`

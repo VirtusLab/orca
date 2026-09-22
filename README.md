@@ -78,7 +78,7 @@ README](skills/using-orca/README.md) for specifics.
 [An example flow](#an-example-flow).
 
 ```bash
-scala-cli run implement.sc -- "add a rate limiter to /login"
+scala-cli run --workspace "$(mktemp -d)" implement.sc -- "add a rate limiter to /login"
 ```
 
 ## An example flow
@@ -147,7 +147,7 @@ flow(OrcaArgs(args)):
 ```
 
 ```bash
-scala-cli run implement.sc -- "Add a rate-limiter to the /login endpoint"
+scala-cli run --workspace "$(mktemp -d)" implement.sc -- "Add a rate-limiter to the /login endpoint"
 ```
 
 Each flow starts by creating a feature branch, named by a short
@@ -1075,8 +1075,11 @@ Orca is published to Maven Central — `scala-cli` fetches the artifacts on firs
 run:
 
 ```bash
-scala-cli run implement.sc -- "your task here"
+scala-cli run --workspace "$(mktemp -d)" implement.sc -- "your task here"
 ```
+
+`--workspace` keeps scala-cli's build output out of your repository; without it
+you get a `.scala-build` directory next to the script.
 
 For a guided start, install [Orca Shell](#orca-shell) instead: its first-run
 wizard configures the role agents and models for you.

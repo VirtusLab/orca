@@ -50,7 +50,7 @@ The seed script prints the exact `scala-cli run` line:
 # → "Test project ready at: /tmp/orca-02-interactive-…"
 
 cd /tmp/orca-02-interactive-…
-scala-cli run implement-interactive.sc -- "Add a new arithmetic operation to the calculator crate. Ask the user which."
+scala-cli run --workspace "$(mktemp -d)" implement-interactive.sc -- "Add a new arithmetic operation to the calculator crate. Ask the user which."
 ```
 
 Read the question at the `?` prompt and type your answer. The planner
