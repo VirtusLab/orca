@@ -29,8 +29,8 @@ import orca.util.RawJson
   * seed/preamble → run → persist protocol (ADR 0018 §2.6).
   *
   * Each scenario constructs a [[FlowSession]] directly over a
-  * [[StubAgentForSeeded]] (whose dispatch and `run` behaviours are injected
-  * at construction time) and a fixed [[testSession]] id, and asserts on
+  * [[StubAgentForSeeded]] (whose dispatch and `run` behaviours are injected at
+  * construction time) and a fixed [[testSession]] id, and asserts on
   * `capturedPrompt` (what the prompt looked like after preamble/seed
   * composition) and on the persisted [[SessionRecord]].
   */
