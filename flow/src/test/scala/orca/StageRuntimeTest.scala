@@ -15,7 +15,7 @@ class StageRuntimeTest extends munit.FunSuite:
   /** Every stage below that changes a file has its commit message drafted by
     * the cheap model, so those controls need a lead that answers.
     */
-  private def commitMessageAgent: TextReplyingAgent =
+  private def commitMessageAgent: orca.agents.ClaudeAgent =
     TextReplyingAgent("stage commit message")
 
   private class RecordingListener extends OrcaListener:

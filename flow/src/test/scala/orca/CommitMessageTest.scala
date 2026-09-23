@@ -1,21 +1,10 @@
 package orca
 
 import orca.events.EventDispatcher
-import orca.agents.{
-  SessionKey,
-  Announce,
-  AutonomousTextCall,
-  BackendTag,
-  JsonData,
-  AgentCall,
-  AgentConfig,
-  Agent,
-  SessionId,
-  ToolSet
-}
+import orca.agents.{Agent, BackendTag}
 import orca.progress.ProgressStore
 import orca.sessions.SessionRecord
-import orca.testkit.{GitRepo, TextReplyingAgent}
+import orca.testkit.{GitRepo, ScriptedBackend, TestAgent, TextReplyingAgent}
 import orca.tools.OsGitTool
 
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -30,29 +19,14 @@ class CommitMessageTest extends munit.FunSuite:
   // Stubs
   // --------------------------------------------------------------------------
 
-  /** LLM stub that throws on `autonomous.run`. */
+  /** LLM stub whose every turn fails. */
   private val throwingAgent: Agent[BackendTag.ClaudeCode.type] =
-    new Agent[BackendTag.ClaudeCode.type]:
-      val name: String = "throwing"
-      override def cheap: Agent[BackendTag.ClaudeCode.type] = this
-      def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
-        new AutonomousTextCall[BackendTag.ClaudeCode.type]:
-          private[orca] def runWithSession(
-              prompt: String,
-              session: SessionId[BackendTag.ClaudeCode.type],
-              sessionKey: Option[SessionKey],
-              emitPrompt: Boolean
-          )(using
-              orca.InStage
-          ): String =
-            throw new RuntimeException("LLM unavailable")
-      def withConfig(c: AgentConfig): Agent[BackendTag.ClaudeCode.type] = this
-      def withSystemPrompt(p: String): Agent[BackendTag.ClaudeCode.type] =
-        this
-      def withName(n: String): Agent[BackendTag.ClaudeCode.type] = this
-      def withTools(t: ToolSet): Agent[BackendTag.ClaudeCode.type] = this
-      def resultAs[O: JsonData: Announce]
-          : AgentCall[BackendTag.ClaudeCode.type, O] = ???
+    TestAgent(
+      ScriptedBackend.replying(BackendTag.ClaudeCode)(_ =>
+        throw new RuntimeException("LLM unavailable")
+      ),
+      "throwing"
+    )
 
   // --------------------------------------------------------------------------
   // Test helper

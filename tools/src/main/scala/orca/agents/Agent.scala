@@ -1,9 +1,11 @@
 package orca.agents
 
 import orca.InStage
-import orca.events.OrcaEvent
+import orca.backend.{AgentBackend, AgentResult, Interaction}
+import orca.events.{OrcaEvent, OrcaListener}
 import orca.util.TextUtil
 import org.slf4j.LoggerFactory
+import ox.tap
 
 import scala.util.control.NonFatal
 
@@ -28,34 +30,41 @@ private val log = LoggerFactory.getLogger("orca.agents")
   * conversation's end.
   *
   * Parameterized by the concrete `BackendTag` so session ids and results carry
-  * the backend identity at the type level.
+  * the backend identity at the type level. Backend-specific model tiers
+  * (`claude.opus`, `codex.mini`, …) are extensions on the tag-specific type,
+  * provided by each backend's `*Agents` object.
   *
-  * Several members below (`withRole`, `withCheapModel`, `withSelfManagedGit`,
-  * …) default to a safe no-op `this`; `BaseAgent`-derived tools override every
-  * one, and a custom `Agent` implementation must too, or the corresponding
-  * feature is silently dropped.
+  * Every builder returns a sibling on the same backend instance, so the
+  * siblings share its sessions, its enforcement notices and its close latch.
   */
-trait Agent[B <: BackendTag]:
+final class Agent[B <: BackendTag] private (
+    private val backend: AgentBackend[B],
+    private[orca] val config: AgentConfig,
+    prompts: Prompts,
+    events: OrcaListener,
+    interaction: Interaction,
+    naming: AgentName,
+    /** Role tag for this agent in the event stream — a second axis on
+      * `OrcaEvent.TokensUsed` alongside [[name]]. The review loop sets
+      * `Some("reviewer")` via [[withRole]] so `CostTracker` can subtotal
+      * reviewer spend without baking a prefix into [[name]]. Unrelated to the
+      * wire `role` field on a chat message — this is a cost-attribution tag,
+      * not part of the conversation payload.
+      */
+    val role: Option[String]
+):
   /** Label for this agent in the event stream (the `agent` axis of
-    * `OrcaEvent.TokensUsed`). Defaults to the backend name; set it with
-    * [[withName]] to distinguish roles in the cost report (e.g. "reviewer").
+    * `OrcaEvent.TokensUsed`). Set it with [[withName]] to distinguish roles in
+    * the cost report (e.g. "reviewer").
     */
-  def name: String
+  def name: String = naming.label
 
-  /** Role tag for this agent in the event stream — a second axis on
-    * `OrcaEvent.TokensUsed` alongside [[name]]. The review loop sets
-    * `Some("reviewer")` via [[withRole]] so `CostTracker` can subtotal reviewer
-    * spend without baking a prefix into [[name]] (the identity a
-    * session/selector keys off). Defaults to `None`. Unrelated to the wire
-    * `role` field on a chat message (gemini's `Role`, pi's message role) — this
-    * is a cost-attribution tag, not part of the conversation payload.
+  /** Whether [[name]] is the backend's default rather than one set with
+    * [[withName]].
     */
-  def role: Option[String] = None
-
-  /** The free-text engine behind [[run]] and [[Chat.run]] — internal; the
-    * public doors are `run` (one-shot) and `chat()` (multi-turn).
-    */
-  private[orca] def autonomous: AutonomousTextCall[B]
+  private[orca] def hasDefaultName: Boolean = naming match
+    case AgentName.Default(_)  => true
+    case AgentName.Explicit(_) => false
 
   /** One ephemeral free-text turn — a fresh conversation, discarded after the
     * reply. Use when the agent's reply is prose / code / anything that doesn't
@@ -63,22 +72,14 @@ trait Agent[B <: BackendTag]:
     * within the run, mint [[chat]]; to survive a crash/resume, use
     * `agent.session(name, seed)` (a durable `orca.FlowSession`).
     */
-  final def run(
-      prompt: String,
-      emitPrompt: Boolean = true
-  )(using InStage): String =
-    autonomous.runWithSession(
-      prompt,
-      SessionId.fresh[B],
-      sessionKey = None,
-      emitPrompt = emitPrompt
-    )
+  def run(prompt: String, emitPrompt: Boolean = true)(using InStage): String =
+    runText(prompt, SessionId.fresh[B], sessionKey = None, emitPrompt)
 
   /** Start a fresh EPHEMERAL multi-turn conversation — see [[Chat]]. In-run
     * only: nothing is persisted, so a crash/resume starts over. Needs only
     * `InStage`, so a chat can be minted and driven inside an `ox` fork.
     */
-  final def chat(): Chat[B] = new Chat(this, SessionId.fresh[B])
+  def chat(): Chat[B] = new Chat(this, SessionId.fresh[B])
 
   /** Adopt an existing conversation id as an EPHEMERAL chat — the escape hatch
     * for continuing a durable `FlowSession`'s conversation where its own doors
@@ -89,8 +90,7 @@ trait Agent[B <: BackendTag]:
     * continuation at a time: concurrent turns against the same backend
     * conversation fail.
     */
-  final def chat(continueFrom: SessionId[B]): Chat[B] =
-    new Chat(this, continueFrom)
+  def chat(continueFrom: SessionId[B]): Chat[B] = new Chat(this, continueFrom)
 
   /** Fix the output type of a structured call and obtain a gateway with both
     * `autonomous` and `interactive` modes. `O` needs a `JsonData[O]` — `derives
@@ -100,58 +100,108 @@ trait Agent[B <: BackendTag]:
     * `None` (no auto-announce), so callers don't need to do anything unless
     * they want a friendly summary on the channel. See [[Announce]].
     */
-  def resultAs[O: JsonData: Announce]: AgentCall[B, O]
+  def resultAs[O: JsonData: Announce]: AgentCall[B, O] =
+    backend.checkNotClosed()
+    new DefaultAgentCall[B, O](
+      backend,
+      config,
+      prompts,
+      events,
+      interaction,
+      agentName = name,
+      agentRole = role
+    )
 
-  /** Sibling tool running on `config` — replaces every field, including a
+  /** Sibling running on `config` — replaces every field, including a
     * [[withTools]] restriction; to change one field, use its builder.
     */
-  def withConfig(config: AgentConfig): Agent[B]
-  def withSystemPrompt(prompt: String): Agent[B]
-  def withName(name: String): Agent[B]
+  def withConfig(newConfig: AgentConfig): Agent[B] = copy(config = newConfig)
 
-  /** Return a sibling tool tagged with `role` (see [[role]]) for the event
-    * stream — used by the review loop to tag a reviewer's run without renaming
-    * it.
+  def withSystemPrompt(prompt: String): Agent[B] =
+    copy(config = config.copy(systemPrompt = Some(prompt)))
+
+  def withName(newName: String): Agent[B] =
+    copy(naming = AgentName.Explicit(newName))
+
+  /** Sibling tagged with `role` (see [[role]]) for the event stream — used by
+    * the review loop to tag a reviewer's run without renaming it.
     */
-  def withRole(role: String): Agent[B] = this
+  def withRole(newRole: String): Agent[B] = copy(role = Some(newRole))
 
-  /** Return a sibling tool whose config pins [[AgentConfig.tools]] to `tools` —
-    * the capability tier (see [[ToolSet]]). The primitive behind
-    * [[withReadOnly]] and [[withNetworkOnly]]; preserves the rest of the tool's
-    * config (model, system prompt, autoApprove).
+  /** Sibling whose config pins [[AgentConfig.tools]] to `tools` — the
+    * capability tier (see [[ToolSet]]). The primitive behind [[withReadOnly]]
+    * and [[withNetworkOnly]].
     */
-  def withTools(tools: ToolSet): Agent[B]
+  def withTools(tools: ToolSet): Agent[B] =
+    copy(config = config.copy(tools = tools))
 
-  /** Sibling tool restricted to read-only tools ([[ToolSet.ReadOnly]]): no
-    * edits, no shell. Used by planning and review helpers so e.g.
+  /** Sibling restricted to read-only tools ([[ToolSet.ReadOnly]]): no edits, no
+    * shell. Used by planning and review helpers so e.g.
     * `claude.opus.withReadOnly` keeps the opus pin while gating writes.
     */
   def withReadOnly: Agent[B] = withTools(ToolSet.ReadOnly)
 
-  /** Sibling tool restricted to reads plus network ([[ToolSet.NetworkOnly]]) —
-    * for planner turns that must read an issue/PR. How strongly each backend
-    * blocks edits varies; see [[Enforcement]].
+  /** Sibling restricted to reads plus network ([[ToolSet.NetworkOnly]]) — for
+    * planner turns that must read an issue/PR. How strongly each backend blocks
+    * edits varies; see [[Enforcement]].
     */
   def withNetworkOnly: Agent[B] = withTools(ToolSet.NetworkOnly)
 
-  /** A cheaper/faster variant of this model for incidental work (commit-message
-    * summaries, reviewer selection, prompt shortening). Returns the model
-    * pinned via [[withCheapModel]] if one was set, otherwise the backend's
-    * built-in cheap tier ([[defaultCheap]]).
+  /** Pin the model for subsequent calls. Model ids are backend-specific; the
+    * tier extensions (`claude.haiku`, `codex.mini`, …) name the common ones.
     */
-  def cheap: Agent[B] = defaultCheap
+  def withModel(model: Model): Agent[B] =
+    copy(config = config.copy(model = Some(model)))
 
-  /** The backend's built-in cheap variant (claude→haiku, codex→mini, …), before
-    * any [[withCheapModel]] override; `this` when a backend has no cheaper
-    * tier. Backends override this — flow code calls [[cheap]].
+  /** A cheaper/faster variant of this model for incidental work (commit-message
+    * summaries, reviewer selection, prompt shortening): the model pinned via
+    * [[withCheapModel]] if one was set, otherwise the backend's built-in cheap
+    * tier, otherwise this agent unchanged.
     */
-  protected def defaultCheap: Agent[B] = this
+  def cheap: Agent[B] =
+    config.cheapModel
+      .orElse(backend.cheapModel(config.model))
+      .fold(this)(withModel)
 
   /** Pin the model that [[cheap]] resolves to, overriding the backend default.
     * Lets a flow specify both a leading and a cheap model, e.g.
     * `_.opencode.anthropicSonnet.withCheapModel(Model("anthropic/claude-haiku-4-5"))`.
     */
-  def withCheapModel(model: Model): Agent[B] = this
+  def withCheapModel(model: Model): Agent[B] =
+    copy(config = config.copy(cheapModel = Some(model)))
+
+  /** Sibling that manages git itself — flips [[AgentConfig.selfManagedGit]] on,
+    * suppressing the standing "runtime owns git" rule the runtime otherwise
+    * injects (don't `git commit`/`push`/branch; leave edits in the working
+    * tree). Use only for a flow that genuinely wants the agent to drive git.
+    */
+  def withSelfManagedGit: Agent[B] =
+    copy(config = config.copy(selfManagedGit = true))
+
+  /** The free-text engine behind [[run]], [[Chat.run]] and `FlowSession.run`:
+    * runs `prompt` against `session`, continuing it if the backend already has
+    * it this run. `emitPrompt = false` suppresses the `OrcaEvent.UserPrompt`;
+    * `sessionKey` is the durable key this session was minted under, carried
+    * onto `OrcaEvent.SessionCommitted`.
+    */
+  private[orca] def runText(
+      prompt: String,
+      session: SessionId[B],
+      sessionKey: Option[SessionKey],
+      emitPrompt: Boolean
+  )(using InStage): String =
+    backend.checkNotClosed()
+    if emitPrompt then events.onEvent(OrcaEvent.UserPrompt(prompt))
+    val accounting = turnAccounting(session, sessionKey)
+    val result =
+      textTurn(
+        prompt,
+        session,
+        accounting,
+        OrcaListener.attributedTo(events, name)
+      )
+    accounting.sessionCommitted()
+    result.output
 
   /** Best-effort one-line reply from the cheap model, for the runtime's own
     * incidental text (branch naming, default commit messages). The turn runs
@@ -203,87 +253,79 @@ trait Agent[B <: BackendTag]:
     cause match
       case Some(e) => log.warn(s"$purpose one-shot failed: $reason", e)
       case None    => log.warn("{} one-shot failed: {}", purpose, reason)
-    emitEvent(
+    events.onEvent(
       OrcaEvent.Step(
         s"$purpose agent failed ($reason) — using the default $purpose instead"
       )
     )
 
-  /** Publish an event on this agent's sink. No-op by default (tools without a
-    * backend have no sink); `BaseAgent` routes it to the run's listener, which
-    * is what makes [[cheapOneShot]]'s fallback visible to the user.
-    */
-  private[orca] def emitEvent(event: OrcaEvent): Unit = ()
-
   /** One autonomous text turn with the streaming display suppressed: no `▸`
-    * prompt echo and — on `BaseAgent`-derived tools, which override this — no
-    * `●` prose or `⏺` tool lines either (`TokensUsed` and `Error` events still
-    * flow). For the runtime's internal turns ([[cheapOneShot]]), whose display
-    * channel is the caller's own event, so streaming would show the text twice.
+    * prompt echo, no `●` prose or `⏺` tool lines (`TokensUsed` and `Error`
+    * events still flow). For the runtime's internal turns ([[cheapOneShot]]),
+    * whose display channel is the caller's own event, so streaming would show
+    * the text twice.
     */
   private[orca] def quietTextTurn(prompt: String)(using InStage): String =
-    run(prompt, emitPrompt = false)
+    val attributed = OrcaListener.attributedTo(events, name)
+    val quietEvents: OrcaListener = (e: OrcaEvent) =>
+      e match
+        case _: OrcaEvent.AssistantMessage | _: OrcaEvent.ToolUse => ()
+        case other => attributed.onEvent(other)
+    val session = SessionId.fresh[B]
+    textTurn(
+      prompt,
+      session,
+      turnAccounting(session, sessionKey = None),
+      quietEvents
+    ).output
 
-  /** Return a sibling tool that manages git itself — flips
-    * [[AgentConfig.selfManagedGit]] on, suppressing the standing "runtime owns
-    * git" rule the runtime otherwise injects (don't `git commit`/`push`/branch;
-    * leave edits in the working tree). Use only for a flow that genuinely wants
-    * the agent to drive git.
+  /** One free-form turn, with its spend reported through `accounting` whether
+    * it succeeds or fails after the model ran.
     */
-  def withSelfManagedGit: Agent[B] = this
+  private def textTurn(
+      prompt: String,
+      session: SessionId[B],
+      accounting: TurnAccounting[B],
+      listener: OrcaListener
+  ): AgentResult[B] =
+    accounting
+      .recording(backend.runAutonomous(prompt, session, config, listener))
+      .tap(accounting.succeeded(_, TurnAccounting.OnlyTurn))
 
-  /** The backend's session-durability capability, or `None` for tools without a
-    * backend. The ONLY overridable session hook — the `dispatchFor` /
-    * `resumeWireId` / `rehydrateResumeWireId` trio below is `final`,
-    * implemented uniformly through this, so a tool exposes its backend's whole
-    * [[orca.backend.SessionSupport]] or nothing, never a partial mix.
-    */
-  private[orca] def sessionSupport: Option[orca.backend.SessionSupport[B]] =
-    None
+  private def turnAccounting(
+      session: SessionId[B],
+      sessionKey: Option[SessionKey]
+  ): TurnAccounting[B] =
+    new TurnAccounting[B](
+      events = events,
+      agentName = name,
+      role = role,
+      backend = backend,
+      session = session,
+      sessionKey = sessionKey,
+      pinned = config.model
+    )
 
-  /** This tool's backend tag, or `None` for tools without a backend
-    * (lightweight stubs). Stamps `SessionRecord.backend` so a resumed run's
-    * targeted rehydration knows which agent a session belongs to.
+  /** This agent's backend tag. Stamps `SessionRecord.backend` so a resumed
+    * run's targeted rehydration knows which agent a session belongs to.
     */
-  private[orca] def backendTag: Option[BackendTag] = None
+  private[orca] def backendTag: B = backend.tag
 
-  /** The model this tool's NEXT call will run, if pinned — either by the wiring
-    * default (e.g. claude's Opus1M) or a `withModel`/tier accessor. `None` for
-    * a backend that picks its own model (pi/opencode defaults) or a tool
-    * without a backend. The role-agents announcement reads this to show a
-    * resolved default model the settings layer never pinned.
+  /** Whether `other` runs on this agent's backend INSTANCE — true for every
+    * builder-derived sibling (`_.claude.opus`, `.withReadOnly`, …), false for
+    * an independently built backend of the same kind.
     */
-  private[orca] def configuredModel: Option[Model] = None
-
-  /** An opaque token identifying this tool's underlying backend INSTANCE, or
-    * `None` for tools without a backend. `copyTool`-derived siblings
-    * (`_.claude.opus`, `.withReadOnly`, …) share the same token because they
-    * share the same backend object; independently-built backends of the same
-    * kind get different tokens even though [[backendTag]] can't tell them
-    * apart. [[orca.runner.RoleAgents]] uses this (via
-    * `WiredAgents.isWiredBackend`) to tell a selector-derived sibling of a
-    * wired agent from a foreign agent, which is event-blind and is closed
-    * separately — a plain `Agent eq Agent` check can't, since the wrappers
-    * differ. `BaseAgent` overrides it to the shared `AgentBackend.closedFlag`
-    * reference.
-    *
-    * Compared by REFERENCE (`eq`), never `==`: structural equality would
-    * false-positive two independently-built backends as the same one.
-    * Implementations must mint a unique token per backend instance.
-    */
-  private[orca] def backendIdentity: Option[AnyRef] = None
+  private[orca] def sharesBackendWith(other: Agent[?]): Boolean =
+    backend eq other.backend
 
   /** What the NEXT call on `session` does with the backend's conversation:
     * continue one it already holds, or open a fresh one that needs re-seeding —
-    * see [[orca.backend.SessionSupport.dispatchFor]]. A concrete tool that
-    * can't reach a backend answers a claimless `Fresh`, the safe re-seed.
+    * see [[orca.backend.SessionSupport.dispatchFor]].
     */
-  private[orca] final def dispatchFor(
+  private[orca] def dispatchFor(
       session: SessionId[B]
   ): orca.backend.Dispatch[B] =
-    sessionSupport.fold(orca.backend.Dispatch.Fresh[B](None))(
-      _.dispatchFor(session)
-    )
+    backend.sessions.dispatchFor(session)
 
   /** The [[WireSessionId]] to resume `client` ([[SessionId]], orca's stable
     * handle) against, or `None` if unknown or not durably resumable — equal to
@@ -292,35 +334,67 @@ trait Agent[B <: BackendTag]:
     * sessions don't outlive the run. The flow runtime reads this after a run to
     * persist it into the progress log.
     */
-  final def resumeWireId(client: SessionId[B]): Option[WireSessionId[B]] =
-    sessionSupport.flatMap(_.persistableWireId(client))
+  def resumeWireId(client: SessionId[B]): Option[WireSessionId[B]] =
+    backend.sessions.persistableWireId(client)
 
   /** Record a resume wire id a previous run persisted for `client` — see
     * [[orca.backend.SessionSupport.rehydrate]]. The flow runtime calls this on
-    * resume, before any turn. No-op when there is no backend (stubs).
+    * resume, before any turn.
     */
-  final def rehydrateResumeWireId(
+  def rehydrateResumeWireId(
       client: SessionId[B],
       wireId: WireSessionId[B]
   ): Unit =
-    sessionSupport.foreach(_.rehydrate(client, wireId))
+    backend.sessions.rehydrate(client, wireId)
+
+  /** Publish an event on this agent's sink. */
+  private[orca] def emitEvent(event: OrcaEvent): Unit = events.onEvent(event)
 
   /** Mark this agent's backend as belonging to an ended flow, so later runs
-    * through any handle sharing it are refused. A stub without a backend keeps
-    * the no-op default. The runtime calls this when the flow run ends.
+    * through any handle sharing it are refused. The runtime calls this when the
+    * flow run ends.
     */
-  private[orca] def close(): Unit = ()
+  private[orca] def close(): Unit = backend.markClosed()
 
-private[orca] object Agent:
+  private def copy(
+      config: AgentConfig = config,
+      naming: AgentName = naming,
+      role: Option[String] = role
+  ): Agent[B] =
+    new Agent(backend, config, prompts, events, interaction, naming, role)
 
-  /** The single line to use from a cheap model's reply to a [[cheapOneShot]]
-    * prompt. Cheap models routinely write a preamble before the answer
-    * ("Looking at this diff, the main changes are:", a note about a tool they
-    * could not call), so reading top-down would take the preamble. The first
-    * non-empty line of the first fenced block wins; without a fence, the last
-    * non-empty, non-fence line; `""` when the reply holds neither.
+object Agent:
+
+  /** An agent on `backend`, named `defaultName` until [[Agent.withName]] names
+    * it explicitly.
     */
-  def payloadLine(text: String): String =
+  private[orca] def apply[B <: BackendTag](
+      backend: AgentBackend[B],
+      config: AgentConfig,
+      prompts: Prompts,
+      events: OrcaListener,
+      interaction: Interaction,
+      defaultName: String
+  ): Agent[B] =
+    new Agent(
+      backend,
+      config,
+      prompts,
+      events,
+      interaction,
+      AgentName.Default(defaultName),
+      role = None
+    )
+
+  /** The single line to use from a cheap model's reply to a
+    * [[Agent.cheapOneShot]] prompt. Cheap models routinely write a preamble
+    * before the answer ("Looking at this diff, the main changes are:", a note
+    * about a tool they could not call), so reading top-down would take the
+    * preamble. The first non-empty line of the first fenced block wins; without
+    * a fence, the last non-empty, non-fence line; `""` when the reply holds
+    * neither.
+    */
+  private[orca] def payloadLine(text: String): String =
     val lines = text.linesIterator.map(_.trim).toList
     val fenced = lines
       .dropWhile(!_.startsWith("```"))
@@ -331,92 +405,15 @@ private[orca] object Agent:
       .orElse(lines.findLast(l => l.nonEmpty && !l.startsWith("```")))
       .getOrElse("")
 
-/** Bare `claude` runs Opus with the 1M-token context window (the coder); the
-  * accessors below pin a specific tier, e.g. a cheap fast one-shot with
-  * `claude.haiku.run("summarize this")`.
+/** Where an [[Agent]]'s name came from: the backend default, or
+  * [[Agent.withName]]. The runtime relabels only a default-named role agent.
   */
-trait ClaudeAgent extends Agent[BackendTag.ClaudeCode.type]:
-  /** Pin the Claude model for subsequent calls, overriding `AgentConfig.model`.
-    */
-  def haiku: ClaudeAgent
-  def sonnet: ClaudeAgent
-  def opus: ClaudeAgent
-  def fable: ClaudeAgent
+private[agents] enum AgentName(val label: String):
+  case Default(l: String) extends AgentName(l)
+  case Explicit(l: String) extends AgentName(l)
 
-  /** Pin any Claude model id beyond the named tiers, e.g.
-    * `claude.withModel(Model("claude-opus-4-1-some-snapshot"))`.
-    */
-  def withModel(model: Model): ClaudeAgent
-
-  override protected def defaultCheap: ClaudeAgent = haiku
-
-  /** Set the network tools added to the read-only `--tools` allowlist on
-    * [[ToolSet.NetworkOnly]] turns. Bare claude tool names, e.g. `WebFetch`.
-    * Claude-specific, so it's here rather than on `AgentConfig`; defaults to
-    * `ClaudeBackend.DefaultNetworkTools`. Pass it before handing the tool to a
-    * planning helper: `claude.opus.withNetworkTools(Seq("WebFetch"))`.
-    */
-  def withNetworkTools(tools: Seq[String]): ClaudeAgent
-
-/** Bare `codex` pins the strong model; `codex.mini` opts down to the cheap
-  * tier, and `codex.withModel(Model("..."))` pins any other id the CLI offers.
-  */
-trait CodexAgent extends Agent[BackendTag.Codex.type]:
-  def mini: CodexAgent
-
-  /** Pin any codex model the installed `codex-cli` offers, beyond `mini` — e.g.
-    * `codex.withModel(Model("gpt-6-astra"))`.
-    */
-  def withModel(model: Model): CodexAgent
-
-  override protected def defaultCheap: CodexAgent = mini
-
-/** OpenCode spans providers, so its model accessors are provider-prefixed (the
-  * prefix keeps the vendor explicit at the call site). The openai accessors
-  * follow OpenAI's durable capability tiers — astra (flagship), sol (balanced),
-  * luna (efficiency) — the same way the anthropic accessors follow
-  * opus/sonnet/haiku. [[withModel]] takes any `provider/model` id — including
-  * self-hosted ones, e.g. `ollama/llama3.1`.
-  */
-trait OpencodeAgent extends Agent[BackendTag.Opencode.type]:
-  def anthropicOpus: OpencodeAgent
-  def anthropicSonnet: OpencodeAgent
-  def anthropicHaiku: OpencodeAgent
-  def openaiAstra: OpencodeAgent
-  def openaiSol: OpencodeAgent
-  def openaiLuna: OpencodeAgent
-
-  /** Base cheap variant is anthropic haiku; [[DefaultOpencodeAgent]] overrides
-    * this to match the leading provider, so incidental work on an openai-led
-    * tool doesn't pull in a second provider's auth.
-    */
-  override protected def defaultCheap: OpencodeAgent = anthropicHaiku
-
-  /** Pin any `provider/model` id (e.g. `ollama/llama3.1`, `myhost/qwen-coder`).
-    */
-  def withModel(providerModel: String): OpencodeAgent
-
-  /** Two-arg form of [[withModel]], e.g. `withModel("ollama", "llama3.1")`. The
-    * default joins with `/`; the concrete tool validates the parts.
-    */
-  def withModel(provider: String, modelId: String): OpencodeAgent =
-    withModel(s"$provider/$modelId")
-
-trait PiAgent extends Agent[BackendTag.Pi.type]:
-  /** Pin a pi model id; pi otherwise selects the model via its own CLI config.
-    */
-  def withModel(model: Model): PiAgent
-
-trait GeminiAgent extends Agent[BackendTag.Gemini.type]:
-  /** Pin the cheap-and-fast Gemini Flash model for subsequent calls, overriding
-    * `AgentConfig.model`. Bare `gemini` runs on Gemini Pro (pinned in the
-    * runtime wiring); `gemini.flash` opts down for cheap one-shots.
-    */
-  def flash: GeminiAgent
-
-  /** Pin any Gemini model id beyond `flash`, e.g.
-    * `gemini.withModel(Model("gemini-3.5-flash"))`.
-    */
-  def withModel(model: Model): GeminiAgent
-
-  override protected def defaultCheap: GeminiAgent = flash
+type ClaudeAgent = Agent[BackendTag.ClaudeCode.type]
+type CodexAgent = Agent[BackendTag.Codex.type]
+type OpencodeAgent = Agent[BackendTag.Opencode.type]
+type PiAgent = Agent[BackendTag.Pi.type]
+type GeminiAgent = Agent[BackendTag.Gemini.type]

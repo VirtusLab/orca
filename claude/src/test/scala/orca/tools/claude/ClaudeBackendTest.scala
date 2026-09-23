@@ -3,7 +3,6 @@ package orca.tools.claude
 import orca.testkit.OpenTurn
 import orca.backend.{
   Dispatch,
-  Interaction,
   ResumeOrigin,
   SupervisedBackend,
   SystemPromptComposer
@@ -13,13 +12,11 @@ import orca.agents.{
   TurnDispatch,
   BackendTag,
   AgentConfig,
-  DefaultPrompts,
   SessionId,
   WireSessionId,
   ToolSet,
   onWire
 }
-import orca.events.OrcaListener
 import orca.{OrcaFlowException}
 import orca.subprocess.{FakePipedCliProcess, SpawnStubCliRunner}
 import orca.testkit.TempDirs
@@ -33,18 +30,6 @@ import scala.concurrent.duration.*
 private final case class UrlOnly(url: String)
 
 class ClaudeBackendTest extends munit.FunSuite:
-
-  // LLM `run` is gated on `InStage`; mint the token for the suite.
-  private given orca.InStage = orca.InStage.unsafe
-
-  // Never driven — the closed-latch test throws before reaching a
-  // conversation.
-  private val stubInteraction: Interaction = new Interaction:
-    val listeners: List[OrcaListener] = Nil
-    def drive[B <: BackendTag](
-        conversation: orca.backend.Conversation[B]
-    ): orca.backend.AgentResult[B] =
-      throw new UnsupportedOperationException("test stub")
 
   /** Stream-json transcript for a clean autonomous call. Order matters:
     * `system.init` first, then the `result` message; `closeStdout` triggers EOF
@@ -231,7 +216,7 @@ class ClaudeBackendTest extends munit.FunSuite:
       assertEquals(
         args(args.indexOf("--allowedTools") + 1),
         (repoToolNames ++ githubToolNames ++
-          ClaudeBackend.DefaultNetworkTools).mkString(",")
+          ClaudeArgs.DefaultNetworkTools).mkString(",")
       )
 
   test("a read-only interactive turn pre-approves ask_user"):
@@ -290,73 +275,6 @@ class ClaudeBackendTest extends munit.FunSuite:
         args(args.indexOf("--tools") + 1),
         "Read,Grep,Glob,Skill,WebFetch,WebSearch"
       )
-
-  test("withNetworkTools rejects the old command-scoped syntax"):
-    // --tools drops a name it doesn't recognise silently, so a flow script
-    // still passing `Bash(gh api:*)` would grant nothing and say nothing.
-    val thrown = intercept[IllegalArgumentException]:
-      new ClaudeBackend(new SpawnStubCliRunner(Nil))
-        .withNetworkTools(Seq("WebFetch", "Bash(gh api:*)"))
-    assert(thrown.getMessage.contains("Bash(gh api:*)"), thrown.getMessage)
-
-  test("withNetworkTools rejects a write-capable builtin"):
-    // A bare "Bash" passes the shape check.
-    val thrown = intercept[IllegalArgumentException]:
-      new ClaudeBackend(new SpawnStubCliRunner(Nil))
-        .withNetworkTools(Seq("WebFetch", "Bash"))
-    assert(thrown.getMessage.contains("Bash"), thrown.getMessage)
-    assert(thrown.getMessage.contains("ToolSet.Full"), thrown.getMessage)
-
-  test("withNetworkTools overrides the default network tools"):
-    val runner = new SpawnStubCliRunner(List(successfulProcess()))
-    SupervisedBackend.using(
-      new ClaudeBackend(runner).withNetworkTools(Seq("WebFetch"))
-    ): backend =>
-      val _ = backend.runAutonomous(
-        "x",
-        freshSid,
-        AgentConfig().copy(tools = ToolSet.NetworkOnly)
-      )
-      val args = runner.calls.head
-      assertEquals(
-        args(args.indexOf("--tools") + 1),
-        "Read,Grep,Glob,Skill,WebFetch"
-      )
-
-  test(
-    "a withNetworkTools sibling shares the parent's closed latch"
-  ):
-    // withNetworkTools is the one builder that swaps in a genuinely NEW
-    // ClaudeBackend instance rather than reusing the caller's; the new instance
-    // must still share the parent's closedFlag, or a handle derived while the
-    // flow was open and used after the leading agent's flow closed would bypass
-    // the use-after-close guard. `run` never reaches the (empty) stub runner:
-    // the guard must throw first.
-    val backend = new ClaudeBackend(new SpawnStubCliRunner(Nil))
-    val agent = new DefaultClaudeAgent(
-      backend,
-      AgentConfig(),
-      DefaultPrompts,
-      OrcaListener.noop,
-      stubInteraction
-    )
-    val derived = agent.withNetworkTools(Seq("WebFetch"))
-    agent.close() // latches the shared backend, not just `agent`'s own handle
-    val thrown = intercept[OrcaFlowException]:
-      derived.run("prompt")
-    assertEquals(thrown.getMessage, orca.backend.AgentBackend.ClosedMessage)
-
-  test("a withNetworkTools sibling shares the parent's enforcement notices"):
-    // The same rule as the closed latch above, for the other value a sibling
-    // must not get its own copy of: with a fresh log it would repeat every
-    // notice the parent already gave. Pinned structurally rather than by
-    // running a turn — claude's cells are `Hard` throughout, so no claude turn
-    // can make the notice fire at all.
-    val backend = new ClaudeBackend(new SpawnStubCliRunner(Nil))
-    assert(
-      backend.withNetworkTools(Seq("WebFetch")).enforcementNotice eq
-        backend.enforcementNotice
-    )
 
   test("claude declares Tool structured-output mode"):
     // The declaration behind the prompt's delivery instruction: --json-schema

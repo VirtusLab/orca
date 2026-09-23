@@ -136,10 +136,14 @@ most easily broken:
   backends do, live-verified 2026-07-08) — and the `IdScheme`: `ClientClaimed`
   (claude/pi — the client id IS the wire id, put on the wire at spawn) or
   `ServerMinted` (codex/gemini/opencode — the server mints the wire id, learned
-  from the protocol and registered after the turn). `Agent` derives `dispatchFor` /
-  `resumeWireId` / `rehydrateResumeWireId` as `final` methods over the single
-  `sessionSupport` hook, so a concrete tool can't wire one session operation
-  while silently defaulting the others — that half-wiring is unrepresentable.
+  from the protocol and registered after the turn). `Agent` is a final class
+  over one `AgentBackend` instance; its `dispatchFor` / `resumeWireId` /
+  `rehydrateResumeWireId` read that backend's `sessions`, and every builder
+  (`withModel`, `withReadOnly`, `claude.withNetworkTools`, …) returns a
+  sibling on the same backend, so siblings share sessions, the close latch
+  and enforcement notices. Per-backend knowledge (cheap tier, model ids) lives
+  on the backend or in its `*Agents` object as extensions; tests fake an
+  agent through a scripted `AgentBackend` (`ScriptedBackend` + `TestAgent`).
   `SessionId[B]` (the client-side handle) is split from `WireSessionId[B]`
   (what actually goes on the wire) — `SessionId#onWire` is the only
   client→wire crossing. `SessionSupport.dispatchFor` is the one fresh-vs-resume
@@ -248,7 +252,7 @@ most easily broken:
   GRANTS. For `NetworkOnly` the grant is per-backend, and this list is
   hand-maintained — nothing renders or checks it:
 
-  - claude: `WebFetch`/`WebSearch` (`ClaudeBackend.DefaultNetworkTools`; a flow
+  - claude: `WebFetch`/`WebSearch` (`ClaudeArgs.DefaultNetworkTools`; a flow
     can substitute its own via `claude.withNetworkTools(...)`) on `--tools` AND
     on `--allowedTools` — `--tools` only advertises, so a name missing from the
     approval flag comes back as a failed call. Plus the host-served GitHub
@@ -324,7 +328,8 @@ Build/test/format commands and the gated integration suites are in
 [CONTRIBUTING.md](CONTRIBUTING.md). Unit tests use in-memory fakes
 (`StubCliRunner` / `SpawnStubCliRunner`, `FakeAgent`,
 `FakePipedCliProcess`, `TestFlowContext` / `TestFlowControl`) and the shared
-`orca.testkit` fixtures — the `GitRepo` temp repo, `StubGitHubTool` (every `gh`
+`orca.testkit` fixtures — `TestAgent` (a real `Agent` over a
+`ScriptedBackend`), the `GitRepo` temp repo, `StubGitHubTool` (every `gh`
 endpoint refusing, override the ones a suite reaches) and `PushlessGit` (the
 real git with the remote-facing calls stubbed) — published via `tools %
 test->test`; no network, no real filesystem outside `os.temp.dir()`.

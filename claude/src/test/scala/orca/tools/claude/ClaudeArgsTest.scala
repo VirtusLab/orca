@@ -6,6 +6,7 @@ import orca.agents.{
   BackendTag,
   AgentConfig,
   Model,
+  NetworkTools,
   WireSessionId,
   ToolSet
 }
@@ -23,10 +24,9 @@ class ClaudeArgsTest extends munit.FunSuite:
       networkTools: Seq[String] = Seq.empty
   ): Seq[String] =
     ClaudeArgs.streamJson(
-      config = config,
+      config = config.copy(networkTools = Some(NetworkTools(networkTools))),
       systemPromptFile = None,
-      dispatch = dispatch,
-      networkTools = networkTools
+      dispatch = dispatch
     )
 
   test("stream-json shape: --print, --input/--output-format stream-json, etc."):
@@ -152,10 +152,12 @@ class ClaudeArgsTest extends munit.FunSuite:
     // grant would silently drop whichever claude ignores, and the tier that
     // loses WebFetch plans from the prompt alone with no error.
     val args = ClaudeArgs.streamJson(
-      config = AgentConfig(tools = ToolSet.NetworkOnly),
+      config = AgentConfig(
+        tools = ToolSet.NetworkOnly,
+        networkTools = Some(NetworkTools(Seq("WebFetch")))
+      ),
       systemPromptFile = None,
       dispatch = Dispatch.Fresh(Some(testSid)),
-      networkTools = Seq("WebFetch"),
       mcpTools = Seq("mcp__orca_repo__git_show")
     )
     assertEquals(args.count(_ == "--allowedTools"), 1, args)

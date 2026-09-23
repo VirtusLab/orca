@@ -20,28 +20,17 @@ import orca.{
 }
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.agents.{
-  SessionKey,
   Agent,
-  AgentInput,
-  Announce,
-  AutonomousAgentCall,
-  AutonomousTextCall,
   BackendTag,
   ClaudeAgent,
   CodexAgent,
   GeminiAgent,
-  InteractiveAgentCall,
-  JsonData,
-  AgentCall,
-  AgentConfig,
-  Model,
   OpencodeAgent,
   PiAgent,
   SessionId,
-  WireSessionId,
-  ToolSet
+  WireSessionId
 }
-import orca.backend.{IdScheme, SessionSupport}
+import orca.backend.{AgentResult, IdScheme, SessionSupport, TurnRequest}
 import orca.gitref.{BranchName, CommitHash, Head}
 import orca.progress.{
   BranchMode,
@@ -72,7 +61,9 @@ import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
 import orca.testkit.{
   GitRepo,
   PushlessGit,
+  ScriptedBackend,
   StubGitHubTool,
+  TestAgent,
   TempDirs,
   branchName,
   currentBranch,
@@ -1706,9 +1697,8 @@ class FlowLifecycleTest extends munit.FunSuite:
     val workDir = GitRepo.seeded()
     val prompt = "discover-failure"
     var stageRan = false
-    val throwing = new CannedDiscoveryAgent(() =>
-      throw new RuntimeException("discovery boom")
-    )
+    val throwing =
+      CannedDiscoveryAgent(throw new RuntimeException("discovery boom"))
     val thrown = intercept[ReportedFailure]:
       supervised:
         val interaction = TerminalInteraction.start(
@@ -1798,12 +1788,12 @@ class FlowLifecycleTest extends munit.FunSuite:
         backend = Some(BackendTag.Codex)
       )
     )
-    val lead = new RecordingClaude
-    val codex = new RecordingCodex
+    val lead = recording(BackendTag.ClaudeCode)
+    val codex = recording(BackendTag.Codex)
     val ctx = new StubFlowContext(codexOverride = codex)
     FlowLifecycle.rehydrateSessions(ctx, lead, store)
-    assertEquals(lead.recordedWire("c-1"), None)
-    assertEquals(codex.recordedWire("c-1"), Some("srv-9"))
+    assertEquals(recordedWire(lead, "c-1"), None)
+    assertEquals(recordedWire(codex, "c-1"), Some("srv-9"))
 
   test(
     "rehydrateSessions falls back to the lead for an untagged (older) record"
@@ -1818,10 +1808,10 @@ class FlowLifecycleTest extends munit.FunSuite:
         backend = None
       )
     )
-    val lead = new RecordingClaude
+    val lead = recording(BackendTag.ClaudeCode)
     val ctx = new StubFlowContext()
     FlowLifecycle.rehydrateSessions(ctx, lead, store)
-    assertEquals(lead.recordedWire("old-1"), Some("srv-1"))
+    assertEquals(recordedWire(lead, "old-1"), Some("srv-1"))
 
   test(
     "rehydrateSessions skips a record with a corrupted (unsafe) id or wire id, and warns loudly (6B.3)"
@@ -1840,12 +1830,12 @@ class FlowLifecycleTest extends munit.FunSuite:
         backend = None
       )
     )
-    val lead = new RecordingClaude
+    val lead = recording(BackendTag.ClaudeCode)
     val listener = new RecordingListener
     val ctx = new StubFlowContext(emitTo = listener.onEvent)
     FlowLifecycle.rehydrateSessions(ctx, lead, badIdStore)
     assert(
-      lead.recordedWire("../../etc/passwd").isEmpty,
+      recordedWire(lead, "../../etc/passwd").isEmpty,
       "an unsafe recorded id must not rehydrate"
     )
     val steps = listener.events.collect { case s: OrcaEvent.Step => s }
@@ -1869,12 +1859,12 @@ class FlowLifecycleTest extends munit.FunSuite:
         backend = None
       )
     )
-    val lead2 = new RecordingClaude
+    val lead2 = recording(BackendTag.ClaudeCode)
     val listener2 = new RecordingListener
     val ctx2 = new StubFlowContext(emitTo = listener2.onEvent)
     FlowLifecycle.rehydrateSessions(ctx2, lead2, badWireStore)
     assert(
-      lead2.recordedWire("c-2").isEmpty,
+      recordedWire(lead2, "c-2").isEmpty,
       "an unsafe recorded wire id must not rehydrate"
     )
     val steps2 = listener2.events.collect { case s: OrcaEvent.Step => s }
@@ -1933,7 +1923,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         )
       )
 
-    val recorder = new RecordingClaude
+    val recorder = recording(BackendTag.ClaudeCode)
     supervised:
       val interaction = TerminalInteraction.start(
         out = new PrintStream(new ByteArrayOutputStream()),
@@ -1953,7 +1943,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       ):
         // The body observes the already-rehydrated mapping.
         assertEquals(
-          recorder.recordedWire("client-uuid"),
+          recordedWire(recorder, "client-uuid"),
           Some("ses_server_1"),
           "rehydrateResumeWireId must replay the persisted mapping"
         )
@@ -2031,8 +2021,8 @@ class FlowLifecycleTest extends munit.FunSuite:
     // that throws.
     val workDir = GitRepo.seeded()
     val prompt = "close-on-body-throw"
-    var opencodeClosed = false
-    val recorder = new RecordingOpencode(() => opencodeClosed = true)
+    val opencodeBackend = ScriptedBackend.unused(BackendTag.Opencode)
+    val recorder: OpencodeAgent = TestAgent(opencodeBackend)
     val thrown = intercept[ReportedFailure]:
       supervised:
         val interaction = TerminalInteraction.start(
@@ -2057,7 +2047,7 @@ class FlowLifecycleTest extends munit.FunSuite:
           throw new RuntimeException("boom in body")
     assertEquals(thrown.cause.getMessage, "boom in body")
     assert(
-      opencodeClosed,
+      opencodeBackend.isClosed,
       "the opencode agent must be closed on the failure path too"
     )
 
@@ -2159,23 +2149,17 @@ class FlowLifecycleTest extends munit.FunSuite:
       Right(handoffPr)
 
   /** A claude whose structured call answers with a fixed [[PrSummary]] — what
-    * the summarise stage of [[openPrIfGitHub]] needs.
+    * the summarise stage of [[openPrIfGitHub]] needs. Free-text turns fail.
     */
-  private class SummarisingClaude extends StubClaudeAgent("summariser"):
-    override def resultAs[O: JsonData: Announce]
-        : AgentCall[BackendTag.ClaudeCode.type, O] =
-      new AgentCall[BackendTag.ClaudeCode.type, O]:
-        val autonomous: AutonomousAgentCall[BackendTag.ClaudeCode.type, O] =
-          new AutonomousAgentCall[BackendTag.ClaudeCode.type, O]:
-            private[orca] def runWithSession[I](
-                input: I,
-                session: SessionId[BackendTag.ClaudeCode.type],
-                sessionKey: Option[SessionKey],
-                emitPrompt: Boolean
-            )(using in: AgentInput[I], _s: orca.InStage): O =
-              PrSummary("Generated title", "Generated body").asInstanceOf[O]
-        def interactive: InteractiveAgentCall[BackendTag.ClaudeCode.type, O] =
-          throw new UnsupportedOperationException
+  private def summarisingClaude: ClaudeAgent =
+    TestAgent(
+      ScriptedBackend.replying(BackendTag.ClaudeCode): turn =>
+        if turn.outputSchema.isEmpty then
+          throw new UnsupportedOperationException("free-text turn")
+        ScriptedBackend.json(PrSummary("Generated title", "Generated body"))
+      ,
+      "summariser"
+    )
 
   /** Where one `openPrIfGitHub` run left the checkout. */
   private case class HandoffRun(head: Head, featureBranch: String)
@@ -2188,7 +2172,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     runFlowForTest(
       workDir,
       prompt,
-      claude = new SummarisingClaude,
+      claude = summarisingClaude,
       gh = Some(new StubGh),
       git = Some(new PushlessGit(new OsGitTool(workDir)))
     ):
@@ -4076,7 +4060,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         )
       )
 
-    val thrower = new ThrowingRehydrateClaude
+    val thrower = throwingRehydrateClaude
     val listener = new RecordingListener
     val thrown = intercept[ReportedFailure]:
       supervised:
@@ -4379,67 +4363,43 @@ class FlowLifecycleTest extends munit.FunSuite:
       val _ = seen.updateAndGet(event :: _)
     def events: List[OrcaEvent] = seen.get().reverse
 
-  /** A `ClaudeAgent` over a real durable capability, so a test can assert the
+  /** An agent over a real durable capability, so a test can assert the
     * lifecycle rehydrated the persisted resume-wire-id map into the RIGHT agent
-    * — query the registered mapping via [[recordedWire]]. All LLM methods
-    * throw; the rehydration tests never invoke the model.
+    * — query the registered mapping via [[recordedWire]]. Every turn fails; the
+    * rehydration tests never invoke the model.
     */
-  private class RecordingClaude extends ClaudeAgent:
-    private val support = SessionSupport
-      .durable[BackendTag.ClaudeCode.type](IdScheme.ServerMinted, _ => false)
+  private def recording[B <: BackendTag & Singleton](tag: B): Agent[B] =
+    TestAgent(
+      ScriptedBackend.unused(
+        tag,
+        SessionSupport.durable[B](IdScheme.ServerMinted, _ => false)
+      ),
+      "recording"
+    )
 
-    /** The wire id rehydration registered for `client`, if any. */
-    def recordedWire(client: String): Option[String] =
-      support
-        .persistableWireId(SessionId[BackendTag.ClaudeCode.type](client))
-        .map(WireSessionId.value(_))
+  /** The wire id rehydration registered on `agent` for `client`, if any. */
+  private def recordedWire[B <: BackendTag](
+      agent: Agent[B],
+      client: String
+  ): Option[String] =
+    agent.resumeWireId(SessionId[B](client)).map(WireSessionId.value(_))
 
-    override private[orca] def sessionSupport
-        : Option[SessionSupport[BackendTag.ClaudeCode.type]] =
-      Some(support)
-
-    val name = "recording-claude"
-    def haiku = this
-    def sonnet = this
-    def opus = this
-    def fable = this
-    def withModel(model: Model) = this
-    def withNetworkTools(t: Seq[String]) = this
-    def withConfig(c: AgentConfig) = this
-    def withSystemPrompt(p: String) = this
-    def withName(n: String) = this
-    def withTools(tools: ToolSet) = this
-    def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
-      throw new UnsupportedOperationException
-    def resultAs[O: JsonData: Announce]
-        : AgentCall[BackendTag.ClaudeCode.type, O] =
-      throw new UnsupportedOperationException
-
-  /** A `ClaudeAgent` whose session-capability accessor throws when the runtime
-    * touches it during rehydration — so a rehydration-phase failure can be
-    * exercised end-to-end. Every LLM call throws (no test reaches one).
+  /** A claude whose session capability throws when the runtime touches it
+    * during rehydration — so a rehydration-phase failure can be exercised
+    * end-to-end. Every turn fails (no test reaches one).
     */
-  private class ThrowingRehydrateClaude extends ClaudeAgent:
-    override private[orca] def sessionSupport
-        : Option[SessionSupport[BackendTag.ClaudeCode.type]] =
-      throw new RuntimeException("rehydrate boom")
-
-    val name = "throwing-rehydrate-claude"
-    def haiku = this
-    def sonnet = this
-    def opus = this
-    def fable = this
-    def withModel(model: Model) = this
-    def withNetworkTools(t: Seq[String]) = this
-    def withConfig(c: AgentConfig) = this
-    def withSystemPrompt(p: String) = this
-    def withName(n: String) = this
-    def withTools(tools: ToolSet) = this
-    def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
-      throw new UnsupportedOperationException
-    def resultAs[O: JsonData: Announce]
-        : AgentCall[BackendTag.ClaudeCode.type, O] =
-      throw new UnsupportedOperationException
+  private def throwingRehydrateClaude: ClaudeAgent =
+    TestAgent(
+      new ScriptedBackend(BackendTag.ClaudeCode):
+        override def sessions: SessionSupport[BackendTag.ClaudeCode.type] =
+          throw new RuntimeException("rehydrate boom")
+        protected def reply(
+            turn: TurnRequest[BackendTag.ClaudeCode.type]
+        ): AgentResult[BackendTag.ClaudeCode.type] =
+          throw new UnsupportedOperationException
+      ,
+      "throwing-rehydrate-claude"
+    )
 
   /** An `OsGitTool` whose `discardUncommitted` always throws — to exercise the
     * body-phase failure teardown throwing while it handles a body failure, so
@@ -4451,60 +4411,6 @@ class FlowLifecycleTest extends munit.FunSuite:
         WorkspaceWrite
     ): Unit =
       throw new RuntimeException("reset boom")
-
-  /** Codex counterpart of [[RecordingClaude]], used to assert that a
-    * codex-tagged session record rehydrates into the codex agent rather than
-    * the (claude) lead.
-    */
-  private class RecordingCodex extends CodexAgent:
-    private val support = SessionSupport
-      .durable[BackendTag.Codex.type](IdScheme.ServerMinted, _ => false)
-
-    /** The wire id rehydration registered for `client`, if any. */
-    def recordedWire(client: String): Option[String] =
-      support
-        .persistableWireId(SessionId[BackendTag.Codex.type](client))
-        .map(WireSessionId.value(_))
-
-    override private[orca] def sessionSupport
-        : Option[SessionSupport[BackendTag.Codex.type]] =
-      Some(support)
-
-    val name = "recording-codex"
-    def mini = this
-    def withModel(model: Model) = this
-    def withConfig(c: AgentConfig) = this
-    def withSystemPrompt(p: String) = this
-    def withName(n: String) = this
-    def withTools(tools: ToolSet) = this
-    def autonomous: AutonomousTextCall[BackendTag.Codex.type] =
-      throw new UnsupportedOperationException
-    def resultAs[O: JsonData: Announce]: AgentCall[BackendTag.Codex.type, O] =
-      throw new UnsupportedOperationException
-
-  /** An `OpencodeAgent` whose `close()` calls `onClose` — used to pin that
-    * `runFlow` closes the context (and its agents) on the body-throw path, not
-    * just on success. Every LLM call throws — no test reaches one.
-    */
-  private class RecordingOpencode(onClose: () => Unit) extends OpencodeAgent:
-    val name = "recording-opencode"
-    def anthropicOpus = this
-    def anthropicSonnet = this
-    def anthropicHaiku = this
-    def openaiSol = this
-    def openaiAstra = this
-    def openaiLuna = this
-    def withModel(providerModel: String) = this
-    def withConfig(c: AgentConfig) = this
-    def withSystemPrompt(p: String) = this
-    def withName(n: String) = this
-    def withTools(tools: ToolSet) = this
-    def autonomous: AutonomousTextCall[BackendTag.Opencode.type] =
-      throw new UnsupportedOperationException
-    def resultAs[O: JsonData: Announce]
-        : AgentCall[BackendTag.Opencode.type, O] =
-      throw new UnsupportedOperationException
-    override private[orca] def close(): Unit = onClose()
 
   /** Throws — for `FlowContext` accessors a test doesn't wire and expects
     * `rehydrateSessions` never to touch (it resolves purely off the per-backend

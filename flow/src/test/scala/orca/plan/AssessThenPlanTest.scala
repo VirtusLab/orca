@@ -60,10 +60,10 @@ class AssessThenPlanTest extends munit.FunSuite:
       rejectKind = Some(Rebuff),
       rejectBody = Some("duplicate of #42")
     )
-    val agent = new CannedResultAgent(assessed)
-    val result = Plan.autonomous.assessThenPlan("the report", agent)
+    val canned = new CannedResult(assessed)
+    val result = Plan.autonomous.assessThenPlan("the report", canned.agent)
     // The verdict is carried alongside the conversation that produced it.
-    assertEquals(Some(result.chat.id), agent.lastSession)
+    assertEquals(Some(result.chat.id), canned.lastSession)
     assertEquals(
       result.value,
       Verdict.Rejection(Rebuff, "duplicate of #42")
@@ -71,10 +71,10 @@ class AssessThenPlanTest extends munit.FunSuite:
 
   test("Plan.autonomous planner runs NetworkOnly (reads + read-only network)"):
     given orca.FlowContext = new orca.TestFlowContext(new EventDispatcher(Nil))
-    val stub = new CannedResultAgent(
+    val stub = new CannedResult(
       AssessedPlan(Proceed, Some(samplePlan), None, None)
     )
-    val _ = Plan.autonomous.assessThenPlan("the report", stub)
+    val _ = Plan.autonomous.assessThenPlan("the report", stub.agent)
     assertEquals(stub.lastToolSet, Some(ToolSet.NetworkOnly))
 
   test(
@@ -85,6 +85,6 @@ class AssessThenPlanTest extends munit.FunSuite:
     val ex = intercept[orca.OrcaFlowException]:
       Plan.autonomous.assessThenPlan(
         "the report",
-        new CannedResultAgent(malformed)
+        new CannedResult(malformed).agent
       )
     assert(ex.getMessage.contains("no plan"), ex.getMessage)

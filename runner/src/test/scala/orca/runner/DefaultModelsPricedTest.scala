@@ -37,11 +37,11 @@ class DefaultModelsPricedTest extends munit.FunSuite:
       Pricing
         .resolve(
           Pricing.default.table,
-          agent.configuredModel,
+          agent.config.model,
           usage(input = 1_000L, output = 100L)
         )
         .isDefined,
-      s"$backend's default model ${agent.configuredModel} is unpriced"
+      s"$backend's default model ${agent.config.model} is unpriced"
     )
 
   test("the default claude agent pins a model the default price table knows"):

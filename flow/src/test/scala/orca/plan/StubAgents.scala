@@ -1,58 +1,27 @@
 package orca.plan
 
-import orca.agents.{
-  SessionKey,
-  AgentInput,
-  Announce,
-  AutonomousAgentCall,
-  AutonomousTextCall,
-  BackendTag,
-  InteractiveAgentCall,
-  JsonData,
-  AgentCall,
-  AgentConfig,
-  Agent,
-  SessionId,
-  ToolSet
-}
+import orca.agents.{Agent, BackendTag, JsonData, SessionId, ToolSet}
+import orca.testkit.{ScriptedBackend, TestAgent}
 
-/** Test double whose `resultAs[O].autonomous.run` returns a pre-built `value`
-  * (cast to `O`) paired with a fixed session id. Other call shapes throw so
-  * accidental use surfaces immediately. One stub serves every autonomous
+/** An agent whose every structured turn answers `value`, recording the tool
+  * tier and session each turn ran with. One stub serves every autonomous
   * planning operation — pass a `Plan`, `AssessedPlan`, or `BugTriage`.
   */
-private[plan] class CannedResultAgent[T](value: T)
-    extends Agent[BackendTag.ClaudeCode.type]:
-  val name: String = "stub"
+private[plan] class CannedResult[T: JsonData](value: T):
 
-  /** Records the most recent `withTools` tier so tests can assert which
+  /** The tool tier of the most recent turn, so tests can assert which
     * capability a helper selected (e.g. planners use `NetworkOnly`).
     */
   var lastToolSet: Option[ToolSet] = None
 
-  /** Records the session the structured run was called with, so tests can
-    * assert the returned [[orca.agents.Chat]] continues that conversation.
+  /** The session of the most recent turn, so tests can assert the returned
+    * [[orca.agents.Chat]] continues that conversation.
     */
   var lastSession: Option[SessionId[BackendTag.ClaudeCode.type]] = None
-  def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] = ???
-  def withConfig(c: AgentConfig): Agent[BackendTag.ClaudeCode.type] = this
-  def withSystemPrompt(p: String): Agent[BackendTag.ClaudeCode.type] = this
-  def withName(n: String): Agent[BackendTag.ClaudeCode.type] = this
-  def withTools(tools: ToolSet): Agent[BackendTag.ClaudeCode.type] =
-    lastToolSet = Some(tools)
-    this
 
-  def resultAs[O: JsonData: Announce]
-      : AgentCall[BackendTag.ClaudeCode.type, O] =
-    new AgentCall[BackendTag.ClaudeCode.type, O]:
-      val autonomous: AutonomousAgentCall[BackendTag.ClaudeCode.type, O] =
-        new AutonomousAgentCall[BackendTag.ClaudeCode.type, O]:
-          private[orca] def runWithSession[I: AgentInput](
-              input: I,
-              session: SessionId[BackendTag.ClaudeCode.type],
-              sessionKey: Option[SessionKey],
-              emitPrompt: Boolean
-          )(using orca.InStage): O =
-            lastSession = Some(session)
-            value.asInstanceOf[O]
-      def interactive: InteractiveAgentCall[BackendTag.ClaudeCode.type, O] = ???
+  val agent: Agent[BackendTag.ClaudeCode.type] =
+    TestAgent(ScriptedBackend.replying(BackendTag.ClaudeCode): turn =>
+      lastToolSet = Some(turn.config.tools)
+      lastSession = Some(turn.session)
+      ScriptedBackend.json(value)
+    )

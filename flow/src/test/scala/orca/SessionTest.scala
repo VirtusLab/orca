@@ -2,38 +2,21 @@ package orca
 
 import munit.FunSuite
 import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
-import orca.agents.{
-  Announce,
-  AutonomousTextCall,
-  BackendTag,
-  JsonData,
-  AgentCall,
-  AgentConfig,
-  Agent,
-  SessionId,
-  ToolSet
-}
+import orca.agents.{Agent, BackendTag, SessionId}
 import orca.sessions.{SessionRecord, SessionStore}
 import orca.tools.OsGitTool
-import orca.testkit.TempDirs
+import orca.testkit.{ScriptedBackend, TempDirs, TestAgent}
 
 /** Tests for `agent.session(name, seed)` get-or-create, keyed by the name and
   * the stage that minted it (ADR 0018 §2.6).
   */
 class SessionTest extends FunSuite:
 
-  /** Minimal Agent stub — `session(name, seed)` is pure and never calls the
-    * backend, so no methods need real implementations.
-    */
-  private class StubAgent extends Agent[BackendTag.ClaudeCode.type]:
-    val name: String = "stub-agent"
-    def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] = ???
-    def resultAs[O: JsonData: Announce]
-        : AgentCall[BackendTag.ClaudeCode.type, O] = ???
-    def withConfig(c: AgentConfig): Agent[BackendTag.ClaudeCode.type] = this
-    def withSystemPrompt(p: String): Agent[BackendTag.ClaudeCode.type] = this
-    def withName(n: String): Agent[BackendTag.ClaudeCode.type] = this
-    def withTools(t: ToolSet): Agent[BackendTag.ClaudeCode.type] = this
+  /** `session(name, seed)` is pure and never calls the backend. */
+  private def stubAgent[B <: BackendTag & Singleton](
+      tag: B
+  ): Agent[B] =
+    TestAgent(ScriptedBackend.unused(tag), "stub-agent")
 
   /** A flow control over `dir` — a fresh one per simulated run, as a new
     * process would build. `agent.session(...)` reads and writes only the
@@ -72,7 +55,7 @@ class SessionTest extends FunSuite:
 
   test("a mint outside every stage is keyed to the flow body"):
     val dir = TempDirs.dir()
-    val agent = new StubAgent
+    val agent = stubAgent(BackendTag.ClaudeCode)
     val session = agent.session("implementer", seed = "plan brief")(using
       control(dir)
     )
@@ -85,7 +68,7 @@ class SessionTest extends FunSuite:
           id = session.id.value,
           seed = "plan brief",
           resumeWireId = None,
-          backend = None
+          backend = Some(BackendTag.ClaudeCode)
         )
       )
     )
@@ -93,7 +76,7 @@ class SessionTest extends FunSuite:
   test("a mint inside a stage is keyed to that stage's path id"):
     val (fc, dir) = TestFlowControl.create(new EventDispatcher(Nil))
     given FlowControl = fc
-    val agent = new StubAgent
+    val agent = stubAgent(BackendTag.ClaudeCode)
     val _ = stage("Task: add multiply", commitMessage):
       agent.session("implementer", seed = "brief").id.value
     assertEquals(
@@ -104,7 +87,7 @@ class SessionTest extends FunSuite:
   test("two stages minting one name get two sessions"):
     val (fc, _) = TestFlowControl.create(new EventDispatcher(Nil))
     given FlowControl = fc
-    val agent = new StubAgent
+    val agent = stubAgent(BackendTag.ClaudeCode)
     def mint(): String = agent.session("implementer", seed = "s").id.value
     val a = stage("A", commitMessage)(mint())
     val b = stage("B", commitMessage)(mint())
@@ -116,7 +99,7 @@ class SessionTest extends FunSuite:
     // iterations without the author composing a per-task label.
     val (fc, dir) = TestFlowControl.create(new EventDispatcher(Nil))
     given FlowControl = fc
-    val agent = new StubAgent
+    val agent = stubAgent(BackendTag.ClaudeCode)
     val ids =
       for _ <- (0 until 3).toList
       yield stage("Task", commitMessage):
@@ -135,7 +118,7 @@ class SessionTest extends FunSuite:
     // Iteration 1 fails, so on resume iteration 0 replays while 1 and 2 run.
     // Each must land on the id ITS occurrence recorded, not a neighbour's.
     val (fc, dir) = TestFlowControl.create(new EventDispatcher(Nil))
-    val agent = new StubAgent
+    val agent = stubAgent(BackendTag.ClaudeCode)
     def loop(failAt: Option[Int])(using FlowControl): List[String] =
       for i <- (0 until 3).toList
       yield stage("Task", commitMessage):
@@ -161,7 +144,7 @@ class SessionTest extends FunSuite:
     // runs per scope rather than across the whole run.
     val (fc, dir) = TestFlowControl.create(new EventDispatcher(Nil))
     given FlowControl = fc
-    val agent = new StubAgent
+    val agent = stubAgent(BackendTag.ClaudeCode)
     val _ = stage("Implement", idsCommitMessage):
       for _ <- (0 until 2).toList
       yield stage("Task", commitMessage):
@@ -179,7 +162,7 @@ class SessionTest extends FunSuite:
     // outer: the completed inner replays, and the failed one must land back on
     // the id recorded under its own nested path.
     val (fc, dir) = TestFlowControl.create(new EventDispatcher(Nil))
-    val agent = new StubAgent
+    val agent = stubAgent(BackendTag.ClaudeCode)
     def run(failAt: Option[Int])(using FlowControl): List[String] =
       stage("Implement", idsCommitMessage):
         for i <- (0 until 2).toList
@@ -199,7 +182,7 @@ class SessionTest extends FunSuite:
     // The #182 shape: on resume A is replayed (its mint never runs) while B
     // re-runs. B must land back on the id IT recorded.
     val (fc, dir) = TestFlowControl.create(new EventDispatcher(Nil))
-    val agent = new StubAgent
+    val agent = stubAgent(BackendTag.ClaudeCode)
     def mint()(using FlowControl): String =
       agent.session("implementer", seed = "s").id.value
     val (a, b) =
@@ -222,7 +205,7 @@ class SessionTest extends FunSuite:
   test("two mints of one name in one stage are rejected"):
     val (fc, _) = TestFlowControl.create(new EventDispatcher(Nil))
     given FlowControl = fc
-    val agent = new StubAgent
+    val agent = stubAgent(BackendTag.ClaudeCode)
     val ex = interceptReported[OrcaFlowException]:
       stage[String]("Implement", commitMessage):
         val _ = agent.session("implementer", seed = "s")
@@ -236,7 +219,7 @@ class SessionTest extends FunSuite:
   test("two mints of one name outside every stage are rejected"):
     val dir = TempDirs.dir()
     val fc = control(dir)
-    val agent = new StubAgent
+    val agent = stubAgent(BackendTag.ClaudeCode)
     val _ = agent.session("implementer", seed = "s")(using fc)
     val ex = intercept[OrcaFlowException]:
       agent.session("implementer", seed = "s")(using fc)
@@ -247,7 +230,7 @@ class SessionTest extends FunSuite:
 
   test("the same key resumes the recorded id across runs"):
     val dir = TempDirs.dir()
-    val agent = new StubAgent
+    val agent = stubAgent(BackendTag.ClaudeCode)
     val id1 = agent.session("implementer", seed = "brief")(using control(dir))
 
     // Simulate a second run: new FlowControl, same underlying store. The key
@@ -261,7 +244,7 @@ class SessionTest extends FunSuite:
 
   test("a renamed stage mints a fresh session rather than resuming"):
     val (fc, dir) = TestFlowControl.create(new EventDispatcher(Nil))
-    val agent = new StubAgent
+    val agent = stubAgent(BackendTag.ClaudeCode)
     def mint()(using FlowControl): String =
       agent.session("implementer", seed = "b").id.value
     val original =
@@ -276,7 +259,7 @@ class SessionTest extends FunSuite:
 
   test("an unrelated session inserted before does not re-key a named session"):
     val dir = TempDirs.dir()
-    val agent = new StubAgent
+    val agent = stubAgent(BackendTag.ClaudeCode)
 
     // Run 1: only "implementer" is requested.
     val implementerRun1 =
@@ -294,7 +277,7 @@ class SessionTest extends FunSuite:
 
   test("resume with a matching seed emits no divergence warning"):
     val dir = TempDirs.dir()
-    val agent = new StubAgent
+    val agent = stubAgent(BackendTag.ClaudeCode)
     val _ =
       agent.session("implementer", seed = "plan brief")(using control(dir))
     val recorder = new RecordingListener
@@ -308,24 +291,15 @@ class SessionTest extends FunSuite:
 
   test("first agent.session call records the agent's backend tag"):
     val dir = TempDirs.dir()
-    val agent = new StubAgent:
-      override private[orca] def backendTag: Option[BackendTag] =
-        Some(BackendTag.Codex)
+    val agent = stubAgent(BackendTag.Codex)
     val _ =
       agent.session("implementer", seed = "plan brief")(using control(dir))
     assertEquals(records(dir).head.backend, Some(BackendTag.Codex))
 
-  test("first agent.session call records no backend when the agent has none"):
-    val dir = TempDirs.dir()
-    val agent = new StubAgent
-    val _ =
-      agent.session("implementer", seed = "plan brief")(using control(dir))
-    assertEquals(records(dir).head.backend, None)
-
   test("resume with a divergent seed at the same key warns loudly"):
     // The key matches but the seed differs — it was edited between runs.
     val dir = TempDirs.dir()
-    val agent = new StubAgent
+    val agent = stubAgent(BackendTag.ClaudeCode)
     val originalId =
       agent.session("implementer", seed = "original seed")(using control(dir))
     val recorder = new RecordingListener
@@ -347,9 +321,7 @@ class SessionTest extends FunSuite:
   ):
     // First run: minted by a Codex-tagged agent.
     val dir = TempDirs.dir()
-    val codexAgent = new StubAgent:
-      override private[orca] def backendTag: Option[BackendTag] =
-        Some(BackendTag.Codex)
+    val codexAgent = stubAgent(BackendTag.Codex)
     val originalId =
       codexAgent.session("implementer", seed = "brief")(using control(dir))
     assertEquals(records(dir).head.backend, Some(BackendTag.Codex))
@@ -357,9 +329,7 @@ class SessionTest extends FunSuite:
     // Second run over the SAME key: a differently-tagged
     // agent — a lead-backend swap between runs. A backend-tag mismatch must
     // mint a fresh id and warn, not silently reuse the Codex-minted id.
-    val claudeAgent = new StubAgent:
-      override private[orca] def backendTag: Option[BackendTag] =
-        Some(BackendTag.ClaudeCode)
+    val claudeAgent = stubAgent(BackendTag.ClaudeCode)
     val recorder = new RecordingListener
     val resumedId = claudeAgent.session("implementer", seed = "brief")(using
       control(dir, List(recorder))
@@ -394,17 +364,13 @@ class SessionTest extends FunSuite:
     // ends up seeding the freshly-minted session. Only the tag-mismatch warning
     // must fire.
     val dir = TempDirs.dir()
-    val codexAgent = new StubAgent:
-      override private[orca] def backendTag: Option[BackendTag] =
-        Some(BackendTag.Codex)
+    val codexAgent = stubAgent(BackendTag.Codex)
     val _ =
       codexAgent.session("implementer", seed = "original seed")(using
         control(dir)
       )
 
-    val claudeAgent = new StubAgent:
-      override private[orca] def backendTag: Option[BackendTag] =
-        Some(BackendTag.ClaudeCode)
+    val claudeAgent = stubAgent(BackendTag.ClaudeCode)
     val recorder = new RecordingListener
     val _ = claudeAgent.session("implementer", seed = "different seed")(using
       control(dir, List(recorder))
@@ -443,7 +409,7 @@ class SessionTest extends FunSuite:
           backend = None
         )
       )
-    val agent = new StubAgent
+    val agent = stubAgent(BackendTag.ClaudeCode)
     val recorder = new RecordingListener
     val resumedId =
       agent.session("implementer", seed = "brief")(using
@@ -463,14 +429,14 @@ class SessionTest extends FunSuite:
     )
 
   test("an empty name is rejected"):
-    val agent = new StubAgent
+    val agent = stubAgent(BackendTag.ClaudeCode)
     intercept[IllegalArgumentException]:
       agent.session("", seed = "seed")(using control(TempDirs.dir()))
 
   test("no stage commits a session record"):
     val (fc, dir) = TestFlowControl.create(new EventDispatcher(Nil))
     given FlowControl = fc
-    val agent = new StubAgent
+    val agent = stubAgent(BackendTag.ClaudeCode)
     val minted = stage("Implement", commitMessage):
       agent.session("implementer", seed = "brief").id.value
     assertEquals(records(dir).map(_.id), List(minted))
@@ -486,7 +452,7 @@ class SessionTest extends FunSuite:
     // The reuse branch's whole reason to exist: the stage a resume re-runs is
     // exactly the stage that failed, and failure teardown resets the tree.
     val (fc, dir) = TestFlowControl.create(new EventDispatcher(Nil))
-    val agent = new StubAgent
+    val agent = stubAgent(BackendTag.ClaudeCode)
     def mint()(using FlowControl): String =
       agent.session("implementer", seed = "brief").id.value
 

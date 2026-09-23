@@ -1,6 +1,6 @@
 package orca.agents
 
-import orca.testkit.ScriptedBackend
+import orca.testkit.{ScriptedBackend, TestAgent}
 import orca.backend.{
   Conversation,
   Interaction,
@@ -21,7 +21,7 @@ class ChatTest extends munit.FunSuite:
 
   test("every chat turn runs against the same conversation id"):
     val backend = new RecordingSessionBackend
-    val chat = new ChatStubTool(backend).chat()
+    val chat = chatStubTool(backend).chat()
     val _ = chat.run("first")
     val _ = chat.run("second")
     assertEquals(backend.seen.distinct, List(SessionId.value(chat.id)))
@@ -29,7 +29,7 @@ class ChatTest extends munit.FunSuite:
 
   test("agent.run mints a fresh conversation per call"):
     val backend = new RecordingSessionBackend
-    val agent = new ChatStubTool(backend)
+    val agent = chatStubTool(backend)
     val _ = agent.run("first")
     val _ = agent.run("second")
     assertEquals(backend.seen.distinct.size, 2)
@@ -37,7 +37,7 @@ class ChatTest extends munit.FunSuite:
   test("agent.chat(continueFrom) adopts the given conversation id"):
     val backend = new RecordingSessionBackend
     val adopted = SessionId.fresh[BackendTag.Pi.type]
-    val _ = new ChatStubTool(backend).chat(adopted).run("continue")
+    val _ = chatStubTool(backend).chat(adopted).run("continue")
     assertEquals(backend.seen, List(SessionId.value(adopted)))
 
   /** Records the session id of every `runAutonomous` call. */
@@ -72,18 +72,12 @@ class ChatTest extends munit.FunSuite:
     def drive[B <: BackendTag](conversation: Conversation[B]): AgentResult[B] =
       ???
 
-  private class ChatStubTool(
+  private def chatStubTool(
       backend: AgentBackend[BackendTag.Pi.type]
-  ) extends BaseAgent[BackendTag.Pi.type, Agent[BackendTag.Pi.type]](
-        backend,
-        AgentConfig(),
-        ChatStubPrompts,
-        OrcaListener.noop,
-        ChatStubInteraction
-      ):
-    val name: String = "chat-stub"
-    protected def copyTool(
-        config: AgentConfig = AgentConfig(),
-        name: String = name,
-        role: Option[String] = None
-    ): Agent[BackendTag.Pi.type] = this
+  ): Agent[BackendTag.Pi.type] =
+    TestAgent(
+      backend,
+      "chat-stub",
+      prompts = ChatStubPrompts,
+      interaction = ChatStubInteraction
+    )

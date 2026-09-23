@@ -59,7 +59,7 @@ class OpenPrFromBranchTest extends FunSuite:
     val control =
       prControl(dir, store, listener, calls, branchDiff, prBodies = bodies)
     val handle = openPrFromBranch(
-      summarisingAgent = summariser,
+      summarisingAgent = summariser.agent,
       openFindings = openFindings,
       body = summary => s"${summary.body}\n\nCloses #1.",
       context = context
@@ -110,7 +110,7 @@ class OpenPrFromBranchTest extends FunSuite:
     val e = intercept[OrcaFlowException](
       control.withStage("outer", None): _ =>
         openPrFromBranch(
-          summarisingAgent = new StubSummariser(),
+          summarisingAgent = new StubSummariser().agent,
           openFindings = OpenFindings.empty
         )(using control, summon[OutsideStage])
     )
@@ -130,7 +130,7 @@ class OpenPrFromBranchTest extends FunSuite:
     )
     val _ = interceptReported[PrCreateFailed](
       openPrFromBranch(
-        summarisingAgent = new StubSummariser(),
+        summarisingAgent = new StubSummariser().agent,
         openFindings = OpenFindings.empty
       )(using
         control,
@@ -153,7 +153,7 @@ class OpenPrFromBranchTest extends FunSuite:
     )
     val _ = interceptReported[PrCreateFailed](
       openPrFromBranch(
-        summarisingAgent = new StubSummariser(),
+        summarisingAgent = new StubSummariser().agent,
         openFindings = oneOpen
       )(using control, summon[OutsideStage])
     )
@@ -165,7 +165,7 @@ class OpenPrFromBranchTest extends FunSuite:
     def attempt(calls: ConcurrentLinkedQueue[String]): PrHandle =
       val control = prControl(dir, store, _ => (), calls)
       openPrFromBranch(
-        summarisingAgent = summariser,
+        summarisingAgent = summariser.agent,
         openFindings = OpenFindings.empty
       )(using control, summon[OutsideStage])
 
@@ -192,14 +192,14 @@ class OpenPrFromBranchTest extends FunSuite:
       push = Left(new PushFailure.RemoteDeclined("protected branch"))
     )
     val _ = openPrIfGitHub(
-      summarisingAgent = new StubSummariser(),
+      summarisingAgent = new StubSummariser().agent,
       openFindings = OpenFindings.empty
     )(using first, summon[OutsideStage])
     val calls = new ConcurrentLinkedQueue[String]()
     val resumed = prControl(dir, store, _ => (), calls)
     val e = interceptReported[OrcaFlowException](
       openPrFromBranch(
-        summarisingAgent = new StubSummariser(),
+        summarisingAgent = new StubSummariser().agent,
         openFindings = OpenFindings.empty
       )(using resumed, summon[OutsideStage])
     )

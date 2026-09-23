@@ -1,9 +1,18 @@
 package orca.runner
 
-import orca.agents.ClaudeAgent
+import orca.agents.{Agent, BackendTag, ClaudeAgent, CodexAgent}
+import orca.testkit.{ScriptedBackend, TestAgent}
 
-/** A `ClaudeAgent` stub for tests that assert wiring/lifecycle, not LLM
-  * behaviour. Every call throws — no test reaches one.
+/** Agents for tests that assert wiring/lifecycle, not LLM behaviour: each is a
+  * fresh agent on its own backend, and every turn fails — no test reaches one.
+  * Fresh per call, since closing a run latches its agents' backends.
   */
 object StubAgent:
-  val claude: ClaudeAgent = new StubClaudeAgent("stub") {}
+  def claude: ClaudeAgent = of(BackendTag.ClaudeCode)
+  def codex: CodexAgent = of(BackendTag.Codex)
+
+  def of[B <: BackendTag & Singleton](
+      tag: B,
+      name: String = "stub"
+  ): Agent[B] =
+    TestAgent(ScriptedBackend.unused(tag), name)

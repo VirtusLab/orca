@@ -1,21 +1,15 @@
 package orca.tools.gemini
 
-import orca.backend.{Conversation, Interaction, AgentResult, SupervisedBackend}
-import orca.events.OrcaListener
-import orca.agents.{BackendTag, DefaultPrompts, AgentConfig}
+import orca.backend.SupervisedBackend
+import orca.agents.{AgentConfig, GeminiAgent}
 import orca.subprocess.{FakePipedCliProcess, SpawnStubCliRunner}
+import orca.testkit.TestAgent
+import orca.tools.gemini.GeminiAgents.flash
 
-class DefaultGeminiAgentTest extends munit.FunSuite:
+class GeminiAgentsTest extends munit.FunSuite:
 
   // LLM `run` is gated on `InStage`; mint the token for the suite.
   private given orca.InStage = orca.InStage.unsafe
-
-  private val stubInteraction: Interaction = new Interaction:
-    val listeners: List[OrcaListener] = Nil
-    def drive[B <: BackendTag](
-        conversation: Conversation[B]
-    ): AgentResult[B] =
-      throw new UnsupportedOperationException("test stub")
 
   private def successfulProcess(): FakePipedCliProcess =
     val p = new FakePipedCliProcess()
@@ -32,23 +26,15 @@ class DefaultGeminiAgentTest extends munit.FunSuite:
   private def toolWith(
       runner: SpawnStubCliRunner,
       config: AgentConfig
-  )(body: DefaultGeminiAgent => Unit): Unit =
+  )(body: GeminiAgent => Unit): Unit =
     SupervisedBackend.using(new GeminiBackend(runner)): backend =>
-      body(
-        new DefaultGeminiAgent(
-          backend = backend,
-          config = config,
-          prompts = DefaultPrompts,
-          events = OrcaListener.noop,
-          interaction = stubInteraction
-        )
-      )
+      body(TestAgent(backend, config = config))
 
   test("the base tool's pinned model reaches the CLI --model flag"):
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     toolWith(
       runner,
-      AgentConfig().copy(model = Some(DefaultGeminiAgent.Pro))
+      AgentConfig().copy(model = Some(GeminiModels.Pro))
     ): tool =>
       val _ = tool.run("q")
       assert(
@@ -61,16 +47,10 @@ class DefaultGeminiAgentTest extends munit.FunSuite:
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     toolWith(
       runner,
-      AgentConfig().copy(model = Some(DefaultGeminiAgent.Pro))
+      AgentConfig().copy(model = Some(GeminiModels.Pro))
     ): tool =>
       val _ = tool.flash.run("q")
       assert(
         runner.calls.head.containsSlice(Seq("--model", "gemini-3.8-flash")),
         s"expected the flash pin; got: ${runner.calls.head}"
       )
-
-  test("withName preserves the GeminiAgent type and renames"):
-    val runner = new SpawnStubCliRunner(List(successfulProcess()))
-    toolWith(runner, AgentConfig()): tool =>
-      val renamed = tool.withName("planner")
-      assertEquals(renamed.name, "planner")

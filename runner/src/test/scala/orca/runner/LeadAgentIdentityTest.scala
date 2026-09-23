@@ -1,26 +1,20 @@
 package orca.runner
 
 import orca.ReportedFailure
-import orca.testkit.ScriptedBackend
+import orca.testkit.{ScriptedBackend, TestAgent}
 import orca.{AgentSet, OrcaArgs, StackSettings, flow, runFlow}
 import orca.agents.{
+  Agent,
   AgentConfig,
-  Announce,
-  AutonomousTextCall,
   BackendTag,
   ClaudeAgent,
   CodexAgent,
-  AgentCall,
   GeminiAgent,
-  JsonData,
-  Model,
   OpencodeAgent,
-  PiAgent,
-  ToolSet
+  PiAgent
 }
-import orca.backend.{AgentResult, Conversation, Interaction, TurnRequest}
+import orca.backend.{AgentResult, TurnRequest}
 import orca.events.{OrcaEvent, OrcaListener}
-import orca.tools.pi.DefaultPiAgent
 import orca.testkit.GitRepo
 import _root_.orca.runner.terminal.TerminalInteraction
 import ox.supervised
@@ -34,10 +28,10 @@ import java.util.concurrent.atomic.AtomicReference
   * dispatcher). `runFlow` closes all five wired agents and every foreign role
   * agent when the run ends, so a foreign role agent's backend is closed too.
   * `runFlow` separately warns per role when it resolves a foreign agent,
-  * comparing backend IDENTITY ([[orca.agents.Agent.backendIdentity]]), not
-  * `Agent` reference equality — the positive case below pins that a
-  * `copyTool`-derived sibling of a wired agent (the common `_.claude.opus`
-  * shape) does NOT trip that warning.
+  * comparing backends ([[orca.agents.Agent.sharesBackendWith]]), not `Agent`
+  * reference equality — the positive case below pins that a builder-derived
+  * sibling of a wired agent (the common `_.claude.opus` shape) does NOT trip
+  * that warning.
   */
 class LeadAgentIdentityTest extends munit.FunSuite:
 
@@ -57,13 +51,7 @@ class LeadAgentIdentityTest extends munit.FunSuite:
     "a foreign-agent selector warns at lead resolution and is closed at flow end"
   ):
     val foreignBackend = new UnrunBackend
-    val foreignAgent: PiAgent = new DefaultPiAgent(
-      foreignBackend,
-      AgentConfig(),
-      orca.agents.DefaultPrompts,
-      OrcaListener.noop,
-      NoopInteraction
-    )
+    val foreignAgent: PiAgent = TestAgent(foreignBackend)
     val warnings = scala.collection.mutable.ListBuffer.empty[String]
     supervised:
       flow(
@@ -86,7 +74,7 @@ class LeadAgentIdentityTest extends munit.FunSuite:
     assert(foreignBackend.isClosed, "a foreign lead's backend must be closed")
 
   test(
-    "a copyTool-derived sibling of the wired pi agent triggers no warning"
+    "a builder-derived sibling of the wired pi agent triggers no warning"
   ):
     val piBackend = new UnrunBackend
     val warnings = scala.collection.mutable.ListBuffer.empty[String]
@@ -95,17 +83,18 @@ class LeadAgentIdentityTest extends munit.FunSuite:
         args = OrcaArgs(),
         stackSettings = Some(StackSettings.empty),
         // Mirrors the common `_.claude.opus` selector shape: `.withName` is a
-        // `copyTool`-derived sibling — a DIFFERENT `Agent` instance sharing the
+        // builder-derived sibling — a DIFFERENT `Agent` instance sharing the
         // SAME backend as the wired `pi`, not the wired `pi` value itself.
         codingAgent = Some((agents: AgentSet) => agents.pi.withName("lead-pi")),
         workDir = GitRepo.seeded(),
         pi = Some(w =>
-          new DefaultPiAgent(
+          Agent(
             piBackend,
             AgentConfig(),
             w.prompts,
             w.events,
-            w.interaction
+            w.interaction,
+            defaultName = "pi"
           )
         ),
         interaction = Some(interaction()),
@@ -116,7 +105,7 @@ class LeadAgentIdentityTest extends munit.FunSuite:
       !warnings.exists(
         _.contains("coding agent was not built from this flow's context")
       ),
-      s"a copyTool-derived sibling of a wired agent must not trigger the " +
+      s"a builder-derived sibling of a wired agent must not trigger the " +
         s"foreign-lead warning, saw: $warnings"
     )
 
@@ -128,12 +117,13 @@ class LeadAgentIdentityTest extends munit.FunSuite:
         stackSettings = Some(StackSettings.empty),
         workDir = GitRepo.seeded(),
         pi = Some(w =>
-          new DefaultPiAgent(
+          Agent(
             piBackend,
             AgentConfig(),
             w.prompts,
             w.events,
-            w.interaction
+            w.interaction,
+            defaultName = "pi"
           )
         ),
         interaction = Some(interaction())
@@ -194,9 +184,8 @@ class LeadAgentIdentityTest extends munit.FunSuite:
         BackendTag.Gemini
       )
     do
-      assertEquals(
-        agents.closeCounts(tag),
-        1,
+      assert(
+        agents.closed(tag),
         s"runFlow must still close the wired $tag backend " +
           s"despite the selector throwing"
       )
@@ -211,13 +200,7 @@ class LeadAgentIdentityTest extends munit.FunSuite:
     // that role resolved, must still run.
     val boom = new RuntimeException("coding selector always throws")
     val foreignBackend = new UnrunBackend
-    val foreignPlanning: PiAgent = new DefaultPiAgent(
-      foreignBackend,
-      AgentConfig(),
-      orca.agents.DefaultPrompts,
-      OrcaListener.noop,
-      NoopInteraction
-    )
+    val foreignPlanning: PiAgent = TestAgent(foreignBackend)
     val agents = new RecordingAgents
     val thrown = intercept[ReportedFailure]:
       supervised:
@@ -252,13 +235,6 @@ class LeadAgentIdentityTest extends munit.FunSuite:
         "override throws before `resolveAll` returns"
     )
 
-  private object NoopInteraction extends Interaction:
-    def listeners: List[OrcaListener] = Nil
-    def drive[B <: BackendTag](
-        conversation: Conversation[B]
-    ): AgentResult[B] =
-      throw new UnsupportedOperationException
-
   /** A backend whose agent is only resolved and closed, never run. */
   private class UnrunBackend extends ScriptedBackend(BackendTag.Pi):
     protected def reply(
@@ -266,101 +242,29 @@ class LeadAgentIdentityTest extends munit.FunSuite:
     ): AgentResult[BackendTag.Pi.type] =
       throw new UnsupportedOperationException
 
-  /** One recording stub per wired backend, each incrementing `closeCounts` for
-    * its own tag on `close()`. No test ever drives an `autonomous`/`resultAs`
-    * call through these — the selector throws before setup or the body could
-    * ever use the lead agent — so those methods are unreachable stubs, same as
-    * the `Noop*` stubs in `RoleAgentsTest`.
+  /** One agent per wired backend, never run — the selector throws before setup
+    * or the body could use one — so a test can check which backends were
+    * closed.
     */
   private class RecordingAgents:
-    private val counts =
-      new AtomicReference[Map[BackendTag, Int]](Map.empty.withDefaultValue(0))
-    def closeCounts: Map[BackendTag, Int] = counts.get()
-    private def recordClose(tag: BackendTag): Unit =
-      val _ = counts.updateAndGet(m => m.updated(tag, m(tag) + 1))
+    private val claudeBackend = ScriptedBackend.unused(BackendTag.ClaudeCode)
+    private val codexBackend = ScriptedBackend.unused(BackendTag.Codex)
+    private val opencodeBackend = ScriptedBackend.unused(BackendTag.Opencode)
+    private val piBackend = ScriptedBackend.unused(BackendTag.Pi)
+    private val geminiBackend = ScriptedBackend.unused(BackendTag.Gemini)
 
-    val claude: ClaudeAgent = new ClaudeAgent:
-      val name = "recording-claude"
-      def haiku = this
-      def sonnet = this
-      def opus = this
-      def fable = this
-      def withModel(model: Model) = this
-      def withNetworkTools(t: Seq[String]) = this
-      def withConfig(c: AgentConfig) = this
-      def withSystemPrompt(p: String) = this
-      def withName(n: String) = this
-      def withTools(tools: ToolSet) = this
-      def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
-        throw new UnsupportedOperationException
-      def resultAs[O: JsonData: Announce]
-          : AgentCall[BackendTag.ClaudeCode.type, O] =
-        throw new UnsupportedOperationException
-      override private[orca] def close(): Unit =
-        recordClose(BackendTag.ClaudeCode)
+    val claude: ClaudeAgent = TestAgent(claudeBackend)
+    val codex: CodexAgent = TestAgent(codexBackend)
+    val opencode: OpencodeAgent = TestAgent(opencodeBackend)
+    val pi: PiAgent = TestAgent(piBackend)
+    val gemini: GeminiAgent = TestAgent(geminiBackend)
 
-    val codex: CodexAgent = new CodexAgent:
-      val name = "recording-codex"
-      def mini = this
-      def withModel(model: Model) = this
-      def withConfig(c: AgentConfig) = this
-      def withSystemPrompt(p: String) = this
-      def withName(n: String) = this
-      def withTools(tools: ToolSet) = this
-      def autonomous: AutonomousTextCall[BackendTag.Codex.type] =
-        throw new UnsupportedOperationException
-      def resultAs[O: JsonData: Announce]: AgentCall[BackendTag.Codex.type, O] =
-        throw new UnsupportedOperationException
-      override private[orca] def close(): Unit = recordClose(BackendTag.Codex)
-
-    val opencode: OpencodeAgent = new OpencodeAgent:
-      val name = "recording-opencode"
-      def anthropicOpus = this
-      def anthropicSonnet = this
-      def anthropicHaiku = this
-      def openaiSol = this
-      def openaiAstra = this
-      def openaiLuna = this
-      def withModel(providerModel: String) = this
-      def withConfig(c: AgentConfig) = this
-      def withSystemPrompt(p: String) = this
-      def withName(n: String) = this
-      def withTools(tools: ToolSet) = this
-      def autonomous: AutonomousTextCall[BackendTag.Opencode.type] =
-        throw new UnsupportedOperationException
-      def resultAs[O: JsonData: Announce]
-          : AgentCall[BackendTag.Opencode.type, O] =
-        throw new UnsupportedOperationException
-      override private[orca] def close(): Unit =
-        recordClose(BackendTag.Opencode)
-
-    val pi: PiAgent = new PiAgent:
-      val name = "recording-pi"
-      def withModel(model: Model) = this
-      def withConfig(c: AgentConfig) = this
-      def withSystemPrompt(p: String) = this
-      def withName(n: String) = this
-      def withTools(tools: ToolSet) = this
-      def autonomous: AutonomousTextCall[BackendTag.Pi.type] =
-        throw new UnsupportedOperationException
-      def resultAs[O: JsonData: Announce]: AgentCall[BackendTag.Pi.type, O] =
-        throw new UnsupportedOperationException
-      override private[orca] def close(): Unit = recordClose(BackendTag.Pi)
-
-    val gemini: GeminiAgent = new GeminiAgent:
-      val name = "recording-gemini"
-      def flash = this
-      def withModel(model: Model) = this
-      def withConfig(c: AgentConfig) = this
-      def withSystemPrompt(p: String) = this
-      def withName(n: String) = this
-      def withTools(tools: ToolSet) = this
-      def autonomous: AutonomousTextCall[BackendTag.Gemini.type] =
-        throw new UnsupportedOperationException
-      def resultAs[O: JsonData: Announce]
-          : AgentCall[BackendTag.Gemini.type, O] =
-        throw new UnsupportedOperationException
-      override private[orca] def close(): Unit = recordClose(BackendTag.Gemini)
+    def closed(tag: BackendTag): Boolean = tag match
+      case BackendTag.ClaudeCode => claudeBackend.isClosed
+      case BackendTag.Codex      => codexBackend.isClosed
+      case BackendTag.Opencode   => opencodeBackend.isClosed
+      case BackendTag.Pi         => piBackend.isClosed
+      case BackendTag.Gemini     => geminiBackend.isClosed
 
   private class RecordingListener extends OrcaListener:
     private val seen = new AtomicReference[List[OrcaEvent]](Nil)

@@ -96,7 +96,7 @@ import scala.util.control.NonFatal
   * here?".
   *
   * The three overrides are the programmatic top of that precedence — selector-
-  * shaped (`Some(_.claude.opus)`) so a `copyTool`-derived sibling stays
+  * shaped (`Some(_.claude.opus)`) so a builder-derived sibling stays
   * expressible, and the seam tests use in place of a global file. Each must
   * resolve to one of the wired agents or a sibling — anything sharing their
   * backend. An override returning an agent built from a SEPARATE

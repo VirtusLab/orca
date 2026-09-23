@@ -1,37 +1,17 @@
 package orca.runner
 
-import orca.testkit.ScriptedBackend
+import orca.testkit.{ScriptedBackend, TestAgent}
 import orca.{FlowContext, OrcaArgs, StackSettings, flow}
-import orca.backend.{Conversation, Interaction, AgentResult, TurnRequest}
-import orca.events.OrcaListener
-import orca.agents.{
-  SessionKey,
-  AgentInput,
-  Announce,
-  AutonomousAgentCall,
-  AutonomousTextCall,
-  BackendTag,
-  DefaultPrompts,
-  InteractiveAgentCall,
-  JsonData,
-  AgentCall,
-  AgentConfig,
-  OpencodeAgent,
-  SessionId,
-  ToolSet
-}
+import orca.agents.{BackendTag, OpencodeAgent}
 import orca.plan.{Plan, Task, Title}
-import orca.tools.opencode.DefaultOpencodeAgent
 import orca.testkit.GitRepo
 import _root_.orca.runner.terminal.TerminalInteraction
 import ox.supervised
 
 import java.io.{ByteArrayOutputStream, PrintStream}
 
-/** End-to-end flow coverage for the OpenCode tool without a live server:
-  *   1. the backend-agnostic Plan DSL runs through a wired `OpencodeAgent`, and
-  *      2. a structured `resultAs[O]` call parses the backend's output via the
-  *      real `DefaultAgentCall` (not a short-circuiting stub).
+/** End-to-end flow coverage for the OpenCode tool without a live server: the
+  * backend-agnostic Plan DSL runs through a wired `OpencodeAgent`.
   */
 class OpencodeFlowTest extends munit.FunSuite:
 
@@ -56,7 +36,12 @@ class OpencodeFlowTest extends munit.FunSuite:
         useColor = false,
         animated = false
       )
-      val canned = new CannedOpencode(samplePlan)
+      val canned: OpencodeAgent = TestAgent(
+        ScriptedBackend.replying(BackendTag.Opencode)(_ =>
+          ScriptedBackend.json(samplePlan)
+        ),
+        "canned"
+      )
       flow(
         args = OrcaArgs(),
         stackSettings = Some(StackSettings.empty),
@@ -71,67 +56,3 @@ class OpencodeFlowTest extends munit.FunSuite:
             .value
         )
     assertEquals(observed, Some(samplePlan))
-
-  test("resultAs[O] parses the backend output through DefaultOpencodeAgent"):
-    val tool = new DefaultOpencodeAgent(
-      new CannedBackend("""{"decision":"go","score":7}"""),
-      AgentConfig(),
-      DefaultPrompts,
-      OrcaListener.noop,
-      noInteraction
-    )
-    val v = tool.resultAs[Verdict].autonomous.run("assess")
-    assertEquals(v, Verdict("go", 7))
-
-  // --- doubles ---
-
-  private case class Verdict(decision: String, score: Int) derives JsonData
-
-  /** Returns a fixed JSON string as the autonomous output; the tool's
-    * `DefaultAgentCall` does the real parsing.
-    */
-  private class CannedBackend(json: String)
-      extends ScriptedBackend(BackendTag.Opencode):
-    protected def reply(
-        turn: TurnRequest[BackendTag.Opencode.type]
-    ): AgentResult[BackendTag.Opencode.type] = ScriptedBackend.result(json)
-
-  private val noInteraction: Interaction = new Interaction:
-    def listeners: List[OrcaListener] = Nil
-    def drive[B <: BackendTag](
-        conversation: Conversation[B]
-    ): AgentResult[B] = throw new UnsupportedOperationException
-
-  /** OpenCode-typed canned tool whose `resultAs[O]` hands back `value` directly
-    * (bypassing parsing) — proves the generic Plan DSL accepts an
-    * OpencodeAgent.
-    */
-  private class CannedOpencode[T](value: T) extends OpencodeAgent:
-    val name: String = "canned"
-    def anthropicOpus: OpencodeAgent = this
-    def anthropicSonnet: OpencodeAgent = this
-    def anthropicHaiku: OpencodeAgent = this
-    def openaiSol: OpencodeAgent = this
-    def openaiAstra: OpencodeAgent = this
-    def openaiLuna: OpencodeAgent = this
-    def withModel(providerModel: String): OpencodeAgent = this
-    def withConfig(c: AgentConfig): OpencodeAgent = this
-    def withSystemPrompt(p: String): OpencodeAgent = this
-    def withName(n: String): OpencodeAgent = this
-    def withTools(tools: ToolSet): OpencodeAgent = this
-    def autonomous: AutonomousTextCall[BackendTag.Opencode.type] =
-      throw new UnsupportedOperationException
-    def resultAs[O: JsonData: Announce]
-        : AgentCall[BackendTag.Opencode.type, O] =
-      new AgentCall[BackendTag.Opencode.type, O]:
-        val autonomous: AutonomousAgentCall[BackendTag.Opencode.type, O] =
-          new AutonomousAgentCall[BackendTag.Opencode.type, O]:
-            private[orca] def runWithSession[I: AgentInput](
-                input: I,
-                session: SessionId[BackendTag.Opencode.type],
-                sessionKey: Option[SessionKey],
-                emitPrompt: Boolean
-            )(using orca.InStage): O =
-              value.asInstanceOf[O]
-        def interactive: InteractiveAgentCall[BackendTag.Opencode.type, O] =
-          throw new UnsupportedOperationException

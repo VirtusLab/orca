@@ -1,46 +1,25 @@
 package orca.testkit
 
-import orca.agents.{
-  SessionKey,
-  Agent,
-  AgentCall,
-  AgentConfig,
-  Announce,
-  AutonomousTextCall,
-  BackendTag,
-  JsonData,
-  SessionId,
-  ToolSet
-}
+import orca.agents.{BackendTag, ClaudeAgent}
 
 import java.util.concurrent.ConcurrentLinkedQueue
 
-/** Agent stub whose text turns record the prompt they were given and return a
-  * fixed reply — the cheap model the runtime drafts commit messages with.
-  * `cheap` is this same stub, since that is the tier `cheapOneShot` runs.
+/** Agent whose text turns record the prompt they were given and return a fixed
+  * reply — the cheap model the runtime drafts commit messages with. Its backend
+  * has no cheaper tier, so `cheap` runs on the same backend.
   *
   * Any stage that changes a file drafts a message, so a `TestFlowControl`
   * driving such a stage needs one of these as its lead.
   */
-class TextReplyingAgent(
-    reply: String,
-    prompts: ConcurrentLinkedQueue[String] = ConcurrentLinkedQueue[String]()
-) extends Agent[BackendTag.ClaudeCode.type]:
-  val name: String = "stubbed"
-  override def cheap: Agent[BackendTag.ClaudeCode.type] = this
-  def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
-    new AutonomousTextCall[BackendTag.ClaudeCode.type]:
-      private[orca] def runWithSession(
-          prompt: String,
-          session: SessionId[BackendTag.ClaudeCode.type],
-          sessionKey: Option[SessionKey],
-          emitPrompt: Boolean
-      )(using orca.InStage): String =
-        prompts.add(prompt): Unit
+object TextReplyingAgent:
+  def apply(
+      reply: String,
+      prompts: ConcurrentLinkedQueue[String] = ConcurrentLinkedQueue[String]()
+  ): ClaudeAgent =
+    TestAgent(
+      ScriptedBackend.replying(BackendTag.ClaudeCode): turn =>
+        prompts.add(turn.prompt): Unit
         reply
-  def withConfig(c: AgentConfig): Agent[BackendTag.ClaudeCode.type] = this
-  def withSystemPrompt(p: String): Agent[BackendTag.ClaudeCode.type] = this
-  def withName(n: String): Agent[BackendTag.ClaudeCode.type] = this
-  def withTools(t: ToolSet): Agent[BackendTag.ClaudeCode.type] = this
-  def resultAs[O: JsonData: Announce]
-      : AgentCall[BackendTag.ClaudeCode.type, O] = ???
+      ,
+      name = "stubbed"
+    )

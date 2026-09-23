@@ -1,12 +1,13 @@
 package orca.tools.claude
 
-import orca.agents.{AgentConfig, ClaudeAgent}
+import orca.agents.{Agent, AgentConfig, ClaudeAgent, NetworkTools}
 import orca.backend.AgentWiring
 import orca.subprocess.OsProcCliRunner
 
-/** Public constructors for the default claude agent: the concrete
-  * [[DefaultClaudeAgent]] / [[ClaudeBackend]] stay `private[orca]`, so this is
-  * the user-facing way to build a standard claude wired into a run.
+/** The default claude agent and the Claude-specific builders. Bare `claude`
+  * runs Opus with the 1M-token context window (the coder); the tier accessors
+  * pin a specific one, e.g. a cheap fast one-shot with
+  * `claude.haiku.run("summarize this")`.
   */
 object ClaudeAgents:
 
@@ -16,10 +17,29 @@ object ClaudeAgents:
     * [[ClaudeBackend.workDir]]).
     */
   def default(wiring: AgentWiring): ClaudeAgent =
-    new DefaultClaudeAgent(
+    Agent(
       backend = new ClaudeBackend(OsProcCliRunner, workDir = wiring.workDir),
-      config = AgentConfig(model = Some(DefaultClaudeAgent.Opus1M)),
+      config = AgentConfig(model = Some(ClaudeModels.Opus1M)),
       prompts = wiring.prompts,
       events = wiring.events,
-      interaction = wiring.interaction
+      interaction = wiring.interaction,
+      defaultName = "main"
     )
+
+  extension (agent: ClaudeAgent)
+    def haiku: ClaudeAgent = agent.withModel(ClaudeModels.Haiku)
+    def sonnet: ClaudeAgent = agent.withModel(ClaudeModels.Sonnet)
+    def opus: ClaudeAgent = agent.withModel(ClaudeModels.Opus1M)
+    def fable: ClaudeAgent = agent.withModel(ClaudeModels.Fable)
+
+    /** Set the network tools added to the read-only `--tools` allowlist on
+      * [[orca.agents.ToolSet.NetworkOnly]] turns, replacing the default
+      * `WebFetch`/`WebSearch`. Bare claude tool names, e.g. `WebFetch`; see
+      * [[NetworkTools.apply]] for what is refused. Pass it before handing the
+      * agent to a planning helper:
+      * `claude.opus.withNetworkTools(Seq("WebFetch"))`.
+      */
+    def withNetworkTools(tools: Seq[String]): ClaudeAgent =
+      agent.withConfig(
+        agent.config.copy(networkTools = Some(NetworkTools(tools)))
+      )

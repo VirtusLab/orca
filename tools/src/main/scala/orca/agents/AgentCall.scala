@@ -72,27 +72,6 @@ trait InteractiveAgentCall[B <: BackendTag, O]:
       sessionKey: Option[SessionKey]
   )(using orca.InStage): O
 
-/** Free-form text turns — the internal engine behind `Agent.run` and
-  * [[Chat.run]] (the non-structured sibling of [[AutonomousAgentCall]]).
-  * Ephemeral: no seeding, no wire-id persistence; `orca.FlowSession` layers the
-  * durable protocol on top of this same door.
-  */
-private[orca] trait AutonomousTextCall[B <: BackendTag]:
-  /** Run the agent on `prompt` against `session`, continuing it if the backend
-    * already has it this run. `emitPrompt = false` suppresses the
-    * `OrcaEvent.UserPrompt` (used by internal callers producing near-identical
-    * prompts in quick succession); other events fire regardless.
-    *
-    * `sessionKey` is the durable key this session was minted under (see
-    * [[AutonomousAgentCall.runWithSession]]).
-    */
-  private[orca] def runWithSession(
-      prompt: String,
-      session: SessionId[B],
-      sessionKey: Option[SessionKey],
-      emitPrompt: Boolean
-  )(using orca.InStage): String
-
 /** Default implementation of [[AgentCall]] for any backend, wiring both modes:
   *
   *   - The autonomous shape goes through `backend.runAutonomous` with a

@@ -110,11 +110,30 @@ export orca.tools.{
 }
 export orca.tools.opencode.OpencodeLauncher
 // Agent-override surface: the wiring an override factory receives, plus each
-// backend's default-agent factory (`ClaudeAgents.default(w).opus`, …).
+// backend's default-agent factory (`ClaudeAgents.default(w).opus`, …) and its
+// model-tier extensions (`claude.opus`, `codex.mini`, …).
 export orca.backend.AgentWiring
 export orca.tools.claude.ClaudeAgents
+export orca.tools.claude.ClaudeAgents.{
+  haiku,
+  sonnet,
+  opus,
+  fable,
+  withNetworkTools
+}
 export orca.tools.codex.CodexAgents
+export orca.tools.codex.CodexAgents.mini
 export orca.tools.gemini.GeminiAgents
+export orca.tools.gemini.GeminiAgents.flash
 export orca.tools.pi.PiAgents
 export orca.tools.opencode.OpencodeAgents
+export orca.tools.opencode.OpencodeAgents.{
+  anthropicOpus,
+  anthropicSonnet,
+  anthropicHaiku,
+  openaiAstra,
+  openaiSol,
+  openaiLuna,
+  withModel
+}
 export ox.either.orThrow

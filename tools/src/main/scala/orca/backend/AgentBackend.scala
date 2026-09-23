@@ -9,6 +9,7 @@ import orca.agents.{
   AgentConfig,
   EnforcementCell,
   EnforcementNotice,
+  Model,
   SessionId,
   StructuredOutputMode,
   ToolSet,
@@ -17,8 +18,8 @@ import orca.agents.{
 import ox.{Ox, supervised}
 
 /** SPI implemented per backend (Claude, Codex, …), called from the
-  * autonomous-text and structured-output paths ([[AutonomousTextCall]],
-  * [[AgentCall]]).
+  * autonomous-text and structured-output paths ([[orca.agents.Agent]],
+  * [[orca.agents.AgentCall]]).
   *
   * A backend implements [[open]]: start one turn and return it as a live
   * [[Conversation]]. The final [[runAutonomous]] / [[runInteractive]] own the
@@ -37,24 +38,7 @@ import ox.{Ox, supervised}
   * scaffolding, schema, and rules already wrapped around the user's input.
   * `displayPrompt` (interactive only) is what the renderer shows the user.
   */
-trait AgentBackend[B <: BackendTag](
-    /** Backing store for [[isClosed]]/[[markClosed]]. Defaults to a fresh,
-      * unshared flag, correct for every backend whose builders go through
-      * `BaseAgent.copyTool` and stay on the SAME backend instance. A builder
-      * that instead constructs a SIBLING backend (today only claude's
-      * [[orca.tools.claude.ClaudeBackend.withNetworkTools]]) MUST pass the
-      * parent's `closedFlag` here, so `markClosed()` on either instance is
-      * visible through both — otherwise a handle derived via that builder and
-      * leaked past flow-end bypasses the use-after-close guard entirely.
-      */
-    private[orca] val closedFlag: AtomicBoolean = new AtomicBoolean(false),
-    /** Which enforcement notices this backend has already given. A SIBLING
-      * backend must be passed the parent's, for the same reason as
-      * [[closedFlag]] above: a fresh log would say everything a second time.
-      */
-    private[orca] val enforcementNotice: EnforcementNotice =
-      new EnforcementNotice
-):
+trait AgentBackend[B <: BackendTag]:
   /** Run one autonomous turn against `session` and return its result, once it
     * has drained cleanly and the session is committed as resumable.
     *
@@ -245,14 +229,26 @@ trait AgentBackend[B <: BackendTag](
     */
   def structuredOutputMode: StructuredOutputMode
 
+  /** The model `agent.cheap` pins when the caller set no cheap model, given the
+    * agent's `leading` model; `None` when this backend has no cheaper tier
+    * (`cheap` is then the agent itself).
+    *
+    * Abstract, not defaulted, for the same reason as [[enforcementCell]].
+    */
+  def cheapModel(leading: Option[Model]): Option[Model]
+
   // The use-after-close latch lives on the backend, not the Agent instance:
-  // every builder goes through `BaseAgent.copyTool`, which constructs a new
-  // agent sharing this same backend — a per-agent flag would reset to "open"
-  // on every derived handle, letting a leaked handle bypass the guard.
+  // every builder constructs a new agent sharing this same backend — a
+  // per-agent flag would reset to "open" on every derived handle, letting a
+  // leaked handle bypass the guard.
+  private val closedFlag: AtomicBoolean = new AtomicBoolean(false)
+
+  /** Which enforcement notices this backend has already given. */
+  private val enforcementNotice: EnforcementNotice = new EnforcementNotice
 
   /** Latch this backend as closed — its owning flow has ended, and every run
     * entry point gated on [[isClosed]] must refuse from now on. Called by
-    * `BaseAgent.close()`.
+    * `Agent.close()`.
     */
   private[orca] final def markClosed(): Unit = closedFlag.set(true)
 

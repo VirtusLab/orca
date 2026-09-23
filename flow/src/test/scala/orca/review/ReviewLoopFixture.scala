@@ -2,25 +2,16 @@ package orca.review
 
 import orca.StagePath
 import orca.{FlowContext, FlowSession, InStage, StackSettings, TestFlowControl}
-import orca.agents.{
-  SessionKey,
-  Agent,
-  AgentCall,
-  AgentConfig,
-  AgentInput,
-  Announce,
-  AutonomousAgentCall,
-  AutonomousTextCall,
-  BackendTag,
-  InteractiveAgentCall,
-  JsonData,
-  SessionId,
-  ToolSet
-}
+import orca.agents.{Agent, BackendTag, JsonData, SessionId, SessionKey}
+import orca.backend.{AgentResult, IdScheme, SessionSupport, TurnRequest}
+import orca.testkit.{PassthroughPrompts, ScriptedBackend, TestAgent}
 import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
 import orca.plan.{Task, Title}
 import orca.gitref.CommitHash
 
+import java.util.concurrent.ConcurrentLinkedQueue
+
+import scala.jdk.CollectionConverters.*
 import scala.util.matching.Regex
 
 /** Shared fixture construction for the `reviewAndFixLoop` tests.
@@ -48,11 +39,11 @@ object ReviewLoopFixture:
     * `private[orca]` ctor so no production factory is widened for tests.
     */
   def coderSession(
-      agent: Agent[BackendTag.ClaudeCode.type],
+      coder: FakeAgent,
       id: String = "s"
   ): FlowSession[BackendTag.ClaudeCode.type] =
     new FlowSession(
-      agent,
+      coder.agent,
       SessionId[BackendTag.ClaudeCode.type](id),
       SessionKey(name = "coder", stage = StagePath.FlowBody)
     )
@@ -111,77 +102,64 @@ object ReviewLoopFixture:
   */
 private[review] def titled(title: String): Task = Task(Title(title), "")
 
-/** Agent stub base: supplies the identity and the `with*` no-ops every
-  * review-loop stub repeats, leaving `resultAs` abstract.
+/** One structured reply a [[FakeAgent]] answers with — any `JsonData` value
+  * converts to one, so a script can mix result types.
   */
-private[review] abstract class StubAgent(override val name: String)
-    extends Agent[BackendTag.ClaudeCode.type]:
-  def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] = ???
-  def withConfig(c: AgentConfig): Agent[BackendTag.ClaudeCode.type] = this
-  def withSystemPrompt(p: String): Agent[BackendTag.ClaudeCode.type] = this
-  def withName(n: String): Agent[BackendTag.ClaudeCode.type] = this
-  def withTools(t: ToolSet): Agent[BackendTag.ClaudeCode.type] = this
+private[review] final class Reply(val json: String)
 
-/** Fake AgentCall whose `autonomous.run` drains a scripted sequence of outputs
-  * in order. `seenSessions` records each call's session id so tests can assert
-  * "fresh on first, same id thereafter."; `seenPrompts` records what the caller
-  * sent. `onRun` fires before each reply.
-  */
-private[review] class FakeAgentCall[O](
-    outputs: Iterator[Any],
-    onRun: () => Unit
-) extends AgentCall[BackendTag.ClaudeCode.type, O]:
+private[review] object Reply:
+  given [T: JsonData]: Conversion[T, Reply] = t =>
+    Reply(ScriptedBackend.json(t))
 
-  /** Session ids the LLM was called with, in invocation order. */
-  val seenSessions: java.util.concurrent.atomic.AtomicReference[
-    List[SessionId[BackendTag.ClaudeCode.type]]
-  ] = new java.util.concurrent.atomic.AtomicReference[
-    List[SessionId[BackendTag.ClaudeCode.type]]
-  ](Nil)
-
-  /** Rendered inputs the LLM was called with, in invocation order. */
-  val seenPrompts: java.util.concurrent.atomic.AtomicReference[List[String]] =
-    new java.util.concurrent.atomic.AtomicReference[List[String]](Nil)
-
-  val autonomous: AutonomousAgentCall[BackendTag.ClaudeCode.type, O] =
-    new AutonomousAgentCall[BackendTag.ClaudeCode.type, O]:
-      private[orca] def runWithSession[I: AgentInput](
-          input: I,
-          session: SessionId[BackendTag.ClaudeCode.type],
-          sessionKey: Option[SessionKey],
-          emitPrompt: Boolean
-      )(using InStage): O =
-        val _ = seenSessions.updateAndGet(session :: _)
-        val _ = seenPrompts.updateAndGet(
-          summon[AgentInput[I]].serialize(input) :: _
-        )
-        onRun()
-        outputs.next().asInstanceOf[O]
-  def interactive: InteractiveAgentCall[BackendTag.ClaudeCode.type, O] = ???
-
-/** An agent replying with `outputs` in order; a call past the end throws, which
-  * is how a test pins that a stub must never run.
+/** An agent replying with `outputs` in order, recording each turn; a turn past
+  * the end fails, which is how a test pins that an agent must never run.
+  * `onRun` fires before each reply. Structured inputs reach the backend
+  * unwrapped ([[PassthroughPrompts]]), so [[seenPrompts]] holds what the caller
+  * sent.
   */
 private[review] class FakeAgent(
-    name: String,
-    outputs: List[Any] = Nil,
-    onRun: () => Unit = () => ()
-) extends StubAgent(name):
-  private val fakeCall: FakeAgentCall[Any] =
-    new FakeAgentCall[Any](outputs.iterator, onRun)
+    val name: String,
+    outputs: List[Reply] = Nil,
+    onRun: () => Unit = () => (),
+    sessions: SessionSupport[BackendTag.ClaudeCode.type] =
+      SessionSupport.ephemeral(IdScheme.ClientClaimed)
+):
+  private val remaining = new ConcurrentLinkedQueue[Reply](outputs.asJava)
+  private val turns =
+    new ConcurrentLinkedQueue[TurnRequest[BackendTag.ClaudeCode.type]]()
+  private val tokens = new ConcurrentLinkedQueue[OrcaEvent.TokensUsed]()
 
-  def resultAs[O: JsonData: Announce]
-      : AgentCall[BackendTag.ClaudeCode.type, O] =
-    fakeCall.asInstanceOf[AgentCall[BackendTag.ClaudeCode.type, O]]
+  val agent: Agent[BackendTag.ClaudeCode.type] = TestAgent(
+    new ScriptedBackend(BackendTag.ClaudeCode, sessions):
+      protected def reply(
+          turn: TurnRequest[BackendTag.ClaudeCode.type]
+      ): AgentResult[BackendTag.ClaudeCode.type] =
+        turns.add(turn): Unit
+        onRun()
+        Option(remaining.poll()) match
+          case Some(r) => ScriptedBackend.result(r.json)
+          case None    => throw new AssertionError(s"$name: no reply scripted")
+    ,
+    name,
+    events = {
+      case t: OrcaEvent.TokensUsed => tokens.add(t): Unit
+      case _                       => ()
+    },
+    prompts = PassthroughPrompts
+  )
 
-  /** Session ids this tool was called with, in invocation order. Tests assert
+  /** Session ids this agent was called with, in invocation order. Tests assert
     * the loop threaded a stable id across iterations.
     */
   def seenSessions: List[SessionId[BackendTag.ClaudeCode.type]] =
-    fakeCall.seenSessions.get().reverse
+    turns.asScala.toList.map(_.session)
 
-  /** Rendered inputs this tool was called with, in invocation order. */
-  def seenPrompts: List[String] = fakeCall.seenPrompts.get().reverse
+  /** Inputs this agent was sent, in invocation order. */
+  def seenPrompts: List[String] = turns.asScala.toList.map(_.prompt)
+
+  /** The `(name, role)` each turn was attributed to, in invocation order. */
+  def seenIdentities: List[(String, Option[String])] =
+    tokens.asScala.toList.map(t => (t.agent, t.role))
 
 /** A finding whose title doubles as its description, with no location or
   * suggestion — the shape the review tests assert on.
@@ -201,10 +179,11 @@ private[review] def finding(desc: String): ReviewFinding =
   * is empty: a fake agent ignores it.
   */
 private[review] def asReviewer(
-    agent: Agent[BackendTag.ClaudeCode.type],
+    fake: FakeAgent,
     description: String = "reviews things",
     filePattern: Option[Regex] = None
 ): ReviewerAgent[BackendTag.ClaudeCode.type] =
+  val agent = fake.agent
   ReviewerAgent(
     Reviewer(
       ReviewerSlug(agent.name),

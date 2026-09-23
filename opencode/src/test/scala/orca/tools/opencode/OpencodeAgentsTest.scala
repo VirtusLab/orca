@@ -1,17 +1,11 @@
 package orca.tools.opencode
 
-import orca.testkit.ScriptedBackend
-import orca.backend.{Conversation, Interaction, AgentResult, TurnRequest}
-import orca.events.OrcaListener
-import orca.agents.{
-  BackendTag,
-  DefaultPrompts,
-  AgentConfig,
-  OpencodeAgent,
-  ToolSet
-}
+import orca.testkit.{ScriptedBackend, TestAgent}
+import orca.backend.{AgentResult, TurnRequest}
+import orca.agents.{BackendTag, AgentConfig, OpencodeAgent, ToolSet}
+import orca.tools.opencode.OpencodeAgents.*
 
-class DefaultOpencodeAgentTest extends munit.FunSuite:
+class OpencodeAgentsTest extends munit.FunSuite:
 
   // LLM `run` is gated on `InStage`; mint the token for the suite.
   private given orca.InStage = orca.InStage.unsafe
@@ -25,20 +19,8 @@ class DefaultOpencodeAgentTest extends munit.FunSuite:
       lastConfig = Some(turn.config)
       ScriptedBackend.result("ok")
 
-  private val noInteraction: Interaction = new Interaction:
-    def listeners: List[OrcaListener] = Nil
-    def drive[B <: BackendTag](
-        conversation: Conversation[B]
-    ): AgentResult[B] = throw new UnsupportedOperationException
-
   private def toolWith(backend: RecordingBackend): OpencodeAgent =
-    new DefaultOpencodeAgent(
-      backend,
-      AgentConfig(),
-      DefaultPrompts,
-      OrcaListener.noop,
-      noInteraction
-    )
+    TestAgent(backend)
 
   /** Run an autonomous call and return the model id the backend saw. */
   private def modelOf(
@@ -87,7 +69,3 @@ class DefaultOpencodeAgentTest extends munit.FunSuite:
       b.lastConfig.flatMap(_.model).map(_.name),
       Some("anthropic/claude-opus-5-5")
     )
-
-  test("withName renames without touching config"):
-    val b = new RecordingBackend
-    assertEquals(toolWith(b).withName("planner").name, "planner")

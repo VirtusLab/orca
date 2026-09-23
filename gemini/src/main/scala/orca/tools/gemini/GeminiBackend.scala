@@ -1,6 +1,7 @@
 package orca.tools.gemini
 
 import orca.agents.{
+  Model,
   AutoApprove,
   BackendTag,
   EnforcementCell,
@@ -70,6 +71,9 @@ private[orca] class GeminiBackend(
     */
   override def structuredOutputMode: StructuredOutputMode =
     StructuredOutputMode.RawText
+
+  def cheapModel(leading: Option[Model]): Option[Model] =
+    Some(GeminiModels.Flash)
 
   /** The sole session handle. [[IdScheme.ServerMinted]]: the client-allocated
     * id maps to gemini's `init`-reported session id, so subsequent calls

@@ -72,13 +72,12 @@ final class FlowSession[B <: BackendTag] private[orca] (
       ev: InStage,
       ws: WorkspaceWrite
   ): String =
-    val output = agent.autonomous
-      .runWithSession(
-        effectivePrompt(agent, id, prompt),
-        id,
-        sessionKey = Some(key),
-        emitPrompt = true
-      )
+    val output = agent.runText(
+      effectivePrompt(agent, id, prompt),
+      id,
+      sessionKey = Some(key),
+      emitPrompt = true
+    )
     persistResumeWireId(agent, id)
     output
 
@@ -213,7 +212,7 @@ private def reuseOrMint[B <: BackendTag](
     recorded: SessionRecord
 )(using fc: FlowControl): SessionId[B] =
   recorded.backend match
-    case Some(recordedTag) if !agent.backendTag.contains(recordedTag) =>
+    case Some(recordedTag) if agent.backendTag != recordedTag =>
       // Backend swapped between runs: `recorded.id` is meaningful only in the
       // old backend's registry, so mint fresh rather than reuse it.
       warnBackendSwap(fc, key, recordedTag, agent.backendTag)
@@ -237,13 +236,12 @@ private def warnBackendSwap(
     fc: FlowControl,
     key: SessionKey,
     recordedTag: BackendTag,
-    currentTag: Option[BackendTag]
+    currentTag: BackendTag
 ): Unit =
   fc.context.emit(
     OrcaEvent.Step(
       s"warning: session ${key.describe} was minted on " +
-        s"$recordedTag; this agent is " +
-        s"${currentTag.fold("untagged")(_.toString)} — minting fresh"
+        s"$recordedTag; this agent is $currentTag — minting fresh"
     )
   )
 
@@ -286,7 +284,7 @@ private def mintSession[B <: BackendTag](
       id = freshId.value,
       seed = seed,
       resumeWireId = None,
-      backend = agent.backendTag
+      backend = Some(agent.backendTag)
     )
   )
   freshId
@@ -372,7 +370,7 @@ private def persistResumeWireId[B <: BackendTag](
     agent: Agent[B],
     session: SessionId[B]
 )(using fc: FlowControl, ws: WorkspaceWrite): Unit =
-  val healedTag = agent.backendTag
+  val healedTag: Option[BackendTag] = Some(agent.backendTag)
   for
     wireId <- agent.resumeWireId(session)
     record <- fc.sessionStore.records().find(_.id == session.value)
