@@ -230,6 +230,10 @@ private def formatMalformedOutput(
 def display(message: String)(using ctx: FlowContext): Unit =
   ctx.emit(OrcaEvent.Step(message))
 
+/** Show `message` as an error and abort the flow. Enclosing stages and the flow
+  * boundary do not report it again, and it does not match a `catch` on
+  * `OrcaFlowException`.
+  */
 def fail(message: String)(using ctx: FlowContext): Nothing =
   ctx.emit(OrcaEvent.Error(message))
   throw ReportedFailure(OrcaFlowException(message))

@@ -1,7 +1,7 @@
 package orca
 
-/** Exception type thrown by tool adapters. Signals that the current flow cannot
-  * continue, unless code inside the stage body catches it and recovers.
+/** A failure that stops the current flow, unless the code around it catches it
+  * and recovers.
   */
 class OrcaFlowException(message: String) extends RuntimeException(message)
 

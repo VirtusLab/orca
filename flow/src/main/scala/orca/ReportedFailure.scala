@@ -4,8 +4,8 @@ import orca.util.TextUtil
 
 /** A failure already shown to the user as an `OrcaEvent.Error`: enclosing
   * stages and the flow boundary pass it on without reporting it again. Thrown
-  * by `stage` and `fail`; `cause` is the original failure, whose stack trace
-  * says where it happened, so this one records none.
+  * by `stage`, `fail` and the flow lifecycle phases; `cause` is the original
+  * failure, whose stack trace says where it happened, so this one records none.
   */
 private[orca] final class ReportedFailure(val cause: Throwable)
     extends RuntimeException(
