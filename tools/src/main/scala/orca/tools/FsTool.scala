@@ -36,7 +36,8 @@ private[orca] class OsFsTool(base: os.Path = os.pwd) extends FsTool:
     val p = resolve(path)
     if os.isFile(p) then Some(os.read(p)) else None
 
-  def write(path: String, content: String)(using WorkspaceWrite): Unit =
+  def write(path: String, content: String)(using ws: WorkspaceWrite): Unit =
+    ws.check("fs.write")
     os.write.over(resolve(path), content, createFolders = true)
 
   def list(glob: String): List[String] =

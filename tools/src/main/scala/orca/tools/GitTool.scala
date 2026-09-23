@@ -530,8 +530,9 @@ private[orca] class OsGitTool(
     events.onEvent(OrcaEvent.Step(message))
 
   def createBranch(name: BranchName)(using
-      WorkspaceWrite
+      ws: WorkspaceWrite
   ): Either[BranchAlreadyExists, Unit] =
+    ws.check("git.createBranch")
     if branchExists(name) then Left(new BranchAlreadyExists(name))
     else
       val _ = git("checkout", "-b", name.value)
@@ -540,7 +541,8 @@ private[orca] class OsGitTool(
 
   def checkout(
       name: BranchName
-  )(using WorkspaceWrite): Either[BranchNotFound, Unit] =
+  )(using ws: WorkspaceWrite): Either[BranchNotFound, Unit] =
+    ws.check("git.checkout")
     if !branchExists(name) then Left(new BranchNotFound(name))
     else
       // `--` so a file sharing the branch's name can't make it ambiguous.
@@ -548,7 +550,8 @@ private[orca] class OsGitTool(
       step(s"Switched to branch '${name.value}'")
       Right(())
 
-  def checkoutDetached(at: CommitHash)(using WorkspaceWrite): Unit =
+  def checkoutDetached(at: CommitHash)(using ws: WorkspaceWrite): Unit =
+    ws.check("git.checkoutDetached")
     val _ = git("checkout", "--detach", at.value)
     step(s"Switched to detached HEAD at ${at.short}")
 
@@ -566,7 +569,8 @@ private[orca] class OsGitTool(
       .filter(_.nonEmpty)
       .toList
 
-  def ensureClean(stashMessage: String)(using WorkspaceWrite): Unit =
+  def ensureClean(stashMessage: String)(using ws: WorkspaceWrite): Unit =
+    ws.check("git.ensureClean")
     if dirtyPaths().nonEmpty then
       val _ = git("stash", "push", "-u", "-m", stashMessage)
       step(
@@ -574,8 +578,9 @@ private[orca] class OsGitTool(
       )
 
   def commit(message: String)(using
-      WorkspaceWrite
+      ws: WorkspaceWrite
   ): Either[NothingToCommit, Unit] =
+    ws.check("git.commit")
     val _ = gitWithDiagnostics("add", "-A")
     if dirtyPaths().isEmpty then Left(new NothingToCommit)
     else
@@ -583,13 +588,17 @@ private[orca] class OsGitTool(
       step(s"Committed: $message")
       Right(())
 
-  def commitOnly(path: os.Path, message: String)(using WorkspaceWrite): Unit =
+  def commitOnly(path: os.Path, message: String)(using
+      ws: WorkspaceWrite
+  ): Unit =
+    ws.check("git.commitOnly")
     val _ = git("add", "--", path.toString)
     commitPathspec(path, message)
 
   def forceCommitOnly(path: os.Path, message: String)(using
-      WorkspaceWrite
+      ws: WorkspaceWrite
   ): Unit =
+    ws.check("git.forceCommitOnly")
     val _ = git("add", "-f", path.toString)
     commitPathspec(path, message)
 
@@ -600,7 +609,8 @@ private[orca] class OsGitTool(
     val _ = git("commit", "-m", message, "--", path.toString)
     events.onEvent(OrcaEvent.Bookkeeping(s"Committed: $message"))
 
-  def forceAdd(path: os.Path)(using WorkspaceWrite): Unit =
+  def forceAdd(path: os.Path)(using ws: WorkspaceWrite): Unit =
+    ws.check("git.forceAdd")
     val _ = git("add", "-f", path.toString)
 
   /** Like [[git]] but on non-zero exit throws an `OrcaFlowException` enriched
@@ -636,7 +646,8 @@ private[orca] class OsGitTool(
       fsck = tryRun("fsck", "--no-progress")
     )
 
-  def push()(using WorkspaceWrite): Either[PushFailure, Unit] =
+  def push()(using ws: WorkspaceWrite): Either[PushFailure, Unit] =
+    ws.check("git.push")
     // Uses `gitProc` (returns the result) rather than `git` (throws on
     // non-zero) so failure stderr can be inspected to split the recoverable
     // cases (non-fast-forward, remote-declined) from auth/network errors.
@@ -715,8 +726,9 @@ private[orca] class OsGitTool(
     catch case NonFatal(_) => false
 
   def discardUncommitted(untracked: UntrackedFiles)(using
-      WorkspaceWrite
+      ws: WorkspaceWrite
   ): Unit =
+    ws.check("git.discardUncommitted")
     val _ = git("reset", "--hard")
     untracked match
       case UntrackedFiles.Keep =>
@@ -1032,7 +1044,8 @@ private[orca] class OsGitTool(
       Left(new GitReadFailed.Refused(result.err.trim))
     else Right(result)
 
-  def deleteBranch(name: BranchName)(using WorkspaceWrite): Unit =
+  def deleteBranch(name: BranchName)(using ws: WorkspaceWrite): Unit =
+    ws.check("git.deleteBranch")
     try
       if head() != Head.OnBranch(name) then
         val result = gitProc(Seq("git", "branch", "-D", name.value))

@@ -1582,6 +1582,8 @@ class ReviewAndFixTest extends munit.FunSuite:
     val slow = gatedReviewer("slow", gate1)
     val fast = gatedReviewer("fast", gate2)
     val runner = new Thread(() =>
+      // The suite's token is bound to the test thread; the loop runs here.
+      given orca.WorkspaceWrite = orca.WorkspaceWrite.unsafe
       val _ = reviewAndFixLoop(
         coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
         reviewers = List(asReviewer(slow), asReviewer(fast)),

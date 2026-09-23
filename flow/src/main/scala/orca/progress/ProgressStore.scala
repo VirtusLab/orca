@@ -8,8 +8,7 @@ import orca.util.JsonFile
   * failing store.
   *
   * Mutations are gated on [[WorkspaceWrite]] to mark them as index-like,
-  * fork-opaque writes (ADR 0018 §6). The token is not inspected at runtime —
-  * the type is the guard.
+  * fork-opaque writes (ADR 0018 §6); a write off the token's thread throws.
   */
 trait ProgressStore:
   /** The on-disk path of this store's JSON file. The stage commit force-adds
@@ -94,8 +93,9 @@ private class OsProgressStore(workDir: os.Path, val path: os.Path)
             case Left(_)  => PeekedLog.Unparseable(bytes)
 
   private[orca] def restoreIfRemoved(peeked: PeekedLog)(using
-      WorkspaceWrite
+      ws: WorkspaceWrite
   ): Unit =
+    ws.check("progressStore.restoreIfRemoved")
     peeked match
       case PeekedLog.Absent => ()
       case PeekedLog.Parseable(bytes) =>
@@ -108,16 +108,20 @@ private class OsProgressStore(workDir: os.Path, val path: os.Path)
       val _ = OrcaDir.ensureRuns(workDir)
       os.write(path, IArray.genericWrapArray(bytes).toArray)
 
-  private[orca] def remove()(using WorkspaceWrite): Unit =
+  private[orca] def remove()(using ws: WorkspaceWrite): Unit =
+    ws.check("progressStore.remove")
     val _ = os.remove(path)
 
-  def writeHeader(header: ProgressHeader)(using WorkspaceWrite): Unit =
+  def writeHeader(header: ProgressHeader)(using ws: WorkspaceWrite): Unit =
+    ws.check("progressStore.writeHeader")
     writeLog(ProgressLog(header, Nil, None))
 
-  def upsertEntry(entry: StageEntry)(using WorkspaceWrite): Unit =
+  def upsertEntry(entry: StageEntry)(using ws: WorkspaceWrite): Unit =
+    ws.check("progressStore.upsertEntry")
     writeLog(withEntry(currentLogOrThrow("upsertEntry"), entry))
 
-  def recordPublished(work: PublishedWork)(using WorkspaceWrite): Unit =
+  def recordPublished(work: PublishedWork)(using ws: WorkspaceWrite): Unit =
+    ws.check("progressStore.recordPublished")
     writeLog(currentLogOrThrow("recordPublished").copy(published = Some(work)))
 
   /** Read-modify-write precondition for [[upsertEntry]] and

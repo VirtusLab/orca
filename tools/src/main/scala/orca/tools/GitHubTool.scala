@@ -431,8 +431,9 @@ private[orca] class OsGitHubTool(
     catch case NonFatal(e) => Left(cannotRunGh(e))
 
   def createPr(title: String, body: String)(using
-      WorkspaceWrite
+      ws: WorkspaceWrite
   ): Either[PrCreateFailed, PrHandle] =
+    ws.check("gh.createPr")
     // Inspect exit code + stderr ourselves to split the recoverable failures
     // (the `PrCreateFailed` cases) from genuine system failures, so this uses
     // `runGhResult` (raw result) rather than `ghRead`/`ghMutate` (which abort
@@ -545,8 +546,9 @@ private[orca] class OsGitHubTool(
       Comment(author = c.user.login, body = c.body)
 
   def updatePr(pr: PrHandle, title: String, body: String)(using
-      WorkspaceWrite
+      ws: WorkspaceWrite
   ): Unit =
+    ws.check("gh.updatePr")
     // Use the REST API directly rather than `gh pr edit`: the latter runs a
     // GraphQL query selecting `projectCards`, which fails on repos where GitHub
     // has sunset Projects (classic). The REST PATCH endpoint doesn't touch
@@ -563,7 +565,8 @@ private[orca] class OsGitHubTool(
     )
     events.onEvent(OrcaEvent.Step(s"Updated PR: ${pr.url}"))
 
-  def writeComment(pr: PrHandle, body: String)(using WorkspaceWrite): Unit =
+  def writeComment(pr: PrHandle, body: String)(using ws: WorkspaceWrite): Unit =
+    ws.check("gh.writeComment")
     val _ = ghMutate(
       "pr",
       "comment",
@@ -575,8 +578,9 @@ private[orca] class OsGitHubTool(
     )
 
   def writeComment(issue: IssueHandle, body: String)(using
-      WorkspaceWrite
+      ws: WorkspaceWrite
   ): Unit =
+    ws.check("gh.writeComment")
     val _ = ghMutate(
       "issue",
       "comment",
@@ -588,14 +592,16 @@ private[orca] class OsGitHubTool(
     )
 
   def upsertComment(pr: PrHandle, marker: String, body: String)(using
-      WorkspaceWrite
+      ws: WorkspaceWrite
   ): Unit =
+    ws.check("gh.upsertComment")
     upsertCommentAt(GhTarget(pr), marker, body):
       writeComment(pr, _)
 
   def upsertComment(issue: IssueHandle, marker: String, body: String)(using
-      WorkspaceWrite
+      ws: WorkspaceWrite
   ): Unit =
+    ws.check("gh.upsertComment")
     upsertCommentAt(GhTarget(issue), marker, body):
       writeComment(issue, _)
 

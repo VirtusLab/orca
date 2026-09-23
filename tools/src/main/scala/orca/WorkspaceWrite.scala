@@ -18,17 +18,31 @@ import scala.annotation.implicitNotFound
   * this file carries `import language.experimental.captureChecking`; that
   * taints only this compilation unit, not consumers (see ADR 0018 §6).
   *
-  * Carries no state; it is a real class only so capture checking has a
-  * reference to track.
+  * Separation checking covers only code compiled with it, so every gated write
+  * also calls [[check]]: the token is bound to the thread that minted it, and a
+  * write from any other thread throws.
   */
 @implicitNotFound(
   "git/file/GitHub writes and progress-log writes must be made inside a `stage(...)` body — and, unlike LLM calls, must NOT be captured into a `fork`. Move this write into a stage (not a fork within one). If this is a helper meant to run inside a stage, declare it `(using WorkspaceWrite)` so its caller's token flows through."
 )
-final class WorkspaceWrite private () extends caps.ExclusiveCapability
+final class WorkspaceWrite private (owner: Thread)
+    extends caps.ExclusiveCapability:
+
+  /** Throws unless called on the thread that minted this token. Called first by
+    * every gated write, with `what` naming the write.
+    */
+  private[orca] def check(what: String): Unit =
+    if Thread.currentThread() ne owner then
+      throw new OrcaFlowException(
+        s"$what called off the stage's thread (inside a `fork`, `supervised` " +
+          "body, `Par.mapUnordered` or `timeout`) — return the data from " +
+          "there and write on the stage's thread (ADR 0018 §6)"
+      )
 
 object WorkspaceWrite:
-  /** Mint a fresh [[WorkspaceWrite]] token. Called only by
-    * `orca.RuntimeInStage` (the runtime's single named door) and test code;
-    * library code must never call this directly.
+  /** Mint a fresh [[WorkspaceWrite]] token bound to the calling thread. Called
+    * only by `orca.RuntimeInStage` (the runtime's single named door) and test
+    * code; library code must never call this directly.
     */
-  private[orca] def unsafe: WorkspaceWrite = new WorkspaceWrite()
+  private[orca] def unsafe: WorkspaceWrite =
+    new WorkspaceWrite(Thread.currentThread())

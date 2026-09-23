@@ -71,11 +71,8 @@ private[orca] enum SessionTurn:
 private[orca] trait StageFrames:
   private val ownerThread: Thread = Thread.currentThread()
 
-  /** Throws when called off `ownerThread` (R12 — see the trait scaladoc). Also
-    * called by `FlowSession`'s run doors, so durable runs — not just
-    * stage/session minting — refuse from a fork at runtime.
-    */
-  private[orca] def assertOwnerThread(what: String): Unit =
+  /** Throws when called off `ownerThread` (R12 — see the trait scaladoc). */
+  private def assertOwnerThread(what: String): Unit =
     if Thread.currentThread() ne ownerThread then
       throw new OrcaFlowException(
         s"$what called from a fork — forks get FlowContext only (ADR 0018 R12)"

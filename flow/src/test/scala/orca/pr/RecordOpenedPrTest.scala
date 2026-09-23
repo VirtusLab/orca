@@ -44,12 +44,7 @@ class RecordOpenedPrTest extends FunSuite:
       Some(PublishedWork(samplePr.url))
     )
 
-  test(
-    "recordOpenedPr called from a fork inside a stage throws the R12 message"
-  ):
-    // A stage body's `WorkspaceWrite` is capturable into a fork wherever
-    // capture checking is off, so the read-modify-write behind the record
-    // needs the runtime assert.
+  test("recordOpenedPr called from a fork inside a stage throws"):
     val (dir, store) = seededPrRepo()
     given FlowControl =
       prControl(dir, store, _ => (), new ConcurrentLinkedQueue[String]())
@@ -66,6 +61,8 @@ class RecordOpenedPrTest extends FunSuite:
     val thrown = caught.get()
     assert(thrown.isInstanceOf[OrcaFlowException], s"got $thrown")
     assert(
-      thrown.getMessage.contains("recordOpenedPr(...) called from a fork"),
+      thrown.getMessage.contains(
+        "progressStore.recordPublished called off the stage's thread"
+      ),
       thrown.getMessage
     )
