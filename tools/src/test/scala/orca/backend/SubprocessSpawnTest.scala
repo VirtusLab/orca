@@ -2,12 +2,10 @@ package orca.backend
 
 import orca.OrcaFlowException
 import orca.events.OrcaListener
-import orca.subprocess.PipedCliProcess
 import orca.sweep.SweepFixtures
 
 import ox.{supervised, timeout}
 
-import java.util.concurrent.atomic.AtomicReference
 import scala.concurrent.duration.*
 
 class SubprocessSpawnTest extends munit.FunSuite with SweepFixtures:
@@ -33,13 +31,11 @@ class SubprocessSpawnTest extends munit.FunSuite with SweepFixtures:
     finally killPid(pidFile)
 
   test("a failed build kills the spawned process even when it ignores SIGINT"):
-    val spawned = new AtomicReference[Option[PipedCliProcess]](None)
+    val process = spawn("trap '' INT; echo ready; sleep 60")
     supervised:
       val _ = intercept[OrcaFlowException]:
-        SubprocessSpawn.open("test", OrcaListener.noop)(
-          spawn("trap '' INT; sleep 60")
-        ): process =>
-          spawned.set(Some(process))
+        SubprocessSpawn.open("test", OrcaListener.noop)(process): p =>
+          // Once `ready` is out, the trap is in place.
+          val _ = p.stdoutLines.next()
           throw RuntimeException("build failed")
-    val process = spawned.get().getOrElse(fail("nothing was spawned"))
     val _ = timeout(5.seconds)(process.waitForExit())

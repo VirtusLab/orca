@@ -93,9 +93,6 @@ private[claude] class ClaudeConversation(
     */
   private val askUserEchoes = new orca.backend.AskUserEchoes
 
-  // Stdin is closed right after the initial prompt, so mid-session input flows
-  // through the MCP tool result.
-
   // --- Reader hook ---
 
   override protected def handleLine(line: String): Unit =

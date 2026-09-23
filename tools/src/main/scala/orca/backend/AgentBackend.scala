@@ -72,8 +72,9 @@ trait AgentBackend[B <: BackendTag](
     * before registering its session doesn't wedge the registry into resuming a
     * session that was never created. It throws on an unsafe wire id
     * ([[SessionSupport.commitAfterDrain]]). The cancel before the scope joins
-    * reaches only what is still linked to the agent process; the backend's
-    * environment-cookie sweep, run when the scope ends, catches what detached.
+    * reaches only what is still linked to the agent process; a subprocess
+    * backend's environment-cookie sweep ([[SubprocessSpawn]]), run when the
+    * scope ends, catches what detached.
     */
   final def runAutonomous(
       prompt: String,

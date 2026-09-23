@@ -30,8 +30,9 @@ class AskUserMcpServerTest extends munit.FunSuite:
       )
 
   test("the scope ends while an ask_user call is still waiting for an answer"):
-    // The handler blocks on the bridge with no one to answer; only the scope
-    // interrupting it lets the scope finish.
+    // The handler blocks on the bridge with no one to answer. The server's stop
+    // takes ~4s here; a handler the scope failed to interrupt would keep its
+    // connection open and add tapir's 10s graceful-shutdown wait.
     val turn = Thread
       .ofVirtual()
       .start: () =>
@@ -47,10 +48,13 @@ class AskUserMcpServerTest extends munit.FunSuite:
           val _ = session.bridge.nextQuestion()
     assert(turn.join(Duration.ofSeconds(10)), "the scope never ended")
 
+  /** Closes its connection once done or interrupted, as an agent's does when
+    * its process dies: the server's stop waits for open connections.
+    */
   private def post(url: String, rpc: String): HttpResponse[String] =
-    HttpClient
-      .newHttpClient()
-      .send(
+    val client = HttpClient.newHttpClient()
+    try
+      client.send(
         HttpRequest
           .newBuilder()
           .uri(URI.create(url))
@@ -59,3 +63,4 @@ class AskUserMcpServerTest extends munit.FunSuite:
           .build(),
         HttpResponse.BodyHandlers.ofString()
       )
+    finally client.shutdownNow()

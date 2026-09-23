@@ -12,6 +12,7 @@ class TurnResourcesTest extends munit.FunSuite:
       val _ = TurnResources.use("resource"): _ =>
         released.set(true)
         throw RuntimeException("boom")
+      assert(!released.get())
       "turn result"
     assertEquals(result, "turn result")
     assert(released.get())
