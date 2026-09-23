@@ -26,6 +26,14 @@ class ReviewerCatalogTest extends munit.FunSuite:
     val root = TempDirs.dir("orca-reviewers-")
     (root / "project", root / "global")
 
+  /** Skips the test where `dir` can't hold two names differing only in case,
+    * the only way two files in one tier can claim one slug.
+    */
+  private def assumeCaseSensitive(dir: os.Path): Unit =
+    os.write(dir / "probe", "", createFolders = true)
+    assume(!os.exists(dir / "PROBE"), s"$dir is case-insensitive")
+    val _ = os.remove(dir / "probe")
+
   private def named(reviewers: List[Reviewer]): List[String] =
     reviewers.map(_.name)
 
@@ -171,18 +179,13 @@ class ReviewerCatalogTest extends munit.FunSuite:
       intercept[OrcaFlowException](ReviewerCatalog.discover(project, global))
     assert(e.getMessage.contains("has no frontmatter block"), e.getMessage)
 
-  test(
-    "a symlink and a duplicate slug are reported alongside a malformed file"
-  ):
+  test("a symlink is reported alongside a malformed file"):
     val (project, global) = dirs()
     val _ = writeReviewer(project, "alpha", description = "")
-    val _ = writeReviewer(project, "zeta")
-    val _ = writeReviewer(project, "Zeta")
     os.symlink(project / "linked.md", writeReviewer(global, "elsewhere"))
     val e =
       intercept[OrcaFlowException](ReviewerCatalog.discover(project, global))
     assert(e.getMessage.contains("alpha"), e.getMessage)
-    assert(e.getMessage.contains("'zeta' is claimed"), e.getMessage)
     assert(e.getMessage.contains("linked.md is a symlink"), e.getMessage)
 
   test("a dangling symlink in the global tier is reported, not dropped"):
@@ -263,6 +266,7 @@ class ReviewerCatalogTest extends munit.FunSuite:
 
   test("two files claiming one slug in a tier abort"):
     val (project, global) = dirs()
+    assumeCaseSensitive(project)
     val _ = writeReviewer(project, "orca")
     val _ = writeReviewer(project, "Orca")
     val e =
