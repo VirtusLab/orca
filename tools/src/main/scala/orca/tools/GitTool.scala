@@ -842,7 +842,7 @@ private[orca] class OsGitTool(
       diff = tracked.diff + pieces.map(_.text).mkString,
       files = withUntracked(tracked.files, untracked),
       sections = (tracked.sections.toList ++ untrackedSections)
-        .groupMapReduce(_._1)(_._2)(_ + _)
+        .groupMapReduce((path, _) => path)((_, section) => section)(_ + _)
     )
 
   /** The tracked part of [[reviewChanges]], with stats and patch from one `git
@@ -955,7 +955,7 @@ private[orca] class OsGitTool(
         case path :: rest =>
           val piece =
             if size >= budget then
-              OsGitTool.UntrackedPiece.Partial(
+              OsGitTool.UntrackedPiece.Unsectioned(
                 s"# skipped $path: past the $budget-byte diff budget\n"
               )
             else untrackedFileDiff(path)
@@ -1022,7 +1022,7 @@ private[orca] class OsGitTool(
   private def untrackedFileDiff(relPath: String): OsGitTool.UntrackedPiece =
     undiffableReason(relPath) match
       case Some(reason) =>
-        OsGitTool.UntrackedPiece.Partial(s"# skipped $relPath: $reason\n")
+        OsGitTool.UntrackedPiece.Unsectioned(s"# skipped $relPath: $reason\n")
       case None =>
         val result = gitProcCapped(
           Seq("git", "diff", "--no-index", "--", "/dev/null", relPath)
@@ -1030,14 +1030,14 @@ private[orca] class OsGitTool(
         val differs = result.exitCode == 1 && result.err.isEmpty
         if result.exitCode == 0 || differs then
           if result.truncated then
-            OsGitTool.UntrackedPiece.Partial(marked(result))
+            OsGitTool.UntrackedPiece.Unsectioned(marked(result))
           else OsGitTool.UntrackedPiece.Rendered(relPath, result.out)
         else
           val gitSaid = result.err.linesIterator
             .map(_.trim)
             .find(_.nonEmpty)
             .fold("")(line => s": $line")
-          OsGitTool.UntrackedPiece.Partial(
+          OsGitTool.UntrackedPiece.Unsectioned(
             s"# skipped $relPath: git diff exited ${result.exitCode}$gitSaid\n"
           )
 
@@ -1334,7 +1334,7 @@ private[orca] object OsGitTool:
     /** Text that is not a file's whole diff: a line naming a path that was not
       * rendered and why, or a diff the read cap cut.
       */
-    case Partial(note: String) extends UntrackedPiece(note)
+    case Unsectioned(content: String) extends UntrackedPiece(content)
 
   // --- Recoverable-failure stderr predicates ---
   //

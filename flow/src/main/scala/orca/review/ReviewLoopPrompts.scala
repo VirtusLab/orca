@@ -333,8 +333,8 @@ private[review] object ReReviewChanges:
       val changed = current.paths.filterNot(unchanged.toSet)
       // A delta naming no path cannot point the reviewer anywhere (the samples
       // differ outside every file's section, e.g. in a `# skipped` line), so
-      // fall back to the full list —
-      // with no sections to send, since there is nothing to cut them from.
+      // fall back to the full list — with no sections to send, since there is
+      // nothing to cut them from.
       if changed.isEmpty then Paths(current.paths)
       else
         BoundedDiff.sectionsPayload(

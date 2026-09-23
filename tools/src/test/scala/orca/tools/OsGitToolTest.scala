@@ -1116,6 +1116,19 @@ class OsGitToolTest extends munit.FunSuite:
         diff.takeRight(200)
       )
 
+  test("reviewChanges names every untracked file after a cut tracked diff"):
+    withRepo: (git, dir) =>
+      val lines = OsGitTool.MaxReadBytes / 50
+      os.write(dir / "big.txt", ("x" * 99 + "\n") * lines)
+      git.commit("add big").orThrow
+      os.write.over(dir / "big.txt", ("y" * 99 + "\n") * lines)
+      os.write(dir / "small.txt", "small")
+      val diff = git.reviewChanges().diff
+      assert(
+        diff.contains("# skipped small.txt: past the"),
+        diff.takeRight(200)
+      )
+
   test("reviewChanges names an untracked file git cannot read, and carries on"):
     // The path was listed as untracked and then became unreadable — deleted by
     // a background build, or locked down as here. One such path must not abort
