@@ -68,8 +68,8 @@ private[shell] object ResumeDetector:
           _,
           header.userPrompt,
           header.branch,
-          found.dir,
-          found.path
+          dir = found.dir,
+          log = found.path
         )
       )
 

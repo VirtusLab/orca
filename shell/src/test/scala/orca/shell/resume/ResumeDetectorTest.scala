@@ -43,8 +43,8 @@ class ResumeDetectorTest extends munit.FunSuite:
           FlowSource.Catalog("implement.sc"),
           "fix the flaky test",
           branchName("feat/resume"),
-          workDir,
-          OrcaDir.progressPath(workDir, RunKey.of("fix the flaky test"))
+          dir = workDir,
+          log = OrcaDir.progressPath(workDir, RunKey.of("fix the flaky test"))
         )
       )
     )
@@ -106,8 +106,8 @@ class ResumeDetectorTest extends munit.FunSuite:
           FlowSource.Catalog("b.sc"),
           "newer prompt",
           branchName("feat/resume"),
-          workDir,
-          OrcaDir.progressPath(workDir, RunKey.of("newer prompt"))
+          dir = workDir,
+          log = OrcaDir.progressPath(workDir, RunKey.of("newer prompt"))
         )
       )
     )
@@ -125,8 +125,8 @@ class ResumeDetectorTest extends munit.FunSuite:
           FlowSource.Catalog("implement.sc"),
           "fix the flaky test",
           branchName("feat/resume"),
-          worktree,
-          OrcaDir.progressPath(worktree, RunKey.of("fix the flaky test"))
+          dir = worktree,
+          log = OrcaDir.progressPath(worktree, RunKey.of("fix the flaky test"))
         )
       )
     )
@@ -158,8 +158,8 @@ class ResumeDetectorTest extends munit.FunSuite:
           FlowSource.Catalog("b.sc"),
           "newer prompt",
           branchName("feat/resume"),
-          shellDir,
-          OrcaDir.progressPath(shellDir, RunKey.of("newer prompt"))
+          dir = shellDir,
+          log = OrcaDir.progressPath(shellDir, RunKey.of("newer prompt"))
         )
       )
     )
@@ -186,8 +186,9 @@ class ResumeDetectorTest extends munit.FunSuite:
             FlowSource.Catalog("implement.sc"),
             "fix the flaky test",
             branchName("feat/resume"),
-            shellDir,
-            OrcaDir.progressPath(shellDir, RunKey.of("fix the flaky test"))
+            dir = shellDir,
+            log =
+              OrcaDir.progressPath(shellDir, RunKey.of("fix the flaky test"))
           )
         )
       )

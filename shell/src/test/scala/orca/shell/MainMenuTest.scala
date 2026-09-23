@@ -194,8 +194,8 @@ class MainMenuTest extends munit.FunSuite:
           FlowSource.Catalog("a.sc"),
           "short task",
           branchName("feat/x"),
-          os.root / "work",
-          os.root / "work" / "run.progress.json"
+          dir = os.root / "work",
+          log = os.root / "work" / "run.progress.json"
         )
       )
     )
