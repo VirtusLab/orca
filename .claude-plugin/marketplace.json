@@ -6,8 +6,8 @@
   },
   "plugins": [
     {
-      "name": "using-orca",
-      "source": "./skills/using-orca",
+      "name": "orca",
+      "source": "./skills/orca",
       "description": "Delegate a well-defined implementation task to Orca's autonomous plan-code-review flow."
     }
   ]
