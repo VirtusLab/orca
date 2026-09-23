@@ -3,9 +3,10 @@ package orca.backend
 import orca.agents.{BackendTag, StructuredOutputMode, WireSessionId}
 import orca.events.{TurnDebit, Usage}
 import orca.subprocess.FakePipedCliProcess
-import ox.{Ox, supervised}
+import ox.{Ox, supervised, timeout}
 
 import java.util.concurrent.atomic.AtomicInteger
+import scala.concurrent.duration.*
 
 /** Base-level grammar suite: drives [[StreamConversation]] with a fake
   * [[LineDecoder]] through raw `ConversationEvent`-level sequences (bypassing
@@ -174,8 +175,7 @@ class TurnGrammarTest extends munit.FunSuite:
       val conv = start(process, () => unsettledEnds.incrementAndGet(): Unit)
       conv.cancel()
       conv.cancel()
-      val _ = conv.awaitResult()
-    assertEquals(unsettledEnds.get(), 1)
+      assertEquals(unsettledEnds.get(), 1)
 
   test("onUnsettledEnd does not run for a turn that settled"):
     val unsettledEnds = new AtomicInteger(0)
@@ -189,6 +189,13 @@ class TurnGrammarTest extends munit.FunSuite:
       val _ = conv.awaitResult()
       conv.cancel()
     assertEquals(unsettledEnds.get(), 0)
+
+  test("cancel frees a reader blocked on a full channel"):
+    supervised:
+      val process = new FakePipedCliProcess()
+      val conv = start(process)
+      (1 to 2000).foreach(_ => process.enqueueStdout("delta"))
+      timeout(10.seconds)(conv.cancel())
 
   test("lines after a settle are ignored"):
     val events = runScript("succeed", "delta")

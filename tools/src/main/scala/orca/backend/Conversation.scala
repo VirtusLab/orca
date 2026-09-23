@@ -65,6 +65,7 @@ trait Conversation[B <: BackendTag]:
 
   /** Cancel the current session. The driver tears down the subprocess and
     * closes the events iterator; `awaitResult()` then returns a
-    * `Left(OrcaInteractiveCancelled)`. Calling `cancel` twice is a no-op.
+    * `Left(OrcaInteractiveCancelled)`. Blocks until the driver has stopped;
+    * safe to call more than once.
     */
   def cancel(): Unit

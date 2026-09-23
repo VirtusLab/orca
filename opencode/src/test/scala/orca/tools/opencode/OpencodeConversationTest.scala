@@ -512,5 +512,4 @@ class OpencodeConversationTest extends munit.FunSuite:
     )
     conv.cancel()
     conv.cancel()
-    val _ = conv.awaitResult()
     assertEquals(http.posts, List("/session/ses_A/abort" -> "{}"))

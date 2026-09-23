@@ -6,7 +6,8 @@ import orca.events.TurnDebit
 /** One backend's wire protocol, as a fold over the lines of its stream: each
   * line turns the decoder's state `S` into a [[Step]]. [[StreamConversation]]
   * runs the fold on its reader fork and owns everything else — turn grammar,
-  * stderr, outcome, teardown.
+  * stderr, outcome, teardown — calling back [[onUnsettledEnd]] for a turn that
+  * ended without a settle.
   *
   * `line` may write to the wire (a stdin reply, an HTTP post) but keeps no
   * state outside `S`. A throw from it is reported as a parse-error `Error`

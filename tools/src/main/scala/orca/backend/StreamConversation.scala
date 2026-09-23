@@ -113,7 +113,7 @@ private[orca] object StreamConversation:
 
   /** Where the reader is in the turn grammar. */
   private enum Phase[B <: BackendTag]:
-    case Idle()
+    case BetweenTurns()
     case InTurn()
     case Done(settled: Settled[B])
 
@@ -134,7 +134,7 @@ private[orca] object StreamConversation:
 
     /** Returns the outcome and never throws, so `join` always yields one. */
     def run(): Outcome[B] =
-      var progress = Progress[B, S](decoder.init, Phase.Idle())
+      var progress = Progress[B, S](decoder.init, Phase.BetweenTurns())
       try
         val readError: Option[Throwable] =
           try
@@ -142,8 +142,9 @@ private[orca] object StreamConversation:
               OrcaDebug.traceStream(name, "stdout", line)
               if !cancelled.get() then
                 progress = progress.phase match
-                  case Phase.Done(_)                 => progress
-                  case Phase.Idle() | Phase.InTurn() => step(progress, line)
+                  case Phase.Done(_) => progress
+                  case Phase.BetweenTurns() | Phase.InTurn() =>
+                    step(progress, line)
             None
           catch
             case NonFatal(e) =>
@@ -151,8 +152,8 @@ private[orca] object StreamConversation:
               Some(e)
         val stderrLog = stderr.join()
         progress.phase match
-          case Phase.Done(_)                 => ()
-          case Phase.Idle() | Phase.InTurn() => decoder.onUnsettledEnd()
+          case Phase.Done(_)                         => ()
+          case Phase.BetweenTurns() | Phase.InTurn() => decoder.onUnsettledEnd()
         outcome(progress, readError, stderrLog)
       catch
         case NonFatal(t) =>
@@ -181,7 +182,8 @@ private[orca] object StreamConversation:
           progress
         case Right(Step.Continue(state, events)) =>
           val phase: Phase[B] =
-            if emitAll(inTurn, events) then Phase.InTurn() else Phase.Idle()
+            if emitAll(inTurn, events) then Phase.InTurn()
+            else Phase.BetweenTurns()
           Progress(state, phase)
         case Right(Step.Settle(state, events, settled)) =>
           // A settle completes the turn, so it owes the closing turn end.
@@ -240,7 +242,7 @@ private[orca] object StreamConversation:
         case Phase.Done(Settled.Succeeded(result)) => Right(result)
         case Phase.Done(Settled.Failed(message, debit)) =>
           Left(new AgentTurnFailed(withContext(message), debit))
-        case Phase.Idle() | Phase.InTurn() =>
+        case Phase.BetweenTurns() | Phase.InTurn() =>
           val debit = decoder.failedTurnDebit(progress.state)
           // A cancel's kill can make the in-flight read throw rather than EOF,
           // so `cancelled` is checked first: a Ctrl-C is never a failure.
