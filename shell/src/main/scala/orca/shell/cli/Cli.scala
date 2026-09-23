@@ -171,7 +171,8 @@ private[shell] object Cli:
       target = RunTarget.from(
         worktree = worktree.value,
         skipBranch = skipBranch.value,
-        keepChanges = keepChanges.value
+        keepChanges = keepChanges.value,
+        branch = None
       ),
       honorPin = honorPin.value,
       workDir = os.pwd,

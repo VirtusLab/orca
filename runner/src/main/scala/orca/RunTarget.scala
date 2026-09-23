@@ -1,5 +1,7 @@
 package orca
 
+import orca.progress.BranchName
+
 /** What a run does with uncommitted and untracked files it finds in the working
   * tree at start (`--keep-changes` asks for [[Uncommitted.Keep]]).
   */
@@ -57,6 +59,18 @@ enum RunTarget:
 
 object RunTarget:
 
+  /** Renders `--branch` as [[OrcaArgs]] parses it; the shell appends it next to
+    * [[RunTarget.toArgv]]'s flags.
+    */
+  def branchArgv(branch: Option[BranchName]): Seq[String] =
+    branch.toList.flatMap(name => Seq("--branch", name.value))
+
+  private val skipBranchWithBranchRefusal: String =
+    "--branch cannot be combined with --skip-branch: --skip-branch runs on " +
+      "the branch checked out now, so there is no branch to create. Drop " +
+      "--skip-branch to create the named branch, or check that branch out " +
+      "and pass only --skip-branch"
+
   private val worktreeWithSkipBranchRefusal: String =
     "--worktree cannot be combined with --skip-branch: --skip-branch runs on " +
       "the branch checked out now, and git will not check that branch out a " +
@@ -69,19 +83,21 @@ object RunTarget:
 
   /** The single conversion from the raw flags an argv parser produces: a flow's
     * own argv ([[OrcaArgs.parse]]) and `orca run`'s (the shell has its own
-    * parser for the same three flags) both come through here, so neither the
-    * wording of a refusal nor the set of refused pairs can drift. A refused
-    * pair is a message, never a value — which is what keeps it out of every
-    * type below this point.
+    * parser for the same flags) both come through here, so neither the wording
+    * of a refusal nor the set of refused pairs can drift. A refused pair is a
+    * message, never a value — which is what keeps it out of every type below
+    * this point.
     */
   def from(
       worktree: Boolean,
       skipBranch: Boolean,
-      keepChanges: Boolean
+      keepChanges: Boolean,
+      branch: Option[BranchName]
   ): Either[String, RunTarget] =
     val uncommitted =
       if keepChanges then Uncommitted.Keep else Uncommitted.Stash
-    if !worktree then
+    if skipBranch && branch.isDefined then Left(skipBranchWithBranchRefusal)
+    else if !worktree then
       Right(
         if skipBranch then CurrentBranch(uncommitted)
         else NewBranch(uncommitted)
