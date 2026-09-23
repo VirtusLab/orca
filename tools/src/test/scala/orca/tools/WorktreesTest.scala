@@ -1,7 +1,7 @@
 package orca.tools
 
 import orca.OrcaDir
-import orca.testkit.{GitRepo, TempDirs}
+import orca.testkit.{GitRepo, TempDirs, branchName}
 import ox.discard
 
 class WorktreesTest extends munit.FunSuite:
@@ -74,7 +74,10 @@ class WorktreesTest extends munit.FunSuite:
     val repo = GitRepo.seeded()
     val path = repo / "wt"
     assertEquals(Worktrees.add(repo, path), Right(()))
-    assertEquals(Worktrees.startBranch(path, "wt-branch"), Right(()))
+    assertEquals(
+      Worktrees.startBranch(path, branchName("wt-branch")),
+      Right(())
+    )
     os.write(path / "work.txt", "work")
     git(path, "add", "-A").discard
     git(path, "commit", "-q", "-m", "work in the worktree").discard
@@ -82,8 +85,8 @@ class WorktreesTest extends munit.FunSuite:
     git(repo, "worktree", "remove", "--force", path.toString).discard
     assertEquals(Worktrees.add(repo, path), Right(()))
     assertEquals(
-      Worktrees.startBranch(path, "wt-branch"),
-      Left(StartBranchFailure.WouldLoseCommits("wt-branch"))
+      Worktrees.startBranch(path, branchName("wt-branch")),
+      Left(StartBranchFailure.WouldLoseCommits(branchName("wt-branch")))
     )
     // The commit is still reachable from the branch orca refused to move.
     assert(
@@ -96,14 +99,20 @@ class WorktreesTest extends munit.FunSuite:
     val path = repo / "wt"
     assertEquals(Worktrees.add(repo, path), Right(()))
     assert(!Worktrees.onABranch(path), "a fresh worktree starts detached")
-    assertEquals(Worktrees.startBranch(path, "wt-branch"), Right(()))
+    assertEquals(
+      Worktrees.startBranch(path, branchName("wt-branch")),
+      Right(())
+    )
     assertEquals(gitOut(path, "rev-parse", "--abbrev-ref", "HEAD"), "wt-branch")
 
   test("a worktree that cannot be read reads as not on a branch"):
     val repo = GitRepo.seeded()
     val path = repo / "wt"
     assertEquals(Worktrees.add(repo, path), Right(()))
-    assertEquals(Worktrees.startBranch(path, "wt-branch"), Right(()))
+    assertEquals(
+      Worktrees.startBranch(path, branchName("wt-branch")),
+      Right(())
+    )
     // What `git clean -xdff` leaves: git cannot be started in a directory that
     // is not there, so the branch it was on a moment ago is not an answer any
     // more. os-lib spawns from a thread of its own, so the failed exec also

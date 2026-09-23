@@ -28,7 +28,7 @@ import orca.progress.{
   RecoveryCheck,
   ScannedProgressLog,
   ThrowawayBranch,
-  UnsafeBranchRefRefused
+  NotASlugRefused
 }
 import orca.settings.{AgentSettings, SettingsFile, SettingsScope}
 import orca.subprocess.TtyProbe
@@ -428,17 +428,17 @@ object FlowLifecycle:
       ownLog: JsonFile.Read[ProgressLog],
       ownPath: os.Path,
       workDir: os.Path,
-      startBranch: BranchName
+      startingBranch: BranchName
   ): Unit =
     ownLog match
       case JsonFile.Read.Loaded(_) => ()
       case _ =>
-        busyBranchLog(ownPath, workDir, startBranch).foreach: log =>
+        busyBranchLog(ownPath, workDir, startingBranch).foreach: log =>
           throw new OrcaFlowException(
-            branchBusyMessage(log, workDir, startBranch)
+            branchBusyMessage(log, workDir, startingBranch)
           )
 
-  /** The newest by mtime of the OTHER progress logs naming `startBranch` —
+  /** The newest by mtime of the OTHER progress logs naming `startingBranch` —
     * newest-wins like the shell's resume offer, since several logs (different
     * prompts) can name one branch. Corrupt logs are already dropped by the
     * scan; a scan failure (`.orca` unreadable, or removed mid-listing) yields
@@ -448,12 +448,12 @@ object FlowLifecycle:
   private def busyBranchLog(
       ownPath: os.Path,
       workDir: os.Path,
-      startBranch: BranchName
+      startingBranch: BranchName
   ): Option[ScannedProgressLog] =
     try
       ProgressScan
         .progressLogs(workDir)
-        .filter(l => l.path != ownPath && l.header.branch == startBranch)
+        .filter(l => l.path != ownPath && l.header.branch == startingBranch)
         .maxByOption(l => os.mtime(l.path))
     catch case NonFatal(_) => None
 
@@ -475,7 +475,7 @@ object FlowLifecycle:
   private def branchBusyMessage(
       log: ScannedProgressLog,
       workDir: os.Path,
-      startBranch: BranchName
+      startingBranch: BranchName
   ): String =
     val header = log.header
     val task = TextUtil.onelinePreview(header.userPrompt, 60)
@@ -487,7 +487,7 @@ object FlowLifecycle:
       if header.flowName.isDefined then
         ", which the orca shell may also offer as \"Resume interrupted run\""
       else ""
-    s"branch '${startBranch.value}' already has an unfinished orca run on it " +
+    s"branch '${startingBranch.value}' already has an unfinished orca run on it " +
       s"(task: $task$flow, log: $logPath) — resume it by re-running its flow " +
       s"with the identical task text$shellRoute, abandon it by removing its " +
       s"log (git rm $logPath && git commit -m \"abandon orca run\"), or " +
@@ -695,19 +695,19 @@ object FlowLifecycle:
               s"refusing to resume: progress log header failed validation ($reason)"
             )
           case Right(featureBranch) => featureBranch
-      val branch = header.branch.value
+      val recorded = header.branch.value
       args.branch
         .filter(_ != header.branch)
         .foreach: requested =>
           throw new OrcaFlowException(
             s"refusing to resume: this run is already bound to branch " +
-              s"'$branch' — omit --branch or pass " +
-              s"--branch $branch (got '${requested.value}')"
+              s"'$recorded' — omit --branch or pass " +
+              s"--branch $recorded (got '${requested.value}')"
           )
       val current = git.head()
       if current != Head.OnBranch(header.branch) then
         throw new OrcaFlowException(
-          s"progress log for branch '$branch' found while on " +
+          s"progress log for branch '$recorded' found while on " +
             s"${current.describe} — was it merged? aborting rather than " +
             "resuming against the wrong branch"
         )
@@ -981,9 +981,7 @@ object FlowLifecycle:
     if discovered then commitDiscoveredSettings(git, workDir)
     store.writeHeader(
       ProgressHeader(
-        startingBranch = startingHead match
-          case Head.OnBranch(name) => Some(name)
-          case Head.Detached(_)    => None,
+        startingBranch = startingHead.branch,
         branch = branch,
         branchMode =
           if args.target.skipBranch then BranchMode.Reused
@@ -1024,13 +1022,13 @@ object FlowLifecycle:
             )
           )
           fallback
-        case Left(UnsafeBranchRefRefused(name)) =>
+        case Left(NotASlugRefused(name)) =>
           // Unreachable: `strategy.resolve` always returns an
           // already-slugged name, so `resolve`'s shape check can never
           // refuse it. Guarded defensively rather than assumed.
           throw new OrcaFlowException(
             s"internal error: strategy-resolved branch name '$name' is " +
-              "not a safe ref"
+              "not a slug"
           )
     createFreshBranch(git, protectionChecked, fallback, emit)
 
@@ -1315,14 +1313,15 @@ object FlowLifecycle:
           returnToStart(git, setup.startingHead)
         case BranchHandoff.StayPut => ()
 
-  /** The start branch existed when this run began, so a plain `checkout`
-    * suffices; if it's gone mid-run that's genuinely exceptional, not a case to
-    * paper over by creating it anew.
+  /** Put HEAD back where the run started: its start branch, or the detached
+    * start commit.
     */
   private def returnToStart(git: GitTool, startingHead: Head)(using
       WorkspaceWrite
   ): Unit =
     startingHead match
+      // The branch existed when this run began; if it's gone mid-run that's
+      // genuinely exceptional, not a case to paper over by creating it anew.
       case Head.OnBranch(name) => git.checkout(name).orThrow
       case Head.Detached(at)   => git.checkoutDetached(at)
 

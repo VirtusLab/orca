@@ -37,7 +37,7 @@ object BranchName:
       def decodeValue(in: JsonReader, default: BranchName): BranchName =
         in.readString(null) match
           case null => in.decodeError("expected a branch name")
-          case s    => parse(s).getOrElse(in.decodeError(s"not a branch: $s"))
+          case s    => parse(s).fold(in.decodeError, identity)
       def encodeValue(x: BranchName, out: JsonWriter): Unit = out.writeVal(x)
       def nullValue: BranchName = null
   )

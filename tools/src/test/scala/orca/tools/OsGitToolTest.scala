@@ -73,7 +73,7 @@ class OsGitToolTest extends munit.FunSuite:
   test("head is Detached at the commit a detached checkout sits on"):
     withSeededRepo: (git, dir) =>
       val _ = os.proc("git", "checkout", "--detach").call(cwd = dir)
-      assertEquals(git.head(), Head.Detached(git.headCommit().get))
+      assertEquals(git.head(), Head.Detached(GitRepo.headCommit(dir)))
 
   test("head names a branch exactly when a tag shares its name"):
     withSeededRepo: (git, dir) =>

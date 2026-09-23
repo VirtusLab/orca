@@ -237,9 +237,6 @@ class FlowLifecycleTest extends munit.FunSuite:
         val _ = stage[String]("stage-two"):
           throw new RuntimeException("boom")
 
-    // A worktree left detached records `startingBranch` as the literal "HEAD",
-    // which resume refuses as an unsafe ref — the run would be unresumable and
-    // unrestartable, its log still on disk.
     runFlowForTest(worktree, prompt, store):
       val _ = stage("stage-one"):
         stageOneRuns.incrementAndGet()
@@ -2206,7 +2203,9 @@ class FlowLifecycleTest extends munit.FunSuite:
     val workDir = GitRepo.seeded()
     val _ = os.proc("git", "checkout", "--detach").call(cwd = workDir)
     val start = GitRepo.headCommit(workDir)
-    assertEquals(handoffRun(workDir).head, Head.Detached(start))
+    val r = handoffRun(workDir)
+    assertEquals(r.head, Head.Detached(start))
+    assert(branchNames(workDir).contains(r.featureBranch), branchNames(workDir))
 
   test("a run that recorded a PR keeps the empty branch it was opened from"):
     // Pins the read/teardown pair: `run` reads `published` out of the log
@@ -2643,29 +2642,31 @@ class FlowLifecycleTest extends munit.FunSuite:
       s"abort message must name detached HEAD: ${thrown.cause.getMessage}"
     )
 
-  test("a run started on a detached HEAD resumes after a failed stage"):
+  test(
+    "a run started on a detached HEAD resumes, then ends detached at its start"
+  ):
     val workDir = GitRepo.seeded()
     val prompt = "detached-resume"
     val store = ProgressStore.default(workDir, RunKey.of(prompt))
     val _ = os.proc("git", "checkout", "--detach").call(cwd = workDir)
+    val start = GitRepo.headCommit(workDir)
+    val stageOneRuns = new AtomicInteger(0)
+    var featureBranch = ""
     val _ = intercept[SurfacedFlowFailure]:
       runFlowForTest(workDir, prompt, store):
-        val _ = stage[String]("work"):
+        featureBranch = summon[FlowContext].git.currentBranch()
+        val _ = stage("stage-one"):
+          stageOneRuns.incrementAndGet()
+          "one-done"
+        val _ = stage[String]("stage-two"):
           throw new RuntimeException("boom")
-    var resumed = false
     runFlowForTest(workDir, prompt, store):
-      resumed = stage("work")("done") == "done"
-    assert(resumed, "the resumed attempt must run the failed stage")
-
-  test("a throwaway run started detached ends detached at its start commit"):
-    val workDir = GitRepo.seeded()
-    val prompt = "detached-throwaway"
-    val store = ProgressStore.default(workDir, RunKey.of(prompt))
-    val _ = os.proc("git", "checkout", "--detach").call(cwd = workDir)
-    val start = GitRepo.headCommit(workDir)
-    var featureBranch = ""
-    runFlowForTest(workDir, prompt, store):
-      featureBranch = summon[FlowContext].git.currentBranch()
+      val _ = stage("stage-one"):
+        stageOneRuns.incrementAndGet()
+        "one-done"
+      val _ = stage("stage-two")("two-done")
+    assertEquals(stageOneRuns.get(), 1, "stage one must replay, not re-run")
+    // Nothing but orca's log landed on the branch, so it is deleted.
     assertEquals(new OsGitTool(workDir).head(), Head.Detached(start))
     assert(!branchNames(workDir).contains(featureBranch), branchNames(workDir))
 
@@ -3260,9 +3261,8 @@ class FlowLifecycleTest extends munit.FunSuite:
     "skip-branch mode: success teardown never deletes the reused branch, even with only orca commits"
   ):
     // Mirrors R5 (throwaway-branch auto-delete on a normal fresh run), but the
-    // reused branch must survive: `featureBranch == startBranch` always holds
-    // in skip mode, so the throwaway check (which compares the two) can never
-    // fire.
+    // reused branch must survive: it is `BranchMode.Reused`, which
+    // `ThrowawayBranch` never treats as throwaway.
     val workDir = GitRepo.seeded()
     val prompt = "skip-branch-throwaway"
     val git = new OsGitTool(workDir)
@@ -3400,6 +3400,20 @@ class FlowLifecycleTest extends munit.FunSuite:
     )
     assertEquals(git.currentBranch(), "main")
     assertEquals(branchNames(workDir), Set("main"))
+
+  test(
+    "teardownSuccess keeps an empty branch when the starting commit is gone"
+  ):
+    // A resume whose recorded commit is no longer an ancestor of HEAD has
+    // nothing to measure the branch against.
+    val (git, workDir, setup) = handoffFixture(withCode = false)
+    FlowLifecycle.teardownSuccess(
+      git,
+      setup.copy(startingCommit = None),
+      PublishedState.NotPublished,
+      _ => ()
+    )
+    assert(branchNames(workDir).contains("feat/work"), branchNames(workDir))
 
   test(
     "a run whose progress log cannot be read keeps the branch it may have published from"

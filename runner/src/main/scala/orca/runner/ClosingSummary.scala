@@ -47,8 +47,8 @@ private[runner] object ClosingSummary:
       worktree: Option[os.Path],
       published: Option[PublishedWork]
   ): List[String] =
-    // Without a worktree the sentence is about HEAD, which is `head` by
-    // definition. With one it is about where the work is, so it names the
+    // Without a worktree the sentence is about HEAD. With one it is about
+    // where the work is, so it names the
     // branch holding it: the range case passes `countedOn`, because that case
     // exists precisely because HEAD has left it. Only that case may name a
     // branch other than HEAD's — a run with nothing to show can have had its
@@ -63,7 +63,8 @@ private[runner] object ClosingSummary:
       case Some(RunChanges(base, files, countedOn)) =>
         // `countedOn` still exists whenever the range form is reached: the only
         // branch teardown deletes is a throwaway one, which by definition
-        // carries no committed change against the start branch — and every
+        // carries no committed change against the commit the run started
+        // from — and every
         // tracked change a stage makes is committed by that stage, so a
         // non-zero count and a throwaway branch don't co-occur.
         val countedOnHead = Head.OnBranch(countedOn)

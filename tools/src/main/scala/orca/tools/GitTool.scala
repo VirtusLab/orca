@@ -543,7 +543,7 @@ private[orca] class OsGitTool(
   )(using WorkspaceWrite): Either[BranchNotFound, Unit] =
     if !branchExists(name) then Left(new BranchNotFound(name))
     else
-      val _ = git("checkout", name.value)
+      val _ = git("checkout", name.value, "--")
       step(s"Switched to branch '${name.value}'")
       Right(())
 
@@ -660,15 +660,18 @@ private[orca] class OsGitTool(
         Left(new PushFailure.RemoteDeclined(stderr.trim))
       else fail("git push", result)
 
+  // `symbolic-ref --quiet` exits 1 exactly when HEAD is detached.
   def head(): Head =
-    probe("symbolic-ref", "--quiet", "HEAD") match
-      case Some(ref) => Head.OnBranch(OsGitTool.branchOf(ref))
-      case None =>
+    val result = gitProc(Seq("git", "symbolic-ref", "--quiet", "HEAD"))
+    result.exitCode match
+      case 0 => Head.OnBranch(OsGitTool.branchOf(result.out.text().trim))
+      case 1 =>
         Head.Detached(
           headCommit().getOrElse(
             throw OrcaFlowException("HEAD does not resolve to a commit")
           )
         )
+      case _ => fail("git symbolic-ref HEAD", result)
 
   def headCommit(): Option[CommitHash] =
     revParse("HEAD").flatMap(CommitHash.from)
@@ -1134,16 +1137,21 @@ private[orca] object OsGitTool:
     * rather than `--short`'s, which prints `heads/<name>` when a tag shares the
     * name.
     */
-  private[orca] def branchOf(symbolicRef: String): BranchName =
-    val name = symbolicRef.stripPrefix("refs/heads/")
-    BranchName
-      .parse(name)
+  private[tools] def branchOf(symbolicRef: String): BranchName =
+    Option
+      .when(symbolicRef.startsWith(LocalBranchPrefix))(
+        symbolicRef.stripPrefix(LocalBranchPrefix)
+      )
+      .flatMap(BranchName.parse(_).toOption)
       .getOrElse(
         throw OrcaFlowException(
           s"HEAD is on '$symbolicRef', which orca cannot use as a branch — " +
-            "rename the branch (`git branch -m <new-name>`) and re-run"
+            "check out a local branch, or rename this one " +
+            "(`git branch -m <new-name>`), and re-run"
         )
       )
+
+  private val LocalBranchPrefix = "refs/heads/"
 
   /** Most stdout one capped read keeps. A heap bound, and only that: `McpHost`
     * cuts an agent's copy of the same answer to a small fraction of this, and

@@ -86,6 +86,11 @@ class OrcaArgsTest extends munit.FunSuite:
       case Left(msg) => assert(msg.contains("'..'"), msg)
       case Right(r)  => fail(s"expected a refusal, got $r")
 
+  test("--branch naming a protected branch is refused"):
+    OrcaArgs.parse(Seq("--branch", "main", "x")) match
+      case Left(msg) => assert(msg.contains("protected"), msg)
+      case Right(r)  => fail(s"expected a refusal, got $r")
+
   test("--skip-branch with --branch is refused, naming both flags"):
     OrcaArgs.parse(Seq("--skip-branch", "--branch", "x", "task")) match
       case Left(msg) =>

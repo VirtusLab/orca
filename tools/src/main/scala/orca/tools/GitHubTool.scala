@@ -492,7 +492,9 @@ private[orca] class OsGitHubTool(
     result.exitCode match
       case 0 => OsGitTool.branchOf(result.stdout.trim).value
       case 1 =>
-        throw OrcaFlowException("cannot open a PR: HEAD is not on a branch")
+        throw OrcaFlowException(
+          "cannot open a PR: HEAD is not on a branch — check out a branch first"
+        )
       case _ => fail("git symbolic-ref", result)
 
   /** Find the first open PR whose head branch matches `head`, or `None`.

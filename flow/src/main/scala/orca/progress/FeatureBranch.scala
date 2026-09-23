@@ -26,7 +26,7 @@ object FeatureBranch:
     * Referencing `BranchNamingStrategy.isSlugSegment` keeps producer and
     * validator from drifting.
     */
-  def isSafeBranchRef(s: String): Boolean =
+  def isSlug(s: String): Boolean =
     s.nonEmpty && s
       .split("/", -1)
       .forall(orca.BranchNamingStrategy.isSlugSegment)
@@ -47,7 +47,7 @@ object FeatureBranch:
     BranchName
       .parse(raw)
       .filterOrElse(
-        name => !isProtected(name.value, Set.empty),
+        name => !isProtected(name.value, protectedBranches = Set.empty),
         BranchName.refusal(raw, "is a protected branch")
       )
 
@@ -61,9 +61,10 @@ object FeatureBranch:
       case Some(name) => parseRequested(name).map(Some(_))
 
   /** Attempt to mint a [[FeatureBranch]] from an orca-minted `name`. Refuses
-    * `name` when it is protected (see [[resolveReused]]) or not a slug
-    * ([[isSafeBranchRef]]) — the latter makes the guarantee unconditional
-    * rather than resting on callers having slugged `name`.
+    * `name` when it is protected (in `protectedBranches` or
+    * [[alwaysProtected]], case-insensitively) or not a slug ([[isSlug]]) — the
+    * latter makes the guarantee unconditional rather than resting on callers
+    * having slugged `name`.
     */
   def resolve(
       name: String,
@@ -71,12 +72,8 @@ object FeatureBranch:
   ): Either[FeatureBranchRefused, FeatureBranch] =
     if isProtected(name, protectedBranches) then
       Left(ProtectedBranchRefused(name))
-    else
-      BranchName
-        .parse(name)
-        .toOption
-        .filter(_ => isSafeBranchRef(name))
-        .toRight(UnsafeBranchRefRefused(name))
+    else if !isSlug(name) then Left(NotASlugRefused(name))
+    else BranchName.parse(name).left.map(_ => NotASlugRefused(name))
 
   /** Mint a [[FeatureBranch]] for a branch orca did NOT name — the user's
     * current branch in skip-branch mode (ADR 0018 amendment), a `--branch`
@@ -102,7 +99,7 @@ object FeatureBranch:
       .contains(name.toLowerCase(java.util.Locale.ROOT))
 
 /** Common parent for [[FeatureBranch.resolve]] refusal reasons — lets a caller
-  * distinguish "protected branch" from "unsafe ref shape" without inspecting a
+  * distinguish "protected branch" from "not a slug" without inspecting a
   * message string.
   */
 sealed trait FeatureBranchRefused:
@@ -113,7 +110,6 @@ final case class ProtectedBranchRefused(name: String)
     extends FeatureBranchRefused
 
 /** `name` was refused by [[FeatureBranch.resolve]] because it is not a slug —
-  * see [[FeatureBranch.isSafeBranchRef]].
+  * see [[FeatureBranch.isSlug]].
   */
-final case class UnsafeBranchRefRefused(name: String)
-    extends FeatureBranchRefused
+final case class NotASlugRefused(name: String) extends FeatureBranchRefused

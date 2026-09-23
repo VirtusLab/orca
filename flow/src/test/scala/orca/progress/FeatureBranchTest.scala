@@ -4,18 +4,18 @@ import munit.FunSuite
 
 class FeatureBranchTest extends FunSuite:
 
-  test("isSafeBranchRef accepts slug names and issue branches"):
-    assert(FeatureBranch.isSafeBranchRef("add-foo"))
-    assert(FeatureBranch.isSafeBranchRef("fix/issue-42"))
-    assert(FeatureBranch.isSafeBranchRef("flow-1a2b3c4d"))
+  test("isSlug accepts slug names and issue branches"):
+    assert(FeatureBranch.isSlug("add-foo"))
+    assert(FeatureBranch.isSlug("fix/issue-42"))
+    assert(FeatureBranch.isSlug("flow-1a2b3c4d"))
 
-  test("isSafeBranchRef rejects empty, leading-dash, traversal, and spaces"):
-    assert(!FeatureBranch.isSafeBranchRef(""))
-    assert(!FeatureBranch.isSafeBranchRef("-x"))
-    assert(!FeatureBranch.isSafeBranchRef("a/.."))
-    assert(!FeatureBranch.isSafeBranchRef("a b"))
-    assert(!FeatureBranch.isSafeBranchRef("Feat"))
-    assert(!FeatureBranch.isSafeBranchRef("a/"))
+  test("isSlug rejects empty, leading-dash, traversal, and spaces"):
+    assert(!FeatureBranch.isSlug(""))
+    assert(!FeatureBranch.isSlug("-x"))
+    assert(!FeatureBranch.isSlug("a/.."))
+    assert(!FeatureBranch.isSlug("a b"))
+    assert(!FeatureBranch.isSlug("Feat"))
+    assert(!FeatureBranch.isSlug("a/"))
 
   test("parseRequested refuses the protected floor case-insensitively"):
     for raw <- List("main", "Master") do
@@ -60,10 +60,10 @@ class FeatureBranchTest extends FunSuite:
       FeatureBranch.resolve("flow-1a2b3c4d", Set.empty): @unchecked
     assertEquals(fb.value, "flow-1a2b3c4d")
 
-  test("resolve refuses an unsafe ref shape, distinctly from a protected name"):
+  test("resolve refuses a non-slug name, distinctly from a protected name"):
     assertEquals(
       FeatureBranch.resolve("Feat", Set.empty),
-      Left(UnsafeBranchRefRefused("Feat"))
+      Left(NotASlugRefused("Feat"))
     )
 
   test("resolve passes an already-slugged, multi-segment name through"):

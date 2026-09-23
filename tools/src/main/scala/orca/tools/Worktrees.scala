@@ -1,5 +1,6 @@
 package orca.tools
 
+import orca.gitref.BranchName
 import orca.subprocess.QuietProc
 
 import scala.util.control.NonFatal
@@ -37,7 +38,7 @@ private[orca] enum StartBranchFailure:
   /** The branch already carries commits the worktree's HEAD cannot reach, so
     * moving it there would strand them.
     */
-  case WouldLoseCommits(branch: String)
+  case WouldLoseCommits(branch: BranchName)
   case GitFailed(message: String)
 
 /** Git worktree plumbing for run-level isolation (`--worktree`).
@@ -171,12 +172,12 @@ private[orca] object Worktrees:
     */
   def startBranch(
       worktree: os.Path,
-      name: String
+      name: BranchName
   ): Either[StartBranchFailure, Unit] =
     if wouldLoseCommits(worktree, name) then
       Left(StartBranchFailure.WouldLoseCommits(name))
     else
-      val result = git(worktree, "checkout", "-B", name)
+      val result = git(worktree, "checkout", "-B", name.value)
       if result.exitCode == 0 then Right(())
       else Left(StartBranchFailure.GitFailed(result.err.text().trim))
 
@@ -187,14 +188,14 @@ private[orca] object Worktrees:
   def onABranch(worktree: os.Path): Boolean =
     probe(worktree, "symbolic-ref", "--quiet", "HEAD").isDefined
 
-  private def wouldLoseCommits(cwd: os.Path, branch: String): Boolean =
-    val exists =
-      probe(cwd, "rev-parse", "--verify", "--quiet", branch).isDefined
+  private def wouldLoseCommits(cwd: os.Path, branch: BranchName): Boolean =
+    val ref = s"refs/heads/${branch.value}"
+    val exists = probe(cwd, "rev-parse", "--verify", "--quiet", ref).isDefined
     exists && git(
       cwd,
       "merge-base",
       "--is-ancestor",
-      branch,
+      ref,
       "HEAD"
     ).exitCode != 0
 
