@@ -164,8 +164,9 @@ def flow(
     case RunTarget.NewBranch(_) | RunTarget.CurrentBranch(_) => Right(workDir)
     case RunTarget.Worktree                                  =>
       // Resolution can throw as well as refuse — another orca resolving the
-      // same task, a symlinked or unwritable `.orca`, a git that won't start. One `Left` shape for every outcome
-      // keeps the reporting below the only way out.
+      // same task, a symlinked or unwritable `.orca`, a git that won't start.
+      // One `Left` shape for every outcome keeps the reporting below the only
+      // way out.
       try WorktreeRun.resolve(workDir, runKey)
       catch case NonFatal(e) => Left(TextUtil.throwableMessage(e))
 

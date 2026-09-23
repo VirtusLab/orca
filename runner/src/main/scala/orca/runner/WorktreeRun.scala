@@ -91,8 +91,8 @@ private[orca] object WorktreeRun:
     * `add` having succeeded where the branch step did not. The run belongs on
     * its own branch, which a re-run of the task finds ([[bindBranch]]).
     *
-    * A resumed run skips the worktree lock, but its worktree is already on its
-    * branch, so the repair leaves it alone.
+    * A resumed run works in the worktree without the worktree lock; it is on
+    * its branch, so a concurrent `reuse` leaves it alone.
     */
   private def reuse(
       mainCheckout: os.Path,
