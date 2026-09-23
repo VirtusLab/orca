@@ -53,6 +53,24 @@ object JsonData:
       val schema: Schema[A] = schemaInstance
       val codec: ConfiguredJsonValueCodec[A] = codecInstance
 
+  /** A type that travels as a JSON string: written with `render`, read back
+    * through `parse`, so a persisted value `parse` refuses fails to decode.
+    */
+  def fromString[A](
+      parse: String => Either[String, A],
+      render: A => String
+  ): JsonData[A] =
+    apply(
+      Schema.schemaForString.as[A],
+      new ConfiguredJsonValueCodec[A]:
+        def decodeValue(in: JsonReader, default: A): A =
+          in.readString(null) match
+            case null => in.decodeError("expected a string")
+            case s    => parse(s).fold(in.decodeError, identity)
+        def encodeValue(x: A, out: JsonWriter): Unit = out.writeVal(render(x))
+        def nullValue: A = null.asInstanceOf[A]
+    )
+
   inline def derived[A](using m: Mirror.Of[A]): JsonData[A] =
     inline m match
       case s: Mirror.SumOf[A] =>

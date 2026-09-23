@@ -15,7 +15,6 @@ import org.jline.reader.{
   UserInterruptException
 }
 import org.jline.terminal.{Terminal, TerminalBuilder}
-import ox.Ox
 
 /** Renders a [[Conversation]] to the terminal: the user's opening prompt sits
   * on its own section, and each tool call/result gets a compact one-line
@@ -57,7 +56,7 @@ private[terminal] class ConversationRenderer(
     */
   def render[B <: BackendTag](
       conversation: Conversation[B]
-  )(using Ox): Either[OrcaInteractiveCancelled, AgentResult[B]] =
+  ): Either[OrcaInteractiveCancelled, AgentResult[B]] =
     conversation.events.foreach(dispatch(_, conversation))
     conversation.awaitResult()
 

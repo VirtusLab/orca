@@ -3,9 +3,14 @@ package orca.util
 import com.github.plokhotnyuk.jsoniter_scala.core.{
   JsonValueCodec,
   readFromArray,
-  writeToString
+  writeToArray
 }
 
+import java.nio.ByteBuffer
+import java.nio.channels.FileChannel
+import java.nio.file.StandardOpenOption
+
+import scala.util.Using
 import scala.util.control.NonFatal
 
 /** Whole-file JSON documents that a later process reads back: the progress log,
@@ -67,19 +72,20 @@ object JsonFile:
     * (which must be on the same filesystem as `path`) renamed over it.
     *
     * The temp file never outlives a failure, and `path` is untouched when one
-    * happens.
+    * happens. The content is on disk before the rename, so a power loss leaves
+    * the old document or the new one; each write costs an fsync.
     */
   def write[A](path: os.Path, tempDir: os.Path, value: A)(using
       JsonValueCodec[A]
   ): Unit =
     val tmp = os.temp(
-      contents = writeToString(value),
       dir = tempDir,
       prefix = s".${path.last}.",
       suffix = ".tmp",
       deleteOnExit = false
     )
     try
+      writeDurably(tmp, writeToArray(value))
       try os.move(tmp, path, replaceExisting = true, atomicMove = true)
       catch
         // Some filesystems (network mounts, some container overlay/bind mounts)
@@ -93,6 +99,14 @@ object JsonFile:
       case NonFatal(e) =>
         if os.exists(tmp) then os.remove(tmp): Unit
         throw e
+
+  /** Write `bytes` to `file` and flush them to disk before returning. */
+  private def writeDurably(file: os.Path, bytes: Array[Byte]): Unit =
+    Using.resource(FileChannel.open(file.toNIO, StandardOpenOption.WRITE)):
+      channel =>
+        val buffer = ByteBuffer.wrap(bytes)
+        while buffer.hasRemaining do channel.write(buffer): Unit
+        channel.force(true)
 
   /** A one-line account of `e` for a warning: its class and the first line of
     * its message. jsoniter appends a multi-line hex dump of the buffer to its

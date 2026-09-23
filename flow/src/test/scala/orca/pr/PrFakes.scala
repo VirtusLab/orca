@@ -31,7 +31,7 @@ import orca.tools.{
 import orca.gitref.CommitHash
 import orca.progress.{BranchMode, ProgressHeader, ProgressStore}
 import orca.sessions.SessionStore
-import orca.testkit.{GitRepo, PushlessGit, StubGitHubTool, branchName}
+import orca.testkit.{GitRepo, PushlessGit, StubGitHubTool, branchName, prHandle}
 import orca.events.{EventDispatcher, OrcaListener}
 
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -43,7 +43,7 @@ private[pr] def nyi(m: String): Nothing =
 
 /** The handle [[RecordingGh.createPr]] hands back. */
 private[pr] val samplePr: PrHandle =
-  PrHandle(host = "github.com", owner = "acme", repo = "widgets", number = 1)
+  prHandle("https://github.com/acme/widgets/pull/1")
 
 /** [[PushlessGit]] that also records the push, so a test can pin when the PR
   * helpers pushed relative to their other calls.

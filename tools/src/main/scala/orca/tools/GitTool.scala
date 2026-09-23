@@ -651,13 +651,9 @@ private[orca] class OsGitTool(
     // Uses `gitProc` (returns the result) rather than `git` (throws on
     // non-zero) so failure stderr can be inspected to split the recoverable
     // cases (non-fast-forward, remote-declined) from auth/network errors.
-    // `pushArgs` appends a last-resort github credential helper (see its doc).
-    val originUrl = gitConfigGet("remote.origin.url")
-    val envToken = sys.env
-      .get("GH_TOKEN")
-      .orElse(sys.env.get("GITHUB_TOKEN"))
-      .filter(_.nonEmpty)
-    val result = gitProc(OsGitTool.pushArgs(originUrl, envToken))
+    // `pushArgs` appends a last-resort credential helper (see its doc).
+    val pushUrl = probe("remote", "get-url", "--push", "origin")
+    val result = gitProc(OsGitTool.pushArgs(pushUrl))
     if result.exitCode == 0 then
       step("Pushed to origin")
       Right(())
@@ -1119,10 +1115,6 @@ private[orca] class OsGitTool(
   private def failWith(label: String, exitCode: Int, stderr: String): Nothing =
     throw OrcaFlowException(s"$label failed (exit $exitCode): $stderr")
 
-  /** Read a single git config value (`git config --get`), `None` when unset. */
-  private def gitConfigGet(key: String): Option[String] =
-    probe("config", "--get", key)
-
   private def git(args: String*): String =
     // Route through QuietProc so git's stderr ("Switched to a new branch",
     // etc.) is captured rather than leaked to the parent terminal, where it
@@ -1288,55 +1280,55 @@ private[orca] object OsGitTool:
 
   /** Host of a git remote URL, for both `scp`-like SSH (`[user@]host:path`) and
     * URL forms (`scheme://[user@]host[:port]/path`). `None` for local paths or
-    * anything without a recognisable host.
+    * anything without a recognisable host, including one outside [[HostName]].
     */
   private[tools] def remoteHost(url: String): Option[String] =
-    val scpLike = """^[^@/]+@([^:/]+):.*""".r
-    val urlLike = """^[a-zA-Z][a-zA-Z0-9+.\-]*://(?:[^@/]+@)?([^:/]+).*""".r
+    val scpLike = s"""^[^@/]+@($HostName):.*""".r
+    val urlLike =
+      s"""^[a-zA-Z][a-zA-Z0-9+.\\-]*://(?:[^@/]+@)?($HostName)(?:[:/].*)?""".r
     // Userless `host:path`, as git reads it: no `/` before the first `:`, and
     // two-plus characters so a Windows drive (`c:/repos`) is a path, not a host.
-    val userlessScp = """^([^:/]{2,}):(?!//).*""".r
+    val userlessScp = s"""^($HostName):(?!//).*""".r
     url.trim match
-      case scpLike(host)     => Some(host)
-      case urlLike(host)     => Some(host)
-      case userlessScp(host) => Some(host)
-      case _                 => None
+      case scpLike(host)                         => Some(host)
+      case urlLike(host)                         => Some(host)
+      case userlessScp(host) if host.length >= 2 => Some(host)
+      case _                                     => None
 
-  private[tools] def isGithubRemote(url: String): Boolean =
-    remoteHost(url).contains("github.com")
-
-  /** The `git push` argv. For a github.com origin it appends a credential
-    * helper scoped to github.com HTTPS, so the push authenticates even when git
+  /** The `git push` argv. For an `https` push URL it appends a credential
+    * helper scoped to that URL's host, so the push authenticates even when git
     * has no helper configured. Appended after any config-file helpers, so a
-    * user's existing credential setup still wins. When a token is in the
-    * environment it is used directly (see [[githubHelper]]), otherwise the `gh`
-    * CLI's own auth resolution is used.
+    * user's existing credential setup still wins. See [[credentialHelper]] for
+    * what answers. A host on a non-default port gets no answer: git matches the
+    * helper's URL by port too.
     */
-  private[tools] def pushArgs(
-      originUrl: Option[String],
-      envToken: Option[String]
-  ): Seq[String] =
-    val credential =
-      if originUrl.exists(isGithubRemote) then
-        Seq(
-          "-c",
-          s"credential.https://github.com.helper=${githubHelper(envToken.isDefined)}"
-        )
-      else Nil
+  private[tools] def pushArgs(pushUrl: Option[String]): Seq[String] =
+    val credential = pushUrl
+      .filter(_.startsWith("https://"))
+      .flatMap(remoteHost)
+      .fold(Nil)(host =>
+        Seq("-c", s"credential.https://$host.helper=${credentialHelper(host)}")
+      )
     (Seq("git") ++ credential) ++ Seq("push", "-u", "origin", "HEAD")
 
-  /** Shell credential helper for github.com. With a token in the environment it
-    * echoes that token (`x-access-token` is GitHub's conventional username for
-    * token auth); the token is read from `$GH_TOKEN`/`$GITHUB_TOKEN` at helper
-    * runtime, never interpolated here, so it stays out of argv and logs. With
-    * no token it defers to the `gh` CLI.
+  /** Shell credential helper for `host`. On github.com it echoes
+    * `$GH_TOKEN`/`$GITHUB_TOKEN` when one is set (`x-access-token` is GitHub's
+    * conventional username for token auth), read at helper runtime so it stays
+    * out of argv and logs, and otherwise asks gh. On any other host it asks gh
+    * with gh's environment tokens unset: gh hands `$GH_ENTERPRISE_TOKEN` (and a
+    * Codespace's `$GITHUB_TOKEN`) to every host it does not know to be
+    * github.com, so only a stored `gh auth login` for that host answers.
     */
-  private def githubHelper(hasEnvToken: Boolean): String =
-    if hasEnvToken then
-      "!f() { test \"$1\" = get && " +
-        "printf 'username=x-access-token\\npassword=%s\\n' " +
-        "\"${GH_TOKEN:-$GITHUB_TOKEN}\"; }; f"
-    else "!gh auth git-credential"
+  private def credentialHelper(host: String): String =
+    if host == "github.com" then
+      "!f() { test \"$1\" = get || return 0; " +
+        "t=\"${GH_TOKEN:-$GITHUB_TOKEN}\"; " +
+        "if [ -n \"$t\" ]; then " +
+        "printf 'username=x-access-token\\npassword=%s\\n' \"$t\"; " +
+        "else gh auth git-credential get; fi; }; f"
+    else
+      "!env -u GH_TOKEN -u GITHUB_TOKEN -u GH_ENTERPRISE_TOKEN " +
+        "-u GITHUB_ENTERPRISE_TOKEN gh auth git-credential"
 
   /** Snapshot of repo state captured when a commit fails. `status` is the
     * porcelain listing of what was staged at the moment of failure; `fsck`

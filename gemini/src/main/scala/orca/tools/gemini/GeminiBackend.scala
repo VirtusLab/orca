@@ -10,6 +10,7 @@ import orca.agents.{
 }
 import orca.subprocess.CliResult
 import orca.backend.{
+  AskUserChannel,
   Conversation,
   TurnRequest,
   Dispatch,
@@ -96,7 +97,6 @@ private[orca] class GeminiBackend(
       turn: TurnRequest[BackendTag.Gemini.type]
   )(using Ox): Conversation[BackendTag.Gemini.type] =
     import turn.*
-    val displayPrompt = mode.displayPrompt
     val askUser: Option[AskUserSession] =
       Option.when(mode.isInteractive):
         val session = AskUserSession.allocate()
@@ -121,11 +121,12 @@ private[orca] class GeminiBackend(
     } { process =>
       // Close stdin so the child stops waiting on EOF.
       process.closeStdin()
-      new GeminiConversation(
+      GeminiConversation(
         process,
-        initialPrompt = displayPrompt,
+        openingPrompt = mode.openingPrompt,
         outputSchema = outputSchema,
-        askUser = askUser
+        askUser =
+          askUser.fold(AskUserChannel.Unavailable)(AskUserChannel.Mcp(_))
       )
     }
 

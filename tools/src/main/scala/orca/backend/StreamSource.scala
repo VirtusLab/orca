@@ -2,7 +2,9 @@ package orca.backend
 
 import orca.subprocess.PipedCliProcess
 
-/** The line-oriented source a [[orca.backend.ForkedConversation]] drives: a
+import ox.discard
+
+/** The line-oriented source a [[orca.backend.StreamConversation]] drives: a
   * primary line stream, an optional secondary diagnostic stream, a way to stop
   * it, and a terminal status — so one driver serves both a subprocess
   * ([[StreamSource.fromProcess]]) and any other line producer (the OpenCode
@@ -40,6 +42,12 @@ private[orca] trait StreamSource:
     */
   def destroyForcibly(): Unit = interrupt()
 
+  /** Blocks until the producer has stopped after [[interrupt]]: a subprocess
+    * has exited. Default returns at once, for sources whose interrupt already
+    * closed them.
+    */
+  def awaitStopped(): Unit = ()
+
   /** Terminal status once [[lines]] has ended: `Some(0)` clean, `Some(n)`
     * non-zero failure, `None` unknown/aborted. A subprocess reports its exit
     * code; a stream that merely closed reports `Some(0)` (a clean end with no
@@ -54,6 +62,7 @@ private[orca] object StreamSource:
       def lines: Iterator[String] = process.stdoutLines
       def errorLines: Iterator[String] = process.stderrLines
       def interrupt(): Unit = process.sendSigInt()
+      override def awaitStopped(): Unit = process.waitForExit().discard
       // Tree, not PID: a coding-agent CLI spawns its own children (shell tool
       // calls, MCP servers, a build it backgrounded), which inherit the stdout
       // pipe write-end. A root-only kill would orphan that work into the next

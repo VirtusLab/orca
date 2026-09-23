@@ -115,13 +115,16 @@ flow(OrcaArgs(args)):
 
       val issue = IssueHandle.parseOrThrow(ref)
 
+      val pr = PrHandle
+        .from(host, issue.owner, issue.repo, issue.number)
+        .fold(
+          why => fail(s"cannot post the report on $ref: $why — post the " +
+            "report above on the PR yourself"),
+          identity
+        )
+
       gh.upsertComment(
-        PrHandle(
-          host = host,
-          owner = issue.owner,
-          repo = issue.repo,
-          number = issue.number
-        ),
+        pr,
         orcaCommentMarker(userPrompt, "review"),
         report
       )

@@ -60,7 +60,6 @@ import orca.tools.{
   GitHubTool,
   GitTool,
   OsGitTool,
-  PrHandle,
   UntrackedFiles,
   Worktrees
 }
@@ -76,7 +75,8 @@ import orca.testkit.{
   StubGitHubTool,
   TempDirs,
   branchName,
-  currentBranch
+  currentBranch,
+  prHandle
 }
 
 /** Flow lifecycle tests: success/failure teardown and resume. Each uses a real
@@ -2113,7 +2113,7 @@ class FlowLifecycleTest extends munit.FunSuite:
   // ── the PR-driven branch handoff ─────────────────────────────────────────
 
   private val handoffPr =
-    PrHandle(host = "github.com", owner = "acme", repo = "widgets", number = 7)
+    prHandle("https://github.com/acme/widgets/pull/7")
 
   /** [[handoffPr]] as the lifecycle reads it back out of the progress log. */
   private val handoffPublished =

@@ -799,7 +799,7 @@ private[orca] object OsGitHubTool:
     * `--hostname` takes none.
     */
   private val RepoUrlPattern =
-    s"""^https://([A-Za-z0-9.-]+)/(${IssueHandle.Owner})/(${IssueHandle.Repo})$$""".r
+    s"""^https://($HostName)/(${IssueHandle.Owner})/(${IssueHandle.Repo})$$""".r
 
   /** How a failed `gh` call should be treated: retried, or answered at once. */
   private[tools] enum GhFailure:
