@@ -496,7 +496,6 @@ class BaseAgentTest extends munit.FunSuite:
       "prompt",
       SessionId.fresh[BackendTag.Pi.type],
       sessionKey = Some(coderKey),
-      config = None,
       emitPrompt = true
     )
     assertEquals(
@@ -702,26 +701,7 @@ class BaseAgentTest extends munit.FunSuite:
       s"a free-text interactive turn must still surface its AssistantMessage: ${seen.get()}"
     )
 
-  // An explicit `Some(...)` config wholly replaces the tool-level config (no
-  // per-field merge); omission (`None`) inherits it — see
-  // `BaseAgent.effectiveConfig`.
-  test(
-    "run(config = Some(AgentConfig())) wholly replaces the tool-level config"
-  ):
-    val backend = new RecordingConfigBackend
-    val toolConfig = AgentConfig(
-      model = Some(Model("tool-level-model")),
-      systemPrompt = Some("tool-level-prompt")
-    )
-    val tool = new StubTool(backend, toolConfig)
-    val _ = tool.run("prompt", config = Some(AgentConfig()))
-    assertEquals(
-      backend.lastConfig,
-      Some(AgentConfig()),
-      "an explicit Some(...) must wipe the tool-level config, not merge with it"
-    )
-
-  test("run() with config omitted falls back to the tool-level config"):
+  test("run passes the agent's config to the backend"):
     val backend = new RecordingConfigBackend
     val toolConfig = AgentConfig(
       model = Some(Model("tool-level-model")),
@@ -730,6 +710,12 @@ class BaseAgentTest extends munit.FunSuite:
     val tool = new StubTool(backend, toolConfig)
     val _ = tool.run("prompt")
     assertEquals(backend.lastConfig, Some(toolConfig))
+
+  test("resultAs keeps a withReadOnly restriction"):
+    val backend = new RecordingConfigBackend(reply = "\"out\"")
+    val tool = new StubTool(backend, prompts = DefaultPrompts).withReadOnly
+    val _ = tool.resultAs[String].autonomous.run("prompt")
+    assertEquals(backend.lastConfig.map(_.tools), Some(ToolSet.ReadOnly))
 
   private class StubTool(
       backend: AgentBackend[BackendTag.Pi.type],
@@ -761,10 +747,10 @@ class BaseAgentTest extends munit.FunSuite:
     ): Agent[BackendTag.Pi.type] =
       new StubTool(backend, config, listener, prompts, interaction)
 
-  /** Records the `AgentConfig` the framework actually resolved and passed to
-    * the backend, so tests can assert on it directly.
+  /** Records the `AgentConfig` the agent passed to the backend, so tests can
+    * assert on it directly.
     */
-  private class RecordingConfigBackend
+  private class RecordingConfigBackend(reply: String = "out")
       extends AgentBackend[BackendTag.Pi.type]
       with StubEnforcementCell[BackendTag.Pi.type]:
     val workDir: os.Path = os.pwd
@@ -780,7 +766,7 @@ class BaseAgentTest extends munit.FunSuite:
       lastConfig = Some(config)
       AgentResult(
         WireSessionId[BackendTag.Pi.type]("server-wire-id"),
-        "out",
+        reply,
         Usage.empty
       )
     protected def doRunInteractive(

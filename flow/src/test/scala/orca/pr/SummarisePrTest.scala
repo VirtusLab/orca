@@ -45,7 +45,6 @@ class SummarisePrTest extends munit.FunSuite:
                 input: I,
                 session: SessionId[BackendTag.ClaudeCode.type],
                 sessionKey: Option[SessionKey],
-                config: Option[AgentConfig],
                 emitPrompt: Boolean
             )(using a: AgentInput[I], _x: orca.InStage): O =
               captured = a.serialize(input)

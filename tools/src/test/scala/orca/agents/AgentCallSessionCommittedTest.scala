@@ -51,8 +51,7 @@ class AgentCallSessionCommittedTest extends munit.FunSuite:
         SessionCommittedAnswer
       ](
         backend = backend,
-        effectiveConfig =
-          cfg => cfg.getOrElse(AgentConfig()).copy(retrySchedule = fastRetry),
+        config = AgentConfig(retrySchedule = fastRetry),
         prompts = DefaultPrompts,
         events = listener,
         interaction = stubInteraction,
@@ -98,8 +97,7 @@ class AgentCallSessionCommittedTest extends munit.FunSuite:
         SessionCommittedAnswer
       ](
         backend = backend,
-        effectiveConfig =
-          cfg => cfg.getOrElse(AgentConfig()).copy(retrySchedule = fastRetry),
+        config = AgentConfig(retrySchedule = fastRetry),
         prompts = DefaultPrompts,
         events = listener,
         interaction = drivingInteraction,
@@ -108,8 +106,7 @@ class AgentCallSessionCommittedTest extends munit.FunSuite:
       val answer = call.interactive.runWithSession(
         "anything",
         clientSid,
-        sessionKey = None,
-        config = None
+        sessionKey = None
       )
       assertEquals(answer, SessionCommittedAnswer(3))
       val committed = seen.get().reverse.collect {
