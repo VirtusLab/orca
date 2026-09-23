@@ -4,6 +4,8 @@ import munit.FunSuite
 
 class RecoveryCheckTest extends FunSuite:
 
+  private val testCommit: CommitHash = CommitHash.from("0" * 40).get
+
   test("isSafeBranchRef accepts slug names and issue branches"):
     assert(RecoveryCheck.isSafeBranchRef("add-foo"))
     assert(RecoveryCheck.isSafeBranchRef("fix/issue-42"))
@@ -56,8 +58,10 @@ class RecoveryCheckTest extends FunSuite:
     val header = ProgressHeader(
       startingBranch = "main",
       branch = "HEAD",
-      promptHash = ProgressStore.hashPrompt(prompt),
-      branchMode = BranchMode.Created
+      branchMode = BranchMode.Created,
+      userPrompt = prompt,
+      flowName = None,
+      startingCommit = testCommit
     )
     assert(RecoveryCheck.validateHeader(header, prompt, Set.empty).isLeft)
 
@@ -68,8 +72,10 @@ class RecoveryCheckTest extends FunSuite:
     val header = ProgressHeader(
       startingBranch = "HEAD",
       branch = "feat/do-the-thing",
-      promptHash = ProgressStore.hashPrompt(prompt),
-      branchMode = BranchMode.Created
+      branchMode = BranchMode.Created,
+      userPrompt = prompt,
+      flowName = None,
+      startingCommit = testCommit
     )
     assert(RecoveryCheck.validateHeader(header, prompt, Set.empty).isLeft)
 
@@ -79,8 +85,10 @@ class RecoveryCheckTest extends FunSuite:
       val header = ProgressHeader(
         startingBranch = "main",
         branch = protectedName,
-        promptHash = ProgressStore.hashPrompt(prompt),
-        branchMode = BranchMode.Created
+        branchMode = BranchMode.Created,
+        userPrompt = prompt,
+        flowName = None,
+        startingCommit = testCommit
       )
       assert(
         RecoveryCheck.validateHeader(header, prompt, Set.empty).isLeft,
@@ -97,8 +105,10 @@ class RecoveryCheckTest extends FunSuite:
     val header = ProgressHeader(
       startingBranch = "trunk",
       branch = "trunk",
-      promptHash = ProgressStore.hashPrompt(prompt),
-      branchMode = BranchMode.Created
+      branchMode = BranchMode.Created,
+      userPrompt = prompt,
+      flowName = None,
+      startingCommit = testCommit
     )
     val rejected = RecoveryCheck.validateHeader(header, prompt, Set("trunk"))
     assert(
@@ -125,20 +135,24 @@ class RecoveryCheckTest extends FunSuite:
     val header = ProgressHeader(
       startingBranch = "main",
       branch = "feat/do-the-thing",
-      promptHash = ProgressStore.hashPrompt(prompt),
-      branchMode = BranchMode.Created
+      branchMode = BranchMode.Created,
+      userPrompt = prompt,
+      flowName = None,
+      startingCommit = testCommit
     )
     assertEquals(
       RecoveryCheck.validateHeader(header, prompt, Set.empty).map(_.value),
       Right("feat/do-the-thing")
     )
 
-  test("validateHeader rejects a prompt-hash mismatch"):
+  test("validateHeader rejects a header written for a different prompt"):
     val header = ProgressHeader(
       startingBranch = "main",
       branch = "feat/do-the-thing",
-      promptHash = ProgressStore.hashPrompt("a different prompt"),
-      branchMode = BranchMode.Created
+      branchMode = BranchMode.Created,
+      userPrompt = "a different prompt",
+      flowName = None,
+      startingCommit = testCommit
     )
     assert(
       RecoveryCheck.validateHeader(header, "do the thing", Set.empty).isLeft
@@ -149,43 +163,9 @@ class RecoveryCheckTest extends FunSuite:
     val header = ProgressHeader(
       startingBranch = "-evil",
       branch = "feat/do-the-thing",
-      promptHash = ProgressStore.hashPrompt(prompt),
-      branchMode = BranchMode.Created
+      branchMode = BranchMode.Created,
+      userPrompt = prompt,
+      flowName = None,
+      startingCommit = testCommit
     )
     assert(RecoveryCheck.validateHeader(header, prompt, Set.empty).isLeft)
-
-  test("startingCommit is absent when the header never recorded one"):
-    // A log written before the field existed. The whole-run review has no base
-    // and skips; the run itself carries on.
-    val header = ProgressHeader(
-      startingBranch = "main",
-      branch = "feat/do-the-thing",
-      promptHash = "abc",
-      branchMode = BranchMode.Created
-    )
-    assertEquals(RecoveryCheck.startingCommit(header), None)
-
-  test("startingCommit drops a value that isn't a commit hash"):
-    // Hand-edited content: it only ever reaches git as a diff base, so it is
-    // dropped rather than passed on.
-    val header = ProgressHeader(
-      startingBranch = "main",
-      branch = "feat/do-the-thing",
-      promptHash = "abc",
-      branchMode = BranchMode.Created,
-      startingCommit = Some("--output=/etc/passwd")
-    )
-    assertEquals(RecoveryCheck.startingCommit(header), None)
-
-  test("startingCommit keeps a hash"):
-    val header = ProgressHeader(
-      startingBranch = "main",
-      branch = "feat/do-the-thing",
-      promptHash = "abc",
-      branchMode = BranchMode.Created,
-      startingCommit = Some("0badc0ffee0ddf00d1234567890abcdef1234567")
-    )
-    assertEquals(
-      RecoveryCheck.startingCommit(header).map(_.value),
-      Some("0badc0ffee0ddf00d1234567890abcdef1234567")
-    )

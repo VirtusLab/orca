@@ -19,8 +19,7 @@ shipped reviewers running beside you.
   `scala-fp` already covers. Actor-held state and test helpers are the
   sanctioned exceptions.
 - **No back-compat machinery**, and no default values on domain or persisted
-  fields; the two exceptions are ProgressLog/SessionRecord tolerant decoding
-  and RunManifest additive changes.
+  fields.
 - **Review vocabulary**: a reviewer or the lint gate reports a `finding`
   (`ReviewFinding`); `DeclinedFinding` is the fixer refusing one, with a reason
   it wrote; `OpenFinding(s)` is what the run leaves unresolved, each with an
@@ -32,7 +31,7 @@ shipped reviewers running beside you.
 - **Capability discipline**: `InStage.unsafe`/`WorkspaceWrite.unsafe` only in
   `RuntimeInStage` and tests; never drop a `(using InStage)` or `(using
   WorkspaceWrite)` to make code compile; `WorkspaceWrite` never crosses a fork.
-- **Writes under `.orca/`** go through `OrcaDir.ensureRoot`/`ensureCache`, and
+- **Writes under `.orca/`** go through an `OrcaDir.ensure*` accessor, and
   prefer `os.write` over `os.write.over`.
 - **Subprocesses capture stderr** — `QuietProc.call` or a `CliRunner`.
 - **Enums, not flags**: a domain mode is an enum, never a `Boolean` or a raw

@@ -1,24 +1,23 @@
 package orca.shell.cli
 
-import orca.StagePath
 import mainargs.ParserForMethods
+import orca.StagePath
 import orca.agents.{BackendTag, SessionKey}
-import orca.runner.manifest.{
-  ManifestOutcome,
-  ManifestSession,
-  ManifestSessionKind,
-  RunManifest
-}
+import orca.runner.manifest.{AttemptStatus, ManifestSession}
 import orca.settings.{AgentSettings, AgentSpec, SettingsFile}
 import orca.shell.ScanDirs
 import orca.shell.create.CreateTier
 import orca.discovery.Origin
 import orca.shell.flows.DiscoveredFlow
 import orca.shell.run.LaunchResult
-import orca.shell.sessions.{RecordedRun, SessionPicker, SessionSelection}
+import orca.shell.sessions.{RecordedAttempt, SessionPicker, SessionSelection}
+import orca.shell.sessions.ManifestFixtures.{
+  durable,
+  ephemeral,
+  manifest,
+  writeManifest
+}
 import orca.testkit.TempDirs
-
-import java.time.Instant
 
 class CliTest extends munit.FunSuite:
 
@@ -792,62 +791,32 @@ class CliTest extends munit.FunSuite:
 
   // --- continue: selector resolution (index / name / newest) ---
 
-  private def manifest(
-      workDir: String = "/work",
-      startedAt: String,
-      sessions: List[ManifestSession]
-  ): RunManifest =
-    RunManifest(
-      orcaVersion = "0.0.test",
-      flow = Some("a-flow.sc"),
-      workDir = workDir,
-      pid = 1,
-      startedAt = Instant.parse(startedAt),
-      finishedAt = None,
-      outcome = ManifestOutcome.Succeeded,
-      sessions = sessions
-    )
-
-  private def durable(
-      sessionName: String,
-      lastActiveAt: String,
-      sessionStage: String = "",
-      wireId: Option[String] = Some("uuid"),
-      reason: Option[String] = None
-  ): ManifestSession =
-    ManifestSession(
-      harness = "ClaudeCode",
-      wireId = wireId,
-      reason = reason,
-      agent = "main",
-      role = None,
-      stage = None,
-      sessionName = Some(sessionName),
-      sessionStage = Some(sessionStage),
-      kind = ManifestSessionKind.Durable,
-      firstSeenAt = Instant.parse(lastActiveAt),
-      lastActiveAt = Instant.parse(lastActiveAt)
-    )
-
-  private def runsFixture(): List[RecordedRun] =
+  private def attemptsFixture(): List[RecordedAttempt] =
     List(
-      RecordedRun(
+      RecordedAttempt(
         manifest(
           startedAt = "2026-07-18T09:00:00Z",
-          sessions = List(durable("newest", "2026-07-18T09:45:00Z"))
+          sessions = List(
+            durable(
+              sessionName = "newest",
+              lastActiveAt = "2026-07-18T09:45:00Z"
+            )
+          )
         ),
         crashed = false
       ),
-      RecordedRun(
+      RecordedAttempt(
         manifest(
           startedAt = "2026-07-17T09:00:00Z",
           sessions = List(
-            durable("older", "2026-07-17T09:30:00Z"),
             durable(
-              "unresumable",
-              "2026-07-17T09:29:00Z",
-              wireId = None,
-              reason = Some("pi has no id")
+              sessionName = "older",
+              lastActiveAt = "2026-07-17T09:30:00Z"
+            ),
+            durable(
+              sessionName = "unresumable",
+              lastActiveAt = "2026-07-17T09:29:00Z",
+              wireId = None
             )
           )
         ),
@@ -856,30 +825,35 @@ class CliTest extends munit.FunSuite:
     )
 
   test("resolveSelection: no selector resumes the newest durable lineage"):
-    val result = SessionPicker.resolveSelection(runsFixture(), None)
-    assertEquals(result.map(_.session.sessionName), Right(Some("newest")))
+    val result = SessionPicker.resolveSelection(attemptsFixture(), None)
+    assertEquals(
+      result.map(_.session.minted.map(_.name)),
+      Right(Some("newest"))
+    )
 
-  test("resolveSelection: no selector on an empty run list is an error"):
+  test("resolveSelection: no selector on an empty attempt list is an error"):
     assertEquals(
       SessionPicker.resolveSelection(Nil, None),
       Left("no sessions recorded yet")
     )
 
-  test("resolveSelection: no selector with only one-shot sessions is an error"):
-    val runs = List(
-      RecordedRun(
+  test(
+    "resolveSelection: no selector with only ephemeral sessions is an error"
+  ):
+    val attempts = List(
+      RecordedAttempt(
         manifest(
           startedAt = "2026-07-18T09:00:00Z",
           sessions = List(
-            durable("plan", "2026-07-18T09:45:00Z")
-              .copy(kind = ManifestSessionKind.OneShot)
+            durable(sessionName = "plan", lastActiveAt = "2026-07-18T09:45:00Z")
+              .copy(minted = None)
           )
         ),
         crashed = false
       )
     )
     assertEquals(
-      SessionPicker.resolveSelection(runs, None),
+      SessionPicker.resolveSelection(attempts, None),
       Left("no durable session to continue yet — see `orca continue --list`")
     )
 
@@ -889,8 +863,8 @@ class CliTest extends munit.FunSuite:
     // Full listing (expanded) order: newest, older, unresumable.
     assertEquals(
       SessionPicker
-        .resolveSelection(runsFixture(), Some("2"))
-        .map(_.session.sessionName),
+        .resolveSelection(attemptsFixture(), Some("2"))
+        .map(_.session.minted.map(_.name)),
       Right(Some("older"))
     )
 
@@ -898,40 +872,43 @@ class CliTest extends munit.FunSuite:
     "resolveSelection: an out-of-range index is an error naming the valid range"
   ):
     assertEquals(
-      SessionPicker.resolveSelection(runsFixture(), Some("99")),
+      SessionPicker.resolveSelection(attemptsFixture(), Some("99")),
       Left("no session at index 99 — see `orca continue --list` (1-3)")
     )
 
   test(
-    "resolveSelection: an index pointing at an unresumable row reports the stored reason"
+    "resolveSelection: an index pointing at an unresumable row says why"
   ):
     assertEquals(
-      SessionPicker.resolveSelection(runsFixture(), Some("3")),
-      Left("session 3 isn't resumable — pi has no id")
+      SessionPicker.resolveSelection(attemptsFixture(), Some("3")),
+      Left("session 3 isn't resumable — ClaudeCode session has no resumable id")
     )
 
   test("resolveSelection: a name selector resolves that durable lineage"):
     assertEquals(
       SessionPicker
-        .resolveSelection(runsFixture(), Some("older"))
-        .map(_.session.sessionName),
+        .resolveSelection(attemptsFixture(), Some("older"))
+        .map(_.session.minted.map(_.name)),
       Right(Some("older"))
     )
 
   test("resolveSelection: an unknown name is an error"):
     assertEquals(
-      SessionPicker.resolveSelection(runsFixture(), Some("no-such-session")),
+      SessionPicker
+        .resolveSelection(attemptsFixture(), Some("no-such-session")),
       Left(
         "no session named 'no-such-session' found — see `orca continue --list`"
       )
     )
 
   test(
-    "resolveSelection: a name selector on an unresumable session reports the reason"
+    "resolveSelection: a name selector on an unresumable session says why"
   ):
     assertEquals(
-      SessionPicker.resolveSelection(runsFixture(), Some("unresumable")),
-      Left("session 'unresumable' isn't resumable — pi has no id")
+      SessionPicker.resolveSelection(attemptsFixture(), Some("unresumable")),
+      Left(
+        "session 'unresumable' isn't resumable — ClaudeCode session has no resumable id"
+      )
     )
 
   private def durableAgent(
@@ -939,18 +916,10 @@ class CliTest extends munit.FunSuite:
       sessionName: String,
       lastActiveAt: String
   ): ManifestSession =
-    ManifestSession(
-      harness = "ClaudeCode",
-      wireId = Some("uuid"),
-      reason = None,
+    durable(
       agent = agent,
-      role = None,
-      stage = None,
-      sessionName = Some(sessionName),
-      sessionStage = Some(""),
-      kind = ManifestSessionKind.Durable,
-      firstSeenAt = Instant.parse(lastActiveAt),
-      lastActiveAt = Instant.parse(lastActiveAt)
+      sessionName = sessionName,
+      lastActiveAt = lastActiveAt
     )
 
   test(
@@ -958,19 +927,19 @@ class CliTest extends munit.FunSuite:
   ):
     // The minting stage tells rows apart for a reader; it does not address
     // them, so `continue implementer` must not start demanding one.
-    val runs = List(
-      RecordedRun(
+    val attempts = List(
+      RecordedAttempt(
         manifest(
           startedAt = "2026-07-18T09:00:00Z",
           sessions = List(
             durable(
-              "implementer",
-              "2026-07-18T09:30:00Z",
+              sessionName = "implementer",
+              lastActiveAt = "2026-07-18T09:30:00Z",
               sessionStage = "Task: parse the input#0"
             ),
             durable(
-              "implementer",
-              "2026-07-18T10:30:00Z",
+              sessionName = "implementer",
+              lastActiveAt = "2026-07-18T10:30:00Z",
               sessionStage = "Task: wire the parser#0"
             )
           )
@@ -980,8 +949,8 @@ class CliTest extends munit.FunSuite:
     )
     assertEquals(
       SessionPicker
-        .selectByName(runs, "implementer")
-        .map(_.session.mintedKey),
+        .selectByName(attempts, "implementer")
+        .map(_.session.minted),
       Right(
         Some(
           SessionKey(
@@ -995,8 +964,8 @@ class CliTest extends munit.FunSuite:
   test(
     "selectByName: a name shared by two distinct lineages (different agents) is ambiguous"
   ):
-    val runs = List(
-      RecordedRun(
+    val attempts = List(
+      RecordedAttempt(
         manifest(
           startedAt = "2026-07-18T09:00:00Z",
           sessions = List(
@@ -1008,7 +977,7 @@ class CliTest extends munit.FunSuite:
       )
     )
     assertEquals(
-      SessionPicker.selectByName(runs, "shared"),
+      SessionPicker.selectByName(attempts, "shared"),
       Left(
         "'shared' is ambiguous — matches agents: agentA, agentB; " +
           "run `orca continue --list` and pick one by its number"
@@ -1022,26 +991,36 @@ class CliTest extends munit.FunSuite:
     // unrelated tasks both record "shared" under the same agent. They are
     // different conversations (harness sessions are cwd-scoped) and must not
     // resolve silently to the newer one.
-    val runs = List(
-      RecordedRun(
+    val attempts = List(
+      RecordedAttempt(
         manifest(
           workDir = "/repo/.orca/worktrees/aaaaaaaaaaaa",
           startedAt = "2026-07-18T09:00:00Z",
-          sessions = List(durable("shared", "2026-07-18T09:30:00Z"))
+          sessions = List(
+            durable(
+              sessionName = "shared",
+              lastActiveAt = "2026-07-18T09:30:00Z"
+            )
+          )
         ),
         crashed = false
       ),
-      RecordedRun(
+      RecordedAttempt(
         manifest(
           workDir = "/repo/.orca/worktrees/bbbbbbbbbbbb",
           startedAt = "2026-07-18T08:00:00Z",
-          sessions = List(durable("shared", "2026-07-18T08:30:00Z"))
+          sessions = List(
+            durable(
+              sessionName = "shared",
+              lastActiveAt = "2026-07-18T08:30:00Z"
+            )
+          )
         ),
         crashed = false
       )
     )
     assertEquals(
-      SessionPicker.selectByName(runs, "shared"),
+      SessionPicker.selectByName(attempts, "shared"),
       Left(
         "'shared' is ambiguous — matches working directories: " +
           "/repo/.orca/worktrees/aaaaaaaaaaaa, /repo/.orca/worktrees/bbbbbbbbbbbb; " +
@@ -1050,29 +1029,29 @@ class CliTest extends munit.FunSuite:
     )
     // Both are primary rows, and each says which tree it is in.
     val labels = SessionPicker
-      .withoutExpanders(SessionPicker.sessionRows(runs, expanded = false))
+      .withoutExpanders(SessionPicker.sessionRows(attempts, expanded = false))
       .map(_.label)
     assertEquals(labels.count(_.contains("★")), 2)
     assert(labels.exists(_.contains("@aaaaaaaaaaaa")), labels.toString)
     assert(labels.exists(_.contains("@bbbbbbbbbbbb")), labels.toString)
 
   test("lineages differing only in their minting stage say which stage"):
-    // Two per-task `implementer` sessions of one run: same name, same harness,
+    // Two per-task `implementer` sessions of one attempt: same name, same harness,
     // same (absent) last-active stage, one tree — the minting stage is all
     // there is to tell them apart.
-    val runs = List(
-      RecordedRun(
+    val attempts = List(
+      RecordedAttempt(
         manifest(
           startedAt = "2026-07-18T09:00:00Z",
           sessions = List(
             durable(
-              "implementer",
-              "2026-07-18T09:30:00Z",
+              sessionName = "implementer",
+              lastActiveAt = "2026-07-18T09:30:00Z",
               sessionStage = "Task: parse#0"
             ),
             durable(
-              "implementer",
-              "2026-07-18T09:40:00Z",
+              sessionName = "implementer",
+              lastActiveAt = "2026-07-18T09:40:00Z",
               sessionStage = "Task: wire#0"
             )
           )
@@ -1081,7 +1060,7 @@ class CliTest extends munit.FunSuite:
       )
     )
     val labels = SessionPicker
-      .withoutExpanders(SessionPicker.sessionRows(runs, expanded = false))
+      .withoutExpanders(SessionPicker.sessionRows(attempts, expanded = false))
       .map(_.label)
     assertEquals(labels.distinct.size, 2, labels.toString)
     assert(
@@ -1094,14 +1073,14 @@ class CliTest extends munit.FunSuite:
     )
 
   test("a lineage nothing collides with does not print its minting stage"):
-    val runs = List(
-      RecordedRun(
+    val attempts = List(
+      RecordedAttempt(
         manifest(
           startedAt = "2026-07-18T09:00:00Z",
           sessions = List(
             durable(
-              "implementer",
-              "2026-07-18T09:30:00Z",
+              sessionName = "implementer",
+              lastActiveAt = "2026-07-18T09:30:00Z",
               sessionStage = "Task: parse#0"
             )
           )
@@ -1110,19 +1089,19 @@ class CliTest extends munit.FunSuite:
       )
     )
     val labels = SessionPicker
-      .withoutExpanders(SessionPicker.sessionRows(runs, expanded = false))
+      .withoutExpanders(SessionPicker.sessionRows(attempts, expanded = false))
       .map(_.label)
     assert(!labels.exists(_.contains("minted in")), labels.toString)
 
   test("sessionListingRows carries the minting stage for scripts"):
-    val runs = List(
-      RecordedRun(
+    val attempts = List(
+      RecordedAttempt(
         manifest(
           startedAt = "2026-07-18T09:00:00Z",
           sessions = List(
             durable(
-              "implementer",
-              "2026-07-18T09:30:00Z",
+              sessionName = "implementer",
+              lastActiveAt = "2026-07-18T09:30:00Z",
               sessionStage = "Task: wire the parser#0"
             )
           )
@@ -1131,31 +1110,41 @@ class CliTest extends munit.FunSuite:
       )
     )
     assertEquals(
-      Tables.sessionListingRows(runs).head.sessionStage,
+      Tables.sessionListingRows(attempts).head.sessionStage,
       Some("Task: wire the parser#0")
     )
 
   test(
     "successive runs in ONE directory still collapse into a single lineage"
   ):
-    val runs = List(
-      RecordedRun(
+    val attempts = List(
+      RecordedAttempt(
         manifest(
           startedAt = "2026-07-18T09:00:00Z",
-          sessions = List(durable("shared", "2026-07-18T09:30:00Z"))
+          sessions = List(
+            durable(
+              sessionName = "shared",
+              lastActiveAt = "2026-07-18T09:30:00Z"
+            )
+          )
         ),
         crashed = false
       ),
-      RecordedRun(
+      RecordedAttempt(
         manifest(
           startedAt = "2026-07-18T08:00:00Z",
-          sessions = List(durable("shared", "2026-07-18T08:30:00Z"))
+          sessions = List(
+            durable(
+              sessionName = "shared",
+              lastActiveAt = "2026-07-18T08:30:00Z"
+            )
+          )
         ),
         crashed = false
       )
     )
     val labels = SessionPicker
-      .withoutExpanders(SessionPicker.sessionRows(runs, expanded = false))
+      .withoutExpanders(SessionPicker.sessionRows(attempts, expanded = false))
       .map(_.label)
     assertEquals(labels.count(_.contains("★")), 1)
     // One directory, so nothing to disambiguate.
@@ -1164,7 +1153,7 @@ class CliTest extends munit.FunSuite:
   test(
     "sessionListingRows numbers rows 1-based in the same order continue <n> uses"
   ):
-    val rows = Tables.sessionListingRows(runsFixture())
+    val rows = Tables.sessionListingRows(attemptsFixture())
     assertEquals(
       rows.map(r => (r.index, r.sessionName)),
       List((1, "newest"), (2, "older"), (3, "unresumable"))
@@ -1174,11 +1163,11 @@ class CliTest extends munit.FunSuite:
   // --- resumeNotice: the resolved session's identity, printed before resuming ---
 
   test("resumeNotice: names the session, harness, and workDir"):
-    val run = runsFixture().head
+    val attempt = attemptsFixture().head
     val selection =
       SessionSelection(
-        run.manifest,
-        run.manifest.sessions.head,
+        attempt.manifest,
+        attempt.manifest.sessions.head,
         crashed = false
       )
     assertEquals(
@@ -1187,19 +1176,24 @@ class CliTest extends munit.FunSuite:
     )
 
   test("resumeNotice: includes the stage when the session has one"):
-    val run = runsFixture().head
+    val attempt = attemptsFixture().head
     val withStage =
-      run.manifest.sessions.head.copy(stage = Some("Task: fix a bug"))
-    val selection = SessionSelection(run.manifest, withStage, crashed = false)
+      attempt.manifest.sessions.head.copy(stage = Some("Task: fix a bug"))
+    val selection =
+      SessionSelection(attempt.manifest, withStage, crashed = false)
     assertEquals(
       ContinueCli.resumeNotice(selection),
       "resuming session 'newest' [claude], stage 'Task: fix a bug', in /work"
     )
 
-  test("resumeNotice: mentions a crashed run"):
-    val run = runsFixture().head
+  test("resumeNotice: mentions a crashed attempt"):
+    val attempt = attemptsFixture().head
     val selection =
-      SessionSelection(run.manifest, run.manifest.sessions.head, crashed = true)
+      SessionSelection(
+        attempt.manifest,
+        attempt.manifest.sessions.head,
+        crashed = true
+      )
     assertEquals(
       ContinueCli.resumeNotice(selection),
       "resuming session 'newest' [claude], in /work (crashed)"
@@ -1210,17 +1204,17 @@ class CliTest extends munit.FunSuite:
   /** A manifest missing the required `workDir` — the reader refuses it and
     * warns, which is what this test needs a warning for.
     */
-  private def writeUnreadableManifest(dir: os.Path): Unit =
+  private def writeCorruptManifest(dir: os.Path): Unit =
     val json =
       """{
         |  "orcaVersion": "0.0.test",
         |  "pid": 1,
         |  "startedAt": "2026-07-18T09:00:00Z",
-        |  "outcome": "succeeded",
+        |  "status": "Succeeded",
         |  "sessions": []
         |}""".stripMargin
     os.write(
-      dir / ".orca" / "cache" / "runs" / "unreadable.json",
+      dir / ".orca" / "cache" / "attempts" / "corrupt.manifest.json",
       json,
       createFolders = true
     )
@@ -1229,7 +1223,7 @@ class CliTest extends munit.FunSuite:
     "runContinue --list --json: a skipped-manifest warning lands on stderr, only JSON on stdout"
   ):
     val dir = TempDirs.dir()
-    writeUnreadableManifest(dir)
+    writeCorruptManifest(dir)
     val (out, err) = capturedBoth(
       assertEquals(
         ContinueCli
@@ -1244,67 +1238,32 @@ class CliTest extends munit.FunSuite:
       )
     )
     assertEquals(out.trim, "[]")
-    assert(err.contains("unreadable.json"), err)
+    assert(err.contains("corrupt.manifest.json"), err)
 
   private def writeCrashedManifest(dir: os.Path): Unit =
-    val json =
-      s"""{
-        |  "orcaVersion": "0.0.test",
-        |  "workDir": "/work",
-        |  "pid": 999999,
-        |  "startedAt": "2026-07-18T09:00:00Z",
-        |  "outcome": "running",
-        |  "cost": {
-        |    "total": {
-        |      "inputTokens": 0,
-        |      "outputTokens": 0,
-        |      "cacheReadInputTokens": 0,
-        |      "cacheWriteInputTokens": 0,
-        |      "reasoningOutputTokens": 0
-        |    },
-        |    "byRole": [],
-        |    "byAgent": [],
-        |    "byStage": []
-        |  },
-        |  "turns": [],
-        |  "sessions": [{
-        |    "harness": "ClaudeCode",
-        |    "wireId": "uuid",
-        |    "agent": "main",
-        |    "sessionName": "main",
-        |    "kind": "durable",
-        |    "firstSeenAt": "2026-07-18T09:00:00Z",
-        |    "lastActiveAt": "2026-07-18T09:00:00Z"
-        |  }]
-        |}""".stripMargin
-    os.write(
-      dir / ".orca" / "cache" / "runs" / "a.json",
-      json,
-      createFolders = true
+    writeManifest(
+      dir,
+      manifest(
+        startedAt = "2026-07-18T09:00:00Z",
+        pid = 999999,
+        status = AttemptStatus.Running,
+        sessions = List(durable(lastActiveAt = "2026-07-18T09:00:00Z"))
+      )
     )
 
   private def writeSessionManifest(dir: os.Path, workDir: String): Unit =
-    val json =
-      s"""{
-        |  "orcaVersion": "0.0.test",
-        |  "workDir": "$workDir",
-        |  "pid": 1,
-        |  "startedAt": "2026-07-18T09:00:00Z",
-        |  "outcome": "succeeded",
-        |  "sessions": [{
-        |    "harness": "ClaudeCode",
-        |    "wireId": "uuid",
-        |    "agent": "main",
-        |    "sessionName": "implementer",
-        |    "kind": "durable",
-        |    "firstSeenAt": "2026-07-18T09:00:00Z",
-        |    "lastActiveAt": "2026-07-18T09:00:00Z"
-        |  }]
-        |}""".stripMargin
-    os.write(
-      dir / ".orca" / "cache" / "runs" / "a.json",
-      json,
-      createFolders = true
+    writeManifest(
+      dir,
+      manifest(
+        workDir = workDir,
+        startedAt = "2026-07-18T09:00:00Z",
+        sessions = List(
+          durable(
+            sessionName = "implementer",
+            lastActiveAt = "2026-07-18T09:00:00Z"
+          )
+        )
+      )
     )
 
   test("runContinue --list: rows across worktrees say which tree each is in"):
@@ -1347,7 +1306,7 @@ class CliTest extends munit.FunSuite:
     assert(out.contains("implementer"), out)
     assert(!out.contains("@"), out)
 
-  test("runContinue --list --json: each row carries its run's workDir"):
+  test("runContinue --list --json: each row carries its attempt's workDir"):
     val checkout = TempDirs.dir()
     writeSessionManifest(checkout, "/repo")
     val out = captured(
@@ -1364,7 +1323,31 @@ class CliTest extends munit.FunSuite:
     )
     assert(out.contains("\"workDir\":\"/repo\""), out)
 
-  test("runContinue --list --json: a crashed run reports crashed=true"):
+  test("runContinue --list --json: kind is Durable or Ephemeral"):
+    val dir = TempDirs.dir()
+    writeManifest(
+      dir,
+      manifest(
+        startedAt = "2026-07-18T09:00:00Z",
+        sessions = List(durable(), ephemeral(agent = "reviewer"))
+      )
+    )
+    val out = captured(
+      assertEquals(
+        ContinueCli.runContinue(
+          ScanDirs(dir, Nil),
+          None,
+          list = true,
+          json = true,
+          tty = false
+        ),
+        ExitCodes.Ok
+      )
+    )
+    assert(out.contains("\"kind\":\"Durable\""), out)
+    assert(out.contains("\"kind\":\"Ephemeral\""), out)
+
+  test("runContinue --list --json: a crashed attempt reports crashed=true"):
     val dir = TempDirs.dir()
     writeCrashedManifest(dir)
     val out = captured(
@@ -1382,7 +1365,9 @@ class CliTest extends munit.FunSuite:
     )
     assert(out.contains("\"crashed\":true"), out)
 
-  test("runContinue --list: a crashed run's table row is suffixed (crashed)"):
+  test(
+    "runContinue --list: a crashed attempt's table row is suffixed (crashed)"
+  ):
     val dir = TempDirs.dir()
     writeCrashedManifest(dir)
     val out = captured(
@@ -1405,41 +1390,18 @@ class CliTest extends munit.FunSuite:
   ):
     val dir = TempDirs.dir()
     val goneWorkDir = (dir / "gone").toString
-    val json =
-      s"""{
-        |  "orcaVersion": "0.0.test",
-        |  "workDir": "$goneWorkDir",
-        |  "pid": 1,
-        |  "startedAt": "2026-07-18T09:00:00Z",
-        |  "outcome": "succeeded",
-        |  "cost": {
-        |    "total": {
-        |      "inputTokens": 0,
-        |      "outputTokens": 0,
-        |      "cacheReadInputTokens": 0,
-        |      "cacheWriteInputTokens": 0,
-        |      "reasoningOutputTokens": 0
-        |    },
-        |    "byRole": [],
-        |    "byAgent": [],
-        |    "byStage": []
-        |  },
-        |  "turns": [],
-        |  "sessions": [{
-        |    "harness": "ClaudeCode",
-        |    "wireId": "uuid",
-        |    "agent": "main",
-        |    "stage": "Task: fix a bug",
-        |    "sessionName": "main",
-        |    "kind": "durable",
-        |    "firstSeenAt": "2026-07-18T09:00:00Z",
-        |    "lastActiveAt": "2026-07-18T09:00:00Z"
-        |  }]
-        |}""".stripMargin
-    os.write(
-      dir / ".orca" / "cache" / "runs" / "a.json",
-      json,
-      createFolders = true
+    writeManifest(
+      dir,
+      manifest(
+        workDir = goneWorkDir,
+        startedAt = "2026-07-18T09:00:00Z",
+        sessions = List(
+          durable(
+            stage = Some("Task: fix a bug"),
+            lastActiveAt = "2026-07-18T09:00:00Z"
+          )
+        )
+      )
     )
     val (out, err) = capturedBoth(
       assertEquals(

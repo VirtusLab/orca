@@ -193,9 +193,9 @@ private[shell] object FlowLauncher:
     else LaunchResult.Failed(exit)
 
   /** `ORCA_FLOW_NAME`, read by `runner`'s `flow()` (`orca/flowEntry.scala`) to
-    * stamp the run manifest's `flow` field — the flow script's own filename,
-    * per the manifest schema (`RunManifest.flow`'s scaladoc examples),
-    * unavailable from inside the running script itself.
+    * stamp the attempt manifest's `flow` field — the flow script's own
+    * filename, per the manifest schema (`AttemptManifest.flow`'s scaladoc
+    * examples), unavailable from inside the running script itself.
     */
   private[run] def childEnv(flow: os.Path): Map[String, String] =
     Map("ORCA_FLOW_NAME" -> flow.last)

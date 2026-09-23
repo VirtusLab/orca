@@ -123,30 +123,26 @@ object TestFlowControl:
       lead: Option[Agent[BackendTag.ClaudeCode.type]] = None,
       stackSettings: StackSettings = StackSettings.empty,
       reviewerCatalog: ReviewerCatalog = ReviewerCatalog.builtIn,
-      // False models a run left with no whole-run diff base: no header recorded
-      // one, or the one it recorded was dropped as unusable. Everything else
-      // about the fixture is unchanged.
-      recordStartingCommit: Boolean = true
+      // False models a resume whose recorded base was dropped as unreachable.
+      startingCommitUsable: Boolean = true
   ): (TestFlowControl, os.Path) =
     val dir = GitRepo.seeded()
     val git = new OsGitTool(dir)
-    val store = ProgressStore.default(dir, userPrompt)
-    val sessions = SessionStore.default(dir, userPrompt)
+    val runKey = RunKey.of(userPrompt)
+    val store = ProgressStore.default(dir, runKey)
+    val sessions = SessionStore.default(dir, runKey)
     given WorkspaceWrite = WorkspaceWrite.unsafe
-    // The seed commit stands in for the commit a real run binds at, so a
-    // whole-run diff base is present here as it is in production.
-    val startingCommit =
-      Option
-        .when(recordStartingCommit)(git.headCommit())
-        .flatten
-        .flatMap(CommitHash.from)
+    // The seed commit stands in for the commit a real run binds at.
+    val headCommit = git.headCommit().flatMap(CommitHash.from).get
+    val startingCommit = Option.when(startingCommitUsable)(headCommit)
     store.writeHeader(
       ProgressHeader(
         "main",
         "feat/test",
-        "deadbeef",
         BranchMode.Created,
-        startingCommit = startingCommit.map(_.value)
+        userPrompt = userPrompt,
+        flowName = None,
+        startingCommit = headCommit
       )
     )
     (

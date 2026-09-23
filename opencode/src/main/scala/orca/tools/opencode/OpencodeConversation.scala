@@ -190,7 +190,7 @@ private[opencode] class OpencodeConversation(
 
   /** What a COMPLETED turn reports. Unlike [[failedTurnDebit]] there is no
     * "nothing measured" case to represent: every completed turn owes a
-    * `TokensUsed`, since the cost log keeps one line per turn and the attempt
+    * `TokensUsed`, since the cost log keeps one line per turn and its `turn`
     * index counts them. A message that carried no `tokens` settles at zero —
     * still carrying any cost opencode reported alongside them.
     */

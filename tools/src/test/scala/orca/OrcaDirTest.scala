@@ -3,6 +3,8 @@ package orca
 import ox.discard
 import orca.testkit.TempDirs
 
+import java.time.Instant
+
 class OrcaDirTest extends munit.FunSuite:
 
   test("ensureCache creates the cache dir with exact marker file contents"):
@@ -106,17 +108,88 @@ class OrcaDirTest extends munit.FunSuite:
     )
     assert(ex.getMessage.contains("symlink"), ex.getMessage)
 
-  test("cacheRunsPath creates .orca/cache/runs, including the cache dir"):
+  test("ensureRuns creates the committed .orca/runs with no markers"):
     val wd = TempDirs.dir()
-    val runs = OrcaDir.cacheRunsPath(wd)
+    val runs = OrcaDir.ensureRuns(wd)
+    assertEquals(runs, wd / ".orca" / "runs")
+    assert(os.isDir(runs))
+    assertEquals(os.list(runs).toList, Nil)
+    assert(!os.exists(wd / ".orca" / "cache"))
+
+  test("ensureRuns aborts on a symlinked .orca/runs"):
+    val wd = TempDirs.dir()
+    val outside = TempDirs.dir() / "outside-runs"
+    os.makeDir.all(outside)
+    os.makeDir.all(OrcaDir.rootPath(wd))
+    os.symlink(OrcaDir.runsPath(wd), outside)
+    intercept[OrcaFlowException](OrcaDir.ensureRuns(wd)).discard
+
+  test("runsPath points at .orca/runs without creating anything"):
+    val wd = TempDirs.dir()
+    assertEquals(OrcaDir.runsPath(wd), wd / ".orca" / "runs")
+    assert(!os.exists(wd / ".orca"))
+
+  test("progressPath is .orca/runs/<key>.progress.json"):
+    val wd = TempDirs.dir()
+    assertEquals(
+      OrcaDir.progressPath(wd, RunKey.of("p")),
+      wd / ".orca" / "runs" / s"${RunKey.of("p").value}.progress.json"
+    )
+
+  test("sessionRecordsPath is .orca/cache/runs/<key>.sessions.json"):
+    val wd = TempDirs.dir()
+    assertEquals(
+      OrcaDir.sessionRecordsPath(wd, RunKey.of("p")),
+      wd / ".orca" / "cache" / "runs" / s"${RunKey.of("p").value}.sessions.json"
+    )
+    assert(!os.exists(wd / ".orca"))
+
+  test("ensureCacheRuns creates .orca/cache/runs, including the cache markers"):
+    val wd = TempDirs.dir()
+    val runs = OrcaDir.ensureCacheRuns(wd)
     assertEquals(runs, wd / ".orca" / "cache" / "runs")
     assert(os.isDir(runs))
-    assert(os.isDir(wd / ".orca" / "cache"))
+    assert(os.exists(wd / ".orca" / "cache" / ".gitignore"))
 
-  test("runsPath points at .orca/cache/runs without creating anything"):
+  test("ensureCacheRuns aborts on a symlinked .orca/cache/runs"):
     val wd = TempDirs.dir()
-    assertEquals(OrcaDir.runsPath(wd), wd / ".orca" / "cache" / "runs")
+    val outside = TempDirs.dir() / "outside-runs"
+    os.makeDir.all(outside)
+    OrcaDir.ensureCache(wd).discard
+    os.symlink(wd / ".orca" / "cache" / "runs", outside)
+    intercept[OrcaFlowException](OrcaDir.ensureCacheRuns(wd)).discard
+
+  test("ensureAttempts creates .orca/cache/attempts, including the cache dir"):
+    val wd = TempDirs.dir()
+    val attempts = OrcaDir.ensureAttempts(wd)
+    assertEquals(attempts, wd / ".orca" / "cache" / "attempts")
+    assert(os.isDir(attempts))
+    assert(os.exists(wd / ".orca" / "cache" / ".gitignore"))
+
+  test("ensureAttempts aborts on a symlinked .orca/cache/attempts"):
+    val wd = TempDirs.dir()
+    val outside = TempDirs.dir() / "outside-attempts"
+    os.makeDir.all(outside)
+    OrcaDir.ensureCache(wd).discard
+    os.symlink(OrcaDir.attemptsPath(wd), outside)
+    intercept[OrcaFlowException](OrcaDir.ensureAttempts(wd)).discard
+
+  test("attemptsPath points at .orca/cache/attempts without creating anything"):
+    val wd = TempDirs.dir()
+    assertEquals(OrcaDir.attemptsPath(wd), wd / ".orca" / "cache" / "attempts")
     assert(!os.exists(wd / ".orca"))
+
+  test("manifestPath and costLogPath share the attempt id as their stem"):
+    val wd = TempDirs.dir()
+    val id = AttemptId(Instant.ofEpochMilli(1700000000000L), 42L)
+    assertEquals(
+      OrcaDir.manifestPath(wd, id),
+      wd / ".orca" / "cache" / "attempts" / "1700000000000-42.manifest.json"
+    )
+    assertEquals(
+      OrcaDir.costLogPath(wd, id),
+      wd / ".orca" / "cache" / "attempts" / "1700000000000-42.cost.jsonl"
+    )
 
   test(
     "ensurePiSessions creates .orca/cache/pi-sessions, including the cache markers"

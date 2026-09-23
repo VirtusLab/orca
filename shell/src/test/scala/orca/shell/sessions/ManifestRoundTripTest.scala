@@ -3,20 +3,19 @@ package orca.shell.sessions
 import orca.StagePath
 import orca.agents.SessionKey
 import orca.events.OrcaEvent
-import orca.testkit.Usages.usage
-import orca.runner.manifest.{RunManifestWriter, RunOutcome}
+import orca.runner.manifest.{AttemptManifestWriter, AttemptOutcome}
 import orca.testkit.TempDirs
 import ox.channels.BufferCapacity
 import ox.supervised
 
 import java.time.Instant
 
-/** One round trip through the REAL codecs on both ends: [[RunManifestWriter]]
-  * (the production listener `flow()` attaches) writes a session to disk, then
-  * [[ManifestReader.list]] reads it back. Every other `ManifestReaderTest` case
-  * hand-builds its JSON fixture directly, so a schema drift between the writer
-  * and the reader (a renamed field, a codec config mismatch) would go
-  * undetected without this.
+/** One round trip through the REAL codecs on both ends:
+  * [[AttemptManifestWriter]] (the production listener `flow()` attaches) writes
+  * a session to disk, then [[ManifestReader.list]] reads it back. Every other
+  * `ManifestReaderTest` case hand-builds its JSON fixture directly, so a schema
+  * drift between the writer and the reader (a renamed field, a codec config
+  * mismatch) would go undetected without this.
   */
 class ManifestRoundTripTest extends munit.FunSuite:
 
@@ -28,10 +27,11 @@ class ManifestRoundTripTest extends munit.FunSuite:
       SessionKey(name = "coder", stage = StagePath.FlowBody.child("Task 2", 0))
     supervised:
       given BufferCapacity = BufferCapacity(8)
-      val writer = RunManifestWriter.start(
+      val writer = AttemptManifestWriter.start(
         workDir,
         "0.0.test",
         Some("a-flow.sc"),
+        pid = 1,
         () => Instant.now()
       )
       writer.onEvent(OrcaEvent.StageStarted("code"))
@@ -45,36 +45,15 @@ class ManifestRoundTripTest extends munit.FunSuite:
           role = None
         )
       )
-      writer.onEvent(
-        OrcaEvent.TokensUsed(
-          "claude",
-          None,
-          usage(1_000, 200, Some(BigDecimal("0.5"))),
-          Some("reviewer"),
-          cost = None
-        )
-      )
-      writer.finish(RunOutcome.Succeeded)
+      writer.finish(AttemptOutcome.Succeeded)
 
-    val (runs, warnings) =
+    val AttemptListing(attempts, warnings) =
       ManifestReader.list(workDir, Nil, pidAlive = _ => true)
     assertEquals(warnings, Nil)
-    assertEquals(runs.size, 1)
-    assertEquals(runs.head.crashed, false)
-    val session = runs.head.manifest.sessions.head
+    assertEquals(attempts.size, 1)
+    assertEquals(attempts.head.crashed, false)
+    val session = attempts.head.manifest.sessions.head
     assertEquals(session.harness, "claude")
     assertEquals(session.wireId, Some("wire-1"))
-    assertEquals(session.resumable, true)
-    assertEquals(
-      session.mintedKey,
-      Some(coderKey)
-    )
+    assertEquals(session.minted, Some(coderKey))
     assertEquals(session.stage, Some("code"))
-    // The same run wrote a `-cost.jsonl` beside the manifest (the TokensUsed
-    // above). The shell selects by `ext == "json"`, so it must not appear as a
-    // manifest that fails to decode — `warnings` being empty is that check.
-    assert(
-      os.list(workDir / ".orca" / "cache" / "runs")
-        .exists(_.last.endsWith("-cost.jsonl")),
-      "expected the run's cost log beside its manifest"
-    )

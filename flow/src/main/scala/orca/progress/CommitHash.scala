@@ -1,12 +1,17 @@
 package orca.progress
 
+import com.github.plokhotnyuk.jsoniter_scala.core.{JsonReader, JsonWriter}
+import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
+import orca.agents.JsonData
+import sttp.tapir.Schema
+
 /** A git commit hash that has passed the shape check, so what carries it can't
   * be confused with an arbitrary string from the progress header.
   *
   * Like [[FeatureBranch]], the type is the guarantee: [[CommitHash.from]] is
   * the only way in, and [[value]] is unwrapped at the `GitTool` call site. The
-  * header field itself stays a raw `Option[String]` — it is untrusted wire data
-  * that must keep decoding leniently.
+  * JSON codec decodes through [[from]] too, so a header holding something else
+  * fails to parse rather than reaching git.
   */
 opaque type CommitHash = String
 
@@ -23,6 +28,18 @@ object CommitHash:
     * this), so anything shorter is not a hash a caller could have meant.
     */
   private val MinAbbrevLength: Int = 4
+
+  given JsonData[CommitHash] = JsonData(
+    Schema.schemaForString,
+    new ConfiguredJsonValueCodec[CommitHash]:
+      def decodeValue(in: JsonReader, default: CommitHash): CommitHash =
+        in.readString(null) match
+          case null => in.decodeError("expected a commit hash")
+          case s =>
+            from(s).getOrElse(in.decodeError(s"not a commit hash: $s"))
+      def encodeValue(x: CommitHash, out: JsonWriter): Unit = out.writeVal(x)
+      def nullValue: CommitHash = null
+  )
 
   extension (h: CommitHash)
     /** Unwrap for the git layer — call at the `GitTool` call site, not earlier.

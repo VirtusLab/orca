@@ -389,7 +389,7 @@ class BaseAgentTest extends munit.FunSuite:
     )
     val _ = tool.resultAs[FixOutcome].autonomous.run("fix compile errors")
     assertEquals(
-      seen.get().reverse.collect { case t: OrcaEvent.TokensUsed => t.attempt },
+      seen.get().reverse.collect { case t: OrcaEvent.TokensUsed => t.turn },
       List(1, 2)
     )
 
@@ -415,7 +415,7 @@ class BaseAgentTest extends munit.FunSuite:
     )
     val _ = tool.resultAs[FixOutcome].autonomous.run("fix compile errors")
     assertEquals(
-      seen.get().reverse.collect { case t: OrcaEvent.TokensUsed => t.attempt },
+      seen.get().reverse.collect { case t: OrcaEvent.TokensUsed => t.turn },
       List(1)
     )
 

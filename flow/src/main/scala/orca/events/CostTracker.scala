@@ -9,10 +9,11 @@ import java.util.concurrent.atomic.AtomicReference
   * by `agent`, by `model` and by `role`. State is held in an `AtomicReference`
   * so the tracker is safe to register across concurrent LLM calls.
   *
-  * Cost comes off the event, resolved once for the whole run by
+  * Cost comes off the event, resolved once for the whole attempt by
   * [[CostResolvingDispatcher]] — the tracker prices nothing, so it cannot
-  * report a figure that disagrees with the run's. `pricingAsOf` is the legend's
-  * date only; pass the `lastUpdated` of the table the run prices with.
+  * report a figure that disagrees with the attempt's. `pricingAsOf` is the
+  * legend's date only; pass the `lastUpdated` of the table the attempt prices
+  * with.
   *
   * All axes share the same underlying calls, so summing any of the maps — or
   * any section the summary renders — yields the grand total. The `model` and
@@ -32,9 +33,9 @@ class CostTracker(pricingAsOf: LocalDate) extends OrcaListener:
       byAgent: Map[String, Tally] = Map.empty,
       byModel: Map[Option[Model], Tally] = Map.empty,
       byRole: Map[Option[String], Tally] = Map.empty,
-      /** Whether any turn spent tokens the run could not price. A bucket mixing
-        * priced and unpriced turns still has a `Tally.cost`, so this cannot be
-        * derived from the maps afterwards.
+      /** Whether any turn spent tokens the attempt could not price. A bucket
+        * mixing priced and unpriced turns still has a `Tally.cost`, so this
+        * cannot be derived from the maps afterwards.
         */
       anyUnpriced: Boolean = false
   ):
@@ -64,7 +65,7 @@ class CostTracker(pricingAsOf: LocalDate) extends OrcaListener:
   private val state: AtomicReference[State] = AtomicReference(State())
 
   def onEvent(event: OrcaEvent): Unit = event match
-    // `attempt` is ignored: a retry's tokens count toward the run's spend like
+    // `turn` is ignored: a retry's tokens count toward the attempt's spend like
     // any other turn's.
     case t: OrcaEvent.TokensUsed =>
       val _ = state.updateAndGet(
@@ -112,24 +113,25 @@ class CostTracker(pricingAsOf: LocalDate) extends OrcaListener:
     buckets.collect { case (key, Tally(_, Some(cost))) => key -> cost }
 
   /** One or two sections — by-role and by-model — each sorted alphabetically by
-    * its rendered label, then the run's total. The by-role section appears only
-    * when some call carried a [[orca.agents.Agent.role]] tag, and then includes
-    * the `(no role)` bucket too, so it still sums to the run's total. Cache
-    * reads, cache writes and reasoning tokens are shown parenthetically when
-    * non-zero. Token counts are rendered compactly (`1K`, `103.8K`, `3.2M`)
-    * from 1000 up, a count and its parenthetical breakdown at one shared unit
-    * (`1.63M in (1.15M cache read, 0.48M cache write)`); cost (when known)
-    * stays exact and is appended as `$X.XXXX`, with an asterisk marking an
-    * estimated figure and a trailing legend line when any estimate is present.
+    * its rendered label, then the attempt's total. The by-role section appears
+    * only when some call carried a [[orca.agents.Agent.role]] tag, and then
+    * includes the `(no role)` bucket too, so it still sums to the attempt's
+    * total. Cache reads, cache writes and reasoning tokens are shown
+    * parenthetically when non-zero. Token counts are rendered compactly (`1K`,
+    * `103.8K`, `3.2M`) from 1000 up, a count and its parenthetical breakdown at
+    * one shared unit (`1.63M in (1.15M cache read, 0.48M cache write)`); cost
+    * (when known) stays exact and is appended as `$X.XXXX`, with an asterisk
+    * marking an estimated figure and a trailing legend line when any estimate
+    * is present.
     *
     * Per-agent spend is deliberately absent: this block is read at the moment
-    * the user wants a verdict, and the run's `<id>-cost.jsonl` carries `agent`
-    * on every turn for anyone who wants that fold.
+    * the user wants a verdict, and the attempt's `<id>.cost.jsonl` carries
+    * `agent` on every turn for anyone who wants that fold.
     *
     * A turn that spent tokens but resolved to no cost contributes nothing to
     * the total, so the total's label carries `(some turns unpriced)` and gains
-    * its own legend line — otherwise a partial sum would read as the run's full
-    * spend.
+    * its own legend line — otherwise a partial sum would read as the attempt's
+    * full spend.
     *
     * Empty string when no `TokensUsed` events have been observed.
     */
@@ -152,14 +154,14 @@ class CostTracker(pricingAsOf: LocalDate) extends OrcaListener:
       ).flatten
       s"${sections.mkString("\n\n")}${totalLine(s)}${legend(s)}"
 
-  /** The run's total, qualified when some turns could not be priced. */
+  /** The attempt's total, qualified when some turns could not be priced. */
   private def totalLine(s: State): String =
     totalCostOf(s).fold(""): c =>
       // The "Estimated" prefix already conveys what the per-line asterisk
       // does, so we drop the marker on the total to avoid `Estimated
       // total: $1.10*` reading like double-counting.
       val label = if c.estimated then "Estimated total" else "Total"
-      // Unqualified, the figure reads as the run's full spend; it is only
+      // Unqualified, the figure reads as the attempt's full spend; it is only
       // the sum of the turns that could be priced.
       val qualifier = if s.anyUnpriced then " (some turns unpriced)" else ""
       s"\n\n$label$qualifier: ${formatAmount(c)}"

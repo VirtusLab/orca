@@ -2,7 +2,12 @@ package orca.shell.cli
 
 import orca.shell.ScanDirs
 import orca.shell.actions.SessionAction
-import orca.shell.sessions.{ManifestReader, SessionPicker, SessionSelection}
+import orca.shell.sessions.{
+  AttemptListing,
+  ManifestReader,
+  SessionPicker,
+  SessionSelection
+}
 
 import Cli.{actionFailure, complete, requireTty, usageFailure, withTerminal}
 
@@ -13,8 +18,8 @@ import Cli.{actionFailure, complete, requireTty, usageFailure, withTerminal}
 private[cli] object ContinueCli:
 
   /** `continue`'s full behavior over explicit `dirs`/`tty` (test seam) — tests
-    * seed each directory with `.orca/cache/runs/` manifests and simulate either
-    * a terminal or a pipe via `tty`. The directories arrive resolved
+    * seed each directory with `.orca/cache/attempts/` manifests and simulate
+    * either a terminal or a pipe via `tty`. The directories arrive resolved
     * ([[orca.shell.WorktreeScan.dirs]], at the real entry point), so nothing
     * here spawns git.
     */
@@ -25,18 +30,18 @@ private[cli] object ContinueCli:
       json: Boolean,
       tty: Boolean
   ): Int =
-    val (runs, warnings) =
+    val AttemptListing(attempts, warnings) =
       ManifestReader.list(dirs.own, dirs.worktrees, ManifestReader.pidAlive)
     warnings.foreach(Cli.diagnostic)
     if list then
-      Tables.printSessionListing(runs, json)
+      Tables.printSessionListing(attempts, json)
       ExitCodes.Ok
     else
       complete:
         for
           _ <- requireTty("continue", tty).left.map(usageFailure)
           selection <- SessionPicker
-            .resolveSelection(runs, selector)
+            .resolveSelection(attempts, selector)
             .left
             .map(actionFailure)
           exit <- resumeSelected(selection)
@@ -55,9 +60,9 @@ private[cli] object ContinueCli:
     * [[SessionAction.resume]] execs its harness child (security fold-in, ADR
     * 0021 §10): mirrors what the interactive picker's row label already shows,
     * so a no-selector `orca continue` — which could otherwise resume whatever
-    * session a hostile repo's `.orca/cache/runs/` manifest names, without the
-    * user ever having chosen it — is visible before the exec, on this tty-gated
-    * command's own terminal, giving the user a chance to Ctrl-C.
+    * session a hostile repo's `.orca/cache/attempts/` manifest names, without
+    * the user ever having chosen it — is visible before the exec, on this
+    * tty-gated command's own terminal, giving the user a chance to Ctrl-C.
     */
   private[cli] def resumeNotice(selection: SessionSelection): String =
     SessionAction.identityNotice(

@@ -14,7 +14,7 @@ import orca.{
 }
 import orca.agents.{BackendTag, Agent, SessionId, WireSessionId}
 import orca.events.OrcaEvent
-import orca.util.TextUtil
+import orca.util.{JsonFile, TextUtil}
 import orca.sessions.{SessionRecord, SessionStore}
 import orca.progress.{
   BranchMode,
@@ -358,7 +358,7 @@ object FlowLifecycle:
         ask
       )
     val untrackedOnFailure = session.applyCleanlinessPolicy(ownLog)
-    restoreLogIfMissing(store.path, snapshot)
+    restoreLogIfMissing(workDir, store.path, snapshot)
     // Discovery (ADR 0019) is sequenced after the cleanliness decision (whose
     // stash, when it runs, would sweep a just-written untracked file straight
     // back out of the tree). When it runs, the written file gets its own commit
@@ -421,16 +421,18 @@ object FlowLifecycle:
     * unlike `bindBranch`'s authoritative post-stash read.
     */
   private def abortIfBranchBusy(
-      ownLog: ProgressStore.LoadResult,
+      ownLog: JsonFile.Read[ProgressLog],
       ownPath: os.Path,
       workDir: os.Path,
       startBranch: String
   ): Unit =
-    if !ownLog.isInstanceOf[ProgressStore.LoadResult.Loaded] then
-      busyBranchLog(ownPath, workDir, startBranch).foreach: log =>
-        throw new OrcaFlowException(
-          branchBusyMessage(log, workDir, startBranch)
-        )
+    ownLog match
+      case JsonFile.Read.Loaded(_) => ()
+      case _ =>
+        busyBranchLog(ownPath, workDir, startBranch).foreach: log =>
+          throw new OrcaFlowException(
+            branchBusyMessage(log, workDir, startBranch)
+          )
 
   /** The newest by mtime of the OTHER progress logs naming `startBranch` —
     * newest-wins like the shell's resume offer, since several logs (different
@@ -460,12 +462,11 @@ object FlowLifecycle:
     * long task can't bury the guidance after it.
     *
     * The shell's menu row is mentioned as a possibility, not a promise, and
-    * only when the header carries both a flow name and the task text — the
-    * shell needs both to offer the row at all, but applies further conditions
-    * of its own (`ResumeDetector`), so the always-available re-run route is
-    * given either way. Abandoning is spelled as a git removal: the log is
-    * committed on the branch, so a plain `rm` is undone by the next run's
-    * auto-stash restore.
+    * only when the header carries a flow name — the shell needs one to offer
+    * the row at all, but applies further conditions of its own
+    * (`ResumeDetector`), so the always-available re-run route is given either
+    * way. Abandoning is spelled as a git removal: the log is committed on the
+    * branch, so a plain `rm` is undone by the next run's auto-stash restore.
     */
   private def branchBusyMessage(
       log: ScannedProgressLog,
@@ -473,15 +474,13 @@ object FlowLifecycle:
       startBranch: String
   ): String =
     val header = log.header
-    val task = header.userPrompt
-      .map(TextUtil.onelinePreview(_, 60))
-      .getOrElse("(not recorded)")
+    val task = TextUtil.onelinePreview(header.userPrompt, 60)
     val flow = header.flowName
       .map(name => s", flow: ${TextUtil.onelinePreview(name, 40)}")
       .getOrElse("")
     val logPath = log.path.relativeTo(workDir)
     val shellRoute =
-      if header.flowName.isDefined && header.userPrompt.isDefined then
+      if header.flowName.isDefined then
         ", which the orca shell may also offer as \"Resume interrupted run\""
       else ""
     s"branch '$startBranch' already has an unfinished orca run on it " +
@@ -524,11 +523,11 @@ object FlowLifecycle:
       * [[FlowSetup.untrackedOnFailure]]).
       */
     def applyCleanlinessPolicy(
-        ownLog: ProgressStore.LoadResult
+        ownLog: JsonFile.Read[ProgressLog]
     )(using WorkspaceWrite): UntrackedFiles =
       val dirtyCount = git.dirtyPaths().size
       val facts = DirtyTreeFacts(
-        ownLogPresent = ownLog != ProgressStore.LoadResult.Absent,
+        ownLogPresent = ownLog != JsonFile.Read.Absent,
         skipBranch = args.target.skipBranch,
         keepChanges = args.target.keepChanges,
         dirtyCount = dirtyCount
@@ -591,18 +590,18 @@ object FlowLifecycle:
         discovered: Boolean
     )(using InStage, WorkspaceWrite): BranchBinding =
       store.loadDetailed() match
-        case ProgressStore.LoadResult.Corrupt(reason) =>
+        case JsonFile.Read.Corrupt(reason) =>
           warnCorruptLog(reason)
           freshBinding(startBranch, protectedBranches, discovered)
-        case ProgressStore.LoadResult.Unreadable(reason) =>
+        case JsonFile.Read.Unreadable(reason) =>
           throw new OrcaFlowException(
             s"progress log at ${store.path} exists but cannot be read " +
               s"($reason) — it may be a resumable run, so fix its permissions " +
               "to resume it, or delete the file to start fresh"
           )
-        case ProgressStore.LoadResult.Absent =>
+        case JsonFile.Read.Absent =>
           freshBinding(startBranch, protectedBranches, discovered)
-        case ProgressStore.LoadResult.Loaded(progressLog) =>
+        case JsonFile.Read.Loaded(progressLog) =>
           resumeBinding(progressLog, protectedBranches, discovered)
 
     /** The log file exists but didn't parse. No sane way to resume from
@@ -620,7 +619,7 @@ object FlowLifecycle:
       emit(
         OrcaEvent.Step(
           s"progress log at ${store.path} is corrupt ($reason); " +
-            "starting fresh — the previous run's stages will re-run"
+            "starting fresh — the stages it recorded will re-run"
         )
       )
 
@@ -636,9 +635,14 @@ object FlowLifecycle:
     )(using InStage, WorkspaceWrite): BranchBinding =
       // Read before the settings/header commits this binding makes, so the
       // whole-run review's diff base sits behind everything this run commits.
-      // `Some` on a fresh run: `abortIfNoCommits` has already established a
-      // HEAD, and git's own output is a hash.
-      val headAtBinding = git.headCommit().flatMap(CommitHash.from)
+      // `abortIfNoCommits` has already established a HEAD, and git's own
+      // output is a hash, so a miss here is a git failure, not a state.
+      val headAtBinding = git
+        .headCommit()
+        .flatMap(CommitHash.from)
+        .getOrElse(
+          throw new OrcaFlowException("could not resolve HEAD to a commit")
+        )
       val branch = freshRun(
         args,
         agent,
@@ -658,7 +662,7 @@ object FlowLifecycle:
         startBranch,
         if args.target.skipBranch then BranchMode.Reused
         else BranchMode.Created,
-        headAtBinding
+        Some(headAtBinding)
       )
 
     /** Resume onto the header's existing branch. Validates the untrusted header
@@ -701,9 +705,7 @@ object FlowLifecycle:
       // diff against it — a rebase or a fresh clone leaves a hash that would
       // otherwise widen the review to unrelated history.
       val startingCommit =
-        RecoveryCheck
-          .startingCommit(header)
-          .filter(c => git.isAncestorOfHead(c.value))
+        Some(header.startingCommit).filter(c => git.isAncestorOfHead(c.value))
       // Ahead of the settings commit, so the reported HEAD is the tree the
       // recorded stages left behind rather than orca's own bookkeeping.
       announceResume(featureBranch, startingCommit, log.entries.size)
@@ -939,7 +941,7 @@ object FlowLifecycle:
       protectedBranches: Set[String],
       discovered: Boolean,
       flowName: Option[String],
-      headAtBinding: Option[CommitHash],
+      headAtBinding: CommitHash,
       emit: OrcaEvent => Unit
   )(using InStage, WorkspaceWrite): FeatureBranch =
     val branch =
@@ -980,13 +982,12 @@ object FlowLifecycle:
       ProgressHeader(
         startingBranch = startBranch,
         branch = branch.value,
-        promptHash = ProgressStore.hashPrompt(args.userPrompt),
         branchMode =
           if args.target.skipBranch then BranchMode.Reused
           else BranchMode.Created,
-        userPrompt = Some(args.userPrompt),
+        userPrompt = args.userPrompt,
         flowName = flowName,
-        startingCommit = headAtBinding.map(_.value)
+        startingCommit = headAtBinding
       )
     )
     git.forceCommitOnly(store.path, "orca: progress log")
@@ -1119,11 +1120,14 @@ object FlowLifecycle:
     * nothing to snapshot or the file still exists.
     */
   private[runner] def restoreLogIfMissing(
+      workDir: os.Path,
       path: os.Path,
       snapshot: Option[Array[Byte]]
   ): Unit =
     snapshot.foreach: bytes =>
-      if !os.exists(path) then os.write.over(path, bytes, createFolders = true)
+      if !os.exists(path) then
+        val _ = OrcaDir.ensureRuns(workDir)
+        os.write(path, bytes)
 
   /** Run a teardownSuccess leg best-effort: any `NonFatal` failure is caught
     * and debug-logged (never printed, never surfaced) so it cannot escape
@@ -1182,10 +1186,7 @@ object FlowLifecycle:
               git.trackedChangedFiles(base.value).size,
               setup.featureBranch.value
             )
-        bestEffort("remove progress log"):
-          try
-            val _ = os.remove(setup.store.path)
-          catch case _: java.nio.file.NoSuchFileException => ()
+        bestEffort("remove progress log")(os.remove(setup.store.path): Unit)
         // Dropped with the log, and for the same reason: a later run of this
         // prompt is a new run, not a resume, so it must open fresh backend
         // conversations rather than continue this one's.

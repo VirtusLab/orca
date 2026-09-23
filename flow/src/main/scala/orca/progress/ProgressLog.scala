@@ -1,12 +1,8 @@
 package orca.progress
 
-import com.github.plokhotnyuk.jsoniter_scala.macros.{
-  CodecMakerConfig,
-  ConfiguredJsonValueCodec
-}
+import com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec
 import orca.agents.{JsonData, given}
 import orca.util.RawJson
-import sttp.tapir.Schema
 
 /** Whether orca minted [[ProgressHeader.branch]] itself or bound to a
   * pre-existing one. Gates the throwaway-branch auto-delete
@@ -25,32 +21,21 @@ enum BranchMode derives JsonData:
 
 /** Header capturing the git context in which the progress log was started.
   *
-  * `userPrompt`/`flowName` back the shell's "Resume interrupted run" offer (ADR
-  * 0021 §3 amendment): the log otherwise records only `promptHash`, not the
-  * prompt text itself, so a byte-identical re-run needs it spelled out here.
-  * Both are `Option` with a `None` default under the tolerant-decoding
-  * exception AGENTS.md grants this log (see [[ProgressLog]]'s codec) — a log
-  * written before this field existed decodes with both `None`, and the resume
-  * offer simply doesn't apply to it (an old in-flight run across an orca
-  * upgrade still resumes; it just isn't one-keystroke). `flowName` is
-  * separately `None` for a run started outside the shell (no `ORCA_FLOW_NAME`
-  * to record) even on a freshly written header.
+  * `userPrompt` is the full task text: the shell's "Resume interrupted run"
+  * offer relaunches the run byte-identically (ADR 0021 §3 amendment), and
+  * `RecoveryCheck` refuses a log whose prompt is not the current one.
+  * `flowName` is `ORCA_FLOW_NAME`, `None` for a run started outside the shell.
   *
   * `startingCommit` is the commit HEAD pointed at when the run bound its branch
-  * — the diff base for a review of everything the whole run changed. It carries
-  * the same `Option`/`None` tolerant-decoding exception, and unlike the fields
-  * above it stays lenient on load: a header missing it, or carrying something
-  * that isn't a commit hash, reads as absent rather than aborting the run
-  * ([[RecoveryCheck.startingCommit]]). A fresh run always writes `Some`.
+  * — the diff base for a review of everything the whole run changed.
   */
 case class ProgressHeader(
     startingBranch: String,
     branch: String,
-    promptHash: String,
     branchMode: BranchMode,
-    userPrompt: Option[String] = None,
-    flowName: Option[String] = None,
-    startingCommit: Option[String] = None
+    userPrompt: String,
+    flowName: Option[String],
+    startingCommit: CommitHash
 ) derives JsonData
 
 /** A single stage's outcome, stored as an already-serialised JSON subtree.
@@ -68,38 +53,20 @@ case class ProgressHeader(
 case class StageEntry(id: String, name: String, resultJson: RawJson)
     derives JsonData
 
-/** One flow run's persisted state, keyed by its header: the outcome of each
-  * completed stage, and where it published its work. The custom [[JsonData]]
-  * instance below tolerates missing collection fields so logs round-trip across
-  * software versions.
+/** One run's persisted state: the outcome of each completed stage, and where it
+  * published its work ([[PublishedWork]], once the run has).
   *
   * Everything here rides the feature branch, committed at each stage boundary.
   * Machine-local state that would be meaningless in another checkout lives in
   * `.orca/cache/` instead — the durable session records
-  * ([[orca.sessions.SessionStore]]) and the run manifest.
-  *
-  * `published` is [[PublishedWork]] for a run that published. Its `None`
-  * default falls under the same tolerant-decoding exception as
-  * [[ProgressHeader]]'s optional fields.
+  * ([[orca.sessions.SessionStore]]) and the attempt manifest.
   */
 case class ProgressLog(
     header: ProgressHeader,
     entries: List[StageEntry],
-    published: Option[PublishedWork] = None
-)
+    published: Option[PublishedWork]
+) derives JsonData
 
 object ProgressLog:
-  /** Does not require collection fields to be present, diverging from
-    * `JsonData.strictCodecConfig` (`withRequireCollectionFields(true)`). Strict
-    * is right for LLM-reply DTOs where a missing list signals a model error,
-    * but wrong for the progress log, which must round-trip across versions that
-    * add optional fields over time.
-    */
-  given JsonData[ProgressLog] = JsonData(
-    Schema.derived[ProgressLog],
-    ConfiguredJsonValueCodec.derived[ProgressLog](using
-      CodecMakerConfig
-        .withRequireCollectionFields(false)
-        .withTransientEmpty(false)
-    )
-  )
+  /** The derived codec, as `JsonFile` takes it. */
+  given codec: JsonValueCodec[ProgressLog] = summon[JsonData[ProgressLog]].codec

@@ -44,18 +44,18 @@ class WorktreeScanTest extends munit.FunSuite:
     // offer, handing that branch's task text to an agent.
     assertEquals(WorktreeScan.dirs(repo).all, List(repo))
 
-  test("worktrees are ranked by when each last recorded a run"):
+  test("worktrees are ranked by when each last recorded an attempt"):
     val repo = GitRepo.seeded()
     val worktrees = List("aaaaaaaaaaaa", "bbbbbbbbbbbb", "cccccccccccc").map:
       name =>
         val path = OrcaDir.ensureWorktrees(repo) / name
         assertEquals(Worktrees.add(repo, path), Right(()))
-        os.makeDir.all(OrcaDir.runsPath(path))
+        os.makeDir.all(OrcaDir.attemptsPath(path))
         path
-    // Newest run last-recorded wins; the shell's own checkout stays first.
-    os.mtime.set(OrcaDir.runsPath(worktrees(0)), 1000L).discard
-    os.mtime.set(OrcaDir.runsPath(worktrees(2)), 3000L).discard
-    os.mtime.set(OrcaDir.runsPath(worktrees(1)), 2000L).discard
+    // Newest attempt last-recorded wins; the shell's own checkout stays first.
+    os.mtime.set(OrcaDir.attemptsPath(worktrees(0)), 1000L).discard
+    os.mtime.set(OrcaDir.attemptsPath(worktrees(2)), 3000L).discard
+    os.mtime.set(OrcaDir.attemptsPath(worktrees(1)), 2000L).discard
     assertEquals(
       WorktreeScan.dirs(repo).all,
       List(repo, worktrees(2), worktrees(1), worktrees(0))
@@ -66,9 +66,9 @@ class WorktreeScanTest extends munit.FunSuite:
     val worktrees = (0 to WorktreeScan.MaxScannedWorktrees).toList.map: i =>
       val path = OrcaDir.ensureWorktrees(repo) / f"wt$i%012d"
       assertEquals(Worktrees.add(repo, path), Right(()))
-      os.makeDir.all(OrcaDir.runsPath(path))
+      os.makeDir.all(OrcaDir.attemptsPath(path))
       // Ascending mtimes, so index 0 is the least recently used.
-      os.mtime.set(OrcaDir.runsPath(path), 1000L + i * 1000L).discard
+      os.mtime.set(OrcaDir.attemptsPath(path), 1000L + i * 1000L).discard
       path
     val scanned = WorktreeScan.dirs(repo)
     assertEquals(scanned.worktrees.size, WorktreeScan.MaxScannedWorktrees)

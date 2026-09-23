@@ -309,7 +309,7 @@ case class ProgressLog(header: ProgressHeader, entries: List[StageEntry])
 trait ProgressStore:
   def load(): Option[ProgressLog]
   def writeHeader(header: ProgressHeader)(using WorkspaceWrite): Unit
-  def appendEntry(entry: StageEntry)(using WorkspaceWrite): Unit   // upsert by id, last write wins
+  def upsertEntry(entry: StageEntry)(using WorkspaceWrite): Unit   // by id, last write wins
 
 object ProgressStore:
   def default: ProgressStore   // JSON at .orca/progress-<hash>.json (the seam for R21)
@@ -324,7 +324,7 @@ wrong-typed entry never reaches the call site.
 The default store serialises to `.orca/progress-<hash>.json`, where `hash` is the
 first 12 hex chars of `SHA-256(userPrompt)` (the same scheme `Plan.defaultPath` uses
 today). The path is independent of the branch, so recovery finds it without first
-knowing which branch the work is on. `appendEntry` upserts by id: a fail-safe re-run
+knowing which branch the work is on. `upsertEntry` upserts by id: a fail-safe re-run
 overwrites the stale entry rather than leaving two under one id. A wholly malformed
 or truncated log (e.g. a crash mid-write) is treated as *no log* — the run starts
 fresh — rather than crashing recovery.
@@ -773,6 +773,16 @@ list output and opencode's directory-scoping should be pinned when the probes la
 > manifest's `sessionDetail` becomes `sessionStage` (ADR 0021 §8 amendment,
 > 2026-09-18) — a rename, not an addition. `orca continue <name>` still addresses
 > a session by name alone.
+
+> **Amendment (2026-09-22, layout and vocabulary).** The unit a progress log
+> belongs to is a *run*: one prompt's flow execution across every process that
+> resumes it, keyed by `RunKey` (the prompt hash). One process is an *attempt*
+> (ADR 0021 §8). The log lives at `.orca/runs/<key>.progress.json` and the
+> session records at `.orca/cache/runs/<key>.sessions.json`, so the two halves
+> of a run's resume state share a key under mirrored directories. Codecs are
+> strict — no defaults, no tolerant decoding; an older log reads as `Corrupt`
+> and the run starts fresh. `orca.util.JsonFile` is the one read/write path for
+> every whole-file document. The 0.x compatibility carve-outs are withdrawn.
 
 > **Amendment (2026-09-18, session store).** `SessionRecord` leaves the committed
 > progress log for `.orca/cache/sessions-<prompt hash>.json`

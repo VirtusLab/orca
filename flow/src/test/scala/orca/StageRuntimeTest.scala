@@ -196,7 +196,7 @@ class StageRuntimeTest extends munit.FunSuite:
     // Seed an entry under id "typed#0" whose JSON cannot decode to Int.
     locally:
       given WorkspaceWrite = WorkspaceWrite.unsafe
-      ctx.progressStore.appendEntry(
+      ctx.progressStore.upsertEntry(
         StageEntry(
           id = "typed#0",
           name = "typed",
@@ -246,7 +246,7 @@ class StageRuntimeTest extends munit.FunSuite:
     // Same setup as the same-type case, but the nested `inner` yields an Int and
     // the top-level `inner` a String. Under a flat counter the top-level inner
     // recomputes the nested inner's id, fails to decode the Int as a String,
-    // re-runs, and its `appendEntry` upserts OVER the nested Int record — losing
+    // re-runs, and its `upsertEntry` upserts OVER the nested Int record — losing
     // it. Under hierarchical ids the two live at distinct paths and both survive.
     val listener = new RecordingListener
     val (ctx, dir) = TestFlowControl.create(new EventDispatcher(List(listener)))
@@ -326,13 +326,13 @@ class StageRuntimeTest extends munit.FunSuite:
       listener: OrcaListener
   ): (TestFlowControl, os.Path) =
     val git = new orca.tools.OsGitTool(dir)
-    val store = orca.progress.ProgressStore.default(dir, "p")
+    val store = orca.progress.ProgressStore.default(dir, RunKey.of("p"))
     (
       new TestFlowControl(
         new EventDispatcher(List(listener)),
         git,
         store,
-        orca.sessions.SessionStore.default(dir, "p"),
+        orca.sessions.SessionStore.default(dir, RunKey.of("p")),
         "p"
       ),
       dir

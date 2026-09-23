@@ -1,7 +1,6 @@
 package orca.runner
 
-import orca.OrcaDir
-import orca.progress.ProgressStore
+import orca.{OrcaDir, RunKey}
 import orca.tools.{
   MainCheckoutFailure,
   StartBranchFailure,
@@ -12,8 +11,8 @@ import orca.tools.{
 /** Where a `--worktree` run happens: a git worktree of its own, created on
   * first use and reused after.
   *
-  * The one place that derives the path. It is keyed on the same prompt hash as
-  * the run's progress log, so re-running the same task with `--worktree` lands
+  * The one place that derives the path. It is keyed on the run's [[RunKey]],
+  * like its progress log, so re-running the same task with `--worktree` lands
   * back in the worktree that holds that log, without anyone re-deriving where
   * that is. (The shell's resume relaunch does not use the flag at all — it runs
   * in the directory the log was found in.)
@@ -45,7 +44,7 @@ private[orca] object WorktreeRun:
     */
   def resolve(
       invokingDir: os.Path,
-      userPrompt: String
+      key: RunKey
   ): Either[String, os.Path] =
     Worktrees
       .mainCheckoutOrReason(invokingDir)
@@ -53,8 +52,7 @@ private[orca] object WorktreeRun:
       .map(noMainCheckout)
       .flatMap: mainCheckout =>
         val path =
-          OrcaDir.worktreesPath(mainCheckout) /
-            ProgressStore.hashPrompt(userPrompt)
+          OrcaDir.worktreesPath(mainCheckout) / key.value
         pathState(invokingDir, path) match
           case PathState.Reusable => reuse(mainCheckout, path)
           case PathState.Occupied =>
@@ -145,7 +143,7 @@ private[orca] object WorktreeRun:
               s"could not create the worktree at $path: $message"
           )
 
-  /** Put the worktree on the branch named after the same task hash, so a re-run
+  /** Put the worktree on the branch named after the same run key, so a re-run
     * of the task finds its own branch rather than a stranger's. Its refusals
     * say the worktree exists — it does by then, and the next run finds it.
     */
