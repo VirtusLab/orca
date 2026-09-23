@@ -1,6 +1,6 @@
 package orca.events
 
-import orca.agents.{Model, SessionKey}
+import orca.agents.{BackendTag, Model, SessionKey}
 
 /** Flow-level event fanned out to every registered [[OrcaListener]]. Covers
   * stage transitions, tool invocations, token usage, structured results, and
@@ -142,17 +142,16 @@ enum OrcaEvent:
     * unrelated to a git commit; "commits" here means the mapping becomes
     * durable enough for a later call to resume against it (ADR 0021 §8). Fires
     * once per (harness, clientId, wireId) commit; listeners dedup on a resumed
-    * session's later turns. `harness` is the backend's wire name — the one
-    * string the persisted manifest also calls `harness`
-    * ([[orca.runner.manifest.ManifestSession]]). `wireId` is the persistable id
-    * ([[orca.agents.Agent.resumeWireId]]) — `None` for backends that keep
-    * nothing durably resumable, so a non-resumable commit still fires
-    * accurately. `sessionKey` is the key the flow minted the session under
-    * (`agent.session(name, seed)`) — `None` for a one-shot or chat turn, which
-    * is minted under no key.
+    * session's later turns. `harness` is the backend's tag, persisted as the
+    * manifest's `harness` ([[orca.runner.manifest.ManifestSession]]). `wireId`
+    * is the persistable id ([[orca.agents.Agent.resumeWireId]]) — `None` for
+    * backends that keep nothing durably resumable, so a non-resumable commit
+    * still fires accurately. `sessionKey` is the key the flow minted the
+    * session under (`agent.session(name, seed)`) — `None` for a one-shot or
+    * chat turn, which is minted under no key.
     */
   case SessionCommitted(
-      harness: String,
+      harness: BackendTag,
       clientId: String,
       wireId: Option[String],
       sessionKey: Option[SessionKey],

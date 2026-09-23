@@ -6,8 +6,9 @@ import orca.util.PromptResource
 /** Assembles a backend-agnostic system-prompt body from the configured
   * [[AgentConfig.systemPrompt]], an optional `extraHint` (typically the
   * `ask_user` MCP hint on interactive calls), and the standing
-  * [[RuntimeOwnsGit]] / [[ReadOnlyTurn]] / [[BackgroundWorkAbandonedAtTurnEnd]]
-  * rules, joining non-empty pieces with a blank line.
+  * [[RuntimeOwnsGit]] / [[ReadOnlyTurn]] / [[NoToolsTurn]] /
+  * [[BackgroundWorkAbandonedAtTurnEnd]] rules, joining non-empty pieces with a
+  * blank line.
   *
   * Each backend delivers the result its own way — claude writes it to a temp
   * file for `--append-system-prompt-file`; codex and gemini have no such flag
@@ -61,6 +62,12 @@ private[orca] object SystemPromptComposer:
   val ReadOnlyTurn: String =
     PromptResource.load("/orca/backend/prompts/readonly-turn.md")
 
+  /** Standing rule appended to every [[ToolSet.NoTools]] turn. On backends that
+    * cannot remove every tool, this text is the restriction.
+    */
+  val NoToolsTurn: String =
+    PromptResource.load("/orca/backend/prompts/no-tools-turn.md")
+
   def combine(
       config: AgentConfig,
       extraHint: Option[String] = None
@@ -69,6 +76,7 @@ private[orca] object SystemPromptComposer:
       case ToolSet.Full =>
         Option.when(!config.selfManagedGit)(RuntimeOwnsGit)
       case ToolSet.ReadOnly | ToolSet.NetworkOnly => Some(ReadOnlyTurn)
+      case ToolSet.NoTools                        => Some(NoToolsTurn)
     List(config.systemPrompt, extraHint, toolRule).flatten
       .appended(BackgroundWorkAbandonedAtTurnEnd)
       .mkString("\n\n")

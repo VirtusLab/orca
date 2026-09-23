@@ -1,5 +1,6 @@
 package orca.shell.cli
 
+import orca.settings.AgentSpec
 import orca.shell.ScanDirs
 import orca.shell.actions.SessionAction
 import orca.shell.sessions.{
@@ -67,5 +68,5 @@ private[cli] object ContinueCli:
   private[cli] def resumeNotice(selection: SessionSelection): String =
     SessionAction.identityNotice(
       selection,
-      SessionPicker.harnessSettingsName(selection.session.harness)
+      AgentSpec.harnessNameFor(selection.session.harness)
     )

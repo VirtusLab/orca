@@ -11,76 +11,31 @@ package orca.progress
   */
 object RecoveryCheck:
 
-  /** Whether `s` is a safe git ref for orca's purposes: non-empty, and every
-    * `/`-separated segment matches the slug shape `^[a-z0-9][a-z0-9-]*$` (the
-    * same charset [[orca.BranchNamingStrategy.slug]] produces). Issue branches
-    * like `fix/issue-42` pass; ``, `-x`, `a/..`, `a b`, `Feat` are rejected.
-    *
-    * The leading-alphanumeric requirement blocks a name beginning with `-`
-    * (which `git`/`gh` would read as a CLI flag) and bans
-    * path-traversal/whitespace segments. Referencing
-    * `BranchNamingStrategy.isSlugSegment` keeps producer and validator from
-    * drifting. For a branch orca did NOT mint itself, see the weaker
-    * [[isSafeReusedRef]] instead.
-    */
-  def isSafeBranchRef(s: String): Boolean =
-    s.nonEmpty && s
-      .split("/", -1)
-      .forall(orca.BranchNamingStrategy.isSlugSegment)
-
-  /** Whether `s` is safe enough to reuse as-is for a branch orca did NOT mint
-    * itself — a user's pre-existing current branch, in skip-branch mode (ADR
-    * 0018 amendment). Weaker than [[isSafeBranchRef]] (no slug shape, so mixed
-    * case and `feature/JIRA-123`-style names pass), but still refuses anything
-    * that could act as CLI-flag/argument injection into `git`/`gh`, a
-    * path-traversal ref, or a shell-glob DoS against `git branch --list`: a
-    * leading `-`, whitespace/control characters, a glob metacharacter (`*`,
-    * `?`, `[`, `\`), `..` anywhere (path traversal, forbidden in any git ref),
-    * a `.lock` suffix (git's own lockfile convention), an empty `/`-separated
-    * segment (leading/trailing/doubled `/`), or the literal pseudo-ref `HEAD`
-    * (never a real branch; a detached-HEAD `currentBranch()` reads back as this
-    * literal string, and a header must not be able to claim it either).
-    */
-  def isSafeReusedRef(s: String): Boolean =
-    s.nonEmpty &&
-      s != "HEAD" &&
-      !s.startsWith("-") &&
-      !s.exists(c => c.isWhitespace || c.isControl || "*?[\\".contains(c)) &&
-      !s.endsWith(".lock") &&
-      !s.contains("..") &&
-      !s.split("/", -1).exists(_.isEmpty)
-
-  /** Branches that are always protected regardless of the repo's configured
-    * default — the floor [[validateHeader]] enforces (ADR 0018). The runtime
-    * adds the repo's actual default branch on top of these.
-    */
-  val alwaysProtected: Set[String] = Set("main", "master")
-
   /** Validate the header before any destructive action. Returns `Left(reason)`
     * on the first failure, `Right(featureBranch)` — the header's `branch`
     * minted as a [[FeatureBranch]] — when the header is trustworthy, so the
     * caller (`FlowLifecycle.setup`'s resume arm) can bind `FlowSetup` to a
     * typed branch without a second, redundant resolve call.
     *
-    * Checks, in order: `startingBranch` passes [[isSafeReusedRef]] (the weaker
-    * shape check — `branch` may be a reused current branch, ADR 0018 amendment,
-    * so a strict slug check would reject it); `branch` passes the same check
-    * and isn't protected, via [[FeatureBranch.resolveReused]] (unions
-    * `protectedBranches` — the repo's actual default branch — with the
-    * `main`/`master` floor, case-insensitively); `userPrompt` is the current
-    * prompt.
+    * Checks, in order: `startingBranch` passes
+    * [[FeatureBranch.isSafeReusedRef]] (the weaker shape check — `branch` may
+    * be a reused current branch, ADR 0018 amendment, so a strict slug check
+    * would reject it); `branch` passes the same check and isn't protected, via
+    * [[FeatureBranch.resolveReused]] (unions `protectedBranches` — the repo's
+    * actual default branch — with the `main`/`master` floor,
+    * case-insensitively); `userPrompt` is the current prompt.
     *
     * The caller separately cross-checks `branch` against the actual current
-    * branch (R30) — combined with `isSafeReusedRef` here, that's what makes a
-    * reused non-slug branch name safe to accept: it must both look like a safe
-    * ref AND be the branch we're already sitting on.
+    * branch (R30) — combined with `FeatureBranch.isSafeReusedRef` here, that's
+    * what makes a reused non-slug branch name safe to accept: it must both look
+    * like a safe ref AND be the branch we're already sitting on.
     */
   def validateHeader(
       header: ProgressHeader,
       userPrompt: String,
       protectedBranches: Set[String]
   ): Either[String, FeatureBranch] =
-    if !isSafeReusedRef(header.startingBranch) then
+    if !FeatureBranch.isSafeReusedRef(header.startingBranch) then
       Left(s"startingBranch '${header.startingBranch}' is not a safe ref")
     else
       FeatureBranch.resolveReused(header.branch, protectedBranches) match

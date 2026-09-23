@@ -69,7 +69,7 @@ class AgentCallSessionCommittedTest extends munit.FunSuite:
       // wireId) per the event's scaladoc.
       assert(committed.nonEmpty, "expected at least one SessionCommitted")
       assertEquals(committed.distinct.size, 1, committed)
-      assertEquals(committed.head.harness, BackendTag.ClaudeCode.wireName)
+      assertEquals(committed.head.harness, BackendTag.ClaudeCode)
       assertEquals(committed.head.wireId, Some("committed-wire"))
       assertEquals(committed.head.agent, "claude")
       assertEquals(committed.head.role, Some("reviewer"))

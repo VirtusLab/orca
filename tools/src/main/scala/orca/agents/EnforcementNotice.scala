@@ -77,12 +77,12 @@ private[orca] object EnforcementNotice:
         turnWording(backend, config, cell, dispatch)
       )
       consequence <- consequenceOf(cell.level)
-    yield s"${backend.tag.wireName} cannot $request — $consequence"
+    yield s"${backend.tag} cannot $request — $consequence"
 
-  /** What the caller asked this backend to withhold. The two arms are the two
-    * axes a caller can restrict on: the tier withholds the write tools,
-    * [[AutoApprove.Only]] withholds unprompted use of everything else. `Full` +
-    * `All` asked for neither, so there is nothing it can fail to get.
+  /** What the caller asked this backend to withhold. The two axes a caller can
+    * restrict on: the tier withholds the write tools (or, on `NoTools`, every
+    * tool), [[AutoApprove.Only]] withholds unprompted use of everything else.
+    * `Full` + `All` asked for neither, so there is nothing it can fail to get.
     */
   private def unmetRequest(config: AgentConfig, turn: String): Option[String] =
     config.tools match
@@ -90,6 +90,8 @@ private[orca] object EnforcementNotice:
         Some(
           s"stop $turn from editing files or running commands that change state"
         )
+      case ToolSet.NoTools =>
+        Some(s"stop $turn from calling tools")
       case ToolSet.Full =>
         config.autoApprove match
           case AutoApprove.All => None

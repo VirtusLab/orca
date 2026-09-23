@@ -74,6 +74,14 @@ class EnforcementTableTest extends munit.FunSuite:
     pi = PromptOnly
   )
 
+  private val noTools: Map[BackendTag, Enforcement] = row(
+    claude = Hard,
+    codex = PromptOnly,
+    gemini = PromptOnly,
+    opencode = Hard,
+    pi = Hard
+  )
+
   private val fullAll: Map[BackendTag, Enforcement] = row(
     claude = Hard,
     codex = Hard,
@@ -104,7 +112,7 @@ class EnforcementTableTest extends munit.FunSuite:
   ] =
     (for
       shape <- ApproveShape.values.toList
-      // The read-only tiers ignore autoApprove on every backend, so one row
+      // The restricted tiers ignore autoApprove on every backend, so one row
       // stands for all three shapes — pinned by the product walk, not assumed.
       // Both read-only tiers now answer the same on either dispatch: codex
       // re-applies their sandbox on resume rather than inheriting one.
@@ -112,7 +120,9 @@ class EnforcementTableTest extends munit.FunSuite:
         (ToolSet.ReadOnly, shape, TurnDispatch.Fresh) -> readOnly,
         (ToolSet.ReadOnly, shape, TurnDispatch.Resumed) -> readOnly,
         (ToolSet.NetworkOnly, shape, TurnDispatch.Fresh) -> networkOnly,
-        (ToolSet.NetworkOnly, shape, TurnDispatch.Resumed) -> networkOnly
+        (ToolSet.NetworkOnly, shape, TurnDispatch.Resumed) -> networkOnly,
+        (ToolSet.NoTools, shape, TurnDispatch.Fresh) -> noTools,
+        (ToolSet.NoTools, shape, TurnDispatch.Resumed) -> noTools
       )
     yield entry).toMap ++ Map(
       (ToolSet.Full, ApproveShape.All, TurnDispatch.Fresh) -> fullAll,
@@ -215,7 +225,7 @@ class EnforcementTableTest extends munit.FunSuite:
       run <- shapeRuns(tools, bothDispatches)
     yield (tools, run)
 
-    val header = "tools, approve" :: BackendTag.values.toList.map(_.wireName)
+    val header = "tools, approve" :: BackendTag.values.toList.map(_.toString)
     val body = runs.map: (tools, run) =>
       s"$tools, ${runLabel(run)}" ::
         levels(tools, run.head, TurnDispatch.Fresh)
@@ -234,7 +244,7 @@ class EnforcementTableTest extends munit.FunSuite:
       fresh = declared((tag, tools, run.head, TurnDispatch.Fresh))
       resumed = declared((tag, tools, run.head, TurnDispatch.Resumed))
       if fresh != resumed
-    yield s"  - ${tag.wireName}, $tools, ${runLabel(run)}: $resumed, not $fresh"
+    yield s"  - $tag, $tools, ${runLabel(run)}: $resumed, not $fresh"
     val note =
       if deltas.isEmpty then "  A resumed turn is classified the same."
       else

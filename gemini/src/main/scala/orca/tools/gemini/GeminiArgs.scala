@@ -66,6 +66,13 @@ private[gemini] object GeminiArgs:
     */
   private val NetworkTools: Seq[String] = Seq("web_fetch")
 
+  /** A server name no config defines. gemini treats an empty
+    * `--allowed-mcp-server-names` as "no filter", while a non-empty list blocks
+    * every server not on it (read from the gemini-cli 0.50.0 source), so naming
+    * only this one blocks them all.
+    */
+  private val NoMcpServer: String = "orca-no-mcp-servers"
+
   private case class ApprovalWiring(args: Seq[String], cell: EnforcementCell)
 
   /** The read-only tiers' cell. Shared because both ride on `--approval-mode
@@ -101,6 +108,21 @@ private[gemini] object GeminiArgs:
             NetworkTools.mkString(",")
           ),
           PlanModeCell
+        )
+      // Plan mode keeps the built-in read tools: gemini has no flag that
+      // removes them (`--allowed-tools` pre-approves rather than restricts).
+      case ToolSet.NoTools =>
+        ApprovalWiring(
+          Seq(
+            "--approval-mode",
+            "plan",
+            "--allowed-mcp-server-names",
+            NoMcpServer
+          ),
+          EnforcementCell(
+            Enforcement.PromptOnly,
+            "`--allowed-mcp-server-names` naming no real server drops every MCP server, but no flag removes the built-in read tools `plan` mode keeps, so only the prompt withholds tool calls"
+          )
         )
       case ToolSet.Full =>
         val yolo = Seq("--approval-mode", "yolo")
