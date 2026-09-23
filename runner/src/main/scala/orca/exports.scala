@@ -5,7 +5,8 @@ package orca
 // API the README documents; deliberately omits customisation-only knobs (e.g.
 // `orca.plan.PlanPrompts.Planning`) so they stay self-documenting at the call
 // site. The flow DSL, StackSettings and Configured live at top-level `orca`
-// already, so they need no re-export.
+// already, so they need no re-export. Opaque types are aliased at the bottom of
+// this file, never `export`ed.
 
 // Usage is carried by OrcaEvent.TokensUsed, so listeners matching it need it in
 // scope; CostTracker is instantiable directly by callers via `extraListeners`.
@@ -35,14 +36,12 @@ export orca.agents.{
   AutoApprove,
   ToolSet,
   BackendTag,
-  Model,
-  SessionId,
   JsonData,
   Announce,
   schemaFromJsonData,
   codecFromJsonData
 }
-export orca.plan.{BugReportMatch, Plan, Sessioned, Task, Title, Triage, Verdict}
+export orca.plan.{BugReportMatch, Plan, Sessioned, Task, Triage, Verdict}
 // PrSummary is the result type of openPrFromBranch and summarisePr;
 // orcaCommentMarker is the idempotency marker gh.upsertComment keys on;
 // recordOpenedPr is for a flow that opens its PR with a bare gh.createPr, and
@@ -62,9 +61,9 @@ export orca.pr.{
 // `buildReviewers` it into the agents `reviewAndFixLoop` takes. OpenFinding(s)
 // is the result type of reviewAndFixLoop/reviewThenFix; Lint is constructed at
 // the call site for their `lint` parameter and LintReport is what the
-// summariser-taking `lint` returns. Location and FindingId are ReviewFinding
-// and OpenFinding field types, and SkippedReview an OpenFindings one — needed
-// by any flow that consumes findings. ReviewerSlug is Reviewer's name type.
+// summariser-taking `lint` returns. Location is a ReviewFinding and
+// OpenFinding field type, and SkippedReview an OpenFindings one — needed by any
+// flow that consumes findings.
 export orca.review.{
   allReviewers,
   buildReviewers,
@@ -72,7 +71,6 @@ export orca.review.{
   minimalReviewers,
   reviewAndFixLoop,
   reviewThenFix,
-  FindingId,
   Lint,
   LintReport,
   Location,
@@ -82,7 +80,6 @@ export orca.review.{
   ReviewerAgent,
   ReviewerCatalog,
   ReviewerPrompts,
-  ReviewerSlug,
   ReviewBatch,
   ReviewDiff,
   ReviewerSelector,
@@ -108,7 +105,6 @@ export orca.tools.{
   PrHandle,
   PushFailure
 }
-export orca.tools.opencode.OpencodeLauncher
 // Agent-override surface: the wiring an override factory receives, plus each
 // backend's default-agent factory (`ClaudeAgents.default(w).opus`, …).
 export orca.backend.AgentWiring
@@ -118,3 +114,22 @@ export orca.tools.gemini.GeminiAgents
 export orca.tools.pi.PiAgents
 export orca.tools.opencode.OpencodeAgents
 export ox.either.orThrow
+
+// Opaque types are aliased, not exported: an exported companion is reached
+// through a forwarder `def`, and its members' types then see through the
+// opaque type (scala/scala3#24051) — `ReviewerSlug("x")` would type as String.
+// ReviewerSlug is Reviewer's name type, FindingId ReviewFinding's and
+// OpenFinding's id type.
+type Title = orca.plan.Title
+val Title: orca.plan.Title.type = orca.plan.Title
+type ReviewerSlug = orca.review.ReviewerSlug
+val ReviewerSlug: orca.review.ReviewerSlug.type = orca.review.ReviewerSlug
+type FindingId = orca.review.FindingId
+val FindingId: orca.review.FindingId.type = orca.review.FindingId
+type Model = orca.agents.Model
+val Model: orca.agents.Model.type = orca.agents.Model
+type SessionId[B <: BackendTag] = orca.agents.SessionId[B]
+val SessionId: orca.agents.SessionId.type = orca.agents.SessionId
+type OpencodeLauncher = orca.tools.opencode.OpencodeLauncher
+val OpencodeLauncher: orca.tools.opencode.OpencodeLauncher.type =
+  orca.tools.opencode.OpencodeLauncher
