@@ -113,10 +113,7 @@ private[runner] class AttemptManifestWriterState(
       state = state.entered(name)
       safeWrite()
     case _: OrcaEvent.StageEnded =>
-      state.exited match
-        case Some(next) => state = next
-        case None =>
-          log.warn("unbalanced StageEnded: stage stack already empty, ignoring")
+      state = state.exited
       safeWrite()
     case OrcaEvent.BranchBound(branch) =>
       state = state.withBranch(branch)
@@ -202,10 +199,7 @@ private case class ManifestState(
   def entered(stage: String): ManifestState =
     copy(stageStack = stage :: stageStack)
 
-  /** `None` when no stage is open. */
-  def exited: Option[ManifestState] = stageStack match
-    case Nil       => None
-    case _ :: rest => Some(copy(stageStack = rest))
+  def exited: ManifestState = copy(stageStack = stageStack.drop(1))
 
   /** Upsert by `(harness, conversationKey)`: the same session re-firing
     * `SessionCommitted` on a later turn (retries, resumed durable calls)

@@ -18,12 +18,6 @@ class FlowTest extends munit.FunSuite:
       TestFlowControl.create(new EventDispatcher(List(listener)))
     (listener, control)
 
-  private def stageMarkers(listener: RecordingListener): List[OrcaEvent] =
-    listener.events.collect {
-      case e: OrcaEvent.StageStarted => e
-      case e: OrcaEvent.StageEnded   => e
-    }
-
   private val planPath: StagePath.Stage = StagePath.FlowBody.child("plan", 0)
 
   test("stage emits StageStarted then StageEnded(Completed) around the body"):
@@ -31,26 +25,15 @@ class FlowTest extends munit.FunSuite:
     given FlowControl = ctx
     val result = stage("plan")(7)
     assertEquals(result, 7)
+    val markers = listener.events.collect:
+      case e: OrcaEvent.StageStarted => e
+      case e: OrcaEvent.StageEnded   => e
     assertEquals(
-      stageMarkers(listener),
+      markers,
       List(
         OrcaEvent.StageStarted(planPath, "plan"),
         OrcaEvent.StageEnded(planPath, StageOutcome.Completed)
       )
-    )
-
-  test("stage emits Error and re-raises when the body throws"):
-    val (listener, ctx) = fixture
-    given FlowControl = ctx
-    val _ = intercept[RuntimeException]:
-      stage[String]("risky")(throw new RuntimeException("kaboom"))
-    assert(
-      listener.events.exists {
-        case OrcaEvent.Error(msg, _) =>
-          msg.contains("risky") && msg.contains("kaboom")
-        case _ => false
-      },
-      s"expected an Error event mentioning the stage and cause, got: ${listener.events}"
     )
 
   test("a failing stage ends as Failed after its Error"):
@@ -73,8 +56,10 @@ class FlowTest extends munit.FunSuite:
     val _ = intercept[RuntimeException]:
       stage[String]("plan"):
         stage[String]("inner")(throw new RuntimeException("kaboom"))
+    val ends = listener.events.collect:
+      case e: OrcaEvent.StageEnded => e
     assertEquals(
-      listener.events.collect { case e: OrcaEvent.StageEnded => e },
+      ends,
       List(
         OrcaEvent.StageEnded(
           planPath.child("inner", 0),

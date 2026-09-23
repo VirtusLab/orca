@@ -52,8 +52,8 @@ private[runner] class TerminalEventListener(
       output.log(line)
       output.setStatus(stack.headOption)
     case _: OrcaEvent.StageEnded =>
-      // Ends don't print: starting the next event implies the previous one
-      // finished, and a failure has already printed its Error.
+      // `StageEnded` doesn't print: starting the next event implies the
+      // previous one finished, and a failure has already printed its Error.
       stack = stack.drop(1)
       stageEmitters.set(StageEmitters.Silent)
       output.setStatus(stack.headOption)
