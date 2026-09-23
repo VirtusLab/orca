@@ -79,18 +79,18 @@ flow(OrcaArgs(args)):
   display(s"Reviewing ${target.summary} — ${target.changedFiles.size} file(s)")
 
   val picked = stage("Pick reviewers"):
-    PickedReviewers(pickReviewers(target).map(_.name))
+    PickedReviewers(pickReviewers(target).map(_.name.value))
 
   val findings = stage("Run reviewers"):
     val reviewers = buildReviewers(
       reviewAgent,
-      reviewerCatalog.all.filter(r => picked.names.contains(r.name))
+      reviewerCatalog.all.filter(r => picked.names.contains(r.name.value))
     )
     // Results come back in completion order, hence the pairing with the
     // reviewer's name.
     AllFindings(Par.mapUnordered(4)(reviewers): r =>
       ReviewerFindings(
-        r.definition.name,
+        r.definition.name.value,
         r.agent
           .resultAs[ReviewResult]
           .autonomous
@@ -196,7 +196,8 @@ def pickReviewers(target: ReviewTarget)(using
          |$listing""".stripMargin
     )
 
-  candidates.filter(c => picked.names.contains(c.name)) match
+  val wanted = picked.names.map(ReviewerSlug(_)).toSet
+  candidates.filter(c => wanted.contains(c.name)) match
     case Nil      => candidates
     case selected => selected
 

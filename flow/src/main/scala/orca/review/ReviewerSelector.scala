@@ -145,7 +145,7 @@ object ReviewerSelector:
             taskTitle = taskTitle,
             changedFiles = changedFiles,
             availableReviewers =
-              eligible.map(e => ReviewerInfo(e.name, e.description)),
+              eligible.map(e => ReviewerInfo(e.name.value, e.description)),
             instructions = instructions
           )
           ReviewLogging.reviewerPick(request)

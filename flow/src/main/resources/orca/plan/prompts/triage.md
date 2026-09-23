@@ -1,14 +1,15 @@
-Triage this bug report and produce a structured verdict:
+Triage this bug report and produce a structured verdict. Set `kind` to one of:
 
-- `isBug`: is the report an actual defect, or intended behavior / user error
-  / out-of-scope? If false, set `notBugExplanation` (a short reply we'll
-  post on the issue) and leave the other fields at empty defaults.
-- `canTest`: can a focused unit test reproduce this on CI? If yes, set
+- `"NotABug"` — intended behavior, user error, or out-of-scope. Set
+  `notBugExplanation` (a short reply we'll post on the issue) and leave the
+  other fields at empty defaults.
+- `"Untestable"` — a real defect that no focused unit test can reproduce on CI.
+  Set `reproductionSteps` (they'll be posted back on the issue) and `summary`
+  (a one-line description of the defect).
+- `"Testable"` — a real defect a focused unit test can reproduce on CI. Set
   `failingTestPath` (use the project's existing test framework and layout
-  conventions) and pick a kebab-case `branchName`. Set `summary` to a
-  one-line PR title.
-- If `isBug` is true but `canTest` is false, fill in `reproductionSteps`
-  — they'll be posted back on the issue.
+  conventions), pick a kebab-case `branchName`, and set `summary` to a one-line
+  PR title.
 
 Do NOT edit files or run mutating commands during this turn — your only output
 is the triage verdict. You may read the repo and read-only network sources to

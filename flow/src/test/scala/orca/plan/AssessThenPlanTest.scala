@@ -4,6 +4,8 @@ import orca.events.EventDispatcher
 import orca.agents.ToolSet
 
 class AssessThenPlanTest extends munit.FunSuite:
+  import AssessedPlan.Decision.{Proceed, Reject}
+  import Verdict.RejectionKind.{Question, Rebuff}
 
   // Planning helpers are gated on `InStage`; mint the token for the suite.
   private given orca.InStage = orca.InStage.unsafe
@@ -15,48 +17,34 @@ class AssessThenPlanTest extends munit.FunSuite:
     brief = "the brief"
   )
 
-  test("toVerdict maps verdict=proceed + plan to Verdict.Proceed"):
+  test("toVerdict maps Proceed + plan to Verdict.Proceed"):
     val a = AssessedPlan(
-      verdict = "proceed",
+      decision = Proceed,
       plan = Some(samplePlan),
       rejectKind = None,
       rejectBody = None
     )
     assertEquals(a.toVerdict, Right(Verdict.Proceed(samplePlan)))
 
-  test("toVerdict maps each reject kind to the matching Verdict.RejectionKind"):
-    val kinds = List(
-      "question" -> Verdict.RejectionKind.Question,
-      "critique" -> Verdict.RejectionKind.Critique,
-      "rebuff" -> Verdict.RejectionKind.Rebuff
+  test("toVerdict maps Reject + kind + body to Verdict.Rejection"):
+    val a = AssessedPlan(
+      decision = Reject,
+      plan = None,
+      rejectKind = Some(Question),
+      rejectBody = Some("which version?")
     )
-    kinds.foreach: (wire, expected) =>
-      val a = AssessedPlan(
-        verdict = "reject",
-        plan = None,
-        rejectKind = Some(wire),
-        rejectBody = Some(s"body for $wire")
-      )
-      assertEquals(
-        a.toVerdict,
-        Right(Verdict.Rejection(expected, s"body for $wire"))
-      )
+    assertEquals(
+      a.toVerdict,
+      Right(Verdict.Rejection(Question, "which version?"))
+    )
 
   test("toVerdict surfaces each malformed combination as a Left"):
-    // One table covers every Left branch: missing plan on proceed, missing
-    // rejectBody on reject, missing rejectKind on reject, unknown rejectKind
-    // on reject, unknown top-level verdict.
+    // One table covers every Left branch: missing plan on Proceed, missing
+    // rejectBody or rejectKind on Reject.
     val cases = List[(AssessedPlan, String)](
-      AssessedPlan("proceed", None, None, None) -> "no plan",
-      AssessedPlan("reject", None, Some("question"), None) -> "no rejectBody",
-      AssessedPlan("reject", None, None, Some("body")) -> "no rejectKind",
-      AssessedPlan(
-        "reject",
-        None,
-        Some("nope"),
-        Some("b")
-      ) -> "unknown rejectKind",
-      AssessedPlan("maybe", None, None, None) -> "unknown verdict"
+      AssessedPlan(Proceed, None, None, None) -> "no plan",
+      AssessedPlan(Reject, None, Some(Question), None) -> "no rejectBody",
+      AssessedPlan(Reject, None, None, Some("body")) -> "no rejectKind"
     )
     cases.foreach: (input, fragment) =>
       val msg = input.toVerdict.swap.getOrElse(
@@ -67,9 +55,9 @@ class AssessThenPlanTest extends munit.FunSuite:
   test("Plan.autonomous.assessThenPlan returns the parsed verdict"):
     given orca.FlowContext = new orca.TestFlowContext(new EventDispatcher(Nil))
     val assessed = AssessedPlan(
-      verdict = "reject",
+      decision = Reject,
       plan = None,
-      rejectKind = Some("rebuff"),
+      rejectKind = Some(Rebuff),
       rejectBody = Some("duplicate of #42")
     )
     val agent = new CannedResultAgent(assessed)
@@ -78,13 +66,13 @@ class AssessThenPlanTest extends munit.FunSuite:
     assertEquals(Some(result.chat.id), agent.lastSession)
     assertEquals(
       result.value,
-      Verdict.Rejection(Verdict.RejectionKind.Rebuff, "duplicate of #42")
+      Verdict.Rejection(Rebuff, "duplicate of #42")
     )
 
   test("Plan.autonomous planner runs NetworkOnly (reads + read-only network)"):
     given orca.FlowContext = new orca.TestFlowContext(new EventDispatcher(Nil))
     val stub = new CannedResultAgent(
-      AssessedPlan("proceed", Some(samplePlan), None, None)
+      AssessedPlan(Proceed, Some(samplePlan), None, None)
     )
     val _ = Plan.autonomous.assessThenPlan("the report", stub)
     assertEquals(stub.lastToolSet, Some(ToolSet.NetworkOnly))
@@ -93,7 +81,7 @@ class AssessThenPlanTest extends munit.FunSuite:
     "Plan.autonomous.assessThenPlan throws OrcaFlowException on malformed payload"
   ):
     given orca.FlowContext = new orca.TestFlowContext(new EventDispatcher(Nil))
-    val malformed = AssessedPlan("proceed", None, None, None)
+    val malformed = AssessedPlan(Proceed, None, None, None)
     val ex = intercept[orca.OrcaFlowException]:
       Plan.autonomous.assessThenPlan(
         "the report",

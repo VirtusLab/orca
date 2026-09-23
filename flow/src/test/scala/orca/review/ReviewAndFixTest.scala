@@ -757,7 +757,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       )
     )
     val joinsInRoundThree = selector: (all, history) =>
-      if history.size < 2 then all.filter(_.name == "early") else all
+      if history.size < 2 then all.filter(_.name.value == "early") else all
     val _ = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(asReviewer(early), asReviewer(late)),
@@ -1934,7 +1934,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       outputs = List(ReviewResult(List(finding("from-x"))))
     )
     val rosterY = new FakeAgent(name = "y") // no outputs: throws if run
-    val onlyX = selector((all, _) => all.filter(_.name == "x"))
+    val onlyX = selector((all, _) => all.filter(_.name.value == "x"))
     val coder = new FakeAgent(
       name = "coder",
       outputs =

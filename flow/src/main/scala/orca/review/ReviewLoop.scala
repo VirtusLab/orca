@@ -550,7 +550,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
   ): (ReviewResult, Option[SessionEntry]) =
     val changes = ReReviewChanges.of(se.lastSent, current)
     val prompt = ReviewLoopPrompts.reReview(changes, open)
-    ReviewLogging.reReview(e.name, round, changes, prompt)
+    ReviewLogging.reReview(e.name.value, round, changes, prompt)
     val result =
       se.chat.resultAs[ReviewResult].autonomous.run(prompt, emitPrompt = false)
     // Nothing is sent on `AlreadySeen`, so the reviewer keeps comparing against
@@ -587,7 +587,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
       base = diffSource.base,
       open = open
     )
-    ReviewLogging.initialReview(e.name, round, current, prompt)
+    ReviewLogging.initialReview(e.name.value, round, current, prompt)
     val result =
       chat.resultAs[ReviewResult].autonomous.run(prompt, emitPrompt = false)
     (result, Some(SessionEntry(chat, LastSent.inlined(current.diff))))
@@ -694,7 +694,9 @@ private[review] class ReviewFixLoop[B <: BackendTag](
           // grouping detail, not part of what the user sees.
           case AgentOutcome.Reviewer(c) =>
             ctx.emit(
-              OrcaEvent.Step(formatReviewerOutcome(c.entry.name, c.findings))
+              OrcaEvent.Step(
+                formatReviewerOutcome(c.entry.name.value, c.findings)
+              )
             )
           case AgentOutcome.Lint(c) =>
             ctx.emit(
@@ -770,7 +772,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     // The same names the per-agent Steps use, in selection order with the lint
     // gate last; those Steps arrive in completion order, not this one.
     val agentNames =
-      active.map(_.name) ++ Option.when(lintGate.isDefined)(lintName)
+      active.map(_.name.value) ++ Option.when(lintGate.isDefined)(lintName)
     if agentNames.nonEmpty then
       ctx.emit(
         OrcaEvent.Step(
