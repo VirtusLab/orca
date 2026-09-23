@@ -9,6 +9,7 @@ import orca.agents.{
   WireSessionId,
   ToolSet
 }
+import orca.events.OrcaListener
 import orca.subprocess.OsProcCliRunner
 import orca.testkit.TempDirs
 
@@ -42,7 +43,9 @@ class OpencodeIntegrationTest extends munit.FunSuite:
   private def withBackend(workDir: os.Path = TempDirs.dir())(
       body: ox.Ox ?=> OpencodeBackend => Unit
   ): Unit =
-    SupervisedBackend.using(OpencodeBackend(OsProcCliRunner, workDir))(body)
+    SupervisedBackend.using(
+      OpencodeBackend(OsProcCliRunner, workDir, OrcaListener.noop)
+    )(body)
 
   private def fresh = SessionId.fresh[BackendTag.Opencode.type]
 

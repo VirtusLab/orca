@@ -50,7 +50,7 @@ focused subpackages: `orca.tools` (os-backed git/gh/fs impls + their traits),
 `orca.gitref` (validated branch names and commit hashes, and `Head`),
 `orca.agents` + `orca.backend` (LLM SPI, `SessionSupport`,
 conversation driver), `orca.subprocess` (subprocess shim), `orca.sweep`
-(finds agent work that outlived a turn), `orca.events`
+(finds agent work that outlived its process), `orca.events`
 (event bus), one `orca.tools.<backend>` per coding agent, and `orca.runner` /
 `orca.runner.terminal` (wiring + terminal UI). The flow module adds
 `orca.{plan,review,pr,progress}`.
@@ -493,7 +493,8 @@ Orca is 0.x: no backwards compatibility is owed anywhere.
   agent's cookie and REPORTS what is still running — the backstop for work an
   agent detached from orca's process tree, which no parent-link teardown can
   reach. opencode's turns spawn nothing (they run on the per-run server), so
-  they are not swept. Report-only unless `ORCA_SWEEP_KILL=1`; Linux only, and
+  they are not swept; the server's cookie is swept when the server stops.
+  Report-only unless `ORCA_SWEEP_KILL=1`; Linux only, and
   silently inert elsewhere (nothing to act on, so nothing is said).
 - Any filesystem write under `.orca/` **must** go through an
   `OrcaDir.ensure*` accessor, which refuses a symlinked `.orca` or

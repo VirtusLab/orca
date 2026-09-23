@@ -11,10 +11,10 @@ import scala.concurrent.duration.*
 import scala.jdk.StreamConverters.*
 import scala.util.control.NonFatal
 
-/** Finds processes still carrying a turn's [[EnvCookie]] once that turn has
-  * been torn down — the backstop for work an agent detached from orca's process
-  * tree (`nohup … &`, `setsid`, a double fork), which parent-link teardown
-  * cannot reach at all.
+/** Finds processes still carrying an agent process's [[EnvCookie]] once the
+  * scope that owned the process has torn it down — the backstop for work an
+  * agent detached from orca's process tree (`nohup … &`, `setsid`, a double
+  * fork), which parent-link teardown cannot reach at all.
   *
   * '''Report-only by default.''' A survivor is announced (an `OrcaEvent.Step`
   * plus a WARN log) and left running; `ORCA_SWEEP_KILL=1` makes the same sweep
@@ -50,12 +50,12 @@ private[orca] object EnvCookieSweep:
     */
   private val SettleDelay: FiniteDuration = 250.millis
 
-  /** Sweep for `cookie` and announce what still carries it. Runs as a turn
+  /** Sweep for `cookie` and announce what still carries it. Runs as the owning
     * scope's finalizer, so it is total: a failure is logged and swallowed
-    * rather than left to mask the turn's own outcome. `None` — a process
+    * rather than left to mask the scope's own outcome. `None` — a process
     * without a cookie — is a no-op, as is a platform [[sweep]] cannot scan.
     */
-  def afterTurn(cookie: Option[EnvCookie], events: OrcaListener): Unit =
+  def afterScope(cookie: Option[EnvCookie], events: OrcaListener): Unit =
     cookie.foreach: c =>
       try
         if sweep(c).nonEmpty then
@@ -98,9 +98,10 @@ private[orca] object EnvCookieSweep:
     if killsSurvivors then survivors.foreach(_.destroyForcibly().discard)
     val listed = survivors.map(describe).mkString(", ")
     val message =
-      if killsSurvivors then s"Agent work outlived this turn, killing: $listed"
+      if killsSurvivors then
+        s"Agent work outlived its process, killing: $listed"
       else
-        s"Agent work outlived this turn: $listed — not killed; set " +
+        s"Agent work outlived its process: $listed — not killed; set " +
           "ORCA_SWEEP_KILL=1 to have orca reap it"
     log.warn(message)
     events.onEvent(OrcaEvent.Step(message))

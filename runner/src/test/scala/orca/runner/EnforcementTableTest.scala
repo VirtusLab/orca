@@ -2,6 +2,7 @@ package orca.runner
 
 import orca.agents.{AutoApprove, BackendTag, Enforcement, ToolSet, TurnDispatch}
 import orca.backend.AgentBackend
+import orca.events.OrcaListener
 import orca.subprocess.StubCliRunner
 import orca.tools.claude.ClaudeBackend
 import orca.tools.codex.CodexBackend
@@ -184,7 +185,7 @@ class EnforcementTableTest extends munit.FunSuite:
         new ClaudeBackend(cli),
         new CodexBackend(cli),
         new GeminiBackend(cli),
-        OpencodeBackend(cli, TempDirs.dir()),
+        OpencodeBackend(cli, TempDirs.dir(), OrcaListener.noop),
         PiBackend.forInspection(cli)
       )
       use(
