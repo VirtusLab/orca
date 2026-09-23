@@ -13,6 +13,7 @@ import orca.agents.{
 }
 import orca.review.ReviewerPrompts
 import orca.settings.{AgentSettings, AgentSpec}
+import ox.{ResourceScope, tap}
 
 /** The three role agents resolved for one run — every field an existentially
   * typed [[Agent]] since planning/coding/review can each land on a different
@@ -77,18 +78,17 @@ private[orca] object RoleAgents:
     * programmatic override can escape the wired set, so a foreign-agent warning
     * only ever fires for an override.
     *
-    * `onRoleResolved` is invoked with each role's agent AS IT resolves, before
-    * the next role's override runs — so an EARLIER role that resolved to a
-    * foreign agent is still covered by the caller's close guard when a LATER
-    * override throws and this method never returns.
+    * A foreign role's agent is closed when the enclosing scope ends. Its close
+    * is registered AS the role resolves, so an earlier foreign role is still
+    * closed when a later override throws. Roles on a wired backend are left to
+    * whoever closes the wired agents.
     */
   def resolveAll(
       project: AgentSettings,
       global: AgentSettings,
       overrides: RoleOverrides,
-      agents: WiredAgents,
-      onRoleResolved: Agent[?] => Unit
-  ): RoleResolution =
+      agents: WiredAgents
+  )(using ResourceScope): RoleResolution =
     val planning =
       resolveOne(
         label = "planning",
@@ -97,8 +97,7 @@ private[orca] object RoleAgents:
         globalSpec = global.planning,
         overrideSelect = overrides.planning,
         agents = agents
-      )
-    onRoleResolved(planning.agent)
+      ).tap(closeIfForeign)
     val coding =
       resolveOne(
         label = "coding",
@@ -107,8 +106,7 @@ private[orca] object RoleAgents:
         globalSpec = global.coding,
         overrideSelect = overrides.coding,
         agents = agents
-      )
-    onRoleResolved(coding.agent)
+      ).tap(closeIfForeign)
     val review =
       resolveOne(
         label = "review",
@@ -119,14 +117,16 @@ private[orca] object RoleAgents:
         globalSpec = global.review,
         overrideSelect = overrides.review,
         agents = agents
-      )
-    onRoleResolved(review.agent)
+      ).tap(closeIfForeign)
     val all = List(planning, coding, review)
     RoleResolution(
       roles = ResolvedRoles(planning.agent, coding.agent, review.agent),
       announcement = "agents: " + all.map(announce).mkString(", "),
       foreignWarnings = all.flatMap(foreignWarning)
     )
+
+  private def closeIfForeign(c: RoleChoice)(using ResourceScope): Unit =
+    if c.foreign then WiredAgents.closeAfterScope(List(c.agent))
 
   /** One role's resolved agent plus the provenance the announcement reads.
     * `harness`/`model` are precomputed at resolution time (the only place that
@@ -260,8 +260,8 @@ private[orca] object RoleAgents:
       case RoleSource.Default  => "default"
 
   /** An override that escaped the wired set is event-blind — its cost/steps
-    * never reach the terminal or cost tracker — so it gets a loud warning; the
-    * close fan-outs still close it to avoid a resource leak.
+    * never reach the terminal or cost tracker — so it gets a loud warning; it
+    * is still closed (see [[resolveAll]]) to avoid a resource leak.
     */
   private def foreignWarning(c: RoleChoice): Option[String] =
     Option.when(c.foreign)(

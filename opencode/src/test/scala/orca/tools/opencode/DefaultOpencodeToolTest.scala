@@ -81,7 +81,7 @@ class DefaultOpencodeAgentTest extends munit.FunSuite:
     val b = new RecordingBackend
     assertEquals(
       modelOf(toolWith(b).anthropicOpus, b),
-      Some("anthropic/claude-opus-5")
+      Some("anthropic/claude-opus-5-5")
     )
     assertEquals(
       modelOf(toolWith(b).anthropicSonnet, b),
@@ -91,14 +91,14 @@ class DefaultOpencodeAgentTest extends munit.FunSuite:
       modelOf(toolWith(b).anthropicHaiku, b),
       Some("anthropic/claude-haiku-4-5")
     )
-    assertEquals(modelOf(toolWith(b).openaiSol, b), Some("openai/gpt-5.6-sol"))
     assertEquals(
-      modelOf(toolWith(b).openaiTerra, b),
-      Some("openai/gpt-5.6-terra")
+      modelOf(toolWith(b).openaiAstra, b),
+      Some("openai/gpt-6-astra")
     )
+    assertEquals(modelOf(toolWith(b).openaiSol, b), Some("openai/gpt-6-sol"))
     assertEquals(
       modelOf(toolWith(b).openaiLuna, b),
-      Some("openai/gpt-5.6-luna")
+      Some("openai/gpt-6-luna")
     )
 
   test("withModel pins an arbitrary provider/model id (self-hosted)"):
@@ -114,7 +114,7 @@ class DefaultOpencodeAgentTest extends munit.FunSuite:
     assertEquals(b.lastConfig.map(_.tools), Some(ToolSet.ReadOnly))
     assertEquals(
       b.lastConfig.flatMap(_.model).map(_.name),
-      Some("anthropic/claude-opus-5")
+      Some("anthropic/claude-opus-5-5")
     )
 
   test("withName renames without touching config"):

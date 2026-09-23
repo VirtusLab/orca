@@ -1915,11 +1915,10 @@ class FlowLifecycleTest extends munit.FunSuite:
     )
 
   test(
-    "runFlow closes the context (and its agents) even when the body throws"
+    "runFlow closes the agents even when the body throws"
   ):
-    // ctx.close() runs in runFlow's `finally`, so it must fire on the failure
-    // path too — not just on success. Wire a recording opencode agent and
-    // assert its close() ran after a body that throws.
+    // Wire a recording opencode agent and assert its close() ran after a body
+    // that throws.
     val workDir = GitRepo.seeded()
     val prompt = "close-on-body-throw"
     var opencodeClosed = false
@@ -1948,7 +1947,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     assertEquals(thrown.cause.getMessage, "boom in body")
     assert(
       opencodeClosed,
-      "ctx.close() must run on the failure path too, closing the opencode agent"
+      "the opencode agent must be closed on the failure path too"
     )
 
   test(
@@ -4359,7 +4358,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     def anthropicSonnet = this
     def anthropicHaiku = this
     def openaiSol = this
-    def openaiTerra = this
+    def openaiAstra = this
     def openaiLuna = this
     def withModel(providerModel: String) = this
     def withConfig(c: AgentConfig) = this

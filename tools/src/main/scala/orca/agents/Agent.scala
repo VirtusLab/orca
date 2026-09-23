@@ -255,11 +255,12 @@ trait Agent[B <: BackendTag]:
     * (`_.claude.opus`, `.withReadOnly`, …) share the same token because they
     * share the same backend object; independently-built backends of the same
     * kind get different tokens even though [[backendTag]] can't tell them
-    * apart. [[orca.runner.DefaultFlowContext]] uses this to distinguish a
-    * selector-derived sibling of a wired agent (safe) from a foreign agent
-    * (event-blind, leaked past `close()`) — a plain `Agent eq Agent` check
-    * can't, since the wrappers differ. `BaseAgent` overrides it to the shared
-    * `AgentBackend.closedFlag` reference.
+    * apart. [[orca.runner.RoleAgents]] uses this (via
+    * `WiredAgents.isWiredBackend`) to tell a selector-derived sibling of a
+    * wired agent from a foreign agent, which is event-blind and must be closed
+    * separately — a plain `Agent eq Agent` check can't, since the wrappers
+    * differ. `BaseAgent` overrides it to the shared `AgentBackend.closedFlag`
+    * reference.
     *
     * Compared by REFERENCE (`eq`), never `==`: structural equality would
     * false-positive two independently-built backends as the same one.
@@ -303,7 +304,7 @@ trait Agent[B <: BackendTag]:
 
   /** Release background resources this agent's backend owns. Delegates to
     * [[orca.backend.AgentBackend.close]]; a stub without a backend keeps the
-    * no-op default. The runtime calls this from `DefaultFlowContext.close()`.
+    * no-op default. The runtime calls this when the flow run ends.
     */
   private[orca] def close(): Unit = ()
 
@@ -361,7 +362,7 @@ trait CodexAgent extends Agent[BackendTag.Codex.type]:
   def mini: CodexAgent
 
   /** Pin any codex model the installed `codex-cli` offers, beyond `mini` — e.g.
-    * `codex.withModel(Model("gpt-5.6-sol"))`.
+    * `codex.withModel(Model("gpt-6-astra"))`.
     */
   def withModel(model: Model): CodexAgent
 
@@ -369,7 +370,7 @@ trait CodexAgent extends Agent[BackendTag.Codex.type]:
 
 /** OpenCode spans providers, so its model accessors are provider-prefixed (the
   * prefix keeps the vendor explicit at the call site). The openai accessors
-  * follow OpenAI's durable capability tiers — sol (flagship), terra (balanced),
+  * follow OpenAI's durable capability tiers — astra (flagship), sol (balanced),
   * luna (efficiency) — the same way the anthropic accessors follow
   * opus/sonnet/haiku. [[withModel]] takes any `provider/model` id — including
   * self-hosted ones, e.g. `ollama/llama3.1`.
@@ -378,8 +379,8 @@ trait OpencodeAgent extends Agent[BackendTag.Opencode.type]:
   def anthropicOpus: OpencodeAgent
   def anthropicSonnet: OpencodeAgent
   def anthropicHaiku: OpencodeAgent
+  def openaiAstra: OpencodeAgent
   def openaiSol: OpencodeAgent
-  def openaiTerra: OpencodeAgent
   def openaiLuna: OpencodeAgent
 
   /** Base cheap variant is anthropic haiku; [[DefaultOpencodeAgent]] overrides
@@ -411,7 +412,7 @@ trait GeminiAgent extends Agent[BackendTag.Gemini.type]:
   def flash: GeminiAgent
 
   /** Pin any Gemini model id beyond `flash`, e.g.
-    * `gemini.withModel(Model("gemini-2.5-pro"))`.
+    * `gemini.withModel(Model("gemini-3.5-flash"))`.
     */
   def withModel(model: Model): GeminiAgent
 

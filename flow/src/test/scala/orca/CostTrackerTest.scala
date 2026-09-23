@@ -208,7 +208,7 @@ class CostTrackerTest extends munit.FunSuite:
 
   test("shipped table reproduces a captured turn's reported cost"):
     // Token counts and expected figure captured from a real Sonnet 5 turn,
-    // whose cost the CLI reported as $0.1876374. Reproducing it end to end is
+    // whose cost the CLI reported as $0.0932238. Reproducing it end to end is
     // the one assertion that catches a whole class of table errors: a wrong
     // cache-write tier, a wrong base rate, or a model id resolving to the
     // wrong row.
@@ -218,18 +218,18 @@ class CostTrackerTest extends munit.FunSuite:
         "reviewer",
         Some("claude-sonnet-5"),
         usage(
-          input = 176_625L,
-          output = 1_083L,
+          input = 41_004L,
+          output = 4L,
           cost = None,
-          cacheRead = 155_848L,
-          cacheWrite = 20_769L
+          cacheRead = 18_639L,
+          cacheWrite = 22_363L
         ),
         pricing = Pricing.default
       )
     )
     assertEquals(
       tracker.perAgentCost("reviewer").amount,
-      BigDecimal("0.1876374")
+      BigDecimal("0.0932238")
     )
 
   test("estimate ignores reasoning tokens (already inside output)"):

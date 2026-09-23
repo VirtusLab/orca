@@ -17,12 +17,14 @@ import orca.tools.gemini.GeminiAgents
 import orca.tools.opencode.OpencodeAgents
 import orca.tools.pi.PiAgents
 import org.slf4j.LoggerFactory
+import ox.{ResourceScope, releaseAfterScope}
 
 import scala.util.control.NonFatal
 
 /** The five agents wired for one run — the [[orca.AgentSet]] the `flow(...)`
   * lead selector resolves against. Built (via [[WiredAgents.build]]) before the
-  * `FlowContext` exists; the context then takes ownership of the bundle.
+  * `FlowContext` exists; the run's resource scope closes them (see
+  * [[WiredAgents.closeAfterScope]]).
   */
 private[orca] final class WiredAgents(
     val claude: ClaudeAgent,
@@ -89,13 +91,15 @@ private[orca] object WiredAgents:
         .getOrElse(GeminiAgents.default(agentWiring))
     )
 
-  /** Best-effort close fan-out over `agents` (each delegates to its backend;
-    * today only opencode holds a live resource, the shared `serve` process).
-    * One failing close must not keep the others from closing. Shared by
-    * `DefaultFlowContext.close()` and `runFlow`'s pre-construction ownership
-    * guard so both close the same way.
+  /** Closes `agents` when the enclosing scope ends (each delegates to its
+    * backend; today only opencode holds a live resource, the shared `serve`
+    * process). Best-effort: a failing close is logged and reported, and does
+    * not keep the others from closing or fail the run.
     */
-  def closeBestEffort(agents: List[Agent[?]]): Unit =
+  def closeAfterScope(agents: List[Agent[?]])(using ResourceScope): Unit =
+    releaseAfterScope(closeBestEffort(agents))
+
+  private def closeBestEffort(agents: List[Agent[?]]): Unit =
     agents.foreach: a =>
       try a.close()
       catch

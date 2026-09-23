@@ -12,9 +12,8 @@ import ox.discard
 
 /** Production FlowContext wiring. Constructed by `runFlow` AFTER the three role
   * agents are resolved and lifecycle setup has run, so the role agents and
-  * `stackSettings` are plain constructor facts. Ownership of the wired agents
-  * transfers here at construction; from that point `close()` is the sole
-  * disposal path.
+  * `stackSettings` are plain constructor facts. Does not own the agents:
+  * `runFlow` closes them when the run ends.
   */
 private[orca] class DefaultFlowContext[
     PB <: BackendTag,
@@ -61,20 +60,6 @@ private[orca] class DefaultFlowContext[
   type ReviewB = RB
 
   export wired.{claude, codex, opencode, pi, gemini}
-
-  /** Tear down context-owned resources by closing every wired agent plus the
-    * three resolved role agents. Runs in the flow body's `finally`, before the
-    * flow scope joins its forks (see [[orca.backend.AgentBackend.close]]).
-    *
-    * The role agents are appended UNCONDITIONALLY rather than filtered by
-    * [[WiredAgents.isWiredBackend]]: a foreign role agent (an override built
-    * from a separate backend) is otherwise unreachable and would leak, while a
-    * role sharing a wired backend just gets a second, idempotent `close()`.
-    */
-  def close(): Unit =
-    WiredAgents.closeBestEffort(
-      wired.all ++ List(planningAgent, codingAgent, reviewAgent)
-    )
 
   def emit(event: OrcaEvent): Unit = dispatcher.onEvent(event)
 

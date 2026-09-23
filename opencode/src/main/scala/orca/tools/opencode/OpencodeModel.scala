@@ -6,7 +6,7 @@ import orca.agents.Model
 /** Construction and parsing of OpenCode's `provider/model` identifiers.
   *
   * OpenCode addresses every model as `<providerID>/<modelID>` (e.g.
-  * `anthropic/claude-opus-4-8`, `openai/gpt-5.6-sol`, `ollama/llama3.1`). The
+  * `anthropic/claude-opus-4-8`, `openai/gpt-6-sol`, `ollama/llama3.1`). The
   * wire layer (`OpencodeArgs`) needs the two halves separately, so this is the
   * one place that joins and splits them — callers never hand-concatenate.
   */

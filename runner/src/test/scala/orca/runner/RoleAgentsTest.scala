@@ -109,12 +109,11 @@ class RoleAgentsTest extends munit.FunSuite:
     "resolveAll announces the default, project, and global sources per role"
   ):
     val wired = wiredAgents()
-    val resolution = RoleAgents.resolveAll(
+    val resolution = resolveInScope(
       project = AgentSettings(coding = Some(AgentSpec(BackendTag.Codex, None))),
       global = AgentSettings(review = Some(AgentSpec(BackendTag.Gemini, None))),
       overrides = RoleOverrides(None, None, None),
-      agents = wired,
-      onRoleResolved = _ => ()
+      agents = wired
     )
     assertEquals(
       resolution.announcement,
@@ -128,16 +127,15 @@ class RoleAgentsTest extends munit.FunSuite:
     "resolveAll shows the wired agent's own configured model when no settings pin it"
   ):
     val wired = wiredAgents(claude = new DefaultModelClaude)
-    val resolution = RoleAgents.resolveAll(
+    val resolution = resolveInScope(
       project = AgentSettings.empty,
       global = AgentSettings.empty,
       overrides = RoleOverrides(None, None, None),
-      agents = wired,
-      onRoleResolved = _ => ()
+      agents = wired
     )
     assert(
       resolution.announcement.contains(
-        "planning=claude:claude-opus-5[1m] (default)"
+        "planning=claude:claude-opus-5-5[1m] (default)"
       ),
       s"expected the wired default model in the segment: ${resolution.announcement}"
     )
@@ -145,12 +143,11 @@ class RoleAgentsTest extends munit.FunSuite:
   test(
     "resolveAll marks a role nobody pinned a model for as the harness's own default"
   ):
-    val resolution = RoleAgents.resolveAll(
+    val resolution = resolveInScope(
       project = AgentSettings(coding = Some(AgentSpec(BackendTag.Codex, None))),
       global = AgentSettings.empty,
       overrides = RoleOverrides(None, None, None),
-      agents = wiredAgents(),
-      onRoleResolved = _ => ()
+      agents = wiredAgents()
     )
     assert(
       resolution.announcement.contains(
@@ -164,27 +161,25 @@ class RoleAgentsTest extends munit.FunSuite:
     "a settings entry naming only a harness announces that agent's own model"
   ):
     // The header and the cost table must name the same model.
-    val resolution = RoleAgents.resolveAll(
+    val resolution = resolveInScope(
       project = AgentSettings(coding = Some(AgentSpec(BackendTag.Codex, None))),
       global = AgentSettings.empty,
       overrides = RoleOverrides(None, None, None),
-      agents = wiredAgents(codex = new DefaultModelCodex),
-      onRoleResolved = _ => ()
+      agents = wiredAgents(codex = new DefaultModelCodex)
     )
     assert(
-      resolution.announcement.contains("coding=codex:gpt-5.6-sol (project)"),
+      resolution.announcement.contains("coding=codex:gpt-6-sol (project)"),
       s"expected the wired codex's own model: ${resolution.announcement}"
     )
 
   test("resolveAll renders a project model pin as harness:model"):
-    val resolution = RoleAgents.resolveAll(
+    val resolution = resolveInScope(
       project = AgentSettings(coding =
         Some(AgentSpec(BackendTag.Codex, Some("gpt-5-mini")))
       ),
       global = AgentSettings.empty,
       overrides = RoleOverrides(None, None, None),
-      agents = wiredAgents(),
-      onRoleResolved = _ => ()
+      agents = wiredAgents()
     )
     assert(
       resolution.announcement.contains("coding=codex:gpt-5-mini (project)"),
@@ -194,14 +189,13 @@ class RoleAgentsTest extends munit.FunSuite:
   test(
     "a project model pin wins over the wired agent's own configured model"
   ):
-    val resolution = RoleAgents.resolveAll(
+    val resolution = resolveInScope(
       project = AgentSettings(planning =
         Some(AgentSpec(BackendTag.ClaudeCode, Some("claude-haiku-4-5")))
       ),
       global = AgentSettings.empty,
       overrides = RoleOverrides(None, None, None),
-      agents = wiredAgents(claude = new DefaultModelClaude),
-      onRoleResolved = _ => ()
+      agents = wiredAgents(claude = new DefaultModelClaude)
     )
     assert(
       resolution.announcement.contains(
@@ -215,14 +209,13 @@ class RoleAgentsTest extends munit.FunSuite:
     "resolveAll marks an override's source as (override) with its backend harness"
   ):
     val wired = wiredAgents()
-    val resolution = RoleAgents.resolveAll(
+    val resolution = resolveInScope(
       project =
         AgentSettings(coding = Some(AgentSpec(BackendTag.Gemini, None))),
       global = AgentSettings.empty,
       overrides =
         RoleOverrides(None, Some((a: orca.AgentSet) => a.codex), None),
-      agents = wired,
-      onRoleResolved = _ => ()
+      agents = wired
     )
     assert(
       resolution.announcement.contains(
@@ -257,7 +250,7 @@ class RoleAgentsTest extends munit.FunSuite:
   test("a name a programmatic override set deliberately is not overwritten"):
     // The name is what sessions and selectors key off, so an override that
     // picked one keeps it.
-    val resolution = RoleAgents.resolveAll(
+    val resolution = resolveInScope(
       project = AgentSettings.empty,
       global = AgentSettings.empty,
       overrides = RoleOverrides(
@@ -265,8 +258,7 @@ class RoleAgentsTest extends munit.FunSuite:
         Some((a: orca.AgentSet) => a.claude.withName("bob")),
         None
       ),
-      agents = wiredAgents(claude = new TaggableClaude("claude")),
-      onRoleResolved = _ => ()
+      agents = wiredAgents(claude = new TaggableClaude("claude"))
     )
     assertEquals(resolution.roles.coding.name, "bob")
 
@@ -274,30 +266,59 @@ class RoleAgentsTest extends munit.FunSuite:
     // The "still carries its backend's own default name" check reads that name
     // off the wired agent, so a backend naming its default something else is
     // covered without a list of names to keep in step.
-    val resolution = RoleAgents.resolveAll(
+    val resolution = resolveInScope(
       project = AgentSettings(coding = Some(AgentSpec(BackendTag.Pi, None))),
       global = AgentSettings.empty,
       overrides = RoleOverrides(None, None, None),
-      agents = wiredAgents(),
-      onRoleResolved = _ => ()
+      agents = wiredAgents()
     )
     assertEquals(resolution.roles.coding.name, "coding")
 
   test("resolveAll warns for an override that escapes the wired set"):
     val foreign = new RecordingModelClaude(new AnyRef)
-    val resolution = RoleAgents.resolveAll(
+    val resolution = resolveInScope(
       project = AgentSettings.empty,
       global = AgentSettings.empty,
       overrides =
         RoleOverrides(None, Some((_: orca.AgentSet) => foreign), None),
-      agents = wiredAgents(),
-      onRoleResolved = _ => ()
+      agents = wiredAgents()
     )
     assert(
       resolution.foreignWarnings.exists(
         _.contains("coding agent was not built from this flow's context")
       ),
       s"expected a foreign-agent warning: ${resolution.foreignWarnings}"
+    )
+
+  test(
+    "resolveAll closes a foreign role's agent when the scope ends, but no wired one"
+  ):
+    var closed = List.empty[String]
+    val foreign = new ClosingClaude(() => closed = "foreign" :: closed)
+    val wiredCodex = new ClosingCodex(() => closed = "codex" :: closed)
+    val _ = resolveInScope(
+      project = AgentSettings.empty,
+      global = AgentSettings.empty,
+      overrides = RoleOverrides(
+        Some((_: orca.AgentSet) => foreign),
+        Some((a: orca.AgentSet) => a.codex),
+        None
+      ),
+      agents = wiredAgents(codex = wiredCodex)
+    )
+    assertEquals(closed, List("foreign"))
+
+  /** [[RoleAgents.resolveAll]] in a scope of its own, so any foreign role's
+    * agent is closed on return.
+    */
+  private def resolveInScope(
+      project: AgentSettings,
+      global: AgentSettings,
+      overrides: RoleOverrides,
+      agents: WiredAgents
+  ): RoleResolution =
+    ox.resourceScope(
+      RoleAgents.resolveAll(project, global, overrides, agents)
     )
 
   /** [[RoleAgents.resolveAll]] with no global settings and no programmatic
@@ -307,15 +328,12 @@ class RoleAgentsTest extends munit.FunSuite:
       settings: AgentSettings,
       agents: WiredAgents
   ): ResolvedRoles =
-    RoleAgents
-      .resolveAll(
-        project = settings,
-        global = AgentSettings.empty,
-        overrides = RoleOverrides(None, None, None),
-        agents = agents,
-        onRoleResolved = _ => ()
-      )
-      .roles
+    resolveInScope(
+      project = settings,
+      global = AgentSettings.empty,
+      overrides = RoleOverrides(None, None, None),
+      agents = agents
+    ).roles
 
   private def wiredAgents(
       claude: ClaudeAgent = StubAgent.claude,
@@ -354,7 +372,7 @@ class RoleAgentsTest extends munit.FunSuite:
     def anthropicSonnet: OpencodeAgent = this
     def anthropicHaiku: OpencodeAgent = this
     def openaiSol: OpencodeAgent = this
-    def openaiTerra: OpencodeAgent = this
+    def openaiAstra: OpencodeAgent = this
     def openaiLuna: OpencodeAgent = this
     override private[orca] def backendIdentity: Option[AnyRef] = Some(token)
     def withModel(providerModel: String): OpencodeAgent =
@@ -392,32 +410,19 @@ class RoleAgentsTest extends munit.FunSuite:
     */
   private class DefaultModelClaude extends StubClaudeAgent("claude"):
     override private[orca] def configuredModel: Option[Model] =
-      Some(Model("claude-opus-5[1m]"))
+      Some(Model("claude-opus-5-5[1m]"))
 
-  private class NoopCodexAgent extends CodexAgent:
-    val name = "noop-codex"
-    // A real backend tag so the override-announcement test can read the
-    // resolved backend's harness (`codex`) off the agent, as production does.
-    override private[orca] def backendTag: Option[BackendTag] =
-      Some(BackendTag.Codex)
-    def mini: CodexAgent = this
-    def withModel(model: Model): CodexAgent = this
-    def withConfig(config: AgentConfig): CodexAgent = this
-    def withSystemPrompt(prompt: String): CodexAgent = this
-    def withName(name: String): CodexAgent = this
-    def withTools(tools: ToolSet): CodexAgent = this
-    def autonomous: AutonomousTextCall[BackendTag.Codex.type] =
-      throw new UnsupportedOperationException
-    def resultAs[O: JsonData: Announce]: AgentCall[BackendTag.Codex.type, O] =
-      throw new UnsupportedOperationException
+  private object NoopCodex extends StubCodexAgent
 
-  private object NoopCodex extends NoopCodexAgent
+  private class ClosingClaude(onClose: () => Unit)
+      extends StubClaudeAgent("closing-claude"):
+    override private[orca] def close(): Unit = onClose()
 
-  /** [[NoopCodexAgent]] with a model of its own, for the settings path. */
-  private class DefaultModelCodex extends NoopCodexAgent:
+  /** [[StubCodexAgent]] with a model of its own, for the settings path. */
+  private class DefaultModelCodex extends StubCodexAgent:
     override val name = "codex"
     override private[orca] def configuredModel: Option[Model] =
-      Some(Model("gpt-5.6-sol"))
+      Some(Model("gpt-6-sol"))
 
   private object NoopOpencode extends OpencodeAgent:
     val name = "noop-opencode"
@@ -425,7 +430,7 @@ class RoleAgentsTest extends munit.FunSuite:
     def anthropicSonnet: OpencodeAgent = this
     def anthropicHaiku: OpencodeAgent = this
     def openaiSol: OpencodeAgent = this
-    def openaiTerra: OpencodeAgent = this
+    def openaiAstra: OpencodeAgent = this
     def openaiLuna: OpencodeAgent = this
     def withModel(providerModel: String): OpencodeAgent = this
     def withConfig(config: AgentConfig): OpencodeAgent = this

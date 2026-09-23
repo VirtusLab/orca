@@ -37,12 +37,11 @@ import java.util.concurrent.atomic.AtomicReference
 /** Pins the foreign-agent handling: a per-role override (`codingAgent =
   * Some(...)`) can return an agent built from a backend that isn't wired into
   * this run — event-blind (built against its own `AgentWiring`, not this run's
-  * dispatcher). [[DefaultFlowContext.close]] unconditionally closes the three
-  * resolved role agents alongside all five wired agents (safe because a
-  * backend's own `close()` is idempotent), so a foreign role agent's backend is
-  * closed too. `runFlow` separately warns per role when it resolves a foreign
-  * agent, comparing backend IDENTITY ([[orca.agents.Agent.backendIdentity]]),
-  * not `Agent` reference equality — the positive case below pins that a
+  * dispatcher). `runFlow` closes all five wired agents and every foreign role
+  * agent when the run ends, so a foreign role agent's backend is closed too.
+  * `runFlow` separately warns per role when it resolves a foreign agent,
+  * comparing backend IDENTITY ([[orca.agents.Agent.backendIdentity]]), not
+  * `Agent` reference equality — the positive case below pins that a
   * `copyTool`-derived sibling of a wired agent (the common `_.claude.opus`
   * shape) does NOT trip that warning, and that its shared backend's teardown
   * still runs exactly once despite two `Agent` instances.
@@ -136,9 +135,7 @@ class LeadAgentIdentityTest extends munit.FunSuite:
       piBackend.closeCount,
       1,
       "the shared backend's teardown must run exactly once even though " +
-        "close() now unconditionally closes both the wired pi and the lead " +
-        "sharing its backend — the backend's own idempotence guard (not a " +
-        "caller-side wired/foreign check) is what makes that safe"
+        "two `Agent` instances share it"
     )
 
   test(
@@ -147,9 +144,8 @@ class LeadAgentIdentityTest extends munit.FunSuite:
   ):
     // The selector resolves pre-context, against the wired agent set, inside
     // `runFlow`'s pre-context `surfaced` bracket: its failure is reported as
-    // exactly one Error and escapes as `SurfacedFlowFailure(boom)`. Since the
-    // context is never constructed, no `ctx.close()` runs — the ownership
-    // guard in `runFlow` is what must close the five wired agents.
+    // exactly one Error and escapes as `SurfacedFlowFailure(boom)`. The
+    // context is never constructed, yet the five wired agents must be closed.
     val boom = new RuntimeException("selector always throws")
     val selector: AgentSet => orca.agents.Agent[BackendTag.ClaudeCode.type] =
       _ => throw boom
@@ -197,7 +193,7 @@ class LeadAgentIdentityTest extends munit.FunSuite:
       assertEquals(
         agents.closeCounts(tag),
         1,
-        s"the ownership guard must still close the wired $tag backend " +
+        s"runFlow must still close the wired $tag backend " +
           s"despite the selector throwing"
       )
 
@@ -207,9 +203,8 @@ class LeadAgentIdentityTest extends munit.FunSuite:
   ):
     // Planning resolves to a FOREIGN agent (a separate backend, not one of the
     // five wired); coding's override then throws, so `resolveAll` never returns
-    // a `RoleResolution`. The pre-transfer close guard must nonetheless have
-    // recorded the foreign planning agent — appended incrementally as each role
-    // resolved — and close its backend so it does not leak.
+    // a `RoleResolution`. The foreign planning agent's close, registered as
+    // that role resolved, must still run so its backend does not leak.
     val boom = new RuntimeException("coding selector always throws")
     val foreignBackend = new RecordingCloseBackend
     val foreignPlanning: PiAgent = new DefaultPiAgent(
@@ -265,11 +260,7 @@ class LeadAgentIdentityTest extends munit.FunSuite:
     * only resolved and closed, never called).
     *
     * `close()` is CAS-guarded, mirroring the idempotence every real backend
-    * provides. Since `DefaultFlowContext.close()` appends the resolved lead
-    * unconditionally, a lead sharing a wired backend gets `Agent.close()`
-    * invoked twice; `closeCount` pins that the doubled call still produces a
-    * single observable teardown — the actual contract, not that `close()` is
-    * called exactly once.
+    * provides. `closeCount` counts realised teardowns, not `close()` calls.
     */
   private class RecordingCloseBackend
       extends AgentBackend[BackendTag.Pi.type]
@@ -305,7 +296,7 @@ class LeadAgentIdentityTest extends munit.FunSuite:
     * its own tag on `close()`. No test ever drives an `autonomous`/`resultAs`
     * call through these — the selector throws before setup or the body could
     * ever use the lead agent — so those methods are unreachable stubs, same as
-    * `NoopOpencode`/`NoopPi`/`NoopGemini` in `DefaultFlowContextTest`.
+    * the `Noop*` stubs in `RoleAgentsTest`.
     */
   private class RecordingAgents:
     private val counts =
@@ -354,7 +345,7 @@ class LeadAgentIdentityTest extends munit.FunSuite:
       def anthropicSonnet = this
       def anthropicHaiku = this
       def openaiSol = this
-      def openaiTerra = this
+      def openaiAstra = this
       def openaiLuna = this
       def withModel(providerModel: String) = this
       def withConfig(c: AgentConfig) = this

@@ -146,7 +146,7 @@ class AgentCheapTest extends munit.FunSuite:
     def anthropicSonnet: OpencodeAgent = namedOpencode("anthropicSonnet")
     def anthropicHaiku: OpencodeAgent = namedOpencode("anthropicHaiku")
     def openaiSol: OpencodeAgent = namedOpencode("openaiSol")
-    def openaiTerra: OpencodeAgent = namedOpencode("openaiTerra")
+    def openaiAstra: OpencodeAgent = namedOpencode("openaiAstra")
     def openaiLuna: OpencodeAgent = namedOpencode("openaiLuna")
     def withModel(providerModel: String): OpencodeAgent = this
     def autonomous: AutonomousTextCall[BackendTag.Opencode.type] = ???
@@ -164,7 +164,7 @@ class AgentCheapTest extends munit.FunSuite:
         def anthropicSonnet: OpencodeAgent = this
         def anthropicHaiku: OpencodeAgent = this
         def openaiSol: OpencodeAgent = this
-        def openaiTerra: OpencodeAgent = this
+        def openaiAstra: OpencodeAgent = this
         def openaiLuna: OpencodeAgent = this
         def withModel(pm: String): OpencodeAgent = this
         def autonomous: AutonomousTextCall[BackendTag.Opencode.type] = ???

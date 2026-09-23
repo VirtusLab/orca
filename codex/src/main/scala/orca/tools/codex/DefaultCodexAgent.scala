@@ -27,12 +27,11 @@ private[orca] class DefaultCodexAgent(
     )
     with CodexAgent:
 
-  /** Pin the cheap-and-fast model variant. The literal model id matches what's
-    * available in the installed `codex-cli` (gpt-5.4-mini in 0.125.0); newer
-    * codex versions may rename, in which case callers pin the right id with
+  /** Pin the cheap-and-fast model variant. Older codex versions may not offer
+    * it, in which case callers pin the right id with
     * `codex.withModel(Model("..."))`.
     */
-  def mini: CodexAgent = withModel(Model("gpt-5.4-mini"))
+  def mini: CodexAgent = withModel(Model("gpt-6-luna"))
 
   protected def copyTool(
       config: AgentConfig = config,
@@ -57,7 +56,7 @@ private[orca] object DefaultCodexAgent:
     * --json` names no model anywhere on its stream (probed 2026-08-08,
     * codex-cli 0.145.0 — `thread.started` carries `thread_id` alone, with and
     * without `-m`), so an unpinned turn lands under `(unknown)`. This id is
-    * that version's own default; newer ones may rename it — override via
-    * `codex.withModel(...)` if so.
+    * OpenAI's recommended Codex model; codex-cli 0.155.1 offers it (0.145.0
+    * lacks it); older CLIs need an upgrade or `codex.withModel(...)`.
     */
-  val Sol: Model = Model("gpt-5.6-sol")
+  val Sol: Model = Model("gpt-6-sol")

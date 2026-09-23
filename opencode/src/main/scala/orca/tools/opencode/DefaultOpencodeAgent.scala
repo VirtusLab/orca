@@ -32,13 +32,13 @@ private[orca] class DefaultOpencodeAgent(
     )
     with OpencodeAgent:
 
-  def anthropicOpus: OpencodeAgent = withModel("anthropic", "claude-opus-5")
+  def anthropicOpus: OpencodeAgent = withModel("anthropic", "claude-opus-5-5")
   def anthropicSonnet: OpencodeAgent =
     withModel("anthropic", "claude-sonnet-5")
   def anthropicHaiku: OpencodeAgent = withModel("anthropic", "claude-haiku-4-5")
-  def openaiSol: OpencodeAgent = withModel("openai", "gpt-5.6-sol")
-  def openaiTerra: OpencodeAgent = withModel("openai", "gpt-5.6-terra")
-  def openaiLuna: OpencodeAgent = withModel("openai", "gpt-5.6-luna")
+  def openaiAstra: OpencodeAgent = withModel("openai", "gpt-6-astra")
+  def openaiSol: OpencodeAgent = withModel("openai", "gpt-6-sol")
+  def openaiLuna: OpencodeAgent = withModel("openai", "gpt-6-luna")
 
   // Cheap is provider-matched so incidental work doesn't pull in a second
   // provider's auth: an openai-led tool's cheap is an openai model, otherwise
