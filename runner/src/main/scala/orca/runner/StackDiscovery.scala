@@ -212,18 +212,18 @@ private[runner] object StackDiscovery:
   ): (List[SettingsEntry], StackSettings) =
     def demotionReason(
         command: StackCommand,
-        cmd: DiscoveredCommand
+        evidencePath: String
     ): Option[String] =
       unresolvedReason(command.value)
         .orElse(
           // A blank citation is checked before existence: `os.SubPath("")`
           // resolves to the repo root, which exists, so the existence check
           // would pass vacuously.
-          Option.when(cmd.evidencePath.isBlank)("no evidence file cited")
+          Option.when(evidencePath.isBlank)("no evidence file cited")
         )
         .orElse(
-          Option.when(!evidenceExists(cmd.evidencePath))(
-            s"evidence file ${cmd.evidencePath} not found"
+          Option.when(!evidenceExists(evidencePath))(
+            s"evidence file $evidencePath not found"
           )
         )
 
@@ -232,7 +232,7 @@ private[runner] object StackDiscovery:
         SettingsEntry.Demoted(key, cmd.command, reason)
       StackValue.parse(cmd.command) match
         case StackValue.Run(command) =>
-          demotionReason(command, cmd) match
+          demotionReason(command, cmd.evidencePath) match
             case Some(reason) => demoted(reason)
             case None =>
               SettingsEntry.Command(

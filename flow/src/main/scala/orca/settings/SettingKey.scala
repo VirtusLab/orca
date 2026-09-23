@@ -23,10 +23,9 @@ private[orca] enum StackKey(val raw: String) extends SettingKey:
     case Test   => settings.test
 
   def appendTo(settings: StackSettings, command: StackCommand): StackSettings =
-    this match
-      case Format => settings.copy(format = settings.format :+ command.value)
-      case Lint   => settings.copy(lint = settings.lint :+ command.value)
-      case Test   => settings.copy(test = settings.test :+ command.value)
+    StackKey.tabulate: key =>
+      val commands = key.commandsIn(settings)
+      if key == this then commands :+ command.value else commands
 
 private[orca] object StackKey:
   def tabulate(commands: StackKey => List[String]): StackSettings =

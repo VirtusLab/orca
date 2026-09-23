@@ -21,8 +21,7 @@ private[shell] enum StackStatus:
   */
 private[shell] object StackAction:
 
-  /** Reads and guards the project settings file the same way
-    * `Main.rediscoverStack` used to inline: a symlink guard
+  /** Reads and guards the project settings file: a symlink guard
     * ([[OrcaDir.assertNoOrcaSymlinks]]) so this never creates `.orca`, then an
     * absent file or one configuring no stack key reported as a no-op, and a
     * malformed file reported as an error instead of surgically edited blind.

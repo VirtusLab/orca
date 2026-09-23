@@ -82,7 +82,7 @@ private[shell] object ConfigSummary:
         "stack: " + StackKey.values
           .map: key =>
             val commands = key.commandsIn(stack)
-            s"${key.raw}=${
-                if commands.isEmpty then "off" else commands.mkString("; ")
-              }"
+            val shown =
+              if commands.isEmpty then "off" else commands.mkString("; ")
+            s"${key.raw}=$shown"
           .mkString(", ")

@@ -11,7 +11,10 @@ private[orca] opaque type StackCommand = String
 private[orca] object StackCommand:
   extension (command: StackCommand) def value: String = command
 
-private def validated(line: String): StackCommand = line
+/** File-private: [[StackValue]] cannot see through the opaque type, and its
+  * `parse` checks the invariants before calling this.
+  */
+private def unchecked(line: String): StackCommand = line
 
 /** A stack key's value, as written after `key =`. */
 private[orca] enum StackValue:
@@ -38,4 +41,4 @@ private[orca] object StackValue:
     if line.isEmpty then Empty
     else if line.startsWith("#") then CommentedOut
     else if line == OffLiteral then Off
-    else Run(validated(line))
+    else Run(unchecked(line))

@@ -265,6 +265,44 @@ class StackDiscoveryTest extends munit.FunSuite:
       )
     )
 
+  test("toEntries: `off` demotes, not disabling the gate"):
+    val result = StackDiscoveryResult(
+      format =
+        DiscoveredTask(commands = List(DiscoveredCommand("off", "Cargo.toml"))),
+      lint = DiscoveredTask(),
+      test = DiscoveredTask()
+    )
+    val (entries, _) = StackDiscovery.toEntries(
+      result,
+      unresolvedReason = _ => Some("not found on PATH"),
+      evidenceExists = allEvidenceExists
+    )
+    assertEquals(
+      entries.head,
+      SettingsEntry.Demoted(
+        StackKey.Format,
+        "off",
+        "`off` disables the gate, not a command"
+      )
+    )
+
+  test("toEntries: a blank command demotes"):
+    val result = StackDiscoveryResult(
+      format =
+        DiscoveredTask(commands = List(DiscoveredCommand("  ", "Cargo.toml"))),
+      lint = DiscoveredTask(),
+      test = DiscoveredTask()
+    )
+    val (entries, _) = StackDiscovery.toEntries(
+      result,
+      unresolvedReason = _ => Some("not found on PATH"),
+      evidenceExists = allEvidenceExists
+    )
+    assertEquals(
+      entries.head,
+      SettingsEntry.Demoted(StackKey.Format, "  ", "empty command")
+    )
+
   test("toEntries: a task with no commands and a reason becomes Unset(reason)"):
     val result = StackDiscoveryResult(
       format = DiscoveredTask(),

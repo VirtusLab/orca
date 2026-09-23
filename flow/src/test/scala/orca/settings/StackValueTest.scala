@@ -13,7 +13,7 @@ class StackValueTest extends FunSuite:
   test("parse reads a blank value as Empty"):
     assertEquals(StackValue.parse(" \n "), StackValue.Empty)
 
-  test("parse reads a value starting with # after collapsing as CommentedOut"):
+  test("parse reads a value starting with # as CommentedOut"):
     assertEquals(StackValue.parse("\n# cargo fmt"), StackValue.CommentedOut)
 
   test("parse reads `off` as Off"):

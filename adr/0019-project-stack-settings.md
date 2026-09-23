@@ -446,3 +446,4 @@ Precedence, end to end: `reviewAndFixLoop(formatCommands = Use(...)/Off)` >
 > file, and the stack counts as configured when some
 > stack key has a command or `off`. A stack key with an empty value
 > (`format =`) is equivalent to omitting it, so it leaves discovery armed.
+> A stack key in the user-global file is rejected whatever its value.

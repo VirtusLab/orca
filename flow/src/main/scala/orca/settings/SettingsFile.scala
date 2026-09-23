@@ -34,8 +34,9 @@ private[orca] enum SettingsError:
       s"line $line: $key: $problem"
     case NotAllowedInGlobal(line, key) =>
       s"line $line: `$key` is not valid in the user-global settings file — " +
-        "stack commands (format, lint, test) are per-project; valid keys " +
-        "here: planningAgent, codingAgent, reviewAgent"
+        s"stack commands (${StackKey.values.map(_.raw).mkString(", ")}) " +
+        "are per-project; valid keys here: " +
+        AgentKey.values.map(_.raw).mkString(", ")
 
 /** Which settings file is being parsed: the per-project file accepts every key;
   * the user-global file accepts only agent keys (stack commands are per-project
@@ -162,7 +163,7 @@ private[orca] object SettingsFile:
 
   /** The rendered entry block for `entries` WITHOUT [[Header]],
     * newline-terminated. The append shape for a file that already exists but
-    * carries no stack lines (an agents-only hand-written file): discovery
+    * configures no stack key (an agents-only hand-written file): discovery
     * appends its stack entries below the user's untouched agent lines instead
     * of overwriting the whole file.
     */
@@ -273,10 +274,10 @@ private[orca] object SettingsFile:
     * one's evidence comment block (see [[evidenceAbove]]) and every
     * [[SettingsEntry.Demoted]] line, which need not sit above a live line — the
     * surgical edit behind the shell's "re-discover project stack settings"
-    * action (ADR 0021 §4/§8). The result always parses with `stack = None`.
-    * Everything else — agent keys, blank lines, unrelated/hand-written
-    * comments, [[Header]], ordering — passes through with its original line
-    * terminator untouched.
+    * action (ADR 0021 §4/§8). If `content` parses, the result parses with
+    * `stack = None`. Everything else — agent keys, blank lines,
+    * unrelated/hand-written comments, [[Header]], ordering — passes through
+    * with its original line terminator untouched.
     */
   private[orca] def stripStackLines(content: String): String =
     val lines = content.linesWithSeparators.toIndexedSeq
