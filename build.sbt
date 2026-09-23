@@ -177,15 +177,14 @@ lazy val runner = (project in file("runner"))
     // appender) and can `System.exit` on a NonFatal failure, neither of which
     // may reach the shared test runner.
     //
-    // `runFlow`'s reentrancy guard (`FlowLock.acquireProcess`) is a
+    // `flow()`'s reentrancy guard (`FlowLock.processGuarded`) is a
     // process-wide `AtomicBoolean` — correct for real usage (one `flow(...)`
     // per process), but sbt's default `Test / parallelExecution` would let two
-    // unrelated test classes in this forked JVM both call
-    // `flow(...)`/`runFlow(...)` concurrently (different workDirs, no real
-    // conflict) and spuriously trip each other's guard. Serialize this
-    // module's tests instead of keying the guard by workDir, which would
-    // water down the exact single-process semantics the guard exists to
-    // enforce.
+    // unrelated test classes in this forked JVM both call `flow(...)`
+    // concurrently (different workDirs, no real conflict) and spuriously trip
+    // each other's guard. Serialize this module's tests instead of keying the
+    // guard by workDir, which would water down the exact single-process
+    // semantics the guard exists to enforce.
     Test / parallelExecution := false,
     Test / javaOptions += buildVersionProperty.value,
     // `flow(...)` resolves the global settings file and reviewer directory from

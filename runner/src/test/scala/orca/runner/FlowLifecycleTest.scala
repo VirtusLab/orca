@@ -4180,53 +4180,47 @@ class FlowLifecycleTest extends munit.FunSuite:
   // --- flow() reentrancy/concurrency guards --------------------------------
 
   test(
-    "reentrancy guards: a nested runFlow in the same process is refused before any git mutation, and the outer flow is unaffected"
+    "reentrancy guards: a nested flow() is refused before it creates anything, and the outer flow is unaffected"
   ):
     val workDir = GitRepo.seeded()
-    val prompt = "nested-guard"
     var innerThrown: Option[Throwable] = None
+    // The body catches the refusal, so the outer `flow()` succeeds; were it to
+    // fail, its `System.exit(1)` would end this whole forked test JVM.
     supervised:
       val interaction = TerminalInteraction.start(
         out = new PrintStream(new ByteArrayOutputStream()),
         useColor = false,
         animated = false
       )
-      runFlow(
-        FlowHarness.request(
-          args = OrcaArgs(prompt),
-          stackSettings = Some(StackSettings.empty),
-          wiring = FlowWiring(claude = Some(_ => StubAgent.claude)),
-          workDir = workDir,
-          interaction = Some(interaction),
-          extraListeners = Nil,
-          branchNaming = None
-        )
+      flow(
+        args = OrcaArgs("nested-guard"),
+        stackSettings = Some(StackSettings.empty),
+        claude = Some(_ => StubAgent.claude),
+        workDir = workDir,
+        interaction = Some(interaction)
       ):
         innerThrown =
           try
-            runFlow(
-              FlowHarness.request(
-                args = OrcaArgs("inner"),
-                stackSettings = Some(StackSettings.empty),
-                wiring = FlowWiring(claude = Some(_ => StubAgent.claude)),
-                workDir = workDir,
-                interaction = Some(interaction),
-                extraListeners = Nil,
-                branchNaming = None
-              )
+            flow(
+              args = OrcaArgs("inner", target = RunTarget.Worktree),
+              workDir = workDir,
+              interaction = Some(interaction)
             )(())
             None
           catch case e: Throwable => Some(e)
-    val thrown = innerThrown.getOrElse(fail("nested runFlow must throw"))
+    val thrown = innerThrown.getOrElse(fail("nested flow() must throw"))
     assert(thrown.isInstanceOf[orca.OrcaFlowException])
     assertEquals(thrown.getMessage, "a flow is already running in this process")
     assert(
-      !thrown.isInstanceOf[ReportedFailure],
-      "a pre-ctx guard failure must NOT be wrapped in ReportedFailure"
+      !os.exists(OrcaDir.worktreesPath(workDir)),
+      "the nested flow() must not create its worktree"
     )
-    // The outer flow, unaffected by the refused nested attempt, still ends
-    // cleanly back on the starting branch — the guard must not corrupt an
-    // outer flow's state (ADR 0018 §6).
+    assertEquals(
+      os.list(OrcaDir.attemptsPath(workDir)).count(OrcaDir.isManifest),
+      1,
+      "only the outer flow() writes an attempt manifest"
+    )
+    // The outer flow ended cleanly back on the starting branch.
     val branch =
       os.proc("git", "rev-parse", "--abbrev-ref", "HEAD")
         .call(cwd = workDir)
@@ -4268,7 +4262,8 @@ class FlowLifecycleTest extends munit.FunSuite:
     // (unwrapped, not a `ReportedFailure`); nothing further to assert.
     assertEquals(
       thrown.getMessage,
-      s"a flow is already running in this working tree (pid $livePid)"
+      s"a flow is already running in this working tree (pid $livePid) — " +
+        "wait for it to finish, or stop it"
     )
     // The refusal must not steal or clear a lock still held by a live PID.
     assertEquals(

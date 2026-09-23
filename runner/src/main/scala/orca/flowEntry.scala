@@ -199,7 +199,7 @@ def flow(
       // Per-attempt manifest (ADR 0021 §8), always attached like
       // LoggingListener. Its actor fork lives in this scope, spanning
       // construction through `finish`; the `System.exit` at the end of `flow()`
-      // stays OUTSIDE it, and a nested `flow()` gets its own scope and writer.
+      // stays OUTSIDE it.
       val manifestWriter = AttemptManifestWriter.start(
         dir,
         OrcaBanner.version,
@@ -264,18 +264,17 @@ def flow(
         costTracker.printSummary()
         deniedToolTracker.printSummary()
 
-  val outcome = resolveRunDir() match
-    // A refusal has no dispatcher, manifest or trace to carry it, so it reaches
-    // the user the way the NonFatal backstop above does.
-    case Left(message) =>
-      System.err.println(s"[orca] $message")
-      AttemptOutcome.Failed
-    case Right(dir) => runIn(dir)
-  // Known residual: in a NESTED `flow()` call this `System.exit` tears down the
-  // JVM before the OUTER flow's `finally` (branch restore, lock release) runs,
-  // leaving the outer branch checked out and `.orca/cache/flow.lock` behind (the next
-  // attempt self-heals by stealing the dead-PID lock). Accepted cost of the
-  // exit-based CLI contract.
+  // The guard comes before the worktree, trace or manifest exist, so a nested
+  // `flow()` throws having touched nothing, and never reaches the exit: the
+  // outer body fails with it and tears down as usual.
+  val outcome = FlowLock.processGuarded:
+    resolveRunDir() match
+      // A refusal has no dispatcher, manifest or trace to carry it, so it
+      // reaches the user the way the NonFatal backstop above does.
+      case Left(message) =>
+        System.err.println(s"[orca] $message")
+        AttemptOutcome.Failed
+      case Right(dir) => runIn(dir)
   if outcome == AttemptOutcome.Failed then System.exit(1)
 
 /** Exit-free flow lifecycle: builds the interaction and wired agents, resolves
@@ -296,62 +295,58 @@ private[orca] def runFlow(request: RunRequest)(
 ): Unit =
   val workDir = request.workDir
   val wiring = request.wiring
-  // Acquire both guards before `supervised:` (neither needs an `Ox` scope) so a
-  // violation is caught before any git mutation. See [[FlowLock]] for the
-  // two-layer rationale and release-ordering symmetry.
-  FlowLock.acquireProcess()
+  // Before `supervised:` (the lock needs no `Ox` scope), so a violation is
+  // caught before any git mutation. See [[FlowLock]].
+  val lockPath = FlowLock.acquireWorkdir(workDir)
   try
-    val lockPath = FlowLock.acquireWorkdir(workDir)
-    try
-      // Default TerminalInteraction is built inside `supervised:` because its
-      // worker is a `forkUser` bound to that scope; close() in the body's
-      // `finally` lets it drain before the scope joins it.
-      supervised:
-        val effectiveInteraction = request.interaction.getOrElse(
-          TerminalInteraction.start(workDir = Some(workDir))
+    // Default TerminalInteraction is built inside `supervised:` because its
+    // worker is a `forkUser` bound to that scope; close() in the body's
+    // `finally` lets it drain before the scope joins it.
+    supervised:
+      val effectiveInteraction = request.interaction.getOrElse(
+        TerminalInteraction.start(workDir = Some(workDir))
+      )
+      try
+        // Cost is resolved on the way in, so the terminal summary, the
+        // on-disk cost log and any listener a caller added all read one
+        // figure — none of them holds a price table of its own.
+        val dispatcher: OrcaListener = new CostResolvingDispatcher(
+          request.pricing,
+          new EventDispatcher(
+            effectiveInteraction.listeners ++ List(
+              new LoggingListener
+            ) ++ request.extraListeners
+          )
         )
-        try
-          // Cost is resolved on the way in, so the terminal summary, the
-          // on-disk cost log and any listener a caller added all read one
-          // figure — none of them holds a price table of its own.
-          val dispatcher: OrcaListener = new CostResolvingDispatcher(
-            request.pricing,
-            new EventDispatcher(
-              effectiveInteraction.listeners ++ List(
-                new LoggingListener
-              ) ++ request.extraListeners
-            )
-          )
-          // One wiring bundle handed to every agent factory, so overrides and
-          // defaults build against the SAME dispatcher, interaction, workDir and
-          // prompts. Agent construction is pure (no subprocess spawns until the
-          // first gated `run`) and runs BEFORE the reporting bracket below, so a
-          // factory failure escapes unwrapped (no agents to close yet).
-          val agentWiring = AgentWiring(
-            events = dispatcher,
-            interaction = effectiveInteraction,
-            workDir = workDir,
-            prompts = wiring.prompts
-          )
-          val agents = WiredAgents.build(wiring, agentWiring)
-          val gitTool = wiring.git.getOrElse(new OsGitTool(workDir, dispatcher))
-          val ghTool = wiring.gh.getOrElse(
-            new OsGitHubTool(OsProcCliRunner, workDir, events = dispatcher)
-          )
-          val fsTool = wiring.fs.getOrElse(new OsFsTool(workDir))
-          runInContext(
-            args = request.args,
-            workDir = workDir,
-            options = request.setup,
-            dispatcher = dispatcher,
-            agents = agents,
-            gitTool = gitTool,
-            ghTool = ghTool,
-            fsTool = fsTool
-          )(body)
-        finally effectiveInteraction.close()
-    finally FlowLock.releaseWorkdir(lockPath)
-  finally FlowLock.releaseProcess()
+        // One wiring bundle handed to every agent factory, so overrides and
+        // defaults build against the SAME dispatcher, interaction, workDir and
+        // prompts. Agent construction is pure (no subprocess spawns until the
+        // first gated `run`) and runs BEFORE the reporting bracket below, so a
+        // factory failure escapes unwrapped (no agents to close yet).
+        val agentWiring = AgentWiring(
+          events = dispatcher,
+          interaction = effectiveInteraction,
+          workDir = workDir,
+          prompts = wiring.prompts
+        )
+        val agents = WiredAgents.build(wiring, agentWiring)
+        val gitTool = wiring.git.getOrElse(new OsGitTool(workDir, dispatcher))
+        val ghTool = wiring.gh.getOrElse(
+          new OsGitHubTool(OsProcCliRunner, workDir, events = dispatcher)
+        )
+        val fsTool = wiring.fs.getOrElse(new OsFsTool(workDir))
+        runInContext(
+          args = request.args,
+          workDir = workDir,
+          options = request.setup,
+          dispatcher = dispatcher,
+          agents = agents,
+          gitTool = gitTool,
+          ghTool = ghTool,
+          fsTool = fsTool
+        )(body)
+      finally effectiveInteraction.close()
+  finally FlowLock.releaseWorkdir(lockPath)
 
 /** The settings→roles→setup→context→body sequence of `runFlow`: read both
   * settings files, resolve the three role agents (`RoleAgents.resolveAll`, ADR
