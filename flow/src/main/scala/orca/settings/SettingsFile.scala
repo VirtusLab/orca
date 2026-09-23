@@ -295,7 +295,7 @@ private[orca] object SettingsFile:
         s"# ${collapseWhitespace(reason)}\n$key = $Off"
       case SettingsEntry.Demoted(key, command, reason) =>
         // Collapsed to stay one physical `#` line.
-        s"# skipped: $key = ${collapseWhitespace(command)} " +
+        s"$SkippedPrefix$key = ${collapseWhitespace(command)} " +
           s"(${collapseWhitespace(reason)})"
       case SettingsEntry.Off(key) => s"$key = $Off"
 
@@ -361,13 +361,14 @@ private[orca] object SettingsFile:
     evidence.toSet
 
   /** `content` with every LIVE `format`/`lint`/`test` line removed, plus each
-    * one's evidence comment block (see [[evidenceAbove]]) — the surgical edit
-    * behind the shell's "re-discover project stack settings" action (ADR 0021
-    * §4/§8). Reuses [[isLiveStackKeyLine]] so this can never disagree with
-    * [[hasStackLines]]: the result always satisfies `!hasStackLines(result)`.
-    * Everything else — agent keys, blank lines, unrelated/hand-written
-    * comments, [[Header]], ordering — passes through with its original line
-    * terminator untouched.
+    * one's evidence comment block (see [[evidenceAbove]]) and every
+    * [[SettingsEntry.Demoted]] line, which need not sit above a live line — the
+    * surgical edit behind the shell's "re-discover project stack settings"
+    * action (ADR 0021 §4/§8). Reuses [[isLiveStackKeyLine]] so this can never
+    * disagree with [[hasStackLines]]: the result always satisfies
+    * `!hasStackLines(result)`. Everything else — agent keys, blank lines,
+    * unrelated/hand-written comments, [[Header]], ordering — passes through
+    * with its original line terminator untouched.
     */
   private[orca] def stripStackLines(content: String): String =
     val lines = content.linesWithSeparators.toIndexedSeq
@@ -376,10 +377,20 @@ private[orca] object SettingsFile:
     val liveIdx =
       lines.indices.filter(i => isLiveStackKeyLine(bare(lines(i)))).toSet
     val evidenceIdx = liveIdx.flatMap(evidenceAbove(lines, headerLines, _))
-    val toRemove = liveIdx ++ evidenceIdx
+    val skippedIdx =
+      lines.indices.filter(i => isSkippedStackLine(bare(lines(i)))).toSet
+    val toRemove = liveIdx ++ evidenceIdx ++ skippedIdx
     lines.zipWithIndex.collect {
       case (line, i) if !toRemove(i) => line
     }.mkString
+
+  /** Starts a rendered [[SettingsEntry.Demoted]] line. */
+  private val SkippedPrefix = "# skipped: "
+
+  private def isSkippedStackLine(line: String): Boolean =
+    val trimmed = line.trim
+    trimmed.startsWith(SkippedPrefix) &&
+    isLiveStackKeyLine(trimmed.drop(SkippedPrefix.length))
 
   /** True when `line` is a LIVE (non-comment, non-blank) `format`/`lint`/
     * `test` assignment (any value, including `off`). The single definition of

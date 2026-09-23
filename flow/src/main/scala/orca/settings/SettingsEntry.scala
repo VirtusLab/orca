@@ -27,8 +27,7 @@ private[orca] enum SettingsEntry:
 
   /** A discovered command that failed a mechanical check (ADR 0019), rendered
     * as a comment only, so a reviewer sees what was tried and why it was
-    * skipped. Discovery follows a key's demoted lines with an [[Off]] when no
-    * command survived for that key:
+    * skipped:
     * {{{
     * # skipped: key = command (reason)
     * }}}

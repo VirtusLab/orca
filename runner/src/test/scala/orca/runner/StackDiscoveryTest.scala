@@ -114,7 +114,10 @@ class StackDiscoveryTest extends munit.FunSuite:
     val result = StackDiscoveryResult(
       format = DiscoveredTask(),
       lint = DiscoveredTask(commands =
-        List(DiscoveredCommand("just check", "justfile"))
+        List(
+          DiscoveredCommand("just check", "justfile"),
+          DiscoveredCommand("just lint", "justfile")
+        )
       ),
       test = DiscoveredTask()
     )
@@ -124,13 +127,14 @@ class StackDiscoveryTest extends munit.FunSuite:
         if c.startsWith("just") then Some("just: not found on PATH") else None,
       evidenceExists = allEvidenceExists
     )
-    // Exact list: the all-demoted lint task contributes its demoted line plus
-    // one Off — no contradictory Unset line alongside it.
+    // Exact list: the all-demoted lint task contributes its demoted lines plus
+    // exactly one Off.
     assertEquals(
       entries,
       List(
         SettingsEntry.Unset("format", "no evidence found"),
         SettingsEntry.Demoted("lint", "just check", "just: not found on PATH"),
+        SettingsEntry.Demoted("lint", "just lint", "just: not found on PATH"),
         SettingsEntry.Off("lint"),
         SettingsEntry.Unset("test", "no evidence found")
       )
@@ -178,7 +182,7 @@ class StackDiscoveryTest extends munit.FunSuite:
       evidenceExists = _ => false
     )
     // Exact list: the all-demoted format task contributes its demoted line
-    // plus one Off — no contradictory Unset line alongside it.
+    // plus one Off.
     assertEquals(
       entries,
       List(

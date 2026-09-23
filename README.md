@@ -590,8 +590,9 @@ Every discovered command cites the file that evidences it, and two checks run
 before the file is written: the command's executable must be on `PATH`, and the
 cited evidence file must exist. A command failing either is kept only as a
 comment (`# skipped: lint = just check (just: not found on PATH)`), never run
-silently; a key left with no command gets a live `key = off` line. A discovery failure (backend unavailable, invalid output) aborts the
-run rather than writing a "gates off" file.
+silently; a key left with no command gets a live `key = off` line. A discovery
+failure (backend unavailable, invalid output) aborts the run rather than writing
+a "gates off" file.
 
 `.orca/` is committed by default: settings and each run's progress log
 (`runs/<key>.progress.json`) ride the branch, while machine-local state lives

@@ -345,7 +345,7 @@ class SettingsFileTest extends FunSuite:
         "\n# skipped: lint = just check (just: not found on PATH)\nlint = off\n"
       ),
       s"a demoted entry must render as one comment line, whitespace runs " +
-        s"collapsed, got: $rendered"
+        s"collapsed, and Off as a bare live line, got: $rendered"
     )
 
   test(
@@ -379,6 +379,18 @@ class SettingsFileTest extends FunSuite:
         |""".stripMargin
     )
     assert(!SettingsFile.hasStackLines(stripped))
+
+  test("stripStackLines drops a trailing skipped line"):
+    val content = SettingsFile.render(
+      List(
+        SettingsEntry.Command("test", "cargo test", Some("Cargo.toml")),
+        SettingsEntry.Demoted("test", "cargo nextest run", "not found")
+      )
+    )
+    assertEquals(
+      SettingsFile.stripStackLines(content),
+      SettingsFile.Header + "\n"
+    )
 
   test(
     "stripStackLines leaves a commented-out stack-key example untouched " +

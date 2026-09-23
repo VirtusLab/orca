@@ -113,8 +113,8 @@ private[runner] object StackDiscovery:
       case None    => s"no .orca/settings.properties — $purpose"
       case Some(_) => s".orca/settings.properties has no stack lines — $purpose"
 
-  /** Narrate every command/demotion entry as its own `Step` event. Unset tasks
-    * surface through [[warnDisabledGates]] instead.
+  /** Narrate every command/demotion entry as its own `Step` event. Unset and
+    * Off keys surface through [[warnDisabledGates]] instead.
     */
   private def narrateEntries(
       entries: List[SettingsEntry],
