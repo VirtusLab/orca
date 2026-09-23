@@ -42,6 +42,9 @@ private[orca] object WorktreeRun:
     *   - the run's own branch already carries commits that putting the worktree
     *     back on it would strand;
     *   - git's own refusal of the create or of the branch step.
+    *
+    * Throws [[orca.OrcaFlowException]] while another live orca resolves the
+    * same task.
     */
   def resolve(
       invokingDir: os.Path,
@@ -54,15 +57,16 @@ private[orca] object WorktreeRun:
       .flatMap: mainCheckout =>
         val path =
           OrcaDir.worktreesPath(mainCheckout) / key.value
-        pathState(invokingDir, path) match
-          case PathState.Reusable => reuse(mainCheckout, path)
-          case PathState.Occupied =>
-            Left(
-              s"$path already exists but is not a worktree of this " +
-                "repository — orca will not take over a directory it did " +
-                "not create"
-            )
-          case PathState.Absent => create(invokingDir, mainCheckout, path)
+        FlowLock.worktreeLocked(mainCheckout, key):
+          pathState(invokingDir, path) match
+            case PathState.Reusable => reuse(mainCheckout, path)
+            case PathState.Occupied =>
+              Left(
+                s"$path already exists but is not a worktree of this " +
+                  "repository — orca will not take over a directory it did " +
+                  "not create"
+              )
+            case PathState.Absent => create(invokingDir, mainCheckout, path)
 
   /** What to tell the user when no main checkout could be named. Each case gets
     * its own sentence: telling someone whose repository is fine to `git init`
@@ -87,8 +91,8 @@ private[orca] object WorktreeRun:
     * `add` having succeeded where the branch step did not. The run belongs on
     * its own branch, which a re-run of the task finds ([[bindBranch]]).
     *
-    * Every path that concludes "reuse the worktree at `path`" comes through
-    * here, so none of them can skip the repair.
+    * A resumed run works in the worktree without the worktree lock; it is on
+    * its branch, so a concurrent `reuse` leaves it alone.
     */
   private def reuse(
       mainCheckout: os.Path,
@@ -125,22 +129,11 @@ private[orca] object WorktreeRun:
     // embedded git repository.
     val _ = OrcaDir.ensureWorktrees(mainCheckout)
     Worktrees.add(invokingDir, path) match
-      case Right(())     => bindBranch(path)
-      case Left(failure) =>
-        // Another orca may have created it between `pathState` and here: the
-        // run lock is keyed on the run directory, which does not exist yet, so
-        // nothing serialises two processes starting the same task at once. If
-        // the path is a registered worktree now, that is the answer the winner
-        // got a moment earlier.
-        if pathState(invokingDir, path) == PathState.Reusable then
-          reuse(mainCheckout, path)
-        else
-          Left(failure match
-            case WorktreeAddFailure.NoCommitsYet =>
-              GitPreconditions.needsRepoWithCommit
-            case WorktreeAddFailure.GitFailed(message) =>
-              s"could not create the worktree at $path: $message"
-          )
+      case Right(()) => bindBranch(path)
+      case Left(WorktreeAddFailure.NoCommitsYet) =>
+        Left(GitPreconditions.needsRepoWithCommit)
+      case Left(WorktreeAddFailure.GitFailed(message)) =>
+        Left(s"could not create the worktree at $path: $message")
 
   /** Put the worktree on the branch named after the same run key, so a re-run
     * of the task finds its own branch rather than a stranger's. Its refusals
@@ -168,15 +161,7 @@ private[orca] object WorktreeRun:
             s"git branch -D ${name.value}"
         )
       case Left(StartBranchFailure.GitFailed(message)) =>
-        // This runs before the run lock, whose directory is the one being
-        // written to, so another orca binding the same branch in the same
-        // worktree is a real outcome — and an idempotent one. Proceed only on a
-        // DEFINITE branch: a worktree that has gone away answers neither, and
-        // treating that as "already done" would run against a path that is no
-        // longer a worktree at all.
-        if Worktrees.onABranch(path) then Right(path)
-        else
-          Left(
-            s"the worktree at $path exists but could not be put on branch " +
-              s"'${branch.value}': $message"
-          )
+        Left(
+          s"the worktree at $path exists but could not be put on branch " +
+            s"'${branch.value}': $message"
+        )

@@ -116,6 +116,15 @@ private[orca] object OrcaDir:
   def sessionRecordsPath(workDir: os.Path, key: RunKey): os.Path =
     cacheRunsPath(workDir) / s"${key.value}.sessions.json"
 
+  /** `<workDir>/.orca/cache/flow.lock` — held by the run in `workDir`. */
+  def flowLockPath(workDir: os.Path): os.Path = cachePath(workDir) / "flow.lock"
+
+  /** `<mainCheckout>/.orca/cache/worktree-<key>.lock` — held while the
+    * `--worktree` run keyed `key` finds or creates its worktree.
+    */
+  def worktreeLockPath(mainCheckout: os.Path, key: RunKey): os.Path =
+    cachePath(mainCheckout) / s"worktree-${key.value}.lock"
+
   private def cacheRunsPath(workDir: os.Path): os.Path =
     cachePath(workDir) / "runs"
 
