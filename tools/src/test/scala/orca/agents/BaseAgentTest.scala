@@ -496,6 +496,17 @@ class BaseAgentTest extends munit.FunSuite:
       s"quietTextTurn must not emit SessionCommitted: ${seen.get()}"
     )
 
+  test("quietTextTurn attributes a denied tool call to the agent"):
+    val seen =
+      new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
+    val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
+    val tool = new StubTool(DenyingBackend, listener = listener)
+    val _ = tool.quietTextTurn("internal prompt")
+    assert(
+      seen.get().contains(OrcaEvent.ToolDenied("Bash", Some("stub"))),
+      s"expected an attributed ToolDenied: ${seen.get()}"
+    )
+
   // A structured resultAs[O] call's closing assistant turn IS the raw JSON
   // payload; the caller re-surfaces it via StructuredResult, so it must not
   // also flow through as an AssistantMessage (double display of the same
@@ -1045,6 +1056,34 @@ class BaseAgentTest extends munit.FunSuite:
       )
       sessions.commitAfterDrain(session, result.wireId)
       result
+    protected def doRunInteractive(
+        prompt: String,
+        session: SessionId[BackendTag.Pi.type],
+        displayPrompt: String,
+        config: AgentConfig,
+        outputSchema: Option[String]
+    )(using ox.Ox): Conversation[BackendTag.Pi.type] =
+      throw new UnsupportedOperationException
+    val tag: BackendTag.Pi.type = BackendTag.Pi
+    def structuredOutputMode: StructuredOutputMode =
+      StructuredOutputMode.RawText
+
+  /** Emits one [[OrcaEvent.ToolDenied]] per autonomous turn. */
+  private object DenyingBackend
+      extends AgentBackend[BackendTag.Pi.type]
+      with StubEnforcementCell[BackendTag.Pi.type]:
+    val workDir: os.Path = os.pwd
+    val sessions: SessionSupport[BackendTag.Pi.type] =
+      SessionSupport.ephemeral(IdScheme.ClientClaimed)
+    protected def doRunAutonomous(
+        prompt: String,
+        session: SessionId[BackendTag.Pi.type],
+        config: AgentConfig,
+        events: OrcaListener,
+        outputSchema: Option[String]
+    ): AgentResult[BackendTag.Pi.type] =
+      events.onEvent(OrcaEvent.ToolDenied("Bash", None))
+      AgentResult(WireSessionId[BackendTag.Pi.type]("wire"), "out", Usage.empty)
     protected def doRunInteractive(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
