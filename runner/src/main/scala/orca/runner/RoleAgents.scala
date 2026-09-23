@@ -162,7 +162,7 @@ private[orca] object RoleAgents:
       case Some(s) => AgentSpec.harnessNameFor(s.backend)
       case None =>
         agent.backendTag
-          .flatMap(AgentSpec.harnessNameFor.get)
+          .map(AgentSpec.harnessNameFor)
           .getOrElse("claude")
     (harness, spec.flatMap(_.model).orElse(agent.configuredModel.map(_.name)))
 

@@ -77,7 +77,7 @@ private[orca] object EnforcementNotice:
         turnWording(backend, config, cell, dispatch)
       )
       consequence <- consequenceOf(cell.level)
-    yield s"${backend.tag.wireName} cannot $request — $consequence"
+    yield s"${backend.tag} cannot $request — $consequence"
 
   /** What the caller asked this backend to withhold. The two arms are the two
     * axes a caller can restrict on: the tier withholds the write tools,

@@ -10,22 +10,19 @@ import orca.agents.BackendTag
 private[orca] case class AgentSpec(backend: BackendTag, model: Option[String])
 
 private[orca] object AgentSpec:
-  /** Settings-file harness names — deliberately lowercase and distinct from
-    * [[BackendTag.wireName]] (which is frozen for the progress log).
+  /** The settings-file harness name for a backend tag (`claude`, `codex`, …) —
+    * lowercase, distinct from the tag's case name.
     */
-  val harnessNames: Map[String, BackendTag] = Map(
-    "claude" -> BackendTag.ClaudeCode,
-    "codex" -> BackendTag.Codex,
-    "opencode" -> BackendTag.Opencode,
-    "pi" -> BackendTag.Pi,
-    "gemini" -> BackendTag.Gemini
-  )
+  def harnessNameFor(tag: BackendTag): String = tag match
+    case BackendTag.ClaudeCode => "claude"
+    case BackendTag.Codex      => "codex"
+    case BackendTag.Opencode   => "opencode"
+    case BackendTag.Pi         => "pi"
+    case BackendTag.Gemini     => "gemini"
 
-  /** The settings-file harness name for a backend tag — the reverse of
-    * [[harnessNames]]. Used by the role-announcement `Step` to render a
-    * resolved role's harness (`claude`, `codex`, …).
-    */
-  val harnessNameFor: Map[BackendTag, String] = harnessNames.map(_.swap)
+  /** Settings-file harness names — the reverse of [[harnessNameFor]]. */
+  val harnessNames: Map[String, BackendTag] =
+    BackendTag.values.map(t => harnessNameFor(t) -> t).toMap
 
   /** Left = human-readable problem for the settings-error message. Split at the
     * FIRST `:` so a model id containing `:` survives; an empty model part means

@@ -2,6 +2,7 @@ package orca.shell
 
 import org.jline.terminal.{Terminal, TerminalBuilder}
 import orca.{RunTarget, StackSettings, Uncommitted}
+import orca.agents.BackendTag
 import orca.settings.SettingsFile
 import orca.shell.actions.{SettingsEditAction, StackAction}
 import orca.shell.create.CreateTier
@@ -397,21 +398,11 @@ class MainTest extends munit.FunSuite:
       List("★ main — latest (no stage yet) [claude] (crashed)")
     )
 
-  test(
-    "sessionRows falls back to the raw harness string for an unrecognised one"
-  ):
-    val run = RecordedAttempt(
-      manifest(sessions = List(durable(harness = "SomeFutureHarness"))),
-      crashed = false
-    )
-    assertEquals(
-      SessionPicker.sessionRows(List(run), expanded = false).map(_.label),
-      List("★ main — latest (no stage yet) [SomeFutureHarness]")
-    )
-
   test("sessionRows disables a wireId-less session, naming its harness"):
     val run = RecordedAttempt(
-      manifest(sessions = List(durable(harness = "Pi", wireId = None))),
+      manifest(sessions =
+        List(durable(harness = BackendTag.Pi, wireId = None))
+      ),
       crashed = false
     )
     assertEquals(

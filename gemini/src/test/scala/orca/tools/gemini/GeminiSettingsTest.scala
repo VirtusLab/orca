@@ -63,15 +63,29 @@ class GeminiSettingsTest extends munit.FunSuite:
       s"must not introduce an allowlist; got: $keys"
     )
 
-  test("close removes the file again when it did not exist before"):
+  test("close removes a .gemini directory it created"):
     val workDir = TempDirs.dir()
     val restore = GeminiSettings.register(workDir, "http://x/mcp")
     assert(os.exists(settingsFile(workDir)))
     restore.close()
-    assert(
-      !os.exists(settingsFile(workDir)),
-      "a file we created should be removed on restore"
-    )
+    assert(!os.exists(workDir / ".gemini"))
+
+  test("close keeps a .gemini directory it created that gained other files"):
+    val workDir = TempDirs.dir()
+    val restore = GeminiSettings.register(workDir, "http://x/mcp")
+    val other = workDir / ".gemini" / "other.json"
+    os.write(other, "{}")
+    restore.close()
+    assert(!os.exists(settingsFile(workDir)))
+    assertEquals(os.read(other), "{}")
+
+  test("close keeps a pre-existing .gemini directory"):
+    val workDir = TempDirs.dir()
+    os.makeDir(workDir / ".gemini")
+    val restore = GeminiSettings.register(workDir, "http://x/mcp")
+    restore.close()
+    assert(!os.exists(settingsFile(workDir)))
+    assert(os.isDir(workDir / ".gemini"))
 
   test("register preserves existing keys and restores exact bytes on close"):
     val workDir = TempDirs.dir()

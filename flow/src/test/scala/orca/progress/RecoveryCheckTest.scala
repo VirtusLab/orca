@@ -6,53 +6,6 @@ class RecoveryCheckTest extends FunSuite:
 
   private val testCommit: CommitHash = CommitHash.from("0" * 40).get
 
-  test("isSafeBranchRef accepts slug names and issue branches"):
-    assert(RecoveryCheck.isSafeBranchRef("add-foo"))
-    assert(RecoveryCheck.isSafeBranchRef("fix/issue-42"))
-    assert(RecoveryCheck.isSafeBranchRef("flow-1a2b3c4d"))
-
-  test("isSafeBranchRef rejects empty, leading-dash, traversal, and spaces"):
-    assert(!RecoveryCheck.isSafeBranchRef(""))
-    assert(!RecoveryCheck.isSafeBranchRef("-x"))
-    assert(!RecoveryCheck.isSafeBranchRef("a/.."))
-    assert(!RecoveryCheck.isSafeBranchRef("a b"))
-    assert(!RecoveryCheck.isSafeBranchRef("Feat"))
-    assert(!RecoveryCheck.isSafeBranchRef("a/"))
-
-  test(
-    "isSafeReusedRef accepts mixed case and slashed names slugs would reject"
-  ):
-    assert(RecoveryCheck.isSafeReusedRef("feature/JIRA-123"))
-    assert(RecoveryCheck.isSafeReusedRef("Feature-ABC"))
-    assert(RecoveryCheck.isSafeReusedRef("add-foo")) // a slug also passes
-
-  test(
-    "isSafeReusedRef rejects argv-injection and path-traversal shapes"
-  ):
-    assert(!RecoveryCheck.isSafeReusedRef(""))
-    assert(!RecoveryCheck.isSafeReusedRef("-flag"))
-    assert(!RecoveryCheck.isSafeReusedRef("a..b"))
-    assert(!RecoveryCheck.isSafeReusedRef("a/../b"))
-    assert(!RecoveryCheck.isSafeReusedRef("a b"))
-    assert(!RecoveryCheck.isSafeReusedRef("x.lock"))
-    assert(!RecoveryCheck.isSafeReusedRef("a/"))
-    assert(!RecoveryCheck.isSafeReusedRef("/a"))
-    assert(!RecoveryCheck.isSafeReusedRef("a\tb"))
-
-  test(
-    "isSafeReusedRef rejects glob metacharacters (would DoS `git branch --list`)"
-  ):
-    assert(!RecoveryCheck.isSafeReusedRef("*"))
-    assert(!RecoveryCheck.isSafeReusedRef("feature-*"))
-    assert(!RecoveryCheck.isSafeReusedRef("a?b"))
-    assert(!RecoveryCheck.isSafeReusedRef("[abc]"))
-    assert(!RecoveryCheck.isSafeReusedRef("a\\b"))
-
-  test(
-    "isSafeReusedRef rejects the literal pseudo-ref HEAD (never a real branch)"
-  ):
-    assert(!RecoveryCheck.isSafeReusedRef("HEAD"))
-
   test("validateHeader rejects a header naming the literal branch \"HEAD\""):
     val prompt = "do the thing"
     val header = ProgressHeader(
@@ -99,7 +52,7 @@ class RecoveryCheckTest extends FunSuite:
     val prompt = "do the thing"
     // A repo whose default is `trunk` (not main/master): a header naming it as
     // a feature branch must be refused when `trunk` is in the protected set.
-    // `trunk` is lowercase + slug-valid, so it passes `isSafeBranchRef` and
+    // `trunk` is lowercase + slug-valid, so it passes `FeatureBranch.isSafeBranchRef` and
     // reaches the protected-branch check — proving that code path fires (rather
     // than an incidental safe-ref rejection on a mixed-case name).
     val header = ProgressHeader(
