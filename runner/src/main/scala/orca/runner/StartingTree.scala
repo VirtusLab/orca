@@ -62,7 +62,7 @@ private[orca] enum StartingTree:
 
 private[orca] object StartingTree:
 
-  /** The starting tree for setup's `untracked` verdict. Runs after setup's last
+  /** The starting tree for setup's `untracked` verdict. Call after setup's last
     * commit, so a snapshot's base is where HEAD stays until the first stage
     * commits. A git refusal (e.g. an unmerged index) leaves kept tracked
     * changes unprotected, and says so.

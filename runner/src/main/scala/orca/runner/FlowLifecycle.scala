@@ -1054,10 +1054,10 @@ object FlowLifecycle:
         // Names WHY the reset is about to discard changes — the reset's own
         // "Discarded uncommitted changes" Step alone would read as
         // unexplained data loss.
-        val discarding = startingTree match
-          case StartingTree.Clean =>
+        val discarding = startingTree.untracked match
+          case UntrackedFiles.Remove =>
             "uncommitted changes and the files the failed stage created"
-          case StartingTree.Kept(_) =>
+          case UntrackedFiles.Keep =>
             "uncommitted edits to tracked files (new files stay)"
         emit(
           OrcaEvent.Step(
