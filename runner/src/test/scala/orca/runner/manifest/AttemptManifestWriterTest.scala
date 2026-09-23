@@ -100,6 +100,7 @@ class AttemptManifestWriterTest extends munit.FunSuite:
       ),
       flowName = Some("review-pr.sc")
     )
+    writer.onEvent(OrcaEvent.BranchBound("feat/x"))
     writer.onEvent(OrcaEvent.StageStarted("code"))
     writer.onEvent(
       OrcaEvent.SessionCommitted(
@@ -116,12 +117,18 @@ class AttemptManifestWriterTest extends munit.FunSuite:
     assertEquals(
       os.read(OrcaDir.manifestPath(workDir, AttemptId(startedAt, 1))),
       s"""{"orcaVersion":"0.0.test","flow":"review-pr.sc","workDir":"$workDir",""" +
-        """"pid":1,"startedAt":"2026-07-18T10:00:00Z",""" +
+        """"branch":"feat/x","pid":1,"startedAt":"2026-07-18T10:00:00Z",""" +
         """"finishedAt":"2026-07-18T10:05:00Z","status":"Succeeded",""" +
         """"sessions":[{"harness":"claude","wireId":"wire-1","agent":"claude",""" +
         """"role":"coder","stage":"code","minted":{"name":"coder","stage":"Task 2#0"},""" +
         """"lastActiveAt":"2026-07-18T10:01:00Z"}]}"""
     )
+
+  test("a manifest without a branch key decodes with no branch"):
+    val manifest = readFromString[AttemptManifest](
+      manifestWithSession("2026-07-18T09:00:00Z")
+    )(using AttemptManifest.codec)
+    assertEquals(manifest.branch, None)
 
   test("upsert: same session re-firing updates stage/lastActiveAt"):
     val workDir = TempDirs.dir()

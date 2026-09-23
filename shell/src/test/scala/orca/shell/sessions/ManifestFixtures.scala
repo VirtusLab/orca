@@ -18,12 +18,14 @@ private[shell] object ManifestFixtures:
       startedAt: String = "2026-07-18T10:00:00Z",
       pid: Long = 1,
       status: AttemptStatus = AttemptStatus.Succeeded,
-      sessions: List[ManifestSession]
+      sessions: List[ManifestSession],
+      branch: Option[String] = None
   ): AttemptManifest =
     AttemptManifest(
       orcaVersion = "0.0.test",
       flow = Some("a-flow.sc"),
       workDir = workDir,
+      branch = branch,
       pid = pid,
       startedAt = Instant.parse(startedAt),
       finishedAt = None,
