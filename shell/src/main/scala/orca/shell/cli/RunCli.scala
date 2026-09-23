@@ -2,7 +2,7 @@ package orca.shell.cli
 
 import orca.RawArgs
 import orca.shell.actions.{FlowResolution, RunAction}
-import orca.shell.run.{FallbackPolicy, FlowLauncher}
+import orca.shell.run.{FallbackPolicy, FlowLauncher, LaunchedFlow}
 
 import Cli.{actionFailure, complete, usageFailure, withTerminal}
 
@@ -41,7 +41,7 @@ private[cli] object RunCli:
         val result =
           if honorPin then
             FlowLauncher.runHonoringPin(
-              resolved.path,
+              LaunchedFlow.of(resolved),
               orcaArgs,
               workDir,
               terminal

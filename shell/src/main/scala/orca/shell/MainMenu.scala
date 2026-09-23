@@ -124,4 +124,5 @@ private[shell] object MainMenu:
     // an offer that read like any other would send the user's work to a
     // directory they were never shown.
     val where = if run.dir == workDir then "" else s" (in ${run.dir.last})"
-    s"Resume interrupted run — ${run.flowName}: $task on $branch$where"
+    // Unclipped: a recorded path is run as is, so the user must see all of it.
+    s"Resume interrupted run — ${run.flow.display}: $task on $branch$where"

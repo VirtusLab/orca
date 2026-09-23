@@ -281,7 +281,7 @@ class FlowSessionTest extends FunSuite:
         orca.testkit.branchName("feat/test"),
         BranchMode.Created,
         userPrompt = "p",
-        flowName = None,
+        flow = None,
         startingCommit = orca.gitref.CommitHash.from("0" * 40).get
       )
     )
@@ -777,7 +777,7 @@ class FlowSessionTest extends FunSuite:
         orca.testkit.branchName("feat/test"),
         BranchMode.Created,
         userPrompt = "p",
-        flowName = None,
+        flow = None,
         startingCommit = orca.gitref.CommitHash.from("0" * 40).get
       )
     )

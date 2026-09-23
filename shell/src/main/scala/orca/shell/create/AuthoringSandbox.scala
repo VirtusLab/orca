@@ -1,5 +1,7 @@
 package orca.shell.create
 
+import orca.util.TextUtil
+
 /** A throwaway git workspace for one authoring run (ADR 0021 §9): the authoring
   * flow runs here instead of in the user's repository, so authoring works from
   * any directory, never stashes or commits the user's tree, and leaves no
@@ -17,15 +19,9 @@ private[shell] object AuthoringSandbox:
     s"""# orca authoring sandbox — compiling the flow script is its only gate;
        |# there is no project stack to format or test.
        |format = off
-       |lint = scala-cli compile ${shellQuote(flowFileName)}
+       |lint = scala-cli compile ${TextUtil.shellQuote(flowFileName)}
        |test = off
        |""".stripMargin
-
-  /** Single-quoted for the `bash -c` the lint gate runs under — the filename is
-    * user-entered, so spaces (or a stray quote) must not split the command.
-    */
-  private def shellQuote(name: String): String =
-    "'" + name.replace("'", "'\\''") + "'"
 
   /** Ignores the workspace metadata the coding agent's own `scala-cli compile`
     * (the prompt's verification step) drops beside the flow — kept out of

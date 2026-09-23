@@ -1,6 +1,7 @@
 package orca.shell.flows
 
 import orca.discovery.Origin
+import orca.progress.FlowSource
 import orca.shell.create.CreateTier
 import orca.testkit.TempDirs
 
@@ -47,7 +48,8 @@ class FlowEditorTest extends munit.FunSuite:
       description = None,
       origin = Origin.BuiltIn,
       path = dir / name,
-      shadows = Nil
+      shadows = Nil,
+      source = FlowSource.Catalog(name)
     )
 
   test(

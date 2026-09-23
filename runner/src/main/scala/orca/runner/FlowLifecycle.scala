@@ -20,6 +20,7 @@ import orca.gitref.{BranchName, CommitHash, Head}
 import orca.progress.{
   BranchMode,
   FeatureBranch,
+  FlowSource,
   ProgressHeader,
   ProgressLog,
   ProgressStore,
@@ -246,11 +247,8 @@ object FlowLifecycle:
       stackOverridden: Boolean,
       store: ProgressStore,
       sessionStore: SessionStore,
-      // `ORCA_FLOW_NAME`, threaded down from `flow()` rather than read here —
-      // stamped into a freshly-written header (`freshRun`) so the shell's
-      // "Resume interrupted run" offer (ADR 0021 §3 amendment) knows which
-      // flow script to relaunch. `None` for a run started outside the shell.
-      flowName: Option[String] = None,
+      // Stamped into a freshly-written header (`freshRun`).
+      flowSource: Option[FlowSource] = None,
       emit: OrcaEvent => Unit,
       // The dirty-tree prompt's two terminal dependencies, injected so tests
       // (and any headless caller) decide without one. Production probes real
@@ -282,7 +280,7 @@ object FlowLifecycle:
         workDir,
         branchNaming,
         store,
-        flowName,
+        flowSource,
         emit
       )
     val untrackedOnFailure = session.settle(preflight)
@@ -326,7 +324,7 @@ object FlowLifecycle:
       workDir: os.Path,
       branchNaming: Option[BranchNamingStrategy],
       store: ProgressStore,
-      flowName: Option[String],
+      flowSource: Option[FlowSource],
       emit: OrcaEvent => Unit
   ):
 
@@ -450,7 +448,7 @@ object FlowLifecycle:
         startingHead,
         protectedBranches,
         discovered,
-        flowName = flowName,
+        flowSource = flowSource,
         headAtBinding = headAtBinding,
         emit = emit
       )
@@ -747,7 +745,7 @@ object FlowLifecycle:
       startingHead: Head,
       protectedBranches: Set[String],
       discovered: Boolean,
-      flowName: Option[String],
+      flowSource: Option[FlowSource],
       headAtBinding: CommitHash,
       emit: OrcaEvent => Unit
   )(using InStage, WorkspaceWrite): FeatureBranch =
@@ -779,7 +777,7 @@ object FlowLifecycle:
           if args.target.skipBranch then BranchMode.Reused
           else BranchMode.Created,
         userPrompt = args.userPrompt,
-        flowName = flowName,
+        flow = flowSource,
         startingCommit = headAtBinding
       )
     )

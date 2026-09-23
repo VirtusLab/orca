@@ -5,8 +5,9 @@ import orca.{OrcaArgs, RunTarget, Uncommitted}
 import orca.shell.ShellVersion
 import orca.shell.create.{CreateTarget, CreateTier}
 import orca.discovery.Origin
+import orca.progress.FlowSource
 import orca.shell.flows.{BuiltInFlows, DiscoveredFlow}
-import orca.shell.run.{FallbackPolicy, FlowLauncher, LaunchResult}
+import orca.shell.run.{FallbackPolicy, FlowLauncher, LaunchResult, LaunchedFlow}
 import orca.shell.ui.{Choice, ShellUi, UiOutcome}
 import orca.testkit.{GitRepo, TempDirs}
 
@@ -38,7 +39,7 @@ private class RecordingLaunch(
 ):
   case class Call(
       fallback: FallbackPolicy,
-      flow: os.Path,
+      flow: LaunchedFlow,
       args: OrcaArgs,
       workDir: os.Path
   ):
@@ -97,7 +98,8 @@ class AuthorActionTest extends munit.FunSuite:
       description = None,
       origin = Origin.Project,
       path = sourcePath,
-      shadows = Nil
+      shadows = Nil,
+      source = FlowSource.Catalog("implement.sc")
     )
 
   test(
@@ -132,7 +134,10 @@ class AuthorActionTest extends munit.FunSuite:
       assertEquals(result, LaunchResult.Ok)
       assertEquals(recording.calls.size, 1)
       val call = recording.calls.head
-      assertEquals(call.flow, builtInFlow)
+      assertEquals(
+        call.flow,
+        LaunchedFlow(builtInFlow, FlowSource.File(builtInFlow.toString))
+      )
       assertEquals(
         (call.args.verbose, call.args.target, call.args.branch),
         (false, RunTarget.NewBranch(Uncommitted.Stash), None)
@@ -174,7 +179,10 @@ class AuthorActionTest extends munit.FunSuite:
 
       assertEquals(result, LaunchResult.Ok)
       val call = recording.calls.head
-      assertEquals(call.flow, builtInFlow)
+      assertEquals(
+        call.flow,
+        LaunchedFlow(builtInFlow, FlowSource.File(builtInFlow.toString))
+      )
       assert(call.task.contains("add a retry step"), call.task)
       assert(
         call.task.contains((call.workDir / "implement-fork.sc").toString),
