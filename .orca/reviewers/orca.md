@@ -31,8 +31,9 @@ shipped reviewers running beside you.
 - **Capability discipline**: `InStage.unsafe`/`WorkspaceWrite.unsafe` only in
   `RuntimeInStage` and tests; never drop a `(using InStage)` or `(using
   WorkspaceWrite)` to make code compile; `WorkspaceWrite` never crosses a fork.
-- **Writes under `.orca/`** go through an `OrcaDir.ensure*` accessor, and
-  prefer `os.write` over `os.write.over`.
+- **Writes under `.orca/`**: a whole-file write replaces an `OrcaDir.OrcaFile`;
+  any other write goes inside an `OrcaDir.ensure*` directory, with `os.write`
+  over `os.write.over`.
 - **Subprocesses capture stderr** — `QuietProc.call` or a `CliRunner`.
 - **Enums, not flags**: a domain mode is an enum, never a `Boolean` or a raw
   string compared to literals; two flags or `Option`s whose combinations

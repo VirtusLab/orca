@@ -38,7 +38,7 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
   ): String =
     TextUtil.collapseWhitespace(
       ReviewLoopPrompts.reReview(
-        ReReviewChanges.AlreadySeen(LastSent.NoteOnly("")),
+        ReReviewChanges.AlreadySeen(LastSent.NoteOnly(DiffSample.empty)),
         open
       )
     )

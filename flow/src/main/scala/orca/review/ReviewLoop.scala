@@ -545,16 +545,16 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     val result =
       se.chat.resultAs[ReviewResult].autonomous.run(prompt, emitPrompt = false)
     // Nothing is sent on `AlreadySeen`, so the reviewer keeps comparing against
-    // what it has seen. A cut round still records the whole diff, not what was
-    // sent: the next round compares diff text, so a change that rewrites those
-    // files without adding or removing any must still register.
+    // what it has seen. A cut round still records the whole sample, not what
+    // was sent: the next round compares against all of it, so a change that
+    // rewrites those files without adding or removing any must still register.
     val advanced = changes match
       case ReReviewChanges.Updated(_) =>
-        Some(se.copy(lastSent = LastSent.inlined(current.diff)))
+        Some(se.copy(lastSent = LastSent.inlined(current)))
       case ReReviewChanges.Sections(_, _, _) =>
-        Some(se.copy(lastSent = LastSent.SectionsOnly(current.diff)))
+        Some(se.copy(lastSent = LastSent.SectionsOnly(current)))
       case ReReviewChanges.Paths(_) =>
-        Some(se.copy(lastSent = LastSent.PathsOnly(current.diff)))
+        Some(se.copy(lastSent = LastSent.PathsOnly(current)))
       case ReReviewChanges.AlreadySeen(_) => None
     (result, advanced)
 
@@ -581,7 +581,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     ReviewLogging.initialReview(e.name.value, round, current, prompt)
     val result =
       chat.resultAs[ReviewResult].autonomous.run(prompt, emitPrompt = false)
-    (result, Some(SessionEntry(chat, LastSent.inlined(current.diff))))
+    (result, Some(SessionEntry(chat, LastSent.inlined(current))))
 
   /** What one fork of the round's fan-out came back with — the same
     * contribution the loop state folds in, tagged with which kind of agent
@@ -613,7 +613,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     // Sampled here on the collecting thread, so the fan-out receives plain
     // data.
     val current =
-      if active.isEmpty then DiffSample("", Nil) else diffSource.sample()
+      if active.isEmpty then DiffSample.empty else diffSource.sample()
 
     // Rounds already recorded, so this one is the next — the number the trace
     // labels each reviewer's prompt with.

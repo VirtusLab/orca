@@ -237,23 +237,23 @@ object ReviewLoopPrompts:
   * against, and how much of it reached the conversation — an empty sample
   * reaches it only as the placeholder note.
   */
-private[review] enum LastSent(val diff: String):
-  case Inline(d: String) extends LastSent(d)
-  case SectionsOnly(d: String) extends LastSent(d)
-  case PathsOnly(d: String) extends LastSent(d)
-  case NoteOnly(d: String) extends LastSent(d)
+private[review] enum LastSent(val sample: DiffSample):
+  case Inline(s: DiffSample) extends LastSent(s)
+  case SectionsOnly(s: DiffSample) extends LastSent(s)
+  case PathsOnly(s: DiffSample) extends LastSent(s)
+  case NoteOnly(s: DiffSample) extends LastSent(s)
 
 private[review] object LastSent:
   /** Whether a sample renders as the placeholder note instead of a diff. Shared
     * so the prompt and the recorded [[LastSent]] can't disagree.
     */
-  def nothingToShow(sample: String): Boolean = sample.trim.isEmpty
+  def nothingToShow(diff: String): Boolean = diff.trim.isEmpty
 
   /** Records a sample sent inline — an empty one reaches the reviewer as the
     * placeholder note, not as a diff.
     */
-  def inlined(sample: String): LastSent =
-    if nothingToShow(sample) then NoteOnly(sample) else Inline(sample)
+  def inlined(sample: DiffSample): LastSent =
+    if nothingToShow(sample.diff) then NoteOnly(sample) else Inline(sample)
 
 /** What a resumed reviewer is told about the change set this round.
   *
@@ -323,20 +323,22 @@ private[review] object ReReviewChanges:
     *
     * Equality is tested before size, so a [[ReviewDiff.Pinned]] diff never
     * reaches [[Sections]]: pinned samples are byte-identical every round, so a
-    * resume always classifies [[AlreadySeen]].
+    * resume always classifies [[AlreadySeen]]. The whole sample is compared,
+    * sections included: `diff` may leave out an edited file.
     */
   def of(previous: LastSent, current: DiffSample): ReReviewChanges =
-    if current.diff == previous.diff then AlreadySeen(previous)
+    if current == previous.sample then AlreadySeen(previous)
     else if current.diff.length > InlineThreshold then
-      val unchanged = unchangedSince(previous.diff, current)
+      val unchanged = unchangedSince(previous.sample, current)
       val changed = current.paths.filterNot(unchanged.toSet)
       // A delta naming no path cannot point the reviewer anywhere (the samples
-      // differ outside any parseable section), so fall back to the full list —
-      // with no sections to send, since there is nothing to cut them from.
+      // differ outside every file's section, e.g. in a `# skipped` line), so
+      // fall back to the full list — with no sections to send, since there is
+      // nothing to cut them from.
       if changed.isEmpty then Paths(current.paths)
       else
         BoundedDiff.sectionsPayload(
-          current.diff,
+          current.sections,
           changed,
           InlineThreshold - PathListBudget
         ) match
@@ -348,21 +350,17 @@ private[review] object ReReviewChanges:
           case BoundedDiff.SectionsCut.NothingFits => Paths(current.paths)
     else Updated(current.diff)
 
-  /** The paths in `current` whose per-file diff section is byte-identical in
-    * `previousDiff` — what [[Sections]] may tell a resumed reviewer it need not
-    * re-read. A path without a parseable section in both samples (a rename, a
-    * quoted header, a cut diff's trailer) is never called unchanged: telling a
-    * reviewer to re-read a file it has seen is the safe direction, the reverse
-    * is not.
+  /** The paths in `current` whose diff section is byte-identical in `previous`
+    * — what [[Sections]] may tell a resumed reviewer it need not re-read. A
+    * path without a section in both samples is never called unchanged: its
+    * edits cannot be compared.
     */
   private def unchangedSince(
-      previousDiff: String,
+      previous: DiffSample,
       current: DiffSample
   ): List[String] =
-    val prev = BoundedDiff.sectionsByPath(previousDiff)
-    val cur = BoundedDiff.sectionsByPath(current.diff)
     current.paths.filter(p =>
-      (cur.get(p), prev.get(p)) match
+      (current.sections.get(p), previous.sections.get(p)) match
         case (Some(c), Some(pr)) => c == pr
         case _                   => false
     )
