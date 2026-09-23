@@ -831,9 +831,9 @@ object FlowLifecycle:
     * resolution and skips discovery, but the project file is still read and
     * parsed — its agent keys are honoured and a malformed file still aborts.
     * Absent that override, the stack resolution follows the stack-aware
-    * discovery trigger (ADR 0020 §7): a present file configuring a stack key
-    * ([[orca.settings.ParsedSettings]]`.stack`) resolves; an absent, blank, or
-    * stack-silent file needs discovery.
+    * discovery trigger (ADR 0019 amendment 2026-09-23): a present file
+    * configuring a stack key ([[orca.settings.ParsedSettings]]`.stack`)
+    * resolves; an absent, blank, or stack-silent file needs discovery.
     */
   private[orca] def readSettings(
       workDir: os.Path,

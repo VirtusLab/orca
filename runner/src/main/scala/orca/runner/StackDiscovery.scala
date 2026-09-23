@@ -3,7 +3,7 @@ package orca.runner
 import orca.{InStage, StackSettings}
 import orca.agents.{Agent, Announce, JsonData, given}
 import orca.events.OrcaEvent
-import orca.settings.{SettingsEntry, StackCommand, StackKey}
+import orca.settings.{SettingsEntry, StackCommand, StackKey, StackValue}
 import orca.subprocess.PathProbe
 import orca.util.{PromptResource, TextUtil}
 
@@ -110,8 +110,9 @@ private[runner] object StackDiscovery:
   private[runner] def startMessage(existingContent: Option[String]): String =
     val purpose = "discovering how to format, lint & test this project"
     existingContent match
-      case None    => s"no .orca/settings.properties — $purpose"
-      case Some(_) => s".orca/settings.properties has no stack lines — $purpose"
+      case None => s"no .orca/settings.properties — $purpose"
+      case Some(_) =>
+        s".orca/settings.properties configures no stack keys — $purpose"
 
   /** Narrate every command/demotion entry as its own `Step` event. Unset and
     * Off keys surface through [[warnDisabledGates]] instead.
@@ -144,12 +145,8 @@ private[runner] object StackDiscovery:
       settings: StackSettings,
       emit: OrcaEvent => Unit
   ): Unit =
-    List(
-      StackKey.Format -> settings.format,
-      StackKey.Lint -> settings.lint,
-      StackKey.Test -> settings.test
-    ).foreach: (key, commands) =>
-      if commands.isEmpty then
+    StackKey.values.foreach: key =>
+      if key.commandsIn(settings).isEmpty then
         emit(
           OrcaEvent.Step(
             s"warning: stack settings: no ${key.raw} command — gate disabled"
@@ -213,24 +210,29 @@ private[runner] object StackDiscovery:
       unresolvedReason: String => Option[String],
       evidenceExists: String => Boolean
   ): (List[SettingsEntry], StackSettings) =
+    def demotionReason(
+        command: StackCommand,
+        cmd: DiscoveredCommand
+    ): Option[String] =
+      unresolvedReason(command.value)
+        .orElse(
+          // A blank citation is checked before existence: `os.SubPath("")`
+          // resolves to the repo root, which exists, so the existence check
+          // would pass vacuously.
+          Option.when(cmd.evidencePath.isBlank)("no evidence file cited")
+        )
+        .orElse(
+          Option.when(!evidenceExists(cmd.evidencePath))(
+            s"evidence file ${cmd.evidencePath} not found"
+          )
+        )
+
     def checkedEntry(key: StackKey, cmd: DiscoveredCommand): SettingsEntry =
       def demoted(reason: String) =
         SettingsEntry.Demoted(key, cmd.command, reason)
-      StackCommand.from(cmd.command) match
-        case Left(invalid) => demoted(invalid.message)
-        case Right(command) =>
-          unresolvedReason(command.value)
-            .orElse(
-              // A blank citation is checked before existence: `os.SubPath("")`
-              // resolves to the repo root, which exists, so the existence check
-              // would pass vacuously.
-              Option.when(cmd.evidencePath.isBlank)("no evidence file cited")
-            )
-            .orElse(
-              Option.when(!evidenceExists(cmd.evidencePath))(
-                s"evidence file ${cmd.evidencePath} not found"
-              )
-            ) match
+      StackValue.parse(cmd.command) match
+        case StackValue.Run(command) =>
+          demotionReason(command, cmd) match
             case Some(reason) => demoted(reason)
             case None =>
               SettingsEntry.Command(
@@ -238,6 +240,10 @@ private[runner] object StackDiscovery:
                 command,
                 Some(cmd.evidencePath + cmd.evidenceNote.fold("")("; " + _))
               )
+        case StackValue.Empty => demoted("empty command")
+        case StackValue.Off => demoted("`off` disables the gate, not a command")
+        case StackValue.CommentedOut =>
+          demoted("starts with `#`, so `bash -c` runs nothing")
 
     def taskEntries(key: StackKey, task: DiscoveredTask): List[SettingsEntry] =
       if task.commands.isEmpty then
@@ -257,13 +263,7 @@ private[runner] object StackDiscovery:
         taskEntries(StackKey.Lint, result.lint) ++
         taskEntries(StackKey.Test, result.test)
 
-    def surviving(key: StackKey): List[String] =
+    val settings = StackKey.tabulate: key =>
       entries.collect:
         case SettingsEntry.Command(`key`, command, _) => command.value
-
-    val settings = StackSettings(
-      format = surviving(StackKey.Format),
-      lint = surviving(StackKey.Lint),
-      test = surviving(StackKey.Test)
-    )
     (entries, settings)

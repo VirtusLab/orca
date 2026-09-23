@@ -47,18 +47,14 @@ class SettingsFilePropertyTest extends ScalaCheckSuite:
       live.foldLeft(StackSettings.empty): (acc, entry) =>
         entry match
           case SettingsEntry.Command(key, command, _) =>
-            key match
-              case StackKey.Format =>
-                acc.copy(format = acc.format :+ command.value)
-              case StackKey.Lint => acc.copy(lint = acc.lint :+ command.value)
-              case StackKey.Test => acc.copy(test = acc.test :+ command.value)
+            key.appendTo(acc, command)
           case _ => acc
 
   private val keyGen: Gen[StackKey] = Gen.oneOf(StackKey.values.toList)
 
   /** Printable ASCII, spaces, and occasional newlines — so `=`, mid-string `#`,
-    * quotes, `$` and `&&` all occur — kept when [[StackCommand.from]] accepts
-    * it.
+    * quotes, `$` and `&&` all occur — kept when [[StackValue.parse]] reads a
+    * command.
     */
   private val commandGen: Gen[StackCommand] =
     val printable = Gen.choose(33.toChar, 126.toChar)
@@ -70,9 +66,9 @@ class SettingsFilePropertyTest extends ScalaCheckSuite:
     for
       head <- printable.suchThat(_ != '#')
       tail <- Gen.listOf(commandChar)
-      command <- StackCommand.from((head :: tail).mkString) match
-        case Right(command) => Gen.const(command)
-        case Left(_)        => Gen.fail
+      command <- StackValue.parse((head :: tail).mkString) match
+        case StackValue.Run(command) => Gen.const(command)
+        case _                       => Gen.fail
     yield command
 
   private def entriesGen(freeText: Gen[String]): Gen[List[SettingsEntry]] =

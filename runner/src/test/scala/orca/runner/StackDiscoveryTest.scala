@@ -8,14 +8,17 @@ import orca.settings.{
   SettingsFile,
   SettingsScope,
   StackCommand,
-  StackKey
+  StackKey,
+  StackValue
 }
 import orca.testkit.TempDirs
 
 class StackDiscoveryTest extends munit.FunSuite:
 
   private def command(raw: String): StackCommand =
-    StackCommand.from(raw).fold(e => fail(e.message), identity)
+    StackValue.parse(raw) match
+      case StackValue.Run(command) => command
+      case other                   => fail(s"not a command: $other")
 
   test(
     "a representative always-both envelope shape decodes under the strict codec"
@@ -248,14 +251,17 @@ class StackDiscoveryTest extends munit.FunSuite:
       lint = DiscoveredTask(),
       test = DiscoveredTask()
     )
-    val (entries, _) =
-      StackDiscovery.toEntries(result, allResolvable, allEvidenceExists)
+    val (entries, _) = StackDiscovery.toEntries(
+      result,
+      unresolvedReason = _ => Some("#: not found on PATH"),
+      evidenceExists = allEvidenceExists
+    )
     assertEquals(
       entries.head,
       SettingsEntry.Demoted(
         StackKey.Format,
         "# cargo fmt",
-        StackCommand.Invalid.CommentedOut.message
+        "starts with `#`, so `bash -c` runs nothing"
       )
     )
 
@@ -401,7 +407,7 @@ class StackDiscoveryTest extends munit.FunSuite:
   test("startMessage: a present stack-silent file names the file, not absence"):
     assertEquals(
       StackDiscovery.startMessage(Some("codingAgent = codex\n")),
-      ".orca/settings.properties has no stack lines — discovering how to " +
+      ".orca/settings.properties configures no stack keys — discovering how to " +
         "format, lint & test this project"
     )
 

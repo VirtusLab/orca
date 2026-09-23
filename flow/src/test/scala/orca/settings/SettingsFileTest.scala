@@ -7,7 +7,9 @@ import orca.agents.BackendTag
 class SettingsFileTest extends FunSuite:
 
   private def command(raw: String): StackCommand =
-    StackCommand.from(raw).fold(e => fail(e.message), identity)
+    StackValue.parse(raw) match
+      case StackValue.Run(command) => command
+      case other                   => fail(s"not a command: $other")
 
   test("parse skips blank lines and lines whose first non-space char is #"):
     val content =
@@ -64,6 +66,12 @@ class SettingsFileTest extends FunSuite:
           s"should tell the user to comment out the line: ${problem.message}"
         )
       case Right(settings) => fail(s"expected a parse error, got: $settings")
+
+  test("parse rejects an agent value whose first non-space char is #"):
+    assertEquals(
+      SettingsFile.parse("codingAgent = # codex\n", SettingsScope.Project),
+      Left(SettingsError.CommentedValue(1, "codingAgent"))
+    )
 
   test("parse takes the value verbatim after the first =, keeping embedded ="):
     assertEquals(
@@ -220,8 +228,8 @@ class SettingsFileTest extends FunSuite:
       Right(ParsedSettings(None, AgentSettings.empty))
     )
 
-  test("parse in UserGlobal scope rejects stack keys as project-only"):
-    SettingsFile.parse("format = cargo fmt\n", SettingsScope.UserGlobal) match
+  test("parse in UserGlobal scope rejects stack keys, even with no value"):
+    SettingsFile.parse("format =\n", SettingsScope.UserGlobal) match
       case Left(problem) =>
         assert(
           problem.message.contains("format"),
@@ -281,8 +289,8 @@ class SettingsFileTest extends FunSuite:
     )
 
   test(
-    "stripStackLines removes a stack key with a trailing control byte, " +
-      "which parse reads as live"
+    "parse and stripStackLines agree on a stack key with a trailing " +
+      "control byte"
   ):
     // `\u001f` is stripped by String.trim (the key trim) but is not matched by
     // a regex `\s`: the strip and the parser must agree it is a `format` key.

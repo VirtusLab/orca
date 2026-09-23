@@ -2,7 +2,7 @@ package orca.shell.actions
 
 import orca.OrcaDir
 import orca.StackSettings
-import orca.settings.{SettingsFile, SettingsScope}
+import orca.settings.{SettingsFile, SettingsScope, StackKey}
 import orca.shell.ui.ShellOutput
 
 import scala.util.control.NonFatal
@@ -12,7 +12,7 @@ import scala.util.control.NonFatal
   */
 private[shell] enum StackStatus:
   case NoSettings
-  case NoStackLines
+  case NoStackConfigured
   case Present(stack: StackSettings, content: String)
 
 /** "Clear stack settings (format/lint/test) — re-detected on the next flow run"
@@ -24,7 +24,7 @@ private[shell] object StackAction:
   /** Reads and guards the project settings file the same way
     * `Main.rediscoverStack` used to inline: a symlink guard
     * ([[OrcaDir.assertNoOrcaSymlinks]]) so this never creates `.orca`, then an
-    * absent file or one with no stack lines already reported as a no-op, and a
+    * absent file or one configuring no stack key reported as a no-op, and a
     * malformed file reported as an error instead of surgically edited blind.
     */
   def status(workDir: os.Path): Either[String, StackStatus] =
@@ -39,7 +39,7 @@ private[shell] object StackAction:
             Left(s"invalid settings at $path: ${error.message}")
           case Right(parsed) =>
             Right(
-              parsed.stack.fold(StackStatus.NoStackLines)(
+              parsed.stack.fold(StackStatus.NoStackConfigured)(
                 StackStatus.Present(_, content)
               )
             )
@@ -98,8 +98,7 @@ private[shell] object StackAction:
     * here even though `off` still counts as configured.
     */
   def renderStackSettings(stack: StackSettings): String =
-    val rows =
-      List("format" -> stack.format, "lint" -> stack.lint, "test" -> stack.test)
-        .flatMap((key, commands) => commands.map(cmd => s"  $key: $cmd"))
+    val rows = StackKey.values.toList.flatMap: key =>
+      key.commandsIn(stack).map(cmd => s"  ${key.raw}: $cmd")
     if rows.isEmpty then "  (no live commands — every stack key is off)"
     else rows.mkString("\n")

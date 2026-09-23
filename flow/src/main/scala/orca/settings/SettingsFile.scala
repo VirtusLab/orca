@@ -37,31 +37,6 @@ private[orca] enum SettingsError:
         "stack commands (format, lint, test) are per-project; valid keys " +
         "here: planningAgent, codingAgent, reviewAgent"
 
-/** The closed set of settings-file keys; `raw` is the exact on-disk spelling
-  * (keys are case-sensitive). Split into [[StackKey]] and [[AgentKey]] so
-  * `append` and the agent-key handling each match exhaustively over their own
-  * cases — a key added without matching code fails to compile rather than
-  * silently falling through.
-  */
-private[settings] sealed trait SettingKey:
-  def raw: String
-
-/** The stack-command keys: project-only, values append in file order. */
-private[orca] enum StackKey(val raw: String) extends SettingKey:
-  case Format extends StackKey("format")
-  case Lint extends StackKey("lint")
-  case Test extends StackKey("test")
-
-/** The agent role keys: valid in both scopes, single-valued. */
-private[orca] enum AgentKey(val raw: String) extends SettingKey:
-  case PlanningAgent extends AgentKey("planningAgent")
-  case CodingAgent extends AgentKey("codingAgent")
-  case ReviewAgent extends AgentKey("reviewAgent")
-
-private[settings] object SettingKey:
-  val values: Array[SettingKey] = StackKey.values ++ AgentKey.values
-  def fromRaw(s: String): Option[SettingKey] = values.find(_.raw == s)
-
 /** Which settings file is being parsed: the per-project file accepts every key;
   * the user-global file accepts only agent keys (stack commands are per-project
   * by nature).
@@ -71,8 +46,8 @@ private[orca] enum SettingsScope:
 
 /** The result of parsing one settings file: the stack commands and the agent
   * role assignments it names. `stack` is `None` when no stack key is configured
-  * — the auto-discovery trigger (ADR 0020 §7); an explicit `key = off`
-  * configures that key with no commands.
+  * — the auto-discovery trigger (ADR 0019 amendment 2026-09-23); an explicit
+  * `key = off` configures that key with no commands.
   */
 private[orca] case class ParsedSettings(
     stack: Option[StackSettings],
@@ -115,10 +90,11 @@ private[orca] object SettingsFile:
       number: Int,
       scope: SettingsScope
   ): Either[SettingsError, ParsedSettings] =
-    liveAssignment(line) match
-      case None             => Right(acc)
-      case Some(Left(text)) => Left(SettingsError.NoAssignment(number, text))
-      case Some(Right((rawKey, value))) =>
+    Line.of(line) match
+      case Line.Inert => Right(acc)
+      case Line.Malformed(text) =>
+        Left(SettingsError.NoAssignment(number, text))
+      case Line.Assignment(rawKey, value) =>
         SettingKey.fromRaw(rawKey) match
           case None => Left(SettingsError.UnknownKey(number, rawKey))
           case Some(key: StackKey) =>
@@ -134,14 +110,13 @@ private[orca] object SettingsFile:
       value: String,
       number: Int
   ): Either[SettingsError, ParsedSettings] =
-    def configured = acc.stack.getOrElse(StackSettings.empty)
-    StackCommand.from(value) match
-      case Right(command) =>
-        Right(acc.copy(stack = Some(append(configured, key, command))))
-      case Left(StackCommand.Invalid.Disable) =>
-        Right(acc.copy(stack = Some(configured)))
-      case Left(StackCommand.Invalid.Blank) => Right(acc)
-      case Left(StackCommand.Invalid.CommentedOut) =>
+    val stackSoFar = acc.stack.getOrElse(StackSettings.empty)
+    StackValue.parse(value) match
+      case StackValue.Run(command) =>
+        Right(acc.copy(stack = Some(key.appendTo(stackSoFar, command))))
+      case StackValue.Off   => Right(acc.copy(stack = Some(stackSoFar)))
+      case StackValue.Empty => Right(acc)
+      case StackValue.CommentedOut =>
         Left(SettingsError.CommentedValue(number, key.raw))
 
   private def parseAgentKey(
@@ -253,42 +228,15 @@ private[orca] object SettingsFile:
         // A live `off` line, not a comment: an unset task must still count as
         // "configured" so discovery doesn't re-run over the same absence
         // every time. The reason is purely informative, one `#` line above.
-        s"# ${collapseWhitespace(reason)}\n${key.raw} = ${StackCommand.Off}"
+        s"# ${collapseWhitespace(reason)}\n${key.raw} = ${StackValue.OffLiteral}"
       case SettingsEntry.Demoted(key, command, reason) =>
         // Collapsed to stay one physical `#` line.
         s"$SkippedPrefix${key.raw} = ${collapseWhitespace(command)} " +
           s"(${collapseWhitespace(reason)})"
-      case SettingsEntry.Off(key) => s"${key.raw} = ${StackCommand.Off}"
+      case SettingsEntry.Off(key) => s"${key.raw} = ${StackValue.OffLiteral}"
 
   private def collapseWhitespace(s: String): String =
     TextUtil.collapseWhitespace(s)
-
-  private def append(
-      acc: StackSettings,
-      key: StackKey,
-      command: StackCommand
-  ): StackSettings =
-    key match
-      case StackKey.Format => acc.copy(format = acc.format :+ command.value)
-      case StackKey.Lint   => acc.copy(lint = acc.lint :+ command.value)
-      case StackKey.Test   => acc.copy(test = acc.test :+ command.value)
-
-  /** A non-comment, non-blank line split at its FIRST `=` into the trimmed key
-    * and the trimmed value (so commands containing `=` — e.g. `FOO=bar cargo
-    * check` — survive intact); `Left(trimmed line)` when it has no `=`, `None`
-    * for a comment or blank line. The one definition of a line's shape, shared
-    * by [[parseLine]] and [[liveKey]].
-    */
-  private def liveAssignment(
-      line: String
-  ): Option[Either[String, (String, String)]] =
-    val trimmed = line.trim
-    if trimmed.isEmpty || trimmed.startsWith("#") then None
-    else
-      trimmed.indexOf('=') match
-        case -1 => Some(Left(trimmed))
-        case eq =>
-          Some(Right((trimmed.take(eq).trim, trimmed.drop(eq + 1).trim)))
 
   /** The known key a live line assigns, whatever its value. Looser than
     * [[parse]] on purpose: the text edits ([[updateGlobal]],
@@ -296,9 +244,9 @@ private[orca] object SettingsFile:
     * configures nothing.
     */
   private def liveKey(line: String): Option[SettingKey] =
-    liveAssignment(line)
-      .flatMap(_.toOption)
-      .flatMap((rawKey, _) => SettingKey.fromRaw(rawKey))
+    Line.of(line) match
+      case Line.Assignment(rawKey, _)     => SettingKey.fromRaw(rawKey)
+      case Line.Inert | Line.Malformed(_) => None
 
   /** Index set of the contiguous `#`-comment lines directly above `index` in
     * `lines` — [[renderEntry]]'s evidence/reason citation for the live line at
@@ -356,3 +304,27 @@ private[orca] object SettingsFile:
     liveKey(line) match
       case Some(_: StackKey) => true
       case _                 => false
+
+/** The shape of one settings-file line — the single definition shared by the
+  * parser and the text edits.
+  */
+private enum Line:
+  /** Blank, or a `#` comment. */
+  case Inert
+
+  /** Neither inert nor containing `=`; `text` is the trimmed line. */
+  case Malformed(text: String)
+
+  /** Split at the FIRST `=`, key and value trimmed, so commands containing `=`
+    * (e.g. `FOO=bar cargo check`) survive intact.
+    */
+  case Assignment(rawKey: String, value: String)
+
+private object Line:
+  def of(line: String): Line =
+    val trimmed = line.trim
+    if trimmed.isEmpty || trimmed.startsWith("#") then Inert
+    else
+      trimmed.indexOf('=') match
+        case -1 => Malformed(trimmed)
+        case eq => Assignment(trimmed.take(eq).trim, trimmed.drop(eq + 1).trim)
