@@ -3,7 +3,6 @@ package orca.testkit
 import orca.OrcaInteractiveCancelled
 import orca.agents.{BackendTag, StructuredOutputMode}
 import orca.backend.{AgentResult, Conversation, ConversationEvent}
-import ox.Ox
 
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -21,13 +20,11 @@ class ScriptedConversation[B <: BackendTag](
   /** How many events a consumer pulled. */
   val drained = new AtomicInteger(0)
   val cancelCount = new AtomicInteger(0)
-  def events(using Ox): Iterator[ConversationEvent] =
+  def events: Iterator[ConversationEvent] =
     scripted.iterator.map: e =>
       val _ = drained.incrementAndGet()
       e
-  def awaitResult()(using
-      Ox
-  ): Either[OrcaInteractiveCancelled, AgentResult[B]] =
+  def awaitResult(): Either[OrcaInteractiveCancelled, AgentResult[B]] =
     outcome match
       case Right(r)                          => Right(r)
       case Left(c: OrcaInteractiveCancelled) => Left(c)

@@ -6,7 +6,7 @@ import orca.shell.ui.Choice
 
 /** The continue-a-session picker (ADR 0021 §8): labels a [[SessionIndex]]'s
   * sessions as selectable rows for the interactive menu
-  * (`Main.continueSession`).
+  * (`ShellMenu.continueSession`).
   */
 private[shell] object SessionPicker:
 

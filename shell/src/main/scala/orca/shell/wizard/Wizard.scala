@@ -8,9 +8,9 @@ import ox.discard
 
 /** The welcome wizard (ADR 0021 §4): detects installed harnesses, asks the user
   * to pick one per role plus its model, and writes the user-global settings
-  * file. `probe` is `PathProbe.resolves(_, os.pwd)` in production, injected so
-  * tests never touch a real PATH; `globalSettingsPath` is likewise injected so
-  * tests never touch the developer's `~/.config`.
+  * file. `probe` is `PathProbe.resolves(_, env.workDir)` in production,
+  * injected so tests never touch a real PATH; `globalSettingsPath` is likewise
+  * injected so tests never touch the developer's `~/.config`.
   */
 private[shell] class Wizard(
     ui: ShellUi,

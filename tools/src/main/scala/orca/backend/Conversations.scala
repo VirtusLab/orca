@@ -1,9 +1,8 @@
 package orca.backend
 
+import orca.OrcaInteractiveCancelled
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.agents.{AutoApprove, BackendTag, StructuredOutputMode}
-
-import ox.Ox
 
 /** Drains a [[Conversation]] for the autonomous path, mapping conversation
   * events to [[OrcaEvent]]s and returning the awaited `AgentResult`.
@@ -85,8 +84,8 @@ private[orca] object Conversations:
     /** Normal end of stream: the parked turn IS the payload — drop it (the
       * caller emits StructuredResult); flush any unfinished current buffer.
       *
-      * Since ForkedConversation auto-closes every completed turn, a normal
-      * session ends its last turn with an `AssistantTurnEnd` that already ran
+      * Since StreamConversation closes every completed turn, a normal session
+      * ends its last turn with an `AssistantTurnEnd` that already ran
       * `turnEnd()`, leaving `current` empty. `flushCurrent()` is a safety net
       * for a turn the stream left open (abnormal termination mid-turn).
       */
@@ -128,7 +127,7 @@ private[orca] object Conversations:
       conv: Conversation[B],
       autoApprove: AutoApprove,
       events: OrcaListener = OrcaListener.noop
-  )(using Ox): AgentResult[B] =
+  ): AgentResult[B] =
     val buffer = new TurnBuffer(
       closingProse(conv),
       text => events.onEvent(OrcaEvent.AssistantMessage(text))
@@ -224,8 +223,9 @@ private[orca] object Conversations:
         conv.structuredOutputMode
       def canAskUser: Boolean = conv.canAskUser
       def cancel(): Unit = conv.cancel()
-      def awaitResult()(using Ox) = conv.awaitResult()
-      def events(using Ox): Iterator[ConversationEvent] =
+      def awaitResult(): Either[OrcaInteractiveCancelled, AgentResult[B]] =
+        conv.awaitResult()
+      def events: Iterator[ConversationEvent] =
         ProseWithholdingIterator(
           conv.events,
           closingProse(conv),

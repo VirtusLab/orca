@@ -248,7 +248,7 @@ class LeadAgentIdentityTest extends munit.FunSuite:
     def listeners: List[OrcaListener] = Nil
     def drive[B <: BackendTag](
         conversation: Conversation[B]
-    )(using ox.Ox): AgentResult[B] =
+    ): AgentResult[B] =
       throw new UnsupportedOperationException
 
   /** A minimal `AgentBackend` that counts REALISED close teardowns —

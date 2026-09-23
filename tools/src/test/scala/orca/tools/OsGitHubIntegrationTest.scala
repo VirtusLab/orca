@@ -1,6 +1,7 @@
 package orca.tools
 
 import orca.subprocess.OsProcCliRunner
+import orca.testkit.prHandle
 
 /** End-to-end tests against the real `gh` CLI. Gated on the `ORCA_INTEGRATION`
   * environment variable and require `gh auth login` on the host. The tests read
@@ -33,11 +34,6 @@ class OsGitHubIntegrationTest extends munit.FunSuite:
     // GitHub's /issues/{n}/comments endpoint is shared between issues and PRs;
     // Hello-World #1 is stable public data.
     val gh = new OsGitHubTool(OsProcCliRunner)
-    val handle = PrHandle(
-      host = "github.com",
-      owner = "octocat",
-      repo = "Hello-World",
-      number = 1
-    )
+    val handle = prHandle("https://github.com/octocat/Hello-World/pull/1")
     val comments = gh.readPrComments(handle)
     assert(comments.forall(_.author.nonEmpty))

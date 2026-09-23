@@ -99,7 +99,7 @@ trait AgentBackend[B <: BackendTag](
       try
         val result =
           Conversations.drainAutonomous(conv, config.autoApprove, events)
-        sessions.commitAfterDrain(session, result.wireId)
+        sessions.commitAfterDrain(session, result)
         result
       finally conv.cancel()
 

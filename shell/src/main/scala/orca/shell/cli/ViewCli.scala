@@ -1,5 +1,6 @@
 package orca.shell.cli
 
+import orca.shell.ShellEnv
 import orca.shell.actions.{FlowResolution, ViewAction}
 
 /** `orca view`'s behavior (ADR 0021 §10/§6): resolve the flow and print its
@@ -11,14 +12,13 @@ private[cli] object ViewCli:
       flowRef: String,
       plain: Boolean,
       color: Boolean,
-      tty: Boolean,
-      workDir: os.Path
-  ): Int =
+      tty: Boolean
+  )(using ShellEnv): Int =
     resolveHighlight(plain, color, tty) match
       case Left(message) =>
         Cli.diagnostic(message)
         ExitCodes.UsageError
-      case Right(highlight) => runView(workDir, flowRef, highlight)
+      case Right(highlight) => runView(flowRef, highlight)
 
   /** `--plain`/`--color`'s resolution (ADR 0021 §10 fold-in): mutually
     * exclusive; either wins outright over the auto-detected `tty` — an explicit
@@ -39,17 +39,11 @@ private[cli] object ViewCli:
     else if color then Right(true)
     else Right(tty)
 
-  /** `view`'s full behavior over an explicit `workDir` and resolved `highlight`
-    * decision — pulled out of the `@main` method so tests can point it at a
-    * temp project and pass a resolved boolean directly, without touching the
-    * real console.
-    */
-  private[cli] def runView(
-      workDir: os.Path,
-      flowRef: String,
-      highlight: Boolean
+  /** `view`'s behavior once `highlight` is decided. */
+  private[cli] def runView(flowRef: String, highlight: Boolean)(using
+      ShellEnv
   ): Int =
-    FlowResolution.resolve(flowRef, workDir) match
+    FlowResolution.resolve(flowRef) match
       case Left(message) =>
         Cli.diagnostic(message)
         ExitCodes.ActionFailed

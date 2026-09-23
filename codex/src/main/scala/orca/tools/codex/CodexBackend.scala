@@ -9,6 +9,7 @@ import orca.agents.{
   TurnDispatch
 }
 import orca.backend.{
+  AskUserChannel,
   Conversation,
   TurnRequest,
   Dispatch,
@@ -112,7 +113,6 @@ private[orca] class CodexBackend(
   )(using Ox): Conversation[BackendTag.Codex.type] =
     import turn.*
     val schemaFile = writeSchemaIfPresent(outputSchema)
-    val displayPrompt = mode.displayPrompt
     val askUser: Option[AskUserSession] =
       Option.when(mode.isInteractive)(AskUserSession.allocate())
     SubprocessSpawn.open("codex", events) {
@@ -146,11 +146,12 @@ private[orca] class CodexBackend(
       // codex doesn't accept user turns over stdin once the prompt is
       // argv-supplied; close immediately so the child stops waiting on EOF.
       process.closeStdin()
-      new CodexConversation(
+      CodexConversation(
         process,
-        initialPrompt = displayPrompt,
+        openingPrompt = mode.openingPrompt,
         outputSchema = outputSchema,
-        askUser = askUser,
+        askUser =
+          askUser.fold(AskUserChannel.Unavailable)(AskUserChannel.Mcp(_)),
         configuredModel = config.model
       )
     }

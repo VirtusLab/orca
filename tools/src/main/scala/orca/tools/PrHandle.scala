@@ -6,12 +6,18 @@ import orca.agents.JsonData
   * lives on — `github.com` or a GitHub Enterprise hostname — and every gh call
   * taking this handle is routed back to it. Never with a port: gh's
   * `--hostname` takes none, so a GitHub Enterprise host on a non-default port
-  * is unsupported. `derives JsonData` so a `stage` can record and replay a
-  * `PrHandle` result (ADR 0018 §3.2). Only [[PrHandle.fromUrl]] validates the
-  * fields; the constructor and the codec take them as given.
+  * is unsupported.
+  *
+  * Built only through [[PrHandle.from]] or [[PrHandle.fromUrl]], and the JSON
+  * codec decodes through them, so a handle read back from a stage record is
+  * validated like one parsed from gh.
   */
-case class PrHandle(host: String, owner: String, repo: String, number: Int)
-    derives JsonData:
+case class PrHandle private (
+    host: String,
+    owner: String,
+    repo: String,
+    number: Int
+):
   /** Canonical GitHub short-form `<owner>/<repo>#<number>`. */
   def shortRef: String = s"$owner/$repo#$number"
 
@@ -19,14 +25,33 @@ case class PrHandle(host: String, owner: String, repo: String, number: Int)
   def url: String = s"https://$host/$owner/$repo/pull/$number"
 
 object PrHandle:
-  // The host is spliced into `gh` arguments and back into `url`, so it is
-  // restricted to a hostname charset: userinfo (`@`), `?` and `#` must not
-  // survive parsing, or `url` would render a link pointing somewhere other
-  // than where it reads — the same reason [[IssueHandle]] restricts its
-  // owner/repo charsets, reused here. A port is refused rather than dropped,
-  // and only `https` is accepted: `url` renders neither back.
+  // Owner and repo are spliced into `gh` arguments and back into `url` next
+  // to the host, so they are restricted to GitHub's name charsets for the
+  // same reason [[HostName]] restricts the host. Only `https` is accepted:
+  // `url` renders nothing else back.
+  private val HostPattern = HostName.r
+  private val OwnerPattern = IssueHandle.Owner.r
+  private val RepoPattern = IssueHandle.Repo.r
+
   private val UrlPattern =
-    s"""https://([A-Za-z0-9.-]+)/(${IssueHandle.Owner})/(${IssueHandle.Repo})/pull/(\\d+)""".r
+    s"""https://($HostName)/(${IssueHandle.Owner})/(${IssueHandle.Repo})/pull/(\\d+)""".r
+
+  /** A handle for PR `number` of `owner/repo` on `host`; a `Left` names the
+    * first invalid field.
+    */
+  def from(
+      host: String,
+      owner: String,
+      repo: String,
+      number: Int
+  ): Either[String, PrHandle] =
+    if !HostPattern.matches(host) then Left(s"'$host' is not a hostname")
+    else if !OwnerPattern.matches(owner) then
+      Left(s"'$owner' is not a GitHub owner")
+    else if !RepoPattern.matches(repo) then
+      Left(s"'$repo' is not a GitHub repository")
+    else if number < 1 then Left(s"$number is not a PR number")
+    else Right(PrHandle(host, owner, repo, number))
 
   /** The first PR browser URL in `s` as a handle — the inverse of `url`, kept
     * next to it so the two halves of the format stay in step. The host is
@@ -36,15 +61,27 @@ object PrHandle:
   def fromUrl(s: String): Option[PrHandle] =
     UrlPattern
       .findFirstMatchIn(s)
-      .flatMap: m =>
-        // A number too large for an `Int` is no PR number: no handle, no throw.
-        m.group(4)
-          .toIntOption
-          .map(number =>
-            PrHandle(
-              host = m.group(1),
-              owner = m.group(2),
-              repo = m.group(3),
-              number = number
-            )
-          )
+      .flatMap:
+        case UrlPattern(host, owner, repo, number) =>
+          fromFields(host, owner, repo, number).toOption
+
+  /** `s` as a handle when all of it is a PR browser URL. */
+  private def fromExactUrl(s: String): Either[String, PrHandle] =
+    s match
+      case UrlPattern(host, owner, repo, number) =>
+        fromFields(host, owner, repo, number)
+      case _ => Left(s"'$s' is not a PR URL")
+
+  private def fromFields(
+      host: String,
+      owner: String,
+      repo: String,
+      number: String
+  ): Either[String, PrHandle] =
+    // A number too large for an `Int` is no PR number: no handle, no throw.
+    number.toIntOption
+      .toRight(s"$number is not a PR number")
+      .flatMap(from(host, owner, repo, _))
+
+  /** Travels as its `url`. */
+  given JsonData[PrHandle] = JsonData.fromString(fromExactUrl, _.url)

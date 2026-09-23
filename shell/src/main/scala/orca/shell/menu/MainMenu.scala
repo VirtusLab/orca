@@ -1,27 +1,15 @@
-package orca.shell
+package orca.shell.menu
 
-import orca.{RunTarget, Uncommitted}
 import orca.shell.resume.InterruptedRun
 import orca.shell.ui.Choice
 import orca.util.TextUtil
 
-/** Main menu selection (ADR 0021 §3, `ForkFlow` added §6/§9, `RediscoverStack`
-  * added §8, `EditSettings` added §4, `ResumeRun` added §3 amendment
-  * 2026-07-27).
-  */
-private[shell] enum MenuItem:
+/** Main menu selection (ADR 0021 §3). */
+private[menu] enum MenuItem:
   case RunFlow, ResumeRun, ViewFlow, EditFlow, CreateFlow, ForkFlow,
     ContinueSession, Reconfigure, EditSettings, RediscoverStack, Exit
 
-/** How Edit/Create/Fork make their changes (ADR 0021 §6/§9 amendment): asked
-  * via [[MainMenu.modeChoices]] after the action's WHAT is established (which
-  * flow to edit; source+tier to fork; nothing yet for create, where the mode
-  * decides whether a goal or a filename comes next).
-  */
-private[shell] enum ChangeMode:
-  case Hand, Agent
-
-private[shell] object MainMenu:
+private[menu] object MainMenu:
 
   /** Fixed ADR §3 order. Conditional items are ABSENT when inapplicable, never
     * shown disabled: `resumeOffer` non-None inserts `ResumeRun` right after
@@ -31,10 +19,10 @@ private[shell] object MainMenu:
     */
   def choices(
       continueSessionCount: Option[Int],
-      resumeOffer: Option[InterruptedRun] = None,
+      resumeOffer: Option[InterruptedRun],
       // The shell's own directory, to tell a resume that happens here from one
-      // that happens in a worktree. Defaulted for the tests that don't care.
-      workDir: os.Path = os.pwd
+      // that happens in a worktree.
+      workDir: os.Path
   ): List[Choice[MenuItem]] =
     val continueChoice = continueSessionCount.map(count =>
       Choice(
@@ -78,43 +66,10 @@ private[shell] object MainMenu:
       Choice(MenuItem.Exit, "Exit")
     )
 
-  /** "How should the changes be made?" — the two-row hand-vs-agent prompt
-    * shared by Edit/Create/Fork (ADR 0021 §6/§9 amendment).
-    */
-  val modeChoices: List[Choice[ChangeMode]] = List(
-    Choice(
-      ChangeMode.Agent,
-      "With an agent — describe the changes and let it work"
-    ),
-    Choice(ChangeMode.Hand, "By hand — open in your editor")
-  )
-
-  /** Where a run's work goes, offered as one choice on one axis rather than a
-    * branch confirm followed by a worktree confirm: the answers are not
-    * independent — orca refuses `--worktree` with `--skip-branch` — and asking
-    * separately would leave prompt order to prevent a pair [[RunTarget]] has no
-    * case for. The menu never keeps uncommitted files, so every row stashes.
-    */
-  val runTargetChoices: List[Choice[RunTarget]] = List(
-    Choice(
-      RunTarget.NewBranch(Uncommitted.Stash),
-      "A new branch in this checkout"
-    ),
-    Choice(
-      RunTarget.CurrentBranch(Uncommitted.Stash),
-      "The branch checked out now — the flow commits onto it"
-    ),
-    Choice(
-      RunTarget.Worktree,
-      "A new worktree — a separate checkout under .orca/worktrees/, " +
-        "leaving this one untouched"
-    )
-  )
-
   /** `"Resume interrupted run — <flow>: <first ~40 chars of task> on
     * <branch>"`, plus ` (in <dir>)` when the log is in another directory. The
     * task and branch come from a committed header, and the task is often
-    * multi-line (`Main.promptTask` reads multi-line), so both reach the menu
+    * multi-line ([[RunMenu.runFlow]] reads multi-line), so both reach the menu
     * row through [[TextUtil.onelinePreview]].
     */
   private def resumeLabel(run: InterruptedRun, workDir: os.Path): String =

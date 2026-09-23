@@ -110,7 +110,5 @@ class AgentBackendTest extends munit.FunSuite:
   /** Answers with whatever the conversation settles on. */
   private object AwaitingInteraction extends Interaction:
     def listeners: List[OrcaListener] = Nil
-    def drive[B <: BackendTag](conversation: Conversation[B])(using
-        Ox
-    ): AgentResult[B] =
+    def drive[B <: BackendTag](conversation: Conversation[B]): AgentResult[B] =
       conversation.awaitResult().fold(throw _, identity)

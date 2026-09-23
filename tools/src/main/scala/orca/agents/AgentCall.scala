@@ -174,7 +174,7 @@ class DefaultAgentCall[B <: BackendTag, O](
     * failure gets retried: parse failures (corrective re-prompt, same session
     * resumed) and pre-spawn open failures (a fresh spawn) are retried;
     * [[AgentTurnFailed]] never is (see the classifier,
-    * [[orca.backend.ForkedConversation.awaitResult]]).
+    * [[orca.backend.StreamConversation]]).
     */
   private def runAutonomousWithRetry[I](
       input: I,

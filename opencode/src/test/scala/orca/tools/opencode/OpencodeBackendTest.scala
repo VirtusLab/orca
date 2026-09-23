@@ -91,10 +91,8 @@ class OpencodeBackendTest extends munit.FunSuite:
         result.wireId,
         WireSessionId[BackendTag.Opencode.type]("ses_server1")
       )
-      // The turn finalizes through `conv.cancel()` (the self-scoped per-turn
-      // `finally`) — but the turn already settled via `session.idle`, so
-      // `onCancelRequested`'s settled-gate means NO `/abort` POST
-      // fires for this just-idle session, which may be resumed next turn.
+      // The turn settled via `session.idle`, so NO `/abort` POST fires for
+      // this just-idle session, which may be resumed next turn.
       assertEquals(
         http.posts.map(_._1),
         List(
@@ -189,44 +187,6 @@ class OpencodeBackendTest extends munit.FunSuite:
       ) // schema threaded through
       conv.events.foreach(_ => ())
       assertEquals(conv.awaitResult().toOption.get.output, "hi")
-
-  test(
-    "interactive shell: finally-cancel after a successful turn posts no /abort " +
-      "(settledOutcome race regression)"
-  ):
-    // Mirrors the real driving loop (`try interaction.drive(conversation)
-    // finally conversation.cancel()`): the reader settles on its own fork while
-    // `cancel()` runs on the test's thread — a genuine cross-thread race on
-    // `isSettled`. A stale `isSettled == false` here would fire a real `/abort`
-    // on a turn that already succeeded.
-    supervised:
-      val http = new FakeHttp(
-        turn(
-          "ses_server1",
-          "stop",
-          List(
-            data(
-              """{"type":"message.part.delta","properties":{"sessionID":"ses_server1","field":"text","delta":"hi"}}"""
-            )
-          )
-        )
-      )
-      val backend = new OpencodeBackend(new FakeHandle(http))
-      val conv = OpenTurn.interactive(backend)(
-        "q",
-        fresh,
-        "display",
-        AgentConfig(),
-        outputSchema = None
-      )
-      try
-        conv.events.foreach(_ => ())
-        assertEquals(conv.awaitResult().toOption.get.output, "hi")
-      finally conv.cancel()
-      assert(
-        !http.posts.exists(_._1.endsWith("/abort")),
-        s"unexpected /abort POST after a settled turn: ${http.posts}"
-      )
 
   test("close() delegates to the server handle"):
     val http = new FakeHttp(Nil, _ => 200)

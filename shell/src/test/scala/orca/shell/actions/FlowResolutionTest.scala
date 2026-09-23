@@ -1,6 +1,7 @@
 package orca.shell.actions
 
 import orca.progress.FlowSource
+import orca.shell.TestShellEnv
 import orca.testkit.TempDirs
 
 class FlowResolutionTest extends munit.FunSuite:
@@ -13,7 +14,8 @@ class FlowResolutionTest extends munit.FunSuite:
       createFolders = true
     )
 
-    val result = FlowResolution.resolve("sub/release.sc", workDir)
+    val result =
+      FlowResolution.resolve("sub/release.sc")(using TestShellEnv(workDir))
 
     assertEquals(result.map(_.path), Right(workDir / "sub" / "release.sc"))
     assertEquals(result.map(_.name), Right("release.sc"))
@@ -30,7 +32,8 @@ class FlowResolutionTest extends munit.FunSuite:
     val workDir = TempDirs.dir()
     os.write(workDir / "release.sc", "// Release notes.\nval x = 1")
 
-    val result = FlowResolution.resolve("release.sc", workDir)
+    val result =
+      FlowResolution.resolve("release.sc")(using TestShellEnv(workDir))
 
     assertEquals(result.map(_.path), Right(workDir / "release.sc"))
 
@@ -38,7 +41,7 @@ class FlowResolutionTest extends munit.FunSuite:
     val workDir = TempDirs.dir()
 
     assertEquals(
-      FlowResolution.resolve("missing/release.sc", workDir),
+      FlowResolution.resolve("missing/release.sc")(using TestShellEnv(workDir)),
       Left("no such flow file: missing/release.sc")
     )
 
@@ -48,7 +51,9 @@ class FlowResolutionTest extends munit.FunSuite:
     val workDir = TempDirs.dir()
 
     assertEquals(
-      FlowResolution.resolve("orca-flow-resolution-test-no-such-flow", workDir),
+      FlowResolution.resolve("orca-flow-resolution-test-no-such-flow")(using
+        TestShellEnv(workDir)
+      ),
       Left(
         "no flow named 'orca-flow-resolution-test-no-such-flow' found in the catalog"
       )
@@ -65,7 +70,7 @@ class FlowResolutionTest extends munit.FunSuite:
     )
 
     assertEquals(
-      FlowResolution.resolve("relase-notes", workDir),
+      FlowResolution.resolve("relase-notes")(using TestShellEnv(workDir)),
       Left("no flow named 'relase-notes'; did you mean: release-notes.sc?")
     )
 
@@ -80,7 +85,7 @@ class FlowResolutionTest extends munit.FunSuite:
       createFolders = true
     )
 
-    val result = FlowResolution.resolve(name, workDir)
+    val result = FlowResolution.resolve(name)(using TestShellEnv(workDir))
 
     assertEquals(result.map(_.name), Right(s"$name.sc"))
     assertEquals(result.map(_.source), Right(FlowSource.Catalog(s"$name.sc")))
@@ -94,7 +99,9 @@ class FlowResolutionTest extends munit.FunSuite:
     os.write(workDir / "x.sc", "val x = 1")
     assert(
       FlowResolution
-        .resolveRecorded(FlowSource.Catalog("./x.sc"), workDir)
+        .resolveRecorded(FlowSource.Catalog("./x.sc"))(using
+          TestShellEnv(workDir)
+        )
         .isLeft
     )
 

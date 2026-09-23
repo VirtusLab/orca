@@ -2,7 +2,7 @@ package orca.shell.flows
 
 import orca.discovery.Origin
 import orca.progress.FlowSource
-import orca.shell.create.CreateTier
+import orca.shell.{ShellEnv, TestShellEnv, Tier}
 import orca.testkit.TempDirs
 
 class FlowEditorTest extends munit.FunSuite:
@@ -59,11 +59,8 @@ class FlowEditorTest extends munit.FunSuite:
     val builtIn = TempDirs.dir()
     val flow = builtInFlow(builtIn, "release.sc", "// Release.\nval x = 1")
 
-    val result = FlowEditor.customizeTarget(
-      flow,
-      CreateTier.Project,
-      workDir,
-      TempDirs.dir()
+    val result = FlowEditor.customizeTarget(flow, Tier.Project)(using
+      TestShellEnv(workDir)
     )
 
     val expected = workDir / ".orca" / "flows" / "release.sc"
@@ -71,16 +68,12 @@ class FlowEditorTest extends munit.FunSuite:
     assertEquals(os.read(expected), "// Release.\nval x = 1")
 
   test("customizeTarget copies a built-in into the global tier"):
+    given env: ShellEnv = TestShellEnv()
+    val globalFlows = env.configHome.flows
     val builtIn = TempDirs.dir()
-    val globalFlows = TempDirs.dir() / "flows"
     val flow = builtInFlow(builtIn, "epic.sc", "// Epic.\nval x = 1")
 
-    val result = FlowEditor.customizeTarget(
-      flow,
-      CreateTier.Global,
-      TempDirs.dir(),
-      globalFlows
-    )
+    val result = FlowEditor.customizeTarget(flow, Tier.Global)
 
     assertEquals(result, Right(globalFlows / "epic.sc"))
     assertEquals(os.read(globalFlows / "epic.sc"), "// Epic.\nval x = 1")
@@ -97,11 +90,8 @@ class FlowEditorTest extends munit.FunSuite:
       createFolders = true
     )
 
-    val result = FlowEditor.customizeTarget(
-      flow,
-      CreateTier.Project,
-      workDir,
-      TempDirs.dir()
+    val result = FlowEditor.customizeTarget(flow, Tier.Project)(using
+      TestShellEnv(workDir)
     )
 
     result match

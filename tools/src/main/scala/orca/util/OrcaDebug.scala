@@ -20,3 +20,10 @@ private[orca] object OrcaDebug:
     * conversation drivers.
     */
   val streamTrace: Boolean = sys.env.get("ORCA_DEBUG_STREAM").contains("1")
+
+  /** Prints one raw line of a backend's `stream` to stderr under
+    * [[streamTrace]].
+    */
+  def traceStream(backendName: String, stream: String, line: String): Unit =
+    if streamTrace then
+      System.err.println(s"[orca-debug $backendName-$stream] $line")

@@ -409,8 +409,8 @@ failure (§9).
 > **Amendment (2026-07-26).** Edit gains the same hand-vs-agent mode prompt as
 > §9's Create/Fork, asked right after picking the flow. Hand is this section's
 > path, unchanged. Agent describes the changes and runs them through the same
-> sandboxed authoring flow as Create/Fork, targeting the flow's own path with
-> an overwrite flag (`AuthorParams.overwrite`) so a successful run copies the
+> sandboxed authoring flow as Create/Fork, targeting the flow's own path via
+> `AuthorAction.edit`, so a successful run copies the
 > result back over the original instead of being refused as a collision — an
 > edit overwrites. A built-in source is never overwritten directly: it's
 > customized into a tier first (this section's own picker), and the agent's
@@ -996,12 +996,12 @@ harness/model/yolo flag exists for either.
 > positional, which a flow pinned to an older orca still parses.
 
 Both entry points call a shared `orca.shell.actions` package (`FlowResolution`,
-`RunAction`, `ViewAction`, `EditAction`, `AuthorAction`, `SessionAction`,
-`ConfigAction`, `StackAction`): each takes fully-resolved parameters and does
-the work, with no prompting inside. `Main`'s interactive handlers keep only
-the prompting that produces those parameters; `Cli` parses the same
-parameters from argv. This is why CLI and menu behavior can't drift — they
-call the same code below the point where a human would otherwise be asked.
+`ViewAction`, `EditAction`, `AuthorAction`, `SessionAction`, `ConfigAction`,
+`StackAction`): each takes fully-resolved parameters and does the work, with
+no prompting inside. The `menu` package's handlers keep only the prompting
+that produces those parameters; `Cli` parses the same parameters from argv.
+This is why CLI and menu behavior can't drift — they call the same code below
+the point where a human would otherwise be asked.
 
 CLI hygiene: results/data go to stdout (`view`'s source, `list`/`continue
 --list` rows or `--json`, `config` show) — nothing else shares stdout with
