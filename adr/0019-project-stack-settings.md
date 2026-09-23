@@ -444,5 +444,4 @@ Precedence, end to end: `reviewAndFixLoop(formatCommands = Use(...)/Off)` >
 > **Amendment (2026-09-23, typed settings).** The discovery trigger reads the
 > parsed file, not its raw text: the stack counts as configured when some
 > stack key has a command or `off`. A stack key with an empty value
-> (`format =`) is equivalent to omitting it
-> discovery; it leaves discovery armed.
+> (`format =`) is equivalent to omitting it, so it leaves discovery armed.
