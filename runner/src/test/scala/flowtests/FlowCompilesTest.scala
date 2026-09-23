@@ -174,7 +174,7 @@ object FlowCanary:
     flow(OrcaArgs()):
       stage("reviewers"):
         val custom: Reviewer = Reviewer(
-          name = "my-thing",
+          name = ReviewerSlug("my-thing"),
           description = "checks my thing",
           systemPrompt = "…"
         )
@@ -199,7 +199,7 @@ object FlowCanary:
         val _: List[Option[Regex]] = candidates.map(_.filePattern)
         val reviewers = buildReviewers(reviewAgent, candidates)
         val results: List[ReviewResult] = Par.mapUnordered(4)(reviewers): r =>
-          r.agent.resultAs[ReviewResult].autonomous.run(r.definition.name)
+          r.agent.resultAs[ReviewResult].autonomous.run(r.definition.name.value)
         val _: List[Option[Location]] =
           results.flatMap(_.findings).map(_.location)
 

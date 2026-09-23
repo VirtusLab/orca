@@ -18,7 +18,7 @@ Things to look for:
 
 Then return one of:
 
-  - `verdict: "proceed"` with a `plan` (the same plan shape used by the
+  - `decision: "Proceed"` with a `plan` (the same plan shape used by the
     autonomous planner — epic id, description, ordered list of tasks, and a
     `brief`). Each task should be atomic (impl + tests together), independent of
     later tasks, shippable on its own, and small enough for one focused
@@ -29,21 +29,21 @@ Then return one of:
     verifying the report. Do NOT edit files or run code during this assessment
     turn; planning is the output.
 
-  - `verdict: "reject"` with `rejectKind` and `rejectBody`. `rejectKind` is one
+  - `decision: "Reject"` with `rejectKind` and `rejectBody`. `rejectKind` is one
     of:
 
-      * `"question"` — the report likely points at a real problem but a key
+      * `"Question"` — the report likely points at a real problem but a key
         detail is missing; `rejectBody` should be a focused follow-up question
         the reporter can answer.
-      * `"critique"` — the report holds up but the proposed framing has gaps,
+      * `"Critique"` — the report holds up but the proposed framing has gaps,
         wrong assumptions, or risks that should be raised before any fix lands;
         `rejectBody` should explain the concerns constructively.
-      * `"rebuff"` — the report does not hold up against the repository (no
+      * `"Rebuff"` — the report does not hold up against the repository (no
         such file, duplicate of a closed issue, contradicted by code, out of
         scope); `rejectBody` should be a polite, evidence-cited decline.
 
     `rejectBody` is the text that will be posted verbatim back to the reporter,
     so write it directly to them.
 
-Fill in only the fields appropriate to your verdict: `plan` on proceed,
-`rejectKind`+`rejectBody` on reject.
+Fill in only the fields appropriate to your decision: `plan` on `Proceed`,
+`rejectKind`+`rejectBody` on `Reject`.

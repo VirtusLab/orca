@@ -100,7 +100,7 @@ class ReviewerSelectorTest extends munit.FunSuite:
       selector.prepare(all, Title("any"), List("src/lib.rs"))(Nil)
     // Even though the picker tried to include scala-fp, it was never offered
     // and the post-filter drops it from the result.
-    assertEquals(picked.map(_.name), List("generic"))
+    assertEquals(picked.map(_.name.value), List("generic"))
     // The picker is shown bare slugs — no `reviewer: ` cost-attribution prefix
     // reaches it.
     assertEquals(
@@ -139,7 +139,7 @@ class ReviewerSelectorTest extends munit.FunSuite:
     val picked =
       selector.prepare(all, Title("any"), List("src/main/scala/Foo.scala"))(Nil)
     assertEquals(
-      picked.map(_.name).toSet,
+      picked.map(_.name.value).toSet,
       Set("generic", "scala-fp")
     )
 
@@ -153,7 +153,7 @@ class ReviewerSelectorTest extends munit.FunSuite:
     // picker picks nothing, so the floor falls back to the eligible set.
     val picked =
       selector.prepare(all, Title("any"), List("src/lib.rs"))(Nil)
-    assertEquals(picked.map(_.name), List("generic"))
+    assertEquals(picked.map(_.name.value), List("generic"))
 
   test("file-pattern reviewers are offered when matching files are present"):
     val captured = new AtomicReference[Option[ReviewerSelectionRequest]](None)
@@ -168,7 +168,7 @@ class ReviewerSelectorTest extends munit.FunSuite:
       List("src/main/scala/Foo.scala")
     )(Nil)
     assertEquals(
-      picked.map(_.name),
+      picked.map(_.name.value),
       List("scala-fp", "generic")
     )
 
@@ -186,7 +186,7 @@ class ReviewerSelectorTest extends munit.FunSuite:
       captured.get().map(_.availableReviewers.map(_.name)),
       Some(List("scala-fp", "generic"))
     )
-    assertEquals(picked.map(_.name), List("scala-fp"))
+    assertEquals(picked.map(_.name.value), List("scala-fp"))
 
   test("an empty diff announces the skipped file-pattern filter"):
     val capture = new SelectorSteps
@@ -213,7 +213,7 @@ class ReviewerSelectorTest extends munit.FunSuite:
     val selector = ReviewerSelector.agentDriven(agent = picker)
     val picked =
       selector.prepare(all, Title("any"), List("src/main/scala/Foo.scala"))(Nil)
-    assertEquals(picked.map(_.name), List("scala-fp"))
+    assertEquals(picked.map(_.name.value), List("scala-fp"))
 
   test("a partially-wrong pick announces the names it dropped"):
     // Without the announcement a single-character echo error removes a reviewer
@@ -231,7 +231,7 @@ class ReviewerSelectorTest extends munit.FunSuite:
       summon[orca.InStage]
     )(Nil)
     assertEquals(
-      picked.map(_.name),
+      picked.map(_.name.value),
       List("generic"),
       "the resolvable half of the pick still runs"
     )
@@ -290,7 +290,7 @@ class ReviewerSelectorTest extends munit.FunSuite:
     val r2 = selectRound(List(ReviewBatch(Nil)))
     val r3 = selectRound(List(ReviewBatch(Nil), ReviewBatch(Nil)))
     assertEquals(
-      r1.map(_.name),
+      r1.map(_.name.value),
       List("scala-fp", "generic")
     )
     assertEquals(r2, r1)
@@ -316,9 +316,12 @@ class ReviewerSelectorTest extends munit.FunSuite:
     val selector =
       ReviewerSelector.narrowingAcrossRounds(ReviewerSelector.allEveryRound)
     val selectRound = selector.prepare(all, Title("any"), List("src/lib.rs"))
-    assertEquals(selectRound(Nil).map(_.name), List("scala-fp", "generic"))
     assertEquals(
-      selectRound(List(reported(scalaFp))).map(_.name),
+      selectRound(Nil).map(_.name.value),
+      List("scala-fp", "generic")
+    )
+    assertEquals(
+      selectRound(List(reported(scalaFp))).map(_.name.value),
       List("scala-fp")
     )
 
@@ -334,7 +337,7 @@ class ReviewerSelectorTest extends munit.FunSuite:
     // Nobody reported. A lint gate can keep the fix loop iterating through
     // that, so the round must not run zero reviewers.
     assertEquals(
-      selectRound(List(ReviewBatch(Nil))).map(_.name),
+      selectRound(List(ReviewBatch(Nil))).map(_.name.value),
       List("scala-fp", "generic")
     )
     assert(
@@ -349,12 +352,12 @@ class ReviewerSelectorTest extends munit.FunSuite:
     // back into the round would be narrowing consulting something other than
     // `base`'s own result.
     val basePicksScalaFp =
-      selector((all, _) => all.filter(_.name == "scala-fp"))
+      selector((all, _) => all.filter(_.name.value == "scala-fp"))
     val selectRound = ReviewerSelector
       .narrowingAcrossRounds(basePicksScalaFp)
       .prepare(all, Title("any"), List("notes.txt"))
     assertEquals(
-      selectRound(List(reported(scalaFp))).map(_.name),
+      selectRound(List(reported(scalaFp))).map(_.name.value),
       List("scala-fp")
     )
 

@@ -4,8 +4,6 @@ import orca.OrcaFlowException
 import orca.discovery.{Origin, TierPrecedence, TierWinner}
 import orca.util.{ParsedPrompt, PromptResource, TextUtil}
 
-import java.util.Locale
-
 /** The two tiers a reviewer `.md` file can be discovered in. `BuiltIn` is not
   * one of them: the shipped set is read from the classpath, never from a
   * directory, so it can be shadowed but never discovered.
@@ -59,7 +57,7 @@ final class ReviewerCatalog private[review] (
         s"${d.reviewer.name} (${d.tier.origin.label}$shadowed)"
       s"discovered reviewers: ${entries.mkString("; ")}"
 
-  private lazy val discoveredBySlug: Map[String, Reviewer] =
+  private lazy val discoveredBySlug: Map[ReviewerSlug, Reviewer] =
     discovered.map(d => d.reviewer.name -> d.reviewer).toMap
 
   private lazy val added: List[Reviewer] =
@@ -77,10 +75,9 @@ object ReviewerCatalog:
   /** Read both file tiers and resolve them against the shipped set.
     *
     * Precedence is project > global > built-in, by slug; slugs nothing ships
-    * are appended, sorted by name. Slugs are compared lower-cased, the way
-    * `SelectedReviewers.pick` resolves the picker's reply — otherwise
-    * `Scala-FP.md` would run alongside the shipped `scala-fp` instead of
-    * replacing it.
+    * are appended, sorted by name. A file's slug is its stem as a
+    * [[ReviewerSlug]], so `Scala-FP.md` replaces the shipped `scala-fp` rather
+    * than running alongside it.
     *
     * A malformed reviewer file aborts the run rather than being skipped: a
     * reviewer silently missing from the roster reads as a clean review. Every
@@ -119,7 +116,7 @@ object ReviewerCatalog:
   private def discoveredFrom(
       winner: TierWinner[ReviewerFileTier, ReviewerFile]
   ): Either[ReviewerPromptFailure, DiscoveredReviewer] =
-    val slug = winner.key
+    val slug = ReviewerSlug(winner.key)
     val builtInShadow =
       if ReviewerPrompts.all.exists(_.name == slug) then List(Origin.BuiltIn)
       else Nil
@@ -151,13 +148,9 @@ object ReviewerCatalog:
     * not a document — and a reviewer dropped for that reads as a clean review.
     */
   private def isDocument(path: os.Path): Boolean =
-    stemOf(path) == "readme" || stemOf(path).startsWith("_")
+    stemOf(path).value == "readme" || stemOf(path).value.startsWith("_")
 
-  /** A file's reviewer slug: its stem, lower-cased the way
-    * `SelectedReviewers.pick` resolves the picker's reply.
-    */
-  private def stemOf(path: os.Path): String =
-    path.baseName.toLowerCase(Locale.ROOT)
+  private def stemOf(path: os.Path): ReviewerSlug = ReviewerSlug(path.baseName)
 
   /** Scan one tier directory: every reviewer `.md` in it, plus what is wrong
     * with the ones that cannot be used. An absent directory holds nothing.
@@ -205,7 +198,8 @@ object ReviewerCatalog:
                 colliding.map(_.path.last).sorted
               )
             )
-          case (slug, one) => Right(slug -> one.head)
+          // `TierPrecedence` keys by `String`; `discoveredFrom` re-wraps it.
+          case (slug, one) => Right(slug.value -> one.head)
       ReviewerScan(
         failures =
           linked.map(p => ReviewerPromptFailure.Symlinked(p.toString)).toList

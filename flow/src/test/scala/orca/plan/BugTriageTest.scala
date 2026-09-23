@@ -1,13 +1,13 @@
 package orca.plan
 
 class BugTriageTest extends munit.FunSuite:
+  import BugTriage.Kind.{NotABug, Testable, Untestable}
 
   // Wire format with all-empty defaults — each test sets only the fields its
   // branch needs, so a missing copy() argument is itself a regression check.
   private val empty = BugTriage(
-    isBug = false,
+    kind = NotABug,
     notBugExplanation = "",
-    canTest = false,
     reproductionSteps = "",
     failingTestPath = None,
     branchName = "",
@@ -27,8 +27,7 @@ class BugTriageTest extends munit.FunSuite:
 
   test("toTriage(Untestable) requires summary + reproductionSteps"):
     val ok = empty.copy(
-      isBug = true,
-      canTest = false,
+      kind = Untestable,
       summary = "race in shutdown",
       reproductionSteps = "1. run 2. ctrl-c"
     )
@@ -41,8 +40,7 @@ class BugTriageTest extends munit.FunSuite:
 
   test("toTriage(Testable) requires summary + branchName + failingTestPath"):
     val ok = empty.copy(
-      isBug = true,
-      canTest = true,
+      kind = Testable,
       summary = "add overflow",
       branchName = "fix-add-overflow",
       failingTestPath = Some("src/test/scala/example/AddOverflowTest.scala")
@@ -65,13 +63,13 @@ class BugTriageTest extends munit.FunSuite:
     assert(ok.copy(summary = "   ").toTriage.isLeft)
 
   test("Announce[BugTriage] defers to Triage's own summary"):
-    val ok = empty.copy(isBug = false, notBugExplanation = "works as intended")
+    val ok = empty.copy(notBugExplanation = "works as intended")
     assertEquals(
       summon[orca.agents.Announce[BugTriage]].message(ok),
       Some("Not a bug: works as intended")
     )
 
   test("Announce[BugTriage] is None for a malformed (unparseable) payload"):
-    // `empty` is isBug=false with a blank notBugExplanation — toTriage
+    // `empty` is NotABug with a blank notBugExplanation — toTriage
     // rejects it, so there is no Triage summary to defer to.
     assertEquals(summon[orca.agents.Announce[BugTriage]].message(empty), None)

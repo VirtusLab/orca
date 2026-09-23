@@ -37,9 +37,8 @@ class PlanGridTest extends munit.FunSuite:
 
   test("autonomous.triage converts the wire BugTriage into a Triage"):
     val wire = BugTriage(
-      isBug = true,
+      kind = BugTriage.Kind.Testable,
       notBugExplanation = "",
-      canTest = true,
       reproductionSteps = "",
       failingTestPath = Some("src/test/scala/FooTest.scala"),
       branchName = "fix-foo",
