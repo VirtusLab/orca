@@ -28,12 +28,12 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
         diff = "",
         diffIntro = "Diff:",
         base = base,
-        open = OpenFindings(Nil)
+        open = Nil
       )
     )
 
   private def reRendered(
-      open: OpenFindings = OpenFindings(Nil)
+      open: List[OpenFinding] = Nil
   ): String =
     TextUtil.collapseWhitespace(
       ReviewLoopPrompts.reReview(
@@ -195,13 +195,16 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
     assert(prompt.contains("git show abc1234:<path>"), prompt)
 
   test("the open-findings block does not credit the list to the fixer"):
-    // The list holds whatever any exit left open — the cap, a skipped review, a
-    // finding the fixer never reported on — so naming the fixer would tell a
-    // reviewer four of the five reasons wrongly.
+    // The list holds whatever any exit left open — the cap, a finding the
+    // fixer never reported on — so naming the fixer would tell a reviewer most
+    // of the reasons wrongly.
     val prompt = reRendered(
-      OpenFindings(
-        List(
-          OpenFinding(Title("rename the field"), OpenReason.NoFixes, None)
+      List(
+        OpenFinding(
+          FindingId("R1.I1.1"),
+          Title("rename the field"),
+          OpenReason.NoFixes,
+          None
         )
       )
     )
@@ -216,18 +219,17 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
 
   test("reReview carries open findings as a record, not a ruling"):
     val prompt = reRendered(
-      OpenFindings(
-        List(
-          OpenFinding(
-            Title("rename the field"),
-            OpenReason.Declined("the name is on our API"),
-            None
-          )
+      List(
+        OpenFinding(
+          FindingId("R1.I1.1"),
+          Title("rename the field"),
+          OpenReason.Declined("the name is on our API"),
+          None
         )
       )
     )
     assert(
-      prompt.contains("- rename the field: the name is on our API"),
+      prompt.contains("- [R1.I1.1] rename the field: the name is on our API"),
       prompt
     )
     assert(
@@ -290,18 +292,21 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
       prompt
     )
 
-  test("the open-findings block leaves out a review that never ran"):
-    // That entry stands for the review, not for anything a reviewer reported,
-    // so a block introducing every line as a reported finding must drop it.
+  test("the open-findings block asks for the id of a re-reported finding"):
+    // A reviewer that rewords its re-report is matched to the entry only
+    // through the id it names.
     val prompt = reRendered(
-      OpenFindings(
-        List(
-          OpenFinding(Title("whole-run review"), OpenReason.ReviewSkipped, None)
+      List(
+        OpenFinding(
+          FindingId("R1.I2.3"),
+          Title("leaks a handle"),
+          OpenReason.NoFixes,
+          Some(Location("Foo.scala", Some(7)))
         )
       )
     )
-    assert(!prompt.contains("These findings were reported earlier"), prompt)
-    assert(!prompt.contains("whole-run review"), prompt)
+    assert(prompt.contains("[R1.I2.3] leaks a handle (at Foo.scala:7)"), prompt)
+    assert(prompt.contains("set `reopens` to its id"), prompt)
 
   test("the fix prompt names every field the fixer's reply must fill"):
     // The prompt tells the agent which list a finding goes in, in prose; the

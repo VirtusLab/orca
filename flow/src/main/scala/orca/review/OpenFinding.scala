@@ -32,29 +32,24 @@ enum OpenReason derives JsonData:
   /** The lint gate still reports it after the fix turn scoped to it. */
   case LintStillFailing
 
-  /** The whole review never ran. The entry carrying this stands for the review,
-    * not for anything a reviewer reported.
-    */
-  case ReviewSkipped
-
   def describe: String = this match
     case Declined(text)   => text
     case NoFixes          => "fixer reported no fixes"
     case Unaccounted      => "fixer did not report on it"
     case CapReached(max)  => s"max iterations ($max) reached"
     case LintStillFailing => "lint still failing after its fix turn"
-    case ReviewSkipped =>
-      "skipped: no usable starting commit for the diff base"
 
 /** A finding the run ends without resolving, the reason recorded for it, and
   * where it points.
   *
-  * Entries merge across rounds by title, so the title alone identifies the
-  * finding. `location` is what the reviewer that reported it gave, carried here
-  * so an exit rounds later still points at the code; `None` where nothing
-  * placed it in the diff, as for a review that was skipped.
+  * Entries merge across rounds by `id`, so a finding re-reported under another
+  * title is still one entry, and two findings sharing a title stay two.
+  * `location` is what the reviewer that reported it gave, carried here so an
+  * exit rounds later still points at the code; `None` where the reviewer named
+  * no place.
   */
 case class OpenFinding(
+    id: FindingId,
     title: Title,
     reason: OpenReason,
     location: Option[Location]
@@ -72,14 +67,28 @@ case class OpenFinding(
 private def oneLine(text: String): String =
   TextUtil.collapseWhitespace(text.trim)
 
-/** The run's record of what its review left open, merged by title so one
-  * finding is one entry however many rounds reported it.
+/** Why a review never ran, so nothing it would have found is in the record. */
+enum SkippedReview derives JsonData:
+  /** A whole-run review with no commit behind HEAD recorded to diff against. */
+  case NoStartingCommit
+
+  def describe: String = this match
+    case NoStartingCommit =>
+      "the run has no usable starting commit to diff against"
+
+/** The run's record of what its review left open, one entry per finding however
+  * many rounds reported it, and whether the review was skipped — in which case
+  * `findings` holds only what the loop was seeded with.
   */
-case class OpenFindings(findings: List[OpenFinding]) derives JsonData:
-  /** One bullet per finding, title and reason each on one line. */
-  def format: String =
-    findings.map(f => s"- ${f.titleLine}: ${f.reasonLine}").mkString("\n")
+case class OpenFindings(
+    findings: List[OpenFinding],
+    skipped: Option[SkippedReview]
+) derives JsonData:
+  /** Nothing to report: every finding resolved, and the review ran. */
+  def isEmpty: Boolean = findings.isEmpty && skipped.isEmpty
 
 object OpenFindings:
+  val empty: OpenFindings = OpenFindings(Nil, skipped = None)
+
   /** Silent — the fix loop prints these itself when it exits. */
   given Announce[OpenFindings] = Announce.from(_ => "")

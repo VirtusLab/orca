@@ -64,6 +64,7 @@ class LintTest extends munit.FunSuite:
         Title("Unused import"),
         "unused import",
         None,
+        None,
         None
       )
     )

@@ -48,6 +48,14 @@ Confidence scores and the per-severity gate are gone. In their place:
 - **Narrowing keys on what a reviewer actually reported**, so a reviewer retires
   only on genuine silence rather than on having had its findings filtered out.
 
+> **Amendment (2026-09-23).** Open findings merge by a loop-minted `FindingId`,
+> not by title. Keyed by title, two different defects sharing one merged into a
+> single entry, dropping one's reason and location; and a reworded re-report of
+> a declined finding, once fixed, left the stale decline in the record. Later
+> rounds' reviewers see each entry's id and name it in `reopens` when they
+> report it again; a re-report without one still matches the sole open entry
+> with its title in the same file.
+
 > **Amendment (2026-08-27).** Severity does not stay: `Severity` and
 > `ReviewIssue.severity` are removed. Across 205 findings in six runs the label
 > produced zero Critical and 80% Info, and the fixer declined none of the 64
@@ -83,6 +91,9 @@ applicable; `simple.sc` and `review.sc` are unchanged.
 > fresh clone. Diffing against any of those reviews the wrong range, so the
 > final stage then **skips**: it emits a step naming why and returns no
 > findings, leaving the run otherwise untouched.
+
+> **Amendment (2026-09-23).** A skip is recorded as `OpenFindings.skipped`, not
+> as an open finding, and the PR body says the review did not run.
 
 > **Amendment (2026-08-27).** The cap is **3 rounds**, not 5. Removing the
 > confidence gate (part 1) widened what counts as a reviewer that reported

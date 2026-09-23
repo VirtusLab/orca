@@ -37,7 +37,7 @@ class ReviewThenFixTest extends munit.FunSuite:
       reviewers = List(asReviewer(reviewer)),
       task = titled("do the thing")
     )
-    assertEquals(result, OpenFindings(Nil))
+    assertEquals(result, OpenFindings.empty)
     assertEquals(reviewer.seenSessions.size, 1)
     assertEquals(coder.seenSessions.size, 1)
 
@@ -51,7 +51,7 @@ class ReviewThenFixTest extends munit.FunSuite:
       reviewers = List(asReviewer(reviewer)),
       task = titled("do the thing")
     )
-    assertEquals(result, OpenFindings(Nil))
+    assertEquals(result, OpenFindings.empty)
     assert(
       coder.seenSessions.isEmpty,
       "the fixer must not run on a clean review"
@@ -88,8 +88,18 @@ class ReviewThenFixTest extends munit.FunSuite:
     assertEquals(
       result.findings,
       List(
-        OpenFinding(Title("nit"), OpenReason.Declined("deliberate"), None),
-        OpenFinding(Title("forgotten"), OpenReason.Unaccounted, None)
+        OpenFinding(
+          FindingId("R1.I1.2"),
+          Title("nit"),
+          OpenReason.Declined("deliberate"),
+          None
+        ),
+        OpenFinding(
+          FindingId("R1.I1.3"),
+          Title("forgotten"),
+          OpenReason.Unaccounted,
+          None
+        )
       )
     )
 
@@ -108,7 +118,9 @@ class ReviewThenFixTest extends munit.FunSuite:
     )
     assertEquals(
       result.findings,
-      List(OpenFinding(Title("a"), OpenReason.NoFixes, None))
+      List(
+        OpenFinding(FindingId("R1.I1.1"), Title("a"), OpenReason.NoFixes, None)
+      )
     )
     assert(
       steps.messages.contains("Fixer reported no fixes; ending review"),
@@ -190,7 +202,7 @@ class ReviewThenFixTest extends munit.FunSuite:
       task = titled("do the thing"),
       lint = Configured.Use(Lint(List(s"test -f '$flag'"), lintAgent))
     )
-    assertEquals(result, OpenFindings(Nil))
+    assertEquals(result, OpenFindings.empty)
     assertEquals(coder.seenSessions.size, 2)
     assert(
       !steps.messages.exists(_.contains("lint still fails")),
@@ -233,13 +245,58 @@ class ReviewThenFixTest extends munit.FunSuite:
     assertEquals(
       result.findings,
       List(
-        OpenFinding(Title("lint broke"), OpenReason.LintStillFailing, None)
+        OpenFinding(
+          FindingId("R3.I1.1"),
+          Title("lint broke"),
+          OpenReason.LintStillFailing,
+          None
+        )
       )
     )
     assertEquals(coder.seenSessions.size, 2)
     assert(
       steps.messages.exists(_.contains("lint still fails after its fix turn")),
       steps.messages.mkString("\n")
+    )
+
+  test("a declined lint finding that still fails is recorded once"):
+    // The re-check reports the same lint finding the fixer declined; it is one
+    // finding, now open because lint still fails.
+    val steps = new ReviewLoopFixture.StepCapture
+    given FlowControl = control(picking("x"), steps.dispatcher)
+    val reviewer =
+      new FakeAgent("x", outputs = List(ReviewResult(List(finding("a")))))
+    val lintBroke = ReviewResult(List(finding("lint broke")))
+    val lintAgent = new FakeAgent(
+      "lint-summariser",
+      outputs = List(lintBroke, lintBroke, lintBroke)
+    )
+    val coder = new FakeAgent(
+      "coder",
+      outputs = List(
+        FixOutcome(
+          List(Title("a")),
+          List(DeclinedFinding(Title("lint broke"), "not mine"))
+        ),
+        FixOutcome(Nil, Nil)
+      )
+    )
+    val result = reviewThenFix(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(asReviewer(reviewer)),
+      task = titled("do the thing"),
+      lint = Configured.Use(Lint(List("false"), lintAgent))
+    )
+    assertEquals(
+      result.findings,
+      List(
+        OpenFinding(
+          FindingId("R1.I2.1"),
+          Title("lint broke"),
+          OpenReason.LintStillFailing,
+          None
+        )
+      )
     )
 
   test("a lint failure that survives its fix turn points at its location"):
@@ -253,7 +310,8 @@ class ReviewThenFixTest extends munit.FunSuite:
       title = Title("lint broke"),
       description = "lint broke",
       location = Some(Location("src/main/Foo.scala", Some(7))),
-      suggestion = None
+      suggestion = None,
+      reopens = None
     )
     val lintAgent = new FakeAgent(
       "lint-summariser",

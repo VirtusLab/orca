@@ -4,7 +4,7 @@ import munit.FunSuite
 import orca.{BoundedDiff, OutsideStage}
 import orca.plan.Title
 import orca.progress.PublishedWork
-import orca.review.{OpenFinding, OpenFindings, OpenReason}
+import orca.review.{FindingId, OpenFinding, OpenFindings, OpenReason}
 import orca.tools.{BranchNotPushed, PrCreateFailed, PrHandle}
 import orca.events.{OrcaEvent, OrcaListener}
 
@@ -36,7 +36,7 @@ class OpenPrFromBranchTest extends FunSuite:
 
   private def run(
       branchDiff: String,
-      openFindings: OpenFindings = OpenFindings(Nil),
+      openFindings: OpenFindings = OpenFindings.empty,
       context: Option[String] = None
   ): Run =
     val (dir, store) = seededPrRepo()
@@ -70,8 +70,14 @@ class OpenPrFromBranchTest extends FunSuite:
 
   private val oneOpen = OpenFindings(
     List(
-      OpenFinding(Title("Null check missing"), OpenReason.CapReached(3), None)
-    )
+      OpenFinding(
+        FindingId("R1.I1.1"),
+        Title("Null check missing"),
+        OpenReason.CapReached(3),
+        None
+      )
+    ),
+    skipped = None
   )
 
   test("openPrFromBranch runs push, summarise, create as three ordered stages"):
@@ -103,7 +109,7 @@ class OpenPrFromBranchTest extends FunSuite:
     val _ = intercept[PrCreateFailed](
       openPrFromBranch(
         summarisingAgent = new StubSummariser(),
-        openFindings = OpenFindings(Nil)
+        openFindings = OpenFindings.empty
       )(using
         control,
         control,
@@ -139,7 +145,7 @@ class OpenPrFromBranchTest extends FunSuite:
       val control = prControl(dir, store, _ => (), calls)
       openPrFromBranch(
         summarisingAgent = summariser,
-        openFindings = OpenFindings(Nil)
+        openFindings = OpenFindings.empty
       )(using control, control, summon[OutsideStage])
 
     val _ = attempt(new ConcurrentLinkedQueue[String]())
@@ -157,8 +163,14 @@ class OpenPrFromBranchTest extends FunSuite:
   test("open findings follow the flow's body as their own section"):
     val open = OpenFindings(
       List(
-        OpenFinding(Title("Null check missing"), OpenReason.CapReached(3), None)
-      )
+        OpenFinding(
+          FindingId("R1.I1.1"),
+          Title("Null check missing"),
+          OpenReason.CapReached(3),
+          None
+        )
+      ),
+      skipped = None
     )
     val body = run("stub-diff", open).prBody
     assert(

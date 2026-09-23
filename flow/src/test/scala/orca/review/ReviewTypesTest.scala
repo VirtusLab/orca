@@ -15,13 +15,15 @@ class ReviewTypesTest extends munit.FunSuite:
           title = Title("Null pointer risk"),
           description = "null pointer risk",
           location = Some(Location("Foo.scala", Some(42))),
-          suggestion = Some("add a null check")
+          suggestion = Some("add a null check"),
+          reopens = None
         ),
         ReviewFinding(
           title = Title("Stylistic nitpick"),
           description = "stylistic nitpick",
           location = None,
-          suggestion = None
+          suggestion = None,
+          reopens = None
         )
       )
     )
@@ -50,7 +52,8 @@ class ReviewTypesTest extends munit.FunSuite:
             title = Title("Mangled quote"),
             description = "the quote is mangled",
             location = None,
-            suggestion = Some("use:\n  |a| b|")
+            suggestion = Some("use:\n  |a| b|"),
+            reopens = None
           )
         )
       )
@@ -71,7 +74,8 @@ class ReviewTypesTest extends munit.FunSuite:
             title = Title("Leaks a handle"),
             description = "the handle is never closed",
             location = None,
-            suggestion = None
+            suggestion = None,
+            reopens = None
           )
         )
       )
@@ -97,26 +101,20 @@ class ReviewTypesTest extends munit.FunSuite:
     )
 
   test("OpenFindings round-trips through JSON"):
-    // A stage result a resume replays and the PR body then reads back, over an
-    // opaque `Title`.
+    // A stage result a resume replays and the PR body then reads back, over
+    // opaque `FindingId` and `Title`.
     val original = OpenFindings(
       List(
-        OpenFinding(Title("Null check missing"), OpenReason.CapReached(3), None)
-      )
+        OpenFinding(
+          FindingId("R1.I1.1"),
+          Title("Null check missing"),
+          OpenReason.CapReached(3),
+          None
+        )
+      ),
+      skipped = Some(SkippedReview.NoStartingCommit)
     )
     assertEquals(
       readFromString[OpenFindings](writeToString(original)),
       original
     )
-
-  test("OpenFindings.format keeps a multi-line reason on one bullet"):
-    val findings = OpenFindings(
-      List(
-        OpenFinding(
-          Title("Style nit"),
-          OpenReason.Declined("out of\n  scope:\nsee plan"),
-          None
-        )
-      )
-    )
-    assertEquals(findings.format, "- Style nit: out of scope: see plan")

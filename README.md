@@ -928,7 +928,7 @@ PR utilities, available via `import orca.pr.*`:
 | Method | Use |
 |---|---|
 | `summarisePr(agent, diff, context?, instructions?)` | Fold a branch diff into a `PrSummary(title, body)` for `gh.createPr`. `context` is an optional preamble (originating issue link, user prompt, etc.) the model anchors the description to. A diff too large to send is cut short. Use a cheap model (`claude.cheap`, `codingAgent.cheap`). |
-| `openPrFromBranch(summarisingAgent, openFindings, title?, body?, context?, instructions?): PrHandle` | Push the feature branch and open a PR for it, as three stages: push → summarise → create. Requires a GitHub remote and a logged-in `gh` — without either the run fails. `openFindings` is the `OpenFindings` the run's final review returned; each entry is listed under "Open review findings" as its title, where it points if the reviewer named a place, and the reason, verbatim (none open: no section). The same section is printed to the run output, also when the PR fails. `title`/`body` rewrite the generated text. `context` defaults to the run's user prompt, and then the summariser adds a `Closes #N` line per issue the prompt says to fix; a flow that passes `context` adds its own `Closes` line through `body` (`body = s => s"${s.body}\n\nCloses #42."`). Opening the PR is a top-level step of a flow and this runs its own stages, so it does not compile inside one. |
+| `openPrFromBranch(summarisingAgent, openFindings, title?, body?, context?, instructions?): PrHandle` | Push the feature branch and open a PR for it, as three stages: push → summarise → create. Requires a GitHub remote and a logged-in `gh` — without either the run fails. `openFindings` is the `OpenFindings` the run's final review returned; each entry is listed under "Open review findings" as its title, where it points if the reviewer named a place, and the reason, verbatim, after a line saying so if the review was skipped (none open and not skipped: no section). The same section is printed to the run output, also when the PR fails. `title`/`body` rewrite the generated text. `context` defaults to the run's user prompt, and then the summariser adds a `Closes #N` line per issue the prompt says to fix; a flow that passes `context` adds its own `Closes` line through `body` (`body = s => s"${s.body}\n\nCloses #42."`). Opening the PR is a top-level step of a flow and this runs its own stages, so it does not compile inside one. |
 | `openPrIfGitHub(summarisingAgent, openFindings, title?, body?, context?, instructions?): Option[PrHandle]` | Probes `gh.availability` outside any stage, then runs `openPrFromBranch`'s push → summarise → create when the checkout is on GitHub. Where it isn't — no remote, a remote that isn't GitHub, a GitHub `gh` cannot reach, a run that changed no code, or a push/create the remote refuses — it emits one `Step` saying why, returns `None`, and the run finishes. The open findings are printed to the run output either way. A resume replays what its push and create stages recorded, a refusal included. The step every code-producing built-in flow ends with; like `openPrFromBranch`, it does not compile inside a stage. |
 | `bodyWithOpenFindings(body, open)` | `body` with the "Open review findings" section appended, or `body` unchanged when nothing is open — the assembly `openPrFromBranch`/`openPrIfGitHub` use, for a flow that writes its own PR body (`gh.updatePr`). |
 | `reportOpenFindings(open)` | Print the "Open review findings" section to the run output; nothing when nothing is open. `openPrFromBranch`/`openPrIfGitHub` do this themselves, before their PR step; a flow that writes its own PR body calls it before its PR step. |
@@ -1036,17 +1036,20 @@ results.
   fields feed `gh.createPr(title = …, body = …)` directly.
 - **`orca.review.ReviewFinding` / `ReviewResult`** — what reviewer agents
   return. A finding carries a `title` (shown), a long `description` (sent to
-  the fixer), and an optional `location`.
+  the fixer), an optional `location`, and `reopens`: the `FindingId` of the
+  still-open finding it reports again, if any.
 - **`orca.review.FixOutcome(fixed, declined)`** — what the fix step returns: the
   titles of findings actually fixed in code, plus a
   `DeclinedFinding(title, reason)` per finding it refused (environmental, out of
   scope, false positive). The loop re-evaluates iff `fixed` is non-empty.
-- **`orca.review.OpenFindings`** — accumulated
-  `OpenFinding(title, reason, location)` entries surfaced by `reviewAndFixLoop`
-  once it halts: every finding the run did not resolve, each with where it
-  points and an `OpenReason` — `Declined(text)` (the fixer's own words),
-  `NoFixes`, `Unaccounted`, `CapReached(max)`, `LintStillFailing` or
-  `ReviewSkipped`. `reason.describe` is the sentence shown to a reader.
+- **`orca.review.OpenFindings(findings, skipped)`** — accumulated
+  `OpenFinding(id, title, reason, location)` entries surfaced by
+  `reviewAndFixLoop` once it halts: every finding the run did not resolve, each
+  with where it points and an `OpenReason` — `Declined(text)` (the fixer's own
+  words), `NoFixes`, `Unaccounted`, `CapReached(max)` or `LintStillFailing`.
+  `reason.describe` is the sentence shown to a reader. `id` (`FindingId`) is
+  what entries merge by across rounds; two findings sharing a title stay two.
+  `skipped` is `Some(SkippedReview)` when the review never ran.
 - **`orca.StackSettings(format, lint, test)`** — the resolved per-project
   tooling commands (each field a `List[String]`, run via `bash -c`; empty = task
   disabled). Resolved once per run — see [Settings](#settings) — and read back

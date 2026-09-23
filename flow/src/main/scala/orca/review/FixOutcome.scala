@@ -26,26 +26,27 @@ case class FixOutcome(
 case class DeclinedFinding(title: Title, reason: String) derives JsonData
 
 /** A [[FixOutcome]] resolved against the findings the fixer was handed, so
-  * every handed title is in exactly one bucket and no echo is counted twice.
+  * every handed finding is in exactly one bucket and no echo is counted twice.
   *
   * `declined` and `unaccounted` are both whole findings once resolved, so a
-  * caller recording either as an [[OpenFinding]] still knows where it points.
-  * `unaccounted` is what came back in neither list; it carries no reason, which
-  * belongs to the exit that records them, not to the reconciliation. The fix
-  * prompt asks for every finding to be accounted for; when one isn't, it is
-  * still open, so a loop halting here records it rather than dropping it. A
-  * loop that goes on to re-evaluate leaves it out instead: the reviewer's
-  * persistent session re-reports a forgotten finding that is still real, and
-  * recording it here would report findings the next round went on to fix.
+  * caller recording either as an [[OpenFinding]] still knows its id and where
+  * it points. `unaccounted` is what came back in neither list; it carries no
+  * reason, which belongs to the exit that records them, not to the
+  * reconciliation. The fix prompt asks for every finding to be accounted for;
+  * when one isn't, it is still open, so a loop halting here records it rather
+  * than dropping it. A loop that goes on to re-evaluate leaves it out instead:
+  * the reviewer's persistent session re-reports a forgotten finding that is
+  * still real, and recording it here would report findings the next round went
+  * on to fix.
   *
   * `unresolvedEchoes` is what the fixer named that matched no handed finding —
   * dropped from the books, and worth announcing, since it means the reply is
   * degraded.
   */
 private[review] case class ReconciledFixOutcome(
-    fixed: List[Title],
+    fixed: List[FindingId],
     declined: List[OpenFinding],
-    unaccounted: List[ReviewFinding],
+    unaccounted: List[IdentifiedFinding],
     unresolvedEchoes: List[String]
 )
 
@@ -68,57 +69,53 @@ object FixOutcome:
     * at most one finding, so a paraphrase cannot record one real finding twice.
     */
   private[review] def reconcile(
-      handed: List[KeyedFinding],
+      handed: List[IdentifiedFinding],
       outcome: FixOutcome
   ): ReconciledFixOutcome =
-    val findings = handed.map(_.finding)
-
     // Titles can themselves contain " — ", so the echo is prefix-matched
     // against each full title rather than split at a separator; an echo
     // extending more than one distinct title stays unresolved rather than
     // guessed at.
-    def bySuffixedTitle(text: String): Option[ReviewFinding] =
-      val echoNorm = normalised(text)
-      findings
-        .filter: f =>
-          val t = normalised(f.title.value)
+    def bySuffixedTitle(text: String): Option[IdentifiedFinding] =
+      val echoNorm = normalisedTitle(text)
+      handed
+        .filter: h =>
+          val t = normalisedTitle(h.finding.title.value)
           echoNorm.length > t.length && echoNorm.startsWith(t) &&
           !echoNorm.charAt(t.length).isLetterOrDigit
-        .distinctBy(f => normalised(f.title.value)) match
+        .distinctBy(h => normalisedTitle(h.finding.title.value)) match
         case List(only) => Some(only)
         case _          => None
 
-    def resolve(echo: String): Option[ReviewFinding] =
+    def resolve(echo: String): Option[IdentifiedFinding] =
       val text = echo.trim
       handed
-        .collectFirst { case k if startsWithKey(text, k.key) => k.finding }
-        .orElse(findings.find(_.title.value == text))
+        .find(h => startsWithKey(text, h.keyed.key))
+        .orElse(handed.find(_.finding.title.value == text))
         .orElse(
-          findings.find(f => normalised(f.title.value) == normalised(text))
+          handed.find(h =>
+            normalisedTitle(h.finding.title.value) == normalisedTitle(text)
+          )
         )
         .orElse(bySuffixedTitle(text))
 
-    // Buckets are keyed by title throughout, so two reviewers reporting the
-    // same title cannot land one copy in `declined` and the other in
+    // Buckets are keyed by id throughout, so two reviewers reporting the same
+    // finding cannot land one copy in `declined` and the other in
     // `unaccounted`.
-    val fixedTitles = outcome.fixed.flatMap(t => resolve(t.value)).map(_.title)
+    val fixedIds = outcome.fixed.flatMap(t => resolve(t.value)).map(_.id)
     val declinedEntries = outcome.declined
       .flatMap(entry => resolve(entry.title.value).map(_ -> entry.reason))
-      .filterNot((f, _) => fixedTitles.contains(f.title))
-      .distinctBy((f, _) => f.title)
-    val accounted =
-      (fixedTitles ++ declinedEntries.map((f, _) => f.title)).toSet
+      .filterNot((h, _) => fixedIds.contains(h.id))
+      .distinctBy((h, _) => h.id)
+    val accounted = (fixedIds ++ declinedEntries.map((h, _) => h.id)).toSet
     val echoes =
       outcome.fixed.map(_.value) ++ outcome.declined.map(_.title.value)
 
     ReconciledFixOutcome(
-      fixed = fixedTitles.distinct,
-      declined = declinedEntries.map((f, reason) =>
-        OpenFinding(f.title, OpenReason.Declined(reason), f.location)
-      ),
-      unaccounted = findings
-        .distinctBy(_.title)
-        .filterNot(f => accounted.contains(f.title)),
+      fixed = fixedIds.distinct,
+      declined =
+        declinedEntries.map((h, reason) => h.open(OpenReason.Declined(reason))),
+      unaccounted = handed.distinctBy(_.id).filterNot(h => accounted(h.id)),
       unresolvedEchoes = echoes.filter(resolve(_).isEmpty)
     )
 
@@ -127,6 +124,3 @@ object FixOutcome:
   private def startsWithKey(echo: String, key: String): Boolean =
     echo.startsWith(key) &&
       (echo.length == key.length || !echo.charAt(key.length).isLetterOrDigit)
-
-  private def normalised(title: String): String =
-    title.trim.toLowerCase(java.util.Locale.ROOT).replaceAll("\\s+", " ")
