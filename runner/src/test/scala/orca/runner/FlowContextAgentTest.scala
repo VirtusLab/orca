@@ -23,13 +23,15 @@ class FlowContextAgentTest extends munit.FunSuite:
         animated = false
       )
       runFlow(
-        args = OrcaArgs("test-agent"),
-        stackSettings = Some(StackSettings.empty),
-        workDir = workDir,
-        interaction = Some(interaction),
-        extraListeners = Nil,
-        branchNaming = None,
-        wiring = FlowWiring(claude = Some(_ => StubAgent.claude))
+        FlowHarness.request(
+          args = OrcaArgs("test-agent"),
+          stackSettings = Some(StackSettings.empty),
+          workDir = workDir,
+          interaction = Some(interaction),
+          extraListeners = Nil,
+          branchNaming = None,
+          wiring = FlowWiring(claude = Some(_ => StubAgent.claude))
+        )
       ):
         seen = Some(codingAgent)
     assert(

@@ -1,16 +1,7 @@
 package orca.runner
 
 import orca.AgentSet
-import orca.agents.{
-  Agent,
-  BackendTag,
-  ClaudeAgent,
-  CodexAgent,
-  GeminiAgent,
-  Model,
-  OpencodeAgent,
-  PiAgent
-}
+import orca.agents.Agent
 import orca.review.ReviewerPrompts
 import orca.settings.{AgentSettings, AgentSpec}
 import ox.{ResourceScope, tap}
@@ -192,7 +183,7 @@ private[orca] object RoleAgents:
             val source =
               if projectSpec.isDefined then RoleSource.Project
               else RoleSource.Global
-            val agent = one(Some(spec), agents)
+            val agent = agents.agentFor(spec.backend, spec.model)
             val (harness, model) = harnessAndModel(agent, Some(spec))
             RoleChoice(label, agent, source, harness, model, foreign = false)
           case None =>
@@ -268,35 +259,3 @@ private[orca] object RoleAgents:
       s"warning: ${c.label} agent was not built from this flow's context " +
         "— events may not reach the terminal/cost tracker"
     )
-
-  /** Resolves `spec` against `agents`: no spec is bare claude, a spec with no
-    * model pin is that tag's wired agent as-is (via [[AgentSet.agentFor]] — the
-    * single place a [[BackendTag]] maps to one of the five wired agents), a
-    * spec with a model pin applies it via that agent's own `withModel`.
-    *
-    * The tag match below is NOT a second "which agent" decision — `agent` is
-    * already the one `agentFor` picked — it exists only because each concrete
-    * `*Agent` trait's `withModel` has a different signature (`OpencodeAgent`'s
-    * takes a raw `provider/model` string, the rest a [[Model]]), so the cast
-    * recovering that concrete type is unavoidable. The cast is safe by
-    * construction: `agent` came from `agentFor(tag)` for this SAME `tag`.
-    */
-  private def one(spec: Option[AgentSpec], agents: WiredAgents): Agent[?] =
-    spec match
-      case None => agents.claude
-      case Some(AgentSpec(tag, model)) =>
-        val agent = agents.agentFor(tag)
-        model match
-          case None => agent
-          case Some(m) =>
-            tag match
-              case BackendTag.ClaudeCode =>
-                agent.asInstanceOf[ClaudeAgent].withModel(Model(m))
-              case BackendTag.Codex =>
-                agent.asInstanceOf[CodexAgent].withModel(Model(m))
-              case BackendTag.Opencode =>
-                agent.asInstanceOf[OpencodeAgent].withModel(m)
-              case BackendTag.Pi =>
-                agent.asInstanceOf[PiAgent].withModel(Model(m))
-              case BackendTag.Gemini =>
-                agent.asInstanceOf[GeminiAgent].withModel(Model(m))
