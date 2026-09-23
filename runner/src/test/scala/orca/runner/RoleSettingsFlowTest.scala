@@ -545,7 +545,6 @@ class RoleSettingsFlowTest extends munit.FunSuite:
                 input: I,
                 session: SessionId[BackendTag.Codex.type],
                 sessionKey: Option[SessionKey],
-                config: Option[AgentConfig],
                 emitPrompt: Boolean
             )(using orca.InStage): O =
               StackDiscoveryReply(result).asInstanceOf[O]

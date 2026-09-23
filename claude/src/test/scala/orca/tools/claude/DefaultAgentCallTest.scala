@@ -146,8 +146,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
   ): DefaultAgentCall[BackendTag.ClaudeCode.type, Answer] =
     new DefaultAgentCall[BackendTag.ClaudeCode.type, Answer](
       backend = backend,
-      effectiveConfig = cfg =>
-        cfg.getOrElse(AgentConfig()).copy(retrySchedule = fastRetry),
+      config = AgentConfig(retrySchedule = fastRetry),
       prompts = DefaultPrompts,
       events = orca.events.OrcaListener.noop,
       interaction = stubInteraction,
@@ -201,7 +200,6 @@ class DefaultAgentCallTest extends munit.FunSuite:
           "next step",
           sid,
           sessionKey = None,
-          config = None,
           emitPrompt = true
         )
       assertEquals(answer, Answer(11))
@@ -227,8 +225,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
     val seen = AtomicReference[List[orca.events.OrcaEvent]](Nil)
     val call = new DefaultAgentCall[BackendTag.ClaudeCode.type, Answer](
       backend = backend,
-      effectiveConfig =
-        cfg => cfg.getOrElse(AgentConfig()).copy(retrySchedule = fastRetry),
+      config = AgentConfig(retrySchedule = fastRetry),
       prompts = DefaultPrompts,
       events = (e: orca.events.OrcaEvent) => {
         val _ = seen.updateAndGet(e :: _)
@@ -316,8 +313,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
     supervised:
       val _ = new DefaultAgentCall[BackendTag.ClaudeCode.type, Answer](
         backend = backend,
-        effectiveConfig =
-          cfg => cfg.getOrElse(AgentConfig()).copy(retrySchedule = fastRetry),
+        config = AgentConfig(retrySchedule = fastRetry),
         prompts = DefaultPrompts,
         events = myListener,
         interaction = stubInteraction,
@@ -342,8 +338,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
     supervised:
       val _ = new DefaultAgentCall[BackendTag.ClaudeCode.type, Answer](
         backend = backend,
-        effectiveConfig =
-          cfg => cfg.getOrElse(AgentConfig()).copy(retrySchedule = fastRetry),
+        config = AgentConfig(retrySchedule = fastRetry),
         prompts = DefaultPrompts,
         events = (e: orca.events.OrcaEvent) => {
           val _ = seen.updateAndGet(e :: _)
@@ -370,8 +365,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
     supervised:
       val _ = new DefaultAgentCall[BackendTag.ClaudeCode.type, Answer](
         backend = backend,
-        effectiveConfig =
-          cfg => cfg.getOrElse(AgentConfig()).copy(retrySchedule = fastRetry),
+        config = AgentConfig(retrySchedule = fastRetry),
         prompts = DefaultPrompts,
         events = (e: orca.events.OrcaEvent) => {
           val _ = seen.updateAndGet(e :: _)
@@ -401,8 +395,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
     supervised:
       val _ = new DefaultAgentCall[BackendTag.ClaudeCode.type, Answer](
         backend = backend,
-        effectiveConfig =
-          cfg => cfg.getOrElse(AgentConfig()).copy(retrySchedule = fastRetry),
+        config = AgentConfig(retrySchedule = fastRetry),
         prompts = DefaultPrompts,
         events = (e: orca.events.OrcaEvent) => {
           val _ = seen.updateAndGet(e :: _)
@@ -478,7 +471,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
       val _ = intercept[AgentTurnFailed]:
         new DefaultAgentCall[BackendTag.ClaudeCode.type, Answer](
           backend = backend,
-          effectiveConfig = cfg => cfg.getOrElse(AgentConfig()),
+          config = AgentConfig(),
           prompts = DefaultPrompts,
           events = listener,
           interaction = stubInteraction,
@@ -525,8 +518,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
       val _ = intercept[AgentTurnFailed]:
         new DefaultAgentCall[BackendTag.ClaudeCode.type, Answer](
           backend = backend,
-          effectiveConfig =
-            cfg => cfg.getOrElse(AgentConfig()).copy(retrySchedule = fastRetry),
+          config = AgentConfig(retrySchedule = fastRetry),
           prompts = DefaultPrompts,
           events = listener,
           interaction = stubInteraction,
@@ -573,51 +565,6 @@ class DefaultAgentCallTest extends munit.FunSuite:
       assertEquals(answer, Answer(8))
       assertEquals(calls.get(), 2, "transient failure should be retried once")
 
-  test(
-    "autonomous passes the effective (tool-resolved) config to prompts.autonomous"
-  ):
-    // The prompt builder must see the EFFECTIVE config (tool defaults folded
-    // in), not the raw/empty per-call config. Here the tool-level config carries
-    // systemPrompt = Some("tool-prompt") via effectiveConfig, and the call omits
-    // config, so a builder given the raw None-derived config would capture None.
-    val captured = new AtomicReference[Option[AgentConfig]](None)
-    val recordingPrompts = new orca.agents.Prompts:
-      def autonomous(
-          input: String,
-          outputSchema: String,
-          config: AgentConfig,
-          mode: StructuredOutputMode
-      ): String =
-        val _ = captured.set(Some(config))
-        DefaultPrompts.autonomous(input, outputSchema, config, mode)
-      def interactive(
-          input: String,
-          outputSchema: String,
-          config: AgentConfig
-      ): String = DefaultPrompts.interactive(input, outputSchema, config)
-      def retry(
-          failedResponse: String,
-          parseError: String,
-          mode: StructuredOutputMode
-      ): String = DefaultPrompts.retry(failedResponse, parseError, mode)
-    val backend = new SequencedBackend(List("""{"value":1}"""))
-    supervised:
-      val _ = new DefaultAgentCall[BackendTag.ClaudeCode.type, Answer](
-        backend = backend,
-        effectiveConfig = cfg =>
-          cfg
-            .getOrElse(AgentConfig())
-            .copy(
-              systemPrompt = Some("tool-prompt"),
-              retrySchedule = fastRetry
-            ),
-        prompts = recordingPrompts,
-        events = orca.events.OrcaListener.noop,
-        interaction = stubInteraction,
-        agentName = "claude"
-      ).autonomous.run("anything")
-      assertEquals(captured.get().flatMap(_.systemPrompt), Some("tool-prompt"))
-
   // Ctrl-C at an interactive prompt abandons a turn the user is still billed
   // for; the conversation carries what it spent on the cancellation itself.
   test("an interactive turn cancelled after the model ran emits TokensUsed"):
@@ -636,7 +583,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
       val _ = intercept[OrcaInteractiveCancelled]:
         new DefaultAgentCall[BackendTag.ClaudeCode.type, Answer](
           backend = new SequencedBackend(Nil),
-          effectiveConfig = cfg => cfg.getOrElse(AgentConfig()),
+          config = AgentConfig(),
           prompts = DefaultPrompts,
           events = listener,
           interaction = cancellingInteraction,
@@ -668,7 +615,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
       val _ = intercept[AgentTurnFailed]:
         new DefaultAgentCall[BackendTag.ClaudeCode.type, Answer](
           backend = new SequencedBackend(Nil),
-          effectiveConfig = cfg => cfg.getOrElse(AgentConfig()),
+          config = AgentConfig(),
           prompts = DefaultPrompts,
           events = listener,
           interaction = failingInteraction,
@@ -714,8 +661,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
     supervised:
       val _ = new DefaultAgentCall[BackendTag.ClaudeCode.type, Answer](
         backend = new PromptOnlyBackend,
-        effectiveConfig =
-          cfg => cfg.getOrElse(AgentConfig()).copy(tools = ToolSet.ReadOnly),
+        config = AgentConfig(tools = ToolSet.ReadOnly),
         prompts = DefaultPrompts,
         events = listener,
         interaction = drivingInteraction,
@@ -749,8 +695,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
         Answer
       ](
         backend = backend,
-        effectiveConfig =
-          cfg => cfg.getOrElse(AgentConfig()).copy(retrySchedule = fastRetry),
+        config = AgentConfig(retrySchedule = fastRetry),
         prompts = DefaultPrompts,
         events = orca.events.OrcaListener.noop,
         interaction = drivingInteraction,
@@ -758,8 +703,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
       ).interactive.runWithSession(
         "anything",
         clientSid,
-        sessionKey = None,
-        config = None
+        sessionKey = None
       )
       assertEquals(answer, Answer(3))
       assertEquals(

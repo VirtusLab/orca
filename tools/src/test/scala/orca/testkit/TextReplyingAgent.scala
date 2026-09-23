@@ -34,7 +34,6 @@ class TextReplyingAgent(
           prompt: String,
           session: SessionId[BackendTag.ClaudeCode.type],
           sessionKey: Option[SessionKey],
-          config: Option[AgentConfig],
           emitPrompt: Boolean
       )(using orca.InStage): String =
         prompts.add(prompt): Unit

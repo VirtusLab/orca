@@ -221,7 +221,6 @@ class FlowSessionTest extends FunSuite:
             prompt: String,
             session: SessionId[BackendTag.ClaudeCode.type],
             sessionKey: Option[SessionKey],
-            config: Option[AgentConfig],
             emitPrompt: Boolean
         )(using orca.InStage): String =
           capture(prompt, session, sessionKey)
@@ -240,7 +239,6 @@ class FlowSessionTest extends FunSuite:
                 input: I,
                 session: SessionId[BackendTag.ClaudeCode.type],
                 sessionKey: Option[SessionKey],
-                config: Option[AgentConfig],
                 emitPrompt: Boolean
             )(using
                 orca.InStage

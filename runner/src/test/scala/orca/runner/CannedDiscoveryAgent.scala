@@ -3,7 +3,6 @@ package orca.runner
 import orca.agents.{
   SessionKey,
   AgentCall,
-  AgentConfig,
   AgentInput,
   Announce,
   AutonomousAgentCall,
@@ -31,7 +30,6 @@ private[runner] class CannedDiscoveryAgent(produce: () => StackDiscoveryResult)
               input: I,
               session: SessionId[BackendTag.ClaudeCode.type],
               sessionKey: Option[SessionKey],
-              config: Option[AgentConfig],
               emitPrompt: Boolean
           )(using orca.InStage): O =
             StackDiscoveryReply(produce()).asInstanceOf[O]

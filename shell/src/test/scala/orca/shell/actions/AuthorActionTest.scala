@@ -15,10 +15,9 @@ import orca.testkit.{GitRepo, TempDirs}
   * the flow launcher to use if the forced version fails to compile.
   */
 private object NoPromptUi extends ShellUi:
-  def select[A](
+  protected def selectInOrder[A](
       title: String,
-      choices: List[Choice[A]],
-      preselect: Option[A] = None
+      choices: List[Choice[A]]
   ): UiOutcome[A] =
     throw new UnsupportedOperationException("AuthorAction doesn't select")
   def confirm(question: String, default: Boolean): UiOutcome[Boolean] =

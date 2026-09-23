@@ -161,7 +161,6 @@ class OpencodeFlowTest extends munit.FunSuite:
                 input: I,
                 session: SessionId[BackendTag.Opencode.type],
                 sessionKey: Option[SessionKey],
-                config: Option[AgentConfig],
                 emitPrompt: Boolean
             )(using orca.InStage): O =
               value.asInstanceOf[O]

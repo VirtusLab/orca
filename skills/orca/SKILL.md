@@ -126,7 +126,7 @@ resumable and pick up from the last committed stage. A re-run stashes local
 changes, even with `--keep-changes`.
 
 `orca continue` (list sessions with `--list`, resume one by selector —
-an index, session name, or branch, e.g. `orca continue <branch>`)
+an id from `--list`, session name, or branch, e.g. `orca continue <branch>`)
 reattaches to a recorded harness session, but requires a real terminal and
 errors without one — don't invoke it headlessly; tell the user to run it
 themselves instead.

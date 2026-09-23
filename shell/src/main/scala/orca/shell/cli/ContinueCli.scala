@@ -5,7 +5,7 @@ import orca.shell.actions.SessionAction
 import orca.shell.sessions.{
   AttemptListing,
   ManifestReader,
-  SessionPicker,
+  SessionIndex,
   SessionSelection
 }
 
@@ -33,17 +33,15 @@ private[cli] object ContinueCli:
     val AttemptListing(attempts, warnings) =
       ManifestReader.list(dirs.own, dirs.worktrees, ManifestReader.pidAlive)
     warnings.foreach(Cli.diagnostic)
+    val index = SessionIndex.of(attempts)
     if list then
-      Tables.printSessionListing(attempts, json)
+      Tables.printSessionListing(index, json)
       ExitCodes.Ok
     else
       complete:
         for
           _ <- requireTty("continue", tty).left.map(usageFailure)
-          selection <- SessionPicker
-            .resolveSelection(attempts, selector)
-            .left
-            .map(actionFailure)
+          selection <- index.resolve(selector).left.map(actionFailure)
           exit <- resumeSelected(selection)
         yield exit
 

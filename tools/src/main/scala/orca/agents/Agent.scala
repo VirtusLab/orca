@@ -65,14 +65,12 @@ trait Agent[B <: BackendTag]:
     */
   final def run(
       prompt: String,
-      config: Option[AgentConfig] = None,
       emitPrompt: Boolean = true
   )(using InStage): String =
     autonomous.runWithSession(
       prompt,
       SessionId.fresh[B],
       sessionKey = None,
-      config = config,
       emitPrompt = emitPrompt
     )
 
@@ -104,6 +102,9 @@ trait Agent[B <: BackendTag]:
     */
   def resultAs[O: JsonData: Announce]: AgentCall[B, O]
 
+  /** Sibling tool running on `config` — replaces every field, including a
+    * [[withTools]] restriction; to change one field, use its builder.
+    */
   def withConfig(config: AgentConfig): Agent[B]
   def withSystemPrompt(prompt: String): Agent[B]
   def withName(name: String): Agent[B]
