@@ -815,6 +815,82 @@ class OsGitToolTest extends munit.FunSuite:
         List(ChangedFile("fresh.txt", FileChange.New))
       )
 
+  test("reviewChanges keys a rename's section by its new path"):
+    withRepo: (git, dir) =>
+      os.write(dir / "old.txt", "same\n")
+      git.commit("seed").orThrow
+      os.move(dir / "old.txt", dir / "new.txt")
+      val _ = os.proc("git", "add", "-A").call(cwd = dir)
+      val section = git.reviewChanges().sections.get("new.txt")
+      assert(section.exists(_.contains("rename to new.txt")), section)
+
+  test("reviewChanges keys the section of a path git quotes"):
+    withRepo: (git, dir) =>
+      os.write(dir / "é\"q.txt", "one\n")
+      git.commit("seed").orThrow
+      os.write.over(dir / "é\"q.txt", "two\n")
+      val section = git.reviewChanges().sections.get("é\"q.txt")
+      assert(section.exists(_.contains("+two")), section)
+
+  test("reviewChanges from a subdirectory keys sections relative to it"):
+    withRepo: (git, dir) =>
+      os.makeDir.all(dir / "sub")
+      os.write(dir / "sub" / "inner.txt", "one\n")
+      git.commit("seed").orThrow
+      os.write.over(dir / "sub" / "inner.txt", "two\n")
+      val section =
+        new OsGitTool(dir / "sub").reviewChanges().sections.get("inner.txt")
+      assert(section.exists(_.contains("+two")), section)
+
+  test("reviewChanges gives a file replaced by a symlink one section"):
+    // Git writes a type change as a deletion and an addition, two sections
+    // for one file.
+    withRepo: (git, dir) =>
+      os.write(dir / "f", "one\n")
+      os.write(dir / "g", "two\n")
+      git.commit("seed").orThrow
+      val _ = os.remove(dir / "f")
+      os.symlink(dir / "f", os.RelPath("g"))
+      os.write.over(dir / "g", "three\n")
+      val sample = git.reviewChanges()
+      assertEquals(sample.sections.keySet, Set("f", "g"))
+      val f = sample.sections("f")
+      assert(f.contains("deleted file mode") && f.contains("new file mode"), f)
+
+  test("reviewChanges keys sections under a colouring git config"):
+    withRepo: (git, dir) =>
+      os.write(dir / "a.txt", "one\n")
+      git.commit("seed").orThrow
+      val _ = os.proc("git", "config", "color.ui", "always").call(cwd = dir)
+      os.write.over(dir / "a.txt", "two\n")
+      assertEquals(git.reviewChanges().sections.keySet, Set("a.txt"))
+
+  test("reviewChanges gives an untracked file it only names no section"):
+    withSeededRepo: (git, dir) =>
+      os.makeDir(dir / "real")
+      os.symlink(dir / "link", os.RelPath("real"))
+      val sample = git.reviewChanges()
+      assert(sample.diff.contains("# skipped link"), sample.diff)
+      assertEquals(sample.sections.get("link"), None)
+
+  test("reviewChanges gives an untracked file its section"):
+    withSeededRepo: (git, dir) =>
+      os.write(dir / "new.txt", "hello\n")
+      val section = git.reviewChanges().sections.get("new.txt")
+      assert(section.exists(_.contains("+hello")), section)
+
+  test("reviewChanges gives a path both deleted and untracked both halves"):
+    withRepo: (git, dir) =>
+      os.write(dir / "f", "old\n")
+      git.commit("seed").orThrow
+      val _ = os.proc("git", "rm", "--cached", "-q", "f").call(cwd = dir)
+      os.write.over(dir / "f", "new\n")
+      val section = git.reviewChanges().sections.get("f")
+      assert(
+        section.exists(s => s.contains("-old") && s.contains("+new")),
+        section
+      )
+
   test("changedFiles from a subdirectory is unaffected by diff.relative"):
     // The setting makes git print paths relative to the subdirectory, which
     // hides changes above it and makes the workDir translation name the wrong
@@ -1017,6 +1093,14 @@ class OsGitToolTest extends munit.FunSuite:
       assert(clue(diff.length) < OsGitTool.MaxReadBytes + 100)
       assert(diff.endsWith(OsGitTool.CutMarker), diff.takeRight(80))
 
+  test("reviewChanges gives an untracked file the read limit cut no section"):
+    withSeededRepo: (git, dir) =>
+      os.write(
+        dir / "big.txt",
+        ("x" * 99 + "\n") * (OsGitTool.MaxReadBytes / 50)
+      )
+      assertEquals(git.reviewChanges().sections.get("big.txt"), None)
+
   test("reviewChanges names the untracked files past the diff budget"):
     withSeededRepo: (git, dir) =>
       // Rendered first (git lists paths sorted), and on its own it exhausts the
@@ -1029,6 +1113,19 @@ class OsGitToolTest extends munit.FunSuite:
       val diff = git.reviewChanges().diff
       assert(
         diff.contains("# skipped z-small.txt: past the"),
+        diff.takeRight(200)
+      )
+
+  test("reviewChanges names every untracked file after a cut tracked diff"):
+    withRepo: (git, dir) =>
+      val lines = OsGitTool.MaxReadBytes / 50
+      os.write(dir / "big.txt", ("x" * 99 + "\n") * lines)
+      git.commit("add big").orThrow
+      os.write.over(dir / "big.txt", ("y" * 99 + "\n") * lines)
+      os.write(dir / "small.txt", "small")
+      val diff = git.reviewChanges().diff
+      assert(
+        diff.contains("# skipped small.txt: past the"),
         diff.takeRight(200)
       )
 
