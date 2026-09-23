@@ -353,7 +353,7 @@ object FlowLifecycle:
     // failed detection falls back to just the floor). Computed once so the
     // fresh and resume arms apply the identical policy from the identical set.
     val protectedBranches =
-      RecoveryCheck.alwaysProtected ++ git
+      FeatureBranch.alwaysProtected ++ git
         .defaultBranch()
         .map(_.toLowerCase(java.util.Locale.ROOT))
     val binding =
