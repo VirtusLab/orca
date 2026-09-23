@@ -139,7 +139,7 @@ class CliTest extends munit.FunSuite:
     assert(err.contains("a..b"), err)
 
   test(
-    "run: --prompt carries a task starting with '-' (fails later, at flow resolution)"
+    "run: --prompt with a value starting with '-' parses (fails later, at flow resolution)"
   ):
     assertEquals(
       invoke("run", "no-such-flow.sc", "--prompt", "- add X\n- fix Y"),
@@ -455,7 +455,8 @@ class CliTest extends munit.FunSuite:
       RunCli.readTask(None, tty = false, () => "   \n"),
       Left(
         "no task given, and stdin was empty — pass the task as an " +
-          "argument, or pipe non-empty input"
+          "argument (--prompt=<text> if it starts with '-'), or pipe " +
+          "non-empty input"
       )
     )
 

@@ -67,7 +67,7 @@ object RunTarget:
     * own argv and `orca run`'s alike. A refused pair is a message, never a
     * value.
     */
-  def from(
+  private[orca] def from(
       worktree: Boolean,
       skipBranch: Boolean,
       keepChanges: Boolean,

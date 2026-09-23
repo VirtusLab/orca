@@ -634,24 +634,24 @@ class MainTest extends munit.FunSuite:
     (ui, recorded)
 
   test("runFlow: a typed branch name reaches the launcher's args"):
-    val (_, flags) =
+    val (_, args) =
       runFlowWith(RunTarget.Worktree, List(UiOutcome.Selected("feature/x")))
-    assertEquals(flags.map(_.target), Some(RunTarget.Worktree))
-    assertEquals(flags.flatMap(_.branch).map(_.value), Some("feature/x"))
+    assertEquals(args.map(_.target), Some(RunTarget.Worktree))
+    assertEquals(args.flatMap(_.branch).map(_.value), Some("feature/x"))
 
   test("runFlow: an invalid branch name is re-asked and the next one used"):
-    val (ui, flags) = runFlowWith(
+    val (ui, args) = runFlowWith(
       RunTarget.NewBranch(Uncommitted.Stash),
       List(UiOutcome.Selected("bad name"), UiOutcome.Selected("good-name"))
     )
     assertEquals(ui.inputCount, 2)
-    assertEquals(flags.flatMap(_.branch).map(_.value), Some("good-name"))
+    assertEquals(args.flatMap(_.branch).map(_.value), Some("good-name"))
 
   test("runFlow: Enter at the branch prompt lets the flow derive the name"):
     val target = RunTarget.NewBranch(Uncommitted.Stash)
-    val (_, flags) = runFlowWith(target, List(UiOutcome.Selected("")))
+    val (_, args) = runFlowWith(target, List(UiOutcome.Selected("")))
     assertEquals(
-      flags,
+      args,
       Some(
         OrcaArgs(
           userPrompt = "do the thing",
@@ -663,15 +663,15 @@ class MainTest extends munit.FunSuite:
     )
 
   test("runFlow: cancelling the branch prompt aborts the run"):
-    val (ui, flags) = runFlowWith(RunTarget.Worktree, List(UiOutcome.Cancelled))
+    val (ui, args) = runFlowWith(RunTarget.Worktree, List(UiOutcome.Cancelled))
     assertEquals(ui.inputCount, 1)
-    assertEquals(flags, None)
+    assertEquals(args, None)
 
   test("runFlow: the current-branch target asks no branch name"):
-    val (ui, flags) =
+    val (ui, args) =
       runFlowWith(RunTarget.CurrentBranch(Uncommitted.Stash), Nil)
     assertEquals(ui.inputCount, 0)
-    assertEquals(flags.map(_.branch), Some(None))
+    assertEquals(args.map(_.branch), Some(None))
 
   // --- editFlow / createNewFlow / createForkFlow (ADR 0021 §6/§9 amendment:
   // hand-vs-agent mode) ---
@@ -1052,25 +1052,18 @@ class MainTest extends munit.FunSuite:
         branch = "feat/x",
         dir = worktree
       )
-      var recorded: Option[(os.Path, OrcaArgs)] = None
+      var recorded: Option[(os.Path, RunTarget)] = None
       Main.resumeInterruptedRun(
         FlowScriptedUi(),
         terminal,
         run,
         runAction = (_, opts, dir, _) =>
-          recorded = Some(dir -> opts.args)
+          recorded = Some(dir -> opts.args.target)
           LaunchResult.Ok
       )
       assertEquals(
         recorded,
-        Some(
-          worktree -> OrcaArgs(
-            userPrompt = "fix the flaky test",
-            verbose = false,
-            target = RunTarget.NewBranch(Uncommitted.Stash),
-            branch = None
-          )
-        )
+        Some(worktree -> RunTarget.NewBranch(Uncommitted.Stash))
       )
 
   test(

@@ -140,7 +140,6 @@ private[shell] object Cli:
   @main(
     doc = "Run a flow, propagating its exit code.\n" +
       "Task is read from stdin when omitted and stdin is piped.\n" +
-      "--prompt passes a task that starts with '-'.\n" +
       "--branch names the branch to create instead of deriving it from the task.\n" +
       """Example: orca run implement.sc "add a rate limiter" --branch feature/rate-limiter"""
   )

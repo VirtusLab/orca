@@ -14,10 +14,11 @@ import Cli.{actionFailure, complete, usageFailure, withTerminal}
   */
 private[cli] object RunCli:
 
-  /** `args` arrives unchecked. Its task and flags are refused first, before
-    * anything is resolved, stdin is read or `scala-cli` starts; the flow child
-    * refuses the same argv on the same shared decision ([[orca.RawArgs]]) and
-    * stays the authority, this only makes the answer immediate.
+  /** `args` arrives unchecked. A task given twice or an invalid flag is refused
+    * first, before anything is resolved, stdin is read or `scala-cli` starts;
+    * the flow child refuses the same argv on the same shared decision
+    * ([[orca.RawArgs.checked]]) and stays the authority, this only makes the
+    * answer immediate.
     */
   def run(
       flowRef: String,
@@ -28,15 +29,15 @@ private[cli] object RunCli:
   ): Int =
     complete:
       for
-        task <- args.taskText.left.map(usageFailure)
-        withTask <- args.checked.left.map(usageFailure)
+        checked <- args.checked.left.map(usageFailure)
         resolved <- FlowResolution
           .resolve(flowRef, workDir)
           .left
           .map(actionFailure)
-        taskText <- readTask(task, tty, readAllStdin).left.map(usageFailure)
+        task <- readTask(checked.givenTask, tty, readAllStdin).left
+          .map(usageFailure)
       yield withTerminal: terminal =>
-        val orcaArgs = withTask(taskText)
+        val orcaArgs = checked.withTask(task)
         val result =
           if honorPin then
             FlowLauncher.runHonoringPin(
@@ -85,13 +86,15 @@ private[cli] object RunCli:
         if tty then
           Left(
             "no task given, and stdin is a terminal — " +
-              "pass the task as an argument, or pipe it in"
+              "pass the task as an argument (--prompt=<text> if it starts " +
+              "with '-'), or pipe it in"
           )
         else
           val piped = readStdin().trim
           if piped.isEmpty then
             Left(
               "no task given, and stdin was empty — pass the task as an " +
-                "argument, or pipe non-empty input"
+                "argument (--prompt=<text> if it starts with '-'), or pipe " +
+                "non-empty input"
             )
           else Right(piped)
