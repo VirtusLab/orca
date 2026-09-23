@@ -1,6 +1,5 @@
 package orca.shell.cli
 
-import orca.RunTarget
 import orca.shell.actions.{FlowResolution, RunAction}
 import orca.shell.run.{FallbackPolicy, FlowFlags, FlowLauncher}
 
@@ -13,40 +12,38 @@ import Cli.{actionFailure, complete, usageFailure, withTerminal}
   */
 private[cli] object RunCli:
 
-  /** `target` arrives unvalidated — a `Left` is the refusal
-    * [[orca.RunTarget.from]] returned for a contradictory `--worktree` pair. It
+  /** `flags` arrives unvalidated — a `Left` is an invalid `--branch` value or
+    * the refusal [[orca.RunTarget.from]] returned for a contradictory pair. It
     * is refused first, before anything is resolved or spawned, saving a
     * `scala-cli` start and its dependency resolution; the flow child refuses
     * the same argv on the same shared decision and stays the authority, this
     * only makes the answer immediate. Below the refusal only the validated
-    * target exists, so no launch path can be handed a pair orca refuses.
+    * flags exist, so no launch path can be handed a pair orca refuses.
     */
   def run(
       flowRef: String,
       task: Option[String],
-      verbose: Boolean,
-      target: Either[String, RunTarget],
+      flags: Either[String, FlowFlags],
       honorPin: Boolean,
       workDir: os.Path,
       tty: Boolean
   ): Int =
     complete:
       for
-        runTarget <- target.left.map(usageFailure)
+        validFlags <- flags.left.map(usageFailure)
         resolved <- FlowResolution
           .resolve(flowRef, workDir)
           .left
           .map(actionFailure)
         taskText <- readTask(task, tty, readAllStdin).left.map(usageFailure)
       yield withTerminal: terminal =>
-        val flags = FlowFlags(verbose, runTarget)
         val result =
           if honorPin then
             FlowLauncher.runHonoringPin(
               resolved.path,
               taskText,
               workDir,
-              flags,
+              validFlags,
               terminal
             )
           else
@@ -54,7 +51,7 @@ private[cli] object RunCli:
               resolved,
               taskText,
               RunAction.RunOptions(
-                flags = flags,
+                flags = validFlags,
                 fallback = FallbackPolicy.Refuse("re-run with --honor-pin")
               ),
               workDir,

@@ -65,6 +65,19 @@ object RunTarget:
   def branchArgv(branch: Option[BranchName]): Seq[String] =
     branch.toList.flatMap(name => Seq("--branch", name.value))
 
+  /** Refuses a `--branch` name on a target that creates no branch
+    * ([[CurrentBranch]]), with the message [[from]] gives the same pair.
+    */
+  def refuseBranch(
+      target: RunTarget,
+      branch: Option[BranchName]
+  ): Either[String, Unit] =
+    Either.cond(
+      !(target.skipBranch && branch.isDefined),
+      (),
+      skipBranchWithBranchRefusal
+    )
+
   private val skipBranchWithBranchRefusal: String =
     "--branch cannot be combined with --skip-branch: --skip-branch runs on " +
       "the branch checked out now, so there is no branch to create. Drop " +

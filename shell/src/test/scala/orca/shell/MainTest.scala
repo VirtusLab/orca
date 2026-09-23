@@ -641,7 +641,9 @@ class MainTest extends munit.FunSuite:
       )
       assertEquals(
         recorded,
-        Some(FlowFlags(verbose = false, target = RunTarget.Worktree))
+        Some(
+          FlowFlags.derivedBranch(verbose = false, target = RunTarget.Worktree)
+        )
       )
 
   // --- editFlow / createNewFlow / createForkFlow (ADR 0021 §6/§9 amendment:
@@ -1035,7 +1037,7 @@ class MainTest extends munit.FunSuite:
       assertEquals(
         recorded,
         Some(
-          worktree -> FlowFlags(
+          worktree -> FlowFlags.derivedBranch(
             verbose = false,
             target = RunTarget.NewBranch(Uncommitted.Stash)
           )

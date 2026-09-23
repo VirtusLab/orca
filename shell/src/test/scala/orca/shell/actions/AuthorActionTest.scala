@@ -136,7 +136,7 @@ class AuthorActionTest extends munit.FunSuite:
       assertEquals(call.flow, builtInFlow)
       assertEquals(
         call.flags,
-        FlowFlags(
+        FlowFlags.derivedBranch(
           verbose = false,
           target = RunTarget.NewBranch(Uncommitted.Stash)
         )

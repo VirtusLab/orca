@@ -76,6 +76,14 @@ class CliTest extends munit.FunSuite:
     )
 
   test(
+    "run: a valid --branch parses too (fails later, at flow resolution)"
+  ):
+    assertEquals(
+      invoke("run", "no-such-flow.sc", "a task", "--branch", "feature/x"),
+      Right(1)
+    )
+
+  test(
     "run: --worktree with --skip-branch is refused before the flow is resolved"
   ):
     // A usage error rather than the flow-not-found 1 the cases above get: the
@@ -110,6 +118,33 @@ class CliTest extends munit.FunSuite:
     assert(err.contains("--worktree") && err.contains("--keep-changes"), err)
     // Names the pair the user actually typed, not the other one.
     assert(!err.contains("--skip-branch"), err)
+
+  test(
+    "run: --branch with --skip-branch is refused before the flow is resolved"
+  ):
+    val (_, err) = capturedBoth(
+      assertEquals(
+        invoke(
+          "run",
+          "no-such-flow.sc",
+          "a task",
+          "--branch",
+          "feature-x",
+          "--skip-branch"
+        ),
+        Right(ExitCodes.UsageError)
+      )
+    )
+    assert(err.contains("--branch") && err.contains("--skip-branch"), err)
+
+  test("run: an invalid --branch value is refused before the flow is resolved"):
+    val (_, err) = capturedBoth(
+      assertEquals(
+        invoke("run", "no-such-flow.sc", "a task", "--branch", "a..b"),
+        Right(ExitCodes.UsageError)
+      )
+    )
+    assert(err.contains("a..b"), err)
 
   test("run: the required flow positional missing is a usage error"):
     assert(!parses("run"))

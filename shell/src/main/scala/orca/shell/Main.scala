@@ -396,7 +396,7 @@ object Main:
       target <- promptRunTarget(ui)
     do
       val opts = RunAction.RunOptions(
-        flags = FlowFlags(verbose = false, target = target),
+        flags = FlowFlags.derivedBranch(verbose = false, target = target),
         fallback = FallbackPolicy.Ask(ui)
       )
       runAction(flow, task, opts, workDir, terminal).discard
@@ -437,7 +437,8 @@ object Main:
       case Right(flow) =>
         val opts =
           RunAction.RunOptions(
-            flags = FlowFlags(
+            // The progress log's header names the branch on resume.
+            flags = FlowFlags.derivedBranch(
               verbose = false,
               target = RunTarget.NewBranch(Uncommitted.Stash)
             ),

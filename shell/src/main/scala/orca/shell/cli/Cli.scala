@@ -3,8 +3,9 @@ package orca.shell.cli
 import mainargs.{Flag, ParserForMethods, Renderer, Util, arg, main}
 import org.jline.terminal.Terminal
 import orca.{ConfigHome, RunTarget}
+import orca.progress.BranchName
 import orca.shell.WorktreeScan
-import orca.shell.run.LaunchResult
+import orca.shell.run.{FlowFlags, LaunchResult}
 import orca.shell.ui.ShellUi
 import orca.subprocess.TtyProbe
 
@@ -140,7 +141,8 @@ private[shell] object Cli:
   @main(
     doc = "Run a flow, propagating its exit code.\n" +
       "Task is read from stdin when omitted and stdin is piped.\n" +
-      """Example: orca run implement.sc "add a rate limiter""""
+      "--branch names the branch to create instead of deriving it from the task.\n" +
+      """Example: orca run implement.sc "add a rate limiter" --branch feature/rate-limiter"""
   )
   def run(
       @arg(positional = true, doc = "flow name or path")
@@ -162,18 +164,29 @@ private[shell] object Cli:
       @arg(doc =
         "run the flow's own pinned orca version instead of forcing this shell's"
       )
-      honorPin: Flag = Flag()
+      honorPin: Flag = Flag(),
+      @arg(doc =
+        "name of the branch to create for this run (default: derived from the task); not with --skip-branch"
+      )
+      branch: Option[String] = None
   ): Int =
+    val flags =
+      for
+        givenBranch <- branch match
+          case None      => Right(None)
+          case Some(raw) => BranchName.parse(raw).map(Some(_))
+        target <- RunTarget.from(
+          worktree = worktree.value,
+          skipBranch = skipBranch.value,
+          keepChanges = keepChanges.value,
+          branch = givenBranch
+        )
+        validFlags <- FlowFlags.from(verbose.value, target, givenBranch)
+      yield validFlags
     RunCli.run(
       flowRef = flow,
       task = task,
-      verbose = verbose.value,
-      target = RunTarget.from(
-        worktree = worktree.value,
-        skipBranch = skipBranch.value,
-        keepChanges = keepChanges.value,
-        branch = None
-      ),
+      flags = flags,
       honorPin = honorPin.value,
       workDir = os.pwd,
       tty = TtyProbe.stdin()

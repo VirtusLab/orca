@@ -135,7 +135,7 @@ private[shell] object AuthorAction:
       flow,
       prompt,
       sandbox,
-      FlowFlags(
+      FlowFlags.derivedBranch(
         verbose = false,
         target = RunTarget.NewBranch(Uncommitted.Stash)
       ),

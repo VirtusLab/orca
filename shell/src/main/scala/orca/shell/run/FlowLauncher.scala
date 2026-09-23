@@ -2,6 +2,7 @@ package orca.shell.run
 
 import org.jline.terminal.Terminal
 import orca.RunTarget
+import orca.progress.BranchName
 import orca.shell.ShellVersion
 import orca.shell.flows.BuiltInFlows
 import orca.shell.ui.{ShellOutput, ShellUi, UiOutcome}
@@ -29,11 +30,35 @@ private[shell] enum FallbackPolicy:
   * transpose without a compile error.
   *
   * `target` is the run's destination as one [[orca.RunTarget]] rather than the
-  * three flags it renders to, so the combinations orca refuses (`--worktree`
-  * with `--skip-branch` or `--keep-changes`) cannot be handed to a launch path
-  * at all.
+  * three flags it renders to, and `branch` (the `--branch` name, `None` to let
+  * the flow derive one) is only set through [[FlowFlags.from]], so the
+  * combinations orca refuses (`--worktree` with `--skip-branch` or
+  * `--keep-changes`, `--skip-branch` with `--branch`) cannot be handed to a
+  * launch path at all.
   */
-private[shell] case class FlowFlags(verbose: Boolean, target: RunTarget)
+private[shell] case class FlowFlags private (
+    verbose: Boolean,
+    target: RunTarget,
+    branch: Option[BranchName]
+)
+
+private[shell] object FlowFlags:
+
+  /** Flags that let the flow derive its branch name. */
+  def derivedBranch(verbose: Boolean, target: RunTarget): FlowFlags =
+    new FlowFlags(verbose, target, None)
+
+  /** Refuses `branch` on a target that creates no branch, with
+    * [[orca.RunTarget.refuseBranch]]'s message.
+    */
+  def from(
+      verbose: Boolean,
+      target: RunTarget,
+      branch: Option[BranchName]
+  ): Either[String, FlowFlags] =
+    RunTarget
+      .refuseBranch(target, branch)
+      .map(_ => new FlowFlags(verbose, target, branch))
 
 /** Runs a selected flow as a `scala-cli run` child inheriting the shell's
   * terminal (ADR 0021 §2). By default the shell forces its own orca version via
@@ -81,16 +106,17 @@ private[shell] object FlowLauncher:
       .getOrElse(Seq.empty)
 
   /** `scala-cli run <flow> --quiet --verbose [--dep ...] --workspace <dir> --
-    * <task> [--verbose] [<target flags>]`. The `--verbose` before `--` is
-    * scala-cli's own ([[loggingArgs]]); everything after `--` is the flow's
-    * own, parsed by its `OrcaArgs`, so it lands alongside the task text rather
-    * than before it — the destination flags come from
-    * [[orca.RunTarget.toArgv]], which is where their spelling lives.
-    * `--workspace` relocates scala-cli's own `.scala-build`/`.bsp` build
-    * metadata to `workspaceDir` ([[resolveWorkspaceDir]]) instead of next to
-    * `flow` — load-bearing for a Project-tier flow, whose script lives inside
-    * the user's own repo (`<repo>/.orca/flows/<name>.sc`), same pollution class
-    * the `orca` shim's own `--workspace` fixes (ADR 0021 §1 amendment).
+    * <task> [--verbose] [<target flags>] [--branch <name>]`. The `--verbose`
+    * before `--` is scala-cli's own ([[loggingArgs]]); everything after `--` is
+    * the flow's own, parsed by its `OrcaArgs`, so it lands alongside the task
+    * text rather than before it — the destination flags come from
+    * [[orca.RunTarget.toArgv]] and [[orca.RunTarget.branchArgv]], which is
+    * where their spelling lives. `--workspace` relocates scala-cli's own
+    * `.scala-build`/`.bsp` build metadata to `workspaceDir`
+    * ([[resolveWorkspaceDir]]) instead of next to `flow` — load-bearing for a
+    * Project-tier flow, whose script lives inside the user's own repo
+    * (`<repo>/.orca/flows/<name>.sc`), same pollution class the `orca` shim's
+    * own `--workspace` fixes (ADR 0021 §1 amendment).
     *
     * Requires `task` to be non-blank — `Main.promptTask` re-prompts on blank
     * input before this is ever called, so an empty task here means a caller
@@ -113,7 +139,7 @@ private[shell] object FlowLauncher:
       depArgs(orcaVersion) ++
       Seq("--workspace", workspaceDir.toString) ++
       Seq("--", task) ++
-      verboseArgs ++ flags.target.toArgv
+      verboseArgs ++ flags.target.toArgv ++ RunTarget.branchArgv(flags.branch)
 
   /** The compile probe's argv — same `--workspace` treatment as [[argv]], and
     * for the same reason: without it, the probe (run whenever the forced

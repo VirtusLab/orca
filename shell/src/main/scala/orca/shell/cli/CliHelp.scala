@@ -17,7 +17,7 @@ private[shell] object CliHelp:
        |  orca <command> [args]   run one action non-interactively
        |
        |Commands:
-       |  run <flow> [task]          run a flow (task from stdin when piped)
+       |  run <flow> [task]          run a flow (task from stdin when piped; --branch <name> to name the new branch)
        |  view <flow>                print a flow's source
        |  edit <flow>                open a flow in $$EDITOR (built-ins: --to project|global)
        |  create "<goal>"            an agent writes a new flow in a sandbox (name auto-derived, --name to override, --global for the global tier)
