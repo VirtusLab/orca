@@ -160,8 +160,6 @@ def flow(
   installUncaughtExceptionHandler()
   // Tally token usage and print the summary on exit (success or failure).
   val costTracker = new CostTracker(pricing.lastUpdated)
-  // Tally tool calls the harness refused and print them beside the cost.
-  val deniedToolTracker = new DeniedToolTracker
   // Read once and threaded explicitly from here down (AttemptManifestWriter, and
   // the progress header via `runFlow`/`FlowLifecycle.setup`) rather than
   // re-read with `sys.env` at each site.
@@ -195,6 +193,8 @@ def flow(
         ProcessHandle.current().pid(),
         () => java.time.Instant.now()
       )
+      // Tally tool calls the harness refused and print them beside the cost.
+      val deniedToolTracker = DeniedToolTracker.start()
       // `Running` survives only when a fatal throwable (e.g. OOM) escapes the
       // `NonFatal` catch; `finish` records that as failed.
       var status = AttemptStatus.Running

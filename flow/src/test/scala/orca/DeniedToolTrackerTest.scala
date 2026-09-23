@@ -1,7 +1,7 @@
 package orca
 
-import orca.events.{DeniedToolTracker, OrcaEvent}
-import ox.{fork, supervised}
+import orca.events.{DeniedToolTracker, DeniedTools, OrcaEvent}
+import ox.supervised
 
 class DeniedToolTrackerTest extends munit.FunSuite:
 
@@ -11,27 +11,28 @@ class DeniedToolTrackerTest extends munit.FunSuite:
   private def denied(tool: String, agent: String): OrcaEvent.ToolDenied =
     OrcaEvent.ToolDenied(tool, Some(agent))
 
-  test("summary is empty when only non-denial events were recorded"):
-    val tracker = new DeniedToolTracker()
-    tracker.onEvent(OrcaEvent.Step("hi"))
-    tracker.onEvent(OrcaEvent.ToolUse("Bash", "ls", Some("coding")))
-    assertEquals(tracker.summary, "")
+  private def tally(events: List[OrcaEvent.ToolDenied]): DeniedTools =
+    events.foldLeft(DeniedTools.empty)(_.add(_))
+
+  test("summary is empty when nothing was denied"):
+    assertEquals(DeniedTools.empty.summary, "")
 
   test("repeated denials of one tool count once per event, agents dedupe"):
-    val tracker = new DeniedToolTracker()
-    List("review", "planning", "review")
-      .foreach(a => tracker.onEvent(denied("mcp__visdom__agents_md", a)))
+    val tools = tally(
+      List("review", "planning", "review")
+        .map(denied("mcp__visdom__agents_md", _))
+    )
     assertEquals(
-      tracker.summary,
+      tools.summary,
       s"denied tool calls: mcp__visdom__agents_md ×3 (planning, review) — $advice"
     )
 
   test("tools order by count descending, then by name"):
-    val tracker = new DeniedToolTracker()
-    List("b" -> "coding", "a" -> "coding", "c" -> "coding", "c" -> "coding")
-      .foreach((tool, agent) => tracker.onEvent(denied(tool, agent)))
+    val tools = tally(
+      List("b", "a", "c", "c").map(denied(_, "coding"))
+    )
     assertEquals(
-      tracker.summary,
+      tools.summary,
       List(
         s"denied tool calls: c ×2 (coding) — $advice",
         s"denied tool calls: a ×1 (coding) — $advice",
@@ -40,18 +41,21 @@ class DeniedToolTrackerTest extends munit.FunSuite:
     )
 
   test("a denial without an agent name counts but adds no parenthetical"):
-    val tracker = new DeniedToolTracker()
-    tracker.onEvent(OrcaEvent.ToolDenied("Write", None))
-    assertEquals(tracker.summary, s"denied tool calls: Write ×1 — $advice")
+    val tools = tally(List(OrcaEvent.ToolDenied("Write", None)))
+    assertEquals(tools.summary, s"denied tool calls: Write ×1 — $advice")
 
-  test("concurrent denials lose no counts"):
-    val tracker = new DeniedToolTracker()
+  test("the tracker counts only ToolDenied events and prints their summary"):
+    val out = new java.io.ByteArrayOutputStream
     supervised:
-      val forks = (1 to 8).map: i =>
-        fork:
-          (1 to 100).foreach(_ => tracker.onEvent(denied("Bash", s"r$i")))
-      forks.foreach(_.join())
-    assert(
-      tracker.summary.startsWith("denied tool calls: Bash ×800 ("),
-      tracker.summary
+      val tracker = DeniedToolTracker.start()
+      List(
+        OrcaEvent.Step("hi"),
+        OrcaEvent.ToolUse("Bash", "ls", Some("review")),
+        denied("Bash", "review"),
+        denied("Bash", "review")
+      ).foreach(tracker.onEvent)
+      Console.withOut(out)(tracker.printSummary())
+    assertEquals(
+      out.toString,
+      s"\ndenied tool calls: Bash ×2 (review) — $advice\n"
     )
