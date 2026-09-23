@@ -10,7 +10,7 @@ import orca.tools.{
   PrHandle,
   PushFailure
 }
-import orca.{OutsideStage, WorkspaceWrite}
+import orca.{OrcaFlowException, OutsideStage, WorkspaceWrite}
 import orca.gitref.CommitHash
 import orca.plan.Title
 import orca.review.{FindingId, OpenFinding, OpenFindings, OpenReason}
@@ -111,10 +111,10 @@ class OpenPrIfGitHubTest extends FunSuite:
     val errors = new ConcurrentLinkedQueue[String]()
     val bodies = new ConcurrentLinkedQueue[String]()
     val listener: OrcaListener =
-      case OrcaEvent.StageStarted(_, name) => stages.add(name): Unit
-      case OrcaEvent.Step(message)         => steps.add(message): Unit
-      case OrcaEvent.Error(message, _)     => errors.add(message): Unit
-      case _                               => ()
+      case OrcaEvent.StageStarted(path) => stages.add(path.name): Unit
+      case OrcaEvent.Step(message)      => steps.add(message): Unit
+      case OrcaEvent.Error(message, _)  => errors.add(message): Unit
+      case _                            => ()
 
     val control = prControl(
       dir,
@@ -170,6 +170,23 @@ class OpenPrIfGitHubTest extends FunSuite:
         errors.contains("openPrIfGitHub(...)"),
       s"expected the OutsideStage implicitNotFound message, got: $errors"
     )
+
+  test("openPrIfGitHub reached inside a stage is refused before it probes"):
+    // A helper taking only FlowControl carries OutsideStage past the compile
+    // check; the stage open around it is caught at run time.
+    val (dir, store) = seededPrRepo()
+    val calls = new ConcurrentLinkedQueue[String]()
+    val control =
+      prControl(dir, store, _ => (), calls, availability = available)
+    val e = intercept[OrcaFlowException](
+      control.withStage("outer", None): _ =>
+        openPrIfGitHub(
+          summarisingAgent = new StubSummariser(),
+          openFindings = OpenFindings.empty
+        )(using control, control, summon[OutsideStage])
+    )
+    assert(e.getMessage.contains("inside stage 'outer#0'"), e.getMessage)
+    assertEquals(calls.asScala.toList, Nil)
 
   test(
     "when unavailable, no PR is opened and the line ends in the next action"

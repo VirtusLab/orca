@@ -43,11 +43,11 @@ private[runner] class TerminalEventListener(
     new AtomicReference[StageEmitters](StageEmitters.Silent)
 
   def onEvent(event: OrcaEvent): Unit = event match
-    case OrcaEvent.StageStarted(_, name) =>
+    case OrcaEvent.StageStarted(path) =>
       // Format at the current depth (so the marker aligns with the enclosing
       // stage's content), then push.
-      val line = formatStepLine(name)
-      stack = name :: stack
+      val line = formatStepLine(path.name)
+      stack = path.name :: stack
       stageEmitters.set(StageEmitters.Silent)
       output.log(line)
       output.setStatus(stack.headOption)

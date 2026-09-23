@@ -108,7 +108,7 @@ class TestFlowControl(
 
   def emit(event: OrcaEvent): Unit = dispatcher.onEvent(event)
 
-  // Stage-identity bookkeeping (enterStage/exitStage and claimSessionKey) and
+  // Stage-identity bookkeeping (withStage and claimSessionKey) and
   // the per-run turn claim are inherited from the shared `StageFrames` mixin —
   // the SAME implementation production uses, so this double can't diverge from
   // production nesting/resume semantics and greenwash a test.

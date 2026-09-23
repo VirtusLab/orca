@@ -109,8 +109,8 @@ private[runner] class AttemptManifestWriterState(
   guarded("attempt pruning")(AttemptPruning.prune(attemptsDir))
 
   def onEvent(event: OrcaEvent): Unit = event match
-    case OrcaEvent.StageStarted(_, name) =>
-      state = state.entered(name)
+    case OrcaEvent.StageStarted(path) =>
+      state = state.entered(path.name)
       safeWrite()
     case _: OrcaEvent.StageEnded =>
       state = state.exited

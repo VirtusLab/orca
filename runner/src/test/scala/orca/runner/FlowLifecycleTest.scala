@@ -8,6 +8,7 @@ import orca.{
   OrcaDir,
   RunKey,
   RunTarget,
+  StagePath,
   StackSettings,
   Uncommitted,
   WorkspaceWrite,
@@ -277,8 +278,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     os.write(workDir / "one.txt", "content")
     store.upsertEntry(
       StageEntry(
-        id = "stage-one#0",
-        name = "stage-one",
+        id = StagePath.FlowBody.child("stage-one", 0),
         resultJson = RawJson("\"done\"")
       )
     )
@@ -308,7 +308,10 @@ class FlowLifecycleTest extends munit.FunSuite:
       "working tree must be clean after failure teardown"
     )
     val ids = store.load().get.entries.map(_.id)
-    assert(ids.contains("stage-one#0"), "stage one must remain recorded")
+    assert(
+      ids.contains(StagePath.FlowBody.child("stage-one", 0)),
+      "stage one must remain recorded"
+    )
     assert(
       !os.exists(workDir / "two.txt"),
       "the new file the failed stage created must be gone"
@@ -345,8 +348,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val _ = git.commit("orca: progress log")
     store.upsertEntry(
       StageEntry(
-        id = "resumable-stage#0",
-        name = "resumable-stage",
+        id = StagePath.FlowBody.child("resumable-stage", 0),
         resultJson = RawJson("\"ok\"")
       )
     )
@@ -419,7 +421,10 @@ class FlowLifecycleTest extends munit.FunSuite:
     assertEquals(branch, store.load().get.header.branch.value)
 
     val ids = store.load().get.entries.map(_.id)
-    assert(ids.contains("stage-one#0"), "stage one must be recorded")
+    assert(
+      ids.contains(StagePath.FlowBody.child("stage-one", 0)),
+      "stage one must be recorded"
+    )
     assert(
       os.exists(workDir / "one.txt"),
       "stage one's committed file must survive failure teardown"
@@ -505,7 +510,10 @@ class FlowLifecycleTest extends munit.FunSuite:
     val firstRecords = sessions.records()
     assertEquals(
       firstRecords.map(_.stage),
-      List(s"Task: ${tasks.head}#0", s"Task: $failing#0"),
+      List(
+        StagePath.FlowBody.child(s"Task: ${tasks.head}", 0),
+        StagePath.FlowBody.child(s"Task: $failing", 0)
+      ),
       "the failed task's record survives the failure teardown's reset"
     )
 
@@ -1749,7 +1757,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val store = storeWith(
       SessionRecord(
         name = "s",
-        stage = "",
+        stage = StagePath.FlowBody,
         id = "c-1",
         seed = "s",
         resumeWireId = Some("srv-9"),
@@ -1769,7 +1777,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val store = storeWith(
       SessionRecord(
         name = "s",
-        stage = "",
+        stage = StagePath.FlowBody,
         id = "old-1",
         seed = "s",
         resumeWireId = Some("srv-1"),
@@ -1791,7 +1799,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val badIdStore = storeWith(
       SessionRecord(
         name = "s",
-        stage = "",
+        stage = StagePath.FlowBody,
         id = "../../etc/passwd",
         seed = "s",
         resumeWireId = Some("srv-3"),
@@ -1820,7 +1828,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val badWireStore = storeWith(
       SessionRecord(
         name = "s",
-        stage = "",
+        stage = StagePath.FlowBody,
         id = "c-2",
         seed = "s",
         resumeWireId = Some(".*"),
@@ -1883,7 +1891,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       .upsert(
         SessionRecord(
           name = "s",
-          stage = "",
+          stage = StagePath.FlowBody,
           id = "client-uuid",
           seed = "brief",
           resumeWireId = Some("ses_server_1"),
@@ -3646,7 +3654,10 @@ class FlowLifecycleTest extends munit.FunSuite:
       )
     )
     store.upsertEntry(
-      StageEntry(id = "plan#0", name = "plan", resultJson = RawJson("\"done\""))
+      StageEntry(
+        id = StagePath.FlowBody.child("plan", 0),
+        resultJson = RawJson("\"done\"")
+      )
     )
     git.forceAdd(store.path)
     val _ = git.commit("orca: progress log")
@@ -3709,8 +3720,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val _ = git.commit("orca: progress log")
     store.upsertEntry(
       StageEntry(
-        id = "resumable-stage#0",
-        name = "resumable-stage",
+        id = StagePath.FlowBody.child("resumable-stage", 0),
         resultJson = RawJson("\"ok\"")
       )
     )
@@ -3774,8 +3784,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val _ = git.commit("orca: progress log")
     store.upsertEntry(
       StageEntry(
-        id = "resumable-stage#0",
-        name = "resumable-stage",
+        id = StagePath.FlowBody.child("resumable-stage", 0),
         resultJson = RawJson("\"ok\"")
       )
     )
@@ -3837,8 +3846,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val _ = git.commit("orca: progress log")
     store.upsertEntry(
       StageEntry(
-        id = "resumable-stage#0",
-        name = "resumable-stage",
+        id = StagePath.FlowBody.child("resumable-stage", 0),
         resultJson = RawJson("\"ok\"")
       )
     )
@@ -3983,7 +3991,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       .upsert(
         SessionRecord(
           name = "s",
-          stage = "",
+          stage = StagePath.FlowBody,
           id = "client-uuid",
           seed = "brief",
           resumeWireId = Some("ses_server_1"),

@@ -289,8 +289,7 @@ class FlowSessionTest extends FunSuite:
     for stageName <- completedStages do
       store.upsertEntry(
         StageEntry(
-          id = s"$stageName#0",
-          name = stageName,
+          id = StagePath.FlowBody.child(stageName, 0),
           resultJson = RawJson("null")
         )
       )
@@ -310,7 +309,7 @@ class FlowSessionTest extends FunSuite:
   private def carriedOverRecord(name: String, id: String): SessionRecord =
     SessionRecord(
       name = name,
-      stage = "",
+      stage = StagePath.FlowBody,
       id = id,
       seed = "seed",
       resumeWireId = Some("wire-1"),
@@ -349,7 +348,7 @@ class FlowSessionTest extends FunSuite:
       sessions = List(
         SessionRecord(
           name = "s",
-          stage = "",
+          stage = StagePath.FlowBody,
           id = testSessionId,
           seed = seed,
           resumeWireId = None,
@@ -407,7 +406,7 @@ class FlowSessionTest extends FunSuite:
       List(
         SessionRecord(
           name = "s",
-          stage = "",
+          stage = StagePath.FlowBody,
           id = testSessionId,
           seed = "You are a planning agent.",
           resumeWireId = None,
@@ -546,7 +545,7 @@ class FlowSessionTest extends FunSuite:
       sessions = List(
         SessionRecord(
           name = "s",
-          stage = "",
+          stage = StagePath.FlowBody,
           id = testSessionId,
           seed = seed,
           resumeWireId = None,
@@ -576,7 +575,7 @@ class FlowSessionTest extends FunSuite:
       sessions = List(
         SessionRecord(
           name = "s",
-          stage = "",
+          stage = StagePath.FlowBody,
           id = testSessionId,
           seed = "x",
           resumeWireId = None,
@@ -611,7 +610,7 @@ class FlowSessionTest extends FunSuite:
       sessions = List(
         SessionRecord(
           name = "s",
-          stage = "",
+          stage = StagePath.FlowBody,
           id = testSessionId,
           seed = "seed",
           resumeWireId = Some("wire-1"),
@@ -637,7 +636,7 @@ class FlowSessionTest extends FunSuite:
       sessions = List(
         SessionRecord(
           name = "s",
-          stage = "",
+          stage = StagePath.FlowBody,
           id = testSessionId,
           seed = "x",
           resumeWireId = None,
@@ -661,7 +660,7 @@ class FlowSessionTest extends FunSuite:
       sessions = List(
         SessionRecord(
           name = "s",
-          stage = "",
+          stage = StagePath.FlowBody,
           id = testSessionId,
           seed = seed,
           resumeWireId = None,
@@ -738,7 +737,7 @@ class FlowSessionTest extends FunSuite:
       sessions = List(
         SessionRecord(
           name = "s",
-          stage = "",
+          stage = StagePath.FlowBody,
           id = testSessionId,
           seed = "",
           resumeWireId = None,
@@ -785,7 +784,7 @@ class FlowSessionTest extends FunSuite:
     sessionStore.upsert(
       SessionRecord(
         name = "s",
-        stage = "",
+        stage = StagePath.FlowBody,
         id = testSessionId,
         seed = "",
         resumeWireId = None,
@@ -793,7 +792,10 @@ class FlowSessionTest extends FunSuite:
       )
     )
     store.upsertEntry(
-      StageEntry(id = "triage#0", name = "triage", resultJson = RawJson("null"))
+      StageEntry(
+        id = StagePath.FlowBody.child("triage", 0),
+        resultJson = RawJson("null")
+      )
     )
     val git = new orca.tools.OsGitTool(dir)
     val fc = new TestFlowControl(
@@ -828,7 +830,7 @@ class FlowSessionTest extends FunSuite:
       sessions = List(
         SessionRecord(
           name = "s",
-          stage = "",
+          stage = StagePath.FlowBody,
           id = testSessionId,
           seed = seed,
           resumeWireId = None,
@@ -874,7 +876,7 @@ class FlowSessionTest extends FunSuite:
       sessions = List(
         SessionRecord(
           name = "s",
-          stage = "",
+          stage = StagePath.FlowBody,
           id = testSessionId,
           seed = seed,
           resumeWireId = None,
@@ -896,7 +898,7 @@ class FlowSessionTest extends FunSuite:
       sessions = List(
         SessionRecord(
           name = "s",
-          stage = "",
+          stage = StagePath.FlowBody,
           id = testSessionId,
           seed = "seed",
           resumeWireId = None,
@@ -929,7 +931,7 @@ class FlowSessionTest extends FunSuite:
       sessions = List(
         SessionRecord(
           name = "s",
-          stage = "",
+          stage = StagePath.FlowBody,
           id = testSessionId,
           seed = "seed",
           backend = None,
@@ -960,7 +962,7 @@ class FlowSessionTest extends FunSuite:
       sessions = List(
         SessionRecord(
           name = "s",
-          stage = "",
+          stage = StagePath.FlowBody,
           id = testSessionId,
           seed = "seed",
           resumeWireId = None,
@@ -984,7 +986,7 @@ class FlowSessionTest extends FunSuite:
       sessions = List(
         SessionRecord(
           name = "s",
-          stage = "",
+          stage = StagePath.FlowBody,
           id = testSessionId,
           seed = "seed",
           resumeWireId = Some("server-1"),
@@ -1015,7 +1017,7 @@ class FlowSessionTest extends FunSuite:
       sessions = List(
         SessionRecord(
           name = "s",
-          stage = "",
+          stage = StagePath.FlowBody,
           id = testSessionId,
           seed = seed,
           resumeWireId = None,
@@ -1076,7 +1078,7 @@ class FlowSessionTest extends FunSuite:
       sessions = List(
         SessionRecord(
           name = "s",
-          stage = "",
+          stage = StagePath.FlowBody,
           id = testSessionId,
           seed = "seed",
           resumeWireId = None,

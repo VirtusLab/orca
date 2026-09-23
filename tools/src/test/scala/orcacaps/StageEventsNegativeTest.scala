@@ -7,7 +7,7 @@ class StageEventsNegativeTest extends munit.FunSuite:
 
   test("StageStarted cannot be constructed outside the orca package"):
     val errors = compileErrors(
-      """orca.events.OrcaEvent.StageStarted(orca.StagePath.FlowBody.child("x", 0), "x")"""
+      """orca.events.OrcaEvent.StageStarted(orca.StagePath.FlowBody.child("x", 0))"""
     )
     assert(
       errors.contains("does not take parameters"),

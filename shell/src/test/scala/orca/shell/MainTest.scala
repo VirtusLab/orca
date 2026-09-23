@@ -1,7 +1,7 @@
 package orca.shell
 
 import org.jline.terminal.{Terminal, TerminalBuilder}
-import orca.{OrcaArgs, RunTarget, StackSettings, Uncommitted}
+import orca.{OrcaArgs, RunTarget, StackSettings, StagePath, Uncommitted}
 import orca.agents.BackendTag
 import orca.settings.{SettingsFile, SettingsScope}
 import orca.shell.actions.{SettingsEditAction, StackAction}
@@ -358,14 +358,14 @@ class MainTest extends munit.FunSuite:
           durable(
             agent = "coder",
             sessionName = "implementer",
-            sessionStage = "Task: parse the input#0",
+            sessionStage = StagePath.FlowBody.child("Task: parse the input", 0),
             stage = Some("Task: parse the input"),
             lastActiveAt = "2026-07-18T09:00:00Z"
           ),
           durable(
             agent = "coder",
             sessionName = "implementer",
-            sessionStage = "Task: wire the parser#0",
+            sessionStage = StagePath.FlowBody.child("Task: wire the parser", 0),
             stage = Some("Task: wire the parser"),
             lastActiveAt = "2026-07-18T09:05:00Z"
           )

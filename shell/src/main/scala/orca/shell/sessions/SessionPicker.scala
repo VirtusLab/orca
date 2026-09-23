@@ -92,8 +92,8 @@ private[shell] object SessionPicker:
         .filter(ambiguous)
         .fold(""): key =>
           key.minted.stage match
-            case StagePath.Stage(id) => s" (minted in ${id.value})"
-            case _                   => " (minted in the flow body)"
+            case stage: StagePath.Stage => s" (minted in ${stage.display})"
+            case _                      => " (minted in the flow body)"
 
   private def resumeRow(
       s: SessionSelection,

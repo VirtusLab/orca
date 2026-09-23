@@ -33,13 +33,11 @@ private[shell] object ManifestFixtures:
       sessions = sessions
     )
 
-  /** A session minted under `sessionName` in the stage spelled `sessionStage`
-    * (the flow body when empty).
-    */
+  /** A session minted under `sessionName` in `sessionStage`. */
   def durable(
       agent: String = "main",
       sessionName: String = "main",
-      sessionStage: String = "",
+      sessionStage: StagePath = StagePath.FlowBody,
       stage: Option[String] = None,
       lastActiveAt: String = "2026-07-18T10:00:00Z",
       harness: BackendTag = BackendTag.ClaudeCode,
@@ -54,7 +52,7 @@ private[shell] object ManifestFixtures:
       minted = Some(
         SessionKey(
           name = sessionName,
-          stage = StagePath.fromValue(sessionStage)
+          stage = sessionStage
         )
       ),
       lastActiveAt = Instant.parse(lastActiveAt)

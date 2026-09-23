@@ -7,6 +7,7 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
 }
 import munit.FunSuite
 import orca.agents.JsonData
+import orca.StagePath
 import orca.gitref.CommitHash
 import orca.testkit
 import orca.util.RawJson
@@ -36,13 +37,11 @@ class ProgressLogTest extends FunSuite:
       header = header("feat/my-feature", flowName = Some("implement.sc")),
       entries = List(
         StageEntry(
-          id = "stage-1",
-          name = "Analyse",
+          id = StagePath.FlowBody.child("Analyse", 0),
           resultJson = RawJson("""{"ok":true}""")
         ),
         StageEntry(
-          id = "stage-2",
-          name = "Implement",
+          id = StagePath.FlowBody.child("Implement", 0).child("Task", 1),
           resultJson = RawJson("""{"files":["a.scala"]}""")
         )
       ),
@@ -58,6 +57,20 @@ class ProgressLogTest extends FunSuite:
   test("ProgressHeader round-trips a detached start (no startingBranch)"):
     val detached = header("feat/x").copy(startingBranch = None)
     assertEquals(roundTrip(detached), detached)
+
+  test("an entry whose id is the flow body's empty path fails to decode"):
+    val codec = summon[JsonData[ProgressLog]].codec
+    val entry =
+      StageEntry(
+        id = StagePath.FlowBody.child("x", 0),
+        resultJson = RawJson("1")
+      )
+    val json = writeToString(ProgressLog(header("feat/x"), List(entry), None))(
+      using codec
+    ).replace("""[{"name":"x","occurrence":0}]""", "[]")
+    intercept[JsonReaderException](
+      readFromString[ProgressLog](json)(using codec): Unit
+    )
 
   test("a branch that isn't a valid branch name fails to decode"):
     // Hand-editable like the commit below; only a valid name may reach git.

@@ -1,7 +1,7 @@
 package orca.progress
 
 import munit.FunSuite
-import orca.{RunKey, WorkspaceWrite}
+import orca.{RunKey, StagePath, WorkspaceWrite}
 import orca.util.RawJson
 import orca.gitref.CommitHash
 import orca.testkit.{TempDirs, branchName}
@@ -36,20 +36,17 @@ class ProgressStoreTest extends FunSuite:
 
     val a =
       StageEntry(
-        id = "stage-1",
-        name = "First",
+        id = StagePath.FlowBody.child("First", 0),
         resultJson = RawJson("""{"v":1}""")
       )
     val aPrime =
       StageEntry(
-        id = "stage-1",
-        name = "First",
+        id = StagePath.FlowBody.child("First", 0),
         resultJson = RawJson("""{"v":2}""")
       )
     val b =
       StageEntry(
-        id = "stage-2",
-        name = "Second",
+        id = StagePath.FlowBody.child("Second", 0),
         resultJson = RawJson("""{"v":3}""")
       )
 
@@ -69,8 +66,7 @@ class ProgressStoreTest extends FunSuite:
     store.writeHeader(header)
     store.upsertEntry(
       StageEntry(
-        id = "stage-1",
-        name = "First",
+        id = StagePath.FlowBody.child("First", 0),
         resultJson = RawJson("""{"v":1}""")
       )
     )
@@ -89,7 +85,10 @@ class ProgressStoreTest extends FunSuite:
     val store = ProgressStore.default(workDir, RunKey.of("my prompt"))
     val ex = intercept[IllegalStateException]:
       store.upsertEntry(
-        StageEntry(id = "stage-1", name = "First", resultJson = RawJson("{}"))
+        StageEntry(
+          id = StagePath.FlowBody.child("First", 0),
+          resultJson = RawJson("{}")
+        )
       )
     assert(
       ex.getMessage.contains("before writeHeader"),
@@ -108,7 +107,10 @@ class ProgressStoreTest extends FunSuite:
     os.write.over(store.path, "not json {{{")
     val ex = intercept[IllegalStateException]:
       store.upsertEntry(
-        StageEntry(id = "stage-1", name = "First", resultJson = RawJson("{}"))
+        StageEntry(
+          id = StagePath.FlowBody.child("First", 0),
+          resultJson = RawJson("{}")
+        )
       )
     assert(
       !ex.getMessage.contains("before writeHeader"),
