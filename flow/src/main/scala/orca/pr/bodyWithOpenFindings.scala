@@ -16,18 +16,15 @@ import orca.review.OpenFindings
 def bodyWithOpenFindings(body: String, open: OpenFindings): String =
   openFindingsSection(open).fold(body)(section => s"$body\n\n$section")
 
-/** Runs `step`, then reports `open` in the run output as one `Step` holding the
-  * same section the PR body gets — also when `step` throws, so a run whose PR
-  * failed still shows what its review left open. Nothing when nothing is open.
+/** Prints `open` to the run output as one `Step` holding the same section the
+  * PR body gets; nothing when nothing is open.
   *
-  * [[openPrFromBranch]] and [[openPrIfGitHub]] already do this; a flow that
-  * writes its own PR body wraps its final PR step in it.
+  * [[openPrFromBranch]] and [[openPrIfGitHub]] call it before their PR step, so
+  * a failed PR still leaves the findings in the output. A flow that writes its
+  * own PR body calls it the same way.
   */
-def reportingOpenFindings[T](open: OpenFindings)(step: => T)(using
-    ctx: FlowContext
-): T =
-  try step
-  finally openFindingsSection(open).foreach(s => ctx.emit(OrcaEvent.Step(s)))
+def reportOpenFindings(open: OpenFindings)(using ctx: FlowContext): Unit =
+  openFindingsSection(open).foreach(s => ctx.emit(OrcaEvent.Step(s)))
 
 /** The "Open review findings" section, or `None` when nothing is open. */
 private[pr] def openFindingsSection(open: OpenFindings): Option[String] =

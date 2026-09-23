@@ -197,9 +197,9 @@ class OpenPrIfGitHubTest extends FunSuite:
       List(bodyWithOpenFindings("Generated body", oneOpen))
     )
 
-  test("open findings are printed after the PR is opened"):
+  test("open findings are printed when the PR is opened"):
     val r = run(available, openFindings = oneOpen)
-    assertEquals(r.steps.last, openFindingsSection(oneOpen).get)
+    assert(r.steps.contains(openFindingsSection(oneOpen).get), r.steps)
 
   test("open findings are printed when no PR is opened"):
     // Without a PR the run output is the only place they show up.
@@ -208,7 +208,7 @@ class OpenPrIfGitHubTest extends FunSuite:
       openFindings = oneOpen
     )
     assertEquals(r.result, None)
-    assertEquals(r.steps.last, openFindingsSection(oneOpen).get)
+    assert(r.steps.contains(openFindingsSection(oneOpen).get), r.steps)
 
   test("with nothing open, no findings are printed"):
     val r = run(available)

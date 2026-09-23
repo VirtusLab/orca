@@ -48,19 +48,19 @@ def openPrFromBranch(
     context: Option[String] = None,
     instructions: String = PrPrompts.Summarise
 )(using FlowContext, FlowControl, OutsideStage): PrHandle =
-  reportingOpenFindings(openFindings):
-    pushBranch()
-    val summary =
-      summarise(
-        summarisingAgent,
-        git.defaultBase().orThrow,
-        context,
-        instructions
-      )
-    createPr(
-      title(summary),
-      bodyWithOpenFindings(body(summary), openFindings)
+  reportOpenFindings(openFindings)
+  pushBranch()
+  val summary =
+    summarise(
+      summarisingAgent,
+      git.defaultBase().orThrow,
+      context,
+      instructions
     )
+  createPr(
+    title(summary),
+    bodyWithOpenFindings(body(summary), openFindings)
+  )
 
 // The stage names and `summarise` are shared with [[openPrIfGitHub]], which
 // runs the same sequence with its own best-effort push and create.
