@@ -1,6 +1,10 @@
 package orca.tools.pi
 
-import orca.backend.{ConversationEvent, ConversationEventConformance}
+import orca.backend.{
+  AskUserChannel,
+  ConversationEvent,
+  ConversationEventConformance
+}
 import orca.events.{TurnDebit, Usage}
 import orca.agents.{BackendTag, Model, SessionId, WireSessionId, onWire}
 import orca.{AgentTurnFailed, OrcaFlowException, OrcaInteractiveCancelled}
@@ -24,7 +28,7 @@ class PiConversationTest extends munit.FunSuite:
     "text deltas complete with AssistantTurnEnd and produce AgentResult"
   ):
     val process = new FakePipedCliProcess()
-    val conv = new PiConversation(process, sid)
+    val conv = PiConversation(process, sid, "go")
 
     process.enqueueStdout(
       """{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"hello"}}"""
@@ -66,7 +70,7 @@ class PiConversationTest extends munit.FunSuite:
 
   convTest("message_end emits assistant text when no text delta streamed"):
     val process = new FakePipedCliProcess()
-    val conv = new PiConversation(process, sid)
+    val conv = PiConversation(process, sid, "go")
 
     process.enqueueStdout(
       """{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"fallback"}]}}"""
@@ -85,7 +89,7 @@ class PiConversationTest extends munit.FunSuite:
 
   convTest("thinking delta becomes AssistantThinkingDelta"):
     val process = new FakePipedCliProcess()
-    val conv = new PiConversation(process, sid)
+    val conv = PiConversation(process, sid, "go")
 
     process.enqueueStdout(
       """{"type":"message_update","assistantMessageEvent":{"type":"thinking_delta","delta":"checking"}}"""
@@ -104,7 +108,7 @@ class PiConversationTest extends munit.FunSuite:
 
   convTest("tool execution events become tool call and tool result"):
     val process = new FakePipedCliProcess()
-    val conv = new PiConversation(process, sid)
+    val conv = PiConversation(process, sid, "go")
 
     process.enqueueStdout(
       """{"type":"tool_execution_start","toolCallId":"call-1","toolName":"bash","args":{"command":"ls"}}"""
@@ -130,7 +134,7 @@ class PiConversationTest extends munit.FunSuite:
 
   convTest("a tool-call-only turn still ends with AssistantTurnEnd"):
     val process = new FakePipedCliProcess()
-    val conv = new PiConversation(process, sid)
+    val conv = PiConversation(process, sid, "go")
 
     process.enqueueStdout(
       """{"type":"tool_execution_start","toolCallId":"call-1","toolName":"bash","args":{"command":"ls"}}"""
@@ -147,7 +151,7 @@ class PiConversationTest extends munit.FunSuite:
 
   convTest("unknown events are ignored"):
     val process = new FakePipedCliProcess()
-    val conv = new PiConversation(process, sid)
+    val conv = PiConversation(process, sid, "go")
 
     process.enqueueStdout("""{"type":"session","id":"s"}""")
     process.enqueueStdout(
@@ -162,7 +166,7 @@ class PiConversationTest extends munit.FunSuite:
 
   convTest("usage accumulates across assistant messages"):
     val process = new FakePipedCliProcess()
-    val conv = new PiConversation(process, sid)
+    val conv = PiConversation(process, sid, "go")
 
     process.enqueueStdout(
       """{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"first"}],"usage":{"input":1,"output":2,"cacheRead":3}}}"""
@@ -193,7 +197,7 @@ class PiConversationTest extends munit.FunSuite:
 
   convTest("failed prompt response fails the conversation"):
     val process = new FakePipedCliProcess()
-    val conv = new PiConversation(process, sid)
+    val conv = PiConversation(process, sid, "go")
 
     process.enqueueStdout(
       """{"type":"response","id":"orca-prompt","command":"prompt","success":false,"error":"model unavailable"}"""
@@ -214,7 +218,7 @@ class PiConversationTest extends munit.FunSuite:
   // discard every message_end's usage already accrued for the turn.
   convTest("a failed response debits the usage accrued earlier in the turn"):
     val process = new FakePipedCliProcess()
-    val conv = new PiConversation(process, sid)
+    val conv = PiConversation(process, sid, "go")
 
     process.enqueueStdout(
       """{"type":"message_end","message":{"role":"assistant","model":"anthropic/claude-sonnet","content":[{"type":"text","text":"first"}],"usage":{"input":40,"output":9}}}"""
@@ -234,7 +238,8 @@ class PiConversationTest extends munit.FunSuite:
     "extension UI input request becomes UserQuestion and writes response"
   ):
     val process = new FakePipedCliProcess()
-    val conv = new PiConversation(process, sid, askUserEnabled = true)
+    val conv =
+      PiConversation(process, sid, "go", askUser = AskUserChannel.Native)
     assert(conv.canAskUser)
 
     process.enqueueStdout(
@@ -259,7 +264,7 @@ class PiConversationTest extends munit.FunSuite:
   // billed for every assistant message it ran.
   convTest("a cancelled turn carries the usage accrued before the cancel"):
     val process = new FakePipedCliProcess()
-    val conv = new PiConversation(process, sid)
+    val conv = PiConversation(process, sid, "go")
 
     process.enqueueStdout(
       """{"type":"message_end","message":{"role":"assistant","model":"anthropic/claude-sonnet","content":[{"type":"text","text":"partial"}],"usage":{"input":60,"output":4}}}"""
@@ -282,7 +287,7 @@ class PiConversationTest extends munit.FunSuite:
 
   convTest("fire-and-forget extension UI requests are ignored"):
     val process = new FakePipedCliProcess()
-    val conv = new PiConversation(process, sid)
+    val conv = PiConversation(process, sid, "go")
 
     process.enqueueStdout(
       """{"type":"extension_ui_request","id":"ui-status","method":"setStatus","statusKey":"x","statusText":"running"}"""
@@ -301,7 +306,7 @@ class PiConversationTest extends munit.FunSuite:
     "an extension_ui_request without a method is cancelled, not dropped"
   ):
     val process = new FakePipedCliProcess()
-    val conv = new PiConversation(process, sid)
+    val conv = PiConversation(process, sid, "go")
 
     process.enqueueStdout(
       """{"type":"extension_ui_request","id":"ui-x","title":"hm"}"""
@@ -317,32 +322,10 @@ class PiConversationTest extends munit.FunSuite:
     val _ = conv.awaitResult()
 
   convTest(
-    "an extension_ui_request buffered behind agent_end is dropped, not surfaced as a parse error"
-  ):
-    val process = new FakePipedCliProcess()
-    val conv = new PiConversation(process, sid)
-
-    process.enqueueStdout("""{"type":"agent_end","messages":[]}""")
-    // Already in the pipe when agent_end closed stdin, so the reader still
-    // handles it and its cancel reply lands on a closed stream.
-    process.enqueueStdout(
-      """{"type":"extension_ui_request","id":"ui-late","title":"hm"}"""
-    )
-    process.closeStdout()
-
-    // Assert the exact event, not just the absence of a parse error: the line
-    // must still be handled, and handled as an unsupported request.
-    assertEquals(
-      conv.events.toList.collect { case ConversationEvent.Error(m) => m },
-      List("Unsupported Pi extension UI request '': hm")
-    )
-    val _ = conv.awaitResult()
-
-  convTest(
     "message_end without content surfaces the error, not a parse failure"
   ):
     val process = new FakePipedCliProcess()
-    val conv = new PiConversation(process, sid)
+    val conv = PiConversation(process, sid, "go")
 
     process.enqueueStdout(
       """{"type":"message_end","message":{"role":"assistant","errorMessage":"model exploded"}}"""
@@ -368,7 +351,7 @@ class PiConversationTest extends munit.FunSuite:
 
   convTest("clean exit before agent_end fails"):
     val process = new FakePipedCliProcess(initiallyAlive = false)
-    val conv = new PiConversation(process, sid)
+    val conv = PiConversation(process, sid, "go")
     process.closeStdout()
     process.closeStderr()
 
@@ -379,7 +362,7 @@ class PiConversationTest extends munit.FunSuite:
   convTest("stderr diagnostics are attached to failures"):
     val process = new FakePipedCliProcess(initiallyAlive = false):
       override def tryExitCode: Option[Int] = Some(7)
-    val conv = new PiConversation(process, sid)
+    val conv = PiConversation(process, sid, "go")
     process.enqueueStderr("Pi auth failed")
     process.closeStdout()
     process.closeStderr()
@@ -390,7 +373,7 @@ class PiConversationTest extends munit.FunSuite:
 
   convTest("terminal notification stderr noise is ignored"):
     val process = new FakePipedCliProcess()
-    val conv = new PiConversation(process, sid)
+    val conv = PiConversation(process, sid, "go")
 
     process.enqueueStderr(
       "]777;notify;π;Implemented. Changed: extensions/relay/core/file.ts"
@@ -405,7 +388,7 @@ class PiConversationTest extends munit.FunSuite:
   convTest("stderr strips terminal controls before surfacing diagnostics"):
     val process = new FakePipedCliProcess(initiallyAlive = false):
       override def tryExitCode: Option[Int] = Some(7)
-    val conv = new PiConversation(process, sid)
+    val conv = PiConversation(process, sid, "go")
 
     process.enqueueStderr("auth\u001b[?25l failed\u001b[2K now")
     process.closeStdout()

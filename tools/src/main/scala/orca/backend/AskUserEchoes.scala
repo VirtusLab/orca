@@ -13,21 +13,18 @@ package orca.backend
   * (claude `mcp__<server>__<tool>`, codex a `(server, tool)` pair, gemini
   * `<server>__<tool>` or the bare slug — and gemini must NOT match a name
   * merely containing the slug).
-  *
-  * Single-threaded: touched only from the reader thread.
   */
-private[orca] final class AskUserEchoes:
-  private var ids: Set[String] = Set.empty
+private[orca] final case class AskUserEchoes(ids: Set[String]):
 
   /** Remember `id` so the paired tool-result echo is dropped when it arrives.
     */
-  def suppress(id: String): Unit = ids = ids + id
+  def suppress(id: String): AskUserEchoes = AskUserEchoes(ids + id)
 
-  /** True iff `id` was suppressed, forgetting it (the echo arrives once). False
-    * and a no-op for an unsuppressed id, so it is safe to call on every
-    * tool-result.
+  /** The echoes left once `id`'s is dropped, or `None` when `id` was never
+    * suppressed and its tool-result should surface. The echo arrives once.
     */
-  def consume(id: String): Boolean =
-    val hit = ids.contains(id)
-    if hit then ids = ids - id
-    hit
+  def consume(id: String): Option[AskUserEchoes] =
+    Option.when(ids.contains(id))(AskUserEchoes(ids - id))
+
+private[orca] object AskUserEchoes:
+  val empty: AskUserEchoes = AskUserEchoes(Set.empty)

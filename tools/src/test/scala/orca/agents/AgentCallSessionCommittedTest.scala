@@ -35,7 +35,7 @@ class AgentCallSessionCommittedTest extends munit.FunSuite:
     val listeners: List[OrcaListener] = Nil
     def drive[B <: BackendTag](
         conversation: Conversation[B]
-    )(using ox.Ox): AgentResult[B] =
+    ): AgentResult[B] =
       throw new UnsupportedOperationException("test stub")
 
   test(
@@ -84,7 +84,7 @@ class AgentCallSessionCommittedTest extends munit.FunSuite:
       val listeners: List[OrcaListener] = Nil
       def drive[B <: BackendTag](
           conversation: Conversation[B]
-      )(using ox.Ox): AgentResult[B] =
+      ): AgentResult[B] =
         conversation.awaitResult().fold(throw _, identity)
     val seen = AtomicReference[List[OrcaEvent]](Nil)
     val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }

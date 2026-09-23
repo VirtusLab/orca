@@ -9,7 +9,7 @@ import orca.agents.{
   WireSessionId
 }
 import orca.testkit.ScriptedConversation
-import ox.{Ox, supervised}
+import ox.supervised
 
 import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
 
@@ -24,11 +24,10 @@ private class CrashingConversation(
     override val outputSchema: Option[String] = None
 ) extends Conversation[BackendTag.Codex.type]:
   val cancelCount = new AtomicInteger(0)
-  def events(using Ox): Iterator[ConversationEvent] =
+  def events: Iterator[ConversationEvent] =
     eventList.iterator ++ Iterator.continually[ConversationEvent](throw crash)
-  def awaitResult()(using
-      Ox
-  ): Either[OrcaInteractiveCancelled, AgentResult[BackendTag.Codex.type]] =
+  def awaitResult()
+      : Either[OrcaInteractiveCancelled, AgentResult[BackendTag.Codex.type]] =
     throw new IllegalStateException("awaitResult should be unreachable")
   def canAskUser: Boolean = false
   def cancel(): Unit =
