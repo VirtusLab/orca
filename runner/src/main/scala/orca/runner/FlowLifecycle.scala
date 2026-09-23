@@ -23,11 +23,9 @@ import orca.progress.{
   FlowSource,
   ProgressHeader,
   ProgressLog,
-  ProgressScan,
   ProgressStore,
   ProtectedBranchRefused,
   RecoveryCheck,
-  ScannedProgressLog,
   ThrowawayBranch,
   NotASlugRefused
 }
@@ -169,26 +167,6 @@ object FlowLifecycle:
           )
         )
 
-  /** ADR 0019 migration warning: a repo that gitignores `.orca/` keeps the
-    * committed stack settings out of version control, so every run names the
-    * likely `.orca/` line to remove. Skipped under a programmatic override
-    * (which neither reads nor writes the file). Best-effort and never fails the
-    * flow.
-    */
-  private def warnIfSettingsIgnored(
-      git: GitTool,
-      stackOverridden: Boolean,
-      emit: OrcaEvent => Unit
-  ): Unit =
-    if !stackOverridden && git.isIgnored(OrcaDir.settingsSubPath) then
-      emit(
-        OrcaEvent.Step(
-          "stack settings at .orca/settings.properties are gitignored — " +
-            "remove the '.orca/' line from .gitignore so they can be " +
-            "committed (scratch self-ignores under .orca/cache/)"
-        )
-      )
-
   /** Outcome of [[setup]] (ADR 0019 stack settings included).
     *
     * `featureBranch` is a [[FeatureBranch]], not a bare `String`: both arms of
@@ -222,9 +200,9 @@ object FlowLifecycle:
       worktree: Option[os.Path]
   )
 
-  /** The branch half of [[FlowSetup]] (FP2), resolved by whichever of
-    * [[setup]]'s three `store.loadDetailed()` arms runs (corrupt log, absent
-    * log, or resumed) before the stack-settings half is folded in.
+  /** The branch half of [[FlowSetup]], resolved by whichever of
+    * [[SetupSession.bindBranch]]'s arms runs (corrupt log, absent log, or
+    * resumed) before the stack-settings half is folded in.
     *
     * `startingCommit` comes from the same arm: a fresh run records the commit
     * it bound at, a resumed one reads back what its header recorded, so both
@@ -238,47 +216,16 @@ object FlowLifecycle:
   )
 
   /** Bind the run to a branch + progress log before the body runs (ADR 0018
-    * §2.4/§2.5). Records the starting branch, snapshots the log file, applies
-    * the cleanliness policy below, then either resumes an existing log or
-    * starts fresh (resolve a branch name, create it, write + commit the
-    * header). All git/store mutations run with a runtime-minted
-    * `WorkspaceWrite`, and branch-name resolution with a runtime-minted
-    * `InStage` — setup is privileged, predating any user stage.
+    * §2.4/§2.5), in three phases:
+    *   - [[SetupPreflight.run]] — reads only, so every refusal leaves the tree
+    *     and branch as the user left them.
+    *   - [[SetupSession.settle]] — the cleanliness verdict carried out: stash
+    *     or keep, then the peeked log put back if the stash removed it.
+    *   - stack discovery, then [[SetupSession.bindBranch]] — the authoritative
+    *     read of the log decides fresh vs resume.
     *
-    * Before any of that — and before any tree mutation — a fresh run refuses to
-    * start on a branch another run's progress log already claims; see
-    * [[abortIfBranchBusy]].
-    *
-    * This run's own log is peeked at ONCE pre-stash (`ownLog` below) and shared
-    * by the two steps that need it before any tree mutation:
-    * [[abortIfBranchBusy]] and [[SetupSession.applyCleanlinessPolicy]]. A
-    * pre-stash read can see a dirty working copy, which is why the peek never
-    * routes fresh-vs-resume — that stays with the post-stash authoritative read
-    * below. The busy check only ever refuses, and a dirty own log that fails to
-    * load is treated like an absent one: no resumable run of mine here, so
-    * another run's claim on this branch still stands.
-    *
-    * Cleanliness policy: the peek's facts feed [[DirtyTreePolicy.decide]] (the
-    * decision table lives there), and [[SetupSession.applyCleanlinessPolicy]]
-    * carries the verdict out — stash, keep, or an abort thrown before anything
-    * in the tree is touched.
-    *
-    * The progress header is untrusted input on load (the log is human-visible
-    * and pushable), so the AUTHORITATIVE read — at the `binding` match below —
-    * always runs after the cleanliness decision (stash or tolerate), never
-    * before: a tracked-but-dirty log must be classified from its last COMMITTED
-    * content, never a possibly-broken in-progress edit, in every mode. On top
-    * of that, a resumed run:
-    *   - Snapshots the log file before the cleanliness decision and restores it
-    *     if a stash removed it, so the header is always readable.
-    *   - Validates the header before any destructive action (prompt-hash match,
-    *     no protected feature branch). A parseable-but-invalid header is a hard
-    *     abort (`OrcaFlowException`), not a silent fresh start. (An unparseable
-    *     log — malformed refs included — → fresh run, but warned since it's
-    *     distinguishable from a genuinely absent log.)
-    *   - Cross-checks that the current branch is the one the header records: a
-    *     log that surfaced on a branch it does not name (e.g. carried along by
-    *     a merge) aborts rather than resuming against the wrong branch.
+    * The tokens are minted between the first two phases: setup is privileged,
+    * predating any user stage.
     *
     * On resume `startingHead` is the header's recorded one (where the first
     * attempt started), so a return-to-start goes there, not to the re-run's
@@ -313,29 +260,18 @@ object FlowLifecycle:
       tty: () => Boolean = () => TtyProbe.stdin() && TtyProbe.stderr(),
       ask: Int => DirtyTreeChoice = DirtyTreePolicy.promptOnStderr
   ): FlowSetup =
+    val preflight = SetupPreflight.run(
+      args,
+      git,
+      workDir,
+      stackOverridden,
+      store,
+      emit,
+      tty,
+      ask
+    )
     given InStage = RuntimeInStage.token()
     given WorkspaceWrite = RuntimeInStage.workspaceToken()
-    warnIfSettingsIgnored(git, stackOverridden, emit)
-    abortIfNoCommits(git)
-    val startingHead = git.head()
-    val ownLog = store.loadDetailed()
-    startingHead match
-      case Head.OnBranch(branch) =>
-        abortIfBranchBusy(ownLog, store.path, workDir, branch)
-      // No branch for another run to have claimed.
-      case Head.Detached(_) => ()
-    // The protected set both binding arms enforce: the always-protected floor
-    // (`main`/`master`) plus the repo's detected default branch (best-effort;
-    // failed detection falls back to just the floor). Computed once so the
-    // fresh and resume arms apply the identical policy from the identical set.
-    val protectedBranches =
-      FeatureBranch.alwaysProtected ++ git
-        .defaultBranch()
-        .map(_.toLowerCase(java.util.Locale.ROOT))
-    abortIfRequestedBranchRefused(args, ownLog, git, protectedBranches)
-    // Snapshot the log file before any stash, restore it after if the stash
-    // removed it — so an uncommitted/untracked log is still readable below.
-    val snapshot = snapshotLog(store.path)
     val session =
       SetupSession(
         args,
@@ -345,22 +281,21 @@ object FlowLifecycle:
         branchNaming,
         store,
         flowSource,
-        emit,
-        tty,
-        ask
+        emit
       )
-    val untrackedOnFailure = session.applyCleanlinessPolicy(ownLog)
-    restoreLogIfMissing(workDir, store.path, snapshot)
-    // Discovery (ADR 0019) is sequenced after the cleanliness decision (whose
-    // stash, when it runs, would sweep a just-written untracked file straight
-    // back out of the tree). When it runs, the written file gets its own commit
-    // (`commitDiscoveredSettings`, below), so no later `add -A` sweep carries
-    // it under an unrelated message. `discovered` flags that the write
-    // happened, gating those commits.
+    val untrackedOnFailure = session.settle(preflight)
+    // Discovery (ADR 0019) is sequenced after the stash, which would sweep a
+    // just-written untracked file straight back out of the tree. When it runs,
+    // the written file gets its own commit (`commitDiscoveredSettings`), so no
+    // later `add -A` sweep carries it under an unrelated message. `discovered`
+    // flags that the write happened, gating those commits.
     val (stackSettings, discovered) =
       resolveStackSettings(agent, workDir, resolution, emit)
-    val binding =
-      session.bindBranch(startingHead, protectedBranches, discovered)
+    val binding = session.bindBranch(
+      preflight.startingHead,
+      preflight.protectedBranches,
+      discovered
+    )
     emit(OrcaEvent.BranchBound(binding.featureBranch.value))
     FlowSetup(
       store,
@@ -377,124 +312,10 @@ object FlowLifecycle:
       Option.when(WorktreeRun.isWorktreeRun(workDir))(workDir)
     )
 
-  /** On an unborn HEAD (`git init`, no commits) every later git call that names
-    * `HEAD` exits 128 with git's "ambiguous argument 'HEAD'" fatal, so refuse
-    * here with our own message. `headCommit()` is also `None` outside a git
-    * repository, hence the message names both cases.
-    */
-  private def abortIfNoCommits(git: GitTool): Unit =
-    if git.headCommit().isEmpty then
-      throw new OrcaFlowException(GitPreconditions.needsRepoWithCommit)
-
-  /** Refuses a fresh run's `--branch` with read-only queries, before the
-    * cleanliness policy stashes anything. [[createRequestedBranch]] repeats
-    * both checks when it creates the branch.
-    */
-  private def abortIfRequestedBranchRefused(
-      args: OrcaArgs,
-      ownLog: JsonFile.Read[ProgressLog],
-      git: GitTool,
-      protectedBranches: Set[String]
-  ): Unit =
-    ownLog match
-      case JsonFile.Read.Absent | JsonFile.Read.Corrupt(_) =>
-        args.branch.foreach: name =>
-          val _ = requestedBranch(name, protectedBranches)
-          if git.branchExists(name) then throw requestedBranchExists(name)
-      case _ => ()
-
-  /** Refuse to start a NEW run on a branch that another run's progress log
-    * already claims (ADR 0018 §2.5, R1 amendment).
-    *
-    * Logs are prompt-keyed, so a differently worded task finds this run's own
-    * log `Absent` and would otherwise start fresh on whatever branch is checked
-    * out — silently sharing it with an interrupted run whose stages are
-    * half-done. A log naming the current branch IS such a run: failure teardown
-    * keeps the log and stays on the branch, success teardown deletes it.
-    *
-    * Skipped when this run's own log loads (`ownLog`, [[setup]]'s shared
-    * pre-stash peek): that is a legitimate resume of the same prompt, and the
-    * branch its header names is its own (validated downstream by `bindBranch`)
-    * — so other logs naming the branch don't turn a resume into a conflict.
-    *
-    * Runs before the cleanliness policy, so an abort leaves the tree and branch
-    * exactly as the user left them. Reading foreign logs pre-stash can pick up
-    * uncommitted content, which is fine here: this check only ever refuses,
-    * unlike `bindBranch`'s authoritative post-stash read.
-    */
-  private def abortIfBranchBusy(
-      ownLog: JsonFile.Read[ProgressLog],
-      ownPath: os.Path,
-      workDir: os.Path,
-      startingBranch: BranchName
-  ): Unit =
-    ownLog match
-      case JsonFile.Read.Loaded(_) => ()
-      case _ =>
-        busyBranchLog(ownPath, workDir, startingBranch).foreach: log =>
-          throw new OrcaFlowException(
-            branchBusyMessage(log, workDir, startingBranch)
-          )
-
-  /** The newest by mtime of the OTHER progress logs naming `startingBranch` —
-    * newest-wins like the shell's resume offer, since several logs (different
-    * prompts) can name one branch. Corrupt logs are already dropped by the
-    * scan; a scan failure (`.orca` unreadable, or removed mid-listing) yields
-    * `None` rather than propagating, since this guard-rail must not fail a run
-    * that is otherwise fine.
-    */
-  private def busyBranchLog(
-      ownPath: os.Path,
-      workDir: os.Path,
-      startingBranch: BranchName
-  ): Option[ScannedProgressLog] =
-    try
-      ProgressScan
-        .progressLogs(workDir)
-        .filter(l => l.path != ownPath && l.header.branch == startingBranch)
-        .maxByOption(l => os.mtime(l.path))
-    catch case NonFatal(_) => None
-
-  /** Identifies the run being refused — its recorded task and flow, plus the
-    * log's own path, which is both how the user reads the full task text back
-    * and what they delete to abandon the run — and lists every way out.
-    *
-    * The task is header content, committed and hand-editable, so it reaches the
-    * terminal through [[TextUtil.onelinePreview]]: sanitized, and clipped so a
-    * long task can't bury the guidance after it.
-    *
-    * The shell's menu row is mentioned as a possibility, not a promise, and
-    * only when the header carries a flow name — the shell needs one to offer
-    * the row at all, but applies further conditions of its own
-    * (`ResumeDetector`), so the always-available re-run route is given either
-    * way. Abandoning is spelled as a git removal: the log is committed on the
-    * branch, so a plain `rm` is undone by the next run's auto-stash restore.
-    */
-  private def branchBusyMessage(
-      log: ScannedProgressLog,
-      workDir: os.Path,
-      startingBranch: BranchName
-  ): String =
-    val header = log.header
-    val task = TextUtil.onelinePreview(header.userPrompt, 60)
-    val flow = header.flow
-      .map(source => s", flow: ${source.display}")
-      .getOrElse("")
-    val logPath = log.path.relativeTo(workDir)
-    val shellRoute =
-      if header.flow.isDefined then
-        ", which the orca shell may also offer as \"Resume interrupted run\""
-      else ""
-    s"branch '${startingBranch.value}' already has an unfinished orca run on it " +
-      s"(task: $task$flow, log: $logPath) — resume it by re-running its flow " +
-      s"with the identical task text$shellRoute, abandon it by removing its " +
-      s"log (git rm $logPath && git commit -m \"abandon orca run\"), or " +
-      "switch to a different branch before starting a new run"
-
   /** [[setup]]'s fixed inputs — the coding-role agent, git, workDir, the
-    * progress store, the emit sink — shared by the cleanliness-policy and
-    * branch-binding steps below, so each reads as `session.xxx(...)` rather
-    * than repeating the same handful of parameters at every call site.
+    * progress store, the emit sink — shared by its mutating phases, so each
+    * reads as `session.xxx(...)` rather than repeating the same handful of
+    * parameters at every call site.
     */
   private final class SetupSession(
       args: OrcaArgs,
@@ -504,45 +325,20 @@ object FlowLifecycle:
       branchNaming: Option[BranchNamingStrategy],
       store: ProgressStore,
       flowSource: Option[FlowSource],
-      emit: OrcaEvent => Unit,
-      tty: () => Boolean,
-      ask: Int => DirtyTreeChoice
+      emit: OrcaEvent => Unit
   ):
 
-    /** Cleanliness policy (ADR 0018 amendment) — carries out what
-      * [[DirtyTreePolicy.decide]] chose. `ownLog` is [[setup]]'s shared
-      * pre-stash peek; see its doc for why a pre-stash peek may gate this
-      * decision but never routes fresh-vs-resume. A PRESENT log — a resume, or
-      * one too broken to classify before the stash reverts it — is what turns
-      * the decision away from every keep path, so presence is the fact passed
-      * on, not resumability.
-      *
-      * Aborting throws here, which is before the first stash and the first
-      * branch mutation alike: a refused run leaves the tree as the user left
-      * it.
-      *
-      * Returns what failure teardown may then do with untracked files (see
-      * [[FlowSetup.untrackedOnFailure]]).
+    /** Carry out [[SetupPreflight.run]]'s cleanliness verdict, then put back
+      * the peeked log if the stash removed it, so the authoritative read in
+      * [[bindBranch]] finds it. Returns what failure teardown may then do with
+      * untracked files (see [[FlowSetup.untrackedOnFailure]]).
       */
-    def applyCleanlinessPolicy(
-        ownLog: JsonFile.Read[ProgressLog]
-    )(using WorkspaceWrite): UntrackedFiles =
-      val dirtyCount = git.dirtyPaths().size
-      val facts = DirtyTreeFacts(
-        ownLogPresent = ownLog != JsonFile.Read.Absent,
-        skipBranch = args.target.skipBranch,
-        keepChanges = args.target.keepChanges,
-        dirtyCount = dirtyCount
-      )
-      DirtyTreePolicy.decide(facts, tty, ask) match
-        case DirtyTreeChoice.Stash => stashDirtyTree(dirtyCount)
-        case DirtyTreeChoice.Keep  => keepDirtyTree(dirtyCount)
-        case DirtyTreeChoice.Abort =>
-          throw new OrcaFlowException(
-            s"refusing to start with $dirtyCount uncommitted/untracked " +
-              "file(s) in the working tree — commit or stash them yourself, " +
-              "or re-run with --keep-changes to leave them in place"
-          )
+    def settle(preflight: Preflight)(using WorkspaceWrite): UntrackedFiles =
+      val untracked = preflight.tree match
+        case TreePlan.Stash => stashDirtyTree(preflight.dirtyCount)
+        case TreePlan.Keep  => keepDirtyTree(preflight.dirtyCount)
+      store.restoreIfRemoved(preflight.peeked)
+      untracked
 
     /** Stash whatever is dirty, so the run starts from committed content. Says
       * once that `--keep-changes` lost, and only when it did: the flag holds
@@ -583,8 +379,9 @@ object FlowLifecycle:
       * branch for a valid log, warn and start fresh from a corrupt one, start
       * fresh when none exists, and abort on one that cannot be read, since the
       * fresh start would replace a file that may still hold a resumable run.
-      * This is the AUTHORITATIVE `store.loadDetailed()` read; see [[setup]]'s
-      * doc for why it always runs after the cleanliness decision.
+      * This is the AUTHORITATIVE read of the log: it runs after [[settle]], so
+      * a tracked-but-dirty log is classified from its last committed content,
+      * never an in-progress edit.
       */
     def bindBranch(
         startingHead: Head,
@@ -595,12 +392,9 @@ object FlowLifecycle:
         case JsonFile.Read.Corrupt(reason) =>
           warnCorruptLog(reason)
           freshBinding(startingHead, protectedBranches, discovered)
+        // Readable at the peek; the file changed since.
         case JsonFile.Read.Unreadable(reason) =>
-          throw new OrcaFlowException(
-            s"progress log at ${store.path} exists but cannot be read " +
-              s"($reason) — it may be a resumable run, so fix its permissions " +
-              "to resume it, or delete the file to start fresh"
-          )
+          throw SetupPreflight.unreadableLog(store.path, reason)
         case JsonFile.Read.Absent =>
           freshBinding(startingHead, protectedBranches, discovered)
         case JsonFile.Read.Loaded(progressLog) =>
@@ -1037,31 +831,10 @@ object FlowLifecycle:
       name: BranchName,
       protectedBranches: Set[String]
   )(using WorkspaceWrite): FeatureBranch =
-    val featureBranch = requestedBranch(name, protectedBranches)
+    val featureBranch = SetupPreflight.requestedBranch(name, protectedBranches)
     git.createBranch(featureBranch) match
       case Right(()) => featureBranch
-      case Left(_)   => throw requestedBranchExists(name)
-
-  /** `name` as a [[FeatureBranch]]; throws when it is protected. */
-  private def requestedBranch(
-      name: BranchName,
-      protectedBranches: Set[String]
-  ): FeatureBranch =
-    // `resolveReused`, not `resolve`: the latter's slug shape would refuse
-    // valid user names such as `feature/JIRA-123`.
-    FeatureBranch.resolveReused(name, protectedBranches) match
-      case Right(featureBranch) => featureBranch
-      case Left(refused) =>
-        throw new OrcaFlowException(
-          s"--branch '${refused.name}' is a protected branch in this repo — " +
-            "pick another --branch name"
-        )
-
-  private def requestedBranchExists(name: BranchName): OrcaFlowException =
-    new OrcaFlowException(
-      s"branch '${name.value}' already exists — check it out and re-run " +
-        "with --skip-branch to continue on it, or pick another --branch name"
-    )
+      case Left(_)   => throw SetupPreflight.requestedBranchExists(name)
 
   /** Give the just-discovered settings file its own commit (ADR 0019), so the
     * commit that follows carries only what its message names. Called on both
@@ -1169,24 +942,6 @@ object FlowLifecycle:
             case Right(()) => fallback
             case Left(_)   => doubleCollisionAbort(fallback.value)
 
-  /** Read the bytes of the progress-log file if it exists, else `None`. */
-  private[runner] def snapshotLog(path: os.Path): Option[Array[Byte]] =
-    if os.exists(path) then Some(os.read.bytes(path)) else None
-
-  /** Restore the progress-log file from a pre-stash snapshot if the stash
-    * removed it, so the header is always readable. A no-op when there was
-    * nothing to snapshot or the file still exists.
-    */
-  private[runner] def restoreLogIfMissing(
-      workDir: os.Path,
-      path: os.Path,
-      snapshot: Option[Array[Byte]]
-  ): Unit =
-    snapshot.foreach: bytes =>
-      if !os.exists(path) then
-        val _ = OrcaDir.ensureRuns(workDir)
-        os.write(path, bytes)
-
   /** Run a teardownSuccess leg best-effort: any `NonFatal` failure is caught
     * and debug-logged (never printed, never surfaced) so it cannot escape
     * teardown, trigger the failure path, or strand the user. `what` names the
@@ -1244,7 +999,7 @@ object FlowLifecycle:
               git.trackedChangedFiles(base).size,
               setup.featureBranch
             )
-        bestEffort("remove progress log")(os.remove(setup.store.path): Unit)
+        bestEffort("remove progress log")(setup.store.remove())
         // Dropped with the log, and for the same reason: a later run of this
         // prompt is a new run, not a resume, so it must open fresh backend
         // conversations rather than continue this one's.
