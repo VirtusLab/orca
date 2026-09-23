@@ -142,8 +142,7 @@ class ClaudeBackendTest extends munit.FunSuite:
     assertEquals(parsed("mcpServers")("s").url, url)
 
   test("a read-only autonomous call wires the repo-read MCP server"):
-    // The config is read at spawn, not after: the conversation deletes it when
-    // the turn finalizes.
+    // The config is read at spawn, not after: it is deleted when the turn ends.
     var mcpConfig: Option[String] = None
     val runner = new SpawnStubCliRunner(
       List(successfulProcess()),
@@ -164,7 +163,7 @@ class ClaudeBackendTest extends munit.FunSuite:
         repoToolNames.mkString(",")
       )
 
-  test("the repo-read MCP binding and its config go when the turn finalizes"):
+  test("the repo-read MCP binding and its config go when the turn ends"):
     // A leaked binding holds its Netty event-loop threads and its port for the
     // life of the JVM, and a flow runs hundreds of read-only turns.
     var probe: Option[(String, os.Path)] = None
@@ -483,7 +482,7 @@ class ClaudeBackendTest extends munit.FunSuite:
       )
     promptText
 
-  test("the system-prompt temp file is deleted when the turn finalizes"):
+  test("the system-prompt temp file is deleted when the turn ends"):
     // `os.temp`'s deleteOnExit only fires at JVM shutdown; a flow runs hundreds
     // of turns, so the file must go at turn end.
     var promptFile: Option[os.Path] = None
@@ -503,8 +502,8 @@ class ClaudeBackendTest extends munit.FunSuite:
     require(idx >= 0, s"no --append-system-prompt-file in $args")
     os.Path(args(idx + 1))
 
-  /** Read that file at spawn time — the conversation deletes it when the turn
-    * finalizes, so it is gone by the time `runAutonomous` returns.
+  /** Read that file at spawn time — it is deleted when the turn ends, so it is
+    * gone by the time `runAutonomous` returns.
     */
   private def readSystemPrompt(args: List[String]): String =
     os.read(systemPromptPath(args))

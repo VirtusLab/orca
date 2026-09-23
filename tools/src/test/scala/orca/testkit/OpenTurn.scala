@@ -2,6 +2,7 @@ package orca.testkit
 
 import orca.agents.{AgentConfig, BackendTag, SessionId}
 import orca.backend.{AgentBackend, Conversation, ConversationMode, TurnRequest}
+import orca.events.OrcaListener
 import ox.Ox
 
 /** Opens one interactive turn on a real backend and hands back the live
@@ -23,6 +24,7 @@ object OpenTurn:
         backend.sessions.dispatchFor(session),
         ConversationMode.Interactive(displayPrompt),
         config,
-        outputSchema
+        outputSchema,
+        OrcaListener.noop
       )
     )

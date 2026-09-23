@@ -15,8 +15,7 @@ import java.util.concurrent.atomic.AtomicReference
   * Also owns the full stderr pipeline (see [[handleStderr]]): strip terminal
   * control sequences → trim → drop known noise → surface as an `Error` event →
   * record for the bounded diagnostic buffer. Each mixing-in driver varies only
-  * its own [[isStderrNoise]] predicate. A driver needing extra teardown
-  * overrides `onFinalize` and calls `super.onFinalize()`.
+  * its own [[isStderrNoise]] predicate.
   */
 private[orca] trait StderrPipeline[B <: BackendTag]
     extends ForkedConversation[B]:

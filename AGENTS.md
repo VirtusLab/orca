@@ -301,7 +301,7 @@ Three location classes decide what survives:
 | `.orca/cache/lint-*.txt` | cache | lint output too large to inline in a prompt | `Lint` | the summarising agent | `lint`'s `finally` |
 | `.orca/cache/{,runs/,attempts/}.<file>.<n>.tmp` | cache | in-flight temp of a `JsonFile` rewrite: beside its target, except the progress log's, staged in `.orca/cache/` so it is never committed | `JsonFile` | — (`AttemptManifestWriter`'s pruning skips dot-files) | the rename that completes the write |
 | `.orca/worktrees/<key>/` (+ branch `orca-worktree-<key>`) | worktrees | a `--worktree` run's checkout, with its own `.orca/` inside | `WorktreeRun` | `WorktreeScan` (shell) | never — see README |
-| `<workDir>/.gemini/settings.json` | user tree | an `mcpServers.orca` entry for one interactive gemini conversation | `GeminiSettings` | gemini | restored on conversation end; a `.gemini/` orca created is removed when left empty |
+| `<workDir>/.gemini/settings.json` | user tree | an `mcpServers.orca` entry for one interactive gemini conversation | `GeminiSettings` | gemini | restored at turn end; a `.gemini/` orca created is removed when left empty |
 | `$TMPDIR/orca-*` (system prompts, claude MCP config, codex schema, pi extension) | temp | per-turn IPC files handed to a CLI on argv | each backend | the CLI | turn end |
 | `$TMPDIR/orca-authoring-<n>/` | temp | the authoring flow's sandbox repo; `.orca/cache/orca-api-<version>/` inside holds the README + example flows (+ `fork-source/`) | `AuthoringSandbox`, `FlowAuthoring` | the coding agent | success or cancel; kept on failure, and nothing else prunes it |
 | `$XDG_CACHE_HOME/orca/shell/<version>/flows/` | XDG cache | built-in flows extracted from the jar | `BuiltInFlows` | `FlowCatalog`, scala-cli | never; nothing prunes older versions |
@@ -486,10 +486,12 @@ Orca is 0.x: no backwards compatibility is owed anywhere.
   `Inherit`, which lets subprocess output bypass the renderer's StatusBar
   and tear the spinner row.
 - Every `spawnPiped` child carries a unique `ORCA_TURN_COOKIE`
-  (`orca.sweep.EnvCookie`). At turn teardown `EnvCookieSweep` scans
-  `/proc/*/environ` for it and REPORTS what is still running — the backstop for
-  work an agent detached from orca's process tree, which no parent-link
-  teardown can reach. Report-only unless `ORCA_SWEEP_KILL=1`; Linux only, and
+  (`orca.sweep.EnvCookie`). `SubprocessSpawn.open` registers `EnvCookieSweep`
+  with the turn scope, so at turn end it scans `/proc/*/environ` for the
+  agent's cookie and REPORTS what is still running — the backstop for work an
+  agent detached from orca's process tree, which no parent-link teardown can
+  reach. opencode's turns spawn nothing (they run on the per-run server), so
+  they are not swept. Report-only unless `ORCA_SWEEP_KILL=1`; Linux only, and
   silently inert elsewhere (nothing to act on, so nothing is said).
 - Any filesystem write under `.orca/` **must** go through an
   `OrcaDir.ensure*` accessor, which refuses a symlinked `.orca` or

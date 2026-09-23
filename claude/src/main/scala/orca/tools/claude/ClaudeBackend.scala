@@ -19,7 +19,8 @@ import orca.backend.{
   IdScheme,
   SessionSupport,
   SubprocessSpawn,
-  SystemPromptComposer
+  SystemPromptComposer,
+  TurnResources
 }
 import orca.subprocess.CliRunner
 import orca.backend.mcp.{
@@ -31,7 +32,7 @@ import orca.backend.mcp.{
 }
 import orca.tools.{GitTool, OsGitHubTool, OsGitTool}
 import orca.tools.claude.streamjson.OutboundMessage
-import ox.Ox
+import ox.{Ox, ResourceScope}
 
 import scala.concurrent.duration.FiniteDuration
 
@@ -154,18 +155,13 @@ private[orca] class ClaudeBackend(
     * is entitled to.
     *
     * Their config is written to one temp file (see [[writeMcpConfig]]) and
-    * passed via `--mcp-config`, and their tools are pre-approved by name. Each
-    * is a session resource closed from `onFinalize` after the read loop drains;
-    * if anything between allocation and conversation construction throws, they
-    * are torn down (and the process SIGINTed if already spawned) so nothing
-    * leaks.
+    * passed via `--mcp-config`, and their tools are pre-approved by name. The
+    * servers and temp files are released when the turn scope ends.
     */
   override protected[orca] def open(
       turn: TurnRequest[BackendTag.ClaudeCode.type]
   )(using Ox): Conversation[BackendTag.ClaudeCode.type] =
     import turn.*
-    // Allocate MCP resources up front so a downstream failure can close them
-    // deterministically.
     val displayPrompt = mode.displayPrompt
     val askUser: Option[AskUserSession] =
       Option.when(mode.isInteractive)(AskUserSession.allocate())
@@ -177,15 +173,7 @@ private[orca] class ClaudeBackend(
       hints = askUser.map(_ => AskUserMcpServer.Hint).toList ++
         servers.map(_.hint)
     )
-    // One list, handed to both sides: `open` releases it if the spawn or the
-    // build fails, the conversation's `onFinalize` releases it on the happy
-    // path. `askUser` stays separate — `ForkedConversation` owns it, because
-    // the bridge must be errored before the read loop is torn down.
-    val perTurn: List[AutoCloseable] =
-      servers.map(_.host) ++
-        mcpConfig.map(SubprocessSpawn.deleteFileResource) ++
-        List(SubprocessSpawn.deleteFileResource(systemPromptFile))
-    SubprocessSpawn.open("claude stream-json", askUser.toList ++ perTurn) {
+    SubprocessSpawn.open("claude stream-json", events) {
       // `autoApproveAlso` reaches `--allowedTools` only on `Full`; the
       // read-only tiers ignore `autoApprove` entirely, so the name also goes
       // through `mcpTools` below. Both, because `Full` needs the config route
@@ -217,8 +205,7 @@ private[orca] class ClaudeBackend(
         config,
         initialPrompt = displayPrompt,
         outputSchema = outputSchema,
-        askUser = askUser,
-        resources = perTurn
+        askUser = askUser
       )
     }
 
@@ -270,33 +257,37 @@ private[orca] class ClaudeBackend(
   private def writeMcpConfig(
       askUser: Option[McpHost],
       servers: List[TurnMcp]
-  ): os.Path =
+  )(using ResourceScope): os.Path =
     val entries =
       askUser.map(host =>
         AskUserMcpServer.ServerName ->
           McpConfig.HttpServer(host.url, AskUserMcpServer.ToolTimeout)
       ) ++
         servers.map(s => s.name -> McpConfig.HttpServer(s.host.url, s.timeout))
-    os.temp(
-      prefix = "orca-mcp-",
-      suffix = ".json",
-      contents = McpConfig.render(entries.toMap)
+    TurnResources.tempFile(
+      os.temp(
+        prefix = "orca-mcp-",
+        suffix = ".json",
+        contents = McpConfig.render(entries.toMap)
+      )
     )
 
   /** Build the per-session system-prompt file: compose `config.systemPrompt`
-    * with whichever MCP hints apply, then write to a JVM temp file
-    * (auto-cleaned on exit) rather than the user's workDir — it's purely an IPC
-    * mechanism, read once via `--append-system-prompt-file`.
+    * with whichever MCP hints apply, then write to a temp file removed at turn
+    * end rather than the user's workDir — it's purely an IPC mechanism, read
+    * once via `--append-system-prompt-file`.
     */
   private def writeSystemPrompt(
       config: AgentConfig,
       hints: List[String]
-  ): os.Path =
-    os.temp(
-      prefix = "orca-system-prompt-",
-      suffix = ".md",
-      contents =
-        SystemPromptComposer.combine(config, hints.reduceOption(_ + "\n\n" + _))
+  )(using ResourceScope): os.Path =
+    TurnResources.tempFile(
+      os.temp(
+        prefix = "orca-system-prompt-",
+        suffix = ".md",
+        contents = SystemPromptComposer
+          .combine(config, hints.reduceOption(_ + "\n\n" + _))
+      )
     )
 
 object ClaudeBackend:

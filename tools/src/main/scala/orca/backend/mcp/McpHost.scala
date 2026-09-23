@@ -8,7 +8,8 @@ import chimp.server.{
   ServerTool,
   ToolResult
 }
-import ox.{Ox, useCloseableInScope}
+import orca.backend.TurnResources
+import ox.Ox
 import sttp.shared.Identity
 import sttp.tapir.server.netty.sync.NettySyncServer
 
@@ -19,19 +20,15 @@ import scala.util.control.NonFatal
   * `127.0.0.1` at an ephemeral port, serving whatever tools it was started
   * with.
   *
-  * Callers own the lifetime — tie `close()` to the conversation, not to the
-  * backend, so a long flow doesn't accumulate bindings. `close()` is
-  * idempotent, so a caller that also registers it as a scope resource is safe.
+  * Lives as long as the scope [[McpHost.start]] ran in — the turn, not the
+  * backend, so a long flow doesn't accumulate bindings.
   */
-private[orca] class McpHost private[mcp] (val port: Int, stopFn: () => Unit)
-    extends AutoCloseable:
+private[orca] class McpHost private[mcp] (val port: Int):
 
   /** The URL an MCP client (claude's `.mcp.json`, codex's
     * `mcp_servers.<name>.url`) should target.
     */
   val url: String = s"http://127.0.0.1:$port/mcp"
-
-  override def close(): Unit = stopFn()
 
 private[orca] object McpHost:
 
@@ -93,9 +90,9 @@ private[orca] object McpHost:
     * mid-call; `idleTimeout` adds a minute of slop because Netty requires it to
     * exceed the request timeout.
     *
-    * Registered with the scope as well as returned: tapir's `start()` leaves
-    * teardown to the caller, and a turn that dies before closing the host would
-    * otherwise strand the binding's event-loop threads for the life of the JVM.
+    * The binding stops when the scope ends: tapir's `start()` leaves teardown
+    * to the caller, and a leaked binding strands its event-loop threads for the
+    * life of the JVM.
     */
   private[mcp] def start(
       tools: List[
@@ -103,19 +100,15 @@ private[orca] object McpHost:
       ],
       toolTimeout: FiniteDuration
   )(using Ox): McpHost =
-    val binding = NettySyncServer()
-      .port(0)
-      .modifyConfig(
-        _.requestTimeout(toolTimeout).idleTimeout(toolTimeout + 1.minute)
-      )
-      .addEndpoint(
-        McpServer(tools = tools.map(t => guarded(t))).endpoint(List("mcp"))
-      )
-      .start()
-    val stopped = new java.util.concurrent.atomic.AtomicBoolean(false)
-    useCloseableInScope(
-      new McpHost(
-        binding.port,
-        () => if stopped.compareAndSet(false, true) then binding.stop()
-      )
-    )
+    val binding = TurnResources.use(
+      NettySyncServer()
+        .port(0)
+        .modifyConfig(
+          _.requestTimeout(toolTimeout).idleTimeout(toolTimeout + 1.minute)
+        )
+        .addEndpoint(
+          McpServer(tools = tools.map(t => guarded(t))).endpoint(List("mcp"))
+        )
+        .start()
+    )(_.stop())
+    new McpHost(binding.port)

@@ -14,8 +14,6 @@ import orca.agents.{
   ToolSet,
   TurnDispatch
 }
-import orca.sweep.EnvCookieSweep
-
 import ox.{Ox, supervised}
 
 /** SPI implemented per backend (Claude, Codex, …), called from the
@@ -74,8 +72,8 @@ trait AgentBackend[B <: BackendTag](
     * before registering its session doesn't wedge the registry into resuming a
     * session that was never created. It throws on an unsafe wire id
     * ([[SessionSupport.commitAfterDrain]]). The cancel before the scope joins
-    * reaches only what is still linked to the agent process; the sweep catches
-    * what detached.
+    * reaches only what is still linked to the agent process; the backend's
+    * environment-cookie sweep, run when the scope ends, catches what detached.
     */
   final def runAutonomous(
       prompt: String,
@@ -93,7 +91,8 @@ trait AgentBackend[B <: BackendTag](
           dispatch,
           ConversationMode.Autonomous,
           config,
-          outputSchema
+          outputSchema,
+          events
         )
       )
       try
@@ -101,7 +100,7 @@ trait AgentBackend[B <: BackendTag](
           Conversations.drainAutonomous(conv, config.autoApprove, events)
         sessions.commitAfterDrain(session, result.wireId)
         result
-      finally endTurn(conv, events)
+      finally conv.cancel()
 
   /** Run one interactive turn against `session`: `interaction` drives the live
     * conversation, and the session is registered once it returns.
@@ -133,7 +132,8 @@ trait AgentBackend[B <: BackendTag](
             dispatch,
             ConversationMode.Interactive(displayPrompt),
             config,
-            outputSchema
+            outputSchema,
+            events
           )
         ),
         events
@@ -142,7 +142,7 @@ trait AgentBackend[B <: BackendTag](
         val result = interaction.drive(conv)
         sessions.register(session, result.wireId)
         result
-      finally endTurn(conv, events)
+      finally conv.cancel()
 
   /** Start one turn and return it as a live [[Conversation]] whose forks run in
     * the caller's per-turn scope. The backend owns the subprocess (or server
@@ -150,8 +150,9 @@ trait AgentBackend[B <: BackendTag](
     * belong to [[runAutonomous]] / [[runInteractive]].
     *
     * `turn.mode` decides whether the turn can ask the user (`ask_user` is wired
-    * on `Interactive` turns only). A failure before the conversation exists
-    * must release whatever the backend allocated for it.
+    * on `Interactive` turns only). Whatever the backend allocates for the turn
+    * is registered with the caller's scope ([[TurnResources]]), which also
+    * releases it when `open` fails.
     */
   protected[orca] def open(turn: TurnRequest[B])(using Ox): Conversation[B]
 
@@ -171,10 +172,6 @@ trait AgentBackend[B <: BackendTag](
     val dispatch = sessions.dispatchFor(session)
     announceEnforcementShortfall(config, dispatch, events)
     dispatch
-
-  private def endTurn(conv: Conversation[B], events: OrcaListener): Unit =
-    conv.cancel()
-    EnvCookieSweep.afterTurn(conv.envCookie, events)
 
   /** The working directory the agent subprocess sees, fixed for this backend's
     * whole lifetime — every spawn and every session-existence probe runs

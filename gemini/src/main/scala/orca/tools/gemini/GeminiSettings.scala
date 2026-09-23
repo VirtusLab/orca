@@ -13,8 +13,8 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.JsonCodecMaker
 /** Registers the ephemeral `ask_user` MCP server with gemini for the lifetime
   * of one interactive conversation. gemini only reads MCP server config from
   * `settings.json`, so we merge an entry into the project-local
-  * `<workDir>/.gemini/settings.json` and restore the prior state when the
-  * conversation finalises.
+  * `<workDir>/.gemini/settings.json` and restore the prior state when the turn
+  * ends.
   *
   * The merge preserves the user's file: unknown top-level keys and other
   * configured `mcpServers` ride through verbatim. The `allowedMcpServerNames`

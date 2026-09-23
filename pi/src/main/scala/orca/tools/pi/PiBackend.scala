@@ -18,11 +18,12 @@ import orca.backend.{
   IdScheme,
   SessionSupport,
   SubprocessSpawn,
-  SystemPromptComposer
+  SystemPromptComposer,
+  TurnResources
 }
 import orca.subprocess.CliRunner
 
-import ox.Ox
+import ox.{Ox, ResourceScope}
 
 import java.time.Instant
 
@@ -85,25 +86,15 @@ private[orca] class PiBackend private[pi] (
   )(using Ox): Conversation[BackendTag.Pi.type] =
     import turn.*
     // Temp files (ask-user extension, system prompt) Pi reads for the whole
-    // turn. Ownership passes to the conversation, which closes them in
-    // `onFinalize`; `SubprocessSpawn.open`'s failure path is the backstop for a
-    // failure before construction. Closes are idempotent and the dirs are
-    // `deleteOnExit`, so a hard kill mid-turn still reclaims them.
+    // turn, removed when the turn scope ends. The dirs are `deleteOnExit`, so a
+    // hard kill mid-turn still reclaims them.
     val displayPrompt = mode.displayPrompt
     val extraHint = Option.when(mode.isInteractive)(PiAskUserExtension.Hint)
-
-    // Write the system prompt file before allocating any resource, so a
-    // temp-write failure can't leak the ask-user extension: with nothing
-    // allocated yet, there's nothing to tear down.
     val systemPromptFile = writeSystemPrompt(config, extraHint)
+    val askUserExtension = Option.when(mode.isInteractive):
+      TurnResources.useCloseable(PiAskUserExtension.allocate())
 
-    val askUserExtension =
-      Option.when(mode.isInteractive)(PiAskUserExtension.allocate())
-
-    val resources: List[AutoCloseable] =
-      askUserExtension.toList ++ List(systemPromptFile)
-
-    SubprocessSpawn.open("pi RPC", resources) {
+    SubprocessSpawn.open("pi RPC", events) {
       val args = PiArgs.rpc(
         // The one place the session dir is created: Pi seeds its transcript
         // inside `<base>/<session id>`, so the base must exist by spawn time.
@@ -112,7 +103,7 @@ private[orca] class PiBackend private[pi] (
           OrcaDir.ensurePiSessions(workDir) / SessionId.value(session),
         dispatch = dispatch.asTurnDispatch,
         config = config,
-        systemPromptFile = Some(systemPromptFile.file),
+        systemPromptFile = Some(systemPromptFile),
         askUserExtension = askUserExtension.map(_.file)
       )
       cli.spawnPiped(args, cwd = workDir, pipeStderr = true)
@@ -122,8 +113,7 @@ private[orca] class PiBackend private[pi] (
         clientSession = session,
         initialPrompt = displayPrompt,
         outputSchema = outputSchema,
-        askUserEnabled = askUserExtension.isDefined,
-        resources = resources
+        askUserEnabled = askUserExtension.isDefined
       )
       conversation.sendPrompt(prompt)
       conversation
@@ -132,16 +122,13 @@ private[orca] class PiBackend private[pi] (
   private def writeSystemPrompt(
       config: AgentConfig,
       extraHint: Option[String]
-  ): TempFileResource =
-    val dir =
+  )(using ResourceScope): os.Path =
+    val dir = TurnResources.use(
       os.temp.dir(prefix = "orca-pi-system-prompt-", deleteOnExit = true)
+    )(os.remove.all(_))
     val file = dir / "system-prompt.md"
     os.write(file, SystemPromptComposer.combine(config, extraHint))
-    TempFileResource(dir, file)
-
-  private case class TempFileResource(dir: os.Path, file: os.Path)
-      extends AutoCloseable:
-    def close(): Unit = os.remove.all(dir)
+    file
 
 private[orca] object PiBackend:
   /** The runtime's door: builds a backend and prunes its session cache before

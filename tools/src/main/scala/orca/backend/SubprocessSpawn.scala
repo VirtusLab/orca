@@ -1,54 +1,39 @@
 package orca.backend
 
 import orca.OrcaFlowException
+import orca.events.OrcaListener
 import orca.subprocess.PipedCliProcess
+import orca.sweep.EnvCookieSweep
 
-import scala.util.control.NonFatal
+import ox.{ResourceScope, releaseAfterScope}
 
-/** The two-level spawn-and-build teardown every subprocess stream backend
-  * (claude/codex/gemini/pi) needs, factored out so resource-leak handling lives
-  * in one place.
+/** Spawns one turn's agent process and wraps it in a [[Conversation]], for the
+  * subprocess backends (claude/codex/gemini/pi).
   *
-  *   - `spawn` builds the argv and launches the process. If it throws, the
-  *     process never came up, so only `resources` are released.
-  *   - `build` wraps the live process in a [[Conversation]]. If it throws after
-  *     the spawn, the child is SIGINT-ed and the failure is rethrown as "Failed
-  *     to open <sessionLabel> session".
-  *   - `resources` are the session-scoped `AutoCloseable`s the conversation
-  *     takes ownership of on success — on the happy path they ride through the
-  *     conversation's `onFinalize`, so this closes them (in reverse) only when
-  *     spawn or build fails.
+  *   - `spawn` builds the argv and launches the process.
+  *   - `build` wraps the live process. If it throws, the process tree is killed
+  *     and the failure is rethrown as "Failed to open <sessionLabel> session".
+  *
+  * Once spawned, the process's environment cookie is swept when the turn scope
+  * ends ([[EnvCookieSweep.afterTurn]], reporting to `events`) — after the
+  * turn's teardown killed the process tree.
   *
   * `sessionLabel` is the backend's descriptor for the failure message —
   * deliberately not the bare backend name, which is pinned by tests.
   */
 private[orca] object SubprocessSpawn:
 
-  /** An `AutoCloseable` that best-effort deletes the given file when closed.
-    * Used by backends that write a per-call temp file needing removal on both
-    * the failure path (via `open`'s `resources`) and the success path (via the
-    * conversation's `onFinalize`).
-    */
-  def deleteFileResource(path: os.Path): AutoCloseable =
-    () => if os.exists(path) then os.remove(path): Unit
-
-  def open[C](
-      sessionLabel: String,
-      resources: List[AutoCloseable]
-  )(spawn: => PipedCliProcess)(build: PipedCliProcess => C): C =
-    try
-      val process = spawn
-      try build(process)
-      catch
-        case e: Exception =>
-          // SIGINT the process; the outer catch releases `resources`.
-          process.sendSigInt()
-          throw OrcaFlowException(
-            s"Failed to open $sessionLabel session: ${e.getMessage}"
-          )
+  def open[C](sessionLabel: String, events: OrcaListener)(
+      spawn: => PipedCliProcess
+  )(build: PipedCliProcess => C)(using ResourceScope): C =
+    val process = spawn
+    releaseAfterScope(EnvCookieSweep.afterTurn(process.envCookie, events))
+    try build(process)
     catch
-      case e: Throwable =>
-        resources.reverseIterator.foreach: r =>
-          try r.close()
-          catch case NonFatal(_) => ()
-        throw e
+      case e: Exception =>
+        // No conversation exists to tear the process down.
+        process.sendSigInt()
+        process.destroyForciblyTree()
+        throw OrcaFlowException(
+          s"Failed to open $sessionLabel session: ${e.getMessage}"
+        )

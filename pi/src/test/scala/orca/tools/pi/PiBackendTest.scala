@@ -202,8 +202,9 @@ class PiBackendTest extends munit.FunSuite:
     val backend = backendWith(runner)
 
     // The conversation forks its workers into the surrounding Ox scope, so it
-    // must be created AND consumed within the same `supervised` block.
-    ox.supervised:
+    // must be created AND consumed within the same `supervised` block; the
+    // temp files go when that scope ends.
+    val (promptFile, extensionFile) = ox.supervised:
       val conv = OpenTurn.interactive(backend)(
         "q",
         sid,
@@ -235,8 +236,9 @@ class PiBackendTest extends munit.FunSuite:
       process.enqueueStdout("""{"type":"agent_end","messages":[]}""")
       val _ = conv.events.toList
       val _ = conv.awaitResult()
-      assert(!os.exists(promptFile))
-      assert(!os.exists(extensionFile))
+      (promptFile, extensionFile)
+    assert(!os.exists(promptFile))
+    assert(!os.exists(extensionFile))
 
   /** Read the file `--append-system-prompt` points at, failing on a missing
     * flag rather than reading whatever argument happens to sit at index 0.

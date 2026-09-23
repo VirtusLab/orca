@@ -36,8 +36,8 @@ import scala.util.control.NonFatal
   *     enqueues and/or a settle) and [[handleStderr]].
   *   - '''Settle''': [[succeedWith]] / [[failWith]].
   *   - '''Turn-grammar reads''': [[turnIsOpen]] / [[isSettled]].
-  *   - '''Lifecycle''': [[onFinalize]] (runs exactly once),
-  *     [[onCancelRequested]] (genuine mid-turn cancel only), and
+  *   - '''Lifecycle''': [[onFinalize]] (runs exactly once, before the outcome
+  *     is computed), [[onCancelRequested]] (genuine mid-turn cancel only), and
   *     [[cleanExitWithoutResult]].
   *   - '''Diagnostics''': [[diagnosticContext]] / [[appendContext]].
   *   - '''Ask-user''': [[askUser]] wires an MCP `ask_user` bundle.
@@ -165,17 +165,16 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
 
   private val cancelled: AtomicBoolean = new AtomicBoolean(false)
 
-  /** Guards the one-shot finalize (subclass [[onFinalize]] + [[askUser]]
-    * close): whichever of the reader (happy path) or [[cancel]] (teardown)
-    * reaches it first runs it; the other is a no-op, so cancel never
-    * double-emits.
+  /** Guards the one-shot [[onFinalize]]: whichever of the reader (happy path)
+    * or [[cancel]] (teardown) reaches it first runs it; the other is a no-op,
+    * so cancel never double-emits.
     */
   private val finalized: AtomicBoolean = new AtomicBoolean(false)
 
-  /** Optional `ask_user` MCP resource bundle for this conversation. Interactive
+  /** Optional `ask_user` MCP bundle for this conversation. Interactive
     * subclasses override to point the base at the bundle; the base spawns the
-    * drainer fork when the workers start and closes the bundle in the finalize.
-    * Autonomous calls leave the default `None`.
+    * drainer fork when the workers start. The turn scope owns the bundle's
+    * lifetime. Autonomous calls leave the default `None`.
     */
   protected def askUser: Option[AskUserSession] = None
 
@@ -260,8 +259,6 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
           failedTurnDebit,
           e
         )
-
-  override def envCookie: Option[orca.sweep.EnvCookie] = source.envCookie
 
   def cancel(): Unit =
     if cancelled.compareAndSet(false, true) then
@@ -368,11 +365,11 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
     if line.trim.nonEmpty then
       eventQueue.enqueue(ConversationEvent.Error(s"$backendName: $line"))
 
-  /** Hook called inside the finalize **before** the failure outcome is
-    * computed, so subclasses can drain background streams whose buffered state
-    * [[diagnosticContext]] / [[cleanExitWithoutResult]] depend on (join the
-    * [[stderrDrainFork]] here), and release session-scoped resources. Runs
-    * exactly once (reader happy-path OR [[cancel]]). Default: no-op.
+  /** Hook called **before** the failure outcome is computed, so subclasses can
+    * drain background streams whose buffered state [[diagnosticContext]] /
+    * [[cleanExitWithoutResult]] depend on (join the [[stderrDrainFork]] here).
+    * Runs exactly once (reader happy-path OR [[cancel]]). Default: no-op.
+    * Per-turn resources are not released here — the turn scope owns them.
     */
   protected def onFinalize(): Unit = ()
 
@@ -453,8 +450,8 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
           case NonFatal(e) =>
             debugLog("stdout-error", e.toString)
             Some(e)
-      // Finalize (drain background streams, close session resources) BEFORE
-      // computing a failure outcome so `diagnosticContext` is populated.
+      // Finalize (drain background streams) BEFORE computing a failure outcome
+      // so `diagnosticContext` is populated.
       runFinalize()
       val outcome: Outcome[B] =
         // A user cancel (`destroyForcibly`) can make the in-flight read throw
@@ -486,9 +483,8 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
 
   /** Bridge an [[AskUserBridge]] into the event stream: each pending question
     * becomes a `UserQuestion` whose `respond` closure delivers the user's typed
-    * answer back to the blocked MCP handler. Exits cleanly when
-    * `bridge.close()` (driven by the finalize) raises `ChannelClosedException`
-    * from `nextQuestion()`.
+    * answer back to the blocked MCP handler. Runs until the turn scope
+    * interrupts it.
     */
   private def askUserDrain(bridge: AskUserBridge): Unit =
     try
@@ -500,13 +496,7 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
     catch case NonFatal(_) => ()
 
   private def runFinalize(): Unit =
-    if finalized.compareAndSet(false, true) then
-      // Subclass hook — typically joins the stderr-drain fork so trailing lines
-      // reach the queue / `diagnosticContext` before the outcome.
-      onFinalize()
-      // Close the ask_user bundle if wired, after `onFinalize` so any cleanup
-      // depending on it runs first. Idempotent.
-      askUser.foreach(_.close())
+    if finalized.compareAndSet(false, true) then onFinalize()
 
   /** Diagnose a stream that ended without a settle. `None` is not a cancel — a
     * genuine one is caught by the `cancelled` check ahead of this — but a

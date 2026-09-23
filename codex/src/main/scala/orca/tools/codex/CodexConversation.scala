@@ -4,12 +4,7 @@ import orca.AgentTurnFailed
 import orca.agents.{BackendTag, Model}
 import orca.events.{TurnDebit, Usage}
 import orca.backend.ConversationEvent
-import orca.backend.{
-  StderrPipeline,
-  ForkedConversation,
-  StreamSource,
-  SubprocessSpawn
-}
+import orca.backend.{StderrPipeline, ForkedConversation, StreamSource}
 import orca.backend.mcp.{AskUserMcpServer, AskUserSession}
 import orca.subprocess.PipedCliProcess
 import orca.tools.codex.jsonl.{FileChangeDetail, InboundEvent, Item, ItemStatus}
@@ -42,11 +37,6 @@ private[codex] class CodexConversation(
     initialPrompt: String = "",
     val outputSchema: Option[String] = None,
     override val askUser: Option[AskUserSession] = None,
-    /** The temp file backing `--output-schema` (if any), owned by this
-      * conversation so it's removed exactly once the turn finalizes — see
-      * [[orca.backend.SubprocessSpawn.deleteFileResource]] and [[onFinalize]].
-      */
-    schemaFile: Option[os.Path] = None,
     /** Names the turn's model when codex's `thread.started` omits it, which
       * 0.145.0 always does — see [[DefaultCodexAgent.Sol]].
       */
@@ -108,15 +98,6 @@ private[codex] class CodexConversation(
     */
   override protected def isStderrNoise(line: String): Boolean =
     CodexConversation.isKnownStderrNoise(line)
-
-  /** Best-effort delete the `--output-schema` temp file (if any), then defer to
-    * [[StderrPipeline.onFinalize]] to join the stderr drain. The delete runs in
-    * a `finally` so a throw from it can't skip `super.onFinalize()` and the
-    * stderr-drain join it depends on.
-    */
-  override protected def onFinalize(): Unit =
-    try schemaFile.foreach(p => SubprocessSpawn.deleteFileResource(p).close())
-    finally super.onFinalize()
 
   override protected def terminalMessageNoun: String =
     "a turn.completed event"

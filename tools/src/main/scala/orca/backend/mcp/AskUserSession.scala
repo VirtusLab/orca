@@ -3,51 +3,15 @@ package orca.backend.mcp
 import ox.Ox
 import ox.channels.BufferCapacity
 
-import scala.util.control.NonFatal
-
-/** One-conversation ask-user wiring: the host-side [[AskUserBridge]], the
-  * Netty-backed [[AskUserMcpServer]], and any backend-specific `extras` (e.g.
-  * restoring gemini's `settings.json`). The framework closes it after the read
-  * loop drains.
-  *
-  * Close-order: bridge first (errors any in-flight `ask` so blocked handlers
-  * exit before the binding tears down), then server, then extras. Each close is
-  * wrapped so one resource's failure doesn't skip the next or mask the caller's
-  * original throw.
+/** One conversation's ask-user wiring: the host-side [[AskUserBridge]] and the
+  * [[AskUserMcpServer]] serving it. Both live as long as the enclosing turn
+  * scope — the server is registered with it, and its handlers blocked on the
+  * bridge are forks of it.
   */
-private[orca] case class AskUserSession(
-    bridge: AskUserBridge,
-    server: McpHost,
-    extras: List[AutoCloseable]
-) extends AutoCloseable:
-  import AskUserSession.swallow
-
-  def close(): Unit =
-    swallow(bridge.close())
-    swallow(server.close())
-    extras.foreach(r => swallow(r.close()))
+private[orca] case class AskUserSession(bridge: AskUserBridge, server: McpHost)
 
 private[orca] object AskUserSession:
 
-  /** Stand up the bridge + Netty MCP server, then invoke the backend-specific
-    * `extras` callback to allocate any additional cleanup-needing artefacts. If
-    * the callback throws, the bridge + server are closed before the throw
-    * escapes so no Netty binding leaks.
-    */
-  def allocate(
-      extras: McpHost => List[AutoCloseable] = _ => Nil
-  )(using Ox, BufferCapacity): AskUserSession =
+  def allocate()(using Ox, BufferCapacity): AskUserSession =
     val bridge = new AskUserBridge
-    val server = AskUserMcpServer.start(bridge)
-    try AskUserSession(bridge, server, extras(server))
-    catch
-      case NonFatal(e) =>
-        // No drainer thread is running yet, but close the bridge too for
-        // symmetry with the normal tear-down path.
-        swallow(bridge.close())
-        swallow(server.close())
-        throw e
-
-  private def swallow(action: => Unit): Unit =
-    try action
-    catch case NonFatal(_) => ()
+    AskUserSession(bridge, AskUserMcpServer.start(bridge))
