@@ -100,12 +100,12 @@ private[orca] object BoundedDiff:
   def reviewPayload(sample: ReviewSample): String =
     if sample.diff.length <= ReviewThreshold then sample.diff
     else
-      val withSections =
+      val sectioned =
         sample.files.flatMap(f => sample.sections.get(f.path).map(f -> _))
       val room = ReviewThreshold - trailerMax(sample.files)
-      val shown = packed(withSections, room)(_._2.length)
-      val head = shown.map(_._2).mkString
-      val shownFiles = shown.map(_._1).toSet
+      val shown = packed(sectioned, room)((_, section) => section.length)
+      val head = shown.map((_, section) => section).mkString
+      val shownFiles = shown.map((file, _) => file).toSet
       head + trailer(sample.files.filterNot(shownFiles), head.length)
 
   /** What [[sectionsPayload]] could cut for its caller. */

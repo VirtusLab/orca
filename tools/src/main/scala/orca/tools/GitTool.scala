@@ -151,8 +151,9 @@ case class ChangedFile(path: String, change: FileChange)
 
 /** The change set a reviewer sees — see [[GitTool.reviewChanges]]. `files`
   * names every path in it, including the ones `diff` cannot show. `sections`
-  * maps a path to its own part of `diff`; a file whose part the sample could
-  * not tell apart, or cut short, or never rendered, has no entry.
+  * maps a path to its own whole part of `diff`. A file has no entry when its
+  * part could not be paired with its stats, was cut by the read cap, or is only
+  * a line naming the file (`# skipped …`).
   */
 case class ReviewSample(
     diff: String,
@@ -418,9 +419,10 @@ trait GitTool:
     */
   def trackedChangedFiles(since: CommitHash): List[String]
 
-  /** The change set a reviewer should see, as diff text and as the list of
-    * paths in it — what a caller rendering a bounded diff needs, since it has
-    * to name the files its diff leaves out (see `orca.BoundedDiff`).
+  /** The change set a reviewer should see, as diff text, as the list of paths
+    * in it, and as each file's own part of the diff — what a caller rendering a
+    * bounded diff needs, since it cuts between files and has to name the ones
+    * it leaves out (see `orca.BoundedDiff`).
     *
     * The diff is everything [[uncommittedDiff]] reports, PLUS each untracked
     * non-`.orca/` file rendered as a new-file diff (`git diff --no-index`
@@ -437,10 +439,10 @@ trait GitTool:
     * committed; pass the commit a unit of work started from (see
     * [[headCommit]]) to see everything it produced either way.
     *
-    * The UNTRACKED set is sampled once for both projections, so a file created
-    * mid-call cannot land in one and not the other. Tracked changes are read
-    * per projection (a patch diff and a `--numstat` diff), so a tracked file
-    * written between those two reads can still differ across them.
+    * The UNTRACKED set is sampled once for every projection, so a file created
+    * mid-call cannot land in one and not the other. Tracked changes come from
+    * one `git diff` call printing both stats and patch — unless the stats alone
+    * fill the read cap, when the two are read separately.
     *
     * The diff text is bounded: untracked files stop being rendered once
     * `OsGitTool.MaxReadBytes` of it has accumulated, so the rendered part
@@ -448,8 +450,8 @@ trait GitTool:
     * whole. Every path past it is still named, one line each. `files` is
     * unaffected, so a caller can still see every path in the change set.
     *
-    * Tracked files' sections come from the same `git diff` call as their stats,
-    * paired by position, so a rename, a quoted path or a `workDir` below the
+    * A tracked file's section is paired with its stats by position in that
+    * call's output, so a rename, a quoted path or a `workDir` below the
     * repository root is keyed like any other file.
     */
   def reviewChanges(since: Option[CommitHash] = None): ReviewSample
@@ -827,58 +829,71 @@ private[orca] class OsGitTool(
 
   def reviewChanges(since: Option[CommitHash]): ReviewSample =
     val untracked = untrackedPaths()
-    val tracked = trackedSample(since)
-    val pieces = untrackedPieces(untracked, utf8Size(tracked.diff))
-    val rendered = pieces.collect:
-      case OsGitTool.UntrackedPiece.Rendered(path, diff) => path -> diff
+    val (tracked, bytesRead) = trackedSample(since)
+    val pieces = untrackedPieces(untracked, bytesRead)
+    val trackedPaths = tracked.files.map(_.path).toSet
+    // A path can be both: deleted from the index, and back on disk. Its new-file
+    // half alone is not its whole change.
+    val untrackedSections = pieces.collect:
+      case OsGitTool.UntrackedPiece.Rendered(path, diff)
+          if !trackedPaths(path) || tracked.sections.contains(path) =>
+        path -> diff
     ReviewSample(
       diff = tracked.diff + pieces.map(_.text).mkString,
-      files = (tracked.files ++ untracked.map(ChangedFile(_, FileChange.New)))
-        .distinctBy(_.path),
-      // A path can be both: deleted from the index, and back on disk.
-      sections = rendered.foldLeft(tracked.sections): (acc, entry) =>
-        acc.updatedWith(entry._1)(prior =>
-          Some(prior.fold(entry._2)(_ + entry._2))
-        )
+      files = withUntracked(tracked.files, untracked),
+      sections = (tracked.sections.toList ++ untrackedSections)
+        .groupMapReduce(_._1)(_._2)(_ + _)
     )
 
-  /** The tracked part of [[reviewChanges]]: stats and patch from one `git
-    * diff`, so the two describe the same change set.
+  /** The tracked part of [[reviewChanges]], with stats and patch from one `git
+    * diff` so the two describe the same change set, and the bytes read for it.
     */
-  // `--no-color`, `--no-ext-diff` and `--submodule=short` pin the patch to git's
-  // own one-section-per-file text whatever the user's config says, which the
-  // positional pairing relies on.
-  private def trackedSample(since: Option[CommitHash]): ReviewSample =
+  private def trackedSample(since: Option[CommitHash]): (ReviewSample, Int) =
     val rev = since.fold("HEAD")(_.value)
+    // `--no-color`, `--no-ext-diff` and `--submodule=short` pin the patch to
+    // git's own one-part-per-file text whatever the user's config says, which
+    // the pairing relies on.
     val result = gitCapped(
       ("diff" +: "--numstat" +: "-z" +: "-p" +: "--no-relative" +:
         "--no-color" +: "--no-ext-diff" +: "--submodule=short" +:
         rev +: OsGitTool.wholeRepoExceptOrca)*
     )
-    OsGitTool.splitNumstatPatch(result.out) match
+    val read =
+      if result.truncated then GitDiffOutput.Read.Cut
+      else GitDiffOutput.Read.Whole
+    GitDiffOutput.splitNumstatPatch(result.out) match
       case Some((numstat, patch)) =>
-        val files = OsGitTool
-          .parseNumstat(numstat)
-          .map(f => f.copy(path = asWorkDirRelative(f.path)))
-        ReviewSample(
-          diff =
-            if result.truncated then patch + OsGitTool.CutMarker else patch,
+        val files = workDirRelative(GitDiffOutput.parseNumstat(numstat))
+        val sample = ReviewSample(
+          diff = marked(result.copy(out = patch)),
           files = files,
-          sections = OsGitTool.pairSections(files, patch, result.truncated)
+          sections = GitDiffOutput.pairSections(files, patch, read)
         )
-      case None if !result.truncated => ReviewSample("", Nil, Map.empty)
-      // The stats alone filled the read cap: read each shape on its own.
-      case None =>
-        ReviewSample(trackedDiff(rev), allFileStats(since, Nil), Map.empty)
+        (sample, bytesReadBy(result))
+      // The stats alone filled the read cap: read the patch and the stats
+      // separately.
+      case None if result.truncated =>
+        val diff = trackedDiff(rev)
+        (
+          ReviewSample(diff, allFileStats(since, Nil), Map.empty),
+          utf8Size(diff)
+        )
+      case None => (ReviewSample("", Nil, Map.empty), 0)
 
-  /** The whole change set as stats, over an `untracked` list the caller already
-    * sampled, so a caller needing the diff alongside can share one sample.
+  /** What a capped read counts against the diff budget: all of it, the cap when
+    * it was cut.
+    */
+  private def bytesReadBy(result: CappedResult): Int =
+    if result.truncated then OsGitTool.MaxReadBytes else utf8Size(result.out)
+
+  /** The whole change set as stats: the tracked changes since `since`, plus
+    * `untracked`.
     */
   // `-z` NUL-terminates each record, so a newline or a non-ASCII byte in a name
   // parses unambiguously. It also turns off the C-quoting git would otherwise
   // apply to a tab in a name — and `--numstat` separates its own fields with
   // tabs, so a tabbed path arrives looking like extra fields and only
-  // `OsGitTool.parseNumstat` capping the split keeps it whole.
+  // `GitDiffOutput.parseNumstat` capping the split keeps it whole.
   //
   // `--no-relative` keeps the paths relative to the repository root, which
   // `asWorkDirRelative` assumes: with `diff.relative` set in the repo git prints
@@ -891,9 +906,18 @@ private[orca] class OsGitTool(
     val args =
       "diff" +: "--numstat" +: "-z" +: "--no-relative" +:
         since.fold("HEAD")(_.value) +: OsGitTool.wholeRepoExceptOrca
-    val tracked = OsGitTool
-      .parseNumstat(git(args*))
-      .map(f => f.copy(path = asWorkDirRelative(f.path)))
+    withUntracked(
+      workDirRelative(GitDiffOutput.parseNumstat(git(args*))),
+      untracked
+    )
+
+  private def workDirRelative(files: List[ChangedFile]): List[ChangedFile] =
+    files.map(f => f.copy(path = asWorkDirRelative(f.path)))
+
+  private def withUntracked(
+      tracked: List[ChangedFile],
+      untracked: List[String]
+  ): List[ChangedFile] =
     (tracked ++ untracked.map(ChangedFile(_, FileChange.New)))
       .distinctBy(_.path)
 
@@ -907,13 +931,12 @@ private[orca] class OsGitTool(
         untrackedPieces(untracked, utf8Size(tracked)).map(_.text).mkString
     )
 
-  /** One new-file diff per untracked path, stopping at the first untracked file
-    * once `sizeSoFar` plus what is rendered passes `OsGitTool.MaxReadBytes`: an
-    * agent that ran a package manager or a build before anything ignored its
-    * output leaves tens of thousands of untracked files, each a subprocess and
-    * a full file's contents on the heap. Past the budget a path is named the
+  /** One new-file diff per untracked path, until `sizeSoFar` plus what is
+    * rendered passes `OsGitTool.MaxReadBytes`; later paths are only named, the
     * same way an unrenderable one is, so nothing silently disappears from the
-    * sample.
+    * sample. An agent that ran a package manager or a build before anything
+    * ignored its output leaves tens of thousands of untracked files, each a
+    * subprocess and a full file's contents on the heap.
     */
   private def untrackedPieces(
       untracked: List[String],
@@ -932,7 +955,7 @@ private[orca] class OsGitTool(
         case path :: rest =>
           val piece =
             if size >= budget then
-              OsGitTool.UntrackedPiece.Skipped(
+              OsGitTool.UntrackedPiece.Partial(
                 s"# skipped $path: past the $budget-byte diff budget\n"
               )
             else untrackedFileDiff(path)
@@ -999,20 +1022,22 @@ private[orca] class OsGitTool(
   private def untrackedFileDiff(relPath: String): OsGitTool.UntrackedPiece =
     undiffableReason(relPath) match
       case Some(reason) =>
-        OsGitTool.UntrackedPiece.Skipped(s"# skipped $relPath: $reason\n")
+        OsGitTool.UntrackedPiece.Partial(s"# skipped $relPath: $reason\n")
       case None =>
         val result = gitProcCapped(
           Seq("git", "diff", "--no-index", "--", "/dev/null", relPath)
         )
         val differs = result.exitCode == 1 && result.err.isEmpty
         if result.exitCode == 0 || differs then
-          OsGitTool.UntrackedPiece.Rendered(relPath, marked(result))
+          if result.truncated then
+            OsGitTool.UntrackedPiece.Partial(marked(result))
+          else OsGitTool.UntrackedPiece.Rendered(relPath, result.out)
         else
           val gitSaid = result.err.linesIterator
             .map(_.trim)
             .find(_.nonEmpty)
             .fold("")(line => s": $line")
-          OsGitTool.UntrackedPiece.Skipped(
+          OsGitTool.UntrackedPiece.Partial(
             s"# skipped $relPath: git diff exited ${result.exitCode}$gitSaid\n"
           )
 
@@ -1301,109 +1326,15 @@ private[orca] object OsGitTool:
   private val wholeRepoExceptOrca: Seq[String] =
     Seq("--", ":(top)", orca.OrcaDir.ExcludePathspec)
 
-  /** The record separator git's `-z` output modes use. */
-  private val NUL: Char = '\u0000'
-
-  /** The records of a `git diff --numstat -z`, in git's order.
-    *
-    * A record is `<added>\t<deleted>\t<path>`, NUL-terminated. A rename ends
-    * the record after the tabs and follows it with the old and the new path as
-    * two more NUL-terminated fields; the new one is the path the change now
-    * lives at, which is what [[GitTool.changedFiles]] reports. A `-` in place
-    * of a count marks a binary file, which git reports as differing without
-    * saying by how much.
-    *
-    * The path is everything after the second tab, splitting no further: `-z`
-    * turns off the quoting git would otherwise apply to a tab in a name, so a
-    * tabbed path arrives raw and would otherwise look like extra fields.
-    *
-    * Anything that doesn't parse as a record is skipped rather than failing the
-    * call: a file list is worth having even if one entry of it is unreadable.
-    */
-  private[tools] def parseNumstat(raw: String): List[ChangedFile] =
-    @scala.annotation.tailrec
-    def loop(
-        fields: List[String],
-        acc: List[ChangedFile]
-    ): List[ChangedFile] =
-      fields match
-        case Nil            => acc.reverse
-        case record :: rest =>
-          // The limit stops the split at the path, and keeps the empty third
-          // field a rename's record ends with — which is what tells the two
-          // shapes apart, since git never names an empty path.
-          record.split("\t", 3).toList match
-            // Rename: the paths are the next two records, old then new.
-            case added :: deleted :: "" :: Nil =>
-              rest match
-                case _ :: renamedTo :: tail =>
-                  loop(
-                    tail,
-                    ChangedFile(renamedTo, change(added, deleted)) :: acc
-                  )
-                case _ => loop(rest, acc)
-            case added :: deleted :: path :: Nil =>
-              loop(rest, ChangedFile(path, change(added, deleted)) :: acc)
-            case _ => loop(rest, acc)
-    loop(raw.split(NUL).toList.filter(_.nonEmpty), Nil)
-
-  /** A `git diff --numstat -z -p` answer split into its numstat records and its
-    * patch, `None` when it holds no complete record list — no changes, or a
-    * list the read cap cut. Git ends the records with an empty one; no record
-    * contains `\0\0`, since a path is never empty.
-    */
-  private[tools] def splitNumstatPatch(raw: String): Option[(String, String)] =
-    raw.indexOf(s"$NUL$NUL") match
-      case -1 => None
-      case at => Some((raw.take(at + 1), raw.drop(at + 2)))
-
-  /** Each of `files`' own part of `patch`, the patch of the same `git diff`
-    * call, which lists them in the same order. `truncated` says the read cap
-    * cut `patch`: the last part is then partial, and dropped.
-    *
-    * Empty when the parts don't line up one to one with `files`: a file is then
-    * never shown on the strength of another file's text.
-    */
-  private[tools] def pairSections(
-      files: List[ChangedFile],
-      patch: String,
-      truncated: Boolean
-  ): Map[String, String] =
-    val parts = fileParts(patch)
-    val whole = if truncated then parts.dropRight(1) else parts
-    val lineUp =
-      if truncated then whole.size <= files.size else whole.size == files.size
-    if lineUp then files.map(_.path).zip(whole).toMap else Map.empty
-
-  /** `patch` cut where each `diff --git ` line starts one. No content line can
-    * imitate that line: every line inside a hunk carries a ` `/`+`/`-`/`\`
-    * prefix. A type change (a file replaced by a symlink) is written as a
-    * deletion and an addition under the same header line; the two are one part.
-    */
-  private def fileParts(patch: String): List[String] =
-    patch
-      .split("(?m)(?=^diff --git )")
-      .toList
-      .filter(_.nonEmpty)
-      .foldRight(List.empty[String]):
-        case (part, next :: rest) if headerOf(part) == headerOf(next) =>
-          (part + next) :: rest
-        case (part, acc) => part :: acc
-
-  private def headerOf(part: String): String = part.takeWhile(_ != '\n')
-
   /** One untracked path as a change set renders it. */
-  private[tools] enum UntrackedPiece(val text: String):
-    /** Git's new-file diff of `path`. */
+  private enum UntrackedPiece(val text: String):
+    /** Git's whole new-file diff of `path`. */
     case Rendered(path: String, diff: String) extends UntrackedPiece(diff)
 
-    /** A line naming a path that was not rendered, and why. */
-    case Skipped(note: String) extends UntrackedPiece(note)
-
-  private def change(added: String, deleted: String): FileChange =
-    (added.toIntOption, deleted.toIntOption) match
-      case (Some(a), Some(d)) => FileChange.Lines(a, d)
-      case _                  => FileChange.Binary
+    /** Text that is not a file's whole diff: a line naming a path that was not
+      * rendered and why, or a diff the read cap cut.
+      */
+    case Partial(note: String) extends UntrackedPiece(note)
 
   // --- Recoverable-failure stderr predicates ---
   //

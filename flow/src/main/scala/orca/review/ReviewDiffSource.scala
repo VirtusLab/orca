@@ -9,7 +9,8 @@ import orca.tools.GitTool
   * the sample has one (see `orca.tools.ReviewSample`). Sampled together, so a
   * consumer can never pair one round's diff with another's file list.
   *
-  * `sections` covers the whole sample, including files `diff` was cut short of.
+  * `sections` is not bounded like `diff`: it also holds files `diff` leaves
+  * out.
   */
 private[review] case class DiffSample(
     diff: String,

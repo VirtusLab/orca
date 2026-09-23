@@ -833,10 +833,10 @@ class OsGitToolTest extends munit.FunSuite:
       assert(section.exists(_.contains("+two")), section)
 
   test("reviewChanges from a subdirectory keys sections relative to it"):
-    withRepo: (_, dir) =>
+    withRepo: (git, dir) =>
       os.makeDir.all(dir / "sub")
       os.write(dir / "sub" / "inner.txt", "one\n")
-      new OsGitTool(dir).commit("seed").orThrow
+      git.commit("seed").orThrow
       os.write.over(dir / "sub" / "inner.txt", "two\n")
       val section =
         new OsGitTool(dir / "sub").reviewChanges().sections.get("inner.txt")
@@ -873,33 +873,23 @@ class OsGitToolTest extends munit.FunSuite:
       assert(sample.diff.contains("# skipped link"), sample.diff)
       assertEquals(sample.sections.get("link"), None)
 
-  test("pairSections pairs nothing when the parts don't line up"):
-    val patch = "diff --git a/a b/a\n+x\n"
-    assertEquals(
-      OsGitTool.pairSections(
-        List(
-          ChangedFile("a", FileChange.Lines(1, 0)),
-          ChangedFile("b", FileChange.Lines(1, 0))
-        ),
-        patch,
-        truncated = false
-      ),
-      Map.empty[String, String]
-    )
+  test("reviewChanges gives an untracked file its section"):
+    withSeededRepo: (git, dir) =>
+      os.write(dir / "new.txt", "hello\n")
+      val section = git.reviewChanges().sections.get("new.txt")
+      assert(section.exists(_.contains("+hello")), section)
 
-  test("pairSections drops the part the read cap cut"):
-    val patch = "diff --git a/a b/a\n+x\ndiff --git a/b b/b\n+partial"
-    assertEquals(
-      OsGitTool.pairSections(
-        List(
-          ChangedFile("a", FileChange.Lines(1, 0)),
-          ChangedFile("b", FileChange.Lines(9, 0))
-        ),
-        patch,
-        truncated = true
-      ),
-      Map("a" -> "diff --git a/a b/a\n+x\n")
-    )
+  test("reviewChanges gives a path both deleted and untracked both halves"):
+    withRepo: (git, dir) =>
+      os.write(dir / "f", "old\n")
+      git.commit("seed").orThrow
+      val _ = os.proc("git", "rm", "--cached", "-q", "f").call(cwd = dir)
+      os.write.over(dir / "f", "new\n")
+      val section = git.reviewChanges().sections.get("f")
+      assert(
+        section.exists(s => s.contains("-old") && s.contains("+new")),
+        section
+      )
 
   test("changedFiles from a subdirectory is unaffected by diff.relative"):
     // The setting makes git print paths relative to the subdirectory, which
@@ -1102,6 +1092,14 @@ class OsGitToolTest extends munit.FunSuite:
       val diff = git.reviewChanges().diff
       assert(clue(diff.length) < OsGitTool.MaxReadBytes + 100)
       assert(diff.endsWith(OsGitTool.CutMarker), diff.takeRight(80))
+
+  test("reviewChanges gives an untracked file the read limit cut no section"):
+    withSeededRepo: (git, dir) =>
+      os.write(
+        dir / "big.txt",
+        ("x" * 99 + "\n") * (OsGitTool.MaxReadBytes / 50)
+      )
+      assertEquals(git.reviewChanges().sections.get("big.txt"), None)
 
   test("reviewChanges names the untracked files past the diff budget"):
     withSeededRepo: (git, dir) =>

@@ -247,7 +247,7 @@ private[review] object LastSent:
   /** Whether a sample renders as the placeholder note instead of a diff. Shared
     * so the prompt and the recorded [[LastSent]] can't disagree.
     */
-  def nothingToShow(sample: String): Boolean = sample.trim.isEmpty
+  def nothingToShow(diff: String): Boolean = diff.trim.isEmpty
 
   /** Records a sample sent inline — an empty one reaches the reviewer as the
     * placeholder note, not as a diff.
@@ -323,18 +323,17 @@ private[review] object ReReviewChanges:
     *
     * Equality is tested before size, so a [[ReviewDiff.Pinned]] diff never
     * reaches [[Sections]]: pinned samples are byte-identical every round, so a
-    * resume always classifies [[AlreadySeen]]. The sections are compared too:
-    * `diff` may be cut short of an edited file.
+    * resume always classifies [[AlreadySeen]]. The whole sample is compared,
+    * sections included: `diff` may leave out an edited file.
     */
   def of(previous: LastSent, current: DiffSample): ReReviewChanges =
-    if current.diff == previous.sample.diff &&
-      current.sections == previous.sample.sections
-    then AlreadySeen(previous)
+    if current == previous.sample then AlreadySeen(previous)
     else if current.diff.length > InlineThreshold then
       val unchanged = unchangedSince(previous.sample, current)
       val changed = current.paths.filterNot(unchanged.toSet)
       // A delta naming no path cannot point the reviewer anywhere (the samples
-      // differ outside any parseable section), so fall back to the full list —
+      // differ outside every file's section, e.g. in a `# skipped` line), so
+      // fall back to the full list —
       // with no sections to send, since there is nothing to cut them from.
       if changed.isEmpty then Paths(current.paths)
       else

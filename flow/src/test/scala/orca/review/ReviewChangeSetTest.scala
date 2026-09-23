@@ -288,9 +288,9 @@ class ReviewChangeSetTest extends munit.FunSuite:
     val current = sampleOf(List("a.scala" -> "one")).copy(
       sections = Map("a.scala" -> "two")
     )
-    assertNotEquals(
+    assertEquals(
       ReReviewChanges.of(previous, current),
-      ReReviewChanges.AlreadySeen(previous)
+      ReReviewChanges.Updated(current.diff)
     )
 
   test("the no-sections prompt tells the reviewer to read the files"):
