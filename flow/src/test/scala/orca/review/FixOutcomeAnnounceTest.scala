@@ -1,25 +1,9 @@
 package orca.review
 
-import orca.testkit.StubEnforcementCell
-import orca.agents.{
-  AgentConfig,
-  BackendTag,
-  DefaultAgentCall,
-  DefaultPrompts,
-  SessionId,
-  StructuredOutputMode,
-  WireSessionId
-}
-import orca.backend.{
-  Dispatch,
-  AgentBackend,
-  AgentResult,
-  Conversation,
-  IdScheme,
-  Interaction,
-  SessionSupport
-}
-import orca.events.{OrcaEvent, OrcaListener, Usage}
+import orca.testkit.ScriptedBackend
+import orca.agents.{AgentConfig, BackendTag, DefaultAgentCall, DefaultPrompts}
+import orca.backend.{AgentResult, Conversation, Interaction, TurnRequest}
+import orca.events.{OrcaEvent, OrcaListener}
 import orca.plan.Title
 import ox.supervised
 
@@ -33,35 +17,10 @@ import java.util.concurrent.atomic.AtomicReference
   * loop's own "Fixed N, declined N" line.
   */
 private class CannedBackend(output: String)
-    extends AgentBackend[BackendTag.Pi.type]
-    with StubEnforcementCell[BackendTag.Pi.type]:
-  val workDir: os.Path = os.pwd
-  val sessions: SessionSupport[BackendTag.Pi.type] =
-    SessionSupport.ephemeral(IdScheme.ClientClaimed)
-  val tag: BackendTag.Pi.type = BackendTag.Pi
-  def structuredOutputMode: StructuredOutputMode = StructuredOutputMode.RawText
-  protected def doRunAutonomous(
-      prompt: String,
-      session: SessionId[BackendTag.Pi.type],
-      dispatch: Dispatch[BackendTag.Pi.type],
-      config: AgentConfig,
-      events: OrcaListener,
-      outputSchema: Option[String]
-  ): AgentResult[BackendTag.Pi.type] =
-    AgentResult(
-      WireSessionId[BackendTag.Pi.type]("wire-test"),
-      output,
-      Usage.empty
-    )
-  protected def doRunInteractive(
-      prompt: String,
-      session: SessionId[BackendTag.Pi.type],
-      dispatch: Dispatch[BackendTag.Pi.type],
-      displayPrompt: String,
-      config: AgentConfig,
-      outputSchema: Option[String]
-  )(using ox.Ox): Conversation[BackendTag.Pi.type] =
-    throw new UnsupportedOperationException("test stub")
+    extends ScriptedBackend(BackendTag.Pi):
+  protected def reply(
+      turn: TurnRequest[BackendTag.Pi.type]
+  ): AgentResult[BackendTag.Pi.type] = ScriptedBackend.result(output)
 
 class FixOutcomeAnnounceTest extends munit.FunSuite:
   private given orca.InStage = orca.InStage.unsafe

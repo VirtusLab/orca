@@ -1,7 +1,8 @@
 package orca.agents
 
-import orca.backend.{Interaction, AgentBackend}
+import orca.backend.{AgentBackend, AgentResult, Interaction}
 import orca.events.{OrcaEvent, OrcaListener}
+import ox.tap
 
 /** Skeleton shared by all backends' default tools. Centralises the
   * autonomous-text path (delegation to `backend.runAutonomous`, with
@@ -99,37 +100,49 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
         backend.checkNotClosed()
         if emitPrompt then events.onEvent(OrcaEvent.UserPrompt(prompt))
         val accounting = turnAccounting(session, sessionKey)
-        val result = accounting.recording:
-          backend.runAutonomous(
+        val result =
+          textTurn(
             prompt,
             session,
-            config,
+            accounting,
             OrcaListener.attributedTo(events, name)
           )
-        accounting.succeeded(result, TurnAccounting.OnlyTurn)
         accounting.sessionCommitted()
         result.output
 
   /** See [[Agent.quietTextTurn]]: the turn runs against a filtered event sink
     * that drops the streaming display events (`AssistantMessage`, `ToolUse`)
     * while everything else the drain emits (`Error`, auto-denial notices) still
-    * reaches the real listener, as does `TokensUsed` below.
+    * reaches the real listener, as does `TokensUsed`.
     */
   override private[orca] def quietTextTurn(prompt: String)(using
       orca.InStage
   ): String =
-    backend.checkNotClosed()
     val attributed = OrcaListener.attributedTo(events, name)
     val quietEvents: OrcaListener = (e: OrcaEvent) =>
       e match
         case _: OrcaEvent.AssistantMessage | _: OrcaEvent.ToolUse => ()
         case other => attributed.onEvent(other)
     val session = SessionId.fresh[B]
-    val accounting = turnAccounting(session, sessionKey = None)
-    val result = accounting.recording:
-      backend.runAutonomous(prompt, session, config, quietEvents)
-    accounting.succeeded(result, TurnAccounting.OnlyTurn)
-    result.output
+    textTurn(
+      prompt,
+      session,
+      turnAccounting(session, sessionKey = None),
+      quietEvents
+    ).output
+
+  /** One free-form turn, with its spend reported through `accounting` whether
+    * it succeeds or fails after the model ran.
+    */
+  private def textTurn(
+      prompt: String,
+      session: SessionId[B],
+      accounting: TurnAccounting[B],
+      listener: OrcaListener
+  ): AgentResult[B] =
+    accounting
+      .recording(backend.runAutonomous(prompt, session, config, listener))
+      .tap(accounting.succeeded(_, TurnAccounting.OnlyTurn))
 
   def resultAs[O: JsonData: Announce]: AgentCall[B, O] =
     backend.checkNotClosed()

@@ -1,6 +1,6 @@
 package orca.tools.claude
 
-import orca.testkit.StubEnforcementCell
+import orca.testkit.{ScriptedBackend, ScriptedConversation}
 import orca.{AgentTurnFailed, OrcaFlowException, OrcaInteractiveCancelled}
 import orca.agents.{
   AutoApprove,
@@ -20,12 +20,13 @@ import orca.events.{OrcaEvent, OrcaListener, TurnDebit, Usage}
 import orca.testkit.Usages.usage
 
 import orca.backend.{
-  Dispatch,
-  Interaction,
-  AgentBackend,
   AgentResult,
+  Conversation,
+  ConversationEvent,
   IdScheme,
-  SessionSupport
+  Interaction,
+  SessionSupport,
+  TurnRequest
 }
 import orca.agents.{DefaultAgentCall, DefaultPrompts}
 import ox.supervised
@@ -35,30 +36,27 @@ import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
 case class Answer(value: Int) derives JsonData
 
 /** Fake backend that returns a pre-scripted sequence of outputs and records the
-  * prompts it was asked to run. The session id is fixed — sessions aren't under
-  * test here. `mode` is the declared [[StructuredOutputMode]]; defaults to the
-  * text contract, overridden by the test pinning the Tool-mode instruction.
+  * prompts it was asked to run. `mode` is the declared
+  * [[StructuredOutputMode]]; defaults to the text contract, overridden by the
+  * test pinning the Tool-mode instruction.
+  *
+  * Its sessions are a real capability: tests observe the mapping the framework
+  * registered via `sessions.persistableWireId`.
   */
 class SequencedBackend(
     outputs: List[String],
     mode: StructuredOutputMode = StructuredOutputMode.RawText
-) extends AgentBackend[BackendTag.ClaudeCode.type]
-    with StubEnforcementCell[BackendTag.ClaudeCode.type]:
+) extends ScriptedBackend(
+      BackendTag.ClaudeCode,
+      SessionSupport.durable(IdScheme.ServerMinted, _ => false)
+    ):
   private val remaining: AtomicReference[List[String]] =
     AtomicReference(outputs)
   private val promptsRef: AtomicReference[List[String]] =
     AtomicReference(Nil)
-  private val seenEvents: AtomicReference[List[orca.events.OrcaListener]] =
-    AtomicReference(Nil)
   private val seenSchemas: AtomicReference[List[Option[String]]] =
     AtomicReference(Nil)
   def prompts: List[String] = promptsRef.get().reverse
-
-  /** Listeners the backend was called with, in invocation order. Lets tests
-    * assert that `DefaultAgentCall` threaded its own `events` through rather
-    * than dropping it.
-    */
-  def events: List[orca.events.OrcaListener] = seenEvents.get().reverse
 
   /** `outputSchema` values the backend received, in invocation order. Lets
     * tests assert that `DefaultAgentCall` actually passes `Some(<schema>)`
@@ -66,62 +64,18 @@ class SequencedBackend(
     */
   def schemas: List[Option[String]] = seenSchemas.get().reverse
 
-  /** A real capability: tests observe the mapping the framework registered
-    * (`AgentCall.runInteractiveOnce` → `backend.sessions.register`) via
-    * `sessions.persistableWireId`.
-    */
-  val sessions: SessionSupport[BackendTag.ClaudeCode.type] =
-    SessionSupport.durable(IdScheme.ServerMinted, _ => false)
+  override def structuredOutputMode: StructuredOutputMode = mode
 
-  val tag: BackendTag.ClaudeCode.type = BackendTag.ClaudeCode
-  val workDir: os.Path = os.pwd
-  def structuredOutputMode: StructuredOutputMode = mode
-
-  protected def doRunAutonomous(
-      prompt: String,
-      session: SessionId[BackendTag.ClaudeCode.type],
-      dispatch: Dispatch[BackendTag.ClaudeCode.type],
-      config: AgentConfig,
-      events: orca.events.OrcaListener,
-      outputSchema: Option[String]
+  protected def reply(
+      turn: TurnRequest[BackendTag.ClaudeCode.type]
   ): AgentResult[BackendTag.ClaudeCode.type] =
-    val _ = seenEvents.updateAndGet(events :: _)
-    val _ = seenSchemas.updateAndGet(outputSchema :: _)
-    nextResult(prompt)
-
-  protected def doRunInteractive(
-      prompt: String,
-      session: SessionId[BackendTag.ClaudeCode.type],
-      dispatch: Dispatch[BackendTag.ClaudeCode.type],
-      displayPrompt: String,
-      config: AgentConfig,
-      outputSchema: Option[String]
-  )(using ox.Ox): orca.backend.Conversation[BackendTag.ClaudeCode.type] =
-    // Minimal stand-in: the conversation is not actually driven — the test's
-    // `Interaction.drive` ignores it and returns a canned `AgentResult`. We
-    // still need *something* to return so the interactive path compiles.
-    new orca.backend.Conversation[BackendTag.ClaudeCode.type]:
-      val outputSchema: Option[String] = None
-      def events(using ox.Ox): Iterator[orca.backend.ConversationEvent] =
-        Iterator.empty
-      def awaitResult()(using ox.Ox) =
-        throw new UnsupportedOperationException("test stub")
-      def canAskUser: Boolean = false
-      def cancel(): Unit = ()
-
-  private def nextResult(
-      prompt: String
-  ): AgentResult[BackendTag.ClaudeCode.type] =
-    val _ = promptsRef.updateAndGet(prompt :: _)
+    val _ = seenSchemas.updateAndGet(turn.outputSchema :: _)
+    val _ = promptsRef.updateAndGet(turn.prompt :: _)
     val next = remaining
       .getAndUpdate(rs => rs.drop(1))
       .headOption
       .getOrElse(throw new IllegalStateException("ran out of canned outputs"))
-    AgentResult(
-      wireId = WireSessionId[BackendTag.ClaudeCode.type]("sess-test"),
-      output = next,
-      usage = Usage.empty
-    )
+    ScriptedBackend.result(next, "sess-test")
 
 class DefaultAgentCallTest extends munit.FunSuite:
 
@@ -304,7 +258,15 @@ class DefaultAgentCallTest extends munit.FunSuite:
     // uses) lose tool-use / assistant-message visibility — the per-turn
     // events fire only when the backend gets the same listener the
     // DefaultAgentCall was constructed with.
-    val backend = new SequencedBackend(List("""{"value":1}"""))
+    val backend = new SequencedBackend(List("""{"value":1}""")):
+      override protected[orca] def open(
+          turn: TurnRequest[BackendTag.ClaudeCode.type]
+      )(using ox.Ox): Conversation[BackendTag.ClaudeCode.type] =
+        new ScriptedConversation(
+          List(ConversationEvent.AssistantToolCall("Read", "{}")),
+          Right(reply(turn)),
+          turn.outputSchema
+        )
     val received =
       new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
     val myListener: OrcaListener = e => {
@@ -319,12 +281,12 @@ class DefaultAgentCallTest extends munit.FunSuite:
         interaction = stubInteraction,
         agentName = "claude"
       ).autonomous.run("anything")
-      // The backend is handed an agent-attributing wrapper, so identity would
-      // say nothing; what has to hold is that its events still arrive.
-      assertEquals(backend.events.size, 1)
-      received.set(Nil)
-      backend.events.foreach(_.onEvent(OrcaEvent.Step("probe")))
-      assertEquals(received.get(), List(OrcaEvent.Step("probe")))
+      assert(
+        received
+          .get()
+          .contains(OrcaEvent.ToolUse("Read", "{}", Some("claude"))),
+        received.get()
+      )
 
   test(
     "autonomous emits StructuredResult with summary=None under default Announce"
@@ -425,13 +387,8 @@ class DefaultAgentCallTest extends munit.FunSuite:
     // It must propagate after a single attempt, named + sized.
     val calls = new AtomicInteger(0)
     val backend = new SequencedBackend(Nil):
-      override protected def doRunAutonomous(
-          prompt: String,
-          session: SessionId[BackendTag.ClaudeCode.type],
-          dispatch: Dispatch[BackendTag.ClaudeCode.type],
-          config: AgentConfig,
-          events: OrcaListener,
-          outputSchema: Option[String]
+      override protected def reply(
+          turn: TurnRequest[BackendTag.ClaudeCode.type]
       ): AgentResult[BackendTag.ClaudeCode.type] =
         val _ = calls.incrementAndGet()
         throw new AgentTurnFailed(
@@ -458,13 +415,8 @@ class DefaultAgentCallTest extends munit.FunSuite:
     val seen = new AtomicReference[List[OrcaEvent]](Nil)
     val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
     val backend = new SequencedBackend(Nil):
-      override protected def doRunAutonomous(
-          prompt: String,
-          session: SessionId[BackendTag.ClaudeCode.type],
-          dispatch: Dispatch[BackendTag.ClaudeCode.type],
-          config: AgentConfig,
-          events: OrcaListener,
-          outputSchema: Option[String]
+      override protected def reply(
+          turn: TurnRequest[BackendTag.ClaudeCode.type]
       ): AgentResult[BackendTag.ClaudeCode.type] =
         throw new AgentTurnFailed("no usage on the wire", TurnDebit.Unobserved)
     supervised:
@@ -492,23 +444,10 @@ class DefaultAgentCallTest extends munit.FunSuite:
     // Turn 1 runs and returns unparseable output; the corrective retry's turn
     // runs too, then fails with what it spent.
     val backend = new SequencedBackend(List("not json")):
-      override protected def doRunAutonomous(
-          prompt: String,
-          session: SessionId[BackendTag.ClaudeCode.type],
-          dispatch: Dispatch[BackendTag.ClaudeCode.type],
-          config: AgentConfig,
-          events: OrcaListener,
-          outputSchema: Option[String]
+      override protected def reply(
+          turn: TurnRequest[BackendTag.ClaudeCode.type]
       ): AgentResult[BackendTag.ClaudeCode.type] =
-        if calls.incrementAndGet() == 1 then
-          super.doRunAutonomous(
-            prompt,
-            session,
-            dispatch,
-            config,
-            events,
-            outputSchema
-          )
+        if calls.incrementAndGet() == 1 then super.reply(turn)
         else
           throw new AgentTurnFailed(
             "provider error",
@@ -539,27 +478,14 @@ class DefaultAgentCallTest extends munit.FunSuite:
     // didn't disable transient-failure retries.
     val calls = new AtomicInteger(0)
     val backend = new SequencedBackend(List("""{"value":8}""")):
-      override protected def doRunAutonomous(
-          prompt: String,
-          session: SessionId[BackendTag.ClaudeCode.type],
-          dispatch: Dispatch[BackendTag.ClaudeCode.type],
-          config: AgentConfig,
-          events: OrcaListener,
-          outputSchema: Option[String]
+      override protected def reply(
+          turn: TurnRequest[BackendTag.ClaudeCode.type]
       ): AgentResult[BackendTag.ClaudeCode.type] =
         if calls.getAndIncrement() == 0 then
           throw new OrcaFlowException(
             "Failed to open claude stream-json session: Broken pipe"
           )
-        else
-          super.doRunAutonomous(
-            prompt,
-            session,
-            dispatch,
-            config,
-            events,
-            outputSchema
-          )
+        else super.reply(turn)
     supervised:
       val answer = makeCall(backend).autonomous.run("q")
       assertEquals(answer, Answer(8))
@@ -582,7 +508,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
     supervised:
       val _ = intercept[OrcaInteractiveCancelled]:
         new DefaultAgentCall[BackendTag.ClaudeCode.type, Answer](
-          backend = new SequencedBackend(Nil),
+          backend = new SequencedBackend(List("""{"value":1}""")),
           config = AgentConfig(),
           prompts = DefaultPrompts,
           events = listener,
@@ -614,7 +540,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
     supervised:
       val _ = intercept[AgentTurnFailed]:
         new DefaultAgentCall[BackendTag.ClaudeCode.type, Answer](
-          backend = new SequencedBackend(Nil),
+          backend = new SequencedBackend(List("""{"value":1}""")),
           config = AgentConfig(),
           prompts = DefaultPrompts,
           events = listener,
@@ -631,7 +557,8 @@ class DefaultAgentCallTest extends munit.FunSuite:
   /** [[SequencedBackend]] whose gate is prompt-deep, so a read-only turn has a
     * shortfall to report.
     */
-  private class PromptOnlyBackend extends SequencedBackend(Nil):
+  private class PromptOnlyBackend
+      extends SequencedBackend(List("""{"value":5}""")):
     override def enforcementCell(
         tools: ToolSet,
         autoApprove: AutoApprove,

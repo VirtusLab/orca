@@ -1,16 +1,15 @@
 package orca.agents
 
-import orca.testkit.StubEnforcementCell
+import orca.testkit.ScriptedBackend
 import orca.backend.{
-  Dispatch,
   Conversation,
   Interaction,
-  AgentBackend,
   AgentResult,
   IdScheme,
-  SessionSupport
+  SessionSupport,
+  TurnRequest
 }
-import orca.events.{OrcaEvent, OrcaListener, Usage}
+import orca.events.{OrcaEvent, OrcaListener}
 import ox.supervised
 
 import java.util.concurrent.atomic.AtomicReference
@@ -42,7 +41,10 @@ class AgentCallSessionCommittedTest extends munit.FunSuite:
   test(
     "structured autonomous run with a parse-retry emits SessionCommitted exactly once"
   ):
-    val backend = new SequencedBackend(List("garbage", """{"value":11}"""))
+    val backend = new SequencedBackend(
+      List("garbage", """{"value":11}"""),
+      wireId = "committed-wire"
+    )
     val seen = AtomicReference[List[OrcaEvent]](Nil)
     val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
     supervised:
@@ -76,19 +78,14 @@ class AgentCallSessionCommittedTest extends munit.FunSuite:
 
   test("interactive path emits SessionCommitted after register"):
     val clientSid = SessionId[BackendTag.ClaudeCode.type]("client-uuid-cccc")
-    val serverSid =
-      WireSessionId[BackendTag.ClaudeCode.type]("server-wire-dddd")
-    val backend = new SequencedBackend(Nil)
+    val backend =
+      new SequencedBackend(List("""{"value":3}"""), wireId = "server-wire-dddd")
     val drivingInteraction: Interaction = new Interaction:
       val listeners: List[OrcaListener] = Nil
       def drive[B <: BackendTag](
           conversation: Conversation[B]
       )(using ox.Ox): AgentResult[B] =
-        AgentResult[B](
-          wireId = WireSessionId[B](WireSessionId.value(serverSid)),
-          output = """{"value":3}""",
-          usage = Usage.empty
-        )
+        conversation.awaitResult().fold(throw _, identity)
     val seen = AtomicReference[List[OrcaEvent]](Nil)
     val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
     supervised:
@@ -118,53 +115,19 @@ class AgentCallSessionCommittedTest extends munit.FunSuite:
       assertEquals(committed.head.agent, "claude")
       assertEquals(committed.head.role, None)
 
-  /** Returns pre-scripted outputs and commits the session on each drain (as a
-    * real subprocess backend's `drainAndCommit` does), so the wire id is known
-    * via `sessions.persistableWireId` once `runAutonomous` returns.
-    */
-  private class SequencedBackend(outputs: List[String])
-      extends AgentBackend[BackendTag.ClaudeCode.type]
-      with StubEnforcementCell[BackendTag.ClaudeCode.type]:
+  /** A durable backend answering pre-scripted outputs under `wireId`. */
+  private class SequencedBackend(outputs: List[String], wireId: String)
+      extends ScriptedBackend(
+        BackendTag.ClaudeCode,
+        SessionSupport.durable(IdScheme.ServerMinted, _ => false)
+      ):
     private val remaining: AtomicReference[List[String]] =
       AtomicReference(outputs)
-    val workDir: os.Path = os.pwd
-    val sessions: SessionSupport[BackendTag.ClaudeCode.type] =
-      SessionSupport.durable(IdScheme.ServerMinted, _ => false)
-    val tag: BackendTag.ClaudeCode.type = BackendTag.ClaudeCode
-    def structuredOutputMode: StructuredOutputMode =
-      StructuredOutputMode.RawText
-    protected def doRunAutonomous(
-        prompt: String,
-        session: SessionId[BackendTag.ClaudeCode.type],
-        dispatch: Dispatch[BackendTag.ClaudeCode.type],
-        config: AgentConfig,
-        events: OrcaListener,
-        outputSchema: Option[String]
+    protected def reply(
+        turn: TurnRequest[BackendTag.ClaudeCode.type]
     ): AgentResult[BackendTag.ClaudeCode.type] =
       val next = remaining
         .getAndUpdate(_.drop(1))
         .headOption
         .getOrElse(throw new IllegalStateException("ran out of canned outputs"))
-      val result = AgentResult(
-        WireSessionId[BackendTag.ClaudeCode.type]("committed-wire"),
-        next,
-        Usage.empty
-      )
-      sessions.commitAfterDrain(session, result.wireId)
-      result
-    protected def doRunInteractive(
-        prompt: String,
-        session: SessionId[BackendTag.ClaudeCode.type],
-        dispatch: Dispatch[BackendTag.ClaudeCode.type],
-        displayPrompt: String,
-        config: AgentConfig,
-        outputSchema: Option[String]
-    )(using ox.Ox): Conversation[BackendTag.ClaudeCode.type] =
-      new Conversation[BackendTag.ClaudeCode.type]:
-        val outputSchema: Option[String] = None
-        def events(using ox.Ox): Iterator[orca.backend.ConversationEvent] =
-          Iterator.empty
-        def awaitResult()(using ox.Ox) =
-          throw new UnsupportedOperationException("test stub")
-        def canAskUser: Boolean = false
-        def cancel(): Unit = ()
+      ScriptedBackend.result(next, wireId)

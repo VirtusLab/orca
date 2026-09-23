@@ -12,8 +12,8 @@ import ox.{Ox, supervised}
   */
 private[orca] object SupervisedBackend:
 
-  /** `body` receives the scope's `Ox` so interactive backends can call
-    * `runInteractive(...)(using Ox)`.
+  /** `body` receives the scope's `Ox` so tests can open a turn
+    * (`OpenTurn.interactive`).
     */
   def using[B <: AgentBackend[?], T](make: Ox ?=> B)(body: Ox ?=> B => T): T =
     supervised:
