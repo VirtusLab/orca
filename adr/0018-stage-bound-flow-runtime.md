@@ -1019,6 +1019,22 @@ list output and opencode's directory-scoping should be pinned when the probes la
 > refuse for an id they hold. The claim probe already carried that risk; both
 > read the same transcript path the spawn writes.
 
+> **Amendment (2026-09-23, rehydration at reuse).** `FlowLifecycle.rehydrateSessions`
+> is gone. The reuse arm of `agent.session(name, seed)` hands the record's resume
+> wire id to the agent reusing it, before the session's first turn.
+>
+> **Why.** Startup rehydration replayed every record into an agent picked by the
+> record's `backend` tag, untagged ones into the lead, and `persistResumeWireId`
+> re-stamped untagged records to keep that routing right. The reuse arm already
+> reads the record and holds the agent the session runs on, so none of that is
+> needed. The tag lookup reached only wired agents, so a session on an agent the
+> script built got its wire id registered into the wired agent of the same
+> backend; the reuse arm registers it into the agent the session runs on.
+>
+> **What stays.** The `backend` tag only drives the swap check. The backend's
+> in-memory map stays the in-run source: the corrective retry, turn accounting and
+> adopted chats read it.
+
 ### 2.7 External-effect idempotency
 
 **Requirements.**

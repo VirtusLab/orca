@@ -211,11 +211,12 @@ most easily broken:
   neither can be a stage's result. A handle stashed in an in-memory `var` in
   stage A and read in stage B still compiles, and fails loudly with
   `NoSuchElementException` on the resume that skips A.
-  Each record also carries the minting agent's `backend` tag, so
-  `FlowLifecycle.rehydrateSessions` replays a resumed run's resume wire ids
-  into the record's own backend's agent rather than always the lead
-  (untagged records fall back to the lead). The tag is a typed `BackendTag`:
-  a store holding an unknown one fails to decode and reads as empty.
+  When `agent.session(name, seed)` reuses a record, it hands the record's
+  resume wire id to that agent (`rehydrateResumeWireId`), so the session's
+  first turn this run probes and resumes it. Each record also carries the
+  minting agent's `backend` tag; a reuse by an agent with a different tag
+  mints fresh. The tag is a typed `BackendTag`: a store holding an unknown one
+  fails to decode and reads as empty.
 
 - **Tool enforcement.** `AgentConfig.tools: ToolSet`
   (ReadOnly/NetworkOnly/Full/NoTools) and `autoApprove: AutoApprove`
@@ -294,7 +295,7 @@ Three location classes decide what survives:
 | Path | Class | Holds | Written by | Read by | Removed by |
 |---|---|---|---|---|---|
 | `.orca/runs/<key>.progress.json` | committed | `ProgressLog`: header (branches, `branchMode`, `startingCommit`, `userPrompt`, `flow`), one `StageEntry` per completed stage (`id` as `StagePath` segments, `resultJson`), `published` | `ProgressStore` (`FlowLifecycle.freshRun`, `Flow.recordAndCommit`, `recordOpenedPr`) | `Flow.resumeFrom`, `RecoveryCheck`, `FlowLifecycle`, shell `ResumeDetector` (header) | success teardown, in a final commit |
-| `.orca/cache/runs/<key>.sessions.json` | cache | `SessionRecord` per durable session: `name`, `stage`, `id`, `seed`, `resumeWireId`, `backend` | `SessionStore` (`Session.mintSession`, `persistResumeWireId`) | `Session`, `FlowLifecycle.rehydrateSessions` | success teardown; nothing else prunes them |
+| `.orca/cache/runs/<key>.sessions.json` | cache | `SessionRecord` per durable session: `name`, `stage`, `id`, `seed`, `resumeWireId`, `backend` | `SessionStore` (`Session.mintSession`, `persistResumeWireId`) | `Session` | success teardown; nothing else prunes them |
 | `.orca/cache/attempts/<id>.manifest.json` | cache | `AttemptManifest`: `workDir`, `pid`, `startedAt`, `finishedAt`, `status`, `orcaVersion`, `flow`, `branch`, `sessions[]` (`ManifestSession`) — written when the attempt starts, then on every stage transition, `BranchBound`, `SessionCommitted` and finish | `AttemptManifestWriter` | shell `ManifestReader` → session picker / `orca continue` (attempts with no session are left out) | pruning: newest 20 attempts with a session ∪ newest 20 of any kind |
 | `.orca/cache/attempts/<id>.cost.jsonl` | cache | one `CostRecord` line per `TokensUsed` (agent, role, model, stage, turn, usage, cost, session) — created on the first `TokensUsed` | `CostLog` via `AttemptManifestWriter` | nothing in orca; a measurement record for people and scripts | pruned with its manifest |
 | `.orca/cache/attempts/<id>.trace.log` (+ `.trace.1.log`) | cache | DEBUG trace of logger `orca`: prompts, agent output, tool calls; 4 MB roll | `OrcaLog` | people (path in the banner) | pruned with its manifest |

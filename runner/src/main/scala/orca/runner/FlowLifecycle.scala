@@ -2,7 +2,6 @@ package orca.runner
 
 import orca.{
   BranchNamingStrategy,
-  FlowContext,
   FlowControl,
   InStage,
   OrcaArgs,
@@ -13,10 +12,10 @@ import orca.{
   StackSettings,
   WorkspaceWrite
 }
-import orca.agents.{BackendTag, Agent, SessionId, WireSessionId}
+import orca.agents.Agent
 import orca.events.OrcaEvent
 import orca.util.{JsonFile, TextUtil}
-import orca.sessions.{SessionRecord, SessionStore}
+import orca.sessions.SessionStore
 import orca.gitref.{BranchName, CommitHash, Head}
 import orca.progress.{
   BranchMode,
@@ -44,17 +43,17 @@ import scala.util.control.NonFatal
   */
 object FlowLifecycle:
 
-  /** One run's phases, in mandated order: session rehydration → body → disjoint
-    * success/failure teardown (ADR 0018 §2.4/§2.5). [[setup]] (branch + log
-    * binding) already ran in `runFlow` before the context was built, so its
-    * resolved settings arrive here as a constructor input, not a phase.
+  /** One run's phases, in mandated order: body → disjoint success/failure
+    * teardown (ADR 0018 §2.4/§2.5). [[setup]] (branch + log binding) already
+    * ran in `runFlow` before the context was built, so its resolved settings
+    * arrive here as a constructor input, not a phase.
     *
-    * Rehydration and the body run inside [[surfaced]]; the body phase also runs
-    * `teardownFailure` on the way out. `teardownSuccess` runs OUTSIDE
-    * `surfaced` — it's already best-effort, and wrapping it would turn a
-    * cosmetic teardown failure into a reported failure on a successful run.
-    * Since the body's catch rethrows, success teardown is unreachable after a
-    * body failure — the two teardowns are structurally disjoint.
+    * The body runs inside [[surfaced]] and also runs `teardownFailure` on the
+    * way out. `teardownSuccess` runs OUTSIDE `surfaced` — it's already
+    * best-effort, and wrapping it would turn a cosmetic teardown failure into a
+    * reported failure on a successful run. Since the body's catch rethrows,
+    * success teardown is unreachable after a body failure — the two teardowns
+    * are structurally disjoint.
     */
   private[orca] def run(
       control: FlowControl,
@@ -63,9 +62,6 @@ object FlowLifecycle:
   )(body: FlowControl ?=> Unit): Unit =
     val ctx = control.context
     val log = LoggerFactory.getLogger("orca.flow")
-    surfaced(ctx.emit, debug)(
-      rehydrateSessions(ctx, ctx.codingAgent, control.sessionStore)
-    )
     // The whole flow body runs as a top-level stage: an otherwise unhandled
     // exception surfaces as a single Error event. `teardownFailure` runs only
     // here in the body phase, so a success-teardown error can never trigger
@@ -113,50 +109,6 @@ object FlowLifecycle:
         LoggerFactory.getLogger("orca.flow").debug("flow aborted", reported)
         if debug then reported.printStackTrace(System.err)
         throw reported
-
-  /** Replay the persisted resume-wire-id map (ADR 0018 §2.6) into each
-    * session's own agent's in-memory registry, so a resumed run resumes against
-    * the right wire id. For each [[orca.sessions.SessionRecord]] carrying a
-    * `resumeWireId`, registers it into the agent for the record's `backend`
-    * tag, or into `lead` for an untagged record. `record.id`/`wireId` are
-    * untrusted (file-sourced): a value that fails to parse is skipped with an
-    * `OrcaEvent.Step` warning rather than guessed.
-    */
-  private[orca] def rehydrateSessions(
-      ctx: FlowContext,
-      lead: Agent[?],
-      store: SessionStore
-  ): Unit =
-    for
-      record <- store.records()
-      wireId <- record.resumeWireId
-    do
-      register(
-        ctx,
-        record.backend.fold[Agent[?]](lead)(ctx.agentFor),
-        record,
-        wireId
-      )
-
-  /** Parse `record.id`/`wire` (both file-sourced, untrusted) and register the
-    * mapping into `agent`; a value that fails to parse is skipped with a
-    * visible warning rather than rehydrated raw.
-    */
-  private def register[B <: BackendTag](
-      ctx: FlowContext,
-      agent: Agent[B],
-      record: SessionRecord,
-      wire: String
-  ): Unit =
-    (SessionId.parse[B](record.id), WireSessionId.parse[B](wire)) match
-      case (Some(id), Some(wireId)) => agent.rehydrateResumeWireId(id, wireId)
-      case _ =>
-        ctx.emit(
-          OrcaEvent.Step(
-            s"warning: session ${record.key.describe} has an " +
-              "invalid recorded id or wire id — skipping rehydration"
-          )
-        )
 
   /** Outcome of [[setup]] (ADR 0019 stack settings included).
     *
