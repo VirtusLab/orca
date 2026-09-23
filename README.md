@@ -203,13 +203,13 @@ backend's model accessors and backend-specific extras:
 | `opencode` | `anthropicOpus`/`anthropicSonnet`/`anthropicHaiku`, `openaiAstra`/`openaiSol`/`openaiLuna`, `cheap` (provider-matched: openai→luna, else anthropicHaiku), `withModel(providerModel)` / `withModel(provider, modelId)` | [OpenCode](https://opencode.ai) coding/reviewing agent, driven over HTTP+SSE against a headless `opencode serve` (started lazily, shared for the run; sessions survive it — see [Sessions](#sessions)). Spans providers, so models are provider-qualified: use an accessor (`opencode.openaiLuna`) or `opencode.withModel("openai/gpt-5-mini")` / `opencode.withModel("ollama", "llama3.1")`. Inherits the user's configured `opencode` providers/auth. |
 | `pi` | `withModel(Model)` | [Pi](https://pi.dev/) coding agent backend, driven through `pi --mode rpc`. Pi handles provider/model selection through its own CLI configuration; pin a model with `pi.withModel(Model("provider/model"))`. Interactive calls can ask clarifying questions via Orca's `ask_user` bridge. |
 | `gemini` | `flash`, `cheap` (→ flash), `withModel(Model)` | Google Gemini CLI coding/reviewing agent, driven via `gemini --output-format stream-json`. Bare `gemini` pins **Gemini 3.1 Pro (preview)**; use `gemini.flash` (Gemini 3.8 Flash) for cheaper one-shot calls. Structured output is prompt-enforced (Gemini has no schema flag); `withReadOnly` maps to `--approval-mode plan`. See [ADR 0015](adr/0015-gemini-stream-json-driver.md). |
-| `git` | `createBranch`, `checkout`, `ensureClean`, `commit`, `forceAdd`, `push`, `head`, `headCommit`, `uncommittedDiff`, `changedFiles`, `reviewChanges`, `pendingChanges`, `diffVsBase`, `defaultBase`, `discardUncommitted`, `deleteBranch`, `branchHasChangesExcludingOrca` | Git operations against the working tree. Branches and commits are typed (`orca.gitref.BranchName`, `CommitHash`); `head` answers the branch HEAD is on or the commit it is detached at (`orca.gitref.Head`). Recoverable failures (`BranchAlreadyExists`, `BranchNotFound`, `NothingToCommit`, `NoDefaultBase`, `PushFailure` — `NonFastForward`/`RemoteDeclined`) surface as `Either`; `.orThrow` converts a `Left` back to an exception when the case is unexpected. `forceAdd`, `discardUncommitted`, `deleteBranch` are used by the flow runtime for bookkeeping and teardown. `uncommittedDiff` covers the whole repository minus `.orca/` bookkeeping, tracked files only, and is empty once the work is committed — `diffVsBase` is the branch-wide view. `reviewChanges` is what `reviewAndFixLoop` hands reviewers: that diff plus the contents of files new to the repo, together with the list of every path in the change set and how much of each changed. It takes an optional commit to compare against (`headCommit` reads one) so work already committed still shows up. `changedFiles` is the path list on its own, for a consumer gating on file names — the diff text alone names neither a binary change nor a rename, and leaves a trailing tab on a path containing a space. `pendingChanges` describes what the next commit will include: a `--stat` summary, the new files, and the diff. |
+| `git` | `push`, `head`, `headCommit`, `isAncestorOfHead`, `uncommittedDiff`, `changedFiles`, `reviewChanges`, `pendingChanges`, `diffVsBase`, `defaultBase`, `show`, `fileAt` | Git reads against the working tree, plus `push`. The runtime owns the run's branch and commits, so branch switching and committing are not on `git`. Commits are typed (`orca.gitref.CommitHash`); `head` answers the branch HEAD is on or the commit it is detached at (`orca.gitref.Head`). Recoverable failures (`NoDefaultBase`, `PushFailure` — `NonFastForward`/`RemoteDeclined`, `GitReadFailed`) surface as `Either`; `.orThrow` converts a `Left` back to an exception when the case is unexpected. `uncommittedDiff` covers the whole repository minus `.orca/` bookkeeping, tracked files only, and is empty once the work is committed — `diffVsBase` is the branch-wide view. `reviewChanges` is what `reviewAndFixLoop` hands reviewers: that diff plus the contents of files new to the repo, together with the list of every path in the change set and how much of each changed. It takes an optional commit to compare against (`headCommit` reads one) so work already committed still shows up. `changedFiles` is the path list on its own, for a consumer gating on file names — the diff text alone names neither a binary change nor a rename, and leaves a trailing tab on a path containing a space. `pendingChanges` describes what the next commit will include: a `--stat` summary, the new files, and the diff. |
 | `gh` | `availability`, `createPr`, `updatePr`, `readIssue`, `readIssueComments`, `readPrComments`, `writeComment(pr, body)` / `writeComment(issue, body)`, `upsertComment(pr, marker, body)` / `upsertComment(issue, marker, body)`, `buildStatus`, `waitForBuild` | GitHub PR + CI integration via the `gh` CLI. `availability` is a read-only probe of whether a PR can be opened from this checkout, answering with a [`GitHubAvailability`](#data-structures). `createPr` is idempotent by branch (returns the existing PR if one is open); `upsertComment` finds a prior comment carrying `marker` and edits it in place (see [Authoring rules](#authoring-rules) for the re-run pattern). `updatePr` replaces a PR's title + body. `waitForBuild` returns `Either[BuildWaitFailed, …]`. |
 | `fs` | `read`, `write`, `list` | Working-tree file I/O. `read` returns `Option[String]` so a missing file is a branch point, not an exception. `write` refuses a path outside the working tree or under `.orca/runs`, `.orca/cache` or `.orca/worktrees`. |
 
 The runtime owns git: every write-capable agent turn is told not to commit,
-push, or switch branches — it edits the working tree, and the flow
-commits/branches/pushes via `git.*`. Opt out per-tool with
+push, or switch branches — it edits the working tree; the runtime commits each
+stage and owns the run's branch, and the flow pushes via `git.push`. Opt out per-tool with
 `claude.withSelfManagedGit`.
 
 For the LLM interfaces, `resultAs[O]` defines the shape of the structured
@@ -328,6 +328,7 @@ Any tool or agent `flow(...)` builds by default can be replaced by a named
 argument. Plain tools take the value directly (`git = Some(myGit)`, `interaction
 = Some(myInteraction)` — your own `orca.backend.Interaction` implementation,
 e.g. for Slack; not exported from `orca.*`, so import it by its full path).
+A `git` override is an `orca.tools.RuntimeGit`, since the runtime drives it too.
 Agents take a **factory** that receives the run's `AgentWiring` (event sink,
 interaction, workDir, prompts), so a custom agent lands on the same dispatcher
 as the defaults:
@@ -347,7 +348,7 @@ slot is typed `AgentWiring => Ox ?=> OpencodeAgent`.
 
 ### Side effects happen inside stages
 
-Every side-effecting call — git mutations (`commit`/`push`/`discardUncommitted`/…),
+Every side-effecting call — `git.push`,
 `fs.write`, `gh` writes, every `agent.*.run` — must happen inside a `stage`
 body, and **the compiler enforces it**: a mutation outside a stage doesn't
 compile. Pure reads (`git.uncommittedDiff`, `git.changedFiles`, `gh.readIssue`,
@@ -724,8 +725,8 @@ structural conventions you choose to follow as a flow author.
    ```
 
 3. **One commit per stage.** Each stage produces exactly one commit (code
-   changes + the progress-log entry). Don't call `git.commit` inside a stage
-   body — the runtime commits for you when the stage completes.
+   changes + the progress-log entry), made by the runtime when the stage
+   completes.
 
 4. **Idempotent external effects, each in its own stage.** Put each PR-open,
    comment-post, or push in a dedicated stage so it's checkpointed.

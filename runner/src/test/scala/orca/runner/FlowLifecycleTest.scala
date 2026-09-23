@@ -51,8 +51,8 @@ import orca.runner.terminal.TerminalInteraction
 import orca.tools.{
   GitHubAvailability,
   GitHubTool,
-  GitTool,
   OsGitTool,
+  RuntimeGit,
   UntrackedFiles,
   Worktrees
 }
@@ -1064,7 +1064,7 @@ class FlowLifecycleTest extends munit.FunSuite:
   private def setupWithBranch(
       workDir: os.Path,
       branch: String,
-      git: GitTool
+      git: RuntimeGit
   ): FlowLifecycle.FlowSetup =
     val prompt = "a task with a chosen branch"
     setupForSettings(
@@ -1252,7 +1252,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       tty: () => Boolean = () => false,
       ask: Int => DirtyTreeChoice = _ => DirtyTreeChoice.Stash,
       args: Option[OrcaArgs] = None,
-      git: Option[GitTool] = None
+      git: Option[RuntimeGit] = None
   ): FlowLifecycle.FlowSetup =
     FlowLifecycle.setup(
       args = args.getOrElse(OrcaArgs(prompt)),
@@ -1797,7 +1797,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       extraListeners: List[OrcaListener] = Nil,
       claude: ClaudeAgent = StubAgent.claude,
       gh: Option[GitHubTool] = None,
-      git: Option[GitTool] = None,
+      git: Option[RuntimeGit] = None,
       target: RunTarget = RunTarget.NewBranch(Uncommitted.Stash)
   )(body: orca.FlowControl ?=> Unit): Unit =
     supervised:

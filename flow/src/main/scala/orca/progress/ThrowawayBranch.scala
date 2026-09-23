@@ -1,7 +1,7 @@
 package orca.progress
 
 import orca.gitref.{BranchName, CommitHash}
-import orca.tools.GitTool
+import orca.tools.RuntimeGit
 
 /** The one rule for a branch that carries nothing but orca's bookkeeping. A
   * reused branch (`--skip-branch`) is never throwaway — orca did not create it.
@@ -15,7 +15,7 @@ import orca.tools.GitTool
   */
 object ThrowawayBranch:
   def isThrowaway(
-      git: GitTool,
+      git: RuntimeGit,
       branchMode: BranchMode,
       startingCommit: CommitHash,
       featureBranch: BranchName

@@ -1,6 +1,6 @@
 package orca.tools
 
-import orca.WorkspaceWrite
+import orca.{OrcaFlowException, WorkspaceWrite}
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.gitref.{CommitHash, Head}
 import orca.testkit.{GitRepo, branchName}
@@ -167,10 +167,11 @@ class OsGitToolTest extends munit.FunSuite:
       // No remote-tracking refs at all → none of the fallbacks resolve.
       assert(git.defaultBase().isLeft)
 
-  test("defaultBranch reads the remote HEAD's short name"):
+  test(
+    "defaultBranch reads origin/HEAD's branch, whatever local branches exist"
+  ):
     withSeededRepo: (git, dir) =>
-      // Point origin/HEAD at a non-main/master branch to prove it isn't
-      // hard-coded: create `trunk`, set origin's symbolic ref to it.
+      // `trunk`, not main/master, so the name can't be hard-coded.
       val _ = os
         .proc("git", "update-ref", "refs/remotes/origin/trunk", "HEAD")
         .call(cwd = dir)
@@ -182,12 +183,18 @@ class OsGitToolTest extends munit.FunSuite:
           "refs/remotes/origin/trunk"
         )
         .call(cwd = dir)
+      // Makes git's shortest spelling of origin/HEAD `remotes/origin/trunk`.
+      val _ = os.proc("git", "branch", "origin/trunk").call(cwd = dir)
       assertEquals(git.defaultBranch(), Some("trunk"))
 
   test("defaultBranch returns None when origin/HEAD is unset"):
     withSeededRepo: (git, _) =>
-      // No remote / no origin/HEAD → best-effort None.
       assertEquals(git.defaultBranch(), None)
+
+  test("defaultBranch throws when git cannot answer"):
+    val error = intercept[OrcaFlowException]:
+      new OsGitTool(TempDirs.dir()).defaultBranch()
+    assert(error.getMessage.contains("git remote set-head"), error.getMessage)
 
   test("diffVsBase returns the cumulative branch diff vs base"):
     withRepo: (git, dir) =>

@@ -1067,7 +1067,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val runStart =
       fc.startingCommit.getOrElse(fail("the fixture recorded no run start"))
     os.write(fc.context.workDir / "earlier.txt", "an earlier stage's work")
-    assert(fc.context.git.commit("earlier stage").isRight)
+    assert(fc.context.runtimeGit.commit("earlier stage").isRight)
     fc.withStage("final review", fc.context.git.headCommit()): _ =>
       os.write(fc.context.workDir / "later.txt", "this stage's work")
       val reviewer =
