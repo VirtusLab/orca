@@ -3,7 +3,7 @@ package orca.runner
 import orca.{InStage, StackSettings}
 import orca.agents.{Agent, Announce, JsonData, given}
 import orca.events.OrcaEvent
-import orca.settings.{SettingsEntry, StackKey}
+import orca.settings.{SettingsEntry, StackCommand, StackKey}
 import orca.subprocess.PathProbe
 import orca.util.{PromptResource, TextUtil}
 
@@ -124,14 +124,14 @@ private[runner] object StackDiscovery:
       case SettingsEntry.Command(key, command, comment) =>
         emit(
           OrcaEvent.Step(
-            s"  $key = ${collapse(command)}" +
+            s"  ${key.raw} = ${collapse(command.value)}" +
               comment.fold("")(c => s"   # ${collapse(c)}")
           )
         )
       case SettingsEntry.Demoted(key, command, reason) =>
         emit(
           OrcaEvent.Step(
-            s"  skipped: $key = ${collapse(command)} (${collapse(reason)})"
+            s"  skipped: ${key.raw} = ${collapse(command)} (${collapse(reason)})"
           )
         )
       case SettingsEntry.Unset(_, _) | SettingsEntry.Off(_) => ()
@@ -213,30 +213,33 @@ private[runner] object StackDiscovery:
       unresolvedReason: String => Option[String],
       evidenceExists: String => Boolean
   ): (List[SettingsEntry], StackSettings) =
-    def checkedEntry(key: String, cmd: DiscoveredCommand): SettingsEntry =
-      unresolvedReason(cmd.command)
-        .orElse(
-          // A blank citation is checked before existence: `os.SubPath("")`
-          // resolves to the repo root, which exists, so the existence check
-          // would pass vacuously.
-          Option.when(cmd.evidencePath.isBlank)("no evidence file cited")
-        )
-        .orElse(
-          Option.when(!evidenceExists(cmd.evidencePath))(
-            s"evidence file ${cmd.evidencePath} not found"
-          )
-        ) match
-        case Some(reason) => SettingsEntry.Demoted(key, cmd.command, reason)
-        case None =>
-          SettingsEntry.Command(
-            key,
-            // Same collapse the renderer applies to every command line, so the
-            // command the first run executes is identical to the written line.
-            TextUtil.collapseNewlines(cmd.command),
-            Some(cmd.evidencePath + cmd.evidenceNote.fold("")("; " + _))
-          )
+    def checkedEntry(key: StackKey, cmd: DiscoveredCommand): SettingsEntry =
+      def demoted(reason: String) =
+        SettingsEntry.Demoted(key, cmd.command, reason)
+      StackCommand.from(cmd.command) match
+        case Left(invalid) => demoted(invalid.message)
+        case Right(command) =>
+          unresolvedReason(command.value)
+            .orElse(
+              // A blank citation is checked before existence: `os.SubPath("")`
+              // resolves to the repo root, which exists, so the existence check
+              // would pass vacuously.
+              Option.when(cmd.evidencePath.isBlank)("no evidence file cited")
+            )
+            .orElse(
+              Option.when(!evidenceExists(cmd.evidencePath))(
+                s"evidence file ${cmd.evidencePath} not found"
+              )
+            ) match
+            case Some(reason) => demoted(reason)
+            case None =>
+              SettingsEntry.Command(
+                key,
+                command,
+                Some(cmd.evidencePath + cmd.evidenceNote.fold("")("; " + _))
+              )
 
-    def taskEntries(key: String, task: DiscoveredTask): List[SettingsEntry] =
+    def taskEntries(key: StackKey, task: DiscoveredTask): List[SettingsEntry] =
       if task.commands.isEmpty then
         List(
           SettingsEntry
@@ -250,13 +253,13 @@ private[runner] object StackDiscovery:
         if anySurvived then checked else checked :+ SettingsEntry.Off(key)
 
     val entries =
-      taskEntries(StackKey.Format.raw, result.format) ++
-        taskEntries(StackKey.Lint.raw, result.lint) ++
-        taskEntries(StackKey.Test.raw, result.test)
+      taskEntries(StackKey.Format, result.format) ++
+        taskEntries(StackKey.Lint, result.lint) ++
+        taskEntries(StackKey.Test, result.test)
 
     def surviving(key: StackKey): List[String] =
       entries.collect:
-        case SettingsEntry.Command(k, command, _) if k == key.raw => command
+        case SettingsEntry.Command(`key`, command, _) => command.value
 
     val settings = StackSettings(
       format = surviving(StackKey.Format),

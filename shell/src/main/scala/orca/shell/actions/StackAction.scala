@@ -34,21 +34,22 @@ private[shell] object StackAction:
       if !os.exists(path) then Right(StackStatus.NoSettings)
       else
         val content = os.read(path)
-        if !SettingsFile.hasStackLines(content) then
-          Right(StackStatus.NoStackLines)
-        else
-          SettingsFile.parse(content, SettingsScope.Project) match
-            case Left(error) =>
-              Left(s"invalid settings at $path: ${error.message}")
-            case Right(parsed) =>
-              Right(StackStatus.Present(parsed.stack, content))
+        SettingsFile.parse(content, SettingsScope.Project) match
+          case Left(error) =>
+            Left(s"invalid settings at $path: ${error.message}")
+          case Right(parsed) =>
+            Right(
+              parsed.stack.fold(StackStatus.NoStackLines)(
+                StackStatus.Present(_, content)
+              )
+            )
     catch
       case NonFatal(e) =>
         Left(s"couldn't re-discover stack settings — ${e.getMessage}")
 
   /** Strips the stack lines out of `content` ([[SettingsFile.stripStackLines]])
     * and writes the result back to the project settings file — so the next flow
-    * run's own `hasStackLines`-driven check re-triggers discovery.
+    * run re-triggers discovery.
     */
   def clear(workDir: os.Path, content: String): Unit =
     os.write.over(
@@ -94,8 +95,7 @@ private[shell] object StackAction:
   /** ` format: <cmd>` per line for each non-empty [[StackSettings]] key, in
     * format/lint/test order — display only for [[clearIfConfirmed]]'s confirm
     * prompt; a key left explicitly `off` (or never discovered) shows nothing
-    * here even though `off` still counts as a live line for
-    * [[SettingsFile.hasStackLines]].
+    * here even though `off` still counts as configured.
     */
   def renderStackSettings(stack: StackSettings): String =
     val rows =

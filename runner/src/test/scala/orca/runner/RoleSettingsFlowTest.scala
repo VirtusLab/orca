@@ -217,8 +217,8 @@ class RoleSettingsFlowTest extends munit.FunSuite:
     "a discovery-written file with a live `off` line does not re-trigger discovery"
   ):
     val workDir = GitRepo.seeded()
-    // A live `format = off` (discovery's own shape for an unset task) makes
-    // `hasStackLines` true, so discovery must not run again — the plain codex
+    // A live `format = off` (discovery's own shape for an unset task)
+    // configures the stack, so discovery must not run again — the plain codex
     // stub would throw if it did. A merely-commented example would not count —
     // this pins the live-line case specifically.
     writeProject(

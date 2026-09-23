@@ -846,10 +846,10 @@ object Main:
     * surgically edited blind); on a live status
     * [[StackAction.clearIfConfirmed]] renders it, confirms, and calls
     * [[StackAction.clear]] — which strips the stack lines
-    * ([[SettingsFile.stripStackLines]]) so the next flow run's own
-    * `hasStackLines`-driven check (`FlowLifecycle.readSettings`) fires
-    * discovery again. `workDir` is explicit (rather than reading `os.pwd`
-    * itself) so tests can point it at a temp dir.
+    * ([[SettingsFile.stripStackLines]]) so the next flow run
+    * (`FlowLifecycle.readSettings`) fires discovery again. `workDir` is
+    * explicit (rather than reading `os.pwd` itself) so tests can point it at a
+    * temp dir.
     */
   private[shell] def rediscoverStack(ui: ShellUi, workDir: os.Path): Unit =
     StackAction.status(workDir) match

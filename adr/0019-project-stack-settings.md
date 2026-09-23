@@ -440,3 +440,9 @@ Precedence, end to end: `reviewAndFixLoop(formatCommands = Use(...)/Off)` >
 > (`# skipped: lint = yarn lint (yarn: not found on PATH)`). A key gets a live
 > `key = off` line only when none of its commands survived, so a key never
 > carries both a command and `off`.
+
+> **Amendment (2026-09-23, typed settings).** The discovery trigger reads the
+> parsed file, not its raw text: the stack counts as configured when some
+> stack key has a command or `off`. A stack key with an empty value
+> (`format =`) is equivalent to omitting it
+> discovery; it leaves discovery armed.

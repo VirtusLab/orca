@@ -1435,6 +1435,15 @@ class FlowLifecycleTest extends munit.FunSuite:
       "the abort must precede any branch mutation"
     )
 
+  test("readSettings: a stack key with an empty value needs discovery"):
+    val workDir = GitRepo.seeded()
+    val content = "format =\n"
+    os.write(OrcaDir.settingsPath(workDir), content, createFolders = true)
+    assertEquals(
+      FlowLifecycle.readSettings(workDir, noGlobalSettings, None).stack,
+      FlowLifecycle.SettingsResolution.NeedsDiscovery(Some(content))
+    )
+
   test("setup: an explicit override wins over a present file, file untouched"):
     val workDir = GitRepo.seeded()
     val git = new OsGitTool(workDir)
@@ -1587,7 +1596,11 @@ class FlowLifecycleTest extends munit.FunSuite:
       orca.settings.SettingsFile
         .parse(content, orca.settings.SettingsScope.Project)
         .map(_.stack),
-      Right(StackSettings(format = List("echo fmt"), test = List("echo test")))
+      Right(
+        Some(
+          StackSettings(format = List("echo fmt"), test = List("echo test"))
+        )
+      )
     )
     assertEquals(setup.stackSettings.lint, Nil)
     assert(
@@ -1768,7 +1781,12 @@ class FlowLifecycleTest extends munit.FunSuite:
     )
     // Discovery's own written output must not re-trigger discovery: every
     // gate is a live `off` line, not a comment.
-    assert(orca.settings.SettingsFile.hasStackLines(content))
+    assertEquals(
+      orca.settings.SettingsFile
+        .parse(content, orca.settings.SettingsScope.Project)
+        .map(_.stack),
+      Right(Some(StackSettings.empty))
+    )
     val warnings = steps.filter(_.contains("gate disabled"))
     assertEquals(
       warnings,

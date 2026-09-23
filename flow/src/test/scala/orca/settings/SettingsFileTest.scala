@@ -6,6 +6,9 @@ import orca.agents.BackendTag
 
 class SettingsFileTest extends FunSuite:
 
+  private def command(raw: String): StackCommand =
+    StackCommand.from(raw).fold(e => fail(e.message), identity)
+
   test("parse skips blank lines and lines whose first non-space char is #"):
     val content =
       """
@@ -16,7 +19,7 @@ class SettingsFileTest extends FunSuite:
         |""".stripMargin
     assertEquals(
       SettingsFile.parse(content, SettingsScope.Project).map(_.stack),
-      Right(StackSettings(format = List("cargo fmt")))
+      Right(Some(StackSettings(format = List("cargo fmt"))))
     )
 
   test("parse rejects a non-comment line without =, naming line and shape"):
@@ -67,7 +70,7 @@ class SettingsFileTest extends FunSuite:
       SettingsFile
         .parse("lint = FOO=bar cargo check\n", SettingsScope.Project)
         .map(_.stack),
-      Right(StackSettings(lint = List("FOO=bar cargo check")))
+      Right(Some(StackSettings(lint = List("FOO=bar cargo check"))))
     )
 
   test("parse silently drops a key whose value is empty after trimming"):
@@ -75,7 +78,13 @@ class SettingsFileTest extends FunSuite:
       SettingsFile
         .parse("format =   \ntest = cargo test\n", SettingsScope.Project)
         .map(_.stack),
-      Right(StackSettings(test = List("cargo test")))
+      Right(Some(StackSettings(test = List("cargo test"))))
+    )
+
+  test("parse leaves the stack unconfigured when its only value is empty"):
+    assertEquals(
+      SettingsFile.parse("format =\n", SettingsScope.Project).map(_.stack),
+      Right(None)
     )
 
   test("parse treats a stack key's value of `off` as explicitly disabled"):
@@ -86,16 +95,16 @@ class SettingsFileTest extends FunSuite:
           SettingsScope.Project
         )
         .map(_.stack),
-      Right(StackSettings.empty),
-      "`off` must not join the command list — same runtime effect as absent"
+      Right(Some(StackSettings.empty)),
+      "`off` configures the key with no commands"
     )
 
   test("parse never lets `off` join the command list alongside a real one"):
     assertEquals(
       SettingsFile
         .parse("format = cargo fmt\nformat = off\n", SettingsScope.Project)
-        .map(_.stack.format),
-      Right(List("cargo fmt")),
+        .map(_.stack.map(_.format)),
+      Right(Some(List("cargo fmt"))),
       "off must not appear as a literal shell command in the resolved settings"
     )
 
@@ -108,8 +117,10 @@ class SettingsFileTest extends FunSuite:
         )
         .map(_.stack),
       Right(
-        StackSettings(format =
-          List("cargo fmt", "pnpm exec prettier --write .")
+        Some(
+          StackSettings(format =
+            List("cargo fmt", "pnpm exec prettier --write .")
+          )
         )
       )
     )
@@ -128,7 +139,7 @@ class SettingsFileTest extends FunSuite:
       SettingsFile
         .parse("format = echo '#1'\n", SettingsScope.Project)
         .map(_.stack),
-      Right(StackSettings(format = List("echo '#1'")))
+      Right(Some(StackSettings(format = List("echo '#1'"))))
     )
 
   test("parse recognizes codingAgent against a bare harness name"):
@@ -136,7 +147,7 @@ class SettingsFileTest extends FunSuite:
       SettingsFile.parse("codingAgent = codex\n", SettingsScope.Project),
       Right(
         ParsedSettings(
-          StackSettings.empty,
+          None,
           AgentSettings(coding = Some(AgentSpec(BackendTag.Codex, None)))
         )
       )
@@ -148,7 +159,7 @@ class SettingsFileTest extends FunSuite:
         .parse("planningAgent = claude:opus\n", SettingsScope.Project),
       Right(
         ParsedSettings(
-          StackSettings.empty,
+          None,
           AgentSettings(planning =
             Some(AgentSpec(BackendTag.ClaudeCode, Some("opus")))
           )
@@ -164,7 +175,7 @@ class SettingsFileTest extends FunSuite:
       ),
       Right(
         ParsedSettings(
-          StackSettings.empty,
+          None,
           AgentSettings(review =
             Some(
               AgentSpec(
@@ -206,7 +217,7 @@ class SettingsFileTest extends FunSuite:
   test("parse treats an empty agent value as absent, like stack keys"):
     assertEquals(
       SettingsFile.parse("codingAgent =\n", SettingsScope.Project),
-      Right(ParsedSettings(StackSettings.empty, AgentSettings.empty))
+      Right(ParsedSettings(None, AgentSettings.empty))
     )
 
   test("parse in UserGlobal scope rejects stack keys as project-only"):
@@ -227,7 +238,7 @@ class SettingsFileTest extends FunSuite:
       SettingsFile.parse("codingAgent = codex\n", SettingsScope.UserGlobal),
       Right(
         ParsedSettings(
-          StackSettings.empty,
+          None,
           AgentSettings(coding = Some(AgentSpec(BackendTag.Codex, None)))
         )
       )
@@ -241,79 +252,62 @@ class SettingsFileTest extends FunSuite:
       ),
       Right(
         ParsedSettings(
-          StackSettings(format =
-            List("cargo fmt", "pnpm exec prettier --write .")
+          Some(
+            StackSettings(format =
+              List("cargo fmt", "pnpm exec prettier --write .")
+            )
           ),
           AgentSettings(coding = Some(AgentSpec(BackendTag.Codex, None)))
         )
       )
     )
 
-  test("hasStackLines is true for a live stack key"):
-    assert(SettingsFile.hasStackLines("format = cargo fmt"))
-
-  test("hasStackLines is true for a live, explicitly disabled stack key"):
-    assert(SettingsFile.hasStackLines("format = off"))
-
-  test(
-    "hasStackLines ignores commented-out stack keys"
-  ):
-    assert(!SettingsFile.hasStackLines("# format =   (no formatter found)"))
-    assert(
-      !SettingsFile.hasStackLines("# lint = just check   (just: not found)")
-    )
-    assert(!SettingsFile.hasStackLines("# format = cargo fmt"))
-
-  test("hasStackLines is false for a file naming only agent keys"):
-    val content =
-      """# orca settings — edit freely, commit with the project.
-        |codingAgent = codex
-        |""".stripMargin
-    assert(!SettingsFile.hasStackLines(content))
-
-  test(
-    "hasStackLines is false for the rendered Header (stack words appear " +
-      "only in prose, never at key position)"
-  ):
-    // The Header's second line names format/lint/test in prose with no
-    // `=` — a discovery-written header alone must never suppress a
-    // re-discovery trigger.
-    assert(!SettingsFile.hasStackLines(SettingsFile.Header))
-
-  test("hasStackLines is false for the empty string"):
-    assert(!SettingsFile.hasStackLines(""))
-
-  test(
-    "hasStackLines and the parser agree on a key with a trailing control byte"
-  ):
-    // `\u001f` is stripped by String.trim (the parser's key trim) but is not
-    // matched by a regex `\s`: `hasStackLines` and the parser must agree that
-    // this is a live `format` key, or the line survives a discovery append and
-    // self-activates on a later run.
-    val line = "format\u001f= cargo fmt"
-    assert(
-      SettingsFile.hasStackLines(line),
-      "the discovery gate must see a live stack key"
-    )
+  test("parse leaves the stack unconfigured for commented-out stack keys"):
     assertEquals(
-      SettingsFile.parse(line, SettingsScope.Project).map(_.stack.format),
-      Right(List("cargo fmt")),
-      "the parser reads the same line as a live format key"
+      SettingsFile
+        .parse("# format = cargo fmt\n", SettingsScope.Project)
+        .map(_.stack),
+      Right(None)
     )
+
+  test("parse leaves the stack unconfigured for the rendered Header"):
+    // The Header names format/lint/test in prose — a discovery-written header
+    // alone must never suppress re-discovery.
+    assertEquals(
+      SettingsFile
+        .parse(SettingsFile.Header, SettingsScope.Project)
+        .map(_.stack),
+      Right(None)
+    )
+
+  test(
+    "stripStackLines removes a stack key with a trailing control byte, " +
+      "which parse reads as live"
+  ):
+    // `\u001f` is stripped by String.trim (the key trim) but is not matched by
+    // a regex `\s`: the strip and the parser must agree it is a `format` key.
+    val line = "format\u001f= cargo fmt\n"
+    assertEquals(
+      SettingsFile
+        .parse(line, SettingsScope.Project)
+        .map(_.stack.map(_.format)),
+      Right(Some(List("cargo fmt")))
+    )
+    assertEquals(SettingsFile.stripStackLines(line), "")
 
   test("render pins the file format: header, own-line comments, unset"):
     val entries = List(
       SettingsEntry.Command(
-        "format",
-        "cargo fmt",
+        StackKey.Format,
+        command("cargo fmt"),
         Some("Cargo.toml (rustfmt ships with the toolchain)")
       ),
       SettingsEntry.Command(
-        "lint",
-        "cargo check --tests",
+        StackKey.Lint,
+        command("cargo check --tests"),
         Some("compiles main+test code, runs nothing")
       ),
-      SettingsEntry.Unset("test", "no test evidence found")
+      SettingsEntry.Unset(StackKey.Test, "no test evidence found")
     )
     assertEquals(
       SettingsFile.render(entries),
@@ -333,11 +327,11 @@ class SettingsFileTest extends FunSuite:
     val rendered = SettingsFile.render(
       List(
         SettingsEntry.Demoted(
-          "lint",
+          StackKey.Lint,
           "just \ncheck",
           "just: not\n  found on PATH"
         ),
-        SettingsEntry.Off("lint")
+        SettingsEntry.Off(StackKey.Lint)
       )
     )
     assert(
@@ -378,13 +372,17 @@ class SettingsFileTest extends FunSuite:
         |# just a regular comment
         |""".stripMargin
     )
-    assert(!SettingsFile.hasStackLines(stripped))
+    assertEquals(
+      SettingsFile.parse(stripped, SettingsScope.Project).map(_.stack),
+      Right(None)
+    )
 
   test("stripStackLines drops a trailing skipped line"):
     val content = SettingsFile.render(
       List(
-        SettingsEntry.Command("test", "cargo test", Some("Cargo.toml")),
-        SettingsEntry.Demoted("test", "cargo nextest run", "not found")
+        SettingsEntry
+          .Command(StackKey.Test, command("cargo test"), Some("Cargo.toml")),
+        SettingsEntry.Demoted(StackKey.Test, "cargo nextest run", "not found")
       )
     )
     assertEquals(
@@ -427,8 +425,8 @@ class SettingsFileTest extends FunSuite:
     val rendered = SettingsFile.render(
       List(
         SettingsEntry.Command(
-          "format",
-          "cargo fmt",
+          StackKey.Format,
+          command("cargo fmt"),
           Some("Cargo.toml\nCI runs it in ci.yml")
         )
       )
@@ -441,7 +439,7 @@ class SettingsFileTest extends FunSuite:
     )
     assertEquals(
       SettingsFile.parse(rendered, SettingsScope.Project).map(_.stack),
-      Right(StackSettings(format = List("cargo fmt")))
+      Right(Some(StackSettings(format = List("cargo fmt"))))
     )
 
   test("Header documents `off` and the role-agent precedence"):
@@ -460,17 +458,13 @@ class SettingsFileTest extends FunSuite:
   ):
     val rendered = SettingsFile.render(
       List(
-        SettingsEntry.Unset("format", "no formatter found"),
-        SettingsEntry.Demoted("lint", "just check", "just: not found"),
-        SettingsEntry.Off("lint"),
-        SettingsEntry.Unset("test", "no test evidence found")
+        SettingsEntry.Unset(StackKey.Format, "no formatter found"),
+        SettingsEntry.Demoted(StackKey.Lint, "just check", "just: not found"),
+        SettingsEntry.Off(StackKey.Lint),
+        SettingsEntry.Unset(StackKey.Test, "no test evidence found")
       )
-    )
-    assert(
-      SettingsFile.hasStackLines(rendered),
-      s"discovery's own written output must count as configured, got: $rendered"
     )
     assertEquals(
       SettingsFile.parse(rendered, SettingsScope.Project).map(_.stack),
-      Right(StackSettings.empty)
+      Right(Some(StackSettings.empty))
     )

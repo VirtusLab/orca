@@ -134,7 +134,7 @@ class ConfigSummaryTest extends munit.FunSuite:
       os.makeDir.all(workDir / ".orca")
       os.write(
         workDir / ".orca" / "settings.properties",
-        "format = cargo fmt\nnotAKey = whatever\n"
+        "notAKey = whatever\n"
       )
       assert(
         ConfigSummary.stackLine(workDir).contains("invalid settings"),
