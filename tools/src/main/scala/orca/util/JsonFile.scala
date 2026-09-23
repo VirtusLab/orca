@@ -36,28 +36,32 @@ object JsonFile:
 
   def read[A](path: os.Path)(using JsonValueCodec[A]): Read[A] =
     readBytes(path) match
-      case Read.Loaded(bytes)      => decode(bytes)
-      case Read.Absent             => Read.Absent
-      case Read.Unreadable(reason) => Read.Unreadable(reason)
-      case Read.Corrupt(reason)    => Read.Corrupt(reason)
+      case Left(reason) => Read.Unreadable(reason)
+      case Right(None)  => Read.Absent
+      case Right(Some(bytes)) =>
+        decode[A](bytes).fold(Read.Corrupt(_), Read.Loaded(_))
 
-  /** The file's raw content, for a caller that must keep the exact bytes it
-    * decodes. Never `Corrupt`.
+  /** The file's raw content, `None` when there is no file, `Left` with the
+    * reason when it could not be read.
     */
-  // Absence is the read's own `NoSuchFileException` rather than an `os.exists`
-  // pre-check, so there is no window between the two for the file to vanish
-  // in — the progress log is removed by teardown while the runtime still
-  // reads it.
-  def readBytes(path: os.Path): Read[IArray[Byte]] =
-    try Read.Loaded(IArray.unsafeFromArray(os.read.bytes(path)))
+  private[orca] def readBytes(
+      path: os.Path
+  ): Either[String, Option[IArray[Byte]]] =
+    // Absence is the read's own `NoSuchFileException` rather than an
+    // `os.exists` pre-check, so there is no window between the two for the
+    // file to vanish in — the progress log is removed by teardown while the
+    // runtime still reads it.
+    try Right(Some(IArray.unsafeFromArray(os.read.bytes(path))))
     catch
-      case _: java.nio.file.NoSuchFileException => Read.Absent
-      case NonFatal(e)                          => Read.Unreadable(describe(e))
+      case _: java.nio.file.NoSuchFileException => Right(None)
+      case NonFatal(e)                          => Left(describe(e))
 
-  /** `bytes` as an `A`, or `Corrupt` when they do not parse. */
-  def decode[A](bytes: IArray[Byte])(using JsonValueCodec[A]): Read[A] =
-    try Read.Loaded(readFromArray[A](IArray.genericWrapArray(bytes).toArray))
-    catch case NonFatal(e) => Read.Corrupt(describe(e))
+  /** `bytes` as an `A`, or why they do not parse. */
+  private[orca] def decode[A](bytes: IArray[Byte])(using
+      JsonValueCodec[A]
+  ): Either[String, A] =
+    try Right(readFromArray[A](IArray.genericWrapArray(bytes).toArray))
+    catch case NonFatal(e) => Left(describe(e))
 
   /** Replace `path`'s contents with `value`'s JSON via a temp file in `tempDir`
     * (which must be on the same filesystem as `path`) renamed over it.

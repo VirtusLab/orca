@@ -3,9 +3,9 @@ package orca.progress
 import orca.{OrcaDir, RunKey, WorkspaceWrite}
 import orca.util.JsonFile
 
-/** Persistent store for a single flow run's [[ProgressLog]], and the only code
-  * that touches its file. One implementation, [[ProgressStore.default]]; the
-  * trait lets tests inject a failing store.
+/** Persistent store for a single flow run's [[ProgressLog]]. One
+  * implementation, [[ProgressStore.default]]; the trait lets tests inject a
+  * failing store.
   *
   * Mutations are gated on [[WorkspaceWrite]] to mark them as index-like,
   * fork-opaque writes (ADR 0018 §6). The token is not inspected at runtime —
@@ -27,16 +27,20 @@ trait ProgressStore:
     */
   def loadDetailed(): JsonFile.Read[ProgressLog]
 
-  /** Read the log once, keeping its bytes for [[restoreIfRemoved]]. */
-  def peek(): PeekedLog
-
-  /** Write `peeked`'s bytes back when the file is gone since the peek — a stash
-    * of an untracked log removes it. A no-op otherwise.
+  /** Classify the log's current content, keeping its bytes for
+    * [[restoreIfRemoved]]. `Left` is why a present file could not be read.
     */
-  def restoreIfRemoved(peeked: PeekedLog)(using WorkspaceWrite): Unit
+  private[orca] def peek(): Either[String, PeekedLog]
+
+  /** Write back `peeked`'s bytes if the file was removed after the peek (a
+    * stash removes an untracked log). No-op otherwise.
+    */
+  private[orca] def restoreIfRemoved(peeked: PeekedLog)(using
+      WorkspaceWrite
+  ): Unit
 
   /** Delete the file; a missing one is not an error. */
-  def remove()(using WorkspaceWrite): Unit
+  private[orca] def remove()(using WorkspaceWrite): Unit
 
   def writeHeader(header: ProgressHeader)(using WorkspaceWrite): Unit
 
@@ -79,27 +83,32 @@ private class OsProgressStore(workDir: os.Path, val path: os.Path)
 
   def loadDetailed(): JsonFile.Read[ProgressLog] = JsonFile.read(path)
 
-  def peek(): PeekedLog =
-    JsonFile.readBytes(path) match
-      case JsonFile.Read.Absent             => PeekedLog.Absent
-      case JsonFile.Read.Unreadable(reason) => PeekedLog.Unreadable(reason)
-      case JsonFile.Read.Corrupt(reason)    => PeekedLog.Unreadable(reason)
-      case JsonFile.Read.Loaded(bytes) =>
-        JsonFile.decode[ProgressLog](bytes) match
-          case JsonFile.Read.Loaded(_) => PeekedLog.Parseable(bytes)
-          case _                       => PeekedLog.Unparseable(bytes)
+  private[orca] def peek(): Either[String, PeekedLog] =
+    JsonFile
+      .readBytes(path)
+      .map:
+        case None => PeekedLog.Absent
+        case Some(bytes) =>
+          JsonFile.decode[ProgressLog](bytes) match
+            case Right(_) => PeekedLog.Parseable(bytes)
+            case Left(_)  => PeekedLog.Unparseable(bytes)
 
-  def restoreIfRemoved(peeked: PeekedLog)(using WorkspaceWrite): Unit =
-    val bytes = peeked match
-      case PeekedLog.Parseable(b)                     => Some(b)
-      case PeekedLog.Unparseable(b)                   => Some(b)
-      case PeekedLog.Absent | PeekedLog.Unreadable(_) => None
-    bytes.foreach: b =>
-      if !os.exists(path) then
-        val _ = OrcaDir.ensureRuns(workDir)
-        os.write(path, IArray.genericWrapArray(b).toArray)
+  private[orca] def restoreIfRemoved(peeked: PeekedLog)(using
+      WorkspaceWrite
+  ): Unit =
+    peeked match
+      case PeekedLog.Absent => ()
+      case PeekedLog.Parseable(bytes) =>
+        restoreBytesIfRemoved(bytes)
+      case PeekedLog.Unparseable(bytes) =>
+        restoreBytesIfRemoved(bytes)
 
-  def remove()(using WorkspaceWrite): Unit =
+  private def restoreBytesIfRemoved(bytes: IArray[Byte]): Unit =
+    if !os.exists(path) then
+      val _ = OrcaDir.ensureRuns(workDir)
+      os.write(path, IArray.genericWrapArray(bytes).toArray)
+
+  private[orca] def remove()(using WorkspaceWrite): Unit =
     val _ = os.remove(path)
 
   def writeHeader(header: ProgressHeader)(using WorkspaceWrite): Unit =
