@@ -49,6 +49,36 @@ def stage[T: JsonData](
   try resumeFrom(id, name).getOrElse(runStage(id, name, commitMessage)(body))
   finally fc.exitStage()
 
+/** Where a stage's result came from: this attempt, or the progress log. */
+private[orca] enum Staged[+T]:
+  case Fresh(value: T)
+  case Replayed(value: T)
+
+  def value: T
+
+/** [[stage]] with a read-only `gate` in front of a fresh run, reporting where
+  * the result came from. A stage that replays skips the gate. A gate that
+  * answers `Left` stops the stage before anything runs or is recorded; `Right`
+  * hands its value to `body`, run and recorded as [[stage]] does with the
+  * default commit message.
+  *
+  * A stage the gate stops still takes its occurrence, so a later same-named
+  * stage keeps its id whether or not a resume's gate lets this one run. The
+  * gate runs inside the stage's frame, so it must not open stages or sessions.
+  */
+private[orca] def gatedStage[G, A, T: JsonData](name: String)(
+    gate: => Either[G, A]
+)(body: A => (InStage, WorkspaceWrite) ?=> T)(using
+    fc: FlowControl
+): Either[G, Staged[T]] =
+  val id = fc.enterStage(name, fc.git.headCommit())
+  try
+    resumeFrom[T](id, name) match
+      case Some(value) => Right(Staged.Replayed(value))
+      case None =>
+        gate.map(a => Staged.Fresh(runStage(id, name, None)(body(a))))
+  finally fc.exitStage()
+
 /** Try to skip the stage by replaying a recorded result. `Some(value)` when the
   * log holds an entry for `id` that decodes to `T`; `None` when there's no
   * entry or it no longer decodes (fail-safe: the caller then re-runs the body).

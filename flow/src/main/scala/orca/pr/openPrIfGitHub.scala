@@ -5,18 +5,18 @@ import orca.{
   FlowControl,
   OrcaFlowException,
   OutsideStage,
+  Staged,
+  WorkspaceWrite,
+  gatedStage,
   gh,
-  git,
-  stage
+  git
 }
-import orca.agents.{Agent, JsonData, given}
+import orca.agents.Agent
 import orca.events.OrcaEvent
 import orca.progress.ThrowawayBranch
 import orca.review.OpenFindings
 import orca.tools.{GitHubAvailability, NoDefaultBase, PrHandle}
 import orca.util.TextUtil
-
-import ox.either.orThrow
 
 import scala.util.control.NonFatal
 
@@ -53,94 +53,30 @@ def openPrIfGitHub(
 ): Option[PrHandle] =
   reportOpenFindings(openFindings)
   lazy val base = git.defaultBase()
-  // The pre-flight checks only read, so they must not record a stage a resume
-  // would replay as "done" — and on a resume they are skipped entirely: the
-  // push stage's recorded result decides the step, so a PR already opened is
-  // not answered with "no PR".
-  val push = provenance(PushStage)
-  val stop = push match
-    case Provenance.Replayed => None
-    case Provenance.Fresh    => stopReason(base)
-  stop match
-    case Some(reason) => skipped(reason)
-    case None =>
-      pushThenCreate(
-        base = base,
-        push = push,
-        summarisingAgent = summarisingAgent,
-        title = title,
-        // Composed once here, so the open findings reach the body without
-        // being threaded through the legs below.
-        body = summary => bodyWithOpenFindings(body(summary), openFindings),
-        context = context,
-        instructions = instructions
-      )
-
-/** Why a fresh run stops before its first write, or `None` to go ahead.
-  * Announces where the PR will land once the checks pass, before the push: gh
-  * takes the target from the checkout's remotes, not from what the run pushed.
-  */
-private def stopReason(base: => Either[NoDefaultBase, String])(using
-    ctx: FlowContext,
-    control: FlowControl
-): Option[String] =
-  probe match
-    case Probe.NoPr(reason) => Some(reason)
-    case Probe.Destination(label) =>
-      if !runChangedCode then
-        Some(
-          "the run changed no code, no PR opened — nothing to review on a " +
-            "branch that only carries orca's progress log"
-        )
-      else
-        baseStopReason(base) match
-          case Some(reason) => Some(reason)
-          case None =>
-            ctx.emit(OrcaEvent.Step(s"Opening a PR on $label"))
-            None
-
-/** The probe's answer as the step reports it. */
-private enum Probe:
-  /** The `<host>/<owner>/<repo>` the PR will land on. */
-  case Destination(label: String)
-
-  /** Why no PR can be opened. */
-  case NoPr(reason: String)
-
-private def probe(using FlowContext): Probe =
-  gh.availability() match
-    case GitHubAvailability.Available(host, owner, repo) =>
-      Probe.Destination(s"$host/$owner/$repo")
-    case GitHubAvailability.Unavailable(why) =>
-      Probe.NoPr(
-        s"${why.explanation}, no PR opened — push the branch and open the " +
-          "PR yourself"
-      )
-
-/** The reason the summarise stage could not diff against `base`, or `None`. A
-  * recorded summarise stage replays without asking git, so `base` is not forced
-  * — a resume with every stage recorded still re-records its PR.
-  */
-private def baseStopReason(base: => Either[NoDefaultBase, String])(using
-    control: FlowControl
-): Option[String] =
-  if control.stageRecorded(SummariseStage) then None
-  else
-    base.left.toOption.map: e =>
-      s"cannot work out the base branch (${e.cause}), no PR opened — run " +
-        "`git remote set-head origin -a` and open the PR yourself"
+  pushThenCreate(
+    base = base,
+    summarisingAgent = summarisingAgent,
+    title = title,
+    // Composed once here, so the open findings reach the body without being
+    // threaded through the legs below.
+    body = summary => bodyWithOpenFindings(body(summary), openFindings),
+    context = context,
+    instructions = instructions
+  ).fold(skipped, Some(_))
 
 /** [[openPrFromBranch]]'s three stages, the two remote-facing legs under
-  * [[attempt]], each recording its refusal as the stage's result. The base is
-  * re-checked after the push, since a resume enters here without
-  * [[stopReason]]. The summarise stage is deliberately NOT wrapped: a
-  * summariser that fails or answers unparseably is a failure of the run, not a
-  * GitHub answer this step should absorb. `push` is where the push stage's
-  * result comes from, read before the stage ran.
+  * [[attempt]], each recording its refusal as the stage's result. The summarise
+  * stage is deliberately NOT wrapped: a summariser that fails or answers
+  * unparseably is a failure of the run, not a GitHub answer this step should
+  * absorb. `Left` is the line saying why no PR was opened.
+  *
+  * The pre-flight checks only read, so they gate the push stage rather than run
+  * in it: a check that stops the step records nothing a resume would replay as
+  * "done", and a resume whose push replays skips them, so a PR already opened
+  * is not answered with "no PR".
   */
 private def pushThenCreate(
     base: => Either[NoDefaultBase, String],
-    push: Provenance,
     summarisingAgent: Agent[?],
     title: PrSummary => String,
     body: PrSummary => String,
@@ -149,82 +85,91 @@ private def pushThenCreate(
 )(using
     ctx: FlowContext,
     control: FlowControl
-): Option[PrHandle] =
-  pushBestEffort() match
-    case PushAttempt.Refused(reason) => skipped(refusalLine(reason, push))
-    case PushAttempt.Pushed =>
-      baseStopReason(base) match
-        case Some(reason) => skipped(reason)
-        case None =>
-          val summary =
-            summarise(summarisingAgent, base.orThrow, context, instructions)
-          val create = provenance(CreateStage)
-          createBestEffort(title(summary), body(summary)) match
-            case CreateAttempt.Refused(reason) =>
-              skipped(refusalLine(reason, create))
-            case CreateAttempt.Opened(pr) => Some(pr)
+): Either[String, PrHandle] =
+  for
+    push <- gatedStage(PushStage)(preFlight(base))(_ => pushBestEffort())
+    _ <- push.value match
+      case PushAttempt.Pushed          => Right(())
+      case PushAttempt.Refused(reason) => Left(refusalLine(reason, push))
+    summary <- summarise(summarisingAgent, base, context, instructions).left
+      .map(baseStopReason)
+    create <- gatedStage(CreateStage)(Right(())): _ =>
+      createBestEffort(title(summary.value), body(summary.value))
+    pr <- create.value match
+      case CreateAttempt.Opened(pr)      => Right(pr)
+      case CreateAttempt.Refused(reason) => Left(refusalLine(reason, create))
+  yield pr
 
-/** Where a best-effort stage's result comes from: this run, or the record of an
-  * earlier attempt. Read before the stage runs — afterwards it is always
-  * recorded.
+/** Why a fresh run stops before its first write, or `Right` to go ahead.
+  * Announces where the PR will land once the checks pass, before the push: gh
+  * takes the target from the checkout's remotes, not from what the run pushed.
   */
-private enum Provenance:
-  case Fresh
-  case Replayed
+private def preFlight(base: => Either[NoDefaultBase, String])(using
+    ctx: FlowContext,
+    control: FlowControl
+): Either[String, Unit] =
+  for
+    label <- probe
+    _ <- Either.cond(
+      runChangedCode,
+      (),
+      "the run changed no code, no PR opened — nothing to review on a " +
+        "branch that only carries orca's progress log"
+    )
+    _ <- base.left.map(baseStopReason)
+  yield ctx.emit(OrcaEvent.Step(s"Opening a PR on $label"))
 
-private def provenance(stage: String)(using control: FlowControl): Provenance =
-  if control.stageRecorded(stage) then Provenance.Replayed
-  else Provenance.Fresh
+/** The `<host>/<owner>/<repo>` the PR will land on, or why no PR can be opened.
+  */
+private def probe(using FlowContext): Either[String, String] =
+  gh.availability() match
+    case GitHubAvailability.Available(host, owner, repo) =>
+      Right(s"$host/$owner/$repo")
+    case GitHubAvailability.Unavailable(why) =>
+      Left(
+        s"${why.explanation}, no PR opened — push the branch and open the " +
+          "PR yourself"
+      )
+
+private def baseStopReason(e: NoDefaultBase): String =
+  s"cannot work out the base branch (${e.cause}), no PR opened — run " +
+    "`git remote set-head origin -a` and open the PR yourself"
 
 /** A recorded refusal replays on every resume and is never retried; the line
   * says so, since the user otherwise reads it as this run's attempt.
   */
-private def refusalLine(reason: String, from: Provenance): String =
+private def refusalLine(reason: String, from: Staged[?]): String =
   from match
-    case Provenance.Fresh => reason
-    case Provenance.Replayed =>
+    case Staged.Fresh(_) => reason
+    case Staged.Replayed(_) =>
       s"$reason (recorded from the earlier attempt; orca will not retry)"
 
-/** What the best-effort push stage records. */
-private enum PushAttempt derives JsonData:
-  case Pushed
-  case Refused(reason: String)
-
-/** What the best-effort create stage records. */
-private enum CreateAttempt derives JsonData:
-  case Opened(pr: PrHandle)
-  case Refused(reason: String)
-
-/** [[pushBranch]] with the push itself under [[attempt]]: the stage machinery
-  * around it — the progress commit, the owner-thread assert — still fails the
-  * run.
+/** [[openPrFromBranch]]'s push with the push itself under [[attempt]]: the
+  * stage machinery around it — the progress commit, the owner-thread assert —
+  * still fails the run.
   */
-private def pushBestEffort()(using FlowContext, FlowControl): PushAttempt =
-  stage(PushStage):
-    attempt(
-      "could not push the branch",
-      "push it yourself and open the PR from there"
-    )(git.push())
-      .fold(PushAttempt.Refused(_), _ => PushAttempt.Pushed)
+private def pushBestEffort()(using FlowContext, WorkspaceWrite): PushAttempt =
+  attempt(
+    "could not push the branch",
+    "push it yourself and open the PR from there"
+  )(git.push())
+    .fold(PushAttempt.Refused(_), _ => PushAttempt.Pushed)
 
-/** [[createPr]] with the `gh pr create` under [[attempt]], as
+/** [[openPrFromBranch]]'s create with the `gh pr create` under [[attempt]], as
   * [[pushBestEffort]] is for the push.
   */
 private def createBestEffort(title: String, body: String)(using
     FlowContext,
-    FlowControl
+    FlowControl,
+    WorkspaceWrite
 ): CreateAttempt =
-  stage(CreateStage):
-    attempt(
-      "could not open a PR",
-      "open it yourself from the pushed branch"
-    )(gh.createPr(title = title, body = body)) match
-      case Left(reason) => CreateAttempt.Refused(reason)
-      case Right(pr)    =>
-        // Inside the stage, so its commit carries the record, and outside
-        // `attempt`, so a log that cannot be written fails the run.
-        recordOpenedPr(pr)
-        CreateAttempt.Opened(pr)
+  attempt(
+    "could not open a PR",
+    "open it yourself from the pushed branch"
+  )(gh.createPr(title = title, body = body)) match
+    case Left(reason) => CreateAttempt.Refused(reason)
+    // Outside `attempt`, so a log that cannot be written fails the run.
+    case Right(pr) => opened(pr)
 
 /** Run one remote-facing leg, turning the refusal it returns or whatever it
   * throws into the line this step reports. `git.push` and `gh.createPr` answer

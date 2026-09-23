@@ -319,6 +319,37 @@ class StageRuntimeTest extends munit.FunSuite:
       ctx.stageBaseCommit
     assertEquals(recorded, atEntry)
 
+  test("a gated stage the gate stops runs nothing and records nothing"):
+    val listener = new RecordingListener
+    val (ctx, _) = TestFlowControl.create(new EventDispatcher(List(listener)))
+    given FlowControl = ctx
+    val result = gatedStage[String, Unit, Int]("gated")(Left("stop")): _ =>
+      fail("the body ran")
+    assertEquals(result, Left("stop"))
+    assertEquals(listener.events, Nil)
+    assertEquals(ctx.progressStore.load().toList.flatMap(_.entries), Nil)
+
+  test("a replayed gated stage skips its gate"):
+    val (ctx, dir) = TestFlowControl.create(new EventDispatcher(Nil))
+    locally:
+      given FlowControl = ctx
+      val _ = stage("gated")(7)
+    val (ctx2, _) = reopen(dir, _ => ())
+    given FlowControl = ctx2
+    val result = gatedStage[String, Unit, Int]("gated")(fail("gate ran")): _ =>
+      fail("the body ran")
+    assertEquals(result, Right(Staged.Replayed(7)))
+
+  test("a stage the gate stops still takes its occurrence"):
+    val (ctx, _) = TestFlowControl.create(new EventDispatcher(Nil))
+    given FlowControl = ctx
+    val _ = gatedStage[String, Unit, Int]("dup")(Left("stop"))(_ => 1)
+    val _ = stage("dup")(2)
+    assertEquals(
+      ctx.progressStore.load().toList.flatMap(_.entries).map(_.id),
+      List("dup#1")
+    )
+
   // --- helpers ---
 
   private def reopen(
