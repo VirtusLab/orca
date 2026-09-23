@@ -2,7 +2,7 @@ package orca.shell.menu
 
 import orca.settings.{SettingsFile, SettingsScope}
 import orca.shell.{ShellEnv, TestShellEnv, Tier}
-import orca.shell.actions.SettingsEditAction
+import orca.shell.actions.{SettingsEditAction, StackAction}
 import orca.shell.ui.UiOutcome
 import orca.testkit.TempDirs
 
@@ -159,6 +159,18 @@ class SettingsMenuTest extends munit.FunSuite:
       SettingsFile.parse(rewritten, SettingsScope.Project).map(_.stack),
       Right(None)
     )
+
+  test("rediscoverStack asks before clearing, defaulting to no"):
+    val dir = TempDirs.dir()
+    os.write(
+      dir / ".orca" / "settings.properties",
+      "format = cargo fmt\n",
+      createFolders = true
+    )
+    val ui = ConfirmOnlyUi(UiOutcome.Cancelled)
+    SettingsMenu.rediscoverStack(ui)(using TestShellEnv(dir))
+    assertEquals(ui.recordedQuestion, Some(StackAction.clearConfirmPrompt))
+    assertEquals(ui.recordedDefault, Some(false))
 
   test("rediscoverStack leaves the file untouched when the user declines"):
     val dir = TempDirs.dir()

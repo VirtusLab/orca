@@ -2,7 +2,7 @@ package orca.shell.menu
 
 import orca.discovery.Origin
 import orca.shell.{ShellEnv, ShellVersion, TestShellEnv, Tier}
-import orca.shell.create.FlowAuthoring
+import orca.shell.create.{FlowAuthoring, FlowDestination}
 import orca.shell.ui.UiOutcome
 import orca.testkit.TempDirs
 
@@ -47,7 +47,7 @@ class AuthoringMenuTest extends munit.FunSuite:
         ui,
         terminal,
         (_, path) => { spawned = Some(path); 0 }
-      )(using TestShellEnv())
+      )
       assertEquals(spawned, Some(source.path))
 
   test(
@@ -90,7 +90,7 @@ class AuthoringMenuTest extends munit.FunSuite:
         ui,
         terminal,
         noEditor
-      )(using TestShellEnv())
+      )
 
   test(
     "editFlow: Agent mode — cancelling the changes prompt asks nothing else"
@@ -123,6 +123,27 @@ class AuthoringMenuTest extends munit.FunSuite:
       AuthoringMenu.editFlow(ui, terminal, noEditor)
       assertEquals(ui.selectCount, 3)
       assertEquals(ui.inputMultilineCount, 0)
+
+  test("editDestination: a Global flow is edited in place, with no repo"):
+    val path = TempDirs.dir() / "g.sc"
+    assertEquals(
+      AuthoringMenu.editDestination(
+        FlowScriptedUi(),
+        flowAt("g.sc", Origin.Global, path)
+      ),
+      Some(FlowDestination.Global(path))
+    )
+
+  test("editDestination: a Project flow is committed into workDir"):
+    val workDir = TempDirs.dir()
+    val path = workDir / ".orca" / "flows" / "p.sc"
+    assertEquals(
+      AuthoringMenu.editDestination(
+        FlowScriptedUi(),
+        flowAt("p.sc", Origin.Project, path)
+      )(using TestShellEnv(workDir)),
+      Some(FlowDestination.Project(path, workDir))
+    )
 
   // --- createNewFlow ---
 
@@ -311,3 +332,16 @@ class AuthoringMenuTest extends munit.FunSuite:
       val expected = workDir / ".orca" / "flows" / "implement-fork.sc"
       assertEquals(spawned, Some(expected))
       assertEquals(os.read(expected), "// source content\n")
+
+  test("modeChoices offers agent first — the default — then hand"):
+    assertEquals(
+      AuthoringMenu.modeChoices.map(_.value),
+      List(ChangeMode.Agent, ChangeMode.Hand)
+    )
+    assertEquals(
+      AuthoringMenu.modeChoices.map(_.label),
+      List(
+        "With an agent — describe the changes and let it work",
+        "By hand — open in your editor"
+      )
+    )

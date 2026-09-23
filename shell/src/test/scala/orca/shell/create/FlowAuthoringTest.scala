@@ -564,35 +564,19 @@ class FlowAuthoringTest extends munit.FunSuite:
   test("normalizedFileName leaves an existing .sc suffix alone"):
     assertEquals(FlowAuthoring.normalizedFileName("my-flow.sc"), "my-flow.sc")
 
-  test(
-    "resolveTarget (Project): saves under .orca/flows, committed into workDir"
-  ):
-    val workDir = os.root / "repo"
-    assertEquals(
-      FlowAuthoring.resolveTarget(Tier.Project, "my-flow")(using
-        TestShellEnv(workDir)
-      ),
-      FlowDestination.Project(
-        workDir / ".orca" / "flows" / "my-flow.sc",
-        workDir
-      )
-    )
-
-  test("resolveTarget (Global): saves under the global flows dir"):
-    given env: ShellEnv = TestShellEnv()
-    assertEquals(
-      FlowAuthoring.resolveTarget(Tier.Global, "my-flow"),
-      FlowDestination.Global(env.configHome.flows / "my-flow.sc")
-    )
-
   test("prepareTarget (Project) ensures .orca/flows/ via OrcaDir.ensureFlows"):
     val workDir = TempDirs.dir()
     val result = FlowAuthoring.prepareTarget(Tier.Project, "my-flow")(using
       TestShellEnv(workDir)
     )
     assertEquals(
-      result.map(_.flowPath),
-      Right(workDir / ".orca" / "flows" / "my-flow.sc")
+      result,
+      Right(
+        FlowDestination.Project(
+          workDir / ".orca" / "flows" / "my-flow.sc",
+          workDir
+        )
+      )
     )
     assert(os.isDir(workDir / ".orca" / "flows"))
 
@@ -600,8 +584,8 @@ class FlowAuthoringTest extends munit.FunSuite:
     given env: ShellEnv = TestShellEnv()
     val result = FlowAuthoring.prepareTarget(Tier.Global, "my-flow")
     assertEquals(
-      result.map(_.flowPath),
-      Right(env.configHome.flows / "my-flow.sc")
+      result,
+      Right(FlowDestination.Global(env.configHome.flows / "my-flow.sc"))
     )
     assert(os.isDir(env.configHome.flows))
 

@@ -1,8 +1,6 @@
 package orca.shell.flows
 
-import orca.OrcaDir
 import orca.shell.{ShellEnv, Tier}
-import ox.tap
 
 /** Opens a flow in the user's editor (ADR 0021 §6). */
 private[shell] object FlowEditor:
@@ -42,12 +40,9 @@ private[shell] object FlowEditor:
     * name already exists at the destination, rather than overwriting it.
     */
   def customizeTarget(flow: DiscoveredFlow, tier: Tier)(using
-      env: ShellEnv
+      ShellEnv
   ): Either[String, os.Path] =
-    val targetDir = tier match
-      case Tier.Project => OrcaDir.ensureFlows(env.workDir)
-      case Tier.Global  => env.configHome.flows.tap(os.makeDir.all(_))
-    val target = targetDir / flow.name
+    val target = tier.ensureFlowsDir / flow.name
     if os.exists(target) then
       Left(s"$target already exists — refusing to overwrite it")
     else

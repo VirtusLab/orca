@@ -1,6 +1,5 @@
 package orca.shell.cli
 
-import mainargs.Flag
 import org.jline.terminal.Terminal
 import orca.shell.{ShellEnv, Tier}
 import orca.shell.actions.{AuthorAction, FlowResolution}
@@ -11,22 +10,21 @@ import orca.shell.ui.{ShellOutput, ShellUi}
 import Cli.{actionFailure, complete, requireNonBlank, requireTty, usageFailure}
 
 /** `orca create` and `orca fork`'s behavior (ADR 0021 §10/§9): the shared
-  * author pipeline both drive — tty-gate, non-blank guard, tier resolution,
-  * target resolution, then the sandboxed authoring flow launch. The configured
-  * role agents (and their model pins) do the writing automatically, and the run
-  * happens in a throwaway sandbox — never the caller's directory — so there's
-  * nothing else to resolve from flags. An explicit `name` is validated and
-  * refused on collision; an omitted one is auto-derived and uniquified. Create
-  * and fork differ only in what they resolve up front (nothing vs. the source
-  * flow), the default filename, and which [[AuthorAction]] method launches the
-  * flow.
+  * author pipeline both drive — tty-gate, non-blank guard, target resolution,
+  * then the sandboxed authoring flow launch. The configured role agents (and
+  * their model pins) do the writing automatically, and the run happens in a
+  * throwaway sandbox — never the caller's directory — so there's nothing else
+  * to resolve from flags. An explicit `name` is validated and refused on
+  * collision; an omitted one is auto-derived and uniquified. Create and fork
+  * differ only in what they resolve up front (nothing vs. the source flow), the
+  * default filename, and which [[AuthorAction]] method launches the flow.
   */
 private[cli] object AuthorCli:
 
   def create(
       goal: String,
       name: Option[String],
-      global: Flag,
+      tier: Tier,
       tty: Boolean
   )(using ShellEnv): Int =
     runAuthor(
@@ -35,7 +33,7 @@ private[cli] object AuthorCli:
       blankArg = "goal",
       blankValue = goal,
       name = name,
-      global = global,
+      tier = tier,
       resolveSource = Right(()),
       defaultFileName = _ => FlowAuthoring.suggestFilenameForGoal(goal),
       launch = (_, destination, ui, terminal) =>
@@ -52,7 +50,7 @@ private[cli] object AuthorCli:
       source: String,
       changes: String,
       name: Option[String],
-      global: Flag,
+      tier: Tier,
       tty: Boolean
   )(using ShellEnv): Int =
     runAuthor(
@@ -61,7 +59,7 @@ private[cli] object AuthorCli:
       blankArg = "changes",
       blankValue = changes,
       name = name,
-      global = global,
+      tier = tier,
       resolveSource = FlowResolution.resolve(source).left.map(actionFailure),
       defaultFileName = src =>
         FlowAuthoring
@@ -89,7 +87,7 @@ private[cli] object AuthorCli:
       blankArg: String,
       blankValue: String,
       name: Option[String],
-      global: Flag,
+      tier: Tier,
       resolveSource: => Either[CliFailure, S],
       defaultFileName: S => String,
       launch: (S, FlowDestination, ShellUi, Terminal) => LaunchResult
@@ -99,7 +97,6 @@ private[cli] object AuthorCli:
         _ <- requireTty(command, tty).left.map(usageFailure)
         _ <- requireNonBlank(blankArg, blankValue).left.map(usageFailure)
         source <- resolveSource
-        tier = if global.value then Tier.Global else Tier.Project
         target <- resolveTarget(tier, name, defaultFileName(source))
       yield launchAuthoring(target, source, launch)
 

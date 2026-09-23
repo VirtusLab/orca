@@ -1,6 +1,6 @@
 package orca.shell.cli
 
-import mainargs.ParserForMethods
+import mainargs.{ParserForMethods, TokensReader}
 import orca.StagePath
 import orca.agents.{BackendTag, SessionKey}
 import orca.runner.manifest.{AttemptStatus, ManifestSession}
@@ -44,6 +44,10 @@ class CliTest extends munit.FunSuite:
     ParserForMethods(CliCommands()).runEither(args, autoPrintHelpAndExit = None)
 
   private def parses(args: String*): Boolean = invoke(args*).isRight
+
+  private val tierReader: TokensReader.Simple[Tier] =
+    import Cli.given
+    summon[TokensReader.Simple[Tier]]
 
   test(
     "run: flow + task positional and both flags parse (fails later, at flow resolution)"
@@ -242,8 +246,11 @@ class CliTest extends munit.FunSuite:
   test("edit: the required flow positional missing is a usage error"):
     assert(!parses("edit"))
 
-  test("edit: a --to value other than project|global is a usage error"):
-    assert(!parses("edit", "x.sc", "--to", "bogus"))
+  test("the tier reader maps 'project' to Tier.Project"):
+    assertEquals(tierReader.read(Seq("project")), Right(Tier.Project))
+
+  test("the tier reader maps 'global' to Tier.Global"):
+    assertEquals(tierReader.read(Seq("global")), Right(Tier.Global))
 
   test("create: missing the required goal positional is a usage error"):
     assert(!parses("create"))
@@ -319,7 +326,7 @@ class CliTest extends munit.FunSuite:
     )
 
   test(
-    "config: no flags parses (a read-only `show` of the real global settings file)"
+    "config: no flags parses (a read-only `show` of the global settings file)"
   ):
     assert(parses("config"))
 
@@ -588,9 +595,8 @@ class CliTest extends munit.FunSuite:
       )
       assert(!written.contains("not a valid line"), written)
 
-  // --- runEdit: tty-gate and tier parsing (never reaches the real editor
-  // spawn — both failure modes short-circuit the for-comprehension before
-  // `withTerminal` is ever called).
+  // --- runEdit: the tty gate (never reaches the real editor spawn) and the
+  // mainargs tier parse.
 
   test("runEdit: off-tty is a usage error, naming the command"):
     given env: ShellEnv = TestShellEnv()
@@ -610,32 +616,6 @@ class CliTest extends munit.FunSuite:
     assert(err.contains("--edit"), err)
 
   // --- run: --edit's mutual exclusion with role flags/--force ---
-
-  test("run: --edit with a role flag is a usage error naming the conflict"):
-    assertEquals(
-      ConfigCli.run(
-        planning = None,
-        coding = Some("codex"),
-        review = None,
-        force = false,
-        edit = Some(Tier.Project),
-        tty = true
-      ),
-      ExitCodes.UsageError
-    )
-
-  test("run: --edit with --force is a usage error too"):
-    assertEquals(
-      ConfigCli.run(
-        planning = None,
-        coding = None,
-        review = None,
-        force = true,
-        edit = Some(Tier.Project),
-        tty = true
-      ),
-      ExitCodes.UsageError
-    )
 
   test(
     "run: --edit alone (no role flags) is not rejected by the conflict check"
@@ -658,22 +638,6 @@ class CliTest extends munit.FunSuite:
     )
     assert(err.contains("needs a terminal"), err)
     assert(!err.contains("can't be combined"), err)
-
-  test("run: no --edit delegates to runConfig unchanged"):
-    val out = captured(
-      assertEquals(
-        ConfigCli.run(
-          planning = None,
-          coding = None,
-          review = None,
-          force = false,
-          edit = None,
-          tty = true
-        ),
-        ExitCodes.Ok
-      )
-    )
-    assert(out.contains("planning: (not set)"), out)
 
   test("renderAgents: a set model pin renders as harness:model"):
     val text = ConfigCli.renderAgents(

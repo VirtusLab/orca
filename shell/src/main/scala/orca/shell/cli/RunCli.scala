@@ -2,14 +2,14 @@ package orca.shell.cli
 
 import orca.RawArgs
 import orca.shell.ShellEnv
-import orca.shell.actions.{FlowResolution, RunAction}
+import orca.shell.actions.FlowResolution
 import orca.shell.run.{FallbackPolicy, FlowLauncher, LaunchedFlow}
 
 import Cli.{actionFailure, complete, usageFailure, withTerminal}
 
 /** `orca run`'s behavior (ADR 0021 §10): resolve the flow, read the task
   * (argument, `--prompt` or piped stdin), then either the forced run
-  * ([[RunAction.run]]) or the pin-honouring one
+  * ([[FlowLauncher.runAnnounced]]) or the pin-honouring one
   * ([[FlowLauncher.runHonoringPin]]), propagating the flow child's raw exit
   * code.
   */
@@ -47,15 +47,12 @@ private[cli] object RunCli:
               terminal
             )
           else
-            RunAction.run(
-              resolved,
-              RunAction.RunOptions(
-                args = orcaArgs,
-                fallback = FallbackPolicy.Refuse("re-run with --honor-pin")
-              ),
+            FlowLauncher.runAnnounced(
+              FallbackPolicy.Refuse("re-run with --honor-pin"),
+              LaunchedFlow.of(resolved),
+              orcaArgs,
               env.workDir,
-              terminal,
-              FlowLauncher.runAnnounced
+              terminal
             )
         // propagates the flow child's raw exit code (LaunchResult.Failed's
         // exit, via Cli.exitCodeFor) — run mirrors a wrapped subprocess's

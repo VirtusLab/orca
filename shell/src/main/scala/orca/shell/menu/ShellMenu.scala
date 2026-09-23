@@ -2,13 +2,7 @@ package orca.shell.menu
 
 import org.jline.terminal.Terminal
 import orca.shell.{ShellEnv, WorktreeScan}
-import orca.shell.actions.{
-  ConfigSummary,
-  EditAction,
-  RunAction,
-  SessionAction,
-  ViewAction
-}
+import orca.shell.actions.{ConfigSummary, EditAction, SessionAction, ViewAction}
 import orca.shell.resume.{InterruptedRun, ResumeDetector}
 import orca.shell.run.FlowLauncher
 import orca.shell.sessions.{
@@ -79,8 +73,7 @@ private[shell] object ShellMenu:
   )(using ShellEnv): Unit =
     import context.{terminal, ui}
     val spawnEditor: SpawnEditor = EditAction.editInPlace
-    val runAction: RunFlowAction =
-      RunAction.run(_, _, _, _, FlowLauncher.runAnnounced)
+    val launch: FlowLauncher.FlowLaunch = FlowLauncher.runAnnounced
     item match
       case MenuItem.Reconfigure =>
         // Reprint the summary only when the wizard actually wrote new values
@@ -90,7 +83,7 @@ private[shell] object ShellMenu:
       case MenuItem.ResumeRun =>
         // The item is only in the menu when `resumeOffer` is `Some`.
         resumeOffer.foreach(
-          RunMenu.resumeInterruptedRun(ui, terminal, _, runAction)
+          RunMenu.resumeInterruptedRun(ui, terminal, _, launch)
         )
       case MenuItem.EditSettings =>
         SettingsMenu.editSettings(ui, terminal, spawnEditor)
@@ -98,7 +91,7 @@ private[shell] object ShellMenu:
       case MenuItem.ViewFlow        => viewFlow(ui, context.tty)
       case MenuItem.EditFlow =>
         AuthoringMenu.editFlow(ui, terminal, spawnEditor)
-      case MenuItem.RunFlow => RunMenu.runFlow(ui, terminal, runAction)
+      case MenuItem.RunFlow => RunMenu.runFlow(ui, terminal, launch)
       case MenuItem.CreateFlow =>
         AuthoringMenu.createNewFlow(ui, terminal, spawnEditor)
       case MenuItem.ForkFlow =>

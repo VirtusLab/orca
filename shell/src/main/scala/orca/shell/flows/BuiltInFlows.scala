@@ -15,7 +15,7 @@ private[shell] object BuiltInFlows:
   // re-materializes on every call, and callers reach `extracted` on every flow
   // listing (every picker open); once per process is as often as that can
   // matter, since a process's version and flow resources are both fixed at
-  // startup. Keyed by the target dir — a total function of the env/home/version
+  // startup. Keyed by the target dir — a total function of the cacheHome/version
   // arguments — so a call with different arguments gets its own extraction
   // rather than the first one's, keeping `extracted` reusable across homes and
   // versions within one process. `computeIfAbsent` keeps the first extraction
@@ -70,7 +70,7 @@ private[shell] object BuiltInFlows:
     * treated as absent and self-heals on the next call.
     *
     * Memoized per process ([[extractedCache]]): repeat calls with the same
-    * env/home/version — every picker open in one shell process — reuse the
+    * cacheHome/version — every picker open in one shell process — reuse the
     * first call's extraction.
     */
   def extracted(cacheHome: os.Path, version: String): os.Path =

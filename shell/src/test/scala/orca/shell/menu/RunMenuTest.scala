@@ -6,7 +6,7 @@ import orca.progress.FlowSource
 import orca.shell.TestShellEnv
 import orca.shell.flows.DiscoveredFlow
 import orca.shell.resume.InterruptedRun
-import orca.shell.run.LaunchResult
+import orca.shell.run.{LaunchResult, LaunchedFlow}
 import orca.shell.ui.UiOutcome
 import orca.testkit.{TempDirs, branchName}
 
@@ -43,7 +43,7 @@ class RunMenuTest extends munit.FunSuite:
   test("runFlow: the flow picker starts on the flagship flow"):
     val ui = new RecordingSelectUi[DiscoveredFlow](UiOutcome.Cancelled)
     withDumbTerminal(
-      RunMenu.runFlow(ui, _, (_, _, _, _) => LaunchResult.Ok)(using
+      RunMenu.runFlow(ui, _, (_, _, _, _, _) => LaunchResult.Ok)(using
         TestShellEnv()
       )
     )
@@ -81,8 +81,8 @@ class RunMenuTest extends munit.FunSuite:
       RunMenu.runFlow(
         ui,
         terminal,
-        runAction = (_, opts, _, _) =>
-          recorded = Some(opts.args)
+        launch = (_, _, args, _, _) =>
+          recorded = Some(args)
           LaunchResult.Ok
       )(using TestShellEnv(workDir))
     (ui, recorded)
@@ -146,15 +146,15 @@ class RunMenuTest extends munit.FunSuite:
   private def resumed(
       run: InterruptedRun,
       shellDir: os.Path
-  ): Option[(DiscoveredFlow, OrcaArgs, os.Path)] =
-    var recorded: Option[(DiscoveredFlow, OrcaArgs, os.Path)] = None
+  ): Option[(LaunchedFlow, OrcaArgs, os.Path)] =
+    var recorded: Option[(LaunchedFlow, OrcaArgs, os.Path)] = None
     withDumbTerminal: terminal =>
       RunMenu.resumeInterruptedRun(
         FlowScriptedUi(),
         terminal,
         run,
-        runAction = (flow, opts, dir, _) =>
-          recorded = Some((flow, opts.args, dir))
+        launch = (_, flow, args, dir, _) =>
+          recorded = Some((flow, args, dir))
           LaunchResult.Ok
       )(using TestShellEnv(shellDir))
     recorded

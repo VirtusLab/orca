@@ -9,7 +9,7 @@ import orca.shell.create.{
   FlowCommit,
   FlowDestination
 }
-import orca.shell.flows.DiscoveredFlow
+import orca.shell.flows.{BuiltInFlows, DiscoveredFlow}
 import orca.shell.run.{FallbackPolicy, FlowLauncher, LaunchResult, LaunchedFlow}
 import orca.shell.ui.{ShellOutput, ShellUi}
 
@@ -20,8 +20,8 @@ import orca.shell.ui.{ShellOutput, ShellUi}
   * (copy-and-modify, or write from a goal) is small and well-scoped enough that
   * splitting it into a plan first is pure overhead. The run happens inside a
   * throwaway [[AuthoringSandbox]], never the user's repository: the flow writes
-  * the file at the sandbox root, and on success [[AuthorAction]] copies it out
-  * to the real tier. `launch` is [[FlowLauncher.runAnnounced]] in production.
+  * the file at the sandbox root, and on success it is copied out to the real
+  * tier. `launch` is [[FlowLauncher.runAnnounced]] in production.
   */
 private[shell] object AuthorAction:
 
@@ -35,8 +35,8 @@ private[shell] object AuthorAction:
   /** A new file (create/fork) must not exist at the destination; an edit
     * overwrites the flow it edits.
     */
-  private enum Outcome:
-    case New, Edit
+  private enum WriteMode:
+    case New, Overwrite
 
   /** New-flow authoring: builds [[FlowAuthoring.initialPrompt]] against the
     * sandbox-local target and runs it as the authoring flow's task.
@@ -59,7 +59,7 @@ private[shell] object AuthorAction:
     launchAuthoringFlow(
       prompt,
       sandbox,
-      Outcome.New,
+      WriteMode.New,
       destination,
       ui,
       terminal,
@@ -78,10 +78,19 @@ private[shell] object AuthorAction:
       terminal: Terminal,
       launch: FlowLauncher.FlowLaunch
   )(using ShellEnv): LaunchResult =
-    authorFrom(source, changes, Outcome.New, destination, ui, terminal, launch)
+    authorFrom(
+      source,
+      changes,
+      WriteMode.New,
+      destination,
+      ui,
+      terminal,
+      launch
+    )
 
-  /** Edit-by-agent: like [[fork]] with [[FlowAuthoring.editPrompt]], and the
-    * result overwrites `flow` itself — `flow.path` is `destination.flowPath`.
+  /** Edit-by-agent: like [[fork]] with [[FlowAuthoring.editPrompt]], editing
+    * the flow at `destination` and overwriting it with the result. `flow` names
+    * it.
     */
   def edit(
       flow: DiscoveredFlow,
@@ -91,12 +100,21 @@ private[shell] object AuthorAction:
       terminal: Terminal,
       launch: FlowLauncher.FlowLaunch
   )(using ShellEnv): LaunchResult =
-    authorFrom(flow, changes, Outcome.Edit, destination, ui, terminal, launch)
+    val source = flow.copy(path = destination.flowPath)
+    authorFrom(
+      source,
+      changes,
+      WriteMode.Overwrite,
+      destination,
+      ui,
+      terminal,
+      launch
+    )
 
   private def authorFrom(
       source: DiscoveredFlow,
       changes: String,
-      outcome: Outcome,
+      mode: WriteMode,
       destination: FlowDestination,
       ui: ShellUi,
       terminal: Terminal,
@@ -109,9 +127,9 @@ private[shell] object AuthorAction:
       source.name,
       apiDir
     )
-    val buildPrompt = outcome match
-      case Outcome.New  => FlowAuthoring.forkPrompt
-      case Outcome.Edit => FlowAuthoring.editPrompt
+    val buildPrompt = mode match
+      case WriteMode.New       => FlowAuthoring.forkPrompt
+      case WriteMode.Overwrite => FlowAuthoring.editPrompt
     val prompt = buildPrompt(
       changes,
       sourcePath,
@@ -122,7 +140,7 @@ private[shell] object AuthorAction:
     launchAuthoringFlow(
       prompt,
       sandbox,
-      outcome,
+      mode,
       destination,
       ui,
       terminal,
@@ -149,18 +167,19 @@ private[shell] object AuthorAction:
     * built-in tier) with `prompt` as its task, via
     * [[FlowLauncher.runAnnounced]] — same launch path, forced-version/fallback
     * semantics, and tty-inherited terminal as "Run a flow" — with the SANDBOX
-    * as the working directory, then hands the outcome to [[finishAuthoring]].
+    * as the working directory, then hands the mode to [[finishAuthoring]].
     */
   private def launchAuthoringFlow(
       prompt: String,
       sandbox: os.Path,
-      outcome: Outcome,
+      mode: WriteMode,
       destination: FlowDestination,
       ui: ShellUi,
       terminal: Terminal,
       launch: FlowLauncher.FlowLaunch
   )(using env: ShellEnv): LaunchResult =
-    val flow = env.extractBuiltInFlows() / AuthoringFlowName
+    val flow = BuiltInFlows.extracted(env.cacheHome, ShellVersion.value) /
+      AuthoringFlowName
     val result = launch(
       FallbackPolicy.Ask(ui),
       LaunchedFlow.file(flow),
@@ -173,24 +192,24 @@ private[shell] object AuthorAction:
       sandbox,
       terminal
     )
-    finishAuthoring(result, sandbox, outcome, destination)
+    finishAuthoring(result, sandbox, mode, destination)
     result
 
   /** Copies the authored file out of the sandbox and disposes of it: on
     * [[LaunchResult.Ok]] with the file present, the copy lands at the real
     * tier's target and the sandbox is deleted; Ok with the file missing is
-    * reported as an error. For [[Outcome.New]] the target must still be absent
-    * — reserved collision-free before the run, but re-checked here since the
-    * run itself could have raced a same-named write elsewhere; for
-    * [[Outcome.Edit]] the target IS the source's own path, so overwriting it is
-    * the whole point and the existence check is skipped. A failed run keeps the
-    * sandbox — with a notice — so the partial work is inspectable; a cancelled
-    * one is cleaned up silently.
+    * reported as an error. For [[WriteMode.New]] the target must still be
+    * absent — reserved collision-free before the run, but re-checked here since
+    * the run itself could have raced a same-named write elsewhere; for
+    * [[WriteMode.Overwrite]] the target IS the source's own path, so
+    * overwriting it is the whole point and the existence check is skipped. A
+    * failed run keeps the sandbox — with a notice — so the partial work is
+    * inspectable; a cancelled one is cleaned up silently.
     */
   private def finishAuthoring(
       result: LaunchResult,
       sandbox: os.Path,
-      outcome: Outcome,
+      mode: WriteMode,
       destination: FlowDestination
   ): Unit =
     result match
@@ -202,7 +221,7 @@ private[shell] object AuthorAction:
             s"the authoring flow finished, but ${authored.last} was not written"
           )
           AuthoringSandbox.delete(sandbox)
-        else if os.exists(target) && outcome == Outcome.New then
+        else if os.exists(target) && !overwrites(mode) then
           // Keep the sandbox: it holds the only copy of the authored flow.
           ShellOutput.error(
             s"$target appeared during the authoring run — the flow is at $authored"
@@ -212,10 +231,10 @@ private[shell] object AuthorAction:
             authored,
             target,
             createFolders = true,
-            replaceExisting = outcome == Outcome.Edit
+            replaceExisting = overwrites(mode)
           )
-          val committed = tryCommit(destination, outcome)
-          ShellOutput.info(successNotice(target, outcome, committed))
+          val committed = tryCommit(destination, mode)
+          ShellOutput.info(successNotice(target, mode, committed))
           AuthoringSandbox.delete(sandbox)
       case LaunchResult.Failed(_) =>
         ShellOutput.info(
@@ -224,6 +243,11 @@ private[shell] object AuthorAction:
       case LaunchResult.Cancelled =>
         AuthoringSandbox.delete(sandbox)
 
+  private def overwrites(mode: WriteMode): Boolean =
+    mode match
+      case WriteMode.New       => false
+      case WriteMode.Overwrite => true
+
   /** Commits a Project destination into its repo (ADR 0021 §9 amendment); a
     * Global one has no repo. [[FlowCommit.commitScoped]] itself declines
     * (without failing anything) when `repo` isn't inside a git work tree or
@@ -231,21 +255,21 @@ private[shell] object AuthorAction:
     */
   private def tryCommit(
       destination: FlowDestination,
-      outcome: Outcome
+      mode: WriteMode
   ): Boolean =
     destination match
       case FlowDestination.Project(flowPath, repo) =>
         FlowCommit.commitScoped(
           flowPath,
           repo,
-          commitMessage(flowPath.last, outcome)
+          commitMessage(flowPath.last, mode)
         )
       case FlowDestination.Global(_) => false
 
-  private def commitMessage(fileName: String, outcome: Outcome): String =
-    val verb = outcome match
-      case Outcome.New  => "add"
-      case Outcome.Edit => "update"
+  private def commitMessage(fileName: String, mode: WriteMode): String =
+    val verb = mode match
+      case WriteMode.New       => "add"
+      case WriteMode.Overwrite => "update"
     s"orca: $verb flow $fileName"
 
   /** The finishing notice: names what happened to the copied-out file (created
@@ -255,11 +279,11 @@ private[shell] object AuthorAction:
     */
   private def successNotice(
       target: os.Path,
-      outcome: Outcome,
+      mode: WriteMode,
       committed: Boolean
   ): String =
-    val verb = outcome match
-      case Outcome.New  => "created"
-      case Outcome.Edit => "updated"
+    val verb = mode match
+      case WriteMode.New       => "created"
+      case WriteMode.Overwrite => "updated"
     if committed then s"flow $verb and committed at $target"
     else s"flow $verb at $target — commit it yourself to track it"

@@ -57,13 +57,11 @@ private[menu] class RecordingSelectUi[T](outcome: UiOutcome[T]) extends ShellUi:
 private[menu] class FlowScriptedUi(
     selectScript: List[UiOutcome[Any]] = Nil,
     inputMultilineScript: List[UiOutcome[String]] = Nil,
-    inputScript: List[UiOutcome[String]] = Nil,
-    confirmScript: List[UiOutcome[Boolean]] = Nil
+    inputScript: List[UiOutcome[String]] = Nil
 ) extends ShellUi:
   private var pendingSelect = selectScript
   private var pendingInputMultiline = inputMultilineScript
   private var pendingInput = inputScript
-  private var pendingConfirm = confirmScript
   var selectCount = 0
   var inputMultilineCount = 0
   var inputCount = 0
@@ -78,13 +76,7 @@ private[menu] class FlowScriptedUi(
     outcome.asInstanceOf[UiOutcome[A]]
 
   def confirm(question: String, default: Boolean): UiOutcome[Boolean] =
-    if pendingConfirm.isEmpty then
-      throw new UnsupportedOperationException(
-        "createNewFlow/createForkFlow don't confirm"
-      )
-    val outcome = pendingConfirm.head
-    pendingConfirm = pendingConfirm.tail
-    outcome
+    throw new UnsupportedOperationException("the scripted menus don't confirm")
 
   def input(prompt: String, default: Option[String] = None): UiOutcome[String] =
     inputCount += 1

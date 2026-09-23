@@ -409,8 +409,8 @@ failure (§9).
 > **Amendment (2026-07-26).** Edit gains the same hand-vs-agent mode prompt as
 > §9's Create/Fork, asked right after picking the flow. Hand is this section's
 > path, unchanged. Agent describes the changes and runs them through the same
-> sandboxed authoring flow as Create/Fork, targeting the flow's own path with
-> an edit (`AuthorAction.edit`) so a successful run copies the
+> sandboxed authoring flow as Create/Fork, targeting the flow's own path via
+> `AuthorAction.edit`, so a successful run copies the
 > result back over the original instead of being refused as a collision — an
 > edit overwrites. A built-in source is never overwritten directly: it's
 > customized into a tier first (this section's own picker), and the agent's

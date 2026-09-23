@@ -6,7 +6,7 @@ import orca.shell.{ShellEnv, ShellVersion, TestShellEnv}
 import orca.shell.create.FlowDestination
 import orca.discovery.Origin
 import orca.progress.FlowSource
-import orca.shell.flows.DiscoveredFlow
+import orca.shell.flows.{BuiltInFlows, DiscoveredFlow}
 import orca.shell.run.{FallbackPolicy, FlowLauncher, LaunchResult, LaunchedFlow}
 import orca.shell.ui.{Choice, ShellUi, UiOutcome}
 import orca.testkit.{GitRepo, TempDirs}
@@ -61,7 +61,8 @@ class AuthorActionTest extends munit.FunSuite:
 
   private given env: ShellEnv = TestShellEnv()
 
-  private val builtInFlow = env.extractBuiltInFlows() / "simple.sc"
+  private val builtInFlow =
+    BuiltInFlows.extracted(env.cacheHome, ShellVersion.value) / "simple.sc"
 
   private def captured(body: => Unit): String =
     val buffer = new java.io.ByteArrayOutputStream()

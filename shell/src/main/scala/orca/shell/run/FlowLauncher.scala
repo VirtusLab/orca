@@ -236,8 +236,8 @@ private[shell] object FlowLauncher:
     println()
     result
 
-  /** Top-level flow run for [[orca.shell.actions.RunAction]]: the announced
-    * bracket around [[run]], executed as a tty-inherited child under
+  /** Top-level flow run for the menu and `orca run`: the announced bracket
+    * around [[run]], executed as a tty-inherited child under
     * [[ChildTerminal.withChild]] (ADR 0021 §2). Owns the section markers and
     * the terminal bracket so callers hand off a single call.
     */

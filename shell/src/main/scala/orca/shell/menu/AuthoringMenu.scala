@@ -12,11 +12,30 @@ import ox.discard
 
 import scala.annotation.tailrec
 
+/** How Edit/Create/Fork make their changes (ADR 0021 §6/§9 amendment): asked
+  * via [[AuthoringMenu.modeChoices]] after the action's WHAT is established
+  * (which flow to edit; source+tier to fork; nothing yet for create, where the
+  * mode decides whether a goal or a filename comes next).
+  */
+private[menu] enum ChangeMode:
+  case Hand, Agent
+
 /** The menu's Edit, Create and Fork items (ADR 0021 §6/§9): each asks how the
   * changes are made — by hand in `spawnEditor` (`EditAction.editInPlace` in
   * production), or by an agent through [[AuthorAction]].
   */
 private[menu] object AuthoringMenu:
+
+  /** "How should the changes be made?" — the two-row hand-vs-agent prompt
+    * shared by Edit/Create/Fork (ADR 0021 §6/§9 amendment).
+    */
+  val modeChoices: List[Choice[ChangeMode]] = List(
+    Choice(
+      ChangeMode.Agent,
+      "With an agent — describe the changes and let it work"
+    ),
+    Choice(ChangeMode.Hand, "By hand — open in your editor")
+  )
 
   /** Edit-a-flow: pick the flow, then the mode, then where the edit lands
     * ([[editDestination]]).
@@ -42,13 +61,12 @@ private[menu] object AuthoringMenu:
     * ([[FlowEditor.customizeTarget]]). `None` when the tier prompt is cancelled
     * or the copy is refused.
     */
-  private def editDestination(ui: ShellUi, flow: DiscoveredFlow)(using
-      env: ShellEnv
+  private[menu] def editDestination(ui: ShellUi, flow: DiscoveredFlow)(using
+      ShellEnv
   ): Option[FlowDestination] =
     flow.origin match
-      case Origin.Project =>
-        Some(FlowDestination.Project(flow.path, env.workDir))
-      case Origin.Global => Some(FlowDestination.Global(flow.path))
+      case Origin.Project => Some(FlowDestination.of(Tier.Project, flow.path))
+      case Origin.Global  => Some(FlowDestination.of(Tier.Global, flow.path))
       case Origin.BuiltIn =>
         val title = s"'${flow.name}' is built-in — customize it into:"
         pickTier(ui, title).flatMap: tier =>
@@ -71,7 +89,7 @@ private[menu] object AuthoringMenu:
       changes =>
         AuthorAction
           .edit(
-            flow.copy(path = destination.flowPath),
+            flow,
             changes,
             destination,
             ui,
@@ -229,11 +247,11 @@ private[menu] object AuthoringMenu:
           )
           .discard
 
-  /** "How should the changes be made?" — [[MainMenu.modeChoices]]. */
+  /** "How should the changes be made?" — [[modeChoices]]. */
   private def pickChangeMode(ui: ShellUi): Option[ChangeMode] =
     ui.select(
       "How should the changes be made?",
-      MainMenu.modeChoices,
+      modeChoices,
       default = Some(ChangeMode.Agent)
     ).toOption
 

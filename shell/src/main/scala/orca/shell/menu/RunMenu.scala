@@ -5,10 +5,10 @@ import orca.{OrcaArgs, RunTarget, Uncommitted}
 import orca.gitref.BranchName
 import orca.progress.FeatureBranch
 import orca.shell.ShellEnv
-import orca.shell.actions.{FlowResolution, RunAction}
+import orca.shell.actions.FlowResolution
 import orca.shell.resume.InterruptedRun
-import orca.shell.run.FallbackPolicy
-import orca.shell.ui.{ShellOutput, ShellUi, UiOutcome}
+import orca.shell.run.{FallbackPolicy, FlowLauncher, LaunchedFlow}
+import orca.shell.ui.{Choice, ShellOutput, ShellUi, UiOutcome}
 import orca.util.TextUtil
 import ox.discard
 
@@ -20,14 +20,43 @@ private[menu] object RunMenu:
   /** orca's flagship built-in flow — the run picker's default. */
   val FlagshipFlow = "implement.sc"
 
+  /** A new branch in this checkout, stashing uncommitted files: the run target
+    * prompt's default, and where a resumed run goes (its log's header decides
+    * the branch).
+    */
+  private val DefaultRunTarget: RunTarget =
+    RunTarget.NewBranch(Uncommitted.Stash)
+
+  /** Where a run's work goes, offered as one choice on one axis rather than a
+    * branch confirm followed by a worktree confirm: the answers are not
+    * independent — orca refuses `--worktree` with `--skip-branch` — and asking
+    * separately would leave prompt order to prevent a pair [[RunTarget]] has no
+    * case for. The menu never keeps uncommitted files, so every row stashes.
+    */
+  private val runTargetChoices: List[Choice[RunTarget]] = List(
+    Choice(DefaultRunTarget, "A new branch in this checkout"),
+    Choice(
+      RunTarget.CurrentBranch(Uncommitted.Stash),
+      "The branch checked out now — the flow commits onto it"
+    ),
+    Choice(
+      RunTarget.Worktree,
+      "A new worktree — a separate checkout under .orca/worktrees/, " +
+        "leaving this one untouched"
+    )
+  )
+
   /** Selects a flow, prompts for the task text, for where the run's work should
     * go ([[RunTarget]]) and, when that target creates a branch, for the branch
-    * name, then hands off to `runAction` in the shell's `workDir`. Always
-    * launches non-verbose.
+    * name, then launches it in the shell's `workDir` through `launch`
+    * ([[FlowLauncher.runAnnounced]] in production). Always launches
+    * non-verbose.
     */
-  def runFlow(ui: ShellUi, terminal: Terminal, runAction: RunFlowAction)(using
-      env: ShellEnv
-  ): Unit =
+  def runFlow(
+      ui: ShellUi,
+      terminal: Terminal,
+      launch: FlowLauncher.FlowLaunch
+  )(using env: ShellEnv): Unit =
     for
       flow <- FlowPicker.listFlows.flatMap(flows =>
         FlowPicker.pickFlow(
@@ -47,8 +76,13 @@ private[menu] object RunMenu:
         target = target,
         branch = branch
       )
-      val opts = RunAction.RunOptions(args, FallbackPolicy.Ask(ui))
-      runAction(flow, opts, env.workDir, terminal).discard
+      launch(
+        FallbackPolicy.Ask(ui),
+        LaunchedFlow.of(flow),
+        args,
+        env.workDir,
+        terminal
+      ).discard
 
   /** The run's `--branch` name, asked for only when `target` creates a branch.
     */
@@ -80,14 +114,13 @@ private[menu] object RunMenu:
     * the recorded task text verbatim — the progress log is keyed by a hash of
     * it — through the same path "Run a flow" uses. A catalog name is looked up
     * in the shell's catalog, where the run was launched from; the run itself
-    * happens in `run.dir`, where its log is. The target is the default one: a
-    * resumed log's header decides the branch.
+    * happens in `run.dir`, where its log is.
     */
   def resumeInterruptedRun(
       ui: ShellUi,
       terminal: Terminal,
       run: InterruptedRun,
-      runAction: RunFlowAction
+      launch: FlowLauncher.FlowLaunch
   )(using ShellEnv): Unit =
     FlowResolution.resolveRecorded(run.flow) match
       case Left(message) =>
@@ -95,17 +128,19 @@ private[menu] object RunMenu:
           s"$message — to abandon the run: ${abandonCommand(run)}"
         )
       case Right(flow) =>
-        val opts =
-          RunAction.RunOptions(
-            args = OrcaArgs(
-              userPrompt = run.userPrompt,
-              verbose = false,
-              target = RunTarget.NewBranch(Uncommitted.Stash),
-              branch = None
-            ),
-            fallback = FallbackPolicy.Ask(ui)
-          )
-        runAction(flow, opts, run.dir, terminal).discard
+        val args = OrcaArgs(
+          userPrompt = run.userPrompt,
+          verbose = false,
+          target = DefaultRunTarget,
+          branch = None
+        )
+        launch(
+          FallbackPolicy.Ask(ui),
+          LaunchedFlow.of(flow),
+          args,
+          run.dir,
+          terminal
+        ).discard
 
   /** Removes `run`'s progress log in a commit: the log is committed, so a plain
     * `rm` is undone by the next run's auto-stash restore.
@@ -132,6 +167,6 @@ private[menu] object RunMenu:
   def promptRunTarget(ui: ShellUi): Option[RunTarget] =
     ui.select(
       "Where should this run's work go?",
-      MainMenu.runTargetChoices,
-      default = Some(RunTarget.NewBranch(Uncommitted.Stash))
+      runTargetChoices,
+      default = Some(DefaultRunTarget)
     ).toOption

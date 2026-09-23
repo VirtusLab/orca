@@ -8,7 +8,7 @@ import orca.shell.actions.{
   StackAction,
   StackStatus
 }
-import orca.shell.ui.{Choice, ShellOutput, ShellUi, UiOutcome}
+import orca.shell.ui.{Choice, ShellOutput, ShellUi}
 import ox.discard
 
 /** The menu's settings items (ADR 0021 §4/§8) and the startup config summary.
@@ -35,27 +35,21 @@ private[shell] object SettingsMenu:
       ui: ShellUi,
       terminal: Terminal,
       spawnEditor: SpawnEditor
-  )(using env: ShellEnv): Unit =
-    val globalSettingsPath = env.configHome.settings
-    pickSettingsTier(ui, globalSettingsPath).foreach: tier =>
-      val path =
-        SettingsEditAction.pathFor(tier, env.workDir, globalSettingsPath)
-      SettingsEditAction.ensureExists(tier, path, env.workDir)
-      spawnEditor(terminal, path).discard
-      SettingsEditAction.validate(tier, env.workDir, globalSettingsPath) match
+  )(using ShellEnv): Unit =
+    pickSettingsTier(ui).foreach: tier =>
+      SettingsEditAction.ensureExists(tier)
+      spawnEditor(terminal, tier.settingsPath).discard
+      SettingsEditAction.validate(tier) match
         case Left(error) => ShellOutput.error(error)
         case Right(_)    => printConfigSummary
 
   /** The Project/Global picker naming each tier's settings file. */
-  private def pickSettingsTier(
-      ui: ShellUi,
-      globalSettingsPath: os.Path
-  ): Option[Tier] =
+  private def pickSettingsTier(ui: ShellUi)(using ShellEnv): Option[Tier] =
     ui.select(
       "Edit settings for which tier:",
       List(
         Choice(Tier.Project, "Project (.orca/settings.properties)"),
-        Choice(Tier.Global, s"Global ($globalSettingsPath)")
+        Choice(Tier.Global, s"Global (${Tier.Global.settingsPath})")
       )
     ).toOption
 
@@ -79,7 +73,7 @@ private[shell] object SettingsMenu:
           stack,
           content,
           () =>
-            ui.confirm(StackAction.clearConfirmPrompt, default = false) match
-              case UiOutcome.Selected(true) => true
-              case _                        => false
+            ui.confirm(StackAction.clearConfirmPrompt, default = false)
+              .toOption
+              .contains(true)
         )

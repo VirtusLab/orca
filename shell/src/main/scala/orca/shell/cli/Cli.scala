@@ -180,9 +180,9 @@ private[shell] object Cli:
 
   /** Rejects a blank/whitespace-only `value` (`create`'s goal / `fork`'s
     * changes positional) with a usage error — the interactive path's
-    * `promptDescription` already re-prompts on blank rather than passing a
-    * degenerate description to the harness, and `create`/`fork` need the same
-    * guard since they have no prompt to re-ask.
+    * `menu.Prompts.nonBlankMultiline` already re-prompts on blank rather than
+    * passing a degenerate description to the harness, and `create`/`fork` need
+    * the same guard since they have no prompt to re-ask.
     */
   private[cli] def requireNonBlank(
       argName: String,
@@ -265,7 +265,7 @@ private[cli] class CliCommands(using env: ShellEnv):
       )
       global: Flag = Flag()
   ): Int =
-    AuthorCli.create(goal, name, global, isTty)
+    AuthorCli.create(goal, name, tierOf(global), isTty)
 
   @main(doc =
     "Fork an existing flow: runs the built-in simple.sc flow " +
@@ -285,7 +285,7 @@ private[cli] class CliCommands(using env: ShellEnv):
       )
       global: Flag = Flag()
   ): Int =
-    AuthorCli.fork(source, changes, name, global, isTty)
+    AuthorCli.fork(source, changes, name, tierOf(global), isTty)
 
   @main(doc =
     "Resume a recorded harness session. No selector resumes the newest one.\n" +
@@ -359,3 +359,6 @@ private[cli] class CliCommands(using env: ShellEnv):
       json: Flag = Flag()
   ): Int =
     ListCli.runList(json.value)
+
+  private def tierOf(global: Flag): Tier =
+    if global.value then Tier.Global else Tier.Project

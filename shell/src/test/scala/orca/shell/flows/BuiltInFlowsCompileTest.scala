@@ -36,8 +36,8 @@ class BuiltInFlowsCompileTest extends munit.FunSuite:
     )
   )
 
-  /** Extraction target is a throwaway home, so the developer's real
-    * `~/.cache/orca` is untouched; `_ => None` supplies no `XDG_CACHE_HOME`.
+  /** Extraction target is a throwaway cache home, so the developer's real
+    * `~/.cache/orca` is untouched.
     */
   private lazy val extractedFlows: os.Path =
     BuiltInFlows.extracted(TempDirs.dir(), version)

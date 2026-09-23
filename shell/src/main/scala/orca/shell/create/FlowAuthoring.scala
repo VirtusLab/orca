@@ -1,37 +1,11 @@
 package orca.shell.create
 
-import orca.OrcaDir
 import orca.agents.BackendTag
 import orca.settings.{AgentSpec, SettingsFile, SettingsScope}
 import orca.shell.{ShellEnv, ShellVersion, Tier}
 import orca.util.PromptResource
-import ox.discard
 
 import scala.util.control.NonFatal
-
-/** Where an authored flow is written (ADR 0021 §9). A Project flow is committed
-  * into `repo` once authored; a Global one has no repo.
-  */
-private[shell] enum FlowDestination:
-  case Project(flowPath: os.Path, repo: os.Path)
-  case Global(flowPath: os.Path)
-
-  def flowPath: os.Path
-
-private[shell] object FlowDestination:
-  /** `flowPath` in `tier`; a Project flow's repo is the shell's `workDir`. */
-  def of(tier: Tier, flowPath: os.Path)(using env: ShellEnv): FlowDestination =
-    tier match
-      case Tier.Project => Project(flowPath, env.workDir)
-      case Tier.Global  => Global(flowPath)
-
-  /** `tier`'s flows directory: the project's `.orca/flows/` or the global
-    * `flows/`.
-    */
-  def flowsDir(tier: Tier)(using env: ShellEnv): os.Path =
-    tier match
-      case Tier.Project => OrcaDir.flowsPath(env.workDir)
-      case Tier.Global  => env.configHome.flows
 
 /** Creates a new flow by authoring it through the built-in `simple.sc` flow
   * (ADR 0021 §9): extracts the bundled API material, builds the initial prompt.
@@ -314,32 +288,18 @@ private[shell] object FlowAuthoring:
       finally if proc.isAlive() then proc.destroy(shutdownGracePeriod = 0)
     catch case NonFatal(_) => None
 
-  /** `fileName` (`.sc` suffix ensured) in `tier`'s flows directory — path
-    * arithmetic only, no I/O.
-    */
-  def resolveTarget(tier: Tier, fileName: String)(using
-      ShellEnv
-  ): FlowDestination =
-    FlowDestination.of(
-      tier,
-      FlowDestination.flowsDir(tier) / normalizedFileName(fileName)
-    )
-
-  /** [[resolveTarget]] plus the side effects the menu wiring needs before
-    * launching: ensuring the tier's flows dir exists, then refusing on a
-    * filename collision — the harness itself writes the flow file, so a
-    * pre-existing file at the target path is never intended to be overwritten.
+  /** `fileName` (`.sc` suffix ensured) in `tier`'s flows directory, which is
+    * created if absent. Refuses on a filename collision — the authored file is
+    * written there later, so a pre-existing file is never intended to be
+    * overwritten.
     */
   def prepareTarget(tier: Tier, fileName: String)(using
-      env: ShellEnv
+      ShellEnv
   ): Either[String, FlowDestination] =
-    val target = resolveTarget(tier, fileName)
-    tier match
-      case Tier.Project => OrcaDir.ensureFlows(env.workDir).discard
-      case Tier.Global  => os.makeDir.all(env.configHome.flows)
-    if os.exists(target.flowPath) then
-      Left(s"${target.flowPath} already exists — pick a different name")
-    else Right(target)
+    val flowPath = tier.ensureFlowsDir / normalizedFileName(fileName)
+    if os.exists(flowPath) then
+      Left(s"$flowPath already exists — pick a different name")
+    else Right(FlowDestination.of(tier, flowPath))
 
   /** [[prepareTarget]] with an auto-derived, collision-free filename (ADR 0021
     * §9): keeps `baseName` when the target is free, else appends `-2`, `-3`, …

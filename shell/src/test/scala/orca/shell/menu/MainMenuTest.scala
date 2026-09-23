@@ -68,19 +68,6 @@ class MainMenuTest extends munit.FunSuite:
       "Fork a flow — by hand, or an agent adapts the copy"
     )
 
-  test("modeChoices offers agent first — the default — then hand"):
-    assertEquals(
-      MainMenu.modeChoices.map(_.value),
-      List(ChangeMode.Agent, ChangeMode.Hand)
-    )
-    assertEquals(
-      MainMenu.modeChoices.map(_.label),
-      List(
-        "With an agent — describe the changes and let it work",
-        "By hand — open in your editor"
-      )
-    )
-
   test(
     "Reconfigure/RediscoverStack labels say what they reconfigure/re-detect"
   ):

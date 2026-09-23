@@ -99,18 +99,13 @@ private[cli] object ConfigCli:
     * not a failure: the file is the user's to break, and the editor itself
     * already exited cleanly.
     */
-  private[cli] def runEdit(tier: Tier, tty: Boolean)(using
-      env: ShellEnv
-  ): Int =
+  private[cli] def runEdit(tier: Tier, tty: Boolean)(using ShellEnv): Int =
     complete:
       for _ <- requireTty("config", tty).left.map(usageFailure)
       yield
-        val globalSettingsPath = env.configHome.settings
-        val path =
-          SettingsEditAction.pathFor(tier, env.workDir, globalSettingsPath)
-        SettingsEditAction.ensureExists(tier, path, env.workDir)
-        val exit = withTerminal(EditAction.editInPlace(_, path))
-        SettingsEditAction.validate(tier, env.workDir, globalSettingsPath) match
+        SettingsEditAction.ensureExists(tier)
+        val exit = withTerminal(EditAction.editInPlace(_, tier.settingsPath))
+        SettingsEditAction.validate(tier) match
           case Left(error) => Cli.diagnostic(s"warning: $error")
           case Right(_)    => ()
         exit
