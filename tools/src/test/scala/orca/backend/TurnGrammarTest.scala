@@ -5,7 +5,8 @@ import orca.events.{TurnDebit, Usage}
 import orca.subprocess.FakePipedCliProcess
 import ox.{Ox, supervised, timeout}
 
-import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.atomic.{AtomicBoolean, AtomicInteger}
 import scala.concurrent.duration.*
 
 /** Base-level grammar suite: drives [[StreamConversation]] with a fake
@@ -191,10 +192,33 @@ class TurnGrammarTest extends munit.FunSuite:
     assertEquals(unsettledEnds.get(), 0)
 
   test("cancel frees a reader blocked on a full channel"):
+    // The channel holds 1024 events, so once line 1025 is handed out the reader
+    // is about to block sending it.
+    val channelFull = new CountDownLatch(1)
+    val stopped = new AtomicBoolean(false)
+    val endless = new StreamSource:
+      def lines: Iterator[String] =
+        Iterator
+          .from(1)
+          .takeWhile(_ => !stopped.get())
+          .map: n =>
+            if n == 1025 then channelFull.countDown()
+            "delta"
+      def errorLines: Iterator[String] = Iterator.empty
+      def interrupt(): Unit = stopped.set(true)
+      def tryExitCode: Option[Int] = Some(0)
     supervised:
-      val process = new FakePipedCliProcess()
-      val conv = start(process)
-      (1 to 2000).foreach(_ => process.enqueueStdout("delta"))
+      val conv = StreamConversation.start(
+        endless,
+        ConversationSpec(
+          openingPrompt = None,
+          outputSchema = None,
+          structuredOutputMode = StructuredOutputMode.RawText,
+          askUser = AskUserChannel.Unavailable
+        ),
+        GrammarDecoder(() => ())
+      )
+      channelFull.await()
       timeout(10.seconds)(conv.cancel())
 
   test("lines after a settle are ignored"):
