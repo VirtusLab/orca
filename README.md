@@ -565,8 +565,7 @@ Review only the layering of the changed files...
 
 `description:` is required and must be a single line — the reviewer-picker
 decides from it. The value is the rest of that line: a YAML block scalar (`>`,
-`|`, `>-`, `|-`) aborts the run, and a wrapped continuation line is dropped,
-leaving half a sentence.
+`|`, `>-`, `|-`) or a value wrapped onto the next line aborts the run.
 `files:` is optional: a regex matched against each changed path, so the
 reviewer is only offered when the change touches a file it applies to. The body
 is the reviewer's system prompt. A `name:` key, if present, is ignored.

@@ -11,7 +11,12 @@ private[orca] case class ParsedPrompt(
       * empty `metadata` has a block the parser could not read — unterminated,
       * mis-delimited, or holding no `key: value` line.
       */
-    hasFrontmatter: Boolean
+    hasFrontmatter: Boolean,
+    /** Frontmatter lines that are not a `key: value` entry — typically a value
+      * wrapped onto the next line. Kept so the caller can refuse the file
+      * rather than load a truncated value.
+      */
+    unreadLines: List[String]
 )
 
 /** Loads prompt templates from classpath resources, one `.md` file per template
@@ -79,10 +84,11 @@ private[orca] object PromptResource:
     * body text follows the closing delimiter...
     * }}}
     *
-    * Only single-line `key: value` pairs are recognized. Double-quoted values
-    * are unescaped using YAML double-quoted rules (`\n`, `\t`, `\r`, `\"`,
-    * `\\`); unrecognized backslash sequences are preserved verbatim. A file
-    * without a leading `---` is treated as all body, empty metadata.
+    * Only single-line `key: value` pairs are recognized; any other non-blank,
+    * non-comment line lands in [[ParsedPrompt.unreadLines]]. Double-quoted
+    * values are unescaped using YAML double-quoted rules (`\n`, `\t`, `\r`,
+    * `\"`, `\\`); unrecognized backslash sequences are preserved verbatim. A
+    * file without a leading `---` is treated as all body, empty metadata.
     */
   def loadWithMetadata(path: String): ParsedPrompt =
     parseWithMetadata(load(path))
@@ -99,11 +105,12 @@ private[orca] object PromptResource:
     // space, or `---` at EOF, is a frontmatter attempt that failed, not a file
     // that never tried.
     val opened = text.startsWith("---")
-    if !text.startsWith("---\n") then ParsedPrompt(Map.empty, text, opened)
+    if !text.startsWith("---\n") then ParsedPrompt(Map.empty, text, opened, Nil)
     else
       val afterOpen = text.substring(4) // skip "---\n"
       val closeIdx = afterOpen.indexOf("\n---")
-      if closeIdx < 0 then ParsedPrompt(Map.empty, text, hasFrontmatter = true)
+      if closeIdx < 0 then
+        ParsedPrompt(Map.empty, text, hasFrontmatter = true, Nil)
       else
         val frontmatter = afterOpen.substring(0, closeIdx)
         // skip past "\n---" plus the trailing newline (if present)
@@ -112,25 +119,32 @@ private[orca] object PromptResource:
           .substring(bodyStart)
           .stripPrefix("\n") // remove blank line after closing ---
           .stripPrefix("\n") // and one more if the file separated them
-        val metadata = frontmatter.linesIterator
+        val (unreadLines, entries) = frontmatter.linesIterator
           .flatMap(parseFrontmatterLine)
-          .toMap
-        ParsedPrompt(metadata, body, hasFrontmatter = true)
+          .toList
+          .partitionMap(identity)
+        ParsedPrompt(entries.toMap, body, hasFrontmatter = true, unreadLines)
 
-  private def parseFrontmatterLine(line: String): Option[(String, String)] =
+  /** `None` for a blank or comment line, `Left(line)` for a line that is not a
+    * `key: value` entry: indented, or without a word-like key before its first
+    * colon.
+    */
+  private def parseFrontmatterLine(
+      line: String
+  ): Option[Either[String, (String, String)]] =
     val trimmed = line.stripTrailing
-    if trimmed.isEmpty || trimmed.startsWith("#") then None
+    if trimmed.isBlank || trimmed.stripLeading.startsWith("#") then None
     else
-      val colonIdx = trimmed.indexOf(':')
-      if colonIdx <= 0 then None
-      else
-        val key = trimmed.substring(0, colonIdx).trim
-        val raw = trimmed.substring(colonIdx + 1).trim
-        val value =
-          if raw.length >= 2 && raw.head == '"' && raw.last == '"' then
-            unescapeYamlDoubleQuoted(raw.substring(1, raw.length - 1))
-          else raw
-        Some(key -> value)
+      trimmed match
+        case Entry(key, raw) =>
+          val value =
+            if raw.length >= 2 && raw.head == '"' && raw.last == '"' then
+              unescapeYamlDoubleQuoted(raw.substring(1, raw.length - 1))
+            else raw
+          Some(Right(key -> value))
+        case _ => Some(Left(trimmed))
+
+  private val Entry = """([A-Za-z][\w-]*)\s*:\s*(.*)""".r
 
   /** Process backslash escapes per YAML double-quoted scalar rules. */
   private def unescapeYamlDoubleQuoted(s: String): String =
