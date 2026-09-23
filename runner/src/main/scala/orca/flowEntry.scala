@@ -173,7 +173,6 @@ def flow(
   // tool/subprocess call at DEBUG. It lives under `dir`, so resolving `dir` is
   // not traced.
   def startTrace(dir: os.Path, attemptId: AttemptId): OrcaLog =
-    val _ = OrcaDir.ensureAttempts(dir)
     val orcaLog = OrcaLog.start(dir, attemptId)
     OrcaBanner.print(System.err, orcaLog.file)
     flowLog.info("user prompt: {}", args.userPrompt)
@@ -209,11 +208,11 @@ def flow(
         attemptId,
         clock
       )
-      var outcome: Option[AttemptOutcome] = None
+      var outcome = AttemptOutcome.Failed
       // `try/finally` so the cost summary always lands — even when a fatal
       // throwable (OOM, StackOverflow) escapes the NonFatal catch below.
       try
-        val result =
+        outcome =
           try
             runFlow(
               args = args,
@@ -253,11 +252,9 @@ def flow(
             case NonFatal(e) =>
               System.err.println(s"[orca] ${TextUtil.throwableMessage(e)}")
               AttemptOutcome.Failed
-        outcome = Some(result)
-        result
+        outcome
       finally
-        // `None` only when a fatal throwable escapes the `NonFatal` catch.
-        manifestWriter.finish(outcome.getOrElse(AttemptOutcome.Failed))
+        manifestWriter.finish(outcome)
         costTracker.printSummary()
 
   val outcome = resolveRunDir() match

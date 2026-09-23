@@ -175,7 +175,7 @@ private[shell] object SessionPicker:
         SessionSelection(o.attempt.manifest, o.session, o.attempt.crashed)
       ),
       label,
-      disabledReason = ResumeCommand.staticGate(o.session)
+      disabledReason = ResumeCommand.staticGate(o.session).left.toOption
     )
 
   /** A single "show N ..." expander row, or `Nil` when there's nothing to

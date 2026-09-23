@@ -98,15 +98,7 @@ class ResumeCommandTest extends munit.FunSuite:
   test("staticGate: a session with a wireId passes"):
     assertEquals(
       ResumeCommand.staticGate(session(BackendTag.ClaudeCode, Some("uuid"))),
-      None
-    )
-
-  test(
-    "staticGate: gemini with a wireId passes, deferring the index check to build"
-  ):
-    assertEquals(
-      ResumeCommand.staticGate(session(BackendTag.Gemini, Some("uuid"))),
-      None
+      Right("uuid")
     )
 
   // Populated shape built from gemini-cli 0.50.0's own `listSessions` source

@@ -18,12 +18,13 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /** Per-attempt execution-trace log.
   *
-  * [[start]] attaches a DEBUG-level logback `RollingFileAppender` writing to
-  * the given file to the `orca` logger, made non-additive — so the whole
-  * `orca.*` tree lands in the file and never propagates to the root console
-  * appender. Framework chatter (netty/tapir/…) is on its own loggers and still
-  * reaches the console's WARN appender. The trace rolls at
-  * [[OrcaLog.MaxTraceFileSize]], which bounds what one attempt can write.
+  * [[start]] attaches a DEBUG-level logback `RollingFileAppender` for the
+  * attempt's trace file (`OrcaDir.traceLogPath`) to the `orca` logger, made
+  * non-additive — so the whole `orca.*` tree lands in the file and never
+  * propagates to the root console appender. Framework chatter (netty/tapir/…)
+  * is on its own loggers and still reaches the console's WARN appender. The
+  * trace rolls at [[OrcaLog.MaxTraceFileSize]], which bounds what one attempt
+  * can write.
   *
   * The file is left on disk when the attempt ends, so it can be inspected
   * afterwards. If logback isn't the active slf4j backend, file logging is
@@ -54,11 +55,11 @@ private[orca] final class OrcaLog private (
 
 private[orca] object OrcaLog:
   /** Attach a DEBUG file appender writing attempt `id`'s trace log under
-    * `workDir` (`OrcaDir.traceLogPath`), whose directory must exist, and return
-    * the handle. Everything the `orca` loggers emit before this call is not in
-    * the trace.
+    * `workDir` (`OrcaDir.traceLogPath`) and return the handle. Everything the
+    * `orca` loggers emit before this call is not in the trace.
     */
   def start(workDir: os.Path, id: AttemptId): OrcaLog =
+    val _ = OrcaDir.ensureAttempts(workDir)
     val file = OrcaDir.traceLogPath(workDir, id)
     loggerContext() match
       case Some(ctx) =>
@@ -102,8 +103,8 @@ private[orca] object OrcaLog:
     rolling.setContext(ctx)
     rolling.setParent(appender)
     rolling.setFileNamePattern(rollPattern)
-    rolling.setMinIndex(1)
-    rolling.setMaxIndex(1)
+    rolling.setMinIndex(OrcaDir.TraceLogRollIndex)
+    rolling.setMaxIndex(OrcaDir.TraceLogRollIndex)
     rolling.start()
 
     val triggering = new SizeBasedTriggeringPolicy[ILoggingEvent]

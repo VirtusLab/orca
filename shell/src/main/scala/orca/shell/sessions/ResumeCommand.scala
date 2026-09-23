@@ -12,20 +12,14 @@ import orca.settings.AgentSpec
   */
 private[shell] object ResumeCommand:
 
-  /** Left = not resumable, checkable without a live harness call: a wireId-less
-    * session — one that never committed a turn. `Right` doesn't mean
-    * "definitely resumable" — gemini's row still needs [[build]]'s live index
-    * lookup, and pi's its session-dir check.
+  /** The wire id to resume `s` by, or why it is not resumable as far as a
+    * static (no-live-call) check can tell: a wireId-less session — one that
+    * never committed a turn. `Right` doesn't mean "definitely resumable" —
+    * gemini's row still needs [[build]]'s live index lookup, and pi's its
+    * session-dir check.
     */
-  private def resumableWireId(s: ManifestSession): Either[String, String] =
+  def staticGate(s: ManifestSession): Either[String, String] =
     s.wireId.toRight(s"${s.harness} session has no resumable id")
-
-  /** Why `s` is not resumable, as far as [[build]]'s static (no-live-call)
-    * check can tell; `None` when it passes. For the shell's session-list
-    * preview.
-    */
-  def staticGate(s: ManifestSession): Option[String] =
-    resumableWireId(s).left.toOption
 
   /** Left = not resumable: [[staticGate]]'s checks, plus whatever the caller's
     * live lookups report — gemini's `geminiIndex` (it resumes by index, not by
@@ -46,7 +40,7 @@ private[shell] object ResumeCommand:
       geminiIndex: String => Option[Int],
       piSessionDir: String => Either[String, os.Path]
   ): Either[String, Seq[String]] =
-    resumableWireId(s).flatMap: wireId =>
+    staticGate(s).flatMap: wireId =>
       if wireId.isBlank || wireId.startsWith("-") then
         Left(s"manifest wireId `$wireId` is not a valid session id")
       else

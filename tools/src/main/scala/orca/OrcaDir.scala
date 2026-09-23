@@ -56,10 +56,15 @@ private[orca] object OrcaDir:
   /** Suffix of a trace log's file name, after the [[AttemptId]]. */
   val TraceLogSuffix: String = s"$TraceLogStem.log"
 
-  /** Suffix of a trace log's rolled-over earlier part, after the [[AttemptId]]:
-    * [[traceLogRollPattern]] with index 1, the only index `OrcaLog` keeps.
+  /** The index of a trace log's single rolled-over part: `OrcaLog` keeps only
+    * this one, and [[attemptIdOf]] recognises only this one.
     */
-  val RolledTraceLogSuffix: String = s"$TraceLogStem.1.log"
+  val TraceLogRollIndex: Int = 1
+
+  /** Suffix of a trace log's rolled-over earlier part, after the [[AttemptId]]:
+    * [[traceLogRollPattern]] with [[TraceLogRollIndex]].
+    */
+  val RolledTraceLogSuffix: String = s"$TraceLogStem.$TraceLogRollIndex.log"
 
   /** Repo-relative form of the settings path, for git probes that take a path
     * relative to the repository root.
