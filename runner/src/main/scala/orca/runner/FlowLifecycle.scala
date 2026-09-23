@@ -8,7 +8,6 @@ import orca.{
   OrcaArgs,
   OrcaDir,
   OrcaFlowException,
-  RunTarget,
   RuntimeInStage,
   StackSettings,
   WorkspaceWrite
@@ -319,17 +318,20 @@ object FlowLifecycle:
   ): FlowSetup =
     given InStage = RuntimeInStage.token()
     given WorkspaceWrite = RuntimeInStage.workspaceToken()
-    // `args` may come from a script's own `copy(target = ...)` rather than
-    // `OrcaArgs.parse`, so the pair is re-checked where it is used.
-    RunTarget
-      .refuseBranch(args.target, args.branch)
-      .left
-      .foreach(message => throw OrcaFlowException(message))
     warnIfSettingsIgnored(git, stackOverridden, emit)
     abortIfNoCommits(git)
     val startBranch = git.currentBranch()
     val ownLog = store.loadDetailed()
     abortIfBranchBusy(ownLog, store.path, workDir, startBranch)
+    // The protected set both binding arms enforce: the always-protected floor
+    // (`main`/`master`) plus the repo's detected default branch (best-effort;
+    // failed detection falls back to just the floor). Computed once so the
+    // fresh and resume arms apply the identical policy from the identical set.
+    val protectedBranches =
+      FeatureBranch.alwaysProtected ++ git
+        .defaultBranch()
+        .map(_.toLowerCase(java.util.Locale.ROOT))
+    abortIfRequestedBranchRefused(args, ownLog, git, protectedBranches)
     // Snapshot the log file before any stash, restore it after if the stash
     // removed it — so an uncommitted/untracked log is still readable below.
     val snapshot = snapshotLog(store.path)
@@ -356,14 +358,6 @@ object FlowLifecycle:
     // happened, gating those commits.
     val (stackSettings, discovered) =
       resolveStackSettings(agent, workDir, resolution, emit)
-    // The protected set both binding arms enforce: the always-protected floor
-    // (`main`/`master`) plus the repo's detected default branch (best-effort;
-    // failed detection falls back to just the floor). Computed once so the
-    // fresh and resume arms apply the identical policy from the identical set.
-    val protectedBranches =
-      FeatureBranch.alwaysProtected ++ git
-        .defaultBranch()
-        .map(_.toLowerCase(java.util.Locale.ROOT))
     val binding =
       session.bindBranch(startBranch, protectedBranches, discovered)
     emit(OrcaEvent.BranchBound(binding.featureBranch.value))
@@ -390,6 +384,23 @@ object FlowLifecycle:
   private def abortIfNoCommits(git: GitTool): Unit =
     if git.headCommit().isEmpty then
       throw new OrcaFlowException(GitPreconditions.needsRepoWithCommit)
+
+  /** Refuses a fresh run's `--branch` with read-only queries, before the
+    * cleanliness policy stashes anything. [[createRequestedBranch]] repeats
+    * both checks when it creates the branch.
+    */
+  private def abortIfRequestedBranchRefused(
+      args: OrcaArgs,
+      ownLog: JsonFile.Read[ProgressLog],
+      git: GitTool,
+      protectedBranches: Set[String]
+  ): Unit =
+    ownLog match
+      case JsonFile.Read.Absent | JsonFile.Read.Corrupt(_) =>
+        args.branch.foreach: name =>
+          val _ = requestedBranch(name, protectedBranches)
+          if git.branchExists(name.value) then throw requestedBranchExists(name)
+      case _ => ()
 
   /** Refuse to start a NEW run on a branch that another run's progress log
     * already claims (ADR 0018 §2.5, R1 amendment).
@@ -1028,30 +1039,32 @@ object FlowLifecycle:
       name: BranchName,
       protectedBranches: Set[String]
   )(using WorkspaceWrite): FeatureBranch =
-    // `resolveReused`, not `resolve`: the latter's slug shape would refuse
-    // valid user names such as `feature/JIRA-123`.
-    val featureBranch =
-      FeatureBranch.resolveReused(name.value, protectedBranches) match
-        case Right(featureBranch) => featureBranch
-        case Left(ProtectedBranchRefused(refused)) =>
-          throw new OrcaFlowException(
-            s"--branch '$refused' is a protected branch in this repo — " +
-              "pick another --branch name"
-          )
-        case Left(UnsafeBranchRefRefused(refused)) =>
-          // Unreachable: `BranchName.parse` already enforces git's ref rules,
-          // which are stricter than `resolveReused`'s check.
-          throw new OrcaFlowException(
-            s"internal error: --branch '$refused' is not a safe ref"
-          )
+    val featureBranch = requestedBranch(name, protectedBranches)
     git.createBranch(featureBranch.value) match
       case Right(()) => featureBranch
-      case Left(_) =>
+      case Left(_)   => throw requestedBranchExists(name)
+
+  /** `name` as a [[FeatureBranch]]; throws when it is protected. */
+  private def requestedBranch(
+      name: BranchName,
+      protectedBranches: Set[String]
+  ): FeatureBranch =
+    // `resolveReused`, not `resolve`: the latter's slug shape would refuse
+    // valid user names such as `feature/JIRA-123`. Only the protected check
+    // can refuse: `BranchName.parse` already enforces git's ref rules.
+    FeatureBranch.resolveReused(name.value, protectedBranches) match
+      case Right(featureBranch) => featureBranch
+      case Left(refused) =>
         throw new OrcaFlowException(
-          s"branch '${featureBranch.value}' already exists — check it out " +
-            "and re-run with --skip-branch to continue on it, or pick " +
-            "another --branch name"
+          s"--branch '${refused.name}' is a protected branch in this repo — " +
+            "pick another --branch name"
         )
+
+  private def requestedBranchExists(name: BranchName): OrcaFlowException =
+    new OrcaFlowException(
+      s"branch '${name.value}' already exists — check it out and re-run " +
+        "with --skip-branch to continue on it, or pick another --branch name"
+    )
 
   /** Give the just-discovered settings file its own commit (ADR 0019), so the
     * commit that follows carries only what its message names. Called on both

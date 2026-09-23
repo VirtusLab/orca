@@ -124,12 +124,6 @@ class AttemptManifestWriterTest extends munit.FunSuite:
         """"lastActiveAt":"2026-07-18T10:01:00Z"}]}"""
     )
 
-  test("a manifest without a branch key decodes with no branch"):
-    val manifest = readFromString[AttemptManifest](
-      manifestWithSession("2026-07-18T09:00:00Z")
-    )(using AttemptManifest.codec)
-    assertEquals(manifest.branch, None)
-
   test("upsert: same session re-firing updates stage/lastActiveAt"):
     val workDir = TempDirs.dir()
     // Only the attempt id (startedAt) and each SessionCommitted call clock() —

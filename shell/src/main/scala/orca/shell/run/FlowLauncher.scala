@@ -29,9 +29,9 @@ private[shell] enum FallbackPolicy:
   * transpose without a compile error.
   *
   * `target` is the run's destination as one [[orca.RunTarget]] rather than the
-  * three flags it renders to; `branch` is the `--branch` name, `None` to let
-  * the flow derive one. The flow refuses a `branch` on a target that creates no
-  * branch ([[orca.RunTarget.refuseBranch]]).
+  * three flags it renders to, so the combinations orca refuses (`--worktree`
+  * with `--skip-branch` or `--keep-changes`) cannot be handed to a launch path
+  * at all. `branch` is the `--branch` name, `None` to let the flow derive one.
   */
 private[shell] case class FlowFlags(
     verbose: Boolean,
@@ -85,17 +85,19 @@ private[shell] object FlowLauncher:
       .getOrElse(Seq.empty)
 
   /** `scala-cli run <flow> --quiet --verbose [--dep ...] --workspace <dir> --
-    * <task> [--verbose] [<target flags>] [--branch <name>]`. The `--verbose`
-    * before `--` is scala-cli's own ([[loggingArgs]]); everything after `--` is
-    * the flow's own, parsed by its `OrcaArgs`, so it lands alongside the task
-    * text rather than before it — the destination flags come from
-    * [[orca.RunTarget.toArgv]] and [[orca.RunTarget.branchArgv]], which is
-    * where their spelling lives. `--workspace` relocates scala-cli's own
-    * `.scala-build`/`.bsp` build metadata to `workspaceDir`
-    * ([[resolveWorkspaceDir]]) instead of next to `flow` — load-bearing for a
-    * Project-tier flow, whose script lives inside the user's own repo
-    * (`<repo>/.orca/flows/<name>.sc`), same pollution class the `orca` shim's
-    * own `--workspace` fixes (ADR 0021 §1 amendment).
+    * <task> [--verbose] [<target flags>]`. The `--verbose` before `--` is
+    * scala-cli's own ([[loggingArgs]]); everything after `--` is the flow's
+    * own, parsed by its `OrcaArgs`, so it lands alongside the task text rather
+    * than before it — the destination flags come from
+    * [[orca.RunTarget.toArgv]], which is where their spelling lives.
+    * `--workspace` relocates scala-cli's own `.scala-build`/`.bsp` build
+    * metadata to `workspaceDir` ([[resolveWorkspaceDir]]) instead of next to
+    * `flow` — load-bearing for a Project-tier flow, whose script lives inside
+    * the user's own repo (`<repo>/.orca/flows/<name>.sc`), same pollution class
+    * the `orca` shim's own `--workspace` fixes (ADR 0021 §1 amendment).
+    *
+    * A `--branch <name>` ([[orca.RunTarget.branchArgv]]) follows the target
+    * flags.
     *
     * Requires `task` to be non-blank — `Main.promptTask` re-prompts on blank
     * input before this is ever called, so an empty task here means a caller

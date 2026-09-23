@@ -739,13 +739,13 @@ object Main:
 
   /** Prompts among every session across `attempts` and resumes the chosen one,
     * printing its identity — including `workDir` — before the resume exec
-    * ([[SessionAction.resumeNotice]], ADR 0021 §10; the CLI's own resume paths
-    * print the same notice). Picking the expander re-renders the same picker
-    * with `expanded = true`; there is no way back to the collapsed view short
-    * of re-opening the menu item, which is fine — the picker is re-read from
-    * disk on every open anyway. A cancelled prompt, or `attempts` being empty
-    * (unreachable via the menu today, since the item is disabled then, but
-    * harmless), is a silent no-op.
+    * ([[SessionAction.identityNotice]], ADR 0021 §10; the CLI's own resume
+    * paths print the same notice). Picking the expander re-renders the same
+    * picker with `expanded = true`; there is no way back to the collapsed view
+    * short of re-opening the menu item, which is fine — the picker is re-read
+    * from disk on every open anyway. A cancelled prompt, or `attempts` being
+    * empty (unreachable via the menu today, since the item is disabled then,
+    * but harmless), is a silent no-op.
     */
   private def continueSession(
       ui: ShellUi,

@@ -18,7 +18,7 @@ import orca.shell.sessions.ManifestFixtures.{
   manifest,
   writeManifest
 }
-import orca.testkit.{GitRepo, TempDirs}
+import orca.testkit.TempDirs
 
 class CliTest extends munit.FunSuite:
 
@@ -72,14 +72,6 @@ class CliTest extends munit.FunSuite:
   ):
     assertEquals(
       invoke("run", "no-such-flow.sc", "a task", "--worktree"),
-      Right(1)
-    )
-
-  test(
-    "run: a valid --branch parses too (fails later, at flow resolution)"
-  ):
-    assertEquals(
-      invoke("run", "no-such-flow.sc", "a task", "--branch", "feature/x"),
       Right(1)
     )
 
@@ -914,12 +906,6 @@ class CliTest extends munit.FunSuite:
       Left("no session at index 99 — see `orca continue --list` (1-3)")
     )
 
-  test("resolveSelection: an index too large for an Int is out of range"):
-    assertEquals(
-      SessionPicker.resolveSelection(attemptsFixture(), Some("99999999999")),
-      Left("no session at index 99999999999 — see `orca continue --list` (1-3)")
-    )
-
   test(
     "resolveSelection: an index pointing at an unresumable row says why"
   ):
@@ -1053,36 +1039,6 @@ class CliTest extends munit.FunSuite:
       Left(
         "'feature/x' is ambiguous — matches working directories: " +
           "/repo/a, /repo/b; run `orca continue --list` and pick one by its number"
-      )
-    )
-
-  test(
-    "resolveSelection: an unmatched selector suggests branches containing it"
-  ):
-    assertEquals(
-      SessionPicker.resolveSelection(attemptsFixture(), Some("feature")),
-      Left(
-        "no session or branch named 'feature' found — see `orca continue --list`; " +
-          "did you mean: feature/newest, feature/older"
-      )
-    )
-
-  test(
-    "resolveSelection: a branch with only ephemeral sessions is not suggested"
-  ):
-    val attempts = attemptsFixture() :+ RecordedAttempt(
-      manifest(
-        startedAt = "2026-07-16T09:00:00Z",
-        branch = Some("feature/plan-only"),
-        sessions = List(ephemeral(lastActiveAt = "2026-07-19T09:30:00Z"))
-      ),
-      crashed = false
-    )
-    assertEquals(
-      SessionPicker.resolveSelection(attempts, Some("feature")),
-      Left(
-        "no session or branch named 'feature' found — see `orca continue --list`; " +
-          "did you mean: feature/newest, feature/older"
       )
     )
 
@@ -1246,19 +1202,6 @@ class CliTest extends munit.FunSuite:
         "★ main — latest (no stage yet) [claude] on feat-b",
         "★ main — latest (no stage yet) [claude] on feat-a"
       )
-    )
-
-  test("dirTag across trees: one branch recorded in two trees tags both rows"):
-    val attempts = List("/repo", "/repo/.orca/worktrees/ab12cd34").map: dir =>
-      RecordedAttempt(
-        manifest(workDir = dir, branch = Some("feat-a"), sessions = Nil),
-        crashed = false
-      )
-    val tag = SessionPicker.dirTag(attempts)
-    assertEquals(tag("/repo", Some("feat-a")), " @repo")
-    assertEquals(
-      tag("/repo/.orca/worktrees/ab12cd34", Some("feat-a")),
-      " @ab12cd34"
     )
 
   test("lineages differing only in their minting stage say which stage"):
@@ -1425,23 +1368,6 @@ class CliTest extends munit.FunSuite:
       "resuming session 'newest' [claude], on branch 'feature/newest', in /work (crashed)"
     )
 
-  test(
-    "resumeNotice: warns when the recorded workDir is now on another branch"
-  ):
-    val workDir = GitRepo.seeded()
-    val m = manifest(
-      workDir = workDir.toString,
-      sessions = List(durable(sessionName = "newest")),
-      branch = Some("feat/x")
-    )
-    val notice = SessionAction.resumeNotice(
-      SessionSelection(m, m.sessions.head, crashed = false)
-    )
-    assert(
-      notice.endsWith(s"— warning: $workDir is now on 'main'"),
-      notice
-    )
-
   // --- stdout/stderr separation (CLI review finding 1) ---
 
   /** A manifest missing the required `workDir` — the reader refuses it and
@@ -1601,38 +1527,6 @@ class CliTest extends munit.FunSuite:
     val lines = out.linesIterator.toList
     assert(lines.head.contains("branch"), out)
     assert(lines(1).contains("orca-fix-parser"), out)
-
-  test(
-    "runContinue --list: rows across trees on distinct branches carry no tree tag"
-  ):
-    val checkout = TempDirs.dir()
-    val worktree = TempDirs.dir()
-    List(checkout -> "/repo", worktree -> "/repo/.orca/worktrees/ab12cd34")
-      .zip(List("feat-a", "feat-b"))
-      .foreach:
-        case ((dir, workDir), branch) =>
-          writeManifest(
-            dir,
-            manifest(
-              workDir = workDir,
-              branch = Some(branch),
-              sessions = List(durable())
-            )
-          )
-    val out = captured(
-      assertEquals(
-        ContinueCli.runContinue(
-          ScanDirs(checkout, List(worktree)),
-          None,
-          list = true,
-          json = false,
-          tty = false
-        ),
-        ExitCodes.Ok
-      )
-    )
-    assert(out.contains("feat-a") && out.contains("feat-b"), out)
-    assert(!out.contains("@"), out)
 
   test("runContinue --list --json: kind is Durable or Ephemeral"):
     val dir = TempDirs.dir()

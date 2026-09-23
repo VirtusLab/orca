@@ -1,7 +1,5 @@
 package orca
 
-import orca.progress.BranchName
-
 class RunTargetTest extends munit.FunSuite:
 
   test("toArgv renders each destination as the flags OrcaArgs parses back"):
@@ -20,11 +18,4 @@ class RunTargetTest extends munit.FunSuite:
         Seq("--skip-branch", "--keep-changes"),
         Seq("--worktree")
       )
-    )
-
-  test("branchArgv renders the flag OrcaArgs parses back"):
-    val branch = BranchName.parse("feat/x").toOption
-    assertEquals(
-      OrcaArgs.parse(RunTarget.branchArgv(branch) :+ "task").map(_.branch),
-      Right(branch)
     )

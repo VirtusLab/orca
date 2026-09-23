@@ -6,7 +6,6 @@ import orca.shell.run.ChildTerminal
 import orca.shell.sessions.{ResumeCommand, SessionPicker, SessionSelection}
 import orca.shell.ui.ShellOutput
 import orca.subprocess.QuietProc
-import orca.tools.{HeadState, Worktrees}
 import orca.tools.pi.PiSessionStore
 
 import java.time.Instant
@@ -31,37 +30,20 @@ private[shell] object SessionAction:
   def resumeNotice(selection: SessionSelection): String =
     identityNotice(
       selection,
-      AgentSpec.harnessNameFor(selection.session.harness),
-      validatedWorkDir(selection.manifest.workDir).toOption
-        .flatMap(Worktrees.headState)
+      AgentSpec.harnessNameFor(selection.session.harness)
     )
 
   /** The notice [[resumeNotice]] prints — name, harness, stage, recorded
     * branch, crashed status, and `workDir`. `harnessName` is the settings-file
-    * harness name (`claude`, `codex`, …), not the manifest's wire name. `head`
-    * is where `workDir`'s HEAD points now, if known; when it is not on the
-    * recorded branch, a warning is added, but the resume still proceeds.
+    * harness name (`claude`, `codex`, …), not the manifest's wire name.
     */
-  def identityNotice(
-      selection: SessionSelection,
-      harnessName: String,
-      head: Option[HeadState]
-  ): String =
+  def identityNotice(selection: SessionSelection, harnessName: String): String =
     val session = selection.session
-    val workDir = selection.manifest.workDir
-    val recordedBranch = selection.manifest.branch
     val name = SessionPicker.displayName(session)
     val stage = session.stage.fold("")(s => s", stage '$s'")
-    val branch = recordedBranch.fold("")(b => s", on branch '$b'")
+    val branch = selection.manifest.branch.fold("")(b => s", on branch '$b'")
     val crashedSuffix = if selection.crashed then " (crashed)" else ""
-    val branchWarning = (recordedBranch, head) match
-      case (Some(recorded), Some(HeadState.OnBranch(current)))
-          if recorded != current =>
-        s" — warning: $workDir is now on '$current'"
-      case (Some(_), Some(HeadState.Detached)) =>
-        s" — warning: $workDir is now on a detached HEAD"
-      case _ => ""
-    s"resuming session '$name' [$harnessName]$stage$branch, in $workDir$crashedSuffix$branchWarning"
+    s"resuming session '$name' [$harnessName]$stage$branch, in ${selection.manifest.workDir}$crashedSuffix"
 
   /** Parses the manifest's stored `workDir` and confirms it's still a directory
     * — a checkout deleted after its run finished otherwise crashes resume:

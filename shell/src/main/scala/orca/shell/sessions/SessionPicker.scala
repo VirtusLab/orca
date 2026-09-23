@@ -38,21 +38,20 @@ private[shell] object SessionPicker:
     * first, ephemeral sessions last, with two kinds of rows collapsed by
     * default behind an expander.
     *
-    * A durable lineage is an `(agent, minted key)` pair within one run — every
-    * occurrence of it across every attempt of that run in `attempts`, not just
-    * the newest, since a lineage's key is stable across attempts (each process
-    * mints a fresh `clientId`/`wireId` but reuses the same `agent.session(name,
-    * ...)` key) while one attempt's durable session always upserts onto one
-    * manifest row. The minting stage is part of the key, so the per-task
-    * `implementer` sessions of one attempt are separate lineages rather than
-    * occurrences of each other. Only the occurrence with the max `lastActiveAt`
-    * is shown (marked `★ ... — latest`, the primary continuation target); the
-    * rest collapse behind a "show N earlier occurrences" row. Ephemeral
-    * sessions (Plan-stage calls, reviewer-selection calls, reviewer `chat()`
-    * runs) are never deduped — each is a genuinely distinct fresh session — but
-    * collapse behind a single "show N ephemeral sessions" row, since these are
-    * the rows that otherwise flood the picker with same-named, low-value
-    * entries.
+    * A durable lineage is an `(agent, minted key)` pair — every occurrence of
+    * it across every attempt in `attempts`, not just the newest, since a
+    * lineage's key is stable across attempts (each process mints a fresh
+    * `clientId`/`wireId` but reuses the same `agent.session(name, ...)` key)
+    * while one attempt's durable session always upserts onto one manifest row.
+    * The minting stage is part of the key, so the per-task `implementer`
+    * sessions of one attempt are separate lineages rather than occurrences of
+    * each other. Only the occurrence with the max `lastActiveAt` is shown
+    * (marked `★ ... — latest`, the primary continuation target); the rest
+    * collapse behind a "show N earlier occurrences" row. Ephemeral sessions
+    * (Plan-stage calls, reviewer-selection calls, reviewer `chat()` runs) are
+    * never deduped — each is a genuinely distinct fresh session — but collapse
+    * behind a single "show N ephemeral sessions" row, since these are the rows
+    * that otherwise flood the picker with same-named, low-value entries.
     *
     * Two lineages that differ only in their minting stage otherwise render
     * identically, since a row shows the session's bare name and its LAST ACTIVE
@@ -157,27 +156,18 @@ private[shell] object SessionPicker:
 
   /** How a row says which tree its session is in, given the attempts being
     * rendered and the row's `(workDir, branch)`: nothing when the attempts
-    * share one `workDir`, or when the row's branch already identifies it —
-    * recorded, and by attempts from only one `workDir`. Otherwise a ` @<dir>`
-    * suffix. The interactive picker and `orca continue --list` both call this
-    * over the same attempts, so the two surfaces cannot drift on either the
-    * rule or the marker's shape.
+    * share one `workDir` or the row has a branch, otherwise a ` @<dir>` suffix.
+    * The interactive picker and `orca continue --list` both call this over the
+    * same attempts, so the two surfaces cannot drift on either the rule or the
+    * marker's shape.
     */
   private[shell] def dirTag(
       attempts: List[RecordedAttempt]
   ): (String, Option[String]) => String =
-    val manifests = attempts.map(_.manifest)
-    if manifests.map(_.workDir).distinct.sizeIs <= 1 then (_, _) => ""
+    if attempts.map(_.manifest.workDir).distinct.sizeIs <= 1 then (_, _) => ""
     else
-      val dirsPerBranch = manifests
-        .flatMap(m => m.branch.map(_ -> m.workDir))
-        .groupMap(_._1)(_._2)
-        .view
-        .mapValues(_.distinct.size)
-        .toMap
       (workDir, branch) =>
-        if branch.exists(dirsPerBranch(_) == 1) then ""
-        else s" @${lastSegment(workDir)}"
+        if branch.isDefined then "" else s" @${lastSegment(workDir)}"
 
   /** A recorded `workDir`'s final segment. String-sliced, not `os.Path`-parsed:
     * the value is manifest content, and a hand-edited one need not be an
@@ -271,9 +261,10 @@ private[shell] object SessionPicker:
       selector: Option[String]
   ): Either[String, SessionSelection] =
     selector match
-      case None                  => newestDurableSelection(attempts)
-      case Some(s) if isIndex(s) => selectByDigits(attempts, s)
-      case Some(s)               => selectByNameOrBranch(attempts, s)
+      case None => newestDurableSelection(attempts)
+      case Some(s) if isIndex(s) =>
+        selectByIndex(attempts, s.toIntOption.getOrElse(Int.MaxValue))
+      case Some(s) => selectByNameOrBranch(attempts, s)
 
   // Not `toIntOption`: it also accepts a sign (`+1`), which reads as a name.
   private def isIndex(s: String): Boolean = s.nonEmpty && s.forall(_.isDigit)
@@ -307,22 +298,16 @@ private[shell] object SessionPicker:
           )
         )
 
-  private def selectByDigits(
-      attempts: List[RecordedAttempt],
-      digits: String
-  ): Either[String, SessionSelection] =
-    digits.toIntOption match
-      case Some(index) => selectByIndex(attempts, index)
-      // too large for an Int, so past the end of any listing
-      case None => Left(noSessionAt(digits, indexedRows(attempts).size))
-
   private[shell] def selectByIndex(
       attempts: List[RecordedAttempt],
       index: Int
   ): Either[String, SessionSelection] =
-    val rows = indexedRows(attempts)
+    val rows = withoutExpanders(sessionRows(attempts, expanded = true))
     rows.lift(index - 1) match
-      case None => Left(noSessionAt(index.toString, rows.size))
+      case None =>
+        Left(
+          s"no session at index $index — see `orca continue --list` (1-${rows.size})"
+        )
       case Some(choice) =>
         resolveRow(
           choice,
@@ -330,17 +315,6 @@ private[shell] object SessionPicker:
           // unreachable: withoutExpanders already dropped every ShowMore row
           Left(s"no session at index $index")
         )
-
-  /** The rows an index selector counts: the listing `orca continue --list`
-    * prints.
-    */
-  private def indexedRows(
-      attempts: List[RecordedAttempt]
-  ): List[Choice[PickerRow]] =
-    withoutExpanders(sessionRows(attempts, expanded = true))
-
-  private def noSessionAt(index: String, rowCount: Int): String =
-    s"no session at index $index — see `orca continue --list` (1-$rowCount)"
 
   private def selectByNameOrBranch(
       attempts: List[RecordedAttempt],
@@ -350,10 +324,9 @@ private[shell] object SessionPicker:
     val byName = rows.filter((_, s) => isNamed(s, selector))
     val byBranch = rows.filter((_, s) => s.manifest.branch.contains(selector))
     (byName, byBranch) match
-      case (Nil, Nil) =>
-        Left(notFound(selector) + branchSuggestions(rows, selector))
-      case (_, Nil) => resolveByName(selector, byName)
-      case (Nil, _) => resolveByBranch(selector, byBranch)
+      case (Nil, Nil) => Left(notFound(selector))
+      case (_, Nil)   => resolveByName(selector, byName)
+      case (Nil, _)   => resolveByBranch(selector, byBranch)
       case _ =>
         Left(s"'$selector' names both a session and a branch; $pickFromList")
 
@@ -436,24 +409,6 @@ private[shell] object SessionPicker:
 
   private val pickFromList: String =
     "run `orca continue --list` and pick one by its number"
-
-  /** `; did you mean: b1, b2` over the branches of `rows` containing
-    * `selector`, most recently active first, or nothing when none do. Taken
-    * from the rows a branch selector matches, so every suggestion resolves.
-    */
-  private def branchSuggestions(
-      rows: List[(Choice[PickerRow], SessionSelection)],
-      selector: String
-  ): String =
-    rows
-      .map(_._2)
-      .sortBy(_.session.lastActiveAt)
-      .reverse
-      .flatMap(_.manifest.branch)
-      .filter(_.contains(selector))
-      .distinct match
-      case Nil      => ""
-      case branches => s"; did you mean: ${branches.mkString(", ")}"
 
   /** [[sessionRows]]'s rows, dropping the "show more" expanders — never present
     * for [[SessionSelection]] callers (`selectByIndex` reads the fully expanded

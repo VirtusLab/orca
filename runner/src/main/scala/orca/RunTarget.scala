@@ -65,20 +65,6 @@ object RunTarget:
   def branchArgv(branch: Option[BranchName]): Seq[String] =
     branch.toList.flatMap(name => Seq("--branch", name.value))
 
-  /** Refuses a `--branch` name on a target that creates no branch
-    * ([[CurrentBranch]]). [[from]] applies it to parsed flags, and the run's
-    * setup to the final [[OrcaArgs]], which a script may have rebuilt.
-    */
-  def refuseBranch(
-      target: RunTarget,
-      branch: Option[BranchName]
-  ): Either[String, Unit] =
-    Either.cond(
-      !(target.skipBranch && branch.isDefined),
-      (),
-      skipBranchWithBranchRefusal
-    )
-
   private val skipBranchWithBranchRefusal: String =
     "--branch cannot be combined with --skip-branch: --skip-branch runs on " +
       "the branch checked out now, so there is no branch to create. Drop " +
@@ -109,13 +95,10 @@ object RunTarget:
   ): Either[String, RunTarget] =
     val uncommitted =
       if keepChanges then Uncommitted.Keep else Uncommitted.Stash
-    val target =
-      if !worktree then
-        Right(
-          if skipBranch then CurrentBranch(uncommitted)
-          else NewBranch(uncommitted)
-        )
-      else if skipBranch then Left(worktreeWithSkipBranchRefusal)
-      else if keepChanges then Left(worktreeWithKeepChangesRefusal)
-      else Right(Worktree)
-    target.flatMap(t => refuseBranch(t, branch).map(_ => t))
+    if !worktree then
+      if !skipBranch then Right(NewBranch(uncommitted))
+      else if branch.isDefined then Left(skipBranchWithBranchRefusal)
+      else Right(CurrentBranch(uncommitted))
+    else if skipBranch then Left(worktreeWithSkipBranchRefusal)
+    else if keepChanges then Left(worktreeWithKeepChangesRefusal)
+    else Right(Worktree)
