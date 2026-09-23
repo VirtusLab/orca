@@ -36,7 +36,6 @@ import orca.runner.{
   RoleOverrides,
   RunRequest,
   SetupOptions,
-  SurfacedFlowFailure,
   WiredAgents,
   WorktreeRun
 }
@@ -250,10 +249,9 @@ def flow(
             )(body)
             AttemptOutcome.Succeeded
           catch
-            // A `SurfacedFlowFailure` marks a failure already reported to the
-            // user's event surface by the phase that raised it; only the exit
-            // code remains.
-            case _: SurfacedFlowFailure => AttemptOutcome.Failed
+            // Already shown on the user's event surface; only the exit code
+            // remains.
+            case _: ReportedFailure => AttemptOutcome.Failed
             // Backstop for any other NonFatal — a pre-dispatcher failure (agent
             // factory, TerminalInteraction start) has no event surface, so print
             // it to stderr rather than exit 1 in silence.
@@ -287,9 +285,9 @@ def flow(
   * body-failure teardown), not turned into a `System.exit`, so the
   * crash→`discardUncommitted`→resume wiring is directly testable. A phase that
   * reports to the event surface first escapes wrapped in
-  * [[orca.runner.SurfacedFlowFailure]]`(cause)`; a failure from BEFORE the
-  * dispatcher and agents exist (e.g. an agent-override factory) has no event
-  * surface and escapes unwrapped.
+  * [[ReportedFailure]]`(cause)`; a failure from BEFORE the dispatcher and
+  * agents exist (e.g. an agent-override factory) has no event surface and
+  * escapes unwrapped.
   *
   * A [[LoggingListener]] is always appended to the request's listeners.
   */
@@ -375,7 +373,6 @@ private def runInContext(
     ghTool: GitHubTool,
     fsTool: FsTool
 )(body: FlowControl ?=> Unit): Unit =
-  val log = LoggerFactory.getLogger("orca.flow")
   val debug = OrcaDebug.enabled || args.verbose
   val runKey = RunKey.of(args.userPrompt)
   val store = ProgressStore.default(workDir, runKey)
@@ -387,18 +384,8 @@ private def runInContext(
   // `resourceScope` can't start where one is visible.
   resourceScope:
     WiredAgents.closeAfterScope(agents.all)
-    // Pre-context equivalent of `FlowLifecycle.run`'s `surfaced` bracket:
-    // report the failure to the event surface, log, print the stack under
-    // debug, and rethrow as `SurfacedFlowFailure` so `flow()` exits without
-    // re-printing.
     def surfaced[T](op: => T): T =
-      try op
-      catch
-        case NonFatal(e) =>
-          dispatcher.onEvent(OrcaEvent.Error(TextUtil.throwableMessage(e)))
-          log.debug("flow aborted", e)
-          if debug then e.printStackTrace(System.err)
-          throw SurfacedFlowFailure(e)
+      FlowLifecycle.surfaced(dispatcher.onEvent, debug)(op)
     // Read both settings files, then resolve the three roles and derived
     // announcement/warnings in one place (`RoleAgents.resolveAll`, ADR 0020
     // §10). Inside `surfaced` so a malformed file, bad model pin or throwing

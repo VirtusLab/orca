@@ -21,7 +21,7 @@ import scala.util.control.NonFatal
   *
   * Both guards fire before `ctx` exists, so a violation is a plain unwrapped
   * exception out of `runFlow`, seen via `flow()`'s stderr backstop rather than
-  * the `SurfacedFlowFailure` path.
+  * the `ReportedFailure` path.
   */
 private[orca] object FlowLock:
 

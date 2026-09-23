@@ -1,7 +1,7 @@
 package orca.pr
 
 import munit.FunSuite
-import orca.{BoundedDiff, OrcaFlowException, OutsideStage}
+import orca.{BoundedDiff, OrcaFlowException, OutsideStage, interceptReported}
 import orca.plan.Title
 import orca.progress.PublishedWork
 import orca.review.{FindingId, OpenFinding, OpenFindings, OpenReason}
@@ -128,7 +128,7 @@ class OpenPrFromBranchTest extends FunSuite:
       new ConcurrentLinkedQueue[String](),
       createPr = Left(new BranchNotPushed)
     )
-    val _ = intercept[PrCreateFailed](
+    val _ = interceptReported[PrCreateFailed](
       openPrFromBranch(
         summarisingAgent = new StubSummariser(),
         openFindings = OpenFindings.empty
@@ -152,7 +152,7 @@ class OpenPrFromBranchTest extends FunSuite:
       new ConcurrentLinkedQueue[String](),
       createPr = Left(new BranchNotPushed)
     )
-    val _ = intercept[PrCreateFailed](
+    val _ = interceptReported[PrCreateFailed](
       openPrFromBranch(
         summarisingAgent = new StubSummariser(),
         openFindings = oneOpen
@@ -198,7 +198,7 @@ class OpenPrFromBranchTest extends FunSuite:
     )(using first, first, summon[OutsideStage])
     val calls = new ConcurrentLinkedQueue[String]()
     val resumed = prControl(dir, store, _ => (), calls)
-    val e = intercept[OrcaFlowException](
+    val e = interceptReported[OrcaFlowException](
       openPrFromBranch(
         summarisingAgent = new StubSummariser(),
         openFindings = OpenFindings.empty

@@ -1,5 +1,6 @@
 package orca.runner
 
+import orca.ReportedFailure
 import orca.{ConfigHome, FlowContext, OrcaDir, OrcaFlowException, StackSettings}
 import orca.agents.{
   SessionKey,
@@ -332,7 +333,7 @@ class RoleSettingsFlowTest extends munit.FunSuite:
         test = DiscoveredTask()
       )
     )
-    val _ = intercept[SurfacedFlowFailure]:
+    val _ = intercept[ReportedFailure]:
       driveFlow(workDir, wiring = wiringWith(claude = canned))(())
     assert(
       !os.exists(outside),
@@ -445,7 +446,7 @@ class RoleSettingsFlowTest extends munit.FunSuite:
     )
 
   /** Drives `runFlow` with a null-sink interaction and no progress store, so a
-    * failure surfaces as a thrown `SurfacedFlowFailure` rather than a
+    * failure surfaces as a thrown `ReportedFailure` rather than a
     * `System.exit`. `configHome` defaults to an absent temp directory so no
     * test ever reads the developer's real `~/.config`.
     */
@@ -472,7 +473,7 @@ class RoleSettingsFlowTest extends munit.FunSuite:
     )(body)
 
   /** A malformed settings file (project or global) must surface as a
-    * `SurfacedFlowFailure` and leave HEAD on the starting branch — the abort
+    * `ReportedFailure` and leave HEAD on the starting branch — the abort
     * precedes `ensureClean` and any branch creation.
     */
   private def assertAbortsCleanly(
@@ -481,7 +482,7 @@ class RoleSettingsFlowTest extends munit.FunSuite:
       stackSettings: Option[StackSettings] = None
   ): Unit =
     val startBranch = new OsGitTool(workDir).currentBranch()
-    val _ = intercept[SurfacedFlowFailure]:
+    val _ = intercept[ReportedFailure]:
       driveFlow(
         workDir,
         configHome = configHome,
