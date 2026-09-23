@@ -388,11 +388,13 @@ class StageRuntimeTest extends munit.FunSuite:
     val store = orca.progress.ProgressStore.default(dir, RunKey.of("p"))
     (
       new TestFlowControl(
-        new EventDispatcher(List(listener)),
-        git,
+        new TestFlowContext(
+          new EventDispatcher(List(listener)),
+          "p",
+          wiredGit = Some(git)
+        ),
         store,
-        orca.sessions.SessionStore.default(dir, RunKey.of("p")),
-        "p"
+        orca.sessions.SessionStore.default(dir, RunKey.of("p"))
       ),
       dir
     )

@@ -2,7 +2,13 @@
 // into the real `stage` machinery over a seeded repo.
 package orca.pr
 
-import orca.{FlowControl, RunKey, TestFlowControl, WorkspaceWrite}
+import orca.{
+  FlowControl,
+  RunKey,
+  TestFlowContext,
+  TestFlowControl,
+  WorkspaceWrite
+}
 import orca.agents.{
   SessionKey,
   Agent,
@@ -175,11 +181,15 @@ private[pr] def prControl(
       new ConcurrentLinkedQueue[String]()
 ): FlowControl =
   new TestFlowControl(
-    new EventDispatcher(List(listener)),
-    new RecordingGit(new OsGitTool(dir), calls, branchDiff, push, base),
+    new TestFlowContext(
+      new EventDispatcher(List(listener)),
+      "p",
+      wiredGit = Some(
+        new RecordingGit(new OsGitTool(dir), calls, branchDiff, push, base)
+      ),
+      wiredGh = Some(new RecordingGh(calls, availability, createPr, prBodies))
+    ),
     store,
     SessionStore.default(dir, RunKey.of("p")),
-    "p",
-    startingCommit = store.load().map(_.header.startingCommit),
-    gh = Some(new RecordingGh(calls, availability, createPr, prBodies))
+    store.load().map(_.header.startingCommit)
   )

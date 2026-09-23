@@ -50,7 +50,7 @@ def openPrFromBranch(
     body: PrSummary => String = _.body,
     context: Option[String] = None,
     instructions: String = PrPrompts.Summarise
-)(using FlowContext, FlowControl, OutsideStage): PrHandle =
+)(using FlowControl, OutsideStage): PrHandle =
   summon[FlowControl].assertAtFlowBody("openPrFromBranch(...)")
   reportOpenFindings(openFindings)
   // A refusal throws inside its stage, so it is never recorded and a resume

@@ -57,7 +57,7 @@ object FlowLifecycle:
     * body failure — the two teardowns are structurally disjoint.
     */
   private[orca] def run(
-      control: DefaultFlowControl,
+      control: FlowControl,
       flowSetup: FlowSetup,
       debug: Boolean
   )(body: FlowControl ?=> Unit): Unit =

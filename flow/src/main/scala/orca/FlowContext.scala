@@ -17,7 +17,8 @@ import scala.annotation.implicitNotFound
   *
   * One is built per `flow(...)` invocation — flow scripts don't normally
   * instantiate `FlowContext` directly, just call the accessors inside a
-  * `flow(args): ...` block, which supplies the given instance.
+  * `flow(args): ...` block, whose `FlowControl` supplies it
+  * ([[FlowContext.fromControl]]).
   *
   * The five per-backend accessors (`claude`, `codex`, …) come from
   * [[AgentSet]]. The three role accessors ([[planningAgent]] / [[codingAgent]]

@@ -50,14 +50,13 @@ private[pr] def summarise(
     context: Option[String],
     instructions: String
 )(using
-    ctx: FlowContext,
     control: FlowControl
 ): Either[NoDefaultBase, PrSummary] =
   val (summaryContext, summaryInstructions) = context match
     case Some(c) => (c, instructions)
     case None =>
       (
-        s"User prompt: ${ctx.userPrompt}",
+        s"User prompt: ${control.context.userPrompt}",
         s"$instructions\n\n${PrPrompts.ClosingRefs}"
       )
   gatedStage(SummariseStage)(base): resolved =>

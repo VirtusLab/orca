@@ -123,25 +123,6 @@ class CcNegativeCompileTest extends munit.FunSuite:
     val errors = compileErrorsOf(fixture("orca.FlowControl"))
     assertSeparationFailure("FlowControl", errors)
 
-  test(
-    "(f) POSITIVE: a fan-out resolving FlowContext implicitly beside a FlowControl compiles"
-  ):
-    val errors = compileErrorsOf(
-      s"""package orca
-         |import language.experimental.captureChecking
-         |import language.experimental.separationChecking
-         |object Fixture:
-         |  def needsCtx(using FlowContext): Int = 1
-         |  def go(using ctx: FlowContext, fc: FlowControl): List[Int] =
-         |    val tasks: Seq[() => Int] = Seq(() => needsCtx, () => needsCtx)
-         |    CheckedPar.mapParUnordered(tasks.size)(tasks)(r => println(r))
-         |""".stripMargin
-    )
-    assert(
-      errors.isEmpty,
-      s"the lexical FlowContext, not one derived from fc, must be picked, got: $errors"
-    )
-
   /** Assert the fan-out was rejected specifically by separation checking — not
     * by some unrelated error. Both phrasings the checker emits for an exclusive
     * fan-out capture ("...hides parameter tok. The parameter needs to be
@@ -231,5 +212,36 @@ class CcNegativeCompileTest extends munit.FunSuite:
       errors.exists(_.contains("cannot flow into capture set")),
       s"expected a capture-checking error rejecting the `ev` capture, got: $errors"
     )
+
+  /** Fan-out fixture whose closures resolve a `using FlowContext` helper
+    * implicitly, with `givens` in scope — the axis under test for the (f)/(g)
+    * pair.
+    */
+  private def contextFixture(givens: String): String =
+    s"""package orca
+       |import language.experimental.captureChecking
+       |import language.experimental.separationChecking
+       |object Fixture:
+       |  def needsCtx(using FlowContext): Int = 1
+       |  def go(using $givens): List[Int] =
+       |    val tasks: Seq[() => Int] = Seq(() => needsCtx, () => needsCtx)
+       |    CheckedPar.mapParUnordered(tasks.size)(tasks)(r => println(r))
+       |""".stripMargin
+
+  test(
+    "(f) POSITIVE: a fan-out resolving FlowContext beside a FlowControl compiles"
+  ):
+    val errors =
+      compileErrorsOf(contextFixture("ctx: FlowContext, fc: FlowControl"))
+    assert(
+      errors.isEmpty,
+      s"the lexical FlowContext, not one derived from fc, must be picked, got: $errors"
+    )
+
+  test(
+    "(g) NEGATIVE: a fan-out deriving FlowContext from a FlowControl fails to compile"
+  ):
+    val errors = compileErrorsOf(contextFixture("fc: FlowControl"))
+    assertSeparationFailure("FlowControl", errors)
 
 end CcNegativeCompileTest

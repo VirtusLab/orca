@@ -77,13 +77,15 @@ class CommitMessageTest extends munit.FunSuite:
     )
     body(
       new TestFlowControl(
-        new EventDispatcher(Nil),
-        git,
+        new TestFlowContext(
+          new EventDispatcher(Nil),
+          "p",
+          workDir = dir,
+          lead = Some(agentStub),
+          wiredGit = Some(git)
+        ),
         store,
-        orca.sessions.SessionStore.default(dir, RunKey.of("p")),
-        "p",
-        lead = Some(agentStub),
-        workDir = dir
+        orca.sessions.SessionStore.default(dir, RunKey.of("p"))
       ),
       dir
     )
