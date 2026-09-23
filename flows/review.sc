@@ -196,10 +196,9 @@ def pickReviewers(target: ReviewTarget)(using
          |$listing""".stripMargin
     )
 
-  val wanted = picked.names.map(ReviewerSlug(_)).toSet
-  candidates.filter(c => wanted.contains(c.name)) match
-    case Nil      => candidates
-    case selected => selected
+  val named =
+    candidates.filter(c => picked.names.exists(n => ReviewerSlug(n) == c.name))
+  if named.isEmpty then candidates else named
 
 /** What each reviewer is asked: findings scoped to the change, with location
   * and a suggested fix — reading the diff off disk, since a read-only reviewer
