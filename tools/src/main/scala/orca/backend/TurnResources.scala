@@ -20,11 +20,23 @@ private[orca] object TurnResources:
   def use[T](acquire: => T)(release: T => Unit)(using ResourceScope): T =
     ox.useInScope(acquire): resource =>
       try release(resource)
-      catch case NonFatal(e) => log.debug("turn resource release failed", e)
+      catch case NonFatal(e) => log.warn("turn resource release failed", e)
 
   def useCloseable[T <: AutoCloseable](acquire: => T)(using ResourceScope): T =
     use(acquire)(_.close())
 
-  /** A temp file removed when the turn ends. */
-  def tempFile(acquire: => os.Path)(using ResourceScope): os.Path =
-    use(acquire)(path => os.remove(path): Unit)
+  // Temp files and dirs skip `deleteOnExit`: the scope removes them, and each
+  // registration would stay in the JVM's exit-hook list for the rest of a flow
+  // that runs hundreds of turns.
+
+  /** A temp file holding `contents`, removed when the turn ends. */
+  def tempFile(contents: String, prefix: String, suffix: String)(using
+      ResourceScope
+  ): os.Path =
+    use(
+      os.temp(contents, prefix = prefix, suffix = suffix, deleteOnExit = false)
+    )(path => os.remove(path): Unit)
+
+  /** A temp directory, removed with its contents when the turn ends. */
+  def tempDir(prefix: String)(using ResourceScope): os.Path =
+    use(os.temp.dir(prefix = prefix, deleteOnExit = false))(os.remove.all(_))

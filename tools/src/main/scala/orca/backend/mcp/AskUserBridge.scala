@@ -5,16 +5,16 @@ import ox.discard
 
 import java.util.concurrent.atomic.AtomicBoolean
 
-/** Synchronous rendezvous between the MCP `ask_user` tool handler (a Netty
-  * worker thread that needs a string answer to return to the agent) and the
-  * host process (the conversation driver that emits `UserQuestion` events and
-  * feeds back what the user typed).
+/** Synchronous rendezvous between the MCP `ask_user` tool handler (which needs
+  * a string answer to return to the agent) and the host process (the
+  * conversation driver that emits `UserQuestion` events and feeds back what the
+  * user typed).
   *
   * One queue carries `(question, reply)` pairs from the handler side; each call
   * brings its own private reply channel so concurrent `ask_user` invocations
-  * don't cross wires. The handler thread blocks on its reply channel until the
-  * host's consumer loop takes from the queue, surfaces a `UserQuestion`, and
-  * calls `respond` with the typed answer.
+  * don't cross wires. The handler blocks on its reply channel until the host's
+  * consumer loop takes from the queue, surfaces a `UserQuestion`, and calls
+  * `respond` with the typed answer.
   *
   * Both sides block on interruptible channel operations, and both run as forks
   * of the turn scope (the drainer, and the MCP server's request handlers), so

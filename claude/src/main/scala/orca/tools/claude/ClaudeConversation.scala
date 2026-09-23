@@ -93,9 +93,8 @@ private[claude] class ClaudeConversation(
     */
   private val askUserEchoes = new orca.backend.AskUserEchoes
 
-  // The ask_user bridge drainer is owned by the base; this subclass just
-  // declares `askUser` on the ctor param. Stdin is closed right after the
-  // initial prompt, so mid-session input flows through the MCP tool result.
+  // Stdin is closed right after the initial prompt, so mid-session input flows
+  // through the MCP tool result.
 
   // --- Reader hook ---
 

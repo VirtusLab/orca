@@ -278,6 +278,19 @@ class GeminiBackendTest extends munit.FunSuite:
         s"final prompt should fold in the ask_user hint; got: $finalPrompt"
       )
 
+  test("the settings.json registration is undone when the turn ends"):
+    val runner = new SpawnStubCliRunner(List(successfulProcess()))
+    val workDir = TempDirs.dir()
+    withBackend(runner, workDir = workDir): backend =>
+      val _ = OpenTurn.interactive(backend)(
+        "q",
+        clientSid,
+        displayPrompt = "q",
+        AgentConfig(),
+        outputSchema = None
+      )
+    assert(!os.exists(workDir / ".gemini"), os.list(workDir))
+
   test(
     "an interactive turn with a systemPrompt folds BOTH it and the ask_user hint"
   ):

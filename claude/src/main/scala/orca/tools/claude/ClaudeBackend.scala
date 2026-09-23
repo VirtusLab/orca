@@ -265,11 +265,9 @@ private[orca] class ClaudeBackend(
       ) ++
         servers.map(s => s.name -> McpConfig.HttpServer(s.host.url, s.timeout))
     TurnResources.tempFile(
-      os.temp(
-        prefix = "orca-mcp-",
-        suffix = ".json",
-        contents = McpConfig.render(entries.toMap)
-      )
+      McpConfig.render(entries.toMap),
+      prefix = "orca-mcp-",
+      suffix = ".json"
     )
 
   /** Build the per-session system-prompt file: compose `config.systemPrompt`
@@ -282,12 +280,9 @@ private[orca] class ClaudeBackend(
       hints: List[String]
   )(using ResourceScope): os.Path =
     TurnResources.tempFile(
-      os.temp(
-        prefix = "orca-system-prompt-",
-        suffix = ".md",
-        contents = SystemPromptComposer
-          .combine(config, hints.reduceOption(_ + "\n\n" + _))
-      )
+      SystemPromptComposer.combine(config, hints.reduceOption(_ + "\n\n" + _)),
+      prefix = "orca-system-prompt-",
+      suffix = ".md"
     )
 
 object ClaudeBackend:

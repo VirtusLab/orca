@@ -165,10 +165,7 @@ private[orca] class CodexBackend(
   ): Option[os.Path] =
     schema.map: body =>
       TurnResources.tempFile(
-        os.temp(
-          body,
-          prefix = "orca-codex-schema-",
-          suffix = ".json",
-          deleteOnExit = false
-        )
+        body,
+        prefix = "orca-codex-schema-",
+        suffix = ".json"
       )

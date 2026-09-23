@@ -85,14 +85,11 @@ private[orca] class PiBackend private[pi] (
       turn: TurnRequest[BackendTag.Pi.type]
   )(using Ox): Conversation[BackendTag.Pi.type] =
     import turn.*
-    // Temp files (ask-user extension, system prompt) Pi reads for the whole
-    // turn, removed when the turn scope ends. The dirs are `deleteOnExit`, so a
-    // hard kill mid-turn still reclaims them.
     val displayPrompt = mode.displayPrompt
     val extraHint = Option.when(mode.isInteractive)(PiAskUserExtension.Hint)
     val systemPromptFile = writeSystemPrompt(config, extraHint)
-    val askUserExtension = Option.when(mode.isInteractive):
-      TurnResources.useCloseable(PiAskUserExtension.allocate())
+    val askUserExtension =
+      Option.when(mode.isInteractive)(PiAskUserExtension.write())
 
     SubprocessSpawn.open("pi RPC", events) {
       val args = PiArgs.rpc(
@@ -104,7 +101,7 @@ private[orca] class PiBackend private[pi] (
         dispatch = dispatch.asTurnDispatch,
         config = config,
         systemPromptFile = Some(systemPromptFile),
-        askUserExtension = askUserExtension.map(_.file)
+        askUserExtension = askUserExtension
       )
       cli.spawnPiped(args, cwd = workDir, pipeStderr = true)
     } { process =>
@@ -123,10 +120,8 @@ private[orca] class PiBackend private[pi] (
       config: AgentConfig,
       extraHint: Option[String]
   )(using ResourceScope): os.Path =
-    val dir = TurnResources.use(
-      os.temp.dir(prefix = "orca-pi-system-prompt-", deleteOnExit = true)
-    )(os.remove.all(_))
-    val file = dir / "system-prompt.md"
+    val file =
+      TurnResources.tempDir("orca-pi-system-prompt-") / "system-prompt.md"
     os.write(file, SystemPromptComposer.combine(config, extraHint))
     file
 

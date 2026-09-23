@@ -487,13 +487,9 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
     * interrupts it.
     */
   private def askUserDrain(bridge: AskUserBridge): Unit =
-    try
-      while true do
-        val q = bridge.nextQuestion()
-        eventQueue.enqueue(
-          ConversationEvent.UserQuestion(q.question, q.respond)
-        )
-    catch case NonFatal(_) => ()
+    while true do
+      val q = bridge.nextQuestion()
+      eventQueue.enqueue(ConversationEvent.UserQuestion(q.question, q.respond))
 
   private def runFinalize(): Unit =
     if finalized.compareAndSet(false, true) then onFinalize()
