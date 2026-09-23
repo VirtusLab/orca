@@ -4,6 +4,7 @@ import orca.backend.{AgentWiring, Interaction}
 import orca.events.{
   CostResolvingDispatcher,
   CostTracker,
+  DeniedToolTracker,
   EventDispatcher,
   OrcaEvent,
   OrcaListener,
@@ -208,6 +209,8 @@ def flow(
         attemptId,
         clock
       )
+      // Tally tool calls the harness refused and print them beside the cost.
+      val deniedToolTracker = DeniedToolTracker.start()
       var outcome = AttemptOutcome.Failed
       // `try/finally` so the cost summary always lands — even when a fatal
       // throwable (OOM, StackOverflow) escapes the NonFatal catch below.
@@ -218,8 +221,11 @@ def flow(
               args = args,
               workDir = dir,
               interaction = interaction,
-              extraListeners =
-                extraListeners ++ List(costTracker, manifestWriter),
+              extraListeners = extraListeners ++ List(
+                costTracker,
+                deniedToolTracker,
+                manifestWriter
+              ),
               branchNaming = branchNaming,
               stackSettings = stackSettings,
               planningAgent = planningAgent,
@@ -256,6 +262,7 @@ def flow(
       finally
         manifestWriter.finish(outcome)
         costTracker.printSummary()
+        deniedToolTracker.printSummary()
 
   val outcome = resolveRunDir() match
     // A refusal has no dispatcher, manifest or trace to carry it, so it reaches

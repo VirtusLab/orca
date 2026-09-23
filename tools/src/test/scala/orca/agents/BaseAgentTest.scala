@@ -535,6 +535,17 @@ class BaseAgentTest extends munit.FunSuite:
       s"quietTextTurn must not emit SessionCommitted: ${seen.get()}"
     )
 
+  test("quietTextTurn attributes a denied tool call to the agent"):
+    val seen =
+      new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
+    val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
+    val tool = new StubTool(new NoisyBackend, listener = listener)
+    val _ = tool.quietTextTurn("internal prompt")
+    assert(
+      seen.get().contains(OrcaEvent.ToolDenied("Bash", Some("stub"))),
+      s"expected an attributed ToolDenied: ${seen.get()}"
+    )
+
   // A structured resultAs[O] call's closing assistant turn IS the raw JSON
   // payload; the caller re-surfaces it via StructuredResult, so it must not
   // also flow through as an AssistantMessage (double display of the same
@@ -812,8 +823,9 @@ class BaseAgentTest extends munit.FunSuite:
     def structuredOutputMode: StructuredOutputMode =
       StructuredOutputMode.RawText
 
-  /** Emits the streaming display events a real drain would (a tool line and the
-    * assistant's reply) so the quiet-turn test can assert they are filtered.
+  /** Emits the streaming display events a real drain would (a tool line, a
+    * denied tool call and the assistant's reply) so the quiet-turn tests can
+    * assert which ones are filtered.
     */
   private class NoisyBackend
       extends AgentBackend[BackendTag.Pi.type]
@@ -827,6 +839,7 @@ class BaseAgentTest extends munit.FunSuite:
         outputSchema: Option[String]
     ): AgentResult[BackendTag.Pi.type] =
       events.onEvent(OrcaEvent.ToolUse("Read", "{}"))
+      events.onEvent(OrcaEvent.ToolDenied("Bash", None))
       events.onEvent(OrcaEvent.AssistantMessage("short-label"))
       AgentResult(
         WireSessionId[BackendTag.Pi.type]("wire"),

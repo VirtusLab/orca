@@ -29,6 +29,12 @@ enum OrcaEvent:
     */
   case ToolUse(tool: String, args: String, agent: Option[String] = None)
 
+  /** A tool call the harness refused for lack of permission — as opposed to a
+    * tool that ran and failed. Emitted by the autonomous drain; `agent` carries
+    * the same attribution as [[ToolUse]].
+    */
+  case ToolDenied(tool: String, agent: Option[String])
+
   /** A single instantaneous note in the event log — neither a stage nor a
     * stream-of-text. Tools emit these for discrete progress: "switched to
     * branch X", "discarded N issues", etc.
@@ -189,15 +195,17 @@ object OrcaListener:
     */
   val noop: OrcaListener = (_: OrcaEvent) => ()
 
-  /** Stamps `agentName` onto the three display events a turn produces
-    * ([[OrcaEvent.ToolUse]], [[OrcaEvent.AssistantMessage]],
-    * [[OrcaEvent.Error]]) on their way to `downstream`; every other event
-    * passes through untouched. Wrapped around the listener handed to a backend
-    * drain, which emits those events without knowing which agent it is running
-    * for.
+  /** Stamps `agentName` onto the four display events a turn produces
+    * ([[OrcaEvent.ToolUse]], [[OrcaEvent.ToolDenied]],
+    * [[OrcaEvent.AssistantMessage]], [[OrcaEvent.Error]]) on their way to
+    * `downstream`; every other event passes through untouched. Wrapped around
+    * the listener handed to a backend drain, which emits those events without
+    * knowing which agent it is running for.
     */
   def attributedTo(downstream: OrcaListener, agentName: String): OrcaListener =
     case e: OrcaEvent.ToolUse =>
+      downstream.onEvent(e.copy(agent = Some(agentName)))
+    case e: OrcaEvent.ToolDenied =>
       downstream.onEvent(e.copy(agent = Some(agentName)))
     case e: OrcaEvent.AssistantMessage =>
       downstream.onEvent(e.copy(agent = Some(agentName)))
