@@ -46,7 +46,7 @@ import orca.tools.GitTool
 import orca.tools.GitHubTool
 import orca.tools.{OsFsTool, OsGitHubTool, OsGitTool}
 import orca.util.{OrcaDebug, TextUtil}
-import ox.{Ox, supervised}
+import ox.{Ox, resourceScope, supervised}
 
 import scala.util.control.NonFatal
 
@@ -364,7 +364,7 @@ private[orca] def runFlow(
             new OsGitHubTool(OsProcCliRunner, workDir, events = dispatcher)
           )
           val fsTool = wiring.fs.getOrElse(new OsFsTool(workDir))
-          val (ctx, flowSetup) = buildContext(
+          runInContext(
             args = args,
             workDir = workDir,
             stackSettings = stackSettings,
@@ -382,39 +382,22 @@ private[orca] def runFlow(
             sessions = sessions,
             flowName = flowName,
             debug = debug
-          )
-          // `ctx.close()` runs here, BEFORE the `supervised` scope joins its
-          // forks: it destroys the opencode `serve` process so its drain
-          // forks' reads EOF and the join can't hang (Ox runs
-          // `releaseAfterScope` only after the join).
-          try
-            FlowLifecycle.run(
-              ctx,
-              flowSetup,
-              debug = debug
-            )(body)
-          finally ctx.close()
+          )(body)
         finally effectiveInteraction.close()
     finally FlowLock.releaseWorkdir(lockPath)
   finally FlowLock.releaseProcess()
 
-/** The settings→roles→setup→context sequence `runFlow` needs before the body
-  * can run: read both settings files, resolve the three role agents
-  * (`RoleAgents.resolveAll`, ADR 0020 §10), run pre-context setup (branch + log
-  * binding, stack discovery, `FlowLifecycle.setup`), then construct the
-  * concretely-typed [[DefaultFlowContext]].
+/** The settings→roles→setup→context→body sequence of `runFlow`: read both
+  * settings files, resolve the three role agents (`RoleAgents.resolveAll`, ADR
+  * 0020 §10), run pre-context setup (branch + log binding, stack discovery,
+  * `FlowLifecycle.setup`), construct the concretely-typed
+  * [[DefaultFlowContext]], then run `body` in it.
   *
-  * Owns its own ownership-transfer guard: until the context takes ownership at
-  * construction, the wired and role agents have no owner whose close() runs on
-  * failure. If an exception escapes before that point, this closes them
-  * best-effort — the wired agents, then any FOREIGN role (an override from a
-  * separate backend). A settings-resolved or `copyTool`-sibling role shares a
-  * wired backend already covered by `agents.all`, so it's filtered out to avoid
-  * a double close. git/gh/fs hold no closeable resources. Once this returns,
-  * ownership has transferred to the returned context — closing it is the
-  * caller's job (`runFlow`'s own `try/finally` around the body run).
+  * Owns closing the agents: the wired ones and any FOREIGN role (an override
+  * from a separate backend) are closed when this returns, on success or
+  * failure. git/gh/fs hold no closeable resources.
   */
-private def buildContext(
+private def runInContext(
     args: OrcaArgs,
     workDir: os.Path,
     stackSettings: Option[StackSettings],
@@ -432,11 +415,15 @@ private def buildContext(
     sessions: SessionStore,
     flowName: Option[String],
     debug: Boolean
-): (DefaultFlowContext[?, ?, ?], FlowLifecycle.FlowSetup) =
+)(body: FlowControl ?=> Unit): Unit =
   val log = LoggerFactory.getLogger("orca.flow")
-  var roles: List[Agent[?]] = Nil
-  var transferred = false
-  try
+  // A resource scope rather than `supervised`'s own `releaseAfterScope`, which
+  // runs only after the scope joins its forks: closing destroys the opencode
+  // `serve` process, which is what makes its drain forks' reads EOF, so it
+  // must run first or the join hangs. This method takes no `Ox`, as
+  // `resourceScope` can't start where one is visible.
+  resourceScope:
+    WiredAgents.closeAfterScope(agents.all)
     // Pre-context equivalent of `FlowLifecycle.run`'s `surfaced` bracket:
     // report the failure to the event surface, log, print the stack under
     // debug, and rethrow as `SurfacedFlowFailure` so `flow()` exits without
@@ -457,16 +444,11 @@ private def buildContext(
     val (resolvedRoles, settingsRead) = surfaced:
       val read =
         FlowLifecycle.readSettings(workDir, configHome.settings, stackSettings)
-      // Cover each resolved role in the close guard AS it resolves, appended
-      // incrementally (not from the returned `RoleResolution`) so an earlier
-      // foreign role is still closed when a LATER override throws and
-      // `resolveAll` never returns.
       val resolution = RoleAgents.resolveAll(
         read.projectAgents,
         read.globalAgents,
         RoleOverrides(planningAgent, codingAgent, reviewAgent),
-        agents,
-        onRoleResolved = agent => roles = roles :+ agent
+        agents
       )
       resolution.foreignWarnings.foreach: warning =>
         dispatcher.onEvent(OrcaEvent.Step(warning))
@@ -527,13 +509,7 @@ private def buildContext(
           reviewerCatalog = reviewerCatalog,
           startingCommit = flowSetup.startingCommit
         )
-    transferred = true
-    (ctx, flowSetup)
-  finally
-    if !transferred then
-      WiredAgents.closeBestEffort(
-        agents.all ++ roles.filterNot(agents.isWiredBackend)
-      )
+    FlowLifecycle.run(ctx, flowSetup, debug = debug)(body)
 
 private def installUncaughtExceptionHandler(): Unit =
   // Idempotent across nested or repeated `flow(...)` calls: install only if no
