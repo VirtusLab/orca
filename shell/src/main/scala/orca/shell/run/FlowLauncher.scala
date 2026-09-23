@@ -76,8 +76,8 @@ private[shell] object FlowLauncher:
     * the `orca` shim's own `--workspace` fixes (ADR 0021 §1 amendment).
     *
     * Requires `args.userPrompt` to be non-blank — callers refuse a blank task
-    * first (`Main.promptTask`, `RunCli.readTask`), so an empty task here means
-    * a caller bug, not a user error to report.
+    * first, so an empty task here means a caller bug, not a user error to
+    * report.
     */
   def argv(
       flow: os.Path,

@@ -109,5 +109,5 @@ class OrcaArgsTest extends munit.FunSuite:
       case Left(msg) => assert(msg.contains("--prompt"), msg)
       case Right(r)  => fail(s"expected a refusal, got $r")
 
-  test("toArgv renders any other task positionally"):
+  test("toArgv renders a task not starting with '-' positionally"):
     assertEquals(OrcaArgs("add X").toArgv, Seq("add X"))

@@ -5,8 +5,8 @@ import orca.OrcaArgs
 import orca.shell.flows.DiscoveredFlow
 import orca.shell.run.{FallbackPolicy, FlowLauncher, LaunchResult}
 
-/** Runs a resolved flow (ADR 0021 §2). `Main.runFlow` and `RunCli.run` produce
-  * `flow` and its `OrcaArgs`.
+/** Runs a resolved flow (ADR 0021 §2). Callers resolve `flow` and build its
+  * `OrcaArgs`.
   */
 private[shell] object RunAction:
 

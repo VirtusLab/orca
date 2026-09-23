@@ -9,10 +9,7 @@ import orca.progress.BranchName
   * [[checked]] refuses those.
   */
 private[orca] case class RawArgs(
-    @arg(
-      positional = true,
-      doc = "task description (`orca run` reads it from stdin when omitted)"
-    )
+    @arg(positional = true, doc = "task description")
     task: Option[String],
     @arg(doc = "task description, for text starting with '-'")
     prompt: Option[String],
