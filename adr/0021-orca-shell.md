@@ -998,9 +998,10 @@ harness/model/yolo flag exists for either.
 Both entry points call a shared `orca.shell.actions` package (`FlowResolution`,
 `ViewAction`, `EditAction`, `AuthorAction`, `SessionAction`, `ConfigAction`,
 `StackAction`): each takes fully-resolved parameters and does the work, with
-no prompting inside. The `menu` package's handlers keep only the prompting that produces those parameters; `Cli` parses the same
-parameters from argv. This is why CLI and menu behavior can't drift — they
-call the same code below the point where a human would otherwise be asked.
+no prompting inside. The `menu` package's handlers keep only the prompting
+that produces those parameters; `Cli` parses the same parameters from argv.
+This is why CLI and menu behavior can't drift — they call the same code below
+the point where a human would otherwise be asked.
 
 CLI hygiene: results/data go to stdout (`view`'s source, `list`/`continue
 --list` rows or `--json`, `config` show) — nothing else shares stdout with
