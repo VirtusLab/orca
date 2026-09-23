@@ -201,7 +201,14 @@ lazy val runner = (project in file("runner"))
       IO.createDirectory(configHome)
       "XDG_CONFIG_HOME" -> configHome.getAbsolutePath
     },
-    libraryDependencies ++= Seq(ox, mainargs, jline, fansi, jsoniterMacros)
+    libraryDependencies ++= Seq(
+      ox,
+      mainargs,
+      jline,
+      fansi,
+      jsoniterMacros,
+      munitScalacheck
+    )
   )
 
 lazy val shell = (project in file("shell"))

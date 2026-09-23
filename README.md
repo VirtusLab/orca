@@ -1148,7 +1148,7 @@ action non-interactively and exits.
 
 | Command | Key flags | Does |
 |---|---|---|
-| `orca run <flow> [task]` | `--verbose` (stack trace on abort), `--branch <name>` (create the run's branch under this name; refused with `--skip-branch`), `--skip-branch`, `--keep-changes` (leave uncommitted files in place), `--worktree` (run in a git worktree of this repository), `--honor-pin` (use the flow's own pinned orca version) | run a flow, propagating its exit code; task is read from stdin when omitted and piped |
+| `orca run <flow> [task]` | `--prompt <task>` (the task, for text starting with `-`; not with the positional), `--verbose` (stack trace on abort), `--branch <name>` (create the run's branch under this name; refused with `--skip-branch`), `--skip-branch`, `--keep-changes` (leave uncommitted files in place), `--worktree` (run in a git worktree of this repository), `--honor-pin` (use the flow's own pinned orca version) | run a flow, propagating its exit code; task is read from stdin when omitted and piped |
 | `orca view <flow>` | `--plain`, `--color` | print a flow's source (highlighted when stdout is a terminal) |
 | `orca edit <flow>` | `--to project\|global` | open a flow in `$VISUAL`/`$EDITOR`/vi (`--to` required to customize a built-in) |
 | `orca create "<goal>"` | `--name <file>`, `--global` | author a new flow: the built-in `simple.sc` flow writes it in an isolated sandbox with the configured role agents; `--name` is auto-derived when omitted. The sandbox is a fresh repository with no remote, so the flow's closing PR step opens nothing and says so |

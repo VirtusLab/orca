@@ -1,33 +1,7 @@
 package orca
 
-import mainargs.{Flag, ParserForClass, arg}
+import mainargs.ParserForClass
 import orca.progress.BranchName
-
-/** The argv shape mainargs parses: one raw flag per `--`-spelled option,
-  * including the `--worktree` combinations orca refuses. [[OrcaArgs.parse]] is
-  * its only consumer, and turns the three run-destination flags into a
-  * [[RunTarget]] — so nothing beyond the parse boundary holds them separately.
-  */
-private[orca] case class RawArgs(
-    @arg(positional = true, doc = "task description")
-    userPrompt: String = "",
-    @arg(doc = "print a stack trace if the flow aborts")
-    verbose: Flag = Flag(),
-    @arg(doc = "run on the current branch instead of creating a new one")
-    skipBranch: Flag = Flag(),
-    @arg(doc =
-      "keep uncommitted/untracked files in the working tree instead of stashing them (fresh runs only)"
-    )
-    keepChanges: Flag = Flag(),
-    @arg(doc =
-      "run the flow in a git worktree of this repository instead of the current checkout"
-    )
-    worktree: Flag = Flag(),
-    @arg(doc =
-      "name of the branch to create for this run (default: derived from the task); not with --skip-branch"
-    )
-    branch: Option[String] = None
-)
 
 /** Parsed command-line arguments for the `orca` entry point. */
 case class OrcaArgs(
@@ -35,10 +9,32 @@ case class OrcaArgs(
     verbose: Boolean = false,
     target: RunTarget = RunTarget.NewBranch(Uncommitted.Stash),
     branch: Option[BranchName] = None
-)
+):
+  /** The argv [[OrcaArgs.parse]] reads back as this value; the shell passes it
+    * to a flow child. A `branch` with a [[RunTarget.CurrentBranch]] target
+    * renders an argv that `parse` refuses.
+    *
+    * The task is positional unless it starts with `-`, which mainargs reads as
+    * a flag; then it is `--prompt=<text>`. A pin-honouring launch (ADR 0021 §2)
+    * runs a flow built against an older orca, whose parser knows only the
+    * positional.
+    */
+  def toArgv: Seq[String] =
+    val taskArgv =
+      if userPrompt.startsWith("-") then Seq(s"--prompt=$userPrompt")
+      else Seq(userPrompt)
+    val verboseArgv = if verbose then Seq("--verbose") else Nil
+    val targetArgv = target match
+      case RunTarget.NewBranch(Uncommitted.Stash)     => Nil
+      case RunTarget.NewBranch(Uncommitted.Keep)      => Seq("--keep-changes")
+      case RunTarget.CurrentBranch(Uncommitted.Stash) => Seq("--skip-branch")
+      case RunTarget.CurrentBranch(Uncommitted.Keep) =>
+        Seq("--skip-branch", "--keep-changes")
+      case RunTarget.Worktree => Seq("--worktree")
+    val branchArgv = branch.toList.flatMap(name => Seq("--branch", name.value))
+    taskArgv ++ verboseArgv ++ targetArgv ++ branchArgv
 
 object OrcaArgs:
-  private given ParserForClass[RawArgs] = ParserForClass[RawArgs]
 
   /** Parse the given argv or return a human-readable error — including for a
     * contradictory flag pair or an invalid `--branch`, refused here so it fails
@@ -47,14 +43,8 @@ object OrcaArgs:
   def parse(args: Seq[String]): Either[String, OrcaArgs] =
     for
       raw <- summon[ParserForClass[RawArgs]].constructEither(args.toList)
-      branch <- BranchName.parseOptional(raw.branch)
-      target <- RunTarget.from(
-        worktree = raw.worktree.value,
-        skipBranch = raw.skipBranch.value,
-        keepChanges = raw.keepChanges.value,
-        branch = branch
-      )
-    yield OrcaArgs(raw.userPrompt, raw.verbose.value, target, branch)
+      checked <- raw.checked
+    yield checked.withTask(checked.givenTask.getOrElse(""))
 
   /** Overload for scala-cli flow scripts, whose top-level `args` is
     * `Array[String]`. Throws `OrcaFlowException` on a parse failure.

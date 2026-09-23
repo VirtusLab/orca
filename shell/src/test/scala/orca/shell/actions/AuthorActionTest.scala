@@ -1,12 +1,12 @@
 package orca.shell.actions
 
 import org.jline.terminal.{Terminal, TerminalBuilder}
-import orca.{RunTarget, Uncommitted}
+import orca.{OrcaArgs, RunTarget, Uncommitted}
 import orca.shell.ShellVersion
 import orca.shell.create.{CreateTarget, CreateTier}
 import orca.discovery.Origin
 import orca.shell.flows.{BuiltInFlows, DiscoveredFlow}
-import orca.shell.run.{FallbackPolicy, FlowFlags, FlowLauncher, LaunchResult}
+import orca.shell.run.{FallbackPolicy, FlowLauncher, LaunchResult}
 import orca.shell.ui.{Choice, ShellUi, UiOutcome}
 import orca.testkit.{GitRepo, TempDirs}
 
@@ -40,14 +40,14 @@ private class RecordingLaunch(
   case class Call(
       fallback: FallbackPolicy,
       flow: os.Path,
-      task: String,
-      workDir: os.Path,
-      flags: FlowFlags
-  )
+      args: OrcaArgs,
+      workDir: os.Path
+  ):
+    def task: String = args.userPrompt
   var calls: List[Call] = Nil
   val fn: FlowLauncher.FlowLaunch =
-    (fallback, flow, task, workDir, flags, _) =>
-      calls = calls :+ Call(fallback, flow, task, workDir, flags)
+    (fallback, flow, args, workDir, _) =>
+      calls = calls :+ Call(fallback, flow, args, workDir)
       onLaunch(workDir)
       result
 
@@ -135,12 +135,8 @@ class AuthorActionTest extends munit.FunSuite:
       val call = recording.calls.head
       assertEquals(call.flow, builtInFlow)
       assertEquals(
-        call.flags,
-        FlowFlags(
-          verbose = false,
-          target = RunTarget.NewBranch(Uncommitted.Stash),
-          branch = None
-        )
+        (call.args.verbose, call.args.target, call.args.branch),
+        (false, RunTarget.NewBranch(Uncommitted.Stash), None)
       )
       assertEquals(call.fallback, FallbackPolicy.Ask(NoPromptUi))
       assert(call.task.contains("sync issues nightly"), call.task)

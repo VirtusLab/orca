@@ -1,30 +1,24 @@
 package orca.shell.run
 
-import orca.{RunTarget, Uncommitted}
-import orca.progress.BranchName
+import orca.{OrcaArgs, RunTarget, Uncommitted}
 
 class FlowLauncherTest extends munit.FunSuite:
 
   private val flow = os.root / "home" / "u" / "flow.sc"
   private val workspaceDir = os.root / "home" / "u" / ".cache" / "workspace"
 
-  /** Only the fields under test, defaulted off. Deliberately test-local:
-    * production `FlowFlags` stays without defaults so every real construction
-    * site keeps stating what it launches.
-    */
-  private def flags(
-      verbose: Boolean = false,
-      target: RunTarget = RunTarget.NewBranch(Uncommitted.Stash),
-      branch: Option[BranchName] = None
-  ): FlowFlags =
-    FlowFlags(verbose, target, branch)
+  private val args = OrcaArgs(
+    userPrompt = "do the thing",
+    verbose = false,
+    target = RunTarget.NewBranch(Uncommitted.Stash),
+    branch = None
+  )
 
   test("argv forces --dep with a release version, before --workspace/--"):
     val result = FlowLauncher.argv(
       flow,
       Some("0.0.18"),
-      "do the thing",
-      flags(),
+      args,
       workspaceDir
     )
     assertEquals(
@@ -48,8 +42,7 @@ class FlowLauncherTest extends munit.FunSuite:
     val result = FlowLauncher.argv(
       flow,
       None,
-      "do the thing",
-      flags(),
+      args,
       workspaceDir
     )
     assertEquals(
@@ -67,220 +60,21 @@ class FlowLauncherTest extends munit.FunSuite:
       )
     )
 
-  test(
-    "argv adds --verbose (OrcaArgs's exact flag spelling) after -- when verbose is set"
-  ):
-    val result = FlowLauncher.argv(
-      flow,
-      Some("0.0.18"),
-      "do the thing",
-      flags(verbose = true),
-      workspaceDir
-    )
-    assertEquals(
-      result,
-      Seq(
-        "scala-cli",
-        "run",
-        flow.toString,
-        "--quiet",
-        "--verbose",
-        "--dep",
-        "org.virtuslab::orca:0.0.18",
-        "--workspace",
-        workspaceDir.toString,
-        "--",
-        "do the thing",
-        "--verbose"
-      )
-    )
-    assertEquals(
-      result(result.indexOf("--") + 2),
-      "--verbose",
-      "the flow's own --verbose follows the task, after --"
-    )
-
-  test(
-    "argv adds --skip-branch (OrcaArgs's exact flag spelling) after -- when set"
-  ):
-    val result = FlowLauncher.argv(
-      flow,
-      Some("0.0.18"),
-      "do the thing",
-      flags(target = RunTarget.CurrentBranch(Uncommitted.Stash)),
-      workspaceDir
-    )
-    assertEquals(
-      result,
-      Seq(
-        "scala-cli",
-        "run",
-        flow.toString,
-        "--quiet",
-        "--verbose",
-        "--dep",
-        "org.virtuslab::orca:0.0.18",
-        "--workspace",
-        workspaceDir.toString,
-        "--",
-        "do the thing",
-        "--skip-branch"
-      )
-    )
-    assert(
-      result.indexOf("--skip-branch") > result.indexOf("--"),
-      "--skip-branch must come after --"
-    )
-
-  test("argv adds both --verbose and --skip-branch, in that order, after --"):
-    val result = FlowLauncher.argv(
-      flow,
-      None,
-      "do the thing",
-      flags(
-        verbose = true,
-        target = RunTarget.CurrentBranch(Uncommitted.Stash)
-      ),
-      workspaceDir
-    )
-    assertEquals(
-      result,
-      Seq(
-        "scala-cli",
-        "run",
-        flow.toString,
-        "--quiet",
-        "--verbose",
-        "--workspace",
-        workspaceDir.toString,
-        "--",
-        "do the thing",
-        "--verbose",
-        "--skip-branch"
-      )
-    )
-
-  test(
-    "argv adds --keep-changes (OrcaArgs's exact flag spelling) after -- when set"
-  ):
-    val result = FlowLauncher.argv(
-      flow,
-      Some("0.0.18"),
-      "do the thing",
-      flags(target = RunTarget.NewBranch(Uncommitted.Keep)),
-      workspaceDir
-    )
-    assertEquals(
-      result,
-      Seq(
-        "scala-cli",
-        "run",
-        flow.toString,
-        "--quiet",
-        "--verbose",
-        "--dep",
-        "org.virtuslab::orca:0.0.18",
-        "--workspace",
-        workspaceDir.toString,
-        "--",
-        "do the thing",
-        "--keep-changes"
-      )
-    )
-    assert(
-      result.indexOf("--keep-changes") > result.indexOf("--"),
-      "--keep-changes must come after --"
-    )
-
-  test(
-    "argv adds --worktree (OrcaArgs's exact flag spelling) after the flow's own --verbose"
-  ):
-    val result = FlowLauncher.argv(
-      flow,
-      None,
-      "do the thing",
-      flags(verbose = true, target = RunTarget.Worktree),
-      workspaceDir
-    )
-    assertEquals(
-      result,
-      Seq(
-        "scala-cli",
-        "run",
-        flow.toString,
-        "--quiet",
-        "--verbose",
-        "--workspace",
-        workspaceDir.toString,
-        "--",
-        "do the thing",
-        "--verbose",
-        "--worktree"
-      )
-    )
-
-  test("argv adds --worktree alone, with nothing between it and the task"):
-    val result = FlowLauncher.argv(
-      flow,
-      None,
-      "do the thing",
-      flags(target = RunTarget.Worktree),
-      workspaceDir
-    )
-    assertEquals(
-      result,
-      Seq(
-        "scala-cli",
-        "run",
-        flow.toString,
-        "--quiet",
-        "--verbose",
-        "--workspace",
-        workspaceDir.toString,
-        "--",
-        "do the thing",
-        "--worktree"
-      )
-    )
-
-  test(
-    "argv adds every flag a single run can carry, in a fixed order after --"
-  ):
-    val result = FlowLauncher.argv(
-      flow,
-      None,
-      "do the thing",
-      flags(
+  test("argv passes the flow's own args after --"):
+    val flowArgs =
+      args.copy(
         verbose = true,
         target = RunTarget.CurrentBranch(Uncommitted.Keep)
-      ),
-      workspaceDir
-    )
-    assertEquals(
-      result,
-      Seq(
-        "scala-cli",
-        "run",
-        flow.toString,
-        "--quiet",
-        "--verbose",
-        "--workspace",
-        workspaceDir.toString,
-        "--",
-        "do the thing",
-        "--verbose",
-        "--skip-branch",
-        "--keep-changes"
       )
-    )
+    val result = FlowLauncher.argv(flow, None, flowArgs, workspaceDir)
+    assertEquals(result.drop(result.indexOf("--") + 1), flowArgs.toArgv)
 
   test("argv keeps a spaces-bearing flow path as a single argv element"):
     val spacedFlow = os.root / "home" / "u" / "my flows" / "release.sc"
     val result = FlowLauncher.argv(
       spacedFlow,
       None,
-      "task",
-      flags(),
+      args,
       workspaceDir
     )
     assertEquals(result(2), spacedFlow.toString)
@@ -293,8 +87,7 @@ class FlowLauncherTest extends munit.FunSuite:
       FlowLauncher.argv(
         flow,
         None,
-        "   ",
-        flags(),
+        args.copy(userPrompt = "   "),
         workspaceDir
       )
     )
@@ -373,17 +166,3 @@ class FlowLauncherTest extends munit.FunSuite:
     assertEquals(FlowLauncher.toLaunchResult(1), LaunchResult.Failed(1))
     assertEquals(FlowLauncher.toLaunchResult(130), LaunchResult.Cancelled)
     assertEquals(FlowLauncher.toLaunchResult(143), LaunchResult.Cancelled)
-
-  test("argv renders --branch <name> after the target flags"):
-    val branch = BranchName.parse("feature/JIRA-123").toOption
-    val result = FlowLauncher.argv(
-      flow,
-      None,
-      "do the thing",
-      flags(target = RunTarget.NewBranch(Uncommitted.Keep), branch = branch),
-      workspaceDir
-    )
-    assertEquals(
-      result.takeRight(4),
-      Seq("do the thing", "--keep-changes", "--branch", "feature/JIRA-123")
-    )
