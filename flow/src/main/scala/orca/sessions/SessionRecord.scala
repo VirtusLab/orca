@@ -4,9 +4,9 @@ import orca.StagePath
 import orca.agents.{BackendTag, SessionKey}
 
 /** A durable session as it is stored: the [[SessionKey]] halves that key it —
-  * the name, and the path id of the stage that minted it — a minted UUID, the
-  * seed string the author supplied, and, once a turn has committed, the wire id
-  * to resume the live backend conversation against.
+  * the name, and the path of the stage that minted it — a minted UUID, the seed
+  * string the author supplied, and, once a turn has committed, the wire id to
+  * resume the live backend conversation against.
   *
   * `id` is the stable client id the framework hands across calls;
   * `resumeWireId` is the id to put on the wire when resuming (same `wireId`
@@ -25,14 +25,11 @@ import orca.agents.{BackendTag, SessionKey}
   */
 case class SessionRecord(
     name: String,
-    stage: String,
+    stage: StagePath,
     id: String,
     seed: String,
     resumeWireId: Option[String],
     backend: Option[BackendTag]
 ):
-  /** The key this record is stored under. The single place a persisted stage id
-    * is read back into a [[StagePath]].
-    */
-  def key: SessionKey =
-    SessionKey(name = name, stage = StagePath.fromValue(stage))
+  /** The key this record is stored under. */
+  def key: SessionKey = SessionKey(name = name, stage = stage)

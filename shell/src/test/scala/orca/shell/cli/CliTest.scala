@@ -1149,12 +1149,14 @@ class CliTest extends munit.FunSuite:
             durable(
               sessionName = "implementer",
               lastActiveAt = "2026-07-18T09:30:00Z",
-              sessionStage = "Task: parse the input#0"
+              sessionStage =
+                StagePath.FlowBody.child("Task: parse the input", 0)
             ),
             durable(
               sessionName = "implementer",
               lastActiveAt = "2026-07-18T10:30:00Z",
-              sessionStage = "Task: wire the parser#0"
+              sessionStage =
+                StagePath.FlowBody.child("Task: wire the parser", 0)
             )
           )
         ),
@@ -1286,12 +1288,12 @@ class CliTest extends munit.FunSuite:
             durable(
               sessionName = "implementer",
               lastActiveAt = "2026-07-18T09:30:00Z",
-              sessionStage = "Task: parse#0"
+              sessionStage = StagePath.FlowBody.child("Task: parse", 0)
             ),
             durable(
               sessionName = "implementer",
               lastActiveAt = "2026-07-18T09:40:00Z",
-              sessionStage = "Task: wire#0"
+              sessionStage = StagePath.FlowBody.child("Task: wire", 0)
             )
           )
         ),
@@ -1320,7 +1322,7 @@ class CliTest extends munit.FunSuite:
             durable(
               sessionName = "implementer",
               lastActiveAt = "2026-07-18T09:30:00Z",
-              sessionStage = "Task: parse#0"
+              sessionStage = StagePath.FlowBody.child("Task: parse", 0)
             )
           )
         ),
@@ -1341,7 +1343,8 @@ class CliTest extends munit.FunSuite:
             durable(
               sessionName = "implementer",
               lastActiveAt = "2026-07-18T09:30:00Z",
-              sessionStage = "Task: wire the parser#0"
+              sessionStage =
+                StagePath.FlowBody.child("Task: wire the parser", 0)
             )
           )
         ),
@@ -1350,7 +1353,7 @@ class CliTest extends munit.FunSuite:
     )
     assertEquals(
       Tables.sessionListingRows(SessionIndex.of(attempts)).head.sessionStage,
-      Some("Task: wire the parser#0")
+      Some(StagePath.FlowBody.child("Task: wire the parser", 0))
     )
 
   test(

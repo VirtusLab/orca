@@ -120,7 +120,8 @@ class AttemptManifestWriterTest extends munit.FunSuite:
         """"branch":"feat/x","pid":1,"startedAt":"2026-07-18T10:00:00Z",""" +
         """"finishedAt":"2026-07-18T10:05:00Z","status":"Succeeded",""" +
         """"sessions":[{"harness":"ClaudeCode","wireId":"wire-1","agent":"claude",""" +
-        """"role":"coder","stage":"code","minted":{"name":"coder","stage":"Task 2#0"},""" +
+        """"role":"coder","stage":"code","minted":{"name":"coder",""" +
+        """"stage":[{"name":"Task 2","occurrence":0}]},""" +
         """"lastActiveAt":"2026-07-18T10:01:00Z"}]}"""
     )
 

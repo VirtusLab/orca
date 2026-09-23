@@ -1,36 +1,37 @@
 package orca
 
+import com.github.plokhotnyuk.jsoniter_scala.core.{
+  JsonReaderException,
+  readFromString,
+  writeToString
+}
 import munit.FunSuite
 
-/** The invariant that keeps a stage path distinct from the flow body, and the
-  * law the persisted spelling has to obey (ADR 0018 §2.1).
-  */
+/** Stage path identity and its persisted form (ADR 0018 §2.1). */
 class StagePathTest extends FunSuite:
 
   private def roundTrip(path: StagePath): StagePath =
-    StagePath.fromValue(path.value)
+    readFromString[StagePath](writeToString(path))
 
-  test("a stage path id cannot be minted outside StagePath"):
-    // The empty id is what the type refuses; this test file is in package orca,
-    // so it also pins that `private[StagePath]` is narrower than `private[orca]`.
-    val errors = compileErrors("""StagePath.Stage(StagePath.Id(""))""")
-    assert(
-      errors.nonEmpty,
-      "expected a compile error when building a stage path id outside StagePath"
+  test("a stage name spelling a nested path persists apart from that path"):
+    assertNotEquals(
+      writeToString[StagePath](StagePath.FlowBody.child("A#0/B", 0)),
+      writeToString[StagePath](StagePath.FlowBody.child("A", 0).child("B", 0))
     )
 
-  test("the empty spelling reads as the flow body"):
-    assertEquals(StagePath.fromValue(""), StagePath.FlowBody)
+  test("null is not a stage path"):
+    intercept[JsonReaderException](readFromString[StagePath]("null")): Unit
 
-  test("the flow body round-trips through its spelling"):
+  test("the flow body persists as an empty array"):
+    assertEquals(writeToString[StagePath](StagePath.FlowBody), "[]")
     assertEquals(roundTrip(StagePath.FlowBody), StagePath.FlowBody)
 
-  test("a stage round-trips through its spelling"):
-    val stage = StagePath.FlowBody.child("Task: add multiply", 0)
-    assertEquals(stage.value, "Task: add multiply#0")
+  test("a nested stage round-trips through its persisted form"):
+    val stage = StagePath.FlowBody.child("Implement", 0).child("Task", 1)
     assertEquals(roundTrip(stage), stage)
 
-  test("a nested stage round-trips through its spelling"):
-    val stage = StagePath.FlowBody.child("Implement", 0).child("Task", 1)
-    assertEquals(stage.value, "Implement#0/Task#1")
-    assertEquals(roundTrip(stage), stage)
+  test("a nested stage displays as its segments joined by slashes"):
+    assertEquals(
+      StagePath.FlowBody.child("Implement", 0).child("Task", 1).display,
+      "Implement#0/Task#1"
+    )

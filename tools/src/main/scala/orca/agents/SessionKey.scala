@@ -21,18 +21,18 @@ import orca.StagePath
   */
 case class SessionKey private[orca] (name: String, stage: StagePath):
   /** How the key reads in a run's own diagnostics: the name, and the stage that
-    * owns it. Diagnostic, not a label — a stage path id carries `#0` occurrence
-    * suffixes, so the shell's picker and `orca continue --list` show the bare
-    * name and print the minting stage only where two rows would otherwise be
-    * indistinguishable.
+    * owns it. Diagnostic, not a label — a stage path displays with `#0`
+    * occurrence suffixes, so the shell's picker and `orca continue --list` show
+    * the bare name and print the minting stage only where two rows would
+    * otherwise be indistinguishable.
     */
   def describe: String = stage match
-    case StagePath.FlowBody  => s"'$name'"
-    case StagePath.Stage(id) => s"'$name' in stage '${id.value}'"
+    case StagePath.FlowBody     => s"'$name'"
+    case stage: StagePath.Stage => s"'$name' in stage '${stage.display}'"
 
 object SessionKey:
-  /** `{"name": ..., "stage": ...}`, the stage as its [[StagePath.value]]
-    * spelling, for the attempt manifest.
+  /** `{"name": ..., "stage": ...}`, the stage in [[StagePath]]'s persisted
+    * form, for the attempt manifest.
     */
   private[orca] given codec: JsonValueCodec[SessionKey] =
     JsonCodecMaker.make[SessionKey]
