@@ -225,7 +225,7 @@ class EnforcementTableTest extends munit.FunSuite:
       run <- shapeRuns(tools, bothDispatches)
     yield (tools, run)
 
-    val header = "tools, approve" :: BackendTag.values.toList.map(_.wireName)
+    val header = "tools, approve" :: BackendTag.values.toList.map(_.toString)
     val body = runs.map: (tools, run) =>
       s"$tools, ${runLabel(run)}" ::
         levels(tools, run.head, TurnDispatch.Fresh)
@@ -244,7 +244,7 @@ class EnforcementTableTest extends munit.FunSuite:
       fresh = declared((tag, tools, run.head, TurnDispatch.Fresh))
       resumed = declared((tag, tools, run.head, TurnDispatch.Resumed))
       if fresh != resumed
-    yield s"  - ${tag.wireName}, $tools, ${runLabel(run)}: $resumed, not $fresh"
+    yield s"  - $tag, $tools, ${runLabel(run)}: $resumed, not $fresh"
     val note =
       if deltas.isEmpty then "  A resumed turn is classified the same."
       else

@@ -1,7 +1,8 @@
 <!-- Console (STDERR) shows only framework chatter (chimp/tapir/netty, pinned to
      ERROR) at WARN+; the terminal renderer owns the rest. orca's own loggers
-     (`orca.*`) emit DEBUG into a per-run temp file: at flow start `OrcaLog`
-     attaches a FileAppender to the `orca` logger and makes it non-additive, so
+     (`orca.*`) emit DEBUG into a per-attempt trace file under
+     `.orca/cache/attempts/`: `OrcaLog` attaches a FileAppender to the `orca`
+     logger and makes it non-additive, so
      orca's full execution trace goes to the file and never reaches this console
      appender (the renderer already surfaces it). Override by placing your own
      logback.xml earlier on the classpath. -->

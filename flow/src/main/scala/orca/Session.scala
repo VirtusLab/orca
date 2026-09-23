@@ -215,12 +215,11 @@ private def reuseOrMint[B <: BackendTag](
     seed: String,
     recorded: SessionRecord
 )(using fc: FlowControl): SessionId[B] =
-  val currentTag = agent.backendTag.map(_.wireName)
   recorded.backend match
-    case Some(recordedTag) if currentTag != Some(recordedTag) =>
+    case Some(recordedTag) if !agent.backendTag.contains(recordedTag) =>
       // Backend swapped between runs: `recorded.id` is meaningful only in the
       // old backend's registry, so mint fresh rather than reuse it.
-      warnBackendSwap(fc, key, recordedTag, currentTag)
+      warnBackendSwap(fc, key, recordedTag, agent.backendTag)
       mintSession(agent, key, seed)
     case _ =>
       // Tags match (or the record predates tagging). The recorded id is
@@ -240,14 +239,14 @@ private def reuseOrMint[B <: BackendTag](
 private def warnBackendSwap(
     fc: FlowControl,
     key: SessionKey,
-    recordedTag: String,
-    currentTag: Option[String]
+    recordedTag: BackendTag,
+    currentTag: Option[BackendTag]
 ): Unit =
   fc.emit(
     OrcaEvent.Step(
       s"warning: session ${key.describe} was minted on " +
         s"$recordedTag; this agent is " +
-        s"${currentTag.getOrElse("untagged")} — minting fresh"
+        s"${currentTag.fold("untagged")(_.toString)} — minting fresh"
     )
   )
 
@@ -290,7 +289,7 @@ private def mintSession[B <: BackendTag](
       id = freshId.value,
       seed = seed,
       resumeWireId = None,
-      backend = agent.backendTag.map(_.wireName)
+      backend = agent.backendTag
     )
   )
   freshId
@@ -383,7 +382,7 @@ private def persistResumeWireId[B <: BackendTag](
     agent: Agent[B],
     session: SessionId[B]
 )(using fc: FlowControl, ws: WorkspaceWrite): Unit =
-  val healedTag = agent.backendTag.map(_.wireName)
+  val healedTag = agent.backendTag
   for
     wireId <- agent.resumeWireId(session)
     record <- fc.sessionStore.records().find(_.id == session.value)

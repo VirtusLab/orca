@@ -153,7 +153,7 @@ that stage's progress entry. Why two stages can't run concurrently — the
 > **Amendment (2026-07-06).** A nested stage's commit stages the whole tree, so
 > it sweeps up any uncommitted edits the outer stage's body made before the
 > nesting point — resume is only correct if the outer body is idempotent over
-> its own leftovers. See the `stage` scaladoc in Flow.scala for the full
+> its own leftovers. See the `stage` scaladoc in stage.scala for the full
 > rationale.
 
 > **Amendment (2026-08-02).** A stage also records the commit HEAD pointed at
