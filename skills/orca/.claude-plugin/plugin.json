@@ -1,7 +1,7 @@
 {
-  "name": "using-orca",
+  "name": "orca",
   "description": "Delegate a well-defined implementation task to Orca's autonomous plan-code-review flow.",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "author": {
     "name": "VirtusLab"
   }

@@ -69,10 +69,11 @@ In every mode, which agent (and model) handles the planning, coding, and review
 roles comes from `settings.properties` — written for you by the shell's
 first-run wizard or `orca config`, hand-editable too; see [Settings](#settings).
 
-Agents can load [`skills/using-orca`](skills/using-orca/SKILL.md) to know when
-and how to delegate here — installable as a Claude Code plugin, a Pi package, or
+Agents can load [`skills/orca`](skills/orca/SKILL.md) to know when
+and how to delegate here; in Claude Code, `/orca [task]` asks which flow to run
+and where, then starts it — installable as a Claude Code plugin, a Pi package, or
 by symlinking into any harness's skills directory; see [its
-README](skills/using-orca/README.md) for specifics.
+README](skills/orca/README.md) for specifics.
 
 **As a script**: run a flow directly with `scala-cli`, no install required — see
 [An example flow](#an-example-flow).
