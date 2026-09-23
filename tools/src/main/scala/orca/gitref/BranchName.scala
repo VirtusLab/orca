@@ -1,9 +1,6 @@
 package orca.gitref
 
-import com.github.plokhotnyuk.jsoniter_scala.core.{JsonReader, JsonWriter}
-import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
 import orca.agents.JsonData
-import sttp.tapir.Schema
 
 /** A local branch name that satisfies `git check-ref-format --branch`, so it
   * reaches git as a branch and never as an option, a range or the pseudo-ref
@@ -39,16 +36,7 @@ object BranchName:
   def refusal(raw: String, rule: String): String =
     s"Branch name '$raw' $rule; pick another name."
 
-  given JsonData[BranchName] = JsonData(
-    Schema.schemaForString,
-    new ConfiguredJsonValueCodec[BranchName]:
-      def decodeValue(in: JsonReader, default: BranchName): BranchName =
-        in.readString(null) match
-          case null => in.decodeError("expected a branch name")
-          case s    => parse(s).fold(in.decodeError, identity)
-      def encodeValue(x: BranchName, out: JsonWriter): Unit = out.writeVal(x)
-      def nullValue: BranchName = null
-  )
+  given JsonData[BranchName] = JsonData.fromString(parse, identity)
 
   extension (b: BranchName)
     def value: String = b

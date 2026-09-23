@@ -1016,13 +1016,15 @@ results.
   so you cannot accidentally pass a Claude session to Codex.
 - **`orca.Title`** — opaque `String` alias for short labels (`Task.title`,
   `ReviewFinding.title`); `Title("…")` to construct, `.value` to read.
-- **`orca.tools.PrHandle(host, owner, repo, number)`** — handle to an open pull
-  request, returned by `gh.createPr`. `host` is `github.com` or a GitHub
-  Enterprise hostname, and every `gh` call taking the handle is routed to it.
-  `derives JsonData` so a stage can record it: a push-and-open-PR stage is the
-  checkpoint before a CI wait. `IssueHandle` carries no host, so the issue
-  flows read their issue from gh's default host (`GH_HOST`, else the host gh is
-  logged in to).
+- **`orca.tools.PrHandle`** — handle to an open pull request (`host`, `owner`,
+  `repo`, `number`), returned by `gh.createPr`. Build one with
+  `PrHandle.from(host, owner, repo, number)` (a `Left` names the field that is
+  not a valid host, owner, repo or PR number) or `PrHandle.fromUrl(url)`.
+  `host` is `github.com` or a GitHub Enterprise hostname, and every `gh` call
+  taking the handle is routed to it. Has a `JsonData` (it travels as its URL)
+  so a stage can record it: a push-and-open-PR stage is the checkpoint before a
+  CI wait. `IssueHandle` carries no host, so the issue flows read their issue
+  from gh's default host (`GH_HOST`, else the host gh is logged in to).
 - **`orca.tools.GitHubAvailability`** — what `gh.availability` answers with.
   `Available(host, owner, repo)`: the repository gh resolves, on github.com or a
   GitHub Enterprise host. `Unavailable(why)`: no PR can be opened; `why` is a

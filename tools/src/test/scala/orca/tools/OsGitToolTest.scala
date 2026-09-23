@@ -363,45 +363,82 @@ class OsGitToolTest extends munit.FunSuite:
       env.toString
     )
 
-  test("isGithubRemote detects github across ssh and https forms"):
-    assert(OsGitTool.isGithubRemote("git@github.com:me/repo.git"))
-    assert(OsGitTool.isGithubRemote("https://github.com/me/repo.git"))
-    assert(OsGitTool.isGithubRemote("ssh://git@github.com/me/repo.git"))
-    assert(!OsGitTool.isGithubRemote("git@gitlab.com:me/repo.git"))
-    assert(!OsGitTool.isGithubRemote("https://github.example.com/me/repo.git"))
-    assert(!OsGitTool.isGithubRemote("/local/path/repo.git"))
-
   test("remoteHost reads a userless scp-style remote"):
     assertEquals(OsGitTool.remoteHost("myserver:/srv/repo"), Some("myserver"))
 
   test("remoteHost reads a single-letter prefix as a drive, not a host"):
     assertEquals(OsGitTool.remoteHost("c:/repos/widgets"), None)
 
-  test("pushArgs adds no credential helper for a non-github remote"):
+  test("remoteHost gives no host for one outside the hostname charset"):
+    assertEquals(OsGitTool.remoteHost("https://a=b.example/me/repo.git"), None)
+
+  test("pushArgs adds no credential helper for an ssh push URL"):
     assertEquals(
-      OsGitTool.pushArgs(Some("git@gitlab.com:me/repo.git"), Some("tok")),
+      OsGitTool.pushArgs(Some("git@github.com:me/repo.git")),
       Seq("git", "push", "-u", "origin", "HEAD")
     )
 
-  test("pushArgs adds no credential helper when origin is unknown"):
+  test("pushArgs adds no credential helper when the push URL is unknown"):
     assertEquals(
-      OsGitTool.pushArgs(None, Some("tok")),
+      OsGitTool.pushArgs(None),
       Seq("git", "push", "-u", "origin", "HEAD")
     )
 
-  test("pushArgs feeds the env token directly for a github remote"):
-    val args =
-      OsGitTool.pushArgs(Some("git@github.com:me/repo.git"), Some("s3cr3t-tok"))
-    val cred = credentialConfig(args)
-    assert(cred.startsWith("credential.https://github.com.helper="), cred)
-    // The helper reads the token from the environment at runtime — the literal
-    // value must never appear in the argv.
-    assert(cred.contains("$GITHUB_TOKEN") || cred.contains("$GH_TOKEN"), cred)
-    assert(!args.exists(_.contains("s3cr3t-tok")), args.toString)
+  test("the github.com push helper answers with the environment token"):
+    assertEquals(
+      credentialFill("github.com", "GH_TOKEN" -> "s3cr3t-tok"),
+      Some("s3cr3t-tok")
+    )
 
-  test("pushArgs falls back to gh when a github remote has no env token"):
-    val args = OsGitTool.pushArgs(Some("https://github.com/me/repo.git"), None)
-    assert(credentialConfig(args).endsWith("!gh auth git-credential"))
+  test("the github.com push helper asks gh when no token is set"):
+    assertEquals(
+      credentialFill("github.com", "GH_TOKEN" -> "", "GITHUB_TOKEN" -> ""),
+      Some(FakeGhPassword)
+    )
+
+  test("the push helper for another host hides gh's enterprise token"):
+    // gh would answer any non-github.com host with this token.
+    assertEquals(
+      credentialFill("gitlab.example.com", "GH_ENTERPRISE_TOKEN" -> "ent-tok"),
+      Some(FakeGhPassword)
+    )
+
+  /** What the fake `gh` answers when it sees no enterprise token. */
+  private val FakeGhPassword = "from-gh-login"
+
+  /** The password git gets for `https://<host>` from the helper [[pushArgs]]
+    * configures, with a fake `gh` on the PATH and no user, system or repository
+    * config that could answer first.
+    */
+  private def credentialFill(
+      host: String,
+      env: (String, String)*
+  ): Option[String] =
+    val dir = TempDirs.dir()
+    val bin = dir / "bin"
+    os.write(
+      bin / "gh",
+      s"#!/bin/sh\necho username=x\necho \"password=$${GH_ENTERPRISE_TOKEN:-$FakeGhPassword}\"\n",
+      perms = "rwxr-xr-x",
+      createFolders = true
+    )
+    val args = OsGitTool.pushArgs(Some(s"https://$host/me/repo.git"))
+    os.proc("git", "-c", credentialConfig(args), "credential", "fill")
+      .call(
+        cwd = dir,
+        stdin = s"protocol=https\nhost=$host\n\n",
+        env = Map(
+          "PATH" -> s"$bin:${sys.env.getOrElse("PATH", "")}",
+          "GIT_CONFIG_GLOBAL" -> "/dev/null",
+          "GIT_CONFIG_NOSYSTEM" -> "1",
+          "GIT_TERMINAL_PROMPT" -> "0",
+          "GH_ENTERPRISE_TOKEN" -> ""
+        ) ++ env,
+        stderr = os.Pipe
+      )
+      .out
+      .lines()
+      .collectFirst { case s"password=$password" => password }
 
   /** The value of the single `-c <value>` config override in a push argv. */
   private def credentialConfig(args: Seq[String]): String =
