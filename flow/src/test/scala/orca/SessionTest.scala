@@ -11,8 +11,10 @@ import orca.agents.{
   AgentConfig,
   Agent,
   SessionId,
-  ToolSet
+  ToolSet,
+  WireSessionId
 }
+import orca.backend.{Dispatch, IdScheme, ResumeOrigin, SessionSupport}
 import orca.sessions.{SessionRecord, SessionStore}
 import orca.tools.OsGitTool
 import orca.testkit.TempDirs
@@ -34,6 +36,34 @@ class SessionTest extends FunSuite:
     def withSystemPrompt(p: String): Agent[BackendTag.ClaudeCode.type] = this
     def withName(n: String): Agent[BackendTag.ClaudeCode.type] = this
     def withTools(t: ToolSet): Agent[BackendTag.ClaudeCode.type] = this
+
+  /** A stub over a durable, server-minting capability whose probe finds every
+    * conversation, so a rehydrated wire id resumes.
+    */
+  private class DurableStubAgent extends StubAgent:
+    private val support = SessionSupport
+      .durable[BackendTag.ClaudeCode.type](IdScheme.ServerMinted, _ => true)
+    override private[orca] def sessionSupport
+        : Option[SessionSupport[BackendTag.ClaudeCode.type]] =
+      Some(support)
+
+  /** Records the `implementer` session a previous run minted and committed a
+    * turn against, learning `wire`.
+    */
+  private def recordImplementer(dir: os.Path, wire: String): Unit =
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    SessionStore
+      .default(dir, RunKey.of("p"))
+      .upsert(
+        SessionRecord(
+          name = "implementer",
+          stage = StagePath.FlowBody,
+          id = "client-1",
+          seed = "brief",
+          resumeWireId = Some(wire),
+          backend = None
+        )
+      )
 
   /** A flow control over `dir` — a fresh one per simulated run, as a new
     * process would build. `agent.session(...)` reads and writes only the
@@ -518,3 +548,33 @@ class SessionTest extends FunSuite:
 
   private def tracked(dir: os.Path): List[String] =
     os.proc("git", "ls-files").call(cwd = dir).out.lines().toList
+
+  test("reusing a recorded session resumes against its recorded wire id"):
+    val dir = TempDirs.dir()
+    recordImplementer(dir, wire = "srv-1")
+    val agent = new DurableStubAgent
+    val session =
+      agent.session("implementer", seed = "brief")(using control(dir))
+    assertEquals(
+      agent.dispatchFor(session.id),
+      Dispatch.Resume(
+        WireSessionId[BackendTag.ClaudeCode.type]("srv-1"),
+        ResumeOrigin.EarlierRun
+      )
+    )
+
+  test(
+    "reusing a session with an unsafe recorded wire id warns and opens fresh"
+  ):
+    val dir = TempDirs.dir()
+    recordImplementer(dir, wire = ".*")
+    val agent = new DurableStubAgent
+    val recorder = new RecordingListener
+    val session = agent.session("implementer", seed = "brief")(using
+      control(dir, List(recorder))
+    )
+    assertEquals(agent.dispatchFor(session.id), Dispatch.Fresh(None))
+    assert(
+      recorder.steps.exists(_.contains("invalid recorded wire id")),
+      s"expected an invalid-wire warning; got: ${recorder.steps}"
+    )

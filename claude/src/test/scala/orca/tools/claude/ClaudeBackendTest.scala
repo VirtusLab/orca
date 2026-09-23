@@ -537,10 +537,9 @@ class ClaudeBackendTest extends munit.FunSuite:
     "registerSession (rehydrate on resume) makes the first call use --resume, not --session-id"
   ):
     // Claude's sessions are durable on disk, so a resumed run re-claims the
-    // recorded id via `registerSession` (what `rehydrateSessions` calls). The
-    // very first call in THIS process must then `--resume` the existing session
-    // rather than re-create it with `--session-id` (which the CLI rejects as
-    // "already in use").
+    // recorded id. The very first call in THIS process must then `--resume`
+    // the existing session rather than re-create it with `--session-id`
+    // (which the CLI rejects as "already in use").
     val sid = SessionId[BackendTag.ClaudeCode.type](
       "44444444-4444-4444-4444-444444444444"
     )

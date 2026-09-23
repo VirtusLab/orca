@@ -155,6 +155,10 @@ summariser both resolve to `ctx.reviewAgent.cheap` — and scripts build
 built-in planning call of its own. Every role exposes a `.cheap` tier for its
 own cheap/simple work, mirroring the old lead's `agent.cheap`.
 
+> **Amendment (2026-09-23).** Untagged session records are no longer
+> rehydrated into `codingAgent`: a record's wire id goes to the agent that
+> reuses it in `agent.session(name, seed)` (ADR 0018 §2.6).
+
 ### 6. Settings read sequencing
 
 Both files are parsed once, in `runFlow`, before `FlowLifecycle.setup` — and

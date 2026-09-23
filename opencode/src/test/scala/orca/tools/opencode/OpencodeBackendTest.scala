@@ -216,7 +216,7 @@ class OpencodeBackendTest extends munit.FunSuite:
     "a probe with a rehydrated wire id spawns the server and returns its answer"
   ):
     supervised:
-      // Mirrors resume: FlowLifecycle.rehydrateSessions registers the
+      // Mirrors resume: `agent.session(...)` reusing a record registers the
       // client→server mapping before any turn has touched the server, so `http`
       // has never been forced when `dispatchFor` is called. The probe must still
       // force the lazy spawn and contact the fresh server rather than

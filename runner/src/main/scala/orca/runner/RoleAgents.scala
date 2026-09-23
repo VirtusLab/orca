@@ -215,7 +215,7 @@ private[orca] object RoleAgents:
     * replaced by the role's label. `Agent` carries no record of who set its
     * name, and what a wrong answer costs is a mislabelled cost line and
     * terminal attribution: nothing behavioural reads `Agent.name` (sessions key
-    * off `FlowSession.name`, rehydration off `BackendTag`).
+    * off `FlowSession.name`).
     *
     * An agent reporting no backend tag has no wired agent to compare against,
     * so it is left alone.
