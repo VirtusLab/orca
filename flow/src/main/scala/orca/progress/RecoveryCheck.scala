@@ -30,25 +30,16 @@ object RecoveryCheck:
 
   /** Whether `s` is safe enough to reuse as-is for a branch orca did NOT mint
     * itself — a user's pre-existing current branch, in skip-branch mode (ADR
-    * 0018 amendment). Weaker than [[isSafeBranchRef]] (no slug shape, so mixed
-    * case and `feature/JIRA-123`-style names pass), but still refuses anything
-    * that could act as CLI-flag/argument injection into `git`/`gh`, a
-    * path-traversal ref, or a shell-glob DoS against `git branch --list`: a
-    * leading `-`, whitespace/control characters, a glob metacharacter (`*`,
-    * `?`, `[`, `\`), `..` anywhere (path traversal, forbidden in any git ref),
-    * a `.lock` suffix (git's own lockfile convention), an empty `/`-separated
-    * segment (leading/trailing/doubled `/`), or the literal pseudo-ref `HEAD`
-    * (never a real branch; a detached-HEAD `currentBranch()` reads back as this
-    * literal string, and a header must not be able to claim it either).
+    * 0018 amendment), or a user-requested branch. Weaker than
+    * [[isSafeBranchRef]] (no slug shape, so mixed case and
+    * `feature/JIRA-123`-style names pass): `s` only has to satisfy `git
+    * check-ref-format --branch`, with Unicode whitespace and control characters
+    * refused too. That rules out CLI-flag injection into `git`/`gh` (leading
+    * `-`), path traversal (`..`), shell-glob metacharacters, and the literal
+    * pseudo-ref `HEAD` (a detached-HEAD `currentBranch()` reads back as it).
     */
   def isSafeReusedRef(s: String): Boolean =
-    s.nonEmpty &&
-      s != "HEAD" &&
-      !s.startsWith("-") &&
-      !s.exists(c => c.isWhitespace || c.isControl || "*?[\\".contains(c)) &&
-      !s.endsWith(".lock") &&
-      !s.contains("..") &&
-      !s.split("/", -1).exists(_.isEmpty)
+    BranchName.refFormatViolation(s).isEmpty
 
   /** Branches that are always protected regardless of the repo's configured
     * default — the floor [[validateHeader]] enforces (ADR 0018). The runtime
