@@ -144,8 +144,8 @@ Key shifts vs. the previous TTY path:
   `ConversationEvent` set, an unexpected `control_request`
   becomes an `Error` event, cancel propagates through
   `awaitResult`.
-- `TerminalConversationRendererTest` pins per-event rendering and
-  the approval-prompt path via a `Prompter` stub.
+- `TerminalPromptsTest` pins the approval and question prompts via
+  a `Prompter` stub.
 - `ClaudeIntegrationTest` (gated on `ORCA_INTEGRATION=1`) exercises
   the real CLI: headless round-trips, a streaming session that
   verifies AssistantTextDelta + AssistantTurnEnd land, and a

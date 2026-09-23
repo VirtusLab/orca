@@ -1,7 +1,7 @@
 package orca.tools.gemini
 
 import orca.OrcaFlowException
-import orca.backend.mcp.AskUserMcpServer
+import orca.backend.mcp.{AskUserMcpServer, McpHost}
 import orca.util.RawJson
 
 import com.github.plokhotnyuk.jsoniter_scala.core.{
@@ -133,10 +133,10 @@ private[gemini] object GeminiSettings:
       .map(raw => readFromString[Map[String, RawJson]](raw.value))
       .getOrElse(Map.empty)
 
-  /** Whether `raw` has the shape [[withOrca]] writes, pointing at a loopback
-    * URL as every [[orca.backend.mcp.McpHost]] does. The timeout's value is not
-    * checked, so an entry from an orca with a different timeout matches.
+  /** Whether `raw` has the shape [[withOrca]] writes, pointing at an
+    * [[McpHost]]. The timeout's value is not checked, so an entry from an orca
+    * with a different timeout matches.
     */
   private def isOrcaEntry(raw: RawJson): Boolean =
     Try(readFromString[OrcaServerEntry](raw.value)).toOption
-      .exists(_.httpUrl.startsWith("http://127.0.0.1:"))
+      .exists(entry => McpHost.isHostUrl(entry.httpUrl))

@@ -28,9 +28,14 @@ private[orca] class McpHost private[mcp] (val port: Int):
   /** The URL an MCP client (claude's `.mcp.json`, codex's
     * `mcp_servers.<name>.url`) should target.
     */
-  val url: String = s"http://127.0.0.1:$port/mcp"
+  val url: String = s"${McpHost.UrlPrefix}$port/mcp"
 
 private[orca] object McpHost:
+
+  private val UrlPrefix: String = "http://127.0.0.1:"
+
+  /** Whether `url` has the form of an [[McpHost.url]]. */
+  private[orca] def isHostUrl(url: String): Boolean = url.startsWith(UrlPrefix)
 
   /** Chars any one tool result returns, on either channel. Past this the tail
     * is dropped and the result says so, so a single call costs a bounded number

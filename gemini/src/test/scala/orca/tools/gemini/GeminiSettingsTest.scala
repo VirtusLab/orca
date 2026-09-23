@@ -98,13 +98,16 @@ class GeminiSettingsTest extends munit.FunSuite:
       "close must restore the original bytes verbatim"
     )
 
+  // A timeout other than today's: an older orca's entry still counts as stale.
+  private val StaleEntry: String =
+    """{"orca":{"httpUrl":"http://127.0.0.1:1/mcp","timeout":1}}"""
+
   test("register drops a stale orca entry left by a crashed run"):
     val workDir = TempDirs.dir()
     val file = settingsFile(workDir)
-    val original = """{"theme":"dark"}"""
     os.write(
       file,
-      GeminiSettings.withOrca(original, "http://127.0.0.1:1/mcp"),
+      s"""{"theme":"dark","mcpServers":$StaleEntry}""",
       createFolders = true
     )
     GeminiSettings.register(workDir, "http://orca/mcp").close()
@@ -113,18 +116,23 @@ class GeminiSettingsTest extends munit.FunSuite:
   test("close removes a .gemini directory that held only a stale orca entry"):
     val workDir = TempDirs.dir()
     val file = settingsFile(workDir)
-    os.write(
-      file,
-      GeminiSettings.withOrca("{}", "http://127.0.0.1:1/mcp"),
-      createFolders = true
-    )
+    os.write(file, s"""{"mcpServers":$StaleEntry}""", createFolders = true)
     GeminiSettings.register(workDir, "http://orca/mcp").close()
     assert(!os.exists(workDir / ".gemini"))
 
-  test("register keeps a user's own orca entry and restores it on close"):
+  test("register keeps a user's orca entry of another shape"):
     val workDir = TempDirs.dir()
     val file = settingsFile(workDir)
     val original = """{"mcpServers":{"orca":{"command":"my-orca"}}}"""
+    os.write(file, original, createFolders = true)
+    GeminiSettings.register(workDir, "http://orca/mcp").close()
+    assertEquals(os.read(file), original)
+
+  test("register keeps a user's orca entry pointing off the loopback host"):
+    val workDir = TempDirs.dir()
+    val file = settingsFile(workDir)
+    val original =
+      """{"mcpServers":{"orca":{"httpUrl":"http://example.com/mcp","timeout":1}}}"""
     os.write(file, original, createFolders = true)
     GeminiSettings.register(workDir, "http://orca/mcp").close()
     assertEquals(os.read(file), original)
