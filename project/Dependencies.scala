@@ -9,7 +9,7 @@ object Dependencies {
     // the classpath resolves to a single version of each; bump them together.
     val tapir = "1.13.31"
     val sttpApispec = "0.11.10"
-    val ox = "1.0.7"
+    val ox = "1.0.8"
     val mainargs = "0.7.6"
     val jline = "3.30.15"
     val fansi = "0.5.0"

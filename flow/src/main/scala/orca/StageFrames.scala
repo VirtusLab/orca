@@ -53,7 +53,7 @@ private[orca] enum SessionTurn:
   * top-level `flow(...)` (R12, ADR 0018 §2.2), so plain vars state the real
   * invariant. `ownerThread` (captured at construction) is asserted on every
   * door that touches them, so a stray call from an `ox.fork` — always a fresh
-  * thread on the pinned ox 1.0.7 — throws instead of silently corrupting the
+  * thread on the pinned ox 1.0.8 — throws instead of silently corrupting the
   * frame stack / counters. Ox runs a `supervised:` block's own body on a fresh
   * fork too, so `stage(...)` from the direct body of a user-opened nested scope
   * is rejected just like an explicit `fork`. Production is unaffected:
