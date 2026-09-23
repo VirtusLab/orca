@@ -1,6 +1,6 @@
 package orca
 
-import orca.tools.{ChangedFile, FileChange, PendingChanges}
+import orca.tools.{ChangedFile, FileChange, PendingChanges, ReviewSample}
 
 import java.nio.charset.StandardCharsets.UTF_8
 
@@ -90,11 +90,29 @@ class BoundedDiffTest extends munit.FunSuite:
       (1 to lines).map(i => s"+a line of source, number $i").mkString("\n") +
       "\n"
 
+  /** A sample of `files`, each with its own section. */
+  private def sampleOf(files: List[(ChangedFile, String)]): ReviewSample =
+    ReviewSample(
+      files.map(_._2).mkString,
+      files.map(_._1),
+      files.map((f, s) => f.path -> s).toMap
+    )
+
   /** A change set of `count` equally-sized files, well past the threshold. */
-  private def bigChangeSet(count: Int): (String, List[ChangedFile]) =
+  private def bigChangeSet(count: Int): ReviewSample =
     val paths = (1 to count).map(i => f"src/File$i%03d.scala").toList
-    val diff = paths.map(section(_, 300)).mkString
-    (diff, paths.map(ChangedFile(_, FileChange.Lines(300, 0))))
+    sampleOf(
+      paths.map(p =>
+        ChangedFile(p, FileChange.Lines(300, 0)) -> section(p, 300)
+      )
+    )
+
+  /** `sample` with `files` added, which have no section. */
+  private def withUnsectioned(
+      sample: ReviewSample,
+      files: List[ChangedFile]
+  ): ReviewSample =
+    sample.copy(files = sample.files ++ files)
 
   /** The paths whose own section the payload carries. */
   private def rendered(payload: String): List[String] =
@@ -112,15 +130,18 @@ class BoundedDiffTest extends munit.FunSuite:
 
   test("a review diff within the threshold is sent as it is"):
     val diff = section("src/Small.scala", 10)
-    assertEquals(BoundedDiff.reviewPayload(diff, Nil), diff)
+    assertEquals(
+      BoundedDiff.reviewPayload(ReviewSample(diff, Nil, Map.empty)),
+      diff
+    )
 
   test("what the trailer names and what the diff shows cover the change set"):
     // The point of the cap: a reviewer can always tell what it was not shown.
-    val (diff, changed) = bigChangeSet(60)
-    val payload = BoundedDiff.reviewPayload(diff, changed)
+    val sample = bigChangeSet(60)
+    val payload = BoundedDiff.reviewPayload(sample)
     assertEquals(
       (rendered(payload) ++ listed(payload)).sorted,
-      changed.map(_.path).sorted
+      sample.files.map(_.path).sorted
     )
     assertEquals(
       rendered(payload).toSet.intersect(listed(payload).toSet),
@@ -130,8 +151,7 @@ class BoundedDiffTest extends munit.FunSuite:
 
   test("every file the cut diff shows is shown whole"):
     // A reviewer that judges half a file reports findings the rest answers.
-    val (diff, changed) = bigChangeSet(60)
-    val payload = BoundedDiff.reviewPayload(diff, changed)
+    val payload = BoundedDiff.reviewPayload(bigChangeSet(60))
     val shown = rendered(payload)
     assert(shown.nonEmpty, "nothing was rendered at all")
     assert(shown.forall(p => payload.contains(section(p, 300))), shown.last)
@@ -140,23 +160,22 @@ class BoundedDiffTest extends munit.FunSuite:
     val path = "src/Huge.scala"
     val diff = section(path, 6000)
     assert(clue(diff.length) > BoundedDiff.ReviewThreshold, "fixture too small")
-    val payload =
-      BoundedDiff.reviewPayload(
-        diff,
-        List(ChangedFile(path, FileChange.Lines(6000, 0)))
-      )
+    val payload = BoundedDiff.reviewPayload(
+      sampleOf(List(ChangedFile(path, FileChange.Lines(6000, 0)) -> diff))
+    )
     assertEquals(rendered(payload), Nil)
     assert(payload.contains(s"#   $path (+6000 -0)"), payload)
 
   test("the trailer says what a binary change and a new file are"):
     // Neither has a line count to give: git never counts a binary file, and an
     // untracked one has no tracked history to count against.
-    val (diff, changed) = bigChangeSet(60)
     val payload = BoundedDiff.reviewPayload(
-      diff,
-      changed ++ List(
-        ChangedFile("logo.png", FileChange.Binary),
-        ChangedFile("notes.md", FileChange.New)
+      withUnsectioned(
+        bigChangeSet(60),
+        List(
+          ChangedFile("logo.png", FileChange.Binary),
+          ChangedFile("notes.md", FileChange.New)
+        )
       )
     )
     assert(payload.contains("#   logo.png (binary)"), "binary went unlabelled")
@@ -168,10 +187,11 @@ class BoundedDiffTest extends munit.FunSuite:
   test("the trailer never renders a change as `+0 -0`"):
     // "+0 -0" reads as nothing having changed, which is never why a file is in
     // a change set.
-    val (diff, changed) = bigChangeSet(60)
     val payload = BoundedDiff.reviewPayload(
-      diff,
-      changed :+ ChangedFile("script.sh", FileChange.Lines(0, 0))
+      withUnsectioned(
+        bigChangeSet(60),
+        List(ChangedFile("script.sh", FileChange.Lines(0, 0)))
+      )
     )
     assert(payload.contains("#   script.sh (no lines changed)"), payload)
 
@@ -194,13 +214,17 @@ class BoundedDiffTest extends munit.FunSuite:
     // the whole list overshoots the threshold by ~3 KB.
     val inDiff = (1 to 1600).map(i => f"src/generated/G$i%05d.scala").toList
     val notInDiff = (1 to 900).map(i => f"src/untouched/U$i%05d.scala").toList
-    val diff = inDiff.map(section(_, 2)).mkString
-    assert(clue(diff.length) > BoundedDiff.ReviewThreshold, "fixture too small")
-    val payload = BoundedDiff.reviewPayload(
-      diff,
-      (inDiff ++ (deepPath(3228) :: notInDiff))
-        .map(ChangedFile(_, FileChange.Lines(2, 0)))
+    val sample = withUnsectioned(
+      sampleOf(
+        inDiff.map(p => ChangedFile(p, FileChange.Lines(2, 0)) -> section(p, 2))
+      ),
+      (deepPath(3228) :: notInDiff).map(ChangedFile(_, FileChange.Lines(2, 0)))
     )
+    assert(
+      clue(sample.diff.length) > BoundedDiff.ReviewThreshold,
+      "fixture too small"
+    )
+    val payload = BoundedDiff.reviewPayload(sample)
     assert(
       clue(payload.length) <= BoundedDiff.ReviewThreshold,
       "the payload outgrew its budget"
@@ -208,28 +232,10 @@ class BoundedDiffTest extends munit.FunSuite:
 
   test("the trailer reports how much diff the reviewer actually got"):
     // Not the threshold: the head is cut to leave the trailer its room.
-    val (diff, changed) = bigChangeSet(60)
-    val payload = BoundedDiff.reviewPayload(diff, changed)
+    val payload = BoundedDiff.reviewPayload(bigChangeSet(60))
     val shownChars = payload.indexOf("\n# The diff above was cut short at ")
     assert(shownChars > 0, payload)
     assert(payload.contains(s"cut short at $shownChars characters"), payload)
-
-  test("a shown path containing ` b/` doesn't mark another file as shown"):
-    // Git writes `diff --git a/x b/y.txt b/x b/y.txt` for a path with a space,
-    // which ends with ` b/y.txt` — a suffix match would read the omitted
-    // `y.txt` as shown and leave it out of the trailer, the one direction the
-    // trailer exists to prevent.
-    val (diff, changed) = bigChangeSet(60)
-    val payload = BoundedDiff.reviewPayload(
-      section("x b/y.txt", 2) + diff,
-      ChangedFile("x b/y.txt", FileChange.Lines(2, 0)) ::
-        ChangedFile("y.txt", FileChange.Lines(1, 0)) :: changed
-    )
-    assert(payload.contains("#   y.txt (+1 -0)"), payload)
-    assert(
-      !payload.contains("#   x b/y.txt "),
-      s"the file that WAS rendered must stay out of the trailer: $payload"
-    )
 
   // --- the sections payload ---
 
@@ -240,53 +246,61 @@ class BoundedDiffTest extends munit.FunSuite:
       .map(_.drop(4))
       .toList
 
+  /** Each path's own section, `lines` long. */
+  private def sectionsOf(paths: List[String], lines: Int): Map[String, String] =
+    paths.map(p => p -> section(p, lines)).toMap
+
   /** The payload of a cut that rendered something, failing the test when it
     * rendered nothing.
     */
   private def cut(
-      diff: String,
+      sections: Map[String, String],
       paths: List[String],
       maxChars: Int = 8 * 1024
   ): String =
-    BoundedDiff.sectionsPayload(diff, paths, maxChars) match
+    BoundedDiff.sectionsPayload(sections, paths, maxChars) match
       case BoundedDiff.SectionsCut.Rendered(payload) => payload
       case BoundedDiff.SectionsCut.NothingFits =>
         fail(s"expected sections for $paths")
 
   test("the sections payload carries the requested files and nothing else"):
-    val diff = section("src/A.scala", 3) + section("src/B.scala", 3)
-    assertEquals(cut(diff, List("src/B.scala")), section("src/B.scala", 3))
+    val sections = sectionsOf(List("src/A.scala", "src/B.scala"), 3)
+    assertEquals(cut(sections, List("src/B.scala")), section("src/B.scala", 3))
 
   test("a requested path repeated in the list is rendered once"):
     val path = "src/A.scala"
-    assertEquals(cut(section(path, 3), List(path, path)), section(path, 3))
+    assertEquals(
+      cut(sectionsOf(List(path), 3), List(path, path)),
+      section(path, 3)
+    )
 
   test("a requested file too large for the budget leaves nothing to send"):
     // A payload of nothing but a trailer would tell the reviewer that the
     // sections above describe the change, above no sections at all.
     val path = "src/Huge.scala"
     assertEquals(
-      BoundedDiff.sectionsPayload(section(path, 2000), List(path), 8 * 1024),
+      BoundedDiff.sectionsPayload(
+        sectionsOf(List(path), 2000),
+        List(path),
+        8 * 1024
+      ),
       BoundedDiff.SectionsCut.NothingFits
     )
 
   test("a requested path with no section of its own is named as not shown"):
-    // A rename, whose header names two paths, or a header git had to quote:
-    // the caller's file list has the path, the diff body has no section under
-    // it.
     val payload = cut(
-      section("src/A.scala", 3),
-      List("src/A.scala", "src/Renamed.scala")
+      sectionsOf(List("src/A.scala"), 3),
+      List("src/A.scala", "src/Skipped.scala")
     )
     assertEquals(rendered(payload), List("src/A.scala"))
-    assertEquals(unshown(payload), List("src/Renamed.scala"))
+    assertEquals(unshown(payload), List("src/Skipped.scala"))
 
   test("the sections payload stays within its budget"):
     // Same sizing argument as the review payload's: sections and trailer are
     // bounded against each other, so neither spends the other's room — and
     // both still render, which a budget cut to nothing would also satisfy.
     val paths = (1 to 400).map(i => f"src/generated/G$i%05d.scala").toList
-    val payload = cut(paths.map(section(_, 20)).mkString, paths)
+    val payload = cut(sectionsOf(paths, 20), paths)
     assert(clue(payload.length) <= 8 * 1024, "the payload outgrew its budget")
     assert(rendered(payload).nonEmpty, "no section was rendered")
     assert(unshown(payload).nonEmpty, "no omitted file was named")

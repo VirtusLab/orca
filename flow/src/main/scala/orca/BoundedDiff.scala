@@ -1,6 +1,6 @@
 package orca
 
-import orca.tools.{ChangedFile, FileChange, PendingChanges}
+import orca.tools.{ChangedFile, FileChange, PendingChanges, ReviewSample}
 
 /** Renders a change set into a prompt under a size budget, for the four callers
   * that inline one: the default commit-message prompt ([[commitPayload]], see
@@ -68,11 +68,6 @@ private[orca] object BoundedDiff:
 
   private val TruncationMarker: String = "\n…(truncated)"
 
-  /** The line git starts each file's section with, at column 0. No content line
-    * can imitate it: every line inside a hunk carries a ` `/`+`/`-` prefix.
-    */
-  private val FileHeader: String = "diff --git "
-
   /** What the stage is about to commit, in up to three sections: the `git diff
     * --stat` summary of tracked changes, the paths of files new to the repo
     * (which no diff of tracked history reports), and as much of the diff as the
@@ -95,27 +90,23 @@ private[orca] object BoundedDiff:
   /** The change set a reviewer is sent, bounded to [[ReviewThreshold]].
     *
     * Under the threshold the diff is returned untouched. Over it the result is
-    * as many whole file sections as fit, then a trailer naming every file whose
-    * section was left out, with its line counts. Whole sections: cutting
-    * mid-file hands a reviewer part of a change, and a reviewer that judges a
-    * fragment as if it were the whole reports findings the rest of the file
-    * answers.
-    *
-    * `changed` is the change set's file list as git reports it, sampled
-    * alongside `diff` (`GitTool.reviewChanges`) rather than scraped from the
-    * diff body, which shows neither a binary change nor a 100%-similarity
-    * rename. Together with the sections rendered it covers the whole change
-    * set: nothing is left out without being named.
+    * as many whole file sections as fit, in the sample's file order, then a
+    * trailer naming every other file, with its line counts. Whole sections:
+    * cutting mid-file hands a reviewer part of a change, and a reviewer that
+    * judges a fragment as if it were the whole reports findings the rest of the
+    * file answers. Together the sections and the trailer cover every file in
+    * the sample: nothing is left out without being named.
     */
-  def reviewPayload(diff: String, changed: List[ChangedFile]): String =
-    if diff.length <= ReviewThreshold then diff
+  def reviewPayload(sample: ReviewSample): String =
+    if sample.diff.length <= ReviewThreshold then sample.diff
     else
-      val head = wholeFilesWithin(diff, ReviewThreshold - trailerMax(changed))
-      val shown = head.linesIterator.filter(_.startsWith(FileHeader)).toList
-      head + trailer(
-        changed.filterNot(f => isShown(shown, f.path)),
-        head.length
-      )
+      val withSections =
+        sample.files.flatMap(f => sample.sections.get(f.path).map(f -> _))
+      val room = ReviewThreshold - trailerMax(sample.files)
+      val shown = packed(withSections, room)(_._2.length)
+      val head = shown.map(_._2).mkString
+      val shownFiles = shown.map(_._1).toSet
+      head + trailer(sample.files.filterNot(shownFiles), head.length)
 
   /** What [[sectionsPayload]] could cut for its caller. */
   private[orca] enum SectionsCut:
@@ -130,28 +121,25 @@ private[orca] object BoundedDiff:
       */
     case NothingFits
 
-  /** The sections of `diff` covering `paths`, bounded to `maxChars`, with a
+  /** The `sections` (by path) covering `paths`, bounded to `maxChars`, with a
     * trailer naming every one of `paths` the result does not show.
     *
     * The paths-only sibling of [[reviewPayload]], for a caller that has a file
     * list rather than [[ChangedFile]]s: same whole-section cut, but with no
     * line counts to report, so a dropped path is named on its own. A path with
-    * no section of its own in `diff` — a rename, whose header names two
-    * different paths, or a header git had to quote — is named in the trailer
-    * rather than silently absent, as is a path repeated in `paths`, whose
-    * section is rendered once.
+    * no entry in `sections` is named in the trailer rather than silently
+    * absent; a path repeated in `paths` is rendered once.
     *
     * `maxChars` is the caller's budget, not [[ReviewThreshold]]: this renders
     * into a prompt sent every round, where the bound is what the conversation
     * may accumulate rather than what a request can carry.
     */
   def sectionsPayload(
-      diff: String,
+      sections: Map[String, String],
       paths: List[String],
       maxChars: Int
   ): SectionsCut =
     val wanted = paths.distinct
-    val sections = sectionsByPath(diff)
     val available = wanted.flatMap(p => sections.get(p).map(p -> _))
     val room = maxChars - pathTrailerMax(wanted, maxChars)
     val shown = packed(available, room)(_._2.length)
@@ -161,44 +149,6 @@ private[orca] object BoundedDiff:
         shown.map(_._2).mkString +
           pathTrailer(wanted.filterNot(shown.map(_._1).toSet), maxChars)
       )
-
-  /** A diff's per-file sections, keyed by the path both halves of the header
-    * name — the path as it is after the change, which is how a caller holding
-    * git's own file list names it. A header naming two paths (a rename) or one
-    * git had to quote (a `"` or a non-ASCII byte in the name) contributes no
-    * entry: a caller that misses a section reports the file as changed, which
-    * is the safe direction.
-    */
-  private[orca] def sectionsByPath(diff: String): Map[String, String] =
-    diff
-      .split(s"(?m)(?=^$FileHeader)")
-      .toList
-      .flatMap(section => sectionPath(section).map(_ -> section))
-      .toMap
-
-  /** The path a section's `diff --git a/<path> b/<path>` header names, `None`
-    * for the text before the first header or a header of any other shape.
-    *
-    * Matched as that whole shape rather than by the last ` b/`, which a path
-    * containing ` b/` makes name a different file — and a section filed under
-    * another file's name is how an edited file gets reported as untouched.
-    */
-  private def sectionPath(section: String): Option[String] =
-    section.linesIterator
-      .nextOption()
-      .filter(_.startsWith(FileHeader))
-      .flatMap(header => unrenamedPath(header.drop(FileHeader.length)))
-
-  /** The path of an `a/<path> b/<path>` header body. Both halves have the same
-    * length, so the body's own length fixes where they split.
-    */
-  private def unrenamedPath(body: String): Option[String] =
-    val pathLen = (body.length - "a/ b/".length) / 2
-    val after = body.drop(pathLen + "a/ b/".length)
-    Option.when(
-      pathLen > 0 && body.length == 2 * pathLen + "a/ b/".length &&
-        body == s"a/$after b/$after"
-    )(after)
 
   private val PathTrailerHead: String =
     "\n# The sections above do not show the changes to the files below — " +
@@ -254,40 +204,6 @@ private[orca] object BoundedDiff:
         s"\n\n[diff cut at $ReviewThreshold characters — the summary covers " +
         "the leading files only]"
 
-  /** The longest prefix of `diff` within `maxChars` that ends where a file's
-    * section ends, or `""` when not even the first section fits — the honest
-    * answer for a single file too large to send.
-    */
-  private def wholeFilesWithin(diff: String, maxChars: Int): String =
-    fileStarts(diff).filter(_ <= maxChars).lastOption.fold("")(diff.take)
-
-  /** The offset at which each file's section starts. */
-  private def fileStarts(diff: String): List[Int] =
-    diff.linesWithSeparators
-      .scanLeft((0, "")): (soFar, line) =>
-        (soFar._1 + soFar._2.length, line)
-      .drop(1)
-      .collect:
-        case (offset, line) if line.startsWith(FileHeader) => offset
-      .toList
-
-  /** Is this file's own section among the ones rendered, `headers` being their
-    * header lines?
-    *
-    * Compared as a whole line against the header git writes for an unrenamed,
-    * unquoted path — never as a suffix, which a shown path containing `" b/"`
-    * makes match a different, omitted file. A rename (`a/<old> b/<new>`), a
-    * header git had to quote (a `"` or a non-ASCII byte in the name), a path
-    * `reviewChanges` could only announce (`# skipped …`) rather than render,
-    * and a workDir below the repository root (where the header names the path
-    * from the root and the file list names it from `workDir`) all fail to
-    * match, so their files are reported as not shown although they were — the
-    * safe direction of the two: the reader is told to open a file it has
-    * already seen, never left unaware of one it hasn't.
-    */
-  private def isShown(headers: List[String], path: String): Boolean =
-    headers.contains(s"${FileHeader}a/$path b/$path")
-
   /** `shownChars` is the length of the diff as sent, which is under
     * [[ReviewThreshold]] by whatever the trailer takes — up to
     * [[TrailerBudget]] when the file list is long. Reporting the threshold
@@ -303,10 +219,8 @@ private[orca] object BoundedDiff:
     * can read as part of a hunk — `- path` would look like a deleted line of
     * source — and the entries are indented under the sentence introducing them.
     *
-    * `omitted` is never empty when a cut happened. A cut always drops at least
-    * the last file's section; `changed` names that file, being sampled
-    * alongside the diff (`GitTool.reviewChanges`); and [[isShown]] errs towards
-    * calling a file not shown, never the other way.
+    * `omitted` is never empty when a cut happened: a cut always drops at least
+    * one file's section, and the sample names every file.
     */
   private def trailer(omitted: List[ChangedFile], shownChars: Int): String =
     trailerHead(shownChars) +

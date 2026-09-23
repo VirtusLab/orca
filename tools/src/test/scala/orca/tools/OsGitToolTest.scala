@@ -815,6 +815,92 @@ class OsGitToolTest extends munit.FunSuite:
         List(ChangedFile("fresh.txt", FileChange.New))
       )
 
+  test("reviewChanges keys a rename's section by its new path"):
+    withRepo: (git, dir) =>
+      os.write(dir / "old.txt", "same\n")
+      git.commit("seed").orThrow
+      os.move(dir / "old.txt", dir / "new.txt")
+      val _ = os.proc("git", "add", "-A").call(cwd = dir)
+      val section = git.reviewChanges().sections.get("new.txt")
+      assert(section.exists(_.contains("rename to new.txt")), section)
+
+  test("reviewChanges keys the section of a path git quotes"):
+    withRepo: (git, dir) =>
+      os.write(dir / "é\"q.txt", "one\n")
+      git.commit("seed").orThrow
+      os.write.over(dir / "é\"q.txt", "two\n")
+      val section = git.reviewChanges().sections.get("é\"q.txt")
+      assert(section.exists(_.contains("+two")), section)
+
+  test("reviewChanges from a subdirectory keys sections relative to it"):
+    withRepo: (_, dir) =>
+      os.makeDir.all(dir / "sub")
+      os.write(dir / "sub" / "inner.txt", "one\n")
+      new OsGitTool(dir).commit("seed").orThrow
+      os.write.over(dir / "sub" / "inner.txt", "two\n")
+      val section =
+        new OsGitTool(dir / "sub").reviewChanges().sections.get("inner.txt")
+      assert(section.exists(_.contains("+two")), section)
+
+  test("reviewChanges gives a file replaced by a symlink one section"):
+    // Git writes a type change as a deletion and an addition, two sections
+    // for one file.
+    withRepo: (git, dir) =>
+      os.write(dir / "f", "one\n")
+      os.write(dir / "g", "two\n")
+      git.commit("seed").orThrow
+      val _ = os.remove(dir / "f")
+      os.symlink(dir / "f", os.RelPath("g"))
+      os.write.over(dir / "g", "three\n")
+      val sample = git.reviewChanges()
+      assertEquals(sample.sections.keySet, Set("f", "g"))
+      val f = sample.sections("f")
+      assert(f.contains("deleted file mode") && f.contains("new file mode"), f)
+
+  test("reviewChanges keys sections under a colouring git config"):
+    withRepo: (git, dir) =>
+      os.write(dir / "a.txt", "one\n")
+      git.commit("seed").orThrow
+      val _ = os.proc("git", "config", "color.ui", "always").call(cwd = dir)
+      os.write.over(dir / "a.txt", "two\n")
+      assertEquals(git.reviewChanges().sections.keySet, Set("a.txt"))
+
+  test("reviewChanges gives an untracked file it only names no section"):
+    withSeededRepo: (git, dir) =>
+      os.makeDir(dir / "real")
+      os.symlink(dir / "link", os.RelPath("real"))
+      val sample = git.reviewChanges()
+      assert(sample.diff.contains("# skipped link"), sample.diff)
+      assertEquals(sample.sections.get("link"), None)
+
+  test("pairSections pairs nothing when the parts don't line up"):
+    val patch = "diff --git a/a b/a\n+x\n"
+    assertEquals(
+      OsGitTool.pairSections(
+        List(
+          ChangedFile("a", FileChange.Lines(1, 0)),
+          ChangedFile("b", FileChange.Lines(1, 0))
+        ),
+        patch,
+        truncated = false
+      ),
+      Map.empty[String, String]
+    )
+
+  test("pairSections drops the part the read cap cut"):
+    val patch = "diff --git a/a b/a\n+x\ndiff --git a/b b/b\n+partial"
+    assertEquals(
+      OsGitTool.pairSections(
+        List(
+          ChangedFile("a", FileChange.Lines(1, 0)),
+          ChangedFile("b", FileChange.Lines(9, 0))
+        ),
+        patch,
+        truncated = true
+      ),
+      Map("a" -> "diff --git a/a b/a\n+x\n")
+    )
+
   test("changedFiles from a subdirectory is unaffected by diff.relative"):
     // The setting makes git print paths relative to the subdirectory, which
     // hides changes above it and makes the workDir translation name the wrong
