@@ -405,8 +405,8 @@ screen output and the PR body:
   without resolving, paired with an `OpenReason`: declined, never reported on
   by the fixer, past the round cap, still failing lint, or from a review that
   could not run at all. This is what `reviewThenFix` and `reviewAndFixLoop`
-  return, what later rounds' reviewers are shown, and what the PR body lists
-  under "Open review findings".
+  return, what later rounds' reviewers are shown, and what the PR body and
+  the run output list under "Open review findings".
 
 Don't name the open set after one of its reasons: any such name misreports the
 others. `OpenReason` is where the distinction lives — its `describe` is the only

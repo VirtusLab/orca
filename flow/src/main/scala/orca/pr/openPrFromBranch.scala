@@ -29,7 +29,8 @@ import ox.either.orThrow
   * into the body after `body`'s text as its own section
   * ([[bodyWithOpenFindings]]), never through the summariser. Required, not
   * defaulted: a flow that forgets it would open a PR that says nothing about
-  * findings it left unfixed.
+  * findings it left unfixed. The same section is printed to the run output,
+  * also when opening the PR fails.
   *
   * `gh.createPr` is idempotent by head branch: a re-run that already opened the
   * PR gets the existing handle back rather than failing. Returns that handle,
@@ -47,6 +48,7 @@ def openPrFromBranch(
     context: Option[String] = None,
     instructions: String = PrPrompts.Summarise
 )(using FlowContext, FlowControl, OutsideStage): PrHandle =
+  reportOpenFindings(openFindings)
   pushBranch()
   val summary =
     summarise(
