@@ -110,7 +110,7 @@ class GeminiSettingsTest extends munit.FunSuite:
     GeminiSettings.register(workDir, "http://orca/mcp").close()
     assertEquals(topLevel(os.read(file)).keySet, Set("theme"))
 
-  test("close removes a file that held only a stale orca entry"):
+  test("close removes a .gemini directory that held only a stale orca entry"):
     val workDir = TempDirs.dir()
     val file = settingsFile(workDir)
     os.write(
@@ -119,7 +119,7 @@ class GeminiSettingsTest extends munit.FunSuite:
       createFolders = true
     )
     GeminiSettings.register(workDir, "http://orca/mcp").close()
-    assert(!os.exists(file))
+    assert(!os.exists(workDir / ".gemini"))
 
   test("register keeps a user's own orca entry and restores it on close"):
     val workDir = TempDirs.dir()

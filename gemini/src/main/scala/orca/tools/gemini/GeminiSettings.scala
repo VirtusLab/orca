@@ -59,8 +59,8 @@ private[gemini] object GeminiSettings:
     * return an [[AutoCloseable]] that restores the prior state on `close()`:
     * the original bytes, or no file if there was none. A stale entry from an
     * earlier run is dropped from that prior state, and a file holding nothing
-    * else counts as none. A `.gemini` directory created here is removed too,
-    * unless something else was put in it.
+    * else counts as none. A `.gemini` directory created here or by that earlier
+    * run is removed too, unless something else was put in it.
     *
     * Throws [[OrcaFlowException]] when `.gemini` or `settings.json` is a
     * symlink, before touching either.
@@ -71,8 +71,10 @@ private[gemini] object GeminiSettings:
     refuseSymlink(dir)
     refuseSymlink(file)
     val dirExisted = os.exists(dir)
-    val prior =
-      if os.exists(file) then withoutStaleOrca(os.read(file)) else None
+    val fileExisted = os.exists(file)
+    val prior = if fileExisted then withoutStaleOrca(os.read(file)) else None
+    // A settings file holding only a stale entry means orca created `.gemini`.
+    val orcaCreatedDir = !dirExisted || (fileExisted && prior.isEmpty)
     os.write.over(
       file,
       withOrca(prior.getOrElse("{}"), mcpUrl),
@@ -82,7 +84,7 @@ private[gemini] object GeminiSettings:
       prior match
         case Some(content) => os.write.over(file, content)
         case None          => os.remove(file): Unit
-      if !dirExisted && os.exists(dir) && os.list(dir).isEmpty then
+      if orcaCreatedDir && os.exists(dir) && os.list(dir).isEmpty then
         os.remove(dir): Unit
 
   /** A committed `.gemini` symlink would redirect the write outside the working
@@ -131,8 +133,10 @@ private[gemini] object GeminiSettings:
       .map(raw => readFromString[Map[String, RawJson]](raw.value))
       .getOrElse(Map.empty)
 
-  /** Whether `raw` has the shape [[withOrca]] writes, including orca's timeout.
+  /** Whether `raw` has the shape [[withOrca]] writes, pointing at a loopback
+    * URL as every [[orca.backend.mcp.McpHost]] does. The timeout's value is not
+    * checked, so an entry from an orca with a different timeout matches.
     */
   private def isOrcaEntry(raw: RawJson): Boolean =
     Try(readFromString[OrcaServerEntry](raw.value)).toOption
-      .exists(_.timeout == TimeoutMillis)
+      .exists(_.httpUrl.startsWith("http://127.0.0.1:"))

@@ -141,13 +141,13 @@ Key shifts vs. the previous TTY path:
 - `ClaudeConversationTest` pins the driver against a
   `FakePipedCliProcess` with scripted NDJSON: every
   `InboundMessage` variant maps to the expected
-  `ConversationEvent` set, autoapprove policy fires silently,
-  cancel propagates through `awaitResult`, multiple pending
-  `ApproveTool`s are distinguishable by their respond closures.
+  `ConversationEvent` set, an unexpected `control_request`
+  becomes an `Error` event, cancel propagates through
+  `awaitResult`.
 - `TerminalConversationRendererTest` pins per-event rendering and
   the approval-prompt path via a `Prompter` stub.
 - `ClaudeIntegrationTest` (gated on `ORCA_INTEGRATION=1`) exercises
   the real CLI: headless round-trips, a streaming session that
   verifies AssistantTextDelta + AssistantTurnEnd land, and a
-  tool-approval scenario that denies a `Read` request via the
-  `respond` closure.
+  refused `Read` that arrives as a failed tool_result, never as a
+  stdin `control_request`.
