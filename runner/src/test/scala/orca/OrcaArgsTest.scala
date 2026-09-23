@@ -97,3 +97,17 @@ class OrcaArgsTest extends munit.FunSuite:
     OrcaArgs.parse(Seq("--nonexistent")) match
       case Left(msg) => assert(msg.nonEmpty)
       case Right(r)  => fail(s"expected parse failure, got $r")
+
+  test("--prompt carries a task that starts with '-'"):
+    assertEquals(
+      OrcaArgs.parse(Seq("--prompt", "- add X")).map(_.userPrompt),
+      Right("- add X")
+    )
+
+  test("a task given both positionally and with --prompt is refused"):
+    OrcaArgs.parse(Seq("a", "--prompt", "b")) match
+      case Left(msg) => assert(msg.contains("--prompt"), msg)
+      case Right(r)  => fail(s"expected a refusal, got $r")
+
+  test("toArgv renders a task not starting with '-' positionally"):
+    assertEquals(OrcaArgs("add X").toArgv, Seq("add X"))

@@ -2,10 +2,9 @@ package orca.shell.cli
 
 import mainargs.{Flag, ParserForMethods, Renderer, Util, arg, main}
 import org.jline.terminal.Terminal
-import orca.{ConfigHome, RunTarget}
-import orca.progress.BranchName
+import orca.{ConfigHome, RawArgs}
 import orca.shell.WorktreeScan
-import orca.shell.run.{FlowFlags, LaunchResult}
+import orca.shell.run.LaunchResult
 import orca.shell.ui.ShellUi
 import orca.subprocess.TtyProbe
 
@@ -147,43 +146,15 @@ private[shell] object Cli:
   def run(
       @arg(positional = true, doc = "flow name or path")
       flow: String,
-      @arg(positional = true, doc = "task text (read from stdin when omitted)")
-      task: Option[String] = None,
-      @arg(doc = "pass the flow's own --verbose flag")
-      verbose: Flag = Flag(),
-      @arg(doc = "run on the current branch instead of creating a new one")
-      skipBranch: Flag = Flag(),
-      @arg(doc =
-        "keep uncommitted/untracked files in the working tree instead of stashing them (fresh runs only)"
-      )
-      keepChanges: Flag = Flag(),
-      @arg(doc =
-        "run the flow in a git worktree of this repository instead of the current checkout"
-      )
-      worktree: Flag = Flag(),
+      args: RawArgs,
       @arg(doc =
         "run the flow's own pinned orca version instead of forcing this shell's"
       )
-      honorPin: Flag = Flag(),
-      @arg(doc =
-        "name of the branch to create for this run (default: derived from the task); not with --skip-branch"
-      )
-      branch: Option[String] = None
+      honorPin: Flag = Flag()
   ): Int =
-    val flags =
-      for
-        givenBranch <- BranchName.parseOptional(branch)
-        target <- RunTarget.from(
-          worktree = worktree.value,
-          skipBranch = skipBranch.value,
-          keepChanges = keepChanges.value,
-          branch = givenBranch
-        )
-      yield FlowFlags(verbose.value, target, givenBranch)
     RunCli.run(
       flowRef = flow,
-      task = task,
-      flags = flags,
+      args = args,
       honorPin = honorPin.value,
       workDir = os.pwd,
       tty = TtyProbe.stdin()

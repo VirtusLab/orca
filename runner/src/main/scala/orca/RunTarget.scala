@@ -45,25 +45,7 @@ enum RunTarget:
     case CurrentBranch(uncommitted) => uncommitted == Uncommitted.Keep
     case Worktree                   => false
 
-  /** The flags [[OrcaArgs]] parses back, in the order the shell appends them
-    * after `--` when it spawns a flow child. Rendering lives next to the parser
-    * so both directions of one flag spelling are in a single file.
-    */
-  def toArgv: Seq[String] = this match
-    case NewBranch(Uncommitted.Stash)     => Nil
-    case NewBranch(Uncommitted.Keep)      => Seq("--keep-changes")
-    case CurrentBranch(Uncommitted.Stash) => Seq("--skip-branch")
-    case CurrentBranch(Uncommitted.Keep) =>
-      Seq("--skip-branch", "--keep-changes")
-    case Worktree => Seq("--worktree")
-
 object RunTarget:
-
-  /** Renders `--branch` as [[OrcaArgs]] parses it; the shell appends it next to
-    * [[RunTarget.toArgv]]'s flags.
-    */
-  def branchArgv(branch: Option[BranchName]): Seq[String] =
-    branch.toList.flatMap(name => Seq("--branch", name.value))
 
   private val skipBranchWithBranchRefusal: String =
     "--branch cannot be combined with --skip-branch: --skip-branch runs on " +
@@ -81,13 +63,11 @@ object RunTarget:
       "on uncommitted files, which stay behind in the invoking checkout — a " +
       "worktree is created from a commit and starts clean"
 
-  /** The single conversion from the raw flags an argv parser produces: a flow's
-    * own argv ([[OrcaArgs.parse]]) and `orca run`'s (the shell has its own
-    * parser for the same flags) both come through here, so neither the wording
-    * of a refusal nor the set of refused pairs can drift. A refused pair is a
-    * message, never a value.
+  /** The single conversion from the raw flags [[RawArgs]] parses, for a flow's
+    * own argv and `orca run`'s alike. A refused pair is a message, never a
+    * value.
     */
-  def from(
+  private[orca] def from(
       worktree: Boolean,
       skipBranch: Boolean,
       keepChanges: Boolean,

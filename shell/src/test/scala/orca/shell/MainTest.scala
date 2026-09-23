@@ -1,7 +1,7 @@
 package orca.shell
 
 import org.jline.terminal.{Terminal, TerminalBuilder}
-import orca.{RunTarget, StackSettings, Uncommitted}
+import orca.{OrcaArgs, RunTarget, StackSettings, Uncommitted}
 import orca.agents.BackendTag
 import orca.settings.SettingsFile
 import orca.shell.actions.{SettingsEditAction, StackAction}
@@ -9,7 +9,7 @@ import orca.shell.create.CreateTier
 import orca.discovery.Origin
 import orca.shell.flows.DiscoveredFlow
 import orca.shell.resume.InterruptedRun
-import orca.shell.run.{FlowFlags, LaunchResult}
+import orca.shell.run.LaunchResult
 import orca.shell.sessions.{RecordedAttempt, SessionPicker, SessionSelection}
 import orca.shell.sessions.ManifestFixtures.{durable, ephemeral, manifest}
 import orca.shell.ui.{Choice, ShellUi, UiOutcome}
@@ -600,12 +600,12 @@ class MainTest extends munit.FunSuite:
 
   /** Runs [[Main.runFlow]] picking a flow, typing a task, then picking `target`
     * and answering the branch prompt from `branchAnswers`; returns the UI and
-    * the flags that reached the launcher.
+    * the args that reached the launcher.
     */
   private def runFlowWith(
       target: RunTarget,
       branchAnswers: List[UiOutcome[String]]
-  ): (FlowScriptedUi, Option[FlowFlags]) =
+  ): (FlowScriptedUi, Option[OrcaArgs]) =
     val workDir = TempDirs.dir()
     val flowPath = workDir / ".orca" / "flows" / "run-flow.sc"
     os.write(flowPath, "// x\n", createFolders = true)
@@ -621,50 +621,57 @@ class MainTest extends munit.FunSuite:
       inputMultilineScript = List(UiOutcome.Selected("do the thing")),
       inputScript = branchAnswers
     )
-    var recorded: Option[FlowFlags] = None
+    var recorded: Option[OrcaArgs] = None
     withDumbTerminal: terminal =>
       Main.runFlow(
         ui,
         terminal,
         workDir,
-        runAction = (_, _, opts, _, _) =>
-          recorded = Some(opts.flags)
+        runAction = (_, opts, _, _) =>
+          recorded = Some(opts.args)
           LaunchResult.Ok
       )
     (ui, recorded)
 
-  test("runFlow: a typed branch name reaches the launcher's flags"):
-    val (_, flags) =
+  test("runFlow: a typed branch name reaches the launcher's args"):
+    val (_, args) =
       runFlowWith(RunTarget.Worktree, List(UiOutcome.Selected("feature/x")))
-    assertEquals(flags.map(_.target), Some(RunTarget.Worktree))
-    assertEquals(flags.flatMap(_.branch).map(_.value), Some("feature/x"))
+    assertEquals(args.map(_.target), Some(RunTarget.Worktree))
+    assertEquals(args.flatMap(_.branch).map(_.value), Some("feature/x"))
 
   test("runFlow: an invalid branch name is re-asked and the next one used"):
-    val (ui, flags) = runFlowWith(
+    val (ui, args) = runFlowWith(
       RunTarget.NewBranch(Uncommitted.Stash),
       List(UiOutcome.Selected("bad name"), UiOutcome.Selected("good-name"))
     )
     assertEquals(ui.inputCount, 2)
-    assertEquals(flags.flatMap(_.branch).map(_.value), Some("good-name"))
+    assertEquals(args.flatMap(_.branch).map(_.value), Some("good-name"))
 
   test("runFlow: Enter at the branch prompt lets the flow derive the name"):
     val target = RunTarget.NewBranch(Uncommitted.Stash)
-    val (_, flags) = runFlowWith(target, List(UiOutcome.Selected("")))
+    val (_, args) = runFlowWith(target, List(UiOutcome.Selected("")))
     assertEquals(
-      flags,
-      Some(FlowFlags(verbose = false, target = target, branch = None))
+      args,
+      Some(
+        OrcaArgs(
+          userPrompt = "do the thing",
+          verbose = false,
+          target = target,
+          branch = None
+        )
+      )
     )
 
   test("runFlow: cancelling the branch prompt aborts the run"):
-    val (ui, flags) = runFlowWith(RunTarget.Worktree, List(UiOutcome.Cancelled))
+    val (ui, args) = runFlowWith(RunTarget.Worktree, List(UiOutcome.Cancelled))
     assertEquals(ui.inputCount, 1)
-    assertEquals(flags, None)
+    assertEquals(args, None)
 
   test("runFlow: the current-branch target asks no branch name"):
-    val (ui, flags) =
+    val (ui, args) =
       runFlowWith(RunTarget.CurrentBranch(Uncommitted.Stash), Nil)
     assertEquals(ui.inputCount, 0)
-    assertEquals(flags.map(_.branch), Some(None))
+    assertEquals(args.map(_.branch), Some(None))
 
   // --- editFlow / createNewFlow / createForkFlow (ADR 0021 §6/§9 amendment:
   // hand-vs-agent mode) ---
@@ -1018,8 +1025,8 @@ class MainTest extends munit.FunSuite:
         FlowScriptedUi(),
         terminal,
         run,
-        runAction = (flow, task, _, _, _) =>
-          recorded = Some(flow.name -> task)
+        runAction = (flow, opts, _, _) =>
+          recorded = Some(flow.name -> opts.args.userPrompt)
           LaunchResult.Ok
       )
       assertEquals(
@@ -1045,24 +1052,18 @@ class MainTest extends munit.FunSuite:
         branch = "feat/x",
         dir = worktree
       )
-      var recorded: Option[(os.Path, FlowFlags)] = None
+      var recorded: Option[(os.Path, RunTarget)] = None
       Main.resumeInterruptedRun(
         FlowScriptedUi(),
         terminal,
         run,
-        runAction = (_, _, opts, dir, _) =>
-          recorded = Some(dir -> opts.flags)
+        runAction = (_, opts, dir, _) =>
+          recorded = Some(dir -> opts.args.target)
           LaunchResult.Ok
       )
       assertEquals(
         recorded,
-        Some(
-          worktree -> FlowFlags(
-            verbose = false,
-            target = RunTarget.NewBranch(Uncommitted.Stash),
-            branch = None
-          )
-        )
+        Some(worktree -> RunTarget.NewBranch(Uncommitted.Stash))
       )
 
   test(
@@ -1082,7 +1083,7 @@ class MainTest extends munit.FunSuite:
           FlowScriptedUi(),
           terminal,
           run,
-          runAction = (_, _, _, _, _) => { launched = true; LaunchResult.Ok }
+          runAction = (_, _, _, _) => { launched = true; LaunchResult.Ok }
         )
       )
       assert(

@@ -1,7 +1,7 @@
 package orca.shell.actions
 
 import org.jline.terminal.Terminal
-import orca.{OrcaDir, RunTarget, Uncommitted}
+import orca.{OrcaArgs, OrcaDir, RunTarget, Uncommitted}
 import orca.shell.ShellVersion
 import orca.shell.create.{
   AuthoringSandbox,
@@ -11,7 +11,7 @@ import orca.shell.create.{
   FlowCommit
 }
 import orca.shell.flows.{BuiltInFlows, DiscoveredFlow}
-import orca.shell.run.{FallbackPolicy, FlowFlags, FlowLauncher, LaunchResult}
+import orca.shell.run.{FallbackPolicy, FlowLauncher, LaunchResult}
 import orca.shell.ui.{ShellOutput, ShellUi}
 
 /** Where the new/forked/edited flow is saved (ADR 0021 §9) — the
@@ -133,13 +133,13 @@ private[shell] object AuthorAction:
     val result = launch(
       FallbackPolicy.Ask(ui),
       flow,
-      prompt,
-      sandbox,
-      FlowFlags(
+      OrcaArgs(
+        userPrompt = prompt,
         verbose = false,
         target = RunTarget.NewBranch(Uncommitted.Stash),
         branch = None
       ),
+      sandbox,
       terminal
     )
     finishAuthoring(result, sandbox, params)

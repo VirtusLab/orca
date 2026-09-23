@@ -1,18 +1,19 @@
 package orca.shell.actions
 
 import org.jline.terminal.Terminal
+import orca.OrcaArgs
 import orca.shell.flows.DiscoveredFlow
-import orca.shell.run.{FallbackPolicy, FlowFlags, FlowLauncher, LaunchResult}
+import orca.shell.run.{FallbackPolicy, FlowLauncher, LaunchResult}
 
-/** Runs a resolved flow (ADR 0021 §2). The selection and task-text prompting
-  * that produce `flow` and `task` live in `Main.runFlow`.
+/** Runs a resolved flow (ADR 0021 §2). Callers resolve `flow` and build its
+  * `OrcaArgs`.
   */
 private[shell] object RunAction:
 
-  /** The flow's own argv flags, built once by the caller, plus what to do when
-    * the forced-version run fails to compile.
+  /** The flow's own args, built once by the caller, plus what to do when the
+    * forced-version run fails to compile.
     */
-  case class RunOptions(flags: FlowFlags, fallback: FallbackPolicy)
+  case class RunOptions(args: OrcaArgs, fallback: FallbackPolicy)
 
   /** Runs `flow` as a tty-inherited child, printing the same start/end section
     * markers the menu always has — the announced-bracket + terminal handling
@@ -22,10 +23,9 @@ private[shell] object RunAction:
     */
   def run(
       flow: DiscoveredFlow,
-      task: String,
       opts: RunOptions,
       workDir: os.Path,
       terminal: Terminal,
       launch: FlowLauncher.FlowLaunch = FlowLauncher.runAnnounced
   ): LaunchResult =
-    launch(opts.fallback, flow.path, task, workDir, opts.flags, terminal)
+    launch(opts.fallback, flow.path, opts.args, workDir, terminal)
