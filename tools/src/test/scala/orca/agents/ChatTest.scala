@@ -1,19 +1,12 @@
 package orca.agents
 
 import orca.testkit.{ScriptedBackend, TestAgent}
-import orca.backend.{
-  Conversation,
-  Interaction,
-  AgentBackend,
-  AgentResult,
-  TurnRequest
-}
-import orca.events.OrcaListener
+import orca.backend.{AgentBackend, AgentResult, TurnRequest}
 
 /** The [[Chat]] handle contract: one conversation id threads through every
   * turn, `agent.run` mints a fresh one per call, and `agent.chat(continueFrom)`
   * adopts the given id. The underlying engine (retry, events, config
-  * precedence) is covered by `BaseAgentTest` / `DefaultAgentCallTest`.
+  * precedence) is covered by `AgentTest` / `AgentCallTest`.
   */
 class ChatTest extends munit.FunSuite:
 
@@ -49,35 +42,7 @@ class ChatTest extends munit.FunSuite:
       seen = seen :+ SessionId.value(turn.session)
       ScriptedBackend.result("out")
 
-  private object ChatStubPrompts extends Prompts:
-    def autonomous(
-        input: String,
-        outputSchema: String,
-        config: AgentConfig,
-        mode: StructuredOutputMode
-    ): String = ???
-    def interactive(
-        input: String,
-        outputSchema: String,
-        config: AgentConfig
-    ): String = ???
-    def retry(
-        failedResponse: String,
-        parseError: String,
-        mode: StructuredOutputMode
-    ): String = ???
-
-  private object ChatStubInteraction extends Interaction:
-    def listeners: List[OrcaListener] = Nil
-    def drive[B <: BackendTag](conversation: Conversation[B]): AgentResult[B] =
-      ???
-
   private def chatStubTool(
       backend: AgentBackend[BackendTag.Pi.type]
   ): Agent[BackendTag.Pi.type] =
-    TestAgent(
-      backend,
-      "chat-stub",
-      prompts = ChatStubPrompts,
-      interaction = ChatStubInteraction
-    )
+    TestAgent(backend, "chat-stub")

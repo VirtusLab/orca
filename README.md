@@ -329,14 +329,11 @@ argument. Plain tools take the value directly (`git = Some(myGit)`, `interaction
 = Some(myInteraction)` — your own `orca.backend.Interaction` implementation,
 e.g. for Slack; not exported from `orca.*`, so import it by its full path).
 Agents take a **factory** that receives the run's `AgentWiring` (event sink,
-interaction, workDir, prompts), so a custom agent lands on the same dispatcher
+interaction, workDir, prompts), so a tuned agent lands on the same dispatcher
 as the defaults:
 
 ```scala
-// Start from a per-backend factory and tune it:
 flow(OrcaArgs(args), claude = Some(w => ClaudeAgents.default(w).opus))
-// …or wrap a prebuilt agent:
-flow(OrcaArgs(args), claude = Some(_ => myAgent))
 ```
 
 Factories exist for all five backends: `ClaudeAgents.default(w)`,

@@ -176,7 +176,7 @@ class CommitMessageTest extends munit.FunSuite:
             id = "sid",
             seed = "seed",
             resumeWireId = Some("wire"),
-            backend = None
+            backend = BackendTag.ClaudeCode
           )
         )
         "done"

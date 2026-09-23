@@ -7,7 +7,7 @@ private[orca] object GeminiModels:
 
   /** The strong default model that bare `gemini` pins; `flash` opts down. The
     * only 3.x Pro, still a preview; Google may rename it on GA — override via
-    * `withConfig` if so.
+    * `withModel` if so.
     */
   val Pro: Model = Model("gemini-3.1-pro-preview")
 

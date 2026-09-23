@@ -1,6 +1,6 @@
 package orca.tools.claude
 
-import orca.agents.{Agent, AgentConfig, ClaudeAgent, NetworkTools}
+import orca.agents.{Agent, AgentConfig, ClaudeAgent}
 import orca.backend.AgentWiring
 import orca.subprocess.OsProcCliRunner
 
@@ -35,11 +35,13 @@ object ClaudeAgents:
     /** Set the network tools added to the read-only `--tools` allowlist on
       * [[orca.agents.ToolSet.NetworkOnly]] turns, replacing the default
       * `WebFetch`/`WebSearch`. Bare claude tool names, e.g. `WebFetch`; see
-      * [[NetworkTools.apply]] for what is refused. Pass it before handing the
-      * agent to a planning helper:
+      * [[ClaudeNetworkTools.validated]] for what is refused. Pass it before
+      * handing the agent to a planning helper:
       * `claude.opus.withNetworkTools(Seq("WebFetch"))`.
       */
     def withNetworkTools(tools: Seq[String]): ClaudeAgent =
       agent.withConfig(
-        agent.config.copy(networkTools = Some(NetworkTools(tools)))
+        agent.config.copy(networkTools =
+          Some(ClaudeNetworkTools.validated(tools))
+        )
       )

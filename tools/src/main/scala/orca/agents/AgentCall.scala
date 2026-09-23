@@ -6,27 +6,21 @@ import orca.events.{OrcaEvent, OrcaListener}
 import orca.util.JsonSchemaGen
 import ox.resilience.{ResultPolicy, RetryConfig, retry}
 
-/** Structured-output gateway — obtained via `tool.resultAs[O]`. Splits the
-  * autonomous-vs-interactive choice into two sibling objects so the call site
-  * always shows which mode it picked.
-  */
-trait AgentCall[B <: BackendTag, O]:
-  def autonomous: AutonomousAgentCall[B, O]
-  def interactive: InteractiveAgentCall[B, O]
-
 /** Autonomous structured calls — single agentic turn, no human in the loop.
   * `run` is a one-shot on a fresh, throwaway conversation; to continue a
   * conversation across calls, mint a [[Chat]] (`agent.chat()`) and go through
   * its `resultAs[O]` door instead.
   */
-trait AutonomousAgentCall[B <: BackendTag, O]:
+final class AutonomousAgentCall[B <: BackendTag, O] private[agents] (
+    call: AgentCall[B, O]
+):
   /** One ephemeral structured turn on a fresh conversation. When `emitPrompt`
     * is true (the default), fires an `OrcaEvent.UserPrompt` carrying the
     * human-readable form of `input`; internal callers producing near-identical
     * prompts in quick succession pass `false` to keep the event log focused.
     * Other events (`ToolUse`, `TokensUsed`, etc.) fire regardless.
     */
-  final def run[I: AgentInput](
+  def run[I: AgentInput](
       input: I,
       emitPrompt: Boolean = true
   )(using orca.InStage): O =
@@ -49,7 +43,8 @@ trait AutonomousAgentCall[B <: BackendTag, O]:
       session: SessionId[B],
       sessionKey: Option[SessionKey],
       emitPrompt: Boolean
-  )(using orca.InStage): O
+  )(using orca.InStage): O =
+    call.runAutonomous(input, session, sessionKey, emitPrompt)
 
 /** Interactive structured calls — open a conversation the user can drive
   * (clarifying questions, refinements) before the agent produces the final
@@ -57,9 +52,11 @@ trait AutonomousAgentCall[B <: BackendTag, O]:
   * `FlowSession`: a live human is steering the turn, so there is no seed to
   * replay on resume — hence durable interactive sessions don't exist.
   */
-trait InteractiveAgentCall[B <: BackendTag, O]:
+final class InteractiveAgentCall[B <: BackendTag, O] private[agents] (
+    call: AgentCall[B, O]
+):
   /** One interactive structured turn on a fresh conversation. */
-  final def run[I: AgentInput](input: I)(using orca.InStage): O =
+  def run[I: AgentInput](input: I)(using orca.InStage): O =
     runWithSession(input, SessionId.fresh[B], sessionKey = None)
 
   /** The session-threading door behind [[run]] and [[Chat]]. `sessionKey` is
@@ -70,9 +67,12 @@ trait InteractiveAgentCall[B <: BackendTag, O]:
       input: I,
       session: SessionId[B],
       sessionKey: Option[SessionKey]
-  )(using orca.InStage): O
+  )(using orca.InStage): O =
+    call.runInteractive(input, session, sessionKey)
 
-/** Default implementation of [[AgentCall]] for any backend, wiring both modes:
+/** Structured-output gateway — obtained via `agent.resultAs[O]`. Splits the
+  * autonomous-vs-interactive choice into two sibling objects so the call site
+  * always shows which mode it picked:
   *
   *   - The autonomous shape goes through `backend.runAutonomous` with a
   *     retry-with-corrective-prompt loop: a response that fails to parse as `O`
@@ -83,7 +83,7 @@ trait InteractiveAgentCall[B <: BackendTag, O]:
   *     user steering. No retry: a parse failure on the final payload is more
   *     useful surfaced than silently relaunched.
   */
-class DefaultAgentCall[B <: BackendTag, O](
+final class AgentCall[B <: BackendTag, O] private[orca] (
     backend: AgentBackend[B],
     config: AgentConfig,
     prompts: Prompts,
@@ -97,8 +97,7 @@ class DefaultAgentCall[B <: BackendTag, O](
       * e.g. `Some("reviewer")` for a review-loop run.
       */
     agentRole: Option[String] = None
-)(using jd: JsonData[O], announce: Announce[O])
-    extends AgentCall[B, O]:
+)(using jd: JsonData[O], announce: Announce[O]):
 
   private given sttp.tapir.Schema[O] = jd.schema
   private given com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec[O] =
@@ -118,26 +117,27 @@ class DefaultAgentCall[B <: BackendTag, O](
   private val attributedEvents: OrcaListener =
     OrcaListener.attributedTo(events, agentName)
 
-  val autonomous: AutonomousAgentCall[B, O] = new AutonomousAgentCall[B, O]:
-    private[orca] def runWithSession[I: AgentInput](
-        input: I,
-        session: SessionId[B],
-        sessionKey: Option[SessionKey],
-        emitPrompt: Boolean
-    )(using orca.InStage): O =
-      // `resultAs[O]` refuses construction on a closed agent, but a gateway
-      // built before the flow ended and stored across the close boundary would
-      // still reach the backend — this per-call check closes that gap.
-      backend.checkNotClosed()
-      runAutonomousWithRetry(input, session, sessionKey, emitPrompt)
+  val autonomous: AutonomousAgentCall[B, O] = new AutonomousAgentCall(this)
+  val interactive: InteractiveAgentCall[B, O] = new InteractiveAgentCall(this)
 
-  val interactive: InteractiveAgentCall[B, O] = new InteractiveAgentCall[B, O]:
-    private[orca] def runWithSession[I: AgentInput](
-        input: I,
-        session: SessionId[B],
-        sessionKey: Option[SessionKey]
-    )(using orca.InStage): O =
-      runInteractiveOnce(input, session, sessionKey)
+  private[agents] def runAutonomous[I: AgentInput](
+      input: I,
+      session: SessionId[B],
+      sessionKey: Option[SessionKey],
+      emitPrompt: Boolean
+  ): O =
+    // `resultAs[O]` refuses construction on a closed agent, but a gateway
+    // built before the flow ended and stored across the close boundary would
+    // still reach the backend — this per-call check closes that gap.
+    backend.checkNotClosed()
+    runAutonomousWithRetry(input, session, sessionKey, emitPrompt)
+
+  private[agents] def runInteractive[I: AgentInput](
+      input: I,
+      session: SessionId[B],
+      sessionKey: Option[SessionKey]
+  ): O =
+    runInteractiveOnce(input, session, sessionKey)
 
   /** Emit a `StructuredResult` event carrying the raw payload and the
     * `Announce[O]`-derived summary — tri-state per

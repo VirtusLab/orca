@@ -1,7 +1,7 @@
 package orca.review
 
 import orca.testkit.ScriptedBackend
-import orca.agents.{AgentConfig, BackendTag, DefaultAgentCall, DefaultPrompts}
+import orca.agents.{AgentConfig, BackendTag, AgentCall, DefaultPrompts}
 import orca.backend.{AgentResult, Conversation, Interaction, TurnRequest}
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.plan.Title
@@ -10,11 +10,11 @@ import ox.supervised
 import java.util.concurrent.atomic.AtomicReference
 
 /** Reproduces the review-fix turn's backend call with a canned `FixOutcome`
-  * payload — no subprocess, just [[DefaultAgentCall]] wired to a fake
-  * [[AgentBackend]] — to pin the actual leak: without `FixOutcome`'s `Announce`
-  * instance, `emitStructuredResult` resolves the catch-all and the raw JSON
-  * renders under the same `●` glyph as prose (ADR 0008), on top of the fix
-  * loop's own "Fixed N, declined N" line.
+  * payload — no subprocess, just [[AgentCall]] wired to a fake [[AgentBackend]]
+  * — to pin the actual leak: without `FixOutcome`'s `Announce` instance,
+  * `emitStructuredResult` resolves the catch-all and the raw JSON renders under
+  * the same `●` glyph as prose (ADR 0008), on top of the fix loop's own "Fixed
+  * N, declined N" line.
   */
 private class CannedBackend(output: String)
     extends ScriptedBackend(BackendTag.Pi):
@@ -26,7 +26,7 @@ class FixOutcomeAnnounceTest extends munit.FunSuite:
   private given orca.InStage = orca.InStage.unsafe
 
   // The autonomous path never calls `drive` — only stands in so
-  // `DefaultAgentCall`'s constructor is satisfied.
+  // `AgentCall`'s constructor is satisfied.
   private val stubInteraction: Interaction = new Interaction:
     val listeners: List[OrcaListener] = Nil
     def drive[B <: BackendTag](
@@ -41,7 +41,7 @@ class FixOutcomeAnnounceTest extends munit.FunSuite:
       """{"fixed":["Fix the thing"],"declined":[]}"""
     )
     val seen = AtomicReference[List[OrcaEvent]](Nil)
-    val call = new DefaultAgentCall[BackendTag.Pi.type, FixOutcome](
+    val call = new AgentCall[BackendTag.Pi.type, FixOutcome](
       backend = backend,
       config = AgentConfig(),
       prompts = DefaultPrompts,

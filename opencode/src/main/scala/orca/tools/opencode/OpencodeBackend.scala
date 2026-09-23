@@ -118,8 +118,8 @@ private[orca] class OpencodeBackend(
   // throws on a bare id) so resolving cheap can never break a flow.
   def cheapModel(leading: Option[Model]): Option[Model] =
     leading.map(m => Model.name(m).takeWhile(_ != '/')) match
-      case Some("openai") => Some(OpencodeAgents.OpenaiLuna)
-      case _              => Some(OpencodeAgents.AnthropicHaiku)
+      case Some("openai") => Some(OpencodeModels.OpenaiLuna)
+      case _              => Some(OpencodeModels.AnthropicHaiku)
 
   /** The sole session handle. [[IdScheme.ServerMinted]]: the caller's stable id
     * maps to opencode's server-minted `ses_…` id, so subsequent turns resume

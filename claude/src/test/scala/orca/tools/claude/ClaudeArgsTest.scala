@@ -21,10 +21,10 @@ class ClaudeArgsTest extends munit.FunSuite:
       config: AgentConfig,
       dispatch: Dispatch[BackendTag.ClaudeCode.type] =
         Dispatch.Fresh(Some(testSid)),
-      networkTools: Seq[String] = Seq.empty
+      networkTools: Option[Seq[String]] = None
   ): Seq[String] =
     ClaudeArgs.streamJson(
-      config = config.copy(networkTools = Some(NetworkTools(networkTools))),
+      config = config.copy(networkTools = networkTools.map(NetworkTools(_))),
       systemPromptFile = None,
       dispatch = dispatch
     )
@@ -106,7 +106,7 @@ class ClaudeArgsTest extends munit.FunSuite:
   test("ToolSet.NetworkOnly appends networkTools to the read-only allowlist"):
     val args = streamJson(
       AgentConfig(tools = ToolSet.NetworkOnly),
-      networkTools = Seq("WebFetch", "WebSearch")
+      networkTools = Some(Seq("WebFetch", "WebSearch"))
     )
     assert(
       args.containsSlice(
@@ -120,15 +120,18 @@ class ClaudeArgsTest extends munit.FunSuite:
     // with stdin closed, comes back as a failed tool_result.
     val args = streamJson(
       AgentConfig(tools = ToolSet.NetworkOnly),
-      networkTools = Seq("WebFetch", "WebSearch")
+      networkTools = Some(Seq("WebFetch", "WebSearch"))
     )
     assert(
       args.containsSlice(Seq("--allowedTools", "WebFetch,WebSearch")),
       args
     )
 
-  test("ToolSet.NetworkOnly with no networkTools maps to the read-only list"):
-    val args = streamJson(AgentConfig(tools = ToolSet.NetworkOnly))
+  test("an empty networkTools list maps NetworkOnly to the read-only list"):
+    val args = streamJson(
+      AgentConfig(tools = ToolSet.NetworkOnly),
+      networkTools = Some(Nil)
+    )
     assert(args.containsSlice(Seq("--tools", "Read,Grep,Glob,Skill")), args)
     assert(!args.contains("--allowedTools"), args)
 
@@ -178,7 +181,7 @@ class ClaudeArgsTest extends munit.FunSuite:
     // Reviewers/triage use ReadOnly and must stay network-free.
     val args = streamJson(
       AgentConfig(tools = ToolSet.ReadOnly),
-      networkTools = Seq("WebFetch")
+      networkTools = Some(Seq("WebFetch"))
     )
     assert(args.containsSlice(Seq("--tools", "Read,Grep,Glob,Skill")), args)
     assert(!args.contains("WebFetch"), args)

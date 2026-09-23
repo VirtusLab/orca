@@ -1986,7 +1986,7 @@ class ReviewAndFixTest extends munit.FunSuite:
           id = "s",
           seed = seed,
           resumeWireId = None,
-          backend = None
+          backend = BackendTag.ClaudeCode
         )
       )
       given FlowControl = control

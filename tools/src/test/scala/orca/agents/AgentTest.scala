@@ -248,7 +248,7 @@ class AgentTest extends munit.FunSuite:
     )
 
   // The gate lives on `AgentBackend.runAutonomous` itself, so a turn entry
-  // point that never goes through `BaseAgent` or `DefaultAgentCall` still
+  // point that never goes through `Agent` or `AgentCall` still
   // announces — a new door cannot forget it.
   test("a direct runAutonomous call announces the shortfall"):
     val notices = new NoticeRecorder
@@ -719,10 +719,10 @@ class AgentTest extends munit.FunSuite:
       // defaults to the stub; tests that actually run a resultAs/run call pass
       // DefaultPrompts to get a real prompt string.
       prompts: Prompts = StubPrompts,
-      // Most tests never drive an interactive call (StubInteraction throws);
+      // Most tests never drive an interactive call (UnusedInteraction throws);
       // the interactive tests pass a `RecordingInteraction` that actually
       // pulls `conversation.events`.
-      interaction: Interaction = StubInteraction
+      interaction: Interaction = TestAgent.UnusedInteraction
   ): Agent[BackendTag.Pi.type] =
     TestAgent(backend, "stub", toolConfig, listener, prompts, interaction)
 
@@ -899,7 +899,7 @@ class AgentTest extends munit.FunSuite:
   /** A driving `Interaction` that actually pulls `conversation.events` —
     * recording every one it sees into `seen`, so tests can assert what does and
     * doesn't reach the channel — before returning the awaited result. Unlike
-    * [[StubInteraction]], which never touches the stream.
+    * [[TestAgent.UnusedInteraction]], which never touches the stream.
     */
   private class RecordingInteraction(
       seen: java.util.concurrent.atomic.AtomicReference[List[ConversationEvent]]
@@ -950,8 +950,3 @@ class AgentTest extends munit.FunSuite:
         parseError: String,
         mode: StructuredOutputMode
     ): String = ???
-
-  private object StubInteraction extends Interaction:
-    def listeners: List[OrcaListener] = Nil
-    def drive[B <: BackendTag](conversation: Conversation[B]): AgentResult[B] =
-      ???

@@ -27,6 +27,3 @@ class ClaudeAgentsTest extends munit.FunSuite:
       claude.withNetworkTools(Seq("WebFetch")).config.networkTools,
       Some(NetworkTools(Seq("WebFetch")))
     )
-
-  test("haiku is the backend's cheap tier"):
-    assertEquals(claude.cheap.config.model, Some(ClaudeModels.Haiku))

@@ -11,8 +11,5 @@ object StubAgent:
   def claude: ClaudeAgent = of(BackendTag.ClaudeCode)
   def codex: CodexAgent = of(BackendTag.Codex)
 
-  def of[B <: BackendTag & Singleton](
-      tag: B,
-      name: String = "stub"
-  ): Agent[B] =
-    TestAgent(ScriptedBackend.unused(tag), name)
+  def of[B <: BackendTag & Singleton](tag: B): Agent[B] =
+    TestAgent(ScriptedBackend.unused(tag))

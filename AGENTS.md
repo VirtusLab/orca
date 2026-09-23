@@ -164,8 +164,9 @@ most easily broken:
   / `agent.chat()` (ephemeral `Chat`, fork-safe, `InStage`-only) /
   `agent.session(name, seed)` (durable `FlowSession`, flow-thread-only
   — the owner-thread assert on every `FlowSession` turn enforces it at runtime, and
-  the raw session-threading doors are `private[orca] runWithSession`, so
-  ephemeral continuation is only reachable through a `Chat` handle).
+  the raw session-threading doors are `private[orca]` — `Agent.runText` and
+  the `AgentCall` modes' `runWithSession` — so ephemeral continuation is only
+  reachable through a `Chat` handle).
 
   Sessions have explicit identity: `agent.session(name, seed)` keys an
   `orca.sessions.SessionRecord` by `orca.agents.SessionKey(name, stage)`. `name`

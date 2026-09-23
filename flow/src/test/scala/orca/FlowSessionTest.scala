@@ -264,7 +264,7 @@ class FlowSessionTest extends FunSuite:
       id = id,
       seed = "seed",
       resumeWireId = Some("wire-1"),
-      backend = None
+      backend = BackendTag.ClaudeCode
     )
 
   private def carriedOver: List[SessionRecord] =
@@ -303,7 +303,7 @@ class FlowSessionTest extends FunSuite:
           id = testSessionId,
           seed = seed,
           resumeWireId = None,
-          backend = None
+          backend = BackendTag.ClaudeCode
         )
       )
     )
@@ -361,7 +361,7 @@ class FlowSessionTest extends FunSuite:
           id = testSessionId,
           seed = "You are a planning agent.",
           resumeWireId = None,
-          backend = None
+          backend = BackendTag.ClaudeCode
         )
       )
     )
@@ -500,7 +500,7 @@ class FlowSessionTest extends FunSuite:
           id = testSessionId,
           seed = seed,
           resumeWireId = None,
-          backend = None
+          backend = BackendTag.ClaudeCode
         )
       )
     )
@@ -530,7 +530,7 @@ class FlowSessionTest extends FunSuite:
           id = testSessionId,
           seed = "x",
           resumeWireId = None,
-          backend = None
+          backend = BackendTag.ClaudeCode
         )
       )
     )
@@ -565,7 +565,7 @@ class FlowSessionTest extends FunSuite:
           id = testSessionId,
           seed = "seed",
           resumeWireId = Some("wire-1"),
-          backend = None
+          backend = BackendTag.ClaudeCode
         )
       ),
       listeners = List(listener)
@@ -591,7 +591,7 @@ class FlowSessionTest extends FunSuite:
           id = testSessionId,
           seed = "x",
           resumeWireId = None,
-          backend = None
+          backend = BackendTag.ClaudeCode
         )
       ),
       listeners = List(listener)
@@ -615,7 +615,7 @@ class FlowSessionTest extends FunSuite:
           id = testSessionId,
           seed = seed,
           resumeWireId = None,
-          backend = None
+          backend = BackendTag.ClaudeCode
         )
       ),
       completedStages = List("triage", "implement")
@@ -692,7 +692,7 @@ class FlowSessionTest extends FunSuite:
           id = testSessionId,
           seed = "",
           resumeWireId = None,
-          backend = None
+          backend = BackendTag.ClaudeCode
         )
       ),
       completedStages = List("triage")
@@ -739,7 +739,7 @@ class FlowSessionTest extends FunSuite:
         id = testSessionId,
         seed = "",
         resumeWireId = None,
-        backend = None
+        backend = BackendTag.ClaudeCode
       )
     )
     store.upsertEntry(
@@ -787,7 +787,7 @@ class FlowSessionTest extends FunSuite:
           id = testSessionId,
           seed = seed,
           resumeWireId = None,
-          backend = None
+          backend = BackendTag.ClaudeCode
         )
       )
     )
@@ -833,7 +833,7 @@ class FlowSessionTest extends FunSuite:
           id = testSessionId,
           seed = seed,
           resumeWireId = None,
-          backend = None
+          backend = BackendTag.ClaudeCode
         )
       )
     )
@@ -855,7 +855,7 @@ class FlowSessionTest extends FunSuite:
           id = testSessionId,
           seed = "seed",
           resumeWireId = None,
-          backend = None
+          backend = BackendTag.ClaudeCode
         )
       )
     )
@@ -880,7 +880,7 @@ class FlowSessionTest extends FunSuite:
           id = testSessionId,
           seed = "seed",
           resumeWireId = None,
-          backend = None
+          backend = BackendTag.ClaudeCode
         )
       )
     )
@@ -906,7 +906,7 @@ class FlowSessionTest extends FunSuite:
           id = testSessionId,
           seed = "seed",
           resumeWireId = Some("server-1"),
-          backend = None
+          backend = BackendTag.ClaudeCode
         )
       )
     )
@@ -939,7 +939,7 @@ class FlowSessionTest extends FunSuite:
           id = testSessionId,
           seed = seed,
           resumeWireId = None,
-          backend = None
+          backend = BackendTag.ClaudeCode
         )
       ),
       completedStages = List("triage")
@@ -1000,7 +1000,7 @@ class FlowSessionTest extends FunSuite:
           id = testSessionId,
           seed = "seed",
           resumeWireId = None,
-          backend = None
+          backend = BackendTag.ClaudeCode
         )
       )
     )

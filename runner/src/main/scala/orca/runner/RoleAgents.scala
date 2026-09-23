@@ -205,7 +205,7 @@ private[orca] object RoleAgents:
       costRole: String,
       agent: Agent[?]
   ): Agent[?] =
-    val named = if agent.hasDefaultName then agent.withName(label) else agent
+    val named = agent.withDefaultNameReplacedBy(label)
     if named.role.isEmpty then named.withRole(costRole) else named
 
   /** Stands in for a role where nothing orca can see pins a model — neither the

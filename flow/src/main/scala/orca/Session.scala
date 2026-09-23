@@ -212,27 +212,25 @@ private def reuseOrMint[B <: BackendTag](
     seed: String,
     recorded: SessionRecord
 )(using fc: FlowControl): SessionId[B] =
-  recorded.backend match
-    case Some(recordedTag) if agent.backendTag != recordedTag =>
-      // Backend swapped between runs: `recorded.id` is meaningful only in the
-      // old backend's registry, so mint fresh rather than reuse it.
-      warnBackendSwap(fc, key, recordedTag, agent.backendTag)
-      mintSession(agent, key, seed)
-    case _ =>
-      // Tags match, or the record is untagged. The recorded id is
-      // log-sourced and untrusted: parse it rather than resume against a
-      // value that could carry a path/regex/URL injection downstream; a
-      // parse failure mints fresh like the tag-mismatch case.
-      SessionId.parse[B](recorded.id) match
-        case Some(validId) =>
-          // Reuse is the safe fallback (ADR 0018 §2.6): a seed edited
-          // between runs is surfaced as a warning, never a re-mint.
-          warnIfSeedDiffers(fc, key, recorded.seed, seed)
-          recorded.resumeWireId.foreach(rehydrate(agent, validId, key, _))
-          validId
-        case None =>
-          warnInvalidRecordedId(fc, key)
-          mintSession(agent, key, seed)
+  if recorded.backend != agent.backendTag then
+    // Backend swapped between runs: `recorded.id` is meaningful only in the
+    // old backend's registry, so mint fresh rather than reuse it.
+    warnBackendSwap(fc, key, recorded.backend, agent.backendTag)
+    mintSession(agent, key, seed)
+  else
+    // The recorded id is log-sourced and untrusted: parse it rather than
+    // resume against a value that could carry a path/regex/URL injection
+    // downstream; a parse failure mints fresh like the tag-mismatch case.
+    SessionId.parse[B](recorded.id) match
+      case Some(validId) =>
+        // Reuse is the safe fallback (ADR 0018 §2.6): a seed edited between
+        // runs is surfaced as a warning, never a re-mint.
+        warnIfSeedDiffers(fc, key, recorded.seed, seed)
+        recorded.resumeWireId.foreach(rehydrate(agent, validId, key, _))
+        validId
+      case None =>
+        warnInvalidRecordedId(fc, key)
+        mintSession(agent, key, seed)
 
 /** Hand the wire id a previous run recorded for `id` to `agent`, so its first
   * turn this run — durable, or through a chat adopting `id` — probes and
@@ -307,7 +305,7 @@ private def mintSession[B <: BackendTag](
       id = freshId.value,
       seed = seed,
       resumeWireId = None,
-      backend = Some(agent.backendTag)
+      backend = agent.backendTag
     )
   )
   freshId

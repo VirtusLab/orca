@@ -37,20 +37,16 @@ object OpencodeAgents:
       defaultName = "main"
     )
 
-  private[opencode] val AnthropicHaiku: Model =
-    OpencodeModel("anthropic", "claude-haiku-4-5")
-  private[opencode] val OpenaiLuna: Model =
-    OpencodeModel("openai", "gpt-6-luna")
-
   extension (agent: OpencodeAgent)
     def anthropicOpus: OpencodeAgent =
-      agent.withModel("anthropic", "claude-opus-5-5")
+      agent.withModel(OpencodeModels.AnthropicOpus)
     def anthropicSonnet: OpencodeAgent =
-      agent.withModel("anthropic", "claude-sonnet-5")
-    def anthropicHaiku: OpencodeAgent = agent.withModel(AnthropicHaiku)
-    def openaiAstra: OpencodeAgent = agent.withModel("openai", "gpt-6-astra")
-    def openaiSol: OpencodeAgent = agent.withModel("openai", "gpt-6-sol")
-    def openaiLuna: OpencodeAgent = agent.withModel(OpenaiLuna)
+      agent.withModel(OpencodeModels.AnthropicSonnet)
+    def anthropicHaiku: OpencodeAgent =
+      agent.withModel(OpencodeModels.AnthropicHaiku)
+    def openaiAstra: OpencodeAgent = agent.withModel(OpencodeModels.OpenaiAstra)
+    def openaiSol: OpencodeAgent = agent.withModel(OpencodeModels.OpenaiSol)
+    def openaiLuna: OpencodeAgent = agent.withModel(OpencodeModels.OpenaiLuna)
 
     /** Pin any `provider/model` id (e.g. `ollama/llama3.1`,
       * `myhost/qwen-coder`).

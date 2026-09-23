@@ -5,7 +5,8 @@ import orca.{FlowContext, FlowSession, InStage, StackSettings, TestFlowControl}
 import orca.agents.{Agent, BackendTag, JsonData, SessionId, SessionKey}
 import orca.backend.{AgentResult, IdScheme, SessionSupport, TurnRequest}
 import orca.testkit.{PassthroughPrompts, ScriptedBackend, TestAgent}
-import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
+import orca.AgentTurnFailed
+import orca.events.{EventDispatcher, OrcaEvent, OrcaListener, TurnDebit}
 import orca.plan.{Task, Title}
 import orca.gitref.CommitHash
 
@@ -112,10 +113,10 @@ private[review] object Reply:
     Reply(ScriptedBackend.json(t))
 
 /** An agent replying with `outputs` in order, recording each turn; a turn past
-  * the end fails, which is how a test pins that an agent must never run.
-  * `onRun` fires before each reply. Structured inputs reach the backend
-  * unwrapped ([[PassthroughPrompts]]), so [[seenPrompts]] holds what the caller
-  * sent.
+  * the end fails without a retry, which is how a test pins that an agent must
+  * never run. `onRun` fires before each reply. Structured inputs reach the
+  * backend unwrapped ([[PassthroughPrompts]]), so [[seenPrompts]] holds what
+  * the caller sent.
   */
 private[review] class FakeAgent(
     val name: String,
@@ -138,7 +139,11 @@ private[review] class FakeAgent(
         onRun()
         Option(remaining.poll()) match
           case Some(r) => ScriptedBackend.result(r.json)
-          case None    => throw new AssertionError(s"$name: no reply scripted")
+          case None =>
+            throw new AgentTurnFailed(
+              s"$name: no reply scripted",
+              TurnDebit.Unobserved
+            )
     ,
     name,
     events = {

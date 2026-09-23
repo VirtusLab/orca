@@ -54,17 +54,16 @@ final class Agent[B <: BackendTag] private (
     val role: Option[String]
 ):
   /** Label for this agent in the event stream (the `agent` axis of
-    * `OrcaEvent.TokensUsed`). Set it with [[withName]] to distinguish roles in
-    * the cost report (e.g. "reviewer").
+    * `OrcaEvent.TokensUsed`). Set it with [[withName]] to tell agents apart in
+    * the cost report.
     */
   def name: String = naming.label
 
-  /** Whether [[name]] is the backend's default rather than one set with
-    * [[withName]].
-    */
-  private[orca] def hasDefaultName: Boolean = naming match
-    case AgentName.Default(_)  => true
-    case AgentName.Explicit(_) => false
+  /** This agent named `label`, unless it was named with [[withName]]. */
+  private[orca] def withDefaultNameReplacedBy(label: String): Agent[B] =
+    naming match
+      case AgentName.Default(_)  => withName(label)
+      case AgentName.Explicit(_) => this
 
   /** One ephemeral free-text turn — a fresh conversation, discarded after the
     * reply. Use when the agent's reply is prose / code / anything that doesn't
@@ -102,7 +101,7 @@ final class Agent[B <: BackendTag] private (
     */
   def resultAs[O: JsonData: Announce]: AgentCall[B, O] =
     backend.checkNotClosed()
-    new DefaultAgentCall[B, O](
+    new AgentCall[B, O](
       backend,
       config,
       prompts,
@@ -113,7 +112,8 @@ final class Agent[B <: BackendTag] private (
     )
 
   /** Sibling running on `config` — replaces every field, including a
-    * [[withTools]] restriction; to change one field, use its builder.
+    * [[withTools]] restriction or claude's `withNetworkTools`; to change one
+    * field, use its builder.
     */
   def withConfig(newConfig: AgentConfig): Agent[B] = copy(config = newConfig)
 
@@ -334,7 +334,9 @@ final class Agent[B <: BackendTag] private (
     * sessions don't outlive the run. The flow runtime reads this after a turn
     * to persist it into the session store.
     */
-  def resumeWireId(client: SessionId[B]): Option[WireSessionId[B]] =
+  private[orca] def resumeWireId(
+      client: SessionId[B]
+  ): Option[WireSessionId[B]] =
     backend.sessions.persistableWireId(client)
 
   /** Record a resume wire id a previous run persisted for `client` — see
@@ -346,9 +348,6 @@ final class Agent[B <: BackendTag] private (
       wireId: WireSessionId[B]
   ): Unit =
     backend.sessions.rehydrate(client, wireId)
-
-  /** Publish an event on this agent's sink. */
-  private[orca] def emitEvent(event: OrcaEvent): Unit = events.onEvent(event)
 
   /** Mark this agent's backend as belonging to an ended flow, so later runs
     * through any handle sharing it are refused. The runtime calls this when the
@@ -406,7 +405,7 @@ object Agent:
       .getOrElse("")
 
 /** Where an [[Agent]]'s name came from: the backend default, or
-  * [[Agent.withName]]. The runtime relabels only a default-named role agent.
+  * [[Agent.withName]].
   */
 private[agents] enum AgentName(val label: String):
   case Default(l: String) extends AgentName(l)

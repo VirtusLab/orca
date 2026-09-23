@@ -213,20 +213,18 @@ class RoleAgentsTest extends munit.FunSuite:
       )
     )
 
-  test("a name a programmatic override set deliberately is not overwritten"):
-    // The name is what sessions and selectors key off, so an override that
-    // picked one keeps it.
+  test("a role the agent already carries is not overwritten"):
     val resolution = resolveInScope(
       project = AgentSettings.empty,
       global = AgentSettings.empty,
       overrides = RoleOverrides(
         None,
-        Some((a: orca.AgentSet) => a.claude.withName("bob")),
+        Some((a: orca.AgentSet) => a.claude.withRole("x")),
         None
       ),
       agents = wiredAgents()
     )
-    assertEquals(resolution.roles.coding.name, "bob")
+    assertEquals(resolution.roles.coding.role, Some("x"))
 
   test("a name set at wiring time is not overwritten"):
     val roles = resolvedRoles(

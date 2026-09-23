@@ -1,8 +1,9 @@
 package orca.runner
 
-import orca.agents.{Agent, BackendTag, DefaultPrompts}
-import orca.backend.{AgentResult, AgentWiring, Conversation, Interaction}
+import orca.agents.{Agent, DefaultPrompts}
+import orca.backend.AgentWiring
 import orca.events.{OrcaListener, Pricing}
+import orca.testkit.TestAgent
 import orca.testkit.Usages.usage
 import orca.tools.claude.ClaudeAgents
 import orca.tools.codex.CodexAgents
@@ -15,16 +16,9 @@ import orca.tools.gemini.GeminiAgents
   */
 class DefaultModelsPricedTest extends munit.FunSuite:
 
-  private val stubInteraction: Interaction = new Interaction:
-    val listeners: List[OrcaListener] = Nil
-    def drive[B <: BackendTag](
-        conversation: Conversation[B]
-    ): AgentResult[B] =
-      throw new UnsupportedOperationException("test stub")
-
   private val wiring = AgentWiring(
     events = OrcaListener.noop,
-    interaction = stubInteraction,
+    interaction = TestAgent.UnusedInteraction,
     workDir = os.pwd,
     prompts = DefaultPrompts
   )

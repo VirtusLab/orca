@@ -46,7 +46,7 @@ class SessionTest extends FunSuite:
           id = "client-1",
           seed = "brief",
           resumeWireId = Some(wire),
-          backend = None
+          backend = BackendTag.ClaudeCode
         )
       )
 
@@ -100,7 +100,7 @@ class SessionTest extends FunSuite:
           id = session.id.value,
           seed = "plan brief",
           resumeWireId = None,
-          backend = Some(BackendTag.ClaudeCode)
+          backend = BackendTag.ClaudeCode
         )
       )
     )
@@ -326,7 +326,7 @@ class SessionTest extends FunSuite:
     val agent = stubAgent(BackendTag.Codex)
     val _ =
       agent.session("implementer", seed = "plan brief")(using control(dir))
-    assertEquals(records(dir).head.backend, Some(BackendTag.Codex))
+    assertEquals(records(dir).head.backend, BackendTag.Codex)
 
   test("resume with a divergent seed at the same key warns loudly"):
     // The key matches but the seed differs — it was edited between runs.
@@ -356,7 +356,7 @@ class SessionTest extends FunSuite:
     val codexAgent = stubAgent(BackendTag.Codex)
     val originalId =
       codexAgent.session("implementer", seed = "brief")(using control(dir))
-    assertEquals(records(dir).head.backend, Some(BackendTag.Codex))
+    assertEquals(records(dir).head.backend, BackendTag.Codex)
 
     // Second run over the SAME key: a differently-tagged
     // agent — a lead-backend swap between runs. A backend-tag mismatch must
@@ -373,7 +373,7 @@ class SessionTest extends FunSuite:
     )
     assertEquals(
       records(dir).head.backend,
-      Some(BackendTag.ClaudeCode),
+      BackendTag.ClaudeCode,
       "the record must be re-stamped under the NEW agent's tag"
     )
     assert(
@@ -438,7 +438,7 @@ class SessionTest extends FunSuite:
           id = "../../etc/passwd",
           seed = "brief",
           resumeWireId = None,
-          backend = None
+          backend = BackendTag.ClaudeCode
         )
       )
     val agent = stubAgent(BackendTag.ClaudeCode)
