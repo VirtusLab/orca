@@ -21,7 +21,9 @@ class TurnGrammarTest extends munit.FunSuite:
   /** Interprets each scripted stdout line as a direct `ConversationEvent`-level
     * command.
     */
-  private object GrammarDecoder extends LineDecoder[Tag, Unit]:
+  private class GrammarDecoder(unsettledEnd: () => Unit)
+      extends LineDecoder[Tag, Unit]:
+    override def onUnsettledEnd(): Unit = unsettledEnd()
     def backendName: String = "fake"
     def terminalMessageNoun: String = "a settle"
     def init: Unit = ()
@@ -64,10 +66,10 @@ class TurnGrammarTest extends munit.FunSuite:
         openingPrompt = None,
         outputSchema = None,
         structuredOutputMode = StructuredOutputMode.RawText,
-        askUser = AskUserChannel.Unavailable,
-        onUnsettledEnd = onUnsettledEnd
-      )
-    )(_ => GrammarDecoder)
+        askUser = AskUserChannel.Unavailable
+      ),
+      GrammarDecoder(onUnsettledEnd)
+    )
 
   /** Run a scripted sequence and return the emitted events. */
   private def runScript(lines: String*): List[ConversationEvent] =

@@ -4,7 +4,11 @@ import orca.agents.{Model, WireSessionId}
 import orca.events.TurnDebit
 import orca.testkit.Usages.usage
 import orca.{OrcaFlowException, OrcaInteractiveCancelled}
-import orca.backend.{ConversationEvent, ConversationEventConformance}
+import orca.backend.{
+  AskUserChannel,
+  ConversationEvent,
+  ConversationEventConformance
+}
 import orca.subprocess.FakePipedCliProcess
 import ox.{Ox, supervised}
 
@@ -97,9 +101,11 @@ class GeminiConversationTest extends munit.FunSuite:
     val Right(r) = conv.awaitResult(): @unchecked
     assertEquals(r.output, "foobar")
 
-  convTest("initialPrompt becomes a UserMessage event before agent output"):
+  convTest(
+    "the opening prompt becomes a UserMessage event before agent output"
+  ):
     val process = new FakePipedCliProcess()
-    val conv = GeminiConversation(process, initialPrompt = Some("do the thing"))
+    val conv = GeminiConversation(process, openingPrompt = Some("do the thing"))
 
     process.enqueueStdout("""{"type":"init","session_id":"s"}""")
     process.enqueueStdout(
@@ -405,8 +411,6 @@ class GeminiConversationTest extends munit.FunSuite:
       s"expected the failing status in the message; got: ${ex.getMessage}"
     )
 
-  // gemini's failing `result` frame carries the turn's stats, and the estimate
-  // from them is the only cost signal gemini ever gives.
   convTest("a successful result with no init event fails the turn"):
     val process = new FakePipedCliProcess()
     val conv = GeminiConversation(process)
@@ -419,6 +423,8 @@ class GeminiConversationTest extends munit.FunSuite:
     val ex = intercept[orca.AgentTurnFailed](conv.awaitResult())
     assertEquals(ex.debit, TurnDebit.Observed(usage(5L, 2L), None))
 
+  // gemini's failing `result` frame carries the turn's stats, and the estimate
+  // from them is the only cost signal gemini ever gives.
   convTest("a failed result frame carries its stats as the turn's debit"):
     val process = new FakePipedCliProcess()
     val conv = GeminiConversation(process)
@@ -581,7 +587,7 @@ class GeminiConversationTest extends munit.FunSuite:
       val process = new FakePipedCliProcess()
       val conv = GeminiConversation(
         process,
-        askUser = Some(AskUserSession.allocate())
+        askUser = AskUserChannel.Mcp(AskUserSession.allocate())
       )
 
       process.enqueueStdout("""{"type":"init","session_id":"s"}""")
@@ -619,7 +625,8 @@ class GeminiConversationTest extends munit.FunSuite:
       given BufferCapacity = BufferCapacity(8)
       val process = new FakePipedCliProcess()
       val askUser = AskUserSession.allocate()
-      val conv = GeminiConversation(process, askUser = Some(askUser))
+      val conv =
+        GeminiConversation(process, askUser = AskUserChannel.Mcp(askUser))
       val bridge = askUser.bridge
       assert(conv.canAskUser, "canAskUser must be true when a bridge is wired")
 

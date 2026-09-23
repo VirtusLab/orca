@@ -13,6 +13,7 @@ import orca.agents.{
   TurnDispatch
 }
 import orca.backend.{
+  AskUserChannel,
   Conversation,
   TurnRequest,
   AgentBackend,
@@ -202,9 +203,10 @@ private[orca] class ClaudeBackend(
       ClaudeConversation(
         process,
         config,
-        initialPrompt = mode.openingPrompt,
+        openingPrompt = mode.openingPrompt,
         outputSchema = outputSchema,
-        askUser = askUser
+        askUser =
+          askUser.fold(AskUserChannel.Unavailable)(AskUserChannel.Mcp(_))
       )
     }
 

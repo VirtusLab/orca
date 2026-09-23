@@ -108,8 +108,8 @@ private[orca] class PiBackend private[pi] (
       PiConversation(
         process = process,
         clientSession = session,
-        prompt = Some(prompt),
-        initialPrompt = mode.openingPrompt,
+        prompt = prompt,
+        openingPrompt = mode.openingPrompt,
         outputSchema = outputSchema,
         askUser = askUserExtension.fold(AskUserChannel.Unavailable)(_ =>
           AskUserChannel.Native

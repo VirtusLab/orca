@@ -15,8 +15,9 @@ import orca.backend.{
   StreamConversation,
   StreamSource
 }
-import orca.backend.mcp.{AskUserMcpServer, AskUserSession}
+import orca.backend.mcp.AskUserMcpServer
 import orca.subprocess.PipedCliProcess
+import orca.util.OrcaDebug
 import orca.tools.gemini.jsonl.{InboundEvent, Role, ToolStatus}
 
 import ox.Ox
@@ -46,7 +47,7 @@ private[gemini] object GeminiDecoder
     *   surfaced the `UserQuestion`
     */
   final case class State(
-      sessionId: Option[String],
+      sessionId: Option[WireSessionId[BackendTag.Gemini.type]],
       model: Option[String],
       answer: Vector[String],
       toolNames: Map[String, String],
@@ -65,7 +66,9 @@ private[gemini] object GeminiDecoder
   def line(state: State, line: String): Out =
     InboundEvent.parse(line) match
       case InboundEvent.Init(sessionId, model) =>
-        Step.continue(state.copy(sessionId = Some(sessionId), model = model))
+        Step.continue(
+          state.copy(sessionId = Some(WireSessionId(sessionId)), model = model)
+        )
       case InboundEvent.Message(role, content) => message(state, role, content)
       case InboundEvent.ToolUse(name, id, params) =>
         toolUse(state, name, id, params)
@@ -79,10 +82,10 @@ private[gemini] object GeminiDecoder
       case InboundEvent.Unknown(_) => Step.continue(state)
 
   /** Known-benign chatter gemini prints on every successful run (see
-    * [[GeminiConversation.isKnownStderrNoise]]).
+    * [[isKnownStderrNoise]]).
     */
   override def isStderrNoise(line: String): Boolean =
-    GeminiConversation.isKnownStderrNoise(line)
+    isKnownStderrNoise(line)
 
   /** Only the terminal `result` event carries stats, and a turn that reaches it
     * settles itself with an `Observed` debit.
@@ -101,8 +104,8 @@ private[gemini] object GeminiDecoder
     val settled = (status, state.sessionId) match
       case (ToolStatus.Success, Some(sessionId)) =>
         Settled.Succeeded(
-          AgentResult[BackendTag.Gemini.type](
-            WireSessionId(sessionId),
+          AgentResult(
+            sessionId,
             state.answer.mkString,
             usage,
             state.model.map(Model.apply)
@@ -135,7 +138,7 @@ private[gemini] object GeminiDecoder
           ConversationEvent.AssistantTextDelta(content)
         )
       case Role.Unknown =>
-        StreamConversation.trace(
+        OrcaDebug.traceStream(
           backendName,
           "message",
           s"dropped: message with missing/unrecognized role (${content.length} chars)"
@@ -148,7 +151,7 @@ private[gemini] object GeminiDecoder
       id: String,
       params: String
   ): Out =
-    if GeminiConversation.isAskUserTool(name) then
+    if isAskUserTool(name) then
       Step.continue(state.copy(echoes = state.echoes.suppress(id)))
     else
       Step.continue(
@@ -174,33 +177,12 @@ private[gemini] object GeminiDecoder
           )
         )
 
-private[gemini] object GeminiConversation:
-
-  /** Starts decoding `process` into the caller's turn scope. */
-  def apply(
-      process: PipedCliProcess,
-      initialPrompt: Option[String] = None,
-      outputSchema: Option[String] = None,
-      askUser: Option[AskUserSession] = None
-  )(using Ox): Conversation[BackendTag.Gemini.type] =
-    StreamConversation.start(
-      StreamSource.fromProcess(process),
-      ConversationSpec(
-        openingPrompt = initialPrompt,
-        outputSchema = outputSchema,
-        structuredOutputMode = StructuredOutputMode.RawText,
-        askUser =
-          askUser.fold(AskUserChannel.Unavailable)(AskUserChannel.Mcp(_)),
-        onUnsettledEnd = () => ()
-      )
-    )(_ => GeminiDecoder)
-
   /** The `ask_user` MCP tool as gemini names it in `tool_use` events. gemini
     * qualifies an MCP tool as `<server>__<tool>` (e.g. `orca__ask_user`); match
     * that exact name (or the bare slug) rather than any name *containing*
     * `ask_user`, so an unrelated tool isn't suppressed.
     */
-  private[gemini] def isAskUserTool(name: String): Boolean =
+  private def isAskUserTool(name: String): Boolean =
     name == AskUserMcpServer.ToolSlug ||
       name == s"${AskUserMcpServer.ServerName}__${AskUserMcpServer.ToolSlug}"
 
@@ -213,8 +195,28 @@ private[gemini] object GeminiConversation:
     *   - `Shell cwd was reset to …` after a tool run,
     *   - `[IDEClient]` companion-extension probe chatter.
     */
-  private[gemini] def isKnownStderrNoise(line: String): Boolean =
+  private def isKnownStderrNoise(line: String): Boolean =
     line.contains("256-color support not detected") ||
       line.startsWith("YOLO mode is enabled") ||
       line.startsWith("Shell cwd was reset to") ||
       line.contains("[IDEClient]")
+
+private[gemini] object GeminiConversation:
+
+  /** Starts decoding `process` into the caller's turn scope. */
+  def apply(
+      process: PipedCliProcess,
+      openingPrompt: Option[String] = None,
+      outputSchema: Option[String] = None,
+      askUser: AskUserChannel = AskUserChannel.Unavailable
+  )(using Ox): Conversation[BackendTag.Gemini.type] =
+    StreamConversation.start(
+      StreamSource.fromProcess(process),
+      ConversationSpec(
+        openingPrompt = openingPrompt,
+        outputSchema = outputSchema,
+        structuredOutputMode = StructuredOutputMode.RawText,
+        askUser = askUser
+      ),
+      GeminiDecoder
+    )

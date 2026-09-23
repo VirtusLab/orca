@@ -34,7 +34,7 @@ object ConversationEventConformance extends munit.Assertions:
         activitySinceTurnEnd = false
       // Activity vs. neutral routes through ConversationEvent.opensTurn, the
       // exhaustive, single-source-of-truth classifier shared with the funnel
-      // (StreamConversation's reader) — see its scaladoc.
+      // (StreamConversation.Reader.emitAll).
       case e if e.opensTurn => activitySinceTurnEnd = true
       case _                => ()
     if completedNormally && activitySinceTurnEnd then

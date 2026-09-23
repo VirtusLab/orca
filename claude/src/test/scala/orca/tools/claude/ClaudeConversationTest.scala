@@ -5,6 +5,7 @@ import orca.events.{TurnDebit, Usage}
 import orca.testkit.Usages.usage
 import orca.{AgentTurnFailed, OrcaFlowException, OrcaInteractiveCancelled}
 import orca.backend.{
+  AskUserChannel,
   ApprovalDecision,
   ConversationEvent,
   ConversationEventConformance
@@ -316,7 +317,6 @@ class ClaudeConversationTest extends munit.FunSuite:
     "can_use_tool with autoApprove=Only not matching emits ApproveTool for the channel"
   ):
     val process = new FakePipedCliProcess()
-    process.closeStdin()
     val conv = ClaudeConversation(
       process,
       AgentConfig().copy(autoApprove = AutoApprove.Only(Set("Read")))
@@ -340,17 +340,13 @@ class ClaudeConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val rest = conv.events.toList
+    val _ = conv.events.toList
     val _ = conv.awaitResult()
 
-    // The channel's decision can't reach a closed stdin; that is reported
-    // against the request it belongs to, not thrown into the reader.
+    // The channel's decision is written back against its own request.
     assert(
-      rest.exists:
-        case ConversationEvent.Error(m) => m.contains("req-2")
-        case _                          => false
-      ,
-      rest
+      process.writes.exists(w => w.contains("req-2") && w.contains("deny")),
+      process.writes
     )
 
   convTest(
@@ -558,7 +554,6 @@ class ClaudeConversationTest extends munit.FunSuite:
     "multiple back-to-back ApproveTool events carry distinct respond closures"
   ):
     val process = new FakePipedCliProcess()
-    process.closeStdin()
     val conv = ClaudeConversation(
       process,
       AgentConfig().copy(autoApprove = AutoApprove.Only(Set.empty))
@@ -588,14 +583,18 @@ class ClaudeConversationTest extends munit.FunSuite:
     )
     process.closeStdout()
     process.closeStderr()
-    val rest = conv.events.toList
+    val _ = conv.events.toList
     val _ = conv.awaitResult()
 
-    // Each closure carries its own request id: the two undeliverable reports
-    // name req-A and req-B separately, so the closures don't alias.
-    val reported = rest.collect { case ConversationEvent.Error(m) => m }
-    assert(reported.exists(_.contains("req-A")), reported)
-    assert(reported.exists(_.contains("req-B")), reported)
+    // Each closure carries its own request id, so the closures don't alias.
+    assert(
+      process.writes.exists(w => w.contains("req-A") && w.contains("allow")),
+      process.writes
+    )
+    assert(
+      process.writes.exists(w => w.contains("req-B") && w.contains("deny")),
+      process.writes
+    )
 
   test(
     "askUserBridge: questions surface as UserQuestion events; respond unblocks ask"
@@ -610,7 +609,7 @@ class ClaudeConversationTest extends munit.FunSuite:
       val conv = ClaudeConversation(
         process,
         AgentConfig(),
-        askUser = Some(askUser)
+        askUser = AskUserChannel.Mcp(askUser)
       )
       val bridge = askUser.bridge
       assert(conv.canAskUser, "canAskUser must be true when a bridge is wired")

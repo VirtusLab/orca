@@ -195,7 +195,7 @@ private[orca] class OpencodeBackend(
       askUser =
         if mode.isInteractive then AskUserChannel.Native
         else AskUserChannel.Unavailable,
-      initialPrompt = mode.openingPrompt
+      openingPrompt = mode.openingPrompt
     )
     val body = OpencodeArgs.message(config, prompt, outputSchema, mode)
     try

@@ -10,6 +10,7 @@ import orca.agents.{
 }
 import orca.subprocess.CliResult
 import orca.backend.{
+  AskUserChannel,
   Conversation,
   TurnRequest,
   Dispatch,
@@ -123,9 +124,10 @@ private[orca] class GeminiBackend(
       process.closeStdin()
       GeminiConversation(
         process,
-        initialPrompt = mode.openingPrompt,
+        openingPrompt = mode.openingPrompt,
         outputSchema = outputSchema,
-        askUser = askUser
+        askUser =
+          askUser.fold(AskUserChannel.Unavailable)(AskUserChannel.Mcp(_))
       )
     }
 

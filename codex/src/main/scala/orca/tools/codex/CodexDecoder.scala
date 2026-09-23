@@ -15,7 +15,7 @@ import orca.backend.{
   StreamConversation,
   StreamSource
 }
-import orca.backend.mcp.{AskUserMcpServer, AskUserSession}
+import orca.backend.mcp.AskUserMcpServer
 import orca.subprocess.PipedCliProcess
 import orca.tools.codex.jsonl.{FileChangeDetail, InboundEvent, Item}
 
@@ -51,8 +51,7 @@ private[codex] final class CodexDecoder(
     configuredModel: Option[Model]
 ) extends LineDecoder[BackendTag.Codex.type, CodexDecoder.State]:
 
-  import CodexConversation.*
-  import CodexDecoder.State
+  import CodexDecoder.*
 
   private type Out = Step[BackendTag.Codex.type, State]
 
@@ -60,12 +59,20 @@ private[codex] final class CodexDecoder(
 
   def terminalMessageNoun: String = "a turn.completed event"
 
-  def init: State = State(None, None, "", None, AskUserEchoes.empty)
+  def init: State = State(
+    threadId = None,
+    model = None,
+    lastAgentMessage = "",
+    lastProtocolError = None,
+    echoes = AskUserEchoes.empty
+  )
 
   def line(state: State, line: String): Out =
     InboundEvent.parse(line) match
       case InboundEvent.ThreadStarted(threadId, model) =>
-        Step.continue(state.copy(threadId = Some(threadId), model = model))
+        Step.continue(
+          state.copy(threadId = Some(WireSessionId(threadId)), model = model)
+        )
       case InboundEvent.TurnStarted          => Step.continue(state)
       case InboundEvent.TurnCompleted(usage) => turnCompleted(state, usage)
       case InboundEvent.ItemStarted(item)    => itemStarted(state, item)
@@ -214,8 +221,8 @@ private[codex] final class CodexDecoder(
     val settled = state.threadId match
       case Some(threadId) =>
         Settled.Succeeded(
-          AgentResult[BackendTag.Codex.type](
-            WireSessionId(threadId),
+          AgentResult(
+            threadId,
             state.lastAgentMessage,
             usage,
             model.map(Model.apply)
@@ -266,40 +273,18 @@ private[codex] object CodexDecoder:
     *   already surfaced the `UserQuestion`
     */
   final case class State(
-      threadId: Option[String],
+      threadId: Option[WireSessionId[BackendTag.Codex.type]],
       model: Option[String],
       lastAgentMessage: String,
       lastProtocolError: Option[String],
       echoes: AskUserEchoes
   )
 
-private[codex] object CodexConversation:
-
-  /** Starts decoding `process` into the caller's turn scope. */
-  def apply(
-      process: PipedCliProcess,
-      initialPrompt: Option[String] = None,
-      outputSchema: Option[String] = None,
-      askUser: Option[AskUserSession] = None,
-      configuredModel: Option[Model] = None
-  )(using Ox): Conversation[BackendTag.Codex.type] =
-    StreamConversation.start(
-      StreamSource.fromProcess(process),
-      ConversationSpec(
-        openingPrompt = initialPrompt,
-        outputSchema = outputSchema,
-        structuredOutputMode = StructuredOutputMode.RawText,
-        askUser =
-          askUser.fold(AskUserChannel.Unavailable)(AskUserChannel.Mcp(_)),
-        onUnsettledEnd = () => ()
-      )
-    )(_ => CodexDecoder(outputSchema, configuredModel))
-
   /** Stderr lines codex emits unconditionally that carry no diagnostic value —
-    * filtered before they reach the event queue. See
+    * filtered before they surface as `Error` events. See
     * [[CodexDecoder.isStderrNoise]] for what each line means.
     */
-  private[codex] def isKnownStderrNoise(line: String): Boolean =
+  private def isKnownStderrNoise(line: String): Boolean =
     line.startsWith("Reading additional input from stdin") ||
       line.contains(
         "codex_core::session: failed to record rollout items"
@@ -310,11 +295,31 @@ private[codex] object CodexConversation:
     * input, so we wrap the command string in a one-key object the renderer can
     * introspect.
     */
-  private[codex] case class BashInput(command: String)
+  private case class BashInput(command: String) derives ConfiguredJsonValueCodec
+
+  private case class FileChangeWire(path: String, kind: String)
       derives ConfiguredJsonValueCodec
 
-  private[codex] case class FileChangeWire(path: String, kind: String)
+  private case class FileChangeInput(changes: List[FileChangeWire])
       derives ConfiguredJsonValueCodec
 
-  private[codex] case class FileChangeInput(changes: List[FileChangeWire])
-      derives ConfiguredJsonValueCodec
+private[codex] object CodexConversation:
+
+  /** Starts decoding `process` into the caller's turn scope. */
+  def apply(
+      process: PipedCliProcess,
+      openingPrompt: Option[String] = None,
+      outputSchema: Option[String] = None,
+      askUser: AskUserChannel = AskUserChannel.Unavailable,
+      configuredModel: Option[Model] = None
+  )(using Ox): Conversation[BackendTag.Codex.type] =
+    StreamConversation.start(
+      StreamSource.fromProcess(process),
+      ConversationSpec(
+        openingPrompt = openingPrompt,
+        outputSchema = outputSchema,
+        structuredOutputMode = StructuredOutputMode.RawText,
+        askUser = askUser
+      ),
+      CodexDecoder(outputSchema, configuredModel)
+    )

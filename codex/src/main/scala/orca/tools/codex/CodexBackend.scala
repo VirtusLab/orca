@@ -9,6 +9,7 @@ import orca.agents.{
   TurnDispatch
 }
 import orca.backend.{
+  AskUserChannel,
   Conversation,
   TurnRequest,
   Dispatch,
@@ -147,9 +148,10 @@ private[orca] class CodexBackend(
       process.closeStdin()
       CodexConversation(
         process,
-        initialPrompt = mode.openingPrompt,
+        openingPrompt = mode.openingPrompt,
         outputSchema = outputSchema,
-        askUser = askUser,
+        askUser =
+          askUser.fold(AskUserChannel.Unavailable)(AskUserChannel.Mcp(_)),
         configuredModel = config.model
       )
     }

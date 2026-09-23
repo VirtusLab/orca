@@ -21,6 +21,7 @@ import orca.backend.{
   StreamSource
 }
 import orca.subprocess.PipedCliProcess
+import orca.util.OrcaDebug
 import orca.tools.pi.rpc.{
   AgentMessage,
   InboundEvent,
@@ -55,7 +56,7 @@ private[pi] final class PiStdin(process: PipedCliProcess):
     try send(line)
     catch
       case e: java.io.IOException =>
-        StreamConversation.trace(
+        OrcaDebug.traceStream(
           "pi",
           "stdin",
           s"dropped extension UI reply: ${e.getMessage}"
@@ -70,8 +71,7 @@ private[pi] final class PiDecoder(
     stdin: PiStdin
 ) extends LineDecoder[BackendTag.Pi.type, PiDecoder.State]:
 
-  import PiConversation.*
-  import PiDecoder.State
+  import PiDecoder.*
 
   private type Out = Step[BackendTag.Pi.type, State]
 
@@ -79,7 +79,12 @@ private[pi] final class PiDecoder(
 
   def terminalMessageNoun: String = "an agent_end event"
 
-  def init: State = State("", None, None, textStreamedThisMessage = false)
+  def init: State = State(
+    lastAssistantMessage = "",
+    usage = None,
+    model = None,
+    textStreamedThisMessage = false
+  )
 
   def line(state: State, line: String): Out =
     InboundEvent.parse(line) match
@@ -226,6 +231,20 @@ private[pi] object PiDecoder:
       textStreamedThisMessage: Boolean
   )
 
+  private val FireAndForgetUiMethods: Set[String] = Set(
+    "notify",
+    "setStatus",
+    "setWidget",
+    "setTitle",
+    "set_editor_text"
+  )
+
+  private def isKnownStderrNoise(line: String): Boolean =
+    // Pi's terminal notifier writes iTerm2 OSC 777 notifications to stderr
+    // (`ESC ] 777 ; ... BEL`). Well-formed controls are stripped before
+    // trimming; this guard catches lines that already lost the leading ESC.
+    line.startsWith("]777;notify;")
+
 private[pi] object PiConversation:
 
   /** Sends `prompt`, then starts decoding `process` into the caller's turn
@@ -237,34 +256,20 @@ private[pi] object PiConversation:
   def apply(
       process: PipedCliProcess,
       clientSession: SessionId[BackendTag.Pi.type],
-      prompt: Option[String] = None,
-      initialPrompt: Option[String] = None,
+      prompt: String,
+      openingPrompt: Option[String] = None,
       outputSchema: Option[String] = None,
       askUser: AskUserChannel = AskUserChannel.Unavailable
   )(using Ox): Conversation[BackendTag.Pi.type] =
     val stdin = PiStdin(process)
-    prompt.foreach(p => stdin.send(OutboundMessage.prompt(p)))
+    stdin.send(OutboundMessage.prompt(prompt))
     StreamConversation.start(
       StreamSource.fromProcess(process),
       ConversationSpec(
-        openingPrompt = initialPrompt,
+        openingPrompt = openingPrompt,
         outputSchema = outputSchema,
         structuredOutputMode = StructuredOutputMode.RawText,
-        askUser = askUser,
-        onUnsettledEnd = () => ()
-      )
-    )(_ => PiDecoder(clientSession, stdin))
-
-  private[pi] val FireAndForgetUiMethods: Set[String] = Set(
-    "notify",
-    "setStatus",
-    "setWidget",
-    "setTitle",
-    "set_editor_text"
-  )
-
-  private[pi] def isKnownStderrNoise(line: String): Boolean =
-    // Pi's terminal notifier writes iTerm2 OSC 777 notifications to stderr
-    // (`ESC ] 777 ; ... BEL`). Well-formed controls are stripped before
-    // trimming; this guard catches lines that already lost the leading ESC.
-    line.startsWith("]777;notify;")
+        askUser = askUser
+      ),
+      PiDecoder(clientSession, stdin)
+    )

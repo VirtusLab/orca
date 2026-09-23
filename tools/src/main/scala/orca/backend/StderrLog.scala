@@ -8,7 +8,7 @@ package orca.backend
   *   the most recently surfaced line — some CLIs repeat the same warning, and a
   *   run of identical lines surfaces once
   */
-private[orca] final case class StderrLog(
+private[backend] final case class StderrLog(
     recent: Vector[String],
     last: Option[String]
 ):
@@ -25,7 +25,7 @@ private[orca] final case class StderrLog(
   def context: Option[String] =
     Option.when(recent.nonEmpty)(recent.mkString("stderr:\n    ", "\n    ", ""))
 
-private[orca] object StderrLog:
+private[backend] object StderrLog:
 
   val empty: StderrLog = StderrLog(Vector.empty, None)
 

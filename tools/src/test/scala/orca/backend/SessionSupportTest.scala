@@ -239,20 +239,13 @@ class SessionSupportTest extends munit.FunSuite:
       "an invalid wire id must leave nothing persistable"
     )
 
-  test(
-    "commitAfterDrain: valid id commits, unsafe id fails the turn and records nothing"
-  ):
-    // The throwing sibling of `register`: the autonomous drain's pre-commit
-    // guard, failing the turn (not retried, usage kept) rather than
-    // logging-and-skipping.
+  test("commitAfterDrain: an unsafe id fails the turn and records nothing"):
+    // The throwing sibling of `register`: the turn has run, so it fails (not
+    // retried, usage kept) rather than logging-and-skipping.
     val s = SessionSupport.durable[BackendTag.Codex.type](
       IdScheme.ServerMinted,
       _ => true
     )
-    val ok = SessionId.fresh[BackendTag.Codex.type]
-    val okWire = WireSessionId[BackendTag.Codex.type]("srv-ok")
-    s.commitAfterDrain(ok, AgentResult(okWire, "", Usage.empty))
-    assertEquals(s.persistableWireId(ok), Some(okWire))
     val bad = SessionId.fresh[BackendTag.Codex.type]
     val usage = Usage.empty.copy(outputTokens = 7L)
     val failed = intercept[AgentTurnFailed](

@@ -4,7 +4,11 @@ import orca.agents.{Model, WireSessionId}
 import orca.events.{TurnDebit, Usage}
 import orca.testkit.Usages.usage
 import orca.{OrcaFlowException, OrcaInteractiveCancelled}
-import orca.backend.{ConversationEvent, ConversationEventConformance}
+import orca.backend.{
+  AskUserChannel,
+  ConversationEvent,
+  ConversationEventConformance
+}
 import orca.subprocess.FakePipedCliProcess
 import ox.{Ox, supervised}
 
@@ -129,9 +133,11 @@ class CodexConversationTest extends munit.FunSuite:
     val Right(result) = conv.awaitResult(): @unchecked
     assertEquals(result.model, Some(Model("gpt-5.4")))
 
-  convTest("initialPrompt becomes a UserMessage event before agent output"):
+  convTest(
+    "the opening prompt becomes a UserMessage event before agent output"
+  ):
     val process = new FakePipedCliProcess()
-    val conv = CodexConversation(process, initialPrompt = Some("do the thing"))
+    val conv = CodexConversation(process, openingPrompt = Some("do the thing"))
 
     process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-2"}""")
     process.enqueueStdout(
@@ -737,7 +743,7 @@ class CodexConversationTest extends munit.FunSuite:
       val process = new FakePipedCliProcess()
       val conv = CodexConversation(
         process,
-        askUser = Some(AskUserSession.allocate())
+        askUser = AskUserChannel.Mcp(AskUserSession.allocate())
       )
 
       process.enqueueStdout(
@@ -791,7 +797,7 @@ class CodexConversationTest extends munit.FunSuite:
       val askUser = AskUserSession.allocate()
       val conv = CodexConversation(
         process,
-        askUser = Some(askUser)
+        askUser = AskUserChannel.Mcp(askUser)
       )
       val bridge = askUser.bridge
       assert(conv.canAskUser, "canAskUser must be true when a bridge is wired")

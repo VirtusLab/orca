@@ -11,14 +11,13 @@ import orca.backend.{
   ConversationEvent,
   ConversationSpec,
   LineDecoder,
-  NeutralEvent,
   Settled,
   Step,
   StreamConversation,
   StreamSource
 }
-import orca.backend.mcp.AskUserSession
 import orca.subprocess.PipedCliProcess
+import orca.util.OrcaDebug
 import orca.tools.claude.streamjson.{
   ContentBlock,
   ControlDecision,
@@ -34,15 +33,11 @@ import ox.Ox
   * → `ConversationEvent`s, plus the auto-approve policy for tools listed in
   * `config.autoApprove`. The backend writes the opening user turn; the only
   * write here is a tool-approval response.
-  *
-  * @param neutral
-  *   reports a tool-approval answer the channel gave that can't be delivered
   */
 private[claude] final class ClaudeDecoder(
     process: PipedCliProcess,
     config: AgentConfig,
-    outputSchema: Option[String],
-    neutral: NeutralEvent => Unit
+    outputSchema: Option[String]
 ) extends LineDecoder[BackendTag.ClaudeCode.type, ClaudeDecoder.State]:
 
   import ClaudeDecoder.State
@@ -53,8 +48,12 @@ private[claude] final class ClaudeDecoder(
 
   def terminalMessageNoun: String = "a result message"
 
-  def init: State =
-    State(None, deltasSinceLastFullTurn = false, Set.empty, AskUserEchoes.empty)
+  def init: State = State(
+    initModel = None,
+    deltasSinceLastFullTurn = false,
+    responseIds = Set.empty,
+    echoes = AskUserEchoes.empty
+  )
 
   def line(state: State, line: String): Out =
     InboundMessage.parse(line) match
@@ -259,8 +258,9 @@ private[claude] final class ClaudeDecoder(
         ConversationEvent.ApproveTool(
           toolName = name,
           rawInput = rawInput,
-          respond =
-            decision => respond(requestId, decision).left.foreach(neutral)
+          respond = decision =>
+            respond(requestId, decision).left.foreach: error =>
+              OrcaDebug.traceStream(backendName, "stdin", error.message)
         )
       )
     case ControlRequestBody.Unknown(subtype) =>
@@ -368,18 +368,17 @@ private[claude] object ClaudeConversation:
   def apply(
       process: PipedCliProcess,
       config: AgentConfig,
-      initialPrompt: Option[String] = None,
+      openingPrompt: Option[String] = None,
       outputSchema: Option[String] = None,
-      askUser: Option[AskUserSession] = None
+      askUser: AskUserChannel = AskUserChannel.Unavailable
   )(using Ox): Conversation[BackendTag.ClaudeCode.type] =
     StreamConversation.start(
       StreamSource.fromProcess(process),
       ConversationSpec(
-        openingPrompt = initialPrompt,
+        openingPrompt = openingPrompt,
         outputSchema = outputSchema,
         structuredOutputMode = ClaudeBackend.StructuredOutputDelivery,
-        askUser =
-          askUser.fold(AskUserChannel.Unavailable)(AskUserChannel.Mcp(_)),
-        onUnsettledEnd = () => ()
-      )
-    )(neutral => ClaudeDecoder(process, config, outputSchema, neutral))
+        askUser = askUser
+      ),
+      ClaudeDecoder(process, config, outputSchema)
+    )

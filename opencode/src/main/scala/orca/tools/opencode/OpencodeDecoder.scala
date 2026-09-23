@@ -52,7 +52,22 @@ private[opencode] final class OpencodeDecoder(
 
   def terminalMessageNoun: String = "a session.idle event"
 
-  def init: State = State(Vector.empty, None, Set.empty, Set.empty)
+  def init: State = State(
+    text = Vector.empty,
+    info = None,
+    startedTools = Set.empty,
+    reasoningParts = Set.empty
+  )
+
+  /** Best-effort `POST /session/{id}/abort`, so a turn that ended unsettled —
+    * cancelled, or its stream lost — stops running (and writing) on the shared
+    * server. A settled, idle session may be resumed next turn, so it is left
+    * alone.
+    */
+  override def onUnsettledEnd(): Unit =
+    try
+      val _ = http.postJson(s"/session/$session/abort", "{}")
+    catch case NonFatal(_) => ()
 
   def line(state: State, rawLine: String): Out =
     sseData(rawLine)
@@ -257,25 +272,15 @@ private[opencode] object OpencodeConversation:
       session: String,
       outputSchema: Option[String],
       askUser: AskUserChannel,
-      initialPrompt: Option[String] = None
+      openingPrompt: Option[String] = None
   )(using Ox): Conversation[BackendTag.Opencode.type] =
     StreamConversation.start(
       source,
       ConversationSpec(
-        openingPrompt = initialPrompt,
+        openingPrompt = openingPrompt,
         outputSchema = outputSchema,
         structuredOutputMode = OpencodeBackend.StructuredOutputDelivery,
-        askUser = askUser,
-        onUnsettledEnd = () => abort(http, session)
-      )
-    )(_ => OpencodeDecoder(http, session, outputSchema))
-
-  /** Best-effort `POST /session/{id}/abort`, so a turn that ended unsettled —
-    * cancelled, or its stream lost — stops running (and writing) on the shared
-    * server. A settled, idle session may be resumed next turn, so it is left
-    * alone.
-    */
-  private def abort(http: OpencodeHttp, session: String): Unit =
-    try
-      val _ = http.postJson(s"/session/$session/abort", "{}")
-    catch case NonFatal(_) => ()
+        askUser = askUser
+      ),
+      OpencodeDecoder(http, session, outputSchema)
+    )

@@ -35,6 +35,12 @@ private[orca] trait LineDecoder[B <: BackendTag, S]:
   /** Protocol-level context folded into failure messages ahead of stderr. */
   def protocolContext(state: S): Option[String] = None
 
+  /** Runs once when the stream ended without a settle — a cancel, a crash, a
+    * dropped connection — so a backend whose turn runs on a shared server can
+    * stop it there.
+    */
+  def onUnsettledEnd(): Unit = ()
+
   /** Known-benign stderr lines, dropped instead of surfacing as an `Error`.
     * Sees the line stripped of terminal control sequences and trimmed.
     */
