@@ -90,7 +90,7 @@ private[orca] object StreamConversation:
         .takeWhile(!_.isInstanceOf[ChannelClosed])
         .collect { case e: ConversationEvent => e }
 
-    def events(using Ox): Iterator[ConversationEvent] = iterator
+    def events: Iterator[ConversationEvent] = iterator
 
     /** Every failure of a turn that ran surfaces as [[AgentTurnFailed]]: the
       * wire session may already exist, so a retry against the same id would
@@ -98,9 +98,7 @@ private[orca] object StreamConversation:
       * `AgentBackend.open` as plain [[orca.OrcaFlowException]]s and stay
       * retryable.
       */
-    def awaitResult()(using
-        Ox
-    ): Either[OrcaInteractiveCancelled, AgentResult[B]] =
+    def awaitResult(): Either[OrcaInteractiveCancelled, AgentResult[B]] =
       reader.join() match
         case Right(result)                     => Right(result)
         case Left(c: OrcaInteractiveCancelled) => Left(c)

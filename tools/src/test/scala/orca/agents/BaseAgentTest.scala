@@ -926,9 +926,7 @@ class BaseAgentTest extends munit.FunSuite:
       seen: java.util.concurrent.atomic.AtomicReference[List[ConversationEvent]]
   ) extends Interaction:
     def listeners: List[OrcaListener] = Nil
-    def drive[B <: BackendTag](conversation: Conversation[B])(using
-        ox.Ox
-    ): AgentResult[B] =
+    def drive[B <: BackendTag](conversation: Conversation[B]): AgentResult[B] =
       conversation.events.foreach(e => { val _ = seen.updateAndGet(e :: _) })
       conversation.awaitResult() match
         case Right(r) => r
@@ -978,7 +976,5 @@ class BaseAgentTest extends munit.FunSuite:
 
   private object StubInteraction extends Interaction:
     def listeners: List[OrcaListener] = Nil
-    def drive[B <: BackendTag](conversation: Conversation[B])(using
-        ox.Ox
-    ): AgentResult[B] =
+    def drive[B <: BackendTag](conversation: Conversation[B]): AgentResult[B] =
       ???
