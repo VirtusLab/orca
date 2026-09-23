@@ -193,7 +193,7 @@ class ReviewThenFixTest extends munit.FunSuite:
     val fc =
       ReviewLoopFixture.control(steps.dispatcher, lead = Some(picking("x")))
     given FlowControl = fc
-    val flag = fc.workDir / "lint-passes"
+    val flag = fc.context.workDir / "lint-passes"
     val reviewer =
       new FakeAgent("x", outputs = List(ReviewResult(List(finding("a")))))
     // Scripted for the two calls that reach the summariser — round one and the

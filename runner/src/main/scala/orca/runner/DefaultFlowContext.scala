@@ -1,9 +1,6 @@
 package orca.runner
 
-import orca.{FlowControl, StackSettings}
-import orca.gitref.CommitHash
-import orca.progress.ProgressStore
-import orca.sessions.SessionStore
+import orca.{FlowContext, StackSettings}
 import orca.review.ReviewerCatalog
 import orca.tools.{FsTool, GitHubTool, GitTool}
 import orca.agents.{Agent, BackendTag}
@@ -32,8 +29,6 @@ private[orca] class DefaultFlowContext[
     val git: GitTool,
     val gh: GitHubTool,
     val fs: FsTool,
-    val progressStore: ProgressStore,
-    val sessionStore: SessionStore,
     /** Resolved stack settings (ADR 0019): `FlowLifecycle.setup` resolves them
       * before the context is constructed, so they arrive frozen — the body (and
       * the loops it calls) sees one immutable value.
@@ -43,14 +38,8 @@ private[orca] class DefaultFlowContext[
       * tiers): resolved by `runFlow` before the context exists, so it arrives
       * frozen like `stackSettings`.
       */
-    val reviewerCatalog: ReviewerCatalog,
-    /** The commit the run started from (see
-      * [[orca.FlowControl.startingCommit]]) — like `stackSettings`, resolved by
-      * `FlowLifecycle.setup` before the context exists, so it arrives frozen.
-      */
-    private[orca] val startingCommit: Option[CommitHash]
-) extends FlowControl,
-      orca.StageFrames:
+    val reviewerCatalog: ReviewerCatalog
+) extends FlowContext:
 
   // Each role's backend tag, pinned from its type parameter — concrete here so
   // the role accessors are concretely typed and sessions thread.
@@ -61,7 +50,3 @@ private[orca] class DefaultFlowContext[
   export wired.{claude, codex, opencode, pi, gemini}
 
   def emit(event: OrcaEvent): Unit = dispatcher.onEvent(event)
-
-  // Stage-identity bookkeeping (withStage, claimSessionKey) and the
-  // per-run turn claim come from the shared `StageFrames` mixin, so test
-  // doubles cannot drift from production.

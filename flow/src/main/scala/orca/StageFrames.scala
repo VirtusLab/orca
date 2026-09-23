@@ -19,7 +19,7 @@ private[orca] enum SessionTurn:
   case Later
 
 /** Per-run bookkeeping shared by every [[FlowControl]] implementation
-  * (production [[orca.runner.DefaultFlowContext]] and the test doubles), so a
+  * (production [[orca.runner.DefaultFlowControl]] and the test doubles), so a
   * test double can't drift from production semantics and greenwash a
   * nesting/resume test: stage identity and baselines, the say-once session-key
   * claim, and which durable conversations this run has already driven.
