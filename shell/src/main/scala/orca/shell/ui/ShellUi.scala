@@ -26,16 +26,24 @@ enum UiOutcome[+A]:
   */
 trait ShellUi:
   /** Presents `choices` and returns the picked value, or
-    * [[UiOutcome.Cancelled]] on ESC/Ctrl-C/EOF. Invariant both backends uphold
-    * for a disabled choice (`disabledReason` set, [[Choice.isEnabled]] false):
-    * it is never returned from `select` even if picked — the backend prints
-    * [[Choice.disabledSelectionMessage]] and re-prompts instead, so a disabled
-    * row can be looked at and read, never acted on silently.
+    * [[UiOutcome.Cancelled]] on ESC/Ctrl-C/EOF. `default`, when it names an
+    * enabled choice, is shown first — where both backends start the cursor —
+    * and the other rows keep their order. A disabled choice (`disabledReason`
+    * set, [[Choice.isEnabled]] false) is never returned even if picked: the
+    * backend prints [[Choice.disabledSelectionMessage]] and re-prompts instead,
+    * so a disabled row can be looked at and read, never acted on silently.
     */
-  def select[A](
+  final def select[A](
       title: String,
       choices: List[Choice[A]],
-      preselect: Option[A] = None
+      default: Option[A] = None
+  ): UiOutcome[A] =
+    selectOrdered(title, Choice.defaultFirst(choices, default))
+
+  /** [[select]]'s backend: presents `choices` in the given order. */
+  protected def selectOrdered[A](
+      title: String,
+      choices: List[Choice[A]]
   ): UiOutcome[A]
   def confirm(question: String, default: Boolean): UiOutcome[Boolean]
   def input(prompt: String, default: Option[String] = None): UiOutcome[String]

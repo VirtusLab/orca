@@ -36,8 +36,7 @@ import scala.annotation.tailrec
   * their reason folded into the label (same text both backends use), and
   * picking one anyway prints [[Choice.disabledSelectionMessage]] via
   * [[ShellOutput.error]] before the prompt re-runs — an explained refusal, not
-  * a silent one. The same list-item absence rules out honoring `preselect`'s
-  * starting cursor position; it is a no-op here.
+  * a silent one.
   *
   * A fresh `ConsolePrompt` is built for every top-level `select`/`confirm`/
   * `input` call rather than reused across the shell's lifetime:
@@ -88,10 +87,9 @@ private[ui] final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
     config.setCancellableFirstPrompt(true)
     ConsolePrompt(terminal, config)
 
-  def select[A](
+  protected def selectOrdered[A](
       title: String,
-      choices: List[Choice[A]],
-      preselect: Option[A] = None
+      choices: List[Choice[A]]
   ): UiOutcome[A] =
     // ConsoleUI's post-answer summary line prints the item's id verbatim
     // (`ListResult.getDisplayResult` falls back to `getResult`, i.e. the

@@ -11,8 +11,7 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.{
 import orca.runner.manifest.SessionKind
 import orca.shell.flows.DiscoveredFlow
 import orca.settings.AgentSpec
-import orca.shell.sessions.{RecordedAttempt, SessionPicker}
-import orca.shell.ui.Choice
+import orca.shell.sessions.{ResumeCommand, SessionIndex, SessionPicker}
 
 /** The CLI's table/JSON rendering (ADR 0021 §10) — the row shapes `list` and
   * `continue --list` emit, their jsoniter codecs, and the shared space-padded
@@ -24,7 +23,8 @@ private[cli] object Tables:
 
   // `lastActiveAt` is the parsed instant rendered back to ISO-8601.
   private[cli] case class SessionRow(
-      index: Int,
+      /** The stable selector `orca continue <id>` resolves ([[SessionRef]]). */
+      id: String,
       /** The bare name `orca continue <name>` matches, or the agent name for an
         * ephemeral session, which was minted under no name.
         */
@@ -59,47 +59,35 @@ private[cli] object Tables:
       CodecMakerConfig.withTransientEmpty(false).withTransientNone(false)
     )
 
-  private[cli] def sessionListingRows(
-      attempts: List[RecordedAttempt]
-  ): List[SessionRow] =
-    SessionPicker
-      .withoutExpanders(SessionPicker.sessionRows(attempts, expanded = true))
-      .zipWithIndex
-      .collect:
-        case (
-              choice @ Choice(
-                SessionPicker.PickerRow.Resume(selection),
-                _,
-                _
-              ),
-              i
-            ) =>
-          val session = selection.session
-          SessionRow(
-            index = i + 1,
-            sessionName = SessionPicker.displayName(session),
-            workDir = selection.manifest.workDir,
-            branch = selection.manifest.branch,
-            kind = session.kind,
-            stage = session.stage,
-            sessionStage = session.minted.map(_.stage.value),
-            harness = AgentSpec.harnessNameFor(session.harness),
-            lastActiveAt = session.lastActiveAt.toString,
-            resumable = choice.isEnabled,
-            reason = choice.disabledReason,
-            crashed = selection.crashed
-          )
+  private[cli] def sessionListingRows(index: SessionIndex): List[SessionRow] =
+    index.listing.map: selection =>
+      val session = selection.session
+      val gate = ResumeCommand.staticGate(session)
+      SessionRow(
+        id = selection.ref.spelling,
+        sessionName = SessionPicker.displayName(session),
+        workDir = selection.manifest.workDir,
+        branch = selection.manifest.branch,
+        kind = session.kind,
+        stage = session.stage,
+        sessionStage = session.minted.map(_.stage.value),
+        harness = AgentSpec.harnessNameFor(session.harness),
+        lastActiveAt = session.lastActiveAt.toString,
+        resumable = gate.isRight,
+        reason = gate.left.toOption,
+        crashed = selection.crashed
+      )
 
   private[cli] def printSessionListing(
-      attempts: List[RecordedAttempt],
+      index: SessionIndex,
       asJson: Boolean
   ): Unit =
-    val rows = sessionListingRows(attempts)
+    val rows = sessionListingRows(index)
     if asJson then println(writeToString(rows))
     else if rows.isEmpty then println("(no sessions recorded)")
     else
-      // The same decision the interactive picker makes, over the same attempts.
-      val tag = SessionPicker.dirTag(attempts)
+      // The same decision the interactive picker makes, over the same index.
+      val tag = SessionPicker.dirTag(index)
       val cols = rows.map: r =>
         val status =
           if r.resumable then ""
@@ -108,7 +96,7 @@ private[cli] object Tables:
           r.sessionName + (if r.crashed then " (crashed)" else "") +
             tag(r.workDir, r.branch)
         (
-          r.index.toString,
+          r.id,
           sessionName,
           r.branch.getOrElse(""),
           r.kind.toString,
@@ -122,7 +110,7 @@ private[cli] object Tables:
         )
       val header =
         (
-          "#",
+          "id",
           "session",
           "branch",
           "kind",

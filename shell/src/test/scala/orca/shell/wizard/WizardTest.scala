@@ -4,7 +4,7 @@ import orca.agents.BackendTag
 import orca.settings.{AgentSettings, AgentSpec, SettingsFile, SettingsScope}
 import orca.shell.ui.{Choice, ShellUi, UiOutcome}
 
-/** Records the `Choice` lists, `preselect` values, and `input` prompts it was
+/** Records the `Choice` lists (in shown order) and `input` prompts it was
   * shown, and replays fixed queues of outcomes for `select`, `input`, and
   * `confirm`. `Wizard.run` calls `select` for a harness prompt, then either
   * `select` (curated model) or `input` (free-text model) per role;
@@ -19,12 +19,13 @@ private class ScriptedUi(
   private var pendingInput = inputScript
   private var pendingConfirm = confirmScript
   private var shown: List[List[Choice[Any]]] = Nil
-  private var preselects: List[Option[Any]] = Nil
   private var inputs: List[(String, Option[String])] = Nil
   private var firstPromptMarked = false
 
   def recordedChoices: List[List[Choice[Any]]] = shown
-  def recordedPreselects: List[Option[Any]] = preselects
+
+  /** Each `select`'s first row: where the cursor starts. */
+  def recordedFirstRows: List[Any] = shown.map(_.head.value)
   def recordedInputs: List[(String, Option[String])] = inputs
 
   // Printed to stdout on the very first prompt of any kind — lets a test
@@ -35,14 +36,12 @@ private class ScriptedUi(
       firstPromptMarked = true
       println("<<first prompt>>")
 
-  def select[A](
+  protected def selectOrdered[A](
       title: String,
-      choices: List[Choice[A]],
-      preselect: Option[A] = None
+      choices: List[Choice[A]]
   ): UiOutcome[A] =
     markFirstPrompt()
     shown = shown :+ choices.asInstanceOf[List[Choice[Any]]]
-    preselects = preselects :+ preselect.asInstanceOf[Option[Any]]
     val outcome = pendingSelect.head
     pendingSelect = pendingSelect.tail
     outcome.asInstanceOf[UiOutcome[A]]
@@ -85,9 +84,9 @@ class WizardTest extends munit.FunSuite:
     (
       List(
         UiOutcome.Selected(BackendTag.ClaudeCode),
-        UiOutcome.Selected(Wizard.ModelPick.Default),
+        UiOutcome.Selected(ModelCatalog.ModelPick.Default),
         UiOutcome.Selected(BackendTag.Codex),
-        UiOutcome.Selected(Wizard.ModelPick.Default),
+        UiOutcome.Selected(ModelCatalog.ModelPick.Default),
         UiOutcome.Selected(BackendTag.Gemini)
       ),
       List(UiOutcome.Selected(""))
@@ -114,9 +113,9 @@ class WizardTest extends munit.FunSuite:
       val ui = ScriptedUi(
         selectScript = List(
           UiOutcome.Selected(BackendTag.ClaudeCode),
-          UiOutcome.Selected(Wizard.ModelPick.Curated("fable")),
+          UiOutcome.Selected(ModelCatalog.ModelPick.Curated("fable")),
           UiOutcome.Selected(BackendTag.ClaudeCode),
-          UiOutcome.Selected(Wizard.ModelPick.Curated("opus")),
+          UiOutcome.Selected(ModelCatalog.ModelPick.Curated("opus")),
           UiOutcome.Selected(BackendTag.Gemini)
         ),
         inputScript = List(UiOutcome.Selected(""))
@@ -138,9 +137,9 @@ class WizardTest extends munit.FunSuite:
       val ui = ScriptedUi(
         selectScript = List(
           UiOutcome.Selected(BackendTag.ClaudeCode),
-          UiOutcome.Selected(Wizard.ModelPick.Manual),
+          UiOutcome.Selected(ModelCatalog.ModelPick.Manual),
           UiOutcome.Selected(BackendTag.ClaudeCode),
-          UiOutcome.Selected(Wizard.ModelPick.Default),
+          UiOutcome.Selected(ModelCatalog.ModelPick.Default),
           UiOutcome.Selected(BackendTag.Gemini)
         ),
         inputScript = List(
@@ -188,7 +187,7 @@ class WizardTest extends munit.FunSuite:
       )
 
   test(
-    "preselect defaults per role on first run: planning fable/sol, coding/review opus/sol"
+    "first run starts planning on fable (claude) and coding on sol (codex)"
   ):
     withTempPath: path =>
       val (selectScript, inputScript) = defaultRoleScript
@@ -196,30 +195,30 @@ class WizardTest extends munit.FunSuite:
       assert(Wizard(ui, probe, path).run(reconfigure = false))
 
       assertEquals(
-        ui.recordedPreselects(1),
-        Some(Wizard.ModelPick.Curated("fable"))
+        ui.recordedFirstRows(1),
+        ModelCatalog.ModelPick.Curated("fable")
       )
       assertEquals(
-        ui.recordedPreselects(3),
-        Some(Wizard.ModelPick.Curated("gpt-6-sol"))
+        ui.recordedFirstRows(3),
+        ModelCatalog.ModelPick.Curated("gpt-6-sol")
       )
 
-  test("preselect defaults for the review role: opus (claude)"):
+  test("first run starts the review role on opus (claude)"):
     withTempPath: path =>
       val ui = ScriptedUi(
         selectScript = List(
           UiOutcome.Selected(BackendTag.ClaudeCode),
-          UiOutcome.Selected(Wizard.ModelPick.Default),
+          UiOutcome.Selected(ModelCatalog.ModelPick.Default),
           UiOutcome.Selected(BackendTag.ClaudeCode),
-          UiOutcome.Selected(Wizard.ModelPick.Default),
+          UiOutcome.Selected(ModelCatalog.ModelPick.Default),
           UiOutcome.Selected(BackendTag.ClaudeCode),
-          UiOutcome.Selected(Wizard.ModelPick.Default)
+          UiOutcome.Selected(ModelCatalog.ModelPick.Default)
         )
       )
       assert(Wizard(ui, probe, path).run(reconfigure = false))
       assertEquals(
-        ui.recordedPreselects(5),
-        Some(Wizard.ModelPick.Curated("opus"))
+        ui.recordedFirstRows(5),
+        ModelCatalog.ModelPick.Curated("opus")
       )
 
   // --- first run: UI shape ---
@@ -246,36 +245,29 @@ class WizardTest extends munit.FunSuite:
         )
       assertEquals(harnessMenus, List.fill(3)(expectedOrder))
 
-  test(
-    "first run passes the fallback as preselect for every role's harness prompt"
-  ):
+  test("first run starts every role's harness prompt on the detected harness"):
     withTempPath: path =>
-      // probe finds claude and gemini; BackendTag.values order puts ClaudeCode
-      // first among the detected tags, so it's the fallback for every role.
-      val ui = ScriptedUi(selectScript =
-        List(
-          UiOutcome.Selected(BackendTag.ClaudeCode),
-          UiOutcome.Selected(Wizard.ModelPick.Default),
-          UiOutcome.Selected(BackendTag.ClaudeCode),
-          UiOutcome.Selected(Wizard.ModelPick.Default),
-          UiOutcome.Selected(BackendTag.ClaudeCode),
-          UiOutcome.Selected(Wizard.ModelPick.Default)
-        )
+      val ui = ScriptedUi(
+        selectScript = List(
+          UiOutcome.Selected(BackendTag.Gemini),
+          UiOutcome.Selected(BackendTag.Gemini),
+          UiOutcome.Selected(BackendTag.Gemini)
+        ),
+        inputScript = List.fill(3)(UiOutcome.Selected(""))
       )
-      assert(Wizard(ui, probe, path).run(reconfigure = false))
-      val harnessPreselects = List(0, 2, 4).map(ui.recordedPreselects)
-      assertEquals(harnessPreselects, List.fill(3)(Some(BackendTag.ClaudeCode)))
+      assert(Wizard(ui, _ == "gemini", path).run(reconfigure = false))
+      assertEquals(ui.recordedFirstRows, List.fill(3)(BackendTag.Gemini))
 
   test("detection decorates harness labels but never disables a choice"):
     withTempPath: path =>
       val ui = ScriptedUi(selectScript =
         List(
           UiOutcome.Selected(BackendTag.ClaudeCode),
-          UiOutcome.Selected(Wizard.ModelPick.Default),
+          UiOutcome.Selected(ModelCatalog.ModelPick.Default),
           UiOutcome.Selected(BackendTag.ClaudeCode),
-          UiOutcome.Selected(Wizard.ModelPick.Default),
+          UiOutcome.Selected(ModelCatalog.ModelPick.Default),
           UiOutcome.Selected(BackendTag.ClaudeCode),
-          UiOutcome.Selected(Wizard.ModelPick.Default)
+          UiOutcome.Selected(ModelCatalog.ModelPick.Default)
         )
       )
       assert(Wizard(ui, probe, path).run(reconfigure = false))
@@ -302,7 +294,7 @@ class WizardTest extends munit.FunSuite:
   // --- re-configure: data ---
 
   test(
-    "re-configure preselects the pin's curated row and keeps it when re-chosen"
+    "re-configure starts on the pin's curated row and keeps it when re-chosen"
   ):
     withTempPath: path =>
       os.write(
@@ -315,11 +307,11 @@ class WizardTest extends munit.FunSuite:
       val ui = ScriptedUi(
         selectScript = List(
           UiOutcome.Selected(BackendTag.ClaudeCode), // planning: unchanged
-          UiOutcome.Selected(Wizard.ModelPick.Default),
+          UiOutcome.Selected(ModelCatalog.ModelPick.Default),
           UiOutcome.Selected(
             BackendTag.ClaudeCode
           ), // coding: re-chosen, keeps :sonnet
-          UiOutcome.Selected(Wizard.ModelPick.Curated("sonnet")),
+          UiOutcome.Selected(ModelCatalog.ModelPick.Curated("sonnet")),
           UiOutcome.Selected(BackendTag.Gemini) // review: unchanged
         ),
         inputScript = List(UiOutcome.Selected(""))
@@ -327,8 +319,8 @@ class WizardTest extends munit.FunSuite:
       assert(Wizard(ui, probe, path).run(reconfigure = true))
 
       assertEquals(
-        ui.recordedPreselects(3),
-        Some(Wizard.ModelPick.Curated("sonnet"))
+        ui.recordedFirstRows(3),
+        ModelCatalog.ModelPick.Curated("sonnet")
       )
       val agents = parse(os.read(path))
       assertEquals(
@@ -342,12 +334,12 @@ class WizardTest extends munit.FunSuite:
       val ui = ScriptedUi(
         selectScript = List(
           UiOutcome.Selected(BackendTag.ClaudeCode),
-          UiOutcome.Selected(Wizard.ModelPick.Default),
+          UiOutcome.Selected(ModelCatalog.ModelPick.Default),
           UiOutcome.Selected(
             BackendTag.Gemini
           ), // coding: switched away from claude
           UiOutcome.Selected(BackendTag.ClaudeCode),
-          UiOutcome.Selected(Wizard.ModelPick.Default)
+          UiOutcome.Selected(ModelCatalog.ModelPick.Default)
         ),
         inputScript = List(UiOutcome.Selected("")) // coding's gemini model
       )
@@ -368,9 +360,9 @@ class WizardTest extends munit.FunSuite:
       val ui = ScriptedUi(
         selectScript = List(
           UiOutcome.Selected(BackendTag.ClaudeCode),
-          UiOutcome.Selected(Wizard.ModelPick.Default),
+          UiOutcome.Selected(ModelCatalog.ModelPick.Default),
           UiOutcome.Selected(BackendTag.ClaudeCode),
-          UiOutcome.Selected(Wizard.ModelPick.Default), // clears :sonnet
+          UiOutcome.Selected(ModelCatalog.ModelPick.Default), // clears :sonnet
           UiOutcome.Selected(BackendTag.Gemini)
         ),
         inputScript = List(UiOutcome.Selected(""))
@@ -388,19 +380,19 @@ class WizardTest extends munit.FunSuite:
       val ui = ScriptedUi(
         selectScript = List(
           UiOutcome.Selected(BackendTag.ClaudeCode),
-          UiOutcome.Selected(Wizard.ModelPick.Default),
+          UiOutcome.Selected(ModelCatalog.ModelPick.Default),
           UiOutcome.Selected(BackendTag.ClaudeCode),
-          UiOutcome.Selected(Wizard.ModelPick.Manual),
+          UiOutcome.Selected(ModelCatalog.ModelPick.Manual),
           UiOutcome.Selected(BackendTag.ClaudeCode),
-          UiOutcome.Selected(Wizard.ModelPick.Default)
+          UiOutcome.Selected(ModelCatalog.ModelPick.Default)
         ),
         inputScript = List(UiOutcome.Selected("claude-opus-5-5[1m]"))
       )
       assert(Wizard(ui, probe, path).run(reconfigure = true))
 
       assertEquals(
-        ui.recordedPreselects(3),
-        Some(Wizard.ModelPick.Manual)
+        ui.recordedFirstRows(3),
+        ModelCatalog.ModelPick.Manual
       )
       assertEquals(
         ui.recordedInputs.head,
@@ -425,9 +417,9 @@ class WizardTest extends munit.FunSuite:
         selectScript = List(
           UiOutcome.Selected(BackendTag.Opencode), // planning: unchanged
           UiOutcome.Selected(BackendTag.ClaudeCode),
-          UiOutcome.Selected(Wizard.ModelPick.Default),
+          UiOutcome.Selected(ModelCatalog.ModelPick.Default),
           UiOutcome.Selected(BackendTag.ClaudeCode),
-          UiOutcome.Selected(Wizard.ModelPick.Default)
+          UiOutcome.Selected(ModelCatalog.ModelPick.Default)
         ),
         inputScript = List(UiOutcome.Selected("anthropic/claude-sonnet-5"))
       )
@@ -448,9 +440,9 @@ class WizardTest extends munit.FunSuite:
         selectScript = List(
           UiOutcome.Selected(BackendTag.Opencode),
           UiOutcome.Selected(BackendTag.ClaudeCode),
-          UiOutcome.Selected(Wizard.ModelPick.Default),
+          UiOutcome.Selected(ModelCatalog.ModelPick.Default),
           UiOutcome.Selected(BackendTag.ClaudeCode),
-          UiOutcome.Selected(Wizard.ModelPick.Default)
+          UiOutcome.Selected(ModelCatalog.ModelPick.Default)
         ),
         inputScript = List(UiOutcome.Selected("-"))
       )
@@ -466,11 +458,11 @@ class WizardTest extends munit.FunSuite:
       val ui = ScriptedUi(
         selectScript = List(
           UiOutcome.Selected(BackendTag.ClaudeCode),
-          UiOutcome.Selected(Wizard.ModelPick.Default),
+          UiOutcome.Selected(ModelCatalog.ModelPick.Default),
           UiOutcome.Selected(BackendTag.ClaudeCode),
-          UiOutcome.Selected(Wizard.ModelPick.Manual),
+          UiOutcome.Selected(ModelCatalog.ModelPick.Manual),
           UiOutcome.Selected(BackendTag.ClaudeCode),
-          UiOutcome.Selected(Wizard.ModelPick.Default)
+          UiOutcome.Selected(ModelCatalog.ModelPick.Default)
         ),
         inputScript = List(UiOutcome.Selected("-"))
       )
@@ -493,9 +485,9 @@ class WizardTest extends munit.FunSuite:
       val ui = ScriptedUi(
         selectScript = List(
           UiOutcome.Selected(BackendTag.ClaudeCode),
-          UiOutcome.Selected(Wizard.ModelPick.Default),
+          UiOutcome.Selected(ModelCatalog.ModelPick.Default),
           UiOutcome.Selected(BackendTag.ClaudeCode),
-          UiOutcome.Selected(Wizard.ModelPick.Curated("sonnet")),
+          UiOutcome.Selected(ModelCatalog.ModelPick.Curated("sonnet")),
           UiOutcome.Selected(BackendTag.Gemini)
         ),
         inputScript = List(UiOutcome.Selected(""))
@@ -516,9 +508,9 @@ class WizardTest extends munit.FunSuite:
       val ui = ScriptedUi(
         selectScript = List(
           UiOutcome.Selected(BackendTag.ClaudeCode), // planning
-          UiOutcome.Selected(Wizard.ModelPick.Default),
+          UiOutcome.Selected(ModelCatalog.ModelPick.Default),
           UiOutcome.Selected(BackendTag.ClaudeCode), // coding: re-chosen
-          UiOutcome.Selected(Wizard.ModelPick.Curated("sonnet")),
+          UiOutcome.Selected(ModelCatalog.ModelPick.Curated("sonnet")),
           UiOutcome.Selected(BackendTag.Gemini) // review
         ),
         inputScript = List(UiOutcome.Selected(""))
@@ -530,16 +522,16 @@ class WizardTest extends munit.FunSuite:
       assertEquals(
         codingModelMenu.map(_.value),
         List(
-          Wizard.ModelPick.Curated("sonnet"),
-          Wizard.ModelPick.Curated("opus"),
-          Wizard.ModelPick.Curated("fable"),
-          Wizard.ModelPick.Manual,
-          Wizard.ModelPick.Default
+          ModelCatalog.ModelPick.Curated("sonnet"),
+          ModelCatalog.ModelPick.Curated("opus"),
+          ModelCatalog.ModelPick.Curated("fable"),
+          ModelCatalog.ModelPick.Manual,
+          ModelCatalog.ModelPick.Default
         )
       )
 
   test(
-    "re-configure passes the current harness as preselect, not the fallback"
+    "re-configure starts each harness prompt on the current harness, not the fallback"
   ):
     withTempPath: path =>
       os.write(
@@ -552,21 +544,16 @@ class WizardTest extends munit.FunSuite:
       val ui = ScriptedUi(
         selectScript = List(
           UiOutcome.Selected(BackendTag.ClaudeCode),
-          UiOutcome.Selected(Wizard.ModelPick.Default),
+          UiOutcome.Selected(ModelCatalog.ModelPick.Default),
           UiOutcome.Selected(BackendTag.Gemini),
           UiOutcome.Selected(BackendTag.Gemini)
         ),
         inputScript = List(UiOutcome.Selected(""), UiOutcome.Selected(""))
       )
       assert(Wizard(ui, probe, path).run(reconfigure = true))
-      val harnessPreselects = List(0, 2, 3).map(ui.recordedPreselects)
       assertEquals(
-        harnessPreselects,
-        List(
-          Some(BackendTag.ClaudeCode),
-          Some(BackendTag.Gemini),
-          Some(BackendTag.Gemini)
-        )
+        List(0, 2, 3).map(ui.recordedFirstRows),
+        List(BackendTag.ClaudeCode, BackendTag.Gemini, BackendTag.Gemini)
       )
 
   test(
@@ -577,9 +564,9 @@ class WizardTest extends munit.FunSuite:
       val ui = ScriptedUi(
         selectScript = List(
           UiOutcome.Selected(BackendTag.ClaudeCode),
-          UiOutcome.Selected(Wizard.ModelPick.Default),
+          UiOutcome.Selected(ModelCatalog.ModelPick.Default),
           UiOutcome.Selected(BackendTag.Codex),
-          UiOutcome.Selected(Wizard.ModelPick.Default),
+          UiOutcome.Selected(ModelCatalog.ModelPick.Default),
           UiOutcome.Selected(BackendTag.Gemini)
         ),
         inputScript = List(UiOutcome.Selected(""))
@@ -649,7 +636,7 @@ class WizardTest extends munit.FunSuite:
       val ui = ScriptedUi(selectScript =
         List(
           UiOutcome.Selected(BackendTag.ClaudeCode),
-          UiOutcome.Selected(Wizard.ModelPick.Default),
+          UiOutcome.Selected(ModelCatalog.ModelPick.Default),
           UiOutcome.Cancelled
         )
       )
@@ -668,126 +655,75 @@ class WizardTest extends munit.FunSuite:
   // --- pure model-selection helpers ---
 
   test(
-    "curatedModels lists CLI-resolved aliases for claude and codex, nothing for open-ended harnesses"
+    "curated lists CLI-resolved aliases for claude and codex, nothing for open-ended harnesses"
   ):
+    assertEquals(ModelCatalog.curated(BackendTag.Opencode), Nil)
+    assertEquals(ModelCatalog.curated(BackendTag.Pi), Nil)
+    assertEquals(ModelCatalog.curated(BackendTag.Gemini), Nil)
     assertEquals(
-      Wizard.curatedModels(Wizard.Role.Coding, BackendTag.Opencode),
-      Nil
-    )
-    assertEquals(Wizard.curatedModels(Wizard.Role.Coding, BackendTag.Pi), Nil)
-    assertEquals(
-      Wizard.curatedModels(Wizard.Role.Coding, BackendTag.Gemini),
-      Nil
-    )
-    assertEquals(
-      Wizard.curatedModels(Wizard.Role.Planning, BackendTag.Codex).map(_._1),
-      List("gpt-6-sol", "gpt-6-astra", "gpt-6-luna")
-    )
-    assertEquals(
-      Wizard.curatedModels(Wizard.Role.Coding, BackendTag.Codex).map(_._1),
+      ModelCatalog.curated(BackendTag.Codex).map(_._1),
       List("gpt-6-sol", "gpt-6-astra", "gpt-6-luna")
     )
 
-  test(
-    "curatedModels puts the role's default row first, since the tty backend doesn't honor preselect"
-  ):
+  test("roleDefault starts planning on fable and the other roles on opus"):
     assertEquals(
-      Wizard
-        .curatedModels(Wizard.Role.Planning, BackendTag.ClaudeCode)
-        .map(_._1),
-      List("fable", "opus", "sonnet")
-    )
-    assertEquals(
-      Wizard.curatedModels(Wizard.Role.Coding, BackendTag.ClaudeCode).map(_._1),
-      List("opus", "fable", "sonnet")
-    )
-    assertEquals(
-      Wizard.curatedModels(Wizard.Role.Review, BackendTag.ClaudeCode).map(_._1),
-      List("opus", "fable", "sonnet")
+      List(Wizard.Role.Planning, Wizard.Role.Coding, Wizard.Role.Review)
+        .map(Wizard.roleDefault(_, BackendTag.ClaudeCode)),
+      List(Some("fable"), Some("opus"), Some("opus"))
     )
 
-  test(
-    "curatedModels promotes a current pin matching a curated row to the front, rest keep their relative order"
-  ):
+  test("roleDefault is the first curated row off claude, none for free text"):
     assertEquals(
-      Wizard
-        .curatedModels(
-          Wizard.Role.Coding,
-          BackendTag.ClaudeCode,
-          Some("sonnet")
-        )
-        .map(_._1),
-      List("sonnet", "opus", "fable")
+      Wizard.roleDefault(Wizard.Role.Planning, BackendTag.Codex),
+      Some("gpt-6-sol")
     )
-    assertEquals(
-      Wizard
-        .curatedModels(
-          Wizard.Role.Planning,
-          BackendTag.Codex,
-          Some("gpt-6-luna")
-        )
-        .map(_._1),
-      List("gpt-6-luna", "gpt-6-sol", "gpt-6-astra")
-    )
+    assertEquals(Wizard.roleDefault(Wizard.Role.Coding, BackendTag.Pi), None)
 
   test(
-    "curatedModels ignores a current pin that isn't one of the curated ids, keeping the role default first"
+    "defaultPick prefers the matching curated row, then manual, then the default, then harness default"
   ):
+    val curated = ModelCatalog.curated(BackendTag.ClaudeCode)
     assertEquals(
-      Wizard
-        .curatedModels(
-          Wizard.Role.Coding,
-          BackendTag.ClaudeCode,
-          Some("claude-opus-5-5[1m]")
-        )
-        .map(_._1),
-      List("opus", "fable", "sonnet")
-    )
-
-  test(
-    "preselectModelPick prefers the matching curated row, then manual, then the default, then harness default"
-  ):
-    val curated =
-      Wizard.curatedModels(Wizard.Role.Coding, BackendTag.ClaudeCode)
-    assertEquals(
-      Wizard.preselectModelPick(curated, Some("sonnet"), Some("fable")),
-      Wizard.ModelPick.Curated("sonnet")
+      ModelCatalog.defaultPick(curated, Some("sonnet"), Some("fable")),
+      ModelCatalog.ModelPick.Curated("sonnet")
     )
     assertEquals(
-      Wizard.preselectModelPick(
+      ModelCatalog.defaultPick(
         curated,
         Some("claude-opus-5-5[1m]"),
         Some("fable")
       ),
-      Wizard.ModelPick.Manual
+      ModelCatalog.ModelPick.Manual
     )
     assertEquals(
-      Wizard.preselectModelPick(curated, None, Some("fable")),
-      Wizard.ModelPick.Curated("fable")
+      ModelCatalog.defaultPick(curated, None, Some("fable")),
+      ModelCatalog.ModelPick.Curated("fable")
     )
     assertEquals(
-      Wizard.preselectModelPick(curated, None, None),
-      Wizard.ModelPick.Default
+      ModelCatalog.defaultPick(curated, None, None),
+      ModelCatalog.ModelPick.Default
     )
 
   test(
     "freeTextHint hints at the opencode and pi model formats, nothing elsewhere"
   ):
-    assert(Wizard.freeTextHint(BackendTag.Opencode).contains("provider/model"))
-    assert(Wizard.freeTextHint(BackendTag.Pi).contains(":thinking"))
-    assertEquals(Wizard.freeTextHint(BackendTag.Gemini), "")
+    assert(
+      ModelCatalog.freeTextHint(BackendTag.Opencode).contains("provider/model")
+    )
+    assert(ModelCatalog.freeTextHint(BackendTag.Pi).contains(":thinking"))
+    assertEquals(ModelCatalog.freeTextHint(BackendTag.Gemini), "")
 
   test(
     "resolveModelInput treats blank or '-' as no pin, anything else as the model"
   ):
-    assertEquals(Wizard.resolveModelInput(""), None)
-    assertEquals(Wizard.resolveModelInput("   "), None)
-    assertEquals(Wizard.resolveModelInput("-"), None)
-    assertEquals(Wizard.resolveModelInput(" sonnet "), Some("sonnet"))
+    assertEquals(ModelCatalog.resolveModelInput(""), None)
+    assertEquals(ModelCatalog.resolveModelInput("   "), None)
+    assertEquals(ModelCatalog.resolveModelInput("-"), None)
+    assertEquals(ModelCatalog.resolveModelInput(" sonnet "), Some("sonnet"))
 
   test("clearAffordance only appears when there's a pin to clear"):
-    assertEquals(Wizard.clearAffordance(None), "")
-    assert(Wizard.clearAffordance(Some("sonnet")).contains("- clears"))
+    assertEquals(ModelCatalog.clearAffordance(None), "")
+    assert(ModelCatalog.clearAffordance(Some("sonnet")).contains("- clears"))
 
   // --- repairMalformed ---
 

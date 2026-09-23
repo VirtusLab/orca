@@ -78,6 +78,35 @@ private[shell] object ManifestFixtures:
       lastActiveAt = Instant.parse(lastActiveAt)
     )
 
+  /** `manifest` as [[ManifestReader]] records it: under the attempt id its
+    * `startedAt` and `pid` spell.
+    */
+  def recorded(
+      manifest: AttemptManifest,
+      crashed: Boolean = false
+  ): RecordedAttempt =
+    RecordedAttempt(
+      AttemptId(manifest.startedAt, manifest.pid),
+      manifest,
+      crashed
+    )
+
+  /** `session`, recorded in `manifest`, as a [[SessionIndex]] holds it. */
+  def selection(
+      manifest: AttemptManifest,
+      session: ManifestSession,
+      crashed: Boolean = false
+  ): SessionSelection =
+    SessionSelection(
+      SessionRef(
+        AttemptId(manifest.startedAt, manifest.pid),
+        manifest.sessions.indexOf(session) + 1
+      ),
+      manifest,
+      session,
+      crashed
+    )
+
   /** Writes `manifest` where `ManifestReader` lists `dir`'s attempts, under the
     * attempt id its `startedAt` and `pid` spell.
     */

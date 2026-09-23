@@ -79,9 +79,7 @@ private[shell] object MainMenu:
     )
 
   /** "How should the changes be made?" — the two-row hand-vs-agent prompt
-    * shared by Edit/Create/Fork (ADR 0021 §6/§9 amendment). Agent first: it is
-    * the default choice (the interactive select has no cursor preselection, so
-    * first position IS the default).
+    * shared by Edit/Create/Fork (ADR 0021 §6/§9 amendment).
     */
   val modeChoices: List[Choice[ChangeMode]] = List(
     Choice(
@@ -96,11 +94,6 @@ private[shell] object MainMenu:
     * independent — orca refuses `--worktree` with `--skip-branch` — and asking
     * separately would leave prompt order to prevent a pair [[RunTarget]] has no
     * case for. The menu never keeps uncommitted files, so every row stashes.
-    *
-    * `NewBranch` leads because it is the default, and the position is
-    * load-bearing rather than cosmetic: `ConsoleUiShell` cannot honor
-    * `preselect`, so the first row is what the cursor starts on and what Enter
-    * picks.
     */
   val runTargetChoices: List[Choice[RunTarget]] = List(
     Choice(
