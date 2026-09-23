@@ -1,5 +1,6 @@
 package orca.events
 
+import orca.StagePath
 import orca.agents.{BackendTag, Model, SessionKey}
 
 /** Flow-level event fanned out to every registered [[OrcaListener]]. Covers
@@ -18,8 +19,15 @@ import orca.agents.{BackendTag, Model, SessionKey}
   * listeners.
   */
 enum OrcaEvent:
-  case StageStarted(name: String)
-  case StageCompleted(name: String)
+  /** A stage began, whether it runs or replays. Every one is followed by the
+    * [[StageEnded]] of the same `path`, after those of any stages nested in it.
+    * Only `stage` emits the pair, on the flow's owner thread, which is what
+    * lets a listener keep the open stages as a plain stack.
+    */
+  case StageStarted private[orca] (path: StagePath.Stage, name: String)
+
+  /** The stage at `path` ended; see [[StageStarted]]. */
+  case StageEnded private[orca] (path: StagePath.Stage, outcome: StageOutcome)
 
   /** One tool invocation by the agent named in `agent`. Backends emit `None` —
     * a drain doesn't know which agent it runs for;

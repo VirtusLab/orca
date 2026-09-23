@@ -21,7 +21,7 @@ import orca.agents.{
   PiAgent,
   Prompts
 }
-import orca.progress.ProgressStore
+import orca.progress.{FlowSource, ProgressStore}
 import orca.sessions.SessionStore
 import orca.review.ReviewerCatalog
 import orca.runner.{
@@ -132,7 +132,6 @@ def flow(
     planningAgent: Option[AgentSet => Agent[?]] = None,
     codingAgent: Option[AgentSet => Agent[?]] = None,
     reviewAgent: Option[AgentSet => Agent[?]] = None,
-    progressStore: Option[ProgressStore] = None,
     // Agent factories share the `AgentWiring => Ox ?=> Agent` shape — see
     // FlowWiring's scaladoc.
     claude: Option[AgentWiring => Ox ?=> ClaudeAgent] = None,
@@ -153,9 +152,8 @@ def flow(
   // Tally token usage and print the summary on exit (success or failure).
   val costTracker = new CostTracker(pricing.lastUpdated)
   // Read once and threaded explicitly from here down (AttemptManifestWriter, and
-  // the progress header via `runFlow`/`FlowLifecycle.setup`) rather than
-  // re-read with `sys.env` at each site.
-  val flowName = sys.env.get("ORCA_FLOW_NAME")
+  // the progress header via `runFlow`/`FlowLifecycle.setup`).
+  val flowSource = FlowSourceProperty.read()
   val runKey = RunKey.of(args.userPrompt)
 
   // Where the run happens. This settles before the directory's first consumer,
@@ -198,14 +196,13 @@ def flow(
   ): AttemptOutcome =
     supervised:
       // Per-attempt manifest (ADR 0021 §8), always attached like
-      // LoggingListener; see AttemptManifestWriter's scaladoc for `flowName`'s
-      // ORCA_FLOW_NAME sourcing. Its actor fork lives in this scope, spanning
+      // LoggingListener. Its actor fork lives in this scope, spanning
       // construction through `finish`; the `System.exit` at the end of `flow()`
       // stays OUTSIDE it, and a nested `flow()` gets its own scope and writer.
       val manifestWriter = AttemptManifestWriter.start(
         dir,
         OrcaBanner.version,
-        flowName,
+        flowSource.map(_.fileName),
         attemptId,
         clock
       )
@@ -231,8 +228,7 @@ def flow(
               planningAgent = planningAgent,
               codingAgent = codingAgent,
               reviewAgent = reviewAgent,
-              progressStore = progressStore,
-              flowName = flowName,
+              flowSource = flowSource,
               pricing = pricing,
               wiring = FlowWiring(
                 claude = claude,
@@ -304,13 +300,9 @@ private[orca] def runFlow(
     planningAgent: Option[AgentSet => Agent[?]] = None,
     codingAgent: Option[AgentSet => Agent[?]] = None,
     reviewAgent: Option[AgentSet => Agent[?]] = None,
-    progressStore: Option[ProgressStore],
     configHome: ConfigHome = ConfigHome.default,
-    // `ORCA_FLOW_NAME`, forwarded into a freshly-written progress header (see
-    // `FlowLifecycle.setup`'s own scaladoc) — `flow()` passes its real
-    // `sys.env` reading; `None` for every other caller (tests, a nested
-    // `flow()` invocation with nothing of its own to report).
-    flowName: Option[String] = None,
+    // Recorded in a freshly-written progress header.
+    flowSource: Option[FlowSource] = None,
     wiring: FlowWiring = FlowWiring(),
     pricing: PriceList = Pricing.default
 )(body: FlowControl ?=> Unit): Unit =
@@ -342,11 +334,7 @@ private[orca] def runFlow(
             )
           )
           val runKey = RunKey.of(args.userPrompt)
-          val store =
-            progressStore.getOrElse(ProgressStore.default(workDir, runKey))
-          // Not pluggable alongside `progressStore`: these records are
-          // machine-local cache under `.orca/cache/`, derived from the same
-          // (workDir, prompt) pair a resumed run re-derives.
+          val store = ProgressStore.default(workDir, runKey)
           val sessions = SessionStore.default(workDir, runKey)
           // One wiring bundle handed to every agent factory, so overrides and
           // defaults build against the SAME dispatcher, interaction, workDir and
@@ -381,7 +369,7 @@ private[orca] def runFlow(
             fsTool = fsTool,
             store = store,
             sessions = sessions,
-            flowName = flowName,
+            flowSource = flowSource,
             debug = debug
           )(body)
         finally effectiveInteraction.close()
@@ -414,7 +402,7 @@ private def runInContext(
     fsTool: FsTool,
     store: ProgressStore,
     sessions: SessionStore,
-    flowName: Option[String],
+    flowSource: Option[FlowSource],
     debug: Boolean
 )(body: FlowControl ?=> Unit): Unit =
   val log = LoggerFactory.getLogger("orca.flow")
@@ -480,7 +468,7 @@ private def runInContext(
         stackOverridden = stackSettings.isDefined,
         store,
         sessions,
-        flowName = flowName,
+        flowSource = flowSource,
         emit = dispatcher.onEvent
       )
     )

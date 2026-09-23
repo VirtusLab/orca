@@ -142,7 +142,7 @@ object TestFlowControl:
         orca.testkit.branchName("feat/test"),
         BranchMode.Created,
         userPrompt = userPrompt,
-        flowName = None,
+        flow = None,
         startingCommit = headCommit
       )
     )

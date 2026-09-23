@@ -43,7 +43,6 @@ object FlowHarness:
         planningAgent = planningOverride,
         codingAgent = codingOverride,
         reviewAgent = reviewOverride,
-        progressStore = None,
         configHome = configHome,
         wiring = wiring
       )(body)

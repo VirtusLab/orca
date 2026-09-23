@@ -24,8 +24,8 @@ enum BranchMode derives JsonData:
   *
   * `userPrompt` is the full task text: the shell's "Resume interrupted run"
   * offer relaunches the run byte-identically (ADR 0021 §3 amendment), and
-  * `RecoveryCheck` refuses a log whose prompt is not the current one.
-  * `flowName` is `ORCA_FLOW_NAME`, `None` for a run started outside the shell.
+  * `RecoveryCheck` refuses a log whose prompt is not the current one. `flow` is
+  * `None` for a run started outside the shell.
   *
   * `startingCommit` is the commit HEAD pointed at when the run bound its branch
   * — the diff base for a review of everything the whole run changed.
@@ -37,7 +37,7 @@ case class ProgressHeader(
     branch: BranchName,
     branchMode: BranchMode,
     userPrompt: String,
-    flowName: Option[String],
+    flow: Option[FlowSource],
     startingCommit: CommitHash
 ) derives JsonData:
   /** Where the run started, which a successful run may hand HEAD back to. */

@@ -29,7 +29,6 @@ class FlowContextAgentTest extends munit.FunSuite:
         interaction = Some(interaction),
         extraListeners = Nil,
         branchNaming = None,
-        progressStore = None,
         wiring = FlowWiring(claude = Some(_ => StubAgent.claude))
       ):
         seen = Some(codingAgent)

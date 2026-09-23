@@ -1,6 +1,6 @@
 package orca.runner
 
-import orca.util.{JsonFile, RawJson}
+import orca.util.RawJson
 import orca.{
   BranchNamingStrategy,
   FlowContext,
@@ -44,6 +44,7 @@ import orca.gitref.{BranchName, CommitHash, Head}
 import orca.progress.{
   BranchMode,
   FeatureBranch,
+  FlowSource,
   ProgressHeader,
   ProgressStore,
   PublishedWork,
@@ -226,18 +227,17 @@ class FlowLifecycleTest extends munit.FunSuite:
     val worktree = WorktreeRun
       .resolve(invokedIn, RunKey.of(prompt))
       .getOrElse(fail("the worktree must resolve"))
-    val store = ProgressStore.default(worktree, RunKey.of(prompt))
     val stageOneRuns = new AtomicInteger(0)
 
     val _ = intercept[SurfacedFlowFailure]:
-      runFlowForTest(worktree, prompt, store):
+      runFlowForTest(worktree, prompt):
         val _ = stage("stage-one"):
           stageOneRuns.incrementAndGet()
           "one-done"
         val _ = stage[String]("stage-two"):
           throw new RuntimeException("boom")
 
-    runFlowForTest(worktree, prompt, store):
+    runFlowForTest(worktree, prompt):
       val _ = stage("stage-one"):
         stageOneRuns.incrementAndGet()
         "one-done"
@@ -267,7 +267,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         branch = branchName("feat/lifecycle-failure"),
         branchMode = BranchMode.Created,
         userPrompt = prompt,
-        flowName = None,
+        flow = None,
         startingCommit = unreachableCommit
       )
     )
@@ -338,7 +338,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         branch = branchName("feat/lifecycle-resume"),
         branchMode = BranchMode.Created,
         userPrompt = prompt,
-        flowName = None,
+        flow = None,
         startingCommit = GitRepo.headCommit(workDir)
       )
     )
@@ -367,7 +367,6 @@ class FlowLifecycleTest extends munit.FunSuite:
         stackSettings = Some(StackSettings.empty),
         claude = Some(_ => StubAgent.claude),
         workDir = workDir,
-        progressStore = Some(store),
         interaction = Some(interaction)
       ):
         val _ = stage("resumable-stage"):
@@ -408,7 +407,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     // The body failure escapes `runFlow` wrapped in `SurfacedFlowFailure` (it
     // was reported first); the original is its `cause`.
     val thrown = intercept[SurfacedFlowFailure]:
-      runFlowForTest(workDir, prompt, store):
+      runFlowForTest(workDir, prompt):
         val _ = stage("stage-one"):
           os.write(workDir / "one.txt", "content")
           "one-done"
@@ -436,14 +435,13 @@ class FlowLifecycleTest extends munit.FunSuite:
     // successful second run returns to the start branch.
     val workDir = GitRepo.seeded()
     val prompt = "resume-feature"
-    val store = ProgressStore.default(workDir, RunKey.of(prompt))
     val git = new OsGitTool(workDir)
     val startBranch = git.currentBranch()
     val stageOneRuns = new AtomicInteger(0)
 
     // First run: crashes in stage two.
     val _ = intercept[SurfacedFlowFailure]:
-      runFlowForTest(workDir, prompt, store):
+      runFlowForTest(workDir, prompt):
         val _ = stage("stage-one"):
           stageOneRuns.incrementAndGet()
           "one-done"
@@ -458,7 +456,7 @@ class FlowLifecycleTest extends munit.FunSuite:
 
     // Second run from the feature branch: resumes; stage one is replayed from the
     // log (body skipped), stage two runs fresh.
-    runFlowForTest(workDir, prompt, store):
+    runFlowForTest(workDir, prompt):
       val _ = stage("stage-one"):
         stageOneRuns.incrementAndGet()
         "one-done"
@@ -486,7 +484,6 @@ class FlowLifecycleTest extends munit.FunSuite:
     // reuse branch is reachable in production.
     val workDir = GitRepo.seeded()
     val prompt = "resume-session-loop"
-    val store = ProgressStore.default(workDir, RunKey.of(prompt))
     val sessions = SessionStore.default(workDir, RunKey.of(prompt))
     val agent = StubAgent.claude
     val tasks = List("parse the input", "wire it up", "document it")
@@ -503,7 +500,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         id
 
     val _ = intercept[SurfacedFlowFailure]:
-      runFlowForTest(workDir, prompt, store):
+      runFlowForTest(workDir, prompt):
         val _ = taskLoop(Some(failing))
     assertEquals(bodyRuns.get(), 2, "the run stops at the failing task")
     val firstRecords = sessions.records()
@@ -513,7 +510,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       "the failed task's record survives the failure teardown's reset"
     )
 
-    runFlowForTest(workDir, prompt, store):
+    runFlowForTest(workDir, prompt):
       resumedIds.set(taskLoop(None))
 
     assertEquals(
@@ -539,10 +536,9 @@ class FlowLifecycleTest extends munit.FunSuite:
     // production DefaultFlowContext one) must suppress a second Error.
     val workDir = GitRepo.seeded()
     val prompt = "boundary-stage-once"
-    val store = ProgressStore.default(workDir, RunKey.of(prompt))
     val listener = new RecordingListener
     val _ = intercept[SurfacedFlowFailure]:
-      runFlowForTest(workDir, prompt, store, extraListeners = List(listener)):
+      runFlowForTest(workDir, prompt, extraListeners = List(listener)):
         val _ = stage[String]("crash"):
           throw new RuntimeException("boom")
     val errors = listener.events.collect { case e: OrcaEvent.Error => e }
@@ -553,10 +549,9 @@ class FlowLifecycleTest extends munit.FunSuite:
     // the flow boundary itself.
     val workDir = GitRepo.seeded()
     val prompt = "boundary-body-once"
-    val store = ProgressStore.default(workDir, RunKey.of(prompt))
     val listener = new RecordingListener
     val _ = intercept[SurfacedFlowFailure]:
-      runFlowForTest(workDir, prompt, store, extraListeners = List(listener)):
+      runFlowForTest(workDir, prompt, extraListeners = List(listener)):
         throw new RuntimeException("boom outside any stage")
     val errors = listener.events.collect { case e: OrcaEvent.Error => e }
     assertEquals(errors.size, 1, s"exactly one Error expected, got: $errors")
@@ -588,7 +583,6 @@ class FlowLifecycleTest extends munit.FunSuite:
           interaction = Some(interaction),
           extraListeners = Nil,
           branchNaming = None,
-          progressStore = None,
           wiring = FlowWiring(claude =
             Some(_ => throw new RuntimeException("factory boom"))
           )
@@ -599,43 +593,6 @@ class FlowLifecycleTest extends munit.FunSuite:
       !thrown.isInstanceOf[SurfacedFlowFailure],
       s"a pre-ctx factory failure must NOT be wrapped in SurfacedFlowFailure: $thrown"
     )
-
-  test(
-    "R20: snapshot-before-stash restores the log file if the stash removed it"
-  ):
-    // The end-to-end stash hazard is belt-and-suspenders (the log is normally
-    // committed, so the stash can't remove it), so cover the helper directly.
-    val dir = TempDirs.dir()
-    val path = dir / ".orca" / "runs" / "x.progress.json"
-    os.write(path, "{\"header\":true}", createFolders = true)
-    val snapshot = FlowLifecycle.snapshotLog(path)
-    assert(snapshot.isDefined, "snapshot must capture an existing file")
-
-    val _ = os.remove(path)
-    FlowLifecycle.restoreLogIfMissing(dir, path, snapshot)
-    assert(os.exists(path), "log must be restored from the snapshot")
-    assertEquals(os.read(path), "{\"header\":true}")
-
-    // Restore is a no-op when the file is still present (does not overwrite).
-    os.write.over(path, "untouched")
-    FlowLifecycle.restoreLogIfMissing(dir, path, snapshot)
-    assertEquals(os.read(path), "untouched")
-
-    // A snapshot of a missing file is None; restore then does nothing.
-    val missing = dir / ".orca" / "absent.json"
-    assertEquals(FlowLifecycle.snapshotLog(missing), None)
-    FlowLifecycle.restoreLogIfMissing(dir, missing, None)
-    assert(!os.exists(missing))
-
-  test("restoreLogIfMissing recreates .orca/runs/ when the stash removed it"):
-    // A stash of the only file in `.orca/runs/` takes the directory with it.
-    val dir = TempDirs.dir()
-    val path = dir / ".orca" / "runs" / "x.progress.json"
-    os.write(path, "{\"header\":true}", createFolders = true)
-    val snapshot = FlowLifecycle.snapshotLog(path)
-    os.remove.all(dir / ".orca" / "runs")
-    FlowLifecycle.restoreLogIfMissing(dir, path, snapshot)
-    assertEquals(os.read(path), "{\"header\":true}")
 
   test(
     "R30: a log whose recorded branch differs from the current branch aborts"
@@ -656,7 +613,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         branch = branchName("feat/merged-hazard"),
         branchMode = BranchMode.Created,
         userPrompt = prompt,
-        flowName = None,
+        flow = None,
         startingCommit = unreachableCommit
       )
     )
@@ -667,7 +624,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     // The abort surfaces first (reported), then escapes wrapped in
     // `SurfacedFlowFailure`; the original `OrcaFlowException` is its `cause`.
     val thrown = intercept[SurfacedFlowFailure]:
-      runFlowForTest(workDir, prompt, store):
+      runFlowForTest(workDir, prompt):
         val _ = stage("never-runs"):
           "x"
     assert(thrown.cause.isInstanceOf[orca.OrcaFlowException])
@@ -733,12 +690,14 @@ class FlowLifecycleTest extends munit.FunSuite:
   ):
     // The fresh-run path would replace the file (`os.move(replaceExisting)`
     // needs write permission on the directory, not read permission on the
-    // target), silently destroying a run that may still be resumable. Driven
-    // through the store: a real unreadable file is one `snapshotLog` cannot
-    // read either, so setup would fail before reaching the binding.
+    // target), silently destroying a run that may still be resumable. A
+    // directory at the log's path is unreadable for any user, root included.
     val workDir = GitRepo.seeded()
     val prompt = "unreadable-log"
     val git = new OsGitTool(workDir)
+    val store = ProgressStore.default(workDir, RunKey.of(prompt))
+    os.makeDir.all(store.path)
+    os.write(workDir / "wip.txt", "user's edit")
     val thrown = intercept[orca.OrcaFlowException]:
       val _ = FlowLifecycle.setup(
         args = OrcaArgs(prompt),
@@ -750,8 +709,7 @@ class FlowLifecycleTest extends munit.FunSuite:
           .readSettings(workDir, noGlobalSettings, Some(StackSettings.empty))
           .stack,
         stackOverridden = true,
-        store =
-          new UnreadableLog(ProgressStore.default(workDir, RunKey.of(prompt))),
+        store = store,
         sessionStore = scratchSessions(),
         emit = _ => ()
       )
@@ -763,15 +721,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       Set("main"),
       "the abort must land before any branch is created"
     )
-
-  /** `underlying` with a log that is present but cannot be read — file
-    * permissions, or a directory at the path.
-    */
-  private class UnreadableLog(underlying: ProgressStore) extends ProgressStore:
-    export underlying.{load => _, loadDetailed => _, *}
-    def load(): Option[orca.progress.ProgressLog] = None
-    def loadDetailed(): JsonFile.Read[orca.progress.ProgressLog] =
-      JsonFile.Read.Unreadable("AccessDeniedException: denied")
+    assert(os.exists(workDir / "wip.txt"), "the abort must precede the stash")
 
   // --- refusing a fresh run on a branch another run claims (R1 amendment) ---
 
@@ -787,7 +737,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       // the same string for both — tests that vary one pass both.
       prompt: String = "the other task",
       userPrompt: String = "the other task",
-      flowName: Option[String] = Some("implement.sc")
+      flow: Option[FlowSource] = Some(FlowSource.Catalog("implement.sc"))
   ): ProgressStore =
     given WorkspaceWrite = WorkspaceWrite.unsafe
     val store = ProgressStore.default(workDir, RunKey.of(prompt))
@@ -797,7 +747,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         branch = branchName(branch),
         branchMode = BranchMode.Created,
         userPrompt = userPrompt,
-        flowName = flowName,
+        flow = flow,
         startingCommit = unreachableCommit
       )
     )
@@ -879,7 +829,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       workDir,
       branch = startBranch,
       userPrompt = s"line one$esc[31m\nline two " + "x" * 80,
-      flowName = Some(s"impl$esc[31mement.sc")
+      flow = Some(FlowSource.Catalog(s"impl$esc[31mement.sc"))
     )
     val message =
       intercept[orca.OrcaFlowException](setupFresh(workDir): Unit).getMessage
@@ -906,15 +856,15 @@ class FlowLifecycleTest extends munit.FunSuite:
       prompt = "older task",
       userPrompt = "older task"
     )
-    // The newer log is the CLI-run shape: a task recorded, no flow name (no
-    // ORCA_FLOW_NAME outside the shell), so it also covers what the message
+    // The newer log is the CLI-run shape: a task recorded, no flow, so it
+    // also covers what the message
     // can and can't say for such a header.
     val newer = writeForeignLog(
       workDir,
       startBranch,
       prompt = "newer task",
       userPrompt = "newer task",
-      flowName = None
+      flow = None
     )
     // Force a distinguishable mtime order regardless of write-speed timing.
     val _ = os.mtime.set(older.path, System.currentTimeMillis() - 60000)
@@ -969,7 +919,7 @@ class FlowLifecycleTest extends munit.FunSuite:
           branch = branchName("feat/resume-me"),
           branchMode = BranchMode.Created,
           userPrompt = prompt,
-          flowName = None,
+          flow = None,
           startingCommit = unreachableCommit
         )
       )
@@ -1055,7 +1005,7 @@ class FlowLifecycleTest extends munit.FunSuite:
           branchMode = BranchMode.Created,
           startingCommit = unreachableCommit,
           userPrompt = prompt,
-          flowName = None
+          flow = None
         )
       )
     val setup = setupForSettings(workDir, Some(StackSettings.empty), prompt)
@@ -1190,10 +1140,9 @@ class FlowLifecycleTest extends munit.FunSuite:
     // a flow body actually reads when it asks for the whole-run diff base.
     val workDir = GitRepo.seeded()
     val prompt = "starting-commit-threading"
-    val store = ProgressStore.default(workDir, RunKey.of(prompt))
     val boundAt = new OsGitTool(workDir).headCommit()
     var seen: Option[CommitHash] = None
-    runFlowForTest(workDir, prompt, store):
+    runFlowForTest(workDir, prompt):
       seen = summon[orca.FlowControl].startingCommit
     assertEquals(seen, boundAt)
 
@@ -1340,7 +1289,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     )
 
   test(
-    "setup: a fresh run's header records userPrompt and the given flowName"
+    "setup: a fresh run's header records userPrompt and the given flow source"
   ):
     val workDir = GitRepo.seeded()
     val git = new OsGitTool(workDir)
@@ -1364,15 +1313,18 @@ class FlowLifecycleTest extends munit.FunSuite:
       stackOverridden = false,
       store = store,
       sessionStore = scratchSessions(),
-      flowName = Some("implement.sc"),
+      flowSource = Some(FlowSource.Catalog("implement.sc")),
       emit = _ => ()
     )
     val loaded = store.load()
     assertEquals(loaded.map(_.header.userPrompt), Some(prompt))
-    assertEquals(loaded.map(_.header.flowName), Some(Some("implement.sc")))
+    assertEquals(
+      loaded.map(_.header.flow),
+      Some(Some(FlowSource.Catalog("implement.sc")))
+    )
 
   test(
-    "setup: a fresh run's header has flowName = None when not given (a run outside the shell)"
+    "setup: a fresh run's header has no flow when not given (a run outside the shell)"
   ):
     val workDir = GitRepo.seeded()
     val prompt = "no-flow-name"
@@ -1383,7 +1335,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       prompt = prompt
     )
     val loaded = store.load()
-    assertEquals(loaded.map(_.header.flowName), Some(None))
+    assertEquals(loaded.map(_.header.flow), Some(None))
 
   test(
     "setup: an UNTRACKED settings file in a dirty tree is read before the stash sweeps it"
@@ -1627,7 +1579,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         branch = branchName("feat/discover-resume"),
         branchMode = BranchMode.Created,
         userPrompt = prompt,
-        flowName = None,
+        flow = None,
         startingCommit = unreachableCommit
       )
     )
@@ -1717,7 +1669,6 @@ class FlowLifecycleTest extends munit.FunSuite:
   ):
     val workDir = GitRepo.seeded()
     val prompt = "discover-failure"
-    val store = ProgressStore.default(workDir, RunKey.of(prompt))
     var stageRan = false
     val throwing = new CannedDiscoveryAgent(() =>
       throw new RuntimeException("discovery boom")
@@ -1735,8 +1686,7 @@ class FlowLifecycleTest extends munit.FunSuite:
           workDir = workDir,
           interaction = Some(interaction),
           extraListeners = Nil,
-          branchNaming = None,
-          progressStore = Some(store)
+          branchNaming = None
         ):
           val _ = stage("never-runs"):
             stageRan = true
@@ -1926,7 +1876,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         branch = branchName("feat/rehydrate-feature"),
         branchMode = BranchMode.Created,
         userPrompt = prompt,
-        flowName = None,
+        flow = None,
         startingCommit = unreachableCommit
       )
     )
@@ -1959,7 +1909,6 @@ class FlowLifecycleTest extends munit.FunSuite:
         interaction = Some(interaction),
         extraListeners = Nil,
         branchNaming = None,
-        progressStore = Some(store),
         wiring = FlowWiring(claude = Some(_ => recorder))
       ):
         // The body observes the already-rehydrated mapping.
@@ -1983,7 +1932,6 @@ class FlowLifecycleTest extends munit.FunSuite:
   private def runFlowForTest(
       workDir: os.Path,
       prompt: String,
-      store: ProgressStore,
       extraListeners: List[OrcaListener] = Nil,
       claude: ClaudeAgent = StubAgent.claude,
       gh: Option[GitHubTool] = None,
@@ -2002,8 +1950,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         workDir = workDir,
         interaction = Some(interaction),
         extraListeners = extraListeners,
-        branchNaming = None,
-        progressStore = Some(store)
+        branchNaming = None
       )(body)
 
   test(
@@ -2017,7 +1964,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val workDir = GitRepo.seeded()
     val prompt = "bestEffort-teardown"
     val store = ProgressStore.default(workDir, RunKey.of(prompt))
-    runFlowForTest(workDir, prompt, store):
+    runFlowForTest(workDir, prompt):
       val _ = stage("stage-one"):
         os.write(workDir / "one.txt", "content")
         "one-done"
@@ -2055,7 +2002,6 @@ class FlowLifecycleTest extends munit.FunSuite:
           interaction = Some(interaction),
           extraListeners = Nil,
           branchNaming = None,
-          progressStore = None,
           wiring = FlowWiring(
             claude = Some(_ => StubAgent.claude),
             opencode = Some(_ => recorder)
@@ -2190,13 +2136,11 @@ class FlowLifecycleTest extends munit.FunSuite:
   /** A run that writes a file and then calls [[openPrIfGitHub]] on GitHub. */
   private def handoffRun(workDir: os.Path = GitRepo.seeded()): HandoffRun =
     val prompt = "pr-handoff"
-    val store = ProgressStore.default(workDir, RunKey.of(prompt))
     val git = new OsGitTool(workDir)
     var featureBranch = ""
     runFlowForTest(
       workDir,
       prompt,
-      store,
       claude = new SummarisingClaude,
       gh = Some(new StubGh),
       git = Some(new PushlessGit(new OsGitTool(workDir)))
@@ -2231,9 +2175,8 @@ class FlowLifecycleTest extends munit.FunSuite:
     // published and delete it.
     val workDir = GitRepo.seeded()
     val prompt = "recorded-pr-throwaway"
-    val store = ProgressStore.default(workDir, RunKey.of(prompt))
     var featureBranch = ""
-    runFlowForTest(workDir, prompt, store):
+    runFlowForTest(workDir, prompt):
       featureBranch = summon[FlowContext].git.currentBranch()
       val _ = stage("open PR"):
         orca.pr.recordOpenedPr(handoffPr)
@@ -2259,11 +2202,10 @@ class FlowLifecycleTest extends munit.FunSuite:
     // A flow that crashes must NOT delete the branch — it needs to stay for resume.
     val workDir = GitRepo.seeded()
     val prompt = "failure-keeps-branch"
-    val store = ProgressStore.default(workDir, RunKey.of(prompt))
     val git = new OsGitTool(workDir)
     var featureBranchName = ""
     val _ = intercept[SurfacedFlowFailure]:
-      runFlowForTest(workDir, prompt, store):
+      runFlowForTest(workDir, prompt):
         // Capture the feature branch name before the crash.
         featureBranchName = summon[orca.FlowControl].git.currentBranch()
         val _ = stage[String]("crash"):
@@ -2445,7 +2387,6 @@ class FlowLifecycleTest extends munit.FunSuite:
     // resolving to "main".
     val workDir = GitRepo.seeded()
     val prompt = "fallback-collision-hazard"
-    val store = ProgressStore.default(workDir, RunKey.of(prompt))
     val git = new OsGitTool(workDir)
     val expectedFallback = BranchNamingStrategy.flowFallbackName(prompt)
     given WorkspaceWrite = WorkspaceWrite.unsafe
@@ -2466,8 +2407,7 @@ class FlowLifecycleTest extends munit.FunSuite:
           workDir = workDir,
           interaction = Some(interaction),
           extraListeners = List(listener),
-          branchNaming = Some(BranchNamingStrategy.fromText("main")),
-          progressStore = Some(store)
+          branchNaming = Some(BranchNamingStrategy.fromText("main"))
         ):
           val _ = stage("never-runs")("x")
     val errors = listener.events.collect { case e: OrcaEvent.Error => e }
@@ -2545,7 +2485,6 @@ class FlowLifecycleTest extends munit.FunSuite:
     // output. Teardown's untracked removal must therefore be off here.
     val workDir = GitRepo.seeded()
     val prompt = "skip-branch-dirty-teardown"
-    val store = ProgressStore.default(workDir, RunKey.of(prompt))
     val git = new OsGitTool(workDir)
     given WorkspaceWrite = WorkspaceWrite.unsafe
     val _ = git.createBranch(branchName("my-work"))
@@ -2567,8 +2506,7 @@ class FlowLifecycleTest extends munit.FunSuite:
           workDir = workDir,
           interaction = Some(interaction),
           extraListeners = Nil,
-          branchNaming = None,
-          progressStore = Some(store)
+          branchNaming = None
         ):
           val _ = stage[String]("crash"):
             throw new RuntimeException("boom body")
@@ -2582,9 +2520,8 @@ class FlowLifecycleTest extends munit.FunSuite:
   ):
     val workDir = GitRepo.seeded()
     val prompt = "teardown-removes-untracked"
-    val store = ProgressStore.default(workDir, RunKey.of(prompt))
     val _ = intercept[SurfacedFlowFailure]:
-      runFlowForTest(workDir, prompt, store):
+      runFlowForTest(workDir, prompt):
         val _ = stage[String]("crash"):
           os.write(workDir / "half-written.txt", "partial")
           throw new RuntimeException("boom body")
@@ -2596,7 +2533,6 @@ class FlowLifecycleTest extends munit.FunSuite:
   test("skip-branch mode refuses to bind to a protected branch"):
     val workDir = GitRepo.seeded() // starts on "main"
     val prompt = "skip-branch-protected"
-    val store = ProgressStore.default(workDir, RunKey.of(prompt))
     val git = new OsGitTool(workDir)
     val listener = new RecordingListener
     val thrown = intercept[SurfacedFlowFailure]:
@@ -2616,8 +2552,7 @@ class FlowLifecycleTest extends munit.FunSuite:
           workDir = workDir,
           interaction = Some(interaction),
           extraListeners = List(listener),
-          branchNaming = None,
-          progressStore = Some(store)
+          branchNaming = None
         ):
           val _ = stage("never-runs")("x")
     assert(
@@ -2630,7 +2565,6 @@ class FlowLifecycleTest extends munit.FunSuite:
   test("skip-branch mode refuses on detached HEAD"):
     val workDir = GitRepo.seeded()
     val prompt = "skip-branch-detached"
-    val store = ProgressStore.default(workDir, RunKey.of(prompt))
     val _ = os.proc("git", "checkout", "--detach").call(cwd = workDir)
     val listener = new RecordingListener
     val thrown = intercept[SurfacedFlowFailure]:
@@ -2650,8 +2584,7 @@ class FlowLifecycleTest extends munit.FunSuite:
           workDir = workDir,
           interaction = Some(interaction),
           extraListeners = List(listener),
-          branchNaming = None,
-          progressStore = Some(store)
+          branchNaming = None
         ):
           val _ = stage("never-runs")("x")
     assert(
@@ -2664,20 +2597,19 @@ class FlowLifecycleTest extends munit.FunSuite:
   ):
     val workDir = GitRepo.seeded()
     val prompt = "detached-resume"
-    val store = ProgressStore.default(workDir, RunKey.of(prompt))
     val _ = os.proc("git", "checkout", "--detach").call(cwd = workDir)
     val start = GitRepo.headCommit(workDir)
     val stageOneRuns = new AtomicInteger(0)
     var featureBranch = ""
     val _ = intercept[SurfacedFlowFailure]:
-      runFlowForTest(workDir, prompt, store):
+      runFlowForTest(workDir, prompt):
         featureBranch = summon[FlowContext].git.currentBranch()
         val _ = stage("stage-one"):
           stageOneRuns.incrementAndGet()
           "one-done"
         val _ = stage[String]("stage-two"):
           throw new RuntimeException("boom")
-    runFlowForTest(workDir, prompt, store):
+    runFlowForTest(workDir, prompt):
       val _ = stage("stage-one"):
         stageOneRuns.incrementAndGet()
         "one-done"
@@ -2897,7 +2829,6 @@ class FlowLifecycleTest extends munit.FunSuite:
         stackSettings = Some(StackSettings.empty),
         claude = Some(_ => StubAgent.claude),
         workDir = workDir,
-        progressStore = Some(store),
         interaction = Some(interaction),
         extraListeners = List(listener)
       ):
@@ -2928,7 +2859,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         branch = branchName("my-work"),
         branchMode = BranchMode.Reused,
         userPrompt = prompt,
-        flowName = None,
+        flow = None,
         startingCommit = unreachableCommit
       )
     )
@@ -2950,7 +2881,6 @@ class FlowLifecycleTest extends munit.FunSuite:
         stackSettings = Some(StackSettings.empty),
         claude = Some(_ => StubAgent.claude),
         workDir = workDir,
-        progressStore = Some(store),
         interaction = Some(interaction),
         extraListeners = List(listener)
       ):
@@ -3054,7 +2984,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         branch = branchName("feat/keep-changes-resume"),
         branchMode = BranchMode.Created,
         userPrompt = prompt,
-        flowName = None,
+        flow = None,
         startingCommit = unreachableCommit
       )
     )
@@ -3075,7 +3005,6 @@ class FlowLifecycleTest extends munit.FunSuite:
         stackSettings = Some(StackSettings.empty),
         claude = Some(_ => StubAgent.claude),
         workDir = workDir,
-        progressStore = Some(store),
         interaction = Some(interaction),
         extraListeners = List(listener)
       ):
@@ -3202,7 +3131,6 @@ class FlowLifecycleTest extends munit.FunSuite:
     // tracked half is the documented sharp edge: `reset --hard` always runs.
     val workDir = GitRepo.seeded() // commits "seed.txt" holding "seed"
     val prompt = "keep-changes-teardown"
-    val store = ProgressStore.default(workDir, RunKey.of(prompt))
     os.write(workDir / "handoff.md", "the plan")
     os.write.over(workDir / "seed.txt", "modified in place")
     val _ = intercept[SurfacedFlowFailure]:
@@ -3220,8 +3148,7 @@ class FlowLifecycleTest extends munit.FunSuite:
           workDir = workDir,
           interaction = Some(interaction),
           extraListeners = Nil,
-          branchNaming = None,
-          progressStore = Some(store)
+          branchNaming = None
         ):
           val _ = stage[String]("crash"):
             throw new RuntimeException("boom body")
@@ -3444,7 +3371,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val prompt = "corrupt-log-throwaway"
     val store = ProgressStore.default(workDir, RunKey.of(prompt))
     var featureBranch = ""
-    runFlowForTest(workDir, prompt, store):
+    runFlowForTest(workDir, prompt):
       featureBranch = summon[FlowContext].git.currentBranch()
       val _ = stage("no-op"):
         "done"
@@ -3719,7 +3646,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         branchMode = BranchMode.Created,
         startingCommit = base,
         userPrompt = prompt,
-        flowName = None
+        flow = None
       )
     )
     store.upsertEntry(
@@ -3778,7 +3705,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         branch = branchName("Feature/JIRA-123"),
         branchMode = BranchMode.Created,
         userPrompt = prompt,
-        flowName = None,
+        flow = None,
         startingCommit = GitRepo.headCommit(workDir)
       )
     )
@@ -3805,7 +3732,6 @@ class FlowLifecycleTest extends munit.FunSuite:
         stackSettings = Some(StackSettings.empty),
         claude = Some(_ => StubAgent.claude),
         workDir = workDir,
-        progressStore = Some(store),
         interaction = Some(interaction)
       ):
         val _ = stage("resumable-stage"):
@@ -3844,7 +3770,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         branch = branchName("feat/resume-dirty-json-break"),
         branchMode = BranchMode.Created,
         userPrompt = prompt,
-        flowName = None,
+        flow = None,
         startingCommit = unreachableCommit
       )
     )
@@ -3874,7 +3800,6 @@ class FlowLifecycleTest extends munit.FunSuite:
         stackSettings = Some(StackSettings.empty),
         claude = Some(_ => StubAgent.claude),
         workDir = workDir,
-        progressStore = Some(store),
         interaction = Some(interaction)
       ):
         val _ = stage("resumable-stage"):
@@ -3908,7 +3833,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         branch = branchName("feat/keep-changes-dirty-json-break"),
         branchMode = BranchMode.Created,
         userPrompt = prompt,
-        flowName = None,
+        flow = None,
         startingCommit = unreachableCommit
       )
     )
@@ -3936,7 +3861,6 @@ class FlowLifecycleTest extends munit.FunSuite:
         stackSettings = Some(StackSettings.empty),
         claude = Some(_ => StubAgent.claude),
         workDir = workDir,
-        progressStore = Some(store),
         interaction = Some(interaction)
       ):
         val _ = stage("resumable-stage"):
@@ -3968,7 +3892,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         branch = branchName("feat/surfaced-tampered"),
         branchMode = BranchMode.Created,
         userPrompt = "a different prompt",
-        flowName = None,
+        flow = None,
         startingCommit = unreachableCommit
       )
     )
@@ -3976,7 +3900,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val _ = git.commit("orca: progress log")
     val listener = new RecordingListener
     val thrown = intercept[SurfacedFlowFailure]:
-      runFlowForTest(workDir, prompt, store, extraListeners = List(listener)):
+      runFlowForTest(workDir, prompt, extraListeners = List(listener)):
         val _ = stage("never-runs")("x")
     val errors = listener.events.collect { case e: OrcaEvent.Error => e }
     assertEquals(errors.size, 1, s"exactly one Error expected, got: $errors")
@@ -4013,7 +3937,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         branch = branchName("master"),
         branchMode = BranchMode.Created,
         userPrompt = prompt,
-        flowName = None,
+        flow = None,
         startingCommit = unreachableCommit
       )
     )
@@ -4021,7 +3945,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val _ = git.commit("orca: progress log")
     val listener = new RecordingListener
     val thrown = intercept[SurfacedFlowFailure]:
-      runFlowForTest(workDir, prompt, store, extraListeners = List(listener)):
+      runFlowForTest(workDir, prompt, extraListeners = List(listener)):
         val _ = stage("never-runs")("x")
     val errors = listener.events.collect { case e: OrcaEvent.Error => e }
     assertEquals(errors.size, 1, s"exactly one Error expected, got: $errors")
@@ -4052,7 +3976,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         branch = branchName("feat/surfaced-rehydrate"),
         branchMode = BranchMode.Created,
         userPrompt = prompt,
-        flowName = None,
+        flow = None,
         startingCommit = unreachableCommit
       )
     )
@@ -4087,7 +4011,6 @@ class FlowLifecycleTest extends munit.FunSuite:
           interaction = Some(interaction),
           extraListeners = List(listener),
           branchNaming = None,
-          progressStore = Some(store),
           wiring = FlowWiring(claude = Some(_ => thrower))
         ):
           val _ = stage("never-runs")("x")
@@ -4105,7 +4028,6 @@ class FlowLifecycleTest extends munit.FunSuite:
     // sees both.
     val workDir = GitRepo.seeded()
     val prompt = "surfaced-suppressed"
-    val store = ProgressStore.default(workDir, RunKey.of(prompt))
     val listener = new RecordingListener
     val thrown = intercept[SurfacedFlowFailure]:
       supervised:
@@ -4121,7 +4043,6 @@ class FlowLifecycleTest extends munit.FunSuite:
           interaction = Some(interaction),
           extraListeners = List(listener),
           branchNaming = None,
-          progressStore = Some(store),
           wiring = FlowWiring(
             claude = Some(_ => StubAgent.claude),
             git = Some(new ResetThrowingGit(workDir))
@@ -4154,10 +4075,9 @@ class FlowLifecycleTest extends munit.FunSuite:
     // loss) whenever a body failure triggers failure teardown.
     val workDir = GitRepo.seeded()
     val prompt = "explains-reset-teardown"
-    val store = ProgressStore.default(workDir, RunKey.of(prompt))
     val listener = new RecordingListener
     val _ = intercept[SurfacedFlowFailure]:
-      runFlowForTest(workDir, prompt, store, extraListeners = List(listener)):
+      runFlowForTest(workDir, prompt, extraListeners = List(listener)):
         val _ = stage[String]("crash"):
           throw new RuntimeException("boom body")
     val steps = listener.events.collect { case s: OrcaEvent.Step => s }
@@ -4193,8 +4113,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         workDir = workDir,
         interaction = Some(interaction),
         extraListeners = Nil,
-        branchNaming = None,
-        progressStore = None
+        branchNaming = None
       ):
         innerThrown =
           try
@@ -4205,8 +4124,7 @@ class FlowLifecycleTest extends munit.FunSuite:
               workDir = workDir,
               interaction = Some(interaction),
               extraListeners = Nil,
-              branchNaming = None,
-              progressStore = None
+              branchNaming = None
             )(())
             None
           catch case e: Throwable => Some(e)
@@ -4252,8 +4170,7 @@ class FlowLifecycleTest extends munit.FunSuite:
           workDir = workDir,
           interaction = Some(interaction),
           extraListeners = Nil,
-          branchNaming = None,
-          progressStore = None
+          branchNaming = None
         ):
           ()
     // `intercept[orca.OrcaFlowException]` above already pins the static type
@@ -4297,8 +4214,7 @@ class FlowLifecycleTest extends munit.FunSuite:
           workDir = workDir,
           interaction = Some(interaction),
           extraListeners = Nil,
-          branchNaming = None,
-          progressStore = None
+          branchNaming = None
         ):
           summon[FlowContext].emit(OrcaEvent.Step("ran"))
     finally System.setErr(originalErr)
@@ -4332,8 +4248,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         workDir = workDir,
         interaction = Some(interaction),
         extraListeners = Nil,
-        branchNaming = None,
-        progressStore = None
+        branchNaming = None
       ):
         val _ = stage[String]("write"):
           os.write(workDir / "out.txt", "data")

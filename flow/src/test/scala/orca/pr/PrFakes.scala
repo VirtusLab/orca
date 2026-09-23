@@ -172,7 +172,7 @@ private[pr] def seededPrRepo(
       branchName("feat/test"),
       branchMode,
       userPrompt = "p",
-      flowName = None,
+      flow = None,
       startingCommit = startedAt
     )
   )

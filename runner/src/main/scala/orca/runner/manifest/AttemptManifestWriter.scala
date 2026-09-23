@@ -25,10 +25,7 @@ private[orca] enum AttemptOutcome:
   * treats that as "crashed, but still offers its sessions". Also appends the
   * sibling `<AttemptId>.cost.jsonl` ([[CostLog]]) as turns spend tokens.
   *
-  * `flowName` comes from `ORCA_FLOW_NAME`, set by the shell before exec'ing the
-  * flow subprocess (`FlowLauncher.childEnv`); `runFlow` never sees the `.sc`
-  * path itself, so a flow launched outside the shell leaves it unset and the
-  * manifest's `flow` is `None`.
+  * `flowName` is the launched script's filename ([[orca.progress.FlowSource]]).
   *
   * Thread-safety is covered on [[AttemptManifestWriterState]], which owns the
   * actual mutable state.
@@ -109,16 +106,11 @@ private[runner] class AttemptManifestWriterState(
   guarded("attempt pruning")(AttemptPruning.prune(attemptsDir))
 
   def onEvent(event: OrcaEvent): Unit = event match
-    case OrcaEvent.StageStarted(name) =>
+    case OrcaEvent.StageStarted(_, name) =>
       state = state.entered(name)
       safeWrite()
-    case OrcaEvent.StageCompleted(_) =>
-      state.exited match
-        case Some(next) => state = next
-        case None =>
-          log.warn(
-            "unbalanced StageCompleted: stage stack already empty, ignoring"
-          )
+    case _: OrcaEvent.StageEnded =>
+      state = state.exited
       safeWrite()
     case OrcaEvent.BranchBound(branch) =>
       state = state.withBranch(branch)
@@ -204,10 +196,7 @@ private case class ManifestState(
   def entered(stage: String): ManifestState =
     copy(stageStack = stage :: stageStack)
 
-  /** `None` when no stage is open. */
-  def exited: Option[ManifestState] = stageStack match
-    case Nil       => None
-    case _ :: rest => Some(copy(stageStack = rest))
+  def exited: ManifestState = copy(stageStack = stageStack.drop(1))
 
   /** Upsert by `(harness, conversationKey)`: the same session re-firing
     * `SessionCommitted` on a later turn (retries, resumed durable calls)

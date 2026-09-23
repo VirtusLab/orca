@@ -2,8 +2,9 @@ package orca.shell.actions
 
 import orca.{OrcaArgs, RunTarget, Uncommitted}
 import orca.discovery.Origin
+import orca.progress.FlowSource
 import orca.shell.flows.DiscoveredFlow
-import orca.shell.run.{FallbackPolicy, LaunchResult}
+import orca.shell.run.{FallbackPolicy, LaunchResult, LaunchedFlow}
 
 class RunActionTest extends munit.FunSuite:
 
@@ -14,7 +15,8 @@ class RunActionTest extends munit.FunSuite:
         description = None,
         origin = Origin.Project,
         path = os.root / "flows" / "implement.sc",
-        shadows = Nil
+        shadows = Nil,
+        source = FlowSource.Catalog("implement.sc")
       )
       // A non-default combination, so a launcher handed defaults of its own
       // instead of these fails here.
@@ -38,5 +40,11 @@ class RunActionTest extends munit.FunSuite:
       assertEquals(result, LaunchResult.Ok)
       assertEquals(
         recording.calls.map(c => (c.fallback, c.flow, c.args)),
-        List((FallbackPolicy.Refuse("hint"), flow.path, args))
+        List(
+          (
+            FallbackPolicy.Refuse("hint"),
+            LaunchedFlow(flow.path, flow.source),
+            args
+          )
+        )
       )

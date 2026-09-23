@@ -16,7 +16,7 @@ class ProgressStoreTest extends FunSuite:
     branch = branchName("feat/some-feature"),
     branchMode = BranchMode.Created,
     userPrompt = "my prompt",
-    flowName = None,
+    flow = None,
     startingCommit = CommitHash.from("0" * 40).get
   )
 
@@ -119,3 +119,32 @@ class ProgressStoreTest extends FunSuite:
       ex.getMessage.contains(store.path.toString),
       s"expected a corruption-specific message; got: ${ex.getMessage}"
     )
+
+  test("restoreIfRemoved puts back a peeked log whose directory is gone"):
+    // A stash of the only file in `.orca/runs/` takes the directory with it.
+    val workDir = TempDirs.dir()
+    val store = ProgressStore.default(workDir, RunKey.of("my prompt"))
+    store.writeHeader(header)
+    val peeked = store.peek().fold(fail(_), identity)
+    os.remove.all(store.path / os.up)
+    store.restoreIfRemoved(peeked)
+    assertEquals(store.load(), Some(ProgressLog(header, Nil, None)))
+
+  test("restoreIfRemoved leaves a log that is still there untouched"):
+    val workDir = TempDirs.dir()
+    val store = ProgressStore.default(workDir, RunKey.of("my prompt"))
+    store.writeHeader(header)
+    val peeked = store.peek().fold(fail(_), identity)
+    os.write.over(store.path, "edited since")
+    store.restoreIfRemoved(peeked)
+    assertEquals(os.read(store.path), "edited since")
+
+  test("restoreIfRemoved puts back an unparseable log too"):
+    val workDir = TempDirs.dir()
+    val store = ProgressStore.default(workDir, RunKey.of("my prompt"))
+    os.write(store.path, "not json", createFolders = true)
+    val peeked = store.peek().fold(fail(_), identity)
+    assert(peeked.isInstanceOf[PeekedLog.Unparseable], peeked)
+    val _ = os.remove(store.path)
+    store.restoreIfRemoved(peeked)
+    assertEquals(os.read(store.path), "not json")
