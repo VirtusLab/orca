@@ -989,7 +989,9 @@ class ReviewAndFixTest extends munit.FunSuite:
     val fc = ReviewLoopFixture.control(new EventDispatcher(Nil))
     given FlowControl = fc
     val base =
-      fc.git.headCommit().getOrElse(fail("the fixture repo has no HEAD"))
+      fc.context.git
+        .headCommit()
+        .getOrElse(fail("the fixture repo has no HEAD"))
     fc.withStage("review", Some(base)): _ =>
       val reviewer =
         new FakeAgent("capturing", outputs = List(ReviewResult.empty))
@@ -1011,7 +1013,9 @@ class ReviewAndFixTest extends munit.FunSuite:
     val fc = ReviewLoopFixture.control(new EventDispatcher(Nil))
     given FlowControl = fc
     val base =
-      fc.git.headCommit().getOrElse(fail("the fixture repo has no HEAD"))
+      fc.context.git
+        .headCommit()
+        .getOrElse(fail("the fixture repo has no HEAD"))
     fc.withStage("review", Some(base)): _ =>
       val reviewer =
         new FakeAgent("capturing", outputs = List(ReviewResult.empty))
@@ -1038,7 +1042,9 @@ class ReviewAndFixTest extends munit.FunSuite:
     val fc = ReviewLoopFixture.control(new EventDispatcher(Nil))
     given FlowControl = fc
     val base =
-      fc.git.headCommit().getOrElse(fail("the fixture repo has no HEAD"))
+      fc.context.git
+        .headCommit()
+        .getOrElse(fail("the fixture repo has no HEAD"))
     fc.withStage("review", Some(base)): _ =>
       val reviewer =
         new FakeAgent("capturing", outputs = List(ReviewResult.empty))
@@ -1060,10 +1066,10 @@ class ReviewAndFixTest extends munit.FunSuite:
     given FlowControl = fc
     val runStart =
       fc.startingCommit.getOrElse(fail("the fixture recorded no run start"))
-    os.write(fc.workDir / "earlier.txt", "an earlier stage's work")
-    assert(fc.git.commit("earlier stage").isRight)
-    fc.withStage("final review", fc.git.headCommit()): _ =>
-      os.write(fc.workDir / "later.txt", "this stage's work")
+    os.write(fc.context.workDir / "earlier.txt", "an earlier stage's work")
+    assert(fc.context.git.commit("earlier stage").isRight)
+    fc.withStage("final review", fc.context.git.headCommit()): _ =>
+      os.write(fc.context.workDir / "later.txt", "this stage's work")
       val reviewer =
         new FakeAgent("capturing", outputs = List(ReviewResult.empty))
       val _ = reviewAndFixLoop(
@@ -1116,7 +1122,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       outputs = List(FixOutcome(List(Title("needs fixing")), Nil)),
       // The fix the second round must see; FakeAgent otherwise leaves the tree
       // untouched.
-      onRun = () => os.write(fc.workDir / "fixed.txt", "the fix")
+      onRun = () => os.write(fc.context.workDir / "fixed.txt", "the fix")
     )
     val _ = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),

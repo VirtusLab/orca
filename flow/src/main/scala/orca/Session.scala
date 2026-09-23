@@ -239,7 +239,7 @@ private def warnBackendSwap(
     recordedTag: BackendTag,
     currentTag: Option[BackendTag]
 ): Unit =
-  fc.emit(
+  fc.context.emit(
     OrcaEvent.Step(
       s"warning: session ${key.describe} was minted on " +
         s"$recordedTag; this agent is " +
@@ -254,7 +254,7 @@ private def warnIfSeedDiffers(
     seed: String
 ): Unit =
   if recordedSeed != seed then
-    fc.emit(
+    fc.context.emit(
       OrcaEvent.Step(
         s"warning: session ${key.describe} recorded seed differs " +
           "for this key — the seed was edited; reusing the recorded session"
@@ -262,7 +262,7 @@ private def warnIfSeedDiffers(
     )
 
 private def warnInvalidRecordedId(fc: FlowControl, key: SessionKey): Unit =
-  fc.emit(
+  fc.context.emit(
     OrcaEvent.Step(
       s"warning: session ${key.describe} has an invalid recorded id " +
         "— minting fresh"
@@ -339,7 +339,7 @@ private def rebuiltPrompt(record: Option[SessionRecord], text: String)(using
   // its prior turns; silently degraded context is hard to debug. No wire id is
   // a plain first use.
   if record.exists(_.resumeWireId.isDefined) then
-    fc.emit(
+    fc.context.emit(
       OrcaEvent.Step(
         s"warning: session ${record.fold("'?'")(_.key.describe)} — backend " +
           "conversation not found; re-seeding (prior conversation history " +
@@ -348,7 +348,7 @@ private def rebuiltPrompt(record: Option[SessionRecord], text: String)(using
     )
   val seed = record.map(_.seed).filter(_.nonEmpty)
   val preamble =
-    progressPreamble(fc.progressStore.load(), fc.git.headCommit())
+    progressPreamble(fc.progressStore.load(), fc.context.git.headCommit())
   composePrimedPrompt(preamble, seed, text)
 
 /** Points at the files rather than ordering a redo: a run killed between stages

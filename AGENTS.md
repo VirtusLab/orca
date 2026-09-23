@@ -19,7 +19,7 @@ orca/
 ├── tools/      # tool traits + os-backed impls (git/gh/fs), LLM SPI + session durability, InStage, events, subprocess, sweep
 ├── flow/       # stage/display/fail + FlowContext/FlowControl; orca.{plan,review,pr,progress}
 ├── claude/ codex/ gemini/ opencode/ pi/   # one module per coding-agent backend
-├── runner/     # flow() entry, DefaultFlowContext, FlowLifecycle, terminal UI
+├── runner/     # flow() entry, DefaultFlowContext/DefaultFlowControl, FlowLifecycle, terminal UI
 └── shell/      # `orca-shell`, the `orca` CLI's interactive front-end (ADR 0021)
 ```
 
@@ -35,7 +35,7 @@ tools   (standalone)
 ```
 
 The runner module owns the `flow` entry point (`package orca`) and wires
-defaults via `DefaultFlowContext` (`package orca.runner`); the stage
+defaults via `DefaultFlowContext` and `DefaultFlowControl` (`package orca.runner`); the stage
 setup/teardown/recovery state machine is `orca.runner.FlowLifecycle`. The
 terminal UI lives in `orca.runner.terminal`, behind an `Interaction`, so
 swapping it for a Slack or HTTP equivalent is one substitution at the call
@@ -73,8 +73,9 @@ read it before touching `stage`, the progress log, or sessions. The invariants
 most easily broken:
 
 - **Capability gating.** Four compile-time capabilities gate side effects:
-  `FlowContext` (reads + emit; thread-safe), `FlowControl <: FlowContext`
-  (authority to start a stage; thread-affine), and a SPLIT pair of stage-bound
+  `FlowContext` (reads + emit; thread-safe), `FlowControl` (authority to start
+  a stage; thread-affine; holds the run's `FlowContext` as `context`, from
+  which a `FlowContext` given is derived when none is in scope), and a SPLIT pair of stage-bound
   capability tokens (both in `tools`, `package orca`) — `InStage`, the SHARED
   half (`caps.SharedCapability`, fork-capturable): every `agent.*.run` /
   `FlowSession.run` (spend tokens, drive an agent) takes `(using InStage)`,

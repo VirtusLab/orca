@@ -100,14 +100,10 @@ object ReviewLoopFixture:
   ): TestFlowControl =
     val base = TestFlowControl.create(dispatcher)._1
     new TestFlowControl(
-      dispatcher,
-      base.git,
+      base.context,
       base.progressStore,
       base.sessionStore,
-      base.userPrompt,
-      lead = None,
-      workDir = base.workDir,
-      startingCommit = CommitHash.from("0" * 40)
+      CommitHash.from("0" * 40)
     )
 
 /** A [[Task]] carrying only a title — what a test that doesn't exercise the
