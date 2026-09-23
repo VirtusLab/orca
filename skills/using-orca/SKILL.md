@@ -65,6 +65,10 @@ end by opening a PR when the repository is on GitHub. The run then leaves you
 on the branch it started from — the work is on the feature branch behind the
 PR, not the one you are standing on.
 
+On exit 0, show the user the "Open review findings" block from the output
+verbatim. If a code flow succeeded without one, say the review left nothing
+open.
+
 If a run is interrupted, re-run the same `orca run` command: flows are
 resumable and pick up from the last committed stage.
 

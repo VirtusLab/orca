@@ -29,7 +29,8 @@ import ox.either.orThrow
   * into the body after `body`'s text as its own section
   * ([[bodyWithOpenFindings]]), never through the summariser. Required, not
   * defaulted: a flow that forgets it would open a PR that says nothing about
-  * findings it left unfixed.
+  * findings it left unfixed. The same section is printed to the run output,
+  * also when opening the PR fails.
   *
   * `gh.createPr` is idempotent by head branch: a re-run that already opened the
   * PR gets the existing handle back rather than failing. Returns that handle,
@@ -47,18 +48,19 @@ def openPrFromBranch(
     context: Option[String] = None,
     instructions: String = PrPrompts.Summarise
 )(using FlowContext, FlowControl, OutsideStage): PrHandle =
-  pushBranch()
-  val summary =
-    summarise(
-      summarisingAgent,
-      git.defaultBase().orThrow,
-      context,
-      instructions
+  reportingOpenFindings(openFindings):
+    pushBranch()
+    val summary =
+      summarise(
+        summarisingAgent,
+        git.defaultBase().orThrow,
+        context,
+        instructions
+      )
+    createPr(
+      title(summary),
+      bodyWithOpenFindings(body(summary), openFindings)
     )
-  createPr(
-    title(summary),
-    bodyWithOpenFindings(body(summary), openFindings)
-  )
 
 // The stage names and `summarise` are shared with [[openPrIfGitHub]], which
 // runs the same sequence with its own best-effort push and create.

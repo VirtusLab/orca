@@ -30,7 +30,8 @@ class OpenPrFromBranchTest extends FunSuite:
       stages: List[String],
       prompt: String,
       published: Option[PublishedWork],
-      prBody: String
+      prBody: String,
+      steps: List[String]
   )
 
   private def run(
@@ -41,8 +42,10 @@ class OpenPrFromBranchTest extends FunSuite:
     val calls = new ConcurrentLinkedQueue[String]()
     val stages = new ConcurrentLinkedQueue[String]()
     val bodies = new ConcurrentLinkedQueue[String]()
+    val steps = new ConcurrentLinkedQueue[String]()
     val listener: OrcaListener =
       case OrcaEvent.StageStarted(name) => stages.add(name): Unit
+      case OrcaEvent.Step(message)      => steps.add(message): Unit
       case _                            => ()
 
     val summariser = new StubSummariser()
@@ -59,8 +62,15 @@ class OpenPrFromBranchTest extends FunSuite:
       stages.asScala.toList,
       summariser.captured,
       store.load().flatMap(_.published),
-      bodies.asScala.toList.headOption.getOrElse(fail("createPr never ran"))
+      bodies.asScala.toList.headOption.getOrElse(fail("createPr never ran")),
+      steps.asScala.toList
     )
+
+  private val oneOpen = OpenFindings(
+    List(
+      OpenFinding(Title("Null check missing"), OpenReason.CapReached(3), None)
+    )
+  )
 
   test("openPrFromBranch runs push, summarise, create as three ordered stages"):
     val r = run("stub-diff")
@@ -99,6 +109,27 @@ class OpenPrFromBranchTest extends FunSuite:
       )
     )
 
+  test("open findings are printed when opening the PR fails"):
+    val (dir, store) = seededPrRepo()
+    val steps = new ConcurrentLinkedQueue[String]()
+    val listener: OrcaListener =
+      case OrcaEvent.Step(message) => steps.add(message): Unit
+      case _                       => ()
+    val control = prControl(
+      dir,
+      store,
+      listener,
+      new ConcurrentLinkedQueue[String](),
+      createPr = Left(new BranchNotPushed)
+    )
+    val _ = intercept[PrCreateFailed](
+      openPrFromBranch(
+        summarisingAgent = new StubSummariser(),
+        openFindings = oneOpen
+      )(using control, control, summon[OutsideStage])
+    )
+    assertEquals(steps.asScala.toList.last, openFindingsSection(oneOpen).get)
+
   test("a resumed run hands back the replayed handle without re-running"):
     val (dir, store) = seededPrRepo()
     val summariser = new StubSummariser()
@@ -133,6 +164,12 @@ class OpenPrFromBranchTest extends FunSuite:
         "Generated body\n\nCloses #1.\n\n## Open review findings"
       ),
       body
+    )
+
+  test("open findings are printed after the PR is opened"):
+    assertEquals(
+      run("stub-diff", oneOpen).steps.last,
+      openFindingsSection(oneOpen).get
     )
 
   test("with nothing open the body is the flow's own, nothing appended"):

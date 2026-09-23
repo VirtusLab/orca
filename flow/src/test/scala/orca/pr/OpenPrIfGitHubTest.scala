@@ -51,6 +51,12 @@ class OpenPrIfGitHubTest extends FunSuite:
       repo = "widgets"
     )
 
+  private val oneOpen = OpenFindings(
+    List(
+      OpenFinding(Title("Null check missing"), OpenReason.CapReached(3), None)
+    )
+  )
+
   /** A base a test expects never to be resolved. */
   private def baseForced: Either[NoDefaultBase, String] =
     throw new IllegalStateException("defaultBase was forced")
@@ -186,15 +192,27 @@ class OpenPrIfGitHubTest extends FunSuite:
   test("open findings reach the body of the PR this step opens"):
     // The step every code-producing built-in flow ends with, so the section
     // has to survive the best-effort path too, not only openPrFromBranch's.
-    val open = OpenFindings(
-      List(
-        OpenFinding(Title("Null check missing"), OpenReason.CapReached(3), None)
-      )
-    )
     assertEquals(
-      run(available, openFindings = open).prBodies,
-      List(bodyWithOpenFindings("Generated body", open))
+      run(available, openFindings = oneOpen).prBodies,
+      List(bodyWithOpenFindings("Generated body", oneOpen))
     )
+
+  test("open findings are printed after the PR is opened"):
+    val r = run(available, openFindings = oneOpen)
+    assertEquals(r.steps.last, openFindingsSection(oneOpen).get)
+
+  test("open findings are printed when no PR is opened"):
+    // Without a PR the run output is the only place they show up.
+    val r = run(
+      GitHubAvailability.Unavailable(GitHubUnavailable.NotGitHub("gitlab.com")),
+      openFindings = oneOpen
+    )
+    assertEquals(r.result, None)
+    assertEquals(r.steps.last, openFindingsSection(oneOpen).get)
+
+  test("with nothing open, no findings are printed"):
+    val r = run(available)
+    assert(!r.steps.exists(_.contains("Open review findings")), r.steps)
 
   test("a run on a reused branch opens its PR without the no-code check"):
     // Under --skip-branch the header's starting branch IS the run's branch, so

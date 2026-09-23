@@ -30,6 +30,9 @@ import scala.util.control.NonFatal
   * and a run that still succeeds. A flow that must have its PR calls
   * [[openPrFromBranch]], which throws instead.
   *
+  * Whatever happens to the PR, `openFindings` is also printed to the run output
+  * under the same heading as in the PR body.
+  *
   * Parameters are [[openPrFromBranch]]'s, passed straight through —
   * `openFindings` included, so a PR opened here lists what the run's review
   * left open the same way. Like [[openPrFromBranch]], this does not compile
@@ -48,29 +51,30 @@ def openPrIfGitHub(
     control: FlowControl,
     outside: OutsideStage
 ): Option[PrHandle] =
-  lazy val base = git.defaultBase()
-  // The pre-flight checks only read, so they must not record a stage a resume
-  // would replay as "done" — and on a resume they are skipped entirely: the
-  // push stage's recorded result decides the step, so a PR already opened is
-  // not answered with "no PR".
-  val push = provenance(PushStage)
-  val stop = push match
-    case Provenance.Replayed => None
-    case Provenance.Fresh    => stopReason(base)
-  stop match
-    case Some(reason) => skipped(reason)
-    case None =>
-      pushThenCreate(
-        base = base,
-        push = push,
-        summarisingAgent = summarisingAgent,
-        title = title,
-        // Composed once here, so the open findings reach the body without
-        // being threaded through the legs below.
-        body = summary => bodyWithOpenFindings(body(summary), openFindings),
-        context = context,
-        instructions = instructions
-      )
+  reportingOpenFindings(openFindings):
+    lazy val base = git.defaultBase()
+    // The pre-flight checks only read, so they must not record a stage a resume
+    // would replay as "done" — and on a resume they are skipped entirely: the
+    // push stage's recorded result decides the step, so a PR already opened is
+    // not answered with "no PR".
+    val push = provenance(PushStage)
+    val stop = push match
+      case Provenance.Replayed => None
+      case Provenance.Fresh    => stopReason(base)
+    stop match
+      case Some(reason) => skipped(reason)
+      case None =>
+        pushThenCreate(
+          base = base,
+          push = push,
+          summarisingAgent = summarisingAgent,
+          title = title,
+          // Composed once here, so the open findings reach the body without
+          // being threaded through the legs below.
+          body = summary => bodyWithOpenFindings(body(summary), openFindings),
+          context = context,
+          instructions = instructions
+        )
 
 /** Why a fresh run stops before its first write, or `None` to go ahead.
   * Announces where the PR will land once the checks pass, before the push: gh

@@ -134,21 +134,22 @@ flow(
       val openFindings = planAndImplementFix(issuePayload, failingTestPath)
 
       // Again later than the task edits above, so the fix commits exist.
-      stage("Push fix + finalise PR"):
-        git.push().orThrow
-        val finalSum = prSummary(
-          "The branch now contains both the failing test and the fix " +
-            "that makes it pass.",
-          issue
-        )
-        val closes = s"""${finalSum.body}
-                        |
-                        |Closes ${issueHandle.shortRef}.""".stripMargin
-        gh.updatePr(
-          pr,
-          title = finalSum.title,
-          body = bodyWithOpenFindings(closes, openFindings)
-        )
+      reportingOpenFindings(openFindings):
+        stage("Push fix + finalise PR"):
+          git.push().orThrow
+          val finalSum = prSummary(
+            "The branch now contains both the failing test and the fix " +
+              "that makes it pass.",
+            issue
+          )
+          val closes = s"""${finalSum.body}
+                          |
+                          |Closes ${issueHandle.shortRef}.""".stripMargin
+          gh.updatePr(
+            pr,
+            title = finalSum.title,
+            body = bodyWithOpenFindings(closes, openFindings)
+          )
 
 // ============================ pipeline helpers ============================
 
