@@ -2,6 +2,7 @@ package orca.agents
 
 import orca.testkit.StubEnforcementCell
 import orca.backend.{
+  Dispatch,
   Conversation,
   Interaction,
   AgentBackend,
@@ -64,6 +65,7 @@ class WithCheapModelTest extends munit.FunSuite:
     protected def doRunAutonomous(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
+        dispatch: Dispatch[BackendTag.Pi.type],
         config: AgentConfig,
         events: OrcaListener,
         outputSchema: Option[String]
@@ -71,6 +73,7 @@ class WithCheapModelTest extends munit.FunSuite:
     protected def doRunInteractive(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
+        dispatch: Dispatch[BackendTag.Pi.type],
         displayPrompt: String,
         config: AgentConfig,
         outputSchema: Option[String]

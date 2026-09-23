@@ -30,13 +30,13 @@ private[pi] object PiArgs:
 
   def rpc(
       sessionDir: os.Path,
-      resume: Boolean,
+      dispatch: TurnDispatch,
       config: AgentConfig,
       systemPromptFile: Option[os.Path],
       askUserExtension: Option[os.Path] = None
   ): Seq[String] =
     Seq("pi", "--mode", "rpc", "--session-dir", sessionDir.toString) ++
-      Option.when(resume)("--continue").toSeq ++
+      continueArgs(dispatch) ++
       CliArgs.modelArgs(config) ++
       systemPromptArgs(systemPromptFile) ++
       toolsWiring(
@@ -45,6 +45,11 @@ private[pi] object PiArgs:
         askUserExtension.isDefined
       ).args ++
       extensionArgs(askUserExtension)
+
+  private def continueArgs(dispatch: TurnDispatch): Seq[String] =
+    dispatch match
+      case TurnDispatch.Fresh   => Nil
+      case TurnDispatch.Resumed => Seq("--continue")
 
   private def systemPromptArgs(file: Option[os.Path]): Seq[String] =
     CliArgs.flag("--append-system-prompt", file)(_.toString)

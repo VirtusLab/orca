@@ -31,12 +31,8 @@ private[orca] final class EnforcementNotice:
   private val said =
     java.util.concurrent.ConcurrentHashMap.newKeySet[String]()
 
-  /** Report `config`'s unmet restriction for the turn about to run against
-    * `session`, unless the same sentence has already been said.
-    *
-    * Resolves the dispatch from the same `dispatchFor` the backend will consult
-    * moments later, so a caller cannot pair a fresh-turn classification with a
-    * resumed turn.
+  /** Report `config`'s unmet restriction for the turn about to run as
+    * `dispatch`, unless the same sentence has already been said.
     *
     * Reporting, not refusing: a weaker gate is a documented property of the
     * backend, and a restricted turn's prompt still carries
@@ -45,10 +41,9 @@ private[orca] final class EnforcementNotice:
   def announceShortfall[B <: BackendTag](
       backend: AgentBackend[B],
       config: AgentConfig,
-      session: SessionId[B],
+      dispatch: TurnDispatch,
       events: OrcaListener
   ): Unit =
-    val dispatch = backend.sessions.dispatchFor(session).asTurnDispatch
     val cell =
       backend.enforcementCell(config.tools, config.autoApprove, dispatch)
     EnforcementNotice

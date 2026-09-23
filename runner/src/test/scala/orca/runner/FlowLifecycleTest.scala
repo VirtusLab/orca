@@ -1889,7 +1889,7 @@ class FlowLifecycleTest extends munit.FunSuite:
   ):
     // An aborted run left a session record carrying a learned resumeWireId. On
     // resume, flow setup must replay it into the leading model's registry via
-    // registerResumeWireId BEFORE the body runs.
+    // rehydrateResumeWireId BEFORE the body runs.
     val workDir = GitRepo.seeded()
     val prompt = "rehydrate-feature"
     val store = ProgressStore.default(workDir, RunKey.of(prompt))
@@ -1943,7 +1943,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         assertEquals(
           recorder.recordedWire("client-uuid"),
           Some("ses_server_1"),
-          "registerResumeWireId must replay the persisted mapping"
+          "rehydrateResumeWireId must replay the persisted mapping"
         )
 
   /** Drive `runFlow` directly (exit-free) with a null-sink interaction so no

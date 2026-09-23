@@ -273,6 +273,7 @@ class LeadAgentIdentityTest extends munit.FunSuite:
     protected def doRunAutonomous(
         prompt: String,
         session: orca.agents.SessionId[BackendTag.Pi.type],
+        dispatch: orca.backend.Dispatch[BackendTag.Pi.type],
         config: AgentConfig,
         events: OrcaListener,
         outputSchema: Option[String]
@@ -281,6 +282,7 @@ class LeadAgentIdentityTest extends munit.FunSuite:
     protected def doRunInteractive(
         prompt: String,
         session: orca.agents.SessionId[BackendTag.Pi.type],
+        dispatch: orca.backend.Dispatch[BackendTag.Pi.type],
         displayPrompt: String,
         config: AgentConfig,
         outputSchema: Option[String]

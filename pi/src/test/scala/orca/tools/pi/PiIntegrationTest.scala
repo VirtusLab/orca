@@ -1,7 +1,13 @@
 package orca.tools.pi
 
-import orca.agents.{BackendTag, AgentConfig, SessionId, ToolSet, onWire}
-import orca.backend.Continuation
+import orca.agents.{
+  TurnDispatch,
+  BackendTag,
+  AgentConfig,
+  SessionId,
+  ToolSet,
+  onWire
+}
 import orca.subprocess.OsProcCliRunner
 import orca.testkit.TempDirs
 
@@ -49,8 +55,11 @@ class PiIntegrationTest extends munit.FunSuite:
     // A second instance stands in for the next orca run: the wire id comes back
     // from the attempt manifest, and only Pi's on-disk session dir carries context.
     val next = PiBackend.create(OsProcCliRunner, workDir = workDir)
-    next.sessions.register(session, session.onWire)
-    assertEquals(next.sessions.continuation(session), Continuation.Recorded)
+    next.sessions.rehydrate(session, session.onWire)
+    assertEquals(
+      next.sessions.dispatchFor(session).asTurnDispatch,
+      TurnDispatch.Resumed
+    )
 
     val resumed = next.runAutonomous(
       prompt =

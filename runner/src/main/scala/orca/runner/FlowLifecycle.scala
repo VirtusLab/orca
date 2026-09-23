@@ -160,7 +160,7 @@ object FlowLifecycle:
       wire: String
   ): Unit =
     (SessionId.parse[B](record.id), WireSessionId.parse[B](wire)) match
-      case (Some(id), Some(wireId)) => agent.registerResumeWireId(id, wireId)
+      case (Some(id), Some(wireId)) => agent.rehydrateResumeWireId(id, wireId)
       case _ =>
         ctx.emit(
           OrcaEvent.Step(

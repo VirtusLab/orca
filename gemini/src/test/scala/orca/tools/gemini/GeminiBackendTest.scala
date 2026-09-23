@@ -1,7 +1,8 @@
 package orca.tools.gemini
 
-import orca.backend.{Continuation, SupervisedBackend, SystemPromptComposer}
+import orca.backend.{SupervisedBackend, SystemPromptComposer}
 import orca.agents.{
+  TurnDispatch,
   BackendTag,
   AgentConfig,
   Model,
@@ -302,16 +303,16 @@ class GeminiBackendTest extends munit.FunSuite:
       assert(finalPrompt.contains("ask_user"))
       assert(finalPrompt.contains("list files"))
 
-  // continuation probes the SERVER id, not the client id: it resolves the
+  // dispatchFor probes the SERVER id, not the client id: it resolves the
   // client→server mapping first (gemini mints its own id), then scans
-  // `--list-sessions` for that server id. A `registerSession` seeds the map.
+  // `--list-sessions` for that server id. `rehydrate` seeds the map.
 
   private val clientForProbe = SessionId[BackendTag.Gemini.type]("client-uuid")
   private val serverForProbe =
     WireSessionId[BackendTag.Gemini.type]("sess-abc-123")
 
   test(
-    "continuation probes the SERVER id: Recorded when it appears in --list-sessions"
+    "dispatch probes the SERVER id: resumes when it appears in --list-sessions"
   ):
     // clientForProbe ("client-uuid") and serverForProbe ("sess-abc-123") are
     // distinct. The stub stdout contains the server id but NOT the client id, so
@@ -326,10 +327,10 @@ class GeminiBackendTest extends munit.FunSuite:
     )
     val stub = new StubCliRunner(CliResult(0, listOutput, ""))
     SupervisedBackend.using(new GeminiBackend(stub)): backend =>
-      backend.sessions.register(clientForProbe, serverForProbe)
+      backend.sessions.rehydrate(clientForProbe, serverForProbe)
       assertEquals(
-        backend.sessions.continuation(clientForProbe),
-        Continuation.Recorded
+        backend.sessions.dispatchFor(clientForProbe).asTurnDispatch,
+        TurnDispatch.Resumed
       )
       // Verify the probe used the correct command.
       val probeArgs = stub.calls.head.args
@@ -339,44 +340,54 @@ class GeminiBackendTest extends munit.FunSuite:
         s"the probe must invoke exactly `gemini --list-sessions`; got: $probeArgs"
       )
 
+  test("the probe lists sessions in the backend's workDir"):
+    // gemini keeps sessions per project directory, so a probe run elsewhere
+    // (the process cwd, under `--worktree`) cannot see the flow's sessions.
+    val workDir = TempDirs.dir()
+    val stub = new StubCliRunner(CliResult(0, serverForProbe.value, ""))
+    SupervisedBackend.using(new GeminiBackend(stub, workDir)): backend =>
+      backend.sessions.rehydrate(clientForProbe, serverForProbe)
+      val _ = backend.sessions.dispatchFor(clientForProbe)
+      assertEquals(stub.calls.map(_.cwd), List(workDir))
+
   test(
-    "continuation is Rebuild when there is no client→server mapping"
+    "an unmapped client id opens fresh without probing"
   ):
-    // No registerSession: the client id maps to nothing, so the probe must not
+    // No mapping: the client id maps to nothing, so the probe must not
     // run (and must not pass the client id to --list-sessions).
     val stub =
       new StubCliRunner(CliResult(0, "client-uuid  2024-01-01T00:00:00", ""))
     SupervisedBackend.using(new GeminiBackend(stub)): backend =>
       assertEquals(
-        backend.sessions.continuation(clientForProbe),
-        Continuation.Rebuild
+        backend.sessions.dispatchFor(clientForProbe).asTurnDispatch,
+        TurnDispatch.Fresh
       )
 
   test(
-    "continuation is Rebuild when the server id is not in the output"
+    "a rehydrated id opens fresh when the server id is not in the output"
   ):
     val stub =
       new StubCliRunner(CliResult(0, "sess-other  2024-01-01T00:00:00", ""))
     SupervisedBackend.using(new GeminiBackend(stub)): backend =>
-      backend.sessions.register(clientForProbe, serverForProbe)
+      backend.sessions.rehydrate(clientForProbe, serverForProbe)
       assertEquals(
-        backend.sessions.continuation(clientForProbe),
-        Continuation.Rebuild
+        backend.sessions.dispatchFor(clientForProbe).asTurnDispatch,
+        TurnDispatch.Fresh
       )
 
   test(
-    "continuation is Rebuild when gemini --list-sessions exits non-zero"
+    "a rehydrated id opens fresh when gemini --list-sessions exits non-zero"
   ):
     val stub = new StubCliRunner(CliResult(1, "sess-abc-123", ""))
     SupervisedBackend.using(new GeminiBackend(stub)): backend =>
-      backend.sessions.register(clientForProbe, serverForProbe)
+      backend.sessions.rehydrate(clientForProbe, serverForProbe)
       assertEquals(
-        backend.sessions.continuation(clientForProbe),
-        Continuation.Rebuild
+        backend.sessions.dispatchFor(clientForProbe).asTurnDispatch,
+        TurnDispatch.Fresh
       )
 
   test(
-    "continuation is Rebuild when the cli runner throws (verifies NonFatal catch)"
+    "a rehydrated id opens fresh when the cli runner throws (verifies NonFatal catch)"
   ):
     val stub = new StubCliRunner():
       override def run(
@@ -386,21 +397,8 @@ class GeminiBackendTest extends munit.FunSuite:
           cwd: os.Path
       ): CliResult = throw new RuntimeException("binary not found")
     SupervisedBackend.using(new GeminiBackend(stub)): backend =>
-      backend.sessions.register(clientForProbe, serverForProbe)
+      backend.sessions.rehydrate(clientForProbe, serverForProbe)
       assertEquals(
-        backend.sessions.continuation(clientForProbe),
-        Continuation.Rebuild
-      )
-
-  test(
-    "continuation is Rebuild for a malicious server id containing path chars"
-  ):
-    val maliciousServer =
-      WireSessionId[BackendTag.Gemini.type]("../../etc/passwd")
-    val stub = new StubCliRunner(CliResult(0, "../../etc/passwd", ""))
-    SupervisedBackend.using(new GeminiBackend(stub)): backend =>
-      backend.sessions.register(clientForProbe, maliciousServer)
-      assertEquals(
-        backend.sessions.continuation(clientForProbe),
-        Continuation.Rebuild
+        backend.sessions.dispatchFor(clientForProbe).asTurnDispatch,
+        TurnDispatch.Fresh
       )

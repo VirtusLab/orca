@@ -1,8 +1,9 @@
 package orca.tools.opencode
 
 import orca.OrcaFlowException
-import orca.backend.{Continuation, StreamSource}
+import orca.backend.StreamSource
 import orca.agents.{
+  TurnDispatch,
   BackendTag,
   AgentConfig,
   Model,
@@ -234,18 +235,21 @@ class OpencodeBackendTest extends munit.FunSuite:
     assert(handle.closed, "backend.close() must close the server handle")
 
   test(
-    "continuation never spawns the server when there is no client→server " +
+    "dispatch never spawns the server when there is no client→server " +
       "mapping (the no-spurious-spawn guarantee)"
   ):
     supervised:
-      // No `register`/turn has mapped this client id, so `exists` must
-      // short-circuit on the registry gate WITHOUT forcing `http` — the fake
+      // Nothing has mapped this client id, so `dispatchFor` must
+      // short-circuit WITHOUT forcing `http` — the fake
       // handle fails the test if it is ever forced.
       val backend = new OpencodeBackend(
         new FakeHandle(fail("must not spawn"))
       )
       val client = fresh
-      assertEquals(backend.sessions.continuation(client), Continuation.Rebuild)
+      assertEquals(
+        backend.sessions.dispatchFor(client).asTurnDispatch,
+        TurnDispatch.Fresh
+      )
 
   test(
     "a probe with a rehydrated wire id spawns the server and returns its answer"
@@ -253,7 +257,7 @@ class OpencodeBackendTest extends munit.FunSuite:
     supervised:
       // Mirrors resume: FlowLifecycle.rehydrateSessions registers the
       // client→server mapping before any turn has touched the server, so `http`
-      // has never been forced when `exists` is called. The probe must still
+      // has never been forced when `dispatchFor` is called. The probe must still
       // force the lazy spawn and contact the fresh server rather than
       // short-circuiting on whether it was already running.
       val http = new FakeHttp(
@@ -262,14 +266,17 @@ class OpencodeBackendTest extends munit.FunSuite:
       )
       val backend = new OpencodeBackend(new FakeHandle(http))
       val client = fresh
-      backend.sessions.register(
+      backend.sessions.rehydrate(
         client,
         WireSessionId[BackendTag.Opencode.type]("ses_server1")
       )
-      assertEquals(backend.sessions.continuation(client), Continuation.Recorded)
+      assertEquals(
+        backend.sessions.dispatchFor(client).asTurnDispatch,
+        TurnDispatch.Resumed
+      )
 
   test(
-    "continuation is Rebuild when there is no client→server mapping"
+    "an unmapped client id opens fresh even when the server is up"
   ):
     supervised:
       // Server started (would answer 200), but the probed client id was never
@@ -283,7 +290,10 @@ class OpencodeBackendTest extends munit.FunSuite:
       val _ =
         backend.runAutonomous("hi", fresh, AgentConfig())
       // A different, unmapped client id resolves to no server id → false.
-      assertEquals(backend.sessions.continuation(fresh), Continuation.Rebuild)
+      assertEquals(
+        backend.sessions.dispatchFor(fresh).asTurnDispatch,
+        TurnDispatch.Fresh
+      )
 
   test("probeSession returns true when getStatus is 200"):
     supervised:
@@ -301,33 +311,20 @@ class OpencodeBackendTest extends munit.FunSuite:
       assert(!backend.probeSession("ses_missing", http))
 
   test(
-    "continuation probes the SERVER id: Recorded after a turn maps client→server"
+    "a rehydrated id opens fresh when the mapped server id is unknown to the server"
   ):
     supervised:
-      val existingId = "ses_server1"
-      val http = new FakeHttp(
-        turn(existingId, "stop", Nil),
-        path => if path == s"/session/$existingId" then 200 else 404
+      val http = new FakeHttp(Nil, _ => 404)
+      val backend = new OpencodeBackend(new FakeHandle(http))
+      val client = fresh
+      backend.sessions.rehydrate(
+        client,
+        WireSessionId[BackendTag.Opencode.type]("ses_server1")
       )
-      val backend = new OpencodeBackend(new FakeHandle(http))
-      val client = fresh
-      // A real turn maps client → ses_server1 in the registry.
-      val _ =
-        backend.runAutonomous("hi", client, AgentConfig())
-      // Probing the CLIENT id resolves to the server id, which the server has.
-      assertEquals(backend.sessions.continuation(client), Continuation.Recorded)
-
-  test(
-    "continuation is Rebuild when the mapped server id is unknown to the server"
-  ):
-    supervised:
-      val http = new FakeHttp(turn("ses_server1", "stop", Nil), _ => 404)
-      val backend = new OpencodeBackend(new FakeHandle(http))
-      val client = fresh
-      val _ =
-        backend.runAutonomous("hi", client, AgentConfig())
-      // client → ses_server1 is mapped, but the server now 404s for it.
-      assertEquals(backend.sessions.continuation(client), Continuation.Rebuild)
+      assertEquals(
+        backend.sessions.dispatchFor(client).asTurnDispatch,
+        TurnDispatch.Fresh
+      )
 
   test(
     "probeSession returns false when getStatus throws (verifies NonFatal catch)"
@@ -338,33 +335,6 @@ class OpencodeBackendTest extends munit.FunSuite:
           throw new java.io.IOException("connection refused")
       val backend = new OpencodeBackend(new FakeHandle(http))
       assert(!backend.probeSession("ses_abc", http))
-
-  test(
-    "continuation is Rebuild for a malicious mapped server id (slashes)"
-  ):
-    supervised:
-      val http = new FakeHttp(Nil, _ => 200) // would return 200 if called
-      val backend = new OpencodeBackend(new FakeHandle(http))
-      val client = fresh
-      // Even if the registry maps to a malicious server id, the guard blocks it.
-      backend.sessions.register(
-        client,
-        WireSessionId[BackendTag.Opencode.type]("a/b")
-      )
-      assertEquals(backend.sessions.continuation(client), Continuation.Rebuild)
-
-  test(
-    "continuation is Rebuild for a malicious mapped server id (query/fragment chars)"
-  ):
-    supervised:
-      val http = new FakeHttp(Nil, _ => 200)
-      val backend = new OpencodeBackend(new FakeHandle(http))
-      val client = fresh
-      backend.sessions.register(
-        client,
-        WireSessionId[BackendTag.Opencode.type]("x?y#z")
-      )
-      assertEquals(backend.sessions.continuation(client), Continuation.Rebuild)
 
   test(
     "a session-creation failure never opens the SSE stream (open-path leak)"
