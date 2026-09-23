@@ -894,7 +894,7 @@ class FlowSessionTest extends FunSuite:
     assertEquals(record.resumeWireId, Some("server-thread-xyz"))
     assertEquals(
       record.backend,
-      Some("ClaudeCode"),
+      Some(BackendTag.ClaudeCode),
       "an untagged recorded backend must be healed to the agent's current tag"
     )
 

@@ -122,10 +122,11 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
   ): String =
     backend.checkNotClosed()
     val effective = effectiveConfig(None)
+    val attributed = OrcaListener.attributedTo(events, name)
     val quietEvents: OrcaListener = (e: OrcaEvent) =>
       e match
         case _: OrcaEvent.AssistantMessage | _: OrcaEvent.ToolUse => ()
-        case other => events.onEvent(other)
+        case other => attributed.onEvent(other)
     val session = SessionId.fresh[B]
     val accounting = turnAccounting(effective, session, sessionKey = None)
     val result = accounting.recording:

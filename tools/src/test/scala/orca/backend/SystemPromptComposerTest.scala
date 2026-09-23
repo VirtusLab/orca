@@ -27,6 +27,16 @@ class SystemPromptComposerTest extends munit.FunSuite:
     )
     assertEquals(out, s"$readOnlyRule\n\n$backgroundRule")
 
+  test("no-tools turn gets the no-tools rule instead of the git rule"):
+    val out = SystemPromptComposer.combine(
+      AgentConfig().copy(tools = ToolSet.NoTools),
+      None
+    )
+    assertEquals(
+      out,
+      s"${SystemPromptComposer.NoToolsTurn}\n\n$backgroundRule"
+    )
+
   test("the read-only rule says nothing about the network"):
     // A NetworkOnly turn is given read-only network access on purpose; the
     // shared rule must not take it back.

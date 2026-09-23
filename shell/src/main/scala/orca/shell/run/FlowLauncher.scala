@@ -1,9 +1,8 @@
 package orca.shell.run
 
 import org.jline.terminal.Terminal
-import orca.RunTarget
+import orca.{RunTarget, XdgDirs}
 import orca.shell.ShellVersion
-import orca.shell.flows.BuiltInFlows
 import orca.shell.ui.{ShellOutput, ShellUi, UiOutcome}
 import orca.subprocess.QuietProc
 
@@ -201,12 +200,11 @@ private[shell] object FlowLauncher:
     Map("ORCA_FLOW_NAME" -> flow.last)
 
   /** `$XDG_CACHE_HOME/orca/shell/workspace` (created with `mkdir -p` before
-    * every spawn) — [[argv]]/[[compileArgv]]'s `--workspace` target, using
-    * [[BuiltInFlows.cacheHome]]'s env/home handling so this agrees with the
-    * built-in flows' own cache directory rather than re-deriving it.
+    * every spawn) — [[argv]]/[[compileArgv]]'s `--workspace` target, resolved
+    * by [[orca.XdgDirs.cacheHome]].
     */
   private def resolveWorkspaceDir(): os.Path =
-    val dir = BuiltInFlows.cacheHome(sys.env.get, os.home) /
+    val dir = XdgDirs.cacheHome(sys.env.get, os.home) /
       "orca" / "shell" / "workspace"
     os.makeDir.all(dir)
     dir

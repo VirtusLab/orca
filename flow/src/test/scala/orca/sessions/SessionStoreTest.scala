@@ -1,6 +1,7 @@
 package orca.sessions
 
 import munit.FunSuite
+import orca.agents.BackendTag
 import orca.{RunKey, WorkspaceWrite}
 import orca.testkit.{GitRepo, TempDirs}
 import orca.tools.{OsGitTool, UntrackedFiles}
@@ -70,7 +71,7 @@ class SessionStoreTest extends FunSuite:
     val tagged =
       record().copy(
         resumeWireId = Some("ses_server_123"),
-        backend = Some("Codex")
+        backend = Some(BackendTag.Codex)
       )
     store.upsert(tagged)
     assertEquals(store.records(), List(tagged))
@@ -90,6 +91,20 @@ class SessionStoreTest extends FunSuite:
     val store = SessionStore.default(dir, RunKey.of("p"))
     store.upsert(record())
     os.write.over(store.path, "not json {{{")
+    assertEquals(store.records(), Nil)
+
+  test(
+    "a record with an unknown backend tag makes the file read as no records"
+  ):
+    val dir = TempDirs.dir()
+    val store = SessionStore.default(dir, RunKey.of("p"))
+    store.upsert(record().copy(backend = Some(BackendTag.Codex)))
+    val written = os.read(store.path)
+    assert(written.contains("\"backend\":\"Codex\""), written)
+    os.write.over(
+      store.path,
+      written.replace("\"backend\":\"Codex\"", "\"backend\":\"Bogus\"")
+    )
     assertEquals(store.records(), Nil)
 
   test("discard removes the file"):

@@ -133,6 +133,7 @@ flow(
       confirmReproductionMatches(pr, issue)
       val openFindings = planAndImplementFix(issuePayload, failingTestPath)
 
+      reportOpenFindings(openFindings)
       // Again later than the task edits above, so the fix commits exist.
       stage("Push fix + finalise PR"):
         git.push().orThrow

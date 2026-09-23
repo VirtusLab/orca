@@ -258,12 +258,3 @@ class CommitMessageTest extends munit.FunSuite:
         os.write.over(dir / "seed.txt", "modified by stage")
         "done"
       assertEquals(lastCommitMessage(dir), "stage: write file")
-
-  test("stage with no commitMessage uses first line of multi-line agent reply"):
-    withCtx(TextReplyingAgent("Add feature\n\nSome explanation here.")):
-      (ctx, dir) =>
-        given FlowControl = ctx
-        val _ = stage("write file"):
-          os.write.over(dir / "seed.txt", "modified by stage")
-          "done"
-        assertEquals(lastCommitMessage(dir), "Add feature")

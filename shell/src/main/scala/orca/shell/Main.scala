@@ -18,6 +18,7 @@ import orca.shell.actions.{
 import orca.shell.cli.{Cli, CliHelp}
 import orca.shell.create.{CreateTarget, CreateTier, FlowAuthoring}
 import orca.discovery.Origin
+import orca.settings.AgentSpec
 import orca.shell.flows.{DiscoveredFlow, FlowEditor}
 import orca.shell.resume.{InterruptedRun, ResumeDetector}
 import orca.shell.run.{FallbackPolicy, FlowFlags, LaunchResult}
@@ -735,7 +736,7 @@ object Main:
         ShellOutput.info(
           SessionAction.identityNotice(
             selection,
-            SessionPicker.harnessSettingsName(selection.session.harness)
+            AgentSpec.harnessNameFor(selection.session.harness)
           )
         )
         SessionAction.resume(terminal, selection) match

@@ -1,8 +1,8 @@
 package orca.runner.manifest
 
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
-import orca.OrcaDir
-import orca.agents.Model
+import orca.{AttemptId, OrcaDir}
+import orca.agents.{BackendTag, Model}
 import orca.events.{Cost, OrcaEvent, Usage}
 import orca.testkit.TempDirs
 import orca.testkit.Usages.usage
@@ -22,7 +22,7 @@ class CostLogTest extends munit.FunSuite:
       workDir,
       "0.0.test",
       Some("review-pr.sc"),
-      pid = 1,
+      AttemptId(Instant.parse("2026-07-18T10:00:00Z"), pid = 1),
       fixedClock(Instant.parse("2026-07-18T10:00:00Z"))
     )
 
@@ -45,7 +45,7 @@ class CostLogTest extends munit.FunSuite:
     writer.onEvent(
       OrcaEvent
         .SessionCommitted(
-          harness = "claude",
+          harness = BackendTag.ClaudeCode,
           clientId = "client-1",
           wireId = Some("wire-1"),
           sessionKey = None,
@@ -63,7 +63,7 @@ class CostLogTest extends munit.FunSuite:
     writer.onEvent(
       OrcaEvent
         .SessionCommitted(
-          harness = "claude",
+          harness = BackendTag.ClaudeCode,
           clientId = "client-1",
           wireId = Some("wire-1"),
           sessionKey = None,

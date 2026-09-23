@@ -187,6 +187,16 @@ class TerminalEventListenerTest extends munit.FunSuite:
       s"${TerminalEventListener.StageStartGlyph} Committed: orca: fix the terminal renderer\n"
     )
 
+  test("a denied tool call stays out of the log"):
+    val output = renderEvents(
+      List(
+        OrcaEvent.StageStarted("plan"),
+        OrcaEvent.ToolDenied("mcp__visdom__agents_md", Some("planning")),
+        OrcaEvent.StageCompleted("plan")
+      )
+    )
+    assertEquals(output, s"${TerminalEventListener.StageStartGlyph} plan\n")
+
   test("an error carrying an agent name is attributed to it"):
     // The stage error that follows carries no name, which is what tells the
     // agent's own failure apart from the stage's report of it.

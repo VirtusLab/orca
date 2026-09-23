@@ -1656,7 +1656,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         id = "c-1",
         seed = "s",
         resumeWireId = Some("srv-9"),
-        backend = Some("Codex")
+        backend = Some(BackendTag.Codex)
       )
     )
     val lead = new RecordingClaude
@@ -1683,39 +1683,6 @@ class FlowLifecycleTest extends munit.FunSuite:
     val ctx = new StubFlowContext()
     FlowLifecycle.rehydrateSessions(ctx, lead, store)
     assertEquals(lead.recordedWire("old-1"), Some("srv-1"))
-
-  test(
-    "rehydrateSessions skips a record with an unknown backend tag, and warns loudly (6B.1)"
-  ):
-    val store = storeWith(
-      SessionRecord(
-        name = "s",
-        stage = "",
-        id = "x-1",
-        seed = "s",
-        resumeWireId = Some("srv-2"),
-        backend = Some("Bogus")
-      )
-    )
-    val lead = new RecordingClaude
-    val codex = new RecordingCodex
-    val listener = new RecordingListener
-    val ctx = new StubFlowContext(
-      codexOverride = codex,
-      emitTo = listener.onEvent
-    )
-    FlowLifecycle.rehydrateSessions(ctx, lead, store)
-    assert(
-      lead.recordedWire("x-1").isEmpty && codex.recordedWire("x-1").isEmpty
-    )
-    // The skip must reach the event surface as a Step, not vanish silently.
-    val steps = listener.events.collect { case s: OrcaEvent.Step => s }
-    assert(
-      steps.exists(s =>
-        s.message.contains("warning") && s.message.contains("Bogus")
-      ),
-      s"expected a warning naming the unknown tag; got: $steps"
-    )
 
   test(
     "rehydrateSessions skips a record with a corrupted (unsafe) id or wire id, and warns loudly (6B.3)"
@@ -3639,7 +3606,7 @@ class FlowLifecycleTest extends munit.FunSuite:
   ):
     // Before the ADR-0018 amendment, `validateHeader` required the strict
     // minted-name slug shape for EVERY header.branch, which would reject
-    // "Feature/JIRA-123" outright. The weaker `isSafeReusedRef` check now accepts
+    // "Feature/JIRA-123" outright. The weaker `FeatureBranch.isSafeReusedRef` check now accepts
     // it, since it also equals the current branch (R30's cross-check).
     val workDir = GitRepo.seeded()
     val prompt = "skip-branch-resume"

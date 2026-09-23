@@ -179,7 +179,7 @@ class OrcaDirTest extends munit.FunSuite:
     assertEquals(OrcaDir.attemptsPath(wd), wd / ".orca" / "cache" / "attempts")
     assert(!os.exists(wd / ".orca"))
 
-  test("manifestPath and costLogPath share the attempt id as their stem"):
+  test("manifestPath, costLogPath and traceLogPath share the attempt id"):
     val wd = TempDirs.dir()
     val id = AttemptId(Instant.ofEpochMilli(1700000000000L), 42L)
     assertEquals(
@@ -189,6 +189,18 @@ class OrcaDirTest extends munit.FunSuite:
     assertEquals(
       OrcaDir.costLogPath(wd, id),
       wd / ".orca" / "cache" / "attempts" / "1700000000000-42.cost.jsonl"
+    )
+    assertEquals(
+      OrcaDir.traceLogPath(wd, id),
+      wd / ".orca" / "cache" / "attempts" / "1700000000000-42.trace.log"
+    )
+
+  test("attemptIdOf maps a trace log and its rolled part to their attempt"):
+    val id = AttemptId(Instant.ofEpochMilli(1700000000000L), 42L)
+    assertEquals(
+      List("1700000000000-42.trace.log", "1700000000000-42.trace.1.log")
+        .map(name => OrcaDir.attemptIdOf(os.root / name)),
+      List(Some(id), Some(id))
     )
 
   test(

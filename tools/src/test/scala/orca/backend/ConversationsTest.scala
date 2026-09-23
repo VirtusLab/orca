@@ -364,6 +364,32 @@ class ConversationsTest extends munit.FunSuite:
       supervised(Conversations.drainAutonomous(conv, AutoApprove.All, recorder))
     assertEquals(recorder.events, Nil)
 
+  test("ToolDenied emits OrcaEvent.ToolDenied"):
+    val recorder = new RecordingListener
+    val conv = new ScriptedConversation(
+      List(ConversationEvent.ToolDenied("mcp__visdom__agents_md")),
+      Right(sampleResult)
+    )
+    val _ =
+      supervised(Conversations.drainAutonomous(conv, AutoApprove.All, recorder))
+    assertEquals(
+      recorder.events,
+      List(OrcaEvent.ToolDenied("mcp__visdom__agents_md", None))
+    )
+
+  test("an auto-denied ApproveTool emits ToolDenied"):
+    val recorder = new RecordingListener
+    val conv = new ScriptedConversation(
+      List(ConversationEvent.ApproveTool("Bash", "{}", _ => ())),
+      Right(sampleResult)
+    )
+    val _ =
+      supervised(Conversations.drainAutonomous(conv, AutoApprove.All, recorder))
+    assertEquals(
+      recorder.events.collect { case e: OrcaEvent.ToolDenied => e },
+      List(OrcaEvent.ToolDenied("Bash", None))
+    )
+
   test("UserMessage echo is swallowed (UserPrompt covers it upstream)"):
     val recorder = new RecordingListener
     val conv = new ScriptedConversation(

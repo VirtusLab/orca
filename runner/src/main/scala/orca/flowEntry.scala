@@ -4,6 +4,7 @@ import orca.backend.{AgentWiring, Interaction}
 import orca.events.{
   CostResolvingDispatcher,
   CostTracker,
+  DeniedToolTracker,
   EventDispatcher,
   OrcaEvent,
   OrcaListener,
@@ -37,11 +38,7 @@ import orca.runner.{
   WiredAgents,
   WorktreeRun
 }
-import orca.runner.manifest.{
-  AttemptManifestWriter,
-  AttemptOutcome,
-  AttemptStatus
-}
+import orca.runner.manifest.{AttemptManifestWriter, AttemptOutcome}
 import orca.runner.terminal.TerminalInteraction
 import orca.subprocess.OsProcCliRunner
 import org.slf4j.LoggerFactory
@@ -52,6 +49,7 @@ import orca.tools.{OsFsTool, OsGitHubTool, OsGitTool}
 import orca.util.{OrcaDebug, TextUtil}
 import ox.{Ox, resourceScope, supervised}
 
+import java.time.Instant
 import scala.util.control.NonFatal
 
 /** Entry point for flow scripts. Takes the parsed CLI args (required) plus any
@@ -148,12 +146,7 @@ def flow(
     prompts: Prompts = DefaultPrompts,
     pricing: PriceList = Pricing.default
 )(body: FlowControl ?=> Unit): Unit =
-  // Per-run trace file capturing every stage, prompt and tool/subprocess call
-  // at DEBUG. Started before anything logs so the whole run is caught.
-  val orcaLog = OrcaLog.start()
-  OrcaBanner.print(System.err, orcaLog.file)
   val flowLog = LoggerFactory.getLogger("orca.flow")
-  flowLog.info("user prompt: {}", args.userPrompt)
   // A daemon thread or unsupervised fork that throws would otherwise disappear
   // with no diagnostic; this leaves a trail on the console and in the trace.
   installUncaughtExceptionHandler()
@@ -166,7 +159,7 @@ def flow(
   val runKey = RunKey.of(args.userPrompt)
 
   // Where the run happens. This settles before the directory's first consumer,
-  // the attempt manifest below; everything downstream is handed `workDir`
+  // the attempt's trace below; everything downstream is handed `workDir`
   // explicitly, so it is the single value to change.
   def resolveRunDir(): Either[String, os.Path] = args.target match
     case RunTarget.NewBranch(_) | RunTarget.CurrentBranch(_) => Right(workDir)
@@ -177,8 +170,32 @@ def flow(
       try WorktreeRun.resolve(workDir, runKey)
       catch case NonFatal(e) => Left(TextUtil.throwableMessage(e))
 
+  // The attempt's trace file, capturing every stage, prompt and
+  // tool/subprocess call at DEBUG. It lives under `dir`, so resolving `dir` is
+  // not traced.
+  def startTrace(dir: os.Path, attemptId: AttemptId): OrcaLog =
+    val orcaLog = OrcaLog.start(dir, attemptId)
+    OrcaBanner.print(System.err, orcaLog.file)
+    flowLog.info("user prompt: {}", args.userPrompt)
+    val where = args.target match
+      case RunTarget.Worktree => s"$dir (worktree)"
+      case RunTarget.NewBranch(_) | RunTarget.CurrentBranch(_) => dir.toString
+    flowLog.info("orca {} starting (workDir={})", OrcaBanner.version, where)
+    orcaLog
+
   // The run proper. Everything under here uses `dir`, never `workDir`.
-  def runIn(dir: os.Path): AttemptStatus =
+  def runIn(dir: os.Path): AttemptOutcome =
+    val clock = () => Instant.now()
+    val attemptId = AttemptId(clock(), ProcessHandle.current().pid())
+    val orcaLog = startTrace(dir, attemptId)
+    try runAttempt(dir, attemptId, clock)
+    finally orcaLog.finish()
+
+  def runAttempt(
+      dir: os.Path,
+      attemptId: AttemptId,
+      clock: () => Instant
+  ): AttemptOutcome =
     supervised:
       // Per-attempt manifest (ADR 0021 §8), always attached like
       // LoggingListener; see AttemptManifestWriter's scaladoc for `flowName`'s
@@ -189,91 +206,77 @@ def flow(
         dir,
         OrcaBanner.version,
         flowName,
-        ProcessHandle.current().pid(),
-        () => java.time.Instant.now()
+        attemptId,
+        clock
       )
-      // `Running` survives only when a fatal throwable (e.g. OOM) escapes the
-      // `NonFatal` catch; `finish` records that as failed.
-      var status = AttemptStatus.Running
+      // Tally tool calls the harness refused and print them beside the cost.
+      val deniedToolTracker = DeniedToolTracker.start()
+      var outcome = AttemptOutcome.Failed
       // `try/finally` so the cost summary always lands — even when a fatal
       // throwable (OOM, StackOverflow) escapes the NonFatal catch below.
       try
-        try
-          runFlow(
-            args = args,
-            workDir = dir,
-            interaction = interaction,
-            extraListeners =
-              extraListeners ++ List(costTracker, manifestWriter),
-            branchNaming = branchNaming,
-            stackSettings = stackSettings,
-            planningAgent = planningAgent,
-            codingAgent = codingAgent,
-            reviewAgent = reviewAgent,
-            progressStore = progressStore,
-            flowName = flowName,
-            pricing = pricing,
-            wiring = FlowWiring(
-              claude = claude,
-              codex = codex,
-              opencode = opencode,
-              pi = pi,
-              gemini = gemini,
-              git = git,
-              gh = gh,
-              fs = fs,
-              prompts = prompts
-            )
-          )(body)
-          status = AttemptStatus.Succeeded
-        catch
-          // A `SurfacedFlowFailure` marks a failure already reported to the
-          // user's event surface by the phase that raised it; only the exit
-          // code remains.
-          case _: SurfacedFlowFailure => status = AttemptStatus.Failed
-          // Backstop for any other NonFatal — a pre-dispatcher failure (agent
-          // factory, TerminalInteraction start) has no event surface, so print
-          // it to stderr rather than exit 1 in silence.
-          case NonFatal(e) =>
-            status = AttemptStatus.Failed
-            System.err.println(s"[orca] ${TextUtil.throwableMessage(e)}")
-        status
+        outcome =
+          try
+            runFlow(
+              args = args,
+              workDir = dir,
+              interaction = interaction,
+              extraListeners = extraListeners ++ List(
+                costTracker,
+                deniedToolTracker,
+                manifestWriter
+              ),
+              branchNaming = branchNaming,
+              stackSettings = stackSettings,
+              planningAgent = planningAgent,
+              codingAgent = codingAgent,
+              reviewAgent = reviewAgent,
+              progressStore = progressStore,
+              flowName = flowName,
+              pricing = pricing,
+              wiring = FlowWiring(
+                claude = claude,
+                codex = codex,
+                opencode = opencode,
+                pi = pi,
+                gemini = gemini,
+                git = git,
+                gh = gh,
+                fs = fs,
+                prompts = prompts
+              )
+            )(body)
+            AttemptOutcome.Succeeded
+          catch
+            // A `SurfacedFlowFailure` marks a failure already reported to the
+            // user's event surface by the phase that raised it; only the exit
+            // code remains.
+            case _: SurfacedFlowFailure => AttemptOutcome.Failed
+            // Backstop for any other NonFatal — a pre-dispatcher failure (agent
+            // factory, TerminalInteraction start) has no event surface, so print
+            // it to stderr rather than exit 1 in silence.
+            case NonFatal(e) =>
+              System.err.println(s"[orca] ${TextUtil.throwableMessage(e)}")
+              AttemptOutcome.Failed
+        outcome
       finally
-        manifestWriter.finish(status match
-          case AttemptStatus.Succeeded => AttemptOutcome.Succeeded
-          case AttemptStatus.Failed | AttemptStatus.Running =>
-            AttemptOutcome.Failed
-        )
+        manifestWriter.finish(outcome)
         costTracker.printSummary()
+        deniedToolTracker.printSummary()
 
-  // Resolution runs inside this bracket, not before it: it can fail, and the
-  // trace still has to close on a path that never reaches `runIn`.
-  val status =
-    try
-      resolveRunDir() match
-        // A refusal has no dispatcher and no manifest to carry it, so it
-        // reaches the user the way the NonFatal backstop above does.
-        case Left(message) =>
-          System.err.println(s"[orca] $message")
-          AttemptStatus.Failed
-        case Right(dir) =>
-          val where = args.target match
-            case RunTarget.Worktree => s"$dir (worktree)"
-            case RunTarget.NewBranch(_) | RunTarget.CurrentBranch(_) =>
-              dir.toString
-          flowLog.info(
-            "orca {} starting (workDir={})",
-            OrcaBanner.version,
-            where
-          )
-          runIn(dir)
-    finally orcaLog.finish()
+  val outcome = resolveRunDir() match
+    // A refusal has no dispatcher, manifest or trace to carry it, so it reaches
+    // the user the way the NonFatal backstop above does.
+    case Left(message) =>
+      System.err.println(s"[orca] $message")
+      AttemptOutcome.Failed
+    case Right(dir) => runIn(dir)
   // Known residual: in a NESTED `flow()` call this `System.exit` tears down the
   // JVM before the OUTER flow's `finally` (branch restore, lock release) runs,
   // leaving the outer branch checked out and `.orca/cache/flow.lock` behind (the next
   // attempt self-heals by stealing the dead-PID lock). Accepted cost of the
   // exit-based CLI contract.
-  if status == AttemptStatus.Failed then System.exit(1)
+  if outcome == AttemptOutcome.Failed then System.exit(1)
 
 /** Exit-free flow lifecycle: builds the interaction and wired agents, resolves
   * the three role agents from settings, runs setup, constructs the context,

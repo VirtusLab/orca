@@ -25,6 +25,10 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.JsonCodecMaker
   * Restore is best-effort, not transactional: two interactive runs in the same
   * `workDir` race on this file, and a hard crash skips the restore, leaving a
   * stale `orca` entry behind (ADR 0015).
+  *
+  * The modified file sits in the user's tree for the whole turn, so a commit
+  * the agent itself makes mid-turn includes it. Orca's own stage commits run
+  * after the turn's restore.
   */
 private[gemini] object GeminiSettings:
 
@@ -40,21 +44,26 @@ private[gemini] object GeminiSettings:
 
   /** Merge the orca MCP server into `<workDir>/.gemini/settings.json` and
     * return an [[AutoCloseable]] that restores the prior state (original bytes,
-    * or file removal if it didn't exist) on `close()`.
+    * or file removal if it didn't exist) on `close()`. A `.gemini` directory
+    * created here is removed too, unless something else was put in it.
     */
   def register(workDir: os.Path, mcpUrl: String): AutoCloseable =
-    val file = workDir / ".gemini" / "settings.json"
-    val existed = os.exists(file)
-    val original = if existed then os.read(file) else ""
+    val dir = workDir / ".gemini"
+    val file = dir / "settings.json"
+    val dirExisted = os.exists(dir)
+    val fileExisted = os.exists(file)
+    val original = if fileExisted then os.read(file) else ""
     os.write.over(
       file,
-      merge(if existed then original else "{}", mcpUrl),
+      merge(if fileExisted then original else "{}", mcpUrl),
       createFolders = true
     )
     () =>
-      if existed then os.write.over(file, original)
+      if fileExisted then os.write.over(file, original)
       else if os.exists(file) then
         val _ = os.remove(file)
+      if !dirExisted && os.exists(dir) && os.list(dir).isEmpty then
+        val _ = os.remove(dir)
 
   /** Pure merge: inject `mcpServers.<ServerName> = {httpUrl, timeout}` into the
     * top-level settings object, preserving every other key.

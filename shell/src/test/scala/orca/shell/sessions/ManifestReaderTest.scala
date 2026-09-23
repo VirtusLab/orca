@@ -15,7 +15,7 @@ class ManifestReaderTest extends munit.FunSuite:
 
   /** One recorded session, so the manifest is one the listing offers. */
   private val oneSession =
-    """{"harness": "claude", "wireId": "w", "agent": "claude", "role": null,
+    """{"harness": "ClaudeCode", "wireId": "w", "agent": "claude", "role": null,
       |"stage": null, "lastActiveAt": "2026-07-18T10:00:00Z"}""".stripMargin
 
   private def writeManifest(
@@ -193,6 +193,22 @@ class ManifestReaderTest extends munit.FunSuite:
     assertEquals(warnings.size, 1)
     assert(warnings.head.contains("unknown.manifest.json"), warnings.head)
 
+  test(
+    "list skips a manifest with an unrecognised harness, warning by filename"
+  ):
+    val workDir = TempDirs.dir()
+    writeManifest(
+      workDir,
+      "harness.manifest.json",
+      startedAt = "2026-07-18T10:00:00Z",
+      sessions = oneSession.replace("ClaudeCode", "claude")
+    )
+    val AttemptListing(attempts, warnings) =
+      ManifestReader.list(workDir, Nil, alwaysDead)
+    assertEquals(attempts, Nil)
+    assertEquals(warnings.size, 1)
+    assert(warnings.head.contains("harness.manifest.json"), warnings.head)
+
   test("a finished manifest is never marked crashed, even with a dead pid"):
     val workDir = TempDirs.dir()
     writeManifest(
@@ -215,7 +231,7 @@ class ManifestReaderTest extends munit.FunSuite:
       "nostage.manifest.json",
       startedAt = "2026-07-18T10:00:00Z",
       sessions =
-        """{"harness": "claude", "wireId": "w", "agent": "claude", "role": null,
+        """{"harness": "ClaudeCode", "wireId": "w", "agent": "claude", "role": null,
           |"stage": null, "minted": {"name": "coder"},
           |"lastActiveAt": "2026-07-18T10:00:00Z"}""".stripMargin
     )

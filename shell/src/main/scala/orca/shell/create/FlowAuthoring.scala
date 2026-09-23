@@ -412,47 +412,19 @@ private[shell] object FlowAuthoring:
       case _: IllegalArgumentException =>
         Left(s"'$fileName' isn't a valid flow filename")
 
-  /** Extracts the bundled README + two example flows into
+  /** Writes the bundled README + two example flows into
     * `<cacheBase>/orca-api-<version>/`, returning that directory. `cacheBase`
-    * is the already-ensured cache base — in production always the authoring
-    * sandbox's `.orca/cache` ([[orca.shell.actions.AuthorAction]]), so the
-    * material sits inside the workspace the coding agent runs in (ADR 0021 §9).
-    * Idempotency key: the directory holding all three bundled names, mirroring
-    * [[orca.shell.flows.BuiltInFlows]]'s completeness check.
-    *
-    * Simpler than `BuiltInFlows`' whole-directory temp-dir-then-move: this
-    * material is three small, static files with no per-version content rewrite
-    * (the prompt states the running version verbatim, so a stale pin baked into
-    * the bundled examples is cosmetic, not load-bearing). Each file is still
-    * written via a same-directory temp-file-then-move ([[writeAtomically]]) so
-    * a process killed mid-write can never leave a truncated file at its final
-    * name looking complete — only a whole-file miss is possible, which the
-    * completeness check catches and retries.
+    * must be the cache of a freshly created authoring sandbox
+    * ([[orca.shell.actions.AuthorAction]]), so the material sits inside the
+    * workspace the coding agent runs in (ADR 0021 §9) and the directory does
+    * not exist yet.
     */
   def extractApiMaterial(cacheBase: os.Path, version: String): os.Path =
     val dir = cacheBase / s"orca-api-$version"
-    if !isComplete(dir) then
-      os.makeDir.all(dir)
-      bundledNames.foreach: name =>
-        writeAtomically(dir / name, PromptResource.load(resourcePrefix + name))
+    os.makeDir.all(dir)
+    bundledNames.foreach: name =>
+      os.write(dir / name, PromptResource.load(resourcePrefix + name))
     dir
-
-  private def isComplete(dir: os.Path): Boolean =
-    os.isDir(dir) && bundledNames.forall(name => os.isFile(dir / name))
-
-  /** Writes `content` to `path` via a same-directory temp file plus `os.move`,
-    * so a process killed mid-write leaves only the (never looked at again) temp
-    * file behind — never a truncated `path`. Mirrors
-    * `BuiltInFlows.materialize`'s atomic-move fallback for a filesystem without
-    * atomic rename support.
-    */
-  private def writeAtomically(path: os.Path, content: String): Unit =
-    val tmp = path / os.up / s".${path.last}.tmp"
-    os.write.over(tmp, content)
-    try os.move(tmp, path, replaceExisting = true, atomicMove = true)
-    catch
-      case _: java.nio.file.AtomicMoveNotSupportedException =>
-        os.move(tmp, path, replaceExisting = true)
 
   /** The authoring task handed to the built-in `simple.sc` flow as its
     * `userPrompt` (ADR 0021 §9): the goal and target path, the verbatim

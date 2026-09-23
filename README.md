@@ -279,6 +279,30 @@ unattended run the practical boundary is a sandbox:
 [Sandcat](https://github.com/VirtusLab/sandcat), [Docker
 Sandboxes](https://docs.docker.com/ai/sandboxes/), or any other.
 
+## Your own agent setup
+
+Orca's agents are ordinary harness sessions — `claude`, `gemini`, `codex`,
+`opencode` or `pi` — started in your repository. They load the same instruction
+files (`~/.claude/CLAUDE.md`, `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`,
+`GEMINI.md`, …), MCP servers, plugins and hooks as your own sessions.
+
+Autonomous turns have no one to answer prompts (see above), so:
+
+- Coding turns auto-approve everything by default (`AgentConfig.autoApprove`
+  narrows it).
+- On claude, read-only roles (planner, reviewers, reviewer picker) deny any
+  tool outside orca's list, your MCP tools included, unless your claude
+  settings `permissions.allow` them.
+- On claude, opencode and pi, cheap one-shots (branch names, default commit
+  messages) run with no tools and no MCP servers.
+
+Check your instructions for:
+
+- **Mandatory tool calls.** "Always call X first" needs X allowed (see above),
+  or write "if available".
+- **A human in the loop.** In autonomous flows, "ask me before X" or "wait for
+  confirmation" cannot work: no one is there to answer.
+
 ## Flow methods
 
 Top-level, available via `import orca.*`:
@@ -899,9 +923,10 @@ PR utilities, available via `import orca.pr.*`:
 | Method | Use |
 |---|---|
 | `summarisePr(agent, diff, context?, instructions?)` | Fold a branch diff into a `PrSummary(title, body)` for `gh.createPr`. `context` is an optional preamble (originating issue link, user prompt, etc.) the model anchors the description to. A diff too large to send is cut short. Use a cheap model (`claude.cheap`, `codingAgent.cheap`). |
-| `openPrFromBranch(summarisingAgent, openFindings, title?, body?, context?, instructions?): PrHandle` | Push the feature branch and open a PR for it, as three stages: push → summarise → create. Requires a GitHub remote and a logged-in `gh` — without either the run fails. `openFindings` is the `OpenFindings` the run's final review returned; each entry is listed under "Open review findings" as its title, where it points if the reviewer named a place, and the reason, verbatim (none open: no section). `title`/`body` rewrite the generated text `context` defaults to the run's user prompt, and then the summariser adds a `Closes #N` line per issue the prompt says to fix; a flow that passes `context` adds its own `Closes` line through `body` (`body = s => s"${s.body}\n\nCloses #42."`). Opening the PR is a top-level step of a flow and this runs its own stages, so it does not compile inside one. |
-| `openPrIfGitHub(summarisingAgent, openFindings, title?, body?, context?, instructions?): Option[PrHandle]` | Probes `gh.availability` outside any stage, then runs `openPrFromBranch`'s push → summarise → create when the checkout is on GitHub. Where it isn't — no remote, a remote that isn't GitHub, a GitHub `gh` cannot reach, a run that changed no code, or a push/create the remote refuses — it emits one `Step` saying why, returns `None`, and the run finishes. A resume replays what its push and create stages recorded, a refusal included. The step every code-producing built-in flow ends with; like `openPrFromBranch`, it does not compile inside a stage. |
+| `openPrFromBranch(summarisingAgent, openFindings, title?, body?, context?, instructions?): PrHandle` | Push the feature branch and open a PR for it, as three stages: push → summarise → create. Requires a GitHub remote and a logged-in `gh` — without either the run fails. `openFindings` is the `OpenFindings` the run's final review returned; each entry is listed under "Open review findings" as its title, where it points if the reviewer named a place, and the reason, verbatim (none open: no section). The same section is printed to the run output, also when the PR fails. `title`/`body` rewrite the generated text. `context` defaults to the run's user prompt, and then the summariser adds a `Closes #N` line per issue the prompt says to fix; a flow that passes `context` adds its own `Closes` line through `body` (`body = s => s"${s.body}\n\nCloses #42."`). Opening the PR is a top-level step of a flow and this runs its own stages, so it does not compile inside one. |
+| `openPrIfGitHub(summarisingAgent, openFindings, title?, body?, context?, instructions?): Option[PrHandle]` | Probes `gh.availability` outside any stage, then runs `openPrFromBranch`'s push → summarise → create when the checkout is on GitHub. Where it isn't — no remote, a remote that isn't GitHub, a GitHub `gh` cannot reach, a run that changed no code, or a push/create the remote refuses — it emits one `Step` saying why, returns `None`, and the run finishes. The open findings are printed to the run output either way. A resume replays what its push and create stages recorded, a refusal included. The step every code-producing built-in flow ends with; like `openPrFromBranch`, it does not compile inside a stage. |
 | `bodyWithOpenFindings(body, open)` | `body` with the "Open review findings" section appended, or `body` unchanged when nothing is open — the assembly `openPrFromBranch`/`openPrIfGitHub` use, for a flow that writes its own PR body (`gh.updatePr`). |
+| `reportOpenFindings(open)` | Print the "Open review findings" section to the run output; nothing when nothing is open. `openPrFromBranch`/`openPrIfGitHub` do this themselves, before their PR step; a flow that writes its own PR body calls it before its PR step. |
 | `recordOpenedPr(pr)` | Record the PR's URL as the run's published work, so the run hands the checkout back on the branch it started from and the closing summary names the PR. Only for a flow that opens its PR with a bare `gh.createPr` — `openPrFromBranch`/`openPrIfGitHub` record it themselves. Call it inside the stage that opened the PR (it needs that stage's `WorkspaceWrite`): the stage's commit carries the record, and a resume reads it back without re-running the body. |
 
 ### Customising prompts

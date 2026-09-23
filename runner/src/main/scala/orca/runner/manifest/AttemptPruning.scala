@@ -10,9 +10,9 @@ import scala.util.control.NonFatal
   */
 private[manifest] object AttemptPruning:
 
-  /** The size of each of [[keptIds]]' two kept sets — an attempt owns up to two
-    * files, and the sets overlap, so the attempts directory holds between this
-    * many and twice this many attempts.
+  /** The size of each of [[keptIds]]' two kept sets — an attempt owns several
+    * files (`OrcaDir.attemptIdOf`), and the sets overlap, so the attempts
+    * directory holds between this many and twice this many attempts.
     */
   val MaxKeptAttempts: Int = 20
 
@@ -24,7 +24,8 @@ private[manifest] object AttemptPruning:
 
   /** Deletes every file of every attempt outside [[keptIds]]. Grouping by
     * attempt id rather than counting files is what keeps the budget in
-    * attempts, and what stops a cost log outliving the manifest it belongs to.
+    * attempts, and what stops a cost or trace log outliving the manifest it
+    * belongs to.
     *
     * Each delete is guarded on its own, so one file a concurrent cleanup got to
     * first does not stop the rest; the caller guards the listing.
@@ -58,7 +59,7 @@ private[manifest] object AttemptPruning:
     newest(newestFirst.filter(_.continuable)) ++ newest(newestFirst)
 
   /** The directory's attempts, newest first; each manifest is decoded once
-    * here. An attempt with only one of its two files is still one attempt.
+    * here. An attempt with only some of its files is still one attempt.
     */
   private def attemptsNewestFirst(dir: os.Path): List[Attempt] =
     os.list(dir)

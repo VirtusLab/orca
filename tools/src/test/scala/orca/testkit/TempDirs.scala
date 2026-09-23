@@ -1,5 +1,7 @@
 package orca.testkit
 
+import ox.pipe
+
 import java.util.concurrent.ConcurrentLinkedQueue
 
 /** Shared temp-dir cleanup for tests.
@@ -34,6 +36,13 @@ object TempDirs:
 
   /** Fresh temp dir, pre-registered for cleanup at JVM shutdown. Drop-in
     * replacement for a bare `os.temp.dir()` test workDir.
+    *
+    * The path has symlinks resolved, as git reports it and as `os.pwd` is in a
+    * real run. On macOS the temp dir is under `/var`, a symlink to
+    * `/private/var`.
     */
   def dir(prefix: String = "orca-test-"): os.Path =
-    register(os.temp.dir(prefix = prefix, deleteOnExit = false))
+    os.temp
+      .dir(prefix = prefix, deleteOnExit = false)
+      .pipe(tmp => os.Path(tmp.toNIO.toRealPath()))
+      .pipe(register)
