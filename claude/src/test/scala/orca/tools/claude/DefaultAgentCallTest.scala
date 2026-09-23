@@ -92,7 +92,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
     val listeners: List[OrcaListener] = Nil
     def drive[B <: BackendTag](
         conversation: orca.backend.Conversation[B]
-    )(using ox.Ox): AgentResult[B] =
+    ): AgentResult[B] =
       throw new UnsupportedOperationException("test stub")
 
   private def makeCall(
@@ -501,7 +501,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
       val listeners: List[OrcaListener] = Nil
       def drive[B <: BackendTag](
           conversation: orca.backend.Conversation[B]
-      )(using ox.Ox): AgentResult[B] =
+      ): AgentResult[B] =
         throw new OrcaInteractiveCancelled(
           TurnDebit.Observed(spent, Some(Model("claude-sonnet-5")))
         )
@@ -532,7 +532,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
       val listeners: List[OrcaListener] = Nil
       def drive[B <: BackendTag](
           conversation: orca.backend.Conversation[B]
-      )(using ox.Ox): AgentResult[B] =
+      ): AgentResult[B] =
         throw new AgentTurnFailed(
           "provider error",
           TurnDebit.Observed(spent, Some(Model("claude-sonnet-5")))
@@ -579,7 +579,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
       val listeners: List[OrcaListener] = Nil
       def drive[B <: BackendTag](
           conversation: orca.backend.Conversation[B]
-      )(using ox.Ox): AgentResult[B] =
+      ): AgentResult[B] =
         AgentResult[B](
           wireId = WireSessionId[B]("server-uuid-cccc"),
           output = """{"value":5}""",
@@ -610,7 +610,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
       val listeners: List[OrcaListener] = Nil
       def drive[B <: BackendTag](
           conversation: orca.backend.Conversation[B]
-      )(using ox.Ox): AgentResult[B] =
+      ): AgentResult[B] =
         AgentResult[B](
           wireId = WireSessionId[B](WireSessionId.value(serverSid)),
           output = """{"value":3}""",

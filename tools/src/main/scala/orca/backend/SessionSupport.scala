@@ -1,6 +1,7 @@
 package orca.backend
 
-import orca.OrcaFlowException
+import orca.AgentTurnFailed
+import orca.events.TurnDebit
 import orca.agents.{BackendTag, SessionId, TurnDispatch, WireSessionId, onWire}
 import org.slf4j.LoggerFactory
 
@@ -164,18 +165,19 @@ final class SessionSupport[B <: BackendTag] private (
     safe
 
   /** Throwing wire-id guard for the autonomous drain: commit the client→wire
-    * mapping only after a clean drain, refusing an unsafe id by throwing.
-    * Throwing before the commit leaves the bookkeeping untouched, so a retry
-    * needn't unwind a bad commit — and nothing has been consumed yet, so
-    * re-seeding is not warranted.
+    * mapping only after a clean drain, refusing an unsafe id with
+    * [[AgentTurnFailed]]. The turn has run by then, so a retry would redo its
+    * work; the failure carries the turn's usage instead. Throwing before the
+    * commit leaves the bookkeeping untouched.
     */
-  def commitAfterDrain(client: SessionId[B], server: WireSessionId[B]): Unit =
-    val wire = WireSessionId.value(server)
+  def commitAfterDrain(client: SessionId[B], result: AgentResult[B]): Unit =
+    val wire = WireSessionId.value(result.wireId)
     if !SessionId.isSafe(wire) then
-      throw new OrcaFlowException(
-        s"backend reported an invalid session id ('$wire') — refusing to record it for resume"
+      throw new AgentTurnFailed(
+        s"backend reported an invalid session id ('$wire') — refusing to record it for resume",
+        TurnDebit.Observed(result.usage, result.model)
       )
-    commit(client, server)
+    commit(client, result.wireId)
 
   /** The first recorded entry wins (`putIfAbsent`) — resuming a session never
     * changes its server-side id, so a later commit with a different wire id for

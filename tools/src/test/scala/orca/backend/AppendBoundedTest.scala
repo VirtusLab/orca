@@ -1,11 +1,9 @@
 package orca.backend
 
-import StderrPipeline.{MaxBytes, MaxLines, appendBounded}
+import StderrLog.{MaxBytes, MaxLines, appendBounded}
 
-/** Cap-edge coverage for [[StderrPipeline.appendBounded]]. The function is the
-  * only stateful piece of the stderr-buffering path that isn't trivially
-  * verified by integration tests, and getting either cap wrong silently
-  * truncates the failure diagnostics it's supposed to preserve.
+/** Cap-edge coverage for [[StderrLog.appendBounded]]: getting either cap wrong
+  * silently truncates the failure diagnostics it's supposed to preserve.
   */
 class AppendBoundedTest extends munit.FunSuite:
 

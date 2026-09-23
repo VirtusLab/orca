@@ -29,7 +29,7 @@ class DefaultOpencodeAgentTest extends munit.FunSuite:
     def listeners: List[OrcaListener] = Nil
     def drive[B <: BackendTag](
         conversation: Conversation[B]
-    )(using ox.Ox): AgentResult[B] = throw new UnsupportedOperationException
+    ): AgentResult[B] = throw new UnsupportedOperationException
 
   private def toolWith(backend: RecordingBackend): OpencodeAgent =
     new DefaultOpencodeAgent(

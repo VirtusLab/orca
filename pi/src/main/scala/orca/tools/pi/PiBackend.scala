@@ -12,6 +12,7 @@ import orca.agents.{
   TurnDispatch
 }
 import orca.backend.{
+  AskUserChannel,
   Conversation,
   TurnRequest,
   AgentBackend,
@@ -85,7 +86,6 @@ private[orca] class PiBackend private[pi] (
       turn: TurnRequest[BackendTag.Pi.type]
   )(using Ox): Conversation[BackendTag.Pi.type] =
     import turn.*
-    val displayPrompt = mode.displayPrompt
     val extraHint = Option.when(mode.isInteractive)(PiAskUserExtension.Hint)
     val systemPromptFile = writeSystemPrompt(config, extraHint)
     val askUserExtension =
@@ -105,15 +105,16 @@ private[orca] class PiBackend private[pi] (
       )
       cli.spawnPiped(args, cwd = workDir, pipeStderr = true)
     } { process =>
-      val conversation = new PiConversation(
+      PiConversation(
         process = process,
         clientSession = session,
-        initialPrompt = displayPrompt,
+        prompt = prompt,
+        openingPrompt = mode.openingPrompt,
         outputSchema = outputSchema,
-        askUserEnabled = askUserExtension.isDefined
+        askUser = askUserExtension.fold(AskUserChannel.Unavailable)(_ =>
+          AskUserChannel.Native
+        )
       )
-      conversation.sendPrompt(prompt)
-      conversation
     }
 
   private def writeSystemPrompt(

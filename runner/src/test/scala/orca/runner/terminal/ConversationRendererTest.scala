@@ -5,7 +5,6 @@ import orca.events.{TurnDebit, Usage}
 import orca.{OrcaInteractiveCancelled}
 import orca.backend.{ApprovalDecision, ConversationEvent, AgentResult}
 import orca.testkit.ScriptedConversation
-import ox.supervised
 
 import java.io.{ByteArrayOutputStream, PrintStream}
 import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
@@ -61,7 +60,7 @@ class ConversationRendererTest extends munit.FunSuite:
       List(ConversationEvent.UserMessage(long)),
       Right(sampleResult)
     )
-    val _ = supervised(renderer(buf).render(conv))
+    val _ = renderer(buf).render(conv)
     val out = buf.toString
     assert(out.contains("you"), out)
     assert(out.contains("…"), s"a long user message must be truncated: $out")
@@ -88,7 +87,7 @@ class ConversationRendererTest extends munit.FunSuite:
       ),
       Right(sampleResult)
     )
-    val _ = supervised(renderer(buf).render(conv))
+    val _ = renderer(buf).render(conv)
     assert(
       !buf.toString.contains("tasks"),
       s"assistant text must not be rendered by this renderer; got: ${buf.toString}"
@@ -104,7 +103,7 @@ class ConversationRendererTest extends munit.FunSuite:
       List(ConversationEvent.AssistantToolCall("Bash", """{"command":"ls"}""")),
       Right(sampleResult)
     )
-    val _ = supervised(renderer(buf).render(conv))
+    val _ = renderer(buf).render(conv)
     val out = buf.toString
     assert(out.contains("Bash"))
     assert(out.contains("(ls)"))
@@ -118,7 +117,7 @@ class ConversationRendererTest extends munit.FunSuite:
       ),
       Right(sampleResult)
     )
-    val _ = supervised(renderer(buf).render(conv))
+    val _ = renderer(buf).render(conv)
     val out = buf.toString
     assert(out.contains("ok-output"))
     assert(out.contains("failed"))
@@ -129,7 +128,7 @@ class ConversationRendererTest extends munit.FunSuite:
       List(ConversationEvent.ToolDenied("mcp__visdom__agents_md")),
       Right(sampleResult)
     )
-    val _ = supervised(renderer(buf).render(conv))
+    val _ = renderer(buf).render(conv)
     assert(buf.toString.contains("permission denied: mcp__visdom__agents_md"))
     assert(buf.toString.contains("✖"))
 
@@ -139,7 +138,7 @@ class ConversationRendererTest extends munit.FunSuite:
       List(ConversationEvent.Error("boom")),
       Right(sampleResult)
     )
-    val _ = supervised(renderer(buf).render(conv))
+    val _ = renderer(buf).render(conv)
     assert(buf.toString.contains("boom"))
     assert(buf.toString.contains("✖"))
 
@@ -147,7 +146,7 @@ class ConversationRendererTest extends munit.FunSuite:
     val buf = new ByteArrayOutputStream()
     val cancelled = new OrcaInteractiveCancelled(TurnDebit.Unobserved)
     val conv = new ScriptedConversation(Nil, Left(cancelled))
-    assertEquals(supervised(renderer(buf).render(conv)), Left(cancelled))
+    assertEquals(renderer(buf).render(conv), Left(cancelled))
 
   test("summarise truncates long inputs with an ellipsis"):
     val buf = new ByteArrayOutputStream()
@@ -156,7 +155,7 @@ class ConversationRendererTest extends munit.FunSuite:
       List(ConversationEvent.AssistantToolCall("Bash", long)),
       Right(sampleResult)
     )
-    val _ = supervised(renderer(buf).render(conv))
+    val _ = renderer(buf).render(conv)
     val out = buf.toString
     assert(out.contains("…"), s"expected ellipsis; got: $out")
     assert(out.length < long.length + 100)
@@ -175,7 +174,7 @@ class ConversationRendererTest extends munit.FunSuite:
       ),
       Right(sampleResult)
     )
-    val _ = supervised(renderer(buf, prompter = prompter).render(conv))
+    val _ = renderer(buf, prompter = prompter).render(conv)
     assertEquals(answered.get(), Some(ApprovalDecision.Allow(None)))
     assert(prompter.asked.get().exists(_.contains("[y]es")))
 
@@ -193,7 +192,7 @@ class ConversationRendererTest extends munit.FunSuite:
       ),
       Right(sampleResult)
     )
-    val _ = supervised(renderer(buf, prompter = prompter).render(conv))
+    val _ = renderer(buf, prompter = prompter).render(conv)
     answered.get() match
       case Some(ApprovalDecision.Deny(Some(reason))) =>
         assert(reason.contains("user denied"))
@@ -208,7 +207,7 @@ class ConversationRendererTest extends munit.FunSuite:
       ),
       Right(sampleResult)
     )
-    val _ = supervised(renderer(buf, prompter = prompter).render(conv))
+    val _ = renderer(buf, prompter = prompter).render(conv)
     assertEquals(
       conv.cancelCount.get(),
       1,
@@ -222,7 +221,7 @@ class ConversationRendererTest extends munit.FunSuite:
     val buf = new ByteArrayOutputStream()
     val prompter = new ScriptedPrompter(Nil)
     val conv = new ScriptedConversation(Nil, Right(sampleResult))
-    val _ = supervised(renderer(buf, prompter = prompter).render(conv))
+    val _ = renderer(buf, prompter = prompter).render(conv)
     assertEquals(prompter.closes.get(), 0)
 
   test("two sequential render+prompt cycles against one prompter both ask"):
@@ -236,8 +235,8 @@ class ConversationRendererTest extends munit.FunSuite:
       List(ConversationEvent.ApproveTool("Bash", "{}", _ => ())),
       Right(sampleResult)
     )
-    val _ = supervised(renderer(buf, prompter = prompter).render(approveConv()))
-    val _ = supervised(renderer(buf, prompter = prompter).render(approveConv()))
+    val _ = renderer(buf, prompter = prompter).render(approveConv())
+    val _ = renderer(buf, prompter = prompter).render(approveConv())
     assertEquals(prompter.asked.get().size, 2)
 
   test("UserQuestion: question rendered, typed reply passed to respond"):
@@ -253,7 +252,7 @@ class ConversationRendererTest extends munit.FunSuite:
       ),
       Right(sampleResult)
     )
-    val _ = supervised(renderer(buf, prompter = prompter).render(conv))
+    val _ = renderer(buf, prompter = prompter).render(conv)
     assertEquals(answered.get(), Some("Paris"))
     assert(
       buf.toString.contains("target deployment region"),
@@ -269,7 +268,7 @@ class ConversationRendererTest extends munit.FunSuite:
       ),
       Right(sampleResult)
     )
-    val _ = supervised(renderer(buf, prompter = prompter).render(conv))
+    val _ = renderer(buf, prompter = prompter).render(conv)
     assertEquals(
       conv.cancelCount.get(),
       1,

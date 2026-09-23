@@ -2,19 +2,13 @@ package orca.backend
 
 class AskUserEchoesTest extends munit.FunSuite:
 
-  test("consume returns true once for a suppressed id, then false"):
-    val echoes = new AskUserEchoes
-    echoes.suppress("a")
-    assert(echoes.consume("a"), "first consume of a suppressed id is true")
-    assert(!echoes.consume("a"), "the id is forgotten after one consume")
+  test("a suppressed id is consumed once, then forgotten"):
+    val consumed = AskUserEchoes.empty.suppress("a").consume("a")
+    assertEquals(consumed, Some(AskUserEchoes.empty))
 
-  test("consume is false for an id that was never suppressed"):
-    val echoes = new AskUserEchoes
-    assert(!echoes.consume("missing"))
+  test("consume is None for an id that was never suppressed"):
+    assertEquals(AskUserEchoes.empty.consume("missing"), None)
 
   test("ids are tracked independently"):
-    val echoes = new AskUserEchoes
-    echoes.suppress("a")
-    echoes.suppress("b")
-    assert(echoes.consume("b"))
-    assert(echoes.consume("a"))
+    val echoes = AskUserEchoes.empty.suppress("a").suppress("b")
+    assertEquals(echoes.consume("b"), Some(AskUserEchoes.empty.suppress("a")))

@@ -43,7 +43,7 @@ class ClaudeBackendTest extends munit.FunSuite:
     val listeners: List[OrcaListener] = Nil
     def drive[B <: BackendTag](
         conversation: orca.backend.Conversation[B]
-    )(using ox.Ox): orca.backend.AgentResult[B] =
+    ): orca.backend.AgentResult[B] =
       throw new UnsupportedOperationException("test stub")
 
   /** Stream-json transcript for a clean autonomous call. Order matters:

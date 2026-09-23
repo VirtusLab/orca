@@ -69,9 +69,8 @@ class ChatTest extends munit.FunSuite:
 
   private object ChatStubInteraction extends Interaction:
     def listeners: List[OrcaListener] = Nil
-    def drive[B <: BackendTag](conversation: Conversation[B])(using
-        ox.Ox
-    ): AgentResult[B] = ???
+    def drive[B <: BackendTag](conversation: Conversation[B]): AgentResult[B] =
+      ???
 
   private class ChatStubTool(
       backend: AgentBackend[BackendTag.Pi.type]
