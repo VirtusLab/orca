@@ -298,9 +298,8 @@ Autonomous turns have no one to answer prompts (see above), so:
 
 Check your instructions for:
 
-- **Mandatory tool calls.** On claude, "always call X first" fails in
-  read-only turns unless X is allowed in your claude settings. Allow it, or
-  write "if available".
+- **Mandatory tool calls.** "Always call X first" needs X allowed (see above),
+  or write "if available".
 - **A human in the loop.** In autonomous flows, "ask me before X" or "wait for
   confirmation" cannot work: no one is there to answer.
 
