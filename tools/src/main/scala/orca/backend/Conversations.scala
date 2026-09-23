@@ -1,10 +1,10 @@
 package orca.backend
 
 import orca.events.{OrcaEvent, OrcaListener}
-import orca.agents.{AutoApprove, BackendTag, SessionId, StructuredOutputMode}
-import orca.sweep.{EnvCookie, EnvCookieSweep}
+import orca.agents.{AutoApprove, BackendTag, StructuredOutputMode}
+import orca.sweep.EnvCookie
 
-import ox.{Ox, supervised}
+import ox.Ox
 
 /** Drains a [[Conversation]] for the autonomous path, mapping conversation
   * events to [[OrcaEvent]]s and returning the awaited `AgentResult`.
@@ -198,49 +198,6 @@ private[orca] object Conversations:
       // AgentResult call shape.
       case Left(cancelled) => throw cancelled
 
-  /** Shared autonomous-turn finalize for the subprocess backends: drain the
-    * conversation, then — on success only — commit the session as resumable.
-    * Returns the drained result verbatim.
-    *
-    * The commit runs only after a clean drain, so a subprocess that crashed
-    * before registering its session doesn't wedge the registry into resuming a
-    * session that was never created. Drain failures propagate verbatim; the
-    * retryability classification already happened in
-    * [[ForkedConversation.awaitResult]].
-    */
-  def drainAndCommit[B <: BackendTag](
-      conv: Conversation[B],
-      session: SessionId[B],
-      sessions: SessionSupport[B],
-      autoApprove: AutoApprove,
-      events: OrcaListener = OrcaListener.noop
-  )(using Ox): AgentResult[B] =
-    val result = drainAutonomous(conv, autoApprove, events)
-    sessions.commitAfterDrain(session, result.wireId)
-    result
-
-  /** The complete autonomous-turn shell shared by all backends: open the
-    * conversation inside its own supervised scope, drain + commit, and always
-    * cancel before the scope joins (load-bearing on failure paths —
-    * `drainAndCommit` does not tear down). `open` runs inside the scope so the
-    * conversation's forks bind to it.
-    *
-    * The cancel reaches only what is still linked to the agent process; the
-    * sweep catches what detached.
-    */
-  def runAutonomous[B <: BackendTag](
-      session: SessionId[B],
-      sessions: SessionSupport[B],
-      autoApprove: AutoApprove,
-      events: OrcaListener
-  )(open: Ox ?=> Conversation[B]): AgentResult[B] =
-    supervised:
-      val conv = open
-      try drainAndCommit(conv, session, sessions, autoApprove, events)
-      finally
-        conv.cancel()
-        EnvCookieSweep.afterTurn(conv.envCookie, events)
-
   /** Interactive counterpart to the autonomous drain's `TurnBuffer`: wraps a
     * live [[Conversation]] so its assistant PROSE (text deltas + the turn
     * boundary that closes them) is translated into `OrcaEvent.AssistantMessage`
@@ -249,7 +206,7 @@ private[orca] object Conversations:
     * turn withheld the same way `TurnBuffer` does (see [[closingProse]] for why
     * the backend's wire doesn't come into it); the caller re-surfaces the
     * payload via `OrcaEvent.StructuredResult` instead (see
-    * `AgentCall.runInteractiveOnce`).
+    * [[AgentBackend.runInteractive]]).
     *
     * Every OTHER event (tool calls/results, approvals, questions, errors, the
     * user's own messages) passes through to the returned conversation's

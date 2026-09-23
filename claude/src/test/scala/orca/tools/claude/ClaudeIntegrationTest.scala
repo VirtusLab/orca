@@ -1,5 +1,6 @@
 package orca.tools.claude
 
+import orca.testkit.OpenTurn
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
 import orca.agents.{
@@ -70,7 +71,7 @@ class ClaudeIntegrationTest extends munit.FunSuite:
 
   test("stream-json interactive session reaches a Result with a session id"):
     withBackend: backend =>
-      val conversation = backend.runInteractive(
+      val conversation = OpenTurn.interactive(backend)(
         prompt = "Reply with just the number 7. Nothing else.",
         session = fresh,
         displayPrompt = "reply with 7",
@@ -91,7 +92,7 @@ class ClaudeIntegrationTest extends munit.FunSuite:
 
   test("stream-json session emits text deltas as the agent streams"):
     withBackend: backend =>
-      val conversation = backend.runInteractive(
+      val conversation = OpenTurn.interactive(backend)(
         prompt =
           "Count from 1 to 5, one per line, then stop. Do not emit anything else.",
         session = fresh,
@@ -124,7 +125,7 @@ class ClaudeIntegrationTest extends munit.FunSuite:
       // closed at spawn, so orca could not answer such a request — a future CLI
       // reviving that subchannel fails here first (see
       // `ClaudeConversation.respond`).
-      val conversation = backend.runInteractive(
+      val conversation = OpenTurn.interactive(backend)(
         prompt = "Read the file at /etc/hostname and reply with its contents.",
         session = fresh,
         displayPrompt = "read /etc/hostname",
@@ -234,7 +235,7 @@ class ClaudeIntegrationTest extends munit.FunSuite:
     // with stdin closed nobody can approve, so the planner gets a failed
     // tool_result and plans from the prompt alone. Needs live network.
     withBackend: backend =>
-      val conversation = backend.runInteractive(
+      val conversation = OpenTurn.interactive(backend)(
         prompt =
           "Use the WebFetch tool on https://example.com and reply with " +
             "the page title. Use no other tool.",

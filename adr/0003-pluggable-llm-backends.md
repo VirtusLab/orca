@@ -9,6 +9,11 @@ Status: Accepted · Date: 2026-04-22 (updated 2026-04-23)
 > SessionSupport[B]` — see ADR 0018's amendments and AGENTS.md's Sessions
 > section for the shape, and ADRs 0006/0007/0014/0015 for the drivers that
 > drove the change.
+>
+> **Amendment (2026-09-23).** A backend implements one hook,
+> `open(turn: TurnRequest[B]): Conversation[B]`. The final `runAutonomous` /
+> `runInteractive` own the rest of every turn: the entry gate, the per-turn
+> scope, draining or driving, the session commit and teardown.
 
 ## Decision
 

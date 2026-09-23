@@ -1,7 +1,6 @@
 package orca.tools.pi
 
 import orca.OrcaDir
-import orca.events.OrcaListener
 import orca.agents.{
   AutoApprove,
   BackendTag,
@@ -14,11 +13,8 @@ import orca.agents.{
 }
 import orca.backend.{
   Conversation,
-  Conversations,
-  Dispatch,
+  TurnRequest,
   AgentBackend,
-  AgentResult,
-  ConversationMode,
   IdScheme,
   SessionSupport,
   SubprocessSpawn,
@@ -84,49 +80,10 @@ private[orca] class PiBackend private[pi] (
   override def structuredOutputMode: StructuredOutputMode =
     StructuredOutputMode.RawText
 
-  protected def doRunAutonomous(
-      prompt: String,
-      session: SessionId[BackendTag.Pi.type],
-      dispatch: Dispatch[BackendTag.Pi.type],
-      config: AgentConfig,
-      events: OrcaListener,
-      outputSchema: Option[String]
-  ): AgentResult[BackendTag.Pi.type] =
-    Conversations.runAutonomous(session, sessions, config.autoApprove, events):
-      openConversation(
-        prompt = prompt,
-        mode = ConversationMode.Autonomous,
-        session = session,
-        dispatch = dispatch,
-        config = config,
-        outputSchema = outputSchema
-      )
-
-  protected def doRunInteractive(
-      prompt: String,
-      session: SessionId[BackendTag.Pi.type],
-      dispatch: Dispatch[BackendTag.Pi.type],
-      displayPrompt: String,
-      config: AgentConfig,
-      outputSchema: Option[String]
+  override protected[orca] def open(
+      turn: TurnRequest[BackendTag.Pi.type]
   )(using Ox): Conversation[BackendTag.Pi.type] =
-    openConversation(
-      prompt = prompt,
-      mode = ConversationMode.Interactive(displayPrompt),
-      session = session,
-      dispatch = dispatch,
-      config = config,
-      outputSchema = outputSchema
-    )
-
-  private def openConversation(
-      prompt: String,
-      mode: ConversationMode,
-      session: SessionId[BackendTag.Pi.type],
-      dispatch: Dispatch[BackendTag.Pi.type],
-      config: AgentConfig,
-      outputSchema: Option[String]
-  ): PiConversation =
+    import turn.*
     // Temp files (ask-user extension, system prompt) Pi reads for the whole
     // turn. Ownership passes to the conversation, which closes them in
     // `onFinalize`; `SubprocessSpawn.open`'s failure path is the backstop for a

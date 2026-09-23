@@ -23,7 +23,7 @@ trait Interaction:
     *
     * Takes `using Ox`: consuming the conversation ([[Conversation.events]] /
     * [[Conversation.awaitResult]]) starts the driver's workers in the caller's
-    * per-turn scope. `AgentCall.runInteractiveOnce` supplies that scope.
+    * per-turn scope. `AgentBackend.runInteractive` supplies that scope.
     */
   def drive[B <: BackendTag](conversation: Conversation[B])(using
       Ox

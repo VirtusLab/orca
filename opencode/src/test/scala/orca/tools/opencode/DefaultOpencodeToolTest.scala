@@ -1,24 +1,14 @@
 package orca.tools.opencode
 
-import orca.testkit.StubEnforcementCell
-import orca.backend.{
-  Dispatch,
-  Conversation,
-  Interaction,
-  AgentBackend,
-  AgentResult,
-  IdScheme,
-  SessionSupport
-}
-import orca.events.{OrcaListener, Usage}
+import orca.testkit.ScriptedBackend
+import orca.backend.{Conversation, Interaction, AgentResult, TurnRequest}
+import orca.events.OrcaListener
 import orca.agents.{
   BackendTag,
   DefaultPrompts,
   AgentConfig,
   OpencodeAgent,
-  SessionId,
-  ToolSet,
-  onWire
+  ToolSet
 }
 
 class DefaultOpencodeAgentTest extends munit.FunSuite:
@@ -27,35 +17,13 @@ class DefaultOpencodeAgentTest extends munit.FunSuite:
   private given orca.InStage = orca.InStage.unsafe
 
   /** Captures the config the tool resolves for an autonomous call. */
-  private class RecordingBackend
-      extends AgentBackend[BackendTag.Opencode.type]
-      with StubEnforcementCell[BackendTag.Opencode.type]:
-    val workDir: os.Path = os.pwd
+  private class RecordingBackend extends ScriptedBackend(BackendTag.Opencode):
     var lastConfig: Option[AgentConfig] = None
-    protected def doRunAutonomous(
-        prompt: String,
-        session: SessionId[BackendTag.Opencode.type],
-        dispatch: Dispatch[BackendTag.Opencode.type],
-        config: AgentConfig,
-        events: OrcaListener,
-        outputSchema: Option[String]
+    protected def reply(
+        turn: TurnRequest[BackendTag.Opencode.type]
     ): AgentResult[BackendTag.Opencode.type] =
-      lastConfig = Some(config)
-      AgentResult(session.onWire, "ok", Usage.empty)
-    protected def doRunInteractive(
-        prompt: String,
-        session: SessionId[BackendTag.Opencode.type],
-        dispatch: Dispatch[BackendTag.Opencode.type],
-        displayPrompt: String,
-        config: AgentConfig,
-        outputSchema: Option[String]
-    )(using ox.Ox): Conversation[BackendTag.Opencode.type] =
-      throw new UnsupportedOperationException
-    val sessions: SessionSupport[BackendTag.Opencode.type] =
-      SessionSupport.ephemeral(IdScheme.ClientClaimed)
-    val tag: BackendTag.Opencode.type = BackendTag.Opencode
-    def structuredOutputMode: orca.agents.StructuredOutputMode =
-      orca.agents.StructuredOutputMode.RawText
+      lastConfig = Some(turn.config)
+      ScriptedBackend.result("ok")
 
   private val noInteraction: Interaction = new Interaction:
     def listeners: List[OrcaListener] = Nil

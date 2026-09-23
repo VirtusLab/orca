@@ -1,16 +1,14 @@
 package orca.agents
 
-import orca.testkit.StubEnforcementCell
+import orca.testkit.ScriptedBackend
 import orca.backend.{
-  Dispatch,
   Conversation,
   Interaction,
   AgentBackend,
   AgentResult,
-  IdScheme,
-  SessionSupport
+  TurnRequest
 }
-import orca.events.{OrcaListener, Usage}
+import orca.events.OrcaListener
 
 /** The [[Chat]] handle contract: one conversation id threads through every
   * turn, `agent.run` mints a fresh one per call, and `agent.chat(continueFrom)`
@@ -43,39 +41,13 @@ class ChatTest extends munit.FunSuite:
     assertEquals(backend.seen, List(SessionId.value(adopted)))
 
   /** Records the session id of every `runAutonomous` call. */
-  private class RecordingSessionBackend
-      extends AgentBackend[BackendTag.Pi.type]
-      with StubEnforcementCell[BackendTag.Pi.type]:
-    val workDir: os.Path = os.pwd
+  private class RecordingSessionBackend extends ScriptedBackend(BackendTag.Pi):
     var seen: List[String] = Nil
-    protected def doRunAutonomous(
-        prompt: String,
-        session: SessionId[BackendTag.Pi.type],
-        dispatch: Dispatch[BackendTag.Pi.type],
-        config: AgentConfig,
-        events: OrcaListener,
-        outputSchema: Option[String]
+    protected def reply(
+        turn: TurnRequest[BackendTag.Pi.type]
     ): AgentResult[BackendTag.Pi.type] =
-      seen = seen :+ SessionId.value(session)
-      AgentResult(
-        WireSessionId[BackendTag.Pi.type]("server-wire-id"),
-        "out",
-        Usage.empty
-      )
-    protected def doRunInteractive(
-        prompt: String,
-        session: SessionId[BackendTag.Pi.type],
-        dispatch: Dispatch[BackendTag.Pi.type],
-        displayPrompt: String,
-        config: AgentConfig,
-        outputSchema: Option[String]
-    )(using ox.Ox): Conversation[BackendTag.Pi.type] =
-      throw new UnsupportedOperationException
-    val sessions: SessionSupport[BackendTag.Pi.type] =
-      SessionSupport.ephemeral(IdScheme.ClientClaimed)
-    val tag: BackendTag.Pi.type = BackendTag.Pi
-    def structuredOutputMode: StructuredOutputMode =
-      StructuredOutputMode.RawText
+      seen = seen :+ SessionId.value(turn.session)
+      ScriptedBackend.result("out")
 
   private object ChatStubPrompts extends Prompts:
     def autonomous(

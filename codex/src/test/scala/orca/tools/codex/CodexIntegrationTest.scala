@@ -1,5 +1,6 @@
 package orca.tools.codex
 
+import orca.testkit.OpenTurn
 import orca.AgentTurnFailed
 import orca.agents.{
   AutoApprove,
@@ -81,7 +82,7 @@ class CodexIntegrationTest extends munit.FunSuite:
 
   test("interactive session reaches a result with a session id"):
     withBackend(): backend =>
-      val conversation = backend.runInteractive(
+      val conversation = OpenTurn.interactive(backend)(
         prompt = "Reply with just the number 7. Nothing else.",
         session = fresh,
         displayPrompt = "reply with 7",
@@ -100,7 +101,7 @@ class CodexIntegrationTest extends munit.FunSuite:
 
   test("interactive session emits AssistantTextDelta + AssistantTurnEnd"):
     withBackend(): backend =>
-      val conversation = backend.runInteractive(
+      val conversation = OpenTurn.interactive(backend)(
         prompt =
           "Reply with: 1, 2, 3. Just those three numbers separated by commas, nothing else.",
         session = fresh,
@@ -178,7 +179,7 @@ class CodexIntegrationTest extends munit.FunSuite:
     val workDir = TempDirs.dir()
     os.write(workDir / "marker.txt", "orca-codex-marker")
     withBackend(workDir): backend =>
-      val conversation = backend.runInteractive(
+      val conversation = OpenTurn.interactive(backend)(
         prompt =
           "You MUST run the shell command `cat marker.txt` first, then " +
             "respond with JSON only (no commentary): {\"issues\":[]}",
@@ -204,7 +205,7 @@ class CodexIntegrationTest extends munit.FunSuite:
     val workDir = TempDirs.dir()
     os.write(workDir / "marker.txt", "orca-codex-marker")
     withBackend(workDir): backend =>
-      val conversation = backend.runInteractive(
+      val conversation = OpenTurn.interactive(backend)(
         prompt =
           "You MUST run the shell command `cat marker.txt` first to read the file. Then tell me what it contained. Reply briefly.",
         session = fresh,

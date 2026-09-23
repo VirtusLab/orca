@@ -1,58 +1,17 @@
 package orca.backend
 
-import orca.{AgentTurnFailed, OrcaFlowException, OrcaInteractiveCancelled}
+import orca.{OrcaFlowException, OrcaInteractiveCancelled}
 import orca.events.{OrcaEvent, OrcaListener, TurnDebit, Usage}
 import orca.agents.{
   AutoApprove,
   BackendTag,
-  SessionId,
   StructuredOutputMode,
   WireSessionId
 }
-
+import orca.testkit.ScriptedConversation
 import ox.{Ox, supervised}
 
 import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
-
-private class ScriptedConversation(
-    eventList: List[ConversationEvent],
-    outcome: Either[OrcaInteractiveCancelled, AgentResult[
-      BackendTag.Codex.type
-    ]],
-    val outputSchema: Option[String] = None,
-    override val structuredOutputMode: StructuredOutputMode =
-      StructuredOutputMode.RawText
-) extends Conversation[BackendTag.Codex.type]:
-  val drained = new AtomicInteger(0)
-  val cancelCount = new AtomicInteger(0)
-  def events(using Ox): Iterator[ConversationEvent] =
-    eventList.iterator.map { e =>
-      val _ = drained.incrementAndGet()
-      e
-    }
-  def awaitResult()(using
-      Ox
-  ): Either[OrcaInteractiveCancelled, AgentResult[BackendTag.Codex.type]] =
-    outcome
-  def canAskUser: Boolean = false
-  def cancel(): Unit =
-    val _ = cancelCount.incrementAndGet()
-
-/** A conversation whose `awaitResult()` throws instead of returning, standing
-  * in for a drain that fails mid-turn (e.g. `AgentTurnFailed`).
-  */
-private class FailingConversation(failure: Throwable)
-    extends Conversation[BackendTag.Codex.type]:
-  val cancelCount = new AtomicInteger(0)
-  def events(using Ox): Iterator[ConversationEvent] = Iterator.empty
-  val outputSchema: Option[String] = None
-  def awaitResult()(using
-      Ox
-  ): Either[OrcaInteractiveCancelled, AgentResult[BackendTag.Codex.type]] =
-    throw failure
-  def canAskUser: Boolean = false
-  def cancel(): Unit =
-    val _ = cancelCount.incrementAndGet()
 
 /** A conversation whose event stream throws partway through iteration, standing
   * in for a subprocess that dies mid-turn: the scripted events are yielded
@@ -91,82 +50,6 @@ class ConversationsTest extends munit.FunSuite:
     output = "out",
     usage = Usage.empty
   )
-
-  test(
-    "drainAndCommit commits the reported wire id against the caller's client id"
-  ):
-    val client = SessionId.fresh[BackendTag.Codex.type]
-    val reportedWire = WireSessionId[BackendTag.Codex.type]("server-thread-42")
-    val support = SessionSupport
-      .durable[BackendTag.Codex.type](IdScheme.ServerMinted, _ => false)
-    val conv = new ScriptedConversation(
-      Nil,
-      Right(sampleResult.copy(wireId = reportedWire))
-    )
-    val result = supervised:
-      Conversations.drainAndCommit(
-        conv,
-        client,
-        support,
-        AutoApprove.All
-      )
-    assert(result.wireId == reportedWire) // result reports the wire truth
-    assert(
-      support.persistableWireId(client).contains(reportedWire)
-    ) // mapping learned
-
-  test(
-    "a plain OrcaFlowException propagates verbatim through drainAndCommit " +
-      "(no relabelling)"
-  ):
-    // A plain OrcaFlowException must reach the caller unchanged — not rewrapped
-    // with a backend-specific "CLI failed" prefix.
-    val client = SessionId.fresh[BackendTag.Codex.type]
-    val support = SessionSupport
-      .durable[BackendTag.Codex.type](IdScheme.ServerMinted, _ => false)
-    val failure = new OrcaFlowException("boom")
-    val conv = new FailingConversation(failure)
-    val thrown = intercept[OrcaFlowException]:
-      supervised:
-        Conversations.drainAndCommit(
-          conv,
-          client,
-          support,
-          AutoApprove.All
-        )
-    assertEquals(thrown, failure)
-    assertEquals(thrown.getMessage, "boom")
-    assert(support.persistableWireId(client).isEmpty) // never committed
-
-  test(
-    "drainAndCommit refuses an empty/unsafe reported wire id and never commits it"
-  ):
-    // A missing init event (e.g. a crash before `thread.started`) leaves the
-    // wire id defaulted to "" upstream; committing that would let a later
-    // call resume against an empty session id. The guard throws BEFORE
-    // the commit, so the bookkeeping stays clean either way.
-    val client = SessionId.fresh[BackendTag.Codex.type]
-    val support = SessionSupport
-      .durable[BackendTag.Codex.type](IdScheme.ServerMinted, _ => false)
-    val conv = new ScriptedConversation(
-      Nil,
-      Right(
-        sampleResult.copy(wireId = WireSessionId[BackendTag.Codex.type](""))
-      )
-    )
-    val thrown = intercept[OrcaFlowException]:
-      supervised:
-        Conversations.drainAndCommit(
-          conv,
-          client,
-          support,
-          AutoApprove.All
-        )
-    assert(
-      thrown.getMessage.contains("invalid session id"),
-      thrown.getMessage
-    )
-    assert(support.persistableWireId(client).isEmpty) // never committed
 
   test("drainAutonomous walks every event before returning the result"):
     val conv = new ScriptedConversation(
@@ -667,47 +550,3 @@ class ConversationsTest extends munit.FunSuite:
         OrcaEvent.AssistantMessage("turn two")
       )
     )
-
-  test("runAutonomous opens, drains, commits, and cancels exactly once"):
-    val client = SessionId.fresh[BackendTag.Codex.type]
-    val reportedWire = WireSessionId[BackendTag.Codex.type]("server-thread-7")
-    val support = SessionSupport
-      .durable[BackendTag.Codex.type](IdScheme.ServerMinted, _ => false)
-    val conv = new ScriptedConversation(
-      List(
-        ConversationEvent.AssistantTextDelta("hi"),
-        ConversationEvent.AssistantTurnEnd
-      ),
-      Right(sampleResult.copy(wireId = reportedWire))
-    )
-    val result =
-      Conversations.runAutonomous(
-        client,
-        support,
-        AutoApprove.All,
-        OrcaListener.noop
-      ):
-        conv
-    assertEquals(result.wireId, reportedWire)
-    assert(support.persistableWireId(client).contains(reportedWire))
-    assertEquals(conv.cancelCount.get(), 1)
-
-  test(
-    "runAutonomous still cancels when the drain throws AgentTurnFailed"
-  ):
-    val client = SessionId.fresh[BackendTag.Codex.type]
-    val support = SessionSupport
-      .durable[BackendTag.Codex.type](IdScheme.ServerMinted, _ => false)
-    val failure = new AgentTurnFailed("turn blew up", TurnDebit.Unobserved)
-    val conv = new FailingConversation(failure)
-    val thrown = intercept[AgentTurnFailed]:
-      Conversations.runAutonomous(
-        client,
-        support,
-        AutoApprove.All,
-        OrcaListener.noop
-      ):
-        conv
-    assertEquals(thrown, failure)
-    assertEquals(conv.cancelCount.get(), 1)
-    assert(support.persistableWireId(client).isEmpty) // never committed

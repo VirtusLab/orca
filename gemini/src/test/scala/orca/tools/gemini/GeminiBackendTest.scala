@@ -1,5 +1,6 @@
 package orca.tools.gemini
 
+import orca.testkit.OpenTurn
 import orca.backend.{SupervisedBackend, SystemPromptComposer}
 import orca.agents.{
   TurnDispatch,
@@ -262,12 +263,12 @@ class GeminiBackendTest extends munit.FunSuite:
       )
 
   test(
-    "runInteractive registers the orca MCP server and folds the ask_user hint"
+    "an interactive turn registers the orca MCP server and folds the ask_user hint"
   ):
     val runner = new SpawnStubCliRunner(List(pendingProcess()))
     val workDir = TempDirs.dir()
     withBackend(runner, workDir = workDir): backend =>
-      val _ = backend.runInteractive(
+      val _ = OpenTurn.interactive(backend)(
         "q",
         clientSid,
         displayPrompt = "q",
@@ -287,11 +288,11 @@ class GeminiBackendTest extends munit.FunSuite:
       )
 
   test(
-    "runInteractive with a systemPrompt folds BOTH it and the ask_user hint"
+    "an interactive turn with a systemPrompt folds BOTH it and the ask_user hint"
   ):
     val runner = new SpawnStubCliRunner(List(pendingProcess()))
     withBackend(runner): backend =>
-      val _ = backend.runInteractive(
+      val _ = OpenTurn.interactive(backend)(
         "list files",
         clientSid,
         displayPrompt = "list files",
