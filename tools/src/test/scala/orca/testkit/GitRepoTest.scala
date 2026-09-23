@@ -13,3 +13,8 @@ class GitRepoTest extends munit.FunSuite:
       .lines()
       .filterNot(_.startsWith("local"))
     assertEquals(nonLocal.toList, Nil)
+
+  // The test above only fails if the parent shell sets `GIT_CONFIG_KEY_<n>`
+  // vars; this one fails whenever the setting is missing.
+  test("the test JVM disables env-supplied git config"):
+    assertEquals(sys.env.get("GIT_CONFIG_COUNT"), Some("0"))

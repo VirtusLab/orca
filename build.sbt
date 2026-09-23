@@ -43,12 +43,15 @@ lazy val commonSettings = commonSmlBuildSettings ++ ossPublishSettings ++ Seq(
   // config unless told otherwise: a global ignore rule or `commit.gpgsign`
   // changes what a fixture repo does, usually with no hint why. Pointing both
   // config files at an empty one neutralises the whole class at once (git
-  // 2.32+). Fixtures set `user.name`/`user.email` in the repo, so commits
-  // still work. Env vars can only be set on a new process, hence the fork.
+  // 2.32+). `GIT_CONFIG_COUNT=0` drops config passed via inherited
+  // `GIT_CONFIG_KEY_<n>`/`GIT_CONFIG_VALUE_<n>` vars. Fixtures set
+  // `user.name`/`user.email` in the repo, so commits still work. Env vars can
+  // only be set on a new process, hence the fork.
   Test / fork := true,
   Test / envVars ++= Map(
     "GIT_CONFIG_GLOBAL" -> "/dev/null",
-    "GIT_CONFIG_SYSTEM" -> "/dev/null"
+    "GIT_CONFIG_SYSTEM" -> "/dev/null",
+    "GIT_CONFIG_COUNT" -> "0"
   ),
   homepage := Some(url("https://github.com/VirtusLab/orca")),
   organizationHomepage := Some(url("https://virtuslab.com")),
