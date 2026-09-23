@@ -41,7 +41,7 @@ class OpencodeBackendTest extends munit.FunSuite:
     */
   private class FakeHandle(httpThunk: => OpencodeHttp)
       extends OpencodeServerHandle:
-    def http: OpencodeHttp = httpThunk
+    def http(): OpencodeHttp = httpThunk
 
   private def data(json: String): String = s"data: $json"
 

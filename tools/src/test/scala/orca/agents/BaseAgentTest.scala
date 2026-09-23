@@ -44,11 +44,6 @@ class BaseAgentTest extends munit.FunSuite:
   // LLM `run` is gated on `InStage`; mint the token for the suite.
   private given orca.InStage = orca.InStage.unsafe
 
-  test("close() latches the backend closed"):
-    val backend = new UnrunBackend
-    new StubTool(backend).close()
-    assert(backend.isClosed)
-
   // A closed agent must fail loud rather than let a leaked handle
   // silently emit to a closed run's dispatcher.
   test("run after close() throws OrcaFlowException"):

@@ -9,6 +9,7 @@ import ox.{
   Ox,
   fork,
   forkDiscard,
+  forkUnsupervised,
   forever,
   releaseAfterScope,
   supervised,
@@ -22,14 +23,9 @@ import org.slf4j.LoggerFactory
 import java.util.UUID
 import scala.util.control.NonFatal
 
-/** A run's shared `opencode serve` process (ADR 0014), started on the first
-  * [[http]] call, so a backend wired but never used spawns nothing.
-  *
-  * The process, its output drains and its HTTP client live in one daemon fork
-  * of the scope [[OpencodeServer.start]] was called in, and are torn down when
-  * that scope ends; when the process is gone, its environment cookie is swept.
-  * A survivor found then is logged, but may not reach a terminal that has
-  * already closed.
+/** A run's shared `opencode serve` process (ADR 0014). The process, its output
+  * drains and its HTTP client live in one daemon fork of the scope that built
+  * the server (see [[OpencodeServer.apply]]).
   *
   * A random `OPENCODE_SERVER_PASSWORD` keeps the bound localhost port closed to
   * other processes; `--pure` is not passed so the server inherits the user's
@@ -43,22 +39,22 @@ import scala.util.control.NonFatal
   * [[OpencodeBackend.probeSession]] just forces a fresh spawn to see it.
   */
 private[opencode] final class OpencodeServer private (
-    requests: Sink[OpencodeServer.Reply]
+    requests: Sink[OpencodeServer.ReplyTo]
 ) extends OpencodeServerHandle:
 
   /** The HTTP/SSE client against the running server, starting it on the first
     * call. A failed start is rethrown here and retried on the next call. Throws
     * `ChannelClosedException` once the owning scope has ended.
     */
-  def http: OpencodeHttp =
-    val reply = Channel.buffered[Either[Throwable, OpencodeHttp]](1)
-    requests.send(reply)
-    reply.receive().orThrow
+  def http(): OpencodeHttp =
+    val replyTo = Channel.buffered[Either[Throwable, OpencodeHttp]](1)
+    requests.send(replyTo)
+    replyTo.receive().orThrow
 
 private[opencode] object OpencodeServer:
 
   /** Where the server answers one [[OpencodeServer.http]] call. */
-  private type Reply = Sink[Either[Throwable, OpencodeHttp]]
+  private type ReplyTo = Sink[Either[Throwable, OpencodeHttp]]
 
   private val log = LoggerFactory.getLogger(classOf[OpencodeServer])
 
@@ -68,21 +64,24 @@ private[opencode] object OpencodeServer:
   private val MaxErrTailLines = 50
 
   /** A server owned by the current scope: the process is spawned on the first
-    * [[OpencodeServer.http]] call and destroyed when the scope ends. Leaked
-    * work still carrying its environment cookie is reported to `events`.
+    * [[OpencodeServer.http]] call, so a backend wired but never used spawns
+    * nothing, and is destroyed when the scope ends. Work the process detached
+    * and left running is then reported to `events`, which may no longer reach a
+    * closed terminal.
     */
-  def start(
+  def apply(
       cli: CliRunner,
       workDir: os.Path,
       events: OrcaListener,
       launcher: OpencodeLauncher = OpencodeLauncher.default,
       httpFor: (String, String) => OpencodeHttp = JavaNetOpencodeHttp.start
   )(using Ox): OpencodeServer =
-    val requests = Channel.rendezvous[Reply]
+    val requests = Channel.rendezvous[ReplyTo]
     val owner = new ServerOwner(cli, workDir, events, launcher, httpFor)
     forkDiscard:
+      // `error`, not `done`: it also fails sends already waiting.
       try owner.serve(requests)
-      finally requests.done()
+      finally requests.error(OrcaFlowException("opencode server has stopped"))
     new OpencodeServer(requests)
 
   /** The base URL from a serve startup line (`opencode server listening on
@@ -103,20 +102,21 @@ private[opencode] object OpencodeServer:
     /** Nothing is spawned until the first request. A start that fails answers
       * that request only, so the next one starts afresh.
       */
-    def serve(requests: Source[Reply]): Nothing =
+    def serve(requests: Source[ReplyTo]): Nothing =
       forever:
-        val first = requests.receive()
-        supervised(runServer(first, requests))
+        val firstReplyTo = requests.receive()
+        supervised(runServer(firstReplyTo, requests))
 
-    private def runServer(first: Reply, requests: Source[Reply])(using
-        Ox
-    ): Unit =
+    private def runServer(
+        firstReplyTo: ReplyTo,
+        requests: Source[ReplyTo]
+    )(using Ox): Unit =
       val password = UUID.randomUUID.toString
       spawn(password).catching[Throwable] match
-        case Left(e) => first.send(Left(e))
+        case Left(e) => firstReplyTo.send(Left(e))
         case Right(process) =>
           releaseAfterScope(
-            EnvCookieSweep.afterTurn(process.envCookie, events)
+            EnvCookieSweep.afterScope(process.envCookie, events)
           )
           // The drains block in pipe reads that interruption can't end:
           // destroying the process here, before the scope joins them, EOFs
@@ -124,7 +124,7 @@ private[opencode] object OpencodeServer:
           // real serve, which inherits the pipes.
           try
             val started = connect(process, password).catching[Throwable]
-            first.send(started)
+            firstReplyTo.send(started)
             started.foreach: client =>
               forever(requests.receive().send(Right(client)))
           finally process.destroyForciblyTree()
@@ -149,13 +149,12 @@ private[opencode] object OpencodeServer:
       val errTail = fork(stderrTail(process))
       val out = process.stdoutLines
       // Read in a fork, so a scope ending mid-startup interrupts the join and
-      // reaches the process destroy. serve prints "listening on …" within ~1s
-      // of binding; a serve that exits without it surfaces as EOF.
-      val baseUrl =
-        fork(out.flatMap(parseBaseUrl).nextOption().catching[Throwable])
-          .join()
-          .orThrow
-          .getOrElse(failedToStart(process, errTail))
+      // reaches the process destroy; unsupervised, so a read failure is thrown
+      // by the join rather than failing the scope. serve prints "listening on
+      // …" within ~1s of binding; a serve that exits without it surfaces as EOF.
+      val baseUrl = forkUnsupervised(out.flatMap(parseBaseUrl).nextOption())
+        .join()
+        .getOrElse(failedToStart(process, errTail))
       log.debug("opencode server started, listening on {}", baseUrl)
       // Resumes the same iterator past the bind line, so the server's log
       // output can't back-fill the pipe and stall it.

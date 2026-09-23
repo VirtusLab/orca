@@ -37,8 +37,7 @@ import java.util.concurrent.atomic.AtomicReference
   * comparing backend IDENTITY ([[orca.agents.Agent.backendIdentity]]), not
   * `Agent` reference equality — the positive case below pins that a
   * `copyTool`-derived sibling of a wired agent (the common `_.claude.opus`
-  * shape) does NOT trip that warning, and that its shared backend is still
-  * closed.
+  * shape) does NOT trip that warning.
   */
 class LeadAgentIdentityTest extends munit.FunSuite:
 
@@ -87,8 +86,7 @@ class LeadAgentIdentityTest extends munit.FunSuite:
     assert(foreignBackend.isClosed, "a foreign lead's backend must be closed")
 
   test(
-    "a copyTool-derived sibling of the wired pi agent triggers no warning " +
-      "and its backend is closed"
+    "a copyTool-derived sibling of the wired pi agent triggers no warning"
   ):
     val piBackend = new UnrunBackend
     val warnings = scala.collection.mutable.ListBuffer.empty[String]
@@ -121,7 +119,27 @@ class LeadAgentIdentityTest extends munit.FunSuite:
       s"a copyTool-derived sibling of a wired agent must not trigger the " +
         s"foreign-lead warning, saw: $warnings"
     )
-    assert(piBackend.isClosed, "the shared backend must be closed")
+
+  test("a wired agent's backend is closed when the flow completes"):
+    val piBackend = new UnrunBackend
+    supervised:
+      flow(
+        args = OrcaArgs(),
+        stackSettings = Some(StackSettings.empty),
+        workDir = GitRepo.seeded(),
+        pi = Some(w =>
+          new DefaultPiAgent(
+            piBackend,
+            AgentConfig(),
+            w.prompts,
+            w.events,
+            w.interaction
+          )
+        ),
+        interaction = Some(interaction())
+      ):
+        ()
+    assert(piBackend.isClosed)
 
   test(
     "a selector that always throws: the original failure is reported once, " +
@@ -190,7 +208,7 @@ class LeadAgentIdentityTest extends munit.FunSuite:
     // Planning resolves to a FOREIGN agent (a separate backend, not one of the
     // five wired); coding's override then throws, so `resolveAll` never returns
     // a `RoleResolution`. The foreign planning agent's close, registered as
-    // that role resolved, must still run so its backend does not leak.
+    // that role resolved, must still run.
     val boom = new RuntimeException("coding selector always throws")
     val foreignBackend = new UnrunBackend
     val foreignPlanning: PiAgent = new DefaultPiAgent(

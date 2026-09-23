@@ -262,7 +262,7 @@ trait Agent[B <: BackendTag]:
     * kind get different tokens even though [[backendTag]] can't tell them
     * apart. [[orca.runner.RoleAgents]] uses this (via
     * `WiredAgents.isWiredBackend`) to tell a selector-derived sibling of a
-    * wired agent from a foreign agent, which is event-blind and must be closed
+    * wired agent from a foreign agent, which is event-blind and is closed
     * separately — a plain `Agent eq Agent` check can't, since the wrappers
     * differ. `BaseAgent` overrides it to the shared `AgentBackend.closedFlag`
     * reference.

@@ -127,7 +127,7 @@ place of a real user-global file, so no test reads the developer's actual
 outside the run's wired five (e.g. `_ => myPrebuiltAgent` from a separate
 `AgentWiring`) still compiles — but is event-blind (never reaches this run's
 dispatcher) and gets a loud resolution-time warning; the runtime still closes
-it at flow end to avoid a resource leak.
+it at flow end, so later runs through it are refused.
 
 Agent closing uses one Ox `resourceScope` that covers building the context and
 running the body. The wired agents are registered when the scope opens, and
