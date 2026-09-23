@@ -1,6 +1,6 @@
 package orca.pr
 
-import orca.{FlowContext, FlowControl, OutsideStage, fail, gh, git, tracedStage}
+import orca.{FlowControl, OutsideStage, fail, gh, git, tracedStage}
 import orca.agents.Agent
 import orca.review.OpenFindings
 import orca.tools.PrHandle

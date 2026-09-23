@@ -1,6 +1,6 @@
 package orca.pr
 
-import orca.{FlowContext, FlowControl, Staged, WorkspaceWrite, gatedStage, git}
+import orca.{FlowControl, Staged, WorkspaceWrite, gatedStage, git}
 import orca.agents.{Agent, JsonData, given}
 import orca.tools.{NoDefaultBase, PrHandle}
 
