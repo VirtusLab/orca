@@ -404,9 +404,8 @@ Each run is bound to exactly one feature branch and one progress log
   cleanup is `git worktree remove .orca/worktrees/<hash>` **and** `git branch -d
   orca-worktree-<hash>`; a re-run of the task refuses rather than moving that
   branch if it has gained commits since.
-  Sharp edge: kept files are unprotected until that first stage commit — a
-  failure before it runs the teardown's `git reset --hard` and destroys kept
-  modifications to tracked files (kept untracked files survive).
+  Kept edits to tracked files survive a failure before the first stage commit:
+  failure teardown puts them back after its reset.
 - **Resume:** a re-run with the same prompt finds the progress log and resumes
   from the first incomplete stage (a `--branch` naming a different branch than
   the log's is refused). It says once which branch it bound, how many
@@ -438,6 +437,8 @@ Each run is bound to exactly one feature branch and one progress log
   interactive keep answer) leaves orca unable to tell those files apart from the
   run's own — no untracked file is deleted, in any stage, including ones the
   failed stage created.
+  When the failed body left HEAD off the feature branch, teardown touches
+  nothing and says so.
 
 ### Settings
 

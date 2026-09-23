@@ -273,6 +273,28 @@ class OsGitToolTest extends munit.FunSuite:
       git.discardUncommitted(UntrackedFiles.Remove)
       assert(os.exists(dir / "build" / "out.jar"))
 
+  test("snapshotUncommitted is None when only untracked files are present"):
+    withSeededRepo: (git, dir) =>
+      os.write(dir / "new.txt", "created")
+      assertEquals(git.snapshotUncommitted(), Right(None))
+
+  test(
+    "restoreSnapshot after discardUncommitted brings back staged and unstaged tracked changes"
+  ):
+    withSeededRepo: (git, dir) =>
+      os.write(dir / "added.txt", "staged new file")
+      os.write.over(dir / "seed.txt", "unstaged edit")
+      val _ = os.proc("git", "add", "added.txt").call(cwd = dir)
+      val before = git.dirtyPaths()
+      val snapshot = git
+        .snapshotUncommitted()
+        .orThrow
+        .getOrElse(fail("tracked changes must yield a snapshot"))
+      git.discardUncommitted(UntrackedFiles.Keep)
+      git.restoreSnapshot(snapshot).orThrow
+      assertEquals(git.dirtyPaths(), before)
+      assertEquals(os.read(dir / "seed.txt"), "unstaged edit")
+
   test("createBranch / commit / checkout each emit a Step event"):
     withRepoCapturingEvents: (git, dir, seen) =>
       os.write(dir / "seed.txt", "x")

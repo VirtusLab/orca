@@ -29,6 +29,20 @@ enum UntrackedFiles:
 
   case Keep
 
+/** The tracked changes (staged and unstaged) uncommitted on top of `base`,
+  * recorded by [[GitTool.snapshotUncommitted]] as a `git stash create` commit
+  * that no ref points to. Untracked files and submodule changes are not in it.
+  * Git prunes the commit only once it is older than `gc.pruneExpire` (two weeks
+  * by default).
+  */
+final case class UncommittedSnapshot(commit: CommitHash, base: CommitHash)
+
+/** Returned in the `Left` of [[GitTool.snapshotUncommitted]] and
+  * [[GitTool.restoreSnapshot]] when git refused, e.g. on an unmerged index or a
+  * file in the way.
+  */
+final class SnapshotFailed(reason: String) extends OrcaFlowException(reason)
+
 /** Why a [[GitTool.show]] / [[GitTool.fileAt]] read did not happen. Returned in
   * a `Left` rather than thrown: these reads take agent-supplied arguments, and
   * a bad one is an answer to relay, not a flow failure. Subclasses
@@ -342,6 +356,22 @@ trait GitTool:
   def discardUncommitted(untracked: UntrackedFiles)(using
       WorkspaceWrite
   ): Unit
+
+  /** Record the uncommitted tracked changes without touching the working tree,
+    * the index or any ref, so [[restoreSnapshot]] can bring them back after
+    * [[discardUncommitted]]. `None` when there are none.
+    */
+  def snapshotUncommitted()(using
+      WorkspaceWrite
+  ): Either[SnapshotFailed, Option[UncommittedSnapshot]]
+
+  /** Re-apply `snapshot` to the working tree and index (`git stash apply
+    * --index`). Applies cleanly when HEAD is `snapshot.base` and the tracked
+    * files match it, as they do right after [[discardUncommitted]].
+    */
+  def restoreSnapshot(snapshot: UncommittedSnapshot)(using
+      WorkspaceWrite
+  ): Either[SnapshotFailed, Unit]
 
   /** All changes since the last commit (staged and unstaged) anywhere in the
     * repository, excluding `.orca/` bookkeeping. Tracked files only — an
@@ -737,6 +767,30 @@ private[orca] class OsGitTool(
           "Discarded uncommitted changes and new files (reset --hard, clean " +
             "-fd excluding .orca)"
         )
+
+  def snapshotUncommitted()(using
+      ws: WorkspaceWrite
+  ): Either[SnapshotFailed, Option[UncommittedSnapshot]] =
+    ws.check("git.snapshotUncommitted")
+    val result = gitProc(Seq("git", "stash", "create"))
+    if result.exitCode != 0 then
+      Left(SnapshotFailed(s"git stash create: ${result.err.text().trim}"))
+    else
+      Right(
+        for
+          commit <- CommitHash.from(result.out.text().trim)
+          base <- headCommit()
+        yield UncommittedSnapshot(commit, base)
+      )
+
+  def restoreSnapshot(snapshot: UncommittedSnapshot)(using
+      ws: WorkspaceWrite
+  ): Either[SnapshotFailed, Unit] =
+    ws.check("git.restoreSnapshot")
+    val result =
+      gitProc(Seq("git", "stash", "apply", "--index", snapshot.commit.value))
+    if result.exitCode == 0 then Right(())
+    else Left(SnapshotFailed(s"git stash apply: ${result.err.text().trim}"))
 
   def uncommittedDiff(): String = trackedDiff("HEAD")
 

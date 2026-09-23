@@ -32,7 +32,7 @@ import orca.progress.{
 }
 import orca.settings.{AgentSettings, SettingsFile, SettingsScope}
 import orca.subprocess.TtyProbe
-import orca.tools.{GitTool, UntrackedFiles}
+import orca.tools.{GitTool, UncommittedSnapshot, UntrackedFiles}
 import org.slf4j.LoggerFactory
 import ox.either.orThrow
 
@@ -74,20 +74,13 @@ object FlowLifecycle:
       case f: ReportedFailure =>
         // If the reset itself fails, attach it as suppressed (rather than
         // replacing `f`), and log/print it too.
-        //
-        // This Step names WHY the reset is about to discard changes —
-        // `discardUncommitted` itself also emits its own "Discarded
-        // uncommitted changes" Step, which alone would read as unexplained
-        // data loss.
-        ctx.emit(
-          OrcaEvent.Step(
-            "recovering from the failure — discarding uncommitted changes " +
-              "and the files the failed stage created; re-run the same " +
-              "command (the same flow with the same task text) to resume " +
-              "from the last completed stage"
+        try
+          teardownFailure(
+            ctx.git,
+            flowSetup.featureBranch,
+            flowSetup.startingTree,
+            ctx.emit
           )
-        )
-        try teardownFailure(ctx.git, flowSetup.untrackedOnFailure)
         catch
           case NonFatal(t) =>
             f.addSuppressed(t)
@@ -175,11 +168,7 @@ object FlowLifecycle:
     * [[finishBranch]]'s throwaway auto-delete: `Reused` blocks it, since orca
     * bound to a pre-existing branch rather than minting one.
     *
-    * `untrackedOnFailure` is the cleanliness policy's verdict on what failure
-    * teardown may delete. `Keep` only when setup deliberately left pre-existing
-    * files in place (a fresh run under `--skip-branch`, `--keep-changes`, or an
-    * interactive keep answer), where orca cannot tell the user's untracked
-    * files from the run's.
+    * `startingTree` is what failure teardown may delete and what it puts back.
     */
   private[orca] case class FlowSetup(
       store: ProgressStore,
@@ -188,7 +177,7 @@ object FlowLifecycle:
       startingHead: Head,
       stackSettings: StackSettings,
       branchMode: BranchMode,
-      untrackedOnFailure: UntrackedFiles,
+      startingTree: StartingTree,
       startingCommit: Option[CommitHash],
       /** The orca worktree the run happened in, when it happened in one —
         * `--worktree`, or a resume the shell relaunched into one without the
@@ -276,7 +265,7 @@ object FlowLifecycle:
         flowSource,
         emit
       )
-    val untrackedOnFailure = session.settle(preflight)
+    val untracked = session.settle(preflight)
     // Discovery (ADR 0019) is sequenced after the stash, which would sweep a
     // just-written untracked file straight back out of the tree, and before
     // binding, so a failed discovery leaves no branch or header behind.
@@ -289,6 +278,11 @@ object FlowLifecycle:
     stack match
       case StackOutcome.Discovered(_) => commitDiscoveredSettings(git, workDir)
       case StackOutcome.Configured(_) => ()
+    // After setup's last commit, so the snapshot's base is where HEAD stays
+    // until the first stage commits.
+    val startingTree = untracked match
+      case UntrackedFiles.Remove => StartingTree.Clean
+      case UntrackedFiles.Keep   => StartingTree.Kept(snapshotKept(git, emit))
     FlowSetup(
       store,
       sessionStore,
@@ -296,7 +290,7 @@ object FlowLifecycle:
       binding.startingHead,
       stack.settings,
       binding.branchMode,
-      untrackedOnFailure,
+      startingTree,
       binding.startingCommit,
       // From where the run IS, not from the flag: the shell relaunches a resume
       // inside the worktree its log was found in WITHOUT `--worktree` (the flag
@@ -322,7 +316,7 @@ object FlowLifecycle:
     /** Carry out [[SetupPreflight.run]]'s cleanliness verdict, then put back
       * the peeked log if the stash removed it, so the authoritative read in
       * [[bindBranch]] finds it. Returns what failure teardown may then do with
-      * untracked files (see [[FlowSetup.untrackedOnFailure]]).
+      * untracked files (see [[StartingTree.untracked]]).
       */
     def settle(preflight: Preflight)(using WorkspaceWrite): UntrackedFiles =
       val untracked = preflight.tree match
@@ -354,7 +348,7 @@ object FlowLifecycle:
 
     /** Leave a dirty tree in place, naming the file count once. `Keep` then
       * holds failure teardown back from deleting untracked files it cannot tell
-      * apart from the run's own (see [[FlowSetup.untrackedOnFailure]]).
+      * apart from the run's own (see [[StartingTree.untracked]]).
       */
     private def keepDirtyTree(dirtyCount: Int): UntrackedFiles =
       if dirtyCount == 0 then UntrackedFiles.Remove
@@ -507,7 +501,7 @@ object FlowLifecycle:
     private def resumeBinding(
         log: ProgressLog,
         protectedBranches: Set[String]
-    )(using WorkspaceWrite): BranchBinding =
+    ): BranchBinding =
       val header = log.header
       val featureBranch =
         RecoveryCheck.validateHeader(
@@ -1047,12 +1041,93 @@ object FlowLifecycle:
 
   /** Failure teardown (ADR 0018 §2.5): discard the failed stage's uncommitted
     * partial edits with `git reset --hard` (which restores the last committed
-    * log) plus, when `untracked` allows it, the files the stage newly created,
-    * staying on the feature branch so the next run resumes in place.
+    * log) plus, when `startingTree` allows it, the files the stage newly
+    * created, staying on the feature branch so the next run resumes in place.
+    * Kept tracked changes that no commit has carried yet are put back.
+    *
+    * Touches nothing when HEAD is off `featureBranch`: the body moved it, so
+    * the edits there are not known to be only the failed stage's.
     */
   private[orca] def teardownFailure(
       git: GitTool,
-      untracked: UntrackedFiles
+      featureBranch: FeatureBranch,
+      startingTree: StartingTree,
+      emit: OrcaEvent => Unit
   ): Unit =
     given WorkspaceWrite = RuntimeInStage.workspaceToken()
-    git.discardUncommitted(untracked)
+    git.head() match
+      case Head.OnBranch(branch) if branch == featureBranch =>
+        // Names WHY the reset is about to discard changes — the reset's own
+        // "Discarded uncommitted changes" Step alone would read as
+        // unexplained data loss.
+        emit(
+          OrcaEvent.Step(
+            "recovering from the failure — discarding uncommitted changes " +
+              "and the files the failed stage created; re-run the same " +
+              "command (the same flow with the same task text) to resume " +
+              "from the last completed stage"
+          )
+        )
+        git.discardUncommitted(startingTree.untracked)
+        startingTree match
+          case StartingTree.Kept(Some(kept)) => restoreKept(git, kept, emit)
+          case StartingTree.Kept(None) | StartingTree.Clean => ()
+      case elsewhere =>
+        emit(
+          OrcaEvent.Step(
+            s"warning: the flow failed on ${elsewhere.describe}, not on its " +
+              s"branch '${featureBranch.value}' — leaving the working tree " +
+              "as it is; commit or stash what is there, check out " +
+              s"'${featureBranch.value}' and re-run the same command to resume"
+          )
+        )
+
+  /** Snapshot the kept tracked changes so a failure before the first stage
+    * commit can put them back. A git refusal (e.g. an unmerged index) leaves
+    * them unprotected, and says so.
+    */
+  private def snapshotKept(git: GitTool, emit: OrcaEvent => Unit)(using
+      WorkspaceWrite
+  ): Option[UncommittedSnapshot] =
+    git.snapshotUncommitted() match
+      case Right(snapshot) => snapshot
+      case Left(failed) =>
+        emit(
+          OrcaEvent.Step(
+            s"warning: could not snapshot the kept changes " +
+              s"(${failed.getMessage}) — a failure before the first stage " +
+              "commit will discard kept edits to tracked files"
+          )
+        )
+        None
+
+  /** Put back the kept tracked changes after the reset. Once HEAD has moved
+    * past the snapshot's base, a commit (normally the first stage's) may
+    * already carry them, so the snapshot is only named for manual recovery.
+    */
+  private def restoreKept(
+      git: GitTool,
+      kept: UncommittedSnapshot,
+      emit: OrcaEvent => Unit
+  )(using WorkspaceWrite): Unit =
+    val recover = s"`git stash apply ${kept.commit.value}`"
+    if !git.headCommit().contains(kept.base) then
+      emit(
+        OrcaEvent.Step(
+          "the changes you kept at the start are in the run's commits; if " +
+            s"any are missing, recover them with $recover"
+        )
+      )
+    else
+      git.restoreSnapshot(kept) match
+        case Right(()) =>
+          emit(
+            OrcaEvent.Step("restored the changes you kept at the start")
+          )
+        case Left(failed) =>
+          emit(
+            OrcaEvent.Step(
+              "warning: could not restore the changes you kept at the " +
+                s"start (${failed.getMessage}); recover them with $recover"
+            )
+          )
