@@ -4,8 +4,7 @@ import orca.discovery.{Origin, TierPrecedence}
 import orca.progress.FlowSource
 
 /** One flow-listing row: the winning tier's script plus the tiers it shadowed,
-  * so the menu can annotate `[shadows global, built-in]`. `source` is how the
-  * user named it, which a run of it records.
+  * so the menu can annotate `[shadows global, built-in]`.
   */
 private[shell] case class DiscoveredFlow(
     name: String,

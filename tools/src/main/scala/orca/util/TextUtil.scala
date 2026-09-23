@@ -35,9 +35,7 @@ private[orca] object TextUtil:
     if flattened.length > maxLen then s"${flattened.take(maxLen)}…"
     else flattened
 
-  /** [[onelinePreview]] without the clipping, for text whose every character
-    * matters to the reader, such as a path about to be run.
-    */
+  /** [[onelinePreview]] without the clipping. */
   def oneline(text: String): String =
     collapseWhitespace(text.strip()).filterNot(_.isControl)
 

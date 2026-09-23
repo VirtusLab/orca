@@ -65,13 +65,13 @@ class ResumeDetectorTest extends munit.FunSuite:
       .writeHeader(header(flow = Some(source)))
     assertEquals(ResumeDetector.detect(List(workDir)).map(_.flow), Some(source))
 
-  test("detect drops a recorded file that isn't an absolute .sc path"):
-    List("../../evil.sc", "rel/x.sc", "/abs/x.txt").foreach: recorded =>
-      val workDir = TempDirs.dir()
-      ProgressStore
-        .default(workDir, RunKey.of("fix the flaky test"))
-        .writeHeader(header(flow = Some(FlowSource.File(recorded))))
-      assertEquals(ResumeDetector.detect(List(workDir)), None, recorded)
+  test("detect drops a recorded file a resume may not run"):
+    // FlowResolutionTest covers which paths those are.
+    val workDir = TempDirs.dir()
+    ProgressStore
+      .default(workDir, RunKey.of("fix the flaky test"))
+      .writeHeader(header(flow = Some(FlowSource.File("scratch/x.sc"))))
+    assertEquals(ResumeDetector.detect(List(workDir)), None)
 
   test("detect is None for a corrupt (unparseable) log, silently"):
     val workDir = TempDirs.dir()

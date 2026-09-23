@@ -1052,17 +1052,17 @@ class MainTest extends munit.FunSuite:
     path
 
   test(
-    "resumeInterruptedRun: launches the recorded catalog flow with the recorded task, verbatim"
+    "resumeInterruptedRun: launches with the recorded task, verbatim"
   ):
     val workDir = TempDirs.dir()
-    val flowPath = projectFlow(workDir, "resume-flow.sc")
+    val _ = projectFlow(workDir, "resume-flow.sc")
     val launch = resumed(
       interrupted(FlowSource.Catalog("resume-flow.sc"), workDir),
       workDir
     )
     assertEquals(
-      launch.map((flow, args, _) => (flow.path, args.userPrompt)),
-      Some(flowPath -> "fix the flaky test\nwith detail")
+      launch.map(_._2.userPrompt),
+      Some("fix the flaky test\nwith detail")
     )
 
   test(

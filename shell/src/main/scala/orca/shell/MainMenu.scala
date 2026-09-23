@@ -125,5 +125,4 @@ private[shell] object MainMenu:
     // directory they were never shown.
     val where = if run.dir == workDir then "" else s" (in ${run.dir.last})"
     // Unclipped: a recorded path is run as is, so the user must see all of it.
-    val flow = TextUtil.oneline(run.flow.display)
-    s"Resume interrupted run — $flow: $task on $branch$where"
+    s"Resume interrupted run — ${run.flow.display}: $task on $branch$where"

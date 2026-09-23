@@ -300,9 +300,7 @@ object FlowLifecycle:
       stackOverridden: Boolean,
       store: ProgressStore,
       sessionStore: SessionStore,
-      // Stamped into a freshly-written header (`freshRun`) so the shell's
-      // "Resume interrupted run" offer (ADR 0021 §3 amendment) knows which
-      // flow script to relaunch. `None` for a run started outside the shell.
+      // Stamped into a freshly-written header (`freshRun`).
       flowSource: Option[FlowSource] = None,
       emit: OrcaEvent => Unit,
       // The dirty-tree prompt's two terminal dependencies, injected so tests
@@ -480,7 +478,7 @@ object FlowLifecycle:
     val header = log.header
     val task = TextUtil.onelinePreview(header.userPrompt, 60)
     val flow = header.flow
-      .map(source => s", flow: ${TextUtil.oneline(source.display)}")
+      .map(source => s", flow: ${source.display}")
       .getOrElse("")
     val logPath = log.path.relativeTo(workDir)
     val shellRoute =

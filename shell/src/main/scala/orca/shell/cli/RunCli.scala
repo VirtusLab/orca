@@ -41,7 +41,7 @@ private[cli] object RunCli:
         val result =
           if honorPin then
             FlowLauncher.runHonoringPin(
-              LaunchedFlow(resolved.path, resolved.source),
+              LaunchedFlow.of(resolved),
               orcaArgs,
               workDir,
               terminal

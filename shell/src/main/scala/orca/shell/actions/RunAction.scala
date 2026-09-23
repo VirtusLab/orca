@@ -30,7 +30,7 @@ private[shell] object RunAction:
   ): LaunchResult =
     launch(
       opts.fallback,
-      LaunchedFlow(flow.path, flow.source),
+      LaunchedFlow.of(flow),
       opts.args,
       workDir,
       terminal

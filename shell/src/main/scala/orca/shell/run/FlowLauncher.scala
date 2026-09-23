@@ -1,16 +1,11 @@
 package orca.shell.run
 
 import org.jline.terminal.Terminal
-import orca.{OrcaArgs, XdgDirs}
+import orca.{FlowSourceProperty, OrcaArgs, XdgDirs}
 import orca.progress.FlowSource
 import orca.shell.ShellVersion
 import orca.shell.ui.{ShellOutput, ShellUi, UiOutcome}
 import orca.subprocess.QuietProc
-
-/** A flow script to launch, and how the user named it — the run records
-  * `source` so the shell's resume relaunches the same script.
-  */
-private[shell] case class LaunchedFlow(path: os.Path, source: FlowSource)
 
 /** Outcome of [[FlowLauncher.run]]. */
 private[shell] enum LaunchResult:
@@ -72,15 +67,12 @@ private[shell] object FlowLauncher:
       .map(v => Seq("--dep", s"$orgAndArtifact:$v"))
       .getOrElse(Seq.empty)
 
-  /** `--java-prop orca.flow=<source>`: tells the flow child its [[FlowSource]].
-    * On the compile probe too, since scala-cli rebuilds when a `--java-prop`
-    * value changes.
+  /** Tells the flow child its [[FlowSource]] ([[FlowSourceProperty]]). On the
+    * compile probe too, since scala-cli rebuilds when a `--java-prop` value
+    * changes.
     */
   private def flowSourceArgs(source: FlowSource): Seq[String] =
-    Seq(
-      "--java-prop",
-      s"${FlowSource.Property}=${FlowSource.toProperty(source)}"
-    )
+    Seq("--java-prop", FlowSourceProperty.assignment(source))
 
   /** `scala-cli run <flow> --quiet --verbose [--dep ...] --java-prop ...
     * --workspace <dir> -- <args>`. The `--verbose` before `--` is scala-cli's
@@ -258,7 +250,7 @@ private[shell] object FlowLauncher:
       workDir: os.Path,
       terminal: Terminal
   ): LaunchResult =
-    announced(s"starting flow ${flow.path.last}", flow.path.last)(
+    announced(s"starting flow ${flow.fileName}", flow.fileName)(
       ChildTerminal.withChild(terminal)(
         run(fallback, flow, args, workDir)
       )
@@ -279,8 +271,8 @@ private[shell] object FlowLauncher:
       terminal: Terminal
   ): LaunchResult =
     announced(
-      s"starting flow ${flow.path.last} (honoring pin)",
-      flow.path.last
+      s"starting flow ${flow.fileName} (honoring pin)",
+      flow.fileName
     )(
       ChildTerminal.withChild(terminal)(
         toLaunchResult(
@@ -332,8 +324,8 @@ private[shell] object FlowLauncher:
             ui.confirm(fallbackQuestion(shellVersion), default = true) match
               case UiOutcome.Selected(true) =>
                 announced(
-                  s"pin-honoring re-run of ${flow.path.last}",
-                  flow.path.last
+                  s"pin-honoring re-run of ${flow.fileName}",
+                  flow.fileName
                 )(
                   toLaunchResult(
                     spawnInherited(

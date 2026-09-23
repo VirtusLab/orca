@@ -206,12 +206,6 @@ runtime's own glyph family (`⏺`/`●`/`▶`/`▸`).
 > fallback. Multiple unfinished logs (different prompts, one branch) offer
 > only the newest by mtime.
 
-> **Amendment (2026-09-23).** The header records the flow as the user named it (`FlowSource`): a catalog
-> name is looked up again in the shell's own checkout on resume, the same as
-> re-running `orca run <name>`; a flow launched by path records the absolute
-> path, and the resume runs that file, shown in full in the menu label. A
-> recorded path that isn't an absolute `.sc` path gets no offer.
-
 > **Amendment (2026-08-27).** The scan spans the checkout the shell was started
 > in plus the worktrees orca made FOR THAT CHECKOUT — the ones under its own
 > `.orca/worktrees/`, matching where the data lives, since `.orca/` is
@@ -240,6 +234,13 @@ runtime's own glyph family (`⏺`/`●`/`▶`/`▸`).
 > is the directory holding the log only when the log was already in an orca
 > worktree of that exact prompt — otherwise it would silently start a fresh run
 > in a tree with no log, leaving the interrupted one behind.
+
+> **Amendment (2026-09-23).** The header records the flow as the user named
+> it (`FlowSource`): a catalog name is looked up again in the shell's own
+> checkout on resume, the same as re-running `orca run <name>`; a flow
+> launched by path records the absolute path, and the resume runs that file,
+> shown in full in the menu label. A recorded path that isn't an absolute
+> `.sc` path printing exactly as stored gets no offer.
 
 > **Amendment (2026-08-01).** A `branch: <name>` line prints directly above
 > the menu prompt, re-read on every redraw (like Continue's manifest listing

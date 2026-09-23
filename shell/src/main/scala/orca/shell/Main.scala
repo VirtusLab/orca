@@ -464,8 +464,12 @@ object Main:
           // pull into this shape.
       ) => LaunchResult = RunAction.run(_, _, _, _)
   ): Unit =
-    FlowResolution.recorded(run.flow, shellDir) match
-      case Left(message) => ShellOutput.error(message)
+    FlowResolution.resolveRecorded(run.flow, shellDir) match
+      case Left(message) =>
+        ShellOutput.error(
+          s"$message — restore it and resume again, or abandon the run by " +
+            s"removing its progress log from ${run.dir / ".orca" / "runs"}"
+        )
       case Right(flow) =>
         val opts =
           RunAction.RunOptions(

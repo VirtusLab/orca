@@ -2,6 +2,7 @@ package orca.shell.resume
 
 import orca.gitref.BranchName
 import orca.progress.{FlowSource, ProgressHeader, ProgressLog, ProgressScan}
+import orca.shell.actions.FlowResolution
 import orca.util.JsonFile
 
 /** An unfinished flow run, byte-identically relaunchable: the flow script and
@@ -33,7 +34,7 @@ private[shell] object ResumeDetector:
     * nothing to offer: nothing found by the scan (see
     * [[orca.progress.ProgressScan]] for what it skips), a corrupt/unparseable
     * log, or a log written by a run outside the shell (`flow` unrecorded — the
-    * simpler, honest choice over a partial pick-the-flow-and-prefill-the- task
+    * simpler, honest choice over a partial pick-the-flow-and-prefill-the-task
     * fallback).
     *
     * `dirs` are the directories to scan ([[orca.shell.WorktreeScan.dirs]] picks
@@ -59,17 +60,12 @@ private[shell] object ResumeDetector:
       dir: os.Path
   ): Option[InterruptedRun] =
     header.flow
-      .filter(isRunnable)
+      .filter(isOfferable)
       .map(InterruptedRun(_, header.userPrompt, header.branch, dir))
 
-  /** The header is committed repo content, and a `File` source is run as
-    * recorded, so it must at least be an absolute `.sc` path. A `Catalog` name
-    * is only ever looked up in the catalog.
-    */
-  private def isRunnable(source: FlowSource): Boolean = source match
+  private def isOfferable(source: FlowSource): Boolean = source match
     case FlowSource.Catalog(_) => true
-    case FlowSource.File(path) =>
-      path.endsWith(".sc") && scala.util.Try(os.Path(path)).isSuccess
+    case FlowSource.File(path) => FlowResolution.recordedFile(path).isDefined
 
   /** A scanned progress log: which directory it was found in, and where. Named
     * rather than a pair, since both halves are `os.Path`.

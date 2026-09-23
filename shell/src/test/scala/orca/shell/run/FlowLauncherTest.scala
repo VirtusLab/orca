@@ -1,14 +1,13 @@
 package orca.shell.run
 
-import orca.{OrcaArgs, RunTarget, Uncommitted}
+import orca.{FlowSourceProperty, OrcaArgs, RunTarget, Uncommitted}
 import orca.progress.FlowSource
 
 class FlowLauncherTest extends munit.FunSuite:
 
   private val flowPath = os.root / "home" / "u" / "flow.sc"
   private val flow = LaunchedFlow(flowPath, FlowSource.Catalog("flow.sc"))
-  private val sourceProp =
-    s"orca.flow=${FlowSource.toProperty(flow.source)}"
+  private val sourceProp = FlowSourceProperty.assignment(flow.source)
   private val workspaceDir = os.root / "home" / "u" / ".cache" / "workspace"
 
   private val args = OrcaArgs(

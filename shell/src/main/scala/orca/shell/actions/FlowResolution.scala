@@ -4,6 +4,7 @@ import orca.{ConfigHome, OrcaDir}
 import orca.shell.ShellVersion
 import orca.discovery.Origin
 import orca.progress.FlowSource
+import orca.util.TextUtil
 import orca.shell.flows.{
   BuiltInFlows,
   DiscoveredFlow,
@@ -72,21 +73,28 @@ private[shell] object FlowResolution:
   /** The flow a run recorded as `source`: a catalog name looked up again in
     * `workDir`'s catalog, or the recorded file itself.
     */
-  def recorded(
+  def resolveRecorded(
       source: FlowSource,
       workDir: os.Path
   ): Either[String, DiscoveredFlow] =
     source match
       case FlowSource.Catalog(name) => byName(name, workDir)
       case FlowSource.File(path) =>
-        Try(os.Path(path)).toOption.filter(os.isFile) match
+        recordedFile(path).filter(os.isFile) match
           case Some(file) => Right(fromPath(file))
-          case None =>
-            Left(
-              s"flow file $path no longer exists — restore it and resume " +
-                "again, or abandon the run by removing its progress log " +
-                "under .orca/runs/"
-            )
+          case None       => Left(s"no flow file at $path")
+
+  /** A recorded `File` source's path, when it is one a resume may run: an
+    * absolute `.sc` path that prints exactly as it is (no control, format or
+    * collapsible whitespace characters), since the user decides from the
+    * printed path.
+    */
+  def recordedFile(path: String): Option[os.Path] =
+    val printsAsIs = TextUtil.oneline(path) == path &&
+      !path.exists(c => Character.getType(c) == Character.FORMAT)
+    Option
+      .when(path.endsWith(".sc") && printsAsIs)(path)
+      .flatMap(p => Try(os.Path(p)).toOption)
 
   /** `no flow named '<ref>' found in the catalog`, or, when any catalog name
     * looks close enough to be a typo of `ref` ([[nearMatches]]), `no flow named

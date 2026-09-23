@@ -11,7 +11,6 @@ import orca.shell.create.{
   FlowCommit
 }
 import orca.shell.flows.{BuiltInFlows, DiscoveredFlow}
-import orca.progress.FlowSource
 import orca.shell.run.{FallbackPolicy, FlowLauncher, LaunchResult, LaunchedFlow}
 import orca.shell.ui.{ShellOutput, ShellUi}
 
@@ -133,7 +132,7 @@ private[shell] object AuthorAction:
         AuthoringFlowName
     val result = launch(
       FallbackPolicy.Ask(ui),
-      LaunchedFlow(flow, FlowSource.File(flow.toString)),
+      LaunchedFlow.file(flow),
       OrcaArgs(
         userPrompt = prompt,
         verbose = false,

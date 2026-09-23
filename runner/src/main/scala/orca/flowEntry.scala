@@ -154,7 +154,7 @@ def flow(
   val costTracker = new CostTracker(pricing.lastUpdated)
   // Read once and threaded explicitly from here down (AttemptManifestWriter, and
   // the progress header via `runFlow`/`FlowLifecycle.setup`).
-  val flowSource = launchedFlowSource()
+  val flowSource = FlowSourceProperty.read()
   val runKey = RunKey.of(args.userPrompt)
 
   // Where the run happens. This settles before the directory's first consumer,
@@ -304,8 +304,7 @@ private[orca] def runFlow(
     reviewAgent: Option[AgentSet => Agent[?]] = None,
     progressStore: Option[ProgressStore],
     configHome: ConfigHome = ConfigHome.default,
-    // Recorded in a freshly-written progress header; `None` for a run the
-    // shell didn't launch.
+    // Recorded in a freshly-written progress header.
     flowSource: Option[FlowSource] = None,
     wiring: FlowWiring = FlowWiring(),
     pricing: PriceList = Pricing.default
@@ -507,22 +506,6 @@ private def runInContext(
           startingCommit = flowSetup.startingCommit
         )
     FlowLifecycle.run(ctx, flowSetup, debug = debug)(body)
-
-/** The [[FlowSource]] the shell launched this JVM with, `None` for a flow run
-  * any other way. An undecodable value is a shell/runner mismatch: warned
-  * about, then treated as absent.
-  */
-private def launchedFlowSource(): Option[FlowSource] =
-  sys.props
-    .get(FlowSource.Property)
-    .flatMap: raw =>
-      FlowSource.fromProperty(raw) match
-        case Right(source) => Some(source)
-        case Left(error) =>
-          System.err.println(
-            s"[orca] ignoring the ${FlowSource.Property} property: $error"
-          )
-          None
 
 private def installUncaughtExceptionHandler(): Unit =
   // Idempotent across nested or repeated `flow(...)` calls: install only if no
