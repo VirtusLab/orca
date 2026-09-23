@@ -26,8 +26,7 @@ private[pi] class PiConversation(
     clientSession: SessionId[BackendTag.Pi.type],
     initialPrompt: String = "",
     val outputSchema: Option[String] = None,
-    askUserEnabled: Boolean = false,
-    resources: List[AutoCloseable] = Nil
+    askUserEnabled: Boolean = false
 ) extends ForkedConversation[BackendTag.Pi.type](
       StreamSource.fromProcess(process),
       backendName = "pi",
@@ -76,11 +75,6 @@ private[pi] class PiConversation(
 
   override protected def isStderrNoise(line: String): Boolean =
     isKnownStderrNoise(line)
-
-  // Drain stderr (base) then close the per-turn temp resources.
-  override protected def onFinalize(): Unit =
-    super.onFinalize()
-    resources.foreach(closeQuietly)
 
   override protected def terminalMessageNoun: String = "an agent_end event"
 

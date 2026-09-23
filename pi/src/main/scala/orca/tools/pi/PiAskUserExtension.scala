@@ -1,6 +1,7 @@
 package orca.tools.pi
 
-import scala.util.control.NonFatal
+import orca.backend.TurnResources
+import ox.ResourceScope
 
 /** Temporary Pi extension exposing Orca's `ask_user` conversation event through
   * Pi's native extension UI protocol.
@@ -8,14 +9,6 @@ import scala.util.control.NonFatal
   * The extension deliberately has no imports, so it can be written to a temp
   * directory and loaded without Node module resolution from there.
   */
-private[pi] final class PiAskUserExtension private (
-    val dir: os.Path,
-    val file: os.Path
-) extends AutoCloseable:
-  def close(): Unit =
-    try os.remove.all(dir)
-    catch case NonFatal(_) => ()
-
 private[pi] object PiAskUserExtension:
 
   val ToolName: String = "ask_user"
@@ -25,11 +18,11 @@ private[pi] object PiAskUserExtension:
       s"call the `$ToolName` tool with a clear question. Use it sparingly; " +
       "do not ask if you can make a reasonable assumption."
 
-  def allocate(): PiAskUserExtension =
-    val dir = os.temp.dir(prefix = "orca-pi-ask-user-", deleteOnExit = true)
-    val file = dir / "ask-user.ts"
+  /** Write the extension to a temp file removed when the turn ends. */
+  def write()(using ResourceScope): os.Path =
+    val file = TurnResources.tempDir("orca-pi-ask-user-") / "ask-user.ts"
     os.write(file, loadSource().replace("__TOOL_NAME__", ToolName))
-    new PiAskUserExtension(dir, file)
+    file
 
   private def loadSource(): String =
     val stream = getClass.getResourceAsStream("/orca/tools/pi/ask-user.ts")

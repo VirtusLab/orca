@@ -35,13 +35,7 @@ private[claude] class ClaudeConversation(
     config: AgentConfig,
     initialPrompt: String = "",
     val outputSchema: Option[String] = None,
-    override val askUser: Option[orca.backend.mcp.AskUserSession] = None,
-    /** Per-turn artefacts this conversation owns — the MCP repo-read binding,
-      * the MCP config file, the `--append-system-prompt-file` temp file. Closed
-      * once the turn finalizes; the same list goes to `SubprocessSpawn.open`,
-      * which covers the failure path. See [[onFinalize]].
-      */
-    resources: List[AutoCloseable] = Nil
+    override val askUser: Option[orca.backend.mcp.AskUserSession] = None
 ) extends ForkedConversation[BackendTag.ClaudeCode.type](
       source = StreamSource.fromProcess(process),
       backendName = "claude",
@@ -98,24 +92,6 @@ private[claude] class ClaudeConversation(
     * exchange doesn't re-render. See [[orca.backend.AskUserEchoes]].
     */
   private val askUserEchoes = new orca.backend.AskUserEchoes
-
-  // The ask_user bridge drainer and onFinalize close are owned by the base;
-  // this subclass just declares `askUser` on the ctor param. Stdin is closed
-  // right after the initial prompt, so mid-session input flows through the MCP
-  // tool result.
-
-  /** Release the turn's own artefacts (in reverse), then defer to the base.
-    * Load-bearing rather than tidy-up: a leaked MCP binding holds its Netty
-    * event-loop threads and its port for the life of the JVM, and a flow runs
-    * hundreds of turns. Each close is guarded so one failure can't skip the
-    * next.
-    */
-  override protected def onFinalize(): Unit =
-    try
-      resources.reverseIterator.foreach: r =>
-        try r.close()
-        catch case scala.util.control.NonFatal(_) => ()
-    finally super.onFinalize()
 
   // --- Reader hook ---
 

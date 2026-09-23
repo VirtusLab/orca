@@ -16,11 +16,12 @@ import orca.backend.{
   IdScheme,
   SessionSupport,
   SubprocessSpawn,
+  TurnResources,
   SystemPromptComposer
 }
 import orca.backend.mcp.{AskUserMcpServer, AskUserSession}
 import orca.subprocess.CliRunner
-import ox.Ox
+import ox.{Ox, ResourceScope}
 
 /** Codex backend. Both autonomous and interactive paths drive `codex exec
   * --json` over stdio: stdout JSONL is parsed into [[InboundEvent]]s, and the
@@ -103,28 +104,18 @@ private[orca] class CodexBackend(
     * Netty server, hand its URL to `CodexArgs` for the `-c mcp_servers.orca`
     * override, fold the system-prompt hint into the user prompt (codex has no
     * `--append-system-prompt`), and hand the bridge to `CodexConversation` to
-    * surface `UserQuestion` events and close the binding on finalize.
-    * `Autonomous` skips all of it. Any throw before conversation construction
-    * tears down the server so no Netty binding leaks.
+    * surface `UserQuestion` events. `Autonomous` skips all of it. The server
+    * and the schema file are released when the turn scope ends.
     */
   override protected[orca] def open(
       turn: TurnRequest[BackendTag.Codex.type]
   )(using Ox): Conversation[BackendTag.Codex.type] =
     import turn.*
-    // Write the schema temp file FIRST — before any resource is allocated — so
-    // a temp-write failure can't leak the Netty bridge `AskUserSession.allocate()`
-    // would spin up. Threaded into `resources` (failure-path cleanup) and the
-    // conversation below (success-path cleanup via `onFinalize`).
     val schemaFile = writeSchemaIfPresent(outputSchema)
     val displayPrompt = mode.displayPrompt
     val askUser: Option[AskUserSession] =
       Option.when(mode.isInteractive)(AskUserSession.allocate())
-    SubprocessSpawn.open(
-      "codex",
-      askUser.toList ++ schemaFile
-        .map(SubprocessSpawn.deleteFileResource)
-        .toList
-    ) {
+    SubprocessSpawn.open("codex", events) {
       // codex `exec` has no `--system-prompt` flag (it picks up `AGENTS.md`
       // files for static instructions), so fold the composed system prompt into
       // the user prompt.
@@ -160,7 +151,6 @@ private[orca] class CodexBackend(
         initialPrompt = displayPrompt,
         outputSchema = outputSchema,
         askUser = askUser,
-        schemaFile = schemaFile,
         configuredModel = config.model
       )
     }
@@ -168,15 +158,14 @@ private[orca] class CodexBackend(
   /** Write the `--output-schema` payload (if any) to a unique temp file OUTSIDE
     * the working tree — never `workDir` — so it can't race a concurrent
     * structured call (the reviewer fan-out) or get swept into a flow's `git add
-    * -A`. `deleteOnExit = false`: cleanup is explicit, via
-    * [[SubprocessSpawn.deleteFileResource]] wired into both success and failure
-    * paths, not left to JVM-exit best-effort.
+    * -A`. Removed when the turn scope ends.
     */
-  private def writeSchemaIfPresent(schema: Option[String]): Option[os.Path] =
+  private def writeSchemaIfPresent(schema: Option[String])(using
+      ResourceScope
+  ): Option[os.Path] =
     schema.map: body =>
-      os.temp(
+      TurnResources.tempFile(
         body,
         prefix = "orca-codex-schema-",
-        suffix = ".json",
-        deleteOnExit = false
+        suffix = ".json"
       )
