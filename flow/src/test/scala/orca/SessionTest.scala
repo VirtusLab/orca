@@ -47,13 +47,13 @@ class SessionTest extends FunSuite:
     new TestFlowControl(
       new EventDispatcher(listeners),
       new OsGitTool(dir),
-      orca.progress.ProgressStore.default(dir, "p"),
-      SessionStore.default(dir, "p"),
+      orca.progress.ProgressStore.default(dir, RunKey.of("p")),
+      SessionStore.default(dir, RunKey.of("p")),
       "p"
     )
 
   private def records(dir: os.Path): List[SessionRecord] =
-    SessionStore.default(dir, "p").records()
+    SessionStore.default(dir, RunKey.of("p")).records()
 
   /** Captures emitted `Step` messages so a test can assert on warnings. */
   private class RecordingListener extends OrcaListener:
@@ -81,7 +81,9 @@ class SessionTest extends FunSuite:
           name = "implementer",
           stage = "",
           id = session.id.value,
-          seed = "plan brief"
+          seed = "plan brief",
+          resumeWireId = None,
+          backend = None
         )
       )
     )
@@ -418,13 +420,15 @@ class SessionTest extends FunSuite:
     val dir = TempDirs.dir()
     given WorkspaceWrite = WorkspaceWrite.unsafe
     SessionStore
-      .default(dir, "p")
+      .default(dir, RunKey.of("p"))
       .upsert(
         SessionRecord(
           name = "implementer",
           stage = "",
           id = "../../etc/passwd",
-          seed = "brief"
+          seed = "brief",
+          resumeWireId = None,
+          backend = None
         )
       )
     val agent = new StubAgent

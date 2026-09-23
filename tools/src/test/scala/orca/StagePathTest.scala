@@ -22,9 +22,6 @@ class StagePathTest extends FunSuite:
   test("the empty spelling reads as the flow body"):
     assertEquals(StagePath.fromValue(""), StagePath.FlowBody)
 
-  test("an absent spelling reads as the flow body"):
-    assertEquals(StagePath.fromValue(None), StagePath.FlowBody)
-
   test("the flow body round-trips through its spelling"):
     assertEquals(roundTrip(StagePath.FlowBody), StagePath.FlowBody)
 

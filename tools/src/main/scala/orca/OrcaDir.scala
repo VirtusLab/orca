@@ -33,14 +33,23 @@ private[orca] object OrcaDir:
     */
   val ExcludePathspec: String = s":(exclude)$Name/*"
 
-  /** `<workDir>/.orca` — committed project metadata lives at this root. */
-  private def root(workDir: os.Path): os.Path = workDir / Name
-
-  /** `<workDir>/.orca` — the committed-metadata root, for callers that guard it
-    * (e.g. the symlink check in `FlowLifecycle.readSettings`) before writing
-    * through it.
+  /** `<workDir>/.orca` — committed project metadata lives at this root.
+    * Passive; callers that write through it guard it first (e.g. the symlink
+    * check in `FlowLifecycle.readSettings`) or go through [[ensureRoot]].
     */
-  def rootPath(workDir: os.Path): os.Path = root(workDir)
+  def rootPath(workDir: os.Path): os.Path = workDir / Name
+
+  /** Suffix of a progress log's file name, after the [[RunKey]]. */
+  val ProgressLogSuffix: String = ".progress.json"
+
+  /** Suffix of an attempt manifest's file name, after the [[AttemptId]]. */
+  val ManifestSuffix: String = ".manifest.json"
+
+  /** Suffix of a cost log's file name, after the [[AttemptId]]. `.jsonl`, not
+    * `.json`: the manifest listing selects by suffix, and a cost log must never
+    * reach it as a manifest that fails to decode.
+    */
+  val CostLogSuffix: String = ".cost.jsonl"
 
   /** Repo-relative form of the settings path, for git probes that take a path
     * relative to the repository root.
@@ -50,30 +59,56 @@ private[orca] object OrcaDir:
   /** `<workDir>/.orca/settings.properties` (ADR 0019). */
   def settingsPath(workDir: os.Path): os.Path = workDir / settingsSubPath
 
-  /** `<workDir>/.orca/progress-<promptHash>.json` — a flow run's progress log.
+  /** `<workDir>/.orca/runs`, passively — the committed directory of the per-run
+    * progress logs, for the read side (`ProgressScan`'s listing), which must
+    * not create `.orca` as a side effect. [[ensureRuns]] is the write-side
+    * counterpart.
     */
-  def progressPath(workDir: os.Path, promptHash: String): os.Path =
-    root(workDir) / s"progress-$promptHash.json"
+  def runsPath(workDir: os.Path): os.Path = rootPath(workDir) / "runs"
+
+  /** Idempotently ensure `.orca/runs/` exists and return it. Committed like the
+    * rest of `.orca`'s root, so no exclusion markers: the progress logs in it
+    * ride the feature branch.
+    */
+  def ensureRuns(workDir: os.Path): os.Path =
+    ensureDir(workDir, runsPath(workDir))
+
+  /** `<workDir>/.orca/runs/<key>.progress.json` — the progress log of the run
+    * keyed `key`.
+    */
+  def progressPath(workDir: os.Path, key: RunKey): os.Path =
+    runsPath(workDir) / s"${key.value}$ProgressLogSuffix"
+
+  /** Whether `file` is named like a progress log under [[runsPath]]. */
+  def isProgressLog(file: os.Path): Boolean =
+    file.last.endsWith(ProgressLogSuffix)
 
   /** Idempotently ensure `.orca/` exists and return it. */
   def ensureRoot(workDir: os.Path): os.Path =
-    val r = root(workDir)
-    abortIfOrcaComponentSymlink(workDir, r)
-    r.tap(os.makeDir.all(_))
+    ensureDir(workDir, rootPath(workDir))
 
   /** `<workDir>/.orca/cache`, passively — for callers that only need the path
     * (a file to delete, an argument to hand a subprocess) and must not create
     * anything. [[ensureCache]] is the write-side counterpart.
     */
-  def cachePath(workDir: os.Path): os.Path = root(workDir) / "cache"
+  def cachePath(workDir: os.Path): os.Path = rootPath(workDir) / "cache"
 
-  /** `<workDir>/.orca/cache/sessions-<promptHash>.json` — the durable-session
-    * records of the run keyed by that prompt hash, paired with the progress log
-    * at [[progressPath]] under the same hash. Untracked, so the records survive
-    * the failure teardown's `git reset --hard` that the committed log cannot.
+  /** `<workDir>/.orca/cache/runs/<key>.sessions.json` — the durable-session
+    * records of the run keyed `key`, paired with the progress log at
+    * [[progressPath]] under the same key. Untracked, so the records survive the
+    * failure teardown's `git reset --hard` that the committed log cannot.
     */
-  def sessionRecordsPath(workDir: os.Path, promptHash: String): os.Path =
-    cachePath(workDir) / s"sessions-$promptHash.json"
+  def sessionRecordsPath(workDir: os.Path, key: RunKey): os.Path =
+    cacheRunsPath(workDir) / s"${key.value}.sessions.json"
+
+  private def cacheRunsPath(workDir: os.Path): os.Path =
+    cachePath(workDir) / "runs"
+
+  /** Idempotently ensure `<workDir>/.orca/cache/runs/` exists and return it,
+    * for the write side of [[sessionRecordsPath]].
+    */
+  def ensureCacheRuns(workDir: os.Path): os.Path =
+    ensureCacheDir(workDir, cacheRunsPath(workDir))
 
   /** Idempotently ensure `.orca/cache/` exists, writing its self-ignoring
     * `.gitignore` and `CACHEDIR.TAG` before returning so nothing lands in the
@@ -81,27 +116,56 @@ private[orca] object OrcaDir:
     * absent, so repeated calls do not churn mtimes.
     */
   def ensureCache(workDir: os.Path): os.Path =
-    val cache = cachePath(workDir)
-    abortIfOrcaComponentSymlink(workDir, cache)
-    os.makeDir.all(cache)
-    writeIfAbsent(cache / ".gitignore", gitignoreContents)
-    writeIfAbsent(cache / "CACHEDIR.TAG", cachedirTagContents)
-    cache
+    ensureDir(workDir, cachePath(workDir)).tap: cache =>
+      writeIfAbsent(cache / ".gitignore", gitignoreContents)
+      writeIfAbsent(cache / "CACHEDIR.TAG", cachedirTagContents)
 
-  /** `<workDir>/.orca/cache/runs/`, idempotently ensured. Holds per-run session
-    * manifests written by `RunManifestWriter` (ADR 0021 §8); a trivial sibling
-    * of [[ensureCache]] since it lives inside the already-guarded cache dir.
+  /** `<workDir>/.orca/cache/attempts`, passively — the read-side counterpart to
+    * [[ensureAttempts]] for the shell's manifest listing (ADR 0021 §8), which
+    * must not create `.orca` as a side effect of reading it.
     */
-  def cacheRunsPath(workDir: os.Path): os.Path =
-    val runs = ensureCache(workDir) / "runs"
-    os.makeDir.all(runs)
-    runs
+  def attemptsPath(workDir: os.Path): os.Path = cachePath(workDir) / "attempts"
+
+  /** Idempotently ensure `<workDir>/.orca/cache/attempts/` exists and return
+    * it. Holds the manifests and cost logs `AttemptManifestWriter` writes (ADR
+    * 0021 §8). Created at every attempt's start: the shell ranks worktrees by
+    * this directory's mtime.
+    */
+  def ensureAttempts(workDir: os.Path): os.Path =
+    ensureCacheDir(workDir, attemptsPath(workDir))
+
+  /** `<workDir>/.orca/cache/attempts/<id>.manifest.json` — the manifest of
+    * attempt `id`.
+    */
+  def manifestPath(workDir: os.Path, id: AttemptId): os.Path =
+    attemptsPath(workDir) / s"${id.value}$ManifestSuffix"
+
+  /** Whether `file` is named like an attempt manifest under [[attemptsPath]].
+    */
+  def isManifest(file: os.Path): Boolean = file.last.endsWith(ManifestSuffix)
+
+  /** `<workDir>/.orca/cache/attempts/<id>.cost.jsonl` — the cost log of attempt
+    * `id`.
+    */
+  def costLogPath(workDir: os.Path, id: AttemptId): os.Path =
+    attemptsPath(workDir) / s"${id.value}$CostLogSuffix"
+
+  /** The attempt a file under [[attemptsPath]] belongs to: the [[AttemptId]]
+    * before a manifest or cost-log suffix. `None` for anything else there,
+    * including an in-flight temp file.
+    */
+  def attemptIdOf(file: os.Path): Option[AttemptId] =
+    List(ManifestSuffix, CostLogSuffix)
+      .collectFirst:
+        case suffix if file.last.endsWith(suffix) =>
+          file.last.dropRight(suffix.length)
+      .flatMap(AttemptId.parse)
 
   /** `<workDir>/.orca/cache/pi-sessions`, passively. Holds one child directory
     * per orca session id, each pi's own `--session-dir` transcript store;
     * living in the cache is what lets a pi chat be resumed after the run that
-    * created it. Passive like [[runsPath]], for the read side (pi's existence
-    * probe) — only [[ensurePiSessions]] creates.
+    * created it. Passive like [[attemptsPath]], for the read side (pi's
+    * existence probe) — only [[ensurePiSessions]] creates.
     */
   def piSessionsPath(workDir: os.Path): os.Path =
     cachePath(workDir) / "pi-sessions"
@@ -110,21 +174,12 @@ private[orca] object OrcaDir:
     * the write side (spawning pi at a session dir under it).
     */
   def ensurePiSessions(workDir: os.Path): os.Path =
-    val _ = ensureCache(workDir)
-    val sessions = piSessionsPath(workDir)
-    abortIfOrcaComponentSymlink(workDir, sessions)
-    sessions.tap(os.makeDir.all(_))
-
-  /** `<workDir>/.orca/cache/runs`, passively — the read-side counterpart to
-    * [[cacheRunsPath]] for the shell's manifest listing (ADR 0021 §8), which
-    * must not create `.orca` as a side effect of reading it.
-    */
-  def runsPath(workDir: os.Path): os.Path = cachePath(workDir) / "runs"
+    ensureCacheDir(workDir, piSessionsPath(workDir))
 
   /** `<workDir>/.orca/worktrees`, passively — a run's worktree is derived from
     * this path before anything decides whether to create it.
     */
-  def worktreesPath(workDir: os.Path): os.Path = root(workDir) / "worktrees"
+  def worktreesPath(workDir: os.Path): os.Path = rootPath(workDir) / "worktrees"
 
   /** Idempotently ensure `.orca/worktrees/` exists, writing its self-ignoring
     * `.gitignore` before returning: without the marker, `git add -A` in this
@@ -136,27 +191,36 @@ private[orca] object OrcaDir:
     * work plus the only copy of the progress log that resumes a failed run.
     */
   def ensureWorktrees(workDir: os.Path): os.Path =
-    val worktrees = worktreesPath(workDir)
-    abortIfOrcaComponentSymlink(workDir, worktrees)
-    os.makeDir.all(worktrees)
-    writeIfAbsent(worktrees / ".gitignore", gitignoreContents)
-    worktrees
+    ensureDir(workDir, worktreesPath(workDir)).tap: worktrees =>
+      writeIfAbsent(worktrees / ".gitignore", gitignoreContents)
 
   /** `<workDir>/.orca/flows` — project-tier flow scripts (ADR 0021 §5),
     * committed like the rest of `.orca`'s root.
     */
-  def flowsPath(workDir: os.Path): os.Path = root(workDir) / "flows"
+  def flowsPath(workDir: os.Path): os.Path = rootPath(workDir) / "flows"
 
   /** `<workDir>/.orca/reviewers` — project-tier reviewer prompts, committed
     * like the rest of `.orca`'s root.
     */
-  def reviewersPath(workDir: os.Path): os.Path = root(workDir) / "reviewers"
+  def reviewersPath(workDir: os.Path): os.Path = rootPath(workDir) / "reviewers"
 
   /** Idempotently ensure `.orca/flows/` exists and return it. */
   def ensureFlows(workDir: os.Path): os.Path =
-    val flows = flowsPath(workDir)
-    abortIfOrcaComponentSymlink(workDir, flows)
-    flows.tap(os.makeDir.all(_))
+    ensureDir(workDir, flowsPath(workDir))
+
+  /** Idempotently create `dir` under `.orca`, refusing to write through a
+    * symlinked component.
+    */
+  private def ensureDir(workDir: os.Path, dir: os.Path): os.Path =
+    abortIfOrcaComponentSymlink(workDir, dir)
+    dir.tap(os.makeDir.all(_))
+
+  /** [[ensureDir]] for a directory under `.orca/cache`, with the cache's
+    * exclusion markers in place first.
+    */
+  private def ensureCacheDir(workDir: os.Path, dir: os.Path): os.Path =
+    val _ = ensureCache(workDir)
+    ensureDir(workDir, dir)
 
   /** Read-only counterpart to [[abortIfOrcaComponentSymlink]], for callers that
     * only need to verify before reading (e.g. flow discovery) and must not
@@ -165,7 +229,8 @@ private[orca] object OrcaDir:
     * directory.
     */
   private[orca] def assertNoOrcaSymlinks(workDir: os.Path, dir: os.Path): Unit =
-    if os.exists(root(workDir)) then abortIfOrcaComponentSymlink(workDir, dir)
+    if os.exists(rootPath(workDir)) then
+      abortIfOrcaComponentSymlink(workDir, dir)
 
   /** Refuse if `.orca` — or any orca-created directory from it down to `dir`
     * (inclusive) — is a symlink, before any `os.makeDir.all`/write through it.
@@ -183,7 +248,7 @@ private[orca] object OrcaDir:
       workDir: os.Path,
       dir: os.Path
   ): Unit =
-    val r = root(workDir)
+    val r = rootPath(workDir)
     // Every path segment from `.orca` down to `dir`, inclusive, walking up from
     // `dir` so the check order is root-first.
     @scala.annotation.tailrec

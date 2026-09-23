@@ -289,6 +289,7 @@ private def mintSession[B <: BackendTag](
       stage = key.stage.value,
       id = freshId.value,
       seed = seed,
+      resumeWireId = None,
       backend = agent.backendTag.map(_.wireName)
     )
   )

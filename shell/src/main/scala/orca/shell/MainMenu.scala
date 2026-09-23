@@ -25,8 +25,8 @@ private[shell] object MainMenu:
 
   /** Fixed ADR §3 order. Conditional items are ABSENT when inapplicable, never
     * shown disabled: `resumeOffer` non-None inserts `ResumeRun` right after
-    * `RunFlow`, and `continueSessionCount` non-None (the newest run's session
-    * count; the picker below still lists every run's sessions) inserts
+    * `RunFlow`, and `continueSessionCount` non-None (the newest attempt's
+    * session count; the picker still lists every attempt's sessions) inserts
     * `ContinueSession` (ADR 0021 §3/§8 amendments 2026-07-27).
     */
   def choices(
@@ -39,7 +39,7 @@ private[shell] object MainMenu:
     val continueChoice = continueSessionCount.map(count =>
       Choice(
         MenuItem.ContinueSession,
-        s"Continue a session from the last flow run ($count session(s))"
+        s"Continue a session from the last attempt with sessions ($count session(s))"
       )
     )
     val resumeChoice =

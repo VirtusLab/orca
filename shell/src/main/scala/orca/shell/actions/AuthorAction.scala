@@ -74,8 +74,7 @@ private[shell] object AuthorAction:
 
   /** Fork-an-existing-flow authoring (also the edit-by-agent path, `params.
     * overwrite`): sets up the sandbox, copies the source flow beside the
-    * extracted API material ([[FlowAuthoring.resolveForkSource]] — nothing is
-    * ever inside the sandbox, so the copy branch always runs), builds the
+    * extracted API material ([[FlowAuthoring.copyForkSource]]), builds the
     * authoring task against the sandbox-local target —
     * [[FlowAuthoring.editPrompt]] when `params.overwrite` (worded as an edit,
     * since that's what the user asked for), [[FlowAuthoring.forkPrompt]]
@@ -94,10 +93,9 @@ private[shell] object AuthorAction:
       OrcaDir.ensureCache(sandbox),
       ShellVersion.value
     )
-    val sourcePath = FlowAuthoring.resolveForkSource(
+    val sourcePath = FlowAuthoring.copyForkSource(
       source.path,
       source.name,
-      sandbox,
       apiDir
     )
     val target = sandboxTarget(sandbox, params)

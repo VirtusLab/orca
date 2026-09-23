@@ -111,9 +111,9 @@ most easily broken:
   `FlowControl`/`stage` surface). Ox itself is not yet capture-checked; once
   it is, rejection moves to `ox.fork` directly and `CheckedPar` is deleted.
 
-- **Progress log + recovery.** A run commits `.orca/progress-<hash>.json` (hash =
-  prompt, so the path is branch-independent) with one entry per completed stage;
-  a re-run replays recorded entries and skips them. The header is untrusted on
+- **Progress log + recovery.** A run commits `.orca/runs/<key>.progress.json`
+  (`RunKey`, the prompt hash — so the path is branch-independent) with one entry
+  per completed stage; a later attempt replays recorded entries and skips them. The header is untrusted on
   load — `orca.progress.RecoveryCheck` validates it (safe ref, prompt-hash match,
   protected-branch refusal) before any destructive git op.
 
@@ -163,7 +163,8 @@ most easily broken:
   by the author. The persisted spelling (`""` for the flow body) is decoded in
   one place, `StagePath.fromValue`. Two stages therefore cannot name one
   session, and a per-task loop needs no per-task label. The whole key reaches
-  `OrcaEvent.SessionCommitted`, the run manifest and the shell's session picker.
+  `OrcaEvent.SessionCommitted`, the attempt manifest and the shell's session
+  picker.
   Identity and label are separate here: `SessionKey.describe` renders a key for
   the run's own diagnostics (a stage path id carries `#0` suffixes), and a
   session reads to a person as its bare `name` — `SessionPicker.displayName` is
@@ -175,16 +176,16 @@ most easily broken:
   Reordering or skipping *other* `session(...)` calls between runs doesn't
   re-key this one; renaming the stage a mint sits in does. Minting one name
   twice in one stage throws (`FlowControl.claimSessionKey`, the only door that
-  MINTS a key — `SessionRecord.key` and `ManifestSession.mintedKey` rebuild one
-  from persisted halves); re-minting on resume is the reuse path, since only
+  MINTS a key — `SessionRecord.key` rebuilds one from persisted halves, and
+  `ManifestSession.minted` reads one back from the manifest); re-minting on resume is the reuse path, since only
   this execution's keys are tracked. For a mint inside a stage that check is
   sound because a stage body is all-or-nothing: two mints of one name in one
   stage both execute or neither does. The flow body offers no such guarantee —
   two mutually exclusive mints there are never both claimed — which costs the
   warning, not correctness.
 
-  Records live in `.orca/cache/sessions-<prompt hash>.json`
-  (`orca.sessions.SessionStore`), under the same hash as the progress log, NOT
+  Records live in `.orca/cache/runs/<key>.sessions.json`
+  (`orca.sessions.SessionStore`), under the same `RunKey` as the progress log, NOT
   in the log itself: a backend session id is a machine-local handle, and the
   committed log is erased back to the last stage commit by the failure
   teardown's `git reset --hard` — which is exactly the stage a resume re-runs,
@@ -257,6 +258,55 @@ most easily broken:
   excluded from dispatch for the rest of the run. The remaining listeners
   still see every event and the flow itself always survives; see
   `EventDispatcher`.
+
+## What a run writes to disk
+
+The authoritative map of every file orca creates during a run or a shell
+session. Settings and user-authored files (`settings.properties`, `flows/`,
+`reviewers/`) are not listed. `<key>` is a `RunKey` (first 12 hex chars of
+SHA-256(user prompt)); `<id>` is an `AttemptId` (`<startedAt epoch ms>-<pid>`) —
+see "Persisted-state vocabulary" below for what a run and an attempt are.
+`OrcaDir` owns every path under `.orca/`. Every whole-file JSON document is read
+and written through `orca.util.JsonFile`.
+
+Three location classes decide what survives:
+
+- **Committed** (`.orca/runs/`): force-added and committed with each stage,
+  so a resume on another checkout finds it. Failure teardown's `git reset
+  --hard` keeps only the committed version.
+- **Machine-local cache** (`.orca/cache/`): self-ignored (`.gitignore` = `*`,
+  plus `CACHEDIR.TAG`), so it survives `reset --hard`, `clean -fd` and the
+  resume-time `stash push -u`, and is lost on a fresh clone. Safe to delete.
+- **Worktrees** (`.orca/worktrees/`): self-ignored but NOT tagged as a cache —
+  a checkout there holds unmerged work.
+
+| Path | Class | Holds | Written by | Read by | Removed by |
+|---|---|---|---|---|---|
+| `.orca/runs/<key>.progress.json` | committed | `ProgressLog`: header (branches, `branchMode`, `startingCommit`, `userPrompt`, `flowName`), one `StageEntry` per completed stage (`id`, `name`, `resultJson`), `published` | `ProgressStore` (`FlowLifecycle.freshRun`, `Flow.recordAndCommit`, `recordOpenedPr`) | `Flow.resumeFrom`, `RecoveryCheck`, `FlowLifecycle`, shell `ResumeDetector` (header) | success teardown, in a final commit |
+| `.orca/cache/runs/<key>.sessions.json` | cache | `SessionRecord` per durable session: `name`, `stage`, `id`, `seed`, `resumeWireId`, `backend` | `SessionStore` (`Session.mintSession`, `persistResumeWireId`) | `Session`, `FlowLifecycle.rehydrateSessions` | success teardown |
+| `.orca/cache/attempts/<id>.manifest.json` | cache | `AttemptManifest`: `workDir`, `pid`, `startedAt`, `finishedAt`, `status`, `orcaVersion`, `flow`, `sessions[]` (`ManifestSession`) — written when the attempt starts, then on every stage transition, `SessionCommitted` and finish | `AttemptManifestWriter` | shell `ManifestReader` → session picker / `orca continue` (attempts with no session are left out) | pruning: newest 20 attempts with a session ∪ newest 20 of any kind |
+| `.orca/cache/attempts/<id>.cost.jsonl` | cache | one `CostRecord` line per `TokensUsed` (agent, role, model, stage, turn, usage, cost, session) — created on the first `TokensUsed` | `CostLog` via `AttemptManifestWriter` | nothing in orca; a measurement record for people and scripts | pruned with its manifest |
+| `.orca/cache/flow.lock` | cache | holder pid | `FlowLock` | `FlowLock` on contention | `runFlow`'s `finally`; a dead pid is stolen |
+| `.orca/cache/pi-sessions/<session id>/` | cache | pi's own `--session-dir` transcripts | pi | `PiSessionStore` (resume probe), shell pi resume | `PiSessionStore.prune` after 30 days untouched |
+| `.orca/cache/mcp-<session id>.json` | cache | claude `--mcp-config` for one conversation | `ClaudeBackend` | claude | conversation end; a hard kill leaves it |
+| `.orca/cache/lint-*.txt` | cache | lint output too large to inline in a prompt | `Lint` | the summarising agent | `lint`'s `finally` |
+| `.orca/cache/{,runs/,attempts/}.<file>.<n>.tmp` | cache | in-flight temp of a `JsonFile` rewrite: beside its target, except the progress log's, staged in `.orca/cache/` so it is never committed | `JsonFile` | — (`AttemptManifestWriter`'s pruning skips dot-files) | the rename that completes the write |
+| `.orca/worktrees/<key>/` (+ branch `orca-worktree-<key>`) | worktrees | a `--worktree` run's checkout, with its own `.orca/` inside | `WorktreeRun` | `WorktreeScan` (shell) | never — see README |
+| `<workDir>/.gemini/settings.json` | user tree | an `mcpServers.orca` entry for one interactive gemini conversation | `GeminiSettings` | gemini | restored on conversation end |
+| `$TMPDIR/orca-<n>.log` (+ `.1.log`) | temp | DEBUG trace of logger `orca`: prompts, agent output, tool calls; 4 MB roll | `OrcaLog` | people (path in the banner) | never |
+| `$TMPDIR/orca-*` (system prompts, codex schema, pi extension) | temp | per-turn IPC files handed to a CLI on argv | each backend | the CLI | turn end |
+| `$TMPDIR/orca-authoring-<n>/` | temp | the authoring flow's sandbox repo; `.orca/cache/orca-api-<version>/` inside holds the README + example flows (+ `fork-source/`) | `AuthoringSandbox`, `FlowAuthoring` | the coding agent | success or cancel; kept on failure |
+| `$XDG_CACHE_HOME/orca/shell/<version>/flows/` | XDG cache | built-in flows extracted from the jar | `BuiltInFlows` | `FlowCatalog`, scala-cli | never |
+| `$XDG_CACHE_HOME/orca/shell/workspace/` | XDG cache | scala-cli `--workspace` build state | scala-cli | scala-cli | never |
+
+Why the resume state is two files: the log must be committed (resume from the
+pushed branch), while a backend session id is a machine-local handle, and a
+record written inside a failing stage would be erased by that stage's `reset
+--hard` — so records live in the cache under the same key (ADR 0018, 2026-09-18
+amendment). Why the manifest is not the session store: it is keyed by attempt,
+pruned by count, carries no seed, and flows the other way — listener output for
+a person picking a session, not input the run reads back (ADR 0021 §8). Why the cost log is not in the manifest: different write shape (append vs
+whole rewrite) and different creation gate.
 
 ## Testing approach
 
@@ -367,6 +417,26 @@ Dated records — an ADR's `Amendment (date)`, `docs/plans/*`, `docs/research/*`
 keep the words that were current when they were written. Rename in the code and
 in undated prose; leave a dated record alone.
 
+### Persisted-state vocabulary
+
+Two units, used the same way in identifiers, file names, screen output and
+prose:
+
+- **run** — one prompt's flow execution across every process that resumes it.
+  Keyed by `RunKey`, the 12-hex prefix of SHA-256(prompt). A run owns one
+  feature branch, one progress log (`.orca/runs/<key>.progress.json`), one
+  session-records file (`.orca/cache/runs/<key>.sessions.json`) and, under
+  `--worktree`, one checkout. It ends at success teardown, which removes both
+  files. "Resume interrupted run" resumes a run.
+- **attempt** — one process: one `orca run`, one `flow(...)` call. Keyed by
+  `AttemptId` (`<startedAt ms>-<pid>`). An attempt owns one manifest
+  (`.orca/cache/attempts/<id>.manifest.json`) and one cost log
+  (`<id>.cost.jsonl`). A fresh attempt starts a run; a resumed attempt
+  continues one. `orca continue` picks a session out of an attempt's manifest.
+
+A **plan task** (`orca.plan.Task`) is a flow-author concept and names none of
+these files. Never call a process a run.
+
 ### Review-derived rules
 
 The rules distilled from recurring review findings live in
@@ -391,31 +461,6 @@ Orca is 0.x: no backwards compatibility is owed anywhere.
 - Never carry back-compat machinery — no defaulting-old-shape codec configs,
   no dual parse paths, no fixture tests pinned to a prior wire format. Change
   the shape and update every call site instead.
-- Two deliberate exceptions, both live local data that has to survive an orca
-  upgrade, where invalidating it costs a user-visible feature rather than a
-  re-run. Don't "fix" either under this rule:
-  - `ProgressLog`'s and `SessionRecord`'s tolerant decoding (documented at
-    each definition), so a mid-run resume survives the upgrade — an in-flight
-    run's log written by an older orca must still load. The records an older
-    log carried are the one thing that does not: they lived in the log and now
-    live in `.orca/cache/`, so such a run re-mints and re-seeds.
-  - `RunManifest` (documented at its definition; ADR 0021 §8 amendment,
-    2026-08-05), so the shell still offers "continue a session" from a manifest
-    an older orca wrote. Changes to it are additive only, still with no
-    defaults; the fixtures that hold that — `RunManifestGoldenTest`'s frozen
-    files, and `ManifestReaderTest`'s verbatim older manifest body — are
-    sanctioned, not violations of the no-fixtures rule above. `CostRecord` is
-    not covered: nothing reads a cost log, and no fixture pins it.
-
-    Breaking additive-only is possible but owed an argument, because the golden
-    fixtures cannot catch a rename of a field they never carried. A PR that
-    renames or retypes a manifest field says what an older manifest loses by
-    it, and the answer has to be a degraded listing rather than a resume that
-    misfires: the five required fields and `wireId` — what the shell
-    dereferences and execs — are not renamed. ADR 0021 §8 records each break.
-    The one so far is `sessionDetail` → `sessionStage` (ADR 0018 §2.6 stage
-    keying), which costs an older manifest's per-task sessions their separate
-    picker lineages.
 - Comments (see Code style above) never narrate this either: no "was
   previously", "renamed from", "kept for compat" — state what the field/type
   means now, not its history.
@@ -437,8 +482,8 @@ Orca is 0.x: no backwards compatibility is owed anywhere.
   work an agent detached from orca's process tree, which no parent-link
   teardown can reach. Report-only unless `ORCA_SWEEP_KILL=1`; Linux only, and
   silently inert elsewhere (nothing to act on, so nothing is said).
-- Any filesystem write under `.orca/` **must** go through
-  `OrcaDir.ensureRoot`/`ensureCache`, which refuse a symlinked `.orca` or
+- Any filesystem write under `.orca/` **must** go through an
+  `OrcaDir.ensure*` accessor, which refuses a symlinked `.orca` or
   `.orca/cache` component (`OrcaDir.abortIfOrcaComponentSymlink`) before
   creating or writing through it — a committed symlink (git mode 120000)
   would otherwise redirect orca's writes outside the working tree, since orca

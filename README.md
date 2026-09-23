@@ -330,8 +330,13 @@ outside a stage — it records a session, not a side effect. Where to
 
 ### The flow lifecycle
 
-Each `flow(...)` run is bound to exactly one feature branch and one progress log
-(`.orca/progress-<hash>.json`, where `<hash>` is derived from the prompt):
+Two words this section leans on: a **run** is one task's flow execution, across
+however many processes it takes to finish it; an **attempt** is one of those
+processes — one `orca run`, or one `flow(...)` call. An interrupted run is
+resumed by attempting it again with the same task.
+
+Each run is bound to exactly one feature branch and one progress log
+(`.orca/runs/<key>.progress.json`, where `<key>` is derived from the task):
 
 - **Start:** stash a dirty working tree with a warning (recover with `git stash
   pop`); create + checkout the feature branch; write and commit the progress log
@@ -560,10 +565,16 @@ above (`# just check: just: not found on PATH` / `lint = off`), never run
 silently. A discovery failure (backend unavailable, invalid output) aborts the
 run rather than writing a "gates off" file.
 
-`.orca/` is committed by default: settings and the progress log ride the branch,
-while machine-local state lives under `.orca/cache/`, which writes its own
-`.gitignore` — the run manifests, and the durable session records, whose backend
-ids mean nothing in another checkout. If
+`.orca/` is committed by default: settings and each run's progress log
+(`runs/<key>.progress.json`) ride the branch, while machine-local state lives
+under `.orca/cache/`, which writes its own `.gitignore`: each run's durable
+session records (`runs/<key>.sessions.json`, whose backend ids mean nothing in
+another checkout), and per attempt — one process — a manifest
+(`attempts/<id>.manifest.json`, what `orca continue` lists) and a cost log
+(`attempts/<id>.cost.jsonl`: one line per agent turn with agent, role, model,
+stage, token usage and cost — the per-agent and per-model detail the closing
+summary leaves out). The cache is safe to delete; only the newest 20–40
+attempts are kept. If
 your `.gitignore` covers all of `.orca/`, every run warns to remove that line so
 settings can be committed — the cache stays ignored on its own.
 

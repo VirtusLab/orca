@@ -1,45 +1,23 @@
 package orca.shell.actions
 
-import orca.runner.manifest.{
-  ManifestOutcome,
-  ManifestSession,
-  ManifestSessionKind,
-  RunManifest
-}
+import orca.runner.manifest.{AttemptManifest, ManifestSession}
+import orca.shell.sessions.ManifestFixtures.{durable, manifest}
 import orca.shell.sessions.SessionSelection
 import orca.testkit.TempDirs
 import orca.tools.pi.PiSessionStore
 
-import java.time.Instant
-
 class SessionActionTest extends munit.FunSuite:
 
   private def session(stage: Option[String] = None): ManifestSession =
-    ManifestSession(
-      harness = "ClaudeCode",
-      wireId = Some("uuid"),
-      reason = None,
-      agent = "main",
-      role = None,
+    durable(
+      sessionName = "newest",
+      sessionStage = "Task: fix a bug#0",
       stage = stage,
-      sessionName = Some("newest"),
-      sessionStage = Some("Task: fix a bug#0"),
-      kind = ManifestSessionKind.Durable,
-      firstSeenAt = Instant.parse("2026-07-18T09:00:00Z"),
-      lastActiveAt = Instant.parse("2026-07-18T09:45:00Z")
+      lastActiveAt = "2026-07-18T09:45:00Z"
     )
 
-  private def manifest(s: ManifestSession): RunManifest =
-    RunManifest(
-      orcaVersion = "0.0.test",
-      flow = Some("a-flow.sc"),
-      workDir = "/work",
-      pid = 1,
-      startedAt = Instant.parse("2026-07-18T09:00:00Z"),
-      finishedAt = None,
-      outcome = ManifestOutcome.Succeeded,
-      sessions = List(s)
-    )
+  private def manifestOf(s: ManifestSession): AttemptManifest =
+    manifest(startedAt = "2026-07-18T09:00:00Z", sessions = List(s))
 
   // `continue <name>` picks the newest of the sessions sharing a name, so this
   // line is where the user sees which one it landed on.
@@ -47,7 +25,7 @@ class SessionActionTest extends munit.FunSuite:
     val s = session()
     assertEquals(
       SessionAction.identityNotice(
-        SessionSelection(manifest(s), s, crashed = false),
+        SessionSelection(manifestOf(s), s, crashed = false),
         "claude"
       ),
       "resuming session 'newest' [claude], in /work"
@@ -57,7 +35,7 @@ class SessionActionTest extends munit.FunSuite:
     val s = session(stage = Some("Task: fix a bug"))
     assertEquals(
       SessionAction.identityNotice(
-        SessionSelection(manifest(s), s, crashed = false),
+        SessionSelection(manifestOf(s), s, crashed = false),
         "claude"
       ),
       "resuming session 'newest' [claude], stage 'Task: fix a bug', in /work"

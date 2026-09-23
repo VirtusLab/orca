@@ -1,6 +1,6 @@
 package orca.runner
 
-import orca.OrcaDir
+import orca.{OrcaDir, RunKey}
 import orca.progress.ProgressStore
 import orca.testkit.{GitRepo, TempDirs}
 import orca.tools.Worktrees
@@ -16,7 +16,11 @@ class WorktreeRunTest extends munit.FunSuite:
     // Same key as the progress log inside it: that coupling is what makes a
     // resumed run land where its log is.
     assert(
-      ProgressStore.default(path, "task A").path.last.contains(path.last),
+      ProgressStore
+        .default(path, RunKey.of("task A"))
+        .path
+        .last
+        .contains(path.last),
       path.last
     )
 
@@ -44,13 +48,13 @@ class WorktreeRunTest extends munit.FunSuite:
   test("resolving from inside the worktree lands on that same worktree"):
     val repo = GitRepo.seeded()
     val path = resolved(repo, "task A")
-    assertEquals(WorktreeRun.resolve(path, "task A"), Right(path))
+    assertEquals(WorktreeRun.resolve(path, RunKey.of("task A")), Right(path))
 
   test("the ignore marker is written before the worktree is created"):
     val repo = GitRepo.empty()
     // Creation cannot succeed on an unborn HEAD, so the marker is on disk only
     // if it was written first.
-    assert(WorktreeRun.resolve(repo, "task A").isLeft)
+    assert(WorktreeRun.resolve(repo, RunKey.of("task A")).isLeft)
     assert(os.exists(OrcaDir.worktreesPath(repo) / ".gitignore"))
 
   test("reuse puts the ignore marker back when it went missing"):
@@ -59,7 +63,7 @@ class WorktreeRunTest extends munit.FunSuite:
     // What `git clean -xdf` in the main checkout removes: the marker only, the
     // worktree itself skipped as a repository.
     os.remove(OrcaDir.worktreesPath(repo) / ".gitignore").discard
-    assertEquals(WorktreeRun.resolve(repo, "task A"), Right(path))
+    assertEquals(WorktreeRun.resolve(repo, RunKey.of("task A")), Right(path))
     assert(os.exists(OrcaDir.worktreesPath(repo) / ".gitignore"))
 
   test("a worktree whose directory was deleted is recreated"):
@@ -68,7 +72,7 @@ class WorktreeRunTest extends munit.FunSuite:
     // What `git clean -xdff` leaves: the directory gone, git's administrative
     // entry still listing it.
     os.remove.all(path)
-    assertEquals(WorktreeRun.resolve(repo, "task A"), Right(path))
+    assertEquals(WorktreeRun.resolve(repo, RunKey.of("task A")), Right(path))
     assert(os.exists(path / ".git"))
 
   test("recreating one worktree leaves the repository's others registered"):
@@ -80,7 +84,7 @@ class WorktreeRunTest extends munit.FunSuite:
     // survive the reclaim of the one it does.
     os.remove.all(path)
     os.remove.all(unrelated)
-    assertEquals(WorktreeRun.resolve(repo, "task A"), Right(path))
+    assertEquals(WorktreeRun.resolve(repo, RunKey.of("task A")), Right(path))
     assert(Worktrees.list(repo).contains(unrelated))
 
   test("a plain directory at the path is refused, not taken over"):
@@ -93,13 +97,13 @@ class WorktreeRunTest extends munit.FunSuite:
 
   test("outside a git repository, orca's own wording is used"):
     assertEquals(
-      WorktreeRun.resolve(TempDirs.dir(), "task A"),
+      WorktreeRun.resolve(TempDirs.dir(), RunKey.of("task A")),
       Left(GitPreconditions.needsRepoWithCommit)
     )
 
   test("a repository without commits gets orca's wording, not git's"):
     assertEquals(
-      WorktreeRun.resolve(GitRepo.empty(), "task A"),
+      WorktreeRun.resolve(GitRepo.empty(), RunKey.of("task A")),
       Left(GitPreconditions.needsRepoWithCommit)
     )
 
@@ -129,7 +133,7 @@ class WorktreeRunTest extends munit.FunSuite:
     // not. Running there detached records an unresumable starting branch.
     git(path, "checkout", "--detach", "-q")
     assertEquals(Worktrees.headBranch(path), Some("HEAD"))
-    assertEquals(WorktreeRun.resolve(repo, "task A"), Right(path))
+    assertEquals(WorktreeRun.resolve(repo, RunKey.of("task A")), Right(path))
     assert(Worktrees.onABranch(path))
 
   test("reuse refuses when the run's branch has gained commits"):
@@ -161,12 +165,12 @@ class WorktreeRunTest extends munit.FunSuite:
 
   private def resolved(repo: os.Path, userPrompt: String): os.Path =
     WorktreeRun
-      .resolve(repo, userPrompt)
+      .resolve(repo, RunKey.of(userPrompt))
       .getOrElse(fail("expected a resolved worktree"))
 
   private def refusalOf(cwd: os.Path): String =
     WorktreeRun
-      .resolve(cwd, "task A")
+      .resolve(cwd, RunKey.of("task A"))
       .left
       .getOrElse(fail("expected a refusal"))
 

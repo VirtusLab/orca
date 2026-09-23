@@ -105,14 +105,16 @@ class CommitMessageTest extends munit.FunSuite:
   )(body: (FlowControl, os.Path) => Unit): Unit =
     val dir = GitRepo.seeded()
     val git = new OsGitTool(dir)
-    val store = ProgressStore.default(dir, "p")
+    val store = ProgressStore.default(dir, RunKey.of("p"))
     given WorkspaceWrite = WorkspaceWrite.unsafe
     store.writeHeader(
       orca.progress.ProgressHeader(
         "main",
         "feat/test",
-        "deadbeef",
-        orca.progress.BranchMode.Created
+        orca.progress.BranchMode.Created,
+        userPrompt = "p",
+        flowName = None,
+        startingCommit = orca.progress.CommitHash.from("0" * 40).get
       )
     )
     body(
@@ -120,7 +122,7 @@ class CommitMessageTest extends munit.FunSuite:
         agentStub,
         git,
         store,
-        orca.sessions.SessionStore.default(dir, "p"),
+        orca.sessions.SessionStore.default(dir, RunKey.of("p")),
         dir
       ),
       dir

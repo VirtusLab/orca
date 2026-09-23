@@ -1,5 +1,11 @@
 package orca
 
+import com.github.plokhotnyuk.jsoniter_scala.core.{
+  JsonReader,
+  JsonValueCodec,
+  JsonWriter
+}
+
 /** Where something sits in a run's stage tree: at the flow body's root, or
   * inside one stage, identified by that stage's [[StagePath.Id]].
   *
@@ -31,11 +37,16 @@ object StagePath:
   def fromValue(value: String): StagePath =
     if value.isEmpty then FlowBody else Stage(Id(value))
 
-  /** Read back a path id a persisted shape may omit: absent reads as the flow
-    * body, exactly as an explicitly empty id does.
+  /** On the wire a path is its [[value]] string, so a persisted document holds
+    * the same spelling `SessionRecord.stage` does.
     */
-  def fromValue(value: Option[String]): StagePath =
-    value.fold(FlowBody)(fromValue)
+  given codec: JsonValueCodec[StagePath] = new JsonValueCodec[StagePath]:
+    def decodeValue(in: JsonReader, default: StagePath): StagePath =
+      in.readString(null) match
+        case null => in.decodeError("expected a stage path")
+        case s    => fromValue(s)
+    def encodeValue(x: StagePath, out: JsonWriter): Unit = out.writeVal(x.value)
+    def nullValue: StagePath = null
 
   /** The id of one stage: `name#occurrence` segments, one per enclosing stage,
     * joined by `/` (ADR 0018 §2.1). Compared for exact equality, never parsed

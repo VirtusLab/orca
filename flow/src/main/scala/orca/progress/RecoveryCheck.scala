@@ -50,19 +50,6 @@ object RecoveryCheck:
       !s.contains("..") &&
       !s.split("/", -1).exists(_.isEmpty)
 
-  /** The header's recorded [[ProgressHeader.startingCommit]] as a
-    * [[CommitHash]], or `None` when it isn't one. Lenient by design, unlike
-    * [[validateHeader]]: the value is only ever a read-only diff base, so a
-    * header written before the field existed — or edited to hold something else
-    * — costs the run the whole-run review, not the run.
-    *
-    * Shape only. Whether the hash still names a commit this repository can diff
-    * against is a question for the caller's `GitTool`
-    * (`FlowLifecycle.resumeBinding`).
-    */
-  def startingCommit(header: ProgressHeader): Option[CommitHash] =
-    header.startingCommit.flatMap(CommitHash.from)
-
   /** Branches that are always protected regardless of the repo's configured
     * default — the floor [[validateHeader]] enforces (ADR 0018). The runtime
     * adds the repo's actual default branch on top of these.
@@ -80,8 +67,8 @@ object RecoveryCheck:
     * so a strict slug check would reject it); `branch` passes the same check
     * and isn't protected, via [[FeatureBranch.resolveReused]] (unions
     * `protectedBranches` — the repo's actual default branch — with the
-    * `main`/`master` floor, case-insensitively); `promptHash` matches the
-    * recomputed hash of the current prompt.
+    * `main`/`master` floor, case-insensitively); `userPrompt` is the current
+    * prompt.
     *
     * The caller separately cross-checks `branch` against the actual current
     * branch (R30) — combined with `isSafeReusedRef` here, that's what makes a
@@ -102,6 +89,6 @@ object RecoveryCheck:
         case Left(UnsafeBranchRefRefused(name)) =>
           Left(s"branch '$name' is not a safe ref")
         case Right(featureBranch) =>
-          if header.promptHash != ProgressStore.hashPrompt(userPrompt) then
-            Left("promptHash does not match the current prompt")
+          if header.userPrompt != userPrompt then
+            Left("userPrompt does not match the current prompt")
           else Right(featureBranch)

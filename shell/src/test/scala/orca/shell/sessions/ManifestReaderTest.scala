@@ -10,15 +10,21 @@ class ManifestReaderTest extends munit.FunSuite:
   private val alwaysDead: Long => Boolean = _ => false
   private val alwaysAlive: Long => Boolean = _ => true
 
-  private def runsDir(workDir: os.Path): os.Path =
-    workDir / ".orca" / "cache" / "runs"
+  private def attemptsDir(workDir: os.Path): os.Path =
+    workDir / ".orca" / "cache" / "attempts"
+
+  /** One recorded session, so the manifest is one the listing offers. */
+  private val oneSession =
+    """{"harness": "claude", "wireId": "w", "agent": "claude", "role": null,
+      |"stage": null, "lastActiveAt": "2026-07-18T10:00:00Z"}""".stripMargin
 
   private def writeManifest(
       workDir: os.Path,
       name: String,
       startedAt: String,
       pid: Long = 111,
-      outcome: String = "succeeded"
+      status: String = "Succeeded",
+      sessions: String = oneSession
   ): Unit =
     val json =
       s"""{
@@ -26,30 +32,51 @@ class ManifestReaderTest extends munit.FunSuite:
          |  "workDir": "${workDir.toString}",
          |  "pid": $pid,
          |  "startedAt": "$startedAt",
-         |  "outcome": "$outcome",
-         |  "sessions": []
+         |  "status": "$status",
+         |  "sessions": [$sessions]
          |}""".stripMargin
-    os.write(runsDir(workDir) / name, json, createFolders = true)
+    os.write(attemptsDir(workDir) / name, json, createFolders = true)
 
-  test("list returns (Nil, Nil) for an absent runs dir, creating nothing"):
+  test(
+    "list returns an empty listing for an absent attempts dir, creating nothing"
+  ):
     val workDir = TempDirs.dir()
-    assertEquals(ManifestReader.list(workDir, Nil, alwaysDead), (Nil, Nil))
+    assertEquals(
+      ManifestReader.list(workDir, Nil, alwaysDead),
+      AttemptListing(Nil, Nil)
+    )
     assert(!os.exists(workDir / ".orca"), "reading must not create .orca")
 
-  test("list returns (Nil, Nil) for an empty runs dir"):
+  test("list returns an empty listing for an empty attempts dir"):
     val workDir = TempDirs.dir()
-    os.makeDir.all(runsDir(workDir))
-    assertEquals(ManifestReader.list(workDir, Nil, alwaysDead), (Nil, Nil))
+    os.makeDir.all(attemptsDir(workDir))
+    assertEquals(
+      ManifestReader.list(workDir, Nil, alwaysDead),
+      AttemptListing(Nil, Nil)
+    )
 
   test("list orders manifests newest-first by startedAt"):
     val workDir = TempDirs.dir()
-    writeManifest(workDir, "a.json", startedAt = "2026-07-18T10:00:00Z")
-    writeManifest(workDir, "b.json", startedAt = "2026-07-18T12:00:00Z")
-    writeManifest(workDir, "c.json", startedAt = "2026-07-18T11:00:00Z")
-    val (runs, warnings) = ManifestReader.list(workDir, Nil, alwaysDead)
+    writeManifest(
+      workDir,
+      "a.manifest.json",
+      startedAt = "2026-07-18T10:00:00Z"
+    )
+    writeManifest(
+      workDir,
+      "b.manifest.json",
+      startedAt = "2026-07-18T12:00:00Z"
+    )
+    writeManifest(
+      workDir,
+      "c.manifest.json",
+      startedAt = "2026-07-18T11:00:00Z"
+    )
+    val AttemptListing(attempts, warnings) =
+      ManifestReader.list(workDir, Nil, alwaysDead)
     assertEquals(warnings, Nil)
     assertEquals(
-      runs.map(_.manifest.startedAt),
+      attempts.map(_.manifest.startedAt),
       List(
         Instant.parse("2026-07-18T12:00:00Z"),
         Instant.parse("2026-07-18T11:00:00Z"),
@@ -57,172 +84,156 @@ class ManifestReaderTest extends munit.FunSuite:
       )
     )
 
-  /** A verbatim v2 manifest, unedited since that build wrote it: it predates
-    * `cost`/`turns` and still carries `manifestVersion`. It only lists because
-    * the version gate is gone (ADR 0021 §8 amendment, 2026-08-05) and because
-    * the fields it lacks are no longer part of this schema.
-    */
-  test("a manifest body from an older build is listed, not skipped"):
+  test("a bad manifest gives one warning naming the file"):
     val workDir = TempDirs.dir()
-    os.write(
-      runsDir(workDir) / "v2.json",
-      """{
-        |  "manifestVersion": 2,
-        |  "orcaVersion": "0.0.test",
-        |  "workDir": "/work",
-        |  "pid": 111,
-        |  "startedAt": "2026-07-18T10:00:00Z",
-        |  "outcome": "succeeded",
-        |  "sessions": []
-        |}""".stripMargin,
-      createFolders = true
+    writeManifest(
+      workDir,
+      "good.manifest.json",
+      startedAt = "2026-07-18T11:00:00Z"
     )
-    val (runs, warnings) = ManifestReader.list(workDir, Nil, alwaysDead)
-    assertEquals(
-      runs.map(_.manifest.startedAt),
-      List(Instant.parse("2026-07-18T10:00:00Z"))
-    )
-    assertEquals(warnings, Nil)
-
-  test("a skipped manifest is warned about without sinking the listing"):
-    val workDir = TempDirs.dir()
-    writeManifest(workDir, "good.json", startedAt = "2026-07-18T11:00:00Z")
     os.write(
-      runsDir(workDir) / "no-workdir.json",
-      """{
+      attemptsDir(workDir) / "no-workdir.manifest.json",
+      s"""{
         |  "orcaVersion": "0.0.test",
         |  "pid": 111,
         |  "startedAt": "2026-07-18T10:00:00Z",
-        |  "outcome": "succeeded",
-        |  "sessions": []
+        |  "status": "Succeeded",
+        |  "sessions": [$oneSession]
         |}""".stripMargin,
       createFolders = true
     )
-    val (runs, warnings) = ManifestReader.list(workDir, Nil, alwaysDead)
+    val AttemptListing(attempts, warnings) =
+      ManifestReader.list(workDir, Nil, alwaysDead)
     assertEquals(
-      runs.map(_.manifest.startedAt),
+      attempts.map(_.manifest.startedAt),
       List(Instant.parse("2026-07-18T11:00:00Z"))
     )
     assertEquals(warnings.size, 1)
     assert(
-      warnings.head.contains("no-workdir.json"),
+      warnings.head.contains("no-workdir.manifest.json"),
       s"expected the filename in the warning, got: ${warnings.head}"
     )
 
-  /** `sessions` is the one collection the codec keeps strict: absent must not
-    * read as empty, or the menu offers a "(0 session(s))" row leading nowhere.
-    */
-  test("list skips a manifest with no sessions array, warning by filename"):
+  test("list ignores a file that is not a manifest by suffix"):
     val workDir = TempDirs.dir()
-    // `sessions` is the ONLY field omitted, so this fails for that reason and
-    // no other — the point being that it must not read as an empty list.
-    os.write(
-      runsDir(workDir) / "no-sessions.json",
-      """{
-        |  "orcaVersion": "0.0.test",
-        |  "workDir": "/work",
-        |  "pid": 111,
-        |  "startedAt": "2026-07-18T10:00:00Z",
-        |  "outcome": "succeeded"
-        |}""".stripMargin,
-      createFolders = true
+    writeManifest(
+      workDir,
+      "a.manifest.json",
+      startedAt = "2026-07-18T10:00:00Z"
     )
-    val (runs, warnings) = ManifestReader.list(workDir, Nil, alwaysDead)
-    assertEquals(runs, Nil)
-    assertEquals(warnings.size, 1)
-    assert(
-      warnings.head.contains("no-sessions.json") &&
-        warnings.head.contains("sessions"),
-      s"expected the filename and field in the warning, got: ${warnings.head}"
+    os.write(attemptsDir(workDir) / "a.cost.jsonl", "not json {{{")
+    os.write(attemptsDir(workDir) / "b.json", "not json {{{")
+    val AttemptListing(attempts, warnings) =
+      ManifestReader.list(workDir, Nil, alwaysDead)
+    assertEquals(warnings, Nil)
+    assertEquals(attempts.size, 1)
+
+  test("list drops a manifest that records no session"):
+    val workDir = TempDirs.dir()
+    writeManifest(
+      workDir,
+      "a.manifest.json",
+      startedAt = "2026-07-18T10:00:00Z"
+    )
+    writeManifest(
+      workDir,
+      "empty.manifest.json",
+      startedAt = "2026-07-18T12:00:00Z",
+      sessions = ""
+    )
+    val AttemptListing(attempts, warnings) =
+      ManifestReader.list(workDir, Nil, alwaysDead)
+    assertEquals(warnings, Nil)
+    assertEquals(
+      attempts.map(_.manifest.startedAt),
+      List(Instant.parse("2026-07-18T10:00:00Z"))
     )
 
   test("a running manifest with a dead pid is included and marked crashed"):
     val workDir = TempDirs.dir()
     writeManifest(
       workDir,
-      "dead.json",
+      "dead.manifest.json",
       startedAt = "2026-07-18T10:00:00Z",
       pid = 999999,
-      outcome = "running"
+      status = "Running"
     )
-    val (runs, warnings) = ManifestReader.list(workDir, Nil, alwaysDead)
+    val AttemptListing(attempts, warnings) =
+      ManifestReader.list(workDir, Nil, alwaysDead)
     assertEquals(warnings, Nil)
-    assertEquals(runs.map(_.crashed), List(true))
+    assertEquals(attempts.map(_.crashed), List(true))
 
   test("a running manifest with a live pid is included and not marked crashed"):
     val workDir = TempDirs.dir()
     writeManifest(
       workDir,
-      "alive.json",
+      "alive.manifest.json",
       startedAt = "2026-07-18T10:00:00Z",
       pid = 1,
-      outcome = "running"
+      status = "Running"
     )
-    val (runs, warnings) = ManifestReader.list(workDir, Nil, alwaysAlive)
+    val AttemptListing(attempts, warnings) =
+      ManifestReader.list(workDir, Nil, alwaysAlive)
     assertEquals(warnings, Nil)
-    assertEquals(runs.map(_.crashed), List(false))
+    assertEquals(attempts.map(_.crashed), List(false))
 
   test(
-    "a manifest with an unrecognised outcome and a dead pid is not marked crashed"
+    "list skips a manifest with an unrecognised outcome, warning by filename"
   ):
     val workDir = TempDirs.dir()
     writeManifest(
       workDir,
-      "unknown.json",
+      "unknown.manifest.json",
       startedAt = "2026-07-18T10:00:00Z",
-      pid = 999999,
-      outcome = "abandoned"
+      status = "abandoned"
     )
-    val (runs, warnings) = ManifestReader.list(workDir, Nil, alwaysDead)
-    assertEquals(warnings, Nil)
-    assertEquals(runs.map(_.crashed), List(false))
+    val AttemptListing(attempts, warnings) =
+      ManifestReader.list(workDir, Nil, alwaysDead)
+    assertEquals(attempts, Nil)
+    assertEquals(warnings.size, 1)
+    assert(warnings.head.contains("unknown.manifest.json"), warnings.head)
 
   test("a finished manifest is never marked crashed, even with a dead pid"):
     val workDir = TempDirs.dir()
     writeManifest(
       workDir,
-      "done.json",
+      "done.manifest.json",
       startedAt = "2026-07-18T10:00:00Z",
       pid = 999999,
-      outcome = "succeeded"
+      status = "Succeeded"
     )
-    val (runs, _) = ManifestReader.list(workDir, Nil, alwaysDead)
-    assertEquals(runs.map(_.crashed), List(false))
+    val AttemptListing(attempts, _) =
+      ManifestReader.list(workDir, Nil, alwaysDead)
+    assertEquals(attempts.map(_.crashed), List(false))
 
   test(
-    "list skips a manifest with an unparseable startedAt, warning by filename"
+    "list skips a manifest whose minted key has no stage, warning by filename"
   ):
     val workDir = TempDirs.dir()
-    writeManifest(workDir, "badstart.json", startedAt = "not-a-timestamp")
-    val (runs, warnings) = ManifestReader.list(workDir, Nil, alwaysDead)
-    assertEquals(runs, Nil)
+    writeManifest(
+      workDir,
+      "nostage.manifest.json",
+      startedAt = "2026-07-18T10:00:00Z",
+      sessions =
+        """{"harness": "claude", "wireId": "w", "agent": "claude", "role": null,
+          |"stage": null, "minted": {"name": "coder"},
+          |"lastActiveAt": "2026-07-18T10:00:00Z"}""".stripMargin
+    )
+    val AttemptListing(attempts, warnings) =
+      ManifestReader.list(workDir, Nil, alwaysDead)
+    assertEquals(attempts, Nil)
     assertEquals(warnings.size, 1)
     assert(
-      warnings.head.contains("badstart.json"),
+      warnings.head.contains("nostage.manifest.json"),
       s"expected the filename in the warning, got: ${warnings.head}"
     )
 
-  test("list skips unparseable JSON, warning by filename"):
+  test("list aborts on a symlinked .orca/cache/attempts"):
     val workDir = TempDirs.dir()
-    os.write(
-      runsDir(workDir) / "garbage.json",
-      "{ this is not json",
-      createFolders = true
-    )
-    val (runs, warnings) = ManifestReader.list(workDir, Nil, alwaysDead)
-    assertEquals(runs, Nil)
-    assertEquals(warnings.size, 1)
-    assert(
-      warnings.head.contains("garbage.json"),
-      s"expected the filename in the warning, got: ${warnings.head}"
-    )
-
-  test("list aborts on a symlinked .orca/cache/runs"):
-    val workDir = TempDirs.dir()
-    val outside = TempDirs.dir() / "outside-runs"
+    val outside = TempDirs.dir() / "outside-attempts"
     os.makeDir.all(outside)
     os.makeDir.all(workDir / ".orca" / "cache")
-    os.symlink(runsDir(workDir), outside)
+    os.symlink(attemptsDir(workDir), outside)
     val ex = intercept[OrcaFlowException](
       ManifestReader.list(workDir, Nil, alwaysDead)
     )
@@ -231,14 +242,26 @@ class ManifestReaderTest extends munit.FunSuite:
   test("list spans several worktrees, newest-first across all of them"):
     val checkout = TempDirs.dir()
     val worktree = TempDirs.dir()
-    writeManifest(checkout, "a.json", startedAt = "2026-07-18T10:00:00Z")
-    writeManifest(worktree, "b.json", startedAt = "2026-07-18T12:00:00Z")
-    writeManifest(checkout, "c.json", startedAt = "2026-07-18T11:00:00Z")
-    val (runs, warnings) =
+    writeManifest(
+      checkout,
+      "a.manifest.json",
+      startedAt = "2026-07-18T10:00:00Z"
+    )
+    writeManifest(
+      worktree,
+      "b.manifest.json",
+      startedAt = "2026-07-18T12:00:00Z"
+    )
+    writeManifest(
+      checkout,
+      "c.manifest.json",
+      startedAt = "2026-07-18T11:00:00Z"
+    )
+    val AttemptListing(attempts, warnings) =
       ManifestReader.list(checkout, List(worktree), alwaysDead)
     assertEquals(warnings, Nil)
     assertEquals(
-      runs.map(_.manifest.startedAt.toString),
+      attempts.map(_.manifest.startedAt.toString),
       List(
         "2026-07-18T12:00:00Z",
         "2026-07-18T11:00:00Z",
@@ -250,54 +273,73 @@ class ManifestReaderTest extends munit.FunSuite:
     val checkout = TempDirs.dir()
     val worktree = TempDirs.dir()
     os.write(
-      runsDir(checkout) / "broken-here.json",
+      attemptsDir(checkout) / "broken-here.manifest.json",
       "not json {{{",
       createFolders = true
     )
     os.write(
-      runsDir(worktree) / "broken-there.json",
+      attemptsDir(worktree) / "broken-there.manifest.json",
       "not json {{{",
       createFolders = true
     )
-    writeManifest(worktree, "good.json", startedAt = "2026-07-18T12:00:00Z")
-    val (runs, warnings) =
+    writeManifest(
+      worktree,
+      "good.manifest.json",
+      startedAt = "2026-07-18T12:00:00Z"
+    )
+    val AttemptListing(attempts, warnings) =
       ManifestReader.list(checkout, List(worktree), alwaysDead)
-    assertEquals(runs.size, 1)
-    assert(warnings.exists(_.contains("broken-here.json")), warnings.toString)
-    assert(warnings.exists(_.contains("broken-there.json")), warnings.toString)
+    assertEquals(attempts.size, 1)
+    assert(
+      warnings.exists(_.contains("broken-here.manifest.json")),
+      warnings.toString
+    )
+    assert(
+      warnings.exists(_.contains("broken-there.manifest.json")),
+      warnings.toString
+    )
 
   test("list: an unreadable worktree is one warning, not a lost listing"):
     val checkout = TempDirs.dir()
     val worktree = TempDirs.dir()
-    writeManifest(checkout, "a.json", startedAt = "2026-07-18T10:00:00Z")
+    writeManifest(
+      checkout,
+      "a.manifest.json",
+      startedAt = "2026-07-18T10:00:00Z"
+    )
     // A tree left behind by a run under another uid, or one being removed in
-    // another terminal: it must not take the shell's own runs down with it.
-    os.makeDir.all(runsDir(worktree))
-    os.perms.set(runsDir(worktree), "---------")
+    // another terminal: it must not take the shell's own attempts down with
+    // it.
+    os.makeDir.all(attemptsDir(worktree))
+    os.perms.set(attemptsDir(worktree), "---------")
     assume(
-      scala.util.Try(os.list(runsDir(worktree))).isFailure,
+      scala.util.Try(os.list(attemptsDir(worktree))).isFailure,
       "needs a user that file permissions apply to"
     )
     try
-      val (runs, warnings) =
+      val AttemptListing(attempts, warnings) =
         ManifestReader.list(checkout, List(worktree), alwaysDead)
-      assertEquals(runs.size, 1)
+      assertEquals(attempts.size, 1)
       assertEquals(warnings.size, 1)
       assert(warnings.head.contains(worktree.toString), warnings.head)
-    finally os.perms.set(runsDir(worktree), "rwxr-xr-x")
+    finally os.perms.set(attemptsDir(worktree), "rwxr-xr-x")
 
   test("list: a symlinked .orca in another worktree warns, it does not abort"):
     val checkout = TempDirs.dir()
     val worktree = TempDirs.dir()
-    writeManifest(checkout, "a.json", startedAt = "2026-07-18T10:00:00Z")
-    val outside = TempDirs.dir() / "outside-runs"
+    writeManifest(
+      checkout,
+      "a.manifest.json",
+      startedAt = "2026-07-18T10:00:00Z"
+    )
+    val outside = TempDirs.dir() / "outside-attempts"
     os.makeDir.all(outside)
     os.makeDir.all(worktree / ".orca" / "cache")
-    os.symlink(runsDir(worktree), outside)
+    os.symlink(attemptsDir(worktree), outside)
     // The hard abort stays for the caller's OWN directory (the case above);
     // refusing to read someone else's tree is the whole remedy there.
-    val (runs, warnings) =
+    val AttemptListing(attempts, warnings) =
       ManifestReader.list(checkout, List(worktree), alwaysDead)
-    assertEquals(runs.size, 1)
+    assertEquals(attempts.size, 1)
     assertEquals(warnings.size, 1)
     assert(warnings.head.contains("symlink"), warnings.head)
