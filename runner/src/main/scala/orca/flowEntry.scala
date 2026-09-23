@@ -4,6 +4,7 @@ import orca.backend.{AgentWiring, Interaction}
 import orca.events.{
   CostResolvingDispatcher,
   CostTracker,
+  DeniedToolTracker,
   EventDispatcher,
   OrcaEvent,
   OrcaListener,
@@ -159,6 +160,8 @@ def flow(
   installUncaughtExceptionHandler()
   // Tally token usage and print the summary on exit (success or failure).
   val costTracker = new CostTracker(pricing.lastUpdated)
+  // Tally tool calls the harness refused and print them beside the cost.
+  val deniedToolTracker = new DeniedToolTracker
   // Read once and threaded explicitly from here down (AttemptManifestWriter, and
   // the progress header via `runFlow`/`FlowLifecycle.setup`) rather than
   // re-read with `sys.env` at each site.
@@ -203,8 +206,11 @@ def flow(
             args = args,
             workDir = dir,
             interaction = interaction,
-            extraListeners =
-              extraListeners ++ List(costTracker, manifestWriter),
+            extraListeners = extraListeners ++ List(
+              costTracker,
+              deniedToolTracker,
+              manifestWriter
+            ),
             branchNaming = branchNaming,
             stackSettings = stackSettings,
             planningAgent = planningAgent,
@@ -245,6 +251,7 @@ def flow(
             AttemptOutcome.Failed
         )
         costTracker.printSummary()
+        deniedToolTracker.printSummary()
 
   // Resolution runs inside this bracket, not before it: it can fail, and the
   // trace still has to close on a path that never reaches `runIn`.
