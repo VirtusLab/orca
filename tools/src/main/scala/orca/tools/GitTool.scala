@@ -543,6 +543,7 @@ private[orca] class OsGitTool(
   )(using WorkspaceWrite): Either[BranchNotFound, Unit] =
     if !branchExists(name) then Left(new BranchNotFound(name))
     else
+      // `--` so a file sharing the branch's name can't make it ambiguous.
       val _ = git("checkout", name.value, "--")
       step(s"Switched to branch '${name.value}'")
       Right(())
@@ -1138,11 +1139,8 @@ private[orca] object OsGitTool:
     * name.
     */
   private[tools] def branchOf(symbolicRef: String): BranchName =
-    Option
-      .when(symbolicRef.startsWith(LocalBranchPrefix))(
-        symbolicRef.stripPrefix(LocalBranchPrefix)
-      )
-      .flatMap(BranchName.parse(_).toOption)
+    BranchName
+      .fromRef(symbolicRef)
       .getOrElse(
         throw OrcaFlowException(
           s"HEAD is on '$symbolicRef', which orca cannot use as a branch — " +
@@ -1150,8 +1148,6 @@ private[orca] object OsGitTool:
             "(`git branch -m <new-name>`), and re-run"
         )
       )
-
-  private val LocalBranchPrefix = "refs/heads/"
 
   /** Most stdout one capped read keeps. A heap bound, and only that: `McpHost`
     * cuts an agent's copy of the same answer to a small fraction of this, and

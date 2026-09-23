@@ -50,6 +50,13 @@ class BranchNameTest extends FunSuite:
   test("refuses HEAD"):
     assertRefused("HEAD", "reserved name HEAD")
 
+  test("fromRef names a local branch and nothing else"):
+    assertEquals(
+      BranchName.fromRef("refs/heads/feat/x").map(_.value),
+      Some("feat/x")
+    )
+    assertEquals(BranchName.fromRef("refs/remotes/origin/x"), None)
+
   test("accepts slash-separated and plain names"):
     for raw <- List(
         "feature/JIRA-123",

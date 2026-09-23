@@ -149,8 +149,11 @@ private[orca] object WorktreeRun:
   private def bindBranch(path: os.Path): Either[String, os.Path] =
     BranchName
       .parse(s"orca-worktree-${path.last}")
-      .flatMap: branch =>
-        bindTo(path, branch)
+      .left
+      .map(e =>
+        s"internal error: no branch name for the worktree at $path ($e)"
+      )
+      .flatMap(bindTo(path, _))
 
   private def bindTo(
       path: os.Path,

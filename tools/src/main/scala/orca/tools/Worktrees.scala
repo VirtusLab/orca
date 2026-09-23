@@ -189,7 +189,7 @@ private[orca] object Worktrees:
     probe(worktree, "symbolic-ref", "--quiet", "HEAD").isDefined
 
   private def wouldLoseCommits(cwd: os.Path, branch: BranchName): Boolean =
-    val ref = s"refs/heads/${branch.value}"
+    val ref = branch.ref
     val exists = probe(cwd, "rev-parse", "--verify", "--quiet", ref).isDefined
     exists && git(
       cwd,

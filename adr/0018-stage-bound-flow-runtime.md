@@ -519,9 +519,9 @@ the wrong branch.
 - **R32** — The progress header is **untrusted input** on load (the log is
   human-visible and pushable — R26 — so it may be edited). Before any destructive
   action the runtime validates it: `branch`/`startingBranch` must be valid
-  branch names (a header holding anything else fails to decode), `promptHash` must equal the recomputed prompt hash, and it refuses
-  to `checkout`, `reset --hard`, or delete a protected branch (the default branch /
-  `main` / `master`) or any branch outside the orca naming scheme.
+  branch names (a header holding anything else fails to decode), `userPrompt`
+  must equal the current prompt, and it refuses to `checkout`, `reset --hard`,
+  or delete a protected branch (the default branch / `main` / `master`).
 
 **Design.**
 

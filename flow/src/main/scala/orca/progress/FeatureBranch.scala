@@ -73,6 +73,7 @@ object FeatureBranch:
     if isProtected(name, protectedBranches) then
       Left(ProtectedBranchRefused(name))
     else if !isSlug(name) then Left(NotASlugRefused(name))
+    // A slug always parses; this only lifts it to the type.
     else BranchName.parse(name).left.map(_ => NotASlugRefused(name))
 
   /** Mint a [[FeatureBranch]] for a branch orca did NOT name — the user's

@@ -25,6 +25,14 @@ object BranchName:
       case Some(rule) => Left(refusal(raw, rule))
       case None       => Right(raw)
 
+  /** The local branch a full ref (`refs/heads/<name>`, as `git symbolic-ref`
+    * prints it) names; `None` for any other ref or an invalid name.
+    */
+  def fromRef(ref: String): Option[BranchName] =
+    Option
+      .when(ref.startsWith(LocalPrefix))(ref.stripPrefix(LocalPrefix))
+      .flatMap(parse(_).toOption)
+
   /** The message [[parse]] refuses `raw` with, for a caller adding its own rule
     * on top.
     */
@@ -42,7 +50,13 @@ object BranchName:
       def nullValue: BranchName = null
   )
 
-  extension (b: BranchName) def value: String = b
+  extension (b: BranchName)
+    def value: String = b
+
+    /** The full ref, which git never confuses with a tag of the same name. */
+    def ref: String = LocalPrefix + b
+
+  private val LocalPrefix = "refs/heads/"
 
   private val forbiddenChars = "~^:?*[\\"
 
