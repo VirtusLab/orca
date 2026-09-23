@@ -10,6 +10,7 @@ import orca.progress.{
   ProgressStore,
   ScannedProgressLog
 }
+import orca.runner.FlowLifecycle.SettingsResolution
 import orca.tools.GitTool
 import orca.util.TextUtil
 
@@ -47,13 +48,13 @@ private[runner] object SetupPreflight:
       args: OrcaArgs,
       git: GitTool,
       workDir: os.Path,
-      stackOverridden: Boolean,
+      stack: SettingsResolution,
       store: ProgressStore,
       emit: OrcaEvent => Unit,
       tty: () => Boolean,
       ask: Int => DirtyTreeChoice
   ): Preflight =
-    warnIfSettingsIgnored(git, stackOverridden, emit)
+    warnIfSettingsIgnored(git, stack, emit)
     abortIfNoCommits(git)
     val startingHead = git.head()
     // A resumable run may be behind an unreadable log, and the stash cannot
@@ -245,10 +246,15 @@ private[runner] object SetupPreflight:
     */
   private def warnIfSettingsIgnored(
       git: GitTool,
-      stackOverridden: Boolean,
+      stack: SettingsResolution,
       emit: OrcaEvent => Unit
   ): Unit =
-    if !stackOverridden && git.isIgnored(OrcaDir.settingsSubPath) then
+    val fileGoverns = stack match
+      case SettingsResolution.Overridden(_) => false
+      case SettingsResolution.Resolved(_) |
+          SettingsResolution.NeedsDiscovery(_) =>
+        true
+    if fileGoverns && git.isIgnored(OrcaDir.settingsSubPath) then
       emit(
         OrcaEvent.Step(
           "stack settings at .orca/settings.properties are gitignored — " +

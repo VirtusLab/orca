@@ -1,8 +1,16 @@
 package orca.runner
 
-import orca.{AgentSet, ConfigHome, OrcaArgs, StackSettings, runFlow}
+import orca.{
+  AgentSet,
+  BranchNamingStrategy,
+  ConfigHome,
+  OrcaArgs,
+  StackSettings,
+  runFlow
+}
 import orca.agents.Agent
-import orca.events.{OrcaEvent, OrcaListener}
+import orca.backend.Interaction
+import orca.events.{OrcaEvent, OrcaListener, Pricing}
 import orca.testkit.TempDirs
 import orca.runner.terminal.TerminalInteraction
 import ox.supervised
@@ -34,18 +42,52 @@ object FlowHarness:
         animated = false
       )
       runFlow(
-        args = OrcaArgs(flowName),
-        workDir = workDir,
-        interaction = Some(interaction),
-        extraListeners = listeners,
-        branchNaming = None,
-        stackSettings = stackSettings,
-        planningAgent = planningOverride,
-        codingAgent = codingOverride,
-        reviewAgent = reviewOverride,
-        configHome = configHome,
-        wiring = wiring
+        request(
+          args = OrcaArgs(flowName),
+          workDir = workDir,
+          interaction = Some(interaction),
+          extraListeners = listeners,
+          branchNaming = None,
+          stackSettings = stackSettings,
+          planningAgent = planningOverride,
+          codingAgent = codingOverride,
+          reviewAgent = reviewOverride,
+          configHome = configHome,
+          wiring = wiring
+        )
       )(body)
+
+  /** A [[RunRequest]] with test defaults: nothing overridden, no
+    * progress-header flow source, and a config home that doesn't exist.
+    */
+  def request(
+      args: OrcaArgs,
+      workDir: os.Path,
+      interaction: Option[Interaction],
+      extraListeners: List[OrcaListener] = Nil,
+      branchNaming: Option[BranchNamingStrategy] = None,
+      stackSettings: Option[StackSettings] = None,
+      planningAgent: Option[AgentSet => Agent[?]] = None,
+      codingAgent: Option[AgentSet => Agent[?]] = None,
+      reviewAgent: Option[AgentSet => Agent[?]] = None,
+      configHome: ConfigHome = absentConfigHome(),
+      wiring: FlowWiring = FlowWiring()
+  ): RunRequest =
+    RunRequest(
+      args = args,
+      workDir = workDir,
+      interaction = interaction,
+      extraListeners = extraListeners,
+      wiring = wiring,
+      pricing = Pricing.default,
+      setup = SetupOptions(
+        branchNaming = branchNaming,
+        stackSettings = stackSettings,
+        roles = RoleOverrides(planningAgent, codingAgent, reviewAgent),
+        configHome = configHome,
+        flowSource = None
+      )
+    )
 
   /** A config home whose tier files and directories don't exist. */
   def absentConfigHome(): ConfigHome = ConfigHome(TempDirs.dir() / "orca")
