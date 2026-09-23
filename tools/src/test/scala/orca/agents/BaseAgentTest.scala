@@ -520,9 +520,9 @@ class BaseAgentTest extends munit.FunSuite:
       List(Some("wire-joined"))
     )
 
-  // `quietTextTurn` runs its turn on a fresh session,
-  // bypassing `runWithSession` entirely — it must never surface a session to
-  // the manifest writer.
+  // `quietTextTurn` runs its turn on a fresh session, bypassing
+  // `runWithSession` entirely — it must never surface a session to the
+  // manifest writer.
   test("quietTextTurn emits no SessionCommitted"):
     val seen =
       new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
