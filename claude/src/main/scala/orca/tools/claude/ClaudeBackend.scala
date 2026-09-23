@@ -358,11 +358,20 @@ private[orca] class ClaudeBackend(
 object ClaudeBackend:
 
   /** Derives the project-directory slug that claude uses under
-    * `~/.claude/projects/`: replaces every `/` in the absolute path with `-`.
-    * E.g. `/home/foo/bar` → `-home-foo-bar`.
+    * `~/.claude/projects/`. E.g. `/home/foo/.bar` → `-home-foo--bar`.
     */
   private[claude] def cwdSlug(cwd: os.Path): String =
-    cwd.toString.replace('/', '-')
+    val path = cwd.toString
+    // Mirrors claude's JS: each UTF-16 unit outside [a-zA-Z0-9] becomes `-`;
+    // past 200 chars, the slug is cut and suffixed with the base-36 absolute
+    // value of the path's 32-bit `(h << 5) - h + c` hash (= Java's hashCode).
+    val slug = path.map(c => if c.isLetterOrDigit && c < 128 then c else '-')
+    if slug.length <= MaxSlugLength then slug
+    else
+      val hash = java.lang.Long.toString(math.abs(path.hashCode.toLong), 36)
+      s"${slug.take(MaxSlugLength)}-$hash"
+
+  private val MaxSlugLength = 200
 
   /** Built-in tools added to `ClaudeArgs.ReadOnlyTools` on
     * [[ToolSet.NetworkOnly]] turns. Bare tool names only — `--tools` takes no

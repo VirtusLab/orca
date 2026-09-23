@@ -608,6 +608,17 @@ class ClaudeBackendTest extends munit.FunSuite:
         s"retry after failure must re-claim with --session-id; got: $second"
       )
 
+  // Expected slugs computed with claude 2.1.280's own slug function.
+  test("cwdSlug replaces every non-alphanumeric character with -"):
+    assertEquals(
+      ClaudeBackend.cwdSlug(os.Path("/home/u/.superset/my_repo@x")),
+      "-home-u--superset-my-repo-x"
+    )
+
+  test("cwdSlug truncates a slug over 200 chars and appends a path hash"):
+    val slug = ClaudeBackend.cwdSlug(os.Path("/tmp/" + "a" * 250))
+    assertEquals(slug, "-tmp-" + "a" * 195 + "-bxbzwn")
+
   test(
     "a session the previous run left on disk is resumed, not re-claimed"
   ):
