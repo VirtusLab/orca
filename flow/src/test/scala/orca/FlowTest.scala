@@ -31,7 +31,7 @@ class FlowTest extends munit.FunSuite:
     assertEquals(
       markers,
       List(
-        OrcaEvent.StageStarted(planPath, "plan"),
+        OrcaEvent.StageStarted(planPath),
         OrcaEvent.StageEnded(planPath, StageOutcome.Completed)
       )
     )
@@ -44,7 +44,7 @@ class FlowTest extends munit.FunSuite:
     assertEquals(
       listener.events,
       List(
-        OrcaEvent.StageStarted(planPath, "plan"),
+        OrcaEvent.StageStarted(planPath),
         OrcaEvent.Error("Stage 'plan' failed: kaboom"),
         OrcaEvent.StageEnded(planPath, StageOutcome.Failed)
       )

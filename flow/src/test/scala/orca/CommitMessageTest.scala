@@ -235,7 +235,7 @@ class CommitMessageTest extends munit.FunSuite:
         ctx.sessionStore.upsert(
           SessionRecord(
             name = "s",
-            stage = "",
+            stage = StagePath.FlowBody,
             id = "sid",
             seed = "seed",
             resumeWireId = Some("wire"),

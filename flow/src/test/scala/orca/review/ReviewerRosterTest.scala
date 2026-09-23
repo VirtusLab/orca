@@ -9,7 +9,7 @@ class ReviewerRosterTest extends munit.FunSuite:
     "a roster entry reads its name, description and file pattern off the reviewer definition"
   ):
     val definition = Reviewer(
-      name = "scala-fp",
+      name = ReviewerSlug("scala-fp"),
       description = "checks functional style",
       systemPrompt = "…",
       filePattern = Some("""\.scala$""".r)
@@ -20,7 +20,7 @@ class ReviewerRosterTest extends munit.FunSuite:
       ReviewerAgent(definition, new FakeAgent("unused-agent-name")),
       ReviewerId(0)
     )
-    assertEquals(entry.name, "scala-fp")
+    assertEquals(entry.name.value, "scala-fp")
     assertEquals(entry.description, definition.description)
     assertEquals(entry.filePattern.map(_.regex), Some("""\.scala$"""))
 
@@ -32,6 +32,6 @@ class ReviewerRosterTest extends munit.FunSuite:
     val picked =
       SelectedReviewers(List("performance", "code-structure")).pick(all)
     assertEquals(
-      picked.entries.map(_.name),
+      picked.entries.map(_.name.value),
       List("code-structure", "performance")
     )

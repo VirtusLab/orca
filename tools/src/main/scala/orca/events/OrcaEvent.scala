@@ -24,7 +24,7 @@ enum OrcaEvent:
     * Only `stage` emits the pair, on the flow's owner thread, which is what
     * lets a listener keep the open stages as a plain stack.
     */
-  case StageStarted private[orca] (path: StagePath.Stage, name: String)
+  case StageStarted private[orca] (path: StagePath.Stage)
 
   /** The stage at `path` ended; see [[StageStarted]]. */
   case StageEnded private[orca] (path: StagePath.Stage, outcome: StageOutcome)

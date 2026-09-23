@@ -51,9 +51,9 @@ class OpenPrFromBranchTest extends FunSuite:
     val bodies = new ConcurrentLinkedQueue[String]()
     val steps = new ConcurrentLinkedQueue[String]()
     val listener: OrcaListener =
-      case OrcaEvent.StageStarted(_, name) => stages.add(name): Unit
-      case OrcaEvent.Step(message)         => steps.add(message): Unit
-      case _                               => ()
+      case OrcaEvent.StageStarted(path) => stages.add(path.name): Unit
+      case OrcaEvent.Step(message)      => steps.add(message): Unit
+      case _                            => ()
 
     val summariser = new StubSummariser()
     val control =
@@ -100,6 +100,22 @@ class OpenPrFromBranchTest extends FunSuite:
       r.stages,
       List("Push branch", "Generate PR title and description", "Open PR")
     )
+
+  test("openPrFromBranch reached inside a stage is refused before it pushes"):
+    // A helper taking only FlowControl carries OutsideStage past the compile
+    // check; the stage open around it is caught at run time.
+    val (dir, store) = seededPrRepo()
+    val calls = new ConcurrentLinkedQueue[String]()
+    val control = prControl(dir, store, _ => (), calls)
+    val e = intercept[OrcaFlowException](
+      control.withStage("outer", None): _ =>
+        openPrFromBranch(
+          summarisingAgent = new StubSummariser(),
+          openFindings = OpenFindings.empty
+        )(using control, control, summon[OutsideStage])
+    )
+    assert(e.getMessage.contains("inside stage 'outer#0'"), e.getMessage)
+    assertEquals(calls.asScala.toList, Nil)
 
   test("openPrFromBranch throws when the PR cannot be opened"):
     // The contract its best-effort sibling deliberately does not share: the

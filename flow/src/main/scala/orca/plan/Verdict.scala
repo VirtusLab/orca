@@ -1,5 +1,7 @@
 package orca.plan
 
+import orca.agents.JsonData
+
 /** Outcome of an assess-before-act stage (e.g.
   * [[Plan.autonomous.assessThenPlan]]): either the agent endorses the input and
   * supplies a value to act on (`Proceed`), or it rejects it with a body the
@@ -14,7 +16,7 @@ sealed trait Verdict[+A]
 object Verdict:
   case class Proceed[+A](value: A) extends Verdict[A]
 
-  enum RejectionKind:
+  enum RejectionKind derives JsonData:
     /** The reporter likely has the right idea but a key detail is missing
       * (repro steps, target file, intended behaviour). Caller should phrase the
       * surfaced text as a question back to the reporter.

@@ -1,6 +1,7 @@
 package orca.progress
 
 import com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec
+import orca.StagePath
 import orca.agents.{JsonData, given}
 import orca.gitref.{BranchName, CommitHash, Head}
 import orca.util.RawJson
@@ -46,18 +47,12 @@ case class ProgressHeader(
 
 /** A single stage's outcome, stored as an already-serialised JSON subtree.
   *
-  * `id` is the stage's hierarchical path id — `name#occurrence` segments joined
-  * by `/` (e.g. `outer#0/inner#0`), a nested stage prefixed by its enclosing
-  * stages' segments (ADR 0018 §2.1). Opaque: only compared for exact equality,
-  * never parsed.
-  *
   * `resultJson` is type-erased at rest — the log is heterogeneous across stage
   * types; deserialisation to a typed value happens at the stage call site. A
   * [[orca.util.RawJson]], embedded verbatim rather than string-escaped so the
   * persisted file stays directly readable when debugging.
   */
-case class StageEntry(id: String, name: String, resultJson: RawJson)
-    derives JsonData
+case class StageEntry(id: StagePath.Stage, resultJson: RawJson) derives JsonData
 
 /** One run's persisted state: the outcome of each completed stage, and where it
   * published its work ([[PublishedWork]], once the run has).

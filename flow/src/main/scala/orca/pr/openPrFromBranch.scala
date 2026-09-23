@@ -39,8 +39,9 @@ import ox.either.orThrow
   * recorded as the run's published work through [[recordOpenedPr]] inside the
   * create stage.
   *
-  * Does not compile inside a stage: opening the PR is a top-level step of a
-  * flow, and this runs its own stages.
+  * Refused inside a stage — at compile time where the call sits in a stage
+  * body, at run time where it is reached through a helper: opening the PR is a
+  * top-level step of a flow, and this runs its own stages.
   */
 def openPrFromBranch(
     summarisingAgent: Agent[?],
@@ -50,6 +51,7 @@ def openPrFromBranch(
     context: Option[String] = None,
     instructions: String = PrPrompts.Summarise
 )(using FlowContext, FlowControl, OutsideStage): PrHandle =
+  summon[FlowControl].assertAtFlowBody("openPrFromBranch(...)")
   reportOpenFindings(openFindings)
   // A refusal throws inside its stage, so it is never recorded and a resume
   // retries it. A recorded `Refused` is one [[openPrIfGitHub]] wrote.

@@ -9,7 +9,7 @@ import orca.events.{OrcaEvent, StageOutcome}
   */
 object StageEvents:
   def started(name: String): OrcaEvent.StageStarted =
-    OrcaEvent.StageStarted(path(name), name)
+    OrcaEvent.StageStarted(path(name))
 
   def ended(name: String): OrcaEvent.StageEnded =
     OrcaEvent.StageEnded(path(name), StageOutcome.Completed)

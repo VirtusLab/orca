@@ -4,50 +4,42 @@ import orca.agents.{Announce, JsonData, schemaFromJsonData, codecFromJsonData}
 
 /** Wire shape the LLM produces for an assess-before-plan turn. Flattened
   * (rather than discriminated union) so jsoniter-scala's structured-output path
-  * keeps the schema small and easy for the model to fill in. `verdict` carries
+  * keeps the schema small and easy for the model to fill in. `decision` carries
   * the choice; the other fields are populated according to it.
   *
-  *   - `verdict == "proceed"` → `plan` is set; `rejectKind` / `rejectBody` are
-  *     ignored.
-  *   - `verdict == "reject"` → `rejectKind` and `rejectBody` are set; `plan` is
-  *     ignored.
+  *   - `Proceed` → `plan` is set; `rejectKind` / `rejectBody` are ignored.
+  *   - `Reject` → `rejectKind` and `rejectBody` are set; `plan` is ignored.
   *
-  * The contract is enforced post-decode by [[toVerdict]], which throws on
-  * malformed combinations so the caller can rely on a well-formed
-  * [[Verdict]][Plan].
+  * An unknown `decision` or `rejectKind` fails decoding, like any other
+  * malformed reply. The field combinations are checked post-decode by
+  * [[toVerdict]], so the caller can rely on a well-formed [[Verdict]][Plan].
   */
 private[plan] case class AssessedPlan(
-    verdict: String,
+    decision: AssessedPlan.Decision,
     plan: Option[Plan],
-    rejectKind: Option[String],
+    rejectKind: Option[Verdict.RejectionKind],
     rejectBody: Option[String]
 ) derives JsonData:
 
-  def toVerdict: Either[String, Verdict[Plan]] = verdict match
-    case "proceed" =>
-      plan match
-        case Some(p) => Right(Verdict.Proceed(p))
-        case None =>
-          Left("assess-then-plan returned verdict=proceed but no plan")
-    case "reject" =>
+  def toVerdict: Either[String, Verdict[Plan]] = decision match
+    case AssessedPlan.Decision.Proceed =>
+      plan
+        .map(Verdict.Proceed(_))
+        .toRight("assess-then-plan returned Proceed but no plan")
+    case AssessedPlan.Decision.Reject =>
       for
         body <- rejectBody.toRight(
-          "assess-then-plan returned verdict=reject but no rejectBody"
+          "assess-then-plan returned Reject but no rejectBody"
         )
-        kindStr <- rejectKind.toRight(
-          "assess-then-plan returned verdict=reject but no rejectKind"
+        kind <- rejectKind.toRight(
+          "assess-then-plan returned Reject but no rejectKind"
         )
-        kind <- kindStr match
-          case "question" => Right(Verdict.RejectionKind.Question)
-          case "critique" => Right(Verdict.RejectionKind.Critique)
-          case "rebuff"   => Right(Verdict.RejectionKind.Rebuff)
-          case other =>
-            Left(s"assess-then-plan: unknown rejectKind '$other'")
       yield Verdict.Rejection(kind, body)
-    case other =>
-      Left(s"assess-then-plan: unknown verdict '$other'")
 
 private[plan] object AssessedPlan:
+  enum Decision derives JsonData:
+    case Proceed, Reject
+
   /** Summary surfaced after the assess turn: defers to [[Plan]]'s `Announce` on
     * proceed, surfaces the rejection kind otherwise. Malformed payloads fall
     * through to `None` — [[Plan.autonomous.assessThenPlan]] throws the

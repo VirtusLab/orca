@@ -18,7 +18,7 @@ class ReviewerDiscoveryFlowTest extends munit.FunSuite:
     val steps = new AtomicReference[List[String]](Nil)
     var names: List[String] = Nil
     driveFlow(workDir, listeners = List(FlowHarness.recordSteps(steps))):
-      names = summon[FlowContext].reviewerCatalog.all.map(_.name)
+      names = summon[FlowContext].reviewerCatalog.all.map(_.name.value)
     assert(names.contains("orca"), names.toString)
     assert(
       steps.get().contains("discovered reviewers: orca (project)"),
@@ -36,7 +36,7 @@ class ReviewerDiscoveryFlowTest extends munit.FunSuite:
       configHome = configHome,
       listeners = List(FlowHarness.recordSteps(steps))
     ):
-      names = summon[FlowContext].reviewerCatalog.all.map(_.name)
+      names = summon[FlowContext].reviewerCatalog.all.map(_.name.value)
     assert(names.contains("orca"), names.toString)
     assert(
       steps.get().contains("discovered reviewers: orca (global)"),
