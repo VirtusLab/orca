@@ -1323,6 +1323,42 @@ class CliTest extends munit.FunSuite:
     )
     assert(out.contains("\"workDir\":\"/repo\""), out)
 
+  private def listedWithBranch(
+      branch: Option[String],
+      json: Boolean
+  ): String =
+    val dir = TempDirs.dir()
+    writeManifest(
+      dir,
+      manifest(sessions = List(durable()), branch = branch)
+    )
+    captured(
+      assertEquals(
+        ContinueCli.runContinue(
+          ScanDirs(dir, Nil),
+          None,
+          list = true,
+          json = json,
+          tty = false
+        ),
+        ExitCodes.Ok
+      )
+    )
+
+  test("runContinue --list --json: a row carries its attempt's branch"):
+    val out = listedWithBranch(Some("orca-fix-parser"), json = true)
+    assert(out.contains("\"branch\":\"orca-fix-parser\""), out)
+
+  test("runContinue --list --json: an attempt with no branch reports null"):
+    val out = listedWithBranch(None, json = true)
+    assert(out.contains("\"branch\":null"), out)
+
+  test("runContinue --list: the table has a branch column"):
+    val out = listedWithBranch(Some("orca-fix-parser"), json = false)
+    val lines = out.linesIterator.toList
+    assert(lines.head.contains("branch"), out)
+    assert(lines(1).contains("orca-fix-parser"), out)
+
   test("runContinue --list --json: kind is Durable or Ephemeral"):
     val dir = TempDirs.dir()
     writeManifest(

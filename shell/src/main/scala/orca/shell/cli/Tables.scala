@@ -33,6 +33,9 @@ private[cli] object Tables:
         * them as ambiguous, naming directories the listing never showed.
         */
       workDir: String,
+      /** The attempt's bound branch; `null` in `--json` when none was recorded.
+        */
+      branch: Option[String],
       kind: SessionKind,
       stage: Option[String],
       /** The path id of the stage that minted the session — the half of its key
@@ -75,6 +78,7 @@ private[cli] object Tables:
             index = i + 1,
             sessionName = SessionPicker.displayName(session),
             workDir = selection.manifest.workDir,
+            branch = selection.manifest.branch,
             kind = session.kind,
             stage = session.stage,
             sessionStage = session.minted.map(_.stage.value),
@@ -105,6 +109,7 @@ private[cli] object Tables:
         (
           r.index.toString,
           sessionName,
+          r.branch.getOrElse(""),
           r.kind.toString,
           r.stage.getOrElse(""),
           // Its own column rather than the picker's conditional marker: a
@@ -118,6 +123,7 @@ private[cli] object Tables:
         (
           "#",
           "session",
+          "branch",
           "kind",
           "stage",
           "minted in",
