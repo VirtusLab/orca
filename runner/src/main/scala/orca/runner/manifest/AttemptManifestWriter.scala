@@ -106,16 +106,11 @@ private[runner] class AttemptManifestWriterState(
   guarded("attempt pruning")(AttemptPruning.prune(attemptsDir))
 
   def onEvent(event: OrcaEvent): Unit = event match
-    case OrcaEvent.StageStarted(name) =>
+    case OrcaEvent.StageStarted(_, name) =>
       state = state.entered(name)
       safeWrite()
-    case OrcaEvent.StageCompleted(_) =>
-      state.exited match
-        case Some(next) => state = next
-        case None =>
-          log.warn(
-            "unbalanced StageCompleted: stage stack already empty, ignoring"
-          )
+    case _: OrcaEvent.StageEnded =>
+      state = state.exited
       safeWrite()
     case OrcaEvent.BranchBound(branch) =>
       state = state.withBranch(branch)
@@ -201,10 +196,7 @@ private case class ManifestState(
   def entered(stage: String): ManifestState =
     copy(stageStack = stage :: stageStack)
 
-  /** `None` when no stage is open. */
-  def exited: Option[ManifestState] = stageStack match
-    case Nil       => None
-    case _ :: rest => Some(copy(stageStack = rest))
+  def exited: ManifestState = copy(stageStack = stageStack.drop(1))
 
   /** Upsert by `(harness, conversationKey)`: the same session re-firing
     * `SessionCommitted` on a later turn (retries, resumed durable calls)

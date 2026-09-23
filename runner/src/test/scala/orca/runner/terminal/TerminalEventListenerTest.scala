@@ -1,6 +1,7 @@
 package orca.runner.terminal
 
 import orca.events.OrcaEvent
+import orca.testkit.StageEvents
 import orca.testkit.Usages.usage
 import orca.agents.Model
 import java.io.{ByteArrayOutputStream, PrintStream}
@@ -28,18 +29,18 @@ class TerminalEventListenerTest extends munit.FunSuite:
     events.foreach(listener.onEvent)
     buf.toString
 
-  test("StageStarted prints a ▶ line; StageCompleted is silent in the log"):
+  test("StageStarted prints a ▶ line; StageEnded is silent in the log"):
     val output = renderEvents(
       List(
-        OrcaEvent.StageStarted("plan"),
-        OrcaEvent.StageCompleted("plan")
+        StageEvents.started("plan"),
+        StageEvents.ended("plan")
       )
     )
     assert(output.contains("plan"))
     assert(output.contains(TerminalEventListener.StageStartGlyph))
     assert(
       !output.contains(TerminalEventListener.StageDoneGlyph),
-      s"StageCompleted must not render to the event log; got: $output"
+      s"StageEnded must not render to the event log; got: $output"
     )
 
   test(
@@ -47,9 +48,9 @@ class TerminalEventListenerTest extends munit.FunSuite:
   ):
     val output = renderEvents(
       List(
-        OrcaEvent.StageStarted("review"),
+        StageEvents.started("review"),
         OrcaEvent.Step("Issue summary\n  at src/Foo.scala:10"),
-        OrcaEvent.StageCompleted("review")
+        StageEvents.ended("review")
       )
     )
     val lines = output.split('\n').toList
@@ -72,9 +73,9 @@ class TerminalEventListenerTest extends munit.FunSuite:
   test("Step events render as a single ▶ line, no closing ✔"):
     val output = renderEvents(
       List(
-        OrcaEvent.StageStarted("outer"),
+        StageEvents.started("outer"),
         OrcaEvent.Step("Switched to a new branch 'foo'"),
-        OrcaEvent.StageCompleted("outer")
+        StageEvents.ended("outer")
       )
     )
     assert(output.contains("Switched to a new branch 'foo'"))
@@ -90,9 +91,9 @@ class TerminalEventListenerTest extends munit.FunSuite:
   test("a Caveat renders un-indented with `!`, whatever stage is open"):
     val output = renderEvents(
       List(
-        OrcaEvent.StageStarted("plan"),
+        StageEvents.started("plan"),
         OrcaEvent.Caveat("Codex cannot stop a NetworkOnly turn"),
-        OrcaEvent.StageCompleted("plan")
+        StageEvents.ended("plan")
       )
     )
     val line = output
@@ -156,7 +157,7 @@ class TerminalEventListenerTest extends munit.FunSuite:
     // next line that CAN carry a name must carry one.
     val output = renderEvents(
       List(
-        OrcaEvent.StageStarted("task"),
+        StageEvents.started("task"),
         OrcaEvent
           .ToolUse("Read", """{"file_path":"stats.py"}""", Some("alpha")),
         OrcaEvent.AssistantMessage("reviewed it", Some("beta"))
@@ -190,9 +191,9 @@ class TerminalEventListenerTest extends munit.FunSuite:
   test("a denied tool call stays out of the log"):
     val output = renderEvents(
       List(
-        OrcaEvent.StageStarted("plan"),
+        StageEvents.started("plan"),
         OrcaEvent.ToolDenied("mcp__visdom__agents_md", Some("planning")),
-        OrcaEvent.StageCompleted("plan")
+        StageEvents.ended("plan")
       )
     )
     assertEquals(output, s"${TerminalEventListener.StageStartGlyph} plan\n")
@@ -259,9 +260,9 @@ class TerminalEventListenerTest extends munit.FunSuite:
     // indent, glyph and prefix all come out of the body's budget.
     val output = renderEvents(
       List(
-        OrcaEvent.StageStarted("outer"),
-        OrcaEvent.StageStarted("middle"),
-        OrcaEvent.StageStarted("inner"),
+        StageEvents.started("outer"),
+        StageEvents.started("middle"),
+        StageEvents.started("inner"),
         OrcaEvent.AssistantMessage("first", Some("main")),
         OrcaEvent.AssistantMessage(
           "y" * (TerminalEventListener.MaxAssistantMessageLength * 2),
@@ -282,7 +283,7 @@ class TerminalEventListenerTest extends munit.FunSuite:
   test("a stage's own agent is never named on its tool lines"):
     val output = renderEvents(
       List(
-        OrcaEvent.StageStarted("task"),
+        StageEvents.started("task"),
         OrcaEvent
           .ToolUse("Write", """{"file_path":"stats.py"}""", Some("main")),
         OrcaEvent.ToolUse("Write", """{"file_path":"other.py"}""", Some("main"))
@@ -293,7 +294,7 @@ class TerminalEventListenerTest extends munit.FunSuite:
   test("a second agent's tool line is prefixed with its name"):
     val output = renderEvents(
       List(
-        OrcaEvent.StageStarted("task"),
+        StageEvents.started("task"),
         OrcaEvent
           .ToolUse("Write", """{"file_path":"stats.py"}""", Some("main")),
         OrcaEvent
@@ -305,7 +306,7 @@ class TerminalEventListenerTest extends munit.FunSuite:
   test("a second agent's prose line is prefixed with its name"):
     val output = renderEvents(
       List(
-        OrcaEvent.StageStarted("task"),
+        StageEvents.started("task"),
         OrcaEvent.AssistantMessage("planning", Some("main")),
         OrcaEvent.AssistantMessage("reviewing", Some("test"))
       )
@@ -315,7 +316,7 @@ class TerminalEventListenerTest extends munit.FunSuite:
   test("the first agent is named too once a second one has emitted"):
     val output = renderEvents(
       List(
-        OrcaEvent.StageStarted("task"),
+        StageEvents.started("task"),
         OrcaEvent.AssistantMessage("planning", Some("main")),
         OrcaEvent.AssistantMessage("reviewing", Some("test")),
         OrcaEvent.AssistantMessage("still planning", Some("main"))
@@ -326,9 +327,9 @@ class TerminalEventListenerTest extends munit.FunSuite:
   test("a new stage lets its own first agent go unnamed again"):
     val output = renderEvents(
       List(
-        OrcaEvent.StageStarted("outer"),
+        StageEvents.started("outer"),
         OrcaEvent.AssistantMessage("planning", Some("main")),
-        OrcaEvent.StageStarted("inner"),
+        StageEvents.started("inner"),
         OrcaEvent.AssistantMessage("reviewing", Some("test"))
       )
     )
@@ -422,10 +423,10 @@ class TerminalEventListenerTest extends munit.FunSuite:
     val rendered = renderWith(
       animated = true,
       List(
-        OrcaEvent.StageStarted(
+        StageEvents.started(
           "Implement task: very long task title that would dominate"
         ),
-        OrcaEvent.StageStarted("Implementation")
+        StageEvents.started("Implementation")
       )
     )
     // Find the most recent status redraw — the bytes after the last
@@ -444,11 +445,11 @@ class TerminalEventListenerTest extends munit.FunSuite:
   test("nested stages indent inner content; no ✔ ever appears in the log"):
     val output = renderEvents(
       List(
-        OrcaEvent.StageStarted("outer"),
-        OrcaEvent.StageStarted("inner"),
+        StageEvents.started("outer"),
+        StageEvents.started("inner"),
         OrcaEvent.Error("inside inner"),
-        OrcaEvent.StageCompleted("inner"),
-        OrcaEvent.StageCompleted("outer")
+        StageEvents.ended("inner"),
+        StageEvents.ended("outer")
       )
     )
     val lines = output.split('\n').toList
@@ -504,8 +505,8 @@ class TerminalEventListenerTest extends munit.FunSuite:
     )
     reader.start()
     for _ <- 1 to 500 do
-      listener.onEvent(OrcaEvent.StageStarted("s"))
-      listener.onEvent(OrcaEvent.StageCompleted("s"))
+      listener.onEvent(StageEvents.started("s"))
+      listener.onEvent(StageEvents.ended("s"))
     stop = true
     reader.join(5000)
 

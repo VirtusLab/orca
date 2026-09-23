@@ -1,6 +1,7 @@
 package orca
 
 import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
+import orca.testkit.StageEvents
 
 import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
 
@@ -18,9 +19,9 @@ class EventDispatcherTest extends munit.FunSuite:
     val dispatcher = new EventDispatcher(List(a, b))
 
     val events = List(
-      OrcaEvent.StageStarted("plan"),
+      StageEvents.started("plan"),
       OrcaEvent.Step("hello"),
-      OrcaEvent.StageCompleted("plan")
+      StageEvents.ended("plan")
     )
     events.foreach(dispatcher.onEvent)
 
@@ -34,11 +35,11 @@ class EventDispatcherTest extends munit.FunSuite:
         val _ = order.updateAndGet(tag :: _)
     val dispatcher =
       new EventDispatcher(List(tagger("a"), tagger("b"), tagger("c")))
-    dispatcher.onEvent(OrcaEvent.StageStarted("s"))
+    dispatcher.onEvent(StageEvents.started("s"))
     assertEquals(order.get().reverse, List("a", "b", "c"))
 
   test("dispatch with no listeners is a no-op"):
-    new EventDispatcher(Nil).onEvent(OrcaEvent.StageStarted("x"))
+    new EventDispatcher(Nil).onEvent(StageEvents.started("x"))
 
   // The announcement is gated on `quarantined.add(l)` returning true, so that
   // under concurrent emitters two threads racing to quarantine the same first

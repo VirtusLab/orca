@@ -3,7 +3,7 @@ package orca
 import orca.testkit.TextReplyingAgent
 
 import orca.util.RawJson
-import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
+import orca.events.{EventDispatcher, OrcaEvent, OrcaListener, StageOutcome}
 import orca.progress.StageEntry
 import ox.either.orThrow
 
@@ -69,14 +69,14 @@ class StageRuntimeTest extends munit.FunSuite:
     assertEquals(first, "value-42")
     assertEquals(second, "value-42")
     assertEquals(runs.get(), 1, "body must run exactly once across both runs")
-    // A replayed stage emits both markers — which is what keeps a renderer's
-    // indent depth balanced — and nothing else: the run-level resume
-    // announcement covers what was skipped.
+    // A replayed stage emits its markers and nothing else: the run-level
+    // resume announcement covers what was skipped.
+    val path = StagePath.FlowBody.child("compute", 0)
     assertEquals(
       listener.events.drop(afterFirstRun),
       List(
-        OrcaEvent.StageStarted("compute"),
-        OrcaEvent.StageCompleted("compute")
+        OrcaEvent.StageStarted(path, "compute"),
+        OrcaEvent.StageEnded(path, StageOutcome.Replayed)
       )
     )
 

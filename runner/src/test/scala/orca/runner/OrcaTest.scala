@@ -48,7 +48,7 @@ class OrcaTest extends munit.FunSuite:
         workDir = GitRepo.seeded(),
         interaction = Some(interaction)
       ):
-        summon[FlowContext].emit(OrcaEvent.StageStarted("plan"))
+        summon[FlowContext].emit(OrcaEvent.Step("plan"))
     // By the time the outer supervised exits, the interaction's worker has
     // drained — `flow`'s finally closes the channel, and the supervised
     // scope joins the forkUser worker before returning.

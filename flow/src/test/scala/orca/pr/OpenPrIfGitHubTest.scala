@@ -111,10 +111,10 @@ class OpenPrIfGitHubTest extends FunSuite:
     val errors = new ConcurrentLinkedQueue[String]()
     val bodies = new ConcurrentLinkedQueue[String]()
     val listener: OrcaListener =
-      case OrcaEvent.StageStarted(name) => stages.add(name): Unit
-      case OrcaEvent.Step(message)      => steps.add(message): Unit
-      case OrcaEvent.Error(message, _)  => errors.add(message): Unit
-      case _                            => ()
+      case OrcaEvent.StageStarted(_, name) => stages.add(name): Unit
+      case OrcaEvent.Step(message)         => steps.add(message): Unit
+      case OrcaEvent.Error(message, _)     => errors.add(message): Unit
+      case _                               => ()
 
     val control = prControl(
       dir,
