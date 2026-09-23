@@ -963,6 +963,34 @@ class CliTest extends munit.FunSuite:
       )
     )
 
+  test("resolve: an id reaches an ephemeral session"):
+    val attempt = ManifestFixtures.recorded(
+      manifest(sessions = List(ephemeral(agent = "reviewer")))
+    )
+    assertEquals(
+      SessionIndex
+        .of(List(attempt))
+        .resolve(Some(SessionRef(attempt.id, 1).spelling))
+        .map(_.session.agent),
+      Right("reviewer")
+    )
+
+  test("resolve: a selector spelled like an id is never matched as a branch"):
+    val ref = fixtureRef(1, 9)
+    val attempt = ManifestFixtures.recorded(
+      manifest(
+        startedAt = "2026-07-16T09:00:00Z",
+        branch = Some(ref),
+        sessions = List(durable(lastActiveAt = "2026-07-16T09:30:00Z"))
+      )
+    )
+    assertEquals(
+      SessionIndex.of(attempt :: attemptsFixture()).resolve(Some(ref)),
+      Left(
+        s"no session $ref — it may have been pruned; see `orca continue --list`"
+      )
+    )
+
   test("resolve: a name selector resolves that durable lineage"):
     assertEquals(
       SessionIndex

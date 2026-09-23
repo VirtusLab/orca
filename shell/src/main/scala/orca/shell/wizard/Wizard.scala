@@ -137,8 +137,8 @@ private[shell] class Wizard(
       ui,
       s"${role.label} model",
       tag,
-      Wizard.roleDefault(role, tag),
-      currentModel
+      default = Wizard.roleDefault(role, tag),
+      current = currentModel
     )
 
   private def choiceFor(
@@ -163,11 +163,11 @@ private[shell] object Wizard:
     case Coding extends Role("Coding")
     case Review extends Role("Review")
 
-  /** The curated model a role starts on for `tag` when nothing is pinned:
-    * Planning gets the cheaper claude alias, everyone else the flagship
-    * ([[ModelCatalog.curated]]'s first row). `None` for a free-text harness.
+  /** The curated model a role starts on for `tag` when nothing is pinned, if
+    * not the flagship ([[ModelCatalog.curated]]'s first row): Planning gets the
+    * cheaper claude alias.
     */
   private[wizard] def roleDefault(role: Role, tag: BackendTag): Option[String] =
     (role, tag) match
       case (Role.Planning, BackendTag.ClaudeCode) => Some("fable")
-      case _ => ModelCatalog.curated(tag).headOption.map(_._1)
+      case _                                      => None

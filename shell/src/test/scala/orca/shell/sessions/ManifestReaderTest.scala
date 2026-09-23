@@ -132,6 +132,21 @@ class ManifestReaderTest extends munit.FunSuite:
       )
     )
 
+  test("list takes the attempt id from the file name, not the manifest body"):
+    val workDir = TempDirs.dir()
+    writeManifest(workDir, startedAt = "2026-07-18T10:00:00Z")
+    val renamed = manifestName("2026-07-18T11:00:00Z", pid = 7)
+    os.move(
+      attemptsDir(workDir) / manifestName("2026-07-18T10:00:00Z"),
+      attemptsDir(workDir) / renamed
+    )
+    val AttemptListing(attempts, _) =
+      ManifestReader.list(workDir, Nil, alwaysDead)
+    assertEquals(
+      attempts.map(_.id),
+      List(AttemptId(Instant.parse("2026-07-18T11:00:00Z"), 7))
+    )
+
   test("list ignores a file that is not a manifest by suffix"):
     val workDir = TempDirs.dir()
     writeManifest(

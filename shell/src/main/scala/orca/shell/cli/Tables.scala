@@ -11,7 +11,7 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.{
 import orca.runner.manifest.SessionKind
 import orca.shell.flows.DiscoveredFlow
 import orca.settings.AgentSpec
-import orca.shell.sessions.{ResumeCommand, SessionIndex, SessionPicker}
+import orca.shell.sessions.{ResumeCommand, SessionIndex, SessionNaming}
 
 /** The CLI's table/JSON rendering (ADR 0021 §10) — the row shapes `list` and
   * `continue --list` emit, their jsoniter codecs, and the shared space-padded
@@ -65,7 +65,7 @@ private[cli] object Tables:
       val gate = ResumeCommand.staticGate(session)
       SessionRow(
         id = selection.ref.spelling,
-        sessionName = SessionPicker.displayName(session),
+        sessionName = SessionNaming.displayName(session),
         workDir = selection.manifest.workDir,
         branch = selection.manifest.branch,
         kind = session.kind,
@@ -87,7 +87,7 @@ private[cli] object Tables:
     else if rows.isEmpty then println("(no sessions recorded)")
     else
       // The same decision the interactive picker makes, over the same index.
-      val tag = SessionPicker.dirTag(index)
+      val tag = SessionNaming.dirTag(index)
       val cols = rows.map: r =>
         val status =
           if r.resumable then ""

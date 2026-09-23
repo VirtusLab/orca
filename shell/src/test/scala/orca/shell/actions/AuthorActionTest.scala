@@ -15,7 +15,7 @@ import orca.testkit.{GitRepo, TempDirs}
   * the flow launcher to use if the forced version fails to compile.
   */
 private object NoPromptUi extends ShellUi:
-  protected def selectOrdered[A](
+  protected def selectInOrder[A](
       title: String,
       choices: List[Choice[A]]
   ): UiOutcome[A] =

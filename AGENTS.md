@@ -167,7 +167,7 @@ most easily broken:
   picker.
   Identity and label are separate here: `SessionKey.describe` renders a key for
   the run's own diagnostics (a stage path id carries `#0` suffixes), and a
-  session reads to a person as its bare `name` — `SessionPicker.displayName` is
+  session reads to a person as its bare `name` — `SessionNaming.displayName` is
   the single home of that. A row's `(stage: ...)` segment is a DIFFERENT field,
   the stage the session was last active in, so `SessionPicker.mintedInTag`
   appends the minting stage to exactly those rows two lineages would otherwise

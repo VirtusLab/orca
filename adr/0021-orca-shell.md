@@ -1025,9 +1025,9 @@ terminal — giving the user a beat to Ctrl-C even with no selector typed.
 
 > **Amendment (2026-09-23).** `continue`'s all-digits index selector is
 > replaced by a session id, `<attempt id>:<position>` — the session's position
-> in its attempt's manifest, which only appends sessions. An index numbered one
-> `--list` read and was resolved against a later one, so a session recorded or
-> re-stamped in between made `continue <n>` resume a different session. The id
+> in its attempt's manifest, which only appends sessions. An index was numbered
+> by one `--list` read but resolved against a later one, so a session recorded
+> or re-stamped in between made `continue <n>` resume a different session. The id
 > names the same session across reads; `--list` shows it in place of the `#`
 > column.
 

@@ -497,12 +497,12 @@ object Main:
       case UiOutcome.Selected(text) => Some(text)
 
   /** "Where should this run's work go?" — the run's destination as ONE choice
-    * ([[RunTarget]]), a new branch by default. `CurrentBranch` is skip-branch
-    * mode (ADR 0018 amendment): the handoff-from-harness case, where the user
-    * already planned work on a branch carrying plan files. `Worktree` is
-    * `--worktree`, which orca refuses together with `--skip-branch` — one
-    * choice cannot express that pair, where two independent confirms could.
-    * `private[shell]` so a scripted-UI test can drive it directly.
+    * ([[RunTarget]]). `CurrentBranch` is skip-branch mode (ADR 0018 amendment):
+    * the handoff-from-harness case, where the user already planned work on a
+    * branch carrying plan files. `Worktree` is `--worktree`, which orca refuses
+    * together with `--skip-branch` — one choice cannot express that pair, where
+    * two independent confirms could. `private[shell]` so a scripted-UI test can
+    * drive it directly.
     */
   private[shell] def promptRunTarget(ui: ShellUi): Option[RunTarget] =
     ui.select(

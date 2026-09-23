@@ -36,7 +36,7 @@ private class ScriptedUi(
       firstPromptMarked = true
       println("<<first prompt>>")
 
-  protected def selectOrdered[A](
+  protected def selectInOrder[A](
       title: String,
       choices: List[Choice[A]]
   ): UiOutcome[A] =
@@ -187,7 +187,7 @@ class WizardTest extends munit.FunSuite:
       )
 
   test(
-    "first run starts planning on fable (claude) and coding on sol (codex)"
+    "first run starts planning on fable, the role's own default model"
   ):
     withTempPath: path =>
       val (selectScript, inputScript) = defaultRoleScript
@@ -197,28 +197,6 @@ class WizardTest extends munit.FunSuite:
       assertEquals(
         ui.recordedFirstRows(1),
         ModelCatalog.ModelPick.Curated("fable")
-      )
-      assertEquals(
-        ui.recordedFirstRows(3),
-        ModelCatalog.ModelPick.Curated("gpt-6-sol")
-      )
-
-  test("first run starts the review role on opus (claude)"):
-    withTempPath: path =>
-      val ui = ScriptedUi(
-        selectScript = List(
-          UiOutcome.Selected(BackendTag.ClaudeCode),
-          UiOutcome.Selected(ModelCatalog.ModelPick.Default),
-          UiOutcome.Selected(BackendTag.ClaudeCode),
-          UiOutcome.Selected(ModelCatalog.ModelPick.Default),
-          UiOutcome.Selected(BackendTag.ClaudeCode),
-          UiOutcome.Selected(ModelCatalog.ModelPick.Default)
-        )
-      )
-      assert(Wizard(ui, probe, path).run(reconfigure = false))
-      assertEquals(
-        ui.recordedFirstRows(5),
-        ModelCatalog.ModelPick.Curated("opus")
       )
 
   // --- first run: UI shape ---
@@ -501,36 +479,6 @@ class WizardTest extends munit.FunSuite:
       assert(currentLabel.contains("(current)"), currentLabel)
 
   test(
-    "re-configure with an existing sonnet pin shows sonnet as the first model row, not the flagship (F4)"
-  ):
-    withTempPath: path =>
-      os.write(path, "codingAgent = claude:sonnet\n")
-      val ui = ScriptedUi(
-        selectScript = List(
-          UiOutcome.Selected(BackendTag.ClaudeCode), // planning
-          UiOutcome.Selected(ModelCatalog.ModelPick.Default),
-          UiOutcome.Selected(BackendTag.ClaudeCode), // coding: re-chosen
-          UiOutcome.Selected(ModelCatalog.ModelPick.Curated("sonnet")),
-          UiOutcome.Selected(BackendTag.Gemini) // review
-        ),
-        inputScript = List(UiOutcome.Selected(""))
-      )
-      assert(Wizard(ui, probe, path).run(reconfigure = true))
-
-      // the coding-role model menu (4th select overall)
-      val codingModelMenu = ui.recordedChoices(3)
-      assertEquals(
-        codingModelMenu.map(_.value),
-        List(
-          ModelCatalog.ModelPick.Curated("sonnet"),
-          ModelCatalog.ModelPick.Curated("opus"),
-          ModelCatalog.ModelPick.Curated("fable"),
-          ModelCatalog.ModelPick.Manual,
-          ModelCatalog.ModelPick.Default
-        )
-      )
-
-  test(
     "re-configure starts each harness prompt on the current harness, not the fallback"
   ):
     withTempPath: path =>
@@ -665,43 +613,46 @@ class WizardTest extends munit.FunSuite:
       List("gpt-6-sol", "gpt-6-astra", "gpt-6-luna")
     )
 
-  test("roleDefault starts planning on fable and the other roles on opus"):
+  test("roleDefault starts only planning on claude off the flagship"):
     assertEquals(
       List(Wizard.Role.Planning, Wizard.Role.Coding, Wizard.Role.Review)
         .map(Wizard.roleDefault(_, BackendTag.ClaudeCode)),
-      List(Some("fable"), Some("opus"), Some("opus"))
+      List(Some("fable"), None, None)
     )
 
-  test("roleDefault is the first curated row off claude, none for free text"):
-    assertEquals(
-      Wizard.roleDefault(Wizard.Role.Planning, BackendTag.Codex),
-      Some("gpt-6-sol")
-    )
-    assertEquals(Wizard.roleDefault(Wizard.Role.Coding, BackendTag.Pi), None)
+  private val claudeRows = ModelCatalog.curated(BackendTag.ClaudeCode)
 
-  test(
-    "defaultPick prefers the matching curated row, then manual, then the default, then harness default"
-  ):
-    val curated = ModelCatalog.curated(BackendTag.ClaudeCode)
-    assertEquals(
-      ModelCatalog.defaultPick(curated, Some("sonnet"), Some("fable")),
-      ModelCatalog.ModelPick.Curated("sonnet")
-    )
+  test("defaultPick starts on the pinned model's curated row"):
     assertEquals(
       ModelCatalog.defaultPick(
-        curated,
-        Some("claude-opus-5-5[1m]"),
-        Some("fable")
+        claudeRows,
+        default = Some("fable"),
+        current = Some("sonnet")
+      ),
+      ModelCatalog.ModelPick.Curated("sonnet")
+    )
+
+  test("defaultPick starts on manual entry for a pin outside the curated rows"):
+    assertEquals(
+      ModelCatalog.defaultPick(
+        claudeRows,
+        default = Some("fable"),
+        current = Some("claude-opus-5-5[1m]")
       ),
       ModelCatalog.ModelPick.Manual
     )
+
+  test("defaultPick starts on the default without a pin"):
     assertEquals(
-      ModelCatalog.defaultPick(curated, None, Some("fable")),
+      ModelCatalog
+        .defaultPick(claudeRows, default = Some("fable"), current = None),
       ModelCatalog.ModelPick.Curated("fable")
     )
+
+  test("defaultPick starts on the first curated row without a pin or default"):
     assertEquals(
-      ModelCatalog.defaultPick(curated, None, None),
-      ModelCatalog.ModelPick.Default
+      ModelCatalog.defaultPick(claudeRows, default = None, current = None),
+      ModelCatalog.ModelPick.Curated("opus")
     )
 
   test(

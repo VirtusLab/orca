@@ -2,8 +2,6 @@ package orca.shell.sessions
 
 import orca.agents.SessionKey
 
-import java.time.Instant
-
 /** What makes two recorded sessions the same durable conversation. Flow session
   * keys are static ("implementer" on the same task in every run), so the key
   * alone would merge unrelated runs: the working directory separates them
@@ -27,36 +25,25 @@ private[shell] object LineageKey:
       LineageKey(s.manifest.workDir, s.manifest.branch, s.session.agent, _)
     )
 
-/** One durable conversation across every attempt that continued it: its most
-  * recently active occurrence, and the others, newest first.
-  */
-private[shell] case class Lineage(
-    latest: SessionSelection,
-    earlier: List[SessionSelection]
-)
-
 /** Every recorded session, grouped the way `continue` offers them (ADR 0021
-  * §8): durable lineages, newest `latest` first, and ephemeral sessions (Plan-
-  * stage calls, reviewer-selection calls, reviewer `chat()` runs), newest
-  * first. Ephemeral sessions are never grouped: each is a distinct fresh
-  * session. Shared by the interactive picker and `orca continue`, so both show
-  * and resolve the same sessions.
+  * §8), each list newest first: `latest` holds each durable lineage's most
+  * recently active occurrence, `earlier` the lineages' other occurrences, and
+  * `ephemeral` the sessions minted under no key (Plan-stage calls,
+  * reviewer-selection calls, reviewer `chat()` runs) — each a distinct fresh
+  * session, so never grouped. Shared by the interactive picker and `orca
+  * continue`, so both show and resolve the same sessions.
   */
-private[shell] case class SessionIndex(
-    lineages: List[Lineage],
+private[shell] case class SessionIndex private (
+    latest: List[SessionSelection],
+    earlier: List[SessionSelection],
     ephemeral: List[SessionSelection]
 ):
-
-  /** Every lineage's older occurrences, newest first. */
-  def earlier: List[SessionSelection] =
-    lineages.flatMap(_.earlier).sortBy(SessionIndex.recency).reverse
 
   /** Every session, in the order `continue --list` and the expanded picker show
     * them: each lineage's latest, then the earlier occurrences, then the
     * ephemeral sessions.
     */
-  def listing: List[SessionSelection] =
-    lineages.map(_.latest) ++ earlier ++ ephemeral
+  def listing: List[SessionSelection] = latest ++ earlier ++ ephemeral
 
   /** Resolves a `continue` selector to a session: no selector picks the newest
     * durable lineage, a [[SessionRef]] spelling picks that session, and
@@ -78,9 +65,9 @@ private[shell] case class SessionIndex(
           case None      => byNameOrBranch(s)
 
   private def newest: Either[String, SessionSelection] =
-    lineages.headOption match
-      case Some(lineage) =>
-        resumable(lineage.latest, "can't resume the newest session")
+    latest.headOption match
+      case Some(newest) =>
+        requireResumable(newest, "can't resume the newest session")
       case None if ephemeral.nonEmpty =>
         Left("no durable session to continue yet — see `orca continue --list`")
       case None => Left("no sessions recorded yet")
@@ -94,12 +81,11 @@ private[shell] case class SessionIndex(
       .toRight(
         s"no session $spelled — it may have been pruned; see `orca continue --list`"
       )
-      .flatMap(resumable(_, s"session $spelled isn't resumable"))
+      .flatMap(requireResumable(_, s"session $spelled isn't resumable"))
 
   private def byNameOrBranch(
       selector: String
   ): Either[String, SessionSelection] =
-    val latest = lineages.map(_.latest)
     val byName = latest.filter(_.session.minted.exists(_.name == selector))
     val byBranch = latest.filter(_.manifest.branch.contains(selector))
     (byName, byBranch) match
@@ -133,7 +119,7 @@ private[shell] case class SessionIndex(
         else SessionIndex.workDirsOf(matches)
       Left(SessionIndex.ambiguity(selector = name, where = where))
     else
-      resumable(
+      requireResumable(
         matches.maxBy(_.session.lastActiveAt),
         s"session '$name' isn't resumable"
       )
@@ -152,20 +138,20 @@ private[shell] case class SessionIndex(
         )
       )
     else
-      resumable(
+      requireResumable(
         matches.maxBy(_.session.lastActiveAt),
         s"the newest session on branch '$branch' isn't resumable"
       )
 
-  /** `s`, or a refusal reading `<notResumable> — <reason>`. */
-  private def resumable(
+  /** `s`, or a refusal reading `<refusalPrefix> — <reason>`. */
+  private def requireResumable(
       s: SessionSelection,
-      notResumable: String
+      refusalPrefix: String
   ): Either[String, SessionSelection] =
     ResumeCommand
       .staticGate(s.session)
       .left
-      .map(reason => s"$notResumable — $reason")
+      .map(reason => s"$refusalPrefix — $reason")
       .map(_ => s)
 
 private[shell] object SessionIndex:
@@ -182,21 +168,19 @@ private[shell] object SessionIndex:
         session,
         attempt.crashed
       )
-    val durable = all.flatMap(s => LineageKey.of(s).map(_ -> s))
-    val lineages = durable
-      .groupMap(_._1)(_._2)
-      .values
-      .map: occurrences =>
-        val newestFirst = occurrences.sortBy(recency).reverse
-        Lineage(newestFirst.head, newestFirst.tail)
-      .toList
-      .sortBy(l => recency(l.latest))
-      .reverse
-    val ephemeral = all.filter(LineageKey.of(_).isEmpty)
-    SessionIndex(lineages, ephemeral.sortBy(recency).reverse)
+    val byLineage = all.groupBy(LineageKey.of)
+    val lineages = byLineage.collect:
+      case (Some(_), occurrences) => newestFirst(occurrences)
+    SessionIndex(
+      latest = newestFirst(lineages.map(_.head).toList),
+      earlier = newestFirst(lineages.flatMap(_.tail).toList),
+      ephemeral = newestFirst(byLineage.getOrElse(None, Nil))
+    )
 
-  private def recency(s: SessionSelection): Instant =
-    s.session.lastActiveAt
+  private def newestFirst(
+      sessions: List[SessionSelection]
+  ): List[SessionSelection] =
+    sessions.sortBy(_.session.lastActiveAt).reverse
 
   private def workDirsOf(matches: List[SessionSelection]): String =
     s"working directories: ${matches.map(_.manifest.workDir).distinct.mkString(", ")}"

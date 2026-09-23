@@ -87,7 +87,7 @@ private[ui] final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
     config.setCancellableFirstPrompt(true)
     ConsolePrompt(terminal, config)
 
-  protected def selectOrdered[A](
+  protected def selectInOrder[A](
       title: String,
       choices: List[Choice[A]]
   ): UiOutcome[A] =

@@ -27,7 +27,7 @@ import orca.testkit.TempDirs
 private class ConfirmOnlyUi(outcome: UiOutcome[Boolean]) extends ShellUi:
   var recordedQuestion: Option[String] = None
   var recordedDefault: Option[Boolean] = None
-  protected def selectOrdered[A](
+  protected def selectInOrder[A](
       title: String,
       choices: List[Choice[A]]
   ): UiOutcome[A] =
@@ -49,7 +49,7 @@ private class ConfirmOnlyUi(outcome: UiOutcome[Boolean]) extends ShellUi:
 private class RecordingSelectUi[T](outcome: UiOutcome[T]) extends ShellUi:
   private var shown: List[List[Choice[T]]] = Nil
   def recordedChoices: List[List[Choice[T]]] = shown
-  protected def selectOrdered[A](
+  protected def selectInOrder[A](
       title: String,
       choices: List[Choice[A]]
   ): UiOutcome[A] =
@@ -82,7 +82,7 @@ private class FlowScriptedUi(
   var inputMultilineCount = 0
   var inputCount = 0
 
-  protected def selectOrdered[A](
+  protected def selectInOrder[A](
       title: String,
       choices: List[Choice[A]]
   ): UiOutcome[A] =
@@ -568,15 +568,6 @@ class MainTest extends munit.FunSuite:
   private val threeFlows =
     List(flow("alpha.sc"), flow("implement.sc"), flow("zeta.sc"))
 
-  test("pickFlow: the default flow is shown first, the rest in order"):
-    val ui = new RecordingSelectUi[DiscoveredFlow](UiOutcome.Cancelled)
-    val _ =
-      Main.pickFlow(ui, "Run which flow?", threeFlows, threeFlows.lift(1))
-    assertEquals(
-      ui.recordedChoices.head.map(_.value.name),
-      List("implement.sc", "alpha.sc", "zeta.sc")
-    )
-
   test(
     "pickFlow: view/edit pickers (no default given) stay alphabetical"
   ):
@@ -610,6 +601,14 @@ class MainTest extends munit.FunSuite:
     )
 
   // --- runFlow (the interactive launch path) ---
+
+  test("runFlow: the flow picker starts on the flagship flow"):
+    val ui = new RecordingSelectUi[DiscoveredFlow](UiOutcome.Cancelled)
+    withDumbTerminal(Main.runFlow(ui, _, TempDirs.dir()))
+    assertEquals(
+      ui.recordedChoices.head.headOption.map(_.value.name),
+      Some(Main.FlagshipFlow)
+    )
 
   /** Runs [[Main.runFlow]] picking a flow, typing a task, then picking `target`
     * and answering the branch prompt from `branchAnswers`; returns the UI and

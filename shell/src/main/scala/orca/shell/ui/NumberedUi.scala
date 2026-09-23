@@ -11,13 +11,13 @@ import scala.annotation.tailrec
 private[ui] final class NumberedUi(in: BufferedReader, out: PrintStream)
     extends ShellUi:
 
-  protected def selectOrdered[A](
+  protected def selectInOrder[A](
       title: String,
       choices: List[Choice[A]]
   ): UiOutcome[A] =
     out.println(title)
     choices.zipWithIndex.foreach { case (choice, index) =>
-      out.println(s" ${index + 1}. ${choice.renderedLabel}")
+      out.println(s"${index + 1}. ${choice.renderedLabel}")
     }
 
     @tailrec def loop(): UiOutcome[A] =

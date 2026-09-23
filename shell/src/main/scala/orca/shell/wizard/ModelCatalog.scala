@@ -40,20 +40,18 @@ private[shell] object ModelCatalog:
 
   /** The row a curated model picker starts on: the matching curated row if
     * `current` names one, "enter manually" if it pins something else (the
-    * follow-up input is prefilled with it), else `default`'s row, else "harness
-    * default".
+    * follow-up input is prefilled with it), else `default`'s row, else the
+    * first of `rows`, which must be non-empty.
     */
   def defaultPick(
       rows: List[(String, String)],
-      current: Option[String],
-      default: Option[String]
+      default: Option[String],
+      current: Option[String]
   ): ModelPick =
-    val curatedIds = rows.map(_._1).toSet
     current match
-      case Some(model) if curatedIds.contains(model) => ModelPick.Curated(model)
+      case Some(model) if rows.exists(_._1 == model) => ModelPick.Curated(model)
       case Some(_)                                   => ModelPick.Manual
-      case None =>
-        default.map(ModelPick.Curated.apply).getOrElse(ModelPick.Default)
+      case None => ModelPick.Curated(default.getOrElse(rows.head._1))
 
   /** The free-text hint appended to the model prompt for harnesses picked
     * entirely by hand.
@@ -87,7 +85,8 @@ private[shell] object ModelCatalog:
     * aliases ([[curated]]), free text otherwise. `label` names the prompt (e.g.
     * `"Coding model"`); `current` is the existing pin, if any, offered as the
     * free-text default and as the curated select's default ([[defaultPick]]);
-    * `default` is the curated model to start on when nothing is pinned.
+    * `default` is the curated model to start on when nothing is pinned, the
+    * first curated row when `None`.
     */
   def pick(
       ui: ShellUi,
@@ -105,13 +104,16 @@ private[shell] object ModelCatalog:
         rows.map((id, desc) => Choice(ModelPick.Curated(id), s"$id — $desc")) :+
           Choice(ModelPick.Manual, "enter manually…") :+
           Choice(ModelPick.Default, "harness default (no model pin)")
-      ui.select(label, choices, Some(defaultPick(rows, current, default)))
-        .flatMap:
-          case ModelPick.Curated(id) => UiOutcome.Selected(Some(id))
-          case ModelPick.Default     => UiOutcome.Selected(None)
-          case ModelPick.Manual =>
-            val hint = clearAffordance(current)
-            freeText(ui, s"$label$hint", current)
+      ui.select(
+        label,
+        choices,
+        Some(defaultPick(rows, default = default, current = current))
+      ).flatMap:
+        case ModelPick.Curated(id) => UiOutcome.Selected(Some(id))
+        case ModelPick.Default     => UiOutcome.Selected(None)
+        case ModelPick.Manual =>
+          val hint = clearAffordance(current)
+          freeText(ui, s"$label$hint", current)
 
   private def freeText(
       ui: ShellUi,

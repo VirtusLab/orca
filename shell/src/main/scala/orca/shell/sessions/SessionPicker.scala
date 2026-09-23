@@ -1,13 +1,12 @@
 package orca.shell.sessions
 
 import orca.StagePath
-import orca.runner.manifest.ManifestSession
 import orca.settings.AgentSpec
 import orca.shell.ui.Choice
 
 /** The continue-a-session picker (ADR 0021 §8): labels a [[SessionIndex]]'s
   * sessions as selectable rows for the interactive menu
-  * (`Main.continueSession`), and the naming it shares with `continue --list`.
+  * (`Main.continueSession`).
   */
 private[shell] object SessionPicker:
 
@@ -42,10 +41,10 @@ private[shell] object SessionPicker:
       index: SessionIndex,
       expanded: Boolean
   ): List[Choice[PickerRow]] =
-    val tag = dirTag(index)
+    val tag = SessionNaming.dirTag(index)
     val where = (s: SessionSelection) =>
       tag(s.manifest.workDir, s.manifest.branch)
-    val primary = index.lineages.map(_.latest)
+    val primary = index.latest
     val primaryLabels = primary.map(s => (s, primaryLabel(s) + where(s)))
     val mintedIn = mintedInTag(primaryLabels)
 
@@ -96,29 +95,6 @@ private[shell] object SessionPicker:
             case StagePath.Stage(id) => s" (minted in ${id.value})"
             case _                   => " (minted in the flow body)"
 
-  /** How a row says which tree its session is in, given the index being
-    * rendered and the row's `(workDir, branch)`: nothing when the sessions
-    * share one `workDir` or the row has a branch, otherwise a ` @<dir>` suffix.
-    * The interactive picker and `orca continue --list` both call this over the
-    * same index, so the two surfaces cannot drift on either the rule or the
-    * marker's shape.
-    */
-  private[shell] def dirTag(
-      index: SessionIndex
-  ): (String, Option[String]) => String =
-    if index.listing.map(_.manifest.workDir).distinct.sizeIs <= 1 then
-      (_, _) => ""
-    else
-      (workDir, branch) =>
-        if branch.isDefined then "" else s" @${lastSegment(workDir)}"
-
-  /** A recorded `workDir`'s final segment. String-sliced, not `os.Path`-parsed:
-    * the value is manifest content, and a hand-edited one need not be an
-    * absolute path.
-    */
-  private def lastSegment(workDir: String): String =
-    workDir.split('/').filter(_.nonEmpty).lastOption.getOrElse(workDir)
-
   private def resumeRow(
       s: SessionSelection,
       label: String
@@ -146,47 +122,34 @@ private[shell] object SessionPicker:
     * stage yet)` when the durable session hasn't entered a stage (rare — custom
     * flows only); the branch segment is omitted when the attempt recorded none.
     */
-  private def primaryLabel(o: SessionSelection): String =
-    val name = displayName(o.session)
-    val stage = o.session.stage.fold("no stage yet")(s => s"stage: $s")
-    val harness = AgentSpec.harnessNameFor(o.session.harness)
-    val crashedSuffix = if o.crashed then " (crashed)" else ""
-    s"★ $name — latest ($stage) [$harness]${onBranch(o)}$crashedSuffix"
+  private def primaryLabel(selection: SessionSelection): String =
+    val name = SessionNaming.displayName(selection.session)
+    val stage = selection.session.stage.fold("no stage yet")(s => s"stage: $s")
+    val harness = AgentSpec.harnessNameFor(selection.session.harness)
+    val crashedSuffix = if selection.crashed then " (crashed)" else ""
+    s"★ $name — latest ($stage) [$harness]${onBranch(selection)}$crashedSuffix"
 
   /** `<session> — stage <stage> [<harness>] (earlier occurrence) on <branch>`,
     * shown only when the picker is expanded; the branch segment as in
     * [[primaryLabel]].
     */
-  private def earlierLabel(o: SessionSelection): String =
-    val name = displayName(o.session)
-    val stage = o.session.stage.fold("")(s => s" — stage $s")
-    val harness = AgentSpec.harnessNameFor(o.session.harness)
-    val crashedSuffix = if o.crashed then " (crashed)" else ""
-    s"$name$stage [$harness] (earlier occurrence)${onBranch(o)}$crashedSuffix"
+  private def earlierLabel(selection: SessionSelection): String =
+    val name = SessionNaming.displayName(selection.session)
+    val stage = selection.session.stage.fold("")(s => s" — stage $s")
+    val harness = AgentSpec.harnessNameFor(selection.session.harness)
+    val crashedSuffix = if selection.crashed then " (crashed)" else ""
+    s"$name$stage [$harness] (earlier occurrence)${onBranch(selection)}$crashedSuffix"
 
   /** `<agent> (<role>) — stage <stage> [<harness>] (ephemeral) on <branch>`,
     * omitting the role/stage/branch segments when absent; shown only when the
     * picker is expanded.
     */
-  private def ephemeralLabel(o: SessionSelection): String =
-    val role = o.session.role.fold("")(r => s" ($r)")
-    val stage = o.session.stage.fold("")(s => s" — stage $s")
-    val harness = AgentSpec.harnessNameFor(o.session.harness)
-    val crashedSuffix = if o.crashed then " (crashed)" else ""
-    s"${o.session.agent}$role$stage [$harness] (ephemeral)${onBranch(o)}$crashedSuffix"
+  private def ephemeralLabel(selection: SessionSelection): String =
+    val role = selection.session.role.fold("")(r => s" ($r)")
+    val stage = selection.session.stage.fold("")(s => s" — stage $s")
+    val harness = AgentSpec.harnessNameFor(selection.session.harness)
+    val crashedSuffix = if selection.crashed then " (crashed)" else ""
+    s"${selection.session.agent}$role$stage [$harness] (ephemeral)${onBranch(selection)}$crashedSuffix"
 
-  private def onBranch(o: SessionSelection): String =
-    o.manifest.branch.fold("")(b => s" on $b")
-
-  /** How a session reads to a person: the name it was minted under, or the
-    * agent name for an ephemeral session. Every shell surface that shows a
-    * session calls this, so the picker, `continue --list` and the pre-resume
-    * notice cannot drift.
-    *
-    * The name alone: the key's other half, the minting stage, is a path id
-    * rather than prose. A row's `(stage: ...)` segment is a different field —
-    * where the session was last active — so [[mintedInTag]] is what appends the
-    * minting stage where two rows need it to tell them apart.
-    */
-  private[shell] def displayName(session: ManifestSession): String =
-    session.minted.fold(session.agent)(_.name)
+  private def onBranch(selection: SessionSelection): String =
+    selection.manifest.branch.fold("")(b => s" on $b")

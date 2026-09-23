@@ -27,21 +27,21 @@ enum UiOutcome[+A]:
 trait ShellUi:
   /** Presents `choices` and returns the picked value, or
     * [[UiOutcome.Cancelled]] on ESC/Ctrl-C/EOF. `default`, when it names an
-    * enabled choice, is shown first — where both backends start the cursor —
-    * and the other rows keep their order. A disabled choice (`disabledReason`
-    * set, [[Choice.isEnabled]] false) is never returned even if picked: the
-    * backend prints [[Choice.disabledSelectionMessage]] and re-prompts instead,
-    * so a disabled row can be looked at and read, never acted on silently.
+    * enabled choice, is listed first (where the tty backend starts the cursor);
+    * the other rows keep their order. A disabled choice (`disabledReason` set,
+    * [[Choice.isEnabled]] false) is never returned even if picked: the backend
+    * prints [[Choice.disabledSelectionMessage]] and re-prompts instead, so a
+    * disabled row can be looked at and read, never acted on silently.
     */
   final def select[A](
       title: String,
       choices: List[Choice[A]],
       default: Option[A] = None
   ): UiOutcome[A] =
-    selectOrdered(title, Choice.defaultFirst(choices, default))
+    selectInOrder(title, Choice.defaultFirst(choices, default))
 
   /** [[select]]'s backend: presents `choices` in the given order. */
-  protected def selectOrdered[A](
+  protected def selectInOrder[A](
       title: String,
       choices: List[Choice[A]]
   ): UiOutcome[A]
