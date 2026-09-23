@@ -1105,7 +1105,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       diff = ReviewDiff.WholeRun,
       priorOpenFindings = List(
         declinedNit("R1.I1.1", "task one declined it"),
-        declinedNit("R1.I1.1", "task two declined it too")
+        declinedNit("R1.I1.3", "task two declined it too")
       )
     )
     assertEquals(

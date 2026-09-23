@@ -22,10 +22,9 @@ private[review] object IdentifiedFinding:
     * latest reason.
     */
   def withSeedIds(prior: List[OpenFinding]): List[OpenFinding] =
-    def defectOf(f: OpenFinding) = defect(f.title, f.location)
-    val latest = prior.map(f => defectOf(f) -> f).toMap
+    val latest = prior.map(f => defect(f.title, f.location) -> f).toMap
     prior
-      .map(defectOf)
+      .map(f => defect(f.title, f.location))
       .distinct
       .zipWithIndex
       .map((d, i) => latest(d).copy(id = FindingId.seed(i + 1)))
@@ -52,11 +51,15 @@ private[review] object IdentifiedFinding:
         // A new id is minted from the first copy's key.
         copies
           .collectFirst { case (_, Some(id)) => id }
-          .getOrElse(FindingId.reported(round, copies.head._1.key))
+          .getOrElse:
+            val (first, _) = copies.head
+            FindingId.reported(round, first.key)
       .toMap
     keyed.map(k => IdentifiedFinding(idOfDefect(defectOf(k.finding)), k))
 
-  /** The open entry `finding` reopens, given all of `roundFindings`. */
+  /** The open entry `finding` reopens; `roundFindings` decide whether a title
+    * match is contested.
+    */
   private def reopened(
       open: List[OpenFinding],
       roundFindings: List[ReviewFinding],

@@ -105,7 +105,7 @@ class IdentifiedFindingTest extends munit.FunSuite:
     )
 
   test(
-    "an entry one finding names and another matches by title goes to the first"
+    "an entry one finding names and another matches by title goes to the namer"
   ):
     // The reworded finding names the entry, so the other one with its old
     // title elsewhere in the file is a different defect.
