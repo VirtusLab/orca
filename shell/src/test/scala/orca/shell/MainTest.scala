@@ -13,7 +13,7 @@ import orca.shell.run.{FlowFlags, LaunchResult}
 import orca.shell.sessions.{RecordedAttempt, SessionPicker, SessionSelection}
 import orca.shell.sessions.ManifestFixtures.{durable, ephemeral, manifest}
 import orca.shell.ui.{Choice, ShellUi, UiOutcome}
-import orca.testkit.TempDirs
+import orca.testkit.{TempDirs, branchName}
 
 /** Answers a single fixed `confirm` outcome, recording the question it was
   * asked and the default offered; every other prompt is unsupported —
@@ -1010,7 +1010,7 @@ class MainTest extends munit.FunSuite:
       val run = InterruptedRun(
         flowName = "resume-flow.sc",
         userPrompt = "fix the flaky test\nwith detail",
-        branch = "feat/x",
+        branch = branchName("feat/x"),
         dir = workDir
       )
       var recorded: Option[(String, String)] = None
@@ -1042,7 +1042,7 @@ class MainTest extends munit.FunSuite:
       val run = InterruptedRun(
         flowName = "resume-flow.sc",
         userPrompt = "fix the flaky test",
-        branch = "feat/x",
+        branch = branchName("feat/x"),
         dir = worktree
       )
       var recorded: Option[(os.Path, FlowFlags)] = None
@@ -1073,7 +1073,7 @@ class MainTest extends munit.FunSuite:
       val run = InterruptedRun(
         flowName = "no-such-flow.sc",
         userPrompt = "x",
-        branch = "feat/x",
+        branch = branchName("feat/x"),
         dir = workDir
       )
       var launched = false

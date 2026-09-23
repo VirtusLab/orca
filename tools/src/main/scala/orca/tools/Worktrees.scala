@@ -159,10 +159,8 @@ private[orca] object Worktrees:
         )
 
   /** Put `worktree` on `name`, at its current HEAD (`checkout -B`). Used on a
-    * freshly [[add]]ed worktree, which git leaves detached — a state whose
-    * current branch reads back as the literal "HEAD", which a run records as
-    * its starting branch and resume then refuses as an unsafe ref — and on a
-    * reused worktree found detached, which is that same state arrived at later.
+    * freshly [[add]]ed worktree, which git leaves detached, and on a reused
+    * worktree found detached, which is that same state arrived at later.
     *
     * `-B` would reset an existing `name`, so a branch already carrying commits
     * this HEAD cannot reach is refused instead: every removal route for a
@@ -182,23 +180,12 @@ private[orca] object Worktrees:
       if result.exitCode == 0 then Right(())
       else Left(StartBranchFailure.GitFailed(result.err.text().trim))
 
-  /** The branch `worktree`'s HEAD is on, `Some("HEAD")` when it is detached,
-    * and `None` when the question could not be answered at all — an unstartable
-    * git, or a worktree directory that has gone away.
-    *
-    * Three-valued on purpose: callers repair a detached worktree, and reading
-    * "could not answer" as "on a branch" would skip the repair for a tree whose
-    * state is unknown. Same rule [[startBranch]] states for its own probe.
-    */
-  def headBranch(worktree: os.Path): Option[String] =
-    probe(worktree, "rev-parse", "--abbrev-ref", "HEAD").map(_.trim)
-
   /** Whether HEAD is DEFINITELY on a branch — `false` for a detached checkout
-    * and for a worktree that cannot be read, so a caller acting on it fails
-    * closed.
+    * and for a worktree that cannot be read, so a caller repairing a detached
+    * worktree fails closed. Same rule [[startBranch]] states for its own probe.
     */
   def onABranch(worktree: os.Path): Boolean =
-    headBranch(worktree).exists(_ != "HEAD")
+    probe(worktree, "symbolic-ref", "--quiet", "HEAD").isDefined
 
   private def wouldLoseCommits(cwd: os.Path, branch: String): Boolean =
     val exists =

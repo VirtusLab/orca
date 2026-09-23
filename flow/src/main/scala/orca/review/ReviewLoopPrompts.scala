@@ -1,6 +1,7 @@
 package orca.review
 
 import orca.BoundedDiff
+import orca.gitref.CommitHash
 import orca.plan.Task
 import orca.util.PromptResource
 
@@ -79,7 +80,7 @@ object ReviewLoopPrompts:
       userRequest: String,
       diff: String,
       diffIntro: String,
-      base: Option[String],
+      base: Option[CommitHash],
       open: OpenFindings
   ): String =
     PromptResource.render(
@@ -115,13 +116,15 @@ object ReviewLoopPrompts:
     * — the template writes `{{diffBlock}}{{baseNote}}` with no separator of its
     * own.
     */
-  private def baseNote(base: Option[String]): String =
-    base.fold(""): sha =>
-      s"\n\nThe diff above is everything that changed since commit $sha. To " +
-        "see what the diff doesn't show, read a file as it was before the " +
-        s"change: `git_file_at` at that commit, or `git show $sha:<path>` if " +
-        "you have a shell. What you review is still the diff; the base " +
-        "commit is there for evidence, not for widening your scope."
+  private def baseNote(base: Option[CommitHash]): String =
+    base
+      .map(_.value)
+      .fold(""): sha =>
+        s"\n\nThe diff above is everything that changed since commit $sha. To " +
+          "see what the diff doesn't show, read a file as it was before the " +
+          s"change: `git_file_at` at that commit, or `git show $sha:<path>` if " +
+          "you have a shell. What you review is still the diff; the base " +
+          "commit is there for evidence, not for widening your scope."
 
   private val ReReviewTemplate: String =
     PromptResource

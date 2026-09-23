@@ -47,6 +47,7 @@ backend-agnostic role accessors (ADR 0020) — `stage`/`display`/`fail`,
 `JsonData`, `OrcaArgs` and the `RunTarget` its flags parse into).
 Implementations live in
 focused subpackages: `orca.tools` (os-backed git/gh/fs impls + their traits),
+`orca.gitref` (validated branch names and commit hashes, and `Head`),
 `orca.agents` + `orca.backend` (LLM SPI, `SessionSupport`,
 conversation driver), `orca.subprocess` (subprocess shim), `orca.sweep`
 (finds agent work that outlived a turn), `orca.events`
@@ -114,8 +115,9 @@ most easily broken:
 - **Progress log + recovery.** A run commits `.orca/runs/<key>.progress.json`
   (`RunKey`, the prompt hash — so the path is branch-independent) with one entry
   per completed stage; a later attempt replays recorded entries and skips them. The header is untrusted on
-  load — `orca.progress.RecoveryCheck` validates it (safe ref, prompt-hash match,
-  protected-branch refusal) before any destructive git op.
+  load — its refs are typed, so a malformed one fails to decode (the log reads
+  as corrupt), and `orca.progress.RecoveryCheck` validates the rest
+  (prompt-hash match, protected-branch refusal) before any destructive git op.
 
 - **Sessions.** `AgentBackend.sessions: SessionSupport[B]` is one final class
   built from two per-backend choices: durability —

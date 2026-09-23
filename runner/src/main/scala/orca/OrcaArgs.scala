@@ -1,7 +1,8 @@
 package orca
 
 import mainargs.{Flag, ParserForClass, arg}
-import orca.progress.BranchName
+import orca.gitref.BranchName
+import orca.progress.FeatureBranch
 
 /** The argv shape mainargs parses: one raw flag per `--`-spelled option,
   * including the `--worktree` combinations orca refuses. [[OrcaArgs.parse]] is
@@ -47,7 +48,7 @@ object OrcaArgs:
   def parse(args: Seq[String]): Either[String, OrcaArgs] =
     for
       raw <- summon[ParserForClass[RawArgs]].constructEither(args.toList)
-      branch <- BranchName.parseOptional(raw.branch)
+      branch <- FeatureBranch.parseRequestedOptional(raw.branch)
       target <- RunTarget.from(
         worktree = raw.worktree.value,
         skipBranch = raw.skipBranch.value,

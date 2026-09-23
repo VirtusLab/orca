@@ -3,7 +3,7 @@ package orca.shell.cli
 import mainargs.{Flag, ParserForMethods, Renderer, Util, arg, main}
 import org.jline.terminal.Terminal
 import orca.{ConfigHome, RunTarget}
-import orca.progress.BranchName
+import orca.progress.FeatureBranch
 import orca.shell.WorktreeScan
 import orca.shell.run.{FlowFlags, LaunchResult}
 import orca.shell.ui.ShellUi
@@ -172,7 +172,7 @@ private[shell] object Cli:
   ): Int =
     val flags =
       for
-        givenBranch <- BranchName.parseOptional(branch)
+        givenBranch <- FeatureBranch.parseRequestedOptional(branch)
         target <- RunTarget.from(
           worktree = worktree.value,
           skipBranch = skipBranch.value,

@@ -1,42 +1,50 @@
-package orca.progress
+package orca.gitref
 
-import java.util.Locale
+import com.github.plokhotnyuk.jsoniter_scala.core.{JsonReader, JsonWriter}
+import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
+import orca.agents.JsonData
+import sttp.tapir.Schema
 
-/** A branch name the user asked for, validated at the CLI boundary against `git
-  * check-ref-format --branch` and the always-protected floor
-  * ([[FeatureBranch.alwaysProtected]]). Does not refuse the repo's own default
-  * branch, which is known only at run time; `FlowLifecycle` refuses it when
-  * minting a [[FeatureBranch]] from this name.
+/** A local branch name that satisfies `git check-ref-format --branch`, so it
+  * reaches git as a branch and never as an option, a range or the pseudo-ref
+  * `HEAD`. Says nothing about which branches orca may write to — that policy is
+  * `orca.progress.FeatureBranch`'s.
+  *
+  * The JSON codec decodes through [[parse]], so a persisted document holding
+  * anything else fails to parse rather than reaching git.
   */
 opaque type BranchName = String
 
 object BranchName:
 
   /** Refuses `raw` with a message naming the violated rule when it is not a
-    * valid branch name or is a protected branch (case-insensitively).
+    * valid branch name.
     */
   def parse(raw: String): Either[String, BranchName] =
-    violation(raw) match
-      case Some(rule) =>
-        Left(s"Branch name '$raw' $rule; pick another name.")
-      case None => Right(raw)
+    refFormatViolation(raw) match
+      case Some(rule) => Left(refusal(raw, rule))
+      case None       => Right(raw)
 
-  /** [[parse]] for an optional `--branch` flag; `None` passes through. */
-  def parseOptional(raw: Option[String]): Either[String, Option[BranchName]] =
-    raw match
-      case None       => Right(None)
-      case Some(name) => parse(name).map(Some(_))
+  /** The message [[parse]] refuses `raw` with, for a caller adding its own rule
+    * on top.
+    */
+  def refusal(raw: String, rule: String): String =
+    s"Branch name '$raw' $rule; pick another name."
+
+  given JsonData[BranchName] = JsonData(
+    Schema.schemaForString,
+    new ConfiguredJsonValueCodec[BranchName]:
+      def decodeValue(in: JsonReader, default: BranchName): BranchName =
+        in.readString(null) match
+          case null => in.decodeError("expected a branch name")
+          case s    => parse(s).getOrElse(in.decodeError(s"not a branch: $s"))
+      def encodeValue(x: BranchName, out: JsonWriter): Unit = out.writeVal(x)
+      def nullValue: BranchName = null
+  )
 
   extension (b: BranchName) def value: String = b
 
   private val forbiddenChars = "~^:?*[\\"
-
-  private def violation(raw: String): Option[String] =
-    refFormatViolation(raw).orElse(
-      Option.when(
-        FeatureBranch.alwaysProtected.contains(raw.toLowerCase(Locale.ROOT))
-      )("is a protected branch")
-    )
 
   private def components(raw: String): List[String] =
     raw.split("/", -1).toList
@@ -74,5 +82,5 @@ object BranchName:
     * Stricter than git on whitespace and control characters: Unicode ones are
     * refused too.
     */
-  private[progress] def refFormatViolation(raw: String): Option[String] =
+  private def refFormatViolation(raw: String): Option[String] =
     refFormatRules.collectFirst { case (broken, rule) if broken(raw) => rule }

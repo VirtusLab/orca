@@ -1,7 +1,7 @@
 package orca.runner
 
 import orca.{ConfigHome, FlowContext, OrcaDir, StackSettings}
-import orca.testkit.{GitRepo, TempDirs}
+import orca.testkit.{GitRepo, TempDirs, currentBranch}
 import orca.tools.OsGitTool
 
 import java.util.concurrent.atomic.AtomicReference

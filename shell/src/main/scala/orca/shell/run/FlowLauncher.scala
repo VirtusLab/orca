@@ -2,7 +2,7 @@ package orca.shell.run
 
 import org.jline.terminal.Terminal
 import orca.{RunTarget, XdgDirs}
-import orca.progress.BranchName
+import orca.gitref.BranchName
 import orca.shell.ShellVersion
 import orca.shell.ui.{ShellOutput, ShellUi, UiOutcome}
 import orca.subprocess.QuietProc

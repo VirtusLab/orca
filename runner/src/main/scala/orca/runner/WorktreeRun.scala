@@ -83,9 +83,7 @@ private[orca] object WorktreeRun:
   /** An existing registered worktree, made fit to run in: ignore marker back in
     * place (`git clean -xdf` in the main checkout removes it and leaves the
     * worktree it hides), and off a detached HEAD — a create that got half way,
-    * `add` having succeeded where the branch step did not. Running detached
-    * records the literal "HEAD" as the run's starting branch, which resume
-    * refuses as an unsafe ref.
+    * `add` having succeeded where the branch step did not.
     *
     * Every path that concludes "reuse the worktree at `path`" comes through
     * here, so none of them can skip the repair.
@@ -96,8 +94,7 @@ private[orca] object WorktreeRun:
   ): Either[String, os.Path] =
     val _ = OrcaDir.ensureWorktrees(mainCheckout)
     // Anything but a definite branch goes through the repair, unreadable
-    // included: skipping it for a tree whose state is unknown is how a run ends
-    // up recording the literal "HEAD" as its starting branch.
+    // included.
     if Worktrees.onABranch(path) then Right(path) else bindBranch(path)
 
   /** Whether `workDir` is a worktree orca made for its own repository — the

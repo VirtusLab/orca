@@ -1,7 +1,7 @@
 package orca.shell.run
 
 import orca.{RunTarget, Uncommitted}
-import orca.progress.BranchName
+import orca.gitref.BranchName
 
 class FlowLauncherTest extends munit.FunSuite:
 

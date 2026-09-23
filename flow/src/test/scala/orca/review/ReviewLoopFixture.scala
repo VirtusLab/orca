@@ -19,7 +19,7 @@ import orca.agents.{
 }
 import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
 import orca.plan.{Task, Title}
-import orca.progress.CommitHash
+import orca.gitref.CommitHash
 
 import scala.util.matching.Regex
 

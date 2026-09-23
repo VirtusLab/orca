@@ -17,15 +17,20 @@ class FeatureBranchTest extends FunSuite:
     assert(!FeatureBranch.isSafeBranchRef("Feat"))
     assert(!FeatureBranch.isSafeBranchRef("a/"))
 
-  test(
-    "isSafeReusedRef accepts mixed case and slashed names slugs would reject"
-  ):
-    assert(FeatureBranch.isSafeReusedRef("feature/JIRA-123"))
-    assert(FeatureBranch.isSafeReusedRef("Feature-ABC"))
-    assert(FeatureBranch.isSafeReusedRef("add-foo")) // a slug also passes
+  test("parseRequested refuses the protected floor case-insensitively"):
+    for raw <- List("main", "Master") do
+      assert(
+        FeatureBranch.parseRequested(raw).left.exists(_.contains("protected")),
+        s"$raw must be refused"
+      )
 
-  test("isSafeReusedRef rejects a name git refuses as a branch"):
-    assert(!FeatureBranch.isSafeReusedRef("-flag"))
+  test(
+    "parseRequested accepts mixed case and slashed names slugs would reject"
+  ):
+    assertEquals(
+      FeatureBranch.parseRequested("feature/JIRA-123").map(_.value),
+      Right("feature/JIRA-123")
+    )
 
   test("resolve refuses the always-protected floor regardless of the set"):
     for protectedName <- List("main", "master", "MAIN", "Master") do

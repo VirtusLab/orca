@@ -86,7 +86,7 @@ object FlowCanary:
   def accessors(): Unit =
     flow(OrcaArgs()):
       stage("tools"):
-        val _ = git.createBranch("x")
+        val _ = git.head()
         val _ = git.commit("msg")
         val _ = gh
         val _ = fs

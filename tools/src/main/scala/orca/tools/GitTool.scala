@@ -2,6 +2,7 @@ package orca.tools
 
 import orca.{OrcaFlowException, WorkspaceWrite}
 import orca.events.{OrcaEvent, OrcaListener}
+import orca.gitref.{BranchName, CommitHash, Head}
 import orca.subprocess.{CappedResult, QuietProc}
 import ox.either
 import ox.either.ok
@@ -144,14 +145,14 @@ case class ReviewSample(diff: String, files: List[ChangedFile])
   * missing, IO error) which surface as thrown `OrcaFlowException`. Subclasses
   * `OrcaFlowException` so callers can `.orThrow` when the case is unexpected.
   */
-class BranchAlreadyExists(name: String)
-    extends OrcaFlowException(s"branch '$name' already exists")
+class BranchAlreadyExists(name: BranchName)
+    extends OrcaFlowException(s"branch '${name.value}' already exists")
 
 /** Returned in the `Left` of [[GitTool.checkout]] when no branch by that name
   * exists. Same throw-or-handle contract as [[BranchAlreadyExists]].
   */
-class BranchNotFound(name: String)
-    extends OrcaFlowException(s"branch '$name' not found")
+class BranchNotFound(name: BranchName)
+    extends OrcaFlowException(s"branch '${name.value}' not found")
 
 /** Returned in the `Left` of [[GitTool.commit]] when the working tree has no
   * pending changes. Some flows skip-and-continue when nothing changed; others
@@ -208,7 +209,7 @@ trait GitTool:
     * the working tree is unchanged in that case. Throws `OrcaFlowException` for
     * system-level failures (git binary, IO).
     */
-  def createBranch(name: String)(using
+  def createBranch(name: BranchName)(using
       WorkspaceWrite
   ): Either[BranchAlreadyExists, Unit]
 
@@ -216,7 +217,14 @@ trait GitTool:
     * `Left(BranchNotFound)` when no such branch exists — the working tree is
     * unchanged. Throws `OrcaFlowException` for system-level failures.
     */
-  def checkout(name: String)(using WorkspaceWrite): Either[BranchNotFound, Unit]
+  def checkout(name: BranchName)(using
+      WorkspaceWrite
+  ): Either[BranchNotFound, Unit]
+
+  /** Detach HEAD at `at` (`git checkout --detach`). Throws `OrcaFlowException`
+    * when `at` names no commit, or on system-level failures.
+    */
+  def checkoutDetached(at: CommitHash)(using WorkspaceWrite): Unit
 
   /** Stage all tracked + untracked changes, then commit them with `message`.
     * Staging is part of the commit contract. Returns `Left(NothingToCommit)`
@@ -265,23 +273,27 @@ trait GitTool:
     */
   def push()(using WorkspaceWrite): Either[PushFailure, Unit]
 
-  def currentBranch(): String
+  /** The branch HEAD is on, or the commit it is detached at. READ-ONLY. Throws
+    * `OrcaFlowException` when HEAD names no commit, or is on a branch whose
+    * name [[BranchName.parse]] refuses.
+    */
+  def head(): Head
 
   /** True when a local branch named `name` exists. READ-ONLY. */
-  def branchExists(name: String): Boolean
+  def branchExists(name: BranchName): Boolean
 
   /** The commit HEAD resolves to, as a full hash. READ-ONLY. Best-effort:
     * `None` when HEAD names no commit (a repository with no history yet) or the
     * probe cannot answer.
     */
-  def headCommit(): Option[String]
+  def headCommit(): Option[CommitHash]
 
   /** True when `rev` both resolves in this repository and is an ancestor of
     * HEAD — i.e. usable as a diff base for "everything since `rev`". READ-ONLY.
     * Best-effort: `false` whenever the probe cannot answer, so an unknown
     * answer reads as "not a usable base" rather than producing a wrong range.
     */
-  def isAncestorOfHead(rev: String): Boolean
+  def isAncestorOfHead(commit: CommitHash): Boolean
 
   /** True when git ignores `relPath` relative to the working directory (`git
     * check-ignore`). READ-ONLY. Best-effort: `false` whenever the probe cannot
@@ -357,7 +369,7 @@ trait GitTool:
     * can't show still appear: a binary change, a 100%-similarity rename (at its
     * new path), a deletion, and paths git would otherwise quote.
     */
-  def changedFiles(since: Option[String] = None): List[String]
+  def changedFiles(since: Option[CommitHash] = None): List[String]
 
   /** [[changedFiles]] restricted to tracked paths: exactly the files `git diff
     * <since>` renders.
@@ -368,7 +380,7 @@ trait GitTool:
     * them separately) would reintroduce the mismatch: a count of 2 above a diff
     * showing 1.
     */
-  def trackedChangedFiles(since: String): List[String]
+  def trackedChangedFiles(since: CommitHash): List[String]
 
   /** The change set a reviewer should see, as diff text and as the list of
     * paths in it — what a caller rendering a bounded diff needs, since it has
@@ -400,7 +412,7 @@ trait GitTool:
     * whole. Every path past it is still named, one line each. `files` is
     * unaffected, so a caller can still see every path in the change set.
     */
-  def reviewChanges(since: Option[String] = None): ReviewSample
+  def reviewChanges(since: Option[CommitHash] = None): ReviewSample
 
   /** Everything the next `commit` would include, in the three shapes a caller
     * describing it needs: a `--stat` summary, the paths new to the repository,
@@ -489,15 +501,15 @@ trait GitTool:
     * teardown without risking an error cascade. Never deletes the current
     * branch.
     */
-  def deleteBranch(name: String)(using WorkspaceWrite): Unit
+  def deleteBranch(name: BranchName)(using WorkspaceWrite): Unit
 
-  /** True when `featureBranch` differs from `startBranch` outside `.orca/` —
+  /** True when `featureBranch` differs from commit `since` outside `.orca/` —
     * the throwaway-branch check: false means the branch carries only orca
     * bookkeeping.
     */
   def branchHasChangesExcludingOrca(
-      startBranch: String,
-      featureBranch: String
+      since: CommitHash,
+      featureBranch: BranchName
   ): Boolean
 
 /** `GitTool` implementation that shells out to the `git` CLI via os-lib.
@@ -517,29 +529,30 @@ private[orca] class OsGitTool(
   private def step(message: String): Unit =
     events.onEvent(OrcaEvent.Step(message))
 
-  def createBranch(name: String)(using
+  def createBranch(name: BranchName)(using
       WorkspaceWrite
   ): Either[BranchAlreadyExists, Unit] =
     if branchExists(name) then Left(new BranchAlreadyExists(name))
     else
-      val _ = git("checkout", "-b", name)
-      step(s"Switched to a new branch '$name'")
+      val _ = git("checkout", "-b", name.value)
+      step(s"Switched to a new branch '${name.value}'")
       Right(())
 
   def checkout(
-      name: String
+      name: BranchName
   )(using WorkspaceWrite): Either[BranchNotFound, Unit] =
     if !branchExists(name) then Left(new BranchNotFound(name))
     else
-      val _ = git("checkout", name)
-      step(s"Switched to branch '$name'")
+      val _ = git("checkout", name.value)
+      step(s"Switched to branch '${name.value}'")
       Right(())
 
-  // `--` so a dash-leading name is a pattern rather than a flag: without it
-  // git exits 129 with its usage text, and the caller's typed `Left` never
-  // happens.
-  def branchExists(name: String): Boolean =
-    git("branch", "--list", "--", name).trim.nonEmpty
+  def checkoutDetached(at: CommitHash)(using WorkspaceWrite): Unit =
+    val _ = git("checkout", "--detach", at.value)
+    step(s"Switched to detached HEAD at ${at.short}")
+
+  def branchExists(name: BranchName): Boolean =
+    git("branch", "--list", name.value).trim.nonEmpty
 
   def dirtyPaths(): List[String] =
     // The untracked mode is explicit because `status.showUntrackedFiles=no` in
@@ -647,16 +660,25 @@ private[orca] class OsGitTool(
         Left(new PushFailure.RemoteDeclined(stderr.trim))
       else fail("git push", result)
 
-  def currentBranch(): String =
-    git("rev-parse", "--abbrev-ref", "HEAD").trim
+  def head(): Head =
+    probe("symbolic-ref", "--quiet", "HEAD") match
+      case Some(ref) => Head.OnBranch(OsGitTool.branchOf(ref))
+      case None =>
+        Head.Detached(
+          headCommit().getOrElse(
+            throw OrcaFlowException("HEAD does not resolve to a commit")
+          )
+        )
 
-  def headCommit(): Option[String] = revParse("HEAD")
+  def headCommit(): Option[CommitHash] =
+    revParse("HEAD").flatMap(CommitHash.from)
 
   // Exits 0 for an ancestor, 1 for a resolvable commit that isn't one, and 128
-  // when `rev` doesn't resolve at all (a pruned object, a rebased-away commit,
-  // a fresh clone) — only 0 is a usable base, so the rest collapse to false.
-  def isAncestorOfHead(rev: String): Boolean =
-    probeSucceeds("merge-base", "--is-ancestor", rev, "HEAD")
+  // when `commit` doesn't resolve at all (a pruned object, a rebased-away
+  // commit, a fresh clone) — only 0 is a usable base, so the rest collapse to
+  // false.
+  def isAncestorOfHead(commit: CommitHash): Boolean =
+    probeSucceeds("merge-base", "--is-ancestor", commit.value, "HEAD")
 
   /** The hash `ref` resolves to, `None` when it doesn't resolve. `--verify`
     * makes an unresolvable ref a non-zero exit rather than an echo of the ref
@@ -717,17 +739,17 @@ private[orca] class OsGitTool(
   private def diffStat(): String =
     git(("diff" +: "--stat=200" +: "HEAD" +: OsGitTool.wholeRepoExceptOrca)*)
 
-  def changedFiles(since: Option[String]): List[String] =
+  def changedFiles(since: Option[CommitHash]): List[String] =
     allFileStats(since, untrackedPaths()).map(_.path)
 
-  def trackedChangedFiles(since: String): List[String] =
+  def trackedChangedFiles(since: CommitHash): List[String] =
     allFileStats(Some(since), Nil).map(_.path)
 
-  def reviewChanges(since: Option[String]): ReviewSample =
+  def reviewChanges(since: Option[CommitHash]): ReviewSample =
     val untracked = untrackedPaths()
     ReviewSample(
       diff = withNewFileContents(
-        since.getOrElse("HEAD"),
+        since.fold("HEAD")(_.value),
         untracked,
         OsGitTool.MaxReadBytes
       ),
@@ -748,12 +770,12 @@ private[orca] class OsGitTool(
   // them relative to `workDir` instead, and the translation then adds `../` hops
   // and names the wrong files.
   private def allFileStats(
-      since: Option[String],
+      since: Option[CommitHash],
       untracked: List[String]
   ): List[ChangedFile] =
     val args =
       "diff" +: "--numstat" +: "-z" +: "--no-relative" +:
-        since.getOrElse("HEAD") +: OsGitTool.wholeRepoExceptOrca
+        since.fold("HEAD")(_.value) +: OsGitTool.wholeRepoExceptOrca
     val tracked = OsGitTool
       .parseNumstat(git(args*))
       .map(f => f.copy(path = asWorkDirRelative(f.path)))
@@ -888,8 +910,10 @@ private[orca] class OsGitTool(
     else if os.exists(path / ".git") then Some("nested git repository")
     else None
 
+  // `--end-of-options` so a `base` spelled like a flag is refused as a
+  // revision rather than obeyed (`--output=<path>` would write a file).
   def diffVsBase(base: String): String =
-    marked(gitCapped("diff", s"$base...HEAD"))
+    marked(gitCapped("diff", "--end-of-options", s"$base...HEAD"))
 
   def defaultBase(): Either[NoDefaultBase, String] =
     originHead()
@@ -1004,29 +1028,29 @@ private[orca] class OsGitTool(
       Left(new GitReadFailed.Refused(result.err.trim))
     else Right(result)
 
-  def deleteBranch(name: String)(using WorkspaceWrite): Unit =
+  def deleteBranch(name: BranchName)(using WorkspaceWrite): Unit =
     try
-      if currentBranch() != name then
-        val result = gitProc(Seq("git", "branch", "-D", name))
-        if result.exitCode == 0 then step(s"Deleted branch '$name'")
+      if head() != Head.OnBranch(name) then
+        val result = gitProc(Seq("git", "branch", "-D", name.value))
+        if result.exitCode == 0 then step(s"Deleted branch '${name.value}'")
     catch case NonFatal(_) => ()
 
   def branchHasChangesExcludingOrca(
-      startBranch: String,
-      featureBranch: String
+      since: CommitHash,
+      featureBranch: BranchName
   ): Boolean =
-    // Two-dot diff (direct) to see all changes the feature branch has vs the
-    // start branch, minus the orca bookkeeping directory, so only substantive
-    // code changes count. `--quiet` answers on the exit code alone: 0 when the
-    // two sides match, 1 when they differ, so no diff text is produced.
-    val args =
-      Seq("git", "diff", "--quiet", s"$startBranch..$featureBranch") ++
-        OsGitTool.wholeRepoExceptOrca
-    val result = gitProc(args)
+    // Two-dot diff (direct) to see all changes the feature branch has vs
+    // `since`, minus the orca bookkeeping directory, so only substantive code
+    // changes count. `--quiet` answers on the exit code alone: 0 when the two
+    // sides match, 1 when they differ, so no diff text is produced.
+    val range = s"${since.value}..${featureBranch.value}"
+    val result = gitProc(
+      Seq("git", "diff", "--quiet", range) ++ OsGitTool.wholeRepoExceptOrca
+    )
     result.exitCode match
       case 0 => false
       case 1 => true
-      case _ => fail(s"git diff --quiet $startBranch..$featureBranch", result)
+      case _ => fail(s"git diff --quiet $range", result)
 
   /** Run a git subprocess. Every git invocation routes through here or
     * [[gitProcCapped]], so they all carry [[OsGitTool.nonInteractiveEnv]] — no
@@ -1105,6 +1129,21 @@ private[orca] class OsGitTool(
     if result.truncated then result.out + OsGitTool.CutMarker else result.out
 
 private[orca] object OsGitTool:
+
+  /** The branch a `git symbolic-ref HEAD` answer names. The full ref is read
+    * rather than `--short`'s, which prints `heads/<name>` when a tag shares the
+    * name.
+    */
+  private[orca] def branchOf(symbolicRef: String): BranchName =
+    val name = symbolicRef.stripPrefix("refs/heads/")
+    BranchName
+      .parse(name)
+      .getOrElse(
+        throw OrcaFlowException(
+          s"HEAD is on '$symbolicRef', which orca cannot use as a branch — " +
+            "rename the branch (`git branch -m <new-name>`) and re-run"
+        )
+      )
 
   /** Most stdout one capped read keeps. A heap bound, and only that: `McpHost`
     * cuts an agent's copy of the same answer to a small fraction of this, and

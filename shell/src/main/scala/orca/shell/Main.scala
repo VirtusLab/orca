@@ -18,7 +18,8 @@ import orca.shell.actions.{
 import orca.shell.cli.{Cli, CliHelp}
 import orca.shell.create.{CreateTarget, CreateTier, FlowAuthoring}
 import orca.discovery.Origin
-import orca.progress.BranchName
+import orca.gitref.BranchName
+import orca.progress.FeatureBranch
 import orca.shell.flows.{DiscoveredFlow, FlowEditor}
 import orca.shell.resume.{InterruptedRun, ResumeDetector}
 import orca.shell.run.{FallbackPolicy, FlowFlags, LaunchResult}
@@ -422,7 +423,7 @@ object Main:
       case UiOutcome.Selected(raw) if raw.trim.isEmpty =>
         UiOutcome.Selected(None)
       case UiOutcome.Selected(raw) =>
-        BranchName.parse(raw) match
+        FeatureBranch.parseRequested(raw) match
           case Left(message) =>
             ShellOutput.error(message)
             promptBranchName(ui)

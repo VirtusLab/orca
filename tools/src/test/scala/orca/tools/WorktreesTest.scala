@@ -95,9 +95,8 @@ class WorktreesTest extends munit.FunSuite:
     val repo = GitRepo.seeded()
     val path = repo / "wt"
     assertEquals(Worktrees.add(repo, path), Right(()))
-    assertEquals(Worktrees.headBranch(path), Some("HEAD"))
+    assert(!Worktrees.onABranch(path), "a fresh worktree starts detached")
     assertEquals(Worktrees.startBranch(path, "wt-branch"), Right(()))
-    assertEquals(Worktrees.headBranch(path), Some("wt-branch"))
     assertEquals(gitOut(path, "rev-parse", "--abbrev-ref", "HEAD"), "wt-branch")
 
   test("a worktree that cannot be read reads as not on a branch"):
@@ -111,7 +110,6 @@ class WorktreesTest extends munit.FunSuite:
     // prints a stack trace to stderr — the probe catches it, and the test log
     // shows it even while passing.
     os.remove.all(path)
-    assertEquals(Worktrees.headBranch(path), None)
     assert(!Worktrees.onABranch(path), "unknown must not read as on a branch")
 
   test("mainCheckout never answers the git dir, even from a linked worktree"):

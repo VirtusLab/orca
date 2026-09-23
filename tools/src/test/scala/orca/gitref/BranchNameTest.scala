@@ -1,4 +1,4 @@
-package orca.progress
+package orca.gitref
 
 import munit.FunSuite
 
@@ -50,15 +50,12 @@ class BranchNameTest extends FunSuite:
   test("refuses HEAD"):
     assertRefused("HEAD", "reserved name HEAD")
 
-  test("refuses the protected floor case-insensitively"):
-    for raw <- List("main", "Master") do assertRefused(raw, "protected")
-
   test("accepts slash-separated and plain names"):
     for raw <- List(
         "feature/JIRA-123",
         "fix-42",
         "release/v1.2",
         "user@fix",
-        "main-fix"
+        "main"
       )
     do assertEquals(BranchName.parse(raw).map(_.value), Right(raw))

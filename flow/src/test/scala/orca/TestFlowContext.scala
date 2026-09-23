@@ -11,7 +11,8 @@ import orca.agents.{
   PiAgent
 }
 import orca.review.ReviewerCatalog
-import orca.progress.{BranchMode, CommitHash, ProgressHeader, ProgressStore}
+import orca.gitref.CommitHash
+import orca.progress.{BranchMode, ProgressHeader, ProgressStore}
 import orca.sessions.SessionStore
 import orca.testkit.GitRepo
 import orca.tools.FsTool
@@ -133,12 +134,12 @@ object TestFlowControl:
     val sessions = SessionStore.default(dir, runKey)
     given WorkspaceWrite = WorkspaceWrite.unsafe
     // The seed commit stands in for the commit a real run binds at.
-    val headCommit = git.headCommit().flatMap(CommitHash.from).get
+    val headCommit = git.headCommit().get
     val startingCommit = Option.when(startingCommitUsable)(headCommit)
     store.writeHeader(
       ProgressHeader(
-        "main",
-        "feat/test",
+        Some(orca.testkit.branchName("main")),
+        orca.testkit.branchName("feat/test"),
         BranchMode.Created,
         userPrompt = userPrompt,
         flowName = None,

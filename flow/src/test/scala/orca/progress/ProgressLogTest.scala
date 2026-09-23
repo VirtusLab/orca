@@ -7,6 +7,8 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
 }
 import munit.FunSuite
 import orca.agents.JsonData
+import orca.gitref.CommitHash
+import orca.testkit
 import orca.util.RawJson
 
 class ProgressLogTest extends FunSuite:
@@ -20,8 +22,8 @@ class ProgressLogTest extends FunSuite:
       flowName: Option[String] = None
   ): ProgressHeader =
     ProgressHeader(
-      startingBranch = "main",
-      branch = branch,
+      startingBranch = Some(testkit.branchName("main")),
+      branch = testkit.branchName(branch),
       branchMode = branchMode,
       userPrompt = "fix the flaky test",
       flowName = flowName,
@@ -52,6 +54,22 @@ class ProgressLogTest extends FunSuite:
     val log =
       ProgressLog(header("my-work", BranchMode.Reused), Nil, None)
     assertEquals(roundTrip(log).header.branchMode, BranchMode.Reused)
+
+  test("ProgressHeader round-trips a detached start (no startingBranch)"):
+    val detached = header("feat/x").copy(startingBranch = None)
+    assertEquals(roundTrip(detached), detached)
+
+  test("a branch that isn't a valid branch name fails to decode"):
+    // Hand-editable like the commit below; only a valid name may reach git.
+    val codec = summon[JsonData[ProgressLog]].codec
+    val json = writeToString(ProgressLog(header("feat/x"), Nil, None))(using
+      codec
+    ).replace("\"feat/x\"", "\"HEAD\"")
+    intercept[JsonReaderException](
+      readFromString[ProgressLog](json)(using
+        codec
+      ): Unit
+    )
 
   test("a startingCommit that isn't a commit hash fails to decode"):
     // The header is committed, hand-editable content; only a hash may reach
