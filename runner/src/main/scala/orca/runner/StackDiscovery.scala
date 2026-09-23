@@ -3,7 +3,7 @@ package orca.runner
 import orca.{InStage, StackSettings}
 import orca.agents.{Agent, Announce, JsonData, given}
 import orca.events.OrcaEvent
-import orca.settings.{SettingsEntry, StackKey}
+import orca.settings.{SettingsEntry, StackCommand, StackKey, StackValue}
 import orca.subprocess.PathProbe
 import orca.util.{PromptResource, TextUtil}
 
@@ -110,8 +110,9 @@ private[runner] object StackDiscovery:
   private[runner] def startMessage(existingContent: Option[String]): String =
     val purpose = "discovering how to format, lint & test this project"
     existingContent match
-      case None    => s"no .orca/settings.properties — $purpose"
-      case Some(_) => s".orca/settings.properties has no stack lines — $purpose"
+      case None => s"no .orca/settings.properties — $purpose"
+      case Some(_) =>
+        s".orca/settings.properties configures no stack keys — $purpose"
 
   /** Narrate every command/demotion entry as its own `Step` event. Unset and
     * Off keys surface through [[warnDisabledGates]] instead.
@@ -124,14 +125,14 @@ private[runner] object StackDiscovery:
       case SettingsEntry.Command(key, command, comment) =>
         emit(
           OrcaEvent.Step(
-            s"  $key = ${collapse(command)}" +
+            s"  ${key.raw} = ${collapse(command.value)}" +
               comment.fold("")(c => s"   # ${collapse(c)}")
           )
         )
       case SettingsEntry.Demoted(key, command, reason) =>
         emit(
           OrcaEvent.Step(
-            s"  skipped: $key = ${collapse(command)} (${collapse(reason)})"
+            s"  skipped: ${key.raw} = ${collapse(command)} (${collapse(reason)})"
           )
         )
       case SettingsEntry.Unset(_, _) | SettingsEntry.Off(_) => ()
@@ -144,12 +145,8 @@ private[runner] object StackDiscovery:
       settings: StackSettings,
       emit: OrcaEvent => Unit
   ): Unit =
-    List(
-      StackKey.Format -> settings.format,
-      StackKey.Lint -> settings.lint,
-      StackKey.Test -> settings.test
-    ).foreach: (key, commands) =>
-      if commands.isEmpty then
+    StackKey.values.foreach: key =>
+      if key.commandsIn(settings).isEmpty then
         emit(
           OrcaEvent.Step(
             s"warning: stack settings: no ${key.raw} command — gate disabled"
@@ -213,30 +210,42 @@ private[runner] object StackDiscovery:
       unresolvedReason: String => Option[String],
       evidenceExists: String => Boolean
   ): (List[SettingsEntry], StackSettings) =
-    def checkedEntry(key: String, cmd: DiscoveredCommand): SettingsEntry =
-      unresolvedReason(cmd.command)
+    def demotionReason(
+        command: StackCommand,
+        evidencePath: String
+    ): Option[String] =
+      unresolvedReason(command.value)
         .orElse(
           // A blank citation is checked before existence: `os.SubPath("")`
           // resolves to the repo root, which exists, so the existence check
           // would pass vacuously.
-          Option.when(cmd.evidencePath.isBlank)("no evidence file cited")
+          Option.when(evidencePath.isBlank)("no evidence file cited")
         )
         .orElse(
-          Option.when(!evidenceExists(cmd.evidencePath))(
-            s"evidence file ${cmd.evidencePath} not found"
+          Option.when(!evidenceExists(evidencePath))(
+            s"evidence file $evidencePath not found"
           )
-        ) match
-        case Some(reason) => SettingsEntry.Demoted(key, cmd.command, reason)
-        case None =>
-          SettingsEntry.Command(
-            key,
-            // Same collapse the renderer applies to every command line, so the
-            // command the first run executes is identical to the written line.
-            TextUtil.collapseNewlines(cmd.command),
-            Some(cmd.evidencePath + cmd.evidenceNote.fold("")("; " + _))
-          )
+        )
 
-    def taskEntries(key: String, task: DiscoveredTask): List[SettingsEntry] =
+    def checkedEntry(key: StackKey, cmd: DiscoveredCommand): SettingsEntry =
+      def demoted(reason: String) =
+        SettingsEntry.Demoted(key, cmd.command, reason)
+      StackValue.parse(cmd.command) match
+        case StackValue.Run(command) =>
+          demotionReason(command, cmd.evidencePath) match
+            case Some(reason) => demoted(reason)
+            case None =>
+              SettingsEntry.Command(
+                key,
+                command,
+                Some(cmd.evidencePath + cmd.evidenceNote.fold("")("; " + _))
+              )
+        case StackValue.Empty => demoted("empty command")
+        case StackValue.Off => demoted("`off` disables the gate, not a command")
+        case StackValue.CommentedOut =>
+          demoted("starts with `#`, so `bash -c` runs nothing")
+
+    def taskEntries(key: StackKey, task: DiscoveredTask): List[SettingsEntry] =
       if task.commands.isEmpty then
         List(
           SettingsEntry
@@ -250,17 +259,11 @@ private[runner] object StackDiscovery:
         if anySurvived then checked else checked :+ SettingsEntry.Off(key)
 
     val entries =
-      taskEntries(StackKey.Format.raw, result.format) ++
-        taskEntries(StackKey.Lint.raw, result.lint) ++
-        taskEntries(StackKey.Test.raw, result.test)
+      taskEntries(StackKey.Format, result.format) ++
+        taskEntries(StackKey.Lint, result.lint) ++
+        taskEntries(StackKey.Test, result.test)
 
-    def surviving(key: StackKey): List[String] =
+    val settings = StackKey.tabulate: key =>
       entries.collect:
-        case SettingsEntry.Command(k, command, _) if k == key.raw => command
-
-    val settings = StackSettings(
-      format = surviving(StackKey.Format),
-      lint = surviving(StackKey.Lint),
-      test = surviving(StackKey.Test)
-    )
+        case SettingsEntry.Command(`key`, command, _) => command.value
     (entries, settings)

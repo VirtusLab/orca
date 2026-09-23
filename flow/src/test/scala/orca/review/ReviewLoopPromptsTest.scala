@@ -1,6 +1,6 @@
 package orca.review
 
-import orca.agents.given
+import orca.agents.{AgentInput, given}
 import orca.gitref.CommitHash
 import orca.plan.{Task, Title}
 import orca.util.{JsonSchemaGen, TextUtil}
@@ -321,30 +321,41 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
     )
     assert(prompt.contains("leaks a handle (at Foo.scala:7):"), prompt)
 
-  test("the fix prompt names every field the fixer's reply must fill"):
-    // The prompt tells the agent which list a finding goes in, in prose; the
-    // schema is what the reply is held to. A rename on one side alone would
-    // leave the agent filling a field the prompt never mentions.
+  // A caller replacing the fix or selection brief replaces only the policy;
+  // the reply format the parsers depend on is sent after it regardless.
+  private def fixRequestText(instructions: String): String =
+    summon[AgentInput[FixRequest]].serialize(FixRequest(instructions, Nil))
+
+  test("a replaced fix brief still names every field the reply must fill"):
+    // The schema is what the reply is held to; a rename on one side alone
+    // would leave the agent filling a field the prompt never mentions.
     val fields = fieldNames[FixOutcome]
     val schema = JsonSchemaGen[FixOutcome]
+    val text = fixRequestText("custom brief")
     assert(fields.nonEmpty, "FixOutcome has no fields to check")
     fields.foreach: field =>
       assert(schema.contains(s"\"$field\""), s"$field missing from $schema")
-      assert(
-        ReviewLoopPrompts.Fix.contains(s"`$field`"),
-        s"$field missing from the fix prompt: ${ReviewLoopPrompts.Fix}"
-      )
+      assert(text.contains(s"`$field`"), s"$field missing from: $text")
 
-  test("Fix asks which alternative was taken"):
+  test("a replaced fix brief still asks which alternative was taken"):
     assert(
       TextUtil
-        .collapseWhitespace(ReviewLoopPrompts.Fix)
+        .collapseWhitespace(fixRequestText("custom brief"))
         .contains(
           "Where a finding's suggestion offers alternatives (\"do X, or " +
             "document why Y is safe\"), say which one you took, after the " +
             "title"
-        ),
-      ReviewLoopPrompts.Fix
+        )
+    )
+
+  test("a replaced selection brief still says how to name reviewers"):
+    val text = summon[AgentInput[ReviewerSelectionRequest]].serialize(
+      ReviewerSelectionRequest(Title("t"), Nil, Nil, "custom brief")
+    )
+    assert(
+      text.contains("custom brief") &&
+        TextUtil.collapseWhitespace(text).contains("each copied verbatim"),
+      text
     )
 
   test("reReview says nothing about open findings when none are open"):

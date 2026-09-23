@@ -259,11 +259,7 @@ object FlowCanary:
             val _: Usage = t.usage
           case _ => ()
         val _ = listener
-        val open: OpenFindings = fixLoop(
-          evaluate = () => ReviewResult.empty,
-          fix = _ => FixOutcome(fixed = Nil, declined = Nil)
-        )
-        val _: List[OpenFinding] = open.findings
+        val _: List[OpenFinding] = OpenFindings.empty.findings
         git.push() match
           case Left(_: PushFailure.NonFastForward) => ()
           case Left(_: PushFailure.RemoteDeclined) => ()

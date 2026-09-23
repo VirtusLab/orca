@@ -41,7 +41,7 @@ class BuiltInFlowsTest extends munit.FunSuite:
     // loose spacing allowed in the regex. Counting per file is a heuristic, not
     // a per-call proof: it catches a call added without a cap, but not two caps
     // on one of two calls.
-    val calls = "\\b(?:reviewAndFixLoop|fixLoop)\\(".r
+    val calls = "\\breviewAndFixLoop\\(".r
     val caps = "maxIterations\\s*=\\s*\\d+".r
     val counted = indexNames.map: name =>
       val text = resourceText(name)

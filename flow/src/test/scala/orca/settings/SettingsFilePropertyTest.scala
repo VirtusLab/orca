@@ -2,7 +2,6 @@ package orca.settings
 
 import munit.ScalaCheckSuite
 import orca.StackSettings
-import orca.util.TextUtil
 import org.scalacheck.Arbitrary.arbitrary
 import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll
@@ -19,7 +18,8 @@ class SettingsFilePropertyTest extends ScalaCheckSuite:
     // The round-trip law: comments, Unset reasons and Demoted commands/reasons
     // are arbitrary unicode (newlines, `#`, `=`, whitespace runs, hostile text
     // included) — render's sanitization must keep every free-text character on
-    // `#` lines, so the parse result is exactly the Command entries' commands.
+    // `#` lines, so the parse result is exactly the Command entries' commands,
+    // configured whenever a live (non-Demoted) entry exists.
     forAll(entriesGen(arbitrary[String])): entries =>
       assertEquals(
         SettingsFile
@@ -33,41 +33,30 @@ class SettingsFilePropertyTest extends ScalaCheckSuite:
       val result = SettingsFile.parse(content, SettingsScope.Project)
       assert(result.isLeft || result.isRight)
 
-  /** render's newline collapse followed by parse's value trim — the normal form
-    * a command takes after one write/read cycle.
-    */
-  private def sanitize(command: String): String =
-    TextUtil.collapseNewlines(command).trim
-
   /** What parse must recover from a rendered entry list: the Command entries'
-    * sanitized commands, appended per key in entry order — Unset, Demoted and
-    * Off entries are invisible.
+    * commands, appended per key in entry order, configured when any entry
+    * renders a live line (Demoted renders a comment).
     */
-  private def expectedSettings(entries: List[SettingsEntry]): StackSettings =
-    entries.foldLeft(StackSettings.empty): (acc, entry) =>
-      entry match
-        case SettingsEntry.Command(key, command, _) =>
-          SettingKey.fromRaw(key) match
-            case Some(StackKey.Format) =>
-              acc.copy(format = acc.format :+ sanitize(command))
-            case Some(StackKey.Lint) =>
-              acc.copy(lint = acc.lint :+ sanitize(command))
-            case Some(StackKey.Test) =>
-              acc.copy(test = acc.test :+ sanitize(command))
-            case _ => fail(s"generator produced unknown key: $key")
-        case SettingsEntry.Unset(_, _) | SettingsEntry.Demoted(_, _, _) |
-            SettingsEntry.Off(_) =>
-          acc
+  private def expectedSettings(
+      entries: List[SettingsEntry]
+  ): Option[StackSettings] =
+    val live = entries.filter:
+      case SettingsEntry.Demoted(_, _, _) => false
+      case _                              => true
+    Option.when(live.nonEmpty):
+      live.foldLeft(StackSettings.empty): (acc, entry) =>
+        entry match
+          case SettingsEntry.Command(key, command, _) =>
+            key.appendTo(acc, command)
+          case _ => acc
 
-  private val keyGen: Gen[String] =
-    Gen.oneOf(StackKey.Format, StackKey.Lint, StackKey.Test).map(_.raw)
+  private val keyGen: Gen[StackKey] = Gen.oneOf(StackKey.values.toList)
 
-  /** A command within the domain [[SettingsEntry.Command]] documents (non-blank
-    * after render's collapse, not `#`-leading): a non-`#` printable first char,
-    * then printable ASCII, spaces, and occasional newlines — so `=`, mid-string
-    * `#`, quotes, `$` and `&&` all occur, and the collapse law is exercised.
+  /** Printable ASCII, spaces, and occasional newlines — so `=`, mid-string `#`,
+    * quotes, `$` and `&&` all occur — kept when [[StackValue.parse]] reads a
+    * command.
     */
-  private val commandGen: Gen[String] =
+  private val commandGen: Gen[StackCommand] =
     val printable = Gen.choose(33.toChar, 126.toChar)
     val commandChar = Gen.frequency(
       9 -> printable,
@@ -77,7 +66,10 @@ class SettingsFilePropertyTest extends ScalaCheckSuite:
     for
       head <- printable.suchThat(_ != '#')
       tail <- Gen.listOf(commandChar)
-    yield (head :: tail).mkString
+      command <- StackValue.parse((head :: tail).mkString) match
+        case StackValue.Run(command) => Gen.const(command)
+        case _                       => Gen.fail
+    yield command
 
   private def entriesGen(freeText: Gen[String]): Gen[List[SettingsEntry]] =
     val entry = Gen.oneOf(

@@ -46,7 +46,8 @@ private[review] object FixRequest:
         r.findings.map(k => renderFinding(k.key, k.finding)).mkString("\n\n")
       // No `stripMargin`: a reviewer's description or suggestion can carry
       // markdown tables and `|`-margin blocks, which it would eat.
-      s"${r.instructions}\n\nFindings to fix:\n$formatted"
+      s"${r.instructions}\n\n${FixOutcome.ReplyFormat}\n\n" +
+        s"Findings to fix:\n$formatted"
 
   /** One finding as the fixer sees it. Deliberately not [[formatFinding]], the
     * display rendering: the fixer needs the description, which the screen form
