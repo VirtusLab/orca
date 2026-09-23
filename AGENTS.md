@@ -279,7 +279,8 @@ session. Settings and user-authored files (`settings.properties`, `flows/`,
 SHA-256(user prompt)); `<id>` is an `AttemptId` (`<startedAt epoch ms>-<pid>`) —
 see "Persisted-state vocabulary" below for what a run and an attempt are.
 `OrcaDir` owns every path under `.orca/`. Every whole-file JSON document is read
-and written through `orca.util.JsonFile`.
+and written through `orca.util.JsonFile`, and every whole-file write replaces an
+`OrcaDir.OrcaFile` atomically.
 
 Three location classes decide what survives:
 
@@ -303,7 +304,7 @@ Three location classes decide what survives:
 | `.orca/cache/worktree-<key>.lock` (main checkout) | cache | holder pid | `FlowLock` | `FlowLock` on contention | `FlowLock` when the worktree is resolved; a dead pid is stolen |
 | `.orca/cache/pi-sessions/<session id>/` | cache | pi's own `--session-dir` transcripts | pi | `PiSessionStore` (resume probe), shell pi resume | `PiSessionStore.prune` after 30 days untouched |
 | `.orca/cache/lint-*.txt` | cache | lint output too large to inline in a prompt | `Lint` | the summarising agent | `lint`'s `finally` |
-| `.orca/cache/{,runs/,attempts/}.<file>.<n>.tmp` | cache | in-flight temp of a `JsonFile` rewrite: beside its target, except the progress log's, staged in `.orca/cache/` so it is never committed | `JsonFile` | — (`AttemptManifestWriter`'s pruning skips dot-files) | the rename that completes the write |
+| `.orca/cache/{,runs/,attempts/}.<file>.<uuid>.tmp` | cache | in-flight temp of an `OrcaFile` replace: beside a cache file, in `.orca/cache/` for a committed one (progress log, settings) so it is never committed | `OrcaDir.OrcaFile` | — (`AttemptManifestWriter`'s pruning skips dot-files) | the rename that completes the write |
 | `.orca/worktrees/<key>/` (+ branch `orca-worktree-<key>`) | worktrees | a `--worktree` run's checkout, with its own `.orca/` inside | `WorktreeRun` | `WorktreeScan` (shell) | never — see README |
 | `<workDir>/.gemini/settings.json` | user tree | an `mcpServers.orca` entry for one interactive gemini conversation | `GeminiSettings` | gemini | restored at turn end; a `.gemini/` orca created is removed when left empty |
 | `$TMPDIR/orca-*` (system prompts, claude MCP config, codex schema, pi extension) | temp | per-turn IPC files handed to a CLI on argv | each backend | the CLI | turn end |
@@ -498,16 +499,17 @@ Orca is 0.x: no backwards compatibility is owed anywhere.
   they are not swept; the server's cookie is swept when the server stops.
   Report-only unless `ORCA_SWEEP_KILL=1`; Linux only, and
   silently inert elsewhere (nothing to act on, so nothing is said).
-- Any filesystem write under `.orca/` **must** go through an
-  `OrcaDir.ensure*` accessor, which refuses a symlinked `.orca` or
-  `.orca/cache` component (`OrcaDir.abortIfOrcaComponentSymlink`) before
+- Any filesystem write under `.orca/` **must** go through `OrcaDir`, which
+  refuses a symlinked directory from `.orca` down (lstat, no-follow) before
   creating or writing through it — a committed symlink (git mode 120000)
   would otherwise redirect orca's writes outside the working tree, since orca
-  runs flows against arbitrary cloned repos. Prefer `os.write` (`CREATE_NEW`,
-  refuses an existing symlink at the leaf) over `os.write.over` (follows a
-  leaf symlink); if `.over` is unavoidable, guard the path with `os.isLink`
-  first. The check is lstat/no-follow and runs at the earliest `.orca` touch
-  (`FlowLock` → `ensureCache`), ahead of any mutation.
+  runs flows against arbitrary cloned repos. A whole-file write takes an
+  `OrcaDir.OrcaFile` (only `OrcaDir` creates one) and its `replace`, whose
+  rename replaces a leaf symlink instead of following it. Other writes (appends,
+  lock files) go inside a directory an `OrcaDir.ensure*` accessor returned, with
+  `os.write` (`CREATE_NEW`, refuses a leaf symlink) over `os.write.over`. The
+  check runs at the earliest `.orca` touch (`FlowLock` → `ensureCache`), ahead
+  of any mutation.
 
 The `direct-style-scala` plugin codifies the Scala-style bullets; re-reading
 its chapters before a non-trivial change is recommended.

@@ -95,7 +95,8 @@ private[runner] class AttemptManifestWriterState(
   private val log = LoggerFactory.getLogger("orca.flow")
 
   private val attemptsDir: os.Path = OrcaDir.ensureAttempts(workDir)
-  private val manifestPath: os.Path = OrcaDir.manifestPath(workDir, attemptId)
+  private val manifestFile: OrcaDir.OrcaFile =
+    OrcaDir.manifestFile(workDir, attemptId)
   private val costLog: CostLog = CostLog(
     OrcaDir.costLogPath(workDir, attemptId)
   )
@@ -148,8 +149,7 @@ private[runner] class AttemptManifestWriterState(
       case Phase.Running               => (AttemptStatus.Running, None)
       case Phase.Finished(outcome, at) => (statusOf(outcome), Some(at))
     JsonFile.write(
-      manifestPath,
-      manifestPath / os.up,
+      manifestFile,
       AttemptManifest(
         orcaVersion = orcaVersion,
         flow = flowName,

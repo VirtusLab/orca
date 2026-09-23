@@ -2,6 +2,7 @@ package orca.tools
 
 import orca.{OrcaFlowException, WorkspaceWrite}
 import orca.testkit.TempDirs
+import ox.discard
 
 class OsFsToolTest extends munit.FunSuite:
 
@@ -24,6 +25,27 @@ class OsFsToolTest extends munit.FunSuite:
       fs.write("a.txt", "first")
       fs.write("a.txt", "second")
       assertEquals(fs.read("a.txt"), Some("second"))
+
+  test("write refuses a path inside .orca/runs"):
+    withFs: (fs, _) =>
+      intercept[OrcaFlowException](fs.write(".orca/runs/x.json", "")).discard
+
+  test("write refuses a path outside the working directory"):
+    withFs: (fs, _) =>
+      intercept[OrcaFlowException](fs.write("../escape.txt", "")).discard
+
+  test("write refuses a path through a symlinked directory leading outside"):
+    withFs: (fs, tmp) =>
+      val outside = TempDirs.dir()
+      os.symlink(tmp / "docs", outside)
+      intercept[OrcaFlowException](fs.write("docs/x.txt", "")).discard
+      assertEquals(os.list(outside).toList, Nil)
+
+  test("write refuses a path through a dangling symlink"):
+    withFs: (fs, tmp) =>
+      os.symlink(tmp / "docs", tmp / "missing")
+      intercept[OrcaFlowException](fs.write("docs/x.txt", "")).discard
+      assert(!os.exists(tmp / "missing"))
 
   test("read returns None when the file is missing"):
     withFs: (fs, _) =>
