@@ -141,7 +141,7 @@ private[orca] class CodexBackend(
             workDir,
             mcpServerUrl = mcpUrl
           )
-      cli.spawnPiped(args, cwd = workDir, pipeStderr = true)
+      cli.spawnPiped(args, cwd = workDir)
     } { process =>
       // codex doesn't accept user turns over stdin once the prompt is
       // argv-supplied; close immediately so the child stops waiting on EOF.

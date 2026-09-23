@@ -117,7 +117,7 @@ private[orca] class GeminiBackend(
           GeminiArgs.resume(serverId, finalPrompt, config)
         case Dispatch.Fresh(_) =>
           GeminiArgs.headless(finalPrompt, config)
-      cli.spawnPiped(args, cwd = workDir, pipeStderr = true)
+      cli.spawnPiped(args, cwd = workDir)
     } { process =>
       // Close stdin so the child stops waiting on EOF.
       process.closeStdin()

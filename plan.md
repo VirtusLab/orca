@@ -181,11 +181,10 @@ Task 9.1 decides.
 
 **Lessons from the Claude backend that apply verbatim:**
 
-- **Don't pipe stderr for verbose-mode CLIs.** Route through `os.Inherit`
-  or drain on its own thread — the 64KB pipe buffer fills silently and
-  hangs the subprocess otherwise. `stderrLoop` in `ClaudeConversation`
-  shows the drain-as-`ConversationEvent.Error` pattern when you *do*
-  need stderr contents.
+- **Drain stderr on its own fork.** `spawnPiped` always pipes it, and a
+  full 64KB pipe buffer silently hangs the subprocess.
+  `StreamConversation.drainStderr` shows the drain-as-`ConversationEvent.Error`
+  pattern.
 - **Close stdin after the opening turn** when the CLI takes only one message
   per process. claude answers with stdin open, but exits only on EOF
   (measured, 2.1.220), and the exit is what ends the reader on a turn that

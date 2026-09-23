@@ -61,8 +61,7 @@ class ConversationTeardownTest extends munit.FunSuite:
       val process = OsProcCliRunner.spawnPiped(
         Seq("bash", "-c", script),
         env = Map.empty,
-        cwd = os.pwd,
-        pipeStderr = true
+        cwd = os.pwd
       )
       var spawnedPid = 0L
       try
