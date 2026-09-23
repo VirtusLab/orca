@@ -495,7 +495,10 @@ Orca is 0.x: no backwards compatibility is owed anywhere.
   [`subprocess.QuietProc.call`](tools/src/main/scala/orca/subprocess/QuietProc.scala)
   or a `CliRunner`. os-lib defaults `os.proc(...).call(...)`'s `stderr` to
   `Inherit`, which lets subprocess output bypass the renderer's StatusBar
-  and tear the spinner row.
+  and tear the spinner row. `CliRunner.spawnPiped` always pipes stderr, so
+  its caller must drain `stderrLines` as well as `stdoutLines`. Raw `os.proc`
+  with `os.Inherit` is only for the `shell/` terminal handoffs (editor, flow
+  run, agent session) and `TtyProbe`, which inherits the fd it probes.
 - Every `spawnPiped` child carries a unique `ORCA_TURN_COOKIE`
   (`orca.sweep.EnvCookie`). `SubprocessSpawn.open` registers `EnvCookieSweep`
   with the turn scope, so at turn end it scans `/proc/*/environ` for the

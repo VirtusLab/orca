@@ -34,11 +34,10 @@ class SpawnStubCliRunner(
   def spawnPiped(
       args: Seq[String],
       env: Map[String, String],
-      cwd: os.Path,
-      pipeStderr: Boolean
+      cwd: os.Path
   ): PipedCliProcess =
     val _ = recorded.updateAndGet(
-      SpawnStubCliRunner.SpawnCall(args.toList, env, cwd, pipeStderr) :: _
+      SpawnStubCliRunner.SpawnCall(args.toList, env, cwd) :: _
     )
     val next = queue
       .getAndUpdate(_.drop(1))
@@ -55,6 +54,5 @@ object SpawnStubCliRunner:
   case class SpawnCall(
       args: List[String],
       env: Map[String, String],
-      cwd: os.Path,
-      pipeStderr: Boolean
+      cwd: os.Path
   )

@@ -66,7 +66,6 @@ class PiBackendTest extends munit.FunSuite:
 
     val call = runner.spawnCalls.head
     assertEquals(call.cwd, workDir)
-    assertEquals(call.pipeStderr, true)
     assert(call.args.containsSlice(Seq("pi", "--mode", "rpc")), call.args)
     // A fresh session opens a durable dir named for the session id, without
     // --continue.

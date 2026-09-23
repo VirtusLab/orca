@@ -107,7 +107,7 @@ private[orca] class PiBackend private[pi] (
         systemPromptFile = Some(systemPromptFile),
         askUserExtension = askUserExtension
       )
-      cli.spawnPiped(args, cwd = workDir, pipeStderr = true)
+      cli.spawnPiped(args, cwd = workDir)
     } { process =>
       PiConversation(
         process = process,

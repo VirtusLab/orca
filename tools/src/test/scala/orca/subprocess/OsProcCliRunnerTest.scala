@@ -21,8 +21,7 @@ class OsProcCliRunnerTest extends munit.FunSuite:
     val proc = OsProcCliRunner.spawnPiped(
       Seq("bash", "-c", "sleep 30 & echo $!; wait"),
       env = Map.empty,
-      cwd = os.pwd,
-      pipeStderr = true
+      cwd = os.pwd
     )
     var childPid = 0L
     try
@@ -89,8 +88,7 @@ class OsProcCliRunnerTest extends munit.FunSuite:
     val proc = OsProcCliRunner.spawnPiped(
       Seq("bash", "-c", script),
       env = Map("TRIGGER" -> trigger.toString, "PIDFILE" -> pidFile.toString),
-      cwd = os.pwd,
-      pipeStderr = true
+      cwd = os.pwd
     )
     var orphanPid = 0L
     var grandchildPid = 0L
@@ -126,8 +124,7 @@ class OsProcCliRunnerTest extends munit.FunSuite:
     val proc = OsProcCliRunner.spawnPiped(
       Seq("bash", "-c", "exit 0"),
       env = Map.empty,
-      cwd = os.pwd,
-      pipeStderr = true
+      cwd = os.pwd
     )
     assertEquals(proc.waitForExit(), 0)
 
@@ -149,8 +146,7 @@ class OsProcCliRunnerTest extends munit.FunSuite:
     val proc = OsProcCliRunner.spawnPiped(
       Seq("bash", "-c", s"""echo "$$${EnvCookie.VarName}|$$HOME|$$EXTRA""""),
       env = Map("EXTRA" -> "from-caller"),
-      cwd = os.pwd,
-      pipeStderr = false
+      cwd = os.pwd
     )
     try
       val cookie = proc.envCookie.getOrElse(fail("no cookie was injected"))
@@ -158,4 +154,12 @@ class OsProcCliRunnerTest extends munit.FunSuite:
         proc.stdoutLines.next(),
         s"${cookie.value}|$home|from-caller"
       )
+    finally proc.destroyForciblyTree()
+
+  test("spawnPiped hands the child's stderr to stderrLines"):
+    val proc = OsProcCliRunner.spawnPiped(
+      Seq("bash", "-c", "echo oops >&2"),
+      cwd = os.pwd
+    )
+    try assertEquals(proc.stderrLines.toList, List("oops"))
     finally proc.destroyForciblyTree()
