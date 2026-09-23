@@ -404,9 +404,6 @@ Each run is bound to exactly one feature branch and one progress log
   cleanup is `git worktree remove .orca/worktrees/<hash>` **and** `git branch -d
   orca-worktree-<hash>`; a re-run of the task refuses rather than moving that
   branch if it has gained commits since.
-  Sharp edge: kept files are unprotected until that first stage commit — a
-  failure before it runs the teardown's `git reset --hard` and destroys kept
-  modifications to tracked files (kept untracked files survive).
 - **Resume:** a re-run with the same prompt finds the progress log and resumes
   from the first incomplete stage (a `--branch` naming a different branch than
   the log's is refused). It says once which branch it bound, how many
@@ -429,7 +426,8 @@ Each run is bound to exactly one feature branch and one progress log
   closes by naming the branch you are left on, the PR it opened if it opened
   one, how many files changed since the commit it started from, and the `git
   diff` that shows them.
-- **Failure teardown:** discard the failed stage's uncommitted partial edits —
+- **Failure teardown:** while HEAD is on the feature branch, discard the
+  failed stage's uncommitted partial edits —
   `git reset --hard` for tracked files, plus `git clean -fd` for the files it
   newly created; stay on the feature branch so a re-run resumes in place.
   Gitignored paths and `.orca/` are never removed. Whether the clean runs at
@@ -437,7 +435,10 @@ Each run is bound to exactly one feature branch and one progress log
   dirty tree instead of stashing it (`--skip-branch`, `--keep-changes`, or the
   interactive keep answer) leaves orca unable to tell those files apart from the
   run's own — no untracked file is deleted, in any stage, including ones the
-  failed stage created.
+  failed stage created. Kept edits to tracked files that no stage has
+  committed yet are put back after the reset; a re-run stashes them before it
+  resumes. When the failed body left HEAD elsewhere, teardown touches nothing
+  and says so.
 
 ### Settings
 
