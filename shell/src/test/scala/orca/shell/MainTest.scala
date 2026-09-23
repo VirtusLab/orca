@@ -1,7 +1,7 @@
 package orca.shell
 
 import org.jline.terminal.{Terminal, TerminalBuilder}
-import orca.{RunTarget, StackSettings, Uncommitted}
+import orca.{OrcaArgs, RunTarget, StackSettings, Uncommitted}
 import orca.agents.BackendTag
 import orca.settings.SettingsFile
 import orca.shell.actions.{SettingsEditAction, StackAction}
@@ -9,7 +9,7 @@ import orca.shell.create.CreateTier
 import orca.discovery.Origin
 import orca.shell.flows.DiscoveredFlow
 import orca.shell.resume.InterruptedRun
-import orca.shell.run.{FlowFlags, LaunchResult}
+import orca.shell.run.LaunchResult
 import orca.shell.sessions.{RecordedAttempt, SessionPicker, SessionSelection}
 import orca.shell.sessions.ManifestFixtures.{durable, ephemeral, manifest}
 import orca.shell.ui.{Choice, ShellUi, UiOutcome}
@@ -600,12 +600,12 @@ class MainTest extends munit.FunSuite:
 
   /** Runs [[Main.runFlow]] picking a flow, typing a task, then picking `target`
     * and answering the branch prompt from `branchAnswers`; returns the UI and
-    * the flags that reached the launcher.
+    * the args that reached the launcher.
     */
   private def runFlowWith(
       target: RunTarget,
       branchAnswers: List[UiOutcome[String]]
-  ): (FlowScriptedUi, Option[FlowFlags]) =
+  ): (FlowScriptedUi, Option[OrcaArgs]) =
     val workDir = TempDirs.dir()
     val flowPath = workDir / ".orca" / "flows" / "run-flow.sc"
     os.write(flowPath, "// x\n", createFolders = true)
@@ -621,19 +621,19 @@ class MainTest extends munit.FunSuite:
       inputMultilineScript = List(UiOutcome.Selected("do the thing")),
       inputScript = branchAnswers
     )
-    var recorded: Option[FlowFlags] = None
+    var recorded: Option[OrcaArgs] = None
     withDumbTerminal: terminal =>
       Main.runFlow(
         ui,
         terminal,
         workDir,
-        runAction = (_, _, opts, _, _) =>
-          recorded = Some(opts.flags)
+        runAction = (_, opts, _, _) =>
+          recorded = Some(opts.args)
           LaunchResult.Ok
       )
     (ui, recorded)
 
-  test("runFlow: a typed branch name reaches the launcher's flags"):
+  test("runFlow: a typed branch name reaches the launcher's args"):
     val (_, flags) =
       runFlowWith(RunTarget.Worktree, List(UiOutcome.Selected("feature/x")))
     assertEquals(flags.map(_.target), Some(RunTarget.Worktree))
@@ -652,7 +652,14 @@ class MainTest extends munit.FunSuite:
     val (_, flags) = runFlowWith(target, List(UiOutcome.Selected("")))
     assertEquals(
       flags,
-      Some(FlowFlags(verbose = false, target = target, branch = None))
+      Some(
+        OrcaArgs(
+          userPrompt = "do the thing",
+          verbose = false,
+          target = target,
+          branch = None
+        )
+      )
     )
 
   test("runFlow: cancelling the branch prompt aborts the run"):
@@ -1018,8 +1025,8 @@ class MainTest extends munit.FunSuite:
         FlowScriptedUi(),
         terminal,
         run,
-        runAction = (flow, task, _, _, _) =>
-          recorded = Some(flow.name -> task)
+        runAction = (flow, opts, _, _) =>
+          recorded = Some(flow.name -> opts.args.userPrompt)
           LaunchResult.Ok
       )
       assertEquals(
@@ -1045,19 +1052,20 @@ class MainTest extends munit.FunSuite:
         branch = "feat/x",
         dir = worktree
       )
-      var recorded: Option[(os.Path, FlowFlags)] = None
+      var recorded: Option[(os.Path, OrcaArgs)] = None
       Main.resumeInterruptedRun(
         FlowScriptedUi(),
         terminal,
         run,
-        runAction = (_, _, opts, dir, _) =>
-          recorded = Some(dir -> opts.flags)
+        runAction = (_, opts, dir, _) =>
+          recorded = Some(dir -> opts.args)
           LaunchResult.Ok
       )
       assertEquals(
         recorded,
         Some(
-          worktree -> FlowFlags(
+          worktree -> OrcaArgs(
+            userPrompt = "fix the flaky test",
             verbose = false,
             target = RunTarget.NewBranch(Uncommitted.Stash),
             branch = None
@@ -1082,7 +1090,7 @@ class MainTest extends munit.FunSuite:
           FlowScriptedUi(),
           terminal,
           run,
-          runAction = (_, _, _, _, _) => { launched = true; LaunchResult.Ok }
+          runAction = (_, _, _, _) => { launched = true; LaunchResult.Ok }
         )
       )
       assert(

@@ -1,56 +1,55 @@
 package orca.shell.cli
 
+import orca.RawArgs
 import orca.shell.actions.{FlowResolution, RunAction}
-import orca.shell.run.{FallbackPolicy, FlowFlags, FlowLauncher}
+import orca.shell.run.{FallbackPolicy, FlowLauncher}
 
 import Cli.{actionFailure, complete, usageFailure, withTerminal}
 
 /** `orca run`'s behavior (ADR 0021 §10): resolve the flow, read the task
-  * (argument or piped stdin), then either the forced run ([[RunAction.run]]) or
-  * the pin-honouring one ([[FlowLauncher.runHonoringPin]]), propagating the
-  * flow child's raw exit code.
+  * (argument, `--prompt` or piped stdin), then either the forced run
+  * ([[RunAction.run]]) or the pin-honouring one
+  * ([[FlowLauncher.runHonoringPin]]), propagating the flow child's raw exit
+  * code.
   */
 private[cli] object RunCli:
 
-  /** `flags` arrives unvalidated — a `Left` is an invalid `--branch` value or
-    * the refusal [[orca.RunTarget.from]] returned for a contradictory pair. It
-    * is refused first, before anything is resolved or spawned, saving a
-    * `scala-cli` start and its dependency resolution; the flow child refuses
-    * the same argv on the same shared decision and stays the authority, this
-    * only makes the answer immediate.
+  /** `args` arrives unchecked. Its task and flags are refused first, before
+    * anything is resolved, stdin is read or `scala-cli` starts; the flow child
+    * refuses the same argv on the same shared decision ([[orca.RawArgs]]) and
+    * stays the authority, this only makes the answer immediate.
     */
   def run(
       flowRef: String,
-      task: Option[String],
-      flags: Either[String, FlowFlags],
+      args: RawArgs,
       honorPin: Boolean,
       workDir: os.Path,
       tty: Boolean
   ): Int =
     complete:
       for
-        validFlags <- flags.left.map(usageFailure)
+        task <- args.taskText.left.map(usageFailure)
+        withTask <- args.checked.left.map(usageFailure)
         resolved <- FlowResolution
           .resolve(flowRef, workDir)
           .left
           .map(actionFailure)
         taskText <- readTask(task, tty, readAllStdin).left.map(usageFailure)
       yield withTerminal: terminal =>
+        val orcaArgs = withTask(taskText)
         val result =
           if honorPin then
             FlowLauncher.runHonoringPin(
               resolved.path,
-              taskText,
+              orcaArgs,
               workDir,
-              validFlags,
               terminal
             )
           else
             RunAction.run(
               resolved,
-              taskText,
               RunAction.RunOptions(
-                flags = validFlags,
+                args = orcaArgs,
                 fallback = FallbackPolicy.Refuse("re-run with --honor-pin")
               ),
               workDir,

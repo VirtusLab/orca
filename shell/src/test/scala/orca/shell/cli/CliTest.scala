@@ -138,6 +138,23 @@ class CliTest extends munit.FunSuite:
     )
     assert(err.contains("a..b"), err)
 
+  test(
+    "run: --prompt carries a task starting with '-' (fails later, at flow resolution)"
+  ):
+    assertEquals(
+      invoke("run", "no-such-flow.sc", "--prompt", "- add X\n- fix Y"),
+      Right(1)
+    )
+
+  test("run: a task given both positionally and with --prompt is refused"):
+    val (_, err) = capturedBoth(
+      assertEquals(
+        invoke("run", "no-such-flow.sc", "a task", "--prompt", "another"),
+        Right(ExitCodes.UsageError)
+      )
+    )
+    assert(err.contains("--prompt"), err)
+
   test("run: the required flow positional missing is a usage error"):
     assert(!parses("run"))
 
