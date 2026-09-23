@@ -1,6 +1,7 @@
 package orca.pr
 
 import munit.FunSuite
+import orca.interceptReported
 import orca.tools.{
   BranchNotPushed,
   GitHubAvailability,
@@ -392,7 +393,7 @@ class OpenPrIfGitHubTest extends FunSuite:
     */
   private def pushedThenFailedSummarise(): (os.Path, ProgressStore) =
     val (dir, store) = seededPrRepo()
-    val _ = intercept[IllegalStateException]:
+    val _ = interceptReported[IllegalStateException]:
       runOver(
         dir,
         store,
@@ -420,14 +421,14 @@ class OpenPrIfGitHubTest extends FunSuite:
     // Best effort covers the remote leg only. The progress record failing
     // after a push that went through is orca's own failure, and the run must
     // say so rather than report "could not push".
-    val e = intercept[IllegalStateException]:
+    val e = interceptReported[IllegalStateException]:
       run(available, store = new UnrecordableStages(_))
     assert(e.getMessage.contains("disk full"), e.getMessage)
 
   test("a create whose record cannot be written fails the run"):
     // The PR exists, but the log the lifecycle reads it from does not: that is
     // orca's own failure, outside the best-effort absorb around `gh.createPr`.
-    val e = intercept[IllegalStateException]:
+    val e = interceptReported[IllegalStateException]:
       run(available, store = new UnrecordablePr(_))
     assert(e.getMessage.contains("disk full"), e.getMessage)
 

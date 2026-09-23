@@ -1,12 +1,7 @@
 package orca
 
-/** Exception type thrown by `fail(...)` and tool adapters. Signals that the
-  * current flow cannot continue (unless a stage catches it and recovers).
-  *
-  * Error reporting is orthogonal to this type: the runtime reports each failure
-  * exactly once by tracking already-reported throwables in a context-owned
-  * identity set (`FlowContext.markErrorReported` / `errorAlreadyReported`), for
-  * plain `RuntimeException`s just as for this type.
+/** Exception type thrown by tool adapters. Signals that the current flow cannot
+  * continue, unless code inside the stage body catches it and recovers.
   */
 class OrcaFlowException(message: String) extends RuntimeException(message)
 

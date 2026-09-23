@@ -1,5 +1,6 @@
 package orca.runner
 
+import orca.ReportedFailure
 import orca.testkit.ScriptedBackend
 import orca.{AgentSet, OrcaArgs, StackSettings, flow, runFlow}
 import orca.agents.{
@@ -137,14 +138,14 @@ class LeadAgentIdentityTest extends munit.FunSuite:
   ):
     // The selector resolves pre-context, against the wired agent set, inside
     // `runFlow`'s pre-context `surfaced` bracket: its failure is reported as
-    // exactly one Error and escapes as `SurfacedFlowFailure(boom)`. The
+    // exactly one Error and escapes as `ReportedFailure(boom)`. The
     // context is never constructed, yet the five wired agents must be closed.
     val boom = new RuntimeException("selector always throws")
     val selector: AgentSet => orca.agents.Agent[BackendTag.ClaudeCode.type] =
       _ => throw boom
     val agents = new RecordingAgents
     val listener = new RecordingListener
-    val thrown = intercept[SurfacedFlowFailure]:
+    val thrown = intercept[ReportedFailure]:
       supervised:
         runFlow(
           FlowHarness.request(
@@ -209,7 +210,7 @@ class LeadAgentIdentityTest extends munit.FunSuite:
       NoopInteraction
     )
     val agents = new RecordingAgents
-    val thrown = intercept[SurfacedFlowFailure]:
+    val thrown = intercept[ReportedFailure]:
       supervised:
         runFlow(
           FlowHarness.request(

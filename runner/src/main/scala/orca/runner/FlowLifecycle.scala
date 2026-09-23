@@ -8,6 +8,7 @@ import orca.{
   OrcaArgs,
   OrcaDir,
   OrcaFlowException,
+  ReportedFailure,
   RuntimeInStage,
   StackSettings,
   WorkspaceWrite
@@ -37,14 +38,6 @@ import ox.either.orThrow
 
 import scala.util.control.NonFatal
 
-/** Marker that a failure was already reported to the event surface (thrown by
-  * `surfaced` after reporting), so `flow()` discards it without re-reporting.
-  * Any OTHER `NonFatal` escaping `runFlow` means an un-bracketed code path;
-  * `flow()` prints it to stderr as a backstop.
-  */
-private[orca] final case class SurfacedFlowFailure(cause: Throwable)
-    extends RuntimeException(cause)
-
 /** Flow setup/teardown/recovery lifecycle (ADR 0018 §2.4/§2.5). Owns the
   * privileged, outside-any-user-stage git and progress-store mutations that
   * bracket the body.
@@ -56,8 +49,7 @@ object FlowLifecycle:
     * binding) already ran in `runFlow` before the context was built, so its
     * resolved settings arrive here as a constructor input, not a phase.
     *
-    * Rehydration and the body run inside `surfaced`, which reports, logs, and
-    * rethrows [[SurfacedFlowFailure]]; the body phase also runs
+    * Rehydration and the body run inside [[surfaced]]; the body phase also runs
     * `teardownFailure` on the way out. `teardownSuccess` runs OUTSIDE
     * `surfaced` — it's already best-effort, and wrapping it would turn a
     * cosmetic teardown failure into a reported failure on a successful run.
@@ -70,29 +62,18 @@ object FlowLifecycle:
       debug: Boolean
   )(body: FlowControl ?=> Unit): Unit =
     val log = LoggerFactory.getLogger("orca.flow")
-    // `ctx.reportOnce` dedups against a nested stage that already surfaced this
-    // failure. `teardownFailure` is NOT called here — it's the body phase's job
-    // alone (below).
-    def surfaced[T](op: => T): T =
-      try op
-      catch
-        case NonFatal(e) =>
-          ctx.reportOnce(e)(
-            ctx.emit(OrcaEvent.Error(TextUtil.throwableMessage(e)))
-          )
-          log.debug("flow aborted", e)
-          if debug then e.printStackTrace(System.err)
-          throw SurfacedFlowFailure(e)
-    surfaced(rehydrateSessions(ctx, ctx.codingAgent, ctx.sessionStore))
+    surfaced(ctx.emit, debug)(
+      rehydrateSessions(ctx, ctx.codingAgent, ctx.sessionStore)
+    )
     // The whole flow body runs as a top-level stage: an otherwise unhandled
     // exception surfaces as a single Error event. `teardownFailure` runs only
     // here in the body phase, so a success-teardown error can never trigger
     // `discardUncommitted` or strand the user on the feature branch.
-    try surfaced(body(using ctx))
+    try surfaced(ctx.emit, debug)(body(using ctx))
     catch
-      case f @ SurfacedFlowFailure(e) =>
-        // `e` was already reported by `surfaced`. If the reset itself fails, attach
-        // it as suppressed (rather than replacing `e`), and log/print it too.
+      case f: ReportedFailure =>
+        // If the reset itself fails, attach it as suppressed (rather than
+        // replacing `f`), and log/print it too.
         //
         // This Step names WHY the reset is about to discard changes —
         // `discardUncommitted` itself also emits its own "Discarded
@@ -109,7 +90,7 @@ object FlowLifecycle:
         try teardownFailure(ctx.git, flowSetup.untrackedOnFailure)
         catch
           case NonFatal(t) =>
-            e.addSuppressed(t)
+            f.addSuppressed(t)
             log.debug("teardownFailure failed after body failure", t)
             if debug then t.printStackTrace(System.err)
             ctx.emit(
@@ -122,6 +103,22 @@ object FlowLifecycle:
     // Read before teardownSuccess deletes the log.
     val published = PublishedState.from(ctx.progressStore.loadDetailed())
     teardownSuccess(ctx.git, flowSetup, published, ctx.emit)
+
+  /** Runs one lifecycle phase: a failure is reported to `emit` unless already
+    * reported, logged (with its stack trace on stderr under `debug`), and
+    * rethrown as a [[ReportedFailure]].
+    */
+  private[orca] def surfaced[T](emit: OrcaEvent => Unit, debug: Boolean)(
+      op: => T
+  ): T =
+    try op
+    catch
+      case NonFatal(e) =>
+        val reported = ReportedFailure.reportOnce(e): cause =>
+          emit(OrcaEvent.Error(TextUtil.throwableMessage(cause)))
+        LoggerFactory.getLogger("orca.flow").debug("flow aborted", reported)
+        if debug then reported.printStackTrace(System.err)
+        throw reported
 
   /** Replay the persisted resume-wire-id map (ADR 0018 §2.6) into each
     * session's own agent's in-memory registry, so a resumed run resumes against

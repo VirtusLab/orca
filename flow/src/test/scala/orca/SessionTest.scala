@@ -221,7 +221,7 @@ class SessionTest extends FunSuite:
     val (fc, _) = TestFlowControl.create(new EventDispatcher(Nil))
     given FlowControl = fc
     val agent = new StubAgent
-    val ex = intercept[OrcaFlowException]:
+    val ex = interceptReported[OrcaFlowException]:
       stage[String]("Implement", commitMessage):
         val _ = agent.session("implementer", seed = "s")
         agent.session("implementer", seed = "s").id.value

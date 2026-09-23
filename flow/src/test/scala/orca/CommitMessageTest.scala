@@ -71,7 +71,6 @@ class CommitMessageTest extends munit.FunSuite:
       val reviewerCatalog: orca.review.ReviewerCatalog =
         orca.review.ReviewerCatalog.builtIn
   ) extends FlowControl,
-        ReportedErrorsSupport,
         StageFrames:
     import orca.agents.{
       ClaudeAgent,
