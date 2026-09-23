@@ -492,7 +492,8 @@ Orca is 0.x: no backwards compatibility is owed anywhere.
   agent's cookie and REPORTS what is still running — the backstop for work an
   agent detached from orca's process tree, which no parent-link teardown can
   reach. opencode's turns spawn nothing (they run on the per-run server), so
-  they are not swept. Report-only unless `ORCA_SWEEP_KILL=1`; Linux only, and
+  they are not swept; the server's cookie is swept when the server stops.
+  Report-only unless `ORCA_SWEEP_KILL=1`; Linux only, and
   silently inert elsewhere (nothing to act on, so nothing is said).
 - Any filesystem write under `.orca/` **must** go through an
   `OrcaDir.ensure*` accessor, which refuses a symlinked `.orca` or

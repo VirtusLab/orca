@@ -21,7 +21,12 @@ object OpencodeAgents:
       launcher: OpencodeLauncher = OpencodeLauncher.default
   )(using Ox): OpencodeAgent =
     new DefaultOpencodeAgent(
-      backend = OpencodeBackend(OsProcCliRunner, wiring.workDir, launcher),
+      backend = OpencodeBackend(
+        OsProcCliRunner,
+        wiring.workDir,
+        wiring.events,
+        launcher
+      ),
       config = AgentConfig(),
       prompts = wiring.prompts,
       events = wiring.events,

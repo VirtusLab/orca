@@ -35,15 +35,13 @@ class OpencodeBackendTest extends munit.FunSuite:
       def tryExitCode: Option[Int] = Some(0)
     override def getStatus(path: String): Int = statusFor(path)
 
-  /** Fake [[OpencodeServerHandle]] standing in for the eager server. `http`
-    * forces `httpThunk` on every access — a test wanting to assert a spawn
-    * never happens passes `fail(...)` as the thunk.
+  /** Fake [[OpencodeServerHandle]] standing in for the server. `http` forces
+    * `httpThunk` on every access — a test wanting to assert a spawn never
+    * happens passes `fail(...)` as the thunk.
     */
   private class FakeHandle(httpThunk: => OpencodeHttp)
       extends OpencodeServerHandle:
-    var closed: Boolean = false
     def http: OpencodeHttp = httpThunk
-    def close(): Unit = closed = true
 
   private def data(json: String): String = s"data: $json"
 
@@ -187,13 +185,6 @@ class OpencodeBackendTest extends munit.FunSuite:
       ) // schema threaded through
       conv.events.foreach(_ => ())
       assertEquals(conv.awaitResult().toOption.get.output, "hi")
-
-  test("close() delegates to the server handle"):
-    val http = new FakeHttp(Nil, _ => 200)
-    val handle = new FakeHandle(http)
-    val backend = new OpencodeBackend(handle)
-    backend.close()
-    assert(handle.closed, "backend.close() must close the server handle")
 
   test(
     "dispatch never spawns the server when there is no client→server " +

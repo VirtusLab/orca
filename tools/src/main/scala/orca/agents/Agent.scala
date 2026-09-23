@@ -305,9 +305,9 @@ trait Agent[B <: BackendTag]:
   ): Unit =
     sessionSupport.foreach(_.rehydrate(client, wireId))
 
-  /** Release background resources this agent's backend owns. Delegates to
-    * [[orca.backend.AgentBackend.close]]; a stub without a backend keeps the
-    * no-op default. The runtime calls this when the flow run ends.
+  /** Mark this agent's backend as belonging to an ended flow, so later runs
+    * through any handle sharing it are refused. A stub without a backend keeps
+    * the no-op default. The runtime calls this when the flow run ends.
     */
   private[orca] def close(): Unit = ()
 

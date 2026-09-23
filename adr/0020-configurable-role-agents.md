@@ -136,9 +136,6 @@ still closed when a later override throws, and a role on a wired backend is
 not closed twice. The context does not close agents. An earlier guard closed
 agents only if building the context failed, then passed them to the context.
 One scope covering the whole run does the same job without that hand-off.
-The scope is a `resourceScope` rather than the enclosing `supervised`, as
-`supervised` releases only after joining its forks. Opencode's drain forks
-end only once its `serve` process is closed, so that join would hang.
 
 ### 5. Role mapping inside the library
 

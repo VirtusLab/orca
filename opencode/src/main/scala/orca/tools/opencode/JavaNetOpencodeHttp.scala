@@ -23,8 +23,20 @@ private[opencode] object JavaNetOpencodeHttp:
     */
   def start(baseUrl: String, password: String): OpencodeHttp =
     val http = new JavaNetOpencodeHttp(baseUrl, password)
-    http.awaitHealthy(attempts = 50, delayMs = 200L)
+    try http.awaitHealthy(attempts = 50, delayMs = 200L)
+    catch
+      case e: Throwable =>
+        http.close()
+        throw e
     http
+
+  /** Bounds a request/response call, so a hung server fails it rather than
+    * blocking the caller (e.g. a turn cancel's abort POST).
+    */
+  private val RequestTimeout: FiniteDuration = 30.seconds
+
+  /** A health ping is retried, so a hung one should give way to the next. */
+  private val PingTimeout: FiniteDuration = 1.second
 
 private[opencode] class JavaNetOpencodeHttp(baseUrl: String, password: String)
     extends OpencodeHttp:
@@ -45,7 +57,7 @@ private[opencode] class JavaNetOpencodeHttp(baseUrl: String, password: String)
     )
 
   def postJson(path: String, body: String): String =
-    val req = request(path)
+    val req = request(path, JavaNetOpencodeHttp.RequestTimeout)
       .header("Content-Type", "application/json")
       .POST(HttpRequest.BodyPublishers.ofString(body))
       .build()
@@ -58,12 +70,14 @@ private[opencode] class JavaNetOpencodeHttp(baseUrl: String, password: String)
 
   override def getStatus(path: String): Int =
     try
-      val req = request(path).GET().build()
+      val req = request(path, JavaNetOpencodeHttp.RequestTimeout).GET().build()
       client.send(req, HttpResponse.BodyHandlers.discarding()).statusCode()
     catch case NonFatal(_) => 0
 
   def events(): StreamSource =
-    val req = request("/event").GET().build()
+    // No timeout: on newer JDKs it also bounds reading the body, and this
+    // stream stays open for the whole turn.
+    val req = requestBuilder("/event").GET().build()
     // `ofInputStream` returns once headers arrive; we read lines off the raw
     // body ourselves. Closing the InputStream reliably unblocks a thread parked
     // in `readLine()` on the open-ended SSE stream — `ofLines().close()` does
@@ -101,13 +115,19 @@ private[opencode] class JavaNetOpencodeHttp(baseUrl: String, password: String)
 
   private def pingOk(): Boolean =
     try
-      val req = request("/doc").GET().build()
+      val req = request("/doc", JavaNetOpencodeHttp.PingTimeout).GET().build()
       client
         .send(req, HttpResponse.BodyHandlers.discarding())
         .statusCode() == 200
     catch case NonFatal(_) => false
 
-  private def request(path: String): HttpRequest.Builder =
+  private def request(
+      path: String,
+      timeout: FiniteDuration
+  ): HttpRequest.Builder =
+    requestBuilder(path).timeout(java.time.Duration.ofMillis(timeout.toMillis))
+
+  private def requestBuilder(path: String): HttpRequest.Builder =
     HttpRequest
       .newBuilder(URI.create(baseUrl + path))
       .header("Authorization", authHeader)

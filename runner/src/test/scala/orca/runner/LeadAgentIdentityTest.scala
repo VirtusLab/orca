@@ -37,8 +37,8 @@ import java.util.concurrent.atomic.AtomicReference
   * comparing backend IDENTITY ([[orca.agents.Agent.backendIdentity]]), not
   * `Agent` reference equality — the positive case below pins that a
   * `copyTool`-derived sibling of a wired agent (the common `_.claude.opus`
-  * shape) does NOT trip that warning, and that its shared backend's teardown
-  * still runs exactly once despite two `Agent` instances.
+  * shape) does NOT trip that warning, and that its shared backend is still
+  * closed.
   */
 class LeadAgentIdentityTest extends munit.FunSuite:
 
@@ -57,7 +57,7 @@ class LeadAgentIdentityTest extends munit.FunSuite:
   test(
     "a foreign-agent selector warns at lead resolution and is closed at flow end"
   ):
-    val foreignBackend = new RecordingCloseBackend
+    val foreignBackend = new UnrunBackend
     val foreignAgent: PiAgent = new DefaultPiAgent(
       foreignBackend,
       AgentConfig(),
@@ -84,17 +84,13 @@ class LeadAgentIdentityTest extends munit.FunSuite:
       ),
       s"expected a foreign-lead resolution warning Step, saw: $warnings"
     )
-    assertEquals(
-      foreignBackend.closeCount,
-      1,
-      "close() must close a foreign lead's backend so it doesn't leak"
-    )
+    assert(foreignBackend.isClosed, "a foreign lead's backend must be closed")
 
   test(
     "a copyTool-derived sibling of the wired pi agent triggers no warning " +
-      "and its backend is closed exactly once"
+      "and its backend is closed"
   ):
-    val piBackend = new RecordingCloseBackend
+    val piBackend = new UnrunBackend
     val warnings = scala.collection.mutable.ListBuffer.empty[String]
     supervised:
       flow(
@@ -125,12 +121,7 @@ class LeadAgentIdentityTest extends munit.FunSuite:
       s"a copyTool-derived sibling of a wired agent must not trigger the " +
         s"foreign-lead warning, saw: $warnings"
     )
-    assertEquals(
-      piBackend.closeCount,
-      1,
-      "the shared backend's teardown must run exactly once even though " +
-        "two `Agent` instances share it"
-    )
+    assert(piBackend.isClosed, "the shared backend must be closed")
 
   test(
     "a selector that always throws: the original failure is reported once, " +
@@ -201,7 +192,7 @@ class LeadAgentIdentityTest extends munit.FunSuite:
     // a `RoleResolution`. The foreign planning agent's close, registered as
     // that role resolved, must still run so its backend does not leak.
     val boom = new RuntimeException("coding selector always throws")
-    val foreignBackend = new RecordingCloseBackend
+    val foreignBackend = new UnrunBackend
     val foreignPlanning: PiAgent = new DefaultPiAgent(
       foreignBackend,
       AgentConfig(),
@@ -237,9 +228,8 @@ class LeadAgentIdentityTest extends munit.FunSuite:
       boom,
       "the flow-level failure must be the coding selector's original error"
     )
-    assertEquals(
-      foreignBackend.closeCount,
-      1,
+    assert(
+      foreignBackend.isClosed,
       "an earlier role's foreign backend must still be closed when a LATER " +
         "override throws before `resolveAll` returns"
     )
@@ -251,18 +241,8 @@ class LeadAgentIdentityTest extends munit.FunSuite:
     ): AgentResult[B] =
       throw new UnsupportedOperationException
 
-  /** A minimal `AgentBackend` that counts REALISED close teardowns —
-    * `runAutonomous`/`runInteractive` are never exercised (the lead agent is
-    * only resolved and closed, never called).
-    *
-    * `close()` is CAS-guarded, mirroring the idempotence every real backend
-    * provides. `closeCount` counts realised teardowns, not `close()` calls.
-    */
-  private class RecordingCloseBackend extends ScriptedBackend(BackendTag.Pi):
-    private val closed = new java.util.concurrent.atomic.AtomicBoolean(false)
-    var closeCount: Int = 0
-    override def close(): Unit =
-      if closed.compareAndSet(false, true) then closeCount += 1
+  /** A backend whose agent is only resolved and closed, never run. */
+  private class UnrunBackend extends ScriptedBackend(BackendTag.Pi):
     protected def reply(
         turn: TurnRequest[BackendTag.Pi.type]
     ): AgentResult[BackendTag.Pi.type] =

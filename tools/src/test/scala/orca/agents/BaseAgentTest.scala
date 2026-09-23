@@ -44,16 +44,15 @@ class BaseAgentTest extends munit.FunSuite:
   // LLM `run` is gated on `InStage`; mint the token for the suite.
   private given orca.InStage = orca.InStage.unsafe
 
-  test("close() delegates to the backend"):
-    val backend = new RecordingCloseBackend
-    val tool = new StubTool(backend)
-    tool.close()
-    assertEquals(backend.closeCount, 1)
+  test("close() latches the backend closed"):
+    val backend = new UnrunBackend
+    new StubTool(backend).close()
+    assert(backend.isClosed)
 
   // A closed agent must fail loud rather than let a leaked handle
   // silently emit to a closed run's dispatcher.
   test("run after close() throws OrcaFlowException"):
-    val tool = new StubTool(new RecordingCloseBackend)
+    val tool = new StubTool(new UnrunBackend)
     tool.close()
     val thrown = intercept[orca.OrcaFlowException]:
       tool.run("prompt")
@@ -75,7 +74,7 @@ class BaseAgentTest extends munit.FunSuite:
     )
 
   test("resultAs after close() throws OrcaFlowException"):
-    val tool = new StubTool(new RecordingCloseBackend)
+    val tool = new StubTool(new UnrunBackend)
     tool.close()
     val thrown = intercept[orca.OrcaFlowException]:
       tool.resultAs[String]
@@ -89,7 +88,7 @@ class BaseAgentTest extends munit.FunSuite:
   // new Agent over the same backend) and a resultAs gateway built before close
   // and invoked after.
   test("a copyTool-derived handle after close() throws OrcaFlowException"):
-    val tool = new StubTool(new RecordingCloseBackend)
+    val tool = new StubTool(new UnrunBackend)
     tool.close()
     val derived = tool.withName("derived")
     val thrown = intercept[orca.OrcaFlowException]:
@@ -100,7 +99,7 @@ class BaseAgentTest extends munit.FunSuite:
     )
 
   test("a resultAs gateway obtained before close() throws when run after it"):
-    val tool = new StubTool(new RecordingCloseBackend)
+    val tool = new StubTool(new UnrunBackend)
     val gateway = tool.resultAs[String]
     tool.close()
     val thrown = intercept[orca.OrcaFlowException]:
@@ -949,9 +948,7 @@ class BaseAgentTest extends munit.FunSuite:
         turn: TurnRequest[BackendTag.Pi.type]
     ): AgentResult[BackendTag.Pi.type] = ScriptedBackend.result("out")
 
-  private class RecordingCloseBackend extends ScriptedBackend(BackendTag.Pi):
-    var closeCount: Int = 0
-    override def close(): Unit = closeCount += 1
+  private class UnrunBackend extends ScriptedBackend(BackendTag.Pi):
     protected def reply(
         turn: TurnRequest[BackendTag.Pi.type]
     ): AgentResult[BackendTag.Pi.type] = ???
