@@ -1,8 +1,7 @@
 package orca.runner.terminal
 
 import orca.agents.{BackendTag, WireSessionId}
-import orca.events.{OrcaListener, TurnDebit, Usage}
-import orca.{OrcaInteractiveCancelled}
+import orca.events.{OrcaListener, Usage}
 import orca.backend.{
   AgentResult,
   ApprovalDecision,
@@ -20,7 +19,7 @@ class TerminalPromptsTest extends munit.FunSuite:
 
   private def prompts(
       out: ByteArrayOutputStream,
-      prompter: Prompter = ScriptedPrompter(Nil)
+      prompter: Prompter
   ): TerminalPrompts =
     val ps = new PrintStream(out)
     // `animated = false` makes the output write inline — no ANSI escapes
@@ -60,14 +59,6 @@ class TerminalPromptsTest extends munit.FunSuite:
       output = """{"ok":true}""",
       usage = Usage.empty
     )
-
-  test("drive throws a cancelled turn's OrcaInteractiveCancelled"):
-    val buf = new ByteArrayOutputStream()
-    val cancelled = new OrcaInteractiveCancelled(TurnDebit.Unobserved)
-    val conv = new ScriptedConversation(Nil, Left(cancelled))
-    val thrown = intercept[OrcaInteractiveCancelled]:
-      prompts(buf).drive(observed(conv))
-    assertEquals(thrown, cancelled)
 
   test("an approval request truncates a long input with an ellipsis"):
     val buf = new ByteArrayOutputStream()

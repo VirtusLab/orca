@@ -1,21 +1,11 @@
 package orca.backend
 
-import orca.OrcaInteractiveCancelled
-import orca.events.{OrcaEvent, OrcaListener, TurnDebit, Usage}
+import orca.events.{OrcaEvent, Usage}
 import orca.agents.{AutoApprove, BackendTag, WireSessionId}
 import orca.testkit.ScriptedConversation
 import ox.supervised
 
 import java.util.concurrent.atomic.AtomicReference
-
-/** Records every `OrcaEvent` it sees so tests can assert on the emission order
-  * without scaffolding a full listener.
-  */
-private class RecordingListener extends OrcaListener:
-  private val log = new AtomicReference[List[OrcaEvent]](Nil)
-  def events: List[OrcaEvent] = log.get().reverse
-  def onEvent(event: OrcaEvent): Unit =
-    val _ = log.updateAndGet(event :: _)
 
 class ConversationsTest extends munit.FunSuite:
 
@@ -38,13 +28,6 @@ class ConversationsTest extends munit.FunSuite:
       sampleResult
     )
     assertEquals(conv.drained.get(), 2)
-
-  test("drainAutonomous throws OrcaInteractiveCancelled on Left outcome"):
-    val cancelled = new OrcaInteractiveCancelled(TurnDebit.Unobserved)
-    val conv = new ScriptedConversation(Nil, Left(cancelled))
-    val thrown = intercept[OrcaInteractiveCancelled]:
-      supervised(Conversations.drainAutonomous(conv, AutoApprove.All))
-    assertEquals(thrown, cancelled)
 
   test("ApproveTool under AutoApprove.Only auto-denies and surfaces an Error"):
     // The autonomous drain has no user to ask, but the subprocess is

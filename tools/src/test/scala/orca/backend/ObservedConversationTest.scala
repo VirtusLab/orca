@@ -2,7 +2,7 @@ package orca.backend
 
 import orca.{OrcaFlowException, OrcaInteractiveCancelled}
 import orca.agents.{BackendTag, StructuredOutputMode, WireSessionId}
-import orca.events.{OrcaEvent, Usage}
+import orca.events.{OrcaEvent, OrcaListener, TurnDebit, Usage}
 import orca.testkit.ScriptedConversation
 
 import java.util.concurrent.atomic.AtomicInteger
@@ -40,6 +40,13 @@ class ObservedConversationTest extends munit.FunSuite:
     """{"command":"ls"}""",
     _ => ()
   )
+
+  test("a cancelled turn throws its OrcaInteractiveCancelled"):
+    val cancelled = new OrcaInteractiveCancelled(TurnDebit.Unobserved)
+    val conv = new ScriptedConversation(Nil, Left(cancelled))
+    val thrown = intercept[OrcaInteractiveCancelled]:
+      ObservedConversation(conv, OrcaListener.noop).drain(_ => ())
+    assertEquals(thrown, cancelled)
 
   test("the opening UserMessage surfaces as OrcaEvent.UserPrompt"):
     val recorder = new RecordingListener

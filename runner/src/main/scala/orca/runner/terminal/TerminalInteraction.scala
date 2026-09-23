@@ -54,7 +54,7 @@ class TerminalInteraction private[terminal] (
     ).drive(conversation)
 
   /** Close the prompter (shared across every conversation; `TerminalPrompts`
-    * never close it), then the output. The prompter close is guarded so a
+    * never closes it), then the output. The prompter close is guarded so a
     * throwing prompter can't strand the output uncleared or mask an error
     * already unwinding through the caller's `finally`.
     */
