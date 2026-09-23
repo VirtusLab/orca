@@ -31,7 +31,6 @@ import orca.runner.{
   LoggingListener,
   OrcaBanner,
   OrcaLog,
-  OxCompat,
   RoleAgents,
   RoleOverrides,
   SurfacedFlowFailure,
@@ -47,7 +46,7 @@ import orca.tools.GitTool
 import orca.tools.GitHubTool
 import orca.tools.{OsFsTool, OsGitHubTool, OsGitTool}
 import orca.util.{OrcaDebug, TextUtil}
-import ox.{Ox, supervised}
+import ox.{Ox, resourceScope, supervised}
 
 import scala.util.control.NonFatal
 
@@ -423,7 +422,7 @@ private def runInContext(
   // `serve` process, which is what makes its drain forks' reads EOF, so it
   // must run first or the join hangs. This method takes no `Ox`, as
   // `resourceScope` can't start where one is visible.
-  OxCompat.resourceScope:
+  resourceScope:
     WiredAgents.closeAfterScope(agents.all)
     // Pre-context equivalent of `FlowLifecycle.run`'s `surfaced` bracket:
     // report the failure to the event surface, log, print the stack under

@@ -317,7 +317,7 @@ class RoleAgentsTest extends munit.FunSuite:
       overrides: RoleOverrides,
       agents: WiredAgents
   ): RoleResolution =
-    OxCompat.resourceScope(
+    ox.resourceScope(
       RoleAgents.resolveAll(project, global, overrides, agents)
     )
 

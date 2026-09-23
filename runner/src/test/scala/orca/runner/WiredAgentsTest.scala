@@ -11,7 +11,7 @@ class WiredAgentsTest extends munit.FunSuite:
     "closeAfterScope closes every agent even when an earlier one's close() throws"
   ):
     var codexClosed = false
-    OxCompat.resourceScope:
+    ox.resourceScope:
       WiredAgents.closeAfterScope(
         List(ThrowingClaude, new ClosingCodex(() => codexClosed = true))
       )
