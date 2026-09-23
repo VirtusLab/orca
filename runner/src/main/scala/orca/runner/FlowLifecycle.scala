@@ -831,9 +831,9 @@ object FlowLifecycle:
     * resolution and skips discovery, but the project file is still read and
     * parsed — its agent keys are honoured and a malformed file still aborts.
     * Absent that override, the stack resolution follows the stack-aware
-    * discovery trigger (ADR 0020 §7): a present file naming a stack line (per
-    * [[SettingsFile.hasStackLines]]) resolves; an absent, blank, or
-    * stack-silent file needs discovery.
+    * discovery trigger (ADR 0019 amendment 2026-09-23): a present file
+    * configuring a stack key ([[orca.settings.ParsedSettings]]`.stack`)
+    * resolves; an absent, blank, or stack-silent file needs discovery.
     */
   private[orca] def readSettings(
       workDir: os.Path,
@@ -873,14 +873,12 @@ object FlowLifecycle:
       stackOverride match
         case Some(settings) => SettingsResolution.Resolved(settings)
         case None =>
-          projectContent match
-            case None => SettingsResolution.NeedsDiscovery(None)
-            case Some(content) =>
-              if SettingsFile.hasStackLines(content) then
-                SettingsResolution.Resolved(projectParsed.get.stack)
-              else if content.isBlank then
-                SettingsResolution.NeedsDiscovery(None)
-              else SettingsResolution.NeedsDiscovery(Some(content))
+          projectParsed.flatMap(_.stack) match
+            case Some(settings) => SettingsResolution.Resolved(settings)
+            case None =>
+              SettingsResolution.NeedsDiscovery(
+                projectContent.filterNot(_.isBlank)
+              )
     SettingsRead(stack, projectAgents, globalAgents)
 
   /** Abort the run if `path` is a symlink, before any read or write decision —

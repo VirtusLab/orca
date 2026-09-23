@@ -4,7 +4,7 @@ import mainargs.ParserForMethods
 import orca.StagePath
 import orca.agents.{BackendTag, SessionKey}
 import orca.runner.manifest.{AttemptStatus, ManifestSession}
-import orca.settings.{AgentSettings, AgentSpec, SettingsFile}
+import orca.settings.{AgentSettings, AgentSpec, SettingsFile, SettingsScope}
 import orca.shell.ScanDirs
 import orca.shell.actions.SessionAction
 import orca.shell.create.CreateTier
@@ -797,7 +797,10 @@ class CliTest extends munit.FunSuite:
       StackCli.runClearStack(dir, yes = true, tty = false),
       ExitCodes.Ok
     )
-    assert(!SettingsFile.hasStackLines(os.read(path)))
+    assertEquals(
+      SettingsFile.parse(os.read(path), SettingsScope.Project).map(_.stack),
+      Right(None)
+    )
 
   // --- list --json shape ---
 

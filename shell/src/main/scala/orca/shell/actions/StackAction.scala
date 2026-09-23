@@ -2,7 +2,7 @@ package orca.shell.actions
 
 import orca.OrcaDir
 import orca.StackSettings
-import orca.settings.{SettingsFile, SettingsScope}
+import orca.settings.{SettingsFile, SettingsScope, StackKey}
 import orca.shell.ui.ShellOutput
 
 import scala.util.control.NonFatal
@@ -12,7 +12,7 @@ import scala.util.control.NonFatal
   */
 private[shell] enum StackStatus:
   case NoSettings
-  case NoStackLines
+  case NoStackConfigured
   case Present(stack: StackSettings, content: String)
 
 /** "Clear stack settings (format/lint/test) — re-detected on the next flow run"
@@ -21,10 +21,9 @@ private[shell] enum StackStatus:
   */
 private[shell] object StackAction:
 
-  /** Reads and guards the project settings file the same way
-    * `Main.rediscoverStack` used to inline: a symlink guard
+  /** Reads and guards the project settings file: a symlink guard
     * ([[OrcaDir.assertNoOrcaSymlinks]]) so this never creates `.orca`, then an
-    * absent file or one with no stack lines already reported as a no-op, and a
+    * absent file or one configuring no stack key reported as a no-op, and a
     * malformed file reported as an error instead of surgically edited blind.
     */
   def status(workDir: os.Path): Either[String, StackStatus] =
@@ -34,21 +33,22 @@ private[shell] object StackAction:
       if !os.exists(path) then Right(StackStatus.NoSettings)
       else
         val content = os.read(path)
-        if !SettingsFile.hasStackLines(content) then
-          Right(StackStatus.NoStackLines)
-        else
-          SettingsFile.parse(content, SettingsScope.Project) match
-            case Left(error) =>
-              Left(s"invalid settings at $path: ${error.message}")
-            case Right(parsed) =>
-              Right(StackStatus.Present(parsed.stack, content))
+        SettingsFile.parse(content, SettingsScope.Project) match
+          case Left(error) =>
+            Left(s"invalid settings at $path: ${error.message}")
+          case Right(parsed) =>
+            Right(
+              parsed.stack.fold(StackStatus.NoStackConfigured)(
+                StackStatus.Present(_, content)
+              )
+            )
     catch
       case NonFatal(e) =>
         Left(s"couldn't re-discover stack settings — ${e.getMessage}")
 
   /** Strips the stack lines out of `content` ([[SettingsFile.stripStackLines]])
     * and writes the result back to the project settings file — so the next flow
-    * run's own `hasStackLines`-driven check re-triggers discovery.
+    * run re-triggers discovery.
     */
   def clear(workDir: os.Path, content: String): Unit =
     os.write.over(
@@ -94,12 +94,10 @@ private[shell] object StackAction:
   /** ` format: <cmd>` per line for each non-empty [[StackSettings]] key, in
     * format/lint/test order — display only for [[clearIfConfirmed]]'s confirm
     * prompt; a key left explicitly `off` (or never discovered) shows nothing
-    * here even though `off` still counts as a live line for
-    * [[SettingsFile.hasStackLines]].
+    * here even though `off` still counts as configured.
     */
   def renderStackSettings(stack: StackSettings): String =
-    val rows =
-      List("format" -> stack.format, "lint" -> stack.lint, "test" -> stack.test)
-        .flatMap((key, commands) => commands.map(cmd => s"  $key: $cmd"))
+    val rows = StackKey.values.toList.flatMap: key =>
+      key.commandsIn(stack).map(cmd => s"  ${key.raw}: $cmd")
     if rows.isEmpty then "  (no live commands — every stack key is off)"
     else rows.mkString("\n")

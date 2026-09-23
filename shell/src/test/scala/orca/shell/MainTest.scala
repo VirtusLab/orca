@@ -3,7 +3,7 @@ package orca.shell
 import org.jline.terminal.{Terminal, TerminalBuilder}
 import orca.{OrcaArgs, RunTarget, StackSettings, Uncommitted}
 import orca.agents.BackendTag
-import orca.settings.SettingsFile
+import orca.settings.{SettingsFile, SettingsScope}
 import orca.shell.actions.{SettingsEditAction, StackAction}
 import orca.shell.create.CreateTier
 import orca.discovery.Origin
@@ -1270,7 +1270,10 @@ class MainTest extends munit.FunSuite:
     Main.rediscoverStack(ConfirmOnlyUi(UiOutcome.Selected(true)), dir)
     val rewritten = os.read(path)
     assertEquals(rewritten, SettingsFile.stripStackLines(content))
-    assert(!SettingsFile.hasStackLines(rewritten))
+    assertEquals(
+      SettingsFile.parse(rewritten, SettingsScope.Project).map(_.stack),
+      Right(None)
+    )
 
   test("rediscoverStack leaves the file untouched when the user declines"):
     val dir = TempDirs.dir()
