@@ -294,11 +294,10 @@ private[orca] object SettingsFile:
         // every time. The reason is purely informative, one `#` line above.
         s"# ${collapseWhitespace(reason)}\n$key = $Off"
       case SettingsEntry.Demoted(key, command, reason) =>
-        // Same live-`off` shape as Unset; the rejected command is folded into
-        // the informative comment (collapsed to stay one physical line) so a
-        // reviewer sees what was tried and why it didn't survive.
-        s"# ${collapseWhitespace(command)}: ${collapseWhitespace(reason)}\n" +
-          s"$key = $Off"
+        // Collapsed to stay one physical `#` line.
+        s"# skipped: $key = ${collapseWhitespace(command)} " +
+          s"(${collapseWhitespace(reason)})"
+      case SettingsEntry.Off(key) => s"$key = $Off"
 
   private def collapseNewlines(s: String): String =
     TextUtil.collapseNewlines(s)

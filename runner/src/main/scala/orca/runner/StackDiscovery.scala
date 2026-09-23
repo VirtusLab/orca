@@ -131,10 +131,10 @@ private[runner] object StackDiscovery:
       case SettingsEntry.Demoted(key, command, reason) =>
         emit(
           OrcaEvent.Step(
-            s"  $key = off   # ${collapse(command)}: ${collapse(reason)}"
+            s"  skipped: $key = ${collapse(command)} (${collapse(reason)})"
           )
         )
-      case SettingsEntry.Unset(_, _) => ()
+      case SettingsEntry.Unset(_, _) | SettingsEntry.Off(_) => ()
 
   /** Emit a warning `Step` for each task that ended up with no commands — its
     * gate stays disabled (the file now carries a live `key = off` line for it)
@@ -201,10 +201,10 @@ private[runner] object StackDiscovery:
     *
     * Per command: passing both checks → a [[SettingsEntry.Command]] carrying
     * its evidence as the comment, and the command joins the returned settings;
-    * failing one → a [[SettingsEntry.Demoted]] with the reason (rendered as a
-    * live `key = off` line — see [[SettingsEntry]]). A task that proposed no
-    * commands becomes [[SettingsEntry.Unset]]; a task whose every command was
-    * demoted is documented by the demoted lines themselves.
+    * failing one → a [[SettingsEntry.Demoted]] with the reason. A task that
+    * proposed no commands becomes [[SettingsEntry.Unset]]; a task whose every
+    * command was demoted gets a trailing [[SettingsEntry.Off]], so each key has
+    * exactly one live line kind: its commands, or `off`.
     */
   def toEntries(
       result: StackDiscoveryResult,
@@ -242,7 +242,12 @@ private[runner] object StackDiscovery:
           SettingsEntry
             .Unset(key, task.unsetReason.getOrElse("no evidence found"))
         )
-      else task.commands.map(checkedEntry(key, _))
+      else
+        val checked = task.commands.map(checkedEntry(key, _))
+        val anySurvived = checked.exists:
+          case SettingsEntry.Command(_, _, _) => true
+          case _                              => false
+        if anySurvived then checked else checked :+ SettingsEntry.Off(key)
 
     val entries =
       taskEntries(StackKey.Format.raw, result.format) ++

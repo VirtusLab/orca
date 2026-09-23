@@ -124,17 +124,45 @@ class StackDiscoveryTest extends munit.FunSuite:
         if c.startsWith("just") then Some("just: not found on PATH") else None,
       evidenceExists = allEvidenceExists
     )
-    // Exact list: the all-demoted lint task contributes only its demoted line
-    // — no contradictory Unset line alongside it.
+    // Exact list: the all-demoted lint task contributes its demoted line plus
+    // one Off — no contradictory Unset line alongside it.
     assertEquals(
       entries,
       List(
         SettingsEntry.Unset("format", "no evidence found"),
         SettingsEntry.Demoted("lint", "just check", "just: not found on PATH"),
+        SettingsEntry.Off("lint"),
         SettingsEntry.Unset("test", "no evidence found")
       )
     )
     assertEquals(settings.lint, Nil, "a demoted command must not join settings")
+
+  test("toEntries: a demoted command next to a surviving one adds no Off"):
+    val result = StackDiscoveryResult(
+      format = DiscoveredTask(),
+      lint = DiscoveredTask(commands =
+        List(
+          DiscoveredCommand("sbt compile", "build.sbt"),
+          DiscoveredCommand("yarn lint", "package.json")
+        )
+      ),
+      test = DiscoveredTask()
+    )
+    val (entries, _) = StackDiscovery.toEntries(
+      result,
+      unresolvedReason = c =>
+        if c.startsWith("yarn") then Some("yarn: not found on PATH") else None,
+      evidenceExists = allEvidenceExists
+    )
+    assertEquals(
+      entries,
+      List(
+        SettingsEntry.Unset("format", "no evidence found"),
+        SettingsEntry.Command("lint", "sbt compile", Some("build.sbt")),
+        SettingsEntry.Demoted("lint", "yarn lint", "yarn: not found on PATH"),
+        SettingsEntry.Unset("test", "no evidence found")
+      )
+    )
 
   test("toEntries: a missing evidence file demotes, naming the file"):
     val result = StackDiscoveryResult(
@@ -149,8 +177,8 @@ class StackDiscoveryTest extends munit.FunSuite:
       unresolvedReason = allResolvable,
       evidenceExists = _ => false
     )
-    // Exact list: the all-demoted format task contributes only its demoted
-    // line — no contradictory Unset line alongside it.
+    // Exact list: the all-demoted format task contributes its demoted line
+    // plus one Off — no contradictory Unset line alongside it.
     assertEquals(
       entries,
       List(
@@ -159,6 +187,7 @@ class StackDiscoveryTest extends munit.FunSuite:
           "cargo fmt",
           "evidence file Cargo.toml not found"
         ),
+        SettingsEntry.Off("format"),
         SettingsEntry.Unset("lint", "no evidence found"),
         SettingsEntry.Unset("test", "no evidence found")
       )

@@ -1571,11 +1571,11 @@ class FlowLifecycleTest extends munit.FunSuite:
     val content = os.read(OrcaDir.settingsPath(workDir))
     assert(
       content.contains(
-        "# definitely-not-a-cmd-xyz check: " +
-          "definitely-not-a-cmd-xyz: not found on PATH\nlint = off"
+        "# skipped: lint = definitely-not-a-cmd-xyz check " +
+          "(definitely-not-a-cmd-xyz: not found on PATH)\nlint = off"
       ),
-      s"the demoted command must be a live `off` line with its reason " +
-        s"as the comment above: $content"
+      s"the demoted command must be a comment, followed by a live `off` " +
+        s"line: $content"
     )
     // The written file parses to only the surviving commands, matching the run's.
     assertEquals(

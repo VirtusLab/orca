@@ -329,22 +329,22 @@ class SettingsFileTest extends FunSuite:
         |""".stripMargin
     )
 
-  test("render pins the Demoted shape, collapsing whitespace runs"):
+  test("render pins the Demoted and Off shapes, collapsing whitespace runs"):
     val rendered = SettingsFile.render(
       List(
         SettingsEntry.Demoted(
           "lint",
           "just \ncheck",
           "just: not\n  found on PATH"
-        )
+        ),
+        SettingsEntry.Off("lint")
       )
     )
     assert(
       rendered.endsWith(
-        "\n# just check: just: not found on PATH\nlint = off\n"
+        "\n# skipped: lint = just check (just: not found on PATH)\nlint = off\n"
       ),
-      s"a demoted entry must render as a live `off` line with its command " +
-        s"and reason folded into the comment above, whitespace runs " +
+      s"a demoted entry must render as one comment line, whitespace runs " +
         s"collapsed, got: $rendered"
     )
 
@@ -450,6 +450,7 @@ class SettingsFileTest extends FunSuite:
       List(
         SettingsEntry.Unset("format", "no formatter found"),
         SettingsEntry.Demoted("lint", "just check", "just: not found"),
+        SettingsEntry.Off("lint"),
         SettingsEntry.Unset("test", "no test evidence found")
       )
     )

@@ -26,12 +26,16 @@ private[orca] enum SettingsEntry:
   case Unset(key: String, reason: String)
 
   /** A discovered command that failed a mechanical check (ADR 0019), rendered
-    * as the same LIVE `key = off` line as [[Unset]] — the rejected command and
-    * failure reason are folded into the informative comment above, so a
-    * reviewer sees what was tried and can fix it by hand:
+    * as a comment only, so a reviewer sees what was tried and why it was
+    * skipped. Discovery follows a key's demoted lines with an [[Off]] when no
+    * command survived for that key:
     * {{{
-    * # command: reason
-    * key = off
+    * # skipped: key = command (reason)
     * }}}
     */
   case Demoted(key: String, command: String, reason: String)
+
+  /** A bare LIVE `key = off` line, for a key whose every discovered command was
+    * [[Demoted]].
+    */
+  case Off(key: String)

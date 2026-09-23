@@ -40,8 +40,8 @@ class SettingsFilePropertyTest extends ScalaCheckSuite:
     TextUtil.collapseNewlines(command).trim
 
   /** What parse must recover from a rendered entry list: the Command entries'
-    * sanitized commands, appended per key in entry order — Unset and Demoted
-    * entries are invisible.
+    * sanitized commands, appended per key in entry order — Unset, Demoted and
+    * Off entries are invisible.
     */
   private def expectedSettings(entries: List[SettingsEntry]): StackSettings =
     entries.foldLeft(StackSettings.empty): (acc, entry) =>
@@ -55,7 +55,9 @@ class SettingsFilePropertyTest extends ScalaCheckSuite:
             case Some(StackKey.Test) =>
               acc.copy(test = acc.test :+ sanitize(command))
             case _ => fail(s"generator produced unknown key: $key")
-        case SettingsEntry.Unset(_, _) | SettingsEntry.Demoted(_, _, _) => acc
+        case SettingsEntry.Unset(_, _) | SettingsEntry.Demoted(_, _, _) |
+            SettingsEntry.Off(_) =>
+          acc
 
   private val keyGen: Gen[String] =
     Gen.oneOf(StackKey.Format, StackKey.Lint, StackKey.Test).map(_.raw)
@@ -92,7 +94,8 @@ class SettingsFilePropertyTest extends ScalaCheckSuite:
         key <- keyGen
         command <- freeText
         reason <- freeText
-      yield SettingsEntry.Demoted(key, command, reason)
+      yield SettingsEntry.Demoted(key, command, reason),
+      keyGen.map(SettingsEntry.Off(_))
     )
     Gen.listOf(entry)
 
