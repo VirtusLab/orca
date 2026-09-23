@@ -72,7 +72,6 @@ final class FlowSession[B <: BackendTag] private[orca] (
       ev: InStage,
       ws: WorkspaceWrite
   ): String =
-    fc.assertOwnerThread("session.run(...)")
     val output = agent.autonomous
       .runWithSession(
         effectivePrompt(agent, id, prompt),
@@ -123,7 +122,6 @@ final class FlowSessionCall[B <: BackendTag, O] private[orca] (
       ev: InStage,
       ws: WorkspaceWrite
   ): O =
-    fc.assertOwnerThread("session.run(...)")
     val serialized = ai.serialize(input)
     val output = call.autonomous
       .runWithSession(

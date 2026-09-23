@@ -748,14 +748,14 @@ compile error with a message telling you where the call belongs:
 | Capability | Kind | Gates | Provided by | Misuse caught by |
 |---|---|---|---|---|
 | `InStage` | shared (`caps.SharedCapability`) | LLM runs (`agent.*.run`, `session.run`) | `stage(...)` bodies | missing-given compile error |
-| `WorkspaceWrite` | exclusive (`caps.ExclusiveCapability`) | git/`gh` writes, `fs.write`, progress-log writes | `stage(...)` bodies | missing-given compile error; must never cross a `fork` |
+| `WorkspaceWrite` | exclusive (`caps.ExclusiveCapability`) | git/`gh` writes, `fs.write`, progress-log writes | `stage(...)` bodies | missing-given compile error + a runtime owner-thread check (never cross a `fork`) |
 | `FlowControl` | exclusive (`caps.ExclusiveCapability`) | starting stages, minting sessions | the `flow(...)` body (not forks) | missing-given compile error + a runtime owner-thread check |
 
 (`FlowContext` — reads and event emission — is deliberately *not* a capability:
 it is thread-safe and forks receive it freely.)
 
 The runtime always guards this at run time — a fork that calls
-`stage(...)`/`session(...)` fails immediately, a second `flow(...)` in the same
+`stage(...)`/`session(...)` or makes a workspace write fails immediately, a second `flow(...)` in the same
 working tree is refused, an agent used after its flow ended throws — so you get
 the safety without any setup.
 
