@@ -1,13 +1,7 @@
 package orca.progress
 
-import com.github.plokhotnyuk.jsoniter_scala.core.{
-  readFromString,
-  writeToString
-}
-import orca.{OrcaDir, WorkspaceWrite}
-import orca.agents.JsonData
-import orca.util.AtomicFile
-import scala.util.control.NonFatal
+import orca.{OrcaDir, RunKey, WorkspaceWrite}
+import orca.util.JsonFile
 
 /** Persistent store for a single flow run's [[ProgressLog]].
   *
@@ -27,9 +21,9 @@ trait ProgressStore:
   def load(): Option[ProgressLog]
 
   /** Classifies the log for callers that must act differently per outcome — the
-    * lifecycle's resume decision. See [[ProgressStore.LoadResult]].
+    * lifecycle's resume decision. See [[JsonFile.Read]].
     */
-  def loadDetailed(): ProgressStore.LoadResult
+  def loadDetailed(): JsonFile.Read[ProgressLog]
 
   def writeHeader(header: ProgressHeader)(using WorkspaceWrite): Unit
 
@@ -39,7 +33,7 @@ trait ProgressStore:
     * Requires [[writeHeader]] to have been called first (a log must already
     * exist); otherwise it throws.
     */
-  def appendEntry(entry: StageEntry)(using WorkspaceWrite): Unit
+  def upsertEntry(entry: StageEntry)(using WorkspaceWrite): Unit
 
   /** Record where this run published its work; last write wins.
     *
@@ -54,100 +48,34 @@ trait ProgressStore:
 
 object ProgressStore:
 
-  /** Outcome of [[ProgressStore.loadDetailed]]. The two failure arms are split
-    * because they call for opposite actions: content orca wrote and cannot
-    * parse is safe to replace with a fresh log, while a log it could not read
-    * at all may still be a resumable run, and overwriting it would destroy one.
+  /** Default OS-backed store: JSON at
+    * `<workDir>/.orca/runs/<key>.progress.json`. Two unrelated prompts in the
+    * same repo produce different files; rerunning the same prompt resumes the
+    * same log.
     */
-  enum LoadResult:
-    /** No file at the path — the normal fresh run. */
-    case Absent
-
-    /** The file was read but does not parse: truncated, or externally edited.
-      */
-    case Corrupt(reason: String)
-
-    /** The read itself failed — permissions, or a directory at the path. */
-    case Unreadable(reason: String)
-
-    case Loaded(log: ProgressLog)
-
-  /** Default OS-backed store: JSON at `<workDir>/.orca/progress-<hash>.json`.
-    *
-    * `hash` is the first 12 hex chars of SHA-256(userPrompt). Two unrelated
-    * prompts in the same repo produce different files; rerunning the same
-    * prompt resumes the same log.
-    */
-  def default(workDir: os.Path, userPrompt: String): ProgressStore =
-    OsProgressStore(
-      workDir,
-      OrcaDir.progressPath(workDir, hashPrompt(userPrompt))
-    )
-
-  /** Store for an already-known log path — e.g. one discovered by scanning
-    * `.orca/` for `progress-*.json` files (the shell's interrupted-run
-    * detection) rather than derived from a fresh prompt via [[default]].
-    */
-  def at(workDir: os.Path, path: os.Path): ProgressStore =
-    OsProgressStore(workDir, path)
-
-  /** First 6 bytes of SHA-256(userPrompt) rendered as 12 hex chars.
-    * Package-private so the flow lifecycle can stamp the same hash into the
-    * progress header (ADR 0018 §2.4).
-    */
-  private[orca] def hashPrompt(userPrompt: String): String =
-    val md = java.security.MessageDigest.getInstance("SHA-256")
-    val digest = md.digest(userPrompt.getBytes("UTF-8"))
-    digest.iterator.take(6).map(b => f"${b & 0xff}%02x").mkString
+  def default(workDir: os.Path, key: RunKey): ProgressStore =
+    OsProgressStore(workDir, OrcaDir.progressPath(workDir, key))
 
 private class OsProgressStore(workDir: os.Path, val path: os.Path)
     extends ProgressStore:
 
-  private val codec = summon[JsonData[ProgressLog]].codec
-
   def load(): Option[ProgressLog] =
     loadDetailed() match
-      case ProgressStore.LoadResult.Loaded(log) => Some(log)
-      case _                                    => None
+      case JsonFile.Read.Loaded(log) => Some(log)
+      case _                         => None
 
-  // Read and parse are classified apart, since they mean different things: a
-  // missing file is `Absent`, any other read failure is `Unreadable`, and only
-  // content orca read but cannot parse is `Corrupt`. Absence is the read's own
-  // `NoSuchFileException` rather than an `os.exists` pre-check, so there is no
-  // window between the two for the file to vanish in — teardown's own
-  // `os.remove` runs against this same path.
-  def loadDetailed(): ProgressStore.LoadResult =
-    val content =
-      try Right(os.read(path))
-      catch
-        case _: java.nio.file.NoSuchFileException =>
-          Left(ProgressStore.LoadResult.Absent)
-        case NonFatal(e) =>
-          Left(ProgressStore.LoadResult.Unreadable(describe(e)))
-    content match
-      case Left(result) => result
-      case Right(text) =>
-        try
-          ProgressStore.LoadResult.Loaded(
-            readFromString[ProgressLog](text)(using codec)
-          )
-        catch case NonFatal(e) => ProgressStore.LoadResult.Corrupt(describe(e))
-
-  private def describe(e: Throwable): String =
-    val firstLine =
-      Option(e.getMessage).flatMap(_.linesIterator.nextOption()).getOrElse("")
-    s"${e.getClass.getSimpleName}: $firstLine"
+  def loadDetailed(): JsonFile.Read[ProgressLog] = JsonFile.read(path)
 
   def writeHeader(header: ProgressHeader)(using WorkspaceWrite): Unit =
-    writeLog(ProgressLog(header, Nil))
+    writeLog(ProgressLog(header, Nil, None))
 
-  def appendEntry(entry: StageEntry)(using WorkspaceWrite): Unit =
-    writeLog(upsertEntry(currentLogOrThrow("appendEntry"), entry))
+  def upsertEntry(entry: StageEntry)(using WorkspaceWrite): Unit =
+    writeLog(withEntry(currentLogOrThrow("upsertEntry"), entry))
 
   def recordPublished(work: PublishedWork)(using WorkspaceWrite): Unit =
     writeLog(currentLogOrThrow("recordPublished").copy(published = Some(work)))
 
-  /** Read-modify-write precondition for [[appendEntry]] and
+  /** Read-modify-write precondition for [[upsertEntry]] and
     * [[recordPublished]]: both require a log to already exist. Routed through
     * [[loadDetailed]] so an `Absent` log (writeHeader never ran), a `Corrupt`
     * one (a torn write or external edit mid-run) and an `Unreadable` one get
@@ -155,21 +83,21 @@ private class OsProgressStore(workDir: os.Path, val path: os.Path)
     */
   private def currentLogOrThrow(callerName: String): ProgressLog =
     loadDetailed() match
-      case ProgressStore.LoadResult.Loaded(log) => log
-      case ProgressStore.LoadResult.Absent =>
+      case JsonFile.Read.Loaded(log) => log
+      case JsonFile.Read.Absent =>
         throw IllegalStateException(
           s"$callerName called before writeHeader: no log at $path"
         )
-      case ProgressStore.LoadResult.Corrupt(reason) =>
+      case JsonFile.Read.Corrupt(reason) =>
         throw IllegalStateException(
           s"$callerName found a corrupted log at $path: $reason"
         )
-      case ProgressStore.LoadResult.Unreadable(reason) =>
+      case JsonFile.Read.Unreadable(reason) =>
         throw IllegalStateException(
           s"$callerName could not read the log at $path: $reason"
         )
 
-  private def upsertEntry(log: ProgressLog, entry: StageEntry): ProgressLog =
+  private def withEntry(log: ProgressLog, entry: StageEntry): ProgressLog =
     val idx = log.entries.indexWhere(_.id == entry.id)
     val updated =
       if idx >= 0 then log.entries.updated(idx, entry)
@@ -177,12 +105,12 @@ private class OsProgressStore(workDir: os.Path, val path: os.Path)
     log.copy(entries = updated)
 
   // Rewrite the whole file each time rather than append JSONL: the log is a
-  // single structured document whose entries `upsertEntry` mutates in place,
+  // single structured document whose entries `withEntry` replaces in place,
   // which an append-only log can't express, and it's small and bounded so a
-  // full rewrite is negligible.
+  // full rewrite is negligible. The temp file is staged under the self-ignored
+  // cache, not beside the log: a kill between temp and rename must not leave a
+  // stray file in committed `.orca/` for the next stage's `git add -A` (or a
+  // dirty-tree stash) to pick up.
   private def writeLog(log: ProgressLog): Unit =
-    AtomicFile.write(
-      path,
-      OrcaDir.ensureRoot(workDir),
-      writeToString(log)(using codec)
-    )
+    val _ = OrcaDir.ensureRuns(workDir)
+    JsonFile.write(path, OrcaDir.ensureCache(workDir), log)

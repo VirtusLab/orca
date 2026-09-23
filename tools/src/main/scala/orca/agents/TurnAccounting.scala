@@ -4,7 +4,7 @@ import orca.backend.{AgentBackend, AgentResult}
 import orca.events.{OrcaEvent, OrcaListener, TurnDebit, Usage}
 
 /** Attributes one call's turns — which agent, which model, which role, which
-  * session, which attempt — and emits the resulting events.
+  * session, which turn of the call — and emits the resulting events.
   *
   * Built once per call, so no emission site assembles the attribution itself
   * and a path that forgets the session key or the model fallback can't exist.
@@ -32,17 +32,17 @@ private[orca] class TurnAccounting[B <: BackendTag](
   private def conversationKey: String =
     backend.sessions.conversationKey(session)
 
-  /** `attempt` is the turn's 1-based position among the turns of this call; a
-    * path that never retries passes 1.
+  /** `turn` is the turn's 1-based position among the turns of this call; a path
+    * that never retries passes 1.
     */
-  def succeeded(result: AgentResult[B], attempt: Int): Unit =
-    emit(result.model, result.usage, attempt)
+  def succeeded(result: AgentResult[B], turn: Int): Unit =
+    emit(result.model, result.usage, turn)
 
   /** A turn that failed after the model ran still spent tokens, and the success
     * path is the only other emitter. An `Unobserved` debit emits nothing.
     */
-  def failedAfterModelRan(debit: TurnDebit, attempt: Int): Unit = debit match
-    case TurnDebit.Observed(usage, model) => emit(model, usage, attempt)
+  def failedAfterModelRan(debit: TurnDebit, turn: Int): Unit = debit match
+    case TurnDebit.Observed(usage, model) => emit(model, usage, turn)
     case TurnDebit.Unobserved             => ()
 
   /** Run `turn`, recording the debit of a turn that ended after the model ran —
@@ -77,7 +77,7 @@ private[orca] class TurnAccounting[B <: BackendTag](
   private def emit(
       reported: Option[Model],
       usage: Usage,
-      attempt: Int
+      turn: Int
   ): Unit =
     events.onEvent(
       OrcaEvent.TokensUsed(
@@ -85,13 +85,12 @@ private[orca] class TurnAccounting[B <: BackendTag](
         model = reported.orElse(pinned),
         usage = usage,
         role = role,
-        attempt = attempt,
+        turn = turn,
         session = Some(conversationKey),
         cost = None
       )
     )
 
 private[orca] object TurnAccounting:
-  /** The attempt number of a call shape that runs one turn and never retries.
-    */
+  /** The turn number of a call shape that runs one turn and never retries. */
   val OnlyTurn: Int = 1

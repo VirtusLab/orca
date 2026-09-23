@@ -5,7 +5,7 @@ import orca.tools.Worktrees
 
 /** Where the shell's per-redraw scans look: the checkout it was started in, and
   * the worktrees orca itself created for that repository (`--worktree` runs
-  * live in one, and leave their progress log and session manifests there).
+  * live in one, and leave their progress log and attempt manifests there).
   *
   * The two are kept apart rather than concatenated: `ManifestReader` reads the
   * shell's own directory strictly and the rest guarded, and a plain list would
@@ -25,8 +25,8 @@ private[shell] object WorktreeScan:
   /** How many worktrees are scanned besides the shell's own directory. Orca
     * never removes a worktree and makes one per distinct task, so
     * `.orca/worktrees/` grows for the life of the repository — while these
-    * scans run on every menu redraw. Matches `RunManifestWriter`'s own
-    * kept-runs budget.
+    * scans run on every menu redraw. Matches `AttemptManifestWriter`'s own
+    * kept-attempts budget.
     *
     * A worktree past the cap is invisible to both scans: its sessions do not
     * reach `continue`, and an interrupted run in it is not offered. Ranked by
@@ -64,18 +64,19 @@ private[shell] object WorktreeScan:
         .filter(_ / os.up == root)
         // Decorate-sort-undecorate: `sortBy` re-evaluates its key on every
         // comparison, and this key is a syscall per call.
-        .map(dir => (lastRunAt(dir), dir))
+        .map(dir => (lastAttemptAt(dir), dir))
         .sortBy(-_._1)
         .take(MaxScannedWorktrees)
         .map(_._2)
     )
 
-  /** When a worktree last recorded a run — the mtime of its
-    * `.orca/cache/runs/`, which `RunManifestWriter` creates as it starts and
-    * rewrites per manifest. `0` for a worktree that never ran one, and for one
-    * that just went away: this runs on every menu redraw, over directories a
-    * `git worktree remove` in another terminal can delete mid-scan, and every
-    * step downstream of it survives that. Both answers sort last.
+  /** When a worktree last recorded an attempt — the mtime of its
+    * `.orca/cache/attempts/`, which `AttemptManifestWriter` creates as it
+    * starts and rewrites per manifest. `0` for a worktree that never ran one,
+    * and for one that just went away: this runs on every menu redraw, over
+    * directories a `git worktree remove` in another terminal can delete
+    * mid-scan, and every step downstream of it survives that. Both answers sort
+    * last.
     */
-  private def lastRunAt(worktree: os.Path): Long =
-    scala.util.Try(os.mtime(OrcaDir.runsPath(worktree))).getOrElse(0L)
+  private def lastAttemptAt(worktree: os.Path): Long =
+    scala.util.Try(os.mtime(OrcaDir.attemptsPath(worktree))).getOrElse(0L)

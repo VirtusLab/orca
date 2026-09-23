@@ -11,10 +11,9 @@ import scala.util.control.NonFatal
 
 /** Where a new flow is saved (ADR 0021 §9): Project saves under the workdir's
   * committed `.orca/flows/`; Global saves under the config-home `flows/` dir.
-  * `cwd` (see [[CreateTarget]]) is the tier's associated directory — its parent
-  * for Global — used to place the extracted API material and to judge
-  * fork-source proximity, independent of the authoring flow's own launch
-  * `workDir` (always the project repo it was run from).
+  * `cwd` (see [[CreateTarget]]) is the tier's associated directory — `workDir`
+  * for Project, the config-home `flows/` dir's parent for Global — the repo a
+  * Project-tier flow is committed into once authored.
   */
 private[shell] enum CreateTier:
   case Project, Global
@@ -309,9 +308,8 @@ private[shell] object FlowAuthoring:
     * [[resolveTarget]] and `AuthorAction`'s edit-by-agent overwrite path, which
     * uses it only to build a well-formed `CreateTarget.cwd` — the same shape
     * every other tier target carries — for its `overwrite`d `CreateTarget`.
-    * `AuthorAction.fork` resolves the fork source against the SANDBOX, not this
-    * value, so no [[resolveForkSource]] proximity check is wired through it
-    * here.
+    * `AuthorAction.fork` copies the fork source into the SANDBOX, so this value
+    * plays no part there.
     */
   def tierCwd(
       tier: CreateTier,
@@ -416,10 +414,11 @@ private[shell] object FlowAuthoring:
 
   /** Extracts the bundled README + two example flows into
     * `<cacheBase>/orca-api-<version>/`, returning that directory. `cacheBase`
-    * is the already-ensured cache base — `OrcaDir.ensureCache(workDir)` for a
-    * project flow, `<config-home orca dir>/cache` for a global one (ADR 0021
-    * §9). Idempotency key: the directory holding all three bundled names,
-    * mirroring [[orca.shell.flows.BuiltInFlows]]'s completeness check.
+    * is the already-ensured cache base — in production always the authoring
+    * sandbox's `.orca/cache` ([[orca.shell.actions.AuthorAction]]), so the
+    * material sits inside the workspace the coding agent runs in (ADR 0021 §9).
+    * Idempotency key: the directory holding all three bundled names, mirroring
+    * [[orca.shell.flows.BuiltInFlows]]'s completeness check.
     *
     * Simpler than `BuiltInFlows`' whole-directory temp-dir-then-move: this
     * material is three small, static files with no per-version content rewrite
@@ -541,35 +540,20 @@ private[shell] object FlowAuthoring:
   private def indentBlock(text: String): String =
     text.linesIterator.map(line => s"  $line").mkString("\n")
 
-  /** The path the authoring prompt should point the coding session at for the
-    * fork's source flow: `sourcePath` itself when it already sits inside `cwd`
-    * — true for a Project-tier source forked to a Project-tier target (both
-    * under `workDir`), and for a Global-tier source forked to a Global-tier
-    * target (`cwd` is `globalFlows`'s parent, so `globalFlows/name.sc` is still
-    * inside it). False in every other case: a cross-tier fork (Project source
-    * into a Global target or vice versa) puts the source under the *other*
-    * tier's directory; a BuiltIn source lives under `BuiltInFlows.extracted`'s
-    * cache directory (`$XDG_CACHE_HOME/orca/shell/<version>/flows`), outside
-    * either tier entirely.
-    *
-    * In every such case, copies `sourcePath` into `apiDir` (alongside the
-    * extracted README/examples) under its own basename and returns that copy
-    * instead, so the prompt only ever names one directory's worth of reference
-    * material. The copy is written once per basename: a repeat call (re-running
-    * create-flow against the same apiDir) leaves an existing copy as-is rather
-    * than re-copying over it.
+  /** Copies the fork's source flow to `<apiDir>/fork-source/<sourceName>` and
+    * returns the copy — the path the authoring prompt points the coding agent
+    * at, since the source itself lives outside the sandbox the agent runs in.
+    * The subdirectory keeps a source that shares a bundled example's name
+    * (forking the built-in `implement.sc`) from replacing that example.
     */
-  def resolveForkSource(
+  def copyForkSource(
       sourcePath: os.Path,
       sourceName: String,
-      cwd: os.Path,
       apiDir: os.Path
   ): os.Path =
-    if sourcePath.startsWith(cwd) then sourcePath
-    else
-      val copy = apiDir / sourceName
-      if !os.exists(copy) then os.copy(sourcePath, copy, replaceExisting = true)
-      copy
+    val copy = apiDir / "fork-source" / sourceName
+    os.copy(sourcePath, copy, createFolders = true)
+    copy
 
   /** The shared tail of the fork/edit authoring task — API-reference pointers,
     * the compile-check step, the runtime-rules caveat, and the last-resort
@@ -612,9 +596,9 @@ private[shell] object FlowAuthoring:
     * the described changes as one indivisible step (create the target by
     * copying the source and applying the changes — not two separate
     * deliverables, since there's no planner here to split them and no reviewer
-    * should treat the copy as its own reviewable unit). `sourcePath` is
-    * whatever [[resolveForkSource]] resolved. The rest — API pointers,
-    * compile-check, caveat — is [[changePrompt]]'s shared tail.
+    * should treat the copy as its own reviewable unit). `sourcePath` is the
+    * copy [[copyForkSource]] made. The rest — API pointers, compile-check,
+    * caveat — is [[changePrompt]]'s shared tail.
     */
   def forkPrompt(
       changes: String,

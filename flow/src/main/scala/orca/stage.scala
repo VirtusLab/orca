@@ -132,7 +132,7 @@ private def recordAndCommit[T: JsonData](
   given WorkspaceWrite = RuntimeInStage.workspaceToken()
   val message =
     commitMessage.map(_(result)).getOrElse(defaultCommitMessage(name))
-  fc.progressStore.appendEntry(
+  fc.progressStore.upsertEntry(
     StageEntry(id = id.value, name = name, resultJson = RawJson(resultJson))
   )
   fc.git.forceAdd(fc.progressStore.path)

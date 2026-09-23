@@ -8,8 +8,9 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.{
   CodecMakerConfig,
   ConfiguredJsonValueCodec
 }
+import orca.runner.manifest.SessionKind
 import orca.shell.flows.DiscoveredFlow
-import orca.shell.sessions.{RecordedRun, SessionPicker}
+import orca.shell.sessions.{RecordedAttempt, SessionPicker}
 import orca.shell.ui.Choice
 
 /** The CLI's table/JSON rendering (ADR 0021 §10) — the row shapes `list` and
@@ -20,25 +21,24 @@ private[cli] object Tables:
 
   // --- continue --list ---
 
-  // `kind` is the manifest's wire spelling, so an unknown kind reaches scripts
-  // as written; `lastActiveAt` is the parsed instant rendered back to ISO-8601.
+  // `lastActiveAt` is the parsed instant rendered back to ISO-8601.
   private[cli] case class SessionRow(
       index: Int,
-      /** The bare name `orca continue <name>` matches, or the agent name for a
-        * one-shot, which was minted under no name.
+      /** The bare name `orca continue <name>` matches, or the agent name for an
+        * ephemeral session, which was minted under no name.
         */
       sessionName: String,
-      /** The run's working directory: the listing spans worktrees, so two rows
-        * can otherwise be identical — and `continue <name>` then refuses them
-        * as ambiguous, naming directories the listing never showed.
+      /** The attempt's working directory: the listing spans worktrees, so two
+        * rows can otherwise be identical — and `continue <name>` then refuses
+        * them as ambiguous, naming directories the listing never showed.
         */
       workDir: String,
-      kind: String,
+      kind: SessionKind,
       stage: Option[String],
       /** The path id of the stage that minted the session — the half of its key
         * a row's `stage` (where it was last active) does not carry, and the
-        * only thing telling two same-named lineages apart. `None` for a
-        * one-shot, which was minted under no key.
+        * only thing telling two same-named lineages apart. `None` for an
+        * ephemeral session, which was minted under no key.
         */
       sessionStage: Option[String],
       harness: String,
@@ -56,10 +56,10 @@ private[cli] object Tables:
     )
 
   private[cli] def sessionListingRows(
-      runs: List[RecordedRun]
+      attempts: List[RecordedAttempt]
   ): List[SessionRow] =
     SessionPicker
-      .withoutExpanders(SessionPicker.sessionRows(runs, expanded = true))
+      .withoutExpanders(SessionPicker.sessionRows(attempts, expanded = true))
       .zipWithIndex
       .collect:
         case (
@@ -75,9 +75,9 @@ private[cli] object Tables:
             index = i + 1,
             sessionName = SessionPicker.displayName(session),
             workDir = selection.manifest.workDir,
-            kind = session.kind.wireName,
+            kind = session.kind,
             stage = session.stage,
-            sessionStage = session.sessionStage,
+            sessionStage = session.minted.map(_.stage.value),
             harness = SessionPicker.harnessSettingsName(session.harness),
             lastActiveAt = session.lastActiveAt.toString,
             resumable = choice.isEnabled,
@@ -86,15 +86,15 @@ private[cli] object Tables:
           )
 
   private[cli] def printSessionListing(
-      runs: List[RecordedRun],
+      attempts: List[RecordedAttempt],
       asJson: Boolean
   ): Unit =
-    val rows = sessionListingRows(runs)
+    val rows = sessionListingRows(attempts)
     if asJson then println(writeToString(rows))
     else if rows.isEmpty then println("(no sessions recorded)")
     else
-      // The same decision the interactive picker makes, over the same runs.
-      val tag = SessionPicker.dirTag(runs)
+      // The same decision the interactive picker makes, over the same attempts.
+      val tag = SessionPicker.dirTag(attempts)
       val cols = rows.map: r =>
         val status =
           if r.resumable then ""
@@ -105,7 +105,7 @@ private[cli] object Tables:
         (
           r.index.toString,
           sessionName,
-          r.kind,
+          r.kind.toString,
           r.stage.getOrElse(""),
           // Its own column rather than the picker's conditional marker: a
           // listing is read to tell rows apart, and here the width is free.

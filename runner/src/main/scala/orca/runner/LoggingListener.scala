@@ -39,11 +39,11 @@ private[orca] class LoggingListener extends OrcaListener:
       )
     case t: OrcaEvent.TokensUsed =>
       log.debug(
-        "tokens: agent={} role={} model={} attempt={} session={} cost={} usage={}",
+        "tokens: agent={} role={} model={} turn={} session={} cost={} usage={}",
         t.agent,
         t.role.getOrElse("(none)"),
         t.model.map(_.name).getOrElse("(unknown)"),
-        t.attempt,
+        t.turn,
         t.session.getOrElse("(none)"),
         t.cost.fold("(none)")(_.amount.toString),
         t.usage

@@ -43,7 +43,7 @@ class MainMenuTest extends munit.FunSuite:
       choices.find(_.value == MenuItem.ContinueSession).get.label
     assertEquals(
       label,
-      "Continue a session from the last flow run (3 session(s))"
+      "Continue a session from the last attempt with sessions (3 session(s))"
     )
 
   test(

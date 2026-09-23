@@ -1,0 +1,87 @@
+package orca.shell.sessions
+
+import com.github.plokhotnyuk.jsoniter_scala.core.writeToString
+import orca.{AttemptId, OrcaDir, StagePath}
+import orca.agents.SessionKey
+import orca.runner.manifest.{AttemptManifest, AttemptStatus, ManifestSession}
+
+import java.time.Instant
+
+/** Manifests and sessions as the shell's tests build them, encoded through the
+  * production codec when written to disk, so a fixture can never drift from the
+  * shape the reader accepts.
+  */
+private[shell] object ManifestFixtures:
+
+  def manifest(
+      workDir: String = "/work",
+      startedAt: String = "2026-07-18T10:00:00Z",
+      pid: Long = 1,
+      status: AttemptStatus = AttemptStatus.Succeeded,
+      sessions: List[ManifestSession]
+  ): AttemptManifest =
+    AttemptManifest(
+      orcaVersion = "0.0.test",
+      flow = Some("a-flow.sc"),
+      workDir = workDir,
+      pid = pid,
+      startedAt = Instant.parse(startedAt),
+      finishedAt = None,
+      status = status,
+      sessions = sessions
+    )
+
+  /** A session minted under `sessionName` in the stage spelled `sessionStage`
+    * (the flow body when empty).
+    */
+  def durable(
+      agent: String = "main",
+      sessionName: String = "main",
+      sessionStage: String = "",
+      stage: Option[String] = None,
+      lastActiveAt: String = "2026-07-18T10:00:00Z",
+      harness: String = "ClaudeCode",
+      wireId: Option[String] = Some("uuid")
+  ): ManifestSession =
+    ManifestSession(
+      harness = harness,
+      wireId = wireId,
+      agent = agent,
+      role = None,
+      stage = stage,
+      minted = Some(
+        SessionKey(
+          name = sessionName,
+          stage = StagePath.fromValue(sessionStage)
+        )
+      ),
+      lastActiveAt = Instant.parse(lastActiveAt)
+    )
+
+  def ephemeral(
+      agent: String = "main",
+      role: Option[String] = None,
+      stage: Option[String] = None,
+      lastActiveAt: String = "2026-07-18T10:00:00Z",
+      harness: String = "ClaudeCode",
+      wireId: Option[String] = Some("uuid")
+  ): ManifestSession =
+    ManifestSession(
+      harness = harness,
+      wireId = wireId,
+      agent = agent,
+      role = role,
+      stage = stage,
+      minted = None,
+      lastActiveAt = Instant.parse(lastActiveAt)
+    )
+
+  /** Writes `manifest` where `ManifestReader` lists `dir`'s attempts, under the
+    * attempt id its `startedAt` and `pid` spell.
+    */
+  def writeManifest(dir: os.Path, manifest: AttemptManifest): Unit =
+    os.write(
+      OrcaDir.manifestPath(dir, AttemptId(manifest.startedAt, manifest.pid)),
+      writeToString(manifest)(using AttemptManifest.codec),
+      createFolders = true
+    )

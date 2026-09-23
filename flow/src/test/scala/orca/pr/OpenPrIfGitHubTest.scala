@@ -382,8 +382,8 @@ class OpenPrIfGitHubTest extends FunSuite:
     */
   private class UnrecordableStages(underlying: ProgressStore)
       extends ProgressStore:
-    export underlying.{appendEntry => _, *}
-    def appendEntry(entry: StageEntry)(using WorkspaceWrite): Unit =
+    export underlying.{upsertEntry => _, *}
+    def upsertEntry(entry: StageEntry)(using WorkspaceWrite): Unit =
       throw new IllegalStateException("disk full")
 
   /** `underlying` with the PR record failing, as it does on a full disk. */

@@ -163,7 +163,7 @@ class AuthorActionTest extends munit.FunSuite:
       val recording = RecordingLaunch(onLaunch = sandbox =>
         val copied =
           sandbox / ".orca" / "cache" / s"orca-api-${ShellVersion.value}" /
-            "implement.sc"
+            "fork-source" / "implement.sc"
         taskSourcePathExisted = os.isFile(copied)
       )
 

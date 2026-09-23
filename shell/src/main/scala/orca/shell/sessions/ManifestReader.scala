@@ -1,18 +1,29 @@
 package orca.shell.sessions
 
-import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import orca.OrcaDir
-import orca.runner.manifest.{ManifestOutcome, RunManifest}
+import orca.runner.manifest.{AttemptStatus, AttemptManifest}
+import orca.util.JsonFile
 
 import scala.util.control.NonFatal
 
-/** A manifest paired with whether its run is now known to have crashed (outcome
-  * [[ManifestOutcome.Running]] with a dead pid, ADR 0021 §8) — computed once
-  * here rather than re-derived by every caller.
+/** A manifest paired with whether its attempt is now known to have crashed
+  * (status [[AttemptStatus.Running]] with a dead pid, ADR 0021 §8) — computed
+  * once here rather than re-derived by every caller.
   */
-private[shell] case class RecordedRun(manifest: RunManifest, crashed: Boolean)
+private[shell] case class RecordedAttempt(
+    manifest: AttemptManifest,
+    crashed: Boolean
+)
 
-/** Reads `.orca/cache/runs/` for the shell's "continue a session" menu (ADR
+/** What [[ManifestReader.list]] found: the continuable attempts, newest first,
+  * and one warning per file or directory it had to skip.
+  */
+private[shell] case class AttemptListing(
+    attempts: List[RecordedAttempt],
+    warnings: List[String]
+)
+
+/** Reads `.orca/cache/attempts/` for the shell's "continue a session" menu (ADR
   * 0021 §8).
   */
 private[shell] object ManifestReader:
@@ -33,100 +44,88 @@ private[shell] object ManifestReader:
     * parameters rather than one list, because that is the whole difference
     * between them.
     *
-    * A manifest with [[ManifestOutcome.Running]] whose `pid` is no longer alive
-    * is a crashed run — its sessions are still offered, per ADR 0021 §8. Each
-    * directory's `.orca/cache/runs/` is read passively ([[OrcaDir.runsPath]],
-    * not [[OrcaDir.cacheRunsPath]]) — absent or empty contributes nothing and
-    * creates nothing on disk. A file that fails to parse as JSON, or doesn't
-    * match the `RunManifest` schema — which includes a timestamp that isn't an
-    * `Instant` — is skipped with a warning naming the file rather than aborting
-    * the whole listing.
+    * A manifest with [[AttemptStatus.Running]] whose `pid` is no longer alive
+    * is a crashed attempt — its sessions are still offered, per ADR 0021 §8. An
+    * attempt that committed no session is left out: it has nothing to continue.
+    * Each directory's `.orca/cache/attempts/` is read passively
+    * ([[OrcaDir.attemptsPath]], not [[OrcaDir.ensureAttempts]]) — absent or
+    * empty contributes nothing and creates nothing on disk. A file that fails
+    * to parse as JSON, or doesn't match the `AttemptManifest` schema — which
+    * includes a timestamp that isn't an `Instant` — is skipped with a warning
+    * naming the file rather than aborting the whole listing.
     */
   def list(
       own: os.Path,
       otherWorktrees: List[os.Path],
       pidAlive: Long => Boolean
-  ): (List[RecordedRun], List[String]) =
+  ): AttemptListing =
     val perDir =
-      readRunsDir(own, pidAlive) :: otherWorktrees.map(guarded(_, pidAlive))
-    (
-      perDir.flatMap(_._1).sortBy(_.manifest.startedAt).reverse,
-      perDir.flatMap(_._2)
+      readAttemptsDir(own, pidAlive) :: otherWorktrees.map(guarded(_, pidAlive))
+    AttemptListing(
+      perDir.flatMap(_.attempts).sortBy(_.manifest.startedAt).reverse,
+      perDir.flatMap(_.warnings)
     )
 
   private def guarded(
       workDir: os.Path,
       pidAlive: Long => Boolean
-  ): (List[RecordedRun], List[String]) =
-    try readRunsDir(workDir, pidAlive)
-    catch case NonFatal(e) => (Nil, List(s"skipping $workDir: ${firstLine(e)}"))
+  ): AttemptListing =
+    try readAttemptsDir(workDir, pidAlive)
+    catch
+      case NonFatal(e) =>
+        AttemptListing(Nil, List(s"skipping $workDir: ${firstLine(e)}"))
 
-  /** One directory's manifests, in reverse file order (the caller sorts), and
-    * its warnings in file order.
+  /** `e`'s class and the first line of its message, for one warning line. */
+  private def firstLine(e: Throwable): String =
+    val message =
+      Option(e.getMessage).flatMap(_.linesIterator.nextOption()).getOrElse("")
+    s"${e.getClass.getSimpleName}: $message"
+
+  /** One directory's manifests (the caller sorts) and its warnings, both in
+    * file order.
     */
-  private def readRunsDir(
+  private def readAttemptsDir(
       workDir: os.Path,
       pidAlive: Long => Boolean
-  ): (List[RecordedRun], List[String]) =
-    val dir = OrcaDir.runsPath(workDir)
+  ): AttemptListing =
+    val dir = OrcaDir.attemptsPath(workDir)
     OrcaDir.assertNoOrcaSymlinks(workDir, dir)
-    if !os.exists(dir) then (Nil, Nil)
+    if !os.exists(dir) then AttemptListing(Nil, Nil)
     else
-      val (runs, warnings) =
-        os.list(dir)
-          .filter(_.ext == "json")
-          .toList
-          .foldLeft(
-            (List.empty[RecordedRun], List.empty[String])
-          ):
-            case ((runs, warnings), file) =>
-              readManifest(file) match
-                case Left(warning) => (runs, warning :: warnings)
-                case Right(manifest) =>
-                  (
-                    RecordedRun(manifest, crashed(manifest, pidAlive)) :: runs,
-                    warnings
-                  )
-      (runs, warnings.reverse)
+      val results =
+        os.list(dir).filter(OrcaDir.isManifest).toList.map(readManifest)
+      val attempts = results.collect:
+        case Right(m) if m.continuable =>
+          RecordedAttempt(m, crashed(m, pidAlive))
+      AttemptListing(
+        attempts,
+        results.collect { case Left(warning) => warning }
+      )
 
-  /** An outcome this build doesn't know (a newer build's manifest) is a run
-    * that reached some terminal state, not a crashed one — only `Running`
-    * paired with a dead pid says the writer never got to finalize.
-    */
   private def crashed(
-      manifest: RunManifest,
+      manifest: AttemptManifest,
       pidAlive: Long => Boolean
   ): Boolean =
-    manifest.outcome match
-      case ManifestOutcome.Running => !pidAlive(manifest.pid)
-      case ManifestOutcome.Succeeded | ManifestOutcome.Failed |
-          ManifestOutcome.Unknown(_) =>
-        false
+    manifest.status match
+      case AttemptStatus.Running => !pidAlive(manifest.pid)
+      case AttemptStatus.Succeeded | AttemptStatus.Failed => false
 
-  /** A manifest from any build decodes here: unknown fields are skipped, so
-    * only a file missing something this build requires — or unreadable — is
-    * refused (ADR 0021 §8 amendment, 2026-08-05).
-    *
-    * Only the first line of a decode failure is reported. jsoniter appends a
-    * multi-line hex dump of the buffer to its message, and `Main`'s loop
-    * reprints every warning on each menu redraw, for up to 20 kept manifests in
-    * each scanned directory — so the untrimmed message paints the menu over.
-    * Same trimming, and same reason, as `ProgressStore.parseLog`.
+  /** A missing file is a warning too: the listing saw it and the read found
+    * nothing, which for a directory the shell does not control is a race with
+    * pruning or removal worth a line.
     */
-  private def readManifest(file: os.Path): Either[String, RunManifest] =
-    try
-      Right(readFromString[RunManifest](os.read(file))(using RunManifest.codec))
-    catch case NonFatal(e) => Left(s"skipping $file: ${firstLine(e)}")
-
-  private def firstLine(e: Throwable): String =
-    Option(e.getMessage)
-      .flatMap(_.linesIterator.nextOption())
-      .getOrElse(e.getClass.getSimpleName)
+  private def readManifest(file: os.Path): Either[String, AttemptManifest] =
+    JsonFile.read[AttemptManifest](file) match
+      case JsonFile.Read.Loaded(manifest) => Right(manifest)
+      case JsonFile.Read.Absent           => Left(s"skipping $file: vanished")
+      case JsonFile.Read.Unreadable(reason) =>
+        Left(s"skipping $file: $reason")
+      case JsonFile.Read.Corrupt(reason) => Left(s"skipping $file: $reason")
 
   /** The production value of [[list]]'s `pidAlive` parameter (ADR 0021 §8):
     * `ProcessHandle.of` finds nothing for a pid that's been reaped — treated as
     * not alive, same as a live handle reporting `isAlive == false`. Shared by
-    * the interactive menu and the CLI's `continue`, so both derive a run's
+    * the interactive menu and the CLI's `continue`, so both derive an attempt's
     * crashed status the same way.
     */
   private[shell] def pidAlive(pid: Long): Boolean =

@@ -1,6 +1,7 @@
 package orca.runner
 
-import orca.progress.{ProgressStore, PublishedWork}
+import orca.progress.{ProgressLog, PublishedWork}
+import orca.util.JsonFile
 
 /** What success teardown knows about the work this run published, read back
   * from the progress log.
@@ -31,8 +32,8 @@ private[runner] enum PublishedState:
     case Published(_) | Unknown => false
 
 private[runner] object PublishedState:
-  def from(result: ProgressStore.LoadResult): PublishedState =
+  def from(result: JsonFile.Read[ProgressLog]): PublishedState =
     result match
-      case ProgressStore.LoadResult.Loaded(log) =>
+      case JsonFile.Read.Loaded(log) =>
         log.published.map(Published(_)).getOrElse(NotPublished)
       case _ => Unknown

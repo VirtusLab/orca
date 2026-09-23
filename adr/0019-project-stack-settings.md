@@ -141,6 +141,11 @@ flips to the safe direction:
   > the one helper that writes that marker, as for `cache/` above, and it
   > writes it before the first worktree is created: without it, `git add -A` in
   > the checkout stages the worktree as an embedded git repository.
+
+  > **Amendment (2026-09-22).** The tree above is the layout as designed here;
+  > the current, complete map of what a run writes (session records, run
+  > manifests and cost logs, pi transcripts, MCP configs) is AGENTS.md "What a
+  > run writes to disk".
 - The progress-log `forceAdd` **stays**. It is load-bearing, not a hack: in a
   repo that still gitignores `.orca/`, a plain stage `git add -A` would skip
   the log, and failure teardown's `reset --hard` would then leave an on-disk

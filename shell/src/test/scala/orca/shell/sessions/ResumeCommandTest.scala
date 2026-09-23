@@ -1,30 +1,16 @@
 package orca.shell.sessions
 
 import orca.agents.BackendTag
-import orca.runner.manifest.{ManifestSession, ManifestSessionKind}
-
-import java.time.Instant
+import orca.runner.manifest.ManifestSession
+import orca.shell.sessions.ManifestFixtures.ephemeral
 
 class ResumeCommandTest extends munit.FunSuite:
 
   private def session(
       harness: String,
-      wireId: Option[String],
-      reason: Option[String] = None
+      wireId: Option[String]
   ): ManifestSession =
-    ManifestSession(
-      harness = harness,
-      wireId = wireId,
-      reason = reason,
-      agent = "agent",
-      role = None,
-      stage = None,
-      sessionName = None,
-      sessionStage = None,
-      kind = ManifestSessionKind.OneShot,
-      firstSeenAt = Instant.parse("2026-07-18T10:00:00Z"),
-      lastActiveAt = Instant.parse("2026-07-18T10:00:00Z")
-    )
+    ephemeral(harness = harness, wireId = wireId)
 
   /** [[ResumeCommand.build]] with lookup stubs that fail the test if invoked —
     * each test overrides only the lookup its harness actually reads.
@@ -72,7 +58,7 @@ class ResumeCommandTest extends munit.FunSuite:
     val uuid = "aaaa1234-5678-4abc-9def-000000000003"
     assertEquals(
       build(
-        session("Gemini", Some(uuid), reason = Some(reason)),
+        session("Gemini", Some(uuid)),
         geminiIndex = _ => None
       ),
       Left(reason)
@@ -93,16 +79,7 @@ class ResumeCommandTest extends munit.FunSuite:
     )
 
   test(
-    "a wireId-less session of any harness reports the manifest's stored reason (precedence over a generic message)"
-  ):
-    val reason = "crashed before the first turn committed"
-    assertEquals(
-      build(session("ClaudeCode", None, reason = Some(reason))),
-      Left(reason)
-    )
-
-  test(
-    "a wireId-less session with no stored reason still reports Left with some message"
+    "a wireId-less session is not resumable"
   ):
     assert(build(session("ClaudeCode", None)).isLeft)
 

@@ -429,45 +429,15 @@ class FlowAuthoringTest extends munit.FunSuite:
       "implement-fork.sc"
     )
 
-  // --- resolveForkSource ---
+  // --- copyForkSource ---
 
-  test(
-    "resolveForkSource returns the source path unchanged when it's already inside cwd"
-  ):
-    val cwd = TempDirs.dir()
-    val source = cwd / ".orca" / "flows" / "implement.sc"
-    os.write(source, "// a flow\n", createFolders = true)
-    val apiDir = TempDirs.dir()
-    assertEquals(
-      FlowAuthoring.resolveForkSource(source, "implement.sc", cwd, apiDir),
-      source
-    )
-    assert(!os.exists(apiDir / "implement.sc"), "should not have copied")
-
-  test("resolveForkSource copies the source into apiDir when it's outside cwd"):
-    val cwd = TempDirs.dir()
-    val sourceDir = TempDirs.dir()
-    val source = sourceDir / "implement.sc"
+  test("copyForkSource copies the source into apiDir's fork-source subdir"):
+    val source = TempDirs.dir() / "implement.sc"
     os.write(source, "// a flow\n")
     val apiDir = TempDirs.dir()
-    val resolved =
-      FlowAuthoring.resolveForkSource(source, "implement.sc", cwd, apiDir)
-    assertEquals(resolved, apiDir / "implement.sc")
+    val resolved = FlowAuthoring.copyForkSource(source, "implement.sc", apiDir)
+    assertEquals(resolved, apiDir / "fork-source" / "implement.sc")
     assertEquals(os.read(resolved), "// a flow\n")
-
-  test("resolveForkSource doesn't re-copy when a copy already exists"):
-    val cwd = TempDirs.dir()
-    val sourceDir = TempDirs.dir()
-    val source = sourceDir / "implement.sc"
-    os.write(source, "// original\n")
-    val apiDir = TempDirs.dir()
-    os.write(apiDir / "implement.sc", "// pre-existing copy\n")
-
-    val resolved =
-      FlowAuthoring.resolveForkSource(source, "implement.sc", cwd, apiDir)
-
-    assertEquals(resolved, apiDir / "implement.sc")
-    assertEquals(os.read(resolved), "// pre-existing copy\n")
 
   // --- forkPrompt ---
 

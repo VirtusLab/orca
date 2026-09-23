@@ -1,55 +1,57 @@
 package orca.shell.sessions
 
+import orca.StagePath
 import orca.agents.{BackendTag, SessionKey}
-import orca.runner.manifest.{ManifestSession, ManifestSessionKind}
+import orca.runner.manifest.{ManifestSession, SessionKind}
 import orca.settings.AgentSpec
 import orca.shell.ui.Choice
 
 import java.time.Instant
 
 /** The continue-a-session picker (ADR 0021 §8): groups, sorts, and labels the
-  * sessions across every recorded run into selectable rows, and resolves a
+  * sessions across every recorded attempt into selectable rows, and resolves a
   * CLI-style selector (index / name / newest) to a [[SessionSelection]]. Shared
   * by the interactive menu (`Main.continueSession`) and the CLI's `continue`
   * command.
   */
 private[shell] object SessionPicker:
 
-  /** One session occurrence paired with the run it came from — the unit
+  /** One session occurrence paired with the attempt it came from — the unit
     * [[sessionRows]] groups, sorts, and labels. Carrying the whole
-    * [[RecordedRun]] (not just its `crashed` flag) keeps [[SessionSelection]]
-    * constructible straight from an occurrence.
+    * [[RecordedAttempt]] (not just its `crashed` flag) keeps
+    * [[SessionSelection]] constructible straight from an occurrence.
     */
-  private case class Occurrence(run: RecordedRun, session: ManifestSession)
+  private case class Occurrence(
+      attempt: RecordedAttempt,
+      session: ManifestSession
+  )
 
   /** One outcome of the continue-session picker: either resume a specific
     * session, or re-render the picker with the collapsed groups (older lineage
-    * occurrences, one-shots) expanded.
+    * occurrences, ephemeral sessions) expanded.
     */
   private[shell] enum PickerRow:
     case Resume(selection: SessionSelection)
     case ShowMore
 
   /** Builds the continue-session picker's rows (ADR 0021 §8): durable lineages
-    * first, one-shots last, with two kinds of rows collapsed by default behind
-    * an expander.
+    * first, ephemeral sessions last, with two kinds of rows collapsed by
+    * default behind an expander.
     *
-    * A durable lineage is an `(agent, minted key)` pair with `kind ==
-    * [[ManifestSessionKind.Durable]]` — every occurrence of it across every run
-    * in `runs`, not just the newest run, since a lineage's key is stable across
-    * separate flow runs (a fresh run mints a fresh `clientId`/`wireId` but
-    * reuses the same `agent.session(name, ...)` key) while a single run's own
-    * durable session always upserts onto one manifest row. The minting stage is
-    * part of the key, so the per-task `implementer` sessions of one run are
-    * separate lineages rather than occurrences of each other. Only the
-    * occurrence with the max `lastActiveAt` is shown (marked `★ ... — latest`,
-    * the primary continuation target); the rest collapse behind a "show N
-    * earlier occurrences" row. One-shot sessions
-    * ([[ManifestSessionKind.OneShot]] — Plan-stage calls, reviewer-selection
-    * calls, reviewer `chat()` runs) are never deduped — each is a genuinely
-    * distinct fresh session — but collapse behind a single "show N one-shot
-    * sessions" row, since these are the rows that otherwise flood the picker
-    * with same-named, low-value entries.
+    * A durable lineage is an `(agent, minted key)` pair — every occurrence of
+    * it across every attempt in `attempts`, not just the newest, since a
+    * lineage's key is stable across attempts (each process mints a fresh
+    * `clientId`/`wireId` but reuses the same `agent.session(name, ...)` key)
+    * while one attempt's durable session always upserts onto one manifest row.
+    * The minting stage is part of the key, so the per-task `implementer`
+    * sessions of one attempt are separate lineages rather than occurrences of
+    * each other. Only the occurrence with the max `lastActiveAt` is shown
+    * (marked `★ ... — latest`, the primary continuation target); the rest
+    * collapse behind a "show N earlier occurrences" row. Ephemeral sessions
+    * (Plan-stage calls, reviewer-selection calls, reviewer `chat()` runs) are
+    * never deduped — each is a genuinely distinct fresh session — but collapse
+    * behind a single "show N ephemeral sessions" row, since these are the rows
+    * that otherwise flood the picker with same-named, low-value entries.
     *
     * Two lineages that differ only in their minting stage otherwise render
     * identically, since a row shows the session's bare name and its LAST ACTIVE
@@ -65,15 +67,16 @@ private[shell] object SessionPicker:
     * pending that later check.
     */
   private[shell] def sessionRows(
-      runs: List[RecordedRun],
+      attempts: List[RecordedAttempt],
       expanded: Boolean
   ): List[Choice[PickerRow]] =
     val occurrences =
       for
-        run <- runs
-        session <- run.manifest.sessions
-      yield Occurrence(run, session)
-    val (durable, oneShot) = occurrences.partition(isDurable)
+        attempt <- attempts
+        session <- attempt.manifest.sessions
+      yield Occurrence(attempt, session)
+    val (durable, ephemeral) =
+      occurrences.partition(_.session.kind == SessionKind.Durable)
 
     // Keyed on the working directory too: harness sessions are cwd-scoped, and
     // flow session keys are static ("implementer" on the same task in every
@@ -87,10 +90,10 @@ private[shell] object SessionPicker:
       .toList
     val primary = lineages.map(_.head).sortBy(recency).reverse
     val earlier = lineages.flatMap(_.tail).sortBy(recency).reverse
-    val oneShotSorted = oneShot.sortBy(recency).reverse
+    val ephemeralSorted = ephemeral.sortBy(recency).reverse
 
-    val tag = dirTag(runs)
-    val where = (o: Occurrence) => tag(o.run.manifest.workDir)
+    val tag = dirTag(attempts)
+    val where = (o: Occurrence) => tag(o.attempt.manifest.workDir)
     val primaryLabels = primary.map(o => (o, primaryLabel(o) + where(o)))
     val mintedIn = mintedInTag(primaryLabels)
 
@@ -100,25 +103,17 @@ private[shell] object SessionPicker:
       if expanded then
         earlier.map(o => resumeRow(o, earlierLabel(o) + where(o) + mintedIn(o)))
       else expanderRow(earlier.size, "earlier occurrence")
-    val oneShotRows =
+    val ephemeralRows =
       if expanded then
-        oneShotSorted.map(o => resumeRow(o, oneShotLabel(o) + where(o)))
+        ephemeralSorted.map(o => resumeRow(o, ephemeralLabel(o) + where(o)))
       else
         expanderRow(
-          oneShotSorted.size,
-          "one-shot session",
+          ephemeralSorted.size,
+          "ephemeral session",
           " (reviews, plan steps)"
         )
 
-    primaryRows ++ earlierRows ++ oneShotRows
-
-  /** A kind this build doesn't know (a newer build's manifest) is grouped with
-    * the one-shots: those rows are listed as they come, while the durable half
-    * is deduped by a minted key such a session may not have.
-    */
-  private def isDurable(o: Occurrence): Boolean = o.session.kind match
-    case ManifestSessionKind.Durable                                  => true
-    case ManifestSessionKind.OneShot | ManifestSessionKind.Unknown(_) => false
+    primaryRows ++ earlierRows ++ ephemeralRows
 
   private def recency(o: Occurrence): Instant = o.session.lastActiveAt
 
@@ -129,7 +124,7 @@ private[shell] object SessionPicker:
   private def lineageKey(
       o: Occurrence
   ): (String, String, Option[SessionKey]) =
-    (o.run.manifest.workDir, o.session.agent, o.session.mintedKey)
+    (o.attempt.manifest.workDir, o.session.agent, o.session.minted)
 
   /** How a row says which stage minted its session, given the primary rows and
     * the labels they would otherwise carry: nothing, unless another lineage
@@ -153,18 +148,18 @@ private[shell] object SessionPicker:
     o =>
       if !ambiguous(lineageKey(o)) then ""
       else
-        o.session.sessionStage.filter(_.nonEmpty) match
-          case Some(id) => s" (minted in $id)"
-          case None     => " (minted in the flow body)"
+        o.session.minted.map(_.stage) match
+          case Some(StagePath.Stage(id)) => s" (minted in ${id.value})"
+          case _                         => " (minted in the flow body)"
 
-  /** How a row says which tree its session is in, given the runs being
+  /** How a row says which tree its session is in, given the attempts being
     * rendered: a suffix per `workDir`, or nothing at all when they share one —
     * then it would tell the user nothing. The interactive picker and `orca
-    * continue --list` both call this over the same runs, so the two surfaces
-    * cannot drift on either the rule or the marker's shape.
+    * continue --list` both call this over the same attempts, so the two
+    * surfaces cannot drift on either the rule or the marker's shape.
     */
-  private[shell] def dirTag(runs: List[RecordedRun]): String => String =
-    if runs.map(_.manifest.workDir).distinct.sizeIs > 1 then
+  private[shell] def dirTag(attempts: List[RecordedAttempt]): String => String =
+    if attempts.map(_.manifest.workDir).distinct.sizeIs > 1 then
       workDir => s" @${lastSegment(workDir)}"
     else _ => ""
 
@@ -178,7 +173,7 @@ private[shell] object SessionPicker:
   private def resumeRow(o: Occurrence, label: String): Choice[PickerRow] =
     Choice(
       PickerRow.Resume(
-        SessionSelection(o.run.manifest, o.session, o.run.crashed)
+        SessionSelection(o.attempt.manifest, o.session, o.attempt.crashed)
       ),
       label,
       disabledReason = ResumeCommand.staticGate(o.session).left.toOption
@@ -205,7 +200,7 @@ private[shell] object SessionPicker:
     val name = displayName(o.session)
     val stage = o.session.stage.fold("no stage yet")(s => s"stage: $s")
     val harness = harnessSettingsName(o.session.harness)
-    val crashedSuffix = if o.run.crashed then " (crashed)" else ""
+    val crashedSuffix = if o.attempt.crashed then " (crashed)" else ""
     s"★ $name — latest ($stage) [$harness]$crashedSuffix"
 
   /** `<session> — stage <stage> [<harness>] (earlier occurrence)`, shown only
@@ -215,24 +210,23 @@ private[shell] object SessionPicker:
     val name = displayName(o.session)
     val stage = o.session.stage.fold("")(s => s" — stage $s")
     val harness = harnessSettingsName(o.session.harness)
-    val crashedSuffix = if o.run.crashed then " (crashed)" else ""
+    val crashedSuffix = if o.attempt.crashed then " (crashed)" else ""
     s"$name$stage [$harness] (earlier occurrence)$crashedSuffix"
 
-  /** `<agent> (<role>) — stage <stage> [<harness>] (one-shot)`, omitting the
+  /** `<agent> (<role>) — stage <stage> [<harness>] (ephemeral)`, omitting the
     * role/stage segments when absent; shown only when the picker is expanded.
     */
-  private def oneShotLabel(o: Occurrence): String =
+  private def ephemeralLabel(o: Occurrence): String =
     val role = o.session.role.fold("")(r => s" ($r)")
     val stage = o.session.stage.fold("")(s => s" — stage $s")
     val harness = harnessSettingsName(o.session.harness)
-    val crashedSuffix = if o.run.crashed then " (crashed)" else ""
-    s"${o.session.agent}$role$stage [$harness] (one-shot)$crashedSuffix"
+    val crashedSuffix = if o.attempt.crashed then " (crashed)" else ""
+    s"${o.session.agent}$role$stage [$harness] (ephemeral)$crashedSuffix"
 
   /** How a session reads to a person: the name it was minted under, or the
-    * agent name for a one-shot (and for a malformed manifest whose
-    * [[ManifestSessionKind.Durable]] session carries no name). Every shell
-    * surface that shows a session calls this, so the picker, `continue --list`
-    * and the pre-resume notice cannot drift.
+    * agent name for an ephemeral session. Every shell surface that shows a
+    * session calls this, so the picker, `continue --list` and the pre-resume
+    * notice cannot drift.
     *
     * The name alone: the key's other half, the minting stage, is a path id
     * rather than prose. A row's `(stage: ...)` segment is a different field —
@@ -240,7 +234,7 @@ private[shell] object SessionPicker:
     * minting stage where two rows need it to tell them apart.
     */
   private[shell] def displayName(session: ManifestSession): String =
-    session.sessionName.getOrElse(session.agent)
+    session.minted.fold(session.agent)(_.name)
 
   /** The settings-file harness name (`claude`, `codex`, …) for a manifest's
     * [[BackendTag.wireName]] string, falling back to the raw string for an
@@ -260,15 +254,15 @@ private[shell] object SessionPicker:
     * stage path id.
     */
   private[shell] def resolveSelection(
-      runs: List[RecordedRun],
+      attempts: List[RecordedAttempt],
       selector: Option[String]
   ): Either[String, SessionSelection] =
     selector match
-      case None => newestDurableSelection(runs)
+      case None => newestDurableSelection(attempts)
       case Some(s) =>
         s.toIntOption match
-          case Some(index) => selectByIndex(runs, index)
-          case None        => selectByName(runs, s)
+          case Some(index) => selectByIndex(attempts, index)
+          case None        => selectByName(attempts, s)
 
   /** A picker row resolved for a selector: its selection, or a refusal reading
     * `<notResumable> — <disabledReason>`.
@@ -284,26 +278,26 @@ private[shell] object SessionPicker:
       case PickerRow.ShowMore => onShowMore
 
   private[shell] def newestDurableSelection(
-      runs: List[RecordedRun]
+      attempts: List[RecordedAttempt]
   ): Either[String, SessionSelection] =
-    sessionRows(runs, expanded = false).headOption match
+    sessionRows(attempts, expanded = false).headOption match
       case None => Left("no sessions recorded yet")
       case Some(choice) =>
         resolveRow(
           choice,
           "can't resume the newest session",
           // reachable: with no durable lineages, the collapsed listing's head
-          // is the one-shot expander row
+          // is the ephemeral expander row
           Left(
             "no durable session to continue yet — see `orca continue --list`"
           )
         )
 
   private[shell] def selectByIndex(
-      runs: List[RecordedRun],
+      attempts: List[RecordedAttempt],
       index: Int
   ): Either[String, SessionSelection] =
-    val rows = withoutExpanders(sessionRows(runs, expanded = true))
+    val rows = withoutExpanders(sessionRows(attempts, expanded = true))
     rows.lift(index - 1) match
       case None =>
         Left(
@@ -318,15 +312,15 @@ private[shell] object SessionPicker:
         )
 
   private[shell] def selectByName(
-      runs: List[RecordedRun],
+      attempts: List[RecordedAttempt],
       name: String
   ): Either[String, SessionSelection] =
     val notFound =
       Left(s"no session named '$name' found — see `orca continue --list`")
     val matches =
-      withoutExpanders(sessionRows(runs, expanded = false)).collect:
+      withoutExpanders(sessionRows(attempts, expanded = false)).collect:
         case choice @ Choice(PickerRow.Resume(selection), _, _)
-            if selection.session.sessionName.contains(name) =>
+            if selection.session.minted.exists(_.name == name) =>
           (choice, selection)
     // Ambiguity is decided per (working directory, agent), not per row: within
     // one of those, the rows differ only by their sessions' minting stage —

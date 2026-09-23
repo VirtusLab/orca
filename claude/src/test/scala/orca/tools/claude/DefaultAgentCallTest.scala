@@ -521,7 +521,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
         ).autonomous.run("anything")
       assertEquals(
         seen.get().reverse.collect { case t: OrcaEvent.TokensUsed =>
-          t.attempt
+          t.turn
         },
         List(1, 2)
       )
