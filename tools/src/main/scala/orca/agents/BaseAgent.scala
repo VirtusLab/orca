@@ -81,13 +81,10 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
     backend.closedFlag
   )
 
-  /** Latches the shared backend closed first (so a `run`/`resultAs` call racing
-    * this close never sees a live-looking agent whose backend is torn down),
-    * then delegates resource teardown.
+  /** Latches the shared backend closed, so every handle sharing it refuses to
+    * run.
     */
-  override private[orca] def close(): Unit =
-    backend.markClosed()
-    backend.close()
+  override private[orca] def close(): Unit = backend.markClosed()
 
   private[orca] val autonomous: AutonomousTextCall[B] =
     new AutonomousTextCall[B]:

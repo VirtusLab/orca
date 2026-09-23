@@ -15,8 +15,8 @@ import ox.{ResourceScope, releaseAfterScope}
   *     and the failure is rethrown as "Failed to open <sessionLabel> session".
   *
   * Once spawned, the process's environment cookie is swept when the turn scope
-  * ends ([[EnvCookieSweep.afterTurn]], reporting to `events`) — after the scope
-  * body's `conv.cancel()` kills the process tree.
+  * ends ([[EnvCookieSweep.afterScope]], reporting to `events`) — after the
+  * scope body's `conv.cancel()` kills the process tree.
   *
   * `sessionLabel` is the backend's descriptor for the failure message —
   * deliberately not the bare backend name, which is pinned by tests.
@@ -27,7 +27,7 @@ private[orca] object SubprocessSpawn:
       spawn: => PipedCliProcess
   )(build: PipedCliProcess => C)(using ResourceScope): C =
     val process = spawn
-    releaseAfterScope(EnvCookieSweep.afterTurn(process.envCookie, events))
+    releaseAfterScope(EnvCookieSweep.afterScope(process.envCookie, events))
     try build(process)
     catch
       case e: Exception =>

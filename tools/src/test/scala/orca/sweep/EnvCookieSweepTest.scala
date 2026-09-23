@@ -29,7 +29,7 @@ class EnvCookieSweepTest extends munit.FunSuite with SweepFixtures:
       assertEquals(survivorPids(cookie), List(detachedPid))
 
       val listener = RecordingListener()
-      EnvCookieSweep.afterTurn(Some(cookie), listener)
+      EnvCookieSweep.afterScope(Some(cookie), listener)
       assertEquals(listener.steps.size, 1)
       assert(
         listener.steps.head.contains(detachedPid.toString),

@@ -7,9 +7,10 @@ import java.io.{BufferedReader, InputStreamReader}
 import java.net.URI
 import java.net.http.{HttpClient, HttpRequest, HttpResponse}
 import java.nio.charset.StandardCharsets
+import java.time.Duration
 import java.util.Base64
-import ox.sleep
-import scala.concurrent.duration.*
+import ox.{sleep, tapException}
+import scala.concurrent.duration.{DurationInt, FiniteDuration}
 import scala.util.control.NonFatal
 
 /** [[OpencodeHttp]] over the JDK `java.net.http` client (ADR 0014). One
@@ -23,8 +24,18 @@ private[opencode] object JavaNetOpencodeHttp:
     */
   def start(baseUrl: String, password: String): OpencodeHttp =
     val http = new JavaNetOpencodeHttp(baseUrl, password)
-    http.awaitHealthy(attempts = 50, delayMs = 200L)
     http
+      .awaitHealthy(attempts = 50, delay = 200.millis)
+      .tapException(_ => http.close())
+    http
+
+  /** Bounds a request/response call, so a hung server fails it rather than
+    * blocking the caller (e.g. a turn cancel's abort POST).
+    */
+  private val RequestTimeout: Duration = Duration.ofSeconds(30)
+
+  /** A health ping is retried, so a hung one should give way to the next. */
+  private val PingTimeout: Duration = Duration.ofSeconds(1)
 
 private[opencode] class JavaNetOpencodeHttp(baseUrl: String, password: String)
     extends OpencodeHttp:
@@ -46,6 +57,7 @@ private[opencode] class JavaNetOpencodeHttp(baseUrl: String, password: String)
 
   def postJson(path: String, body: String): String =
     val req = request(path)
+      .timeout(JavaNetOpencodeHttp.RequestTimeout)
       .header("Content-Type", "application/json")
       .POST(HttpRequest.BodyPublishers.ofString(body))
       .build()
@@ -58,11 +70,14 @@ private[opencode] class JavaNetOpencodeHttp(baseUrl: String, password: String)
 
   override def getStatus(path: String): Int =
     try
-      val req = request(path).GET().build()
+      val req =
+        request(path).timeout(JavaNetOpencodeHttp.RequestTimeout).GET().build()
       client.send(req, HttpResponse.BodyHandlers.discarding()).statusCode()
     catch case NonFatal(_) => 0
 
   def events(): StreamSource =
+    // No timeout: on newer JDKs it also bounds reading the body, and this
+    // stream stays open for the whole turn.
     val req = request("/event").GET().build()
     // `ofInputStream` returns once headers arrive; we read lines off the raw
     // body ourselves. Closing the InputStream reliably unblocks a thread parked
@@ -88,11 +103,11 @@ private[opencode] class JavaNetOpencodeHttp(baseUrl: String, password: String)
   /** Poll `GET /doc` until it answers 200 or attempts run out, sleeping only
     * between attempts.
     */
-  private def awaitHealthy(attempts: Int, delayMs: Long): Unit =
+  private def awaitHealthy(attempts: Int, delay: FiniteDuration): Unit =
     val healthy = Iterator
       .range(0, attempts)
       .exists: attempt =>
-        if attempt > 0 then sleep(delayMs.millis)
+        if attempt > 0 then sleep(delay)
         pingOk()
     if !healthy then
       throw OrcaFlowException(
@@ -101,7 +116,8 @@ private[opencode] class JavaNetOpencodeHttp(baseUrl: String, password: String)
 
   private def pingOk(): Boolean =
     try
-      val req = request("/doc").GET().build()
+      val req =
+        request("/doc").timeout(JavaNetOpencodeHttp.PingTimeout).GET().build()
       client
         .send(req, HttpResponse.BodyHandlers.discarding())
         .statusCode() == 200

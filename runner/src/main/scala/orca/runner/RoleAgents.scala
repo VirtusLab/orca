@@ -252,7 +252,8 @@ private[orca] object RoleAgents:
 
   /** An override that escaped the wired set is event-blind — its cost/steps
     * never reach the terminal or cost tracker — so it gets a loud warning; it
-    * is still closed (see [[resolveAll]]) to avoid a resource leak.
+    * is still closed (see [[resolveAll]]), so later runs through it are
+    * refused.
     */
   private def foreignWarning(c: RoleChoice): Option[String] =
     Option.when(c.foreign)(

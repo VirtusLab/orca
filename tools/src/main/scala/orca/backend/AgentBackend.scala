@@ -245,15 +245,6 @@ trait AgentBackend[B <: BackendTag](
     */
   def structuredOutputMode: StructuredOutputMode
 
-  /** Release background resources this backend owns (processes, servers, drain
-    * forks). Called by the runtime when the run's resource scope ends, BEFORE
-    * the flow's `supervised` scope joins its forks — a resource whose teardown
-    * unblocks a non-interruptible read must be released here, not in a
-    * `supervised` scope's `releaseAfterScope` (Ox runs those after the join).
-    * Idempotent; default no-op.
-    */
-  def close(): Unit = ()
-
   // The use-after-close latch lives on the backend, not the Agent instance:
   // every builder goes through `BaseAgent.copyTool`, which constructs a new
   // agent sharing this same backend — a per-agent flag would reset to "open"
@@ -261,8 +252,7 @@ trait AgentBackend[B <: BackendTag](
 
   /** Latch this backend as closed — its owning flow has ended, and every run
     * entry point gated on [[isClosed]] must refuse from now on. Called by
-    * `BaseAgent.close()` before [[close]]; separate from it so a subclass
-    * overriding `close()` for resource teardown cannot forget the latch.
+    * `BaseAgent.close()`.
     */
   private[orca] final def markClosed(): Unit = closedFlag.set(true)
 

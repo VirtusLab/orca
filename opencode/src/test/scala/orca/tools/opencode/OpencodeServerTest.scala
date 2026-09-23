@@ -2,18 +2,20 @@ package orca.tools.opencode
 
 import orca.OrcaFlowException
 import orca.backend.StreamSource
+import orca.events.OrcaListener
 import orca.subprocess.{
   CliResult,
   CliRunner,
   FakePipedCliProcess,
-  PipedCliProcess
+  PipedCliProcess,
+  SpawnStubCliRunner
 }
-import ox.supervised
-
-import java.util.concurrent.atomic.AtomicInteger
+import orca.sweep.SweepFixtures
 import orca.testkit.TempDirs
+import ox.{fork, supervised}
+import ox.channels.ChannelClosedException
 
-class OpencodeServerTest extends munit.FunSuite:
+class OpencodeServerTest extends munit.FunSuite with SweepFixtures:
 
   test("parseBaseUrl extracts the URL from the listening line"):
     assertEquals(
@@ -24,27 +26,6 @@ class OpencodeServerTest extends munit.FunSuite:
     )
     assertEquals(OpencodeServer.parseBaseUrl("starting up"), None)
 
-  private class RecordingRunner(process: PipedCliProcess) extends CliRunner:
-    val spawns = new AtomicInteger(0)
-    var lastArgs: Seq[String] = Nil
-    var lastEnv: Map[String, String] = Map.empty
-    def run(
-        args: Seq[String],
-        stdin: String,
-        env: Map[String, String],
-        cwd: os.Path
-    ): CliResult = throw new UnsupportedOperationException
-    def spawnPiped(
-        args: Seq[String],
-        env: Map[String, String],
-        cwd: os.Path,
-        pipeStderr: Boolean
-    ): PipedCliProcess =
-      val _ = spawns.incrementAndGet()
-      lastArgs = args
-      lastEnv = env
-      process
-
   private def listeningProcess: FakePipedCliProcess =
     val p = new FakePipedCliProcess()
     p.enqueueStdout("opencode server listening on http://127.0.0.1:4096")
@@ -52,52 +33,72 @@ class OpencodeServerTest extends munit.FunSuite:
     p.closeStderr()
     p
 
-  test("lazy start: spawns serve once, reads the URL, hands it to the client"):
+  private val stubHttp: OpencodeHttp = new OpencodeHttp:
+    def postJson(path: String, body: String): String = "ok"
+    def events(): StreamSource = throw new UnsupportedOperationException
+
+  test("the first call spawns serve and builds a client for its URL"):
+    val runner = new SpawnStubCliRunner(List(listeningProcess))
+    var builtFor: Option[String] = None
     supervised:
-      val runner = new RecordingRunner(listeningProcess)
-      var built: Option[(String, String)] = None
-      val stub = new OpencodeHttp:
-        def postJson(path: String, body: String): String = "ok"
-        def events(): StreamSource =
-          throw new UnsupportedOperationException
-      val server = new OpencodeServer(
+      val server = OpencodeServer(
         runner,
         TempDirs.dir(),
-        httpFor = (url, pwd) =>
-          built = Some(url -> pwd)
-          stub
+        OrcaListener.noop,
+        httpFor = (url, _) =>
+          builtFor = Some(url)
+          stubHttp
       )
+      assertEquals(server.http(), stubHttp)
+    val spawned = runner.spawnCalls.head
+    assertEquals(
+      spawned.args,
+      List("opencode", "serve", "--port", "0", "--log-level", "WARN")
+    )
+    assert(spawned.env.contains("OPENCODE_SERVER_PASSWORD"))
+    assertEquals(builtFor, Some("http://127.0.0.1:4096"))
 
-      assertEquals(runner.spawns.get(), 0) // nothing spawned until http forced
-      assertEquals(server.http.postJson("/x", "{}"), "ok")
-
-      assertEquals(
-        runner.lastArgs,
-        Seq("opencode", "serve", "--port", "0", "--log-level", "WARN")
+  test("a second call reuses the running server"):
+    val runner = new SpawnStubCliRunner(List(listeningProcess))
+    supervised:
+      val server = OpencodeServer(
+        runner,
+        TempDirs.dir(),
+        OrcaListener.noop,
+        httpFor = (_, _) => stubHttp
       )
-      assert(runner.lastEnv.contains("OPENCODE_SERVER_PASSWORD"))
-      assertEquals(built.map(_._1), Some("http://127.0.0.1:4096"))
+      val _ = server.http()
+      val _ = server.http()
+    assertEquals(runner.spawnCalls.size, 1)
 
-      val _ = server.http.postJson("/y", "{}") // reuse: no second spawn
-      assertEquals(runner.spawns.get(), 1)
+  test("concurrent first calls spawn serve once"):
+    val runner = new SpawnStubCliRunner(List(listeningProcess))
+    supervised:
+      val server = OpencodeServer(
+        runner,
+        TempDirs.dir(),
+        OrcaListener.noop,
+        httpFor = (_, _) => stubHttp
+      )
+      val calls = List.fill(2)(fork(server.http()))
+      calls.foreach(_.join())
+    assertEquals(runner.spawnCalls.size, 1)
 
   test("a custom launcher wraps the serve argv at spawn"):
+    val runner = new SpawnStubCliRunner(List(listeningProcess))
     supervised:
-      val runner = new RecordingRunner(listeningProcess)
-      val stub = new OpencodeHttp:
-        def postJson(path: String, body: String): String = "ok"
-        def events(): StreamSource =
-          throw new UnsupportedOperationException
-      val server = new OpencodeServer(
+      val server = OpencodeServer(
         runner,
         TempDirs.dir(),
+        OrcaListener.noop,
         launcher = OpencodeLauncher.ollama("qwen3-coder"),
-        httpFor = (_, _) => stub
+        httpFor = (_, _) => stubHttp
       )
-      val _ = server.http.postJson("/x", "{}") // force the spawn
-      assertEquals(
-        runner.lastArgs,
-        Seq(
+      val _ = server.http()
+    assertEquals(
+      runner.calls,
+      List(
+        List(
           "ollama",
           "launch",
           "opencode",
@@ -111,67 +112,124 @@ class OpencodeServerTest extends munit.FunSuite:
           "WARN"
         )
       )
+    )
 
   test("a server that exits without binding surfaces its stderr"):
+    val proc = new FakePipedCliProcess()
+    proc.enqueueStderr(
+      "Error: model \"gemma4\" not found; run 'ollama pull gemma4' first"
+    )
+    proc.closeStderr()
+    proc.closeStdout() // EOF with no "listening on" line
     supervised:
-      val proc = new FakePipedCliProcess()
-      proc.enqueueStderr(
-        "Error: model \"gemma4\" not found; run 'ollama pull gemma4' first"
-      )
-      proc.closeStderr()
-      proc.closeStdout() // EOF with no "listening on" line
-      val server = new OpencodeServer(
-        new RecordingRunner(proc),
+      val server = OpencodeServer(
+        new SpawnStubCliRunner(List(proc)),
         TempDirs.dir(),
+        OrcaListener.noop,
         httpFor = (_, _) => fail("client must not be built on a failed start")
       )
-      val ex = intercept[OrcaFlowException](server.http)
+      val ex = intercept[OrcaFlowException](server.http())
       assert(
         ex.getMessage.contains("model \"gemma4\" not found"),
         ex.getMessage
       )
 
-  test("shutdown destroys the process + closes the client; drains unblock"):
-    // The drain forks block on a non-interruptible read for the server's life;
-    // `shutdown`'s `destroyForcibly` is what EOFs them so the scope can join.
-    // This process leaves stdout/stderr OPEN after the bind line (unlike the
-    // others), so the drains are genuinely blocked until shutdown runs.
+  test("a failed start is retried on the next call"):
+    val failing = new FakePipedCliProcess()
+    failing.closeStdout() // EOF with no "listening on" line
+    failing.closeStderr()
+    val runner = new SpawnStubCliRunner(List(failing, listeningProcess))
     supervised:
-      val proc = new FakePipedCliProcess()
-      proc.enqueueStdout("opencode server listening on http://127.0.0.1:4096")
-      // deliberately NOT closing stdout/stderr — the drains stay blocked
-      class TrackingHttp extends OpencodeHttp:
-        @volatile var closed: Boolean = false
-        def postJson(path: String, body: String): String = "ok"
-        def events(): StreamSource = throw new UnsupportedOperationException
-        override def close(): Unit = closed = true
-      val client = new TrackingHttp
-      val server =
-        new OpencodeServer(
-          new RecordingRunner(proc),
-          TempDirs.dir(),
-          httpFor = (_, _) => client
-        )
+      val server = OpencodeServer(
+        runner,
+        TempDirs.dir(),
+        OrcaListener.noop,
+        httpFor = (_, _) => stubHttp
+      )
+      val _ = intercept[OrcaFlowException](server.http())
+      assertEquals(server.http(), stubHttp)
+    assertEquals(runner.spawnCalls.size, 2)
 
-      val _ = server.http // force start: spawns, reads bind line, forks drains
+  test("scope end destroys the process and closes the client"):
+    // Stdout/stderr stay open after the bind line, so the drains are blocked
+    // until the process is destroyed.
+    val proc = new FakePipedCliProcess()
+    proc.enqueueStdout("opencode server listening on http://127.0.0.1:4096")
+    val client = new TrackingHttp
+    supervised:
+      val server = OpencodeServer(
+        new SpawnStubCliRunner(List(proc)),
+        TempDirs.dir(),
+        OrcaListener.noop,
+        httpFor = (_, _) => client
+      )
+      val _ = server.http()
       assert(proc.isAlive)
-      server.shutdown()
-      assert(!proc.isAlive, "shutdown must destroy the serve process")
-      assert(client.closed, "shutdown must close the http client")
-      server.shutdown() // idempotent: no exception, no double effect
-    // The scope then joins the drain forks. (The fake's queue read is
-    // interruptible, unlike a real native readLine, so this can't reproduce the
-    // production hang; the destroy/close assertions above are the real teeth.)
+    assert(!proc.isAlive, "scope end must destroy the serve process")
+    assert(client.closed, "scope end must close the http client")
 
-  test("shutdown is a no-op when the server was never started"):
+  test("nothing is spawned when the server is never used"):
+    val runner = new SpawnStubCliRunner(Nil)
     supervised:
-      val proc = new FakePipedCliProcess()
-      val runner = new RecordingRunner(proc)
-      val server =
-        new OpencodeServer(
-          runner,
-          TempDirs.dir(),
-          httpFor = (_, _) => fail("unused")
+      val _ = OpencodeServer(
+        runner,
+        TempDirs.dir(),
+        OrcaListener.noop,
+        httpFor = (_, _) => fail("unused")
+      )
+    assertEquals(runner.spawnCalls, Nil)
+
+  test("a call after the owning scope ended throws"):
+    val server = supervised:
+      OpencodeServer(
+        new SpawnStubCliRunner(Nil),
+        TempDirs.dir(),
+        OrcaListener.noop,
+        httpFor = (_, _) => fail("unused")
+      )
+    val _ = intercept[ChannelClosedException](server.http())
+
+  onLinux("work detached by the server is reported when the scope ends"):
+    val pidFile = os.temp.dir(prefix = "orca-opencode-") / "detached.pid"
+    // The subshell exits at once, so the worker leaves the server's process
+    // tree; its streams are redirected so it doesn't hold the drained pipes.
+    val script =
+      s"""echo "opencode server listening on http://127.0.0.1:1"
+         |( setsid bash -c 'echo $$$$ > "$pidFile"; sleep 60' >/dev/null 2>&1 </dev/null & )
+         |sleep 60""".stripMargin
+    val listener = new RecordingListener
+    try
+      supervised:
+        val server = OpencodeServer(
+          new ScriptRunner(script),
+          os.pwd,
+          listener,
+          httpFor = (_, _) => stubHttp
         )
-      server.shutdown() // never forced `http`
-      assertEquals(runner.spawns.get(), 0)
+        val _ = server.http()
+        val _ = awaitPid(pidFile)
+      val detachedPid = awaitPid(pidFile)
+      assertEquals(listener.steps.size, 1)
+      assert(listener.steps.head.contains(detachedPid.toString), listener.steps)
+    finally killPid(pidFile)
+
+  private class TrackingHttp extends OpencodeHttp:
+    @volatile var closed: Boolean = false
+    def postJson(path: String, body: String): String = "ok"
+    def events(): StreamSource = throw new UnsupportedOperationException
+    override def close(): Unit = closed = true
+
+  /** Runs `script` in place of `opencode serve`. */
+  private class ScriptRunner(script: String) extends CliRunner:
+    def run(
+        args: Seq[String],
+        stdin: String,
+        env: Map[String, String],
+        cwd: os.Path
+    ): CliResult = throw new UnsupportedOperationException
+    def spawnPiped(
+        args: Seq[String],
+        env: Map[String, String],
+        cwd: os.Path,
+        pipeStderr: Boolean
+    ): PipedCliProcess = spawn(script)
