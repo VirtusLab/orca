@@ -829,7 +829,6 @@ Review utilities, available via `import orca.review.*`:
 | `allReviewers(base)` | Every reviewer in the run's catalog (the eight canonical ones — code-functionality, test, readability, code-structure, simplicity, performance, security, scala-fp — plus whatever `.orca/reviewers/` and the global tier add, see [Settings](#settings)) as `ReviewerAgent`s: each one its `Reviewer` definition plus a read-only agent built from `base`. |
 | `minimalReviewers(base)` | Universally-applicable subset (code-functionality, readability, test) plus every discovered reviewer, same shape. Pair with the default LLM-driven selector when the full set is overkill. |
 | `reviewerCatalog` (in-body accessor) | The run's resolved reviewer definitions — `.all` and `.minimal` are what the two above build from. Filter it to pick a subset yourself. |
-| `fixLoop(evaluate, fix, ...)` | Lower-level evaluate/fix loop over your own two functions — no reviewers, no sessions, no diff. Shares `reviewAndFixLoop`'s stop policy and `maxIterations` default, not its machinery. |
 
 `reviewAndFixLoop`'s stack-dependent parameters are three-state
 (`orca.Configured`), so omission means "from the project's [stack
@@ -1038,10 +1037,6 @@ results.
   return. A finding carries a `title` (shown), a long `description` (sent to
   the fixer), an optional `location`, and `reopens`: the `FindingId` of the
   still-open finding it reports again, if any.
-- **`orca.review.FixOutcome(fixed, declined)`** — what the fix step returns: the
-  titles of findings actually fixed in code, plus a
-  `DeclinedFinding(title, reason)` per finding it refused (environmental, out of
-  scope, false positive). The loop re-evaluates iff `fixed` is non-empty.
 - **`orca.review.OpenFindings(findings, skipped)`** — accumulated
   `OpenFinding(id, title, reason, location)` entries surfaced by
   `reviewAndFixLoop` once it halts: every finding the run did not resolve, each

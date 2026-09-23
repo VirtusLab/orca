@@ -1,6 +1,7 @@
 package orca.review
 
 import orca.agents.{Announce, JsonData}
+import orca.util.PromptResource
 
 import sttp.tapir.Validator
 
@@ -35,6 +36,12 @@ case class SelectedReviewers(names: List[String]):
     )
 
 object SelectedReviewers:
+  /** How the picker must name reviewers for [[SelectedReviewers.pick]] to match
+    * them. Sent after the caller's selection brief, which can be replaced.
+    */
+  private[review] val ReplyFormat: String =
+    PromptResource.load("/orca/review/prompts/select-reviewers-reply.md")
+
   /** `names` carries `minItems: 1`, so backends that enforce the schema on the
     * wire (claude `--json-schema`, codex `--output-schema`) can't reply "no
     * reviewer applies" — a reply [[ReviewerSelector.agentDriven]] can only

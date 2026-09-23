@@ -150,6 +150,23 @@ class ReviewThenFixTest extends munit.FunSuite:
       steps.messages.mkString("\n")
     )
 
+  test("a single pass does not number its round"):
+    val steps = new ReviewLoopFixture.StepCapture
+    val reviewer =
+      new FakeAgent("x", outputs = List(ReviewResult(List(finding("a")))))
+    val coder =
+      new FakeAgent("coder", outputs = List(FixOutcome(List(Title("a")), Nil)))
+    given FlowControl = control(picking("x"), steps.dispatcher)
+    val _ = reviewThenFix(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(asReviewer(reviewer)),
+      task = titled("do the thing")
+    )
+    assert(
+      !steps.messages.exists(_.startsWith("Iteration ")),
+      steps.messages.mkString("\n")
+    )
+
   test("the fixer's edits are formatted before the pass returns"):
     // The formatter appends one line per run: once before the review, once
     // after the fix turn. No round follows to format those edits, and the

@@ -62,7 +62,9 @@ class ReviewTypesTest extends munit.FunSuite:
       summon[AgentInput[FixRequest]].serialize(request).contains("\n  |a| b|")
     )
 
-  test("the fix prompt puts the instructions above a labelled finding list"):
+  test(
+    "the fix prompt puts the instructions and reply format above the findings"
+  ):
     // Every fix turn arrives in this shape; the label is what separates the
     // caller's instructions from the findings under them.
     val request = FixRequest(
@@ -83,7 +85,10 @@ class ReviewTypesTest extends munit.FunSuite:
     assert(
       summon[AgentInput[FixRequest]]
         .serialize(request)
-        .startsWith("fix these\n\nFindings to fix:\nI1.1 Leaks a handle"),
+        .startsWith(
+          s"fix these\n\n${FixOutcome.ReplyFormat}\n\n" +
+            "Findings to fix:\nI1.1 Leaks a handle"
+        ),
       summon[AgentInput[FixRequest]].serialize(request)
     )
 

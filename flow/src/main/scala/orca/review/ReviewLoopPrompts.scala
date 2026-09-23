@@ -4,10 +4,10 @@ import orca.BoundedDiff
 import orca.plan.Task
 import orca.util.PromptResource
 
-/** Default prompt fragments for the helpers in this package. Each `val` is a
-  * complete instruction block the helper sends as part of its LLM call;
-  * override via the helper's `instructions` parameter, wrapping a default to
-  * extend it:
+/** Default prompt fragments for the helpers in this package. Each `val` is the
+  * replaceable instruction block the helper sends as part of its LLM call; a
+  * reply format the helper parses is appended to it regardless. Override via
+  * the helper's `instructions` parameter, wrapping a default to extend it:
   *
   * {{{
   * reviewAndFixLoop(
@@ -23,17 +23,14 @@ import orca.util.PromptResource
   */
 object ReviewLoopPrompts:
 
-  /** Used by [[reviewAndFixLoop]]'s fix step. Tells the agent to classify every
-    * input finding as `fixed` (title) or `declined` (title + reason). The loop
-    * relies on `fixed` being non-empty to justify re-evaluating, so any
-    * override should preserve that contract.
+  /** Used by [[reviewAndFixLoop]]'s fix step: when to fix a finding and when to
+    * decline it. Reply format: [[FixOutcome.ReplyFormat]].
     */
   val Fix: String =
     PromptResource.load("/orca/review/prompts/fix.md")
 
   /** Used by [[ReviewerSelector.agentDriven]] to decide which reviewers to run
-    * for a given task. Agents are picked from the supplied `availableReviewers`
-    * list by name.
+    * for a given task. Reply format: [[SelectedReviewers.ReplyFormat]].
     */
   val SelectReviewers: String =
     PromptResource.load("/orca/review/prompts/select-reviewers.md")
