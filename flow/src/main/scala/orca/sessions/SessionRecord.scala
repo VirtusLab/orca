@@ -18,8 +18,7 @@ import orca.agents.{BackendTag, SessionKey}
   *
   * `backend` records the minting agent's [[orca.agents.BackendTag]]:
   * `agent.session(name, seed)` reuses the record only for an agent with the
-  * same tag, and mints fresh otherwise. `None` when the minting agent carries
-  * no backend tag (a stub agent); any agent then reuses it.
+  * same tag, and mints fresh otherwise.
   */
 case class SessionRecord(
     name: String,
@@ -27,7 +26,7 @@ case class SessionRecord(
     id: String,
     seed: String,
     resumeWireId: Option[String],
-    backend: Option[BackendTag]
+    backend: BackendTag
 ):
   /** The key this record is stored under. */
   def key: SessionKey = SessionKey(name = name, stage = stage)

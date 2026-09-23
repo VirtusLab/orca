@@ -18,9 +18,9 @@ trait Announce[O]:
 object Announce:
 
   /** The catch-all's class — named (rather than a lambda) so
-    * `DefaultAgentCall.emitStructuredResult` can distinguish "no specific
-    * instance exists" (fall back to raw payload) from a specific instance
-    * returning `None` (deliberate silence). Different display contracts.
+    * `AgentCall.emitStructuredResult` can distinguish "no specific instance
+    * exists" (fall back to raw payload) from a specific instance returning
+    * `None` (deliberate silence). Different display contracts.
     */
   final private[agents] class NoSpecific[O] extends Announce[O]:
     def message(value: O): Option[String] = None

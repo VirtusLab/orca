@@ -130,7 +130,7 @@ class OpenPrIfGitHubTest extends FunSuite:
     )
     beforeRun(dir)
     val result = openPrIfGitHub(
-      summarisingAgent = summariser,
+      summarisingAgent = summariser.agent,
       openFindings = openFindings
     )(using control, summon[OutsideStage])
     Run(
@@ -161,7 +161,7 @@ class OpenPrIfGitHubTest extends FunSuite:
       given orca.FlowControl = ???
       given orca.InStage = orca.InStage.unsafe
       openPrIfGitHub(
-        summarisingAgent = new StubSummariser(),
+        summarisingAgent = new StubSummariser().agent,
         openFindings = orca.review.OpenFindings.empty
       )
       """
@@ -182,7 +182,7 @@ class OpenPrIfGitHubTest extends FunSuite:
     val e = intercept[OrcaFlowException](
       control.withStage("outer", None): _ =>
         openPrIfGitHub(
-          summarisingAgent = new StubSummariser(),
+          summarisingAgent = new StubSummariser().agent,
           openFindings = OpenFindings.empty
         )(using control, summon[OutsideStage])
     )
@@ -362,7 +362,7 @@ class OpenPrIfGitHubTest extends FunSuite:
     val (dir, store) = seededPrRepo()
     val first = prControl(dir, store, _ => (), new ConcurrentLinkedQueue())
     val _ = openPrFromBranch(
-      summarisingAgent = new StubSummariser(),
+      summarisingAgent = new StubSummariser().agent,
       openFindings = OpenFindings.empty
     )(using first, summon[OutsideStage])
     val r = runOver(dir, store, available, base = baseForced)

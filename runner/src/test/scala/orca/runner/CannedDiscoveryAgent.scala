@@ -1,42 +1,26 @@
 package orca.runner
 
-import orca.agents.{
-  SessionKey,
-  AgentCall,
-  AgentInput,
-  Announce,
-  AutonomousAgentCall,
-  BackendTag,
-  InteractiveAgentCall,
-  JsonData,
-  SessionId
-}
+import orca.agents.{Agent, BackendTag, ClaudeAgent}
+import orca.testkit.{ScriptedBackend, TestAgent}
 
-/** The discovery test seam: a `ClaudeAgent` whose `resultAs[O].autonomous.run`
-  * returns `produce()` wrapped in the [[StackDiscoveryReply]] envelope (cast to
-  * `O`) — tests exercising stack discovery hand the lifecycle a canned
-  * [[StackDiscoveryResult]], or a thunk that throws to drive the failure arm.
-  * Free-text calls throw like [[StubAgent]]'s (branch naming falls back to the
-  * deterministic slug), so no test reaches a model.
+/** The discovery test seam: an agent whose structured turns answer `produce()`
+  * wrapped in the [[StackDiscoveryReply]] envelope — tests exercising stack
+  * discovery hand the lifecycle a canned [[StackDiscoveryResult]], or a thunk
+  * that throws to drive the failure arm. Free-text turns fail (branch naming
+  * falls back to the deterministic slug), so no test reaches a model.
   */
-private[runner] class CannedDiscoveryAgent(produce: () => StackDiscoveryResult)
-    extends StubClaudeAgent("canned-discovery"):
-  override def resultAs[O: JsonData: Announce]
-      : AgentCall[BackendTag.ClaudeCode.type, O] =
-    new AgentCall[BackendTag.ClaudeCode.type, O]:
-      val autonomous: AutonomousAgentCall[BackendTag.ClaudeCode.type, O] =
-        new AutonomousAgentCall[BackendTag.ClaudeCode.type, O]:
-          private[orca] def runWithSession[I: AgentInput](
-              input: I,
-              session: SessionId[BackendTag.ClaudeCode.type],
-              sessionKey: Option[SessionKey],
-              emitPrompt: Boolean
-          )(using orca.InStage): O =
-            StackDiscoveryReply(produce()).asInstanceOf[O]
-      def interactive: InteractiveAgentCall[BackendTag.ClaudeCode.type, O] =
-        throw new UnsupportedOperationException
-
 private[runner] object CannedDiscoveryAgent:
-  /** The common fixed-result case. */
-  def apply(result: StackDiscoveryResult): CannedDiscoveryAgent =
-    new CannedDiscoveryAgent(() => result)
+  def apply(produce: => StackDiscoveryResult): ClaudeAgent =
+    on(BackendTag.ClaudeCode)(produce)
+
+  def on[B <: BackendTag & Singleton](tag: B)(
+      produce: => StackDiscoveryResult
+  ): Agent[B] =
+    TestAgent(
+      ScriptedBackend.replying(tag): turn =>
+        if turn.outputSchema.isEmpty then
+          throw new UnsupportedOperationException("free-text turn")
+        ScriptedBackend.json(StackDiscoveryReply(produce))
+      ,
+      "canned-discovery"
+    )

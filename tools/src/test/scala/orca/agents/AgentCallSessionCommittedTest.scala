@@ -17,8 +17,8 @@ import java.util.concurrent.atomic.AtomicReference
 private case class SessionCommittedAnswer(value: Int) derives JsonData
 
 /** Pins `OrcaEvent.SessionCommitted` emission (ADR 0021 §8) at the two
-  * `DefaultAgentCall` sites: the structured autonomous retry loop and the
-  * interactive path beside `sessions.register`.
+  * `AgentCall` sites: the structured autonomous retry loop and the interactive
+  * path beside `sessions.register`.
   */
 class AgentCallSessionCommittedTest extends munit.FunSuite:
 
@@ -48,7 +48,7 @@ class AgentCallSessionCommittedTest extends munit.FunSuite:
     val seen = AtomicReference[List[OrcaEvent]](Nil)
     val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
     supervised:
-      val call = new DefaultAgentCall[
+      val call = new AgentCall[
         BackendTag.ClaudeCode.type,
         SessionCommittedAnswer
       ](
@@ -89,7 +89,7 @@ class AgentCallSessionCommittedTest extends munit.FunSuite:
     val seen = AtomicReference[List[OrcaEvent]](Nil)
     val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
     supervised:
-      val call = new DefaultAgentCall[
+      val call = new AgentCall[
         BackendTag.ClaudeCode.type,
         SessionCommittedAnswer
       ](

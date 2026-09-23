@@ -2,6 +2,7 @@ package orca.tools.pi
 
 import orca.OrcaDir
 import orca.agents.{
+  Model,
   AutoApprove,
   BackendTag,
   AgentConfig,
@@ -81,6 +82,9 @@ private[orca] class PiBackend private[pi] (
     */
   override def structuredOutputMode: StructuredOutputMode =
     StructuredOutputMode.RawText
+
+  /** Pi has no named tiers, so `cheap` keeps the agent's own model. */
+  def cheapModel(leading: Option[Model]): Option[Model] = None
 
   override protected[orca] def open(
       turn: TurnRequest[BackendTag.Pi.type]

@@ -1,28 +1,31 @@
 package orca
 
 import munit.FunSuite
-import orca.backend.{Dispatch, IdScheme, SessionSupport}
+import orca.backend.{
+  AgentResult,
+  Dispatch,
+  IdScheme,
+  SessionSupport,
+  TurnRequest
+}
 import orca.agents.{
-  SessionKey,
-  Announce,
-  AgentInput,
-  AutonomousAgentCall,
-  AutonomousTextCall,
-  InteractiveAgentCall,
+  Agent,
   BackendTag,
   JsonData,
-  AgentCall,
-  AgentConfig,
-  Agent,
   SessionId,
-  WireSessionId,
-  ToolSet,
-  onWire
+  SessionKey,
+  WireSessionId
 }
+import orca.events.OrcaEvent
 import orca.progress.{BranchMode, ProgressHeader, ProgressStore, StageEntry}
 import orca.sessions.{SessionRecord, SessionStore}
-import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
-import orca.testkit.{GitRepo, TempDirs}
+import orca.testkit.{
+  GitRepo,
+  PassthroughPrompts,
+  ScriptedBackend,
+  TempDirs,
+  TestAgent
+}
 import orca.util.RawJson
 
 /** Tests for [[FlowSession]] — the durable-session handle that owns the probe →
@@ -122,9 +125,9 @@ class FlowSessionTest extends FunSuite:
     *   session" branch, `false` to exercise the re-seed path. Read only under
     *   [[StubDurability.Committed]] and [[StubDurability.Rehydrated]].
     * @param runResult
-    *   The text `autonomous.run` echoes back.
+    *   The text a free-text turn replies with.
     * @param learnedWireId
-    *   The wire id the stub's backend learns during a turn, committed after it
+    *   The wire id the stub's backend reports for a turn, committed after it
     *   the way a server-minting backend commits.
     * @param durableSession
     *   The session id the durable fixture records a wire mapping for.
@@ -132,12 +135,10 @@ class FlowSessionTest extends FunSuite:
   private class StubAgentForSeeded(
       existsResult: Boolean,
       runResult: String = "ok",
-      learnedWireId: Option[String] = None,
+      learnedWireId: String = "scripted-wire",
       durability: StubDurability = StubDurability.Committed,
       durableSession: SessionId[BackendTag.ClaudeCode.type] = testSession
-  ) extends Agent[BackendTag.ClaudeCode.type]:
-    val name: String = "stub-seeded"
-
+  ):
     private var _capturedPrompts: List[String] = Nil
     private var _capturedSessionKeys: List[Option[SessionKey]] = Nil
     private var _capturedDispatches
@@ -158,15 +159,14 @@ class FlowSessionTest extends FunSuite:
       */
     def capturedPrompts: List[String] = _capturedPrompts.reverse
 
-    /** Every `sessionKey` the stub's `run`s received, in call order (oldest
-      * first) — what the durable door hands to the emission edge.
+    /** Every `sessionKey` the stub's turns committed under, in call order
+      * (oldest first) — what the durable door hands to the emission edge.
       */
     def capturedSessionKeys: List[Option[SessionKey]] =
       _capturedSessionKeys.reverse
 
-    /** The durability capability the stub exposes (a STABLE instance, so a
-      * claim recorded by one run persists into the next). `learnedWireId`
-      * mirrors a server-id backend's persist path.
+    /** The durability capability the stub's backend exposes (a STABLE instance,
+      * so a claim recorded by one run persists into the next).
       */
     private val support: SessionSupport[BackendTag.ClaudeCode.type] =
       durability match
@@ -184,74 +184,30 @@ class FlowSessionTest extends FunSuite:
         case StubDurability.Rehydrated =>
           rehydratedSupport(existsResult, durableSession)
 
-    /** Drives `dispatchFor` and `resumeWireId`. */
-    override private[orca] def sessionSupport
-        : Option[SessionSupport[BackendTag.ClaudeCode.type]] =
-      Some(support)
-
-    /** Record the prompt and the dispatch a backend would spawn with, then
-      * commit as a real backend does after a clean turn (via
-      * `AgentBackend.runAutonomous`): the ephemeral shape claims the id, a
-      * `learnedWireId` is recorded.
+    /** Records the prompt and dispatch of each turn; a structured turn answers
+      * `{"v":"ok"}` (tests instantiate with `O = StubResult`).
       */
-    private def capture(
-        prompt: String,
-        session: SessionId[BackendTag.ClaudeCode.type],
-        sessionKey: Option[SessionKey]
-    ): Unit =
-      _capturedPrompts = prompt :: _capturedPrompts
-      _capturedSessionKeys = sessionKey :: _capturedSessionKeys
-      _capturedDispatches = support.dispatchFor(session) :: _capturedDispatches
-      if durability == StubDurability.InProcess then
-        support.register(session, session.onWire)
-      learnedWireId.foreach(w =>
-        support.register(session, WireSessionId[BackendTag.ClaudeCode.type](w))
-      )
+    private val backend =
+      new ScriptedBackend(BackendTag.ClaudeCode, support):
+        protected def reply(
+            turn: TurnRequest[BackendTag.ClaudeCode.type]
+        ): AgentResult[BackendTag.ClaudeCode.type] =
+          _capturedPrompts = turn.prompt :: _capturedPrompts
+          _capturedDispatches = turn.dispatch :: _capturedDispatches
+          val output =
+            if turn.outputSchema.isDefined then """{"v":"ok"}""" else runResult
+          ScriptedBackend.result(output, learnedWireId)
 
-    val autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
-      new AutonomousTextCall[BackendTag.ClaudeCode.type]:
-        private[orca] def runWithSession(
-            prompt: String,
-            session: SessionId[BackendTag.ClaudeCode.type],
-            sessionKey: Option[SessionKey],
-            emitPrompt: Boolean
-        )(using orca.InStage): String =
-          capture(prompt, session, sessionKey)
-          runResult
-
-    /** Structured door stub: captures the serialized input (after preamble/seed
-      * composition) and decodes a fixed `{"v":"ok"}` payload as `O` (tests
-      * instantiate with `O = StubResult`).
-      */
-    def resultAs[O: JsonData: Announce]
-        : AgentCall[BackendTag.ClaudeCode.type, O] =
-      new AgentCall[BackendTag.ClaudeCode.type, O]:
-        val autonomous: AutonomousAgentCall[BackendTag.ClaudeCode.type, O] =
-          new AutonomousAgentCall[BackendTag.ClaudeCode.type, O]:
-            private[orca] def runWithSession[I: AgentInput](
-                input: I,
-                session: SessionId[BackendTag.ClaudeCode.type],
-                sessionKey: Option[SessionKey],
-                emitPrompt: Boolean
-            )(using
-                orca.InStage
-            ): O =
-              capture(
-                summon[AgentInput[I]].serialize(input),
-                session,
-                sessionKey
-              )
-              val parsed =
-                readFromString[O]("""{"v":"ok"}""")(using
-                  summon[JsonData[O]].codec
-                )
-              parsed
-        def interactive: InteractiveAgentCall[BackendTag.ClaudeCode.type, O] =
-          ???
-    def withConfig(c: AgentConfig): Agent[BackendTag.ClaudeCode.type] = this
-    def withSystemPrompt(p: String): Agent[BackendTag.ClaudeCode.type] = this
-    def withName(n: String): Agent[BackendTag.ClaudeCode.type] = this
-    def withTools(t: ToolSet): Agent[BackendTag.ClaudeCode.type] = this
+    val agent: Agent[BackendTag.ClaudeCode.type] = TestAgent(
+      backend,
+      "stub-seeded",
+      events = {
+        case e: OrcaEvent.SessionCommitted =>
+          _capturedSessionKeys = e.sessionKey :: _capturedSessionKeys
+        case _ => ()
+      },
+      prompts = PassthroughPrompts
+    )
 
   // ── test helpers ──────────────────────────────────────────────────────────
 
@@ -308,7 +264,7 @@ class FlowSessionTest extends FunSuite:
       id = id,
       seed = "seed",
       resumeWireId = Some("wire-1"),
-      backend = None
+      backend = BackendTag.ClaudeCode
     )
 
   private def carriedOver: List[SessionRecord] =
@@ -331,9 +287,9 @@ class FlowSessionTest extends FunSuite:
     * under [[testSessionKey]].
     */
   private def flowSession(
-      agent: StubAgentForSeeded
+      stub: StubAgentForSeeded
   ): FlowSession[BackendTag.ClaudeCode.type] =
-    new FlowSession(agent, testSession, testSessionKey)
+    new FlowSession(stub.agent, testSession, testSessionKey)
 
   // ── tests: free-text run protocol ───────────────────────────────────────────
 
@@ -347,7 +303,7 @@ class FlowSessionTest extends FunSuite:
           id = testSessionId,
           seed = seed,
           resumeWireId = None,
-          backend = None
+          backend = BackendTag.ClaudeCode
         )
       )
     )
@@ -405,7 +361,7 @@ class FlowSessionTest extends FunSuite:
           id = testSessionId,
           seed = "You are a planning agent.",
           resumeWireId = None,
-          backend = None
+          backend = BackendTag.ClaudeCode
         )
       )
     )
@@ -500,7 +456,7 @@ class FlowSessionTest extends FunSuite:
       durableSession = otherSession
     )
     val _ = flowSession(first).run("first conversation")(using fc)
-    val _ = new FlowSession(second, otherSession, otherSessionKey)
+    val _ = new FlowSession(second.agent, otherSession, otherSessionKey)
       .run("second conversation")(using fc)
     assert(
       first.capturedPrompt.exists(_.contains(NoticeInstruction)),
@@ -544,7 +500,7 @@ class FlowSessionTest extends FunSuite:
           id = testSessionId,
           seed = seed,
           resumeWireId = None,
-          backend = None
+          backend = BackendTag.ClaudeCode
         )
       )
     )
@@ -574,7 +530,7 @@ class FlowSessionTest extends FunSuite:
           id = testSessionId,
           seed = "x",
           resumeWireId = None,
-          backend = None
+          backend = BackendTag.ClaudeCode
         )
       )
     )
@@ -609,7 +565,7 @@ class FlowSessionTest extends FunSuite:
           id = testSessionId,
           seed = "seed",
           resumeWireId = Some("wire-1"),
-          backend = None
+          backend = BackendTag.ClaudeCode
         )
       ),
       listeners = List(listener)
@@ -635,7 +591,7 @@ class FlowSessionTest extends FunSuite:
           id = testSessionId,
           seed = "x",
           resumeWireId = None,
-          backend = None
+          backend = BackendTag.ClaudeCode
         )
       ),
       listeners = List(listener)
@@ -659,7 +615,7 @@ class FlowSessionTest extends FunSuite:
           id = testSessionId,
           seed = seed,
           resumeWireId = None,
-          backend = None
+          backend = BackendTag.ClaudeCode
         )
       ),
       completedStages = List("triage", "implement")
@@ -736,7 +692,7 @@ class FlowSessionTest extends FunSuite:
           id = testSessionId,
           seed = "",
           resumeWireId = None,
-          backend = None
+          backend = BackendTag.ClaudeCode
         )
       ),
       completedStages = List("triage")
@@ -783,7 +739,7 @@ class FlowSessionTest extends FunSuite:
         id = testSessionId,
         seed = "",
         resumeWireId = None,
-        backend = None
+        backend = BackendTag.ClaudeCode
       )
     )
     store.upsertEntry(
@@ -831,7 +787,7 @@ class FlowSessionTest extends FunSuite:
           id = testSessionId,
           seed = seed,
           resumeWireId = None,
-          backend = None
+          backend = BackendTag.ClaudeCode
         )
       )
     )
@@ -877,7 +833,7 @@ class FlowSessionTest extends FunSuite:
           id = testSessionId,
           seed = seed,
           resumeWireId = None,
-          backend = None
+          backend = BackendTag.ClaudeCode
         )
       )
     )
@@ -899,13 +855,13 @@ class FlowSessionTest extends FunSuite:
           id = testSessionId,
           seed = "seed",
           resumeWireId = None,
-          backend = None
+          backend = BackendTag.ClaudeCode
         )
       )
     )
     val agent = new StubAgentForSeeded(
       existsResult = false,
-      learnedWireId = Some("server-thread-xyz")
+      learnedWireId = "server-thread-xyz"
     )
     val _ = flowSession(agent).run("prompt")(using fc)
     val record =
@@ -924,12 +880,14 @@ class FlowSessionTest extends FunSuite:
           id = testSessionId,
           seed = "seed",
           resumeWireId = None,
-          backend = None
+          backend = BackendTag.ClaudeCode
         )
       )
     )
-    val agent =
-      new StubAgentForSeeded(existsResult = false, learnedWireId = None)
+    val agent = new StubAgentForSeeded(
+      existsResult = false,
+      durability = StubDurability.InProcess
+    )
     val _ = flowSession(agent).run("prompt")(using fc)
     val record =
       fc.sessionStore.records().find(_.id == testSessionId).get
@@ -948,12 +906,14 @@ class FlowSessionTest extends FunSuite:
           id = testSessionId,
           seed = "seed",
           resumeWireId = Some("server-1"),
-          backend = None
+          backend = BackendTag.ClaudeCode
         )
       )
     )
-    val agent =
-      new StubAgentForSeeded(existsResult = false, learnedWireId = None)
+    val agent = new StubAgentForSeeded(
+      existsResult = false,
+      durability = StubDurability.InProcess
+    )
     val _ = flowSession(agent).run("prompt")(using fc)
     val record =
       fc.sessionStore.records().find(_.id == testSessionId).get
@@ -979,14 +939,14 @@ class FlowSessionTest extends FunSuite:
           id = testSessionId,
           seed = seed,
           resumeWireId = None,
-          backend = None
+          backend = BackendTag.ClaudeCode
         )
       ),
       completedStages = List("triage")
     )
     val agent = new StubAgentForSeeded(
       existsResult = false,
-      learnedWireId = Some("server-structured-1")
+      learnedWireId = "server-structured-1"
     )
     val result =
       flowSession(agent)
@@ -1040,7 +1000,7 @@ class FlowSessionTest extends FunSuite:
           id = testSessionId,
           seed = "seed",
           resumeWireId = None,
-          backend = None
+          backend = BackendTag.ClaudeCode
         )
       )
     )
@@ -1058,7 +1018,7 @@ class FlowSessionTest extends FunSuite:
   test("agent.chat(flowSession) does not compile — the hatch takes .id"):
     val errors = compileErrors(
       """
-      val agent = new StubAgentForSeeded(existsResult = true)
+      val agent = new StubAgentForSeeded(existsResult = true).agent
       val session = new FlowSession(agent, testSession, testSessionKey)
       val _ = agent.chat(session)
       """

@@ -1,6 +1,7 @@
 package orca.tools.codex
 
 import orca.agents.{
+  Model,
   AutoApprove,
   BackendTag,
   EnforcementCell,
@@ -79,6 +80,9 @@ private[orca] class CodexBackend(
     */
   override def structuredOutputMode: StructuredOutputMode =
     StructuredOutputMode.RawText
+
+  def cheapModel(leading: Option[Model]): Option[Model] =
+    Some(CodexModels.Luna)
 
   /** The sole session handle. [[IdScheme.ServerMinted]]: the client-allocated
     * id (the UUID the caller passes around) maps to codex's server-allocated

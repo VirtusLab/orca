@@ -33,6 +33,10 @@ case class AgentConfig(
       * reviewer selection).
       */
     selfManagedGit: Boolean = false,
+    /** Claude's extra tools on [[ToolSet.NetworkOnly]] turns; `None` uses the
+      * backend's default set.
+      */
+    networkTools: Option[NetworkTools] = None,
     retrySchedule: Schedule = AgentConfig.defaultRetrySchedule
 ):
   /** Return a config whose `autoApprove` set also includes `tool`. Backends use

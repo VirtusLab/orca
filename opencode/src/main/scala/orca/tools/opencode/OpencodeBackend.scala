@@ -16,6 +16,7 @@ import orca.backend.{
   StreamSource
 }
 import orca.agents.{
+  Model,
   AutoApprove,
   BackendTag,
   AgentConfig,
@@ -110,6 +111,15 @@ private[orca] class OpencodeBackend(
     */
   override def structuredOutputMode: StructuredOutputMode =
     OpencodeBackend.StructuredOutputDelivery
+
+  // Provider-matched so incidental work doesn't pull in a second provider's
+  // auth: an openai-led agent's cheap is an openai model, otherwise anthropic
+  // haiku. Reads the provider prefix directly (not OpencodeModel.split, which
+  // throws on a bare id) so resolving cheap can never break a flow.
+  def cheapModel(leading: Option[Model]): Option[Model] =
+    leading.map(m => Model.name(m).takeWhile(_ != '/')) match
+      case Some("openai") => Some(OpencodeModels.OpenaiLuna)
+      case _              => Some(OpencodeModels.AnthropicHaiku)
 
   /** The sole session handle. [[IdScheme.ServerMinted]]: the caller's stable id
     * maps to opencode's server-minted `ses_…` id, so subsequent turns resume

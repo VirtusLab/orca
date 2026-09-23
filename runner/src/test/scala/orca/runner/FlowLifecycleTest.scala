@@ -19,23 +19,7 @@ import orca.{
   flow
 }
 import orca.events.{OrcaEvent, OrcaListener}
-import orca.agents.{
-  SessionKey,
-  Agent,
-  AgentInput,
-  Announce,
-  AutonomousAgentCall,
-  AutonomousTextCall,
-  BackendTag,
-  ClaudeAgent,
-  InteractiveAgentCall,
-  JsonData,
-  AgentCall,
-  AgentConfig,
-  OpencodeAgent,
-  SessionId,
-  ToolSet
-}
+import orca.agents.{Agent, BackendTag, ClaudeAgent, OpencodeAgent, SessionId}
 import orca.gitref.{BranchName, CommitHash, Head}
 import orca.progress.{
   BranchMode,
@@ -65,7 +49,9 @@ import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
 import orca.testkit.{
   GitRepo,
   PushlessGit,
+  ScriptedBackend,
   StubGitHubTool,
+  TestAgent,
   TempDirs,
   branchName,
   currentBranch,
@@ -1699,9 +1685,8 @@ class FlowLifecycleTest extends munit.FunSuite:
     val workDir = GitRepo.seeded()
     val prompt = "discover-failure"
     var stageRan = false
-    val throwing = new CannedDiscoveryAgent(() =>
-      throw new RuntimeException("discovery boom")
-    )
+    val throwing =
+      CannedDiscoveryAgent(throw new RuntimeException("discovery boom"))
     val thrown = intercept[ReportedFailure]:
       supervised:
         val interaction = TerminalInteraction.start(
@@ -1851,8 +1836,8 @@ class FlowLifecycleTest extends munit.FunSuite:
     // that throws.
     val workDir = GitRepo.seeded()
     val prompt = "close-on-body-throw"
-    var opencodeClosed = false
-    val recorder = new RecordingOpencode(() => opencodeClosed = true)
+    val opencodeBackend = ScriptedBackend.unused(BackendTag.Opencode)
+    val recorder: OpencodeAgent = TestAgent(opencodeBackend)
     val thrown = intercept[ReportedFailure]:
       supervised:
         val interaction = TerminalInteraction.start(
@@ -1877,7 +1862,7 @@ class FlowLifecycleTest extends munit.FunSuite:
           throw new RuntimeException("boom in body")
     assertEquals(thrown.cause.getMessage, "boom in body")
     assert(
-      opencodeClosed,
+      opencodeBackend.isClosed,
       "the opencode agent must be closed on the failure path too"
     )
 
@@ -1979,23 +1964,17 @@ class FlowLifecycleTest extends munit.FunSuite:
       Right(handoffPr)
 
   /** A claude whose structured call answers with a fixed [[PrSummary]] — what
-    * the summarise stage of [[openPrIfGitHub]] needs.
+    * the summarise stage of [[openPrIfGitHub]] needs. Free-text turns fail.
     */
-  private class SummarisingClaude extends StubClaudeAgent("summariser"):
-    override def resultAs[O: JsonData: Announce]
-        : AgentCall[BackendTag.ClaudeCode.type, O] =
-      new AgentCall[BackendTag.ClaudeCode.type, O]:
-        val autonomous: AutonomousAgentCall[BackendTag.ClaudeCode.type, O] =
-          new AutonomousAgentCall[BackendTag.ClaudeCode.type, O]:
-            private[orca] def runWithSession[I](
-                input: I,
-                session: SessionId[BackendTag.ClaudeCode.type],
-                sessionKey: Option[SessionKey],
-                emitPrompt: Boolean
-            )(using in: AgentInput[I], _s: orca.InStage): O =
-              PrSummary("Generated title", "Generated body").asInstanceOf[O]
-        def interactive: InteractiveAgentCall[BackendTag.ClaudeCode.type, O] =
-          throw new UnsupportedOperationException
+  private def summarisingClaude: ClaudeAgent =
+    TestAgent(
+      ScriptedBackend.replying(BackendTag.ClaudeCode): turn =>
+        if turn.outputSchema.isEmpty then
+          throw new UnsupportedOperationException("free-text turn")
+        ScriptedBackend.json(PrSummary("Generated title", "Generated body"))
+      ,
+      "summariser"
+    )
 
   /** Where one `openPrIfGitHub` run left the checkout. */
   private case class HandoffRun(head: Head, featureBranch: String)
@@ -2008,7 +1987,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     runFlowForTest(
       workDir,
       prompt,
-      claude = new SummarisingClaude,
+      claude = summarisingClaude,
       gh = Some(new StubGh),
       git = Some(new PushlessGit(new OsGitTool(workDir)))
     ):
@@ -4129,29 +4108,5 @@ class FlowLifecycleTest extends munit.FunSuite:
         WorkspaceWrite
     ): Unit =
       throw new RuntimeException("reset boom")
-
-  /** An `OpencodeAgent` whose `close()` calls `onClose` — used to pin that
-    * `runFlow` closes the context (and its agents) on the body-throw path, not
-    * just on success. Every LLM call throws — no test reaches one.
-    */
-  private class RecordingOpencode(onClose: () => Unit) extends OpencodeAgent:
-    val name = "recording-opencode"
-    def anthropicOpus = this
-    def anthropicSonnet = this
-    def anthropicHaiku = this
-    def openaiSol = this
-    def openaiAstra = this
-    def openaiLuna = this
-    def withModel(providerModel: String) = this
-    def withConfig(c: AgentConfig) = this
-    def withSystemPrompt(p: String) = this
-    def withName(n: String) = this
-    def withTools(tools: ToolSet) = this
-    def autonomous: AutonomousTextCall[BackendTag.Opencode.type] =
-      throw new UnsupportedOperationException
-    def resultAs[O: JsonData: Announce]
-        : AgentCall[BackendTag.Opencode.type, O] =
-      throw new UnsupportedOperationException
-    override private[orca] def close(): Unit = onClose()
 
 end FlowLifecycleTest
