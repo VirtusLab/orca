@@ -1,6 +1,6 @@
 package orca.runner.terminal
 
-import orca.backend.{Conversation, Interaction, AgentResult}
+import orca.backend.{AgentResult, Interaction, ObservedConversation}
 import orca.events.OrcaListener
 import orca.agents.BackendTag
 import org.slf4j.LoggerFactory
@@ -39,11 +39,13 @@ class TerminalInteraction private[terminal] (
 
   val listeners: List[OrcaListener] = List(listener)
 
-  /** Drive a live conversation to completion on the caller's thread. Returns
-    * when the conversation finishes. Backend errors surface as
-    * `OrcaInteractiveCancelled` or other throwables from `awaitResult`.
+  /** Drive a live conversation to completion on the caller's thread, prompting
+    * for its approvals and questions. Returns when the conversation finishes.
+    * Backend errors surface as `OrcaInteractiveCancelled` or other throwables.
     */
-  def drive[B <: BackendTag](conversation: Conversation[B]): AgentResult[B] =
+  def drive[B <: BackendTag](
+      conversation: ObservedConversation[B]
+  ): AgentResult[B] =
     new ConversationRenderer(
       useColor = useColor,
       output = output,

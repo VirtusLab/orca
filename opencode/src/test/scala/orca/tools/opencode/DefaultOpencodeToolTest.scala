@@ -1,7 +1,12 @@
 package orca.tools.opencode
 
 import orca.testkit.ScriptedBackend
-import orca.backend.{Conversation, Interaction, AgentResult, TurnRequest}
+import orca.backend.{
+  Interaction,
+  AgentResult,
+  TurnRequest,
+  ObservedConversation
+}
 import orca.events.OrcaListener
 import orca.agents.{
   BackendTag,
@@ -28,7 +33,7 @@ class DefaultOpencodeAgentTest extends munit.FunSuite:
   private val noInteraction: Interaction = new Interaction:
     def listeners: List[OrcaListener] = Nil
     def drive[B <: BackendTag](
-        conversation: Conversation[B]
+        conversation: ObservedConversation[B]
     ): AgentResult[B] = throw new UnsupportedOperationException
 
   private def toolWith(backend: RecordingBackend): OpencodeAgent =

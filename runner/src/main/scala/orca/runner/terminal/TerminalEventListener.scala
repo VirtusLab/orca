@@ -93,8 +93,8 @@ private[runner] class TerminalEventListener(
       // No `formatIndented`, unlike every sibling arm: it is run-scoped.
       output.log(paint(CaveatStyle, s"$CaveatGlyph ") + message)
     case OrcaEvent.StructuredResult(raw, summary) =>
-      // Surfaces the result the conversation renderer suppressed in structured
-      // mode. `summary` is tri-state (see the event's scaladoc): `Some(s)`
+      // Surfaces the result whose closing turn the drain withheld in
+      // structured mode. `summary` is tri-state (see the event's scaladoc): `Some(s)`
       // renders as a `▶` step; `Some("")` renders nothing (the call site
       // narrates the outcome itself); `None` falls back to the raw payload,
       // collapsed and truncated, in the `●` style — ADR 0008 requires an
@@ -228,9 +228,7 @@ private[runner] object TerminalEventListener:
     */
   val CaveatGlyph: String = "!"
 
-  /** Marker for the human input sent to the agent. Matches the
-    * [[ConversationRenderer]]'s `▸` user glyph.
-    */
+  /** Marker for the human input sent to the agent. */
   val UserPromptGlyph: String = "▸"
 
   /** Magenta-bold "primary content" accent shared by stages, steps, and
@@ -238,14 +236,10 @@ private[runner] object TerminalEventListener:
     */
   val StepGlyphStyle: fansi.Attrs = fansi.Color.Magenta ++ fansi.Bold.On
 
-  /** `●` prose glyph, same magenta-bold as [[StepGlyphStyle]] — the canonical
-    * assistant-prose render for both the autonomous drain and the interactive
-    * door (which withholds prose upstream and re-surfaces it here; see
-    * `Conversations.withholdInteractiveProse`).
-    */
+  /** `●` prose glyph, same magenta-bold as [[StepGlyphStyle]]. */
   val AssistantGlyphStyle: fansi.Attrs = StepGlyphStyle
 
-  /** Cyan-bold to mirror the [[ConversationRenderer]]'s user-message header. */
+  /** Cyan-bold: the user's own input, a rare accent. */
   val UserPromptStyle: fansi.Attrs = fansi.Color.Cyan ++ fansi.Bold.On
 
   /** Yellow-bold: a caution, short of the red an [[OrcaEvent.Error]] gets. */

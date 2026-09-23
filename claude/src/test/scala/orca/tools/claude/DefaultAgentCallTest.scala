@@ -91,7 +91,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
   private val stubInteraction: Interaction = new Interaction:
     val listeners: List[OrcaListener] = Nil
     def drive[B <: BackendTag](
-        conversation: orca.backend.Conversation[B]
+        conversation: orca.backend.ObservedConversation[B]
     ): AgentResult[B] =
       throw new UnsupportedOperationException("test stub")
 
@@ -500,7 +500,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
     val cancellingInteraction: Interaction = new Interaction:
       val listeners: List[OrcaListener] = Nil
       def drive[B <: BackendTag](
-          conversation: orca.backend.Conversation[B]
+          conversation: orca.backend.ObservedConversation[B]
       ): AgentResult[B] =
         throw new OrcaInteractiveCancelled(
           TurnDebit.Observed(spent, Some(Model("claude-sonnet-5")))
@@ -531,7 +531,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
     val failingInteraction: Interaction = new Interaction:
       val listeners: List[OrcaListener] = Nil
       def drive[B <: BackendTag](
-          conversation: orca.backend.Conversation[B]
+          conversation: orca.backend.ObservedConversation[B]
       ): AgentResult[B] =
         throw new AgentTurnFailed(
           "provider error",
@@ -578,7 +578,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
     val drivingInteraction: Interaction = new Interaction:
       val listeners: List[OrcaListener] = Nil
       def drive[B <: BackendTag](
-          conversation: orca.backend.Conversation[B]
+          conversation: orca.backend.ObservedConversation[B]
       ): AgentResult[B] =
         AgentResult[B](
           wireId = WireSessionId[B]("server-uuid-cccc"),
@@ -609,7 +609,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
     val drivingInteraction: Interaction = new Interaction:
       val listeners: List[OrcaListener] = Nil
       def drive[B <: BackendTag](
-          conversation: orca.backend.Conversation[B]
+          conversation: orca.backend.ObservedConversation[B]
       ): AgentResult[B] =
         AgentResult[B](
           wireId = WireSessionId[B](WireSessionId.value(serverSid)),

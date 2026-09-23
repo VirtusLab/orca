@@ -1,17 +1,18 @@
 package orca.runner.terminal
 
-/** Shared formatter for the one-line tool-call summary, used by both
-  * [[TerminalEventListener]] and [[ConversationRenderer]] so the two render
-  * paths can't drift on glyph, styling, or summarisation. Returns the head (`⏺
-  * name`) plus an optional styled args tail; the caller adds the indent.
+/** Formatter for the one-line tool-call summary [[TerminalEventListener]]
+  * prints. Returns the head (`⏺ name`) plus an optional styled args tail; the
+  * caller adds the indent.
   */
 private[terminal] object ToolCallLine:
-  import ConversationRenderer.{
-    MaxInlineInputLength,
-    ToolArgsStyle,
-    ToolCallGlyph,
-    ToolNameStyle
-  }
+  import ConversationRenderer.MaxInlineInputLength
+
+  private val ToolCallGlyph: String = "⏺"
+
+  // Yellow-bold so "doing something external" stands apart from the
+  // magenta-bold prose and step accent; the args are secondary, so dark-gray.
+  private val ToolNameStyle: fansi.Attrs = fansi.Color.Yellow ++ fansi.Bold.On
+  private val ToolArgsStyle: fansi.Attrs = fansi.Color.DarkGray
 
   /** `agent` names the emitting agent when the line needs attributing (see
     * [[AgentAttribution]]); `None` renders the bare `⏺ name (args)` form.

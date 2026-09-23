@@ -38,8 +38,9 @@ enum OrcaEvent:
   case ToolUse(tool: String, args: String, agent: Option[String] = None)
 
   /** A tool call the harness refused for lack of permission — as opposed to a
-    * tool that ran and failed. Emitted by the autonomous drain; `agent` carries
-    * the same attribution as [[ToolUse]].
+    * tool that ran and failed, or an autonomous turn's approval request, which
+    * has no user to ask. A user's own "no" at an approval prompt is not one.
+    * `agent` carries the same attribution as [[ToolUse]].
     */
   case ToolDenied(tool: String, agent: Option[String])
 
@@ -121,19 +122,16 @@ enum OrcaEvent:
     */
   case StructuredResult(raw: String, summary: Option[String])
 
-  /** The human-readable input sent to the agent at the start of an autonomous
-    * call. Fires once per call, before [[TokensUsed]] / [[StructuredResult]] /
-    * [[AssistantMessage]]. Interactive calls surface this through the
-    * conversation renderer's own user-message line and do not emit this event.
-    * The terminal listener renders it as a one-line `▸`; full text reaches
-    * non-terminal listeners.
+  /** The human-readable input sent to the agent at the start of a call. Fires
+    * once per call, before [[TokensUsed]] / [[StructuredResult]] /
+    * [[AssistantMessage]]. The terminal listener renders it as a one-line `▸`;
+    * full text reaches non-terminal listeners.
     */
   case UserPrompt(text: String)
 
   /** A turn of free-form prose from the agent, one per
-    * [[ConversationEvent.AssistantTurnEnd]] on the autonomous drain (the
-    * interactive renderer surfaces these itself). The terminal listener renders
-    * it as a one-line `●`; full text reaches non-terminal listeners. `agent`
+    * [[ConversationEvent.AssistantTurnEnd]]. The terminal listener renders it
+    * as a one-line `●`; full text reaches non-terminal listeners. `agent`
     * carries the same attribution as [[ToolUse]].
     */
   case AssistantMessage(text: String, agent: Option[String] = None)

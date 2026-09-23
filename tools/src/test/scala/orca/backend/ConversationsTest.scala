@@ -272,16 +272,6 @@ class ConversationsTest extends munit.FunSuite:
       List(OrcaEvent.ToolDenied("Bash", None))
     )
 
-  test("UserMessage echo is swallowed (UserPrompt covers it upstream)"):
-    val recorder = new RecordingListener
-    val conv = new ScriptedConversation(
-      List(ConversationEvent.UserMessage("echo of the opening prompt")),
-      Right(sampleResult)
-    )
-    val _ =
-      supervised(Conversations.drainAutonomous(conv, AutoApprove.All, recorder))
-    assertEquals(recorder.events, Nil)
-
   test("ConversationEvent.Error re-emits as OrcaEvent.Error"):
     val recorder = new RecordingListener
     val conv = new ScriptedConversation(
@@ -481,51 +471,6 @@ class ConversationsTest extends munit.FunSuite:
       recorder.events,
       List(OrcaEvent.AssistantMessage("Reading the file first."))
     )
-
-  test(
-    "the interactive filter emits a turn's prose before it yields the " +
-      "next turn's tool call"
-  ):
-    // Prose reaches the listener while the tool call reaches the consumer, so
-    // the order is only observable by checking the listener at the moment the
-    // tool call is handed over.
-    val recorder = new RecordingListener
-    val conv = new ScriptedConversation(
-      List(
-        ConversationEvent.AssistantTextDelta("Reading the file:"),
-        ConversationEvent.AssistantTurnEnd,
-        ConversationEvent.AssistantToolCall("Read", "{}")
-      ),
-      Right(sampleResult),
-      outputSchema = Some("""{"type":"object"}""")
-    )
-    supervised:
-      val forwarded =
-        Conversations.withholdInteractiveProse(conv, recorder).events.next()
-      assertEquals(
-        recorder.events,
-        List(OrcaEvent.AssistantMessage("Reading the file:"))
-      )
-      assertEquals(forwarded, ConversationEvent.AssistantToolCall("Read", "{}"))
-
-  test("the interactive filter withholds a closing turn even in Tool mode"):
-    // `Prompts.interactive` asks every backend for a JSON-only final message,
-    // so the wire's autonomous delivery doesn't decide anything here.
-    val recorder = new RecordingListener
-    val conv = new ScriptedConversation(
-      List(
-        ConversationEvent.AssistantTextDelta("""{"answer":42}"""),
-        ConversationEvent.AssistantTurnEnd
-      ),
-      Right(sampleResult),
-      outputSchema = Some("""{"type":"object"}"""),
-      structuredOutputMode = StructuredOutputMode.Tool
-    )
-    supervised:
-      val forwarded =
-        Conversations.withholdInteractiveProse(conv, recorder).events.toList
-      assertEquals(forwarded, Nil)
-      assertEquals(recorder.events, Nil)
 
   test("two back-to-back turns flush independently"):
     // Pins the textBuf.clear() inside the AssistantTurnEnd case so the

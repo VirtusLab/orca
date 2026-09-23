@@ -1078,10 +1078,10 @@ are indented.
 | Glyph | Meaning |
 | ----- | ------- |
 | `▶` | Stage start, or a `Step` (single-line note like a branch switch) |
-| `▸` | User's prompt at the start of an interactive session |
+| `▸` | The prompt sent to an agent |
 | `●` | Assistant prose |
-| `⏺` | Tool call (path / command / query in grey). In an autonomous run a read-only call shows as a bare `⏺ read`, with no filename and no agent name, so a burst of them folds into one line; the trace file has both. Interactive calls always show the argument |
-| `⎿` | How many times the line above repeated (`⎿ ×12`), or a tool result truncated to one line (interactive calls only) |
+| `⏺` | Tool call (path / command / query in grey). A read-only call shows as a bare `⏺ read`, with no filename and no agent name, so a burst of them folds into one line; the trace file has both |
+| `⎿` | How many times the line above repeated (`⎿ ×12`) |
 | `✖` | Error |
 | `?` | Approval request, or a question for you (interactive calls only) |
 | `!` | Caveat about what Orca can enforce for this run (never indented under a stage) |
