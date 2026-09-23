@@ -5,8 +5,10 @@ package orca.review
 // shared `InStage`, and an exclusive `FlowControl`/`WorkspaceWrite` capture is
 // a compile error (ADR 0018 §6, pinned by `orca.CcNegativeCompileTest`). That
 // is why `fc`/`ws` are method parameters rather than fields throughout this
-// file. Tapir `derives`/macro types don't type-check under CC — keep them in a
-// sibling non-CC file (see FixRequest.scala).
+// file, and why `ctx` is taken as its own given: a `FlowContext` derived from
+// `fc` would carry `fc` into the fan-out. Tapir `derives`/macro types don't
+// type-check under CC — keep them in a sibling non-CC file (see
+// FixRequest.scala).
 import language.experimental.captureChecking
 import language.experimental.separationChecking
 
@@ -371,9 +373,6 @@ def reviewAndFixLoop[B <: BackendTag](
       // The seeds stay in: nothing after this loop reports them.
       OpenFindings(seededOpen, skipped = Some(SkippedReview.NoStartingCommit))
     case Some(source) =>
-      // `ctx`/`ev` passed explicitly, not by implicit search: the more-specific
-      // `fc: FlowControl` would otherwise be picked for the constructor's
-      // `FlowContext` and its root capability rejected.
       new ReviewFixLoop(
         ReviewLoopConfig(
           coderSession = coderSession,
@@ -386,11 +385,7 @@ def reviewAndFixLoop[B <: BackendTag](
           fixInstructions = fixInstructions,
           diffSource = source
         )
-      )(using ctx, ev).drive(LoopShape.Converge(maxIterations), seededOpen)(
-        using
-        fc,
-        ws
-      )
+      ).drive(LoopShape.Converge(maxIterations), seededOpen)
 
 /** One review round over the enclosing stage's changes and, if it found
   * anything, one fix turn — then done. The fixer's `fixed` claims are taken on
@@ -423,8 +418,6 @@ def reviewThenFix[B <: BackendTag](
     fc: FlowControl,
     ws: WorkspaceWrite
 ): OpenFindings =
-  // `ctx`/`ev` explicit for the same given-priority reason as in
-  // `reviewAndFixLoop`.
   new ReviewFixLoop(
     ReviewLoopConfig(
       coderSession = coderSession,
@@ -437,12 +430,10 @@ def reviewThenFix[B <: BackendTag](
       fixInstructions = ReviewLoopPrompts.Fix,
       diffSource = ReviewDiffSource.stage(ctx.git, fc.stageBaseCommit)
     )
-  )(using ctx, ev).drive(LoopShape.SinglePass, priorOpen = Nil)(using fc, ws)
+  ).drive(LoopShape.SinglePass, priorOpen = Nil)
 
 /** The format commands an entry point runs each round, resolved at entry (ADR
-  * 0019) so what it hands the loop is plain data. `ctx` is a plain parameter:
-  * at the call sites a `FlowControl` is also in scope and would win implicit
-  * search.
+  * 0019) so what it hands the loop is plain data.
   */
 private def resolveFormat(
     ctx: FlowContext,
@@ -817,10 +808,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
       ws: WorkspaceWrite
   ): ReconciledFixOutcome =
     val outcome = FixOutcome.reconcile(findings, fix(findings))
-    // `ctx` explicit, not by implicit search: the more-specific `fc` would
-    // otherwise be picked for the `FlowContext` and its root capability
-    // rejected.
-    announceFixTurn(outcome, next)(using ctx)
+    announceFixTurn(outcome, next)
     next match
       case AfterFixTurn.Stop        => formatWorkspace()
       case AfterFixTurn.ReviewAgain => ()
@@ -829,15 +817,10 @@ private[review] class ReviewFixLoop[B <: BackendTag](
   /** Run the selector's gated effects (e.g. the
     * [[ReviewerSelector.agentDriven]] picker's LLM call) ONCE, at entry, inside
     * the caller's stage, and return the pure per-round narrowing [[evaluate]]
-    * applies. `ctx`/`ev` passed explicitly for the same given-priority reason
-    * as elsewhere in this file.
+    * applies.
     */
   private def prepareSelection(): List[ReviewBatch] -> List[RosterEntry] =
-    reviewerSelection.prepare(roster, task.title, diffSource.selectorFiles)(
-      using
-      ctx,
-      ev
-    )
+    reviewerSelection.prepare(roster, task.title, diffSource.selectorFiles)
 
   /** Run [[evaluate]] and [[fixTurn]] rounds as `shape` says and return what is
     * left open, threading the immutable [[ReviewLoopState]] (reviewer history +
@@ -866,8 +849,6 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     // rounds get is the pure narrowing, passed to `evaluate` so a round stays a
     // function of its inputs.
     val selectRound: List[ReviewBatch] -> List[RosterEntry] = prepareSelection()
-    // `ctx` explicit on `exitWith` for the same given-priority reason as in
-    // `fixTurn`.
     @scala.annotation.tailrec
     def loop(
         accumulated: List[OpenFinding],
@@ -891,9 +872,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
         keyed = round.findings
       )
       if findings.isEmpty then
-        exitWith(cleanExitMessage(accumulated, iteration), accumulated)(using
-          ctx
-        )
+        exitWith(cleanExitMessage(accumulated, iteration), accumulated)
       else
         shape match
           case LoopShape.Converge(max) if iteration >= max =>
@@ -903,7 +882,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
                 accumulated,
                 findings.map(_.open(OpenReason.CapReached(max)))
               )
-            )(using ctx)
+            )
           case _ =>
             val next = shape.afterFix
             val outcome = fixTurn(findings, next)
@@ -911,7 +890,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
               exitWith(
                 FixerHaltMessage,
                 recordOpen(accumulated, outcome.stillOpen(OpenReason.NoFixes))
-              )(using ctx)
+              )
             else
               next match
                 case AfterFixTurn.ReviewAgain =>
@@ -947,7 +926,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     exitWith(
       SinglePassMessage,
       recordOpen(accumulated, fixTurnOpen ++ lintStillFailing)
-    )(using ctx)
+    )
 
   /** Re-run the lint gate over the fix turn's edits — the machine-checkable
     * check the single pass would otherwise skip, letting a fix that fails lint
@@ -963,8 +942,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     * any, is reused. `open` is what the fix turn left open, so a lint finding
     * the fixer declined that still fails keeps its id. `round` numbers the ids
     * of what the re-checks report. `fc`/`ws` are method parameters, not fields
-    * — see the file header. `ctx`/`ev` passed explicitly to `lint` for the same
-    * given-priority reason as elsewhere in this file.
+    * — see the file header.
     */
   private def relintAfterFix(
       state: ReviewLoopState,
@@ -979,10 +957,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
             gate.agent.withName(lintName).withRole(ReviewerPrompts.Role)
           )
         def check(summariser: Lint.Summariser): LintReport =
-          lint(gate.commands, summariser, ReviewLoopPrompts.SummariseLint)(using
-            ctx,
-            ev
-          )
+          lint(gate.commands, summariser, ReviewLoopPrompts.SummariseLint)
         // Both checks share `round`: the first check's ids reach only its fix
         // turn, never the record.
         def identified(report: LintReport): List[IdentifiedFinding] =

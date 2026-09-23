@@ -14,8 +14,10 @@ import scala.annotation.implicitNotFound
   * occurrence counters yielding each stage a hierarchical, path-structured id
   * (ADR 0018 §2.1). `stage` requires `(using FlowControl)`; `flow` supplies it.
   *
-  * A subtype of [[FlowContext]] but not the reverse, so `flow` can hand forks
-  * only the narrow `FlowContext`, preventing them from starting nested stages.
+  * Holds the run's [[FlowContext]] as [[context]] rather than being one, so
+  * `flow` can hand forks only the narrow `FlowContext`, preventing them from
+  * starting nested stages. Where no `FlowContext` given is in scope, one is
+  * derived from the `FlowControl` ([[FlowContext.fromControl]]).
   *
   * Thread-affine: one `FlowControl` exists per top-level `flow(...)` invocation
   * and must not be shared across threads (ADR 0018 §2.2). Extending
@@ -27,7 +29,7 @@ import scala.annotation.implicitNotFound
   * see ADR 0018 §6.) At runtime, [[StageFrames]]'s owner-thread assert enforces
   * it for [[withStage]] and [[claimSessionKey]].
   *
-  * Not sealed: its implementation (`DefaultFlowContext`) lives in the `runner`
+  * Not sealed: its implementation (`DefaultFlowControl`) lives in the `runner`
   * module, which depends on `flow`, not the reverse. An accepted guard-rail —
   * the open trait is not part of the public extension surface.
   *
@@ -37,7 +39,12 @@ import scala.annotation.implicitNotFound
 @implicitNotFound(
   "`stage(...)`, `agent.session(...)`, and `session.run(...)` on a FlowSession can only be called inside a `flow(...)` body — and not inside a `fork` (forks can read and emit, but can't start stages). If this is a helper that starts stages, declare it `(using FlowControl)` so its caller supplies it."
 )
-trait FlowControl extends FlowContext, caps.ExclusiveCapability:
+trait FlowControl extends caps.ExclusiveCapability:
+  /** The run's context — what a fork may be handed. A `val`, so the role type
+    * members (`context.CodeB`, …) are stable paths.
+    */
+  val context: FlowContext
+
   /** The store backing this run's progress log — the committed, branch-carried
     * half of a run's state.
     */

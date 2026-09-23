@@ -2254,7 +2254,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val _ = intercept[ReportedFailure]:
       runFlowForTest(workDir, prompt):
         // Capture the feature branch name before the crash.
-        featureBranchName = summon[orca.FlowControl].git.currentBranch()
+        featureBranchName = orca.git.currentBranch()
         val _ = stage[String]("crash"):
           throw new RuntimeException("boom")
     assertNotEquals(git.currentBranch(), "main")

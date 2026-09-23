@@ -73,7 +73,7 @@ class FlowTest extends munit.FunSuite:
     val (listener, ctx) = fixture
     given FlowControl = ctx
     val _ = interceptReported[OrcaFlowException]:
-      stage[String]("plan")(orca.fail("already emitted")(using ctx))
+      stage[String]("plan")(orca.fail("already emitted"))
     val errors = listener.events.collect { case e: OrcaEvent.Error => e }
     assertEquals(errors, List(OrcaEvent.Error("already emitted")))
 
@@ -82,7 +82,7 @@ class FlowTest extends munit.FunSuite:
     given FlowControl = ctx
     val _ = interceptReported[OrcaFlowException]:
       stage[String]("plan"):
-        ox.par(orca.fail("from a fork")(using ctx), "other")._2
+        ox.par(orca.fail("from a fork"), "other")._2
     val errors = listener.events.collect { case e: OrcaEvent.Error => e }
     assertEquals(errors, List(OrcaEvent.Error("from a fork")))
 
@@ -91,7 +91,9 @@ class FlowTest extends munit.FunSuite:
   ):
     val (listener, ctx) = fixture
     val thrown =
-      interceptReported[OrcaFlowException](orca.fail("no good")(using ctx))
+      interceptReported[OrcaFlowException](
+        orca.fail("no good")(using ctx.context)
+      )
     assertEquals(thrown.getMessage, "no good")
     assertEquals(listener.events, List(OrcaEvent.Error("no good")))
 
