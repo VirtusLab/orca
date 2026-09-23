@@ -333,7 +333,7 @@ class StageRuntimeTest extends munit.FunSuite:
     // free to commit its own work does.
     val recorded = stage("moves HEAD"):
       os.write(dir / "out.txt", "hello")
-      ctx.context.git.commit("the body's own commit").orThrow
+      ctx.context.runtimeGit.commit("the body's own commit").orThrow
       ctx.stageBaseCommit
     assertEquals(recorded, atEntry)
 

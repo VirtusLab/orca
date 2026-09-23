@@ -10,7 +10,7 @@ import orca.agents.{
   Prompts
 }
 import orca.backend.AgentWiring
-import orca.tools.{FsTool, GitHubTool, GitTool}
+import orca.tools.{FsTool, GitHubTool, RuntimeGit}
 import ox.Ox
 
 /** The per-run tool/agent override bundle `flow(...)` collects from its named
@@ -33,7 +33,7 @@ private[orca] case class FlowWiring(
     opencode: Option[AgentWiring => Ox ?=> OpencodeAgent] = None,
     pi: Option[AgentWiring => Ox ?=> PiAgent] = None,
     gemini: Option[AgentWiring => Ox ?=> GeminiAgent] = None,
-    git: Option[GitTool] = None,
+    git: Option[RuntimeGit] = None,
     gh: Option[GitHubTool] = None,
     fs: Option[FsTool] = None,
     prompts: Prompts = DefaultPrompts

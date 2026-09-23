@@ -306,7 +306,12 @@ class ReviewerCatalogTest extends munit.FunSuite:
 
   test("a block-scalar description aborts, naming the key"):
     val (project, global) = dirs()
-    val _ = writeReviewer(project, "orca", description = "> # folded")
+    val _ =
+      writeReviewer(
+        project,
+        "orca",
+        description = "> # folded\n  checks the thing"
+      )
     val e =
       intercept[OrcaFlowException](ReviewerCatalog.discover(project, global))
     assert(
@@ -320,6 +325,39 @@ class ReviewerCatalogTest extends munit.FunSuite:
     val e =
       intercept[OrcaFlowException](ReviewerCatalog.discover(project, global))
     assert(e.getMessage.contains("'files:' as a YAML block"), e.getMessage)
+
+  private def assertWrapped(
+      key: String,
+      description: String = "checks the thing",
+      files: Option[String] = None
+  ): Unit =
+    val (project, global) = dirs()
+    val _ = writeReviewer(project, "orca", description, files)
+    val e =
+      intercept[OrcaFlowException](ReviewerCatalog.discover(project, global))
+    assert(e.getMessage.contains(s"wraps its '$key:' value"), e.getMessage)
+
+  test("a description wrapped onto the next line aborts, naming the key"):
+    assertWrapped("description", description = "\nchecks the thing")
+
+  test("a wrapped line with a colon after a non-key aborts"):
+    assertWrapped("description", description = "checks the\nthing, see: docs")
+
+  test("an indented wrapped line aborts even when it reads as a key"):
+    assertWrapped("description", description = "checks the\n  thing: here")
+
+  test("a files: pattern wrapped onto the next line aborts, naming the key"):
+    assertWrapped("files", files = Some("\\.scala$\nmore"))
+
+  test("a multi-line value under a key orca does not read is ignored"):
+    val (project, global) = dirs()
+    os.write(
+      project / "orca.md",
+      "---\ndescription: checks\ntools:\n  - Read\n---\n\n## Scope\n",
+      createFolders = true
+    )
+    val catalog = ReviewerCatalog.discover(project, global)
+    assert(named(catalog.all).contains("orca"))
 
   test("a reviewer file with an unparseable files: regex aborts"):
     val (project, global) = dirs()

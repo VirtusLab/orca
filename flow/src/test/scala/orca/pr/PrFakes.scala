@@ -12,12 +12,12 @@ import orca.{
 import orca.agents.{Agent, BackendTag}
 import orca.tools.{
   GitHubAvailability,
-  GitTool,
   NoDefaultBase,
   OsGitTool,
   PrCreateFailed,
   PrHandle,
-  PushFailure
+  PushFailure,
+  RuntimeGit
 }
 import orca.progress.{BranchMode, ProgressHeader, ProgressStore}
 import orca.sessions.SessionStore
@@ -48,7 +48,7 @@ private[pr] val samplePr: PrHandle =
   * helpers pushed relative to their other calls.
   */
 private[pr] class RecordingGit(
-    underlying: GitTool,
+    underlying: RuntimeGit,
     calls: ConcurrentLinkedQueue[String],
     branchDiff: String,
     pushAnswer: => Either[PushFailure, Unit],

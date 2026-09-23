@@ -189,7 +189,7 @@ private def runChangedCode(using
     .forall: log =>
       try
         !ThrowawayBranch.isThrowaway(
-          git,
+          control.context.runtimeGit,
           log.header.branchMode,
           startingCommit = log.header.startingCommit,
           featureBranch = log.header.branch

@@ -14,8 +14,8 @@ import orca.agents.{
 }
 
 // Top-level accessors that resolve against the ambient FlowContext.
-// Flow scripts can write `git.checkout("main")` or `claude.ask(...)`
-// instead of `summon[FlowContext].git.checkout(...)`.
+// Flow scripts can write `git.push()` or `claude.ask(...)`
+// instead of `summon[FlowContext].git.push()`.
 
 def claude(using ctx: FlowContext): ClaudeAgent = ctx.claude
 def codex(using ctx: FlowContext): CodexAgent = ctx.codex

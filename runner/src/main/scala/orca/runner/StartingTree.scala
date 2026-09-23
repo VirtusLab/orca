@@ -2,7 +2,7 @@ package orca.runner
 
 import orca.WorkspaceWrite
 import orca.events.OrcaEvent
-import orca.tools.{GitTool, UncommittedSnapshot, UntrackedFiles}
+import orca.tools.{RuntimeGit, UncommittedSnapshot, UntrackedFiles}
 
 /** What the working tree held when the body started, which decides what failure
   * teardown may delete and what it puts back.
@@ -29,7 +29,7 @@ private[orca] enum StartingTree:
     * stage's) may already carry them, so the snapshot is only named for manual
     * recovery.
     */
-  def restore(git: GitTool, emit: OrcaEvent => Unit)(using
+  def restore(git: RuntimeGit, emit: OrcaEvent => Unit)(using
       WorkspaceWrite
   ): Unit = this match
     case Kept(Some(kept)) =>
@@ -69,7 +69,7 @@ private[orca] object StartingTree:
     */
   def capture(
       untracked: UntrackedFiles,
-      git: GitTool,
+      git: RuntimeGit,
       emit: OrcaEvent => Unit
   )(using WorkspaceWrite): StartingTree =
     untracked match

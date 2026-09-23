@@ -2,7 +2,7 @@ package orca.runner
 
 import orca.{FlowContext, StackSettings}
 import orca.review.ReviewerCatalog
-import orca.tools.{FsTool, GitHubTool, GitTool}
+import orca.tools.{FsTool, GitHubTool, RuntimeGit}
 import orca.agents.{Agent, BackendTag}
 import orca.events.{OrcaEvent, OrcaListener}
 
@@ -26,7 +26,7 @@ private[orca] class DefaultFlowContext[
     val codingAgent: Agent[CB],
     val reviewAgent: Agent[RB],
     wired: WiredAgents,
-    val git: GitTool,
+    private[orca] val runtimeGit: RuntimeGit,
     val gh: GitHubTool,
     val fs: FsTool,
     /** Resolved stack settings (ADR 0019): `FlowLifecycle.setup` resolves them
