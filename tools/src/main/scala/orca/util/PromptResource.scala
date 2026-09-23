@@ -139,14 +139,15 @@ private[orca] object PromptResource:
       .map(_.stripTrailing)
       .filterNot(line => line.isEmpty || line.stripLeading.startsWith("#"))
       .foldLeft((List.empty[(String, String)], Set.empty[String])):
-        case ((entries, wrapped), Entry(key, raw)) =>
+        case ((entries, wrapped), EntryLine(key, raw)) =>
           ((key -> unquote(raw)) :: entries, wrapped)
+        // `entries` is newest-first: its head is the entry this line continues
         case ((entries @ (key, _) :: _, wrapped), _) =>
           (entries, wrapped + key)
         case (acc, _) => acc
     (entries.reverse.toMap, wrappedKeys)
 
-  private val Entry = """([A-Za-z][\w-]*)\s*:\s*(.*)""".r
+  private val EntryLine = """([A-Za-z_][\w.-]*)\s*:\s*(.*)""".r
 
   private def unquote(raw: String): String =
     if raw.length >= 2 && raw.head == '"' && raw.last == '"' then

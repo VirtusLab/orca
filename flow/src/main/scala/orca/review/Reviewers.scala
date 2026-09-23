@@ -153,12 +153,12 @@ private[review] def reviewerFrom(
     // A block scalar's lines wrap too, so it is checked first for the more
     // specific message; both precede the description check, so an empty
     // `description:` line with its value below is not reported as missing.
-    List("description", "files")
+    OneLineKeys
       .find(key => parsed.metadata.get(key).exists(isBlockScalarHeader))
       .map(ReviewerPromptFailure.BlockScalar(slug, source, _))
       .toLeft(())
       .ok()
-    List("description", "files")
+    OneLineKeys
       .find(parsed.wrappedKeys.contains)
       .map(ReviewerPromptFailure.WrappedValue(slug, source, _))
       .toLeft(())
@@ -186,6 +186,9 @@ private[review] def reviewerFrom(
               )
         Some(compiled.ok())
     Reviewer(slug, description, parsed.body, filePattern)
+
+/** The frontmatter keys a reviewer reads; each holds a one-line value. */
+private val OneLineKeys = List("description", "files")
 
 /** `>` or `|`, optionally followed by chomping and indentation indicators and a
   * comment.
