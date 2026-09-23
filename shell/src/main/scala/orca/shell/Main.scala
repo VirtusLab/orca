@@ -25,7 +25,7 @@ object Main:
         println(CliHelp.topLevel)
         sys.exit(0)
       case Some("--version") | Some("-V") =>
-        println(ShellVersion.value)
+        println(OrcaBuild.current.version)
         sys.exit(0)
       case Some(token) if Cli.commandNames(token) =>
         sys.exit(Cli.dispatch(args.toIndexedSeq))
@@ -41,7 +41,14 @@ object Main:
       val tty = ShellUi.isInteractive(terminal)
       // Clear stale mid-line progress bytes so the banner starts clean.
       print(ShellOutput.AnsiClearLine)
-      ShellOutput.info(s"orca shell ${ShellVersion.value}")
+      ShellOutput.info(s"orca shell ${OrcaBuild.current.version}")
+      OrcaBuild.current match
+        case OrcaBuild.Snapshot(_) =>
+          ShellOutput.info(
+            "snapshot build — flows run on it from the local Ivy repository " +
+              "(sbt publishLocal)"
+          )
+        case OrcaBuild.Release(_) => ()
       // scala-cli/coursier's download progress can still have several stale
       // lines sitting below the banner (see AnsiClearBelow) — wipe them before
       // the first wizard/menu paint. Non-tty output (NumberedUi) skips this:

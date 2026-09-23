@@ -1,5 +1,6 @@
 package orca.shell.create
 
+import orca.shell.OrcaBuild
 import orca.testkit.TempDirs
 
 /** Compile-checks [[FlowAuthoring.skeletonFlow]]'s generated content via a real
@@ -9,9 +10,9 @@ import orca.testkit.TempDirs
   * syntax regression (e.g. a comment-only `flow(...):` body) would otherwise
   * only surface once a user actually picked Create+hand.
   *
-  * Needs the library in the local Ivy cache under `orca.build.version`, so run
-  * it in one sbt session with the publish: `ORCA_INTEGRATION=1 sbt publishLocal
-  * "shell/testOnly *FlowAuthoringSmokeTest"`.
+  * Needs this build in the local Ivy cache, so run it in one sbt session with
+  * the publish: `ORCA_INTEGRATION=1 sbt publishLocal "shell/testOnly
+  * *FlowAuthoringSmokeTest"`.
   */
 class FlowAuthoringSmokeTest extends munit.FunSuite:
 
@@ -22,17 +23,10 @@ class FlowAuthoringSmokeTest extends munit.FunSuite:
     import scala.concurrent.duration.DurationInt
     10.minutes
 
-  private val version: String = sys.props.getOrElse(
-    "orca.build.version",
-    sys.error(
-      "-Dorca.build.version unset — see buildVersionProperty in build.sbt"
-    )
-  )
-
   test("FlowAuthoring.skeletonFlow compiles via scala-cli"):
     val dir = TempDirs.dir()
     val script = dir / "skeleton.sc"
-    os.write(script, FlowAuthoring.skeletonFlow(version))
+    os.write(script, FlowAuthoring.skeletonFlow(OrcaBuild.current))
     val result = os
       .proc("scala-cli", "compile", script.toString)
       .call(cwd = dir, check = false, mergeErrIntoOut = true)

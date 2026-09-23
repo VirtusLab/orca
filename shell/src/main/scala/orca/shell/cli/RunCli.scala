@@ -3,15 +3,14 @@ package orca.shell.cli
 import orca.RawArgs
 import orca.shell.ShellEnv
 import orca.shell.actions.FlowResolution
-import orca.shell.run.{FallbackPolicy, FlowLauncher, LaunchedFlow}
+import orca.shell.run.{FallbackPolicy, FlowLauncher, LaunchedFlow, PinPolicy}
 
 import Cli.{actionFailure, complete, usageFailure, withTerminal}
 
 /** `orca run`'s behavior (ADR 0021 §10): resolve the flow, read the task
-  * (argument, `--prompt` or piped stdin), then either the forced run
-  * ([[FlowLauncher.runAnnounced]]) or the pin-honouring one
-  * ([[FlowLauncher.runHonoringPin]]), propagating the flow child's raw exit
-  * code.
+  * (argument, `--prompt` or piped stdin), then runs it
+  * ([[FlowLauncher.runAnnounced]]) forced or pin-honouring, propagating the
+  * flow child's raw exit code.
   */
 private[cli] object RunCli:
 
@@ -38,22 +37,16 @@ private[cli] object RunCli:
           .map(usageFailure)
       yield withTerminal: terminal =>
         val orcaArgs = checked.withTask(task)
-        val result =
-          if honorPin then
-            FlowLauncher.runHonoringPin(
-              LaunchedFlow.of(resolved),
-              orcaArgs,
-              env.workDir,
-              terminal
-            )
-          else
-            FlowLauncher.runAnnounced(
-              FallbackPolicy.Refuse("re-run with --honor-pin"),
-              LaunchedFlow.of(resolved),
-              orcaArgs,
-              env.workDir,
-              terminal
-            )
+        val policy =
+          if honorPin then PinPolicy.Honor
+          else PinPolicy.Force(FallbackPolicy.Refuse("re-run with --honor-pin"))
+        val result = FlowLauncher.runAnnounced(
+          policy,
+          LaunchedFlow.of(resolved),
+          orcaArgs,
+          env.workDir,
+          terminal
+        )
         // propagates the flow child's raw exit code (LaunchResult.Failed's
         // exit, via Cli.exitCodeFor) — run mirrors a wrapped subprocess's
         // status rather than the flat 0/1/2 usage-error convention.

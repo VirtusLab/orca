@@ -1,6 +1,7 @@
 package orca.shell.flows
 
 import orca.review.DefaultMaxIterations
+import orca.shell.OrcaBuild
 
 class BuiltInFlowsTest extends munit.FunSuite:
 
@@ -229,24 +230,29 @@ class BuiltInFlowsTest extends munit.FunSuite:
     finally os.remove.all(home)
 
   test(
-    "extracted (release version) creates the flows once, unchanged on a second call"
+    "extracted (release) creates the flows once, unchanged on a second call"
   ):
     withTempHome: home =>
-      val dir = BuiltInFlows.extracted(home / ".cache", "0.0.18")
+      val dir =
+        BuiltInFlows.extracted(home / ".cache", OrcaBuild.Release("0.0.18"))
       assert(os.isDir(dir))
       val expectedNames = indexNames.sorted
       assertEquals(os.list(dir).map(_.last).toList.sorted, expectedNames)
       val mtimesBefore = expectedNames.map(n => n -> os.mtime(dir / n)).toMap
 
-      val _ = BuiltInFlows.extracted(home / ".cache", "0.0.18")
+      val _ =
+        BuiltInFlows.extracted(home / ".cache", OrcaBuild.Release("0.0.18"))
 
       val mtimesAfter = expectedNames.map(n => n -> os.mtime(dir / n)).toMap
       assertEquals(mtimesAfter, mtimesBefore)
 
-  test("extracted (dev version) rewrites the dep pin and injects ivy2Local"):
+  test("extracted (snapshot) rewrites the dep pin and injects ivy2Local"):
     withTempHome: home =>
       val runningVersion = "0.0.18+5-abc123"
-      val dir = BuiltInFlows.extracted(home / ".cache", runningVersion)
+      val dir = BuiltInFlows.extracted(
+        home / ".cache",
+        OrcaBuild.Snapshot(runningVersion)
+      )
       val content = os.read(dir / "issue-pr.sc")
       val lines = content.linesIterator.toList
       val depLineIdx = lines.indexWhere(_.startsWith("//> using dep "))
@@ -258,15 +264,21 @@ class BuiltInFlowsTest extends munit.FunSuite:
       assertEquals(lines(depLineIdx + 1), "//> using repository ivy2Local")
 
   test(
-    "extracted (dev version) only re-materializes once per process (P1): unchanged on a second call"
+    "extracted (snapshot) only re-materializes once per process (P1): unchanged on a second call"
   ):
     withTempHome: home =>
       val runningVersion = "0.0.18+9-def456"
-      val dir = BuiltInFlows.extracted(home / ".cache", runningVersion)
+      val dir = BuiltInFlows.extracted(
+        home / ".cache",
+        OrcaBuild.Snapshot(runningVersion)
+      )
       val expectedNames = indexNames.sorted
       val mtimesBefore = expectedNames.map(n => n -> os.mtime(dir / n)).toMap
 
-      val _ = BuiltInFlows.extracted(home / ".cache", runningVersion)
+      val _ = BuiltInFlows.extracted(
+        home / ".cache",
+        OrcaBuild.Snapshot(runningVersion)
+      )
 
       val mtimesAfter = expectedNames.map(n => n -> os.mtime(dir / n)).toMap
       assertEquals(mtimesAfter, mtimesBefore)
@@ -286,21 +298,11 @@ class BuiltInFlowsTest extends munit.FunSuite:
         expectedNames.take(2)
       )
 
-      val result = BuiltInFlows.extracted(home / ".cache", "0.0.18")
+      val result =
+        BuiltInFlows.extracted(home / ".cache", OrcaBuild.Release("0.0.18"))
 
       assertEquals(result, dir)
       assertEquals(os.list(dir).map(_.last).toList.sorted, expectedNames)
       expectedNames.foreach(name =>
         assert(os.read(dir / name).trim.nonEmpty, name)
       )
-
-  test("extracted (\"dev\") also rewrites the dep pin to the running version"):
-    withTempHome: home =>
-      val dir = BuiltInFlows.extracted(home / ".cache", "dev")
-      val lines = os.read(dir / "implement.sc").linesIterator.toList
-      val depLineIdx = lines.indexWhere(_.startsWith("//> using dep "))
-      assertEquals(
-        lines(depLineIdx),
-        """//> using dep "org.virtuslab::orca:dev""""
-      )
-      assertEquals(lines(depLineIdx + 1), "//> using repository ivy2Local")

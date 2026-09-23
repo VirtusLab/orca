@@ -1,7 +1,8 @@
 package orca.shell.create
 
 import orca.agents.BackendTag
-import orca.shell.{ShellEnv, TestShellEnv, Tier}
+import orca.settings.AgentSpec
+import orca.shell.{OrcaBuild, ShellEnv, TestShellEnv, Tier}
 import orca.testkit.TempDirs
 
 class FlowAuthoringTest extends munit.FunSuite:
@@ -9,6 +10,8 @@ class FlowAuthoringTest extends munit.FunSuite:
   private given ShellEnv = TestShellEnv()
 
   private val resourcePrefix = "/orca/shell/api/"
+
+  private val release = OrcaBuild.Release("0.0.18")
 
   private def resourceText(name: String): String =
     val stream = getClass.getResourceAsStream(resourcePrefix + name)
@@ -36,7 +39,7 @@ class FlowAuthoringTest extends munit.FunSuite:
       "sync issues nightly",
       targetPath,
       apiDir,
-      "0.0.18"
+      release
     )
 
   test("initialPrompt states the goal and the target path"):
@@ -49,7 +52,7 @@ class FlowAuthoringTest extends munit.FunSuite:
       multilineGoal,
       targetPath,
       apiDir,
-      "0.0.18"
+      release
     )
     assert(text.contains("  sync issues nightly"))
     assert(text.contains("  and also close stale ones"))
@@ -59,7 +62,7 @@ class FlowAuthoringTest extends munit.FunSuite:
       "compare the modes:\n| mode | effect |",
       targetPath,
       apiDir,
-      "0.0.18"
+      release
     )
     assert(text.contains("\n  | mode | effect |"), text)
 
@@ -79,21 +82,21 @@ class FlowAuthoringTest extends munit.FunSuite:
   test("initialPrompt states the runtime-vs-compile-time rules caveat"):
     assert(prompt.contains("enforced at runtime"))
 
-  test("initialPrompt (release version) has no ivy2Local repository line"):
+  test("initialPrompt (release) has no ivy2Local repository line"):
     assert(!prompt.contains("ivy2Local"))
 
   test(
-    "initialPrompt (dev version) injects ivy2Local right after the dep pin, so the compile hint stays honest"
+    "initialPrompt (snapshot) injects ivy2Local right after the dep pin, so the compile hint stays honest"
   ):
     val devPrompt =
       FlowAuthoring.initialPrompt(
         "sync issues nightly",
         targetPath,
         apiDir,
-        "dev"
+        OrcaBuild.Snapshot("0.0.18+5-abc")
       )
     val depLineIdx = devPrompt.linesIterator.indexWhere(
-      _.contains("""//> using dep "org.virtuslab::orca:dev"""")
+      _.contains("""//> using dep "org.virtuslab::orca:0.0.18+5-abc"""")
     )
     assert(depLineIdx >= 0, "expected a using-dep line")
     assertEquals(
@@ -151,33 +154,70 @@ class FlowAuthoringTest extends munit.FunSuite:
 
   // --- slugArgv ---
 
+  private def unpinned(tag: BackendTag): AgentSpec = AgentSpec(tag, None)
+
   test("slugArgv: claude uses -p with the cheap haiku model"):
     assertEquals(
-      FlowAuthoring.slugArgv(BackendTag.ClaudeCode, "suggest a name"),
+      FlowAuthoring.slugArgv(unpinned(BackendTag.ClaudeCode), "suggest a name"),
       Seq("claude", "-p", "--model", "haiku", "suggest a name")
     )
 
   test("slugArgv: codex uses the exec subcommand"):
     assertEquals(
-      FlowAuthoring.slugArgv(BackendTag.Codex, "suggest a name"),
+      FlowAuthoring.slugArgv(unpinned(BackendTag.Codex), "suggest a name"),
       Seq("codex", "exec", "suggest a name")
     )
 
   test("slugArgv: pi uses -p/--print"):
     assertEquals(
-      FlowAuthoring.slugArgv(BackendTag.Pi, "suggest a name"),
+      FlowAuthoring.slugArgv(unpinned(BackendTag.Pi), "suggest a name"),
       Seq("pi", "-p", "suggest a name")
     )
 
   test("slugArgv: gemini uses -p/--prompt (the non-interactive/headless flag)"):
     assertEquals(
-      FlowAuthoring.slugArgv(BackendTag.Gemini, "suggest a name"),
+      FlowAuthoring.slugArgv(unpinned(BackendTag.Gemini), "suggest a name"),
       Seq("gemini", "-p", "suggest a name")
+    )
+
+  test("slugArgv: claude ignores the model pin for the cheap haiku model"):
+    assertEquals(
+      FlowAuthoring.slugArgv(
+        AgentSpec(BackendTag.ClaudeCode, Some("opus")),
+        "suggest a name"
+      ),
+      Seq("claude", "-p", "--model", "haiku", "suggest a name")
+    )
+
+  test("slugArgv: a non-claude harness gets the configured model pin"):
+    assertEquals(
+      FlowAuthoring.slugArgv(
+        AgentSpec(BackendTag.Opencode, Some("anthropic/claude-haiku-4-5")),
+        "suggest a name"
+      ),
+      Seq(
+        "opencode",
+        "run",
+        "--model",
+        "anthropic/claude-haiku-4-5",
+        "suggest a name"
+      )
+    )
+
+  test(
+    "slugArgv: gemini's model pin goes before -p, whose value is the prompt"
+  ):
+    assertEquals(
+      FlowAuthoring.slugArgv(
+        AgentSpec(BackendTag.Gemini, Some("gemini-2.5-flash")),
+        "suggest a name"
+      ),
+      Seq("gemini", "--model", "gemini-2.5-flash", "-p", "suggest a name")
     )
 
   test("slugArgv: opencode uses the run subcommand"):
     assertEquals(
-      FlowAuthoring.slugArgv(BackendTag.Opencode, "suggest a name"),
+      FlowAuthoring.slugArgv(unpinned(BackendTag.Opencode), "suggest a name"),
       Seq("opencode", "run", "suggest a name")
     )
 
@@ -221,7 +261,7 @@ class FlowAuthoringTest extends munit.FunSuite:
       (_, _) => Some("Thinking...\n\nSure, how about: My Cool Flow\n")
     val result =
       FlowAuthoring.suggestFilename(
-        BackendTag.ClaudeCode,
+        unpinned(BackendTag.ClaudeCode),
         "sync issues nightly",
         runner = runner
       )
@@ -234,7 +274,11 @@ class FlowAuthoringTest extends munit.FunSuite:
     val goal = "Implement a rate limiter for the login endpoint"
     assertEquals(
       FlowAuthoring
-        .suggestFilename(BackendTag.ClaudeCode, goal, runner = runner),
+        .suggestFilename(
+          unpinned(BackendTag.ClaudeCode),
+          goal,
+          runner = runner
+        ),
       FlowAuthoring.localFilenameSlug(goal)
     )
 
@@ -246,7 +290,11 @@ class FlowAuthoringTest extends munit.FunSuite:
     val goal = "Implement a rate limiter for the login endpoint"
     assertEquals(
       FlowAuthoring
-        .suggestFilename(BackendTag.ClaudeCode, goal, runner = runner),
+        .suggestFilename(
+          unpinned(BackendTag.ClaudeCode),
+          goal,
+          runner = runner
+        ),
       FlowAuthoring.localFilenameSlug(goal)
     )
 
@@ -255,14 +303,14 @@ class FlowAuthoringTest extends munit.FunSuite:
     val runner: (Seq[String], Long) => Option[String] =
       (argv, _) => { seenArgv = argv; Some("my-flow") }
     val _ = FlowAuthoring.suggestFilename(
-      BackendTag.Gemini,
+      unpinned(BackendTag.Gemini),
       "sync issues nightly",
       runner = runner
     )
     assertEquals(
       seenArgv,
       FlowAuthoring.slugArgv(
-        BackendTag.Gemini,
+        unpinned(BackendTag.Gemini),
         FlowAuthoring.slugPrompt("sync issues nightly")
       )
     )
@@ -422,7 +470,7 @@ class FlowAuthoringTest extends munit.FunSuite:
       targetPath / os.up / "implement.sc",
       targetPath,
       apiDir,
-      "0.0.18"
+      release
     )
 
   test("forkPrompt states the source path, the changes, and the target path"):
@@ -454,7 +502,7 @@ class FlowAuthoringTest extends munit.FunSuite:
       targetPath / os.up / "implement.sc",
       targetPath,
       apiDir,
-      "0.0.18"
+      release
     )
     assert(text.contains("  add a rate limit"))
     assert(text.contains("  and log rejected requests"))
@@ -465,7 +513,7 @@ class FlowAuthoringTest extends munit.FunSuite:
       targetPath / os.up / "implement.sc",
       targetPath,
       apiDir,
-      "0.0.18"
+      release
     )
     assert(text.contains("\n    |//> using jvm 21"), text)
 
@@ -478,7 +526,7 @@ class FlowAuthoringTest extends munit.FunSuite:
       targetPath / os.up / "implement.sc",
       targetPath,
       apiDir,
-      "0.0.18"
+      release
     )
 
   test("editPrompt states the source path, the changes, and the target path"):
@@ -511,7 +559,7 @@ class FlowAuthoringTest extends munit.FunSuite:
       targetPath / os.up / "implement.sc",
       targetPath,
       apiDir,
-      "0.0.18"
+      release
     )
     assert(text.contains("  add a rate limit"))
     assert(text.contains("  and log rejected requests"))
@@ -522,7 +570,7 @@ class FlowAuthoringTest extends munit.FunSuite:
       targetPath / os.up / "implement.sc",
       targetPath,
       apiDir,
-      "0.0.18"
+      release
     )
     assert(text.contains("\n  | input | expected |"), text)
 
@@ -636,25 +684,29 @@ class FlowAuthoringTest extends munit.FunSuite:
   // --- skeletonFlow ---
 
   test("skeletonFlow states the same version pins as initialPrompt"):
-    val skeleton = FlowAuthoring.skeletonFlow("0.0.18")
+    val skeleton = FlowAuthoring.skeletonFlow(release)
     assert(skeleton.contains("//> using scala 3.9.0"))
     assert(skeleton.contains("""//> using dep "org.virtuslab::orca:0.0.18""""))
     assert(skeleton.contains("//> using jvm 21"))
 
-  test("skeletonFlow (dev version) injects ivy2Local, matching initialPrompt"):
-    assert(FlowAuthoring.skeletonFlow("dev").contains("ivy2Local"))
+  test("skeletonFlow (snapshot) injects ivy2Local, matching initialPrompt"):
+    assert(
+      FlowAuthoring
+        .skeletonFlow(OrcaBuild.Snapshot("0.0.18+5-abc"))
+        .contains("ivy2Local")
+    )
 
-  test("skeletonFlow (release version) has no ivy2Local repository line"):
-    assert(!FlowAuthoring.skeletonFlow("0.0.18").contains("ivy2Local"))
+  test("skeletonFlow (release) has no ivy2Local repository line"):
+    assert(!FlowAuthoring.skeletonFlow(release).contains("ivy2Local"))
 
   test("skeletonFlow's line 1 is the description placeholder"):
-    val lines = FlowAuthoring.skeletonFlow("0.0.18").linesIterator.toList
+    val lines = FlowAuthoring.skeletonFlow(release).linesIterator.toList
     assertEquals(lines.head, "// TODO: describe what this flow does")
 
   test(
     "skeletonFlow imports the API and has a flow(...) body with a TODO"
   ):
-    val skeleton = FlowAuthoring.skeletonFlow("0.0.18")
+    val skeleton = FlowAuthoring.skeletonFlow(release)
     assert(skeleton.contains("import orca.{*, given}"))
     assert(skeleton.contains("flow(OrcaArgs(args)):"))
     assert(skeleton.contains("// TODO: implement the flow"))
@@ -662,7 +714,7 @@ class FlowAuthoringTest extends munit.FunSuite:
   test(
     "skeletonFlow's flow(...) body has a real statement, not just a comment — a comment-only indented block is a Scala 3 syntax error"
   ):
-    val skeleton = FlowAuthoring.skeletonFlow("0.0.18")
+    val skeleton = FlowAuthoring.skeletonFlow(release)
     val bodyLines = skeleton.linesIterator
       .dropWhile(!_.contains("flow(OrcaArgs(args)):"))
       .drop(1)

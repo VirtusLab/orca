@@ -2,7 +2,7 @@ package orca.shell.menu
 
 import org.jline.terminal.Terminal
 import orca.discovery.Origin
-import orca.shell.{ShellEnv, ShellVersion, Tier}
+import orca.shell.{OrcaBuild, ShellEnv, Tier}
 import orca.shell.actions.AuthorAction
 import orca.shell.create.{FlowAuthoring, FlowDestination}
 import orca.shell.flows.{DiscoveredFlow, FlowEditor}
@@ -125,7 +125,7 @@ private[menu] object AuthoringMenu:
     do
       os.write.over(
         target.flowPath,
-        FlowAuthoring.skeletonFlow(ShellVersion.value)
+        FlowAuthoring.skeletonFlow(OrcaBuild.current)
       )
       spawnEditor(terminal, target.flowPath).discard
 

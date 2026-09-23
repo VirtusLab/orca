@@ -2,12 +2,18 @@ package orca.shell.actions
 
 import org.jline.terminal.{Terminal, TerminalBuilder}
 import orca.{OrcaArgs, RunTarget, Uncommitted}
-import orca.shell.{ShellEnv, ShellVersion, TestShellEnv}
+import orca.shell.{OrcaBuild, ShellEnv, TestShellEnv}
 import orca.shell.create.FlowDestination
 import orca.discovery.Origin
 import orca.progress.FlowSource
 import orca.shell.flows.{BuiltInFlows, DiscoveredFlow}
-import orca.shell.run.{FallbackPolicy, FlowLauncher, LaunchResult, LaunchedFlow}
+import orca.shell.run.{
+  FallbackPolicy,
+  FlowLauncher,
+  LaunchResult,
+  LaunchedFlow,
+  PinPolicy
+}
 import orca.shell.ui.{Choice, ShellUi, UiOutcome}
 import orca.testkit.{GitRepo, TempDirs}
 
@@ -38,7 +44,7 @@ private class RecordingLaunch(
     onLaunch: os.Path => Unit = _ => ()
 ):
   case class Call(
-      fallback: FallbackPolicy,
+      policy: PinPolicy,
       flow: LaunchedFlow,
       args: OrcaArgs,
       workDir: os.Path
@@ -46,8 +52,8 @@ private class RecordingLaunch(
     def task: String = args.userPrompt
   var calls: List[Call] = Nil
   val fn: FlowLauncher.FlowLaunch =
-    (fallback, flow, args, workDir, _) =>
-      calls = calls :+ Call(fallback, flow, args, workDir)
+    (policy, flow, args, workDir, _) =>
+      calls = calls :+ Call(policy, flow, args, workDir)
       onLaunch(workDir)
       result
 
@@ -62,7 +68,7 @@ class AuthorActionTest extends munit.FunSuite:
   private given env: ShellEnv = TestShellEnv()
 
   private val builtInFlow =
-    BuiltInFlows.extracted(env.cacheHome, ShellVersion.value) / "simple.sc"
+    BuiltInFlows.extracted(env.cacheHome, OrcaBuild.current) / "simple.sc"
 
   private def captured(body: => Unit): String =
     val buffer = new java.io.ByteArrayOutputStream()
@@ -119,7 +125,7 @@ class AuthorActionTest extends munit.FunSuite:
             (
               os.isDir(sandbox / ".git"),
               os.isDir(
-                sandbox / ".orca" / "cache" / s"orca-api-${ShellVersion.value}"
+                sandbox / ".orca" / "cache" / s"orca-api-${OrcaBuild.current.version}"
               ),
               os.read(sandbox / ".orca" / "settings.properties")
             )
@@ -145,7 +151,7 @@ class AuthorActionTest extends munit.FunSuite:
         (call.args.verbose, call.args.target, call.args.branch),
         (false, RunTarget.NewBranch(Uncommitted.Stash), None)
       )
-      assertEquals(call.fallback, FallbackPolicy.Ask(NoPromptUi))
+      assertEquals(call.policy, PinPolicy.Force(FallbackPolicy.Ask(NoPromptUi)))
       assert(call.task.contains("sync issues nightly"), call.task)
       // The prompt targets the sandbox-local file, never the real tier path.
       assert(call.task.contains((call.workDir / "new.sc").toString), call.task)
@@ -166,7 +172,7 @@ class AuthorActionTest extends munit.FunSuite:
       var taskSourcePathExisted = false
       val recording = RecordingLaunch(onLaunch = sandbox =>
         val copied =
-          sandbox / ".orca" / "cache" / s"orca-api-${ShellVersion.value}" /
+          sandbox / ".orca" / "cache" / s"orca-api-${OrcaBuild.current.version}" /
             "fork-source" / "implement.sc"
         taskSourcePathExisted = os.isFile(copied)
       )
