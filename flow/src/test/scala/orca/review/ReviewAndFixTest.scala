@@ -11,7 +11,6 @@ import orca.agents.{
   InteractiveAgentCall,
   JsonData,
   AgentCall,
-  AgentConfig,
   Agent,
   SessionId,
   WireSessionId
@@ -46,7 +45,6 @@ private class TokenEmittingReviewer(
               i: I,
               session: SessionId[BackendTag.ClaudeCode.type],
               sessionKey: Option[SessionKey],
-              c: Option[AgentConfig],
               emitPrompt: Boolean
           )(using orca.InStage): O =
             ctx.emit(
@@ -99,7 +97,6 @@ private class SeedProbingCoder(
               input: I,
               session: SessionId[BackendTag.ClaudeCode.type],
               sessionKey: Option[SessionKey],
-              config: Option[AgentConfig],
               emitPrompt: Boolean
           )(using orca.InStage): O =
             capturedFixPrompt = Some(summon[AgentInput[I]].serialize(input))

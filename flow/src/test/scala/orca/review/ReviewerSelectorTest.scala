@@ -11,7 +11,6 @@ import orca.agents.{
   BackendTag,
   JsonData,
   AgentCall,
-  AgentConfig,
   SessionId
 }
 import orca.plan.Title
@@ -50,7 +49,6 @@ private class RecordingPicker(
               input: I,
               session: SessionId[BackendTag.ClaudeCode.type],
               sessionKey: Option[SessionKey],
-              config: Option[AgentConfig],
               emitPrompt: Boolean
           )(using orca.InStage): O =
             val _ = calls.incrementAndGet()

@@ -448,8 +448,8 @@ param, defaulting to `new DefaultOpencodeAgent(new OpencodeBackend(OsProcCliRunn
 AgentConfig.default, prompts, workDir, dispatcher, interaction)`. Expose it on
 `FlowContext` next to `claude`/`codex`.
 
-[Historical: per-call config is now `Option[AgentConfig]` and agent overrides
-are `AgentWiring => …` factories — see AGENTS.md.]
+[Historical: `AgentConfig.default` is now `AgentConfig()`, and agent overrides
+are `AgentWiring => …` factories.]
 
 ## Implementation steps
 

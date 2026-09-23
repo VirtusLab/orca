@@ -104,7 +104,6 @@ private[pr] class StubSummariser(
               input: I,
               session: SessionId[BackendTag.ClaudeCode.type],
               sessionKey: Option[SessionKey],
-              config: Option[AgentConfig],
               emitPrompt: Boolean
           )(using in: AgentInput[I], _s: orca.InStage): O =
             prompt.set(in.serialize(input))

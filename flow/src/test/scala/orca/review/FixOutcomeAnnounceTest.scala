@@ -84,7 +84,7 @@ class FixOutcomeAnnounceTest extends munit.FunSuite:
     val seen = AtomicReference[List[OrcaEvent]](Nil)
     val call = new DefaultAgentCall[BackendTag.Pi.type, FixOutcome](
       backend = backend,
-      effectiveConfig = _.getOrElse(AgentConfig()),
+      config = AgentConfig(),
       prompts = DefaultPrompts,
       events = (e: OrcaEvent) => { val _ = seen.updateAndGet(e :: _) },
       interaction = stubInteraction,

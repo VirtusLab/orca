@@ -28,14 +28,12 @@ trait AutonomousAgentCall[B <: BackendTag, O]:
     */
   final def run[I: AgentInput](
       input: I,
-      config: Option[AgentConfig] = None,
       emitPrompt: Boolean = true
   )(using orca.InStage): O =
     runWithSession(
       input,
       SessionId.fresh[B],
       sessionKey = None,
-      config = config,
       emitPrompt = emitPrompt
     )
 
@@ -50,7 +48,6 @@ trait AutonomousAgentCall[B <: BackendTag, O]:
       input: I,
       session: SessionId[B],
       sessionKey: Option[SessionKey],
-      config: Option[AgentConfig],
       emitPrompt: Boolean
   )(using orca.InStage): O
 
@@ -62,16 +59,8 @@ trait AutonomousAgentCall[B <: BackendTag, O]:
   */
 trait InteractiveAgentCall[B <: BackendTag, O]:
   /** One interactive structured turn on a fresh conversation. */
-  final def run[I: AgentInput](
-      input: I,
-      config: Option[AgentConfig] = None
-  )(using orca.InStage): O =
-    runWithSession(
-      input,
-      SessionId.fresh[B],
-      sessionKey = None,
-      config = config
-    )
+  final def run[I: AgentInput](input: I)(using orca.InStage): O =
+    runWithSession(input, SessionId.fresh[B], sessionKey = None)
 
   /** The session-threading door behind [[run]] and [[Chat]]. `sessionKey` is
     * the durable key this session was minted under (see
@@ -80,8 +69,7 @@ trait InteractiveAgentCall[B <: BackendTag, O]:
   private[orca] def runWithSession[I: AgentInput](
       input: I,
       session: SessionId[B],
-      sessionKey: Option[SessionKey],
-      config: Option[AgentConfig]
+      sessionKey: Option[SessionKey]
   )(using orca.InStage): O
 
 /** Free-form text turns — the internal engine behind `Agent.run` and
@@ -102,7 +90,6 @@ private[orca] trait AutonomousTextCall[B <: BackendTag]:
       prompt: String,
       session: SessionId[B],
       sessionKey: Option[SessionKey],
-      config: Option[AgentConfig],
       emitPrompt: Boolean
   )(using orca.InStage): String
 
@@ -119,7 +106,7 @@ private[orca] trait AutonomousTextCall[B <: BackendTag]:
   */
 class DefaultAgentCall[B <: BackendTag, O](
     backend: AgentBackend[B],
-    effectiveConfig: Option[AgentConfig] => AgentConfig,
+    config: AgentConfig,
     prompts: Prompts,
     events: OrcaListener,
     interaction: Interaction,
@@ -157,24 +144,22 @@ class DefaultAgentCall[B <: BackendTag, O](
         input: I,
         session: SessionId[B],
         sessionKey: Option[SessionKey],
-        config: Option[AgentConfig],
         emitPrompt: Boolean
     )(using orca.InStage): O =
       // `resultAs[O]` refuses construction on a closed agent, but a gateway
       // built before the flow ended and stored across the close boundary would
       // still reach the backend — this per-call check closes that gap.
       backend.checkNotClosed()
-      runAutonomousWithRetry(input, config, session, sessionKey, emitPrompt)
+      runAutonomousWithRetry(input, session, sessionKey, emitPrompt)
 
   val interactive: InteractiveAgentCall[B, O] = new InteractiveAgentCall[B, O]:
     private[orca] def runWithSession[I: AgentInput](
         input: I,
         session: SessionId[B],
-        sessionKey: Option[SessionKey],
-        config: Option[AgentConfig]
+        sessionKey: Option[SessionKey]
     )(using orca.InStage): O =
       backend.checkNotClosed()
-      runInteractiveOnce(input, config, session, sessionKey)
+      runInteractiveOnce(input, session, sessionKey)
 
   /** Emit a `StructuredResult` event carrying the raw payload and the
     * `Announce[O]`-derived summary — tri-state per
@@ -194,17 +179,15 @@ class DefaultAgentCall[B <: BackendTag, O](
     */
   private def runAutonomousWithRetry[I](
       input: I,
-      config: Option[AgentConfig],
       session: SessionId[B],
       sessionKey: Option[SessionKey],
       emitPrompt: Boolean
   )(using ai: AgentInput[I]): O =
     val serialized = ai.serialize(input)
-    val effective = effectiveConfig(config)
     val initialPrompt = prompts.autonomous(
       serialized,
       outputSchema,
-      effective,
+      config,
       backend.structuredOutputMode
     )
 
@@ -212,7 +195,7 @@ class DefaultAgentCall[B <: BackendTag, O](
     // schema-wrapped form the agent sees): listeners want the question.
     if emitPrompt then events.onEvent(OrcaEvent.UserPrompt(serialized))
 
-    val accounting = turnAccounting(effective, session, sessionKey)
+    val accounting = turnAccounting(session, sessionKey)
 
     // Carries a parse failure into the next attempt's corrective prompt. Local
     // contract: written only in the `MalformedAgentOutputException` catch below,
@@ -252,7 +235,7 @@ class DefaultAgentCall[B <: BackendTag, O](
           backend.runAutonomous(
             promptText,
             session,
-            effective,
+            config,
             attributedEvents,
             outputSchema = Some(outputSchema)
           )
@@ -285,7 +268,7 @@ class DefaultAgentCall[B <: BackendTag, O](
           throw e
 
     val retryConfig = RetryConfig(
-      effective.retrySchedule,
+      config.retrySchedule,
       ResultPolicy.retryWhen[Throwable, O](e =>
         !e.isInstanceOf[AgentTurnFailed]
       )
@@ -311,14 +294,12 @@ class DefaultAgentCall[B <: BackendTag, O](
     */
   private def runInteractiveOnce[I](
       input: I,
-      config: Option[AgentConfig],
       session: SessionId[B],
       sessionKey: Option[SessionKey]
   )(using ai: AgentInput[I]): O =
     val serialized = ai.serialize(input)
-    val effective = effectiveConfig(config)
-    val prompt = prompts.interactive(serialized, outputSchema, effective)
-    val accounting = turnAccounting(effective, session, sessionKey)
+    val prompt = prompts.interactive(serialized, outputSchema, config)
+    val accounting = turnAccounting(session, sessionKey)
     // Per-turn structured-concurrency scope: `runInteractive` forks its workers
     // into this Ox, `drive` consumes them, and `cancel` (in the `finally`) tears
     // the conversation down before the scope joins — so a cancelled turn never
@@ -331,7 +312,7 @@ class DefaultAgentCall[B <: BackendTag, O](
           prompt,
           session,
           displayPrompt = serialized,
-          effective,
+          config,
           Some(outputSchema),
           events
         )(using summon[ox.Ox])
@@ -357,7 +338,6 @@ class DefaultAgentCall[B <: BackendTag, O](
     parsed
 
   private def turnAccounting(
-      effective: AgentConfig,
       session: SessionId[B],
       sessionKey: Option[SessionKey]
   ): TurnAccounting[B] =
@@ -368,7 +348,7 @@ class DefaultAgentCall[B <: BackendTag, O](
       backend = backend,
       session = session,
       sessionKey = sessionKey,
-      pinned = effective.model
+      pinned = config.model
     )
 
 private case class FailedAttempt(response: String, parserError: String)
