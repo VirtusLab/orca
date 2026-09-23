@@ -48,14 +48,14 @@ ORCA_INTEGRATION=1 sbt publishLocal "runner/testOnly *ScalaCliSmokeTest"
 | `ScalaCliSmokeTest` | the above, plus `claude` authenticated — it starts a real flow |
 
 The three scala-cli suites link a script against the local Ivy cache, so they
-need `publishLocal` in the *same* sbt invocation: the build injects that run's
-dynver version as `-Dorca.build.version` into the forked test JVM, which is what
-the scripts pin.
+need `publishLocal` in the *same* sbt invocation: the scripts pin that run's
+dynver version (runner's suite reads it from `-Dorca.build.version`, shell's
+from the version resource the build generates).
 
 `BuiltInFlowsCompileTest` is the only one CI runs (its own `flow-scripts` job),
 being the only one needing no credentials. It compiles every built-in flow as
-`BuiltInFlows` stages them for a dev build — pin rewritten to the just-published
-version, `//> using repository ivy2Local` inserted — so an API change that
+`BuiltInFlows` stages them for a snapshot build — pin rewritten to the
+just-published version, `//> using repository ivy2Local` inserted — so an API change that
 breaks the flows fails CI instead of shipping. On a release version there is no
 rewrite (the flows resolve from Maven Central), so it skips itself.
 
@@ -106,9 +106,12 @@ XDG_CONFIG_HOME=... XDG_CACHE_HOME=... \
     --main-class orca.shell.Main -- run implement.sc "your task"
 ```
 
-A dev (non-release) version automatically rewrites the built-in flows' orca
-dep pin to `$version` and adds `ivy2Local`, so the flows a run launches also
-resolve your local build. The initial empty commit matters: some features
+A snapshot (non-release) version automatically rewrites the built-in flows'
+orca dep pin to `$version` and adds `ivy2Local`, and forces the same onto every
+other flow, so the flows a run launches also resolve your local build. The
+shell reads its version from a resource the build generates, so `sbt shell/run`
+knows it too; on a dirty tree that version changes between sbt sessions, so
+publish and run in the same one. The initial empty commit matters: some features
 (e.g. committing an authored flow) degrade gracefully on a repo with no
 commits. Drop the `XDG_*` overrides to test against your real configuration
 instead; state persists across runs either way.

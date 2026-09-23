@@ -63,7 +63,7 @@ class FlowSessionTest extends FunSuite:
     support
 
   /** Builds a durability capability holding the wire id a previous run
-    * recorded, rehydrated as the runtime does before any turn; the probe
+    * recorded, rehydrated as `agent.session(...)`'s reuse does; the probe
     * answers `exists`.
     */
   private def rehydratedSupport(
@@ -103,8 +103,8 @@ class FlowSessionTest extends FunSuite:
     case Committed
 
     /** Durable and server-minted, with the wire id a previous run recorded
-      * rehydrated as the runtime does; the probe answers the stub's
-      * `existsResult`.
+      * rehydrated as `agent.session(...)`'s reuse does; the probe answers the
+      * stub's `existsResult`.
       */
     case Rehydrated
 
@@ -867,44 +867,6 @@ class FlowSessionTest extends FunSuite:
     val record =
       fc.sessionStore.records().find(_.id == testSessionId).get
     assertEquals(record.resumeWireId, Some("server-thread-xyz"))
-
-  test(
-    "run self-heals an untagged recorded backend when it persists a wire id (6B.2)"
-  ):
-    // The record predates tagging (backend = None — an untagged, pre-tagging
-    // log). This is the ONLY backend value `persistResumeWireId`'s self-heal
-    // ever sees on a genuinely-reused session: `session(...)`'s reuse arm
-    // already refuses to reuse a record whose tag actively MISMATCHES the
-    // current agent (it mints fresh instead, never reaching this run), so a
-    // tagged-mismatch case can't reach `persistResumeWireId` at all. This run's
-    // agent is ClaudeCode and learns a wire id — persistResumeWireId must
-    // upgrade `backend` from `None` to `ClaudeCode`, not leave it unset via
-    // `.copy`.
-    val fc = makeControl(
-      sessions = List(
-        SessionRecord(
-          name = "s",
-          stage = StagePath.FlowBody,
-          id = testSessionId,
-          seed = "seed",
-          backend = None,
-          resumeWireId = None
-        )
-      )
-    )
-    val agent = new StubAgentForSeeded(
-      existsResult = false,
-      learnedWireId = "server-thread-xyz"
-    )
-    val _ = flowSession(agent).run("prompt")(using fc)
-    val record =
-      fc.sessionStore.records().find(_.id == testSessionId).get
-    assertEquals(record.resumeWireId, Some("server-thread-xyz"))
-    assertEquals(
-      record.backend,
-      Some(BackendTag.ClaudeCode),
-      "an untagged recorded backend must be healed to the agent's current tag"
-    )
 
   test(
     "run leaves resumeWireId None when the backend reports no wire id"

@@ -2,7 +2,7 @@ package orca.shell.menu
 
 import org.jline.terminal.Terminal
 import orca.discovery.Origin
-import orca.shell.{ShellEnv, ShellVersion, Tier}
+import orca.shell.{OrcaBuild, ShellEnv, Tier}
 import orca.shell.actions.AuthorAction
 import orca.shell.create.{FlowAuthoring, FlowDestination}
 import orca.shell.flows.{DiscoveredFlow, FlowEditor}
@@ -123,10 +123,7 @@ private[menu] object AuthoringMenu:
       tier <- pickTier(ui, "Where should the new flow be saved:")
       target <- promptNewFlowFilename(ui, tier)
     do
-      os.write.over(
-        target.flowPath,
-        FlowAuthoring.skeletonFlow(ShellVersion.value)
-      )
+      os.write(target.flowPath, FlowAuthoring.skeletonFlow(OrcaBuild.current))
       spawnEditor(terminal, target.flowPath).discard
 
   /** Prompts for the new flow's filename, defaulted to `new-flow.sc` and

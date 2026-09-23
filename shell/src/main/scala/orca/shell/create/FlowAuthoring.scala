@@ -2,7 +2,7 @@ package orca.shell.create
 
 import orca.agents.BackendTag
 import orca.settings.{AgentSpec, SettingsFile, SettingsScope}
-import orca.shell.{ShellEnv, ShellVersion, Tier}
+import orca.shell.{OrcaBuild, ShellEnv, Tier}
 import orca.util.PromptResource
 
 import scala.util.control.NonFatal
@@ -67,24 +67,27 @@ private[shell] object FlowAuthoring:
       else sourceName
     s"$base-fork.sc"
 
-  /** Non-interactive, one-shot-and-exit invocation per backend for the cheap
+  /** Non-interactive, one-shot-and-exit invocation of `agent` for the cheap
     * slug-suggestion call ([[suggestFilename]]), verified against each
     * installed CLI's `--help`: claude's `-p`/`--print`, codex's `exec`
     * subcommand, gemini's `-p`/`--prompt`, opencode's `run` subcommand, and
-    * pi's `-p`/`--print`. Claude gets `--model haiku` — a slug needs the
-    * cheapest tier, and the user's default (often opus) would double the
-    * latency; the other CLIs keep their own configured default, since their
-    * cheap-model names are provider- or install-specific.
+    * pi's `-p`/`--print`. Claude always gets `--model haiku`, whatever its pin
+    * — a slug needs the cheapest tier, and the user's default (often opus)
+    * would double the latency. The other CLIs get the configured pin, if any,
+    * since their cheap-model names are provider- or install-specific; a slow
+    * pinned model only costs the local fallback.
     */
-  def slugArgv(backend: BackendTag, prompt: String): Seq[String] =
-    val binary = AgentSpec.harnessNameFor(backend)
-    backend match
+  def slugArgv(agent: AgentSpec, prompt: String): Seq[String] =
+    val binary = AgentSpec.harnessNameFor(agent.backend)
+    val pin = agent.model.toSeq.flatMap(m => Seq("--model", m))
+    agent.backend match
       case BackendTag.ClaudeCode =>
         Seq(binary, "-p", "--model", "haiku", prompt)
-      case BackendTag.Codex    => Seq(binary, "exec", prompt)
-      case BackendTag.Pi       => Seq(binary, "-p", prompt)
-      case BackendTag.Gemini   => Seq(binary, "-p", prompt)
-      case BackendTag.Opencode => Seq(binary, "run", prompt)
+      case BackendTag.Codex => Seq(binary, "exec") ++ pin :+ prompt
+      case BackendTag.Pi    => Seq(binary, "-p") ++ pin :+ prompt
+      // gemini's `-p` takes the prompt as its value.
+      case BackendTag.Gemini   => Seq(binary) ++ pin ++ Seq("-p", prompt)
+      case BackendTag.Opencode => Seq(binary, "run") ++ pin :+ prompt
 
   /** The cheap slug-suggestion prompt: asks for nothing but a bare filename, so
     * [[sanitizeSlug]] has the best chance of a clean answer to sanitize.
@@ -153,8 +156,8 @@ private[shell] object FlowAuthoring:
   private val slugTimeoutMillis = 20000L
 
   /** Shared engine behind [[suggestFilename]] and [[suggestFilenameForFork]]:
-    * runs `backend` non-interactively on `prompt` (via [[slugArgv]]) with a
-    * short timeout, sanitizes its last non-blank output line through
+    * runs `agent` non-interactively on `prompt` (via [[slugArgv]]) with a short
+    * timeout, sanitizes its last non-blank output line through
     * [[sanitizeSlug]], and falls back to `fallback` whenever the harness is
     * unreachable, too slow, exits non-zero, or replies with nothing
     * [[sanitizeSlug]] can turn into more than `new-flow.sc`. This is a nicety
@@ -165,14 +168,14 @@ private[shell] object FlowAuthoring:
     * ([[runSlugProc]]).
     */
   private def runSlugSuggestion(
-      backend: BackendTag,
+      agent: AgentSpec,
       prompt: String,
       fallback: => String,
       timeoutMillis: Long,
       runner: (Seq[String], Long) => Option[String]
   ): String =
     val lastLine =
-      runner(slugArgv(backend, prompt), timeoutMillis).toList
+      runner(slugArgv(agent, prompt), timeoutMillis).toList
         .flatMap(_.linesIterator.map(_.trim))
         .filter(_.nonEmpty)
         .lastOption
@@ -185,44 +188,33 @@ private[shell] object FlowAuthoring:
     * [[localFilenameSlug]]'s local word-based derivation.
     */
   def suggestFilename(
-      backend: BackendTag,
+      agent: AgentSpec,
       goal: String,
       timeoutMillis: Long = slugTimeoutMillis,
       runner: (Seq[String], Long) => Option[String] = runSlugProc
   ): String =
     runSlugSuggestion(
-      backend,
+      agent,
       slugPrompt(goal),
       localFilenameSlug(goal),
       timeoutMillis,
       runner
     )
 
-  /** The configured coding-role agent spec (harness + model pin) from the
-    * global settings file, `None` when it's absent or unparseable. Backs
-    * [[configuredCodingAgent]].
+  /** The configured coding-role agent (harness + model pin) from the global
+    * settings file, falling back to unpinned claude when the file is absent or
+    * unparseable — the same fallback the wizard uses for an undetected default.
+    * The cheap filename suggestion always runs on this agent, not a harness
+    * choice.
     */
-  private def configuredCodingAgentSpec(
-      globalSettingsPath: os.Path
-  ): Option[AgentSpec] =
+  def configuredCodingAgent(globalSettingsPath: os.Path): AgentSpec =
     Option
       .when(os.exists(globalSettingsPath))(os.read(globalSettingsPath))
       .flatMap(content =>
         SettingsFile.parse(content, SettingsScope.UserGlobal).toOption
       )
       .flatMap(_.agents.coding)
-
-  /** The configured coding-role harness, falling back to claude when the global
-    * settings file is absent or unparseable — the same fallback the wizard uses
-    * for an undetected default. Used by [[suggestFilenameForGoal]]'s and
-    * [[suggestFilenameForFork]]'s slug calls — the cheap filename suggestion
-    * always runs on the configured coding agent, not a harness choice
-    * (authoring itself no longer has one).
-    */
-  def configuredCodingAgent(globalSettingsPath: os.Path): BackendTag =
-    configuredCodingAgentSpec(globalSettingsPath)
-      .map(_.backend)
-      .getOrElse(BackendTag.ClaudeCode)
+      .getOrElse(AgentSpec(BackendTag.ClaudeCode, None))
 
   /** The new flow's filename suggestion (the cheap slug prompt): runs the
     * configured coding agent — not the harness picked later in the same
@@ -291,13 +283,13 @@ private[shell] object FlowAuthoring:
   /** `fileName` (`.sc` suffix ensured) in `tier`'s flows directory, which is
     * created if absent. Refuses on a filename collision — the authored file is
     * written there later, so a pre-existing file is never intended to be
-    * overwritten.
+    * overwritten. A dangling symlink counts as a collision.
     */
   def prepareTarget(tier: Tier, fileName: String)(using
       ShellEnv
   ): Either[String, FlowDestination] =
     val flowPath = tier.ensureFlowsDir / normalizedFileName(fileName)
-    if os.exists(flowPath) then
+    if os.exists(flowPath, followLinks = false) then
       Left(s"$flowPath already exists — pick a different name")
     else Right(FlowDestination.of(tier, flowPath))
 
@@ -362,46 +354,33 @@ private[shell] object FlowAuthoring:
       os.write(dir / name, PromptResource.load(resourcePrefix + name))
     dir
 
+  /** The exact `//> using` header lines a new flow file starts with: `build`'s
+    * [[OrcaBuild.usingDirectives]] between the scala and jvm pins (the
+    * "3.9.0"/`21` literals are kept in lockstep with `V.scala` in
+    * `project/Dependencies.scala` by hand — `updateDocs` only rewrites
+    * `.md`/`.sc` files, so this text is invisible to it). Shared by
+    * [[initialPrompt]] (states it as an instruction to the authoring agent) and
+    * [[skeletonFlow]] (writes it verbatim), so a hand-written skeleton and an
+    * agent-authored file pin the same way.
+    */
+  private def versionPinLines(build: OrcaBuild): String =
+    s"""//> using scala 3.9.0
+       |${build.usingDirectives}
+       |//> using jvm 21""".stripMargin
+
   /** The authoring task handed to the built-in `simple.sc` flow as its
     * `userPrompt` (ADR 0021 §9): the goal and target path, the verbatim
     * version-pinned header to start the file with, the line-1 `//` description
     * convention, pointers to the extracted README/examples, the `scala-cli
     * compile` verification step, the runtime-vs-compile-time rules caveat, and
-    * — last resort only — the tag-pinned raw README URL. Kept in one place
-    * since the prompt text is itself the deliverable.
-    *
-    * On a non-release `orcaVersion` (a dev build's `"dev"`, or a dynver
-    * snapshot) the plain `//> using dep` pin doesn't resolve from Maven
-    * Central, so the header also gets `//> using repository ivy2Local` right
-    * after it — the same treatment `BuiltInFlows`/`_seed_lib.sh --local` apply
-    * — so the prompt's own `scala-cli compile` instruction stays honest on a
-    * local build.
+    * — last resort only — the raw README URL at `build`'s git ref. Kept in one
+    * place since the prompt text is itself the deliverable.
     */
-  /** The exact `//> using` header lines a new flow file starts with (the
-    * "3.9.0"/`21` literals are kept in lockstep with `V.scala` in
-    * `project/Dependencies.scala` by hand — `updateDocs` only rewrites
-    * `.md`/`.sc` files, so this text is invisible to it). Non-release builds (a
-    * dynver snapshot, or the bare `"dev"`) add `//> using repository ivy2Local`
-    * right after the dep pin — the same treatment `BuiltInFlows`/`_seed_lib.sh
-    * --local` apply — so `scala-cli compile` resolves against the local build
-    * instead of failing against Maven Central. Shared by [[initialPrompt]]
-    * (states it as an instruction to the authoring agent) and [[skeletonFlow]]
-    * (writes it verbatim), so a hand-written skeleton and an agent-authored
-    * file pin the same way.
-    */
-  private def versionPinLines(orcaVersion: String): String =
-    val ivy2LocalLine =
-      if ShellVersion.isRelease(orcaVersion) then ""
-      else "\n//> using repository ivy2Local"
-    s"""//> using scala 3.9.0
-       |//> using dep "org.virtuslab::orca:$orcaVersion"$ivy2LocalLine
-       |//> using jvm 21""".stripMargin
-
   def initialPrompt(
       goal: String,
       targetPath: os.Path,
       apiDir: os.Path,
-      orcaVersion: String
+      build: OrcaBuild
   ): String =
     val readme = apiDir / "README.md"
     val example1 = apiDir / "implement.sc"
@@ -415,8 +394,8 @@ private[shell] object FlowAuthoring:
        |Goal:""".stripMargin +
       "\n" + indentBlock(goal) + "\n\n" +
       s"""Start the file with this exact header (the pinned version matches the
-         |orca release this flow was launched from):
-         |${versionPinLines(orcaVersion)}
+         |orca build this flow was launched from):
+         |${versionPinLines(build)}
          |
          |Line 1 of the file must be a `//` comment giving a one-line description
          |of the flow — the shell's flow listing uses it as the description.
@@ -435,8 +414,8 @@ private[shell] object FlowAuthoring:
          |catches.
          |
          |Last resort, only if the local README above is somehow missing: the
-         |tag-pinned reference is at
-         |https://raw.githubusercontent.com/VirtusLab/orca/v$orcaVersion/README.md
+         |reference is at
+         |https://raw.githubusercontent.com/VirtusLab/orca/${build.gitRef}/README.md
          |""".stripMargin
 
   /** Two-space-indents every line of `text` — the shared block-quoting used by
@@ -474,7 +453,7 @@ private[shell] object FlowAuthoring:
       opening: String,
       targetPath: os.Path,
       apiDir: os.Path,
-      orcaVersion: String
+      build: OrcaBuild
   ): String =
     val readme = apiDir / "README.md"
     val example1 = apiDir / "implement.sc"
@@ -496,8 +475,8 @@ private[shell] object FlowAuthoring:
          |catches.
          |
          |Last resort, only if the local README above is somehow missing: the
-         |tag-pinned reference is at
-         |https://raw.githubusercontent.com/VirtusLab/orca/v$orcaVersion/README.md
+         |reference is at
+         |https://raw.githubusercontent.com/VirtusLab/orca/${build.gitRef}/README.md
          |""".stripMargin
 
   /** The authoring task for a fork (ADR 0021 §9): states the source path and
@@ -513,7 +492,7 @@ private[shell] object FlowAuthoring:
       sourcePath: os.Path,
       targetPath: os.Path,
       apiDir: os.Path,
-      orcaVersion: String
+      build: OrcaBuild
   ): String =
     val opening =
       s"""Create the Orca flow at $targetPath by copying $sourcePath and
@@ -523,7 +502,7 @@ private[shell] object FlowAuthoring:
            |scala`/`//> using dep`/`//> using jvm`) and its line-1 `//`
            |one-line-description convention — update the description line only if
            |the fork's behavior changes enough to make the original one wrong.""".stripMargin
-    changePrompt(opening, targetPath, apiDir, orcaVersion)
+    changePrompt(opening, targetPath, apiDir, build)
 
   /** The authoring task for edit-by-agent (ADR 0021 §6/§9 amendment):
     * `targetPath` is a sandbox copy of `sourcePath` (the flow's own real path)
@@ -538,7 +517,7 @@ private[shell] object FlowAuthoring:
       sourcePath: os.Path,
       targetPath: os.Path,
       apiDir: os.Path,
-      orcaVersion: String
+      build: OrcaBuild
   ): String =
     val opening =
       s"""Edit the Orca flow: apply these changes to $targetPath, which is a
@@ -548,7 +527,7 @@ private[shell] object FlowAuthoring:
            |scala`/`//> using dep`/`//> using jvm`) and its line-1 `//`
            |one-line-description convention — update the description line only if
            |these changes make the original one wrong.""".stripMargin
-    changePrompt(opening, targetPath, apiDir, orcaVersion)
+    changePrompt(opening, targetPath, apiDir, build)
 
   /** A hand-authored flow's starting point (ADR 0021 §9 amendment,
     * Create+hand): [[versionPinLines]] under a placeholder line-1 description
@@ -558,9 +537,9 @@ private[shell] object FlowAuthoring:
     * a statement, so the indented block needs a real expression too), left for
     * the user to fill in.
     */
-  def skeletonFlow(orcaVersion: String): String =
+  def skeletonFlow(build: OrcaBuild): String =
     s"""// TODO: describe what this flow does
-       |${versionPinLines(orcaVersion)}
+       |${versionPinLines(build)}
        |
        |import orca.{*, given}
        |

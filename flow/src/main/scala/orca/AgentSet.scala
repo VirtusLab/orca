@@ -27,9 +27,8 @@ trait AgentSet:
 
   /** Resolve the per-backend agent named by `tag` — the single place a
     * [[BackendTag]] maps to one of the five agents, so a renamed or added case
-    * is one match to update. Session rehydration
-    * (`FlowLifecycle.rehydrateSessions`), `WiredAgents.byTag` and `RoleAgents`
-    * all resolve through it.
+    * is one match to update. `WiredAgents.byTag` and `RoleAgents` both resolve
+    * through it.
     */
   private[orca] def agentFor(tag: BackendTag): Agent[?] = tag match
     case BackendTag.ClaudeCode => claude

@@ -6,18 +6,15 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
   writeToArray
 }
 
-import java.nio.ByteBuffer
-import java.nio.channels.FileChannel
-import java.nio.file.StandardOpenOption
+import orca.OrcaDir
 
-import scala.util.Using
 import scala.util.control.NonFatal
 
 /** Whole-file JSON documents that a later process reads back: the progress log,
   * the durable session records, the attempt manifest. Each is rewritten whole
-  * on every change, so [[write]] goes through a temp file and a rename — a
-  * plain `os.write.over` torn by a kill would leave the reader unparseable
-  * content where a resume was expected.
+  * on every change, so [[write]] replaces it atomically — a plain
+  * `os.write.over` torn by a kill would leave the reader unparseable content
+  * where a resume was expected.
   */
 object JsonFile:
 
@@ -68,45 +65,13 @@ object JsonFile:
     try Right(readFromArray[A](IArray.genericWrapArray(bytes).toArray))
     catch case NonFatal(e) => Left(describe(e))
 
-  /** Replace `path`'s contents with `value`'s JSON via a temp file in `tempDir`
-    * (which must be on the same filesystem as `path`) renamed over it.
-    *
-    * The temp file never outlives a failure, and `path` is untouched when one
-    * happens. The content is on disk before the rename, so a power loss leaves
-    * the old document or the new one; each write costs an fsync.
+  /** Replace `file`'s contents with `value`'s JSON, atomically (see
+    * [[OrcaDir.OrcaFile.replace]]).
     */
-  def write[A](path: os.Path, tempDir: os.Path, value: A)(using
+  private[orca] def write[A](file: OrcaDir.OrcaFile, value: A)(using
       JsonValueCodec[A]
   ): Unit =
-    val tmp = os.temp(
-      dir = tempDir,
-      prefix = s".${path.last}.",
-      suffix = ".tmp",
-      deleteOnExit = false
-    )
-    try
-      writeDurably(tmp, writeToArray(value))
-      try os.move(tmp, path, replaceExisting = true, atomicMove = true)
-      catch
-        // Some filesystems (network mounts, some container overlay/bind mounts)
-        // reject ATOMIC_MOVE even for a same-directory rename. Torn writes are
-        // impossible there anyway (only the atomicity guarantee against
-        // concurrent readers is unavailable), so a plain move is a safe
-        // fallback.
-        case _: java.nio.file.AtomicMoveNotSupportedException =>
-          os.move(tmp, path, replaceExisting = true)
-    catch
-      case NonFatal(e) =>
-        if os.exists(tmp) then os.remove(tmp): Unit
-        throw e
-
-  /** Write `bytes` to `file` and flush them to disk before returning. */
-  private def writeDurably(file: os.Path, bytes: Array[Byte]): Unit =
-    Using.resource(FileChannel.open(file.toNIO, StandardOpenOption.WRITE)):
-      channel =>
-        val buffer = ByteBuffer.wrap(bytes)
-        while buffer.hasRemaining do channel.write(buffer): Unit
-        channel.force(true)
+    file.replace(writeToArray(value))
 
   /** A one-line account of `e` for a warning: its class and the first line of
     * its message. jsoniter appends a multi-line hex dump of the buffer to its

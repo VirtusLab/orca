@@ -177,15 +177,14 @@ lazy val runner = (project in file("runner"))
     // appender) and can `System.exit` on a NonFatal failure, neither of which
     // may reach the shared test runner.
     //
-    // `runFlow`'s reentrancy guard (`FlowLock.acquireProcess`) is a
+    // `flow()`'s reentrancy guard (`FlowLock.processGuarded`) is a
     // process-wide `AtomicBoolean` — correct for real usage (one `flow(...)`
     // per process), but sbt's default `Test / parallelExecution` would let two
-    // unrelated test classes in this forked JVM both call
-    // `flow(...)`/`runFlow(...)` concurrently (different workDirs, no real
-    // conflict) and spuriously trip each other's guard. Serialize this
-    // module's tests instead of keying the guard by workDir, which would
-    // water down the exact single-process semantics the guard exists to
-    // enforce.
+    // unrelated test classes in this forked JVM both call `flow(...)`
+    // concurrently (different workDirs, no real conflict) and spuriously trip
+    // each other's guard. Serialize this module's tests instead of keying the
+    // guard by workDir, which would water down the exact single-process
+    // semantics the guard exists to enforce.
     Test / parallelExecution := false,
     Test / javaOptions += buildVersionProperty.value,
     // `flow(...)` resolves the global settings file and reviewer directory from
@@ -212,10 +211,11 @@ lazy val runner = (project in file("runner"))
   )
 
 lazy val shell = (project in file("shell"))
-  // `pi` is already on the classpath transitively via `runner`, but declared
-  // explicitly since shell reads pi's session store (`PiSessionStore`) to build
-  // the resume argv for a recorded pi chat (ADR 0021 §8).
-  .dependsOn(runner, pi, tools % "test->test")
+  // `pi` and `gemini` are already on the classpath transitively via `runner`,
+  // but declared explicitly since shell reads pi's session store
+  // (`PiSessionStore`) and gemini's session listing (`GeminiSessionList`) to
+  // build the resume argv for a recorded chat (ADR 0021 §8).
+  .dependsOn(runner, pi, gemini, tools % "test->test")
   .settings(commonSettings)
   .settings(
     name := "orca-shell",
@@ -230,7 +230,15 @@ lazy val shell = (project in file("shell"))
     // concurrently running suite observes the temporarily-ignored handler —
     // the same isolation runner uses for its lock and logger state.
     Test / parallelExecution := false,
-    Test / javaOptions += buildVersionProperty.value,
+    // The shell's own version (`OrcaBuild.current`), as a resource rather than
+    // the jar manifest, so a class-directory run (tests, `sbt shell/run`) knows
+    // it too — the same version a `publishLocal` in the same sbt session
+    // publishes.
+    Compile / resourceGenerators += Def.task {
+      val file = (Compile / resourceManaged).value / "orca" / "shell" / "version"
+      IO.write(file, version.value)
+      Seq(file)
+    }.taskValue,
     // Bundles the top-level flows/*.sc scripts as jar resources under
     // orca/shell/flows/ (ADR 0021 §7), so `BuiltInFlows` can extract them to a
     // real path at runtime. Jar resources aren't listable, hence the

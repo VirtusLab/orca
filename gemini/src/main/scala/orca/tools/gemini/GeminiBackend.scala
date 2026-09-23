@@ -55,12 +55,12 @@ private[orca] class GeminiBackend(
 
   /** Gemini's sessions are server-side and durable: the client→server map is
     * persisted in the session records (`.orca/cache/runs/<key>.sessions.json`)
-    * and rehydrated on resume. The existence probe runs `gemini
-    * --list-sessions` and scans for the resolved SERVER id (substring) — gemini
-    * mints its own id; the caller's stable id never appears there.
-    * [[SessionSupport.dispatchFor]] answers `Fresh` when no server id is mapped
-    * (including an id rejected by the [[orca.agents.SessionId.isSafe]] guard),
-    * or when the probe exits non-zero or throws.
+    * and rehydrated on resume. The existence probe looks for the resolved
+    * SERVER id in [[GeminiSessionList]] — gemini mints its own id; the caller's
+    * stable id never appears there. [[SessionSupport.dispatchFor]] answers
+    * `Fresh` when no server id is mapped (including an id rejected by the
+    * [[orca.agents.SessionId.isSafe]] guard), or when the probe exits non-zero
+    * or throws.
     */
   val tag: BackendTag.Gemini.type = BackendTag.Gemini
 
@@ -84,9 +84,8 @@ private[orca] class GeminiBackend(
       IdScheme.ServerMinted,
       id =>
         val result = listSessionsOutput()
-        result.exitCode == 0 && result.stdout.linesIterator.exists(
-          _.contains(id)
-        )
+        result.exitCode == 0 &&
+        GeminiSessionList.mentions(result.stdout, id)
     )
 
   /** Spawn `gemini -p` (fresh) or `gemini --resume <server-id> -p`
@@ -139,4 +138,4 @@ private[orca] class GeminiBackend(
     * directory, so it lists only those the spawns in [[workDir]] can resume.
     */
   private[gemini] def listSessionsOutput(): CliResult =
-    cli.run(Seq("gemini", "--list-sessions"), cwd = workDir)
+    cli.run(GeminiSessionList.argv, cwd = workDir)

@@ -1,6 +1,6 @@
 package orca.runner
 
-import orca.{OrcaDir, RunKey}
+import orca.{OrcaDir, OrcaFlowException, RunKey}
 import orca.progress.ProgressStore
 import orca.testkit.{GitRepo, TempDirs}
 import orca.tools.Worktrees
@@ -116,6 +116,23 @@ class WorktreeRunTest extends munit.FunSuite:
     git(repo, "init", "-b", "main")
     val refusal = refusalOf(repo)
     assert(refusal.contains("git 2.31 or newer"), refusal)
+
+  test("resolving is refused while a live process holds the worktree lock"):
+    val repo = GitRepo.seeded()
+    val key = RunKey.of("task A")
+    val livePid = ProcessHandle.current().pid()
+    os.write(
+      OrcaDir.worktreeLockPath(repo, key),
+      livePid.toString,
+      createFolders = true
+    )
+    val thrown = intercept[OrcaFlowException](WorktreeRun.resolve(repo, key))
+    assertEquals(
+      thrown.getMessage,
+      s"a flow is already running for this task (pid $livePid) — " +
+        "wait for it to finish, or stop it"
+    )
+    assert(!os.exists(OrcaDir.worktreesPath(repo)), "nothing was created")
 
   test("reuse puts a detached worktree back on its branch"):
     val repo = GitRepo.seeded()

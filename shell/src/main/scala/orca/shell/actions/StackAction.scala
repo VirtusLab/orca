@@ -51,10 +51,9 @@ private[shell] object StackAction:
     * run re-triggers discovery.
     */
   def clear(workDir: os.Path, content: String): Unit =
-    os.write.over(
-      OrcaDir.settingsPath(workDir),
-      SettingsFile.stripStackLines(content)
-    )
+    OrcaDir
+      .settingsFile(workDir)
+      .replace(SettingsFile.stripStackLines(content))
 
   /** The one-line explanation shown when there's nothing to clear — an absent
     * settings file, or one with no live stack lines.

@@ -6,6 +6,7 @@ import orca.agents.{
   Agent,
   SessionId,
   SessionKey,
+  WireSessionId,
   AgentInput,
   Announce,
   JsonData
@@ -218,7 +219,7 @@ private def reuseOrMint[B <: BackendTag](
       warnBackendSwap(fc, key, recordedTag, agent.backendTag)
       mintSession(agent, key, seed)
     case _ =>
-      // Tags match (or the record predates tagging). The recorded id is
+      // Tags match, or the record is untagged. The recorded id is
       // log-sourced and untrusted: parse it rather than resume against a
       // value that could carry a path/regex/URL injection downstream; a
       // parse failure mints fresh like the tag-mismatch case.
@@ -227,10 +228,32 @@ private def reuseOrMint[B <: BackendTag](
           // Reuse is the safe fallback (ADR 0018 §2.6): a seed edited
           // between runs is surfaced as a warning, never a re-mint.
           warnIfSeedDiffers(fc, key, recorded.seed, seed)
+          recorded.resumeWireId.foreach(rehydrate(agent, validId, key, _))
           validId
         case None =>
           warnInvalidRecordedId(fc, key)
           mintSession(agent, key, seed)
+
+/** Hand the wire id a previous run recorded for `id` to `agent`, so its first
+  * turn this run — durable, or through a chat adopting `id` — probes and
+  * resumes that conversation. The wire id is file-sourced and untrusted: one
+  * that fails to parse is skipped with a warning, and the session re-seeds.
+  */
+private def rehydrate[B <: BackendTag](
+    agent: Agent[B],
+    id: SessionId[B],
+    key: SessionKey,
+    wire: String
+)(using fc: FlowControl): Unit =
+  WireSessionId.parse[B](wire) match
+    case Some(wireId) => agent.rehydrateResumeWireId(id, wireId)
+    case None =>
+      fc.context.emit(
+        OrcaEvent.Step(
+          s"warning: session ${key.describe} has an invalid recorded wire " +
+            "id — not resuming its conversation"
+        )
+      )
 
 private def warnBackendSwap(
     fc: FlowControl,
@@ -358,29 +381,20 @@ private val InterruptedAttemptNotice: String =
   PromptResource.load("/orca/prompts/interrupted-attempt.md").strip()
 
 /** After a run, persist the backend's now-learned resume wire id (durable
-  * backends only — one without a probe returns `None`), so a resumed run can
-  * rehydrate the map and probe the right session. Also self-heals
-  * [[SessionRecord.backend]] from `None` (an untagged record) to `agent`'s
-  * current tag, on the very run that just proved this `agent` owns it. Upserts
-  * only when something differs, so a no-op run writes nothing. Takes the
-  * [[WorkspaceWrite]] token explicitly to keep these writes flow-thread-only
-  * (ADR 0018 §6).
+  * backends only — one without a probe returns `None`), so a resumed run's
+  * `agent.session(...)` can rehydrate it. Upserts only when the wire id
+  * differs, so a no-op run writes nothing. Takes the [[WorkspaceWrite]] token
+  * explicitly to keep these writes flow-thread-only (ADR 0018 §6).
   */
 private def persistResumeWireId[B <: BackendTag](
     agent: Agent[B],
     session: SessionId[B]
 )(using fc: FlowControl, ws: WorkspaceWrite): Unit =
-  val healedTag: Option[BackendTag] = Some(agent.backendTag)
   for
     wireId <- agent.resumeWireId(session)
     record <- fc.sessionStore.records().find(_.id == session.value)
-    if !record.resumeWireId.contains(
-      wireId.value
-    ) || record.backend != healedTag
-  do
-    fc.sessionStore.upsert(
-      record.copy(resumeWireId = Some(wireId.value), backend = healedTag)
-    )
+    if !record.resumeWireId.contains(wireId.value)
+  do fc.sessionStore.upsert(record.copy(resumeWireId = Some(wireId.value)))
 
 /** Compose the progress preamble from completed stage names in the log and the
   * commit the working tree sits at. `None` when no stage has completed.

@@ -4,11 +4,22 @@ import orca.BoundedDiff
 import orca.gitref.CommitHash
 import orca.tools.GitTool
 
-/** A change set as the loop hands it out: the diff text a reviewer is sent, and
-  * the paths describing the same change set. Sampled together, so a consumer
-  * can never pair one round's diff with another's file list.
+/** A change set as the loop hands it out: the diff text a reviewer is sent, the
+  * paths describing the same change set, and each path's own diff section where
+  * the sample has one (see `orca.tools.ReviewSample`). Sampled together, so a
+  * consumer can never pair one round's diff with another's file list.
+  *
+  * `sections` is not bounded like `diff`: it also holds files `diff` leaves
+  * out.
   */
-private[review] case class DiffSample(diff: String, paths: List[String])
+private[review] case class DiffSample(
+    diff: String,
+    paths: List[String],
+    sections: Map[String, String]
+)
+
+private[review] object DiffSample:
+  val empty: DiffSample = DiffSample("", Nil, Map.empty)
 
 /** Where `reviewAndFixLoop` gets the change set under review. */
 enum ReviewDiff:
@@ -81,8 +92,9 @@ private[review] object ReviewDiffSource:
   private def sampleSince(git: GitTool, base: Option[CommitHash]): DiffSample =
     val changes = git.reviewChanges(base)
     DiffSample(
-      BoundedDiff.reviewPayload(changes.diff, changes.files),
-      changes.files.map(_.path)
+      BoundedDiff.reviewPayload(changes),
+      changes.files.map(_.path),
+      changes.sections
     )
 
   /** Everything the working tree has changed since the enclosing stage began.
@@ -127,9 +139,10 @@ private[review] object ReviewDiffSource:
     */
   case class Pinned(diff: String) extends ReviewDiffSource:
     // The diff is constant, so its file list is scraped once rather than per
-    // round.
+    // round. No sections: a pinned sample is the same every round, so it never
+    // reaches a cut that would need them.
     private val pinnedSample: DiffSample =
-      DiffSample(diff, extractChangedFiles(diff))
+      DiffSample(diff, extractChangedFiles(diff), Map.empty)
 
     def sample(): DiffSample = pinnedSample
     def base: Option[CommitHash] = None

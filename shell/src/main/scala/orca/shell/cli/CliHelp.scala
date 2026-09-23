@@ -1,6 +1,6 @@
 package orca.shell.cli
 
-import orca.shell.ShellVersion
+import orca.shell.OrcaBuild
 
 /** The curated top-level `orca --help` text (ADR 0021 §10/§5) — mainargs' own
   * auto-generated no-subcommand dump lists every method/arg flat with no
@@ -10,7 +10,7 @@ import orca.shell.ShellVersion
 private[shell] object CliHelp:
 
   val topLevel: String =
-    s"""orca shell ${ShellVersion.value} — run, author, and manage Orca flows
+    s"""orca shell ${OrcaBuild.current.version} — run, author, and manage Orca flows
        |
        |Usage:
        |  orca                    start the interactive shell

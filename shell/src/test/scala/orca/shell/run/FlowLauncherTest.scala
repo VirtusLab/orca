@@ -2,6 +2,7 @@ package orca.shell.run
 
 import orca.{FlowSourceProperty, OrcaArgs, RunTarget, Uncommitted}
 import orca.progress.FlowSource
+import orca.shell.OrcaBuild
 
 class FlowLauncherTest extends munit.FunSuite:
 
@@ -17,10 +18,10 @@ class FlowLauncherTest extends munit.FunSuite:
     branch = None
   )
 
-  test("argv forces --dep with a release version, before --workspace/--"):
+  test("argv forces --dep with a release build, before --workspace/--"):
     val result = FlowLauncher.argv(
       flow,
-      Some("0.0.18"),
+      Some(OrcaBuild.Release("0.0.18")),
       args,
       workspaceDir
     )
@@ -43,7 +44,26 @@ class FlowLauncherTest extends munit.FunSuite:
       )
     )
 
-  test("argv omits --dep when orcaVersion is None (dev build, pin-honouring)"):
+  test("argv forces a snapshot build with the local Ivy repository"):
+    val result = FlowLauncher.argv(
+      flow,
+      Some(OrcaBuild.Snapshot("0.0.18+5-abc")),
+      args,
+      workspaceDir
+    )
+    assert(
+      result.containsSlice(
+        Seq(
+          "--dep",
+          "org.virtuslab::orca:0.0.18+5-abc",
+          "--repository",
+          "ivy2Local"
+        )
+      ),
+      result
+    )
+
+  test("argv omits --dep for a pin-honouring run"):
     val result = FlowLauncher.argv(
       flow,
       None,
@@ -101,68 +121,43 @@ class FlowLauncherTest extends munit.FunSuite:
 
   test("compileArgv passes the same flow source as argv"):
     // scala-cli rebuilds when a --java-prop value changes.
-    val compile = FlowLauncher.compileArgv(flow, None, workspaceDir)
+    val compile =
+      FlowLauncher.compileArgv(flow, OrcaBuild.Release("0.0.18"), workspaceDir)
     assert(compile.containsSlice(Seq("--java-prop", sourceProp)), compile)
 
+  test("resolveNextAction: a zero exit is Succeed, without the compile probe"):
+    val probeCalls = new java.util.concurrent.atomic.AtomicInteger(0)
+    val result =
+      FlowLauncher.resolveNextAction(0, () => probeCalls.incrementAndGet())
+    assertEquals(result, FlowLauncher.NextAction.Succeed)
+    assertEquals(probeCalls.get(), 0)
+
   test(
-    "resolveNextAction: a signal-range exit (SIGINT 130 / SIGTERM 143) is CancelledBySignal, without invoking the compile probe"
+    "resolveNextAction: a signal-range exit (SIGINT 130 / SIGTERM 143) is CancelledBySignal, without the compile probe"
   ):
     for signalExit <- List(130, 143) do
       val probeCalls = new java.util.concurrent.atomic.AtomicInteger(0)
       val result = FlowLauncher.resolveNextAction(
         signalExit,
-        forcedVersionDefined = true,
         () => probeCalls.incrementAndGet()
       )
       assertEquals(result, FlowLauncher.NextAction.CancelledBySignal)
       assertEquals(probeCalls.get(), 0)
 
   test(
-    "resolveNextAction: a non-signal failure (1) still invokes the compile probe"
-  ):
-    val probeCalls = new java.util.concurrent.atomic.AtomicInteger(0)
-    val result = FlowLauncher.resolveNextAction(
-      1,
-      forcedVersionDefined = true,
-      () => { probeCalls.incrementAndGet(); 0 }
-    )
-    assertEquals(result, FlowLauncher.NextAction.ReportFailure(1))
-    assertEquals(probeCalls.get(), 1)
-
-  test(
-    "decideNextAction: forced run succeeding is Succeed regardless of any compile probe"
+    "resolveNextAction: a failure with a clean compile probe is a genuine flow failure"
   ):
     assertEquals(
-      FlowLauncher.decideNextAction(0, None),
-      FlowLauncher.NextAction.Succeed
-    )
-    assertEquals(
-      FlowLauncher.decideNextAction(0, Some(1)),
-      FlowLauncher.NextAction.Succeed
-    )
-
-  test(
-    "decideNextAction: forced failure with a clean compile probe is a genuine flow failure"
-  ):
-    assertEquals(
-      FlowLauncher.decideNextAction(1, Some(0)),
+      FlowLauncher.resolveNextAction(1, () => 0),
       FlowLauncher.NextAction.ReportFailure(1)
     )
 
   test(
-    "decideNextAction: forced failure with a failing compile probe offers the pin-honouring fallback"
+    "resolveNextAction: a failure with a failing compile probe offers the pin-honouring fallback"
   ):
     assertEquals(
-      FlowLauncher.decideNextAction(1, Some(1)),
+      FlowLauncher.resolveNextAction(1, () => 1),
       FlowLauncher.NextAction.OfferFallback
-    )
-
-  test(
-    "decideNextAction: forced failure with no compile probe (already pin-honouring) reports the failure directly"
-  ):
-    assertEquals(
-      FlowLauncher.decideNextAction(1, None),
-      FlowLauncher.NextAction.ReportFailure(1)
     )
 
   test(

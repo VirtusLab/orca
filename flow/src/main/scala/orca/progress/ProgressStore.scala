@@ -70,10 +70,12 @@ object ProgressStore:
     * same log.
     */
   def default(workDir: os.Path, key: RunKey): ProgressStore =
-    OsProgressStore(workDir, OrcaDir.progressPath(workDir, key))
+    OsProgressStore(workDir, key)
 
-private class OsProgressStore(workDir: os.Path, val path: os.Path)
+private class OsProgressStore(workDir: os.Path, key: RunKey)
     extends ProgressStore:
+
+  val path: os.Path = OrcaDir.progressPath(workDir, key)
 
   def load(): Option[ProgressLog] =
     loadDetailed() match
@@ -105,8 +107,9 @@ private class OsProgressStore(workDir: os.Path, val path: os.Path)
 
   private def restoreBytesIfRemoved(bytes: IArray[Byte]): Unit =
     if !os.exists(path) then
-      val _ = OrcaDir.ensureRuns(workDir)
-      os.write(path, IArray.genericWrapArray(bytes).toArray)
+      OrcaDir
+        .progressFile(workDir, key)
+        .replace(IArray.genericWrapArray(bytes).toArray)
 
   private[orca] def remove()(using ws: WorkspaceWrite): Unit =
     ws.check("progressStore.remove")
@@ -156,10 +159,6 @@ private class OsProgressStore(workDir: os.Path, val path: os.Path)
   // Rewrite the whole file each time rather than append JSONL: the log is a
   // single structured document whose entries `withEntry` replaces in place,
   // which an append-only log can't express, and it's small and bounded so a
-  // full rewrite is negligible. The temp file is staged under the self-ignored
-  // cache, not beside the log: a kill between temp and rename must not leave a
-  // stray file in committed `.orca/` for the next stage's `git add -A` (or a
-  // dirty-tree stash) to pick up.
+  // full rewrite is negligible.
   private def writeLog(log: ProgressLog): Unit =
-    val _ = OrcaDir.ensureRuns(workDir)
-    JsonFile.write(path, OrcaDir.ensureCache(workDir), log)
+    JsonFile.write(OrcaDir.progressFile(workDir, key), log)

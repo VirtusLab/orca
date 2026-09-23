@@ -129,14 +129,23 @@ launched in a non-repo directory fails with the flow's own existing clear
 error; the shell adds no pre-check.
 
 Version handling: by default the shell passes
-`--dep org.virtuslab::orca:<shellVersion>`, which is documented and verified
-(both directions, scala-cli 1.14.0) to REPLACE the script's
+`--dep org.virtuslab::orca:<shellVersion>` (plus `--repository ivy2Local` for
+a snapshot build, which only the local Ivy repository has), which is documented
+and verified (both directions, scala-cli 1.14.0) to REPLACE the script's
 `//> using dep` orca pin. This guarantees the run-manifest writer of §8
 exists in the child regardless of the script's pin. If the forced compile
 fails (a genuinely API-incompatible flow), the shell offers to re-run
 honouring the script's own pin, with a visible notice that session
 continuation will be unavailable. A canary test in `shell` pins the
 `--dep`-overrides-directive semantics against scala-cli upgrades.
+
+> **Amendment (2026-09-23).** The shell's version comes from a resource the
+> build generates, not the jar manifest, so a class-directory run (tests,
+> `sbt shell/run`) knows it too and there is no `dev` build without a version.
+> A snapshot build (dynver `+`-suffixed, published only by `sbt publishLocal`)
+> is forced onto every flow like a release, with `--repository ivy2Local`
+> added; before, a snapshot forced nothing, so project flows ran on their own
+> pin. `OrcaBuild` owns the pin, the forced arguments and the docs git ref.
 
 Subprocess obligations (research 02 §S3, all mandatory):
 
@@ -431,11 +440,11 @@ run, doubling as the browsable "crib from the built-ins" location.
 
 Version sync is by construction: `flows/` is added to the root `updateDocs`
 file set, so the release commit that CI builds the jar from already pins
-`//> using dep "org.virtuslab::orca:<thatVersion>"`. A dev build (dynver
-`+`-suffixed or `dev`) rewrites the extracted flows' pins to its own version
-and injects `//> using repository ivy2Local` (the `_seed_lib.sh --local`
-treatment), warning at startup that built-ins run against the locally
-published build. GitHub-raw
+`//> using dep "org.virtuslab::orca:<thatVersion>"`. A snapshot build
+(dynver `+`-suffixed; `OrcaBuild.Snapshot`) rewrites the extracted flows' pins
+to its own version and injects `//> using repository ivy2Local` (the
+`_seed_lib.sh --local` treatment), noting at startup that flows run on the
+locally published build. GitHub-raw
 fetching at the release tag was rejected: network-dependent, needs runtime
 tag mapping, and its one advantage — updating flows without a release — is
 an anti-feature for built-ins (research 04 §4).
@@ -958,7 +967,7 @@ included only as a last-resort fallback line.
 is the non-interactive CLI. `Main.main` dispatches on `args.head`:
 `--help`/`-h`/`help` prints a curated top-level synopsis (`CliHelp.topLevel`,
 hand-rolled — mainargs' no-subcommand output is a flat, undifferentiated
-dump); `--version`/`-V` prints `ShellVersion.value`; a known subcommand name
+dump); `--version`/`-V` prints `OrcaBuild.current.version`; a known subcommand name
 goes to `Cli.dispatch`; anything else is `orca: unknown command '<tok>'` to
 stderr, exit 2. Built with mainargs (already an `runner` dependency, ADR
 0004), one `@main` method per verb — no new arg-parsing library.

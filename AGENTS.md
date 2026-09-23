@@ -215,11 +215,12 @@ most easily broken:
   neither can be a stage's result. A handle stashed in an in-memory `var` in
   stage A and read in stage B still compiles, and fails loudly with
   `NoSuchElementException` on the resume that skips A.
-  Each record also carries the minting agent's `backend` tag, so
-  `FlowLifecycle.rehydrateSessions` replays a resumed run's resume wire ids
-  into the record's own backend's agent rather than always the lead
-  (untagged records fall back to the lead). The tag is a typed `BackendTag`:
-  a store holding an unknown one fails to decode and reads as empty.
+  When `agent.session(name, seed)` reuses a record, it hands the record's
+  resume wire id to that agent (`rehydrateResumeWireId`), so the session's
+  first turn this run probes and resumes it. Each record also carries the
+  minting agent's `backend` tag; a reuse by an agent with a different tag
+  mints fresh. The tag is a typed `BackendTag`: a store holding an unknown one
+  fails to decode and reads as empty.
 
 - **Tool enforcement.** `AgentConfig.tools: ToolSet`
   (ReadOnly/NetworkOnly/Full/NoTools) and `autoApprove: AutoApprove`
@@ -282,7 +283,8 @@ session. Settings and user-authored files (`settings.properties`, `flows/`,
 SHA-256(user prompt)); `<id>` is an `AttemptId` (`<startedAt epoch ms>-<pid>`) —
 see "Persisted-state vocabulary" below for what a run and an attempt are.
 `OrcaDir` owns every path under `.orca/`. Every whole-file JSON document is read
-and written through `orca.util.JsonFile`.
+and written through `orca.util.JsonFile`, and every whole-file write replaces an
+`OrcaDir.OrcaFile` atomically.
 
 Three location classes decide what survives:
 
@@ -298,14 +300,15 @@ Three location classes decide what survives:
 | Path | Class | Holds | Written by | Read by | Removed by |
 |---|---|---|---|---|---|
 | `.orca/runs/<key>.progress.json` | committed | `ProgressLog`: header (branches, `branchMode`, `startingCommit`, `userPrompt`, `flow`), one `StageEntry` per completed stage (`id` as `StagePath` segments, `resultJson`), `published` | `ProgressStore` (`FlowLifecycle.freshRun`, `Flow.recordAndCommit`, `recordOpenedPr`) | `Flow.resumeFrom`, `RecoveryCheck`, `FlowLifecycle`, shell `ResumeDetector` (header) | success teardown, in a final commit |
-| `.orca/cache/runs/<key>.sessions.json` | cache | `SessionRecord` per durable session: `name`, `stage`, `id`, `seed`, `resumeWireId`, `backend` | `SessionStore` (`Session.mintSession`, `persistResumeWireId`) | `Session`, `FlowLifecycle.rehydrateSessions` | success teardown; nothing else prunes them |
+| `.orca/cache/runs/<key>.sessions.json` | cache | `SessionRecord` per durable session: `name`, `stage`, `id`, `seed`, `resumeWireId`, `backend` | `SessionStore` (`Session.mintSession`, `persistResumeWireId`) | `Session` | success teardown; nothing else prunes them |
 | `.orca/cache/attempts/<id>.manifest.json` | cache | `AttemptManifest`: `workDir`, `pid`, `startedAt`, `finishedAt`, `status`, `orcaVersion`, `flow`, `branch`, `sessions[]` (`ManifestSession`) — written when the attempt starts, then on every stage transition, `BranchBound`, `SessionCommitted` and finish | `AttemptManifestWriter` | shell `ManifestReader` → session picker / `orca continue` (attempts with no session are left out) | pruning: newest 20 attempts with a session ∪ newest 20 of any kind |
 | `.orca/cache/attempts/<id>.cost.jsonl` | cache | one `CostRecord` line per `TokensUsed` (agent, role, model, stage, turn, usage, cost, session) — created on the first `TokensUsed` | `CostLog` via `AttemptManifestWriter` | nothing in orca; a measurement record for people and scripts | pruned with its manifest |
 | `.orca/cache/attempts/<id>.trace.log` (+ `.trace.1.log`) | cache | DEBUG trace of logger `orca`: prompts, agent output, tool calls; 4 MB roll | `OrcaLog` | people (path in the banner) | pruned with its manifest |
-| `.orca/cache/flow.lock` | cache | holder pid | `FlowLock` | `FlowLock` on contention | `runFlow`'s `finally`; a dead pid is stolen |
+| `.orca/cache/flow.lock` | cache | holder pid | `FlowLock` | `FlowLock` on contention | `FlowLock` when the run ends; a dead pid is stolen |
+| `.orca/cache/worktree-<key>.lock` (main checkout) | cache | holder pid | `FlowLock` | `FlowLock` on contention | `FlowLock` when the worktree is resolved; a dead pid is stolen |
 | `.orca/cache/pi-sessions/<session id>/` | cache | pi's own `--session-dir` transcripts | pi | `PiSessionStore` (resume probe), shell pi resume | `PiSessionStore.prune` after 30 days untouched |
 | `.orca/cache/lint-*.txt` | cache | lint output too large to inline in a prompt | `Lint` | the summarising agent | `lint`'s `finally` |
-| `.orca/cache/{,runs/,attempts/}.<file>.<n>.tmp` | cache | in-flight temp of a `JsonFile` rewrite: beside its target, except the progress log's, staged in `.orca/cache/` so it is never committed | `JsonFile` | — (`AttemptManifestWriter`'s pruning skips dot-files) | the rename that completes the write |
+| `.orca/cache/{,runs/,attempts/}.<file>.<uuid>.tmp` | cache | in-flight temp of an `OrcaFile` replace: beside a cache file, in `.orca/cache/` for a committed one (progress log, settings) so it is never committed | `OrcaDir.OrcaFile` | — (`AttemptManifestWriter`'s pruning skips dot-files) | the rename that completes the write |
 | `.orca/worktrees/<key>/` (+ branch `orca-worktree-<key>`) | worktrees | a `--worktree` run's checkout, with its own `.orca/` inside | `WorktreeRun` | `WorktreeScan` (shell) | never — see README |
 | `<workDir>/.gemini/settings.json` | user tree | an `mcpServers.orca` entry for one interactive gemini conversation | `GeminiSettings` | gemini | restored at turn end; a `.gemini/` orca created is removed when left empty |
 | `$TMPDIR/orca-*` (system prompts, claude MCP config, codex schema, pi extension) | temp | per-turn IPC files handed to a CLI on argv | each backend | the CLI | turn end |
@@ -501,16 +504,17 @@ Orca is 0.x: no backwards compatibility is owed anywhere.
   they are not swept; the server's cookie is swept when the server stops.
   Report-only unless `ORCA_SWEEP_KILL=1`; Linux only, and
   silently inert elsewhere (nothing to act on, so nothing is said).
-- Any filesystem write under `.orca/` **must** go through an
-  `OrcaDir.ensure*` accessor, which refuses a symlinked `.orca` or
-  `.orca/cache` component (`OrcaDir.abortIfOrcaComponentSymlink`) before
+- Any filesystem write under `.orca/` **must** go through `OrcaDir`, which
+  refuses a symlinked directory from `.orca` down (lstat, no-follow) before
   creating or writing through it — a committed symlink (git mode 120000)
   would otherwise redirect orca's writes outside the working tree, since orca
-  runs flows against arbitrary cloned repos. Prefer `os.write` (`CREATE_NEW`,
-  refuses an existing symlink at the leaf) over `os.write.over` (follows a
-  leaf symlink); if `.over` is unavoidable, guard the path with `os.isLink`
-  first. The check is lstat/no-follow and runs at the earliest `.orca` touch
-  (`FlowLock.acquireWorkdir` → `ensureCache`), ahead of any mutation.
+  runs flows against arbitrary cloned repos. A whole-file write takes an
+  `OrcaDir.OrcaFile` (only `OrcaDir` creates one) and its `replace`, whose
+  rename replaces a leaf symlink instead of following it. Other writes (appends,
+  lock files) go inside a directory an `OrcaDir.ensure*` accessor returned, with
+  `os.write` (`CREATE_NEW`, refuses a leaf symlink) over `os.write.over`. The
+  check runs at the earliest `.orca` touch (`FlowLock` → `ensureCache`), ahead
+  of any mutation.
 
 The `direct-style-scala` plugin codifies the Scala-style bullets; re-reading
 its chapters before a non-trivial change is recommended.

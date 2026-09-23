@@ -306,8 +306,8 @@ final class Agent[B <: BackendTag] private (
       pinned = config.model
     )
 
-  /** This agent's backend tag. Stamps `SessionRecord.backend` so a resumed
-    * run's targeted rehydration knows which agent a session belongs to.
+  /** This agent's backend tag. Stamps `SessionRecord.backend`, so a later run
+    * reuses a recorded session only on the same backend.
     */
   private[orca] def backendTag: B = backend.tag
 
@@ -331,17 +331,17 @@ final class Agent[B <: BackendTag] private (
     * handle) against, or `None` if unknown or not durably resumable — equal to
     * `client` where the client id IS the wire id (claude, pi), a learned
     * server-thread id for codex/gemini/opencode, `None` for a backend whose
-    * sessions don't outlive the run. The flow runtime reads this after a run to
-    * persist it into the progress log.
+    * sessions don't outlive the run. The flow runtime reads this after a turn
+    * to persist it into the session store.
     */
   def resumeWireId(client: SessionId[B]): Option[WireSessionId[B]] =
     backend.sessions.persistableWireId(client)
 
   /** Record a resume wire id a previous run persisted for `client` — see
-    * [[orca.backend.SessionSupport.rehydrate]]. The flow runtime calls this on
-    * resume, before any turn.
+    * [[orca.backend.SessionSupport.rehydrate]]. `agent.session(name, seed)`
+    * calls this when it reuses a recorded session.
     */
-  def rehydrateResumeWireId(
+  private[orca] def rehydrateResumeWireId(
       client: SessionId[B],
       wireId: WireSessionId[B]
   ): Unit =

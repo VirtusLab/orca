@@ -129,12 +129,12 @@ final class SessionSupport[B <: BackendTag] private (
     case IdScheme.ServerMinted  => Dispatch.Fresh(None)
 
   /** Record the wire id a previous run persisted for `client`, unconfirmed
-    * until the next [[dispatchFor]] probes it. The flow runtime calls this on
-    * resume, before any turn.
+    * until the next [[dispatchFor]] probes it. `agent.session(name, seed)`
+    * calls this when it reuses a recorded session.
     *
     * An unsafe wire id (empty, or failing [[orca.agents.SessionId.isSafe]]) is
-    * logged at ERROR and NOT recorded — rehydration must not hard-abort setup
-    * over one stale field; the next call re-seeds a fresh session.
+    * logged at ERROR and NOT recorded — one stale field must not fail the run;
+    * the next call re-seeds a fresh session.
     */
   def rehydrate(client: SessionId[B], wire: WireSessionId[B]): Unit =
     if isRecordable(wire) then

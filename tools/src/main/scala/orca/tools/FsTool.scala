@@ -1,6 +1,6 @@
 package orca.tools
 
-import orca.{OrcaFlowException, WorkspaceWrite}
+import orca.{OrcaDir, OrcaFlowException, WorkspaceWrite}
 
 import java.nio.file.FileSystems
 
@@ -23,6 +23,11 @@ trait FsTool:
     */
   def read(path: String): Option[String]
 
+  /** Write `content` to the file at `path`, creating parent directories.
+    * Refuses, with [[orca.OrcaFlowException]], a path that — symlinks resolved
+    * — lies outside the working directory or inside a directory orca owns
+    * (`.orca/runs`, `.orca/cache`, `.orca/worktrees`).
+    */
   def write(path: String, content: String)(using WorkspaceWrite): Unit
   def list(glob: String): List[String]
 
@@ -38,7 +43,9 @@ private[orca] class OsFsTool(base: os.Path = os.pwd) extends FsTool:
 
   def write(path: String, content: String)(using ws: WorkspaceWrite): Unit =
     ws.check("fs.write")
-    os.write.over(resolve(path), content, createFolders = true)
+    val target = resolve(path)
+    validateWriteTarget(path, target)
+    os.write.over(target, content, createFolders = true)
 
   def list(glob: String): List[String] =
     validateGlob(glob)
@@ -56,6 +63,40 @@ private[orca] class OsFsTool(base: os.Path = os.pwd) extends FsTool:
 
   private def resolve(path: String): os.Path =
     os.Path(path, base)
+
+  /** Refuses `target` unless, symlinks resolved, it lies in the working
+    * directory and outside the directories orca manages.
+    */
+  private def validateWriteTarget(path: String, target: os.Path): Unit =
+    val realBase = os.Path(base.toNIO.toRealPath())
+    val real = realLocation(path, target)
+    if !real.startsWith(realBase) then
+      throw OrcaFlowException(
+        s"fs.write: '$path' resolves outside the flow's working directory " +
+          s"$base — write inside it"
+      )
+    List(
+      OrcaDir.runsPath(realBase),
+      OrcaDir.cachePath(realBase),
+      OrcaDir.worktreesPath(realBase)
+    ).find(real.startsWith)
+      .foreach: owned =>
+        throw OrcaFlowException(
+          s"fs.write: '$path' is inside $owned, which orca manages — " +
+            "write elsewhere in the working directory"
+        )
+
+  /** Where writing `target` lands: the real path of its deepest existing
+    * ancestor (itself included), plus the segments still to be created.
+    */
+  private def realLocation(path: String, target: os.Path): os.Path =
+    if os.exists(target) then os.Path(target.toNIO.toRealPath())
+    else if os.isLink(target) then
+      throw OrcaFlowException(
+        s"fs.write: '$path' goes through the dangling symlink $target — " +
+          "remove the link or write elsewhere"
+      )
+    else realLocation(path, target / os.up) / target.last
 
   /** Reject glob shapes `globRoot`'s segment fold can't handle cleanly: a
     * leading `/` (would only ever match nothing, since found paths are relative

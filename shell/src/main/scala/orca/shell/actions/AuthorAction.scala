@@ -2,7 +2,7 @@ package orca.shell.actions
 
 import org.jline.terminal.Terminal
 import orca.{OrcaArgs, OrcaDir, RunTarget, Uncommitted}
-import orca.shell.{ShellEnv, ShellVersion}
+import orca.shell.{OrcaBuild, ShellEnv}
 import orca.shell.create.{
   AuthoringSandbox,
   FlowAuthoring,
@@ -10,7 +10,13 @@ import orca.shell.create.{
   FlowDestination
 }
 import orca.shell.flows.{BuiltInFlows, DiscoveredFlow}
-import orca.shell.run.{FallbackPolicy, FlowLauncher, LaunchResult, LaunchedFlow}
+import orca.shell.run.{
+  FallbackPolicy,
+  FlowLauncher,
+  LaunchResult,
+  LaunchedFlow,
+  PinPolicy
+}
 import orca.shell.ui.{ShellOutput, ShellUi}
 
 /** Authors a new, forked or edited flow by running the built-in `simple.sc`
@@ -54,7 +60,7 @@ private[shell] object AuthorAction:
       goal,
       sandboxTarget(sandbox, destination),
       apiDir,
-      ShellVersion.value
+      OrcaBuild.current
     )
     launchAuthoringFlow(
       prompt,
@@ -135,7 +141,7 @@ private[shell] object AuthorAction:
       sourcePath,
       sandboxTarget(sandbox, destination),
       apiDir,
-      ShellVersion.value
+      OrcaBuild.current
     )
     launchAuthoringFlow(
       prompt,
@@ -150,7 +156,7 @@ private[shell] object AuthorAction:
   private def extractApiMaterial(sandbox: os.Path): os.Path =
     FlowAuthoring.extractApiMaterial(
       OrcaDir.ensureCache(sandbox),
-      ShellVersion.value
+      OrcaBuild.current.version
     )
 
   /** Where the flow writes the authored file: the sandbox root, under the real
@@ -178,10 +184,10 @@ private[shell] object AuthorAction:
       terminal: Terminal,
       launch: FlowLauncher.FlowLaunch
   )(using env: ShellEnv): LaunchResult =
-    val flow = BuiltInFlows.extracted(env.cacheHome, ShellVersion.value) /
+    val flow = BuiltInFlows.extracted(env.cacheHome, OrcaBuild.current) /
       AuthoringFlowName
     val result = launch(
-      FallbackPolicy.Ask(ui),
+      PinPolicy.Force(FallbackPolicy.Ask(ui)),
       LaunchedFlow.file(flow),
       OrcaArgs(
         userPrompt = prompt,

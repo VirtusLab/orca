@@ -49,7 +49,7 @@ private[shell] object SettingsEditAction:
         OrcaDir.assertNoOrcaSymlinks(env.workDir, path)
         if !os.exists(path) then
           OrcaDir.ensureRoot(env.workDir).discard
-          os.write.over(path, ProjectTemplate, createFolders = true)
+          os.write(path, ProjectTemplate)
 
   /** Re-parses `tier`'s settings file after the editor exits, reusing
     * [[ConfigAction.show]]/[[ConfigAction.showProject]] so the malformed-file

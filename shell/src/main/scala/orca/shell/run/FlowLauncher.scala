@@ -3,18 +3,29 @@ package orca.shell.run
 import org.jline.terminal.Terminal
 import orca.{FlowSourceProperty, OrcaArgs}
 import orca.progress.FlowSource
-import orca.shell.{ShellEnv, ShellVersion}
+import orca.shell.{OrcaBuild, ShellEnv}
 import orca.shell.ui.{ShellOutput, ShellUi, UiOutcome}
 import orca.subprocess.QuietProc
 
-/** Outcome of [[FlowLauncher.run]]. */
+/** Outcome of [[FlowLauncher.runAnnounced]]. */
 private[shell] enum LaunchResult:
   case Ok
   case Failed(exit: Int)
   case Cancelled
 
+/** Which orca a launched flow runs on (ADR 0021 §2). */
+private[shell] enum PinPolicy:
+  /** The shell's own [[OrcaBuild]], replacing the flow's pin, so the run
+    * manifest writer is guaranteed present; `onIncompatible` decides what
+    * happens when the flow doesn't compile against it.
+    */
+  case Force(onIncompatible: FallbackPolicy)
+
+  /** The flow's own `//> using dep` pin (`orca run --honor-pin`). */
+  case Honor
+
 /** Who decides whether to fall back to a pin-honouring re-run when the forced
-  * version fails to compile (ADR 0021 §2, [[FlowLauncher.run]]'s
+  * version fails to compile (ADR 0021 §2, [[FlowLauncher.runAnnounced]]'s
   * [[FlowLauncher.NextAction.OfferFallback]] branch): the interactive menu asks
   * via a [[ShellUi]] confirm; a non-interactive caller refuses outright with a
   * hint instead of ever prompting.
@@ -24,10 +35,7 @@ private[shell] enum FallbackPolicy:
   case Refuse(hint: String)
 
 /** Runs a selected flow as a `scala-cli run` child inheriting the shell's
-  * terminal (ADR 0021 §2). By default the shell forces its own orca version via
-  * `--dep`, overriding the flow's own `//> using dep` pin, so the run-manifest
-  * writer is guaranteed present; on a version-incompatible flow (forced compile
-  * fails) it falls back to a pin-honouring re-run at the user's confirmation.
+  * terminal (ADR 0021 §2), on the orca its [[PinPolicy]] picks.
   */
 private[shell] object FlowLauncher:
 
@@ -38,14 +46,12 @@ private[shell] object FlowLauncher:
     */
   private[shell] type FlowLaunch =
     (
-        FallbackPolicy,
+        PinPolicy,
         LaunchedFlow,
         OrcaArgs,
         os.Path,
         Terminal
     ) => LaunchResult
-
-  private val orgAndArtifact = "org.virtuslab::orca"
 
   /** scala-cli's own logging flags, on every spawn.
     *
@@ -59,13 +65,10 @@ private[shell] object FlowLauncher:
     */
   private val loggingArgs = Seq("--quiet", "--verbose")
 
-  /** `--dep org.virtuslab::orca:<v>`, or nothing when `orcaVersion` is `None`
-    * (dev build, or an already-declined fallback).
+  /** `forced`'s [[OrcaBuild.forceArgs]], or nothing for a pin-honouring run.
     */
-  private def depArgs(orcaVersion: Option[String]): Seq[String] =
-    orcaVersion
-      .map(v => Seq("--dep", s"$orgAndArtifact:$v"))
-      .getOrElse(Seq.empty)
+  private def depArgs(forced: Option[OrcaBuild]): Seq[String] =
+    forced.toSeq.flatMap(_.forceArgs)
 
   /** Tells the flow child its [[FlowSource]] ([[FlowSourceProperty]]). On the
     * compile probe too, since scala-cli rebuilds when a `--java-prop` value
@@ -74,7 +77,7 @@ private[shell] object FlowLauncher:
   private def flowSourceArgs(source: FlowSource): Seq[String] =
     Seq("--java-prop", FlowSourceProperty.assignment(source))
 
-  /** `scala-cli run <flow> --quiet --verbose [--dep ...] --java-prop ...
+  /** `scala-cli run <flow> --quiet --verbose [<forced build>] --java-prop ...
     * --workspace <dir> -- <args>`. The `--verbose` before `--` is scala-cli's
     * own ([[loggingArgs]]); everything after `--` is the flow's own
     * ([[orca.OrcaArgs.toArgv]]). `--workspace` relocates scala-cli's own
@@ -90,7 +93,7 @@ private[shell] object FlowLauncher:
     */
   def argv(
       flow: LaunchedFlow,
-      orcaVersion: Option[String],
+      forced: Option[OrcaBuild],
       args: OrcaArgs,
       workspaceDir: os.Path
   ): Seq[String] =
@@ -100,7 +103,7 @@ private[shell] object FlowLauncher:
     )
     Seq("scala-cli", "run", flow.path.toString) ++
       loggingArgs ++
-      depArgs(orcaVersion) ++
+      depArgs(forced) ++
       flowSourceArgs(flow.source) ++
       Seq("--workspace", workspaceDir.toString, "--") ++
       args.toArgv
@@ -111,40 +114,22 @@ private[shell] object FlowLauncher:
     */
   private[run] def compileArgv(
       flow: LaunchedFlow,
-      orcaVersion: Option[String],
+      forced: OrcaBuild,
       workspaceDir: os.Path
   ): Seq[String] =
     Seq(
       "scala-cli",
       "compile",
       flow.path.toString
-    ) ++ depArgs(orcaVersion) ++ flowSourceArgs(flow.source) ++
+    ) ++ forced.forceArgs ++ flowSourceArgs(flow.source) ++
       Seq("--workspace", workspaceDir.toString)
 
-  /** What to do once the forced run has finished: `compileExit` is `None` when
-    * no probe ran (there was nothing forced to blame — either the run
-    * succeeded, or it was already pin-honouring).
-    */
+  /** What to do once the forced run has finished. */
   enum NextAction:
     case Succeed
     case ReportFailure(exit: Int)
     case OfferFallback
     case CancelledBySignal
-
-  /** Pure decision at the core of the fallback dance (ADR 0021 §2): a nonzero
-    * forced exit is a genuine flow failure only when `scala-cli compile` (run
-    * with the same forced `--dep`) also succeeds — that proves the forced
-    * version compiles fine, so the flow itself is what's broken. When the
-    * compile probe also fails, the forced version is to blame instead, and a
-    * pin-honouring fallback is offered.
-    */
-  def decideNextAction(forcedExit: Int, compileExit: Option[Int]): NextAction =
-    if forcedExit == 0 then NextAction.Succeed
-    else
-      compileExit match
-        case Some(0) => NextAction.ReportFailure(forcedExit)
-        case Some(_) => NextAction.OfferFallback
-        case None    => NextAction.ReportFailure(forcedExit)
 
   /** A run conventionally killed by a signal (128 + signal number, e.g. 130 for
     * SIGINT, 143 for SIGTERM — `man 7 signal`'s exit-status convention). A
@@ -155,28 +140,27 @@ private[shell] object FlowLauncher:
     */
   private def isSignalExit(exit: Int): Boolean = exit >= 128
 
-  /** Decides the next action for a forced run, calling `compileProbe` only when
-    * a probe is actually warranted (a nonzero, non-signal exit, with a forced
-    * version to blame) — split out of [[run]] so the no-probe-on-signal-exit
-    * behaviour is unit-testable with a recording thunk instead of a real
-    * `scala-cli compile` subprocess.
+  /** The decision at the core of the fallback dance (ADR 0021 §2): a nonzero,
+    * non-signal forced exit is a genuine flow failure only when `compileProbe`
+    * (`scala-cli compile` with the same forced build) succeeds — that proves
+    * the forced build compiles fine, so the flow itself is what's broken. When
+    * the probe also fails, the forced build is to blame instead, and a
+    * pin-honouring fallback is offered. `compileProbe` runs only in that case;
+    * tests pass a recording thunk instead of a real subprocess.
     */
   private[run] def resolveNextAction(
       forcedExit: Int,
-      forcedVersionDefined: Boolean,
       compileProbe: () => Int
   ): NextAction =
-    if isSignalExit(forcedExit) then NextAction.CancelledBySignal
-    else
-      val compileExit =
-        if forcedExit != 0 && forcedVersionDefined then Some(compileProbe())
-        else None
-      decideNextAction(forcedExit, compileExit)
+    if forcedExit == 0 then NextAction.Succeed
+    else if isSignalExit(forcedExit) then NextAction.CancelledBySignal
+    else if compileProbe() == 0 then NextAction.ReportFailure(forcedExit)
+    else NextAction.OfferFallback
 
   /** Signal-range exits map to Cancelled on every spawn path — the fallback
     * re-run is just as interruptible as the forced one. Every raw-exit spawn
-    * path in this object ([[run]]'s fallback, [[runHonoringPin]]) maps through
-    * here, so the classification stays in one place.
+    * path in this object ([[runForced]]'s fallback, [[PinPolicy.Honor]]) maps
+    * through here, so the classification stays in one place.
     */
   private[run] def toLaunchResult(exit: Int): LaunchResult =
     if exit == 0 then LaunchResult.Ok
@@ -202,9 +186,17 @@ private[shell] object FlowLauncher:
       )
       .exitCode
 
-  private def fallbackQuestion(shellVersion: String): String =
-    s"This flow pins an orca version incompatible with the shell ($shellVersion) — " +
-      "sessions from a pin-honoring run can't be continued. Run anyway?"
+  /** A snapshot that isn't in the local Ivy repository fails the forced compile
+    * the same way an incompatible flow does, so its question names both.
+    */
+  private def fallbackQuestion(build: OrcaBuild): String =
+    val cause = build match
+      case OrcaBuild.Release(v) =>
+        s"This flow pins an orca version incompatible with the shell ($v)"
+      case OrcaBuild.Snapshot(v) =>
+        s"This flow pins an orca version incompatible with the shell ($v), " +
+          "or that snapshot isn't published locally (sbt publishLocal)"
+    s"$cause — sessions from a pin-honoring run can't be continued. Run anyway?"
 
   /** The flow-end line's outcome suffix: `finished (exit N)` for a completed
     * run, `finished (cancelled)` for a signal-killed one.
@@ -215,10 +207,10 @@ private[shell] object FlowLauncher:
     case LaunchResult.Cancelled    => "finished (cancelled)"
 
   /** The shared `println / section(start) / … / section(end) / println` bracket
-    * every foreground flow spawn prints around itself: the top-level forced run
-    * ([[runAnnounced]]), the `--honor-pin` run ([[runHonoringPin]]), and
-    * [[run]]'s own pin-honouring fallback re-run. `spawn` produces the
-    * [[LaunchResult]] whose [[outcomeSuffix]] closes the bracket.
+    * every foreground flow spawn prints around itself: the top-level run
+    * ([[runAnnounced]]) and [[runForced]]'s own pin-honouring fallback re-run.
+    * `spawn` produces the [[LaunchResult]] whose [[outcomeSuffix]] closes the
+    * bracket.
     *
     * The child is silent while it resolves ([[loggingArgs]]) and the launcher
     * can't see when that starts or ends, so the notice is unconditional: a warm
@@ -237,55 +229,36 @@ private[shell] object FlowLauncher:
     result
 
   /** Top-level flow run for the menu and `orca run`: the announced bracket
-    * around [[run]], executed as a tty-inherited child under
+    * around the run `policy` picks, executed as a tty-inherited child under
     * [[ChildTerminal.withChild]] (ADR 0021 §2). Owns the section markers and
     * the terminal bracket so callers hand off a single call.
     */
   private[shell] def runAnnounced(
-      fallback: FallbackPolicy,
+      policy: PinPolicy,
       flow: LaunchedFlow,
       args: OrcaArgs,
       workDir: os.Path,
       terminal: Terminal
   )(using ShellEnv): LaunchResult =
-    announced(s"starting flow ${flow.fileName}", flow.fileName)(
-      ChildTerminal.withChild(terminal)(
-        run(fallback, flow, args, workDir)
-      )
+    val label = policy match
+      case PinPolicy.Force(_) => s"starting flow ${flow.fileName}"
+      case PinPolicy.Honor => s"starting flow ${flow.fileName} (honoring pin)"
+    announced(label, flow.fileName)(
+      ChildTerminal.withChild(terminal):
+        policy match
+          case PinPolicy.Force(onIncompatible) =>
+            runForced(onIncompatible, flow, args, workDir)
+          case PinPolicy.Honor =>
+            toLaunchResult(
+              spawnInherited(
+                argv(flow, None, args, resolveWorkspaceDir()),
+                workDir
+              )
+            )
     )
 
-  /** `--honor-pin`'s direct pin-honouring run (ADR 0021 §2/§10): [[run]] has no
-    * "skip the forced version from the start" path — its pin-honouring re-run
-    * is only offered as a fallback after a forced failure — so this spawns
-    * [[argv]]'s pin-honouring argv (no `--dep`) itself, under the same
-    * [[ChildTerminal.withChild]] bracket and announced markers the forced run
-    * uses. No compile probe or fallback: the user has already opted into the
-    * flow's own pin.
-    */
-  private[shell] def runHonoringPin(
-      flow: LaunchedFlow,
-      args: OrcaArgs,
-      workDir: os.Path,
-      terminal: Terminal
-  )(using ShellEnv): LaunchResult =
-    announced(
-      s"starting flow ${flow.fileName} (honoring pin)",
-      flow.fileName
-    )(
-      ChildTerminal.withChild(terminal)(
-        toLaunchResult(
-          spawnInherited(
-            argv(flow, None, args, resolveWorkspaceDir()),
-            workDir
-          )
-        )
-      )
-    )
-
-  /** Runs `flow` forced to the shell's own orca version (skipped — i.e. the
-    * forced and pin-honouring runs coincide — when the running shell is a dev
-    * build, never an unpublishable version to force). On a forced failure that
-    * a compile probe also reproduces, `fallback` decides what happens next:
+  /** Runs `flow` forced to [[OrcaBuild.current]]. On a forced failure that a
+    * compile probe also reproduces, `fallback` decides what happens next:
     * [[FallbackPolicy.Ask]] offers a pin-honouring re-run via `ui.confirm`,
     * with the notice that its sessions won't be continuable;
     * [[FallbackPolicy.Refuse]] reports the forced failure directly, with its
@@ -294,32 +267,30 @@ private[shell] object FlowLauncher:
     * without a compile probe or fallback offer either way — there's nothing to
     * blame on the version override.
     */
-  def run(
+  private def runForced(
       fallback: FallbackPolicy,
       flow: LaunchedFlow,
       args: OrcaArgs,
       workDir: os.Path
   )(using ShellEnv): LaunchResult =
-    val shellVersion = ShellVersion.value
-    val forcedVersion =
-      if ShellVersion.isRelease(shellVersion) then Some(shellVersion) else None
+    val build = OrcaBuild.current
     val workspaceDir = resolveWorkspaceDir()
     val forcedExit = spawnInherited(
-      argv(flow, forcedVersion, args, workspaceDir),
+      argv(flow, Some(build), args, workspaceDir),
       workDir
     )
     val compileProbe = () =>
       QuietProc
-        .call(compileArgv(flow, forcedVersion, workspaceDir), cwd = workDir)
+        .call(compileArgv(flow, build, workspaceDir), cwd = workDir)
         .exitCode
-    resolveNextAction(forcedExit, forcedVersion.isDefined, compileProbe) match
+    resolveNextAction(forcedExit, compileProbe) match
       case NextAction.Succeed             => LaunchResult.Ok
       case NextAction.ReportFailure(exit) => LaunchResult.Failed(exit)
       case NextAction.CancelledBySignal   => LaunchResult.Cancelled
       case NextAction.OfferFallback =>
         fallback match
           case FallbackPolicy.Ask(ui) =>
-            ui.confirm(fallbackQuestion(shellVersion), default = true) match
+            ui.confirm(fallbackQuestion(build), default = true) match
               case UiOutcome.Selected(true) =>
                 announced(
                   s"pin-honoring re-run of ${flow.fileName}",
@@ -335,5 +306,5 @@ private[shell] object FlowLauncher:
               case UiOutcome.Selected(false) | UiOutcome.Cancelled =>
                 LaunchResult.Cancelled
           case FallbackPolicy.Refuse(hint) =>
-            ShellOutput.error(s"${fallbackQuestion(shellVersion)} $hint")
+            ShellOutput.error(s"${fallbackQuestion(build)} $hint")
             LaunchResult.Failed(forcedExit)

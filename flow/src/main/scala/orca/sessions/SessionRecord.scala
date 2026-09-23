@@ -16,12 +16,10 @@ import orca.agents.{BackendTag, SessionKey}
   *     a durable transcript, so recording it re-claims the session (`--resume`
   *     / `--continue`) on a resumed run.
   *
-  * `backend` records the minting agent's [[orca.agents.BackendTag]], so
-  * targeted rehydration (`FlowLifecycle.rehydrateSessions`) knows which agent
-  * to replay `resumeWireId` into rather than assuming the lead. `None` when the
-  * minting agent carries no backend tag (a stub agent) — falls back to the
-  * lead. `agent.session(name, seed)`'s reuse arm self-heals a stale tag from a
-  * lead-backend swap.
+  * `backend` records the minting agent's [[orca.agents.BackendTag]]:
+  * `agent.session(name, seed)` reuses the record only for an agent with the
+  * same tag, and mints fresh otherwise. `None` when the minting agent carries
+  * no backend tag (a stub agent); any agent then reuses it.
   */
 case class SessionRecord(
     name: String,

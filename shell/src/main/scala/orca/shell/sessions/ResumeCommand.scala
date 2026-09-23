@@ -23,8 +23,9 @@ private[shell] object ResumeCommand:
 
   /** Left = not resumable: [[staticGate]]'s checks, plus whatever the caller's
     * live lookups report — gemini's `geminiIndex` (it resumes by index, not by
-    * uuid, so the caller matches the wire id against `gemini --list-sessions`)
-    * and pi's `piSessionDir` (its transcripts live on disk;
+    * uuid, so the caller looks the wire id up in
+    * [[orca.tools.gemini.GeminiSessionList]]) and pi's `piSessionDir` (its
+    * transcripts live on disk;
     * [[orca.shell.actions.SessionAction.piSessionDir]] resolves the path or
     * says why it can't). Each lookup is a function invoked only by its own
     * harness's branch, with the already-validated wire id — a non-applicable
@@ -63,24 +64,3 @@ private[shell] object ResumeCommand:
             // child's cwd matching the manifest's workDir.
             piSessionDir(wireId).map: dir =>
               Seq(binary, "--session-dir", dir.toString, "--continue")
-
-  // Matches one `--list-sessions` entry line: "  N. <title> (<time>) [<id>]".
-  private val entryLine = raw"^\s*(\d+)\.\s.*\[(.+)\]\s*$$".r
-
-  /** 1-based index of the session whose id is `uuid` in `gemini
-    * --list-sessions` stdout, or `None` if absent (including the empty-list
-    * message, "No previous sessions found for this project."). Format pinned
-    * against gemini-cli 0.50.0's own `listSessions` source
-    * (`packages/cli/src/utils/sessions.ts`, read from the installed CLI's
-    * bundled `gemini-APOZRZEF.js`, not just its docs — the docs' example
-    * shortens the id to 8 characters, but the code interpolates the full
-    * session uuid): ` ${index + 1}. ${title} (${relativeTime}) [${uuid}]` per
-    * line. The empty-list message itself was captured verbatim from the
-    * installed CLI in a scratch dir (`ResumeCommandTest`'s fixture note has the
-    * exact invocation) — no real populated list could be captured on this
-    * machine (no valid Gemini API key to complete a turn and create one), so
-    * that shape is built from the verified source instead.
-    */
-  def geminiIndexOf(listOutput: String, uuid: String): Option[Int] =
-    listOutput.linesIterator.collectFirst:
-      case entryLine(index, id) if id == uuid => index.toInt
