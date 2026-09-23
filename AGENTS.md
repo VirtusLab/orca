@@ -107,9 +107,11 @@ most easily broken:
   one production call site, `ReviewLoop`'s reviewer fan-out (pinned by
   `CcNegativeCompileTest`; see `CheckedPar`'s scaladoc for the verified
   mechanics). Everywhere else — user flow scripts, examples, the rest of
-  orca — the shared/exclusive split is convention, and there is no runtime
-  guard on `WorkspaceWrite` (the R12 owner-thread assert covers only the
-  `FlowControl`/`stage` surface). Ox itself is not yet capture-checked; once
+  orca — the rule is enforced at runtime only: a `WorkspaceWrite` is bound to
+  the thread that minted it, and every gated write calls
+  `WorkspaceWrite.check`, which throws off that thread (the `FlowControl`/`stage`
+  surface has its own R12 owner-thread assert). A new gated write must call
+  `check` first. Ox itself is not yet capture-checked; once
   it is, rejection moves to `ox.fork` directly and `CheckedPar` is deleted.
 
 - **Progress log + recovery.** A run commits `.orca/runs/<key>.progress.json`
@@ -156,7 +158,7 @@ most easily broken:
   The user surface is three rungs (README "Sessions"): `agent.run` (one-shot)
   / `agent.chat()` (ephemeral `Chat`, fork-safe, `InStage`-only) /
   `agent.session(name, seed)` (durable `FlowSession`, flow-thread-only
-  — the owner-thread assert in `FlowSession.run` enforces it at runtime, and
+  — the owner-thread assert on every `FlowSession` turn enforces it at runtime, and
   the raw session-threading doors are `private[orca] runWithSession`, so
   ephemeral continuation is only reachable through a `Chat` handle).
 
