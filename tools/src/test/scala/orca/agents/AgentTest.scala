@@ -10,7 +10,8 @@ import orca.backend.{
   AgentResult,
   IdScheme,
   SessionSupport,
-  TurnRequest
+  TurnRequest,
+  ObservedConversation
 }
 import orca.events.{OrcaEvent, OrcaListener, TurnDebit, Usage}
 import orca.testkit.Usages.usage
@@ -613,9 +614,6 @@ class AgentTest extends munit.FunSuite:
     val seen =
       new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
     val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
-    val recordedConvEvents = new java.util.concurrent.atomic.AtomicReference[
-      List[ConversationEvent]
-    ](Nil)
     val tool = stubTool(
       new ScriptedInteractiveBackend(
         List(
@@ -631,7 +629,7 @@ class AgentTest extends munit.FunSuite:
       ),
       listener = listener,
       prompts = DefaultPrompts,
-      interaction = new RecordingInteraction(recordedConvEvents)
+      interaction = DrainingInteraction
     )
     val result =
       tool.resultAs[FixOutcome].interactive.run("fix compile errors")
@@ -654,11 +652,6 @@ class AgentTest extends munit.FunSuite:
       !events.exists(_ == OrcaEvent.AssistantMessage(json)),
       s"the raw JSON payload must not also surface as an AssistantMessage: $events"
     )
-    assert(
-      recordedConvEvents.get().isEmpty,
-      "the driving Interaction must not see any assistant-text " +
-        s"ConversationEvents (both turns are pure prose): ${recordedConvEvents.get()}"
-    )
 
   // Guard against over-filtering the interactive door too: a free-form turn
   // (no outputSchema) has no payload to de-dup against, so its prose must
@@ -680,19 +673,35 @@ class AgentTest extends munit.FunSuite:
       ),
       listener = listener,
       prompts = DefaultPrompts,
-      interaction = new RecordingInteraction(
-        new java.util.concurrent.atomic.AtomicReference[List[
-          ConversationEvent
-        ]](
-          Nil
-        )
-      )
+      interaction = DrainingInteraction
     )
     val result = tool.resultAs[String].interactive.run("say hello")
     assertEquals(result, "hello there")
     assert(
       seen.get().reverse.contains(OrcaEvent.AssistantMessage("hello there")),
       s"a free-text interactive turn must still surface its AssistantMessage: ${seen.get()}"
+    )
+
+  test("interactive.run: a tool call reaches the listener as ToolUse"):
+    val seen =
+      new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
+    val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
+    val tool = stubTool(
+      new ScriptedInteractiveBackend(
+        List(
+          ConversationEvent.AssistantToolCall("bash", """{"command":"ls"}""")
+        ),
+        finalOutput = "\"done\"",
+        schema = None
+      ),
+      listener = listener,
+      prompts = DefaultPrompts,
+      interaction = DrainingInteraction
+    )
+    val _ = tool.resultAs[String].interactive.run("list files")
+    assert(
+      seen.get().contains(OrcaEvent.ToolUse("bash", """{"command":"ls"}""")),
+      s"expected the interactive tool call on the listener: ${seen.get()}"
     )
 
   test("run passes the agent's config to the backend"):
@@ -720,8 +729,8 @@ class AgentTest extends munit.FunSuite:
       // DefaultPrompts to get a real prompt string.
       prompts: Prompts = StubPrompts,
       // Most tests never drive an interactive call (UnusedInteraction throws);
-      // the interactive tests pass a `RecordingInteraction` that actually
-      // pulls `conversation.events`.
+      // the interactive tests pass `DrainingInteraction`, which drains the
+      // conversation.
       interaction: Interaction = TestAgent.UnusedInteraction
   ): Agent[BackendTag.Pi.type] =
     TestAgent(backend, "stub", toolConfig, listener, prompts, interaction)
@@ -896,20 +905,16 @@ class AgentTest extends munit.FunSuite:
     ): Conversation[BackendTag.Pi.type] =
       new ScriptedConversation(scripted, Right(reply(turn)), schema)
 
-  /** A driving `Interaction` that actually pulls `conversation.events` —
-    * recording every one it sees into `seen`, so tests can assert what does and
-    * doesn't reach the channel — before returning the awaited result. Unlike
-    * [[TestAgent.UnusedInteraction]], which never touches the stream.
+  /** A driving `Interaction` that drains the conversation, answering nothing,
+    * and returns its result, unlike [[TestAgent.UnusedInteraction]], which
+    * never touches it.
     */
-  private class RecordingInteraction(
-      seen: java.util.concurrent.atomic.AtomicReference[List[ConversationEvent]]
-  ) extends Interaction:
+  private object DrainingInteraction extends Interaction:
     def listeners: List[OrcaListener] = Nil
-    def drive[B <: BackendTag](conversation: Conversation[B]): AgentResult[B] =
-      conversation.events.foreach(e => { val _ = seen.updateAndGet(e :: _) })
-      conversation.awaitResult() match
-        case Right(r) => r
-        case Left(c)  => throw c
+    def drive[B <: BackendTag](
+        conversation: ObservedConversation[B]
+    ): AgentResult[B] =
+      conversation.drain(_ => ())
 
   /** A durable backend whose turns report `wireId`, so `Agent.resumeWireId`
     * reports it once `runAutonomous` commits the turn.

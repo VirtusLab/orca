@@ -1,7 +1,12 @@
 package orca.testkit
 
 import orca.agents.{Agent, AgentConfig, BackendTag, DefaultPrompts, Prompts}
-import orca.backend.{AgentBackend, AgentResult, Conversation, Interaction}
+import orca.backend.{
+  AgentBackend,
+  AgentResult,
+  Interaction,
+  ObservedConversation
+}
 import orca.events.OrcaListener
 import ox.scheduling.Schedule
 
@@ -28,5 +33,7 @@ object TestAgent:
   /** For agents whose tests never drive an interactive turn. */
   object UnusedInteraction extends Interaction:
     def listeners: List[OrcaListener] = Nil
-    def drive[B <: BackendTag](conversation: Conversation[B]): AgentResult[B] =
+    def drive[B <: BackendTag](
+        conversation: ObservedConversation[B]
+    ): AgentResult[B] =
       throw new UnsupportedOperationException("no interactive turn expected")

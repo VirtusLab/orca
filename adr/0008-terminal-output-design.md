@@ -86,10 +86,10 @@ Used in the event log:
 | Glyph | Colour | Meaning |
 | ----- | ------ | ------- |
 | `▶` | magenta, bold | Stage start, or a `Step` (single-line note: branch switch, "discarded N issues"). No closing glyph for either. |
-| `▸` | cyan, bold | The user's prompt at the start of an interactive session. |
+| `▸` | cyan, bold | The prompt sent to an agent. |
 | `●` | magenta, bold | An assistant prose message. In structured-output mode the JSON is suppressed during streaming and surfaced via `OrcaEvent.StructuredResult`; the listener renders the `Announce[O]` summary as `▶` if available, nothing for a deliberately-silent summary, and falls back to the raw payload under `●` only when no `Announce[O]` exists. |
-| `⏺` | yellow, bold | A tool call the agent is making. The headline argument follows in grey. In the autonomous event log a read-only call shows neither argument nor agent name (see the 2026-08-27 amendment). |
-| `⎿` | grey | In an autonomous run: how many times the line above it repeated (`⎿ ×12`). On the interactive path it is instead the result of the preceding tool call, truncated to one line. |
+| `⏺` | yellow, bold | A tool call the agent is making. The headline argument follows in grey. A read-only call shows neither argument nor agent name (see the 2026-08-27 and 2026-09-23 amendments). |
+| `⎿` | grey | How many times the line above it repeated (`⎿ ×12`). |
 | `✖` | red | An error — either an `OrcaEvent.Error` from a stage that threw, or a non-fatal mid-session error. |
 | `?` | yellow | Approval request — the agent wants a tool that isn't auto-approved. |
 | `!` | yellow, bold | An `OrcaEvent.Caveat` — something true of the whole run, today a restriction a backend cannot apply mechanically. |
@@ -105,11 +105,11 @@ Glyph choices are pragmatic:
 - `▶` doubles for stages and Steps deliberately. Both are "something
   happened in the log; carry on." The renderer doesn't differentiate
   beyond colour.
-- `▸` (vs `▶`) for the user marks the human's turn distinctly without
+- `▸` (vs `▶`) for the prompt marks the agent's input distinctly without
   introducing a third arrow shape.
-- `⏺` / `⎿` for tool call / result echo the Claude Code aesthetic;
-  changing them is fine but they should stay paired. `⎿` also carries the
-  repeat count, so it always reads as "belonging to the line above".
+- `⏺` / `⎿` echo the Claude Code aesthetic; changing them is fine but they
+  should stay paired. `⎿` carries the repeat count, so it always reads as
+  "belonging to the line above".
 - `!` is ASCII punctuation like `?`, marking a line that isn't progress.
   It is also the one event-log line printed at zero indent whatever stage
   is open, since the caveat's scope is the run.
@@ -198,6 +198,16 @@ whole cap on the body; carrying the budget into them is a separate change. A
 path over budget is truncated in the MIDDLE, keeping the leading `/` that marks
 it as outside the working directory and the filename that identifies it.
 
+## Amendment (2026-09-23): interactive turns render through the event log
+
+An interactive turn's prose, tool calls, refusals, errors and opening prompt
+reach listeners as `OrcaEvent`s, like an autonomous turn's
+(`ObservedConversation`); the interactive renderer only prompts for approvals
+and questions. So the trace file and the denied-tool summary see interactive
+turns too, and interactive lines look like autonomous ones: a read-only call
+is a bare `⏺ read`, tool results are not shown, and the opening prompt is a
+one-line `▸`.
+
 ## Testing
 
 - `StatusBarTest` covers inline mode, animated mode, the long-label
@@ -205,9 +215,10 @@ it as outside the working directory and the filename that identifies it.
   on-stop clear escape.
 - `TerminalInteractionTest` pins the indentation math and the
   no-`✔`-in-log invariant.
-- `TerminalConversationRendererTest` covers prose flushing at
-  TurnEnd (including verbatim JSON payloads) and tool-call/result
-  rendering.
+- `ConversationsTest` and `ObservedConversationTest` cover prose flushing
+  at TurnEnd (including withheld JSON payloads) and what reaches the
+  listener; `TerminalPromptsTest` covers the approval and question
+  prompts.
 - `QuietProcTest` pins the stderr-capture contract — the
   abstraction that makes the artifact this ADR closes impossible
   in tool code.

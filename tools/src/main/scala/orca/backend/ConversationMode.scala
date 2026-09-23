@@ -10,8 +10,8 @@ private[orca] enum ConversationMode:
   case Autonomous
   case Interactive(prompt: String)
 
-  /** The prompt a renderer anchors on; `None` for autonomous (no renderer to
-    * show it to).
+  /** The prompt surfaced as the turn's `UserPrompt`; `None` for autonomous,
+    * whose caller emits it.
     */
   def openingPrompt: Option[String] = this match
     case Autonomous          => None

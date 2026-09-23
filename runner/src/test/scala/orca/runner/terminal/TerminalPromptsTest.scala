@@ -1,28 +1,32 @@
 package orca.runner.terminal
 
 import orca.agents.{BackendTag, WireSessionId}
-import orca.events.{TurnDebit, Usage}
-import orca.{OrcaInteractiveCancelled}
-import orca.backend.{ApprovalDecision, ConversationEvent, AgentResult}
+import orca.events.{OrcaListener, Usage}
+import orca.backend.{
+  AgentResult,
+  ApprovalDecision,
+  ConversationEvent,
+  ObservedConversation
+}
 import orca.testkit.ScriptedConversation
 
 import java.io.{ByteArrayOutputStream, PrintStream}
 import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
 
-class ConversationRendererTest extends munit.FunSuite:
+class TerminalPromptsTest extends munit.FunSuite:
 
-  import ConversationRenderer.{PromptOutcome, Prompter}
+  import TerminalPrompts.{PromptOutcome, Prompter}
 
-  private def renderer(
+  private def prompts(
       out: ByteArrayOutputStream,
-      prompter: Prompter = ScriptedPrompter(Nil)
-  ): ConversationRenderer =
+      prompter: Prompter
+  ): TerminalPrompts =
     val ps = new PrintStream(out)
     // `animated = false` makes the output write inline — no ANSI escapes
     // leak into the captured buffer.
     val terminalOutput =
       new TerminalOutputState(ps, useColor = false, animated = false)
-    new ConversationRenderer(
+    new TerminalPrompts(
       useColor = false,
       output = terminalOutput,
       currentIndent = () => "",
@@ -44,6 +48,11 @@ class ConversationRendererTest extends munit.FunSuite:
     override def close(): Unit =
       val _ = closes.incrementAndGet()
 
+  private def observed[B <: BackendTag](
+      conv: ScriptedConversation[B]
+  ): ObservedConversation[B] =
+    ObservedConversation(conv, OrcaListener.noop)
+
   private def sampleResult: AgentResult[BackendTag.ClaudeCode.type] =
     AgentResult(
       wireId = WireSessionId[BackendTag.ClaudeCode.type]("sid"),
@@ -51,111 +60,15 @@ class ConversationRendererTest extends munit.FunSuite:
       usage = Usage.empty
     )
 
-  test("UserMessage renders as one truncated line, not the full prompt"):
-    // The initial user message is usually the full templated instruction; the
-    // render identifies the turn instead of dumping pages of prompt.
+  test("an approval request truncates a long input with an ellipsis"):
     val buf = new ByteArrayOutputStream()
-    val long = "Add a feature to the calculator.\n" + ("detail " * 100)
+    val long = "x" * (ToolInputSummary.MaxInlineInputLength + 50)
+    val prompter = new ScriptedPrompter(List(PromptOutcome.Answer("yes")))
     val conv = new ScriptedConversation(
-      List(ConversationEvent.UserMessage(long)),
+      List(ConversationEvent.ApproveTool("Bash", long, _ => ())),
       Right(sampleResult)
     )
-    val _ = renderer(buf).render(conv)
-    val out = buf.toString
-    assert(out.contains("you"), out)
-    assert(out.contains("…"), s"a long user message must be truncated: $out")
-    val bodyLines = out.linesIterator.filter(_.contains("detail")).toList
-    assert(
-      bodyLines.forall(
-        _.length <= ConversationRenderer.MaxUserMessageLength + 10
-      ),
-      s"the full body must not be dumped: $bodyLines"
-    )
-
-  test(
-    "assistant prose (deltas + TurnEnd) is never rendered here — AgentCall withholds it upstream and TerminalEventListener renders it"
-  ):
-    // `Conversations.withholdInteractiveProse` strips these before `drive` ever
-    // sees them in production; this pins that a renderer driven directly
-    // against a raw stream (as this test does) still doesn't double-render.
-    val buf = new ByteArrayOutputStream()
-    val conv = new ScriptedConversation(
-      List(
-        ConversationEvent.AssistantThinkingDelta("inner monologue"),
-        ConversationEvent.AssistantTextDelta("""{"tasks":[{"id":1}]}"""),
-        ConversationEvent.AssistantTurnEnd
-      ),
-      Right(sampleResult)
-    )
-    val _ = renderer(buf).render(conv)
-    assert(
-      !buf.toString.contains("tasks"),
-      s"assistant text must not be rendered by this renderer; got: ${buf.toString}"
-    )
-    assert(
-      !buf.toString.contains("inner monologue"),
-      s"expected no thinking output; got: ${buf.toString}"
-    )
-
-  test("AssistantToolCall renders the name and a summarised input"):
-    val buf = new ByteArrayOutputStream()
-    val conv = new ScriptedConversation(
-      List(ConversationEvent.AssistantToolCall("Bash", """{"command":"ls"}""")),
-      Right(sampleResult)
-    )
-    val _ = renderer(buf).render(conv)
-    val out = buf.toString
-    assert(out.contains("Bash"))
-    assert(out.contains("(ls)"))
-
-  test("ToolResult rendering differs by ok flag"):
-    val buf = new ByteArrayOutputStream()
-    val conv = new ScriptedConversation(
-      List(
-        ConversationEvent.ToolResult(Some("Bash"), ok = true, "ok-output"),
-        ConversationEvent.ToolResult(Some("Bash"), ok = false, "failed")
-      ),
-      Right(sampleResult)
-    )
-    val _ = renderer(buf).render(conv)
-    val out = buf.toString
-    assert(out.contains("ok-output"))
-    assert(out.contains("failed"))
-
-  test("ToolDenied renders the denied tool with the ✖ glyph"):
-    val buf = new ByteArrayOutputStream()
-    val conv = new ScriptedConversation(
-      List(ConversationEvent.ToolDenied("mcp__visdom__agents_md")),
-      Right(sampleResult)
-    )
-    val _ = renderer(buf).render(conv)
-    assert(buf.toString.contains("permission denied: mcp__visdom__agents_md"))
-    assert(buf.toString.contains("✖"))
-
-  test("Error event renders the message with the ✖ glyph"):
-    val buf = new ByteArrayOutputStream()
-    val conv = new ScriptedConversation(
-      List(ConversationEvent.Error("boom")),
-      Right(sampleResult)
-    )
-    val _ = renderer(buf).render(conv)
-    assert(buf.toString.contains("boom"))
-    assert(buf.toString.contains("✖"))
-
-  test("render surfaces awaitResult's Left as-is"):
-    val buf = new ByteArrayOutputStream()
-    val cancelled = new OrcaInteractiveCancelled(TurnDebit.Unobserved)
-    val conv = new ScriptedConversation(Nil, Left(cancelled))
-    assertEquals(renderer(buf).render(conv), Left(cancelled))
-
-  test("summarise truncates long inputs with an ellipsis"):
-    val buf = new ByteArrayOutputStream()
-    val long = "x" * (ConversationRenderer.MaxInlineInputLength + 50)
-    val conv = new ScriptedConversation(
-      List(ConversationEvent.AssistantToolCall("Bash", long)),
-      Right(sampleResult)
-    )
-    val _ = renderer(buf).render(conv)
+    val _ = prompts(buf, prompter).drive(observed(conv))
     val out = buf.toString
     assert(out.contains("…"), s"expected ellipsis; got: $out")
     assert(out.length < long.length + 100)
@@ -174,7 +87,7 @@ class ConversationRendererTest extends munit.FunSuite:
       ),
       Right(sampleResult)
     )
-    val _ = renderer(buf, prompter = prompter).render(conv)
+    val _ = prompts(buf, prompter = prompter).drive(observed(conv))
     assertEquals(answered.get(), Some(ApprovalDecision.Allow(None)))
     assert(prompter.asked.get().exists(_.contains("[y]es")))
 
@@ -192,7 +105,7 @@ class ConversationRendererTest extends munit.FunSuite:
       ),
       Right(sampleResult)
     )
-    val _ = renderer(buf, prompter = prompter).render(conv)
+    val _ = prompts(buf, prompter = prompter).drive(observed(conv))
     answered.get() match
       case Some(ApprovalDecision.Deny(Some(reason))) =>
         assert(reason.contains("user denied"))
@@ -207,26 +120,26 @@ class ConversationRendererTest extends munit.FunSuite:
       ),
       Right(sampleResult)
     )
-    val _ = renderer(buf, prompter = prompter).render(conv)
+    val _ = prompts(buf, prompter = prompter).drive(observed(conv))
     assertEquals(
       conv.cancelCount.get(),
       1,
       "expected conversation.cancel() to fire"
     )
 
-  test("render does not close its prompter (prompter is process-scoped)"):
+  test("drive does not close its prompter (prompter is process-scoped)"):
     // The prompter is shared across every conversation in a run; a
-    // per-conversation renderer must never close it, or the next prompt would
+    // per-conversation drive must never close it, or the next prompt would
     // operate on closed I/O.
     val buf = new ByteArrayOutputStream()
     val prompter = new ScriptedPrompter(Nil)
     val conv = new ScriptedConversation(Nil, Right(sampleResult))
-    val _ = renderer(buf, prompter = prompter).render(conv)
+    val _ = prompts(buf, prompter = prompter).drive(observed(conv))
     assertEquals(prompter.closes.get(), 0)
 
-  test("two sequential render+prompt cycles against one prompter both ask"):
+  test("two sequential drive+prompt cycles against one prompter both ask"):
     // A single shared prompter survives across conversations, so a second
-    // render still reaches `ask` rather than a closed reader.
+    // drive still reaches `ask` rather than a closed reader.
     val buf = new ByteArrayOutputStream()
     val prompter = new ScriptedPrompter(
       List(PromptOutcome.Answer("yes"), PromptOutcome.Answer("no"))
@@ -235,8 +148,8 @@ class ConversationRendererTest extends munit.FunSuite:
       List(ConversationEvent.ApproveTool("Bash", "{}", _ => ())),
       Right(sampleResult)
     )
-    val _ = renderer(buf, prompter = prompter).render(approveConv())
-    val _ = renderer(buf, prompter = prompter).render(approveConv())
+    val _ = prompts(buf, prompter = prompter).drive(observed(approveConv()))
+    val _ = prompts(buf, prompter = prompter).drive(observed(approveConv()))
     assertEquals(prompter.asked.get().size, 2)
 
   test("UserQuestion: question rendered, typed reply passed to respond"):
@@ -252,7 +165,7 @@ class ConversationRendererTest extends munit.FunSuite:
       ),
       Right(sampleResult)
     )
-    val _ = renderer(buf, prompter = prompter).render(conv)
+    val _ = prompts(buf, prompter = prompter).drive(observed(conv))
     assertEquals(answered.get(), Some("Paris"))
     assert(
       buf.toString.contains("target deployment region"),
@@ -268,7 +181,7 @@ class ConversationRendererTest extends munit.FunSuite:
       ),
       Right(sampleResult)
     )
-    val _ = renderer(buf, prompter = prompter).render(conv)
+    val _ = prompts(buf, prompter = prompter).drive(observed(conv))
     assertEquals(
       conv.cancelCount.get(),
       1,
