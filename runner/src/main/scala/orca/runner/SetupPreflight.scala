@@ -133,7 +133,8 @@ private[runner] object SetupPreflight:
       throw new OrcaFlowException(GitPreconditions.needsRepoWithCommit)
 
   /** Refuses a fresh run's `--branch` with read-only queries.
-    * [[createRequestedBranch]] repeats both checks when it creates the branch.
+    * `FlowLifecycle.createRequestedBranch` repeats both checks when it creates
+    * the branch.
     */
   private def abortIfRequestedBranchRefused(
       args: OrcaArgs,
