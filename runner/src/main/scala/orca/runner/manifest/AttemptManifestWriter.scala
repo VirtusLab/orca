@@ -10,9 +10,8 @@ import ox.channels.{Actor, ActorRef, BufferCapacity}
 import java.time.Instant
 import scala.util.control.NonFatal
 
-/** The manifest's outcome at finish. Narrower than [[AttemptStatus]] on
-  * purpose: [[AttemptStatus.Running]] is the state an attempt starts in, never
-  * a finish input.
+/** How an attempt ended, passed to [[AttemptManifestWriter.finish]]. Has no
+  * `Running` case, so an unfinished status cannot be recorded as the end.
   */
 private[orca] enum AttemptOutcome:
   case Succeeded, Failed

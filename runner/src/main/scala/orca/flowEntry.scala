@@ -37,11 +37,7 @@ import orca.runner.{
   WiredAgents,
   WorktreeRun
 }
-import orca.runner.manifest.{
-  AttemptManifestWriter,
-  AttemptOutcome,
-  AttemptStatus
-}
+import orca.runner.manifest.{AttemptManifestWriter, AttemptOutcome}
 import orca.runner.terminal.TerminalInteraction
 import orca.subprocess.OsProcCliRunner
 import org.slf4j.LoggerFactory
@@ -178,7 +174,7 @@ def flow(
       catch case NonFatal(e) => Left(TextUtil.throwableMessage(e))
 
   // The run proper. Everything under here uses `dir`, never `workDir`.
-  def runIn(dir: os.Path): AttemptStatus =
+  def runIn(dir: os.Path): AttemptOutcome =
     supervised:
       // Per-attempt manifest (ADR 0021 §8), always attached like
       // LoggingListener; see AttemptManifestWriter's scaladoc for `flowName`'s
@@ -192,70 +188,67 @@ def flow(
         ProcessHandle.current().pid(),
         () => java.time.Instant.now()
       )
-      // `Running` survives only when a fatal throwable (e.g. OOM) escapes the
-      // `NonFatal` catch; `finish` records that as failed.
-      var status = AttemptStatus.Running
+      var outcome: Option[AttemptOutcome] = None
       // `try/finally` so the cost summary always lands — even when a fatal
       // throwable (OOM, StackOverflow) escapes the NonFatal catch below.
       try
-        try
-          runFlow(
-            args = args,
-            workDir = dir,
-            interaction = interaction,
-            extraListeners =
-              extraListeners ++ List(costTracker, manifestWriter),
-            branchNaming = branchNaming,
-            stackSettings = stackSettings,
-            planningAgent = planningAgent,
-            codingAgent = codingAgent,
-            reviewAgent = reviewAgent,
-            progressStore = progressStore,
-            flowName = flowName,
-            pricing = pricing,
-            wiring = FlowWiring(
-              claude = claude,
-              codex = codex,
-              opencode = opencode,
-              pi = pi,
-              gemini = gemini,
-              git = git,
-              gh = gh,
-              fs = fs,
-              prompts = prompts
-            )
-          )(body)
-          status = AttemptStatus.Succeeded
-        catch
-          // A `SurfacedFlowFailure` marks a failure already reported to the
-          // user's event surface by the phase that raised it; only the exit
-          // code remains.
-          case _: SurfacedFlowFailure => status = AttemptStatus.Failed
-          // Backstop for any other NonFatal — a pre-dispatcher failure (agent
-          // factory, TerminalInteraction start) has no event surface, so print
-          // it to stderr rather than exit 1 in silence.
-          case NonFatal(e) =>
-            status = AttemptStatus.Failed
-            System.err.println(s"[orca] ${TextUtil.throwableMessage(e)}")
-        status
+        val result =
+          try
+            runFlow(
+              args = args,
+              workDir = dir,
+              interaction = interaction,
+              extraListeners =
+                extraListeners ++ List(costTracker, manifestWriter),
+              branchNaming = branchNaming,
+              stackSettings = stackSettings,
+              planningAgent = planningAgent,
+              codingAgent = codingAgent,
+              reviewAgent = reviewAgent,
+              progressStore = progressStore,
+              flowName = flowName,
+              pricing = pricing,
+              wiring = FlowWiring(
+                claude = claude,
+                codex = codex,
+                opencode = opencode,
+                pi = pi,
+                gemini = gemini,
+                git = git,
+                gh = gh,
+                fs = fs,
+                prompts = prompts
+              )
+            )(body)
+            AttemptOutcome.Succeeded
+          catch
+            // A `SurfacedFlowFailure` marks a failure already reported to the
+            // user's event surface by the phase that raised it; only the exit
+            // code remains.
+            case _: SurfacedFlowFailure => AttemptOutcome.Failed
+            // Backstop for any other NonFatal — a pre-dispatcher failure (agent
+            // factory, TerminalInteraction start) has no event surface, so print
+            // it to stderr rather than exit 1 in silence.
+            case NonFatal(e) =>
+              System.err.println(s"[orca] ${TextUtil.throwableMessage(e)}")
+              AttemptOutcome.Failed
+        outcome = Some(result)
+        result
       finally
-        manifestWriter.finish(status match
-          case AttemptStatus.Succeeded => AttemptOutcome.Succeeded
-          case AttemptStatus.Failed | AttemptStatus.Running =>
-            AttemptOutcome.Failed
-        )
+        // `None` only when a fatal throwable escapes the `NonFatal` catch.
+        manifestWriter.finish(outcome.getOrElse(AttemptOutcome.Failed))
         costTracker.printSummary()
 
   // Resolution runs inside this bracket, not before it: it can fail, and the
   // trace still has to close on a path that never reaches `runIn`.
-  val status =
+  val outcome =
     try
       resolveRunDir() match
         // A refusal has no dispatcher and no manifest to carry it, so it
         // reaches the user the way the NonFatal backstop above does.
         case Left(message) =>
           System.err.println(s"[orca] $message")
-          AttemptStatus.Failed
+          AttemptOutcome.Failed
         case Right(dir) =>
           val where = args.target match
             case RunTarget.Worktree => s"$dir (worktree)"
@@ -273,7 +266,7 @@ def flow(
   // leaving the outer branch checked out and `.orca/cache/flow.lock` behind (the next
   // attempt self-heals by stealing the dead-PID lock). Accepted cost of the
   // exit-based CLI contract.
-  if status == AttemptStatus.Failed then System.exit(1)
+  if outcome == AttemptOutcome.Failed then System.exit(1)
 
 /** Exit-free flow lifecycle: builds the interaction and wired agents, resolves
   * the three role agents from settings, runs setup, constructs the context,
