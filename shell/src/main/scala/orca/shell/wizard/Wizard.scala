@@ -163,9 +163,9 @@ private[shell] object Wizard:
     case Coding extends Role("Coding")
     case Review extends Role("Review")
 
-  /** The curated model a role starts on for `tag` when nothing is pinned, if
-    * not the flagship ([[ModelCatalog.curated]]'s first row): Planning gets the
-    * cheaper claude alias.
+  /** A role's starting curated model for `tag` when it isn't the flagship
+    * ([[ModelCatalog.curated]]'s first row): Planning gets the cheaper claude
+    * alias.
     */
   private[wizard] def roleDefault(role: Role, tag: BackendTag): Option[String] =
     (role, tag) match
