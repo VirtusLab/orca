@@ -284,7 +284,7 @@ class CodexBackendTest extends munit.FunSuite:
     )
 
   test(
-    "runAutonomous writes the output schema to a temp file outside workDir, and removes it once the turn finalizes"
+    "runAutonomous writes the output schema to a temp file outside workDir, and removes it once the turn ends"
   ):
     // The schema file must live OUTSIDE workDir — a workDir-relative path would
     // race the parallel reviewer fan-out and get swept into the flow's
@@ -313,11 +313,10 @@ class CodexBackendTest extends munit.FunSuite:
         Nil,
         "nothing should be written under workDir for a structured call"
       )
-      // runAutonomous drains synchronously, so `onFinalize` has already removed
-      // the temp file by the time it returns.
+      // runAutonomous's turn scope has ended by the time it returns.
       assert(
         !os.exists(schemaFile),
-        "schema temp file should be deleted once the turn finalizes"
+        "schema temp file should be deleted once the turn ends"
       )
 
   test(
@@ -381,8 +380,7 @@ class CodexBackendTest extends munit.FunSuite:
         AgentConfig(),
         Some("""{"type":"object"}""")
       )
-      // `open` hands back an undrained Conversation, so `onFinalize`
-      // hasn't fired — the file is still there to inspect.
+      // The turn scope is still open, so the file is still there to inspect.
       val schemaFile = schemaPathFrom(runner.calls.head)
       assert(
         !schemaFile.startsWith(workDir),

@@ -2,7 +2,6 @@ package orca.backend
 
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.agents.{AutoApprove, BackendTag, StructuredOutputMode}
-import orca.sweep.EnvCookie
 
 import ox.Ox
 
@@ -225,7 +224,6 @@ private[orca] object Conversations:
         conv.structuredOutputMode
       def canAskUser: Boolean = conv.canAskUser
       def cancel(): Unit = conv.cancel()
-      override def envCookie: Option[EnvCookie] = conv.envCookie
       def awaitResult()(using Ox) = conv.awaitResult()
       def events(using Ox): Iterator[ConversationEvent] =
         ProseWithholdingIterator(

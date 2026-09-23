@@ -50,11 +50,10 @@ private[orca] object EnvCookieSweep:
     */
   private val SettleDelay: FiniteDuration = 250.millis
 
-  /** Sweep for `cookie` and announce what still carries it. Runs in the
-    * teardown `finally` of every turn, so it is total: a failure is logged and
-    * swallowed rather than left to mask the turn's own outcome. `None` — a
-    * conversation with no process of its own — is a no-op, as is a platform
-    * [[sweep]] cannot scan.
+  /** Sweep for `cookie` and announce what still carries it. Runs as a turn
+    * scope's finalizer, so it is total: a failure is logged and swallowed
+    * rather than left to mask the turn's own outcome. `None` — a process
+    * without a cookie — is a no-op, as is a platform [[sweep]] cannot scan.
     */
   def afterTurn(cookie: Option[EnvCookie], events: OrcaListener): Unit =
     cookie.foreach: c =>
@@ -63,11 +62,7 @@ private[orca] object EnvCookieSweep:
           sleep(SettleDelay)
           val settled = sweep(c)
           if settled.nonEmpty then announce(settled, events)
-      catch
-        // Teardown can be interrupted mid-settle; hand the interrupt back
-        // rather than swallowing it along with the diagnostic.
-        case _: InterruptedException => Thread.currentThread().interrupt()
-        case NonFatal(e) => log.debug("environment-cookie sweep failed", e)
+      catch case NonFatal(e) => log.debug("environment-cookie sweep failed", e)
 
   /** Live processes whose environment carries `cookie`; empty where the scan is
     * unsupported. Orca's own JVM is skipped, so a sweep can never name — or,

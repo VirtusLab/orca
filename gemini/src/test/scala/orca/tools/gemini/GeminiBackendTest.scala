@@ -57,15 +57,6 @@ class GeminiBackendTest extends munit.FunSuite:
     p.sendSigInt() // mark exited so waitForExit returns
     p
 
-  /** A process that streams `init` but never closes stdout — the reader blocks,
-    * so the conversation's finalize (which restores settings.json) doesn't fire
-    * mid-test. Used by interactive tests that inspect the registered file.
-    */
-  private def pendingProcess(): FakePipedCliProcess =
-    val p = new FakePipedCliProcess()
-    p.enqueueStdout("""{"type":"init","session_id":"sess-pending"}""")
-    p
-
   /** The `-p` prompt a `ToolSet.ReadOnly` autonomous turn spawns with, failing
     * on a missing flag rather than reading whatever argument sits at index 0.
     */
@@ -265,7 +256,7 @@ class GeminiBackendTest extends munit.FunSuite:
   test(
     "an interactive turn registers the orca MCP server and folds the ask_user hint"
   ):
-    val runner = new SpawnStubCliRunner(List(pendingProcess()))
+    val runner = new SpawnStubCliRunner(List(successfulProcess()))
     val workDir = TempDirs.dir()
     withBackend(runner, workDir = workDir): backend =>
       val _ = OpenTurn.interactive(backend)(
@@ -287,10 +278,23 @@ class GeminiBackendTest extends munit.FunSuite:
         s"final prompt should fold in the ask_user hint; got: $finalPrompt"
       )
 
+  test("the settings.json registration is undone when the turn ends"):
+    val runner = new SpawnStubCliRunner(List(successfulProcess()))
+    val workDir = TempDirs.dir()
+    withBackend(runner, workDir = workDir): backend =>
+      val _ = OpenTurn.interactive(backend)(
+        "q",
+        clientSid,
+        displayPrompt = "q",
+        AgentConfig(),
+        outputSchema = None
+      )
+    assert(!os.exists(workDir / ".gemini"), os.list(workDir))
+
   test(
     "an interactive turn with a systemPrompt folds BOTH it and the ask_user hint"
   ):
-    val runner = new SpawnStubCliRunner(List(pendingProcess()))
+    val runner = new SpawnStubCliRunner(List(successfulProcess()))
     withBackend(runner): backend =>
       val _ = OpenTurn.interactive(backend)(
         "list files",

@@ -17,11 +17,12 @@ import orca.backend.{
   IdScheme,
   SessionSupport,
   SubprocessSpawn,
-  SystemPromptComposer
+  SystemPromptComposer,
+  TurnResources
 }
 import orca.backend.mcp.{AskUserMcpServer, AskUserSession}
 import orca.subprocess.CliRunner
-import ox.Ox
+import ox.{Ox, discard}
 
 /** Gemini backend. Both autonomous and interactive paths drive `gemini -p
   * <prompt> --output-format stream-json` over stdio: stdout JSONL is parsed
@@ -38,8 +39,8 @@ import ox.Ox
   * Interactive calls additionally stand up an `ask_user` MCP host bridge
   * ([[AskUserMcpServer]]) and register it by merging an `mcpServers.orca` entry
   * into a project-local `.gemini/settings.json` ([[GeminiSettings]]) — gemini
-  * has no inline `-c` MCP override. The merge is restored when the conversation
-  * finalises. Autonomous calls skip the bridge.
+  * has no inline `-c` MCP override. The merge is restored when the turn ends.
+  * Autonomous calls skip the bridge.
   */
 private[orca] class GeminiBackend(
     cli: CliRunner,
@@ -88,8 +89,9 @@ private[orca] class GeminiBackend(
     * Stdin is closed immediately — gemini consumes the prompt argv-side.
     *
     * `Interactive` mode additionally wires the MCP `ask_user` tool: stand up
-    * the bridge, merge the server URL into `.gemini/settings.json`, and fold
-    * the system-prompt hint into the user prompt. `Autonomous` skips all of it.
+    * the bridge, merge the server URL into `.gemini/settings.json` (restored
+    * when the turn scope ends), and fold the system-prompt hint into the user
+    * prompt. `Autonomous` skips all of it.
     */
   override protected[orca] def open(
       turn: TurnRequest[BackendTag.Gemini.type]
@@ -98,11 +100,12 @@ private[orca] class GeminiBackend(
     val displayPrompt = mode.displayPrompt
     val askUser: Option[AskUserSession] =
       Option.when(mode.isInteractive):
-        AskUserSession.allocate: server =>
-          List(GeminiSettings.register(workDir, server.url))
-    // On a spawn/build failure the ask_user bundle is closed, which also
-    // restores the settings.json via its `extras`, so nothing leaks.
-    SubprocessSpawn.open("gemini", askUser.toList) {
+        val session = AskUserSession.allocate()
+        TurnResources
+          .useCloseable(GeminiSettings.register(workDir, session.server.url))
+          .discard
+        session
+    SubprocessSpawn.open("gemini", events) {
       // gemini has no `--append-system-prompt` flag, so fold the composed
       // system prompt into the user prompt.
       val finalPrompt = SystemPromptComposer.foldIntoPrompt(
