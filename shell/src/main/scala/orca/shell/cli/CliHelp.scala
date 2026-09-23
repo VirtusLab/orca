@@ -22,7 +22,7 @@ private[shell] object CliHelp:
        |  edit <flow>                open a flow in $$EDITOR (built-ins: --to project|global)
        |  create "<goal>"            an agent writes a new flow in a sandbox (name auto-derived, --name to override, --global for the global tier)
        |  fork <source> "<changes>"  an agent adapts a copy of an existing flow (same options as create)
-       |  continue [session]         resume a recorded harness session (--list to see them)
+       |  continue [session|branch]  resume a recorded harness session, by index, name or branch (--list to see them)
        |  list                       list discovered flows across all tiers
        |  config                     show or set role agents (--planning-agent/--coding-agent/--review-agent), or --edit project|global to hand-edit the file
        |  clear-stack                clear stack settings (format/lint/test) — re-detected on the next flow run (--yes to confirm)

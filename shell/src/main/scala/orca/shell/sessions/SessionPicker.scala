@@ -10,9 +10,9 @@ import java.time.Instant
 
 /** The continue-a-session picker (ADR 0021 §8): groups, sorts, and labels the
   * sessions across every recorded attempt into selectable rows, and resolves a
-  * CLI-style selector (index / name / newest) to a [[SessionSelection]]. Shared
-  * by the interactive menu (`Main.continueSession`) and the CLI's `continue`
-  * command.
+  * CLI-style selector (index / name / branch / newest) to a
+  * [[SessionSelection]]. Shared by the interactive menu
+  * (`Main.continueSession`) and the CLI's `continue` command.
   */
 private[shell] object SessionPicker:
 
@@ -270,21 +270,25 @@ private[shell] object SessionPicker:
       .getOrElse(wireName)
 
   /** Resolves a `continue` selector to a session: no selector picks the newest
-    * durable lineage, a numeric selector picks that 1-based row from the full
-    * (expanded) listing, and anything else is matched by session name — never
-    * the stage it was minted in, so resuming never asks a user to spell out a
-    * stage path id.
+    * durable lineage, an all-digits selector picks that 1-based row from the
+    * full (expanded) listing — even when a branch has that name — and anything
+    * else is matched exactly against durable sessions' names and recorded
+    * branches. A branch picks its most recently active lineage. A selector
+    * matching both kinds, or a branch in more than one working directory, is
+    * refused rather than guessed. Matching never uses the stage a session was
+    * minted in, so resuming never asks a user to spell out a stage path id.
     */
   private[shell] def resolveSelection(
       attempts: List[RecordedAttempt],
       selector: Option[String]
   ): Either[String, SessionSelection] =
     selector match
-      case None => newestDurableSelection(attempts)
-      case Some(s) =>
-        s.toIntOption match
-          case Some(index) => selectByIndex(attempts, index)
-          case None        => selectByName(attempts, s)
+      case None                  => newestDurableSelection(attempts)
+      case Some(s) if isIndex(s) => selectByDigits(attempts, s)
+      case Some(s)               => selectByNameOrBranch(attempts, s)
+
+  // Not `toIntOption`: it also accepts a sign (`+1`), which reads as a name.
+  private def isIndex(s: String): Boolean = s.nonEmpty && s.forall(_.isDigit)
 
   /** A picker row resolved for a selector: its selection, or a refusal reading
     * `<notResumable> — <disabledReason>`.
@@ -315,16 +319,22 @@ private[shell] object SessionPicker:
           )
         )
 
+  private def selectByDigits(
+      attempts: List[RecordedAttempt],
+      digits: String
+  ): Either[String, SessionSelection] =
+    digits.toIntOption match
+      case Some(index) => selectByIndex(attempts, index)
+      // too large for an Int, so past the end of any listing
+      case None => Left(noSessionAt(digits, indexedRows(attempts).size))
+
   private[shell] def selectByIndex(
       attempts: List[RecordedAttempt],
       index: Int
   ): Either[String, SessionSelection] =
-    val rows = withoutExpanders(sessionRows(attempts, expanded = true))
+    val rows = indexedRows(attempts)
     rows.lift(index - 1) match
-      case None =>
-        Left(
-          s"no session at index $index — see `orca continue --list` (1-${rows.size})"
-        )
+      case None => Left(noSessionAt(index.toString, rows.size))
       case Some(choice) =>
         resolveRow(
           choice,
@@ -333,56 +343,134 @@ private[shell] object SessionPicker:
           Left(s"no session at index $index")
         )
 
-  private[shell] def selectByName(
+  /** The rows an index selector counts: the listing `orca continue --list`
+    * prints.
+    */
+  private def indexedRows(
+      attempts: List[RecordedAttempt]
+  ): List[Choice[PickerRow]] =
+    withoutExpanders(sessionRows(attempts, expanded = true))
+
+  private def noSessionAt(index: String, rowCount: Int): String =
+    s"no session at index $index — see `orca continue --list` (1-$rowCount)"
+
+  private def selectByNameOrBranch(
       attempts: List[RecordedAttempt],
-      name: String
+      selector: String
   ): Either[String, SessionSelection] =
-    val notFound =
-      Left(s"no session named '$name' found — see `orca continue --list`")
-    val matches =
-      withoutExpanders(sessionRows(attempts, expanded = false)).collect:
-        case choice @ Choice(PickerRow.Resume(selection), _, _)
-            if selection.session.minted.exists(_.name == name) =>
-          (choice, selection)
+    val rows = durableRows(attempts)
+    val byName = rows.filter((_, s) => isNamed(s, selector))
+    val byBranch = rows.filter((_, s) => s.manifest.branch.contains(selector))
+    (byName, byBranch) match
+      case (Nil, Nil) =>
+        Left(notFound(selector) + branchSuggestions(rows, selector))
+      case (_, Nil) => resolveByName(selector, byName)
+      case (Nil, _) => resolveByBranch(selector, byBranch)
+      case _ =>
+        Left(s"'$selector' names both a session and a branch; $pickFromList")
+
+  /** The rows a name or branch selector can match: one per durable lineage,
+    * each paired with its selection.
+    */
+  private def durableRows(
+      attempts: List[RecordedAttempt]
+  ): List[(Choice[PickerRow], SessionSelection)] =
+    withoutExpanders(sessionRows(attempts, expanded = false)).collect:
+      case choice @ Choice(PickerRow.Resume(selection), _, _) =>
+        (choice, selection)
+
+  private def isNamed(selection: SessionSelection, name: String): Boolean =
+    selection.session.minted.exists(_.name == name)
+
+  private def notFound(name: String): String =
+    s"no session named '$name' found — see `orca continue --list`"
+
+  /** Resolves non-empty `matches` for a name selector. */
+  private def resolveByName(
+      name: String,
+      matches: List[(Choice[PickerRow], SessionSelection)]
+  ): Either[String, SessionSelection] =
     // Ambiguity is decided per (working directory, agent), not per row: within
     // one of those, the rows differ only by their sessions' minting stage —
     // a path id no user should have to spell out — so `continue <name>` takes
     // the most recent, as it does when there is only one.
     val contexts =
       matches.map((_, s) => (s.manifest.workDir, s.session.agent)).distinct
-    matches match
-      case Nil                      => notFound
-      case _ if contexts.sizeIs > 1 => Left(ambiguity(name, matches))
-      case _ =>
-        val (newest, _) = matches.maxBy((_, s) => s.session.lastActiveAt)
-        resolveRow(
-          newest,
-          s"session '$name' isn't resumable",
-          // unreachable: withoutExpanders already dropped every ShowMore row
-          notFound
-        )
+    if contexts.sizeIs > 1 then
+      val agents = matches.map(_._2.session.agent).distinct
+      // Same name in two worktrees matches on one agent, so naming agents alone
+      // would read as "ambiguous — matches agents: coder".
+      val where =
+        if agents.sizeIs > 1 then s"agents: ${agents.mkString(", ")}"
+        else workDirsOf(matches)
+      Left(ambiguity(selector = name, where = where))
+    else resolveNewest(matches, s"session '$name' isn't resumable")
 
-  /** Why `continue <name>` won't guess between working trees or agents, and
-    * what to do instead.
+  private def resolveByBranch(
+      branch: String,
+      matches: List[(Choice[PickerRow], SessionSelection)]
+  ): Either[String, SessionSelection] =
+    // One branch in two working directories is two unrelated runs (harness
+    // sessions are cwd-scoped), so the newest of them would be a guess.
+    if matches.map(_._2.manifest.workDir).distinct.sizeIs > 1 then
+      Left(ambiguity(selector = branch, where = workDirsOf(matches)))
+    else
+      resolveNewest(
+        matches,
+        s"the newest session on branch '$branch' isn't resumable"
+      )
+
+  /** The most recently active of non-empty `matches`, or a refusal starting
+    * with `notResumable` when that row is disabled.
     */
-  private def ambiguity(
-      name: String,
+  private def resolveNewest(
+      matches: List[(Choice[PickerRow], SessionSelection)],
+      notResumable: String
+  ): Either[String, SessionSelection] =
+    val (newest, _) = matches.maxBy((_, s) => s.session.lastActiveAt)
+    resolveRow(
+      newest,
+      notResumable,
+      // unreachable: withoutExpanders already dropped every ShowMore row
+      Left(notResumable)
+    )
+
+  private def workDirsOf(
       matches: List[(Choice[PickerRow], SessionSelection)]
   ): String =
-    // Same name in two worktrees matches on one agent, so naming agents alone
-    // would read as "ambiguous — matches agents: coder".
-    val agents = matches.map(_._2.session.agent).distinct
-    val where =
-      if agents.sizeIs > 1 then s"agents: ${agents.mkString(", ")}"
-      else
-        val dirs = matches.map(_._2.manifest.workDir).distinct
-        s"working directories: ${dirs.mkString(", ")}"
-    s"'$name' is ambiguous — matches $where; run `orca continue --list` and " +
-      "pick one by its number"
+    s"working directories: ${matches.map(_._2.manifest.workDir).distinct.mkString(", ")}"
+
+  /** Why a selector won't guess between the contexts named by `where`, and what
+    * to do instead.
+    */
+  private def ambiguity(selector: String, where: String): String =
+    s"'$selector' is ambiguous — matches $where; $pickFromList"
+
+  private val pickFromList: String =
+    "run `orca continue --list` and pick one by its number"
+
+  /** `; did you mean: b1, b2` over the branches of `rows` containing
+    * `selector`, most recently active first, or nothing when none do. Taken
+    * from the rows a branch selector matches, so every suggestion resolves.
+    */
+  private def branchSuggestions(
+      rows: List[(Choice[PickerRow], SessionSelection)],
+      selector: String
+  ): String =
+    rows
+      .map(_._2)
+      .sortBy(_.session.lastActiveAt)
+      .reverse
+      .flatMap(_.manifest.branch)
+      .filter(_.contains(selector))
+      .distinct match
+      case Nil      => ""
+      case branches => s"; did you mean: ${branches.mkString(", ")}"
 
   /** [[sessionRows]]'s rows, dropping the "show more" expanders — never present
     * for [[SessionSelection]] callers (`selectByIndex` reads the fully expanded
-    * listing, `selectByName` only ever resolves to an actual session or fails).
+    * listing, name and branch selectors go through `durableRows` and only ever
+    * resolve to an actual session or fail).
     */
   private[shell] def withoutExpanders(
       rows: List[Choice[PickerRow]]

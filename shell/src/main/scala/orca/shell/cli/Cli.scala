@@ -251,7 +251,7 @@ private[shell] object Cli:
   def continue(
       @arg(
         positional = true,
-        doc = "session index (from --list) or session name"
+        doc = "session index (all digits, from --list), session name, or branch"
       )
       selector: Option[String] = None,
       @arg(doc = "print sessions instead of resuming")

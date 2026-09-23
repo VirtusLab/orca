@@ -790,13 +790,14 @@ class CliTest extends munit.FunSuite:
     assert(out.contains("does a thing"), out)
     assert(!out.contains("{"), out)
 
-  // --- continue: selector resolution (index / name / newest) ---
+  // --- continue: selector resolution (index / name / branch / newest) ---
 
   private def attemptsFixture(): List[RecordedAttempt] =
     List(
       RecordedAttempt(
         manifest(
           startedAt = "2026-07-18T09:00:00Z",
+          branch = Some("feature/newest"),
           sessions = List(
             durable(
               sessionName = "newest",
@@ -809,6 +810,7 @@ class CliTest extends munit.FunSuite:
       RecordedAttempt(
         manifest(
           startedAt = "2026-07-17T09:00:00Z",
+          branch = Some("feature/older"),
           sessions = List(
             durable(
               sessionName = "older",
@@ -877,6 +879,12 @@ class CliTest extends munit.FunSuite:
       Left("no session at index 99 — see `orca continue --list` (1-3)")
     )
 
+  test("resolveSelection: an index too large for an Int is out of range"):
+    assertEquals(
+      SessionPicker.resolveSelection(attemptsFixture(), Some("99999999999")),
+      Left("no session at index 99999999999 — see `orca continue --list` (1-3)")
+    )
+
   test(
     "resolveSelection: an index pointing at an unresumable row says why"
   ):
@@ -912,6 +920,104 @@ class CliTest extends munit.FunSuite:
       )
     )
 
+  test("resolveSelection: a branch selector resumes its newest lineage"):
+    assertEquals(
+      SessionPicker
+        .resolveSelection(attemptsFixture(), Some("feature/older"))
+        .map(_.session.minted.map(_.name)),
+      Right(Some("older"))
+    )
+
+  test("resolveSelection: a selector naming a session and a branch is refused"):
+    val attempts = attemptsFixture() :+ RecordedAttempt(
+      manifest(
+        startedAt = "2026-07-16T09:00:00Z",
+        branch = Some("older"),
+        sessions = List(
+          durable(sessionName = "other", lastActiveAt = "2026-07-16T09:30:00Z")
+        )
+      ),
+      crashed = false
+    )
+    assertEquals(
+      SessionPicker.resolveSelection(attempts, Some("older")),
+      Left(
+        "'older' names both a session and a branch; run " +
+          "`orca continue --list` and pick one by its number"
+      )
+    )
+
+  test(
+    "resolveSelection: a branch recorded in two working directories is refused"
+  ):
+    def onBranch(workDir: String, lastActiveAt: String): RecordedAttempt =
+      RecordedAttempt(
+        manifest(
+          workDir = workDir,
+          startedAt = "2026-07-18T08:00:00Z",
+          branch = Some("feature/x"),
+          sessions = List(durable(lastActiveAt = lastActiveAt))
+        ),
+        crashed = false
+      )
+    val attempts = List(
+      onBranch("/repo/a", "2026-07-18T09:30:00Z"),
+      onBranch("/repo/b", "2026-07-18T08:30:00Z")
+    )
+    assertEquals(
+      SessionPicker.resolveSelection(attempts, Some("feature/x")),
+      Left(
+        "'feature/x' is ambiguous — matches working directories: " +
+          "/repo/a, /repo/b; run `orca continue --list` and pick one by its number"
+      )
+    )
+
+  test(
+    "resolveSelection: an unmatched selector suggests branches containing it"
+  ):
+    assertEquals(
+      SessionPicker.resolveSelection(attemptsFixture(), Some("feature")),
+      Left(
+        "no session named 'feature' found — see `orca continue --list`; " +
+          "did you mean: feature/newest, feature/older"
+      )
+    )
+
+  test(
+    "resolveSelection: a branch with only ephemeral sessions is not suggested"
+  ):
+    val attempts = attemptsFixture() :+ RecordedAttempt(
+      manifest(
+        startedAt = "2026-07-16T09:00:00Z",
+        branch = Some("feature/plan-only"),
+        sessions = List(ephemeral(lastActiveAt = "2026-07-19T09:30:00Z"))
+      ),
+      crashed = false
+    )
+    assertEquals(
+      SessionPicker.resolveSelection(attempts, Some("feature")),
+      Left(
+        "no session named 'feature' found — see `orca continue --list`; " +
+          "did you mean: feature/newest, feature/older"
+      )
+    )
+
+  test("resolveSelection: an all-digits selector is an index, not a branch"):
+    val attempts = attemptsFixture() :+ RecordedAttempt(
+      manifest(
+        startedAt = "2026-07-16T09:00:00Z",
+        branch = Some("123"),
+        sessions = List(
+          durable(sessionName = "other", lastActiveAt = "2026-07-16T09:30:00Z")
+        )
+      ),
+      crashed = false
+    )
+    assertEquals(
+      SessionPicker.resolveSelection(attempts, Some("123")),
+      Left("no session at index 123 — see `orca continue --list` (1-4)")
+    )
+
   private def durableAgent(
       agent: String,
       sessionName: String,
@@ -924,7 +1030,7 @@ class CliTest extends munit.FunSuite:
     )
 
   test(
-    "selectByName: sessions under one name differ only by stage, so the newest wins"
+    "resolveSelection: sessions under one name differ only by stage, so the newest wins"
   ):
     // The minting stage tells rows apart for a reader; it does not address
     // them, so `continue implementer` must not start demanding one.
@@ -950,7 +1056,7 @@ class CliTest extends munit.FunSuite:
     )
     assertEquals(
       SessionPicker
-        .selectByName(attempts, "implementer")
+        .resolveSelection(attempts, Some("implementer"))
         .map(_.session.minted),
       Right(
         Some(
@@ -963,7 +1069,7 @@ class CliTest extends munit.FunSuite:
     )
 
   test(
-    "selectByName: a name shared by two distinct lineages (different agents) is ambiguous"
+    "resolveSelection: a name shared by two distinct lineages (different agents) is ambiguous"
   ):
     val attempts = List(
       RecordedAttempt(
@@ -978,7 +1084,7 @@ class CliTest extends munit.FunSuite:
       )
     )
     assertEquals(
-      SessionPicker.selectByName(attempts, "shared"),
+      SessionPicker.resolveSelection(attempts, Some("shared")),
       Left(
         "'shared' is ambiguous — matches agents: agentA, agentB; " +
           "run `orca continue --list` and pick one by its number"
@@ -986,7 +1092,7 @@ class CliTest extends munit.FunSuite:
     )
 
   test(
-    "selectByName: the same name in two worktrees is ambiguous, naming the trees"
+    "resolveSelection: the same name in two worktrees is ambiguous, naming the trees"
   ):
     // Flow session names are static, so two parallel --worktree runs on
     // unrelated tasks both record "shared" under the same agent. They are
@@ -1021,7 +1127,7 @@ class CliTest extends munit.FunSuite:
       )
     )
     assertEquals(
-      SessionPicker.selectByName(attempts, "shared"),
+      SessionPicker.resolveSelection(attempts, Some("shared")),
       Left(
         "'shared' is ambiguous — matches working directories: " +
           "/repo/.orca/worktrees/aaaaaaaaaaaa, /repo/.orca/worktrees/bbbbbbbbbbbb; " +
@@ -1208,7 +1314,7 @@ class CliTest extends munit.FunSuite:
       )
     assertEquals(
       SessionAction.resumeNotice(selection),
-      "resuming session 'newest' [claude], in /work"
+      "resuming session 'newest' [claude], on branch 'feature/newest', in /work"
     )
 
   test("resumeNotice: includes the stage when the session has one"):
@@ -1219,7 +1325,7 @@ class CliTest extends munit.FunSuite:
       SessionSelection(attempt.manifest, withStage, crashed = false)
     assertEquals(
       SessionAction.resumeNotice(selection),
-      "resuming session 'newest' [claude], stage 'Task: fix a bug', in /work"
+      "resuming session 'newest' [claude], stage 'Task: fix a bug', on branch 'feature/newest', in /work"
     )
 
   test("resumeNotice: mentions a crashed attempt"):
@@ -1232,7 +1338,7 @@ class CliTest extends munit.FunSuite:
       )
     assertEquals(
       SessionAction.resumeNotice(selection),
-      "resuming session 'newest' [claude], in /work (crashed)"
+      "resuming session 'newest' [claude], on branch 'feature/newest', in /work (crashed)"
     )
 
   test(
