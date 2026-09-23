@@ -2,7 +2,7 @@ package orca.util
 
 import com.github.plokhotnyuk.jsoniter_scala.core.{
   JsonValueCodec,
-  readFromString,
+  readFromArray,
   writeToString
 }
 
@@ -34,21 +34,30 @@ object JsonFile:
 
     case Loaded(value: A)
 
+  def read[A](path: os.Path)(using JsonValueCodec[A]): Read[A] =
+    readBytes(path) match
+      case Read.Loaded(bytes)      => decode(bytes)
+      case Read.Absent             => Read.Absent
+      case Read.Unreadable(reason) => Read.Unreadable(reason)
+      case Read.Corrupt(reason)    => Read.Corrupt(reason)
+
+  /** The file's raw content, for a caller that must keep the exact bytes it
+    * decodes. Never `Corrupt`.
+    */
   // Absence is the read's own `NoSuchFileException` rather than an `os.exists`
   // pre-check, so there is no window between the two for the file to vanish
   // in — the progress log is removed by teardown while the runtime still
   // reads it.
-  def read[A](path: os.Path)(using JsonValueCodec[A]): Read[A] =
-    val content =
-      try Right(os.read(path))
-      catch
-        case _: java.nio.file.NoSuchFileException => Left(Read.Absent)
-        case NonFatal(e) => Left(Read.Unreadable(describe(e)))
-    content match
-      case Left(result) => result
-      case Right(text) =>
-        try Read.Loaded(readFromString[A](text))
-        catch case NonFatal(e) => Read.Corrupt(describe(e))
+  def readBytes(path: os.Path): Read[IArray[Byte]] =
+    try Read.Loaded(IArray.unsafeFromArray(os.read.bytes(path)))
+    catch
+      case _: java.nio.file.NoSuchFileException => Read.Absent
+      case NonFatal(e)                          => Read.Unreadable(describe(e))
+
+  /** `bytes` as an `A`, or `Corrupt` when they do not parse. */
+  def decode[A](bytes: IArray[Byte])(using JsonValueCodec[A]): Read[A] =
+    try Read.Loaded(readFromArray[A](IArray.genericWrapArray(bytes).toArray))
+    catch case NonFatal(e) => Read.Corrupt(describe(e))
 
   /** Replace `path`'s contents with `value`'s JSON via a temp file in `tempDir`
     * (which must be on the same filesystem as `path`) renamed over it.
