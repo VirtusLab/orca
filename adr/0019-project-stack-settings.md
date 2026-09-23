@@ -435,3 +435,8 @@ Precedence, end to end: `reviewAndFixLoop(formatCommands = Use(...)/Off)` >
 > to suppress discovery (the authoring sandbox) now write live `off` lines;
 > templates that mean to leave discovery armed (the "Edit settings" starter)
 > keep their stack examples commented and add no live line.
+
+> **Amendment (2026-09-23).** A demoted command is written as a comment only
+> (`# skipped: lint = yarn lint (yarn: not found on PATH)`). A key gets a live
+> `key = off` line only when none of its commands survived, so a key never
+> carries both a command and `off`.
