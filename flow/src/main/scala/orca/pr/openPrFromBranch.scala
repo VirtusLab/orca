@@ -56,7 +56,7 @@ def openPrFromBranch(
   val push = tracedStage(PushStage):
     git.push().orThrow
     PushAttempt.Pushed
-  push.value.outcome.left.foreach(reason => fail(refusalLine(reason, push)))
+  push.value.outcome.fold(reason => fail(refusalLine(reason, push)), identity)
   val summary = summarise(
     summarisingAgent,
     git.defaultBase(),

@@ -115,10 +115,9 @@ private def preFlight(base: => Either[NoDefaultBase, String])(using
     )
     _ <- base.left.map(baseStopReason)
   yield destination
-  checked.map: to =>
-    ctx.emit(
-      OrcaEvent.Step(s"Opening a PR on ${to.host}/${to.owner}/${to.repo}")
-    )
+  checked.map: destination =>
+    import destination.{host, owner, repo}
+    ctx.emit(OrcaEvent.Step(s"Opening a PR on $host/$owner/$repo"))
 
 /** Where the PR will land, or why no PR can be opened. */
 private def probe(using
