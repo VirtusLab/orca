@@ -18,6 +18,7 @@ import orca.util.{JsonFile, TextUtil}
 import orca.sessions.{SessionRecord, SessionStore}
 import orca.progress.{
   BranchMode,
+  BranchName,
   CommitHash,
   FeatureBranch,
   ProgressHeader,
@@ -693,6 +694,14 @@ object FlowLifecycle:
               s"refusing to resume: progress log header failed validation ($reason)"
             )
           case Right(featureBranch) => featureBranch
+      args.branch
+        .filter(_.value != header.branch)
+        .foreach: requested =>
+          throw new OrcaFlowException(
+            s"refusing to resume: this run is already bound to branch " +
+              s"'${header.branch}' — omit --branch or pass " +
+              s"--branch ${header.branch} (got '${requested.value}')"
+          )
       val current = git.currentBranch()
       if current != header.branch then
         throw new OrcaFlowException(
@@ -928,6 +937,10 @@ object FlowLifecycle:
     * "main" this time. [[createFreshBranch]] applies the same policy to a
     * git-level collision.
     *
+    * A `--branch` name wins over `branchNaming` and the default strategy and
+    * never falls back: [[createRequestedBranch]] refuses it instead of
+    * renaming.
+    *
     * A `CurrentBranch` target skips all of this: the run binds to `startBranch`
     * verbatim via [[reuseCurrentBranch]] instead.
     */
@@ -949,32 +962,18 @@ object FlowLifecycle:
       if args.target.skipBranch then
         reuseCurrentBranch(startBranch, protectedBranches)
       else
-        val strategy =
-          branchNaming.getOrElse(BranchNamingStrategy.shortenPrompt)
-        val resolvedName = strategy.resolve(args.userPrompt, agent)
-        // Resolved once, shared by both fallback triggers below (a
-        // protected-name refusal and a git-level `BranchAlreadyExists`
-        // collision use the exact same deterministic name).
-        val fallback = resolveFallback(args.userPrompt, protectedBranches)
-        val protectionChecked =
-          FeatureBranch.resolve(resolvedName, protectedBranches) match
-            case Right(featureBranch) => featureBranch
-            case Left(ProtectedBranchRefused(name)) =>
-              emit(
-                OrcaEvent.Step(
-                  s"branch name '$name' is protected — using '${fallback.value}' instead"
-                )
-              )
-              fallback
-            case Left(UnsafeBranchRefRefused(name)) =>
-              // Unreachable: `strategy.resolve` always returns an
-              // already-slugged name, so `resolve`'s shape check can never
-              // refuse it. Guarded defensively rather than assumed.
-              throw new OrcaFlowException(
-                s"internal error: strategy-resolved branch name '$name' is " +
-                  "not a safe ref"
-              )
-        createFreshBranch(git, protectionChecked, fallback, emit)
+        args.branch match
+          case Some(name) =>
+            createRequestedBranch(git, name, protectedBranches)
+          case None =>
+            createNamedByStrategy(
+              args.userPrompt,
+              agent,
+              git,
+              branchNaming,
+              protectedBranches,
+              emit
+            )
     // A just-discovered settings file gets its own commit here — after the
     // branch exists, before the header commit below — so the header commit
     // carries only the progress log its message names (ADR 0019).
@@ -993,6 +992,78 @@ object FlowLifecycle:
     )
     git.forceCommitOnly(store.path, "orca: progress log")
     branch
+
+  /** Create the branch `branchNaming` (or the default strategy) derives from
+    * `userPrompt`, falling back to `flow-<hash>` on a protected or existing
+    * name.
+    */
+  private def createNamedByStrategy(
+      userPrompt: String,
+      agent: Agent[?],
+      git: GitTool,
+      branchNaming: Option[BranchNamingStrategy],
+      protectedBranches: Set[String],
+      emit: OrcaEvent => Unit
+  )(using InStage, WorkspaceWrite): FeatureBranch =
+    val strategy = branchNaming.getOrElse(BranchNamingStrategy.shortenPrompt)
+    val resolvedName = strategy.resolve(userPrompt, agent)
+    // Resolved once, shared by both fallback triggers below (a
+    // protected-name refusal and a git-level `BranchAlreadyExists`
+    // collision use the exact same deterministic name).
+    val fallback = resolveFallback(userPrompt, protectedBranches)
+    val protectionChecked =
+      FeatureBranch.resolve(resolvedName, protectedBranches) match
+        case Right(featureBranch) => featureBranch
+        case Left(ProtectedBranchRefused(name)) =>
+          emit(
+            OrcaEvent.Step(
+              s"branch name '$name' is protected — using '${fallback.value}' instead"
+            )
+          )
+          fallback
+        case Left(UnsafeBranchRefRefused(name)) =>
+          // Unreachable: `strategy.resolve` always returns an
+          // already-slugged name, so `resolve`'s shape check can never
+          // refuse it. Guarded defensively rather than assumed.
+          throw new OrcaFlowException(
+            s"internal error: strategy-resolved branch name '$name' is " +
+              "not a safe ref"
+          )
+    createFreshBranch(git, protectionChecked, fallback, emit)
+
+  /** Create the `--branch` name as given. Refuses (no fallback rename) when it
+    * is one of this repo's protected branches — the detected default included,
+    * which parse time cannot know — or already exists.
+    */
+  private def createRequestedBranch(
+      git: GitTool,
+      name: BranchName,
+      protectedBranches: Set[String]
+  )(using WorkspaceWrite): FeatureBranch =
+    // `resolveReused`, not `resolve`: the latter's slug shape would refuse
+    // valid user names such as `feature/JIRA-123`.
+    val featureBranch =
+      FeatureBranch.resolveReused(name.value, protectedBranches) match
+        case Right(featureBranch) => featureBranch
+        case Left(ProtectedBranchRefused(refused)) =>
+          throw new OrcaFlowException(
+            s"--branch '$refused' is a protected branch in this repo — " +
+              "pick another --branch name"
+          )
+        case Left(UnsafeBranchRefRefused(refused)) =>
+          // Unreachable: `BranchName.parse` already enforces git's ref rules,
+          // which are stricter than `resolveReused`'s check.
+          throw new OrcaFlowException(
+            s"internal error: --branch '$refused' is not a safe ref"
+          )
+    git.createBranch(featureBranch.value) match
+      case Right(()) => featureBranch
+      case Left(_) =>
+        throw new OrcaFlowException(
+          s"branch '${featureBranch.value}' already exists — check it out " +
+            "and re-run with --skip-branch to continue on it, or pick " +
+            "another --branch name"
+        )
 
   /** Give the just-discovered settings file its own commit (ADR 0019), so the
     * commit that follows carries only what its message names. Called on both

@@ -42,6 +42,7 @@ import orca.agents.{
 import orca.backend.{IdScheme, SessionSupport}
 import orca.progress.{
   BranchMode,
+  BranchName,
   CommitHash,
   FeatureBranch,
   ProgressHeader,
@@ -1105,6 +1106,88 @@ class FlowLifecycleTest extends munit.FunSuite:
       emitted.get().collect { case OrcaEvent.BranchBound(b) => b },
       List("my-work")
     )
+
+  // --- a user-chosen --branch name ---
+
+  private def setupWithBranch(
+      workDir: os.Path,
+      branch: String,
+      git: GitTool
+  ): FlowLifecycle.FlowSetup =
+    val prompt = "a task with a chosen branch"
+    FlowLifecycle.setup(
+      args = OrcaArgs(prompt, branch = BranchName.parse(branch).toOption),
+      agent = StubAgent.claude,
+      git = git,
+      workDir = workDir,
+      branchNaming = Some(BranchNamingStrategy.fromText("other")),
+      resolution = FlowLifecycle
+        .readSettings(workDir, noGlobalSettings, Some(StackSettings.empty))
+        .stack,
+      stackOverridden = true,
+      store = ProgressStore.default(workDir, RunKey.of(prompt)),
+      sessionStore = scratchSessions(),
+      emit = _ => ()
+    )
+
+  private def localBranches(workDir: os.Path): Set[String] =
+    os.proc("git", "for-each-ref", "--format=%(refname:short)", "refs/heads")
+      .call(cwd = workDir)
+      .out
+      .lines()
+      .toSet
+
+  test("setup: --branch wins over the branch naming strategy"):
+    val workDir = GitRepo.seeded()
+    val setup = setupWithBranch(workDir, "feat/x", new OsGitTool(workDir))
+    assertEquals(setup.featureBranch.value, "feat/x")
+
+  test("setup: an existing --branch is refused with the --skip-branch hint"):
+    val workDir = GitRepo.seeded()
+    val git = new OsGitTool(workDir)
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    assert(git.createBranch("feat/x").isRight)
+    assert(git.checkout("main").isRight)
+    val before = localBranches(workDir)
+    val thrown = intercept[orca.OrcaFlowException]:
+      setupWithBranch(workDir, "feat/x", git)
+    assert(
+      thrown.getMessage.contains("--skip-branch"),
+      s"refusal must point at --skip-branch: ${thrown.getMessage}"
+    )
+    assertEquals(localBranches(workDir), before)
+
+  test("setup: --branch differing from the resumed run's branch is refused"):
+    val workDir = GitRepo.seeded()
+    val git = new OsGitTool(workDir)
+    val _ = setupWithBranch(workDir, "feat/x", git)
+    val thrown = intercept[orca.OrcaFlowException]:
+      setupWithBranch(workDir, "feat/y", git)
+    assert(
+      thrown.getMessage.contains("already bound to branch 'feat/x'"),
+      s"refusal must name the bound branch: ${thrown.getMessage}"
+    )
+
+  test("setup: --branch equal to the resumed run's branch resumes"):
+    val workDir = GitRepo.seeded()
+    val git = new OsGitTool(workDir)
+    val _ = setupWithBranch(workDir, "feat/x", git)
+    assertEquals(
+      setupWithBranch(workDir, "feat/x", git).featureBranch.value,
+      "feat/x"
+    )
+
+  test("setup: --branch naming the detected default branch is refused"):
+    val workDir = GitRepo.seeded()
+    val git = new OsGitTool(workDir):
+      override def defaultBranch(): Option[String] = Some("develop")
+    val thrown = intercept[orca.OrcaFlowException]:
+      setupWithBranch(workDir, "develop", git)
+    assert(
+      thrown.getMessage.contains("protected"),
+      s"refusal must say the branch is protected: ${thrown.getMessage}"
+    )
+    assert(!localBranches(workDir).contains("develop"))
 
   test("the commit the run bound at reaches the flow body"):
     // The rest of the path FlowSetup only starts: DefaultFlowContext, and what
