@@ -18,26 +18,14 @@ class ConversationEventTest extends munit.FunSuite:
       case ConversationEvent.ApproveTool(name, input, respond) =>
         assertEquals(name, "Bash")
         assertEquals(input, """{"cmd":"ls"}""")
-        respond(ApprovalDecision.Allow())
+        respond(ApprovalDecision.Allow)
       case other => fail(s"expected ApproveTool, got $other")
-    assertEquals(sink.get(), Some(ApprovalDecision.Allow()))
+    assertEquals(sink.get(), Some(ApprovalDecision.Allow))
 
   test("AssistantTextDelta and AssistantThinkingDelta are distinguishable"):
     val text = ConversationEvent.AssistantTextDelta("hello")
     val thinking = ConversationEvent.AssistantThinkingDelta("ponder")
     assertNotEquals[ConversationEvent, ConversationEvent](text, thinking)
-
-  test("ApprovalDecision.Allow and Deny carry optional payloads"):
-    assertEquals(
-      ApprovalDecision.Allow(Some("""{"cmd":"safe"}""")).updatedInputJson,
-      Some("""{"cmd":"safe"}""")
-    )
-    assertEquals(
-      ApprovalDecision.Deny(Some("not allowed")).reason,
-      Some("not allowed")
-    )
-    assertEquals(ApprovalDecision.Allow().updatedInputJson, None)
-    assertEquals(ApprovalDecision.Deny().reason, None)
 
   test("OrcaInteractiveCancelled is an OrcaFlowException"):
     val cancelled = new OrcaInteractiveCancelled(TurnDebit.Unobserved)

@@ -65,11 +65,12 @@ Key shifts vs. the previous TTY path:
 - **The terminal is Orca's, not claude's.** Orca renders turns,
   streams text, displays tool calls, prompts for approvals, and
   decides what to show. The backend never inherits stdio.
-- **Approvals go through `ApproveTool` events**, each carrying a
-  `respond: ApprovalDecision => Unit` closure the channel invokes
-  exactly once. The driver auto-approves tools that match
-  `AgentConfig.autoApprove` before the event would fire; only
-  channel-level decisions surface as events.
+- **Approvals are set by flags, not asked over stdio.** Orca closes
+  claude's stdin after the opening turn, so claude cannot send a
+  `can_use_tool` request orca could answer; `AgentConfig.autoApprove`
+  maps to permission flags, and a tool outside them fails as a
+  tool_result. A `control_request` that arrives anyway surfaces as an
+  `Error` event.
 - **Cancellation surfaces as `Either`**: `Conversation.awaitResult`
   returns `Either[OrcaInteractiveCancelled, AgentResult[B]]`. Genuine
   subprocess failures still throw, since they aren't recoverable, but

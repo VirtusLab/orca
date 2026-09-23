@@ -196,13 +196,10 @@ private[orca] class ClaudeBackend(
       )
       cli.spawnPiped(args, cwd = workDir)
     } { process =>
-      process.writeLine(
-        OutboundMessage.toJson(OutboundMessage.UserText(prompt))
-      )
+      process.writeLine(OutboundMessage.userText(prompt))
       process.closeStdin()
       ClaudeConversation(
         process,
-        config,
         openingPrompt = mode.openingPrompt,
         outputSchema = outputSchema,
         askUser =

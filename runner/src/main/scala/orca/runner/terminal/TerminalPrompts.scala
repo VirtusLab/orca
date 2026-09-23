@@ -100,11 +100,8 @@ private[terminal] class TerminalPrompts(
 
   private def decisionFor(reply: String): ApprovalDecision =
     val normalised = reply.trim.toLowerCase
-    if normalised.startsWith("y") then ApprovalDecision.Allow()
-    else
-      ApprovalDecision.Deny(
-        Some(s"user denied via terminal (answered '$normalised')")
-      )
+    if normalised.startsWith("y") then ApprovalDecision.Allow
+    else ApprovalDecision.Deny
 
   private def paint(attr: fansi.Attrs, text: String): String =
     Ansi.paint(useColor, attr, text)

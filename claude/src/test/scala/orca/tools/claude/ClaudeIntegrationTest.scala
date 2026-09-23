@@ -123,8 +123,7 @@ class ClaudeIntegrationTest extends munit.FunSuite:
       // reads. What is pinned is not the refusal but its shape: it arrives as a
       // failed tool_result, not as a `can_use_tool` control request. Stdin is
       // closed at spawn, so orca could not answer such a request — a future CLI
-      // reviving that subchannel fails here first (see
-      // `ClaudeConversation.respond`).
+      // reviving that subchannel fails here first.
       val conversation = OpenTurn.interactive(backend)(
         prompt = "Read the file at /etc/hostname and reply with its contents.",
         session = fresh,
@@ -135,7 +134,10 @@ class ClaudeIntegrationTest extends munit.FunSuite:
       try
         val events = conversation.events.toList
         assert(
-          !events.exists(_.isInstanceOf[ConversationEvent.ApproveTool]),
+          !events.exists:
+            case ConversationEvent.Error(m) => m.contains("control_request")
+            case _                          => false
+          ,
           s"claude routed a tool approval over stdio, which orca cannot answer: $events"
         )
         assert(
@@ -289,7 +291,7 @@ class ClaudeIntegrationTest extends munit.FunSuite:
       .proc(args)
       .call(
         cwd = TempDirs.dir(),
-        stdin = OutboundMessage.toJson(OutboundMessage.UserText("Reply: ok")) +
+        stdin = OutboundMessage.userText("Reply: ok") +
           "\n"
       )
       .out

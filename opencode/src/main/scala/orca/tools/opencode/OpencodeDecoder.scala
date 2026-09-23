@@ -247,8 +247,8 @@ private[opencode] final class OpencodeDecoder(
       req: PermissionRequest
   )(decision: ApprovalDecision): Unit =
     val verdict = decision match
-      case ApprovalDecision.Allow(_) => PermissionReply.Once
-      case ApprovalDecision.Deny(_)  => PermissionReply.Reject
+      case ApprovalDecision.Allow => PermissionReply.Once
+      case ApprovalDecision.Deny  => PermissionReply.Reject
     val _ = http.postJson(
       s"/permission/${req.id}/reply",
       writeToString(PermissionReplyBody(verdict))

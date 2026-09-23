@@ -477,13 +477,13 @@ class OpencodeConversationTest extends munit.FunSuite:
 
   convTest("approving a permission.asked POSTs reply=once"):
     assertEquals(
-      permissionReplyPost(ApprovalDecision.Allow()),
+      permissionReplyPost(ApprovalDecision.Allow),
       List("/permission/per_1/reply" -> """{"reply":"once"}""")
     )
 
   convTest("denying a permission.asked POSTs reply=reject"):
     assertEquals(
-      permissionReplyPost(ApprovalDecision.Deny()),
+      permissionReplyPost(ApprovalDecision.Deny),
       List("/permission/per_1/reply" -> """{"reply":"reject"}""")
     )
 
