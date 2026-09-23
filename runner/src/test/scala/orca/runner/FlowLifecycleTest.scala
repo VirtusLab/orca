@@ -1425,11 +1425,12 @@ class FlowLifecycleTest extends munit.FunSuite:
   private def setupDiscovering(
       workDir: os.Path,
       agent: Agent[?],
-      prompt: String
+      prompt: String,
+      target: RunTarget = RunTarget.NewBranch(Uncommitted.Stash)
   ): (FlowLifecycle.FlowSetup, List[String]) =
     val emitted = new AtomicReference[List[OrcaEvent]](Nil)
     val setup = FlowLifecycle.setup(
-      args = OrcaArgs(prompt),
+      args = OrcaArgs(prompt, target = target),
       agent = agent,
       git = new OsGitTool(workDir),
       workDir = workDir,
@@ -1468,6 +1469,32 @@ class FlowLifecycleTest extends munit.FunSuite:
       .out
       .text()
       .trim
+
+  test(
+    "setup with --keep-changes and discovery: the kept snapshot is based on the settings commit"
+  ):
+    // Teardown restores only while HEAD is at the snapshot's base, so a base
+    // behind setup's last commit would never be restored.
+    val workDir = GitRepo.seeded()
+    os.write.over(workDir / "seed.txt", "modified in place")
+    val (setup, _) = setupDiscovering(
+      workDir,
+      CannedDiscoveryAgent(
+        StackDiscoveryResult(
+          format = DiscoveredTask(commands =
+            List(DiscoveredCommand("echo fmt", "seed.txt"))
+          ),
+          lint = DiscoveredTask(),
+          test = DiscoveredTask()
+        )
+      ),
+      "discover-keep",
+      target = keepChanges
+    )
+    setup.startingTree match
+      case StartingTree.Kept(Some(snapshot)) =>
+        assertEquals(Some(snapshot.base), new OsGitTool(workDir).headCommit())
+      case other => fail(s"expected a kept snapshot, got $other")
 
   test(
     "setup: fresh arm, no file, no override — discovery gives the settings file its own commit, after the header commit"
@@ -1942,13 +1969,16 @@ class FlowLifecycleTest extends munit.FunSuite:
   private def scratchSessions(): SessionStore =
     SessionStore.default(TempDirs.dir(), RunKey.of("fixture"))
 
+  private val keepChanges: RunTarget = RunTarget.NewBranch(Uncommitted.Keep)
+
   private def runFlowForTest(
       workDir: os.Path,
       prompt: String,
       extraListeners: List[OrcaListener] = Nil,
       claude: ClaudeAgent = StubAgent.claude,
       gh: Option[GitHubTool] = None,
-      git: Option[GitTool] = None
+      git: Option[GitTool] = None,
+      target: RunTarget = RunTarget.NewBranch(Uncommitted.Stash)
   )(body: orca.FlowControl ?=> Unit): Unit =
     supervised:
       val interaction = TerminalInteraction.start(
@@ -1958,7 +1988,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       )
       runFlow(
         FlowHarness.request(
-          args = OrcaArgs(prompt),
+          args = OrcaArgs(prompt, target = target),
           stackSettings = Some(StackSettings.empty),
           wiring = FlowWiring(claude = Some(_ => claude), gh = gh, git = git),
           workDir = workDir,
@@ -3084,7 +3114,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         DirtyTreeChoice.Keep,
         emitted = emitted
       )
-    assertEquals(setup.untrackedOnFailure, UntrackedFiles.Keep)
+    assertEquals(setup.startingTree, StartingTree.Kept(None))
     assertEquals(stashList(workDir), Nil)
     assert(os.exists(workDir / "handoff.md"))
     val steps =
@@ -3103,7 +3133,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val setup =
       setupAsking(workDir, "prompt-stash", DirtyTreeChoice.Stash, asks = asks)
     assertEquals(asks.get(), 1, "the prompt must have been consulted")
-    assertEquals(setup.untrackedOnFailure, UntrackedFiles.Remove)
+    assertEquals(setup.startingTree, StartingTree.Clean)
     assert(stashList(workDir).nonEmpty, "the answer must reach the stash")
     assert(!os.exists(workDir / "handoff.md"))
 
@@ -3144,49 +3174,73 @@ class FlowLifecycleTest extends munit.FunSuite:
       asks = asks
     )
     assertEquals(asks.get(), 0, "a headless run must never prompt")
-    assertEquals(setup.untrackedOnFailure, UntrackedFiles.Remove)
+    assertEquals(setup.startingTree, StartingTree.Clean)
     assert(stashList(workDir).nonEmpty)
 
   test(
-    "normal mode with --keep-changes: failure teardown keeps the untracked files it started with, but the kept tracked modification is reset"
+    "normal mode with --keep-changes: a failure before any stage commit keeps the kept untracked file and restores the kept tracked modification"
   ):
-    // A fresh run with --keep-changes tolerates a dirty tree instead of
-    // stashing it, so those files pre-date the run — its hand-off context, not
-    // its output. Teardown's untracked removal must therefore be off here. The
-    // tracked half is the documented sharp edge: `reset --hard` always runs.
     val workDir = GitRepo.seeded() // commits "seed.txt" holding "seed"
-    val prompt = "keep-changes-teardown"
     os.write(workDir / "handoff.md", "the plan")
     os.write.over(workDir / "seed.txt", "modified in place")
     val _ = intercept[ReportedFailure]:
-      supervised:
-        val interaction = TerminalInteraction.start(
-          out = new PrintStream(new ByteArrayOutputStream()),
-          useColor = false,
-          animated = false
-        )
-        runFlow(
-          FlowHarness.request(
-            args =
-              OrcaArgs(prompt, target = RunTarget.NewBranch(Uncommitted.Keep)),
-            stackSettings = Some(StackSettings.empty),
-            wiring = FlowWiring(claude = Some(_ => StubAgent.claude)),
-            workDir = workDir,
-            interaction = Some(interaction),
-            extraListeners = Nil,
-            branchNaming = None
-          )
-        ):
-          val _ = stage[String]("crash"):
-            throw new RuntimeException("boom body")
+      runFlowForTest(workDir, "keep-changes-teardown", target = keepChanges):
+        val _ = stage[String]("crash"):
+          os.write.over(workDir / "seed.txt", "partial edit")
+          throw new RuntimeException("boom body")
+    assert(os.exists(workDir / "handoff.md"))
+    assertEquals(os.read(workDir / "seed.txt"), "modified in place")
+
+  test(
+    "normal mode with --keep-changes: a failure after a stage committed the kept modification leaves the committed content"
+  ):
+    // HEAD has moved past the snapshot's base, so the snapshot must not be
+    // re-applied over the stage's commit.
+    val workDir = GitRepo.seeded()
+    val listener = new RecordingListener
+    os.write.over(workDir / "seed.txt", "modified in place")
+    val _ = intercept[ReportedFailure]:
+      runFlowForTest(
+        workDir,
+        "keep-changes-committed",
+        extraListeners = List(listener),
+        target = keepChanges
+      ):
+        val _ = stage("rewrite"):
+          os.write.over(workDir / "seed.txt", "rewritten by the stage")
+          "done"
+        val _ = stage[String]("crash"):
+          throw new RuntimeException("boom body")
+    assertEquals(os.read(workDir / "seed.txt"), "rewritten by the stage")
+    val steps = listener.events.collect { case s: OrcaEvent.Step => s.message }
     assert(
-      os.exists(workDir / "handoff.md"),
-      "an untracked file that pre-dated the run must survive failure teardown"
+      steps.exists(_.contains("are in the run's commits")),
+      s"the snapshot must be named for manual recovery: $steps"
     )
+    assert(!steps.exists(_.contains("could not restore")), steps)
+
+  test(
+    "failure teardown leaves the working tree alone when the body moved HEAD off the feature branch"
+  ):
+    val workDir = GitRepo.seeded()
+    val listener = new RecordingListener
+    val _ = intercept[ReportedFailure]:
+      runFlowForTest(workDir, "moved-head", extraListeners = List(listener)):
+        val _ = stage[String]("crash"):
+          val _ = os
+            .proc("git", "checkout", "-q", "-b", "elsewhere")
+            .call(cwd = workDir)
+          os.write.over(workDir / "seed.txt", "edited elsewhere")
+          throw new RuntimeException("boom body")
     assertEquals(
-      os.read(workDir / "seed.txt"),
-      "seed",
-      "the kept tracked modification dies to the teardown's reset --hard"
+      new OsGitTool(workDir).head(),
+      Head.OnBranch(branchName("elsewhere"))
+    )
+    assertEquals(os.read(workDir / "seed.txt"), "edited elsewhere")
+    val steps = listener.events.collect { case s: OrcaEvent.Step => s.message }
+    assert(
+      steps.exists(_.contains("leaving the working tree as it is")),
+      s"expected a warning that teardown skipped the reset: $steps"
     )
 
   test(
@@ -3286,7 +3340,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       startingHead = Head.OnBranch(branchName("main")),
       stackSettings = StackSettings.empty,
       branchMode = BranchMode.Reused,
-      untrackedOnFailure = UntrackedFiles.Remove,
+      startingTree = StartingTree.Clean,
       startingCommit = startedAt,
       worktree = None
     )
@@ -3326,7 +3380,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       startingHead = Head.OnBranch(branchName("main")),
       stackSettings = StackSettings.empty,
       branchMode = BranchMode.Created,
-      untrackedOnFailure = UntrackedFiles.Remove,
+      startingTree = StartingTree.Clean,
       startingCommit = startedAt,
       worktree = None
     )
@@ -3452,7 +3506,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       startingHead = Head.OnBranch(branchName("main")),
       stackSettings = StackSettings.empty,
       branchMode = BranchMode.Reused,
-      untrackedOnFailure = UntrackedFiles.Remove,
+      startingTree = StartingTree.Clean,
       startingCommit = None,
       worktree = None
     )
@@ -3553,7 +3607,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       startingHead = Head.OnBranch(branchName("main")),
       stackSettings = StackSettings.empty,
       branchMode = branchMode,
-      untrackedOnFailure = UntrackedFiles.Remove,
+      startingTree = StartingTree.Clean,
       startingCommit = startingCommit,
       worktree = None
     )
