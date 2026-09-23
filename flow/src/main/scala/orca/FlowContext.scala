@@ -2,7 +2,7 @@ package orca
 
 import orca.events.OrcaEvent
 import orca.tools.FsTool
-import orca.tools.GitTool
+import orca.tools.{GitTool, RuntimeGit}
 import orca.tools.GitHubTool
 import orca.agents.{Agent, BackendTag}
 import orca.review.ReviewerCatalog
@@ -83,7 +83,14 @@ trait FlowContext extends AgentSet:
     */
   def reviewAgent: Agent[ReviewB]
 
-  def git: GitTool
+  /** The git handle scripts see: reads and pushes. */
+  final def git: GitTool = runtimeGit
+
+  /** The same git with the runtime's branch, commit and teardown operations —
+    * for the flow runtime, never for scripts.
+    */
+  private[orca] def runtimeGit: RuntimeGit
+
   def gh: GitHubTool
   def fs: FsTool
 

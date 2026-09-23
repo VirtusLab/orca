@@ -45,7 +45,7 @@ import orca.runner.terminal.TerminalInteraction
 import orca.subprocess.OsProcCliRunner
 import org.slf4j.LoggerFactory
 import orca.tools.FsTool
-import orca.tools.GitTool
+import orca.tools.RuntimeGit
 import orca.tools.GitHubTool
 import orca.tools.{OsFsTool, OsGitHubTool, OsGitTool}
 import orca.util.{OrcaDebug, TextUtil}
@@ -64,7 +64,8 @@ import scala.util.control.NonFatal
   *   ...
   * ```
   *
-  * Override any tool by passing it as a named argument in the first list:
+  * Override any tool by passing it as a named argument in the first list (a
+  * `git` override is an `orca.tools.RuntimeGit`):
   *
   * ```
   * flow(
@@ -141,7 +142,7 @@ def flow(
     opencode: Option[AgentWiring => Ox ?=> OpencodeAgent] = None,
     pi: Option[AgentWiring => Ox ?=> PiAgent] = None,
     gemini: Option[AgentWiring => Ox ?=> GeminiAgent] = None,
-    git: Option[GitTool] = None,
+    git: Option[RuntimeGit] = None,
     gh: Option[GitHubTool] = None,
     fs: Option[FsTool] = None,
     prompts: Prompts = DefaultPrompts,
@@ -331,7 +332,8 @@ private[orca] def runFlow(request: RunRequest)(
           prompts = wiring.prompts
         )
         val agents = WiredAgents.build(wiring, agentWiring)
-        val gitTool = wiring.git.getOrElse(new OsGitTool(workDir, dispatcher))
+        val runtimeGit =
+          wiring.git.getOrElse(new OsGitTool(workDir, dispatcher))
         val ghTool = wiring.gh.getOrElse(
           new OsGitHubTool(OsProcCliRunner, workDir, events = dispatcher)
         )
@@ -342,7 +344,7 @@ private[orca] def runFlow(request: RunRequest)(
           options = request.setup,
           dispatcher = dispatcher,
           agents = agents,
-          gitTool = gitTool,
+          runtimeGit = runtimeGit,
           ghTool = ghTool,
           fsTool = fsTool
         )(body)
@@ -365,7 +367,7 @@ private def runInContext(
     options: SetupOptions,
     dispatcher: OrcaListener,
     agents: WiredAgents,
-    gitTool: GitTool,
+    runtimeGit: RuntimeGit,
     ghTool: GitHubTool,
     fsTool: FsTool
 )(body: FlowControl ?=> Unit): Unit =
@@ -422,7 +424,7 @@ private def runInContext(
       FlowLifecycle.setup(
         args,
         resolvedRoles.coding,
-        gitTool,
+        runtimeGit,
         workDir,
         options.branchNaming,
         settingsRead.stack,
@@ -449,7 +451,7 @@ private def runInContext(
           codingAgent = c,
           reviewAgent = r,
           wired = agents,
-          git = gitTool,
+          runtimeGit = runtimeGit,
           gh = ghTool,
           fs = fsTool,
           stackSettings = flowSetup.stackSettings,
