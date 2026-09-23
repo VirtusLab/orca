@@ -89,8 +89,8 @@ private[shell] object AuthorAction:
     )
 
   /** Edit-by-agent: like [[fork]] with [[FlowAuthoring.editPrompt]], editing
-    * the flow at `destination` and overwriting it with the result. `flow` names
-    * it.
+    * the flow at `destination` and overwriting it with the result. `flow`
+    * supplies the name and description; its path is `destination.flowPath`.
     */
   def edit(
       flow: DiscoveredFlow,
@@ -167,7 +167,7 @@ private[shell] object AuthorAction:
     * built-in tier) with `prompt` as its task, via
     * [[FlowLauncher.runAnnounced]] — same launch path, forced-version/fallback
     * semantics, and tty-inherited terminal as "Run a flow" — with the SANDBOX
-    * as the working directory, then hands the mode to [[finishAuthoring]].
+    * as the working directory, then hands the result to [[finishAuthoring]].
     */
   private def launchAuthoringFlow(
       prompt: String,

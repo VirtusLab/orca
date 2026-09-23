@@ -615,8 +615,6 @@ class CliTest extends munit.FunSuite:
     )
     assert(err.contains("--edit"), err)
 
-  // --- run: --edit's mutual exclusion with role flags/--force ---
-
   test(
     "run: --edit alone (no role flags) is not rejected by the conflict check"
   ):

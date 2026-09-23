@@ -87,6 +87,34 @@ class RunMenuTest extends munit.FunSuite:
       )(using TestShellEnv(workDir))
     (ui, recorded)
 
+  test("runFlow: launches the picked flow in the shell's workDir"):
+    val workDir = TempDirs.dir()
+    val picked = DiscoveredFlow(
+      name = "run-flow.sc",
+      description = None,
+      origin = Origin.Project,
+      path = workDir / "run-flow.sc",
+      shadows = Nil,
+      source = FlowSource.Catalog("run-flow.sc")
+    )
+    val ui = FlowScriptedUi(
+      selectScript = List(
+        UiOutcome.Selected(picked),
+        UiOutcome.Selected(RunTarget.CurrentBranch(Uncommitted.Stash))
+      ),
+      inputMultilineScript = List(UiOutcome.Selected("do the thing"))
+    )
+    var recorded: Option[(LaunchedFlow, os.Path)] = None
+    withDumbTerminal: terminal =>
+      RunMenu.runFlow(
+        ui,
+        terminal,
+        launch = (_, flow, _, dir, _) =>
+          recorded = Some((flow, dir))
+          LaunchResult.Ok
+      )(using TestShellEnv(workDir))
+    assertEquals(recorded, Some((LaunchedFlow.of(picked), workDir)))
+
   test("runFlow: a typed branch name reaches the launcher's args"):
     val (_, args) =
       runFlowWith(RunTarget.Worktree, List(UiOutcome.Selected("feature/x")))

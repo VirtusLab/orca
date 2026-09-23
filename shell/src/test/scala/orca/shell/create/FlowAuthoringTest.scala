@@ -539,7 +539,7 @@ class FlowAuthoringTest extends munit.FunSuite:
     ).foreach: text =>
       assert(!text.linesIterator.exists(_.trim.startsWith("|")), text)
 
-  // --- resolveTarget / prepareTarget ---
+  // --- prepareTarget / prepareAutoTarget ---
 
   test("prepareAutoTarget: a free name is used as-is"):
     val dir = TempDirs.dir()

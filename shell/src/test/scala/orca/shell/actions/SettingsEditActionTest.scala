@@ -55,6 +55,7 @@ class SettingsEditActionTest extends munit.FunSuite:
   test("ensureExists: Global creates a header-only file with no role lines"):
     withEnv:
       SettingsEditAction.ensureExists(Tier.Global)
+      assert(os.exists(Tier.Global.settingsPath))
       assertEquals(
         ConfigAction.show(Tier.Global.settingsPath),
         Right(orca.settings.AgentSettings.empty)

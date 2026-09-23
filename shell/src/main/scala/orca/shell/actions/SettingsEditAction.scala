@@ -60,5 +60,5 @@ private[shell] object SettingsEditAction:
   def validate(tier: Tier)(using env: ShellEnv): Either[String, Unit] =
     val result = tier match
       case Tier.Project => ConfigAction.showProject(env.workDir)
-      case Tier.Global  => ConfigAction.show(env.configHome.settings)
+      case Tier.Global  => ConfigAction.show(tier.settingsPath)
     result.map(_ => ())

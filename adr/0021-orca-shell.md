@@ -996,10 +996,9 @@ harness/model/yolo flag exists for either.
 > positional, which a flow pinned to an older orca still parses.
 
 Both entry points call a shared `orca.shell.actions` package (`FlowResolution`,
-`RunAction`, `ViewAction`, `EditAction`, `AuthorAction`, `SessionAction`,
-`ConfigAction`, `StackAction`): each takes fully-resolved parameters and does
-the work, with no prompting inside. `Main`'s interactive handlers keep only
-the prompting that produces those parameters; `Cli` parses the same
+`ViewAction`, `EditAction`, `AuthorAction`, `SessionAction`, `ConfigAction`,
+`StackAction`): each takes fully-resolved parameters and does the work, with
+no prompting inside. The `menu` package's handlers keep only the prompting that produces those parameters; `Cli` parses the same
 parameters from argv. This is why CLI and menu behavior can't drift — they
 call the same code below the point where a human would otherwise be asked.
 
