@@ -41,7 +41,7 @@ class DefaultModelsPricedTest extends munit.FunSuite:
     assert(
       Pricing
         .resolve(
-          Pricing.default.table,
+          Pricing.default,
           agent.configuredModel,
           usage(input = 1_000L, output = 100L)
         )

@@ -4,7 +4,7 @@ import ox.Ox
 import ox.channels.{Actor, ActorRef, BufferCapacity}
 
 /** Listener that counts `ToolDenied` events per tool, with the names of the
-  * agents that were denied it, and prints them as an end-of-run summary.
+  * agents that were denied it, for an end-of-run summary.
   */
 class DeniedToolTracker private (actor: ActorRef[DeniedToolTracker.Tally])
     extends OrcaListener:
@@ -13,17 +13,13 @@ class DeniedToolTracker private (actor: ActorRef[DeniedToolTracker.Tally])
     case d: OrcaEvent.ToolDenied => actor.tell(_.add(d))
     case _                       => ()
 
-  /** Print [[DeniedTools.summary]] on its own block, as
-    * [[CostTracker.printSummary]] does. Prints nothing when nothing was denied.
-    */
-  def printSummary(): Unit =
-    val s = actor.ask(_.summary)
-    if s.nonEmpty then println(s"\n$s")
+  /** [[DeniedTools.summary]] of the events seen so far. */
+  def summary: String = actor.ask(_.summary)
 
 object DeniedToolTracker:
 
   /** A tracker whose tally is owned by an actor forked in the given scope,
-    * which must span every `onEvent` through `printSummary`.
+    * which must span every `onEvent` through the last `summary`.
     */
   def start()(using Ox, BufferCapacity): DeniedToolTracker =
     new DeniedToolTracker(Actor.create(new Tally))

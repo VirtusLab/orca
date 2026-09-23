@@ -68,8 +68,10 @@ enum OrcaEvent:
     */
   case Caveat(message: String)
 
-  /** Token usage for a single LLM call, attributed along three independent axes
-    * that `CostTracker` summarises separately:
+  /** Token usage for a single LLM call, as its emitter reports it — unpriced.
+    * The run's dispatcher turns each one into a [[TokensUsed]] carrying the
+    * turn's cost, so listeners behind it never see this event. Attributed along
+    * three independent axes that `CostTracker` summarises separately:
     *
     *   - `agent` is the [[Agent.name]] that issued the call — always the bare
     *     identity (`claude`, `codex`, …), never a display-prefixed copy.
@@ -86,13 +88,7 @@ enum OrcaEvent:
     * `turn` is this turn's 1-based position among the turns of a single call: 2
     * or more means a retry re-sent the prompt and paid for it again. It counts
     * turns, not tries — a try that fails before the model runs emits no event,
-    * so it doesn't shift the index of the turn that follows. Emission sites
-    * that never retry leave the default.
-    *
-    * `cost` is this turn's resolved spend, filled in once at the dispatch
-    * boundary so every listener reads the same figure. Emitters pass `None`:
-    * pricing lives in the flow module, and a listener that priced the event
-    * itself could disagree with the printed summary and the on-disk cost log.
+    * so it doesn't shift the index of the turn that follows.
     *
     * `session` is [[OrcaEvent.conversationKey]] for the conversation this turn
     * ran in — the same key [[SessionCommitted]] is deduplicated under, so turns
@@ -100,30 +96,34 @@ enum OrcaEvent:
     * the first turn of a session is the earliest turn carrying it. `None` only
     * where the emitter has no conversation to name (test stubs).
     */
-  case TokensUsed(
+  case UnpricedTurn(
       agent: String,
       model: Option[Model],
       usage: Usage,
-      role: Option[String] = None,
-      turn: Int = 1,
-      session: Option[String] = None,
-      cost: Option[Cost]
+      role: Option[String],
+      turn: Int,
+      session: Option[String]
   )
 
-  /** The agent's final structured payload, after parsing succeeded. `raw` is
-    * the verbatim text the agent produced (typically JSON); `summary` is the
-    * `Announce[O]`-derived human-readable form, tri-state:
-    *
-    *   - `Some(text)` — a summary to show;
-    *   - `Some("")` — the `Announce[O]` deliberately says nothing (the call
-    *     site narrates the outcome itself); renderers show nothing;
-    *   - `None` — no specific `Announce[O]` exists; renderers fall back to the
-    *     raw payload so the result stays visible.
+  /** `spend` with its cost resolved. Emitters send [[UnpricedTurn]]; the run's
+    * dispatcher builds this, so every listener behind it reads the same figure.
+    * `cost` is `None` when the turn could not be priced.
     */
-  case StructuredResult(raw: String, summary: Option[String])
+  case TokensUsed private[orca] (spend: UnpricedTurn, cost: Option[Cost])
+
+  /** The agent's final structured payload, after parsing succeeded. `raw` is
+    * the verbatim text the agent produced (typically JSON); `announcement` is
+    * what the result type's `Announce[O]` asks renderers to show. `agent`
+    * carries the same attribution as [[ToolUse]].
+    */
+  case StructuredResult(
+      raw: String,
+      announcement: Announcement,
+      agent: Option[String]
+  )
 
   /** The human-readable input sent to the agent at the start of a call. Fires
-    * once per call, before [[TokensUsed]] / [[StructuredResult]] /
+    * once per call, before [[UnpricedTurn]] / [[StructuredResult]] /
     * [[AssistantMessage]]. The terminal listener renders it as a one-line `▸`;
     * full text reaches non-terminal listeners.
     */
@@ -175,9 +175,9 @@ enum OrcaEvent:
 object OrcaEvent:
   /** The one identity a backend conversation is known by across events: its
     * wire id once the backend has minted one, else the client id orca
-    * allocated. Named here so [[OrcaEvent.TokensUsed.session]] and the manifest
-    * writer's session dedup key cannot drift apart — if they did, turns would
-    * stop joining to the sessions that produced them. Distinct from
+    * allocated. Named here so [[OrcaEvent.UnpricedTurn.session]] and the
+    * manifest writer's session dedup key cannot drift apart — if they did,
+    * turns would stop joining to the sessions that produced them. Distinct from
     * [[orca.agents.SessionKey]], which is the `(name, stage)` a flow minted a
     * durable session under.
     */

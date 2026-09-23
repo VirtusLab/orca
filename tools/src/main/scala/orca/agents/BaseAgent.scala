@@ -110,7 +110,7 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
   /** See [[Agent.quietTextTurn]]: the turn runs against a filtered event sink
     * that drops the streaming display events (`AssistantMessage`, `ToolUse`)
     * while everything else the drain emits (`Error`, auto-denial notices) still
-    * reaches the real listener, as does `TokensUsed`.
+    * reaches the real listener, as does `UnpricedTurn`.
     */
   override private[orca] def quietTextTurn(prompt: String)(using
       orca.InStage

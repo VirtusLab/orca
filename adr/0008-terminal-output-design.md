@@ -54,15 +54,14 @@ notes — `git.createBranch`'s "Switched to branch X", `fixLoop`'s
 the conversation was launched with an `outputSchema` (i.e. the
 caller is on a `claude.resultAs[O]` path), the renderer suppresses
 the streamed JSON at `AssistantTurnEnd` and the library emits a
-single `OrcaEvent.StructuredResult(raw, summary)`. The listener
-chooses what to render: the `Announce[O]`-derived summary as `▶`
-when present, nothing when a specific `Announce[O]` deliberately
-says nothing (`summary == Some("")` — the call site narrates the
-outcome itself), or the raw text under `●` when no `Announce[O]`
-exists at all. Either way the user sees at most one canonical line
-per result, never the JSON twice. The full design rationale lives in
-[ADR 0009](0009-announce-typeclass.md) (see its 2026-07-11
-amendment for the tri-state).
+single `OrcaEvent.StructuredResult(raw, announcement, agent)`. The
+listener renders its `Announcement`: `Say` as a `▶` summary, `Silent`
+as nothing (the call site narrates the outcome itself), and
+`Unannounced` — no `Announce[O]` exists at all — as the raw text under
+`●`. Either way the user sees at most one canonical line per result,
+never the JSON twice. The full design rationale lives in
+[ADR 0009](0009-announce-typeclass.md) (see its 2026-09-23
+amendment).
 
 **Tool-call paths under `workDir` show as relative.** Absolute paths
 outside `workDir` stay absolute, so out-of-project file access is

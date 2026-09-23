@@ -18,7 +18,7 @@ import orca.agents.{
   SessionId,
   ToolSet
 }
-import orca.events.{CostTracker, OrcaEvent, OrcaListener, Pricing}
+import orca.events.{CostTracker, OrcaEvent, OrcaListener}
 import orca.testkit.Usages.usage
 import orca.tools.opencode.OpencodeAgents
 import _root_.orca.runner.terminal.TerminalInteraction
@@ -210,12 +210,12 @@ class OrcaOverridesTest extends munit.FunSuite:
     assertEquals(observed, "pi: hi")
 
   test(
-    "an agent-override factory receives the run's event sink: its TokensUsed reaches extraListeners"
+    "an agent-override factory receives the run's event sink: its spend reaches extraListeners"
   ):
     // A user agent built by the override factory must land on the SAME
     // dispatcher as the defaults, so the tokens it spends reach the cost tracker
-    // and terminal. The factory receives `w.events`; the stub emits a TokensUsed
-    // through it on `run`.
+    // and terminal. The factory receives `w.events`; the stub emits an UnpricedTurn
+    // through it on `run`, which the listener sees priced as a TokensUsed.
     def wiredClaude(events: OrcaListener): ClaudeAgent = new ClaudeAgent:
       val name = "wired"
       def haiku = this
@@ -239,11 +239,13 @@ class OrcaOverridesTest extends munit.FunSuite:
               orca.InStage
           ): String =
             events.onEvent(
-              OrcaEvent.TokensUsed(
+              OrcaEvent.UnpricedTurn(
                 "wired",
                 Some(Model("wired-model")),
                 usage(7L, 3L),
-                cost = None
+                role = None,
+                turn = 1,
+                session = None
               )
             )
             s"ok: $p"
@@ -253,7 +255,7 @@ class OrcaOverridesTest extends munit.FunSuite:
     // agent's "wired" event must be among them.
     var seen: List[String] = Nil
     val recorder: OrcaListener =
-      case t: OrcaEvent.TokensUsed => seen = t.agent :: seen
+      case t: OrcaEvent.TokensUsed => seen = t.spend.agent :: seen
       case _                       => ()
     supervised:
       val interaction = TerminalInteraction.start(
@@ -277,7 +279,7 @@ class OrcaOverridesTest extends munit.FunSuite:
 
   test("flow collects extra listeners alongside the interaction's"):
     val buf = new ByteArrayOutputStream()
-    val tracker = new CostTracker(Pricing.default.lastUpdated)
+    val tracker = new CostTracker
     supervised:
       val interaction = TerminalInteraction.start(
         out = new PrintStream(buf),
@@ -293,13 +295,15 @@ class OrcaOverridesTest extends munit.FunSuite:
         extraListeners = List(tracker)
       ):
         summon[FlowContext].emit(
-          OrcaEvent.TokensUsed(
+          OrcaEvent.UnpricedTurn(
             "test-agent",
             // A model the shipped table prices, so the cost below is the run's
             // own resolution rather than an absent figure.
             Some(Model("claude-haiku-4-5")),
             usage(10L, 5L),
-            cost = None
+            role = None,
+            turn = 1,
+            session = None
           )
         )
     // TerminalInteraction ignores TokensUsed; CostTracker should accumulate.

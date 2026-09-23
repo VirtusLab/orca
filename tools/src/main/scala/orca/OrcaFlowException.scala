@@ -43,7 +43,7 @@ class OrcaInteractiveCancelled(
   * flattened into the message string.
   *
   * `debit` is what the turn spent before failing. It has no default: the
-  * success path is the only other `OrcaEvent.TokensUsed` emitter, so a driver
+  * success path is the only other `OrcaEvent.UnpricedTurn` emitter, so a driver
   * that skipped the question would silently drop the failed turn from the run's
   * cost summary. A driver whose protocol reports nothing on its failure frame
   * says so with [[orca.events.TurnDebit.Unobserved]].

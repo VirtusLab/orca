@@ -20,7 +20,7 @@ import orca.sessions.SessionRecord
 import orca.events.{EventDispatcher, OrcaEvent, OrcaListener, Usage}
 import orca.testkit.TempDirs
 
-/** A reviewer stub that emits a `TokensUsed` event carrying the name + role
+/** A reviewer stub that emits an `UnpricedTurn` event carrying the name + role
   * captured at `resultAs` time, mirroring `BaseAgent`. `withRole` returns a
   * role-tagged copy with `name` unchanged.
   */
@@ -49,12 +49,13 @@ private class TokenEmittingReviewer(
           )(using orca.InStage): O =
             ctx.emit(
               OrcaEvent
-                .TokensUsed(
+                .UnpricedTurn(
                   capturedName,
                   None,
                   Usage.empty,
                   capturedRole,
-                  cost = None
+                  turn = 1,
+                  session = None
                 )
             )
             result.asInstanceOf[O]
@@ -1911,10 +1912,10 @@ class ReviewAndFixTest extends munit.FunSuite:
     // with the `reviewer` role (not a renamed copy) so `CostTracker` can
     // group/subtotal the spend without a stringly identity convention.
     val recorded =
-      new java.util.concurrent.ConcurrentLinkedQueue[OrcaEvent.TokensUsed]()
+      new java.util.concurrent.ConcurrentLinkedQueue[OrcaEvent.UnpricedTurn]()
     val listener: OrcaListener =
-      case t: OrcaEvent.TokensUsed => recorded.add(t): Unit
-      case _                       => ()
+      case t: OrcaEvent.UnpricedTurn => recorded.add(t): Unit
+      case _                         => ()
     given FlowControl =
       ReviewLoopFixture.control(new EventDispatcher(List(listener)))
     val reviewer = new TokenEmittingReviewer("performance", ReviewResult.empty)
@@ -1927,7 +1928,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       diff = ReviewDiff.Pinned("")
     )
     val events = recorded.toArray.toList.collect {
-      case t: OrcaEvent.TokensUsed =>
+      case t: OrcaEvent.UnpricedTurn =>
         t
     }
     assertEquals(events.map(_.agent), List("performance"))

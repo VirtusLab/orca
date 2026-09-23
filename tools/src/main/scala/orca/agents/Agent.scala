@@ -37,13 +37,13 @@ private val log = LoggerFactory.getLogger("orca.agents")
   */
 trait Agent[B <: BackendTag]:
   /** Label for this agent in the event stream (the `agent` axis of
-    * `OrcaEvent.TokensUsed`). Defaults to the backend name; set it with
+    * `OrcaEvent.UnpricedTurn`). Defaults to the backend name; set it with
     * [[withName]] to distinguish roles in the cost report (e.g. "reviewer").
     */
   def name: String
 
   /** Role tag for this agent in the event stream — a second axis on
-    * `OrcaEvent.TokensUsed` alongside [[name]]. The review loop sets
+    * `OrcaEvent.UnpricedTurn` alongside [[name]]. The review loop sets
     * `Some("reviewer")` via [[withRole]] so `CostTracker` can subtotal reviewer
     * spend without baking a prefix into [[name]] (the identity a
     * session/selector keys off). Defaults to `None`. Unrelated to the wire
@@ -217,9 +217,10 @@ trait Agent[B <: BackendTag]:
 
   /** One autonomous text turn with the streaming display suppressed: no `▸`
     * prompt echo and — on `BaseAgent`-derived tools, which override this — no
-    * `●` prose or `⏺` tool lines either (`TokensUsed` and `Error` events still
-    * flow). For the runtime's internal turns ([[cheapOneShot]]), whose display
-    * channel is the caller's own event, so streaming would show the text twice.
+    * `●` prose or `⏺` tool lines either (`UnpricedTurn` and `Error` events
+    * still flow). For the runtime's internal turns ([[cheapOneShot]]), whose
+    * display channel is the caller's own event, so streaming would show the
+    * text twice.
     */
   private[orca] def quietTextTurn(prompt: String)(using InStage): String =
     run(prompt, emitPrompt = false)

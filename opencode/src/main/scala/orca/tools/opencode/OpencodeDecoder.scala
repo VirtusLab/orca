@@ -201,7 +201,7 @@ private[opencode] final class OpencodeDecoder(
 
   /** What a COMPLETED turn reports. Unlike [[failedTurnDebit]] there is no
     * "nothing measured" case to represent: every completed turn owes a
-    * `TokensUsed`, since the cost log keeps one line per turn and its `turn`
+    * `UnpricedTurn`, since the cost log keeps one line per turn and its `turn`
     * index counts them. A message that carried no `tokens` settles at zero —
     * still carrying any cost opencode reported alongside them.
     */
@@ -213,7 +213,7 @@ private[opencode] final class OpencodeDecoder(
   /** The assistant message is refreshed by every `message.updated` frame, so a
     * turn that errors part-way still carries whatever it had spent by then.
     * Keyed on the token counts, not on the message: an assistant message that
-    * arrived without any is nothing measured, and an all-zero `TokensUsed`
+    * arrived without any is nothing measured, and an all-zero `UnpricedTurn`
     * would read as a measured zero.
     */
   def failedTurnDebit(state: State): TurnDebit =

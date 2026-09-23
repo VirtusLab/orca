@@ -100,7 +100,7 @@ object TerminalInteraction:
     * non-ASCII glyphs to `?`; wrapping forces UTF-8 encoding. Never closed by
     * [[TerminalOutput]], so the underlying `System.err` stays open.
     */
-  private[terminal] def utf8Stderr: PrintStream =
+  private[orca] def utf8Stderr: PrintStream =
     new PrintStream(System.err, true, UTF_8)
 
   private def consolePresent: Boolean = System.console() != null

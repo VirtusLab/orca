@@ -24,7 +24,7 @@ trait AutonomousAgentCall[B <: BackendTag, O]:
     * is true (the default), fires an `OrcaEvent.UserPrompt` carrying the
     * human-readable form of `input`; internal callers producing near-identical
     * prompts in quick succession pass `false` to keep the event log focused.
-    * Other events (`ToolUse`, `TokensUsed`, etc.) fire regardless.
+    * Other events (`ToolUse`, `UnpricedTurn`, etc.) fire regardless.
     */
   final def run[I: AgentInput](
       input: I,
@@ -110,11 +110,11 @@ class DefaultAgentCall[B <: BackendTag, O](
     prompts: Prompts,
     events: OrcaListener,
     interaction: Interaction,
-    /** The `agent` axis on `OrcaEvent.TokensUsed` — the owning `Agent.name`.
+    /** The `agent` axis on `OrcaEvent.UnpricedTurn` — the owning `Agent.name`.
       * The `model` axis is read from the response (or the pinned config).
       */
     agentName: String,
-    /** The `role` axis on `OrcaEvent.TokensUsed` — the owning `Agent.role`,
+    /** The `role` axis on `OrcaEvent.UnpricedTurn` — the owning `Agent.role`,
       * e.g. `Some("reviewer")` for a review-loop run.
       */
     agentRole: Option[String] = None
@@ -160,15 +160,21 @@ class DefaultAgentCall[B <: BackendTag, O](
     )(using orca.InStage): O =
       runInteractiveOnce(input, session, sessionKey)
 
-  /** Emit a `StructuredResult` event carrying the raw payload and the
-    * `Announce[O]`-derived summary — tri-state per
-    * [[orca.events.OrcaEvent.StructuredResult]].
+  /** `agent` follows the same rule as the turn's other display events: named on
+    * an autonomous turn, `None` on an interactive one.
     */
-  private def emitStructuredResult(raw: String, value: O): Unit =
-    val summary = announce match
-      case _: Announce.NoSpecific[?] => None
-      case specific                  => specific.message(value).orElse(Some(""))
-    events.onEvent(OrcaEvent.StructuredResult(raw, summary))
+  private def emitStructuredResult(
+      raw: String,
+      value: O,
+      agent: Option[String]
+  ): Unit =
+    events.onEvent(
+      OrcaEvent.StructuredResult(
+        raw,
+        Announce.announcement(announce, value),
+        agent
+      )
+    )
 
   /** THE retry policy — the only place that decides whether an autonomous-turn
     * failure gets retried: parse failures (corrective re-prompt, same session
@@ -254,7 +260,7 @@ class DefaultAgentCall[B <: BackendTag, O](
       accounting.succeeded(result, thisTurn)
       try
         val parsed = ResponseParser.parse[O](result.output)
-        emitStructuredResult(result.output, parsed)
+        emitStructuredResult(result.output, parsed, agent = Some(agentName))
         parsed
       catch
         case e: MalformedAgentOutputException =>
@@ -314,7 +320,7 @@ class DefaultAgentCall[B <: BackendTag, O](
     accounting.sessionCommitted()
     accounting.succeeded(result, TurnAccounting.OnlyTurn)
     val parsed = ResponseParser.parse[O](result.output)
-    emitStructuredResult(result.output, parsed)
+    emitStructuredResult(result.output, parsed, agent = None)
     parsed
 
   private def turnAccounting(

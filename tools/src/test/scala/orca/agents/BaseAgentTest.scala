@@ -109,7 +109,7 @@ class BaseAgentTest extends munit.FunSuite:
   // their reply and re-surface it as the caller's own Step event; streaming the
   // turn too would print the same text twice.
   test(
-    "cheapOneShot suppresses the turn's display events; TokensUsed still flows"
+    "cheapOneShot suppresses the turn's display events; UnpricedTurn still flows"
   ):
     val seen =
       new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
@@ -135,7 +135,7 @@ class BaseAgentTest extends munit.FunSuite:
       s"the prompt echo must be suppressed on a quiet turn: $events"
     )
     assert(
-      events.exists(_.isInstanceOf[OrcaEvent.TokensUsed]),
+      events.exists(_.isInstanceOf[OrcaEvent.UnpricedTurn]),
       s"cost accounting must still flow on a quiet turn: $events"
     )
 
@@ -384,9 +384,9 @@ class BaseAgentTest extends munit.FunSuite:
     )
 
   // A turn that failed after the model ran still spent tokens; the success path
-  // is the only other TokensUsed emitter, so without this the failed turn is
+  // is the only other UnpricedTurn emitter, so without this the failed turn is
   // invisible in the run's cost summary.
-  test("a turn failing with reported usage still emits TokensUsed"):
+  test("a turn failing with reported usage still emits UnpricedTurn"):
     val seen =
       new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
     val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
@@ -402,7 +402,7 @@ class BaseAgentTest extends munit.FunSuite:
     )
     val _ = intercept[orca.AgentTurnFailed](tool.run("prompt"))
     assertEquals(
-      seen.get().collect { case t: OrcaEvent.TokensUsed => t.usage },
+      seen.get().collect { case t: OrcaEvent.UnpricedTurn => t.usage },
       List(spent)
     )
 
@@ -424,7 +424,7 @@ class BaseAgentTest extends munit.FunSuite:
     )
     val _ = tool.resultAs[FixOutcome].autonomous.run("fix compile errors")
     assertEquals(
-      seen.get().reverse.collect { case t: OrcaEvent.TokensUsed => t.turn },
+      seen.get().reverse.collect { case t: OrcaEvent.UnpricedTurn => t.turn },
       List(1, 2)
     )
 
@@ -450,7 +450,7 @@ class BaseAgentTest extends munit.FunSuite:
     )
     val _ = tool.resultAs[FixOutcome].autonomous.run("fix compile errors")
     assertEquals(
-      seen.get().reverse.collect { case t: OrcaEvent.TokensUsed => t.turn },
+      seen.get().reverse.collect { case t: OrcaEvent.UnpricedTurn => t.turn },
       List(1)
     )
 
@@ -511,7 +511,7 @@ class BaseAgentTest extends munit.FunSuite:
       new StubTool(new CommittingBackend("wire-joined"), listener = listener)
     val _ = tool.run("prompt")
     assertEquals(
-      seen.get().collect { case t: OrcaEvent.TokensUsed => t.session },
+      seen.get().collect { case t: OrcaEvent.UnpricedTurn => t.session },
       List(Some("wire-joined"))
     )
 

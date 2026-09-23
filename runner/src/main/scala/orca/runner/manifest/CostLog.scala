@@ -80,15 +80,15 @@ private[orca] object CostRecord:
       stage: Option[String]
   ): CostRecord = CostRecord(
     at = at,
-    agent = t.agent,
-    role = t.role,
-    model = t.model.map(_.name),
+    agent = t.spend.agent,
+    role = t.spend.role,
+    model = t.spend.model.map(_.name),
     stage = stage,
-    turn = t.turn,
-    apiCalls = t.usage.apiCalls,
-    usage = CostLogUsage.of(t.usage),
+    turn = t.spend.turn,
+    apiCalls = t.spend.usage.apiCalls,
+    usage = CostLogUsage.of(t.spend.usage),
     cost = t.cost,
-    session = t.session
+    session = t.spend.session
   )
 
 /** Append-only writer for one attempt's `<AttemptId>.cost.jsonl`.

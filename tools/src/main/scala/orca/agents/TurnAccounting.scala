@@ -80,14 +80,13 @@ private[orca] class TurnAccounting[B <: BackendTag](
       turn: Int
   ): Unit =
     events.onEvent(
-      OrcaEvent.TokensUsed(
+      OrcaEvent.UnpricedTurn(
         agent = agentName,
         model = reported.orElse(pinned),
         usage = usage,
         role = role,
         turn = turn,
-        session = Some(conversationKey),
-        cost = None
+        session = Some(conversationKey)
       )
     )
 
