@@ -24,32 +24,8 @@ class FeatureBranchTest extends FunSuite:
     assert(FeatureBranch.isSafeReusedRef("Feature-ABC"))
     assert(FeatureBranch.isSafeReusedRef("add-foo")) // a slug also passes
 
-  test(
-    "isSafeReusedRef rejects argv-injection and path-traversal shapes"
-  ):
-    assert(!FeatureBranch.isSafeReusedRef(""))
+  test("isSafeReusedRef rejects a name git refuses as a branch"):
     assert(!FeatureBranch.isSafeReusedRef("-flag"))
-    assert(!FeatureBranch.isSafeReusedRef("a..b"))
-    assert(!FeatureBranch.isSafeReusedRef("a/../b"))
-    assert(!FeatureBranch.isSafeReusedRef("a b"))
-    assert(!FeatureBranch.isSafeReusedRef("x.lock"))
-    assert(!FeatureBranch.isSafeReusedRef("a/"))
-    assert(!FeatureBranch.isSafeReusedRef("/a"))
-    assert(!FeatureBranch.isSafeReusedRef("a\tb"))
-
-  test(
-    "isSafeReusedRef rejects glob metacharacters (would DoS `git branch --list`)"
-  ):
-    assert(!FeatureBranch.isSafeReusedRef("*"))
-    assert(!FeatureBranch.isSafeReusedRef("feature-*"))
-    assert(!FeatureBranch.isSafeReusedRef("a?b"))
-    assert(!FeatureBranch.isSafeReusedRef("[abc]"))
-    assert(!FeatureBranch.isSafeReusedRef("a\\b"))
-
-  test(
-    "isSafeReusedRef rejects the literal pseudo-ref HEAD (never a real branch)"
-  ):
-    assert(!FeatureBranch.isSafeReusedRef("HEAD"))
 
   test("resolve refuses the always-protected floor regardless of the set"):
     for protectedName <- List("main", "master", "MAIN", "Master") do

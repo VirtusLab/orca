@@ -99,11 +99,12 @@ class MainMenuTest extends munit.FunSuite:
     assert(!choices.exists(_.value == MenuItem.ResumeRun))
 
   test(
-    "choices(resumeOffer = Some(...)) inserts ResumeRun right after RunFlow, labeled with flow and task"
+    "choices(resumeOffer = Some(...)) inserts ResumeRun right after RunFlow, labeled with flow, task, and branch"
   ):
     val run = InterruptedRun(
       flowName = "implement.sc",
       userPrompt = "fix the flaky integration test in the payments module",
+      branch = "feat/x",
       dir = os.root / "work"
     )
     val choices = MainMenu.choices(
@@ -118,7 +119,7 @@ class MainMenuTest extends munit.FunSuite:
     assertEquals(
       choices.find(_.value == MenuItem.ResumeRun).map(_.label),
       Some(
-        "Resume interrupted run — implement.sc: fix the flaky integration test in the pa…"
+        "Resume interrupted run — implement.sc: fix the flaky integration test in the pa… on feat/x"
       )
     )
 
@@ -126,6 +127,7 @@ class MainMenuTest extends munit.FunSuite:
     val run = InterruptedRun(
       flowName = "fix.sc",
       userPrompt = "safe\u001b[31m text\u0007",
+      branch = "feat/\u001b[31mx\nnext\u0007",
       dir = os.root / "work"
     )
     val choices = MainMenu.choices(
@@ -142,6 +144,7 @@ class MainMenuTest extends munit.FunSuite:
     val run = InterruptedRun(
       flowName = "fix.sc",
       userPrompt = "line one\nline two",
+      branch = "feat/x",
       dir = os.root / "work"
     )
     val choices = MainMenu.choices(
@@ -151,7 +154,7 @@ class MainMenuTest extends munit.FunSuite:
     )
     assertEquals(
       choices.find(_.value == MenuItem.ResumeRun).map(_.label),
-      Some("Resume interrupted run — fix.sc: line one line two")
+      Some("Resume interrupted run — fix.sc: line one line two on feat/x")
     )
 
   test(
@@ -159,7 +162,8 @@ class MainMenuTest extends munit.FunSuite:
   ):
     val withOffer = MainMenu.choices(
       continueSessionCount = None,
-      resumeOffer = Some(InterruptedRun("a.sc", "short task", os.root / "work"))
+      resumeOffer =
+        Some(InterruptedRun("a.sc", "short task", "feat/x", os.root / "work"))
     )
     val without = MainMenu
       .choices(continueSessionCount = None)
@@ -181,6 +185,7 @@ class MainMenuTest extends munit.FunSuite:
     val run = InterruptedRun(
       flowName = "implement.sc",
       userPrompt = "fix the flaky test",
+      branch = "feat/x",
       dir = os.root / "repo" / ".orca" / "worktrees" / "ab12cd34"
     )
     val label = MainMenu

@@ -10,9 +10,9 @@ import java.time.Instant
 
 /** The continue-a-session picker (ADR 0021 §8): groups, sorts, and labels the
   * sessions across every recorded attempt into selectable rows, and resolves a
-  * CLI-style selector (index / name / newest) to a [[SessionSelection]]. Shared
-  * by the interactive menu (`Main.continueSession`) and the CLI's `continue`
-  * command.
+  * CLI-style selector (index / name / branch / newest) to a
+  * [[SessionSelection]]. Shared by the interactive menu
+  * (`Main.continueSession`) and the CLI's `continue` command.
   */
 private[shell] object SessionPicker:
 
@@ -77,11 +77,6 @@ private[shell] object SessionPicker:
     val (durable, ephemeral) =
       occurrences.partition(_.session.kind == SessionKind.Durable)
 
-    // Keyed on the working directory too: harness sessions are cwd-scoped, and
-    // flow session keys are static ("implementer" on the same task in every
-    // run), so the same key in two worktrees is two different conversations
-    // about two different tasks — deduping them against each other would hide
-    // one behind the other.
     val lineages = durable
       .groupBy(lineageKey)
       .values
@@ -92,7 +87,8 @@ private[shell] object SessionPicker:
     val ephemeralSorted = ephemeral.sortBy(recency).reverse
 
     val tag = dirTag(attempts)
-    val where = (o: Occurrence) => tag(o.attempt.manifest.workDir)
+    val where = (o: Occurrence) =>
+      tag(o.attempt.manifest.workDir, o.attempt.manifest.branch)
     val primaryLabels = primary.map(o => (o, primaryLabel(o) + where(o)))
     val mintedIn = mintedInTag(primaryLabels)
 
@@ -116,14 +112,21 @@ private[shell] object SessionPicker:
 
   private def recency(o: Occurrence): Instant = o.session.lastActiveAt
 
-  /** What makes two occurrences the same durable conversation. Keyed on the
-    * working directory too: harness sessions are cwd-scoped, and flow session
-    * names are static, so the same key in two worktrees is two conversations.
+  /** What makes two occurrences the same durable conversation. Flow session
+    * keys are static ("implementer" on the same task in every run), so the key
+    * alone would merge unrelated runs: the working directory separates them
+    * because harness sessions are cwd-scoped, and the bound branch separates
+    * runs in one directory while grouping the resumed attempts of one run.
     */
   private def lineageKey(
       o: Occurrence
-  ): (String, String, Option[SessionKey]) =
-    (o.attempt.manifest.workDir, o.session.agent, o.session.minted)
+  ): (String, Option[String], String, Option[SessionKey]) =
+    (
+      o.attempt.manifest.workDir,
+      o.attempt.manifest.branch,
+      o.session.agent,
+      o.session.minted
+    )
 
   /** How a row says which stage minted its session, given the primary rows and
     * the labels they would otherwise carry: nothing, unless another lineage
@@ -152,15 +155,19 @@ private[shell] object SessionPicker:
           case _                         => " (minted in the flow body)"
 
   /** How a row says which tree its session is in, given the attempts being
-    * rendered: a suffix per `workDir`, or nothing at all when they share one —
-    * then it would tell the user nothing. The interactive picker and `orca
-    * continue --list` both call this over the same attempts, so the two
-    * surfaces cannot drift on either the rule or the marker's shape.
+    * rendered and the row's `(workDir, branch)`: nothing when the attempts
+    * share one `workDir` or the row has a branch, otherwise a ` @<dir>` suffix.
+    * The interactive picker and `orca continue --list` both call this over the
+    * same attempts, so the two surfaces cannot drift on either the rule or the
+    * marker's shape.
     */
-  private[shell] def dirTag(attempts: List[RecordedAttempt]): String => String =
-    if attempts.map(_.manifest.workDir).distinct.sizeIs > 1 then
-      workDir => s" @${lastSegment(workDir)}"
-    else _ => ""
+  private[shell] def dirTag(
+      attempts: List[RecordedAttempt]
+  ): (String, Option[String]) => String =
+    if attempts.map(_.manifest.workDir).distinct.sizeIs <= 1 then (_, _) => ""
+    else
+      (workDir, branch) =>
+        if branch.isDefined then "" else s" @${lastSegment(workDir)}"
 
   /** A recorded `workDir`'s final segment. String-sliced, not `os.Path`-parsed:
     * the value is manifest content, and a hand-edited one need not be an
@@ -191,36 +198,41 @@ private[shell] object SessionPicker:
       val plural = if count == 1 then "" else "s"
       List(Choice(PickerRow.ShowMore, s"… show $count $noun$plural$suffix"))
 
-  /** `★ <session> — latest (stage: <stage>) [<harness>]`, or `(no stage yet)`
-    * when the durable session hasn't entered a stage (rare — custom flows
-    * only).
+  /** `★ <session> — latest (stage: <stage>) [<harness>] on <branch>`, or `(no
+    * stage yet)` when the durable session hasn't entered a stage (rare — custom
+    * flows only); the branch segment is omitted when the attempt recorded none.
     */
   private def primaryLabel(o: Occurrence): String =
     val name = displayName(o.session)
     val stage = o.session.stage.fold("no stage yet")(s => s"stage: $s")
     val harness = AgentSpec.harnessNameFor(o.session.harness)
     val crashedSuffix = if o.attempt.crashed then " (crashed)" else ""
-    s"★ $name — latest ($stage) [$harness]$crashedSuffix"
+    s"★ $name — latest ($stage) [$harness]${onBranch(o)}$crashedSuffix"
 
-  /** `<session> — stage <stage> [<harness>] (earlier occurrence)`, shown only
-    * when the picker is expanded.
+  /** `<session> — stage <stage> [<harness>] (earlier occurrence) on <branch>`,
+    * shown only when the picker is expanded; the branch segment as in
+    * [[primaryLabel]].
     */
   private def earlierLabel(o: Occurrence): String =
     val name = displayName(o.session)
     val stage = o.session.stage.fold("")(s => s" — stage $s")
     val harness = AgentSpec.harnessNameFor(o.session.harness)
     val crashedSuffix = if o.attempt.crashed then " (crashed)" else ""
-    s"$name$stage [$harness] (earlier occurrence)$crashedSuffix"
+    s"$name$stage [$harness] (earlier occurrence)${onBranch(o)}$crashedSuffix"
 
-  /** `<agent> (<role>) — stage <stage> [<harness>] (ephemeral)`, omitting the
-    * role/stage segments when absent; shown only when the picker is expanded.
+  /** `<agent> (<role>) — stage <stage> [<harness>] (ephemeral) on <branch>`,
+    * omitting the role/stage/branch segments when absent; shown only when the
+    * picker is expanded.
     */
   private def ephemeralLabel(o: Occurrence): String =
     val role = o.session.role.fold("")(r => s" ($r)")
     val stage = o.session.stage.fold("")(s => s" — stage $s")
     val harness = AgentSpec.harnessNameFor(o.session.harness)
     val crashedSuffix = if o.attempt.crashed then " (crashed)" else ""
-    s"${o.session.agent}$role$stage [$harness] (ephemeral)$crashedSuffix"
+    s"${o.session.agent}$role$stage [$harness] (ephemeral)${onBranch(o)}$crashedSuffix"
+
+  private def onBranch(o: Occurrence): String =
+    o.attempt.manifest.branch.fold("")(b => s" on $b")
 
   /** How a session reads to a person: the name it was minted under, or the
     * agent name for an ephemeral session. Every shell surface that shows a
@@ -236,10 +248,13 @@ private[shell] object SessionPicker:
     session.minted.fold(session.agent)(_.name)
 
   /** Resolves a `continue` selector to a session: no selector picks the newest
-    * durable lineage, a numeric selector picks that 1-based row from the full
-    * (expanded) listing, and anything else is matched by session name — never
-    * the stage it was minted in, so resuming never asks a user to spell out a
-    * stage path id.
+    * durable lineage, an all-digits selector picks that 1-based row from the
+    * full (expanded) listing — even when a branch has that name — and anything
+    * else is matched exactly against durable sessions' names and recorded
+    * branches. A branch picks its most recently active lineage. A selector
+    * matching both kinds, or a branch in more than one working directory, is
+    * refused rather than guessed. Matching never uses the stage a session was
+    * minted in, so resuming never asks a user to spell out a stage path id.
     */
   private[shell] def resolveSelection(
       attempts: List[RecordedAttempt],
@@ -247,10 +262,12 @@ private[shell] object SessionPicker:
   ): Either[String, SessionSelection] =
     selector match
       case None => newestDurableSelection(attempts)
-      case Some(s) =>
-        s.toIntOption match
-          case Some(index) => selectByIndex(attempts, index)
-          case None        => selectByName(attempts, s)
+      case Some(s) if isIndex(s) =>
+        selectByIndex(attempts, s.toIntOption.getOrElse(Int.MaxValue))
+      case Some(s) => selectByNameOrBranch(attempts, s)
+
+  // Not `toIntOption`: it also accepts a sign (`+1`), which reads as a name.
+  private def isIndex(s: String): Boolean = s.nonEmpty && s.forall(_.isDigit)
 
   /** A picker row resolved for a selector: its selection, or a refusal reading
     * `<notResumable> — <disabledReason>`.
@@ -299,56 +316,104 @@ private[shell] object SessionPicker:
           Left(s"no session at index $index")
         )
 
-  private[shell] def selectByName(
+  private def selectByNameOrBranch(
       attempts: List[RecordedAttempt],
-      name: String
+      selector: String
   ): Either[String, SessionSelection] =
-    val notFound =
-      Left(s"no session named '$name' found — see `orca continue --list`")
-    val matches =
-      withoutExpanders(sessionRows(attempts, expanded = false)).collect:
-        case choice @ Choice(PickerRow.Resume(selection), _, _)
-            if selection.session.minted.exists(_.name == name) =>
-          (choice, selection)
+    val rows = durableRows(attempts)
+    val byName = rows.filter((_, s) => isNamed(s, selector))
+    val byBranch = rows.filter((_, s) => s.manifest.branch.contains(selector))
+    (byName, byBranch) match
+      case (Nil, Nil) => Left(notFound(selector))
+      case (_, Nil)   => resolveByName(selector, byName)
+      case (Nil, _)   => resolveByBranch(selector, byBranch)
+      case _ =>
+        Left(s"'$selector' names both a session and a branch; $pickFromList")
+
+  /** The rows a name or branch selector can match: one per durable lineage,
+    * each paired with its selection.
+    */
+  private def durableRows(
+      attempts: List[RecordedAttempt]
+  ): List[(Choice[PickerRow], SessionSelection)] =
+    withoutExpanders(sessionRows(attempts, expanded = false)).collect:
+      case choice @ Choice(PickerRow.Resume(selection), _, _) =>
+        (choice, selection)
+
+  private def isNamed(selection: SessionSelection, name: String): Boolean =
+    selection.session.minted.exists(_.name == name)
+
+  private def notFound(name: String): String =
+    s"no session or branch named '$name' found — see `orca continue --list`"
+
+  /** Resolves non-empty `matches` for a name selector. */
+  private def resolveByName(
+      name: String,
+      matches: List[(Choice[PickerRow], SessionSelection)]
+  ): Either[String, SessionSelection] =
     // Ambiguity is decided per (working directory, agent), not per row: within
     // one of those, the rows differ only by their sessions' minting stage —
     // a path id no user should have to spell out — so `continue <name>` takes
     // the most recent, as it does when there is only one.
     val contexts =
       matches.map((_, s) => (s.manifest.workDir, s.session.agent)).distinct
-    matches match
-      case Nil                      => notFound
-      case _ if contexts.sizeIs > 1 => Left(ambiguity(name, matches))
-      case _ =>
-        val (newest, _) = matches.maxBy((_, s) => s.session.lastActiveAt)
-        resolveRow(
-          newest,
-          s"session '$name' isn't resumable",
-          // unreachable: withoutExpanders already dropped every ShowMore row
-          notFound
-        )
+    if contexts.sizeIs > 1 then
+      val agents = matches.map(_._2.session.agent).distinct
+      // Same name in two worktrees matches on one agent, so naming agents alone
+      // would read as "ambiguous — matches agents: coder".
+      val where =
+        if agents.sizeIs > 1 then s"agents: ${agents.mkString(", ")}"
+        else workDirsOf(matches)
+      Left(ambiguity(selector = name, where = where))
+    else resolveNewest(matches, s"session '$name' isn't resumable")
 
-  /** Why `continue <name>` won't guess between working trees or agents, and
-    * what to do instead.
+  private def resolveByBranch(
+      branch: String,
+      matches: List[(Choice[PickerRow], SessionSelection)]
+  ): Either[String, SessionSelection] =
+    // One branch in two working directories is two unrelated runs (harness
+    // sessions are cwd-scoped), so the newest of them would be a guess.
+    if matches.map(_._2.manifest.workDir).distinct.sizeIs > 1 then
+      Left(ambiguity(selector = branch, where = workDirsOf(matches)))
+    else
+      resolveNewest(
+        matches,
+        s"the newest session on branch '$branch' isn't resumable"
+      )
+
+  /** The most recently active of non-empty `matches`, or a refusal starting
+    * with `notResumable` when that row is disabled.
     */
-  private def ambiguity(
-      name: String,
+  private def resolveNewest(
+      matches: List[(Choice[PickerRow], SessionSelection)],
+      notResumable: String
+  ): Either[String, SessionSelection] =
+    val (newest, _) = matches.maxBy((_, s) => s.session.lastActiveAt)
+    resolveRow(
+      newest,
+      notResumable,
+      // unreachable: withoutExpanders already dropped every ShowMore row
+      Left(notResumable)
+    )
+
+  private def workDirsOf(
       matches: List[(Choice[PickerRow], SessionSelection)]
   ): String =
-    // Same name in two worktrees matches on one agent, so naming agents alone
-    // would read as "ambiguous — matches agents: coder".
-    val agents = matches.map(_._2.session.agent).distinct
-    val where =
-      if agents.sizeIs > 1 then s"agents: ${agents.mkString(", ")}"
-      else
-        val dirs = matches.map(_._2.manifest.workDir).distinct
-        s"working directories: ${dirs.mkString(", ")}"
-    s"'$name' is ambiguous — matches $where; run `orca continue --list` and " +
-      "pick one by its number"
+    s"working directories: ${matches.map(_._2.manifest.workDir).distinct.mkString(", ")}"
+
+  /** Why a selector won't guess between the contexts named by `where`, and what
+    * to do instead.
+    */
+  private def ambiguity(selector: String, where: String): String =
+    s"'$selector' is ambiguous — matches $where; $pickFromList"
+
+  private val pickFromList: String =
+    "run `orca continue --list` and pick one by its number"
 
   /** [[sessionRows]]'s rows, dropping the "show more" expanders — never present
     * for [[SessionSelection]] callers (`selectByIndex` reads the fully expanded
-    * listing, `selectByName` only ever resolves to an actual session or fails).
+    * listing, name and branch selectors go through `durableRows` and only ever
+    * resolve to an actual session or fail).
     */
   private[shell] def withoutExpanders(
       rows: List[Choice[PickerRow]]

@@ -68,11 +68,15 @@ private[orca] case class ManifestSession(
   * Carries no cost or turn data: that lives in the attempt's
   * `<AttemptId>.cost.jsonl` ([[CostLog]]), which this file neither references
   * nor requires.
+  *
+  * `branch` is the branch the attempt bound to; `None` until `BranchBound`
+  * fires, so an attempt that failed before binding has none.
   */
 private[orca] case class AttemptManifest(
     orcaVersion: String,
     flow: Option[String],
     workDir: String,
+    branch: Option[String],
     pid: Long,
     startedAt: Instant,
     finishedAt: Option[Instant],

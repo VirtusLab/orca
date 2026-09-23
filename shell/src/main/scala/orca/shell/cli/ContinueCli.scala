@@ -1,6 +1,5 @@
 package orca.shell.cli
 
-import orca.settings.AgentSpec
 import orca.shell.ScanDirs
 import orca.shell.actions.SessionAction
 import orca.shell.sessions.{
@@ -54,19 +53,5 @@ private[cli] object ContinueCli:
   private def resumeSelected(
       selection: SessionSelection
   ): Either[CliFailure, Int] =
-    Cli.diagnostic(resumeNotice(selection))
+    Cli.diagnostic(SessionAction.resumeNotice(selection))
     withTerminal(SessionAction.resume(_, selection)).left.map(actionFailure)
-
-  /** The resolved session's identity, printed to stderr immediately before
-    * [[SessionAction.resume]] execs its harness child (security fold-in, ADR
-    * 0021 §10): mirrors what the interactive picker's row label already shows,
-    * so a no-selector `orca continue` — which could otherwise resume whatever
-    * session a hostile repo's `.orca/cache/attempts/` manifest names, without
-    * the user ever having chosen it — is visible before the exec, on this
-    * tty-gated command's own terminal, giving the user a chance to Ctrl-C.
-    */
-  private[cli] def resumeNotice(selection: SessionSelection): String =
-    SessionAction.identityNotice(
-      selection,
-      AgentSpec.harnessNameFor(selection.session.harness)
-    )

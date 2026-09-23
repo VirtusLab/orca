@@ -104,6 +104,8 @@ Add these flags only if the user asks:
 - `--verbose` — print a stack trace if the flow aborts.
 - `--honor-pin` — run the flow's own pinned orca version instead of forcing
   this shell's.
+- `--branch <name>` — create the run's branch under this name. Refused with
+  `--skip-branch`, and when the branch already exists.
 
 ## After it runs
 
@@ -123,7 +125,8 @@ If a run is interrupted, re-run the same `orca run` command: flows are
 resumable and pick up from the last committed stage. A re-run stashes local
 changes, even with `--keep-changes`.
 
-`orca continue` (list sessions with `--list`, resume one by selector)
+`orca continue` (list sessions with `--list`, resume one by selector —
+an index, session name, or branch, e.g. `orca continue <branch>`)
 reattaches to a recorded harness session, but requires a real terminal and
 errors without one — don't invoke it headlessly; tell the user to run it
 themselves instead.

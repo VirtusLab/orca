@@ -120,6 +120,9 @@ private[runner] class AttemptManifestWriterState(
             "unbalanced StageCompleted: stage stack already empty, ignoring"
           )
       safeWrite()
+    case OrcaEvent.BranchBound(branch) =>
+      state = state.withBranch(branch)
+      safeWrite()
     case e: OrcaEvent.SessionCommitted =>
       state = state.withSession(e, clock())
       safeWrite()
@@ -159,6 +162,7 @@ private[runner] class AttemptManifestWriterState(
         orcaVersion = orcaVersion,
         flow = flowName,
         workDir = workDir.toString,
+        branch = state.branch,
         pid = attemptId.pid,
         startedAt = attemptId.startedAt,
         finishedAt = finishedAt,
@@ -191,7 +195,8 @@ private enum Phase:
 private case class ManifestState(
     stageStack: List[String],
     entries: List[SessionEntry],
-    phase: Phase
+    phase: Phase,
+    branch: Option[String]
 ):
   /** The innermost open stage. */
   def currentStage: Option[String] = stageStack.headOption
@@ -236,8 +241,11 @@ private case class ManifestState(
       if idx >= 0 then entries.updated(idx, entry) else entries :+ entry
     )
 
+  def withBranch(branch: String): ManifestState =
+    copy(branch = Some(branch))
+
   def finished(outcome: AttemptOutcome, at: Instant): ManifestState =
     copy(phase = Phase.Finished(outcome, at))
 
 private object ManifestState:
-  val initial: ManifestState = ManifestState(Nil, Nil, Phase.Running)
+  val initial: ManifestState = ManifestState(Nil, Nil, Phase.Running, None)

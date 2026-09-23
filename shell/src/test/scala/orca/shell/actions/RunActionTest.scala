@@ -21,7 +21,8 @@ class RunActionTest extends munit.FunSuite:
       val flags =
         FlowFlags(
           verbose = true,
-          target = RunTarget.NewBranch(Uncommitted.Keep)
+          target = RunTarget.NewBranch(Uncommitted.Keep),
+          branch = None
         )
       val recording = RecordingLaunch()
 

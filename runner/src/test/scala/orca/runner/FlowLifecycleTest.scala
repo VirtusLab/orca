@@ -42,6 +42,7 @@ import orca.agents.{
 import orca.backend.{IdScheme, SessionSupport}
 import orca.progress.{
   BranchMode,
+  BranchName,
   CommitHash,
   FeatureBranch,
   ProgressHeader,
@@ -1055,6 +1056,130 @@ class FlowLifecycleTest extends munit.FunSuite:
     val setup = setupForSettings(workDir, Some(StackSettings.empty), prompt)
     assertEquals(setup.startingCommit, None)
 
+  // --- the branch the run bound to, announced as an event ---
+
+  private def setupRecordingBound(
+      workDir: os.Path
+  ): (FlowLifecycle.FlowSetup, List[String]) =
+    val emitted = new AtomicReference[List[OrcaEvent]](Nil)
+    val setup = setupForSettings(
+      workDir,
+      Some(StackSettings.empty),
+      "a brand new task",
+      emit = e => { val _ = emitted.updateAndGet(e :: _) }
+    )
+    (setup, emitted.get().collect { case OrcaEvent.BranchBound(b) => b })
+
+  test("setup: a fresh run emits the branch it bound to, once"):
+    val (setup, bound) = setupRecordingBound(GitRepo.seeded())
+    assertEquals(bound, List(setup.featureBranch.value))
+
+  test("setup: a resumed run emits the branch it bound to, once"):
+    val workDir = GitRepo.seeded()
+    val (first, _) = setupRecordingBound(workDir)
+    val (_, bound) = setupRecordingBound(workDir)
+    assertEquals(bound, List(first.featureBranch.value))
+
+  test("setup: skip-branch mode emits the current branch as the bound one"):
+    val workDir = GitRepo.seeded()
+    val git = new OsGitTool(workDir)
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    assert(git.createBranch("my-work").isRight)
+    val prompt = "skip-branch bound event"
+    val emitted = new AtomicReference[List[OrcaEvent]](Nil)
+    val _ = setupForSettings(
+      workDir,
+      Some(StackSettings.empty),
+      prompt,
+      emit = e => { val _ = emitted.updateAndGet(e :: _) },
+      args = Some(
+        OrcaArgs(prompt, target = RunTarget.CurrentBranch(Uncommitted.Stash))
+      )
+    )
+    assertEquals(
+      emitted.get().collect { case OrcaEvent.BranchBound(b) => b },
+      List("my-work")
+    )
+
+  // --- a user-chosen --branch name ---
+
+  private def setupWithBranch(
+      workDir: os.Path,
+      branch: String,
+      git: GitTool
+  ): FlowLifecycle.FlowSetup =
+    val prompt = "a task with a chosen branch"
+    setupForSettings(
+      workDir,
+      Some(StackSettings.empty),
+      prompt,
+      args = Some(OrcaArgs(prompt, branch = BranchName.parse(branch).toOption)),
+      git = Some(git)
+    )
+
+  private def localBranches(workDir: os.Path): Set[String] =
+    os.proc("git", "for-each-ref", "--format=%(refname:short)", "refs/heads")
+      .call(cwd = workDir)
+      .out
+      .lines()
+      .toSet
+
+  test("setup: --branch wins over the branch naming strategy"):
+    val workDir = GitRepo.seeded()
+    val setup = setupWithBranch(workDir, "feat/x", new OsGitTool(workDir))
+    assertEquals(setup.featureBranch.value, "feat/x")
+
+  test(
+    "setup: an existing --branch is refused with the --skip-branch hint, before anything is stashed"
+  ):
+    val workDir = GitRepo.seeded()
+    val git = new OsGitTool(workDir)
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    assert(git.createBranch("feat/x").isRight)
+    assert(git.checkout("main").isRight)
+    os.write.append(workDir / "seed.txt", " edited")
+    val before = localBranches(workDir)
+    val thrown = intercept[orca.OrcaFlowException]:
+      setupWithBranch(workDir, "feat/x", git)
+    assert(
+      thrown.getMessage.contains("--skip-branch"),
+      s"refusal must point at --skip-branch: ${thrown.getMessage}"
+    )
+    assertEquals(localBranches(workDir), before)
+    assertEquals(stashList(workDir), Nil)
+
+  test("setup: --branch differing from the resumed run's branch is refused"):
+    val workDir = GitRepo.seeded()
+    val git = new OsGitTool(workDir)
+    val _ = setupWithBranch(workDir, "feat/x", git)
+    val thrown = intercept[orca.OrcaFlowException]:
+      setupWithBranch(workDir, "feat/y", git)
+    assert(
+      thrown.getMessage.contains("already bound to branch 'feat/x'"),
+      s"refusal must name the bound branch: ${thrown.getMessage}"
+    )
+
+  test("setup: --branch equal to the resumed run's branch resumes"):
+    val workDir = GitRepo.seeded()
+    val git = new OsGitTool(workDir)
+    val _ = setupWithBranch(workDir, "feat/x", git)
+    assertEquals(
+      setupWithBranch(workDir, "feat/x", git).featureBranch.value,
+      "feat/x"
+    )
+
+  test("setup: --branch naming the detected default branch is refused"):
+    val workDir = GitRepo.seeded()
+    val git = new OsGitTool(workDir):
+      override def defaultBranch(): Option[String] = Some("develop")
+    val thrown = intercept[orca.OrcaFlowException]:
+      setupWithBranch(workDir, "develop", git)
+    assert(
+      thrown.getMessage.contains("protected"),
+      s"refusal must say the branch is protected: ${thrown.getMessage}"
+    )
+    assert(!localBranches(workDir).contains("develop"))
+
   test("the commit the run bound at reaches the flow body"):
     // The rest of the path FlowSetup only starts: DefaultFlowContext, and what
     // a flow body actually reads when it asks for the whole-run diff base.
@@ -1159,7 +1284,8 @@ class FlowLifecycleTest extends munit.FunSuite:
   /** Drives `setup` directly against `workDir` with a throwaway store — the
     * fixture for the stack-settings resolution tests, and (via the defaulted
     * `emit`/`tty`/`ask`) the dirty-tree prompt tests. Headless by default, so a
-    * fresh dirty run stashes without asking.
+    * fresh dirty run stashes without asking. `args` overrides the plain
+    * `OrcaArgs(prompt)`; the store stays keyed on `prompt`.
     */
   private def setupForSettings(
       workDir: os.Path,
@@ -1167,12 +1293,14 @@ class FlowLifecycleTest extends munit.FunSuite:
       prompt: String = "settings-resolution",
       emit: OrcaEvent => Unit = _ => (),
       tty: () => Boolean = () => false,
-      ask: Int => DirtyTreeChoice = _ => DirtyTreeChoice.Stash
+      ask: Int => DirtyTreeChoice = _ => DirtyTreeChoice.Stash,
+      args: Option[OrcaArgs] = None,
+      git: Option[GitTool] = None
   ): FlowLifecycle.FlowSetup =
     FlowLifecycle.setup(
-      args = OrcaArgs(prompt),
+      args = args.getOrElse(OrcaArgs(prompt)),
       agent = StubAgent.claude,
-      git = new OsGitTool(workDir),
+      git = git.getOrElse(new OsGitTool(workDir)),
       workDir = workDir,
       branchNaming = None,
       resolution = FlowLifecycle

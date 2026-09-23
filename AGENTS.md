@@ -171,7 +171,9 @@ most easily broken:
   the single home of that. A row's `(stage: ...)` segment is a DIFFERENT field,
   the stage the session was last active in, so `SessionPicker.mintedInTag`
   appends the minting stage to exactly those rows two lineages would otherwise
-  share, and `orca continue --list` gives it a column. Neither half of the key is
+  share, and `orca continue --list` gives it a column. The picker groups rows
+  into lineages keyed by `(workDir, branch, agent, minted key)`, and `orca
+  continue <selector>` matches a session name or a recorded branch. Neither half of a `SessionKey` is
   hashed or turned into a filename, and only `name` is validated (non-empty).
   Reordering or skipping *other* `session(...)` calls between runs doesn't
   re-key this one; renaming the stage a mint sits in does. Minting one name
@@ -285,7 +287,7 @@ Three location classes decide what survives:
 |---|---|---|---|---|---|
 | `.orca/runs/<key>.progress.json` | committed | `ProgressLog`: header (branches, `branchMode`, `startingCommit`, `userPrompt`, `flowName`), one `StageEntry` per completed stage (`id`, `name`, `resultJson`), `published` | `ProgressStore` (`FlowLifecycle.freshRun`, `Flow.recordAndCommit`, `recordOpenedPr`) | `Flow.resumeFrom`, `RecoveryCheck`, `FlowLifecycle`, shell `ResumeDetector` (header) | success teardown, in a final commit |
 | `.orca/cache/runs/<key>.sessions.json` | cache | `SessionRecord` per durable session: `name`, `stage`, `id`, `seed`, `resumeWireId`, `backend` | `SessionStore` (`Session.mintSession`, `persistResumeWireId`) | `Session`, `FlowLifecycle.rehydrateSessions` | success teardown; nothing else prunes them |
-| `.orca/cache/attempts/<id>.manifest.json` | cache | `AttemptManifest`: `workDir`, `pid`, `startedAt`, `finishedAt`, `status`, `orcaVersion`, `flow`, `sessions[]` (`ManifestSession`) — written when the attempt starts, then on every stage transition, `SessionCommitted` and finish | `AttemptManifestWriter` | shell `ManifestReader` → session picker / `orca continue` (attempts with no session are left out) | pruning: newest 20 attempts with a session ∪ newest 20 of any kind |
+| `.orca/cache/attempts/<id>.manifest.json` | cache | `AttemptManifest`: `workDir`, `pid`, `startedAt`, `finishedAt`, `status`, `orcaVersion`, `flow`, `branch`, `sessions[]` (`ManifestSession`) — written when the attempt starts, then on every stage transition, `BranchBound`, `SessionCommitted` and finish | `AttemptManifestWriter` | shell `ManifestReader` → session picker / `orca continue` (attempts with no session are left out) | pruning: newest 20 attempts with a session ∪ newest 20 of any kind |
 | `.orca/cache/attempts/<id>.cost.jsonl` | cache | one `CostRecord` line per `TokensUsed` (agent, role, model, stage, turn, usage, cost, session) — created on the first `TokensUsed` | `CostLog` via `AttemptManifestWriter` | nothing in orca; a measurement record for people and scripts | pruned with its manifest |
 | `.orca/cache/attempts/<id>.trace.log` (+ `.trace.1.log`) | cache | DEBUG trace of logger `orca`: prompts, agent output, tool calls; 4 MB roll | `OrcaLog` | people (path in the banner) | pruned with its manifest |
 | `.orca/cache/flow.lock` | cache | holder pid | `FlowLock` | `FlowLock` on contention | `runFlow`'s `finally`; a dead pid is stolen |

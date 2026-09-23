@@ -1,6 +1,7 @@
 package orca.shell.actions
 
 import org.jline.terminal.Terminal
+import orca.settings.AgentSpec
 import orca.shell.run.ChildTerminal
 import orca.shell.sessions.{ResumeCommand, SessionPicker, SessionSelection}
 import orca.shell.ui.ShellOutput
@@ -19,20 +20,30 @@ import scala.util.control.NonFatal
   */
 private[shell] object SessionAction:
 
-  /** The resolved session's identity — name, harness, stage, crashed status,
-    * and `workDir` — for display immediately before [[resume]] execs its
-    * harness child (ADR 0021 §10). Shared by the CLI's tty-gated pre-exec
-    * notice and the interactive picker, so both show `workDir` before resuming
-    * rather than only the CLI path. `harnessName` is the caller's
-    * already-resolved settings-file harness name (`claude`, `codex`, …), not
-    * the manifest's wire name.
+  /** The resolved session's identity, printed immediately before [[resume]]
+    * execs its harness child (security fold-in, ADR 0021 §10), by both the
+    * CLI's tty-gated `orca continue` and the interactive picker. A no-selector
+    * `orca continue` could otherwise resume whatever session a hostile repo's
+    * `.orca/cache/attempts/` manifest names without the user ever having chosen
+    * it; the notice gives them a chance to Ctrl-C.
+    */
+  def resumeNotice(selection: SessionSelection): String =
+    identityNotice(
+      selection,
+      AgentSpec.harnessNameFor(selection.session.harness)
+    )
+
+  /** The notice [[resumeNotice]] prints — name, harness, stage, recorded
+    * branch, crashed status, and `workDir`. `harnessName` is the settings-file
+    * harness name (`claude`, `codex`, …), not the manifest's wire name.
     */
   def identityNotice(selection: SessionSelection, harnessName: String): String =
     val session = selection.session
     val name = SessionPicker.displayName(session)
     val stage = session.stage.fold("")(s => s", stage '$s'")
+    val branch = selection.manifest.branch.fold("")(b => s", on branch '$b'")
     val crashedSuffix = if selection.crashed then " (crashed)" else ""
-    s"resuming session '$name' [$harnessName]$stage, in ${selection.manifest.workDir}$crashedSuffix"
+    s"resuming session '$name' [$harnessName]$stage$branch, in ${selection.manifest.workDir}$crashedSuffix"
 
   /** Parses the manifest's stored `workDir` and confirms it's still a directory
     * — a checkout deleted after its run finished otherwise crashes resume:

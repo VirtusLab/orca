@@ -9,6 +9,8 @@ import orca.util.JsonFile
 private[shell] case class InterruptedRun(
     flowName: String,
     userPrompt: String,
+    /** The branch the run works on, from the progress log's header. */
+    branch: String,
     /** The directory the log was found in — the shell's own, or one of the
       * worktrees orca made. The relaunch runs THERE, which is what makes it a
       * resume rather than a fresh run: the log it resumes from is in that
@@ -57,7 +59,7 @@ private[shell] object ResumeDetector:
   ): Option[InterruptedRun] =
     header.flowName
       .filter(isBareFlowFilename)
-      .map(InterruptedRun(_, header.userPrompt, dir))
+      .map(InterruptedRun(_, header.userPrompt, header.branch, dir))
 
   /** The header is committed repo content, and `flowName` later reaches
     * `FlowResolution.resolve`, which treats path-like refs as literal paths — a

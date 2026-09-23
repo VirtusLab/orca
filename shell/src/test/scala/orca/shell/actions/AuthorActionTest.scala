@@ -138,7 +138,8 @@ class AuthorActionTest extends munit.FunSuite:
         call.flags,
         FlowFlags(
           verbose = false,
-          target = RunTarget.NewBranch(Uncommitted.Stash)
+          target = RunTarget.NewBranch(Uncommitted.Stash),
+          branch = None
         )
       )
       assertEquals(call.fallback, FallbackPolicy.Ask(NoPromptUi))

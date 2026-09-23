@@ -1,6 +1,7 @@
 package orca
 
 import mainargs.{Flag, ParserForClass, arg}
+import orca.progress.BranchName
 
 /** The argv shape mainargs parses: one raw flag per `--`-spelled option,
   * including the `--worktree` combinations orca refuses. [[OrcaArgs.parse]] is
@@ -21,34 +22,39 @@ private[orca] case class RawArgs(
     @arg(doc =
       "run the flow in a git worktree of this repository instead of the current checkout"
     )
-    worktree: Flag = Flag()
+    worktree: Flag = Flag(),
+    @arg(doc =
+      "name of the branch to create for this run (default: derived from the task); not with --skip-branch"
+    )
+    branch: Option[String] = None
 )
 
 /** Parsed command-line arguments for the `orca` entry point. */
 case class OrcaArgs(
     userPrompt: String = "",
     verbose: Boolean = false,
-    target: RunTarget = RunTarget.NewBranch(Uncommitted.Stash)
+    target: RunTarget = RunTarget.NewBranch(Uncommitted.Stash),
+    branch: Option[BranchName] = None
 )
 
 object OrcaArgs:
   private given ParserForClass[RawArgs] = ParserForClass[RawArgs]
 
   /** Parse the given argv or return a human-readable error — including for a
-    * contradictory `--worktree` pair, refused here so it fails at parse, before
-    * the banner and before anything touches git.
+    * contradictory flag pair or an invalid `--branch`, refused here so it fails
+    * at parse, before the banner and before anything touches git.
     */
   def parse(args: Seq[String]): Either[String, OrcaArgs] =
-    summon[ParserForClass[RawArgs]]
-      .constructEither(args.toList)
-      .flatMap: raw =>
-        RunTarget
-          .from(
-            worktree = raw.worktree.value,
-            skipBranch = raw.skipBranch.value,
-            keepChanges = raw.keepChanges.value
-          )
-          .map(OrcaArgs(raw.userPrompt, raw.verbose.value, _))
+    for
+      raw <- summon[ParserForClass[RawArgs]].constructEither(args.toList)
+      branch <- BranchName.parseOptional(raw.branch)
+      target <- RunTarget.from(
+        worktree = raw.worktree.value,
+        skipBranch = raw.skipBranch.value,
+        keepChanges = raw.keepChanges.value,
+        branch = branch
+      )
+    yield OrcaArgs(raw.userPrompt, raw.verbose.value, target, branch)
 
   /** Overload for scala-cli flow scripts, whose top-level `args` is
     * `Array[String]`. Throws `OrcaFlowException` on a parse failure.

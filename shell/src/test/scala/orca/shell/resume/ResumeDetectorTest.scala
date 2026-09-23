@@ -30,14 +30,21 @@ class ResumeDetectorTest extends munit.FunSuite:
     os.makeDir.all(workDir / ".orca")
     assertEquals(ResumeDetector.detect(List(workDir)), None)
 
-  test("detect finds a fresh log's recorded flow name and task text"):
+  test("detect finds a fresh log's recorded flow name, task text, and branch"):
     val workDir = TempDirs.dir()
     ProgressStore
       .default(workDir, RunKey.of("fix the flaky test"))
       .writeHeader(header())
     assertEquals(
       ResumeDetector.detect(List(workDir)),
-      Some(InterruptedRun("implement.sc", "fix the flaky test", workDir))
+      Some(
+        InterruptedRun(
+          "implement.sc",
+          "fix the flaky test",
+          "feat/resume",
+          workDir
+        )
+      )
     )
 
   test("detect is None for a log missing flowName (a run outside the shell)"):
@@ -79,7 +86,7 @@ class ResumeDetectorTest extends munit.FunSuite:
     val _ = os.mtime.set(older.path, System.currentTimeMillis() - 60000)
     assertEquals(
       ResumeDetector.detect(List(workDir)),
-      Some(InterruptedRun("b.sc", "newer prompt", workDir))
+      Some(InterruptedRun("b.sc", "newer prompt", "feat/resume", workDir))
     )
 
   test("detect reports the directory the winning log was found in"):
@@ -90,7 +97,14 @@ class ResumeDetectorTest extends munit.FunSuite:
       .writeHeader(header())
     assertEquals(
       ResumeDetector.detect(List(shellDir, worktree)),
-      Some(InterruptedRun("implement.sc", "fix the flaky test", worktree))
+      Some(
+        InterruptedRun(
+          "implement.sc",
+          "fix the flaky test",
+          "feat/resume",
+          worktree
+        )
+      )
     )
 
   test("detect: the newest wins across directories, not within each"):
@@ -109,7 +123,7 @@ class ResumeDetectorTest extends munit.FunSuite:
     // The winner is in the FIRST directory here, the mirror of the case above.
     assertEquals(
       ResumeDetector.detect(List(shellDir, worktree)),
-      Some(InterruptedRun("b.sc", "newer prompt", shellDir))
+      Some(InterruptedRun("b.sc", "newer prompt", "feat/resume", shellDir))
     )
 
   test("detect: an unreadable directory costs only its own logs"):
@@ -129,6 +143,13 @@ class ResumeDetectorTest extends munit.FunSuite:
     try
       assertEquals(
         ResumeDetector.detect(List(shellDir, unreadable)),
-        Some(InterruptedRun("implement.sc", "fix the flaky test", shellDir))
+        Some(
+          InterruptedRun(
+            "implement.sc",
+            "fix the flaky test",
+            "feat/resume",
+            shellDir
+          )
+        )
       )
     finally os.perms.set(unreadable / ".orca", "rwxr-xr-x")

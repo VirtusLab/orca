@@ -73,6 +73,26 @@ class OrcaArgsTest extends munit.FunSuite:
         assert(msg.contains(otherFlag), msg)
       case Right(r) => fail(s"expected a refusal, got $r")
 
+  test("--worktree with --branch keeps both"):
+    assertEquals(
+      OrcaArgs
+        .parse(Seq("--worktree", "--branch", "feat/x", "task"))
+        .map(a => (a.target, a.branch.map(_.value))),
+      Right((RunTarget.Worktree, Some("feat/x")))
+    )
+
+  test("--branch with an invalid name is refused, naming the rule"):
+    OrcaArgs.parse(Seq("--branch", "bad..name", "x")) match
+      case Left(msg) => assert(msg.contains("'..'"), msg)
+      case Right(r)  => fail(s"expected a refusal, got $r")
+
+  test("--skip-branch with --branch is refused, naming both flags"):
+    OrcaArgs.parse(Seq("--skip-branch", "--branch", "x", "task")) match
+      case Left(msg) =>
+        assert(msg.contains("--skip-branch"), msg)
+        assert(msg.contains("--branch"), msg)
+      case Right(r) => fail(s"expected a refusal, got $r")
+
   test("unknown flags yield a Left with an error message"):
     OrcaArgs.parse(Seq("--nonexistent")) match
       case Left(msg) => assert(msg.nonEmpty)

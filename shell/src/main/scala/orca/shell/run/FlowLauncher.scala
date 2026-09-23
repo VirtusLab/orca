@@ -2,6 +2,7 @@ package orca.shell.run
 
 import org.jline.terminal.Terminal
 import orca.{RunTarget, XdgDirs}
+import orca.progress.BranchName
 import orca.shell.ShellVersion
 import orca.shell.ui.{ShellOutput, ShellUi, UiOutcome}
 import orca.subprocess.QuietProc
@@ -30,9 +31,13 @@ private[shell] enum FallbackPolicy:
   * `target` is the run's destination as one [[orca.RunTarget]] rather than the
   * three flags it renders to, so the combinations orca refuses (`--worktree`
   * with `--skip-branch` or `--keep-changes`) cannot be handed to a launch path
-  * at all.
+  * at all. `branch` is the `--branch` name, `None` to let the flow derive one.
   */
-private[shell] case class FlowFlags(verbose: Boolean, target: RunTarget)
+private[shell] case class FlowFlags(
+    verbose: Boolean,
+    target: RunTarget,
+    branch: Option[BranchName]
+)
 
 /** Runs a selected flow as a `scala-cli run` child inheriting the shell's
   * terminal (ADR 0021 §2). By default the shell forces its own orca version via
@@ -91,6 +96,9 @@ private[shell] object FlowLauncher:
     * the user's own repo (`<repo>/.orca/flows/<name>.sc`), same pollution class
     * the `orca` shim's own `--workspace` fixes (ADR 0021 §1 amendment).
     *
+    * A `--branch <name>` ([[orca.RunTarget.branchArgv]]) follows the target
+    * flags.
+    *
     * Requires `task` to be non-blank — `Main.promptTask` re-prompts on blank
     * input before this is ever called, so an empty task here means a caller
     * bug, not a user error to report.
@@ -112,7 +120,7 @@ private[shell] object FlowLauncher:
       depArgs(orcaVersion) ++
       Seq("--workspace", workspaceDir.toString) ++
       Seq("--", task) ++
-      verboseArgs ++ flags.target.toArgv
+      verboseArgs ++ flags.target.toArgv ++ RunTarget.branchArgv(flags.branch)
 
   /** The compile probe's argv — same `--workspace` treatment as [[argv]], and
     * for the same reason: without it, the probe (run whenever the forced

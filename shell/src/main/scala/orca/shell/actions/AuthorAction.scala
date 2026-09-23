@@ -137,7 +137,8 @@ private[shell] object AuthorAction:
       sandbox,
       FlowFlags(
         verbose = false,
-        target = RunTarget.NewBranch(Uncommitted.Stash)
+        target = RunTarget.NewBranch(Uncommitted.Stash),
+        branch = None
       ),
       terminal
     )

@@ -1,6 +1,7 @@
 package orca.shell.run
 
 import orca.{RunTarget, Uncommitted}
+import orca.progress.BranchName
 
 class FlowLauncherTest extends munit.FunSuite:
 
@@ -13,8 +14,10 @@ class FlowLauncherTest extends munit.FunSuite:
     */
   private def flags(
       verbose: Boolean = false,
-      target: RunTarget = RunTarget.NewBranch(Uncommitted.Stash)
-  ): FlowFlags = FlowFlags(verbose, target)
+      target: RunTarget = RunTarget.NewBranch(Uncommitted.Stash),
+      branch: Option[BranchName] = None
+  ): FlowFlags =
+    FlowFlags(verbose, target, branch)
 
   test("argv forces --dep with a release version, before --workspace/--"):
     val result = FlowLauncher.argv(
@@ -370,3 +373,17 @@ class FlowLauncherTest extends munit.FunSuite:
     assertEquals(FlowLauncher.toLaunchResult(1), LaunchResult.Failed(1))
     assertEquals(FlowLauncher.toLaunchResult(130), LaunchResult.Cancelled)
     assertEquals(FlowLauncher.toLaunchResult(143), LaunchResult.Cancelled)
+
+  test("argv renders --branch <name> after the target flags"):
+    val branch = BranchName.parse("feature/JIRA-123").toOption
+    val result = FlowLauncher.argv(
+      flow,
+      None,
+      "do the thing",
+      flags(target = RunTarget.NewBranch(Uncommitted.Keep), branch = branch),
+      workspaceDir
+    )
+    assertEquals(
+      result.takeRight(4),
+      Seq("do the thing", "--keep-changes", "--branch", "feature/JIRA-123")
+    )

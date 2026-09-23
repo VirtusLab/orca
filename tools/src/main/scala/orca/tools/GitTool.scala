@@ -267,6 +267,9 @@ trait GitTool:
 
   def currentBranch(): String
 
+  /** True when a local branch named `name` exists. READ-ONLY. */
+  def branchExists(name: String): Boolean
+
   /** The commit HEAD resolves to, as a full hash. READ-ONLY. Best-effort:
     * `None` when HEAD names no commit (a repository with no history yet) or the
     * probe cannot answer.
@@ -535,7 +538,7 @@ private[orca] class OsGitTool(
   // `--` so a dash-leading name is a pattern rather than a flag: without it
   // git exits 129 with its usage text, and the caller's typed `Left` never
   // happens.
-  private def branchExists(name: String): Boolean =
+  def branchExists(name: String): Boolean =
     git("branch", "--list", "--", name).trim.nonEmpty
 
   def dirtyPaths(): List[String] =
