@@ -107,9 +107,11 @@ most easily broken:
   one production call site, `ReviewLoop`'s reviewer fan-out (pinned by
   `CcNegativeCompileTest`; see `CheckedPar`'s scaladoc for the verified
   mechanics). Everywhere else — user flow scripts, examples, the rest of
-  orca — the shared/exclusive split is convention, and there is no runtime
-  guard on `WorkspaceWrite` (the R12 owner-thread assert covers only the
-  `FlowControl`/`stage` surface). Ox itself is not yet capture-checked; once
+  orca — the rule is enforced at runtime only: a `WorkspaceWrite` is bound to
+  the thread that minted it, and every gated write calls
+  `WorkspaceWrite.check`, which throws off that thread (the `FlowControl`/`stage`
+  surface has its own R12 owner-thread assert). A new gated write must call
+  `check` first. Ox itself is not yet capture-checked; once
   it is, rejection moves to `ox.fork` directly and `CheckedPar` is deleted.
 
 - **Progress log + recovery.** A run commits `.orca/runs/<key>.progress.json`
@@ -156,21 +158,20 @@ most easily broken:
   The user surface is three rungs (README "Sessions"): `agent.run` (one-shot)
   / `agent.chat()` (ephemeral `Chat`, fork-safe, `InStage`-only) /
   `agent.session(name, seed)` (durable `FlowSession`, flow-thread-only
-  — the owner-thread assert in `FlowSession.run` enforces it at runtime, and
+  — the owner-thread assert on every `FlowSession` turn enforces it at runtime, and
   the raw session-threading doors are `private[orca] runWithSession`, so
   ephemeral continuation is only reachable through a `Chat` handle).
 
   Sessions have explicit identity: `agent.session(name, seed)` keys an
   `orca.sessions.SessionRecord` by `orca.agents.SessionKey(name, stage)`. `name`
-  is the role; `stage` is an `orca.StagePath` — `FlowBody`, or `Stage(path id)`
-  for the stage the mint sits in — taken from `StageFrames` rather than supplied
-  by the author. The persisted spelling (`""` for the flow body) is decoded in
-  one place, `StagePath.fromValue`. Two stages therefore cannot name one
+  is the role; `stage` is an `orca.StagePath` — `FlowBody`, or the `Stage`
+  the mint sits in — taken from `StageFrames` rather than supplied by the
+  author. Two stages therefore cannot name one
   session, and a per-task loop needs no per-task label. The whole key reaches
   `OrcaEvent.SessionCommitted`, the attempt manifest and the shell's session
   picker.
   Identity and label are separate here: `SessionKey.describe` renders a key for
-  the run's own diagnostics (a stage path id carries `#0` suffixes), and a
+  the run's own diagnostics (a stage path displays with `#0` suffixes), and a
   session reads to a person as its bare `name` — `SessionNaming.displayName` is
   the single home of that. A row's `(stage: ...)` segment is a DIFFERENT field,
   the stage the session was last active in, so `SessionPicker.mintedInTag`
@@ -291,7 +292,7 @@ Three location classes decide what survives:
 
 | Path | Class | Holds | Written by | Read by | Removed by |
 |---|---|---|---|---|---|
-| `.orca/runs/<key>.progress.json` | committed | `ProgressLog`: header (branches, `branchMode`, `startingCommit`, `userPrompt`, `flow`), one `StageEntry` per completed stage (`id`, `name`, `resultJson`), `published` | `ProgressStore` (`FlowLifecycle.freshRun`, `Flow.recordAndCommit`, `recordOpenedPr`) | `Flow.resumeFrom`, `RecoveryCheck`, `FlowLifecycle`, shell `ResumeDetector` (header) | success teardown, in a final commit |
+| `.orca/runs/<key>.progress.json` | committed | `ProgressLog`: header (branches, `branchMode`, `startingCommit`, `userPrompt`, `flow`), one `StageEntry` per completed stage (`id` as `StagePath` segments, `resultJson`), `published` | `ProgressStore` (`FlowLifecycle.freshRun`, `Flow.recordAndCommit`, `recordOpenedPr`) | `Flow.resumeFrom`, `RecoveryCheck`, `FlowLifecycle`, shell `ResumeDetector` (header) | success teardown, in a final commit |
 | `.orca/cache/runs/<key>.sessions.json` | cache | `SessionRecord` per durable session: `name`, `stage`, `id`, `seed`, `resumeWireId`, `backend` | `SessionStore` (`Session.mintSession`, `persistResumeWireId`) | `Session`, `FlowLifecycle.rehydrateSessions` | success teardown; nothing else prunes them |
 | `.orca/cache/attempts/<id>.manifest.json` | cache | `AttemptManifest`: `workDir`, `pid`, `startedAt`, `finishedAt`, `status`, `orcaVersion`, `flow`, `branch`, `sessions[]` (`ManifestSession`) — written when the attempt starts, then on every stage transition, `BranchBound`, `SessionCommitted` and finish | `AttemptManifestWriter` | shell `ManifestReader` → session picker / `orca continue` (attempts with no session are left out) | pruning: newest 20 attempts with a session ∪ newest 20 of any kind |
 | `.orca/cache/attempts/<id>.cost.jsonl` | cache | one `CostRecord` line per `TokensUsed` (agent, role, model, stage, turn, usage, cost, session) — created on the first `TokensUsed` | `CostLog` via `AttemptManifestWriter` | nothing in orca; a measurement record for people and scripts | pruned with its manifest |

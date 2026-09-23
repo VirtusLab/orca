@@ -1,6 +1,6 @@
 package orca.review
 
-import orca.{Configured, FlowContext, FlowControl, StackSettings}
+import orca.{Configured, FlowContext, FlowControl, StackSettings, StagePath}
 import orca.plan.{Task, Title}
 import orca.agents.{
   SessionKey,
@@ -757,7 +757,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       )
     )
     val joinsInRoundThree = selector: (all, history) =>
-      if history.size < 2 then all.filter(_.name == "early") else all
+      if history.size < 2 then all.filter(_.name.value == "early") else all
     val _ = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(asReviewer(early), asReviewer(late)),
@@ -990,18 +990,18 @@ class ReviewAndFixTest extends munit.FunSuite:
     given FlowControl = fc
     val base =
       fc.git.headCommit().getOrElse(fail("the fixture repo has no HEAD"))
-    val _ = fc.enterStage("review", Some(base))
-    val reviewer =
-      new FakeAgent("capturing", outputs = List(ReviewResult.empty))
-    val _ = reviewAndFixLoop(
-      coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
-      reviewers = List(asReviewer(reviewer)),
-      task = titled("do thing"),
-      reviewerSelection = ReviewerSelector.allEveryRound
-    )
-    val sent = reviewer.seenPrompts.headOption
-      .getOrElse(fail("the fresh-session run was never called"))
-    assert(sent.contains(s"since commit $base"), s"base missing: $sent")
+    fc.withStage("review", Some(base)): _ =>
+      val reviewer =
+        new FakeAgent("capturing", outputs = List(ReviewResult.empty))
+      val _ = reviewAndFixLoop(
+        coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
+        reviewers = List(asReviewer(reviewer)),
+        task = titled("do thing"),
+        reviewerSelection = ReviewerSelector.allEveryRound
+      )
+      val sent = reviewer.seenPrompts.headOption
+        .getOrElse(fail("the fresh-session run was never called"))
+      assert(sent.contains(s"since commit $base"), s"base missing: $sent")
 
   test("a pinned diff is framed without the stage's base commit or scope"):
     // The pinned diff may describe a change set that isn't stage-base-to-tree,
@@ -1012,23 +1012,24 @@ class ReviewAndFixTest extends munit.FunSuite:
     given FlowControl = fc
     val base =
       fc.git.headCommit().getOrElse(fail("the fixture repo has no HEAD"))
-    val _ = fc.enterStage("review", Some(base))
-    val reviewer =
-      new FakeAgent("capturing", outputs = List(ReviewResult.empty))
-    val _ = reviewAndFixLoop(
-      coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
-      reviewers = List(asReviewer(reviewer)),
-      task = titled("do thing"),
-      reviewerSelection = ReviewerSelector.allEveryRound,
-      diff = ReviewDiff.Pinned("--- a/Foo.scala\n+++ b/Foo.scala\n+ added line")
-    )
-    val sent = reviewer.seenPrompts.headOption
-      .getOrElse(fail("the fresh-session run was never called"))
-    assert(!sent.contains("since commit"), s"base leaked into prompt: $sent")
-    assert(
-      !sent.contains("since its stage began"),
-      s"stage-scoped framing leaked into prompt: $sent"
-    )
+    fc.withStage("review", Some(base)): _ =>
+      val reviewer =
+        new FakeAgent("capturing", outputs = List(ReviewResult.empty))
+      val _ = reviewAndFixLoop(
+        coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
+        reviewers = List(asReviewer(reviewer)),
+        task = titled("do thing"),
+        reviewerSelection = ReviewerSelector.allEveryRound,
+        diff =
+          ReviewDiff.Pinned("--- a/Foo.scala\n+++ b/Foo.scala\n+ added line")
+      )
+      val sent = reviewer.seenPrompts.headOption
+        .getOrElse(fail("the fresh-session run was never called"))
+      assert(!sent.contains("since commit"), s"base leaked into prompt: $sent")
+      assert(
+        !sent.contains("since its stage began"),
+        s"stage-scoped framing leaked into prompt: $sent"
+      )
 
   test("a sampled diff is framed as everything the stage has changed"):
     // The framing the pinned path can't claim, on the path that can — a
@@ -1038,18 +1039,18 @@ class ReviewAndFixTest extends munit.FunSuite:
     given FlowControl = fc
     val base =
       fc.git.headCommit().getOrElse(fail("the fixture repo has no HEAD"))
-    val _ = fc.enterStage("review", Some(base))
-    val reviewer =
-      new FakeAgent("capturing", outputs = List(ReviewResult.empty))
-    val _ = reviewAndFixLoop(
-      coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
-      reviewers = List(asReviewer(reviewer)),
-      task = titled("do thing"),
-      reviewerSelection = ReviewerSelector.allEveryRound
-    )
-    val sent = reviewer.seenPrompts.headOption
-      .getOrElse(fail("the fresh-session run was never called"))
-    assert(sent.contains("since its stage began"), s"framing missing: $sent")
+    fc.withStage("review", Some(base)): _ =>
+      val reviewer =
+        new FakeAgent("capturing", outputs = List(ReviewResult.empty))
+      val _ = reviewAndFixLoop(
+        coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
+        reviewers = List(asReviewer(reviewer)),
+        task = titled("do thing"),
+        reviewerSelection = ReviewerSelector.allEveryRound
+      )
+      val sent = reviewer.seenPrompts.headOption
+        .getOrElse(fail("the fresh-session run was never called"))
+      assert(sent.contains("since its stage began"), s"framing missing: $sent")
 
   test("a whole-run diff reaches back past the enclosing stage"):
     // What an earlier stage committed is exactly what a stage-scoped diff
@@ -1061,44 +1062,44 @@ class ReviewAndFixTest extends munit.FunSuite:
       fc.startingCommit.getOrElse(fail("the fixture recorded no run start"))
     os.write(fc.workDir / "earlier.txt", "an earlier stage's work")
     assert(fc.git.commit("earlier stage").isRight)
-    val _ = fc.enterStage("final review", fc.git.headCommit())
-    os.write(fc.workDir / "later.txt", "this stage's work")
-    val reviewer =
-      new FakeAgent("capturing", outputs = List(ReviewResult.empty))
-    val _ = reviewAndFixLoop(
-      coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
-      reviewers = List(asReviewer(reviewer)),
-      task = titled("final review"),
-      reviewerSelection = ReviewerSelector.allEveryRound,
-      diff = ReviewDiff.WholeRun
-    )
-    val sent = reviewer.seenPrompts.headOption
-      .getOrElse(fail("the fresh-session run was never called"))
-    assert(
-      sent.contains(s"since commit ${runStart.value}"),
-      s"the run's starting commit must be the base: $sent"
-    )
-    assert(sent.contains("earlier.txt"), s"committed work missing: $sent")
-    assert(sent.contains("later.txt"), s"uncommitted work missing: $sent")
-    // The framing has to name the concrete base, not claim the run's full
-    // history — after a corrupt-log restart the recorded base excludes the
-    // first attempt's commits — and must not read as one stage's work.
-    assert(
-      sent.contains(s"everything changed since commit ${runStart.short}"),
-      s"base-naming framing missing: $sent"
-    )
-    assert(
-      !sent.contains("since its stage began"),
-      s"stage framing leaked: $sent"
-    )
-    // The run's log also names the base, so a reader can tell what the final
-    // review covered without opening a prompt.
-    assert(
-      steps.messages.contains(
-        s"reviewing everything changed since commit ${runStart.short}"
-      ),
-      steps.messages.mkString("\n")
-    )
+    fc.withStage("final review", fc.git.headCommit()): _ =>
+      os.write(fc.workDir / "later.txt", "this stage's work")
+      val reviewer =
+        new FakeAgent("capturing", outputs = List(ReviewResult.empty))
+      val _ = reviewAndFixLoop(
+        coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
+        reviewers = List(asReviewer(reviewer)),
+        task = titled("final review"),
+        reviewerSelection = ReviewerSelector.allEveryRound,
+        diff = ReviewDiff.WholeRun
+      )
+      val sent = reviewer.seenPrompts.headOption
+        .getOrElse(fail("the fresh-session run was never called"))
+      assert(
+        sent.contains(s"since commit ${runStart.value}"),
+        s"the run's starting commit must be the base: $sent"
+      )
+      assert(sent.contains("earlier.txt"), s"committed work missing: $sent")
+      assert(sent.contains("later.txt"), s"uncommitted work missing: $sent")
+      // The framing has to name the concrete base, not claim the run's full
+      // history — after a corrupt-log restart the recorded base excludes the
+      // first attempt's commits — and must not read as one stage's work.
+      assert(
+        sent.contains(s"everything changed since commit ${runStart.short}"),
+        s"base-naming framing missing: $sent"
+      )
+      assert(
+        !sent.contains("since its stage began"),
+        s"stage framing leaked: $sent"
+      )
+      // The run's log also names the base, so a reader can tell what the final
+      // review covered without opening a prompt.
+      assert(
+        steps.messages.contains(
+          s"reviewing everything changed since commit ${runStart.short}"
+        ),
+        steps.messages.mkString("\n")
+      )
 
   test("a whole-run diff is re-sampled, so a later round sees the fixes"):
     // The base is fixed for the run, the sample is not: a fix made after round
@@ -1581,6 +1582,9 @@ class ReviewAndFixTest extends munit.FunSuite:
     val slow = gatedReviewer("slow", gate1)
     val fast = gatedReviewer("fast", gate2)
     val runner = new Thread(() =>
+      // The suite's token belongs to the thread that built the suite; this
+      // runner thread needs its own.
+      given orca.WorkspaceWrite = orca.WorkspaceWrite.unsafe
       val _ = reviewAndFixLoop(
         coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
         reviewers = List(asReviewer(slow), asReviewer(fast)),
@@ -1934,7 +1938,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       outputs = List(ReviewResult(List(finding("from-x"))))
     )
     val rosterY = new FakeAgent(name = "y") // no outputs: throws if run
-    val onlyX = selector((all, _) => all.filter(_.name == "x"))
+    val onlyX = selector((all, _) => all.filter(_.name.value == "x"))
     val coder = new FakeAgent(
       name = "coder",
       outputs =
@@ -2048,7 +2052,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       control.sessionStore.upsert(
         SessionRecord(
           name = "s",
-          stage = "",
+          stage = StagePath.FlowBody,
           id = "s",
           seed = seed,
           resumeWireId = None,

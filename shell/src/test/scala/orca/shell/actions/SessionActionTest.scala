@@ -1,5 +1,6 @@
 package orca.shell.actions
 
+import orca.StagePath
 import orca.runner.manifest.{AttemptManifest, ManifestSession}
 import orca.shell.sessions.ManifestFixtures.{durable, manifest, selection}
 import orca.testkit.TempDirs
@@ -10,7 +11,7 @@ class SessionActionTest extends munit.FunSuite:
   private def session(stage: Option[String] = None): ManifestSession =
     durable(
       sessionName = "newest",
-      sessionStage = "Task: fix a bug#0",
+      sessionStage = StagePath.FlowBody.child("Task: fix a bug", 0),
       stage = stage,
       lastActiveAt = "2026-07-18T09:45:00Z"
     )

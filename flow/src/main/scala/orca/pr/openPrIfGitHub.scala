@@ -35,9 +35,9 @@ import scala.util.control.NonFatal
   *
   * Parameters are [[openPrFromBranch]]'s, passed straight through —
   * `openFindings` included, so a PR opened here lists what the run's review
-  * left open the same way. Like [[openPrFromBranch]], this does not compile
-  * inside a stage: opening the PR is a top-level step of a flow, and this runs
-  * its own stages.
+  * left open the same way. Like [[openPrFromBranch]], this is refused inside a
+  * stage: opening the PR is a top-level step of a flow, and this runs its own
+  * stages.
   */
 def openPrIfGitHub(
     summarisingAgent: Agent[?],
@@ -51,6 +51,7 @@ def openPrIfGitHub(
     control: FlowControl,
     outside: OutsideStage
 ): Option[PrHandle] =
+  control.assertAtFlowBody("openPrIfGitHub(...)")
   reportOpenFindings(openFindings)
   lazy val base = git.defaultBase()
   pushThenCreate(

@@ -33,8 +33,8 @@ class AllReviewersTest extends munit.FunSuite:
   test("allReviewers exposes the full canonical reviewer set"):
     val base = new RecordingTool
     val reviewers = allReviewers(base)
-    val names = ReviewerPrompts.all.map(_.name)
-    assertEquals(reviewers.map(_.definition.name), names)
+    val names = ReviewerPrompts.all.map(_.name.value)
+    assertEquals(reviewers.map(_.definition.name.value), names)
     // The agent is renamed too, so the run bills each reviewer separately.
     assertEquals(reviewers.map(_.agent.name), names)
 
@@ -52,7 +52,11 @@ class AllReviewersTest extends munit.FunSuite:
 
   test("the presets build from the run's catalog, not the shipped set"):
     val extra =
-      Reviewer("orca", "checks orca's own rules", systemPrompt = "## Scope")
+      Reviewer(
+        ReviewerSlug("orca"),
+        "checks orca's own rules",
+        systemPrompt = "## Scope"
+      )
     // Shadows the file-level built-in context for this test only.
     given orca.FlowContext = new orca.TestFlowContext(
       new orca.events.EventDispatcher(Nil),
@@ -75,5 +79,5 @@ class AllReviewersTest extends munit.FunSuite:
     // The picker is handed `- <name>: <description>`; a blank one leaves it
     // guessing from the slug for the whole loop.
     val _ = intercept[orca.OrcaFlowException](
-      Reviewer("my-thing", " ", systemPrompt = "…")
+      Reviewer(ReviewerSlug("my-thing"), " ", systemPrompt = "…")
     )

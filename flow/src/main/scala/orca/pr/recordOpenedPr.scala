@@ -18,7 +18,4 @@ def recordOpenedPr(pr: PrHandle)(using
     control: FlowControl,
     w: WorkspaceWrite
 ): Unit =
-  // The write is a file read-modify-write with no other runtime guard on
-  // `WorkspaceWrite`, so a call from a fork must fail here.
-  control.assertOwnerThread("recordOpenedPr(...)")
   control.progressStore.recordPublished(PublishedWork(pr.url))

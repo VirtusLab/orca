@@ -105,24 +105,3 @@ trait FlowContext extends AgentSet:
 
   def userPrompt: String
   def emit(event: OrcaEvent): Unit
-
-  /** Exactly-once error reporting: the runtime marks a throwable here when it
-    * publishes an `OrcaEvent.Error` for it, and every enclosing frame (nested
-    * stages, the flow boundary) checks before re-reporting. Identity-based
-    * (`eq`), so it covers plain RuntimeExceptions too.
-    *
-    * Assumes a freshly-constructed throwable per failure (as every orca failure
-    * site produces): identity marking would wrongly suppress a semantically-new
-    * failure that reused a cached/singleton exception instance.
-    */
-  private[orca] def markErrorReported(e: Throwable): Unit
-  private[orca] def errorAlreadyReported(e: Throwable): Boolean
-
-  /** Emit-once helper over the two primitives: runs `emit` and marks `e` only
-    * when `e` hasn't been reported yet. The runtime's three report sites all
-    * use this shape.
-    */
-  private[orca] final def reportOnce(e: Throwable)(emit: => Unit): Unit =
-    if !errorAlreadyReported(e) then
-      emit
-      markErrorReported(e)

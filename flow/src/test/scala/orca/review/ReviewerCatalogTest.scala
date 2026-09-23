@@ -35,7 +35,7 @@ class ReviewerCatalogTest extends munit.FunSuite:
     val _ = os.remove(dir / "probe")
 
   private def named(reviewers: List[Reviewer]): List[String] =
-    reviewers.map(_.name)
+    reviewers.map(_.name.value)
 
   test("this repository's own .orca/reviewers file loads"):
     // Through the same path production discovery uses, so renaming the tier
@@ -44,7 +44,7 @@ class ReviewerCatalogTest extends munit.FunSuite:
     val catalog =
       ReviewerCatalog.discover(projectDir, TempDirs.dir() / "absent")
     val reviewer = catalog.all
-      .find(_.name == "orca")
+      .find(_.name.value == "orca")
       .getOrElse(fail(s"no reviewer named 'orca' in $projectDir"))
     assert(reviewer.appliesTo(List("Foo.scala")), reviewer.filePattern.toString)
     assert(
@@ -57,7 +57,7 @@ class ReviewerCatalogTest extends munit.FunSuite:
     )
     // `orca` is not a shipped slug, so it is additive rather than a shadow.
     assertEquals(
-      catalog.discovered.find(_.reviewer.name == "orca").map(_.shadows),
+      catalog.discovered.find(_.reviewer.name.value == "orca").map(_.shadows),
       Some(Nil)
     )
 
@@ -87,10 +87,10 @@ class ReviewerCatalogTest extends munit.FunSuite:
     assertEquals(named(catalog.all), named(ReviewerPrompts.all))
     // `scala-fp` is outside `minimal`, so a shadow of it adds nothing there.
     assertEquals(named(catalog.minimal), named(ReviewerPrompts.minimal))
-    val scalaFp = catalog.all.find(_.name == "scala-fp").get
+    val scalaFp = catalog.all.find(_.name.value == "scala-fp").get
     assertEquals(scalaFp.description, "our own scala rules")
     assertEquals(
-      catalog.discovered.map(d => (d.reviewer.name, d.tier, d.shadows)),
+      catalog.discovered.map(d => (d.reviewer.name.value, d.tier, d.shadows)),
       List(
         ("scala-fp", ReviewerFileTier.Project, List(Origin.BuiltIn))
       )
@@ -103,7 +103,10 @@ class ReviewerCatalogTest extends munit.FunSuite:
     val _ = writeReviewer(project, "Scala-FP", description = "ours")
     val catalog = ReviewerCatalog.discover(project, global)
     assertEquals(named(catalog.all), named(ReviewerPrompts.all))
-    assertEquals(catalog.all.find(_.name == "scala-fp").get.description, "ours")
+    assertEquals(
+      catalog.all.find(_.name.value == "scala-fp").get.description,
+      "ours"
+    )
     assertEquals(
       catalog.discovered.map(_.shadows),
       List(List(Origin.BuiltIn))
@@ -127,7 +130,7 @@ class ReviewerCatalogTest extends munit.FunSuite:
     val _ = writeReviewer(global, "orca", description = "the user's")
     val catalog = ReviewerCatalog.discover(project, global)
     assertEquals(
-      catalog.all.find(_.name == "orca").get.description,
+      catalog.all.find(_.name.value == "orca").get.description,
       "the project's"
     )
     assertEquals(
@@ -300,6 +303,23 @@ class ReviewerCatalogTest extends munit.FunSuite:
     val e =
       intercept[OrcaFlowException](ReviewerCatalog.discover(project, global))
     assert(e.getMessage.contains("system prompt"), e.getMessage)
+
+  test("a block-scalar description aborts, naming the key"):
+    val (project, global) = dirs()
+    val _ = writeReviewer(project, "orca", description = "> # folded")
+    val e =
+      intercept[OrcaFlowException](ReviewerCatalog.discover(project, global))
+    assert(
+      e.getMessage.contains("'description:' as a YAML block"),
+      e.getMessage
+    )
+
+  test("a block-scalar files: pattern aborts, naming the key"):
+    val (project, global) = dirs()
+    val _ = writeReviewer(project, "orca", files = Some("|"))
+    val e =
+      intercept[OrcaFlowException](ReviewerCatalog.discover(project, global))
+    assert(e.getMessage.contains("'files:' as a YAML block"), e.getMessage)
 
   test("a reviewer file with an unparseable files: regex aborts"):
     val (project, global) = dirs()

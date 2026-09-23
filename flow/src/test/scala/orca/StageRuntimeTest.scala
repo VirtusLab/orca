@@ -43,7 +43,11 @@ class StageRuntimeTest extends munit.FunSuite:
     assert(tracked(dir).contains("out.txt"), "code change must be committed")
     // And the result is recorded for resume.
     val entry =
-      ctx.progressStore.load().get.entries.find(_.id == "write file#0")
+      ctx.progressStore
+        .load()
+        .get
+        .entries
+        .find(_.id == StagePath.FlowBody.child("write file", 0))
     assertEquals(entry.map(_.resultJson.value), Some("\"done\""))
 
   test("re-running replays the stored result without running the body again"):
@@ -75,7 +79,7 @@ class StageRuntimeTest extends munit.FunSuite:
     assertEquals(
       listener.events.drop(afterFirstRun),
       List(
-        OrcaEvent.StageStarted(path, "compute"),
+        OrcaEvent.StageStarted(path),
         OrcaEvent.StageEnded(path, StageOutcome.Replayed)
       )
     )
@@ -99,9 +103,12 @@ class StageRuntimeTest extends munit.FunSuite:
     // Stage one's commit + record survive the crash in stage two.
     assertEquals(commitCount(dir), countAfterOne)
     val ids = ctx.progressStore.load().get.entries.map(_.id)
-    assert(ids.contains("stage one#0"), "stage one must remain recorded")
     assert(
-      !ids.contains("stage two#0"),
+      ids.contains(StagePath.FlowBody.child("stage one", 0)),
+      "stage one must remain recorded"
+    )
+    assert(
+      !ids.contains(StagePath.FlowBody.child("stage two", 0)),
       "the crashed stage must not be recorded"
     )
 
@@ -122,10 +129,13 @@ class StageRuntimeTest extends munit.FunSuite:
     assertEquals(commitCount(dir), before + 2)
     val ids = ctx.progressStore.load().get.entries.map(_.id)
     assert(
-      ids.contains("outer#0/inner#0"),
+      ids.contains(StagePath.FlowBody.child("outer", 0).child("inner", 0)),
       s"inner must be recorded under its path id; got $ids"
     )
-    assert(ids.contains("outer#0"), s"outer must be recorded; got $ids")
+    assert(
+      ids.contains(StagePath.FlowBody.child("outer", 0)),
+      s"outer must be recorded; got $ids"
+    )
 
   test(
     "a plain exception unwinding through nested stages is reported exactly once"
@@ -151,7 +161,7 @@ class StageRuntimeTest extends munit.FunSuite:
     val listener = new RecordingListener
     val (ctx, _) = TestFlowControl.create(new EventDispatcher(List(listener)))
     given FlowControl = ctx
-    val _ = intercept[orca.agents.MalformedAgentOutputException]:
+    val _ = interceptReported[orca.agents.MalformedAgentOutputException]:
       stage[String]("parse"):
         throw new orca.agents.MalformedAgentOutputException(
           "raw output",
@@ -173,7 +183,7 @@ class StageRuntimeTest extends munit.FunSuite:
     val listener = new RecordingListener
     val (ctx, _) = TestFlowControl.create(new EventDispatcher(List(listener)))
     given FlowControl = ctx
-    val _ = intercept[orca.agents.MalformedAgentOutputException]:
+    val _ = interceptReported[orca.agents.MalformedAgentOutputException]:
       stage[String]("outer"):
         val _ = stage[String]("inner"):
           throw new orca.agents.MalformedAgentOutputException(
@@ -193,13 +203,12 @@ class StageRuntimeTest extends munit.FunSuite:
     val (ctx, _) = TestFlowControl.create(new EventDispatcher(Nil))
     given FlowControl = ctx
     val ran = new AtomicInteger(0)
-    // Seed an entry under id "typed#0" whose JSON cannot decode to Int.
+    // Seed an entry for stage `typed` whose JSON cannot decode to Int.
     locally:
       given WorkspaceWrite = WorkspaceWrite.unsafe
       ctx.progressStore.upsertEntry(
         StageEntry(
-          id = "typed#0",
-          name = "typed",
+          id = StagePath.FlowBody.child("typed", 0),
           resultJson = RawJson("\"not-an-int\"")
         )
       )
@@ -274,7 +283,9 @@ class StageRuntimeTest extends munit.FunSuite:
       s"the top-level inner's String record must be recorded; got $entries"
     )
     assert(
-      entries.exists(_.id == "outer#0/inner#0"),
+      entries.exists(
+        _.id == StagePath.FlowBody.child("outer", 0).child("inner", 0)
+      ),
       s"the nested inner must be recorded under its path id; got $entries"
     )
 
@@ -301,7 +312,14 @@ class StageRuntimeTest extends munit.FunSuite:
       "both same-named siblings must replay their own recorded values on resume"
     )
     val ids = ctx2.progressStore.load().get.entries.map(_.id).toSet
-    assertEquals(ids, Set("dup#0", "dup#1"), s"sibling ids must be stable")
+    assertEquals(
+      ids,
+      Set(
+        StagePath.FlowBody.child("dup", 0),
+        StagePath.FlowBody.child("dup", 1)
+      ),
+      s"sibling ids must be stable"
+    )
 
   test("a stage's base commit is the one it started from, not a live HEAD"):
     val (ctx, dir) = TestFlowControl.create(
@@ -336,7 +354,7 @@ class StageRuntimeTest extends munit.FunSuite:
     assertEquals(result, Right(Staged.Fresh(4)))
     assertEquals(
       ctx.progressStore.load().toList.flatMap(_.entries).map(_.id),
-      List("gated#0")
+      List(StagePath.FlowBody.child("gated", 0))
     )
 
   test("a replayed gated stage skips its gate"):
@@ -357,7 +375,7 @@ class StageRuntimeTest extends munit.FunSuite:
     val _ = stage("dup")(2)
     assertEquals(
       ctx.progressStore.load().toList.flatMap(_.entries).map(_.id),
-      List("dup#1")
+      List(StagePath.FlowBody.child("dup", 1))
     )
 
   // --- helpers ---

@@ -16,14 +16,14 @@ private val log = LoggerFactory.getLogger("orca.flow")
 
 /** Run `body` as a named, resumable, committing stage (ADR 0018 §2.1).
   *
-  * The stage id is a path `parent/name#occurrence` (`occurrence` counts prior
-  * same-named stages under the same parent frame). On resume, if the progress
-  * log holds an entry for this id whose JSON decodes to `T`, the decoded value
-  * is returned without running `body`; a decode failure (result type changed
-  * under this id) falls through and re-runs. A fresh run appends a
-  * `StageEntry(id, name, resultJson)`, force-adds the log, and commits — the
-  * commit also `add -A`s code changes, so a stage yields one commit covering
-  * code + progress.
+  * The stage id is its [[StagePath]]: the enclosing stages' names, then its
+  * own, each with an occurrence counting prior same-named stages under the same
+  * parent. On resume, if the progress log holds an entry for this id whose JSON
+  * decodes to `T`, the decoded value is returned without running `body`; a
+  * decode failure (result type changed under this id) falls through and
+  * re-runs. A fresh run appends a `StageEntry(id, resultJson)`, force-adds the
+  * log, and commits — the commit also `add -A`s code changes, so a stage yields
+  * one commit covering code + progress.
   *
   * A nested stage's commit stages the whole tree, so it sweeps up any
   * uncommitted edits the outer stage's body made before the nesting point. If
@@ -43,19 +43,15 @@ def stage[T: JsonData](
     commitMessage: Option[T => String] = None
 )(body: (InStage, WorkspaceWrite) ?=> T)(using fc: FlowControl): T =
   inStageFrame(name): id =>
-    resumeFrom(id, name).getOrElse(runStage(id, name, commitMessage)(body))
+    resumeFrom(id).getOrElse(runStage(id, commitMessage)(body))
 
 /** Run `f` with the frame of the stage `name` open, passing its id. */
 private def inStageFrame[R](name: String)(f: StagePath.Stage => R)(using
     fc: FlowControl
 ): R =
-  // `enterStage`/`exitStage` bracket the frame; see StageFrames scaladoc for
-  // the frame-stack protocol and invariants, ADR 0018 §2.1 for rationale.
   // HEAD is read HERE, before the body: once the body's agent starts
   // committing, the commit this stage began from is no longer recoverable.
-  val id = fc.enterStage(name, fc.git.headCommit())
-  try f(id)
-  finally fc.exitStage()
+  fc.withStage(name, fc.git.headCommit())(f)
 
 /** Where a stage's result came from: this attempt, or the progress log. */
 private[orca] enum Staged[+T]:
@@ -80,10 +76,10 @@ private[orca] def gatedStage[G, A, T: JsonData](name: String)(
     FlowControl
 ): Either[G, Staged[T]] =
   inStageFrame(name): id =>
-    resumeFrom[T](id, name) match
+    resumeFrom[T](id) match
       case Some(value) => Right(Staged.Replayed(value))
       case None =>
-        gate.map(a => Staged.Fresh(runStage(id, name, None)(body(a))))
+        gate.map(a => Staged.Fresh(runStage(id, None)(body(a))))
 
 /** [[stage]] reporting where its result came from. */
 private[orca] def tracedStage[T: JsonData](name: String)(
@@ -95,12 +91,12 @@ private[orca] def tracedStage[T: JsonData](name: String)(
   * log holds an entry for `id` that decodes to `T`; `None` when there's no
   * entry or it no longer decodes (fail-safe: the caller then re-runs the body).
   */
-private def resumeFrom[T: JsonData](id: StagePath.Stage, name: String)(using
+private def resumeFrom[T: JsonData](id: StagePath.Stage)(using
     fc: FlowControl
 ): Option[T] =
   fc.progressStore
     .load()
-    .flatMap(_.entries.find(_.id == id.value))
+    .flatMap(_.entries.find(_.id == id))
     .flatMap: entry =>
       // The try is scoped to the decode only: a decode failure means the
       // stage's result type changed under this id, so fall through and re-run
@@ -116,44 +112,40 @@ private def resumeFrom[T: JsonData](id: StagePath.Stage, name: String)(using
       decoded.map: value =>
         // A replayed stage announces itself with the stage markers alone: the
         // run already said once what it is resuming from.
-        fc.emit(OrcaEvent.StageStarted(id, name))
+        fc.emit(OrcaEvent.StageStarted(id))
         fc.emit(OrcaEvent.StageEnded(id, StageOutcome.Replayed))
         value
 
 /** Run the body fresh, then record its result and commit (steps 3–4 above). */
 private def runStage[T: JsonData](
     id: StagePath.Stage,
-    name: String,
     commitMessage: Option[T => String]
 )(body: (InStage, WorkspaceWrite) ?=> T)(using fc: FlowControl): T =
-  fc.emit(OrcaEvent.StageStarted(id, name))
+  fc.emit(OrcaEvent.StageStarted(id))
   try
     val result =
       given InStage = RuntimeInStage.token()
       given WorkspaceWrite = RuntimeInStage.workspaceToken()
       body
-    recordAndCommit(id, name, result, commitMessage)
+    recordAndCommit(id, result, commitMessage)
     fc.emit(OrcaEvent.StageEnded(id, StageOutcome.Completed))
     result
   catch
     case NonFatal(e) =>
-      // Report the failure once, then mark it so an enclosing stage / the flow
-      // boundary doesn't re-report it as it unwinds. Exceptions from `fail(...)`
-      // arrive already marked; unmarked ones (tool adapters, plain
-      // RuntimeExceptions) are surfaced here, else the user would see `exit 1`
-      // with no diagnostic. Malformed-output gets a richer render.
-      fc.reportOnce(e):
-        e match
-          case mao: orca.agents.MalformedAgentOutputException =>
-            fc.emit(OrcaEvent.Error(formatMalformedOutput(name, mao)))
-          case _ =>
-            fc.emit(
-              OrcaEvent.Error(
-                s"Stage '$name' failed: ${TextUtil.throwableMessage(e, firstLineOnly = true)}"
-              )
+      // A failure from `fail` or a nested stage arrives already reported;
+      // anything else (tool adapters, plain RuntimeExceptions) is reported
+      // here, else the user would see `exit 1` with no diagnostic.
+      val reported = ReportedFailure.reportOnce(e):
+        case mao: orca.agents.MalformedAgentOutputException =>
+          fc.emit(OrcaEvent.Error(formatMalformedOutput(id.name, mao)))
+        case other =>
+          fc.emit(
+            OrcaEvent.Error(
+              s"Stage '${id.name}' failed: ${TextUtil.throwableMessage(other, firstLineOnly = true)}"
             )
+          )
       fc.emit(OrcaEvent.StageEnded(id, StageOutcome.Failed))
-      throw e
+      throw reported
 
 /** Append the stage's result to the log and commit code + log as one commit.
   * The progress file is force-added (so it lands even when `.orca/` is
@@ -161,7 +153,6 @@ private def runStage[T: JsonData](
   */
 private def recordAndCommit[T: JsonData](
     id: StagePath.Stage,
-    name: String,
     result: T,
     commitMessage: Option[T => String]
 )(using fc: FlowControl): Unit =
@@ -173,9 +164,9 @@ private def recordAndCommit[T: JsonData](
   given InStage = RuntimeInStage.token()
   given WorkspaceWrite = RuntimeInStage.workspaceToken()
   val message =
-    commitMessage.map(_(result)).getOrElse(defaultCommitMessage(name))
+    commitMessage.map(_(result)).getOrElse(defaultCommitMessage(id.name))
   fc.progressStore.upsertEntry(
-    StageEntry(id = id.value, name = name, resultJson = RawJson(resultJson))
+    StageEntry(id = id, resultJson = RawJson(resultJson))
   )
   fc.git.forceAdd(fc.progressStore.path)
   // The log always changed, so a clean tree is unexpected (a prior partial run
@@ -183,7 +174,7 @@ private def recordAndCommit[T: JsonData](
   fc.git.commit(message) match
     case Right(()) => ()
     case Left(_) =>
-      log.debug("stage {} commit was empty (already recorded?)", name)
+      log.debug("stage {} commit was empty (already recorded?)", id.name)
 
 /** Generate a commit message from the current working-tree changes via the
   * coding-role agent's cheap model (`fc.codingAgent.cheapOneShot`), which is
@@ -239,8 +230,10 @@ private def formatMalformedOutput(
 def display(message: String)(using ctx: FlowContext): Unit =
   ctx.emit(OrcaEvent.Step(message))
 
+/** Show `message` as an error and abort the flow. Enclosing stages and the flow
+  * boundary do not report it again, and it does not match a `catch` on
+  * `OrcaFlowException`.
+  */
 def fail(message: String)(using ctx: FlowContext): Nothing =
   ctx.emit(OrcaEvent.Error(message))
-  val e = new OrcaFlowException(message)
-  ctx.markErrorReported(e)
-  throw e
+  throw ReportedFailure(OrcaFlowException(message))

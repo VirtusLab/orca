@@ -9,7 +9,7 @@ import ox.either.ok
 
 import scala.util.matching.Regex
 
-/** A reviewer agent definition: a short slug name, a description suitable for
+/** A reviewer agent definition: a slug name, a description suitable for
   * LLM-driven selection ([[ReviewerSelector.agentDriven]]), and the system
   * prompt that personalises the underlying LLM tool. `filePattern`, when set,
   * restricts the reviewer to changes that touch at least one matching file —
@@ -22,7 +22,7 @@ import scala.util.matching.Regex
   * fields, like a shipped one.
   */
 case class Reviewer(
-    name: String,
+    name: ReviewerSlug,
     description: String,
     systemPrompt: String,
     filePattern: Option[Regex] = None
@@ -64,16 +64,17 @@ final case class ReviewerAgent[B <: BackendTag] private[review] (
   * `source` names the file, so the message says which one to fix.
   */
 private[review] enum ReviewerPromptFailure:
-  case NoFrontmatter(slug: String, source: String)
-  case MalformedFrontmatter(slug: String, source: String)
+  case NoFrontmatter(slug: ReviewerSlug, source: String)
+  case MalformedFrontmatter(slug: ReviewerSlug, source: String)
   case Symlinked(source: String)
   case Directory(source: String)
-  case DuplicateSlug(slug: String, dir: String, files: List[String])
+  case DuplicateSlug(slug: ReviewerSlug, dir: String, files: List[String])
   case Unreadable(source: String, reason: String)
-  case MissingDescription(slug: String, source: String)
-  case MissingBody(slug: String, source: String)
+  case MissingDescription(slug: ReviewerSlug, source: String)
+  case BlockScalar(slug: ReviewerSlug, source: String, key: String)
+  case MissingBody(slug: ReviewerSlug, source: String)
   case InvalidFilePattern(
-      slug: String,
+      slug: ReviewerSlug,
       source: String,
       pattern: String,
       reason: String
@@ -106,6 +107,10 @@ private[review] object ReviewerPromptFailure:
       case MissingDescription(slug, source) =>
         s"reviewer '$slug' ($source) has no 'description:' in its " +
           "frontmatter — add one saying what the reviewer checks"
+      case BlockScalar(slug, source, key) =>
+        s"reviewer '$slug' ($source) writes '$key:' as a YAML block scalar, " +
+          "which the frontmatter parser does not read — put the whole value " +
+          s"on the '$key:' line"
       case MissingBody(slug, source) =>
         s"reviewer '$slug' ($source) has no body below the closing '---' — " +
           "the body is the reviewer's system prompt"
@@ -116,7 +121,9 @@ private[review] object ReviewerPromptFailure:
 /** Build a [[Reviewer]] from one parsed reviewer prompt file. `slug` is the
   * reviewer's identity — a `name:` key in the frontmatter is ignored.
   * `description:` and a non-empty body are required, and `files:`, when
-  * present, must be a valid regex.
+  * present, must be a valid regex. Both keys hold a one-line value; a YAML
+  * block-scalar header (`>`, `|-`, …) is refused, since the lines it introduces
+  * are never read.
   *
   * The one conversion for both sources: the shipped prompts under
   * `src/main/resources` and the `.md` files [[ReviewerCatalog]] discovers. The
@@ -125,7 +132,7 @@ private[review] object ReviewerPromptFailure:
   * correct, and discovery reports every bad file at once.
   */
 private[review] def reviewerFrom(
-    slug: String,
+    slug: ReviewerSlug,
     parsed: ParsedPrompt,
     source: String
 ): Either[ReviewerPromptFailure, Reviewer] =
@@ -137,6 +144,11 @@ private[review] def reviewerFrom(
       Left(ReviewerPromptFailure.NoFrontmatter(slug, source)).ok()
     if parsed.metadata.isEmpty then
       Left(ReviewerPromptFailure.MalformedFrontmatter(slug, source)).ok()
+    List("description", "files")
+      .find(key => parsed.metadata.get(key).exists(isBlockScalarHeader))
+      .map(ReviewerPromptFailure.BlockScalar(slug, source, _))
+      .toLeft(())
+      .ok()
     val description = parsed.metadata
       .get("description")
       .filterNot(_.isBlank)
@@ -160,6 +172,12 @@ private[review] def reviewerFrom(
               )
         Some(compiled.ok())
     Reviewer(slug, description, parsed.body, filePattern)
+
+/** `>` or `|`, optionally followed by chomping and indentation indicators and a
+  * comment.
+  */
+private def isBlockScalarHeader(value: String): Boolean =
+  value.matches("""[>|][-+0-9]*(\s+#.*)?""")
 
 /** Canonical reviewer definitions the library ships with. Each entry reads from
   * a `.md` resource under `src/main/resources/orca/review/prompts/reviewers/`
@@ -191,7 +209,11 @@ object ReviewerPrompts:
   // user can fix, so it fails the object's initialization rather than a run.
   private def load(slug: String): Reviewer =
     val path = s"/orca/review/prompts/reviewers/$slug.md"
-    reviewerFrom(slug, PromptResource.loadWithMetadata(path), path)
+    reviewerFrom(
+      ReviewerSlug(slug),
+      PromptResource.loadWithMetadata(path),
+      path
+    )
       .fold(f => throw new RuntimeException(f.message), identity)
 
   val CodeFunctionality: Reviewer = load("code-functionality")
@@ -278,6 +300,6 @@ def buildReviewers[B <: BackendTag](
       r,
       base
         .withSystemPrompt(r.systemPrompt)
-        .withName(r.name)
+        .withName(r.name.value)
         .withReadOnly
     )

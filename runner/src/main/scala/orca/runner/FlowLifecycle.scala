@@ -8,6 +8,7 @@ import orca.{
   OrcaArgs,
   OrcaDir,
   OrcaFlowException,
+  ReportedFailure,
   RuntimeInStage,
   StackSettings,
   WorkspaceWrite
@@ -37,14 +38,6 @@ import ox.either.orThrow
 
 import scala.util.control.NonFatal
 
-/** Marker that a failure was already reported to the event surface (thrown by
-  * `surfaced` after reporting), so `flow()` discards it without re-reporting.
-  * Any OTHER `NonFatal` escaping `runFlow` means an un-bracketed code path;
-  * `flow()` prints it to stderr as a backstop.
-  */
-private[orca] final case class SurfacedFlowFailure(cause: Throwable)
-    extends RuntimeException(cause)
-
 /** Flow setup/teardown/recovery lifecycle (ADR 0018 §2.4/§2.5). Owns the
   * privileged, outside-any-user-stage git and progress-store mutations that
   * bracket the body.
@@ -56,8 +49,7 @@ object FlowLifecycle:
     * binding) already ran in `runFlow` before the context was built, so its
     * resolved settings arrive here as a constructor input, not a phase.
     *
-    * Rehydration and the body run inside `surfaced`, which reports, logs, and
-    * rethrows [[SurfacedFlowFailure]]; the body phase also runs
+    * Rehydration and the body run inside [[surfaced]]; the body phase also runs
     * `teardownFailure` on the way out. `teardownSuccess` runs OUTSIDE
     * `surfaced` — it's already best-effort, and wrapping it would turn a
     * cosmetic teardown failure into a reported failure on a successful run.
@@ -70,29 +62,18 @@ object FlowLifecycle:
       debug: Boolean
   )(body: FlowControl ?=> Unit): Unit =
     val log = LoggerFactory.getLogger("orca.flow")
-    // `ctx.reportOnce` dedups against a nested stage that already surfaced this
-    // failure. `teardownFailure` is NOT called here — it's the body phase's job
-    // alone (below).
-    def surfaced[T](op: => T): T =
-      try op
-      catch
-        case NonFatal(e) =>
-          ctx.reportOnce(e)(
-            ctx.emit(OrcaEvent.Error(TextUtil.throwableMessage(e)))
-          )
-          log.debug("flow aborted", e)
-          if debug then e.printStackTrace(System.err)
-          throw SurfacedFlowFailure(e)
-    surfaced(rehydrateSessions(ctx, ctx.codingAgent, ctx.sessionStore))
+    surfaced(ctx.emit, debug)(
+      rehydrateSessions(ctx, ctx.codingAgent, ctx.sessionStore)
+    )
     // The whole flow body runs as a top-level stage: an otherwise unhandled
     // exception surfaces as a single Error event. `teardownFailure` runs only
     // here in the body phase, so a success-teardown error can never trigger
     // `discardUncommitted` or strand the user on the feature branch.
-    try surfaced(body(using ctx))
+    try surfaced(ctx.emit, debug)(body(using ctx))
     catch
-      case f @ SurfacedFlowFailure(e) =>
-        // `e` was already reported by `surfaced`. If the reset itself fails, attach
-        // it as suppressed (rather than replacing `e`), and log/print it too.
+      case f: ReportedFailure =>
+        // If the reset itself fails, attach it as suppressed (rather than
+        // replacing `f`), and log/print it too.
         //
         // This Step names WHY the reset is about to discard changes —
         // `discardUncommitted` itself also emits its own "Discarded
@@ -109,7 +90,7 @@ object FlowLifecycle:
         try teardownFailure(ctx.git, flowSetup.untrackedOnFailure)
         catch
           case NonFatal(t) =>
-            e.addSuppressed(t)
+            f.addSuppressed(t)
             log.debug("teardownFailure failed after body failure", t)
             if debug then t.printStackTrace(System.err)
             ctx.emit(
@@ -122,6 +103,22 @@ object FlowLifecycle:
     // Read before teardownSuccess deletes the log.
     val published = PublishedState.from(ctx.progressStore.loadDetailed())
     teardownSuccess(ctx.git, flowSetup, published, ctx.emit)
+
+  /** Runs one lifecycle phase: a failure is reported to `emit` unless already
+    * reported, logged (with its stack trace on stderr under `debug`), and
+    * rethrown as a [[ReportedFailure]].
+    */
+  private[orca] def surfaced[T](emit: OrcaEvent => Unit, debug: Boolean)(
+      op: => T
+  ): T =
+    try op
+    catch
+      case NonFatal(e) =>
+        val reported = ReportedFailure.reportOnce(e): cause =>
+          emit(OrcaEvent.Error(TextUtil.throwableMessage(cause)))
+        LoggerFactory.getLogger("orca.flow").debug("flow aborted", reported)
+        if debug then reported.printStackTrace(System.err)
+        throw reported
 
   /** Replay the persisted resume-wire-id map (ADR 0018 §2.6) into each
     * session's own agent's in-memory registry, so a resumed run resumes against
@@ -242,13 +239,10 @@ object FlowLifecycle:
       // The stack resolution, parsed by `runFlow` upstream (ADR 0020 §6); a
       // malformed file has already aborted before this point.
       resolution: SettingsResolution,
-      // True when `flow(stackSettings = Some(...))` governs the stack commands,
-      // gating the gitignored-settings migration warning.
-      stackOverridden: Boolean,
       store: ProgressStore,
       sessionStore: SessionStore,
       // Stamped into a freshly-written header (`freshRun`).
-      flowSource: Option[FlowSource] = None,
+      flowSource: Option[FlowSource],
       emit: OrcaEvent => Unit,
       // The dirty-tree prompt's two terminal dependencies, injected so tests
       // (and any headless caller) decide without one. Production probes real
@@ -264,7 +258,7 @@ object FlowLifecycle:
       args,
       git,
       workDir,
-      stackOverridden,
+      resolution,
       store,
       emit,
       tty,
@@ -277,7 +271,6 @@ object FlowLifecycle:
         args,
         agent,
         git,
-        workDir,
         branchNaming,
         store,
         flowSource,
@@ -285,24 +278,23 @@ object FlowLifecycle:
       )
     val untrackedOnFailure = session.settle(preflight)
     // Discovery (ADR 0019) is sequenced after the stash, which would sweep a
-    // just-written untracked file straight back out of the tree. When it runs,
-    // the written file gets its own commit (`commitDiscoveredSettings`), so no
-    // later `add -A` sweep carries it under an unrelated message. `discovered`
-    // flags that the write happened, gating those commits.
-    val (stackSettings, discovered) =
-      resolveStackSettings(agent, workDir, resolution, emit)
-    val binding = session.bindBranch(
-      preflight.startingHead,
-      preflight.protectedBranches,
-      discovered
-    )
+    // just-written untracked file straight back out of the tree, and before
+    // binding, so a failed discovery leaves no branch or header behind.
+    val stack = resolveStackSettings(agent, workDir, resolution, emit)
+    val binding =
+      session.bindBranch(preflight.startingHead, preflight.protectedBranches)
     emit(OrcaEvent.BranchBound(binding.featureBranch.value))
+    // Its own commit, on the bound branch, so no later `add -A` sweep carries
+    // it under an unrelated message.
+    stack match
+      case StackOutcome.Discovered(_) => commitDiscoveredSettings(git, workDir)
+      case StackOutcome.Configured(_) => ()
     FlowSetup(
       store,
       sessionStore,
       binding.featureBranch,
       binding.startingHead,
-      stackSettings,
+      stack.settings,
       binding.branchMode,
       untrackedOnFailure,
       binding.startingCommit,
@@ -312,16 +304,15 @@ object FlowLifecycle:
       Option.when(WorktreeRun.isWorktreeRun(workDir))(workDir)
     )
 
-  /** [[setup]]'s fixed inputs — the coding-role agent, git, workDir, the
-    * progress store, the emit sink — shared by its mutating phases, so each
-    * reads as `session.xxx(...)` rather than repeating the same handful of
-    * parameters at every call site.
+  /** [[setup]]'s fixed inputs — the coding-role agent, git, the progress store,
+    * the emit sink — shared by its mutating phases, so each reads as
+    * `session.xxx(...)` rather than repeating the same handful of parameters at
+    * every call site.
     */
   private final class SetupSession(
       args: OrcaArgs,
       agent: Agent[?],
       git: GitTool,
-      workDir: os.Path,
       branchNaming: Option[BranchNamingStrategy],
       store: ProgressStore,
       flowSource: Option[FlowSource],
@@ -385,20 +376,19 @@ object FlowLifecycle:
       */
     def bindBranch(
         startingHead: Head,
-        protectedBranches: Set[String],
-        discovered: Boolean
+        protectedBranches: Set[String]
     )(using InStage, WorkspaceWrite): BranchBinding =
       store.loadDetailed() match
         case JsonFile.Read.Corrupt(reason) =>
           warnCorruptLog(reason)
-          freshBinding(startingHead, protectedBranches, discovered)
+          freshBinding(startingHead, protectedBranches)
         // Readable at the peek; the file changed since.
         case JsonFile.Read.Unreadable(reason) =>
           throw SetupPreflight.unreadableLog(store.path, reason)
         case JsonFile.Read.Absent =>
-          freshBinding(startingHead, protectedBranches, discovered)
+          freshBinding(startingHead, protectedBranches)
         case JsonFile.Read.Loaded(progressLog) =>
-          resumeBinding(progressLog, protectedBranches, discovered)
+          resumeBinding(progressLog, protectedBranches)
 
     /** The log file exists but didn't parse. No sane way to resume from
       * unparseable data, so this warns loudly — distinguishing a corrupt log
@@ -426,10 +416,9 @@ object FlowLifecycle:
       */
     private def freshBinding(
         startingHead: Head,
-        protectedBranches: Set[String],
-        discovered: Boolean
+        protectedBranches: Set[String]
     )(using InStage, WorkspaceWrite): BranchBinding =
-      // Read before the settings/header commits this binding makes, so the
+      // Read before the header and settings commits of this setup, so the
       // whole-run review's diff base sits behind everything this run commits.
       // `abortIfNoCommits` has already established a HEAD, and git's own
       // output is a hash, so a miss here is a git failure, not a state.
@@ -438,20 +427,7 @@ object FlowLifecycle:
         .getOrElse(
           throw new OrcaFlowException("could not resolve HEAD to a commit")
         )
-      val branch = freshRun(
-        args,
-        agent,
-        git,
-        workDir,
-        branchNaming,
-        store,
-        startingHead,
-        protectedBranches,
-        discovered,
-        flowSource = flowSource,
-        headAtBinding = headAtBinding,
-        emit = emit
-      )
+      val branch = freshRun(startingHead, protectedBranches, headAtBinding)
       BranchBinding(
         branch,
         startingHead,
@@ -460,20 +436,77 @@ object FlowLifecycle:
         Some(headAtBinding)
       )
 
+    /** Fresh run: resolve + create the branch, then commit the header as the
+      * branch's first commit. The commit is pathspec-scoped to just the
+      * progress-log file (never `add -A`), so a dirty tree the cleanliness
+      * policy left in place (`--skip-branch` or `--keep-changes`) reaches the
+      * branch only via the first stage's own commit. Shared by the absent-log
+      * and corrupt-log arms of [[bindBranch]]. Needs `InStage` (branch-name
+      * resolution may call the cheap model) and `WorkspaceWrite` (the git
+      * writes).
+      *
+      * The resolved name is minted into a [[FeatureBranch]] before reaching
+      * git: a protected-name collision falls back to a deterministic
+      * `flowFallbackName` (same prompt → same fallback, so a resumed run still
+      * finds the branch) rather than aborting — an unattended run must not flip
+      * between success and failure because the cheap model phrased its summary
+      * as "main" this time. [[createFreshBranch]] applies the same policy to a
+      * git-level collision.
+      *
+      * A `--branch` name wins over `branchNaming` and the default strategy and
+      * never falls back: [[createRequestedBranch]] refuses it instead of
+      * renaming.
+      *
+      * A `CurrentBranch` target skips all of this: the run binds to the branch
+      * `startingHead` is on via [[reuseCurrentBranch]] instead.
+      */
+    private def freshRun(
+        startingHead: Head,
+        protectedBranches: Set[String],
+        headAtBinding: CommitHash
+    )(using InStage, WorkspaceWrite): FeatureBranch =
+      val branch =
+        if args.target.skipBranch then
+          reuseCurrentBranch(startingHead, protectedBranches)
+        else
+          args.branch match
+            case Some(name) =>
+              createRequestedBranch(git, name, protectedBranches)
+            case None =>
+              createNamedByStrategy(
+                args.userPrompt,
+                agent,
+                git,
+                branchNaming,
+                protectedBranches,
+                emit
+              )
+      store.writeHeader(
+        ProgressHeader(
+          startingBranch = startingHead.branch,
+          branch = branch,
+          branchMode =
+            if args.target.skipBranch then BranchMode.Reused
+            else BranchMode.Created,
+          userPrompt = args.userPrompt,
+          flow = flowSource,
+          startingCommit = headAtBinding
+        )
+      )
+      git.forceCommitOnly(store.path, "orca: progress log")
+      branch
+
     /** Resume onto the header's existing branch. Validates the untrusted header
       * against the protected set before any destructive action — invalid is a
       * hard abort, not a silent fresh start — and checks the current branch
       * matches the one the header names (R30): a log surfaced on the wrong
       * branch (e.g. carried by a merge) aborts rather than resuming there.
       * Returns the header's recorded starting head (where the FIRST attempt
-      * started), not this attempt's, so return-to-start lands correctly. A
-      * just-discovered settings file gets its own commit here (ADR 0019): this
-      * arm creates no branch, so nothing else would commit it.
+      * started), not this attempt's, so return-to-start lands correctly.
       */
     private def resumeBinding(
         log: ProgressLog,
-        protectedBranches: Set[String],
-        discovered: Boolean
+        protectedBranches: Set[String]
     )(using WorkspaceWrite): BranchBinding =
       val header = log.header
       val featureBranch =
@@ -510,10 +543,9 @@ object FlowLifecycle:
       // otherwise widen the review to unrelated history.
       val startingCommit =
         Some(header.startingCommit).filter(git.isAncestorOfHead)
-      // Ahead of the settings commit, so the reported HEAD is the tree the
+      // Ahead of setup's settings commit, so the reported HEAD is the tree the
       // recorded stages left behind rather than orca's own bookkeeping.
       announceResume(featureBranch, startingCommit, log.entries.size)
-      if discovered then commitDiscoveredSettings(git, workDir)
       BranchBinding(
         featureBranch,
         header.startingHead,
@@ -558,19 +590,21 @@ object FlowLifecycle:
     * for an absent one, or the discovered entries appended below an agents-only
     * hand-written file's untouched agent lines (ADR 0020 §7). `os.write.over`
     * because a stash upstream may already have swept an untracked file out of
-    * the tree. The returned `discovered` flag is `true` only when this call
-    * wrote the file, gating its dedicated commit later in [[setup]]. A
-    * discovery failure aborts as a surfaced failure — no degrade-to-empty-file
-    * (see [[StackDiscovery]]).
+    * the tree. A [[StackOutcome.Discovered]] result means this call wrote the
+    * file, which [[setup]] then commits. A discovery failure aborts as a
+    * surfaced failure — no degrade-to-empty-file (see [[StackDiscovery]]).
     */
   private def resolveStackSettings(
       agent: Agent[?],
       workDir: os.Path,
       resolution: SettingsResolution,
       emit: OrcaEvent => Unit
-  )(using InStage): (StackSettings, Boolean) =
+  )(using InStage): StackOutcome =
     resolution match
-      case SettingsResolution.Resolved(settings) => (settings, false)
+      case SettingsResolution.Resolved(settings) =>
+        StackOutcome.Configured(settings)
+      case SettingsResolution.Overridden(settings) =>
+        StackOutcome.Configured(settings)
       case SettingsResolution.NeedsDiscovery(existingContent) =>
         val (settings, entries) =
           StackDiscovery.discover(agent, workDir, emit, existingContent)
@@ -588,17 +622,26 @@ object FlowLifecycle:
             "written to .orca/settings.properties — review and edit as needed."
           )
         )
-        (settings, true)
+        StackOutcome.Discovered(settings)
 
-  /** Outcome of the pre-`ensureClean` stack read: either the resolved values,
-    * or the marker that auto-discovery must run. `NeedsDiscovery` carries the
-    * existing file content (ADR 0020 §7): `None` when the file is absent or
-    * blank (write the whole file), `Some(content)` for an agents-only
+  /** The run's stack settings, and whether [[resolveStackSettings]] just wrote
+    * them to the settings file, which then still needs its own commit.
+    */
+  private enum StackOutcome(val settings: StackSettings):
+    case Configured(value: StackSettings) extends StackOutcome(value)
+    case Discovered(value: StackSettings) extends StackOutcome(value)
+
+  /** Outcome of the pre-`ensureClean` stack read: the values the flow passed
+    * (`flow(stackSettings = Some(...))`), the values the project file
+    * configures, or the marker that auto-discovery must run. `NeedsDiscovery`
+    * carries the existing file content (ADR 0020 §7): `None` when the file is
+    * absent or blank (write the whole file), `Some(content)` for an agents-only
     * hand-written file (append the stack entries, leaving agent lines
     * untouched). Content is captured pre-stash so a hand-written file the stash
     * sweeps out of a dirty tree is not lost.
     */
   private[runner] enum SettingsResolution:
+    case Overridden(settings: StackSettings)
     case Resolved(settings: StackSettings)
     case NeedsDiscovery(existingContent: Option[String])
 
@@ -663,7 +706,7 @@ object FlowLifecycle:
       projectParsed.map(_.agents).getOrElse(AgentSettings.empty)
     val stack: SettingsResolution =
       stackOverride match
-        case Some(settings) => SettingsResolution.Resolved(settings)
+        case Some(settings) => SettingsResolution.Overridden(settings)
         case None =>
           projectParsed.flatMap(_.stack) match
             case Some(settings) => SettingsResolution.Resolved(settings)
@@ -710,79 +753,6 @@ object FlowLifecycle:
         throw new OrcaFlowException(
           s"invalid settings at $path: ${err.message}"
         )
-
-  /** Fresh run: resolve + create the branch, then commit the header as the
-    * branch's first commit. The commit is pathspec-scoped to just the
-    * progress-log file (never `add -A`), so a dirty tree the cleanliness policy
-    * left in place (`--skip-branch` or `--keep-changes`) reaches the branch
-    * only via the first stage's own commit. Shared by the absent-log and
-    * corrupt-log arms of [[bindBranch]]. Needs `InStage` (branch-name
-    * resolution may call the cheap model) and `WorkspaceWrite` (the git
-    * writes).
-    *
-    * The resolved name is minted into a [[FeatureBranch]] before reaching git:
-    * a protected-name collision falls back to a deterministic
-    * `flowFallbackName` (same prompt → same fallback, so a resumed run still
-    * finds the branch) rather than aborting — an unattended run must not flip
-    * between success and failure because the cheap model phrased its summary as
-    * "main" this time. [[createFreshBranch]] applies the same policy to a
-    * git-level collision.
-    *
-    * A `--branch` name wins over `branchNaming` and the default strategy and
-    * never falls back: [[createRequestedBranch]] refuses it instead of
-    * renaming.
-    *
-    * A `CurrentBranch` target skips all of this: the run binds to the branch
-    * `startingHead` is on via [[reuseCurrentBranch]] instead.
-    */
-  private def freshRun(
-      args: OrcaArgs,
-      agent: Agent[?],
-      git: GitTool,
-      workDir: os.Path,
-      branchNaming: Option[BranchNamingStrategy],
-      store: ProgressStore,
-      startingHead: Head,
-      protectedBranches: Set[String],
-      discovered: Boolean,
-      flowSource: Option[FlowSource],
-      headAtBinding: CommitHash,
-      emit: OrcaEvent => Unit
-  )(using InStage, WorkspaceWrite): FeatureBranch =
-    val branch =
-      if args.target.skipBranch then
-        reuseCurrentBranch(startingHead, protectedBranches)
-      else
-        args.branch match
-          case Some(name) =>
-            createRequestedBranch(git, name, protectedBranches)
-          case None =>
-            createNamedByStrategy(
-              args.userPrompt,
-              agent,
-              git,
-              branchNaming,
-              protectedBranches,
-              emit
-            )
-    // A just-discovered settings file gets its own commit here — after the
-    // branch exists, before the header commit below — so the header commit
-    // carries only the progress log its message names (ADR 0019).
-    if discovered then commitDiscoveredSettings(git, workDir)
-    store.writeHeader(
-      ProgressHeader(
-        startingBranch = startingHead.branch,
-        branch = branch,
-        branchMode =
-          if args.target.skipBranch then BranchMode.Reused
-          else BranchMode.Created,
-        userPrompt = args.userPrompt,
-        flow = flowSource,
-        startingCommit = headAtBinding
-      )
-    )
-    git.forceCommitOnly(store.path, "orca: progress log")
-    branch
 
   /** Create the branch `branchNaming` (or the default strategy) derives from
     * `userPrompt`, falling back to `flow-<hash>` on a protected or existing
@@ -836,9 +806,8 @@ object FlowLifecycle:
       case Right(()) => featureBranch
       case Left(_)   => throw SetupPreflight.requestedBranchExists(name)
 
-  /** Give the just-discovered settings file its own commit (ADR 0019), so the
-    * commit that follows carries only what its message names. Called on both
-    * lifecycle arms whenever discovery actually wrote the file.
+  /** Give the just-discovered settings file its own commit (ADR 0019), so no
+    * later commit carries it under an unrelated message.
     *
     * [[GitTool.commitOnly]]'s pathspec guarantees the commit carries exactly
     * this one path — anything else dirty or untracked stays out. Not

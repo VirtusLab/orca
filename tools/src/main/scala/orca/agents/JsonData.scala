@@ -12,6 +12,7 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.{
 }
 import sttp.tapir.Schema
 
+import scala.compiletime.{constValueTuple, erasedValue, summonFrom}
 import scala.deriving.Mirror
 
 /** Bundles a tapir `Schema` and a jsoniter-scala `ConfiguredJsonValueCodec` for
@@ -21,6 +22,12 @@ import scala.deriving.Mirror
   * Scripts must import via `import orca.{*, given}` — `derives JsonData` on a
   * case class with nested case-class fields needs the forwarder givens below in
   * scope.
+  *
+  * A parameterless enum travels as its case name, and its schema is a string
+  * enum listing every case. An enum nested in a `JsonData` type needs its own
+  * `derives JsonData` to travel that way. A sum type whose cases carry fields
+  * gets a schema its codec does not match (the codec adds a `"type"` field), so
+  * it can be a stage result but not a `resultAs` output.
   */
 trait JsonData[A]:
   def schema: Schema[A]
@@ -46,11 +53,38 @@ object JsonData:
       val schema: Schema[A] = schemaInstance
       val codec: ConfiguredJsonValueCodec[A] = codecInstance
 
-  inline def derived[A](using Mirror.Of[A]): JsonData[A] =
+  inline def derived[A](using m: Mirror.Of[A]): JsonData[A] =
+    inline m match
+      case s: Mirror.SumOf[A] =>
+        inline if allSingletons[s.MirroredElemTypes] then stringEnum[A](s)
+        else general[A]
+      case _ => general[A]
+
+  private inline def general[A](using Mirror.Of[A]): JsonData[A] =
     apply(
       Schema.derived[A],
       ConfiguredJsonValueCodec.derived[A](using strictCodecConfig)
     )
+
+  // jsoniter writes each case as its Mirror label, so the schema lists the
+  // labels too rather than relying on `toString`.
+  private inline def stringEnum[A](s: Mirror.SumOf[A]): JsonData[A] =
+    val labels =
+      constValueTuple[s.MirroredElemLabels].toList.map(_.toString).toVector
+    apply(
+      Schema.derivedEnumeration[A](encode = Some(a => labels(s.ordinal(a)))),
+      ConfiguredJsonValueCodec.derived[A](using
+        strictCodecConfig.withDiscriminatorFieldName(None)
+      )
+    )
+
+  private inline def allSingletons[T <: Tuple]: Boolean =
+    inline erasedValue[T] match
+      case _: EmptyTuple => true
+      case _: (h *: t) =>
+        summonFrom:
+          case _: ValueOf[`h`] => allSingletons[t]
+          case _               => false
 
   /** Wraps a plain `JsonValueCodec` as a `ConfiguredJsonValueCodec` (a marker
     * interface adding no methods) by delegating all calls. Used by the

@@ -71,7 +71,6 @@ class CommitMessageTest extends munit.FunSuite:
       val reviewerCatalog: orca.review.ReviewerCatalog =
         orca.review.ReviewerCatalog.builtIn
   ) extends FlowControl,
-        ReportedErrorsSupport,
         StageFrames:
     import orca.agents.{
       ClaudeAgent,
@@ -235,7 +234,7 @@ class CommitMessageTest extends munit.FunSuite:
         ctx.sessionStore.upsert(
           SessionRecord(
             name = "s",
-            stage = "",
+            stage = StagePath.FlowBody,
             id = "sid",
             seed = "seed",
             resumeWireId = Some("wire"),

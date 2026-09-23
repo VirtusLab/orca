@@ -20,19 +20,6 @@ import orca.tools.GitTool
 import orca.tools.GitHubTool
 import orca.tools.OsGitTool
 
-/** Single-threaded test-only backing for the reported-error set
-  * ([[FlowContext.markErrorReported]] / [[FlowContext.errorAlreadyReported]]):
-  * a plain var + identity (`eq`) scan mirrors the production reported-set
-  * contract. The test contexts that mix this in are driven from a single
-  * thread, so the bare var needs no synchronisation.
-  */
-private[orca] trait ReportedErrorsSupport:
-  private var reportedErrors: List[Throwable] = Nil
-  private[orca] def markErrorReported(e: Throwable): Unit =
-    reportedErrors = e :: reportedErrors
-  private[orca] def errorAlreadyReported(e: Throwable): Boolean =
-    reportedErrors.exists(_ eq e)
-
 /** Minimal FlowContext stub for unit-testing stage/fail and other helpers that
   * only touch `emit` + `userPrompt`. Tool accessors are lazy so merely
   * constructing the context doesn't throw; tests that exercise them should
@@ -44,8 +31,7 @@ class TestFlowContext(
     val workDir: os.Path = orca.testkit.TempDirs.dir(),
     val stackSettings: StackSettings = StackSettings.empty,
     val reviewerCatalog: ReviewerCatalog = ReviewerCatalog.builtIn
-) extends FlowContext,
-      ReportedErrorsSupport:
+) extends FlowContext:
   private def stub(name: String) =
     throw new NotImplementedError(s"$name is not wired in TestFlowContext")
 
@@ -83,7 +69,6 @@ class TestFlowControl(
     private[orca] val startingCommit: Option[CommitHash] = None,
     val reviewerCatalog: ReviewerCatalog = ReviewerCatalog.builtIn
 ) extends FlowControl,
-      ReportedErrorsSupport,
       StageFrames:
   private def stub(name: String) =
     throw new NotImplementedError(s"$name is not wired in TestFlowControl")
@@ -108,7 +93,7 @@ class TestFlowControl(
 
   def emit(event: OrcaEvent): Unit = dispatcher.onEvent(event)
 
-  // Stage-identity bookkeeping (enterStage/exitStage and claimSessionKey) and
+  // Stage-identity bookkeeping (withStage and claimSessionKey) and
   // the per-run turn claim are inherited from the shared `StageFrames` mixin —
   // the SAME implementation production uses, so this double can't diverge from
   // production nesting/resume semantics and greenwash a test.

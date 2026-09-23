@@ -2,7 +2,7 @@ package orca.sessions
 
 import munit.FunSuite
 import orca.agents.BackendTag
-import orca.{RunKey, WorkspaceWrite}
+import orca.{RunKey, StagePath, WorkspaceWrite}
 import orca.testkit.{GitRepo, TempDirs}
 import orca.tools.{OsGitTool, UntrackedFiles}
 
@@ -16,7 +16,7 @@ class SessionStoreTest extends FunSuite:
 
   private def record(
       name: String = "implementer",
-      stage: String = "",
+      stage: StagePath = StagePath.FlowBody,
       id: String = "uuid",
       seed: String = "brief"
   ): SessionRecord =
@@ -42,16 +42,28 @@ class SessionStoreTest extends FunSuite:
   test("upsert at the same key replaces the record"):
     val dir = TempDirs.dir()
     val store = SessionStore.default(dir, RunKey.of("p"))
-    store.upsert(record(stage = "Task 1#0", id = "first", seed = "old"))
-    val second = record(stage = "Task 1#0", id = "second", seed = "new")
+    store.upsert(
+      record(
+        stage = StagePath.FlowBody.child("Task 1", 0),
+        id = "first",
+        seed = "old"
+      )
+    )
+    val second = record(
+      stage = StagePath.FlowBody.child("Task 1", 0),
+      id = "second",
+      seed = "new"
+    )
     store.upsert(second)
     assertEquals(store.records(), List(second))
 
   test("a differing minting stage is a different key"):
     val dir = TempDirs.dir()
     val store = SessionStore.default(dir, RunKey.of("p"))
-    val first = record(stage = "Task 1#0", id = "uuid-0")
-    val second = record(stage = "Task 2#0", id = "uuid-1")
+    val first =
+      record(stage = StagePath.FlowBody.child("Task 1", 0), id = "uuid-0")
+    val second =
+      record(stage = StagePath.FlowBody.child("Task 2", 0), id = "uuid-1")
     store.upsert(first)
     store.upsert(second)
     assertEquals(store.records(), List(first, second))
@@ -59,8 +71,13 @@ class SessionStoreTest extends FunSuite:
   test("a differing name in one stage is a different key"):
     val dir = TempDirs.dir()
     val store = SessionStore.default(dir, RunKey.of("p"))
-    val implementer = record(stage = "Task 1#0", id = "uuid-i")
-    val planner = record(name = "planner", stage = "Task 1#0", id = "uuid-p")
+    val implementer =
+      record(stage = StagePath.FlowBody.child("Task 1", 0), id = "uuid-i")
+    val planner = record(
+      name = "planner",
+      stage = StagePath.FlowBody.child("Task 1", 0),
+      id = "uuid-p"
+    )
     store.upsert(implementer)
     store.upsert(planner)
     assertEquals(store.records(), List(implementer, planner))

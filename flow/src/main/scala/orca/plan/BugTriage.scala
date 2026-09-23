@@ -1,27 +1,23 @@
 package orca.plan
 
-import orca.agents.{Announce, JsonData}
+import orca.agents.{Announce, JsonData, schemaFromJsonData, codecFromJsonData}
 
-/** Wire shape the LLM produces for a triage turn — a flat record with a boolean
-  * discriminator (`isBug`) plus per-branch fields. Flattened (rather than a
+/** Wire shape the LLM produces for a triage turn — a flat record whose `kind`
+  * names the [[Triage]] case, plus per-case fields. Flattened (rather than a
   * discriminated union) so jsoniter-scala's structured-output path keeps the
-  * schema small and easy for the model to fill in. The contract is enforced
-  * post-decode by [[toTriage]], which throws on incoherent combinations so
-  * callers see a well-formed [[Triage]].
+  * schema small and easy for the model to fill in. The field combinations are
+  * checked post-decode by [[toTriage]], so callers see a well-formed
+  * [[Triage]].
   *
-  *   - `isBug == false` → `notBugExplanation` is set; the other fields are
-  *     ignored.
-  *   - `isBug == true`, `canTest == false` → `summary` and `reproductionSteps`
-  *     are set.
-  *   - `isBug == true`, `canTest == true` → `summary`, `branchName`, and
-  *     `failingTestPath` are set.
+  *   - `NotABug` → `notBugExplanation` is set; the other fields are ignored.
+  *   - `Untestable` → `summary` and `reproductionSteps` are set.
+  *   - `Testable` → `summary`, `branchName`, and `failingTestPath` are set.
   *
   * Internal to `orca.plan`. Public API is [[Triage]] + [[Triage.interactive]].
   */
 private[plan] case class BugTriage(
-    isBug: Boolean,
+    kind: BugTriage.Kind,
     notBugExplanation: String,
-    canTest: Boolean,
     reproductionSteps: String,
     failingTestPath: Option[String],
     branchName: String,
@@ -35,15 +31,15 @@ private[plan] case class BugTriage(
         value,
         s"triage: $field is empty"
       )
-    (isBug, canTest) match
-      case (false, _) =>
+    kind match
+      case BugTriage.Kind.NotABug =>
         need("notBugExplanation", notBugExplanation).map(Triage.NotABug.apply)
-      case (true, false) =>
+      case BugTriage.Kind.Untestable =>
         for
           s <- need("summary", summary)
           r <- need("reproductionSteps", reproductionSteps)
         yield Triage.Untestable(s, r)
-      case (true, true) =>
+      case BugTriage.Kind.Testable =>
         for
           s <- need("summary", summary)
           b <- need("branchName", branchName)
@@ -53,6 +49,9 @@ private[plan] case class BugTriage(
         yield Triage.Testable(s, b, p)
 
 private[plan] object BugTriage:
+  enum Kind derives JsonData:
+    case NotABug, Untestable, Testable
+
   /** Defers to [[Triage]]'s own `Announce` — same idiom as [[AssessedPlan]]'s.
     * Malformed payloads fall through to `None`; `Plan.autonomous.triage` throws
     * the structured error at the call site.

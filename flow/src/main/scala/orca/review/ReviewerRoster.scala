@@ -34,7 +34,7 @@ final class RosterEntry private[review] (
     * ([[ReviewerPrompts.Role]]) is applied only later, at the loop's emission
     * edge.
     */
-  def name: String = reviewer.definition.name
+  def name: ReviewerSlug = reviewer.definition.name
 
   /** The reviewer's purpose blurb, from its definition. */
   def description: String = reviewer.definition.description

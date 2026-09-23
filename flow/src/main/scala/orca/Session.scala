@@ -72,7 +72,6 @@ final class FlowSession[B <: BackendTag] private[orca] (
       ev: InStage,
       ws: WorkspaceWrite
   ): String =
-    fc.assertOwnerThread("session.run(...)")
     val output = agent.autonomous
       .runWithSession(
         effectivePrompt(agent, id, prompt),
@@ -123,7 +122,6 @@ final class FlowSessionCall[B <: BackendTag, O] private[orca] (
       ev: InStage,
       ws: WorkspaceWrite
   ): O =
-    fc.assertOwnerThread("session.run(...)")
     val serialized = ai.serialize(input)
     val output = call.autonomous
       .runWithSession(
@@ -284,7 +282,7 @@ private def mintSession[B <: BackendTag](
   fc.sessionStore.upsert(
     SessionRecord(
       name = key.name,
-      stage = key.stage.value,
+      stage = key.stage,
       id = freshId.value,
       seed = seed,
       resumeWireId = None,
@@ -401,7 +399,7 @@ private def progressPreamble(
     log: Option[ProgressLog],
     headCommit: Option[CommitHash]
 ): Option[String] =
-  val completed = log.map(_.entries.map(_.name)).getOrElse(Nil)
+  val completed = log.map(_.entries.map(_.id.name)).getOrElse(Nil)
   Option.when(completed.nonEmpty):
     PromptResource.render(
       ProgressPreambleTemplate,

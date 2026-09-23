@@ -1,5 +1,6 @@
 package orca.runner
 
+import orca.ReportedFailure
 import orca.{ConfigHome, FlowContext, OrcaDir, StackSettings}
 import orca.testkit.{GitRepo, TempDirs, currentBranch}
 import orca.tools.OsGitTool
@@ -18,7 +19,7 @@ class ReviewerDiscoveryFlowTest extends munit.FunSuite:
     val steps = new AtomicReference[List[String]](Nil)
     var names: List[String] = Nil
     driveFlow(workDir, listeners = List(FlowHarness.recordSteps(steps))):
-      names = summon[FlowContext].reviewerCatalog.all.map(_.name)
+      names = summon[FlowContext].reviewerCatalog.all.map(_.name.value)
     assert(names.contains("orca"), names.toString)
     assert(
       steps.get().contains("discovered reviewers: orca (project)"),
@@ -36,7 +37,7 @@ class ReviewerDiscoveryFlowTest extends munit.FunSuite:
       configHome = configHome,
       listeners = List(FlowHarness.recordSteps(steps))
     ):
-      names = summon[FlowContext].reviewerCatalog.all.map(_.name)
+      names = summon[FlowContext].reviewerCatalog.all.map(_.name.value)
     assert(names.contains("orca"), names.toString)
     assert(
       steps.get().contains("discovered reviewers: orca (global)"),
@@ -51,7 +52,7 @@ class ReviewerDiscoveryFlowTest extends munit.FunSuite:
       createFolders = true
     )
     val startBranch = new OsGitTool(workDir).currentBranch()
-    val e = intercept[SurfacedFlowFailure]:
+    val e = intercept[ReportedFailure]:
       driveFlow(workDir)(fail("the body must not run"))
     assert(e.cause.getMessage.contains("description:"), e.cause.getMessage)
     // The abort precedes `ensureClean` and any branch creation.
@@ -66,7 +67,7 @@ class ReviewerDiscoveryFlowTest extends munit.FunSuite:
     os.makeDir.all(OrcaDir.rootPath(workDir))
     os.symlink(OrcaDir.reviewersPath(workDir), outside)
     val startBranch = new OsGitTool(workDir).currentBranch()
-    val e = intercept[SurfacedFlowFailure]:
+    val e = intercept[ReportedFailure]:
       driveFlow(workDir)(fail("the body must not run"))
     assert(e.cause.getMessage.contains("symlink"), e.cause.getMessage)
     assertEquals(new OsGitTool(workDir).currentBranch(), startBranch)

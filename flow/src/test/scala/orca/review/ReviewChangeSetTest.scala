@@ -69,7 +69,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
       onRun = () => commit(dir, "fixed.scala", "object Fixed")
     )
     val lateJoiner = selector: (all, history) =>
-      if history.isEmpty then all.filter(_.name == "early") else all
+      if history.isEmpty then all.filter(_.name.value == "early") else all
     given FlowControl = ctx
     stage("implement the widget"):
       val _ = reviewAndFixLoop(

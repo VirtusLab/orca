@@ -25,7 +25,7 @@ import scala.annotation.implicitNotFound
   * another thread. (That marker is `@experimental` on 3.9.0, hence this file's
   * `captureChecking` import; the taint stays local to this compilation unit —
   * see ADR 0018 §6.) At runtime, [[StageFrames]]'s owner-thread assert enforces
-  * it for `enterStage`/`exitStage` and [[claimSessionKey]].
+  * it for [[withStage]] and [[claimSessionKey]].
   *
   * Not sealed: its implementation (`DefaultFlowContext`) lives in the `runner`
   * module, which depends on `flow`, not the reverse. An accepted guard-rail —
@@ -48,14 +48,15 @@ trait FlowControl extends FlowContext, caps.ExclusiveCapability:
     */
   def sessionStore: SessionStore
 
-  /** Open a stage named `name` and return its full path id (e.g.
-    * `outer#0/inner#0`). Called once by `stage` before the resume lookup; must
-    * be balanced by [[exitStage]]. See [[StageFrames]] for the protocol.
+  /** Run `f` with a stage named `name` open, passing its path — see
+    * [[StageFrames.withStage]].
     */
-  def enterStage(name: String, baseCommit: Option[CommitHash]): StagePath.Stage
+  private[orca] def withStage[R](name: String, baseCommit: Option[CommitHash])(
+      f: StagePath.Stage => R
+  ): R
 
-  /** Pop the frame opened by the matching [[enterStage]]. */
-  def exitStage(): Unit
+  /** Throw unless no stage is open — see [[StageFrames.assertAtFlowBody]]. */
+  private[orca] def assertAtFlowBody(what: String): Unit
 
   /** The commit the innermost open stage started from — the baseline for the
     * change set that stage has produced, whether or not it has since been
@@ -75,12 +76,6 @@ trait FlowControl extends FlowContext, caps.ExclusiveCapability:
     * says so rather than reviewing the wrong range.
     */
   private[orca] def startingCommit: Option[CommitHash]
-
-  /** Throw unless the caller is on this control's owner thread — implemented by
-    * [[StageFrames]]; called by the durable run doors so `session.run` from a
-    * fork fails immediately instead of racing the progress log.
-    */
-  private[orca] def assertOwnerThread(what: String): Unit
 
   /** Key a session named `name` to the stage currently open and claim it,
     * throwing if `agent.session(...)` already minted that name there — see

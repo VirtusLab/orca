@@ -226,6 +226,9 @@ Four capabilities, all constructible only inside `orca`:
   stage body alongside `InStage`. Exclusive (`caps.ExclusiveCapability`):
   separation checking forbids capturing it into concurrent forks — two forks
   racing on the git index or progress log is exactly the bug this catches (§6).
+  A runtime check backs this everywhere, including code compiled without
+  separation checking: the token is bound to the thread that minted it, and
+  every gated write throws off that thread.
 
 Every side-effecting tool method gains a token clause. The methods gated:
 
@@ -852,6 +855,17 @@ list output and opencode's directory-scoping should be pinned when the probes la
 > single place one is built, so `StageFrames`'s frames carry a `StagePath` and
 > `enterStage`/`peekStageId` return `StagePath.Stage`. The wire shape is unchanged:
 > `SessionRecord.stage` and the manifest's `sessionStage` stay plain strings.
+
+> **Amendment (2026-09-23, structured stage paths).** A `/`-joined id let a stage
+> name collide with a nested path: a top-level stage named `A#0/B` had the id of a
+> `B` nested in `A`. `StagePath.Stage` now holds its parent, name and occurrence,
+> and every persisted path — `StageEntry.id`, `SessionRecord.stage`, the
+> manifest's session key — is a JSON array of `{"name", "occurrence"}` segments,
+> `[]` for the flow body. `name#occurrence/...` is display only. `StageEntry` drops
+> `name`, which the id carries. The frame stack is reached through one bracket,
+> `withStage`, private to orca, so a script cannot pop a frame; and the PR helpers
+> also check at run time that no stage is open (`assertAtFlowBody`), since
+> `OutsideStage` only sees the call's lexical position.
 
 > **Amendment (2026-07-28).** Pi is durable too: the table above no longer has a
 > probe-less row, and the 2026-07-06 amendment's `Ephemeral(registry)` (pi) tagging no

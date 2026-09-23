@@ -29,26 +29,24 @@ private[orca] enum SessionTurn:
   * '''Mechanism.''' A stack of frames — one per currently-open stage, plus a
   * root frame ([[StagePath.FlowBody]]) for the flow body — scopes occurrence
   * counters hierarchically. Each frame stores its own path and a `name ->
-  * count` map for the stages nested directly under it, so [[enterStage]] builds
-  * a child's path with [[StagePath.child]]. `enterStage` pushes the child
-  * frame, [[exitStage]] pops it, and the head is always the current scope.
+  * count` map for the stages nested directly under it, so [[withStage]] builds
+  * a child's path with [[StagePath.child]]. `withStage` pushes the child frame
+  * for the duration of its body, so the head is always the current scope.
   *
   * A frame also records the commit its stage started from, read back as
   * [[stageBaseCommit]] (ADR 0018 §2.1).
   *
   * '''Invariants.'''
-  *   - '''Exactly-once bump.''' `enterStage` bumps the parent's occurrence
+  *   - '''Exactly-once bump.''' `withStage` bumps the parent's occurrence
   *     counter for `name` exactly once per stage attempt, before the resume
   *     decision — so the slot is consumed whether the body is skipped,
-  *     completes, or throws (`stage` pops in a `finally`). Later same-named
-  *     siblings then see a stable occurrence index across resumes.
+  *     completes, or throws. Later same-named siblings then see a stable
+  *     occurrence index across resumes.
   *   - '''Structural unreachability.''' A skipped stage's body never runs, so
-  *     its nested `stage(...)` calls never `enterStage` and no counter desyncs.
+  *     its nested `stage(...)` calls never `withStage` and no counter desyncs.
   *     A flat id scheme could not offer this: a skipped parent's vanished
   *     nested bumps would let a later same-named stage recompute a nested id
   *     and misattribute a stale or wrong-typed record.
-  *   - '''Opaque paths.''' The `#`/`/`-joined path id is only ever compared for
-  *     exact equality, never parsed or reconstructed — see [[StagePath]].
   *
   * Thread-affine: reached only through [[FlowControl]], single-threaded per
   * top-level `flow(...)` (R12, ADR 0018 §2.2), so plain vars state the real
@@ -73,23 +71,18 @@ private[orca] enum SessionTurn:
 private[orca] trait StageFrames:
   private val ownerThread: Thread = Thread.currentThread()
 
-  /** Throws when called off `ownerThread` (R12 — see the trait scaladoc). Also
-    * called by `FlowSession`'s run doors, so durable runs — not just
-    * stage/session minting — refuse from a fork at runtime.
-    */
-  private[orca] def assertOwnerThread(what: String): Unit =
+  /** Throws when called off `ownerThread` (R12 — see the trait scaladoc). */
+  private def assertOwnerThread(what: String): Unit =
     if Thread.currentThread() ne ownerThread then
       throw new OrcaFlowException(
         s"$what called from a fork — forks get FlowContext only (ADR 0018 R12)"
       )
 
-  /** One open stage's scope: its own name and path (the prefix children join
-    * under), the commit the stage started from, and the per-name occurrence
-    * counters for stages nested directly beneath it. The name is held rather
-    * than recovered from the path, which is opaque.
+  /** One open stage's scope: its path (the parent of stages nested in it), the
+    * commit the stage started from, and the per-name occurrence counters for
+    * stages nested directly beneath it.
     */
   private final class Frame(
-      val name: String,
       val path: StagePath,
       val baseCommit: Option[CommitHash]
   ):
@@ -101,31 +94,38 @@ private[orca] trait StageFrames:
 
   // The flow body's frame; it is never popped.
   private var frames: List[Frame] =
-    List(new Frame(name = "", path = StagePath.FlowBody, baseCommit = None))
+    List(new Frame(path = StagePath.FlowBody, baseCommit = None))
 
-  /** Bump the current frame's occurrence counter for `name`, push a child frame
-    * recording `baseCommit`, and return its path. Must be called exactly once
-    * per stage attempt — see the class doc's "Exactly-once bump" invariant.
+  /** Run `f` with a stage named `name` open, passing its path: bump the current
+    * frame's occurrence counter for `name` and push a child frame recording
+    * `baseCommit`, popped when `f` returns or throws. Called exactly once per
+    * stage attempt — see the class doc's "Exactly-once bump" invariant.
     */
-  def enterStage(
+  private[orca] def withStage[R](
       name: String,
       baseCommit: Option[CommitHash]
-  ): StagePath.Stage =
+  )(f: StagePath.Stage => R): R =
     assertOwnerThread("stage(...)")
-    val parent = frames.head
-    val path = parent.path.child(name, parent.next(name))
-    frames =
-      new Frame(name = name, path = path, baseCommit = baseCommit) :: frames
-    path
+    val enclosing = frames
+    val path = enclosing.head.path.child(name, enclosing.head.next(name))
+    frames = new Frame(path = path, baseCommit = baseCommit) :: enclosing
+    try f(path)
+    finally frames = enclosing
 
   def stageBaseCommit: Option[CommitHash] = frames.head.baseCommit
 
-  /** Pop the current stage frame. Balanced with [[enterStage]] by `stage`'s
-    * try/finally; never pops the root frame in correct use.
+  /** Throws unless no stage is open: `what` runs stages of its own and belongs
+    * at the flow body's top level, whatever helper it is called through.
     */
-  def exitStage(): Unit =
-    assertOwnerThread("stage(...)")
-    frames = frames.tail
+  private[orca] def assertAtFlowBody(what: String): Unit =
+    assertOwnerThread(what)
+    frames.head.path match
+      case StagePath.FlowBody => ()
+      case stage: StagePath.Stage =>
+        throw new OrcaFlowException(
+          s"$what called inside stage '${stage.display}' — call it at the flow " +
+            "body's top level, outside every stage."
+        )
 
   // The stage half of a key already scopes it, so one flat set covers the run.
   private var claimedSessionKeys: Set[SessionKey] = Set.empty
@@ -156,8 +156,8 @@ private[orca] trait StageFrames:
     val key = SessionKey(name = name, stage = frame.path)
     if claimedSessionKeys.contains(key) then
       val where = frame.path match
-        case StagePath.FlowBody => "the flow body"
-        case StagePath.Stage(_) => s"stage '${frame.name}'"
+        case StagePath.FlowBody     => "the flow body"
+        case stage: StagePath.Stage => s"stage '${stage.display}'"
       throw new OrcaFlowException(
         s"agent.session(...) minted '$name' twice in $where — both handles " +
           "would drive one conversation. Give each its own `stage(...)`, or " +

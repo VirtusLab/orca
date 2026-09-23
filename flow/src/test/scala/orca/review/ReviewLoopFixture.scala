@@ -210,7 +210,12 @@ private[review] def asReviewer(
     filePattern: Option[Regex] = None
 ): ReviewerAgent[BackendTag.ClaudeCode.type] =
   ReviewerAgent(
-    Reviewer(agent.name, description, systemPrompt = "", filePattern),
+    Reviewer(
+      ReviewerSlug(agent.name),
+      description,
+      systemPrompt = "",
+      filePattern
+    ),
     agent
   )
 

@@ -8,6 +8,7 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.{
   CodecMakerConfig,
   ConfiguredJsonValueCodec
 }
+import orca.StagePath
 import orca.runner.manifest.SessionKind
 import orca.shell.flows.DiscoveredFlow
 import orca.settings.AgentSpec
@@ -39,12 +40,12 @@ private[cli] object Tables:
       branch: Option[String],
       kind: SessionKind,
       stage: Option[String],
-      /** The path id of the stage that minted the session — the half of its key
-        * a row's `stage` (where it was last active) does not carry, and the
-        * only thing telling two same-named lineages apart. `None` for an
-        * ephemeral session, which was minted under no key.
+      /** The path of the stage that minted the session — the half of its key a
+        * row's `stage` (where it was last active) does not carry, and the only
+        * thing telling two same-named lineages apart. `None` for an ephemeral
+        * session, which was minted under no key.
         */
-      sessionStage: Option[String],
+      sessionStage: Option[StagePath],
       harness: String,
       lastActiveAt: String,
       resumable: Boolean,
@@ -70,7 +71,7 @@ private[cli] object Tables:
         branch = selection.manifest.branch,
         kind = session.kind,
         stage = session.stage,
-        sessionStage = session.minted.map(_.stage.value),
+        sessionStage = session.minted.map(_.stage),
         harness = AgentSpec.harnessNameFor(session.harness),
         lastActiveAt = session.lastActiveAt.toString,
         resumable = gate.isRight,
@@ -103,7 +104,7 @@ private[cli] object Tables:
           r.stage.getOrElse(""),
           // Its own column rather than the picker's conditional marker: a
           // listing is read to tell rows apart, and here the width is free.
-          r.sessionStage.getOrElse(""),
+          r.sessionStage.fold("")(_.display),
           r.harness,
           r.lastActiveAt,
           status

@@ -1,5 +1,6 @@
 package orca.runner
 
+import orca.ReportedFailure
 import orca.testkit.ScriptedBackend
 import orca.{AgentSet, OrcaArgs, StackSettings, flow, runFlow}
 import orca.agents.{
@@ -137,29 +138,31 @@ class LeadAgentIdentityTest extends munit.FunSuite:
   ):
     // The selector resolves pre-context, against the wired agent set, inside
     // `runFlow`'s pre-context `surfaced` bracket: its failure is reported as
-    // exactly one Error and escapes as `SurfacedFlowFailure(boom)`. The
+    // exactly one Error and escapes as `ReportedFailure(boom)`. The
     // context is never constructed, yet the five wired agents must be closed.
     val boom = new RuntimeException("selector always throws")
     val selector: AgentSet => orca.agents.Agent[BackendTag.ClaudeCode.type] =
       _ => throw boom
     val agents = new RecordingAgents
     val listener = new RecordingListener
-    val thrown = intercept[SurfacedFlowFailure]:
+    val thrown = intercept[ReportedFailure]:
       supervised:
         runFlow(
-          args = OrcaArgs(),
-          stackSettings = Some(StackSettings.empty),
-          codingAgent = Some(selector),
-          workDir = GitRepo.seeded(),
-          interaction = Some(interaction()),
-          extraListeners = List(listener),
-          branchNaming = None,
-          wiring = FlowWiring(
-            claude = Some(_ => agents.claude),
-            codex = Some(_ => agents.codex),
-            opencode = Some(_ => agents.opencode),
-            pi = Some(_ => agents.pi),
-            gemini = Some(_ => agents.gemini)
+          FlowHarness.request(
+            args = OrcaArgs(),
+            stackSettings = Some(StackSettings.empty),
+            codingAgent = Some(selector),
+            workDir = GitRepo.seeded(),
+            interaction = Some(interaction()),
+            extraListeners = List(listener),
+            branchNaming = None,
+            wiring = FlowWiring(
+              claude = Some(_ => agents.claude),
+              codex = Some(_ => agents.codex),
+              opencode = Some(_ => agents.opencode),
+              pi = Some(_ => agents.pi),
+              gemini = Some(_ => agents.gemini)
+            )
           )
         ):
           ()
@@ -207,23 +210,25 @@ class LeadAgentIdentityTest extends munit.FunSuite:
       NoopInteraction
     )
     val agents = new RecordingAgents
-    val thrown = intercept[SurfacedFlowFailure]:
+    val thrown = intercept[ReportedFailure]:
       supervised:
         runFlow(
-          args = OrcaArgs(),
-          stackSettings = Some(StackSettings.empty),
-          planningAgent = Some((_: AgentSet) => foreignPlanning),
-          codingAgent = Some((_: AgentSet) => throw boom),
-          workDir = GitRepo.seeded(),
-          interaction = Some(interaction()),
-          extraListeners = Nil,
-          branchNaming = None,
-          wiring = FlowWiring(
-            claude = Some(_ => agents.claude),
-            codex = Some(_ => agents.codex),
-            opencode = Some(_ => agents.opencode),
-            pi = Some(_ => agents.pi),
-            gemini = Some(_ => agents.gemini)
+          FlowHarness.request(
+            args = OrcaArgs(),
+            stackSettings = Some(StackSettings.empty),
+            planningAgent = Some((_: AgentSet) => foreignPlanning),
+            codingAgent = Some((_: AgentSet) => throw boom),
+            workDir = GitRepo.seeded(),
+            interaction = Some(interaction()),
+            extraListeners = Nil,
+            branchNaming = None,
+            wiring = FlowWiring(
+              claude = Some(_ => agents.claude),
+              codex = Some(_ => agents.codex),
+              opencode = Some(_ => agents.opencode),
+              pi = Some(_ => agents.pi),
+              gemini = Some(_ => agents.gemini)
+            )
           )
         ):
           ()

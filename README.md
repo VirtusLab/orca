@@ -214,7 +214,9 @@ commits/branches/pushes via `git.*`. Opt out per-tool with
 
 For the LLM interfaces, `resultAs[O]` defines the shape of the structured
 output. The `O` type needs a `JsonData[O]` (provided by `derives JsonData` on a
-case class) for schema generation and deserialization. Additionally, you might
+case class) for schema generation and deserialization. A parameterless enum that
+`derives JsonData` travels as its case name, and the schema lists every name; a
+sum type whose cases carry fields cannot be an `O`. Additionally, you might
 define an `Announce[O]` so that a friendly summary is printed in the event log,
 instead of a raw json.
 
@@ -561,9 +563,9 @@ Review only the layering of the changed files...
 ```
 
 `description:` is required and must be a single line — the reviewer-picker
-decides from it. The value is the rest of that line, so a YAML block scalar
-(`>`, `|`, `>-`, `|-`) or a wrapped continuation leaves a description of `>` or
-half a sentence: nothing aborts, and the picker never selects that reviewer.
+decides from it. The value is the rest of that line: a YAML block scalar (`>`,
+`|`, `>-`, `|-`) aborts the run, and a wrapped continuation line is dropped,
+leaving half a sentence.
 `files:` is optional: a regex matched against each changed path, so the
 reviewer is only offered when the change touches a file it applies to. The body
 is the reviewer's system prompt. A `name:` key, if present, is ignored.
@@ -746,14 +748,14 @@ compile error with a message telling you where the call belongs:
 | Capability | Kind | Gates | Provided by | Misuse caught by |
 |---|---|---|---|---|
 | `InStage` | shared (`caps.SharedCapability`) | LLM runs (`agent.*.run`, `session.run`) | `stage(...)` bodies | missing-given compile error |
-| `WorkspaceWrite` | exclusive (`caps.ExclusiveCapability`) | git/`gh` writes, `fs.write`, progress-log writes | `stage(...)` bodies | missing-given compile error; must never cross a `fork` |
+| `WorkspaceWrite` | exclusive (`caps.ExclusiveCapability`) | git/`gh` writes, `fs.write`, progress-log writes | `stage(...)` bodies | missing-given compile error + a runtime owner-thread check (never cross a `fork`) |
 | `FlowControl` | exclusive (`caps.ExclusiveCapability`) | starting stages, minting sessions | the `flow(...)` body (not forks) | missing-given compile error + a runtime owner-thread check |
 
 (`FlowContext` — reads and event emission — is deliberately *not* a capability:
 it is thread-safe and forks receive it freely.)
 
 The runtime always guards this at run time — a fork that calls
-`stage(...)`/`session(...)` fails immediately, a second `flow(...)` in the same
+`stage(...)`/`session(...)` or makes a workspace write fails immediately, a second `flow(...)` in the same
 working tree is refused, an agent used after its flow ended throws — so you get
 the safety without any setup.
 
@@ -919,7 +921,7 @@ To swap or extend the reviewer set for one project, drop `.md` files in
 `.orca/reviewers/` — no code changes (see [Settings](#settings)). To do it from
 the flow, compose your own `List[Reviewer]` from `reviewerCatalog.all` (the
 run's resolved set), `ReviewerPrompts` (the shipped entries alone), and/or your
-own `Reviewer(name, description, systemPrompt)`, then turn it into
+own `Reviewer(ReviewerSlug(name), description, systemPrompt)`, then turn it into
 `ReviewerAgent`s with `buildReviewers(base, list)`.
 
 PR utilities, available via `import orca.pr.*`:

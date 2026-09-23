@@ -17,22 +17,18 @@ private[review] case class PickedReviewers(
 )
 
 case class SelectedReviewers(names: List[String]):
-  /** Resolve the picker's reply to roster entries by matching the bare slug.
-    * Matching against the handed [[RosterEntry]] list (not raw names) is the
-    * hallucinated-picker floor: an invented name that no entry carries matches
-    * nothing.
-    *
-    * Matched trimmed and case-insensitively: a case shift or stray whitespace
-    * is what a cheap picker model actually gets wrong, and slugs never collide
-    * case-insensitively.
+  /** Resolve the picker's reply to roster entries by [[ReviewerSlug]], so a
+    * case shift or stray whitespace — what a cheap picker model actually gets
+    * wrong — still matches. Matching against the handed [[RosterEntry]] list
+    * (not raw names) is the hallucinated-picker floor: an invented name that no
+    * entry carries matches nothing.
     */
   private[review] def pick(all: List[RosterEntry]): PickedReviewers =
-    def key(name: String): String =
-      name.trim.toLowerCase(java.util.Locale.ROOT)
-    val wanted = names.map(key).toSet
+    val rostered = all.map(_.name).toSet
+    val wanted = names.map(ReviewerSlug(_)).toSet
     PickedReviewers(
-      entries = all.filter(r => wanted.contains(key(r.name))),
-      unresolved = names.filterNot(n => all.exists(r => key(r.name) == key(n)))
+      entries = all.filter(r => wanted.contains(r.name)),
+      unresolved = names.filterNot(n => rostered.contains(ReviewerSlug(n)))
     )
 
 object SelectedReviewers:

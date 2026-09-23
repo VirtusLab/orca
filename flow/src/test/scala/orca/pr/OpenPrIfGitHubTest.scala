@@ -1,6 +1,7 @@
 package orca.pr
 
 import munit.FunSuite
+import orca.interceptReported
 import orca.tools.{
   BranchNotPushed,
   GitHubAvailability,
@@ -10,7 +11,7 @@ import orca.tools.{
   PrHandle,
   PushFailure
 }
-import orca.{OutsideStage, WorkspaceWrite}
+import orca.{OrcaFlowException, OutsideStage, WorkspaceWrite}
 import orca.gitref.CommitHash
 import orca.plan.Title
 import orca.review.{FindingId, OpenFinding, OpenFindings, OpenReason}
@@ -111,10 +112,10 @@ class OpenPrIfGitHubTest extends FunSuite:
     val errors = new ConcurrentLinkedQueue[String]()
     val bodies = new ConcurrentLinkedQueue[String]()
     val listener: OrcaListener =
-      case OrcaEvent.StageStarted(_, name) => stages.add(name): Unit
-      case OrcaEvent.Step(message)         => steps.add(message): Unit
-      case OrcaEvent.Error(message, _)     => errors.add(message): Unit
-      case _                               => ()
+      case OrcaEvent.StageStarted(path) => stages.add(path.name): Unit
+      case OrcaEvent.Step(message)      => steps.add(message): Unit
+      case OrcaEvent.Error(message, _)  => errors.add(message): Unit
+      case _                            => ()
 
     val control = prControl(
       dir,
@@ -170,6 +171,23 @@ class OpenPrIfGitHubTest extends FunSuite:
         errors.contains("openPrIfGitHub(...)"),
       s"expected the OutsideStage implicitNotFound message, got: $errors"
     )
+
+  test("openPrIfGitHub reached inside a stage is refused before it probes"):
+    // A helper taking only FlowControl carries OutsideStage past the compile
+    // check; the stage open around it is caught at run time.
+    val (dir, store) = seededPrRepo()
+    val calls = new ConcurrentLinkedQueue[String]()
+    val control =
+      prControl(dir, store, _ => (), calls, availability = available)
+    val e = intercept[OrcaFlowException](
+      control.withStage("outer", None): _ =>
+        openPrIfGitHub(
+          summarisingAgent = new StubSummariser(),
+          openFindings = OpenFindings.empty
+        )(using control, control, summon[OutsideStage])
+    )
+    assert(e.getMessage.contains("inside stage 'outer#0'"), e.getMessage)
+    assertEquals(calls.asScala.toList, Nil)
 
   test(
     "when unavailable, no PR is opened and the line ends in the next action"
@@ -375,7 +393,7 @@ class OpenPrIfGitHubTest extends FunSuite:
     */
   private def pushedThenFailedSummarise(): (os.Path, ProgressStore) =
     val (dir, store) = seededPrRepo()
-    val _ = intercept[IllegalStateException]:
+    val _ = interceptReported[IllegalStateException]:
       runOver(
         dir,
         store,
@@ -403,14 +421,14 @@ class OpenPrIfGitHubTest extends FunSuite:
     // Best effort covers the remote leg only. The progress record failing
     // after a push that went through is orca's own failure, and the run must
     // say so rather than report "could not push".
-    val e = intercept[IllegalStateException]:
+    val e = interceptReported[IllegalStateException]:
       run(available, store = new UnrecordableStages(_))
     assert(e.getMessage.contains("disk full"), e.getMessage)
 
   test("a create whose record cannot be written fails the run"):
     // The PR exists, but the log the lifecycle reads it from does not: that is
     // orca's own failure, outside the best-effort absorb around `gh.createPr`.
-    val e = intercept[IllegalStateException]:
+    val e = interceptReported[IllegalStateException]:
       run(available, store = new UnrecordablePr(_))
     assert(e.getMessage.contains("disk full"), e.getMessage)
 

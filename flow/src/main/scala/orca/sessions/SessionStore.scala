@@ -27,8 +27,7 @@ import orca.util.JsonFile
   *
   * Writes take [[WorkspaceWrite]] like the progress log's: this is a
   * read-modify-write of one shared file, so two forks writing it concurrently
-  * would drop a record (ADR 0018 §6). The token is not inspected at runtime —
-  * the type is the guard.
+  * would drop a record (ADR 0018 §6); a write off the token's thread throws.
   */
 trait SessionStore:
   /** The on-disk path of this store's JSON file. */
@@ -74,7 +73,8 @@ private class OsSessionStore(workDir: os.Path, val path: os.Path)
 
   // Unlike `records()`, this read-modify-write refuses an unreadable file:
   // renaming one record over it would destroy whatever it still holds.
-  def upsert(record: SessionRecord)(using WorkspaceWrite): Unit =
+  def upsert(record: SessionRecord)(using ws: WorkspaceWrite): Unit =
+    ws.check("sessionStore.upsert")
     val current = JsonFile.read[List[SessionRecord]](path) match
       case JsonFile.Read.Loaded(records)                   => records
       case JsonFile.Read.Absent | JsonFile.Read.Corrupt(_) => Nil
@@ -87,7 +87,9 @@ private class OsSessionStore(workDir: os.Path, val path: os.Path)
       if idx >= 0 then current.updated(idx, record) else current :+ record
     JsonFile.write(path, OrcaDir.ensureCacheRuns(workDir), updated)
 
-  def discard()(using WorkspaceWrite): Unit = os.remove(path): Unit
+  def discard()(using ws: WorkspaceWrite): Unit =
+    ws.check("sessionStore.discard")
+    os.remove(path): Unit
 
 private object OsSessionStore:
   // `transientNone` off, so `resumeWireId`/`backend` are written as explicit

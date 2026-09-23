@@ -79,7 +79,7 @@ class SessionTest extends FunSuite:
       List(
         SessionRecord(
           name = "implementer",
-          stage = "",
+          stage = StagePath.FlowBody,
           id = session.id.value,
           seed = "plan brief",
           resumeWireId = None,
@@ -94,7 +94,10 @@ class SessionTest extends FunSuite:
     val agent = new StubAgent
     val _ = stage("Task: add multiply", commitMessage):
       agent.session("implementer", seed = "brief").id.value
-    assertEquals(records(dir).map(_.stage), List("Task: add multiply#0"))
+    assertEquals(
+      records(dir).map(_.stage),
+      List(StagePath.FlowBody.child("Task: add multiply", 0))
+    )
 
   test("two stages minting one name get two sessions"):
     val (fc, _) = TestFlowControl.create(new EventDispatcher(Nil))
@@ -119,7 +122,11 @@ class SessionTest extends FunSuite:
     assertEquals(ids.distinct.size, 3, s"expected three sessions; got: $ids")
     assertEquals(
       records(dir).map(_.stage),
-      List("Task#0", "Task#1", "Task#2")
+      List(
+        StagePath.FlowBody.child("Task", 0),
+        StagePath.FlowBody.child("Task", 1),
+        StagePath.FlowBody.child("Task", 2)
+      )
     )
 
   test("each loop iteration resolves its own session when the loop resumes"):
@@ -159,7 +166,10 @@ class SessionTest extends FunSuite:
         agent.session("implementer", seed = "brief").id.value
     assertEquals(
       records(dir).map(_.stage),
-      List("Implement#0/Task#0", "Implement#0/Task#1")
+      List(
+        StagePath.FlowBody.child("Implement", 0).child("Task", 0),
+        StagePath.FlowBody.child("Implement", 0).child("Task", 1)
+      )
     )
 
   test("an inner stage re-run on resume resolves its own recorded session"):
@@ -211,12 +221,12 @@ class SessionTest extends FunSuite:
     val (fc, _) = TestFlowControl.create(new EventDispatcher(Nil))
     given FlowControl = fc
     val agent = new StubAgent
-    val ex = intercept[OrcaFlowException]:
+    val ex = interceptReported[OrcaFlowException]:
       stage[String]("Implement", commitMessage):
         val _ = agent.session("implementer", seed = "s")
         agent.session("implementer", seed = "s").id.value
     assert(
-      ex.getMessage.contains("'implementer' twice in stage 'Implement'") &&
+      ex.getMessage.contains("'implementer' twice in stage 'Implement#0'") &&
         ex.getMessage.contains("Give each its own `stage(...)`"),
       s"expected a duplicate message naming the stage and the fix; got: ${ex.getMessage}"
     )
@@ -424,7 +434,7 @@ class SessionTest extends FunSuite:
       .upsert(
         SessionRecord(
           name = "implementer",
-          stage = "",
+          stage = StagePath.FlowBody,
           id = "../../etc/passwd",
           seed = "brief",
           resumeWireId = None,
