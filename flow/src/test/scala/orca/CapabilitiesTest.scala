@@ -2,24 +2,24 @@ package orca
 
 import orca.events.EventDispatcher
 
-/** Tests for the FlowControl capability type (ADR 0018 §2.2): FlowControl
-  * satisfies a `using FlowContext` requirement.
+/** How a `using FlowContext` requirement resolves when a [[FlowControl]] is in
+  * scope (ADR 0018 §2.2).
   */
 class CapabilitiesTest extends munit.FunSuite:
 
-  private def stubCtrl: FlowControl =
-    new TestFlowContext(new EventDispatcher(Nil))
-      with FlowControl
-      with StageFrames:
-      def progressStore: orca.progress.ProgressStore =
-        throw new NotImplementedError
-      def sessionStore: orca.sessions.SessionStore =
-        throw new NotImplementedError
-      private[orca] def startingCommit: Option[orca.gitref.CommitHash] = None
+  private def control(userPrompt: String): TestFlowControl =
+    TestFlowControl.create(new EventDispatcher(Nil), userPrompt = userPrompt)._1
 
-  test("FlowControl satisfies a using FlowContext requirement"):
-    def needsCtx(using FlowContext): Boolean = true
-    given FlowControl = stubCtrl
-    assert(needsCtx)
+  private def promptOf(using ctx: FlowContext): String = ctx.userPrompt
+
+  test("a FlowControl alone supplies its context"):
+    given FlowControl = control("from control")
+    assertEquals(promptOf, "from control")
+
+  test("a FlowContext given takes precedence over the FlowControl's context"):
+    given FlowContext =
+      new TestFlowContext(new EventDispatcher(Nil), userPrompt = "lexical")
+    given fc: FlowControl = control("from control")
+    assertEquals((promptOf, fc.context.userPrompt), ("lexical", "from control"))
 
 end CapabilitiesTest

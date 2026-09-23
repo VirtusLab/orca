@@ -25,13 +25,13 @@ class NoTaintCanaryTest extends munit.FunSuite:
     def needsWorkspace(using WorkspaceWrite): Boolean = true
     // FlowControl is the exclusive capability mixed into a public trait — the
     // likeliest taint carrier — so name it in a type position too.
-    val widenFlowControl: FlowControl => FlowContext = fc => fc
+    val contextOf: FlowControl => FlowContext = _.context
 
     assert(needsInStage, "InStage summonable/passable in a non-CC unit")
     assert(
       needsWorkspace,
       "WorkspaceWrite summonable/passable in a non-CC unit"
     )
-    assert(widenFlowControl ne null)
+    assert(contextOf ne null)
 
 end NoTaintCanaryTest

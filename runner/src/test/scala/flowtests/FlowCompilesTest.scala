@@ -180,8 +180,8 @@ object FlowCanary:
         )
         val list: List[Reviewer] = ReviewerPrompts.minimal :+ custom
         val _: List[ReviewerAgent[?]] = buildReviewers(claude, list)
-        // Resolve inside a stage, where `FlowControl` is the ambient
-        // `FlowContext` these read the run's catalog from.
+        // Resolve inside a stage, where the `FlowContext` these read the
+        // run's catalog from is derived from the ambient `FlowControl`.
         val _: List[ReviewerAgent[?]] = allReviewers(claude)
         val _: List[ReviewerAgent[?]] = minimalReviewers(claude)
         val _: ReviewerCatalog = reviewerCatalog

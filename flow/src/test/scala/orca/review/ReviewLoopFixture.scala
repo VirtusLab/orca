@@ -101,12 +101,12 @@ object ReviewLoopFixture:
     val base = TestFlowControl.create(dispatcher)._1
     new TestFlowControl(
       dispatcher,
-      base.git,
+      base.context.git,
       base.progressStore,
       base.sessionStore,
-      base.userPrompt,
+      base.context.userPrompt,
       lead = None,
-      workDir = base.workDir,
+      workDir = base.context.workDir,
       startingCommit = CommitHash.from("0" * 40)
     )
 

@@ -105,3 +105,11 @@ trait FlowContext extends AgentSet:
 
   def userPrompt: String
   def emit(event: OrcaEvent): Unit
+
+object FlowContext:
+  /** The context of the `FlowControl` in scope, for code holding only that — a
+    * flow body or a stage-starting helper. A `FlowContext` given in lexical
+    * scope takes precedence. Typed as the singleton so the role type members
+    * stay stable paths across summons.
+    */
+  given fromControl(using fc: FlowControl): fc.context.type = fc.context

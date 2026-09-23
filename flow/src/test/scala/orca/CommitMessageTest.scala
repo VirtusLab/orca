@@ -1,6 +1,6 @@
 package orca
 
-import orca.events.OrcaEvent
+import orca.events.EventDispatcher
 import orca.agents.{
   SessionKey,
   Announce,
@@ -16,7 +16,7 @@ import orca.agents.{
 import orca.progress.ProgressStore
 import orca.sessions.SessionRecord
 import orca.testkit.{GitRepo, TextReplyingAgent}
-import orca.tools.{GitTool, OsGitTool}
+import orca.tools.OsGitTool
 
 import java.util.concurrent.ConcurrentLinkedQueue
 
@@ -58,46 +58,6 @@ class CommitMessageTest extends munit.FunSuite:
   // Test helper
   // --------------------------------------------------------------------------
 
-  /** A `FlowControl` backed by a real temp git repo and the given LLM stub. */
-  private class FlowControlWithAgent(
-      val agentStub: Agent[BackendTag.ClaudeCode.type],
-      val git: GitTool,
-      val progressStore: ProgressStore,
-      val sessionStore: orca.sessions.SessionStore,
-      val workDir: os.Path,
-      val userPrompt: String = "p",
-      val stackSettings: StackSettings = StackSettings.empty,
-      private[orca] val startingCommit: Option[orca.gitref.CommitHash] = None,
-      val reviewerCatalog: orca.review.ReviewerCatalog =
-        orca.review.ReviewerCatalog.builtIn
-  ) extends FlowControl,
-        StageFrames:
-    import orca.agents.{
-      ClaudeAgent,
-      CodexAgent,
-      GeminiAgent,
-      OpencodeAgent,
-      PiAgent
-    }
-    private def stub(n: String) =
-      throw new NotImplementedError(s"$n not wired")
-    // The coding role IS the test's stub; the commit path's
-    // `fc.codingAgent.cheapOneShot` runs the stub's canned reply.
-    type PlanB = BackendTag.ClaudeCode.type
-    type CodeB = BackendTag.ClaudeCode.type
-    type ReviewB = BackendTag.ClaudeCode.type
-    def planningAgent: Agent[PlanB] = agentStub
-    def codingAgent: Agent[CodeB] = agentStub
-    def reviewAgent: Agent[ReviewB] = agentStub
-    lazy val claude: ClaudeAgent = stub("claude")
-    lazy val codex: CodexAgent = stub("codex")
-    lazy val opencode: OpencodeAgent = stub("opencode")
-    lazy val pi: PiAgent = stub("pi")
-    lazy val gemini: GeminiAgent = stub("gemini")
-    lazy val gh: orca.tools.GitHubTool = stub("gh")
-    lazy val fs: orca.tools.FsTool = stub("fs")
-    def emit(event: OrcaEvent): Unit = ()
-
   private def withCtx(
       agentStub: Agent[BackendTag.ClaudeCode.type]
   )(body: (FlowControl, os.Path) => Unit): Unit =
@@ -116,12 +76,14 @@ class CommitMessageTest extends munit.FunSuite:
       )
     )
     body(
-      new FlowControlWithAgent(
-        agentStub,
+      new TestFlowControl(
+        new EventDispatcher(Nil),
         git,
         store,
         orca.sessions.SessionStore.default(dir, RunKey.of("p")),
-        dir
+        "p",
+        lead = Some(agentStub),
+        workDir = dir
       ),
       dir
     )

@@ -20,7 +20,6 @@ import orca.agents.{
 }
 import orca.tools.{
   GitHubAvailability,
-  GitHubTool,
   GitTool,
   NoDefaultBase,
   OsGitTool,
@@ -28,7 +27,6 @@ import orca.tools.{
   PrHandle,
   PushFailure
 }
-import orca.gitref.CommitHash
 import orca.progress.{BranchMode, ProgressHeader, ProgressStore}
 import orca.sessions.SessionStore
 import orca.testkit.{GitRepo, PushlessGit, StubGitHubTool, branchName}
@@ -112,26 +110,6 @@ private[pr] class StubSummariser(
       def interactive: InteractiveAgentCall[BackendTag.ClaudeCode.type, O] =
         nyi("interactive")
 
-/** A [[TestFlowControl]] whose `gh` is the recording double (the base stubs it)
-  * and whose `git` records/delegates via [[RecordingGit]].
-  */
-private[pr] class PrTestControl(
-    dispatcher: EventDispatcher,
-    recordingGit: GitTool,
-    recordingGh: GitHubTool,
-    store: ProgressStore,
-    sessions: SessionStore,
-    runStartedAt: Option[CommitHash]
-) extends TestFlowControl(
-      dispatcher,
-      recordingGit,
-      store,
-      sessions,
-      "p",
-      startingCommit = runStartedAt
-    ):
-  override lazy val gh: GitHubTool = recordingGh
-
 /** A seeded repo on the `feat/test` branch its written header names, ready for
   * the PR helpers to stage into. Repo and store come back together so a second
   * control can be built over the same pair — that is how a resumed run is
@@ -196,11 +174,12 @@ private[pr] def prControl(
     prBodies: ConcurrentLinkedQueue[String] =
       new ConcurrentLinkedQueue[String]()
 ): FlowControl =
-  new PrTestControl(
+  new TestFlowControl(
     new EventDispatcher(List(listener)),
     new RecordingGit(new OsGitTool(dir), calls, branchDiff, push, base),
-    new RecordingGh(calls, availability, createPr, prBodies),
     store,
     SessionStore.default(dir, RunKey.of("p")),
-    store.load().map(_.header.startingCommit)
+    "p",
+    startingCommit = store.load().map(_.header.startingCommit),
+    gh = Some(new RecordingGh(calls, availability, createPr, prBodies))
   )

@@ -327,13 +327,13 @@ class StageRuntimeTest extends munit.FunSuite:
       lead = Some(commitMessageAgent)
     )
     given FlowControl = ctx
-    val atEntry = ctx.git.headCommit()
+    val atEntry = ctx.context.git.headCommit()
     assert(atEntry.isDefined, "the seeded repo must have a HEAD to record")
     // The body commits before reading it back, which is what a coding agent
     // free to commit its own work does.
     val recorded = stage("moves HEAD"):
       os.write(dir / "out.txt", "hello")
-      ctx.git.commit("the body's own commit").orThrow
+      ctx.context.git.commit("the body's own commit").orThrow
       ctx.stageBaseCommit
     assertEquals(recorded, atEntry)
 

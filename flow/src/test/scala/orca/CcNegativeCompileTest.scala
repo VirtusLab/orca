@@ -123,6 +123,25 @@ class CcNegativeCompileTest extends munit.FunSuite:
     val errors = compileErrorsOf(fixture("orca.FlowControl"))
     assertSeparationFailure("FlowControl", errors)
 
+  test(
+    "(f) POSITIVE: a fan-out resolving FlowContext implicitly beside a FlowControl compiles"
+  ):
+    val errors = compileErrorsOf(
+      s"""package orca
+         |import language.experimental.captureChecking
+         |import language.experimental.separationChecking
+         |object Fixture:
+         |  def needsCtx(using FlowContext): Int = 1
+         |  def go(using ctx: FlowContext, fc: FlowControl): List[Int] =
+         |    val tasks: Seq[() => Int] = Seq(() => needsCtx, () => needsCtx)
+         |    CheckedPar.mapParUnordered(tasks.size)(tasks)(r => println(r))
+         |""".stripMargin
+    )
+    assert(
+      errors.isEmpty,
+      s"the lexical FlowContext, not one derived from fc, must be picked, got: $errors"
+    )
+
   /** Assert the fan-out was rejected specifically by separation checking — not
     * by some unrelated error. Both phrasings the checker emits for an exclusive
     * fan-out capture ("...hides parameter tok. The parameter needs to be

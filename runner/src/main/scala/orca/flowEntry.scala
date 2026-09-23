@@ -26,6 +26,7 @@ import orca.sessions.SessionStore
 import orca.review.ReviewerCatalog
 import orca.runner.{
   DefaultFlowContext,
+  DefaultFlowControl,
   FlowLifecycle,
   FlowLock,
   FlowWiring,
@@ -54,8 +55,8 @@ import java.time.Instant
 import scala.util.control.NonFatal
 
 /** Entry point for flow scripts. Takes the parsed CLI args (required) plus any
-  * number of overrides, then runs the body, providing the `FlowContext` as a
-  * given.
+  * number of overrides, then runs the body, providing the `FlowControl` (and
+  * through it the `FlowContext`) as a given.
   *
   * ```
   * flow(OrcaArgs(args)):
@@ -357,7 +358,8 @@ private[orca] def runFlow(request: RunRequest)(
   * settings files, resolve the three role agents (`RoleAgents.resolveAll`, ADR
   * 0020 §10), run pre-context setup (branch + log binding, stack discovery,
   * `FlowLifecycle.setup`), construct the concretely-typed
-  * [[DefaultFlowContext]], then run `body` in it.
+  * [[DefaultFlowContext]] and the [[DefaultFlowControl]] over it, then run
+  * `body` with that control.
   *
   * Owns closing the agents: the wired ones and any FOREIGN role (an override
   * from a separate backend) are closed when this returns, on success or
@@ -459,13 +461,16 @@ private def runInContext(
           git = gitTool,
           gh = ghTool,
           fs = fsTool,
-          progressStore = store,
-          sessionStore = sessions,
           stackSettings = flowSetup.stackSettings,
-          reviewerCatalog = reviewerCatalog,
-          startingCommit = flowSetup.startingCommit
+          reviewerCatalog = reviewerCatalog
         )
-    FlowLifecycle.run(ctx, flowSetup, debug = debug)(body)
+    val control = new DefaultFlowControl(
+      context = ctx,
+      progressStore = store,
+      sessionStore = sessions,
+      startingCommit = flowSetup.startingCommit
+    )
+    FlowLifecycle.run(control, flowSetup, debug = debug)(body)
 
 private def installUncaughtExceptionHandler(): Unit =
   // Idempotent across nested or repeated `flow(...)` calls: install only if no
