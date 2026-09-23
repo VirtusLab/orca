@@ -4,7 +4,7 @@ import orca.{AttemptId, StagePath}
 import orca.agents.{BackendTag, SessionKey}
 import orca.events.OrcaEvent
 import orca.runner.manifest.{AttemptManifestWriter, AttemptOutcome}
-import orca.testkit.TempDirs
+import orca.testkit.{StageEvents, TempDirs}
 import ox.channels.BufferCapacity
 import ox.supervised
 
@@ -34,7 +34,7 @@ class ManifestRoundTripTest extends munit.FunSuite:
         AttemptId(Instant.now(), pid = 1),
         () => Instant.now()
       )
-      writer.onEvent(OrcaEvent.StageStarted("code"))
+      writer.onEvent(StageEvents.started("code"))
       writer.onEvent(
         OrcaEvent.SessionCommitted(
           harness = BackendTag.ClaudeCode,

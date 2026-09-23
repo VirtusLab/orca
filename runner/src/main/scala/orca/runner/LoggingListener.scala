@@ -18,9 +18,11 @@ private[orca] class LoggingListener extends OrcaListener:
   private val log = LoggerFactory.getLogger("orca.flow")
 
   def onEvent(event: OrcaEvent): Unit = event match
-    case OrcaEvent.StageStarted(name)   => log.info("stage start: {}", name)
-    case OrcaEvent.StageCompleted(name) => log.info("stage done:  {}", name)
-    case OrcaEvent.Step(message)        => log.info("step: {}", message)
+    case OrcaEvent.StageStarted(path, _) =>
+      log.info("stage start: {}", path.value)
+    case OrcaEvent.StageEnded(path, outcome) =>
+      log.info("stage {}: {}", outcome, path.value)
+    case OrcaEvent.Step(message) => log.info("step: {}", message)
     case OrcaEvent.Bookkeeping(message) =>
       log.info("bookkeeping: {}", message)
     case OrcaEvent.Caveat(message)     => log.info("caveat: {}", message)

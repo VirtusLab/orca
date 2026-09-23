@@ -1,6 +1,6 @@
 package orca
 
-import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
+import orca.events.{EventDispatcher, OrcaEvent, OrcaListener, StageOutcome}
 
 import java.util.concurrent.atomic.AtomicReference
 
@@ -18,19 +18,24 @@ class FlowTest extends munit.FunSuite:
       TestFlowControl.create(new EventDispatcher(List(listener)))
     (listener, control)
 
-  test("stage emits StageStarted then StageCompleted around the body"):
+  private def stageMarkers(listener: RecordingListener): List[OrcaEvent] =
+    listener.events.collect {
+      case e: OrcaEvent.StageStarted => e
+      case e: OrcaEvent.StageEnded   => e
+    }
+
+  private val planPath: StagePath.Stage = StagePath.FlowBody.child("plan", 0)
+
+  test("stage emits StageStarted then StageEnded(Completed) around the body"):
     val (listener, ctx) = fixture
     given FlowControl = ctx
     val result = stage("plan")(7)
     assertEquals(result, 7)
     assertEquals(
-      listener.events.collect {
-        case e: OrcaEvent.StageStarted   => e
-        case e: OrcaEvent.StageCompleted => e
-      },
+      stageMarkers(listener),
       List(
-        OrcaEvent.StageStarted("plan"),
-        OrcaEvent.StageCompleted("plan")
+        OrcaEvent.StageStarted(planPath, "plan"),
+        OrcaEvent.StageEnded(planPath, StageOutcome.Completed)
       )
     )
 
@@ -47,9 +52,36 @@ class FlowTest extends munit.FunSuite:
       },
       s"expected an Error event mentioning the stage and cause, got: ${listener.events}"
     )
-    assert(
-      !listener.events.exists(_.isInstanceOf[OrcaEvent.StageCompleted]),
-      "StageCompleted must not be emitted when the body fails"
+
+  test("a failing stage ends as Failed after its Error"):
+    val (listener, ctx) = fixture
+    given FlowControl = ctx
+    val _ = intercept[RuntimeException]:
+      stage[String]("plan")(throw new RuntimeException("kaboom"))
+    assertEquals(
+      listener.events,
+      List(
+        OrcaEvent.StageStarted(planPath, "plan"),
+        OrcaEvent.Error("Stage 'plan' failed: kaboom"),
+        OrcaEvent.StageEnded(planPath, StageOutcome.Failed)
+      )
+    )
+
+  test("a failure in a nested stage ends the inner stage, then the outer one"):
+    val (listener, ctx) = fixture
+    given FlowControl = ctx
+    val _ = intercept[RuntimeException]:
+      stage[String]("plan"):
+        stage[String]("inner")(throw new RuntimeException("kaboom"))
+    assertEquals(
+      listener.events.collect { case e: OrcaEvent.StageEnded => e },
+      List(
+        OrcaEvent.StageEnded(
+          planPath.child("inner", 0),
+          StageOutcome.Failed
+        ),
+        OrcaEvent.StageEnded(planPath, StageOutcome.Failed)
+      )
     )
 
   test("stage does not double-emit Error when the body calls fail"):

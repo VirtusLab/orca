@@ -109,16 +109,14 @@ private[runner] class AttemptManifestWriterState(
   guarded("attempt pruning")(AttemptPruning.prune(attemptsDir))
 
   def onEvent(event: OrcaEvent): Unit = event match
-    case OrcaEvent.StageStarted(name) =>
+    case OrcaEvent.StageStarted(_, name) =>
       state = state.entered(name)
       safeWrite()
-    case OrcaEvent.StageCompleted(_) =>
+    case _: OrcaEvent.StageEnded =>
       state.exited match
         case Some(next) => state = next
         case None =>
-          log.warn(
-            "unbalanced StageCompleted: stage stack already empty, ignoring"
-          )
+          log.warn("unbalanced StageEnded: stage stack already empty, ignoring")
       safeWrite()
     case OrcaEvent.BranchBound(branch) =>
       state = state.withBranch(branch)

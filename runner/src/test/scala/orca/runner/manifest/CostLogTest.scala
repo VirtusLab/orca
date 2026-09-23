@@ -4,7 +4,7 @@ import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import orca.{AttemptId, OrcaDir}
 import orca.agents.{BackendTag, Model}
 import orca.events.{Cost, OrcaEvent, Usage}
-import orca.testkit.TempDirs
+import orca.testkit.{StageEvents, TempDirs}
 import orca.testkit.Usages.usage
 
 import java.time.Instant
@@ -59,7 +59,7 @@ class CostLogTest extends munit.FunSuite:
   test("each line is one turn: identity, stage, turn, session and API calls"):
     val workDir = TempDirs.dir()
     val writer = newWriter(workDir)
-    writer.onEvent(OrcaEvent.StageStarted("code"))
+    writer.onEvent(StageEvents.started("code"))
     writer.onEvent(
       OrcaEvent
         .SessionCommitted(
@@ -83,7 +83,7 @@ class CostLogTest extends munit.FunSuite:
     )
     // Closing the stage between the two turns pins that the stage is stamped
     // when the turn is appended, not at some later write.
-    writer.onEvent(OrcaEvent.StageCompleted("code"))
+    writer.onEvent(StageEvents.ended("code"))
     writer.onEvent(
       OrcaEvent.TokensUsed(
         "reviewer",

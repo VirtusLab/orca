@@ -10,6 +10,7 @@ import orca.events.{
   Usage
 }
 import orca.agents.Model
+import orca.testkit.StageEvents
 import orca.testkit.Usages.usage
 import ox.{fork, supervised}
 
@@ -73,7 +74,7 @@ class CostTrackerTest extends munit.FunSuite:
 
   test("starts at zero and ignores non-TokensUsed events"):
     val tracker = new CostTracker(pricingAsOf)
-    tracker.onEvent(OrcaEvent.StageStarted("x"))
+    tracker.onEvent(StageEvents.started("x"))
     tracker.onEvent(OrcaEvent.Step("hi"))
     assertEquals(tracker.total, Usage.empty)
     assertEquals(tracker.totalCost, None)

@@ -51,9 +51,9 @@ class OpenPrFromBranchTest extends FunSuite:
     val bodies = new ConcurrentLinkedQueue[String]()
     val steps = new ConcurrentLinkedQueue[String]()
     val listener: OrcaListener =
-      case OrcaEvent.StageStarted(name) => stages.add(name): Unit
-      case OrcaEvent.Step(message)      => steps.add(message): Unit
-      case _                            => ()
+      case OrcaEvent.StageStarted(_, name) => stages.add(name): Unit
+      case OrcaEvent.Step(message)         => steps.add(message): Unit
+      case _                               => ()
 
     val summariser = new StubSummariser()
     val control =

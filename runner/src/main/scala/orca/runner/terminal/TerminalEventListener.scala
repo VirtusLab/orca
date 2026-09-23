@@ -7,8 +7,8 @@ import java.util.concurrent.atomic.AtomicReference
 /** Renders `OrcaEvent`s — stage transitions, steps, tool uses, errors — via a
   * [[TerminalOutput]] and tracks the active stage stack + indent depth.
   *
-  * [[stack]] has a single writer: `StageStarted`/`StageCompleted` are emitted
-  * only from `stage`'s thread-affine bookkeeping (R12, ADR 0018 §2.2).
+  * [[stack]] has a single writer: `StageStarted`/`StageEnded` are emitted only
+  * from `stage`'s thread-affine bookkeeping (R12, ADR 0018 §2.2).
   * [[ConversationRenderer]] reads [[currentIndent]] lock-free from its own
   * thread mid-`readLine`; the `@volatile` is the whole publication story.
   */
@@ -43,7 +43,7 @@ private[runner] class TerminalEventListener(
     new AtomicReference[StageEmitters](StageEmitters.Silent)
 
   def onEvent(event: OrcaEvent): Unit = event match
-    case OrcaEvent.StageStarted(name) =>
+    case OrcaEvent.StageStarted(_, name) =>
       // Format at the current depth (so the marker aligns with the enclosing
       // stage's content), then push.
       val line = formatStepLine(name)
@@ -51,9 +51,9 @@ private[runner] class TerminalEventListener(
       stageEmitters.set(StageEmitters.Silent)
       output.log(line)
       output.setStatus(stack.headOption)
-    case OrcaEvent.StageCompleted(_) =>
-      // Completions don't print: starting the next event implies the previous
-      // one finished.
+    case _: OrcaEvent.StageEnded =>
+      // Ends don't print: starting the next event implies the previous one
+      // finished, and a failure has already printed its Error.
       stack = stack.drop(1)
       stageEmitters.set(StageEmitters.Silent)
       output.setStatus(stack.headOption)
