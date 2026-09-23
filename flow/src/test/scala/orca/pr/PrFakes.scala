@@ -28,9 +28,10 @@ import orca.tools.{
   PrHandle,
   PushFailure
 }
-import orca.progress.{BranchMode, CommitHash, ProgressHeader, ProgressStore}
+import orca.gitref.CommitHash
+import orca.progress.{BranchMode, ProgressHeader, ProgressStore}
 import orca.sessions.SessionStore
-import orca.testkit.{GitRepo, PushlessGit, StubGitHubTool}
+import orca.testkit.{GitRepo, PushlessGit, StubGitHubTool, branchName}
 import orca.events.{EventDispatcher, OrcaListener}
 
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -155,6 +156,7 @@ private[pr] def seededPrRepo(
     os.write(dir / "ahead.txt", "earlier work")
     val _ = os.proc("git", "add", "ahead.txt").call(cwd = dir)
     val _ = os.proc("git", "commit", "-m", "earlier").call(cwd = dir)
+  val startedAt = GitRepo.headCommit(dir)
   val _ = os.proc("git", "checkout", "-b", "feat/test").call(cwd = dir)
   if withCode then
     os.write(dir / "code.txt", "real code")
@@ -167,21 +169,15 @@ private[pr] def seededPrRepo(
     case BranchMode.Reused  => "feat/test"
   store.writeHeader(
     ProgressHeader(
-      startingBranch,
-      "feat/test",
+      Some(branchName(startingBranch)),
+      branchName("feat/test"),
       branchMode,
       userPrompt = "p",
       flowName = None,
-      startingCommit = CommitHash.from("0" * 40).get
+      startingCommit = startedAt
     )
   )
   (dir, store)
-
-/** The branch the run's header says it started on, which the PR helpers measure
-  * "did this run change code" against.
-  */
-private[pr] def startBranchOf(store: ProgressStore): String =
-  store.load().map(_.header.startingBranch).getOrElse("main")
 
 /** A control over `dir`/`store` whose `git`/`gh` record into `calls` and whose
   * events reach `listener`. `availability` is only reached by a helper that
@@ -207,13 +203,5 @@ private[pr] def prControl(
     new RecordingGh(calls, availability, createPr, prBodies),
     store,
     SessionStore.default(dir, RunKey.of("p")),
-    // Where the run started, as the runtime records it: the tip of the branch
-    // the header names.
-    CommitHash.from(
-      os.proc("git", "rev-parse", startBranchOf(store))
-        .call(cwd = dir)
-        .out
-        .text()
-        .trim
-    )
+    store.load().map(_.header.startingCommit)
   )

@@ -68,8 +68,8 @@ class OsGitHubToolTest extends munit.FunSuite:
   private val samplePr =
     PrHandle(host = "github.com", owner = "acme", repo = "widgets", number = 42)
 
-  /** Responses for a `createPr` call: the leading `git rev-parse` resolving the
-    * head branch (`feat`), then the given `gh pr create` result, then any
+  /** Responses for a `createPr` call: the leading `git symbolic-ref` resolving
+    * the head branch (`feat`), then the given `gh pr create` result, then any
     * further responses (e.g. `gh pr list` on the already-exists path).
     */
   private def createPrRunner(
@@ -77,7 +77,7 @@ class OsGitHubToolTest extends munit.FunSuite:
       rest: CliResult*
   ): SequencedCliRunner =
     new SequencedCliRunner(
-      CliResult(0, "feat\n", "") +: createResult +: rest.toList
+      CliResult(0, "refs/heads/feat\n", "") +: createResult +: rest.toList
     )
 
   // ── availability ─────────────────────────────────────────────────────────
@@ -394,10 +394,10 @@ class OsGitHubToolTest extends munit.FunSuite:
     )
     val gh = new OsGitHubTool(cli)
     val _ = gh.createPr("feat: hi", "hello").orThrow
-    // gh must be given the branch rev-parse resolved, so pin the order.
+    // gh must be given the branch symbolic-ref resolved, so pin the order.
     assertEquals(
       cli.calls.map(_.args.take(2)),
-      List(Seq("git", "rev-parse"), Seq("gh", "pr"))
+      List(Seq("git", "symbolic-ref"), Seq("gh", "pr"))
     )
     val args = cli.calls.last.args
     assert(args.containsSlice(Seq("gh", "pr", "create")))
@@ -446,7 +446,7 @@ class OsGitHubToolTest extends munit.FunSuite:
   test(
     "createPr returns Left(PrAlreadyExists) when gh reports a duplicate and no open PR is found"
   ):
-    // git rev-parse gives the branch name; gh pr create reports duplicate;
+    // git symbolic-ref gives the branch name; gh pr create reports duplicate;
     // gh pr list returns empty → fallback Left(PrAlreadyExists).
     val cli = createPrRunner(
       CliResult(1, "", "a pull request for branch 'feat' already exists"),
@@ -487,10 +487,8 @@ class OsGitHubToolTest extends munit.FunSuite:
     assert(gh.createPr("t", "b").left.exists(_.isInstanceOf[BranchNotPushed]))
 
   test("createPr throws when not on a branch (detached HEAD)"):
-    // rev-parse prints the literal "HEAD" when detached; the guard rejects it
-    // rather than passing it to --head (it also rejects a blank name, which
-    // would silently re-enable gh's own head detection).
-    val cli = new SequencedCliRunner(List(CliResult(0, "HEAD\n", "")))
+    // `symbolic-ref --quiet` exits 1, printing nothing, when HEAD is detached.
+    val cli = new SequencedCliRunner(List(CliResult(1, "", "")))
     val gh = new OsGitHubTool(cli)
     val e = intercept[OrcaFlowException](gh.createPr("t", "b"))
     assert(e.getMessage.contains("not on a branch"), e.getMessage)
@@ -889,7 +887,7 @@ class OsGitHubToolTest extends munit.FunSuite:
   test(
     "createPr returns Right(existing PR) and emits 'Reusing existing PR' when gh reports 'already exists'"
   ):
-    // Call 1: git rev-parse to get the current branch name
+    // Call 1: git symbolic-ref to get the current branch name
     // Call 2: gh pr create exits 1 with "already exists"
     // Call 3: gh pr list returns JSON with the existing PR
     val prListJson =
@@ -939,8 +937,8 @@ class OsGitHubToolTest extends munit.FunSuite:
       )
     )
 
-  test("the --head rev-parse carries OsGitTool.nonInteractiveEnv"):
-    // The git rev-parse resolving --head must carry the same non-interactive
+  test("the --head symbolic-ref carries OsGitTool.nonInteractiveEnv"):
+    // The git symbolic-ref resolving --head must carry the same non-interactive
     // env as every other git invocation — otherwise a stalled
     // credential/passphrase prompt could hang the flow.
     val cli = createPrRunner(
@@ -948,14 +946,14 @@ class OsGitHubToolTest extends munit.FunSuite:
     )
     val gh = new OsGitHubTool(cli)
     val _ = gh.createPr("feat: hi", "hello").orThrow
-    val revParseCall =
-      cli.calls.headOption.getOrElse(fail("expected a git rev-parse call"))
-    assertEquals(revParseCall.env.get("GIT_TERMINAL_PROMPT"), Some("0"))
+    val symbolicRefCall =
+      cli.calls.headOption.getOrElse(fail("expected a git symbolic-ref call"))
+    assertEquals(symbolicRefCall.env.get("GIT_TERMINAL_PROMPT"), Some("0"))
     assert(
-      revParseCall.env
+      symbolicRefCall.env
         .getOrElse("GIT_SSH_COMMAND", "")
         .contains("-o BatchMode=yes"),
-      revParseCall.env.toString
+      symbolicRefCall.env.toString
     )
 
   // ── upsertComment ────────────────────────────────────────────────────────

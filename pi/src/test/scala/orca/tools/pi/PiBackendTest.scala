@@ -1,9 +1,10 @@
 package orca.tools.pi
 
 import orca.OrcaDir
-import orca.backend.{Continuation, SystemPromptComposer}
+import orca.backend.SystemPromptComposer
 import orca.testkit.Usages.usage
 import orca.agents.{
+  TurnDispatch,
   BackendTag,
   AgentConfig,
   Model,
@@ -250,44 +251,40 @@ class PiBackendTest extends munit.FunSuite:
   private def transcript(cwd: os.Path): String =
     s"""{"type":"session","id":"${SessionId.value(sid)}","cwd":"$cwd"}""" + "\n"
 
-  /** Run one successful turn (which commits the session) and return the backend
-    * plus the session dir Pi was pointed at. The stub never spawns Pi, so that
-    * dir does not exist until a test creates it — which is what lets the probe
-    * cases below be set up by hand.
-    */
-  private def committedSession(): (PiBackend, os.Path) =
-    val runner = new SpawnStubCliRunner(List(successfulProcess()))
-    val backend = backendWith(runner)
-    val _ = backend.runAutonomous("one", sid, AgentConfig())
-    val args = runner.spawnCalls.head.args
-    (backend, os.Path(args(args.indexOf("--session-dir") + 1)))
-
   test("probing a rehydrated session does not create .orca"):
     // The read path (a wire id replayed from the progress log, then probed)
     // must stay effect-free — only spawning pi creates the session dirs.
     val workDir = TempDirs.dir()
     val backend = new PiBackend(new SpawnStubCliRunner(Nil), workDir = workDir)
-    backend.sessions.register(sid, sid.onWire)
-    val _ = backend.sessions.continuation(sid)
+    backend.sessions.rehydrate(sid, sid.onWire)
+    val _ = backend.sessions.dispatchFor(sid)
     assert(!os.exists(workDir / ".orca"))
 
-  test(
-    "continuation is Recorded when the committed session dir holds a transcript"
-  ):
-    val (backend, dir) = committedSession()
+  test("a rehydrated session whose dir holds a transcript resumes"):
+    val workDir = TempDirs.dir()
+    val backend = new PiBackend(new SpawnStubCliRunner(Nil), workDir = workDir)
     os.write(
-      dir / "session.jsonl",
-      transcript(backend.workDir),
+      OrcaDir.piSessionsPath(workDir) / SessionId.value(sid) / "session.jsonl",
+      transcript(workDir),
       createFolders = true
     )
-    assertEquals(backend.sessions.continuation(sid), Continuation.Recorded)
+    backend.sessions.rehydrate(sid, sid.onWire)
+    assertEquals(
+      backend.sessions.dispatchFor(sid).asTurnDispatch,
+      TurnDispatch.Resumed
+    )
 
-  test("continuation is Rebuild when the committed session dir is gone"):
-    val (backend, _) = committedSession()
-    assertEquals(backend.sessions.continuation(sid), Continuation.Rebuild)
+  test("a rehydrated session whose dir is gone opens fresh"):
+    val backend = backendWith(new SpawnStubCliRunner(Nil))
+    backend.sessions.rehydrate(sid, sid.onWire)
+    assertEquals(
+      backend.sessions.dispatchFor(sid).asTurnDispatch,
+      TurnDispatch.Fresh
+    )
 
   test("persistableWireId is the claimed client id once the session commits"):
-    val (backend, _) = committedSession()
+    val backend = backendWith(new SpawnStubCliRunner(List(successfulProcess())))
+    val _ = backend.runAutonomous("one", sid, AgentConfig())
     assertEquals(backend.sessions.persistableWireId(sid), Some(sid.onWire))
 
   // ── retention prune ────────────────────────────────────────────────────────
@@ -373,8 +370,11 @@ class PiBackendTest extends munit.FunSuite:
     val backend = backendAt(workDir)
     val _ =
       sessionDirStamped(workDir, SessionId.value(sid), cutoff.minusMillis(1))
-    backend.sessions.register(sid, sid.onWire)
-    assertEquals(backend.sessions.continuation(sid), Continuation.Rebuild)
+    backend.sessions.rehydrate(sid, sid.onWire)
+    assertEquals(
+      backend.sessions.dispatchFor(sid).asTurnDispatch,
+      TurnDispatch.Fresh
+    )
 
   test("a stale dir the prune trips over is skipped, sparing the rest"):
     val stale = cutoff.minusMillis(1)

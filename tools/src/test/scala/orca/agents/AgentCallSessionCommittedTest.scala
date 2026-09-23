@@ -2,6 +2,7 @@ package orca.agents
 
 import orca.testkit.StubEnforcementCell
 import orca.backend.{
+  Dispatch,
   Conversation,
   Interaction,
   AgentBackend,
@@ -138,6 +139,7 @@ class AgentCallSessionCommittedTest extends munit.FunSuite:
     protected def doRunAutonomous(
         prompt: String,
         session: SessionId[BackendTag.ClaudeCode.type],
+        dispatch: Dispatch[BackendTag.ClaudeCode.type],
         config: AgentConfig,
         events: OrcaListener,
         outputSchema: Option[String]
@@ -156,6 +158,7 @@ class AgentCallSessionCommittedTest extends munit.FunSuite:
     protected def doRunInteractive(
         prompt: String,
         session: SessionId[BackendTag.ClaudeCode.type],
+        dispatch: Dispatch[BackendTag.ClaudeCode.type],
         displayPrompt: String,
         config: AgentConfig,
         outputSchema: Option[String]

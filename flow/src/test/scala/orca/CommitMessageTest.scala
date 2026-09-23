@@ -68,7 +68,7 @@ class CommitMessageTest extends munit.FunSuite:
       val workDir: os.Path,
       val userPrompt: String = "p",
       val stackSettings: StackSettings = StackSettings.empty,
-      private[orca] val startingCommit: Option[orca.progress.CommitHash] = None,
+      private[orca] val startingCommit: Option[orca.gitref.CommitHash] = None,
       val reviewerCatalog: orca.review.ReviewerCatalog =
         orca.review.ReviewerCatalog.builtIn
   ) extends FlowControl,
@@ -109,12 +109,12 @@ class CommitMessageTest extends munit.FunSuite:
     given WorkspaceWrite = WorkspaceWrite.unsafe
     store.writeHeader(
       orca.progress.ProgressHeader(
-        "main",
-        "feat/test",
+        Some(orca.testkit.branchName("main")),
+        orca.testkit.branchName("feat/test"),
         orca.progress.BranchMode.Created,
         userPrompt = "p",
         flowName = None,
-        startingCommit = orca.progress.CommitHash.from("0" * 40).get
+        startingCommit = orca.gitref.CommitHash.from("0" * 40).get
       )
     )
     body(

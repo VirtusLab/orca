@@ -1,7 +1,9 @@
 package orca.shell.actions
 
+import orca.gitref.Head
 import orca.runner.RoleAgents
 import orca.settings.AgentSpec
+import orca.tools.OsGitTool
 
 /** The startup configuration summary (ADR 0021 §4/§8): two lines printed right
   * after the banner, and again after Re-configure, so the user sees what they'd
@@ -51,22 +53,14 @@ private[shell] object ConfigSummary:
   /** `branch: <name>` for the repo at `workDir`, or `None` when there is no
     * branch to name — `workDir` isn't a git repo, or git failed for any other
     * reason. Best-effort like the other lines here: the menu must still paint.
-    *
-    * Detached HEAD (git reports the literal `HEAD`) renders as `branch:
-    * (detached HEAD)` rather than a name no `git checkout` would accept.
     */
   def branchLine(workDir: os.Path): Option[String] =
-    val result = scala.util.Try(
-      os.proc("git", "rev-parse", "--abbrev-ref", "HEAD")
-        .call(cwd = workDir, check = false, stderr = os.Pipe)
-    )
-    result.toOption
-      .filter(_.exitCode == 0)
-      .map(_.out.trim())
-      .filter(_.nonEmpty)
+    scala.util
+      .Try(new OsGitTool(workDir).head())
+      .toOption
       .map:
-        case "HEAD" => "branch: (detached HEAD)"
-        case name   => s"branch: $name"
+        case Head.OnBranch(name) => s"branch: ${name.value}"
+        case Head.Detached(_)    => "branch: (detached HEAD)"
 
   private def renderSpec(spec: Option[AgentSpec]): String =
     spec.fold("claude"): s =>

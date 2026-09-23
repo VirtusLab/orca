@@ -21,6 +21,7 @@ import orca.backend.{
   AgentBackend,
   AgentResult,
   ConversationMode,
+  Dispatch,
   IdScheme,
   SessionSupport,
   SubprocessSpawn,
@@ -152,6 +153,7 @@ private[orca] class ClaudeBackend(
   protected def doRunAutonomous(
       prompt: String,
       session: SessionId[BackendTag.ClaudeCode.type],
+      dispatch: Dispatch[BackendTag.ClaudeCode.type],
       config: AgentConfig,
       events: OrcaListener,
       outputSchema: Option[String]
@@ -164,7 +166,7 @@ private[orca] class ClaudeBackend(
       openConversation(
         prompt = prompt,
         mode = ConversationMode.Autonomous,
-        session = session,
+        dispatch = dispatch,
         config = config,
         outputSchema = outputSchema
       )
@@ -172,6 +174,7 @@ private[orca] class ClaudeBackend(
   protected def doRunInteractive(
       prompt: String,
       session: SessionId[BackendTag.ClaudeCode.type],
+      dispatch: Dispatch[BackendTag.ClaudeCode.type],
       displayPrompt: String,
       config: AgentConfig,
       outputSchema: Option[String]
@@ -179,7 +182,7 @@ private[orca] class ClaudeBackend(
     val conv = openConversation(
       prompt = prompt,
       mode = ConversationMode.Interactive(displayPrompt),
-      session = session,
+      dispatch = dispatch,
       config = config,
       outputSchema = outputSchema
     )
@@ -212,7 +215,7 @@ private[orca] class ClaudeBackend(
   private def openConversation(
       prompt: String,
       mode: ConversationMode,
-      session: SessionId[BackendTag.ClaudeCode.type],
+      dispatch: Dispatch[BackendTag.ClaudeCode.type],
       config: AgentConfig,
       outputSchema: Option[String]
   )(using Ox): Conversation[BackendTag.ClaudeCode.type] =
@@ -246,14 +249,10 @@ private[orca] class ClaudeBackend(
         if askUser.isDefined then
           config.autoApproveAlso(ClaudeBackend.AskUserToolName)
         else config
-      // The registry decides fresh-vs-resume. Callers must not share a session
-      // id across concurrent calls; `reviewAndFixLoop`'s parallel reviewer
-      // fan-out is safe because each reviewer mints its own conversation via
-      // `agent.chat()`.
       val args = ClaudeArgs.streamJson(
         effectiveConfig,
         Some(systemPromptFile),
-        dispatch = sessions.dispatchFor(session),
+        dispatch = dispatch,
         outputSchema,
         mcpConfig = mcpConfig,
         networkTools = networkTools,

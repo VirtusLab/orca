@@ -98,6 +98,7 @@ private[orca] class OpencodeBackend(
   protected def doRunAutonomous(
       prompt: String,
       session: SessionId[BackendTag.Opencode.type],
+      dispatch: Dispatch[BackendTag.Opencode.type],
       config: AgentConfig,
       events: OrcaListener,
       outputSchema: Option[String]
@@ -106,7 +107,7 @@ private[orca] class OpencodeBackend(
     Conversations.runAutonomous(session, sessions, config.autoApprove, events):
       startTurn(
         http,
-        session,
+        dispatch,
         config,
         prompt,
         outputSchema,
@@ -116,6 +117,7 @@ private[orca] class OpencodeBackend(
   protected def doRunInteractive(
       prompt: String,
       session: SessionId[BackendTag.Opencode.type],
+      dispatch: Dispatch[BackendTag.Opencode.type],
       displayPrompt: String,
       config: AgentConfig,
       outputSchema: Option[String]
@@ -125,7 +127,7 @@ private[orca] class OpencodeBackend(
     // event or `cancel`, so no scope-level backstop is needed here.
     startTurn(
       http,
-      session,
+      dispatch,
       config,
       prompt,
       outputSchema,
@@ -155,9 +157,8 @@ private[orca] class OpencodeBackend(
 
   /** The sole session handle. [[IdScheme.ServerMinted]]: the caller's stable id
     * maps to opencode's server-minted `ses_…` id, so subsequent turns resume
-    * it. The bookkeeping is encapsulated; the spawn/commit paths go through
-    * `sessions.dispatchFor` / `Conversations.runAutonomous(session, sessions,
-    * …)`.
+    * it. The bookkeeping is encapsulated; the commit path goes through
+    * `Conversations.runAutonomous(session, sessions, …)`.
     */
   val sessions: SessionSupport[BackendTag.Opencode.type] =
     SessionSupport.durable(
@@ -171,15 +172,15 @@ private[orca] class OpencodeBackend(
       id => probeSession(id, server.http)
     )
 
-  /** The server `ses_…` to drive: a fresh `POST /session`, or the one a prior
-    * turn registered for this caller id.
+  /** The server `ses_…` to drive: a fresh `POST /session`, or the one
+    * `dispatch` resumes.
     */
   private def serverSessionFor(
       http: OpencodeHttp,
-      session: SessionId[BackendTag.Opencode.type]
+      dispatch: Dispatch[BackendTag.Opencode.type]
   ): String =
-    sessions.dispatchFor(session) match
-      case Dispatch.Resume(serverId) => WireSessionId.value(serverId)
+    dispatch match
+      case Dispatch.Resume(serverId, _) => WireSessionId.value(serverId)
       case Dispatch.Fresh(_) =>
         val resp = http.postJson("/session", writeToString(SessionCreateBody()))
         readFromString[SessionCreated](resp).id
@@ -193,13 +194,13 @@ private[orca] class OpencodeBackend(
     */
   private def startTurn(
       http: OpencodeHttp,
-      session: SessionId[BackendTag.Opencode.type],
+      dispatch: Dispatch[BackendTag.Opencode.type],
       config: AgentConfig,
       prompt: String,
       outputSchema: Option[String],
       mode: ConversationMode
   ): OpencodeConversation =
-    val serverSession = serverSessionFor(http, session)
+    val serverSession = serverSessionFor(http, dispatch)
     val source = http.events()
     try
       openConversation(

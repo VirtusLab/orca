@@ -87,7 +87,7 @@ private[claude] object ClaudeArgs:
       throw new IllegalStateException(
         "claude's ClientClaimed scheme must supply a fresh claim id"
       )
-    case Dispatch.Resume(id) => Seq("--resume", WireSessionId.value(id))
+    case Dispatch.Resume(id, _) => Seq("--resume", WireSessionId.value(id))
 
   /** claude's CLI only accepts `--json-schema <inline>` — there's no
     * `--json-schema-file` form. Typical Orca schemas (a few KB) inline fine

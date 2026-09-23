@@ -1,7 +1,7 @@
 package orca
 
 import munit.ScalaCheckSuite
-import orca.progress.BranchName
+import orca.gitref.BranchName
 import org.scalacheck.Arbitrary.arbitrary
 import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll

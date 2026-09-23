@@ -348,7 +348,7 @@ def reviewAndFixLoop[B <: BackendTag](
       Some(ReviewDiffSource.stage(ctx.git, fc.stageBaseCommit))
     case ReviewDiff.WholeRun =>
       fc.startingCommit
-        .filter(c => ctx.git.isAncestorOfHead(c.value))
+        .filter(ctx.git.isAncestorOfHead)
         .map: c =>
           ctx.emit(
             OrcaEvent.Step(

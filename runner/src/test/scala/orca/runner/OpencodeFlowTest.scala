@@ -3,6 +3,7 @@ package orca.runner
 import orca.testkit.StubEnforcementCell
 import orca.{FlowContext, OrcaArgs, StackSettings, flow}
 import orca.backend.{
+  Dispatch,
   Conversation,
   Interaction,
   AgentBackend,
@@ -105,6 +106,7 @@ class OpencodeFlowTest extends munit.FunSuite:
     protected def doRunAutonomous(
         prompt: String,
         session: SessionId[BackendTag.Opencode.type],
+        dispatch: Dispatch[BackendTag.Opencode.type],
         config: AgentConfig,
         events: OrcaListener,
         outputSchema: Option[String]
@@ -113,6 +115,7 @@ class OpencodeFlowTest extends munit.FunSuite:
     protected def doRunInteractive(
         prompt: String,
         session: SessionId[BackendTag.Opencode.type],
+        dispatch: Dispatch[BackendTag.Opencode.type],
         displayPrompt: String,
         config: AgentConfig,
         outputSchema: Option[String]

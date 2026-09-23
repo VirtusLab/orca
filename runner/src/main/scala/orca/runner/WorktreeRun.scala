@@ -1,6 +1,7 @@
 package orca.runner
 
 import orca.{OrcaDir, RunKey}
+import orca.gitref.BranchName
 import orca.tools.{
   MainCheckoutFailure,
   StartBranchFailure,
@@ -83,9 +84,8 @@ private[orca] object WorktreeRun:
   /** An existing registered worktree, made fit to run in: ignore marker back in
     * place (`git clean -xdf` in the main checkout removes it and leaves the
     * worktree it hides), and off a detached HEAD — a create that got half way,
-    * `add` having succeeded where the branch step did not. Running detached
-    * records the literal "HEAD" as the run's starting branch, which resume
-    * refuses as an unsafe ref.
+    * `add` having succeeded where the branch step did not. The run belongs on
+    * its own branch, which a re-run of the task finds ([[bindBranch]]).
     *
     * Every path that concludes "reuse the worktree at `path`" comes through
     * here, so none of them can skip the repair.
@@ -96,8 +96,7 @@ private[orca] object WorktreeRun:
   ): Either[String, os.Path] =
     val _ = OrcaDir.ensureWorktrees(mainCheckout)
     // Anything but a definite branch goes through the repair, unreadable
-    // included: skipping it for a tree whose state is unknown is how a run ends
-    // up recording the literal "HEAD" as its starting branch.
+    // included.
     if Worktrees.onABranch(path) then Right(path) else bindBranch(path)
 
   /** Whether `workDir` is a worktree orca made for its own repository — the
@@ -148,14 +147,25 @@ private[orca] object WorktreeRun:
     * say the worktree exists — it does by then, and the next run finds it.
     */
   private def bindBranch(path: os.Path): Either[String, os.Path] =
-    val branch = s"orca-worktree-${path.last}"
+    BranchName
+      .parse(s"orca-worktree-${path.last}")
+      .left
+      .map(e =>
+        s"internal error: no branch name for the worktree at $path ($e)"
+      )
+      .flatMap(bindTo(path, _))
+
+  private def bindTo(
+      path: os.Path,
+      branch: BranchName
+  ): Either[String, os.Path] =
     Worktrees.startBranch(path, branch) match
       case Right(()) => Right(path)
       case Left(StartBranchFailure.WouldLoseCommits(name)) =>
         Left(
-          s"branch '$name' already has commits this run would not start from " +
-            s"— orca will not move it; merge it, or delete it with " +
-            s"git branch -D $name"
+          s"branch '${name.value}' already has commits this run would not " +
+            "start from — orca will not move it; merge it, or delete it with " +
+            s"git branch -D ${name.value}"
         )
       case Left(StartBranchFailure.GitFailed(message)) =>
         // This runs before the run lock, whose directory is the one being
@@ -168,5 +178,5 @@ private[orca] object WorktreeRun:
         else
           Left(
             s"the worktree at $path exists but could not be put on branch " +
-              s"'$branch': $message"
+              s"'${branch.value}': $message"
           )

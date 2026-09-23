@@ -1,6 +1,7 @@
 package orca.shell
 
 import orca.shell.resume.InterruptedRun
+import orca.testkit.branchName
 
 class MainMenuTest extends munit.FunSuite:
 
@@ -104,7 +105,7 @@ class MainMenuTest extends munit.FunSuite:
     val run = InterruptedRun(
       flowName = "implement.sc",
       userPrompt = "fix the flaky integration test in the payments module",
-      branch = "feat/x",
+      branch = branchName("feat/x"),
       dir = os.root / "work"
     )
     val choices = MainMenu.choices(
@@ -127,7 +128,7 @@ class MainMenuTest extends munit.FunSuite:
     val run = InterruptedRun(
       flowName = "fix.sc",
       userPrompt = "safe\u001b[31m text\u0007",
-      branch = "feat/\u001b[31mx\nnext\u0007",
+      branch = branchName("feat/x"),
       dir = os.root / "work"
     )
     val choices = MainMenu.choices(
@@ -144,7 +145,7 @@ class MainMenuTest extends munit.FunSuite:
     val run = InterruptedRun(
       flowName = "fix.sc",
       userPrompt = "line one\nline two",
-      branch = "feat/x",
+      branch = branchName("feat/x"),
       dir = os.root / "work"
     )
     val choices = MainMenu.choices(
@@ -162,8 +163,14 @@ class MainMenuTest extends munit.FunSuite:
   ):
     val withOffer = MainMenu.choices(
       continueSessionCount = None,
-      resumeOffer =
-        Some(InterruptedRun("a.sc", "short task", "feat/x", os.root / "work"))
+      resumeOffer = Some(
+        InterruptedRun(
+          "a.sc",
+          "short task",
+          branchName("feat/x"),
+          os.root / "work"
+        )
+      )
     )
     val without = MainMenu
       .choices(continueSessionCount = None)
@@ -185,7 +192,7 @@ class MainMenuTest extends munit.FunSuite:
     val run = InterruptedRun(
       flowName = "implement.sc",
       userPrompt = "fix the flaky test",
-      branch = "feat/x",
+      branch = branchName("feat/x"),
       dir = os.root / "repo" / ".orca" / "worktrees" / "ab12cd34"
     )
     val label = MainMenu

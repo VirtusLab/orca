@@ -1,7 +1,7 @@
 package orca.review
 
 import orca.BoundedDiff
-import orca.progress.CommitHash
+import orca.gitref.CommitHash
 import orca.tools.GitTool
 
 /** A change set as the loop hands it out: the diff text a reviewer is sent, and
@@ -51,7 +51,7 @@ private[review] sealed trait ReviewDiffSource:
   /** The commit reviewers are told the diff was sampled against, so a
     * shell-capable reviewer can read past it.
     */
-  def base: Option[String]
+  def base: Option[CommitHash]
 
   /** The sentence introducing the diff in the initial-review prompt; it states
     * what the change set covers.
@@ -65,7 +65,7 @@ private[review] object ReviewDiffSource:
   /** Reads [[ReviewDiff.SampleFromStage]] (ADR 0018 §2.1): everything the
     * working tree has changed since the enclosing stage began.
     */
-  def stage(git: GitTool, base: Option[String]): ReviewDiffSource =
+  def stage(git: GitTool, base: Option[CommitHash]): ReviewDiffSource =
     StageSampled(git, base)
 
   /** Reads [[ReviewDiff.WholeRun]]: everything the working tree has changed
@@ -78,7 +78,7 @@ private[review] object ReviewDiffSource:
     * Shared by both sampled sources so they can't diverge on what a sample
     * carries.
     */
-  private def sampleSince(git: GitTool, base: Option[String]): DiffSample =
+  private def sampleSince(git: GitTool, base: Option[CommitHash]): DiffSample =
     val changes = git.reviewChanges(base)
     DiffSample(
       BoundedDiff.reviewPayload(changes.diff, changes.files),
@@ -93,7 +93,7 @@ private[review] object ReviewDiffSource:
     */
   private case class StageSampled(
       git: GitTool,
-      base: Option[String]
+      base: Option[CommitHash]
   ) extends ReviewDiffSource:
     def sample(): DiffSample = sampleSince(git, base)
     def selectorFiles: List[String] = git.changedFiles(base)
@@ -110,9 +110,9 @@ private[review] object ReviewDiffSource:
       git: GitTool,
       start: CommitHash
   ) extends ReviewDiffSource:
-    def sample(): DiffSample = sampleSince(git, Some(start.value))
-    def base: Option[String] = Some(start.value)
-    def selectorFiles: List[String] = git.changedFiles(Some(start.value))
+    def sample(): DiffSample = sampleSince(git, Some(start))
+    def base: Option[CommitHash] = Some(start)
+    def selectorFiles: List[String] = git.changedFiles(Some(start))
     // Names the concrete base rather than claiming the run's full history:
     // after a corrupt-log restart the recorded base is the restart's HEAD,
     // which excludes the first attempt's commits.
@@ -132,7 +132,7 @@ private[review] object ReviewDiffSource:
       DiffSample(diff, extractChangedFiles(diff))
 
     def sample(): DiffSample = pinnedSample
-    def base: Option[String] = None
+    def base: Option[CommitHash] = None
     def selectorFiles: List[String] = pinnedSample.paths
 
     // Says nothing about how far back the change set reaches: a pinned diff

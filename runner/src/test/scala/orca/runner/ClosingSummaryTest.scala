@@ -1,6 +1,8 @@
 package orca.runner
 
-import orca.progress.{CommitHash, PublishedWork}
+import orca.gitref.{CommitHash, Head}
+import orca.progress.PublishedWork
+import orca.testkit.branchName
 
 /** The worktree shapes of [[ClosingSummary.lines]]. The non-worktree ones are
   * pinned end-to-end by `FlowLifecycleTest`'s closing-summary cases, which run
@@ -21,8 +23,8 @@ class ClosingSummaryTest extends munit.FunSuite:
     assertEquals(
       ClosingSummary
         .lines(
-          "work",
-          Some(RunChanges(base, 2, "work")),
+          Head.OnBranch(branchName("work")),
+          Some(RunChanges(base, 2, branchName("work"))),
           Some(worktree),
           published = None
         ),
@@ -37,8 +39,8 @@ class ClosingSummaryTest extends munit.FunSuite:
     assertEquals(
       ClosingSummary
         .lines(
-          "work",
-          Some(RunChanges(base, 0, "work")),
+          Head.OnBranch(branchName("work")),
+          Some(RunChanges(base, 0, branchName("work"))),
           Some(worktree),
           published = None
         ),
@@ -53,8 +55,8 @@ class ClosingSummaryTest extends munit.FunSuite:
     // was created on, which holds none of the run's commits.
     assertEquals(
       ClosingSummary.lines(
-        "orca-worktree-ab12cd34",
-        Some(RunChanges(base, 2, "work")),
+        Head.OnBranch(branchName("orca-worktree-ab12cd34")),
+        Some(RunChanges(base, 2, branchName("work"))),
         Some(worktree),
         published = None
       ),
@@ -68,8 +70,8 @@ class ClosingSummaryTest extends munit.FunSuite:
   test("a published run names the reference right after where the work is"):
     assertEquals(
       ClosingSummary.lines(
-        "work",
-        Some(RunChanges(base, 2, "work")),
+        Head.OnBranch(branchName("work")),
+        Some(RunChanges(base, 2, branchName("work"))),
         Some(worktree),
         published = Some(PublishedWork("https://github.com/acme/w/pull/7"))
       ),
