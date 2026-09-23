@@ -21,11 +21,11 @@ import ox.either.orThrow
   * cut short by [[summarisePr]].
   *
   * Customise the PR text with `title`/`body`, both given the generated
-  * [[PrSummary]]; a flow that closes an issue passes e.g. `body = s =>
-  * s"${s.body}\n\nCloses #42."`. Point `summarisingAgent` at a cheap model.
-  * `context` anchors it to the originating issue or prompt. Omitted, it is the
-  * run's user prompt and the summariser writes the `Closes` lines for issues
-  * the prompt says to fix; given, the flow adds any `Closes` line itself.
+  * [[PrSummary]]. Point `summarisingAgent` at a cheap model. `context` anchors
+  * it to the originating issue or prompt. Omitted, it is the run's user prompt,
+  * and the summariser adds `Closes` lines for the issues the prompt says to
+  * fix. A flow that passes `context` adds its own `Closes` line through `body`
+  * (`body = s => s"${s.body}\n\nCloses #42."`).
   *
   * `openFindings` is what the run's review loop returned still open; it goes
   * into the body after `body`'s text as its own section
@@ -73,10 +73,8 @@ private[pr] val PushStage: String = "Push branch"
 private[pr] val SummariseStage: String = "Generate PR title and description"
 private[pr] val CreateStage: String = "Open PR"
 
-/** Summarise the branch-vs-`base` diff. When `context` is `None`, the run's
-  * user prompt is the context and the summariser is asked for the `Closes`
-  * lines of issues it names. `base` is by-name so a resumed run, whose recorded
-  * summary replays without the body, does not resolve it.
+/** Summarise the branch-vs-`base` diff. `base` is by-name so a resumed run,
+  * whose recorded summary replays without the body, does not resolve it.
   */
 private[pr] def summarise(
     summarisingAgent: Agent[?],
@@ -84,7 +82,7 @@ private[pr] def summarise(
     context: Option[String],
     instructions: String
 )(using ctx: FlowContext, control: FlowControl): PrSummary =
-  val (finalContext, finalInstructions) = context match
+  val (summaryContext, summaryInstructions) = context match
     case Some(c) => (c, instructions)
     case None =>
       (
@@ -95,8 +93,8 @@ private[pr] def summarise(
     summarisePr(
       agent = summarisingAgent,
       diff = git.diffVsBase(base),
-      context = Some(finalContext),
-      instructions = finalInstructions
+      context = Some(summaryContext),
+      instructions = summaryInstructions
     )
 
 private def createPr(title: String, body: String)(using

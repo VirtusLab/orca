@@ -31,10 +31,10 @@ import scala.util.control.NonFatal
   * [[openPrFromBranch]], which throws instead.
   *
   * Parameters are [[openPrFromBranch]]'s, passed straight through —
-  * `openFindings` and the user-prompt default for `context` included, so a PR
-  * opened here lists what the run's review left open the same way. Like
-  * [[openPrFromBranch]], this does not compile inside a stage: opening the PR
-  * is a top-level step of a flow, and this runs its own stages.
+  * `openFindings` included, so a PR opened here lists what the run's review
+  * left open the same way. Like [[openPrFromBranch]], this does not compile
+  * inside a stage: opening the PR is a top-level step of a flow, and this runs
+  * its own stages.
   */
 def openPrIfGitHub(
     summarisingAgent: Agent[?],

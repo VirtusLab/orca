@@ -148,6 +148,7 @@ class OpenPrFromBranchTest extends FunSuite:
     val prompt =
       run("stub-diff", context = Some("Originating issue: a/b#1")).prompt
     assert(prompt.contains("Originating issue: a/b#1"), prompt)
+    assert(!prompt.contains("User prompt:"), prompt)
     assert(!prompt.contains(PrPrompts.ClosingRefs), prompt)
 
   test("with nothing open the body is the flow's own, nothing appended"):
