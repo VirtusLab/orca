@@ -463,7 +463,8 @@ object FlowCanary:
 
       val _ = openPrIfGitHub(
         summarisingAgent = claude.haiku,
-        openFindings = OpenFindings(taskOpenFindings.flatMap(_.findings))
+        openFindings =
+          OpenFindings(taskOpenFindings.flatMap(_.findings), skipped = None)
       )
 
   /** Role agents (ADR 0020): the three role accessors hand out backend-pinned
@@ -555,7 +556,7 @@ object FlowCanary:
 
         val _ = openPrFromBranch(
           summarisingAgent = claude.haiku,
-          openFindings = OpenFindings(Nil),
+          openFindings = OpenFindings.empty,
           body =
             summary => s"${summary.body}\n\nCloses ${issueHandle.shortRef}."
         )
@@ -648,7 +649,10 @@ object FlowCanary:
               title = "fix: " + summary,
               body = bodyWithOpenFindings(
                 "Failing test + fix.",
-                OpenFindings(taskOpenFindings.flatMap(_.findings))
+                OpenFindings(
+                  taskOpenFindings.flatMap(_.findings),
+                  skipped = None
+                )
               )
             )
 

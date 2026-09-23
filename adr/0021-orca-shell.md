@@ -981,6 +981,13 @@ harness/model/yolo flag exists for either.
 > pair cannot be carried past argv — `FlowFlags` holds a `RunTarget`, and every
 > launch path takes one.
 
+> **Amendment (2026-09-23).** `run`'s options and a flow's own argv are one
+> mainargs class, `RawArgs`, declared once. Launch paths take the flow's
+> `OrcaArgs`, and `OrcaArgs.toArgv` renders the argv `OrcaArgs.parse` reads
+> back. mainargs reads any token starting with `-` as a flag, so a task that
+> starts with `-` goes through `--prompt=<text>`; any other task stays
+> positional, which a flow pinned to an older orca still parses.
+
 Both entry points call a shared `orca.shell.actions` package (`FlowResolution`,
 `RunAction`, `ViewAction`, `EditAction`, `AuthorAction`, `SessionAction`,
 `ConfigAction`, `StackAction`): each takes fully-resolved parameters and does

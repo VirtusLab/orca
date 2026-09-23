@@ -63,9 +63,9 @@ export orca.pr.{
 // is the result type of fixLoop/reviewAndFixLoop/reviewThenFix; DeclinedFinding
 // is what a hand-written `fixLoop` fix function puts in FixOutcome.declined;
 // Lint is constructed at the call site for their `lint` parameter and
-// LintReport is what the summariser-taking `lint` returns. Location is a
-// ReviewFinding and OpenFinding field type — needed by any flow that consumes
-// findings.
+// LintReport is what the summariser-taking `lint` returns. Location and
+// FindingId are ReviewFinding and OpenFinding field types, and SkippedReview an
+// OpenFindings one — needed by any flow that consumes findings.
 export orca.review.{
   allReviewers,
   buildReviewers,
@@ -75,6 +75,7 @@ export orca.review.{
   reviewAndFixLoop,
   reviewThenFix,
   DeclinedFinding,
+  FindingId,
   FixOutcome,
   Lint,
   LintReport,
@@ -90,7 +91,8 @@ export orca.review.{
   ReviewerSelector,
   ReviewFinding,
   ReviewResult,
-  RosterEntry
+  RosterEntry,
+  SkippedReview
 }
 // PushFailure is the Left of GitTool.push's Either, NoDefaultBase of
 // GitTool.defaultBase's; BuildWaitFailed the same for GitHubTool.waitForBuild;

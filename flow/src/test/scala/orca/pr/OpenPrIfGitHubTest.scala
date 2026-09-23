@@ -13,7 +13,7 @@ import orca.tools.{
 import orca.{OutsideStage, WorkspaceWrite}
 import orca.gitref.CommitHash
 import orca.plan.Title
-import orca.review.{OpenFinding, OpenFindings, OpenReason}
+import orca.review.{FindingId, OpenFinding, OpenFindings, OpenReason}
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.progress.{
   BranchMode,
@@ -54,8 +54,14 @@ class OpenPrIfGitHubTest extends FunSuite:
 
   private val oneOpen = OpenFindings(
     List(
-      OpenFinding(Title("Null check missing"), OpenReason.CapReached(3), None)
-    )
+      OpenFinding(
+        FindingId("R1.I1.1"),
+        Title("Null check missing"),
+        OpenReason.CapReached(3),
+        None
+      )
+    ),
+    skipped = None
   )
 
   /** A base a test expects never to be resolved. */
@@ -71,7 +77,7 @@ class OpenPrIfGitHubTest extends FunSuite:
       push: => Either[PushFailure, Unit] = Right(()),
       base: => Either[NoDefaultBase, String] = Right("main"),
       store: ProgressStore => ProgressStore = identity,
-      openFindings: OpenFindings = OpenFindings(Nil)
+      openFindings: OpenFindings = OpenFindings.empty
   ): Run =
     val (dir, seededStore) = seededPrRepo(withCode, branchMode, startBranch)
     runOver(
@@ -97,7 +103,7 @@ class OpenPrIfGitHubTest extends FunSuite:
       base: => Either[NoDefaultBase, String] = Right("main"),
       summariser: StubSummariser = new StubSummariser(),
       beforeRun: os.Path => Unit = _ => (),
-      openFindings: OpenFindings = OpenFindings(Nil)
+      openFindings: OpenFindings = OpenFindings.empty
   ): Run =
     val calls = new ConcurrentLinkedQueue[String]()
     val stages = new ConcurrentLinkedQueue[String]()
@@ -155,7 +161,7 @@ class OpenPrIfGitHubTest extends FunSuite:
       given orca.InStage = orca.InStage.unsafe
       openPrIfGitHub(
         summarisingAgent = new StubSummariser(),
-        openFindings = orca.review.OpenFindings(Nil)
+        openFindings = orca.review.OpenFindings.empty
       )
       """
     )

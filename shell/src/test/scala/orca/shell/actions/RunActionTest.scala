@@ -1,13 +1,13 @@
 package orca.shell.actions
 
-import orca.{RunTarget, Uncommitted}
+import orca.{OrcaArgs, RunTarget, Uncommitted}
 import orca.discovery.Origin
 import orca.shell.flows.DiscoveredFlow
-import orca.shell.run.{FallbackPolicy, FlowFlags, LaunchResult}
+import orca.shell.run.{FallbackPolicy, LaunchResult}
 
 class RunActionTest extends munit.FunSuite:
 
-  test("run hands the caller's flags to the launcher unchanged"):
+  test("run hands the caller's args to the launcher unchanged"):
     withTerminal: terminal =>
       val flow = DiscoveredFlow(
         name = "implement.sc",
@@ -18,8 +18,9 @@ class RunActionTest extends munit.FunSuite:
       )
       // A non-default combination, so a launcher handed defaults of its own
       // instead of these fails here.
-      val flags =
-        FlowFlags(
+      val args =
+        OrcaArgs(
+          userPrompt = "add a rate limiter",
           verbose = true,
           target = RunTarget.NewBranch(Uncommitted.Keep),
           branch = None
@@ -28,8 +29,7 @@ class RunActionTest extends munit.FunSuite:
 
       val result = RunAction.run(
         flow,
-        "add a rate limiter",
-        RunAction.RunOptions(flags, FallbackPolicy.Refuse("hint")),
+        RunAction.RunOptions(args, FallbackPolicy.Refuse("hint")),
         os.pwd,
         terminal,
         recording.fn
@@ -37,13 +37,6 @@ class RunActionTest extends munit.FunSuite:
 
       assertEquals(result, LaunchResult.Ok)
       assertEquals(
-        recording.calls.map(c => (c.fallback, c.flow, c.task, c.flags)),
-        List(
-          (
-            FallbackPolicy.Refuse("hint"),
-            flow.path,
-            "add a rate limiter",
-            flags
-          )
-        )
+        recording.calls.map(c => (c.fallback, c.flow, c.args)),
+        List((FallbackPolicy.Refuse("hint"), flow.path, args))
       )

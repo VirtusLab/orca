@@ -1,8 +1,7 @@
 package orca.shell.run
 
 import org.jline.terminal.Terminal
-import orca.{RunTarget, XdgDirs}
-import orca.gitref.BranchName
+import orca.{OrcaArgs, XdgDirs}
 import orca.shell.ShellVersion
 import orca.shell.ui.{ShellOutput, ShellUi, UiOutcome}
 import orca.subprocess.QuietProc
@@ -23,22 +22,6 @@ private[shell] enum FallbackPolicy:
   case Ask(ui: ShellUi)
   case Refuse(hint: String)
 
-/** The flow-script argv flags every [[FlowLauncher]] launch path threads
-  * through: bundled, and built once at the CLI boundary, instead of a run of
-  * adjacent same-typed positional Booleans that a call site could silently
-  * transpose without a compile error.
-  *
-  * `target` is the run's destination as one [[orca.RunTarget]] rather than the
-  * three flags it renders to, so the combinations orca refuses (`--worktree`
-  * with `--skip-branch` or `--keep-changes`) cannot be handed to a launch path
-  * at all. `branch` is the `--branch` name, `None` to let the flow derive one.
-  */
-private[shell] case class FlowFlags(
-    verbose: Boolean,
-    target: RunTarget,
-    branch: Option[BranchName]
-)
-
 /** Runs a selected flow as a `scala-cli run` child inheriting the shell's
   * terminal (ADR 0021 §2). By default the shell forces its own orca version via
   * `--dep`, overriding the flow's own `//> using dep` pin, so the run-manifest
@@ -56,9 +39,8 @@ private[shell] object FlowLauncher:
     (
         FallbackPolicy,
         os.Path,
-        String,
+        OrcaArgs,
         os.Path,
-        FlowFlags,
         Terminal
     ) => LaunchResult
 
@@ -85,42 +67,33 @@ private[shell] object FlowLauncher:
       .getOrElse(Seq.empty)
 
   /** `scala-cli run <flow> --quiet --verbose [--dep ...] --workspace <dir> --
-    * <task> [--verbose] [<target flags>]`. The `--verbose` before `--` is
-    * scala-cli's own ([[loggingArgs]]); everything after `--` is the flow's
-    * own, parsed by its `OrcaArgs`, so it lands alongside the task text rather
-    * than before it — the destination flags come from
-    * [[orca.RunTarget.toArgv]], which is where their spelling lives.
+    * <args>`. The `--verbose` before `--` is scala-cli's own ([[loggingArgs]]);
+    * everything after `--` is the flow's own ([[orca.OrcaArgs.toArgv]]).
     * `--workspace` relocates scala-cli's own `.scala-build`/`.bsp` build
     * metadata to `workspaceDir` ([[resolveWorkspaceDir]]) instead of next to
     * `flow` — load-bearing for a Project-tier flow, whose script lives inside
     * the user's own repo (`<repo>/.orca/flows/<name>.sc`), same pollution class
     * the `orca` shim's own `--workspace` fixes (ADR 0021 §1 amendment).
     *
-    * A `--branch <name>` ([[orca.RunTarget.branchArgv]]) follows the target
-    * flags.
-    *
-    * Requires `task` to be non-blank — `Main.promptTask` re-prompts on blank
-    * input before this is ever called, so an empty task here means a caller
-    * bug, not a user error to report.
+    * Requires `args.userPrompt` to be non-blank — callers refuse a blank task
+    * first, so an empty task here means a caller bug, not a user error to
+    * report.
     */
   def argv(
       flow: os.Path,
       orcaVersion: Option[String],
-      task: String,
-      flags: FlowFlags,
+      args: OrcaArgs,
       workspaceDir: os.Path
   ): Seq[String] =
     require(
-      task.trim.nonEmpty,
-      "task text must be non-blank — Main.promptTask re-prompts before calling"
+      args.userPrompt.trim.nonEmpty,
+      "task text must be non-blank — callers refuse a blank task first"
     )
-    val verboseArgs = if flags.verbose then Seq("--verbose") else Seq.empty
     Seq("scala-cli", "run", flow.toString) ++
       loggingArgs ++
       depArgs(orcaVersion) ++
-      Seq("--workspace", workspaceDir.toString) ++
-      Seq("--", task) ++
-      verboseArgs ++ flags.target.toArgv ++ RunTarget.branchArgv(flags.branch)
+      Seq("--workspace", workspaceDir.toString, "--") ++
+      args.toArgv
 
   /** The compile probe's argv — same `--workspace` treatment as [[argv]], and
     * for the same reason: without it, the probe (run whenever the forced
@@ -278,14 +251,13 @@ private[shell] object FlowLauncher:
   private[shell] def runAnnounced(
       fallback: FallbackPolicy,
       flow: os.Path,
-      task: String,
+      args: OrcaArgs,
       workDir: os.Path,
-      flags: FlowFlags,
       terminal: Terminal
   ): LaunchResult =
     announced(s"starting flow ${flow.last}", flow.last)(
       ChildTerminal.withChild(terminal)(
-        run(fallback, flow, task, workDir, flags)
+        run(fallback, flow, args, workDir)
       )
     )
 
@@ -299,16 +271,15 @@ private[shell] object FlowLauncher:
     */
   private[shell] def runHonoringPin(
       flow: os.Path,
-      task: String,
+      args: OrcaArgs,
       workDir: os.Path,
-      flags: FlowFlags,
       terminal: Terminal
   ): LaunchResult =
     announced(s"starting flow ${flow.last} (honoring pin)", flow.last)(
       ChildTerminal.withChild(terminal)(
         toLaunchResult(
           spawnInherited(
-            argv(flow, None, task, flags, resolveWorkspaceDir()),
+            argv(flow, None, args, resolveWorkspaceDir()),
             workDir,
             childEnv(flow)
           )
@@ -331,16 +302,15 @@ private[shell] object FlowLauncher:
   def run(
       fallback: FallbackPolicy,
       flow: os.Path,
-      task: String,
-      workDir: os.Path,
-      flags: FlowFlags
+      args: OrcaArgs,
+      workDir: os.Path
   ): LaunchResult =
     val shellVersion = ShellVersion.value
     val forcedVersion =
       if ShellVersion.isRelease(shellVersion) then Some(shellVersion) else None
     val workspaceDir = resolveWorkspaceDir()
     val forcedExit = spawnInherited(
-      argv(flow, forcedVersion, task, flags, workspaceDir),
+      argv(flow, forcedVersion, args, workspaceDir),
       workDir,
       childEnv(flow)
     )
@@ -360,7 +330,7 @@ private[shell] object FlowLauncher:
                 announced(s"pin-honoring re-run of ${flow.last}", flow.last)(
                   toLaunchResult(
                     spawnInherited(
-                      argv(flow, None, task, flags, workspaceDir),
+                      argv(flow, None, args, workspaceDir),
                       workDir,
                       childEnv(flow)
                     )

@@ -131,7 +131,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewerSelection = ReviewerSelector.allEveryRound,
       diff = ReviewDiff.Pinned("")
     )
-    assertEquals(result, OpenFindings(Nil))
+    assertEquals(result, OpenFindings.empty)
 
   test("every finding a reviewer reports reaches the fixer"):
     // Nothing between the reviewer and the fix turn filters findings: all
@@ -219,7 +219,8 @@ class ReviewAndFixTest extends munit.FunSuite:
       title = Title("nit"),
       description = "nit",
       location = Some(Location("src/main/Widget.scala", Some(12))),
-      suggestion = None
+      suggestion = None,
+      reopens = None
     )
     val reviewer = new FakeAgent(
       name = "loud",
@@ -359,8 +360,18 @@ class ReviewAndFixTest extends munit.FunSuite:
     assertEquals(
       result.findings,
       List(
-        OpenFinding(Title("nit"), OpenReason.Declined("deliberate"), None),
-        OpenFinding(Title("stubborn"), OpenReason.CapReached(1), None)
+        OpenFinding(
+          FindingId("R1.I1.2"),
+          Title("nit"),
+          OpenReason.Declined("deliberate"),
+          None
+        ),
+        OpenFinding(
+          FindingId("R2.I1.1"),
+          Title("stubborn"),
+          OpenReason.CapReached(1),
+          None
+        )
       )
     )
 
@@ -399,7 +410,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewerSelection = ReviewerSelector.allEveryRound,
       diff = ReviewDiff.Pinned("")
     )
-    assertEquals(result, OpenFindings(Nil))
+    assertEquals(result, OpenFindings.empty)
     val roundThree = reviewer.seenPrompts
       .lift(2)
       .getOrElse(fail(s"expected three review rounds: ${reviewer.seenPrompts}"))
@@ -419,7 +430,8 @@ class ReviewAndFixTest extends munit.FunSuite:
               title = Title("leaks a handle"),
               description = "DESCRIPTION-MARKER: the stream is never closed",
               location = None,
-              suggestion = None
+              suggestion = None,
+              reopens = None
             )
           )
         )
@@ -464,7 +476,14 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
     assertEquals(
       result.findings,
-      List(OpenFinding(Title("real bug"), OpenReason.NoFixes, None))
+      List(
+        OpenFinding(
+          FindingId("R1.I1.1"),
+          Title("real bug"),
+          OpenReason.NoFixes,
+          None
+        )
+      )
     )
     val emitted = steps.messages
     assert(
@@ -512,11 +531,17 @@ class ReviewAndFixTest extends munit.FunSuite:
       result.findings,
       List(
         OpenFinding(
+          FindingId("R1.I1.1"),
           Title("nit"),
           OpenReason.Declined("still deliberate"),
           None
         ),
-        OpenFinding(Title("real bug"), OpenReason.NoFixes, None)
+        OpenFinding(
+          FindingId("R2.I1.2"),
+          Title("real bug"),
+          OpenReason.NoFixes,
+          None
+        )
       )
     )
 
@@ -556,7 +581,14 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
     assertEquals(
       result.findings,
-      List(OpenFinding(Title("nit"), OpenReason.NoFixes, None))
+      List(
+        OpenFinding(
+          FindingId("R1.I1.1"),
+          Title("nit"),
+          OpenReason.NoFixes,
+          None
+        )
+      )
     )
 
   test("a reviewer joining in round three sees round one's declines"):
@@ -597,7 +629,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
     val joined = late.seenPrompts.headOption
       .getOrElse(fail("the late reviewer never ran"))
-    assert(joined.contains("- b: by design"), joined)
+    assert(joined.contains("- [R1.I1.2] b: by design"), joined)
 
   test("runs multiple reviewers and merges their findings"):
     given FlowControl = control
@@ -957,14 +989,9 @@ class ReviewAndFixTest extends munit.FunSuite:
     val reReview = reviewer.seenPrompts.lift(1).getOrElse(fail("no re-review"))
     assert(reReview.contains("fixed.txt"), s"the fix is missing: $reReview")
 
-  /** The entry every skipped whole-run review returns, so a caller can tell a
-    * skip from a clean review without a new type.
-    */
-  private val skippedWholeRunReview = OpenFindings(
-    List(
-      OpenFinding(Title("whole-run review"), OpenReason.ReviewSkipped, None)
-    )
-  )
+  /** What a skipped whole-run review with no seeds returns. */
+  private val skippedWholeRunReview =
+    OpenFindings(Nil, skipped = Some(SkippedReview.NoStartingCommit))
 
   test("a whole-run review with no recorded starting commit is skipped"):
     // Without a base, diffing against anything else would review the wrong
@@ -1013,35 +1040,60 @@ class ReviewAndFixTest extends munit.FunSuite:
       steps.messages.mkString("\n")
     )
 
-  test("a skipped whole-run review adds its entry to what was seeded"):
-    // The skip entry is added to `priorOpenFindings`, not returned instead of
-    // them: the PR body reads this result, and nothing after the final loop
-    // reports what the per-task runs left open.
+  test("a skipped whole-run review keeps what was seeded"):
+    // The seeds are returned alongside the skip, not dropped: the PR body reads
+    // this result, and nothing after the final loop reports what the per-task
+    // runs left open.
     val steps = new ReviewLoopFixture.StepCapture
     given FlowControl =
       ReviewLoopFixture.controlWithoutStartingCommit(steps.dispatcher)
-    val seeded = OpenFinding(
-      Title("nit"),
-      OpenReason.Declined("the shape is deliberate"),
-      None
-    )
     val result = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
       reviewers = List(asReviewer(new FakeAgent("never-runs"))),
       task = titled("final review"),
       reviewerSelection = ReviewerSelector.allEveryRound,
       diff = ReviewDiff.WholeRun,
-      priorOpenFindings = OpenFindings(List(seeded))
+      priorOpenFindings =
+        List(declinedNit("R1.I1.1", "the shape is deliberate"))
     )
     assertEquals(
       result,
-      OpenFindings(seeded :: skippedWholeRunReview.findings)
+      skippedWholeRunReview.copy(findings =
+        List(declinedNit("S1", "the shape is deliberate"))
+      )
     )
 
-  test("seeds sharing a title collapse before a skipped review adds its own"):
-    // A flow merges what its per-task runs left open, so two tasks whose
-    // fixers declined the same title arrive as two seeds; the PR body must
-    // carry one bullet.
+  test("seeds sharing an id stay separate findings"):
+    // Two tasks can each decline a different defect under one title, and each
+    // per-task loop numbers its ids from round one, so the seeds share both;
+    // the PR body must still carry both reasons.
+    val steps = new ReviewLoopFixture.StepCapture
+    given FlowControl =
+      ReviewLoopFixture.controlWithoutStartingCommit(steps.dispatcher)
+    val inA = Some(Location("A.scala", None))
+    val inB = Some(Location("B.scala", None))
+    val result = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
+      reviewers = List(asReviewer(new FakeAgent("never-runs"))),
+      task = titled("final review"),
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      diff = ReviewDiff.WholeRun,
+      priorOpenFindings = List(
+        declinedNit("R1.I1.1", "task one declined it").copy(location = inA),
+        declinedNit("R1.I1.1", "task two declined it").copy(location = inB)
+      )
+    )
+    assertEquals(
+      result.findings,
+      List(
+        declinedNit("S1", "task one declined it").copy(location = inA),
+        declinedNit("S2", "task two declined it").copy(location = inB)
+      )
+    )
+
+  test("seeds of one defect are one finding, with the latest reason"):
+    // Two tasks left the same title at the same place open: one defect, so
+    // fixing it must clear one entry, not leave a twin behind.
     val steps = new ReviewLoopFixture.StepCapture
     given FlowControl =
       ReviewLoopFixture.controlWithoutStartingCommit(steps.dispatcher)
@@ -1051,31 +1103,14 @@ class ReviewAndFixTest extends munit.FunSuite:
       task = titled("final review"),
       reviewerSelection = ReviewerSelector.allEveryRound,
       diff = ReviewDiff.WholeRun,
-      priorOpenFindings = OpenFindings(
-        List(
-          OpenFinding(
-            Title("nit"),
-            OpenReason.Declined("task one declined it"),
-            None
-          ),
-          OpenFinding(
-            Title("nit"),
-            OpenReason.Declined("task two declined it too"),
-            None
-          )
-        )
+      priorOpenFindings = List(
+        declinedNit("R1.I1.1", "task one declined it"),
+        declinedNit("R1.I1.3", "task two declined it too")
       )
     )
     assertEquals(
-      result,
-      OpenFindings(
-        OpenFinding(
-          Title("nit"),
-          OpenReason.Declined("task two declined it too"),
-          None
-        ) ::
-          skippedWholeRunReview.findings
-      )
+      result.findings,
+      List(declinedNit("S1", "task two declined it too"))
     )
 
   test("seeded open findings reach round one's reviewers and return at exit"):
@@ -1084,26 +1119,32 @@ class ReviewAndFixTest extends munit.FunSuite:
     // already answered — and still in the exit record.
     given FlowControl = control
     val reviewer = new FakeAgent("r", outputs = List(ReviewResult.empty))
-    val seeded = OpenFinding(
-      Title("nit"),
-      OpenReason.Declined("the shape is deliberate"),
-      None
-    )
     val result = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
       reviewers = List(asReviewer(reviewer)),
       task = titled("final review"),
       reviewerSelection = ReviewerSelector.allEveryRound,
       diff = ReviewDiff.Pinned(""),
-      priorOpenFindings = OpenFindings(List(seeded))
+      priorOpenFindings =
+        List(declinedNit("R1.I1.1", "the shape is deliberate"))
     )
     val sent = reviewer.seenPrompts.headOption
       .getOrElse(fail("the reviewer was never called"))
     assert(
-      sent.contains("- nit: the shape is deliberate"),
+      sent.contains("- [S1] nit: the shape is deliberate"),
       s"seeded decline missing from the round-one prompt: $sent"
     )
-    assertEquals(result, OpenFindings(List(seeded)))
+    assertEquals(
+      result,
+      OpenFindings(
+        List(declinedNit("S1", "the shape is deliberate")),
+        skipped = None
+      )
+    )
+
+  /** A finding titled "nit" under `id`, declined for `reason`. */
+  private def declinedNit(id: String, reason: String): OpenFinding =
+    OpenFinding(FindingId(id), Title("nit"), OpenReason.Declined(reason), None)
 
   test("the fixer's declines reach the next round's reviewer, its fixes don't"):
     // A decline is the one thing a reviewer cannot recover by reading the tree:
@@ -1138,7 +1179,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       .lift(1)
       .getOrElse(fail("the reviewer was never resumed"))
     assert(
-      resumed.contains("- nit: the shape is deliberate"),
+      resumed.contains("- [R1.I1.2] nit: the shape is deliberate"),
       s"decline missing from re-review prompt: $resumed"
     )
     assert(
@@ -1179,7 +1220,14 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
     assertEquals(
       result.findings,
-      List(OpenFinding(Title("only-x"), OpenReason.Declined("accepted"), None))
+      List(
+        OpenFinding(
+          FindingId("R1.I1.1"),
+          Title("only-x"),
+          OpenReason.Declined("accepted"),
+          None
+        )
+      )
     )
 
   test(
@@ -1214,7 +1262,14 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
     assertEquals(
       result.findings,
-      List(OpenFinding(Title("only-x"), OpenReason.Declined("accepted"), None))
+      List(
+        OpenFinding(
+          FindingId("R1.I1.1"),
+          Title("only-x"),
+          OpenReason.Declined("accepted"),
+          None
+        )
+      )
     )
     assert(reviewerX.seenSessions.nonEmpty, "the picked reviewer must run")
     assert(
@@ -1312,7 +1367,14 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
     assertEquals(
       result.findings,
-      List(OpenFinding(Title("only-x"), OpenReason.Declined("accepted"), None))
+      List(
+        OpenFinding(
+          FindingId("R1.I1.1"),
+          Title("only-x"),
+          OpenReason.Declined("accepted"),
+          None
+        )
+      )
     )
 
   test("the round's opening Step names every agent it runs"):
@@ -1617,7 +1679,12 @@ class ReviewAndFixTest extends munit.FunSuite:
     assertEquals(
       result.findings,
       List(
-        OpenFinding(Title("lint-found"), OpenReason.Declined("accepted"), None)
+        OpenFinding(
+          FindingId("R1.I2.1"),
+          Title("lint-found"),
+          OpenReason.Declined("accepted"),
+          None
+        )
       )
     )
 
@@ -1635,7 +1702,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewerSelection = ReviewerSelector.allEveryRound,
       diff = ReviewDiff.Pinned("")
     )
-    assertEquals(result, OpenFindings(Nil))
+    assertEquals(result, OpenFindings.empty)
 
   test("Configured.Off keeps both gates off despite non-empty settings"):
     // Settings define format + lint, but the call opts out. The format
@@ -1660,7 +1727,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       lint = Configured.Off,
       diff = ReviewDiff.Pinned("")
     )
-    assertEquals(result, OpenFindings(Nil))
+    assertEquals(result, OpenFindings.empty)
     assert(!os.exists(fmtLog), "format must not run under Configured.Off")
 
   test("Configured.Use beats non-empty settings"):
@@ -1688,7 +1755,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       lint = Configured.Use(Lint(List("echo overridden"), summariser)),
       diff = ReviewDiff.Pinned("")
     )
-    assertEquals(result, OpenFindings(Nil))
+    assertEquals(result, OpenFindings.empty)
     assertEquals(os.read.lines(fmtLog).toList, List("explicit"))
 
   test("reviewer LLM runs are tagged with the cost role"):
@@ -1744,7 +1811,14 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
     assertEquals(
       result.findings,
-      List(OpenFinding(Title("from-x"), OpenReason.Declined("ok"), None))
+      List(
+        OpenFinding(
+          FindingId("R1.I1.1"),
+          Title("from-x"),
+          OpenReason.Declined("ok"),
+          None
+        )
+      )
     )
     assert(rosterX.seenSessions.nonEmpty, "the selected reviewer must run")
     assert(
@@ -1777,7 +1851,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
     assertEquals(
       result,
-      OpenFindings(Nil),
+      OpenFindings.empty,
       "empty selection ⇒ no findings ⇒ loop stops with nothing accumulated"
     )
     val emitted = steps.messages
@@ -1812,7 +1886,14 @@ class ReviewAndFixTest extends munit.FunSuite:
     assertEquals(rosterX.seenSessions.size, 1)
     assertEquals(
       result.findings,
-      List(OpenFinding(Title("from-x"), OpenReason.Declined("ok"), None))
+      List(
+        OpenFinding(
+          FindingId("R1.I1.1"),
+          Title("from-x"),
+          OpenReason.Declined("ok"),
+          None
+        )
+      )
     )
 
   test(

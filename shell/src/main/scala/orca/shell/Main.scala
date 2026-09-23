@@ -1,7 +1,7 @@
 package orca.shell
 
 import org.jline.terminal.Terminal
-import orca.{ConfigHome, RunTarget, Uncommitted}
+import orca.{ConfigHome, OrcaArgs, RunTarget, Uncommitted}
 import orca.shell.actions.{
   AuthorAction,
   AuthorParams,
@@ -22,7 +22,7 @@ import orca.gitref.BranchName
 import orca.progress.FeatureBranch
 import orca.shell.flows.{DiscoveredFlow, FlowEditor}
 import orca.shell.resume.{InterruptedRun, ResumeDetector}
-import orca.shell.run.{FallbackPolicy, FlowFlags, LaunchResult}
+import orca.shell.run.{FallbackPolicy, LaunchResult}
 import orca.shell.sessions.{
   AttemptListing,
   ManifestReader,
@@ -383,11 +383,10 @@ object Main:
       // explicit-directory test seam.
       runAction: (
           DiscoveredFlow,
-          String,
           RunAction.RunOptions,
           os.Path,
           Terminal
-      ) => LaunchResult = RunAction.run(_, _, _, _, _)
+      ) => LaunchResult = RunAction.run(_, _, _, _)
   ): Unit =
     for
       flow <- listFlows(workDir).flatMap(
@@ -399,9 +398,14 @@ object Main:
         case UiOutcome.Selected(branch) => Some(branch)
         case UiOutcome.Cancelled        => None
     do
-      val flags = FlowFlags(verbose = false, target = target, branch = branch)
-      val opts = RunAction.RunOptions(flags, FallbackPolicy.Ask(ui))
-      runAction(flow, task, opts, workDir, terminal).discard
+      val args = OrcaArgs(
+        userPrompt = task,
+        verbose = false,
+        target = target,
+        branch = branch
+      )
+      val opts = RunAction.RunOptions(args, FallbackPolicy.Ask(ui))
+      runAction(flow, opts, workDir, terminal).discard
 
   /** The run's `--branch` name, asked for only when `target` creates a branch.
     */
@@ -451,29 +455,29 @@ object Main:
       run: InterruptedRun,
       runAction: (
           DiscoveredFlow,
-          String,
           RunAction.RunOptions,
           os.Path,
           Terminal
           // Spelled as a lambda, not `RunAction.run`: the real method has a
           // trailing injectable `launch` of its own, which eta-expansion would
           // pull into this shape.
-      ) => LaunchResult = RunAction.run(_, _, _, _, _)
+      ) => LaunchResult = RunAction.run(_, _, _, _)
   ): Unit =
     FlowResolution.resolve(run.flowName, run.dir) match
       case Left(message) => ShellOutput.error(message)
       case Right(flow) =>
         val opts =
           RunAction.RunOptions(
-            // The progress log's header names the branch on resume.
-            flags = FlowFlags(
+            args = OrcaArgs(
+              userPrompt = run.userPrompt,
               verbose = false,
               target = RunTarget.NewBranch(Uncommitted.Stash),
+              // The progress log's header names the branch on resume.
               branch = None
             ),
             fallback = FallbackPolicy.Ask(ui)
           )
-        runAction(flow, run.userPrompt, opts, run.dir, terminal).discard
+        runAction(flow, opts, run.dir, terminal).discard
 
   /** Prompts for the flow's task text, re-prompting on blank input — an empty
     * `userPrompt` reaches the flow's agent directly (branch naming, the coding
