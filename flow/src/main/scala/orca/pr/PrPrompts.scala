@@ -2,8 +2,8 @@ package orca.pr
 
 import orca.util.PromptResource
 
-/** Default prompt fragments for the helpers in this package, overridable via
-  * each helper's `instructions` parameter. Source text lives in
+/** Prompt fragments for the helpers in this package; `Summarise` is overridable
+  * via `instructions`. Source text lives in
   * `src/main/resources/orca/pr/prompts/`.
   */
 object PrPrompts:
@@ -13,3 +13,9 @@ object PrPrompts:
     */
   val Summarise: String =
     PromptResource.load("/orca/pr/prompts/summarise.md")
+
+  /** Appended to the summariser's instructions, custom ones included, when
+    * `context` is omitted and the run's user prompt stands in for it.
+    */
+  val ClosingRefs: String =
+    PromptResource.load("/orca/pr/prompts/closing-refs.md")
