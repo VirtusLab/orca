@@ -529,11 +529,12 @@ object FlowLifecycle:
     * `resolution`'s already-resolved settings, or run [[StackDiscovery]] and
     * write the settings file when discovery is needed — the whole rendered file
     * for an absent one, or the discovered entries appended below an agents-only
-    * hand-written file's untouched agent lines (ADR 0020 §7). `os.write.over`
-    * because a stash upstream may already have swept an untracked file out of
-    * the tree. A [[StackOutcome.Discovered]] result means this call wrote the
-    * file, which [[setup]] then commits. A discovery failure aborts as a
-    * surfaced failure — no degrade-to-empty-file (see [[StackDiscovery]]).
+    * hand-written file's untouched agent lines (ADR 0020 §7). A replace, not a
+    * create, even for an absent file: a stash upstream may already have swept
+    * an untracked file out of the tree. A [[StackOutcome.Discovered]] result
+    * means this call wrote the file, which [[setup]] then commits. A discovery
+    * failure aborts as a surfaced failure — no degrade-to-empty-file (see
+    * [[StackDiscovery]]).
     */
   private def resolveStackSettings(
       agent: Agent[?],
@@ -553,11 +554,7 @@ object FlowLifecycle:
           case None => SettingsFile.render(entries)
           case Some(content) =>
             content + "\n" + SettingsFile.renderAppend(entries)
-        os.write.over(
-          OrcaDir.settingsPath(workDir),
-          fileText,
-          createFolders = true
-        )
+        OrcaDir.settingsFile(workDir).replace(fileText)
         emit(
           OrcaEvent.Step(
             "written to .orca/settings.properties — review and edit as needed."
@@ -617,17 +614,10 @@ object FlowLifecycle:
       stackOverride: Option[StackSettings]
   ): SettingsRead =
     val projectPath = OrcaDir.settingsPath(workDir)
-    // A repo can commit `.orca/settings.properties` — or `.orca` itself — as a
-    // symlink pointing outside the tree, which `os.read`/`os.write.over` follow,
-    // landing discovery output at the target. `os.isLink` inspects only the
-    // final path component, so a symlinked `.orca` directory would slip past a
-    // leaf-only check; guard both components here, before any tree mutation,
-    // rather than at the post-stash write site. The `.orca` check is
-    // defense-in-depth: `OrcaDir.ensureCache` already refuses a symlinked
-    // `.orca` earlier, but the discovery write reaches the directory through
-    // `createFolders`, not `ensureRoot`.
-    abortIfSymlink(OrcaDir.rootPath(workDir))
-    abortIfSymlink(projectPath)
+    // A repo can commit `.orca/settings.properties` as a symlink pointing
+    // outside the tree, which `os.read` follows. Refused here, before any tree
+    // mutation, so the abort leaves the current branch untouched.
+    OrcaDir.assertNoOrcaSymlinks(workDir, projectPath)
     val projectContent: Option[String] =
       if os.exists(projectPath) then Some(readOrAbort(projectPath))
       else None
@@ -656,24 +646,6 @@ object FlowLifecycle:
                 projectContent.filterNot(_.isBlank)
               )
     SettingsRead(stack, projectAgents, globalAgents)
-
-  /** Abort the run if `path` is a symlink, before any read or write decision —
-    * this runs ahead of `ensureClean`, so the abort precedes any tree mutation
-    * and leaves the current branch untouched. `os.isLink` does not follow the
-    * final link, so a dangling link is caught too.
-    *
-    * Accepted residual (TOCTOU): the check runs at read time and the discovery
-    * write happens later, so a purely local race could swap in a symlink in
-    * that window. Out of scope under the committed-repo-symlink threat model
-    * (the attacker controls repo content, not the local filesystem mid-run).
-    */
-  private def abortIfSymlink(path: os.Path): Unit =
-    if os.isLink(path) then
-      throw new OrcaFlowException(
-        s"$path is a symlink — refusing to read or write through it (a " +
-          "committed symlink could redirect discovery output outside the " +
-          "working tree)"
-      )
 
   private def readOrAbort(path: os.Path): String =
     try os.read(path)

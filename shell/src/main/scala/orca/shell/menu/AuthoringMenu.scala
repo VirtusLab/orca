@@ -123,10 +123,7 @@ private[menu] object AuthoringMenu:
       tier <- pickTier(ui, "Where should the new flow be saved:")
       target <- promptNewFlowFilename(ui, tier)
     do
-      os.write.over(
-        target.flowPath,
-        FlowAuthoring.skeletonFlow(OrcaBuild.current)
-      )
+      os.write(target.flowPath, FlowAuthoring.skeletonFlow(OrcaBuild.current))
       spawnEditor(terminal, target.flowPath).discard
 
   /** Prompts for the new flow's filename, defaulted to `new-flow.sc` and

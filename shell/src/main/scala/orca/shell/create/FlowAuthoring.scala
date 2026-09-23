@@ -283,13 +283,13 @@ private[shell] object FlowAuthoring:
   /** `fileName` (`.sc` suffix ensured) in `tier`'s flows directory, which is
     * created if absent. Refuses on a filename collision — the authored file is
     * written there later, so a pre-existing file is never intended to be
-    * overwritten.
+    * overwritten. A dangling symlink counts as a collision.
     */
   def prepareTarget(tier: Tier, fileName: String)(using
       ShellEnv
   ): Either[String, FlowDestination] =
     val flowPath = tier.ensureFlowsDir / normalizedFileName(fileName)
-    if os.exists(flowPath) then
+    if os.exists(flowPath, followLinks = false) then
       Left(s"$flowPath already exists — pick a different name")
     else Right(FlowDestination.of(tier, flowPath))
 

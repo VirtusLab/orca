@@ -59,10 +59,12 @@ object SessionStore:
     * reads back its own records.
     */
   def default(workDir: os.Path, key: RunKey): SessionStore =
-    OsSessionStore(workDir, OrcaDir.sessionRecordsPath(workDir, key))
+    OsSessionStore(workDir, key)
 
-private class OsSessionStore(workDir: os.Path, val path: os.Path)
+private class OsSessionStore(workDir: os.Path, key: RunKey)
     extends SessionStore:
+
+  val path: os.Path = OrcaDir.sessionRecordsPath(workDir, key)
 
   private given JsonValueCodec[List[SessionRecord]] = OsSessionStore.codec
 
@@ -85,7 +87,7 @@ private class OsSessionStore(workDir: os.Path, val path: os.Path)
     val idx = current.indexWhere(_.key == record.key)
     val updated =
       if idx >= 0 then current.updated(idx, record) else current :+ record
-    JsonFile.write(path, OrcaDir.ensureCacheRuns(workDir), updated)
+    JsonFile.write(OrcaDir.sessionRecordsFile(workDir, key), updated)
 
   def discard()(using ws: WorkspaceWrite): Unit =
     ws.check("sessionStore.discard")
