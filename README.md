@@ -286,25 +286,23 @@ Orca's agents are ordinary harness sessions — `claude`, `gemini`, `codex`,
 files (`~/.claude/CLAUDE.md`, `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`,
 `GEMINI.md`, …), MCP servers, plugins and hooks as your own sessions.
 
-They run headless, so no one answers permission prompts:
+Autonomous turns have no one to answer prompts (see above), so:
 
-- Coding turns auto-approve everything (claude: `--permission-mode
-  bypassPermissions`).
-- Read-only roles — planner, reviewers, reviewer picker — get a fixed tool list
-  plus orca's own MCP tools. Any other tool call is denied.
-- Cheap one-shots (branch names, default commit messages) run with no tools and
-  no MCP servers.
-
-On claude, `permissions.allow` rules in your claude settings add to orca's list:
-an MCP tool allowed there also works in read-only turns.
+- Coding turns auto-approve everything by default (`AgentConfig.autoApprove`
+  narrows it).
+- On claude, read-only roles (planner, reviewers, reviewer picker) deny any
+  tool outside orca's list, your MCP tools included, unless your claude
+  settings `permissions.allow` them.
+- On claude, opencode and pi, cheap one-shots (branch names, default commit
+  messages) run with no tools and no MCP servers.
 
 Check your instructions for:
 
-- **Mandatory tool calls.** "Always call X first" fails in read-only turns
-  unless X is allowed in your harness settings. Allow it, or write "if
-  available".
-- **A human in the loop.** "Ask me before X" or "wait for confirmation" cannot
-  work: no one is there to answer.
+- **Mandatory tool calls.** On claude, "always call X first" fails in
+  read-only turns unless X is allowed in your claude settings. Allow it, or
+  write "if available".
+- **A human in the loop.** In autonomous flows, "ask me before X" or "wait for
+  confirmation" cannot work: no one is there to answer.
 
 ## Flow methods
 
