@@ -9,6 +9,7 @@ import orca.shell.ScanDirs
 import orca.shell.actions.SessionAction
 import orca.shell.create.CreateTier
 import orca.discovery.Origin
+import orca.progress.FlowSource
 import orca.shell.flows.DiscoveredFlow
 import orca.shell.run.LaunchResult
 import orca.shell.sessions.{
@@ -810,7 +811,8 @@ class CliTest extends munit.FunSuite:
       description = Some("does a thing"),
       origin = Origin.Project,
       path = os.root / "tmp" / "x.sc",
-      shadows = List(Origin.Global, Origin.BuiltIn)
+      shadows = List(Origin.Global, Origin.BuiltIn),
+      source = FlowSource.Catalog("x.sc")
     )
     val row = Tables.toFlowRow(flow)
     assertEquals(row.name, "x.sc")

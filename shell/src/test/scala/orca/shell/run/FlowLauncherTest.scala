@@ -1,10 +1,13 @@
 package orca.shell.run
 
-import orca.{OrcaArgs, RunTarget, Uncommitted}
+import orca.{FlowSourceProperty, OrcaArgs, RunTarget, Uncommitted}
+import orca.progress.FlowSource
 
 class FlowLauncherTest extends munit.FunSuite:
 
-  private val flow = os.root / "home" / "u" / "flow.sc"
+  private val flowPath = os.root / "home" / "u" / "flow.sc"
+  private val flow = LaunchedFlow(flowPath, FlowSource.Catalog("flow.sc"))
+  private val sourceProp = FlowSourceProperty.assignment(flow.source)
   private val workspaceDir = os.root / "home" / "u" / ".cache" / "workspace"
 
   private val args = OrcaArgs(
@@ -26,11 +29,13 @@ class FlowLauncherTest extends munit.FunSuite:
       Seq(
         "scala-cli",
         "run",
-        flow.toString,
+        flowPath.toString,
         "--quiet",
         "--verbose",
         "--dep",
         "org.virtuslab::orca:0.0.18",
+        "--java-prop",
+        sourceProp,
         "--workspace",
         workspaceDir.toString,
         "--",
@@ -50,9 +55,11 @@ class FlowLauncherTest extends munit.FunSuite:
       Seq(
         "scala-cli",
         "run",
-        flow.toString,
+        flowPath.toString,
         "--quiet",
         "--verbose",
+        "--java-prop",
+        sourceProp,
         "--workspace",
         workspaceDir.toString,
         "--",
@@ -72,13 +79,13 @@ class FlowLauncherTest extends munit.FunSuite:
   test("argv keeps a spaces-bearing flow path as a single argv element"):
     val spacedFlow = os.root / "home" / "u" / "my flows" / "release.sc"
     val result = FlowLauncher.argv(
-      spacedFlow,
+      flow.copy(path = spacedFlow),
       None,
       args,
       workspaceDir
     )
     assertEquals(result(2), spacedFlow.toString)
-    assertEquals(result.length, 9)
+    assertEquals(result.length, 11)
 
   test(
     "argv rejects a blank task — Main.promptTask should have re-prompted before this is ever called"
@@ -92,11 +99,10 @@ class FlowLauncherTest extends munit.FunSuite:
       )
     )
 
-  test("childEnv sets ORCA_FLOW_NAME to the flow script's filename"):
-    assertEquals(
-      FlowLauncher.childEnv(flow),
-      Map("ORCA_FLOW_NAME" -> "flow.sc")
-    )
+  test("compileArgv passes the same flow source as argv"):
+    // scala-cli rebuilds when a --java-prop value changes.
+    val compile = FlowLauncher.compileArgv(flow, None, workspaceDir)
+    assert(compile.containsSlice(Seq("--java-prop", sourceProp)), compile)
 
   test(
     "resolveNextAction: a signal-range exit (SIGINT 130 / SIGTERM 143) is CancelledBySignal, without invoking the compile probe"

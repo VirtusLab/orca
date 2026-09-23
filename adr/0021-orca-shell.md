@@ -235,6 +235,13 @@ runtime's own glyph family (`⏺`/`●`/`▶`/`▸`).
 > worktree of that exact prompt — otherwise it would silently start a fresh run
 > in a tree with no log, leaving the interrupted one behind.
 
+> **Amendment (2026-09-23).** The header records the flow as the user named
+> it (`FlowSource`): a catalog name is looked up again in the shell's own
+> checkout on resume, the same as re-running `orca run <name>`; a flow
+> launched by path records the absolute path, and the resume runs that file,
+> shown in full in the menu label. A recorded path that isn't an absolute
+> `.sc` path printing exactly as stored gets no offer.
+
 > **Amendment (2026-08-01).** A `branch: <name>` line prints directly above
 > the menu prompt, re-read on every redraw (like Continue's manifest listing
 > and the resume check) so it stays true after a flow run switches branches —
@@ -455,9 +462,9 @@ log by `clientId`, and writes the manifest.
 one writer per workdir thanks to `FlowLock`), schema v1 per research 08 §4:
 `manifestVersion` (hard gate, checked before the body is decoded — any
 version other than the one the build writes ⇒ skip with
-a message), `orcaVersion`, `flow` (populated from the `ORCA_FLOW_NAME` env
-var the shell sets before exec'ing the child — the flow's filename is
-unknowable in-library; `None` for direct `scala-cli run` invocations),
+a message), `orcaVersion`, `flow` (the script's filename, from the `orca.flow` JVM system
+property the shell passes the child with `--java-prop` — the flow's filename
+is unknowable in-library; `None` for direct `scala-cli run` invocations),
 `workDir`, `pid`, timestamps, `outcome`, and per session: harness, wireId,
 `resumable` + reason, agent, role, stage, sessionName, kind, first/last-seen.
 `kind` is derived at the listener: `durable` when the `clientId` joins a

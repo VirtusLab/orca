@@ -210,11 +210,11 @@ private[runner] object SetupPreflight:
     * long task can't bury the guidance after it.
     *
     * The shell's menu row is mentioned as a possibility, not a promise, and
-    * only when the header carries a flow name — the shell needs one to offer
-    * the row at all, but applies further conditions of its own
-    * (`ResumeDetector`), so the always-available re-run route is given either
-    * way. Abandoning is spelled as a git removal: the log is committed on the
-    * branch, so a plain `rm` is undone by the next run's auto-stash restore.
+    * only when the header records a flow — the shell needs one to offer the row
+    * at all, but applies further conditions of its own (`ResumeDetector`), so
+    * the always-available re-run route is given either way. Abandoning is
+    * spelled as a git removal: the log is committed on the branch, so a plain
+    * `rm` is undone by the next run's auto-stash restore.
     */
   private def branchBusyMessage(
       log: ScannedProgressLog,
@@ -223,12 +223,12 @@ private[runner] object SetupPreflight:
   ): String =
     val header = log.header
     val task = TextUtil.onelinePreview(header.userPrompt, 60)
-    val flow = header.flowName
-      .map(name => s", flow: ${TextUtil.onelinePreview(name, 40)}")
+    val flow = header.flow
+      .map(source => s", flow: ${source.display}")
       .getOrElse("")
     val logPath = log.path.relativeTo(workDir)
     val shellRoute =
-      if header.flowName.isDefined then
+      if header.flow.isDefined then
         ", which the orca shell may also offer as \"Resume interrupted run\""
       else ""
     s"branch '${startingBranch.value}' already has an unfinished orca run on it " +

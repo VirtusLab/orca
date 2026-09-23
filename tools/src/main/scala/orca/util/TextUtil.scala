@@ -31,9 +31,18 @@ private[orca] object TextUtil:
     * burying the text around it.
     */
   def onelinePreview(text: String, maxLen: Int): String =
-    val flattened = collapseWhitespace(text.strip()).filterNot(_.isControl)
+    val flattened = oneline(text)
     if flattened.length > maxLen then s"${flattened.take(maxLen)}…"
     else flattened
+
+  /** [[onelinePreview]] without the clipping. */
+  def oneline(text: String): String =
+    collapseWhitespace(text.strip()).filterNot(_.isControl)
+
+  /** `s` as one single-quoted POSIX shell word, so spaces or quotes in it can't
+    * split a command.
+    */
+  def shellQuote(s: String): String = "'" + s.replace("'", "'\\''") + "'"
 
   /** Collapse each newline run (with adjacent whitespace) to a single space,
     * leaving other whitespace intact. Enforces the settings-file

@@ -19,21 +19,24 @@ class ProgressLogTest extends FunSuite:
   private def header(
       branch: String,
       branchMode: BranchMode = BranchMode.Created,
-      flowName: Option[String] = None
+      flow: Option[FlowSource] = None
   ): ProgressHeader =
     ProgressHeader(
       startingBranch = Some(testkit.branchName("main")),
       branch = testkit.branchName(branch),
       branchMode = branchMode,
       userPrompt = "fix the flaky test",
-      flowName = flowName,
+      flow = flow,
       startingCommit =
         CommitHash.from("0badc0ffee0ddf00d1234567890abcdef1234567").get
     )
 
   test("ProgressLog round-trips through JsonData codec"):
     val log = ProgressLog(
-      header = header("feat/my-feature", flowName = Some("implement.sc")),
+      header = header(
+        "feat/my-feature",
+        flow = Some(FlowSource.Catalog("implement.sc"))
+      ),
       entries = List(
         StageEntry(
           id = "stage-1",

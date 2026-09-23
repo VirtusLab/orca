@@ -1,14 +1,15 @@
 package orca.shell.resume
 
 import orca.gitref.BranchName
-import orca.progress.{ProgressHeader, ProgressLog, ProgressScan}
+import orca.progress.{FlowSource, ProgressHeader, ProgressLog, ProgressScan}
+import orca.shell.actions.FlowResolution
 import orca.util.JsonFile
 
-/** An unfinished flow run, byte-identically relaunchable: the flow script's
-  * filename and the exact task text that started it (ADR 0021 §3 amendment).
+/** An unfinished flow run, byte-identically relaunchable: the flow script and
+  * the exact task text that started it (ADR 0021 §3 amendment).
   */
 private[shell] case class InterruptedRun(
-    flowName: String,
+    flow: FlowSource,
     userPrompt: String,
     /** The branch the run works on, from the progress log's header. */
     branch: BranchName,
@@ -17,7 +18,9 @@ private[shell] case class InterruptedRun(
       * resume rather than a fresh run: the log it resumes from is in that
       * directory and nowhere else.
       */
-    dir: os.Path
+    dir: os.Path,
+    /** The progress log itself, under `dir`. */
+    log: os.Path
 )
 
 /** Detects an interrupted run for the main menu's "Resume interrupted run"
@@ -32,9 +35,9 @@ private[shell] object ResumeDetector:
   /** The newest unfinished progress log's flow+task, or `None` when there is
     * nothing to offer: nothing found by the scan (see
     * [[orca.progress.ProgressScan]] for what it skips), a corrupt/unparseable
-    * log, or a log written by a run outside the shell (`flowName` unrecorded —
-    * the simpler, honest choice over a partial pick-the-flow-and-prefill-the-
-    * task fallback).
+    * log, or a log written by a run outside the shell (`flow` unrecorded — the
+    * simpler, honest choice over a partial pick-the-flow-and-prefill-the-task
+    * fallback).
     *
     * `dirs` are the directories to scan ([[orca.shell.WorktreeScan.dirs]] picks
     * them); the winner reports the one it was found in, so the caller can run
@@ -50,27 +53,29 @@ private[shell] object ResumeDetector:
     try
       newestProgressLog(dirs).flatMap: found =>
         JsonFile.read[ProgressLog](found.path) match
-          case JsonFile.Read.Loaded(log) => fromHeader(log.header, found.dir)
+          case JsonFile.Read.Loaded(log) => fromHeader(log.header, found)
           case _                         => None
     catch case scala.util.control.NonFatal(_) => None
 
   private def fromHeader(
       header: ProgressHeader,
-      dir: os.Path
+      found: FoundLog
   ): Option[InterruptedRun] =
-    header.flowName
-      .filter(isBareFlowFilename)
-      .map(InterruptedRun(_, header.userPrompt, header.branch, dir))
+    header.flow
+      .filter(isOfferable)
+      .map(
+        InterruptedRun(
+          _,
+          header.userPrompt,
+          header.branch,
+          dir = found.dir,
+          log = found.path
+        )
+      )
 
-  /** The header is committed repo content, and `flowName` later reaches
-    * `FlowResolution.resolve`, which treats path-like refs as literal paths — a
-    * forged `../x.sc` or absolute path would escape the flow tiers. A
-    * legitimate header only ever holds `flow.last` (a bare `.sc` filename), so
-    * anything else drops the offer.
-    */
-  private def isBareFlowFilename(name: String): Boolean =
-    name.endsWith(".sc") && !name.contains('/') && !name.contains('\\') &&
-      !name.startsWith("-") && !name.startsWith(".")
+  private def isOfferable(source: FlowSource): Boolean = source match
+    case FlowSource.Catalog(_) => true
+    case FlowSource.File(path) => FlowResolution.recordedFile(path).isDefined
 
   /** A scanned progress log: which directory it was found in, and where. Named
     * rather than a pair, since both halves are `os.Path`.

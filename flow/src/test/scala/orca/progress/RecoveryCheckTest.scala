@@ -16,7 +16,7 @@ class RecoveryCheckTest extends FunSuite:
         branch = branchName(protectedName),
         branchMode = BranchMode.Created,
         userPrompt = prompt,
-        flowName = None,
+        flow = None,
         startingCommit = testCommit
       )
       assert(
@@ -33,7 +33,7 @@ class RecoveryCheckTest extends FunSuite:
       branch = branchName("trunk"),
       branchMode = BranchMode.Created,
       userPrompt = prompt,
-      flowName = None,
+      flow = None,
       startingCommit = testCommit
     )
     val rejected = RecoveryCheck.validateHeader(header, prompt, Set("trunk"))
@@ -63,7 +63,7 @@ class RecoveryCheckTest extends FunSuite:
       branch = branchName("feat/do-the-thing"),
       branchMode = BranchMode.Created,
       userPrompt = prompt,
-      flowName = None,
+      flow = None,
       startingCommit = testCommit
     )
     assertEquals(
@@ -77,7 +77,7 @@ class RecoveryCheckTest extends FunSuite:
       branch = branchName("feat/do-the-thing"),
       branchMode = BranchMode.Created,
       userPrompt = "a different prompt",
-      flowName = None,
+      flow = None,
       startingCommit = testCommit
     )
     assert(
