@@ -16,7 +16,7 @@ class ProgressStoreTest extends FunSuite:
     branch = branchName("feat/some-feature"),
     branchMode = BranchMode.Created,
     userPrompt = "my prompt",
-    flowName = None,
+    flow = None,
     startingCommit = CommitHash.from("0" * 40).get
   )
 

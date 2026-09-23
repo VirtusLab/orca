@@ -2,9 +2,15 @@ package orca.shell.run
 
 import org.jline.terminal.Terminal
 import orca.{OrcaArgs, XdgDirs}
+import orca.progress.FlowSource
 import orca.shell.ShellVersion
 import orca.shell.ui.{ShellOutput, ShellUi, UiOutcome}
 import orca.subprocess.QuietProc
+
+/** A flow script to launch, and how the user named it — the run records
+  * `source` so the shell's resume relaunches the same script.
+  */
+private[shell] case class LaunchedFlow(path: os.Path, source: FlowSource)
 
 /** Outcome of [[FlowLauncher.run]]. */
 private[shell] enum LaunchResult:
@@ -38,7 +44,7 @@ private[shell] object FlowLauncher:
   private[shell] type FlowLaunch =
     (
         FallbackPolicy,
-        os.Path,
+        LaunchedFlow,
         OrcaArgs,
         os.Path,
         Terminal
@@ -66,21 +72,32 @@ private[shell] object FlowLauncher:
       .map(v => Seq("--dep", s"$orgAndArtifact:$v"))
       .getOrElse(Seq.empty)
 
-  /** `scala-cli run <flow> --quiet --verbose [--dep ...] --workspace <dir> --
-    * <args>`. The `--verbose` before `--` is scala-cli's own ([[loggingArgs]]);
-    * everything after `--` is the flow's own ([[orca.OrcaArgs.toArgv]]).
-    * `--workspace` relocates scala-cli's own `.scala-build`/`.bsp` build
-    * metadata to `workspaceDir` ([[resolveWorkspaceDir]]) instead of next to
-    * `flow` — load-bearing for a Project-tier flow, whose script lives inside
-    * the user's own repo (`<repo>/.orca/flows/<name>.sc`), same pollution class
-    * the `orca` shim's own `--workspace` fixes (ADR 0021 §1 amendment).
+  /** `--java-prop orca.flow=<source>`: tells the flow child its [[FlowSource]].
+    * On the compile probe too, since scala-cli rebuilds when a `--java-prop`
+    * value changes.
+    */
+  private def flowSourceArgs(source: FlowSource): Seq[String] =
+    Seq(
+      "--java-prop",
+      s"${FlowSource.Property}=${FlowSource.toProperty(source)}"
+    )
+
+  /** `scala-cli run <flow> --quiet --verbose [--dep ...] --java-prop ...
+    * --workspace <dir> -- <args>`. The `--verbose` before `--` is scala-cli's
+    * own ([[loggingArgs]]); everything after `--` is the flow's own
+    * ([[orca.OrcaArgs.toArgv]]). `--workspace` relocates scala-cli's own
+    * `.scala-build`/`.bsp` build metadata to `workspaceDir`
+    * ([[resolveWorkspaceDir]]) instead of next to `flow` — load-bearing for a
+    * Project-tier flow, whose script lives inside the user's own repo
+    * (`<repo>/.orca/flows/<name>.sc`), same pollution class the `orca` shim's
+    * own `--workspace` fixes (ADR 0021 §1 amendment).
     *
     * Requires `args.userPrompt` to be non-blank — callers refuse a blank task
     * first, so an empty task here means a caller bug, not a user error to
     * report.
     */
   def argv(
-      flow: os.Path,
+      flow: LaunchedFlow,
       orcaVersion: Option[String],
       args: OrcaArgs,
       workspaceDir: os.Path
@@ -89,9 +106,10 @@ private[shell] object FlowLauncher:
       args.userPrompt.trim.nonEmpty,
       "task text must be non-blank — callers refuse a blank task first"
     )
-    Seq("scala-cli", "run", flow.toString) ++
+    Seq("scala-cli", "run", flow.path.toString) ++
       loggingArgs ++
       depArgs(orcaVersion) ++
+      flowSourceArgs(flow.source) ++
       Seq("--workspace", workspaceDir.toString, "--") ++
       args.toArgv
 
@@ -99,16 +117,17 @@ private[shell] object FlowLauncher:
     * for the same reason: without it, the probe (run whenever the forced
     * version fails) would write its own `.scala-build` next to `flow` too.
     */
-  private def compileArgv(
-      flow: os.Path,
+  private[run] def compileArgv(
+      flow: LaunchedFlow,
       orcaVersion: Option[String],
       workspaceDir: os.Path
   ): Seq[String] =
     Seq(
       "scala-cli",
       "compile",
-      flow.toString
-    ) ++ depArgs(orcaVersion) ++ Seq("--workspace", workspaceDir.toString)
+      flow.path.toString
+    ) ++ depArgs(orcaVersion) ++ flowSourceArgs(flow.source) ++
+      Seq("--workspace", workspaceDir.toString)
 
   /** What to do once the forced run has finished: `compileExit` is `None` when
     * no probe ran (there was nothing forced to blame — either the run
@@ -172,14 +191,6 @@ private[shell] object FlowLauncher:
     else if isSignalExit(exit) then LaunchResult.Cancelled
     else LaunchResult.Failed(exit)
 
-  /** `ORCA_FLOW_NAME`, read by `runner`'s `flow()` (`orca/flowEntry.scala`) to
-    * stamp the attempt manifest's `flow` field — the flow script's own
-    * filename, per the manifest schema (`AttemptManifest.flow`'s scaladoc
-    * examples), unavailable from inside the running script itself.
-    */
-  private[run] def childEnv(flow: os.Path): Map[String, String] =
-    Map("ORCA_FLOW_NAME" -> flow.last)
-
   /** `$XDG_CACHE_HOME/orca/shell/workspace` (created with `mkdir -p` before
     * every spawn) — [[argv]]/[[compileArgv]]'s `--workspace` target, resolved
     * by [[orca.XdgDirs.cacheHome]].
@@ -190,18 +201,10 @@ private[shell] object FlowLauncher:
     os.makeDir.all(dir)
     dir
 
-  /** `env` is added onto the inherited environment (os-lib's `ProcessBuilder`
-    * starts from the parent's own env), not a replacement of it.
-    */
-  private def spawnInherited(
-      argv: Seq[String],
-      workDir: os.Path,
-      env: Map[String, String]
-  ): Int =
+  private def spawnInherited(argv: Seq[String], workDir: os.Path): Int =
     os.proc(argv)
       .call(
         cwd = workDir,
-        env = env,
         stdin = os.Inherit,
         stdout = os.Inherit,
         stderr = os.Inherit,
@@ -250,12 +253,12 @@ private[shell] object FlowLauncher:
     */
   private[shell] def runAnnounced(
       fallback: FallbackPolicy,
-      flow: os.Path,
+      flow: LaunchedFlow,
       args: OrcaArgs,
       workDir: os.Path,
       terminal: Terminal
   ): LaunchResult =
-    announced(s"starting flow ${flow.last}", flow.last)(
+    announced(s"starting flow ${flow.path.last}", flow.path.last)(
       ChildTerminal.withChild(terminal)(
         run(fallback, flow, args, workDir)
       )
@@ -265,23 +268,25 @@ private[shell] object FlowLauncher:
     * "skip the forced version from the start" path — its pin-honouring re-run
     * is only offered as a fallback after a forced failure — so this spawns
     * [[argv]]'s pin-honouring argv (no `--dep`) itself, under the same
-    * [[ChildTerminal.withChild]] bracket, [[childEnv]] stamp, and announced
-    * markers the forced run uses. No compile probe or fallback: the user has
-    * already opted into the flow's own pin.
+    * [[ChildTerminal.withChild]] bracket and announced markers the forced run
+    * uses. No compile probe or fallback: the user has already opted into the
+    * flow's own pin.
     */
   private[shell] def runHonoringPin(
-      flow: os.Path,
+      flow: LaunchedFlow,
       args: OrcaArgs,
       workDir: os.Path,
       terminal: Terminal
   ): LaunchResult =
-    announced(s"starting flow ${flow.last} (honoring pin)", flow.last)(
+    announced(
+      s"starting flow ${flow.path.last} (honoring pin)",
+      flow.path.last
+    )(
       ChildTerminal.withChild(terminal)(
         toLaunchResult(
           spawnInherited(
             argv(flow, None, args, resolveWorkspaceDir()),
-            workDir,
-            childEnv(flow)
+            workDir
           )
         )
       )
@@ -301,7 +306,7 @@ private[shell] object FlowLauncher:
     */
   def run(
       fallback: FallbackPolicy,
-      flow: os.Path,
+      flow: LaunchedFlow,
       args: OrcaArgs,
       workDir: os.Path
   ): LaunchResult =
@@ -311,8 +316,7 @@ private[shell] object FlowLauncher:
     val workspaceDir = resolveWorkspaceDir()
     val forcedExit = spawnInherited(
       argv(flow, forcedVersion, args, workspaceDir),
-      workDir,
-      childEnv(flow)
+      workDir
     )
     val compileProbe = () =>
       QuietProc
@@ -327,12 +331,14 @@ private[shell] object FlowLauncher:
           case FallbackPolicy.Ask(ui) =>
             ui.confirm(fallbackQuestion(shellVersion), default = true) match
               case UiOutcome.Selected(true) =>
-                announced(s"pin-honoring re-run of ${flow.last}", flow.last)(
+                announced(
+                  s"pin-honoring re-run of ${flow.path.last}",
+                  flow.path.last
+                )(
                   toLaunchResult(
                     spawnInherited(
                       argv(flow, None, args, workspaceDir),
-                      workDir,
-                      childEnv(flow)
+                      workDir
                     )
                   )
                 )

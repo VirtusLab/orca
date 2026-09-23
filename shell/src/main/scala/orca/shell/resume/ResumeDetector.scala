@@ -1,14 +1,14 @@
 package orca.shell.resume
 
 import orca.gitref.BranchName
-import orca.progress.{ProgressHeader, ProgressLog, ProgressScan}
+import orca.progress.{FlowSource, ProgressHeader, ProgressLog, ProgressScan}
 import orca.util.JsonFile
 
-/** An unfinished flow run, byte-identically relaunchable: the flow script's
-  * filename and the exact task text that started it (ADR 0021 §3 amendment).
+/** An unfinished flow run, byte-identically relaunchable: the flow script and
+  * the exact task text that started it (ADR 0021 §3 amendment).
   */
 private[shell] case class InterruptedRun(
-    flowName: String,
+    flow: FlowSource,
     userPrompt: String,
     /** The branch the run works on, from the progress log's header. */
     branch: BranchName,
@@ -32,9 +32,9 @@ private[shell] object ResumeDetector:
   /** The newest unfinished progress log's flow+task, or `None` when there is
     * nothing to offer: nothing found by the scan (see
     * [[orca.progress.ProgressScan]] for what it skips), a corrupt/unparseable
-    * log, or a log written by a run outside the shell (`flowName` unrecorded —
-    * the simpler, honest choice over a partial pick-the-flow-and-prefill-the-
-    * task fallback).
+    * log, or a log written by a run outside the shell (`flow` unrecorded — the
+    * simpler, honest choice over a partial pick-the-flow-and-prefill-the- task
+    * fallback).
     *
     * `dirs` are the directories to scan ([[orca.shell.WorktreeScan.dirs]] picks
     * them); the winner reports the one it was found in, so the caller can run
@@ -58,19 +58,18 @@ private[shell] object ResumeDetector:
       header: ProgressHeader,
       dir: os.Path
   ): Option[InterruptedRun] =
-    header.flowName
-      .filter(isBareFlowFilename)
+    header.flow
+      .filter(isRunnable)
       .map(InterruptedRun(_, header.userPrompt, header.branch, dir))
 
-  /** The header is committed repo content, and `flowName` later reaches
-    * `FlowResolution.resolve`, which treats path-like refs as literal paths — a
-    * forged `../x.sc` or absolute path would escape the flow tiers. A
-    * legitimate header only ever holds `flow.last` (a bare `.sc` filename), so
-    * anything else drops the offer.
+  /** The header is committed repo content, and a `File` source is run as
+    * recorded, so it must at least be an absolute `.sc` path. A `Catalog` name
+    * is only ever looked up in the catalog.
     */
-  private def isBareFlowFilename(name: String): Boolean =
-    name.endsWith(".sc") && !name.contains('/') && !name.contains('\\') &&
-      !name.startsWith("-") && !name.startsWith(".")
+  private def isRunnable(source: FlowSource): Boolean = source match
+    case FlowSource.Catalog(_) => true
+    case FlowSource.File(path) =>
+      path.endsWith(".sc") && scala.util.Try(os.Path(path)).isSuccess
 
   /** A scanned progress log: which directory it was found in, and where. Named
     * rather than a pair, since both halves are `os.Path`.

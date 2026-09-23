@@ -3,7 +3,7 @@ package orca.shell.actions
 import org.jline.terminal.Terminal
 import orca.OrcaArgs
 import orca.shell.flows.DiscoveredFlow
-import orca.shell.run.{FallbackPolicy, FlowLauncher, LaunchResult}
+import orca.shell.run.{FallbackPolicy, FlowLauncher, LaunchResult, LaunchedFlow}
 
 /** Runs a resolved flow (ADR 0021 §2). Callers resolve `flow` and build its
   * `OrcaArgs`.
@@ -28,4 +28,10 @@ private[shell] object RunAction:
       terminal: Terminal,
       launch: FlowLauncher.FlowLaunch = FlowLauncher.runAnnounced
   ): LaunchResult =
-    launch(opts.fallback, flow.path, opts.args, workDir, terminal)
+    launch(
+      opts.fallback,
+      LaunchedFlow(flow.path, flow.source),
+      opts.args,
+      workDir,
+      terminal
+    )

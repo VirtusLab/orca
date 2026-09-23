@@ -112,7 +112,7 @@ class CommitMessageTest extends munit.FunSuite:
         orca.testkit.branchName("feat/test"),
         orca.progress.BranchMode.Created,
         userPrompt = "p",
-        flowName = None,
+        flow = None,
         startingCommit = orca.gitref.CommitHash.from("0" * 40).get
       )
     )

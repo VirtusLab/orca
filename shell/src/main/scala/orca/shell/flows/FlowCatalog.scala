@@ -1,16 +1,19 @@
 package orca.shell.flows
 
 import orca.discovery.{Origin, TierPrecedence}
+import orca.progress.FlowSource
 
 /** One flow-listing row: the winning tier's script plus the tiers it shadowed,
-  * so the menu can annotate `[shadows global, built-in]`.
+  * so the menu can annotate `[shadows global, built-in]`. `source` is how the
+  * user named it, which a run of it records.
   */
 private[shell] case class DiscoveredFlow(
     name: String,
     description: Option[String],
     origin: Origin,
     path: os.Path,
-    shadows: List[Origin]
+    shadows: List[Origin],
+    source: FlowSource
 )
 
 /** Discovers `.sc` flow scripts across the three tiers and resolves per-name
@@ -44,7 +47,8 @@ private[shell] object FlowCatalog:
           description = FlowDescription.ofFile(winner.value),
           origin = winner.tier,
           path = winner.value,
-          shadows = winner.shadows
+          shadows = winner.shadows,
+          source = FlowSource.Catalog(winner.key)
         )
 
   /** `*.sc` files directly in `dir`, keyed by filename; empty if `dir` doesn't

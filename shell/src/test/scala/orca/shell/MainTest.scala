@@ -7,6 +7,7 @@ import orca.settings.SettingsFile
 import orca.shell.actions.{SettingsEditAction, StackAction}
 import orca.shell.create.CreateTier
 import orca.discovery.Origin
+import orca.progress.FlowSource
 import orca.shell.flows.DiscoveredFlow
 import orca.shell.resume.InterruptedRun
 import orca.shell.run.LaunchResult
@@ -543,7 +544,8 @@ class MainTest extends munit.FunSuite:
       description = None,
       origin = Origin.BuiltIn,
       path = os.root / s"$name",
-      shadows = Nil
+      shadows = Nil,
+      source = FlowSource.Catalog(name)
     )
 
   /** [[flow]] with an explicit origin/path — for tests that need a non-built-in
@@ -560,7 +562,8 @@ class MainTest extends munit.FunSuite:
       description = None,
       origin = origin,
       path = path,
-      shadows = Nil
+      shadows = Nil,
+      source = FlowSource.Catalog(name)
     )
 
   // --- pickFlow ---
@@ -626,7 +629,8 @@ class MainTest extends munit.FunSuite:
       description = None,
       origin = Origin.Project,
       path = flowPath,
-      shadows = Nil
+      shadows = Nil,
+      source = FlowSource.Catalog("run-flow.sc")
     )
     val ui = FlowScriptedUi(
       selectScript = List(UiOutcome.Selected(flow), UiOutcome.Selected(target)),
@@ -1016,93 +1020,122 @@ class MainTest extends munit.FunSuite:
   // real `scala-cli` subprocess; the recorded call's flow+task is what the
   // resume offer promises: byte-identical to what's stored on `InterruptedRun`.
 
-  test(
-    "resumeInterruptedRun: resolves the recorded flow name and launches with the recorded task, verbatim"
-  ):
+  private def interrupted(flow: FlowSource, dir: os.Path): InterruptedRun =
+    InterruptedRun(
+      flow = flow,
+      userPrompt = "fix the flaky test\nwith detail",
+      branch = branchName("feat/x"),
+      dir = dir
+    )
+
+  /** Resumes `run` from `shellDir`, returning the launch it made, if any. */
+  private def resumed(
+      run: InterruptedRun,
+      shellDir: os.Path
+  ): Option[(DiscoveredFlow, OrcaArgs, os.Path)] =
+    var recorded: Option[(DiscoveredFlow, OrcaArgs, os.Path)] = None
     withDumbTerminal: terminal =>
-      val workDir = TempDirs.dir()
-      os.write(
-        workDir / ".orca" / "flows" / "resume-flow.sc",
-        "// x\n",
-        createFolders = true
-      )
-      val run = InterruptedRun(
-        flowName = "resume-flow.sc",
-        userPrompt = "fix the flaky test\nwith detail",
-        branch = branchName("feat/x"),
-        dir = workDir
-      )
-      var recorded: Option[(String, String)] = None
       Main.resumeInterruptedRun(
         FlowScriptedUi(),
         terminal,
         run,
-        runAction = (flow, opts, _, _) =>
-          recorded = Some(flow.name -> opts.args.userPrompt)
+        shellDir,
+        runAction = (flow, opts, dir, _) =>
+          recorded = Some((flow, opts.args, dir))
           LaunchResult.Ok
       )
-      assertEquals(
-        recorded,
-        Some("resume-flow.sc" -> "fix the flaky test\nwith detail")
-      )
+    recorded
+
+  private def projectFlow(dir: os.Path, name: String): os.Path =
+    val path = dir / ".orca" / "flows" / name
+    os.write(path, "// x\n", createFolders = true)
+    path
 
   test(
-    "resumeInterruptedRun: the run happens in the directory its log was found in"
+    "resumeInterruptedRun: launches the recorded catalog flow with the recorded task, verbatim"
   ):
-    withDumbTerminal: terminal =>
-      // A log found in an orca worktree resumes THERE, with no --worktree flag:
-      // the flag would re-derive a path, this runs where the log actually is.
-      val worktree = TempDirs.dir()
-      os.write(
-        worktree / ".orca" / "flows" / "resume-flow.sc",
-        "// x\n",
-        createFolders = true
-      )
-      val run = InterruptedRun(
-        flowName = "resume-flow.sc",
-        userPrompt = "fix the flaky test",
-        branch = branchName("feat/x"),
-        dir = worktree
-      )
-      var recorded: Option[(os.Path, RunTarget)] = None
-      Main.resumeInterruptedRun(
-        FlowScriptedUi(),
-        terminal,
-        run,
-        runAction = (_, opts, dir, _) =>
-          recorded = Some(dir -> opts.args.target)
-          LaunchResult.Ok
-      )
+    val workDir = TempDirs.dir()
+    val flowPath = projectFlow(workDir, "resume-flow.sc")
+    val launch = resumed(
+      interrupted(FlowSource.Catalog("resume-flow.sc"), workDir),
+      workDir
+    )
+    assertEquals(
+      launch.map((flow, args, _) => (flow.path, args.userPrompt)),
+      Some(flowPath -> "fix the flaky test\nwith detail")
+    )
+
+  test(
+    "resumeInterruptedRun: the run happens in the directory its log was found in, with the default target"
+  ):
+    // A log found in an orca worktree resumes THERE, with no --worktree flag:
+    // the flag would re-derive a path, this runs where the log actually is.
+    val shellDir = TempDirs.dir()
+    val worktree = TempDirs.dir()
+    val _ = projectFlow(shellDir, "resume-flow.sc")
+    val launch = resumed(
+      interrupted(FlowSource.Catalog("resume-flow.sc"), worktree),
+      shellDir
+    )
+    assertEquals(
+      launch.map((_, args, dir) => (dir, args.target)),
+      Some(worktree -> RunTarget.NewBranch(Uncommitted.Stash))
+    )
+
+  test(
+    "resumeInterruptedRun: a catalog name is looked up in the shell's checkout, not the log's"
+  ):
+    // A worktree's project flows can lag the checkout that launched the run.
+    val shellDir = TempDirs.dir()
+    val worktree = TempDirs.dir()
+    val shellFlow = projectFlow(shellDir, "resume-flow.sc")
+    val _ = projectFlow(worktree, "resume-flow.sc")
+    val launch = resumed(
+      interrupted(FlowSource.Catalog("resume-flow.sc"), worktree),
+      shellDir
+    )
+    assertEquals(launch.map(_._1.path), Some(shellFlow))
+
+  test(
+    "resumeInterruptedRun: a recorded file runs as is, even when the catalog has a flow of the same name"
+  ):
+    val workDir = TempDirs.dir()
+    val _ = projectFlow(workDir, "implement.sc")
+    val scratch = TempDirs.dir() / "implement.sc"
+    os.write(scratch, "// scratch\n")
+    val launch = resumed(
+      interrupted(FlowSource.File(scratch.toString), workDir),
+      workDir
+    )
+    assertEquals(launch.map(_._1.path), Some(scratch))
+
+  test(
+    "resumeInterruptedRun: a recorded file that no longer exists reports an error and never launches"
+  ):
+    val workDir = TempDirs.dir()
+    val gone = (TempDirs.dir() / "gone.sc").toString
+    val out = captured(
       assertEquals(
-        recorded,
-        Some(worktree -> RunTarget.NewBranch(Uncommitted.Stash))
+        resumed(interrupted(FlowSource.File(gone), workDir), workDir),
+        None
       )
+    )
+    assert(out.contains(gone), out)
 
   test(
     "resumeInterruptedRun: an unresolvable flow name reports an error and never launches"
   ):
-    withDumbTerminal: terminal =>
-      val workDir = TempDirs.dir()
-      val run = InterruptedRun(
-        flowName = "no-such-flow.sc",
-        userPrompt = "x",
-        branch = branchName("feat/x"),
-        dir = workDir
+    val workDir = TempDirs.dir()
+    val out = captured(
+      assertEquals(
+        resumed(
+          interrupted(FlowSource.Catalog("no-such-flow.sc"), workDir),
+          workDir
+        ),
+        None
       )
-      var launched = false
-      val out = captured(
-        Main.resumeInterruptedRun(
-          FlowScriptedUi(),
-          terminal,
-          run,
-          runAction = (_, _, _, _) => { launched = true; LaunchResult.Ok }
-        )
-      )
-      assert(
-        !launched,
-        "runAction must not run when the flow can't be resolved"
-      )
-      assert(out.contains("no-such-flow.sc"), out)
+    )
+    assert(out.contains("no-such-flow.sc"), out)
 
   // --- editSettings ---
   //

@@ -1,5 +1,6 @@
 package orca.shell
 
+import orca.progress.FlowSource
 import orca.shell.resume.InterruptedRun
 import orca.testkit.branchName
 
@@ -103,7 +104,7 @@ class MainMenuTest extends munit.FunSuite:
     "choices(resumeOffer = Some(...)) inserts ResumeRun right after RunFlow, labeled with flow, task, and branch"
   ):
     val run = InterruptedRun(
-      flowName = "implement.sc",
+      flow = FlowSource.Catalog("implement.sc"),
       userPrompt = "fix the flaky integration test in the payments module",
       branch = branchName("feat/x"),
       dir = os.root / "work"
@@ -124,9 +125,30 @@ class MainMenuTest extends munit.FunSuite:
       )
     )
 
+  test("the resume offer shows a recorded file's full path, unclipped"):
+    val path = "/home/u/scratch/a/long/directory/name/for/the/flow/implement.sc"
+    val run = InterruptedRun(
+      flow = FlowSource.File(path),
+      userPrompt = "fix it",
+      branch = branchName("feat/x"),
+      dir = os.root / "work"
+    )
+    val label = MainMenu
+      .choices(
+        continueSessionCount = None,
+        resumeOffer = Some(run),
+        workDir = run.dir
+      )
+      .find(_.value == MenuItem.ResumeRun)
+      .map(_.label)
+    assertEquals(
+      label,
+      Some(s"Resume interrupted run — $path: fix it on feat/x")
+    )
+
   test("choices(resumeOffer = Some(...)) label drops control characters"):
     val run = InterruptedRun(
-      flowName = "fix.sc",
+      flow = FlowSource.Catalog("fix.sc"),
       userPrompt = "safe\u001b[31m text\u0007",
       branch = branchName("feat/x"),
       dir = os.root / "work"
@@ -143,7 +165,7 @@ class MainMenuTest extends munit.FunSuite:
     "choices(resumeOffer = Some(...)) label flattens a multi-line task"
   ):
     val run = InterruptedRun(
-      flowName = "fix.sc",
+      flow = FlowSource.Catalog("fix.sc"),
       userPrompt = "line one\nline two",
       branch = branchName("feat/x"),
       dir = os.root / "work"
@@ -165,7 +187,7 @@ class MainMenuTest extends munit.FunSuite:
       continueSessionCount = None,
       resumeOffer = Some(
         InterruptedRun(
-          "a.sc",
+          FlowSource.Catalog("a.sc"),
           "short task",
           branchName("feat/x"),
           os.root / "work"
@@ -190,7 +212,7 @@ class MainMenuTest extends munit.FunSuite:
 
   test("the resume offer names the worktree when the log is not in this tree"):
     val run = InterruptedRun(
-      flowName = "implement.sc",
+      flow = FlowSource.Catalog("implement.sc"),
       userPrompt = "fix the flaky test",
       branch = branchName("feat/x"),
       dir = os.root / "repo" / ".orca" / "worktrees" / "ab12cd34"

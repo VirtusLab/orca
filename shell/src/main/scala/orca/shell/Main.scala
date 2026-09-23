@@ -156,7 +156,9 @@ object Main:
         // Only ever selectable when `resumeOffer` is `Some` — the item is
         // absent from the menu otherwise (`MainMenu.choices`); `.foreach` is
         // defensive, not a real branch.
-        resumeOffer.foreach(run => resumeInterruptedRun(ui, terminal, run))
+        resumeOffer.foreach(run =>
+          resumeInterruptedRun(ui, terminal, run, scanDirs.own)
+        )
         loop(ui, wizard, globalSettingsPath, terminal, tty)
       case UiOutcome.Selected(MenuItem.EditSettings) =>
         editSettings(ui, terminal, globalSettingsPath)
@@ -438,26 +440,20 @@ object Main:
             promptBranchName(ui)
           case Right(name) => UiOutcome.Selected(Some(name))
 
-  /** Resumes `run` (ADR 0021 §3 amendment): resolves its recorded flow name
-    * against the current catalog and launches it with the recorded task text
-    * verbatim — no re-prompting, so the text stays byte-identical to what the
-    * interrupted run started with (the progress log's resume check keys on a
-    * hash of it). Runs through the exact same launch path "Run a flow" uses
-    * ([[RunAction.run]]/[[orca.shell.run.FlowLauncher]]): no branch prompt —
-    * the resume happens on the current branch by design, and a resumed log's
-    * `bindBranch` (`FlowLifecycle`) ignores `skipBranch` entirely, so the
-    * default target passed here is exactly as correct as any other would be —
-    * the worktree axis included: the run is launched IN `run.dir`, the
-    * directory its log was found in, which is what makes this a resume.
-    * `Worktree` would instead re-derive a path from the task text, which is the
-    * same directory only when the log happened to be in an orca-made worktree
-    * of that exact prompt. `runAction` is injectable, [[AuthorAction]]-style,
-    * so a test can record the call instead of spawning a real subprocess.
+  /** Resumes `run` (ADR 0021 §3 amendment): relaunches its recorded flow with
+    * the recorded task text verbatim — the progress log is keyed by a hash of
+    * it — through the same path "Run a flow" uses. A catalog name is looked up
+    * in `shellDir`'s catalog, where the run was launched from; the run itself
+    * happens in `run.dir`, where its log is. The target is the default one: a
+    * resumed log's header decides the branch. `runAction` is injectable,
+    * [[AuthorAction]]-style, so a test can record the call instead of spawning
+    * a real subprocess.
     */
   private[shell] def resumeInterruptedRun(
       ui: ShellUi,
       terminal: Terminal,
       run: InterruptedRun,
+      shellDir: os.Path,
       runAction: (
           DiscoveredFlow,
           RunAction.RunOptions,
@@ -468,7 +464,7 @@ object Main:
           // pull into this shape.
       ) => LaunchResult = RunAction.run(_, _, _, _)
   ): Unit =
-    FlowResolution.resolve(run.flowName, run.dir) match
+    FlowResolution.recorded(run.flow, shellDir) match
       case Left(message) => ShellOutput.error(message)
       case Right(flow) =>
         val opts =
@@ -477,7 +473,6 @@ object Main:
               userPrompt = run.userPrompt,
               verbose = false,
               target = RunTarget.NewBranch(Uncommitted.Stash),
-              // The progress log's header names the branch on resume.
               branch = None
             ),
             fallback = FallbackPolicy.Ask(ui)

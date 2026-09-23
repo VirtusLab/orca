@@ -20,6 +20,7 @@ import orca.gitref.{BranchName, CommitHash, Head}
 import orca.progress.{
   BranchMode,
   FeatureBranch,
+  FlowSource,
   ProgressHeader,
   ProgressLog,
   ProgressScan,
@@ -299,11 +300,10 @@ object FlowLifecycle:
       stackOverridden: Boolean,
       store: ProgressStore,
       sessionStore: SessionStore,
-      // `ORCA_FLOW_NAME`, threaded down from `flow()` rather than read here —
-      // stamped into a freshly-written header (`freshRun`) so the shell's
+      // Stamped into a freshly-written header (`freshRun`) so the shell's
       // "Resume interrupted run" offer (ADR 0021 §3 amendment) knows which
       // flow script to relaunch. `None` for a run started outside the shell.
-      flowName: Option[String] = None,
+      flowSource: Option[FlowSource] = None,
       emit: OrcaEvent => Unit,
       // The dirty-tree prompt's two terminal dependencies, injected so tests
       // (and any headless caller) decide without one. Production probes real
@@ -346,7 +346,7 @@ object FlowLifecycle:
         workDir,
         branchNaming,
         store,
-        flowName,
+        flowSource,
         emit,
         tty,
         ask
@@ -479,12 +479,12 @@ object FlowLifecycle:
   ): String =
     val header = log.header
     val task = TextUtil.onelinePreview(header.userPrompt, 60)
-    val flow = header.flowName
-      .map(name => s", flow: ${TextUtil.onelinePreview(name, 40)}")
+    val flow = header.flow
+      .map(source => s", flow: ${TextUtil.oneline(source.display)}")
       .getOrElse("")
     val logPath = log.path.relativeTo(workDir)
     val shellRoute =
-      if header.flowName.isDefined then
+      if header.flow.isDefined then
         ", which the orca shell may also offer as \"Resume interrupted run\""
       else ""
     s"branch '${startingBranch.value}' already has an unfinished orca run on it " +
@@ -505,7 +505,7 @@ object FlowLifecycle:
       workDir: os.Path,
       branchNaming: Option[BranchNamingStrategy],
       store: ProgressStore,
-      flowName: Option[String],
+      flowSource: Option[FlowSource],
       emit: OrcaEvent => Unit,
       tty: () => Boolean,
       ask: Int => DirtyTreeChoice
@@ -656,7 +656,7 @@ object FlowLifecycle:
         startingHead,
         protectedBranches,
         discovered,
-        flowName = flowName,
+        flowSource = flowSource,
         headAtBinding = headAtBinding,
         emit = emit
       )
@@ -955,7 +955,7 @@ object FlowLifecycle:
       startingHead: Head,
       protectedBranches: Set[String],
       discovered: Boolean,
-      flowName: Option[String],
+      flowSource: Option[FlowSource],
       headAtBinding: CommitHash,
       emit: OrcaEvent => Unit
   )(using InStage, WorkspaceWrite): FeatureBranch =
@@ -987,7 +987,7 @@ object FlowLifecycle:
           if args.target.skipBranch then BranchMode.Reused
           else BranchMode.Created,
         userPrompt = args.userPrompt,
-        flowName = flowName,
+        flow = flowSource,
         startingCommit = headAtBinding
       )
     )

@@ -2,7 +2,7 @@ package orca.shell.resume
 
 import orca.{RunKey, WorkspaceWrite}
 import orca.gitref.CommitHash
-import orca.progress.{BranchMode, ProgressHeader, ProgressStore}
+import orca.progress.{BranchMode, FlowSource, ProgressHeader, ProgressStore}
 import orca.testkit.{TempDirs, branchName}
 
 class ResumeDetectorTest extends munit.FunSuite:
@@ -13,14 +13,14 @@ class ResumeDetectorTest extends munit.FunSuite:
 
   private def header(
       userPrompt: String = "fix the flaky test",
-      flowName: Option[String] = Some("implement.sc")
+      flow: Option[FlowSource] = Some(FlowSource.Catalog("implement.sc"))
   ): ProgressHeader =
     ProgressHeader(
       startingBranch = Some(branchName("main")),
       branch = branchName("feat/resume"),
       branchMode = BranchMode.Created,
       userPrompt = userPrompt,
-      flowName = flowName,
+      flow = flow,
       startingCommit = CommitHash.from("0" * 40).get
     )
 
@@ -31,7 +31,7 @@ class ResumeDetectorTest extends munit.FunSuite:
     os.makeDir.all(workDir / ".orca")
     assertEquals(ResumeDetector.detect(List(workDir)), None)
 
-  test("detect finds a fresh log's recorded flow name, task text, and branch"):
+  test("detect finds a fresh log's recorded flow, task text, and branch"):
     val workDir = TempDirs.dir()
     ProgressStore
       .default(workDir, RunKey.of("fix the flaky test"))
@@ -40,7 +40,7 @@ class ResumeDetectorTest extends munit.FunSuite:
       ResumeDetector.detect(List(workDir)),
       Some(
         InterruptedRun(
-          "implement.sc",
+          FlowSource.Catalog("implement.sc"),
           "fix the flaky test",
           branchName("feat/resume"),
           workDir
@@ -48,23 +48,30 @@ class ResumeDetectorTest extends munit.FunSuite:
       )
     )
 
-  test("detect is None for a log missing flowName (a run outside the shell)"):
+  test(
+    "detect is None for a log with no recorded flow (a run outside the shell)"
+  ):
     val workDir = TempDirs.dir()
     ProgressStore
       .default(workDir, RunKey.of("fix the flaky test"))
-      .writeHeader(header(flowName = None))
+      .writeHeader(header(flow = None))
     assertEquals(ResumeDetector.detect(List(workDir)), None)
 
-  test(
-    "detect drops a flowName that isn't a bare .sc filename (forged header)"
-  ):
-    List("../../evil.sc", "/abs/evil.sc", "sub/x.sc", "-flag.sc", "x.txt")
-      .foreach: forged =>
-        val workDir = TempDirs.dir()
-        ProgressStore
-          .default(workDir, RunKey.of("fix the flaky test"))
-          .writeHeader(header(flowName = Some(forged)))
-        assertEquals(ResumeDetector.detect(List(workDir)), None, forged)
+  test("detect offers a recorded absolute .sc file"):
+    val workDir = TempDirs.dir()
+    val source = FlowSource.File("/home/u/scratch/implement.sc")
+    ProgressStore
+      .default(workDir, RunKey.of("fix the flaky test"))
+      .writeHeader(header(flow = Some(source)))
+    assertEquals(ResumeDetector.detect(List(workDir)).map(_.flow), Some(source))
+
+  test("detect drops a recorded file that isn't an absolute .sc path"):
+    List("../../evil.sc", "rel/x.sc", "/abs/x.txt").foreach: recorded =>
+      val workDir = TempDirs.dir()
+      ProgressStore
+        .default(workDir, RunKey.of("fix the flaky test"))
+        .writeHeader(header(flow = Some(FlowSource.File(recorded))))
+      assertEquals(ResumeDetector.detect(List(workDir)), None, recorded)
 
   test("detect is None for a corrupt (unparseable) log, silently"):
     val workDir = TempDirs.dir()
@@ -77,11 +84,17 @@ class ResumeDetectorTest extends munit.FunSuite:
     val workDir = TempDirs.dir()
     val older = ProgressStore.default(workDir, RunKey.of("older prompt"))
     older.writeHeader(
-      header(userPrompt = "older prompt", flowName = Some("a.sc"))
+      header(
+        userPrompt = "older prompt",
+        flow = Some(FlowSource.Catalog("a.sc"))
+      )
     )
     val newer = ProgressStore.default(workDir, RunKey.of("newer prompt"))
     newer.writeHeader(
-      header(userPrompt = "newer prompt", flowName = Some("b.sc"))
+      header(
+        userPrompt = "newer prompt",
+        flow = Some(FlowSource.Catalog("b.sc"))
+      )
     )
     // Force a distinguishable mtime order regardless of write-speed timing.
     val _ = os.mtime.set(older.path, System.currentTimeMillis() - 60000)
@@ -89,7 +102,7 @@ class ResumeDetectorTest extends munit.FunSuite:
       ResumeDetector.detect(List(workDir)),
       Some(
         InterruptedRun(
-          "b.sc",
+          FlowSource.Catalog("b.sc"),
           "newer prompt",
           branchName("feat/resume"),
           workDir
@@ -107,7 +120,7 @@ class ResumeDetectorTest extends munit.FunSuite:
       ResumeDetector.detect(List(shellDir, worktree)),
       Some(
         InterruptedRun(
-          "implement.sc",
+          FlowSource.Catalog("implement.sc"),
           "fix the flaky test",
           branchName("feat/resume"),
           worktree
@@ -120,12 +133,18 @@ class ResumeDetectorTest extends munit.FunSuite:
     val worktree = TempDirs.dir()
     val older = ProgressStore.default(worktree, RunKey.of("older prompt"))
     older.writeHeader(
-      header(userPrompt = "older prompt", flowName = Some("a.sc"))
+      header(
+        userPrompt = "older prompt",
+        flow = Some(FlowSource.Catalog("a.sc"))
+      )
     )
     ProgressStore
       .default(shellDir, RunKey.of("newer prompt"))
       .writeHeader(
-        header(userPrompt = "newer prompt", flowName = Some("b.sc"))
+        header(
+          userPrompt = "newer prompt",
+          flow = Some(FlowSource.Catalog("b.sc"))
+        )
       )
     val _ = os.mtime.set(older.path, System.currentTimeMillis() - 60000)
     // The winner is in the FIRST directory here, the mirror of the case above.
@@ -133,7 +152,7 @@ class ResumeDetectorTest extends munit.FunSuite:
       ResumeDetector.detect(List(shellDir, worktree)),
       Some(
         InterruptedRun(
-          "b.sc",
+          FlowSource.Catalog("b.sc"),
           "newer prompt",
           branchName("feat/resume"),
           shellDir
@@ -160,7 +179,7 @@ class ResumeDetectorTest extends munit.FunSuite:
         ResumeDetector.detect(List(shellDir, unreadable)),
         Some(
           InterruptedRun(
-            "implement.sc",
+            FlowSource.Catalog("implement.sc"),
             "fix the flaky test",
             branchName("feat/resume"),
             shellDir

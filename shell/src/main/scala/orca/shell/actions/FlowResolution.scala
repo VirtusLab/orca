@@ -3,6 +3,7 @@ package orca.shell.actions
 import orca.{ConfigHome, OrcaDir}
 import orca.shell.ShellVersion
 import orca.discovery.Origin
+import orca.progress.FlowSource
 import orca.shell.flows.{
   BuiltInFlows,
   DiscoveredFlow,
@@ -56,12 +57,36 @@ private[shell] object FlowResolution:
       case Some(path) => Right(fromPath(path))
       case None =>
         if ref.contains("/") then Left(s"no such flow file: $ref")
-        else
-          val name = if ref.endsWith(".sc") then ref else s"$ref.sc"
-          list(workDir).flatMap: flows =>
-            flows
-              .find(_.name == name)
-              .toRight(notFoundMessage(ref, flows))
+        else byName(ref, workDir)
+
+  /** Looks `ref` up in [[list]] only (`.sc` suffix optional), never reading it
+    * as a path.
+    */
+  def byName(ref: String, workDir: os.Path): Either[String, DiscoveredFlow] =
+    val name = if ref.endsWith(".sc") then ref else s"$ref.sc"
+    list(workDir).flatMap: flows =>
+      flows
+        .find(_.name == name)
+        .toRight(notFoundMessage(ref, flows))
+
+  /** The flow a run recorded as `source`: a catalog name looked up again in
+    * `workDir`'s catalog, or the recorded file itself.
+    */
+  def recorded(
+      source: FlowSource,
+      workDir: os.Path
+  ): Either[String, DiscoveredFlow] =
+    source match
+      case FlowSource.Catalog(name) => byName(name, workDir)
+      case FlowSource.File(path) =>
+        Try(os.Path(path)).toOption.filter(os.isFile) match
+          case Some(file) => Right(fromPath(file))
+          case None =>
+            Left(
+              s"flow file $path no longer exists — restore it and resume " +
+                "again, or abandon the run by removing its progress log " +
+                "under .orca/runs/"
+            )
 
   /** `no flow named '<ref>' found in the catalog`, or, when any catalog name
     * looks close enough to be a typo of `ref` ([[nearMatches]]), `no flow named
@@ -121,5 +146,6 @@ private[shell] object FlowResolution:
       description = FlowDescription.ofFile(path),
       origin = Origin.Project,
       path = path,
-      shadows = Nil
+      shadows = Nil,
+      source = FlowSource.File(path.toString)
     )

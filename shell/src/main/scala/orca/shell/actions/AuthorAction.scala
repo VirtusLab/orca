@@ -11,7 +11,8 @@ import orca.shell.create.{
   FlowCommit
 }
 import orca.shell.flows.{BuiltInFlows, DiscoveredFlow}
-import orca.shell.run.{FallbackPolicy, FlowLauncher, LaunchResult}
+import orca.progress.FlowSource
+import orca.shell.run.{FallbackPolicy, FlowLauncher, LaunchResult, LaunchedFlow}
 import orca.shell.ui.{ShellOutput, ShellUi}
 
 /** Where the new/forked/edited flow is saved (ADR 0021 §9) — the
@@ -132,7 +133,7 @@ private[shell] object AuthorAction:
         AuthoringFlowName
     val result = launch(
       FallbackPolicy.Ask(ui),
-      flow,
+      LaunchedFlow(flow, FlowSource.File(flow.toString)),
       OrcaArgs(
         userPrompt = prompt,
         verbose = false,

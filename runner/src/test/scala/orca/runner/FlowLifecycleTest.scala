@@ -44,6 +44,7 @@ import orca.gitref.{BranchName, CommitHash, Head}
 import orca.progress.{
   BranchMode,
   FeatureBranch,
+  FlowSource,
   ProgressHeader,
   ProgressStore,
   PublishedWork,
@@ -267,7 +268,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         branch = branchName("feat/lifecycle-failure"),
         branchMode = BranchMode.Created,
         userPrompt = prompt,
-        flowName = None,
+        flow = None,
         startingCommit = unreachableCommit
       )
     )
@@ -338,7 +339,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         branch = branchName("feat/lifecycle-resume"),
         branchMode = BranchMode.Created,
         userPrompt = prompt,
-        flowName = None,
+        flow = None,
         startingCommit = GitRepo.headCommit(workDir)
       )
     )
@@ -656,7 +657,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         branch = branchName("feat/merged-hazard"),
         branchMode = BranchMode.Created,
         userPrompt = prompt,
-        flowName = None,
+        flow = None,
         startingCommit = unreachableCommit
       )
     )
@@ -787,7 +788,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       // the same string for both — tests that vary one pass both.
       prompt: String = "the other task",
       userPrompt: String = "the other task",
-      flowName: Option[String] = Some("implement.sc")
+      flow: Option[FlowSource] = Some(FlowSource.Catalog("implement.sc"))
   ): ProgressStore =
     given WorkspaceWrite = WorkspaceWrite.unsafe
     val store = ProgressStore.default(workDir, RunKey.of(prompt))
@@ -797,7 +798,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         branch = branchName(branch),
         branchMode = BranchMode.Created,
         userPrompt = userPrompt,
-        flowName = flowName,
+        flow = flow,
         startingCommit = unreachableCommit
       )
     )
@@ -879,7 +880,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       workDir,
       branch = startBranch,
       userPrompt = s"line one$esc[31m\nline two " + "x" * 80,
-      flowName = Some(s"impl$esc[31mement.sc")
+      flow = Some(FlowSource.Catalog(s"impl$esc[31mement.sc"))
     )
     val message =
       intercept[orca.OrcaFlowException](setupFresh(workDir): Unit).getMessage
@@ -906,15 +907,15 @@ class FlowLifecycleTest extends munit.FunSuite:
       prompt = "older task",
       userPrompt = "older task"
     )
-    // The newer log is the CLI-run shape: a task recorded, no flow name (no
-    // ORCA_FLOW_NAME outside the shell), so it also covers what the message
+    // The newer log is the CLI-run shape: a task recorded, no flow, so it
+    // also covers what the message
     // can and can't say for such a header.
     val newer = writeForeignLog(
       workDir,
       startBranch,
       prompt = "newer task",
       userPrompt = "newer task",
-      flowName = None
+      flow = None
     )
     // Force a distinguishable mtime order regardless of write-speed timing.
     val _ = os.mtime.set(older.path, System.currentTimeMillis() - 60000)
@@ -969,7 +970,7 @@ class FlowLifecycleTest extends munit.FunSuite:
           branch = branchName("feat/resume-me"),
           branchMode = BranchMode.Created,
           userPrompt = prompt,
-          flowName = None,
+          flow = None,
           startingCommit = unreachableCommit
         )
       )
@@ -1055,7 +1056,7 @@ class FlowLifecycleTest extends munit.FunSuite:
           branchMode = BranchMode.Created,
           startingCommit = unreachableCommit,
           userPrompt = prompt,
-          flowName = None
+          flow = None
         )
       )
     val setup = setupForSettings(workDir, Some(StackSettings.empty), prompt)
@@ -1340,7 +1341,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     )
 
   test(
-    "setup: a fresh run's header records userPrompt and the given flowName"
+    "setup: a fresh run's header records userPrompt and the given flow source"
   ):
     val workDir = GitRepo.seeded()
     val git = new OsGitTool(workDir)
@@ -1364,15 +1365,18 @@ class FlowLifecycleTest extends munit.FunSuite:
       stackOverridden = false,
       store = store,
       sessionStore = scratchSessions(),
-      flowName = Some("implement.sc"),
+      flowSource = Some(FlowSource.Catalog("implement.sc")),
       emit = _ => ()
     )
     val loaded = store.load()
     assertEquals(loaded.map(_.header.userPrompt), Some(prompt))
-    assertEquals(loaded.map(_.header.flowName), Some(Some("implement.sc")))
+    assertEquals(
+      loaded.map(_.header.flow),
+      Some(Some(FlowSource.Catalog("implement.sc")))
+    )
 
   test(
-    "setup: a fresh run's header has flowName = None when not given (a run outside the shell)"
+    "setup: a fresh run's header has no flow when not given (a run outside the shell)"
   ):
     val workDir = GitRepo.seeded()
     val prompt = "no-flow-name"
@@ -1383,7 +1387,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       prompt = prompt
     )
     val loaded = store.load()
-    assertEquals(loaded.map(_.header.flowName), Some(None))
+    assertEquals(loaded.map(_.header.flow), Some(None))
 
   test(
     "setup: an UNTRACKED settings file in a dirty tree is read before the stash sweeps it"
@@ -1614,7 +1618,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         branch = branchName("feat/discover-resume"),
         branchMode = BranchMode.Created,
         userPrompt = prompt,
-        flowName = None,
+        flow = None,
         startingCommit = unreachableCommit
       )
     )
@@ -1908,7 +1912,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         branch = branchName("feat/rehydrate-feature"),
         branchMode = BranchMode.Created,
         userPrompt = prompt,
-        flowName = None,
+        flow = None,
         startingCommit = unreachableCommit
       )
     )
@@ -2910,7 +2914,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         branch = branchName("my-work"),
         branchMode = BranchMode.Reused,
         userPrompt = prompt,
-        flowName = None,
+        flow = None,
         startingCommit = unreachableCommit
       )
     )
@@ -3036,7 +3040,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         branch = branchName("feat/keep-changes-resume"),
         branchMode = BranchMode.Created,
         userPrompt = prompt,
-        flowName = None,
+        flow = None,
         startingCommit = unreachableCommit
       )
     )
@@ -3701,7 +3705,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         branchMode = BranchMode.Created,
         startingCommit = base,
         userPrompt = prompt,
-        flowName = None
+        flow = None
       )
     )
     store.upsertEntry(
@@ -3760,7 +3764,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         branch = branchName("Feature/JIRA-123"),
         branchMode = BranchMode.Created,
         userPrompt = prompt,
-        flowName = None,
+        flow = None,
         startingCommit = GitRepo.headCommit(workDir)
       )
     )
@@ -3826,7 +3830,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         branch = branchName("feat/resume-dirty-json-break"),
         branchMode = BranchMode.Created,
         userPrompt = prompt,
-        flowName = None,
+        flow = None,
         startingCommit = unreachableCommit
       )
     )
@@ -3890,7 +3894,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         branch = branchName("feat/keep-changes-dirty-json-break"),
         branchMode = BranchMode.Created,
         userPrompt = prompt,
-        flowName = None,
+        flow = None,
         startingCommit = unreachableCommit
       )
     )
@@ -3950,7 +3954,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         branch = branchName("feat/surfaced-tampered"),
         branchMode = BranchMode.Created,
         userPrompt = "a different prompt",
-        flowName = None,
+        flow = None,
         startingCommit = unreachableCommit
       )
     )
@@ -3995,7 +3999,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         branch = branchName("master"),
         branchMode = BranchMode.Created,
         userPrompt = prompt,
-        flowName = None,
+        flow = None,
         startingCommit = unreachableCommit
       )
     )
@@ -4034,7 +4038,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         branch = branchName("feat/surfaced-rehydrate"),
         branchMode = BranchMode.Created,
         userPrompt = prompt,
-        flowName = None,
+        flow = None,
         startingCommit = unreachableCommit
       )
     )

@@ -25,10 +25,8 @@ private[orca] enum AttemptOutcome:
   * treats that as "crashed, but still offers its sessions". Also appends the
   * sibling `<AttemptId>.cost.jsonl` ([[CostLog]]) as turns spend tokens.
   *
-  * `flowName` comes from `ORCA_FLOW_NAME`, set by the shell before exec'ing the
-  * flow subprocess (`FlowLauncher.childEnv`); `runFlow` never sees the `.sc`
-  * path itself, so a flow launched outside the shell leaves it unset and the
-  * manifest's `flow` is `None`.
+  * `flowName` is the launched script's filename, `None` for a flow the shell
+  * didn't launch.
   *
   * Thread-safety is covered on [[AttemptManifestWriterState]], which owns the
   * actual mutable state.

@@ -31,9 +31,15 @@ private[orca] object TextUtil:
     * burying the text around it.
     */
   def onelinePreview(text: String, maxLen: Int): String =
-    val flattened = collapseWhitespace(text.strip()).filterNot(_.isControl)
+    val flattened = oneline(text)
     if flattened.length > maxLen then s"${flattened.take(maxLen)}…"
     else flattened
+
+  /** [[onelinePreview]] without the clipping, for text whose every character
+    * matters to the reader, such as a path about to be run.
+    */
+  def oneline(text: String): String =
+    collapseWhitespace(text.strip()).filterNot(_.isControl)
 
   /** Collapse each newline run (with adjacent whitespace) to a single space,
     * leaving other whitespace intact. Enforces the settings-file
