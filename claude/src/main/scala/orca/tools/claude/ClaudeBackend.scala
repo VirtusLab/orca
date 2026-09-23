@@ -2,7 +2,6 @@ package orca.tools.claude
 
 import java.util.concurrent.atomic.AtomicBoolean
 
-import orca.OrcaDir
 import orca.events.OrcaListener
 import orca.agents.{
   AutoApprove,
@@ -203,7 +202,7 @@ private[orca] class ClaudeBackend(
     * it would let the agent deadlock — plus whatever [[turnServers]] the tier
     * is entitled to.
     *
-    * Their config is written to [[ClaudeBackend.mcpConfigPath]] as one file and
+    * Their config is written to one temp file (see [[writeMcpConfig]]) and
     * passed via `--mcp-config`, and their tools are pre-approved by name. Each
     * is a session resource closed from `onFinalize` after the read loop drains;
     * if anything between allocation and conversation construction throws, they
@@ -224,7 +223,7 @@ private[orca] class ClaudeBackend(
       Option.when(mode.isInteractive)(AskUserSession.allocate())
     val servers = turnServers(config.tools)
     val mcpConfig = Option.when(askUser.isDefined || servers.nonEmpty):
-      writeMcpConfig(askUser.map(_.server), servers, session)
+      writeMcpConfig(askUser.map(_.server), servers)
     val systemPromptFile = writeSystemPrompt(
       config,
       hints = askUser.map(_ => AskUserMcpServer.Hint).toList ++
@@ -306,7 +305,13 @@ private[orca] class ClaudeBackend(
     List(repoReads, githubReads).flatten
 
   /** Write this conversation's MCP config, listing whichever host servers it
-    * stood up, and return its path.
+    * stood up, to a JVM temp file and return its path.
+    *
+    * Outside `workDir` like the system-prompt file, so a hard kill that skips
+    * the deletion leaves nothing a stage commit can sweep up. Probed 2026-09-23
+    * with claude 2.1.280: `claude -p --mcp-config /tmp/<file>` with
+    * `{"sandbox":{"enabled":true}}` in `--settings` connected to the `http`
+    * server listed there and called its tool.
     *
     * Each `timeout` raises claude's per-server tool-call limit from its 60s
     * default. For `ask_user` that is load-bearing: without it claude gives up
@@ -317,30 +322,19 @@ private[orca] class ClaudeBackend(
     */
   private def writeMcpConfig(
       askUser: Option[McpHost],
-      servers: List[TurnMcp],
-      session: SessionId[BackendTag.ClaudeCode.type]
+      servers: List[TurnMcp]
   ): os.Path =
     val entries =
-      askUser.map(
-        entryJson(AskUserMcpServer.ServerName, _, AskUserMcpServer.ToolTimeout)
+      askUser.map(host =>
+        AskUserMcpServer.ServerName ->
+          McpConfig.HttpServer(host.url, AskUserMcpServer.ToolTimeout)
       ) ++
-        servers.map(s => entryJson(s.name, s.host, s.timeout))
-    val _ = OrcaDir.ensureCache(workDir)
-    val path = ClaudeBackend.mcpConfigPath(workDir, session)
-    // `os.write` is CREATE_NEW — it refuses a leaf symlink, which
-    // `os.write.over` would follow — so a leftover from an earlier hard kill
-    // has to be removed first. `os.remove` unlinks a symlink rather than
-    // following it.
-    val _ = os.remove(path)
-    os.write(path, s"""{"mcpServers":{${entries.mkString(",")}}}""")
-    path
-
-  private def entryJson(
-      name: String,
-      host: McpHost,
-      timeout: FiniteDuration
-  ): String =
-    s""""$name":{"type":"http","url":"${host.url}","timeout":${timeout.toMillis}}"""
+        servers.map(s => s.name -> McpConfig.HttpServer(s.host.url, s.timeout))
+    os.temp(
+      prefix = "orca-mcp-",
+      suffix = ".json",
+      contents = McpConfig.render(entries.toMap)
+    )
 
   /** Build the per-session system-prompt file: compose `config.systemPrompt`
     * with whichever MCP hints apply, then write to a JVM temp file
@@ -359,21 +353,6 @@ private[orca] class ClaudeBackend(
     )
 
 object ClaudeBackend:
-
-  /** Path of the MCP config file advertising this conversation's host servers.
-    * Named with the session id so two conversations sharing a `workDir` don't
-    * overwrite each other's config.
-    *
-    * Under the self-ignoring `.orca/cache/` rather than at the workDir root: a
-    * hard kill skips the deletion resource, and a leftover at the root is swept
-    * into the next stage's `git add -A`. Still inside the working tree, so a
-    * sandboxed claude that denies reads outside its worktree can read it.
-    */
-  private[claude] def mcpConfigPath(
-      workDir: os.Path,
-      session: SessionId[BackendTag.ClaudeCode.type]
-  ): os.Path =
-    OrcaDir.cachePath(workDir) / s"mcp-${session.value}.json"
 
   /** Derives the project-directory slug that claude uses under
     * `~/.claude/projects/`: replaces every `/` in the absolute path with `-`.
