@@ -279,6 +279,30 @@ unattended run the practical boundary is a sandbox:
 [Sandcat](https://github.com/VirtusLab/sandcat), [Docker
 Sandboxes](https://docs.docker.com/ai/sandboxes/), or any other.
 
+## Your own agent setup
+
+Orca's agents are ordinary harness sessions — `claude`, `gemini`, `codex`,
+`opencode` or `pi` — started in your repository. They load the same instruction
+files (`~/.claude/CLAUDE.md`, `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`,
+`GEMINI.md`, …), MCP servers, plugins and hooks as your own sessions.
+
+Autonomous turns have no one to answer prompts (see above), so:
+
+- Coding turns auto-approve everything by default (`AgentConfig.autoApprove`
+  narrows it).
+- On claude, read-only roles (planner, reviewers, reviewer picker) deny any
+  tool outside orca's list, your MCP tools included, unless your claude
+  settings `permissions.allow` them.
+- On claude, opencode and pi, cheap one-shots (branch names, default commit
+  messages) run with no tools and no MCP servers.
+
+Check your instructions for:
+
+- **Mandatory tool calls.** "Always call X first" needs X allowed (see above),
+  or write "if available".
+- **A human in the loop.** In autonomous flows, "ask me before X" or "wait for
+  confirmation" cannot work: no one is there to answer.
+
 ## Flow methods
 
 Top-level, available via `import orca.*`:
