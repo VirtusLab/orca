@@ -1,3 +1,5 @@
+// Not named flow.scala: its flow$package class would case-collide with
+// Flow.scala's Flow$package on case-insensitive filesystems (#190).
 package orca
 
 import orca.backend.{AgentWiring, Interaction}

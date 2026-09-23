@@ -192,10 +192,10 @@ private[shell] object FlowLauncher:
     else if isSignalExit(exit) then LaunchResult.Cancelled
     else LaunchResult.Failed(exit)
 
-  /** `ORCA_FLOW_NAME`, read by `runner`'s `flow()` (`orca.flow.scala`) to stamp
-    * the run manifest's `flow` field — the flow script's own filename, per the
-    * manifest schema (`RunManifest.flow`'s scaladoc examples), unavailable from
-    * inside the running script itself.
+  /** `ORCA_FLOW_NAME`, read by `runner`'s `flow()` (`flowEntrypoint.scala`) to
+    * stamp the run manifest's `flow` field — the flow script's own filename,
+    * per the manifest schema (`RunManifest.flow`'s scaladoc examples),
+    * unavailable from inside the running script itself.
     */
   private[run] def childEnv(flow: os.Path): Map[String, String] =
     Map("ORCA_FLOW_NAME" -> flow.last)

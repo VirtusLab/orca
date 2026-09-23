@@ -69,4 +69,4 @@ or to avoid the `ollama` CLI dependency) remains open.
 > OpencodeLauncher.ollama("qwen3-coder")))`. `OpencodeLauncher` itself is
 > unaffected — still the public type this ADR introduces — only the
 > parameter's shape at the `flow(...)` call site changed. README and
-> `flow.scala`'s scaladoc reflect the new form.
+> `flowEntrypoint.scala`'s scaladoc reflect the new form.
