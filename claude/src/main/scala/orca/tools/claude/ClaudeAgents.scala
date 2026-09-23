@@ -34,8 +34,8 @@ object ClaudeAgents:
 
     /** Set the network tools added to the read-only `--tools` allowlist on
       * [[orca.agents.ToolSet.NetworkOnly]] turns, replacing the default
-      * `WebFetch`/`WebSearch`. Bare claude tool names, e.g. `WebFetch`; see
-      * [[ClaudeNetworkTools.validated]] for what is refused. Pass it before
+      * `WebFetch`/`WebSearch`. Bare claude tool names, e.g. `WebFetch`; refuses
+      * anything else, and write-capable builtins such as `Bash`. Pass it before
       * handing the agent to a planning helper:
       * `claude.opus.withNetworkTools(Seq("WebFetch"))`.
       */

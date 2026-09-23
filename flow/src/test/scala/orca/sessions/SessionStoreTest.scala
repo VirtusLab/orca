@@ -85,13 +85,9 @@ class SessionStoreTest extends FunSuite:
   test("the optional wire id round-trips"):
     val dir = TempDirs.dir()
     val store = SessionStore.default(dir, RunKey.of("p"))
-    val tagged =
-      record().copy(
-        resumeWireId = Some("ses_server_123"),
-        backend = BackendTag.Codex
-      )
-    store.upsert(tagged)
-    assertEquals(store.records(), List(tagged))
+    val withWire = record().copy(resumeWireId = Some("ses_server_123"))
+    store.upsert(withWire)
+    assertEquals(store.records(), List(withWire))
 
   test("an unset wire id is written as an explicit null"):
     // The file is read by a person debugging a resume, so the key set does not

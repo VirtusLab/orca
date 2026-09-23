@@ -27,3 +27,17 @@ class ClaudeAgentsTest extends munit.FunSuite:
       claude.withNetworkTools(Seq("WebFetch")).config.networkTools,
       Some(NetworkTools(Seq("WebFetch")))
     )
+
+  test("withNetworkTools rejects a command-scoped entry"):
+    // --tools drops a name it doesn't recognise silently, so `Bash(gh api:*)`
+    // would grant nothing and say nothing.
+    val thrown = intercept[IllegalArgumentException]:
+      claude.withNetworkTools(Seq("WebFetch", "Bash(gh api:*)"))
+    assert(thrown.getMessage.contains("Bash(gh api:*)"), thrown.getMessage)
+
+  test("withNetworkTools rejects a write-capable builtin"):
+    // A bare "Bash" passes the shape check.
+    val thrown = intercept[IllegalArgumentException]:
+      claude.withNetworkTools(Seq("WebFetch", "Bash"))
+    assert(thrown.getMessage.contains("Bash"), thrown.getMessage)
+    assert(thrown.getMessage.contains("ToolSet.Full"), thrown.getMessage)
