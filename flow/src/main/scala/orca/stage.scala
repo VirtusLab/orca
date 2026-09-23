@@ -172,7 +172,7 @@ private def defaultCommitMessage(
         "Write a concise one-line git commit message (imperative mood, ≤72 chars) " +
           "for this change. Describe only what is shown below — it may be " +
           "truncated, so stay general rather than naming specifics you can't " +
-          "see.\n\n" + payload,
+          "see. Reply with ONLY the message.\n\n" + payload,
       fallback = fallback
     )
 

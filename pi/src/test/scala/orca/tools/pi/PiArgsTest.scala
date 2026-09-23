@@ -61,6 +61,16 @@ class PiArgsTest extends munit.FunSuite:
     )
     assert(args.containsSlice(Seq("--tools", "read,grep,find,ls,bash")), args)
 
+  test("NoTools disables every tool and extension discovery"):
+    val args = PiArgs.rpc(
+      dir,
+      resume = false,
+      AgentConfig().copy(tools = ToolSet.NoTools),
+      None
+    )
+    assert(args.containsSlice(Seq("--no-tools", "--no-extensions")), args)
+    assert(!args.contains("--tools"), args)
+
   test("interactive ask-user extension adds extension and ask_user tool"):
     val args = PiArgs.rpc(
       dir,

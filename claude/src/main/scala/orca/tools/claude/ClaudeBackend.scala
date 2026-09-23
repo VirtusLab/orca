@@ -284,8 +284,11 @@ private[orca] class ClaudeBackend(
     */
   private def turnServers(tools: ToolSet)(using Ox): List[TurnMcp] =
     // The read-only tiers drop `Bash` along with the write tools, so the host
-    // serves the git reads back.
-    val repoReads = Option.when(!tools.writeCapable):
+    // serves the git reads back. `NoTools` gets no repo access at all.
+    val readOnlyTier = tools match
+      case ToolSet.ReadOnly | ToolSet.NetworkOnly => true
+      case ToolSet.Full | ToolSet.NoTools         => false
+    val repoReads = Option.when(readOnlyTier):
       TurnMcp(
         name = RepoMcpServer.ServerName,
         slugs = RepoMcpServer.ToolSlugs,

@@ -243,8 +243,10 @@ class BranchNamingTest extends munit.FunSuite:
       BranchNamingStrategy.shortenPrompt.resolve("fix the login bug", agent)
     assertEquals(result, "fix-the-login-bug")
 
-  test("shortenPrompt: agent returns multi-line reply, uses only first line"):
-    val agent = TextReplyingAgent("fix login bug\nsome extra explanation")
+  test("shortenPrompt: a preamble before the label is skipped"):
+    val agent = TextReplyingAgent(
+      "Cannot call agents_md without permission; proceeding.\n\nfix login bug"
+    )
     val result =
       BranchNamingStrategy.shortenPrompt.resolve("Fix login bug", agent)
     assertEquals(result, "fix-login-bug")

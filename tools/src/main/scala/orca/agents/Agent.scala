@@ -153,9 +153,11 @@ trait Agent[B <: BackendTag]:
   def withCheapModel(model: Model): Agent[B] = this
 
   /** Best-effort one-line reply from the cheap model, for the runtime's own
-    * incidental text (branch naming, default commit messages). Never throws — a
-    * failure here must not break a flow, so any non-fatal error yields
-    * `fallback`.
+    * incidental text (branch naming, default commit messages). The turn runs
+    * under [[ToolSet.NoTools]]: it only transforms `prompt`, so repo or MCP
+    * access would only give project instructions a way to derail it. Never
+    * throws — a failure here must not break a flow, so any non-fatal error
+    * yields `fallback`.
     *
     * Falling back is always announced, never silent: `purpose` is the noun
     * phrase naming what this one-shot was for ("commit message", "branch name")
@@ -168,7 +170,9 @@ trait Agent[B <: BackendTag]:
       fallback: => String
   )(using InStage): String =
     try
-      val line = Agent.payloadLine(cheap.withReadOnly.quietTextTurn(prompt))
+      val line = Agent.payloadLine(
+        cheap.withTools(ToolSet.NoTools).quietTextTurn(prompt)
+      )
       if line.isBlank then
         reportFallback(
           purpose = purpose,
@@ -311,11 +315,11 @@ trait Agent[B <: BackendTag]:
 private[orca] object Agent:
 
   /** The single line to use from a cheap model's reply to a [[cheapOneShot]]
-    * prompt. A fenced block, when the reply has one, wins over the surrounding
-    * prose: cheap models routinely narrate first ("Looking at this diff, the
-    * main changes are:") and put the actual answer inside the fence, so reading
-    * top-down would take the narration. Falls back to the first non-empty,
-    * non-fence line, and to `""` when the reply holds neither.
+    * prompt. Cheap models routinely write a preamble before the answer
+    * ("Looking at this diff, the main changes are:", a note about a tool they
+    * could not call), so reading top-down would take the preamble. The first
+    * non-empty line of the first fenced block wins; without a fence, the last
+    * non-empty, non-fence line; `""` when the reply holds neither.
     */
   def payloadLine(text: String): String =
     val lines = text.linesIterator.map(_.trim).toList
@@ -325,7 +329,7 @@ private[orca] object Agent:
       .takeWhile(!_.startsWith("```"))
     fenced
       .find(_.nonEmpty)
-      .orElse(lines.find(l => l.nonEmpty && !l.startsWith("```")))
+      .orElse(lines.findLast(l => l.nonEmpty && !l.startsWith("```")))
       .getOrElse("")
 
 /** Bare `claude` runs Opus with the 1M-token context window (the coder); the

@@ -76,6 +76,17 @@ class GeminiArgsTest extends munit.FunSuite:
       args.toString
     )
 
+  test("ToolSet.NoTools stays in plan mode and allows no real MCP server"):
+    val args =
+      GeminiArgs.headless("x", AgentConfig().copy(tools = ToolSet.NoTools))
+    assert(args.containsSlice(Seq("--approval-mode", "plan")), args.toString)
+    assert(
+      args.containsSlice(
+        Seq("--allowed-mcp-server-names", "orca-no-mcp-servers")
+      ),
+      args.toString
+    )
+
   test("resume builds gemini ... --resume <id> with the prompt"):
     val sid = WireSessionId[BackendTag.Gemini.type]("uuid-123")
     val args = GeminiArgs.resume(sid, "next step", AgentConfig())

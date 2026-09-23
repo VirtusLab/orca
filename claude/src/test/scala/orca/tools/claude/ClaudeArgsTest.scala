@@ -181,6 +181,12 @@ class ClaudeArgsTest extends munit.FunSuite:
     assert(args.containsSlice(Seq("--tools", "Read,Grep,Glob,Skill")), args)
     assert(!args.contains("WebFetch"), args)
 
+  test("ToolSet.NoTools empties --tools and skips non-orca MCP servers"):
+    val args = streamJson(AgentConfig(tools = ToolSet.NoTools))
+    assert(args.containsSlice(Seq("--tools", "")), args)
+    assert(args.contains("--strict-mcp-config"), args)
+    assert(!args.contains("--permission-mode"), args)
+
   test("Dispatch.Fresh emits --session-id <uuid>"):
     val args =
       streamJson(AgentConfig(), dispatch = Dispatch.Fresh(Some(testSid)))
