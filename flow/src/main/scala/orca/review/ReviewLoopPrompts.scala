@@ -25,13 +25,13 @@ import orca.util.PromptResource
 object ReviewLoopPrompts:
 
   /** Used by [[reviewAndFixLoop]]'s fix step: when to fix a finding and when to
-    * decline it. Reply format: [[FixOutcome.ReplyFormat]].
+    * decline it.
     */
   val Fix: String =
     PromptResource.load("/orca/review/prompts/fix.md")
 
   /** Used by [[ReviewerSelector.agentDriven]] to decide which reviewers to run
-    * for a given task. Reply format: [[SelectedReviewers.ReplyFormat]].
+    * for a given task.
     */
   val SelectReviewers: String =
     PromptResource.load("/orca/review/prompts/select-reviewers.md")

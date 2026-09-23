@@ -62,9 +62,9 @@ export orca.pr.{
 // `buildReviewers` it into the agents `reviewAndFixLoop` takes. OpenFinding(s)
 // is the result type of reviewAndFixLoop/reviewThenFix; Lint is constructed at
 // the call site for their `lint` parameter and LintReport is what the
-// summariser-taking `lint` returns. Location and
-// FindingId are ReviewFinding and OpenFinding field types, and SkippedReview an
-// OpenFindings one — needed by any flow that consumes findings.
+// summariser-taking `lint` returns. Location and FindingId are ReviewFinding
+// and OpenFinding field types, and SkippedReview an OpenFindings one — needed
+// by any flow that consumes findings.
 export orca.review.{
   allReviewers,
   buildReviewers,

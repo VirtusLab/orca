@@ -203,7 +203,10 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewerSelection = ReviewerSelector.allEveryRound,
       diff = ReviewDiff.Pinned("")
     )
-    assert(steps.messages.contains("No findings"), steps.messages.mkString("\n"))
+    assert(
+      steps.messages.contains("No findings"),
+      steps.messages.mkString("\n")
+    )
 
   test("an exit with nothing left open prints no closing block"):
     val steps = new ReviewLoopFixture.StepCapture
@@ -1966,9 +1969,9 @@ class ReviewAndFixTest extends munit.FunSuite:
 
   test("an empty selection runs no reviewers and stops the round honestly"):
     // An empty selection means exactly what it says: no reviewers run this
-    // round. With nothing found, the run ends — the loop
-    // never resurrects the roster behind the selector's back, and the
-    // (empty-output) coder is never asked to fix anything. The round says so,
+    // round. With nothing found, the run ends — the loop never resurrects the
+    // roster behind the selector's back, and the (empty-output) coder is never
+    // asked to fix anything. The round says so,
     // since converging on nothing is otherwise indistinguishable from a clean
     // review.
     val steps = new ReviewLoopFixture.StepCapture

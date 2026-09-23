@@ -11,7 +11,7 @@ runtime requirements listed in the README.
 sbt compile                             # build every module
 sbt test                                # unit tests across all modules
 sbt "flow/test"                         # scope to one module
-sbt "flow/testOnly orca.review.ReviewAndFixTest"  # scope to one suite
+sbt "flow/testOnly *LintTest"           # scope to one suite
 sbt scalafmtAll                         # reformat every source in place
 sbt scalafmtCheckAll                    # fail if anything would reformat
 ```

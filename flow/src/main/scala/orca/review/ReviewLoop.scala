@@ -902,14 +902,15 @@ private[review] class ReviewFixLoop[B <: BackendTag](
               )
             )(using ctx)
           case _ =>
-            val outcome = fixTurn(findings, shape.afterFix)
+            val next = shape.afterFix
+            val outcome = fixTurn(findings, next)
             if outcome.fixed.isEmpty then
               exitWith(
                 FixerHaltMessage,
                 recordOpen(accumulated, outcome.stillOpen(OpenReason.NoFixes))
               )(using ctx)
             else
-              shape.afterFix match
+              next match
                 case AfterFixTurn.ReviewAgain =>
                   loop(
                     carryPastFixes(
