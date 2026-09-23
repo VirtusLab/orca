@@ -1,8 +1,9 @@
 package orca.shell.resume
 
 import orca.{RunKey, WorkspaceWrite}
-import orca.progress.{BranchMode, CommitHash, ProgressHeader, ProgressStore}
-import orca.testkit.TempDirs
+import orca.gitref.CommitHash
+import orca.progress.{BranchMode, ProgressHeader, ProgressStore}
+import orca.testkit.{TempDirs, branchName}
 
 class ResumeDetectorTest extends munit.FunSuite:
 
@@ -15,8 +16,8 @@ class ResumeDetectorTest extends munit.FunSuite:
       flowName: Option[String] = Some("implement.sc")
   ): ProgressHeader =
     ProgressHeader(
-      startingBranch = "main",
-      branch = "feat/resume",
+      startingBranch = Some(branchName("main")),
+      branch = branchName("feat/resume"),
       branchMode = BranchMode.Created,
       userPrompt = userPrompt,
       flowName = flowName,
@@ -41,7 +42,7 @@ class ResumeDetectorTest extends munit.FunSuite:
         InterruptedRun(
           "implement.sc",
           "fix the flaky test",
-          "feat/resume",
+          branchName("feat/resume"),
           workDir
         )
       )
@@ -86,7 +87,14 @@ class ResumeDetectorTest extends munit.FunSuite:
     val _ = os.mtime.set(older.path, System.currentTimeMillis() - 60000)
     assertEquals(
       ResumeDetector.detect(List(workDir)),
-      Some(InterruptedRun("b.sc", "newer prompt", "feat/resume", workDir))
+      Some(
+        InterruptedRun(
+          "b.sc",
+          "newer prompt",
+          branchName("feat/resume"),
+          workDir
+        )
+      )
     )
 
   test("detect reports the directory the winning log was found in"):
@@ -101,7 +109,7 @@ class ResumeDetectorTest extends munit.FunSuite:
         InterruptedRun(
           "implement.sc",
           "fix the flaky test",
-          "feat/resume",
+          branchName("feat/resume"),
           worktree
         )
       )
@@ -123,7 +131,14 @@ class ResumeDetectorTest extends munit.FunSuite:
     // The winner is in the FIRST directory here, the mirror of the case above.
     assertEquals(
       ResumeDetector.detect(List(shellDir, worktree)),
-      Some(InterruptedRun("b.sc", "newer prompt", "feat/resume", shellDir))
+      Some(
+        InterruptedRun(
+          "b.sc",
+          "newer prompt",
+          branchName("feat/resume"),
+          shellDir
+        )
+      )
     )
 
   test("detect: an unreadable directory costs only its own logs"):
@@ -147,7 +162,7 @@ class ResumeDetectorTest extends munit.FunSuite:
           InterruptedRun(
             "implement.sc",
             "fix the flaky test",
-            "feat/resume",
+            branchName("feat/resume"),
             shellDir
           )
         )

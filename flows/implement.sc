@@ -53,7 +53,7 @@ flow(OrcaArgs(args)):
       task = Task(Title("The whole planned change"), plan.brief),
       diff = ReviewDiff.WholeRun,
       maxIterations = 5,
-      priorOpenFindings = OpenFindings(taskOpenFindings.flatMap(_.findings))
+      priorOpenFindings = taskOpenFindings.flatMap(_.findings)
     )
 
   openPrIfGitHub(

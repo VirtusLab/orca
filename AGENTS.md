@@ -47,6 +47,7 @@ backend-agnostic role accessors (ADR 0020) — `stage`/`display`/`fail`,
 `JsonData`, `OrcaArgs` and the `RunTarget` its flags parse into).
 Implementations live in
 focused subpackages: `orca.tools` (os-backed git/gh/fs impls + their traits),
+`orca.gitref` (validated branch names and commit hashes, and `Head`),
 `orca.agents` + `orca.backend` (LLM SPI, `SessionSupport`,
 conversation driver), `orca.subprocess` (subprocess shim), `orca.sweep`
 (finds agent work that outlived a turn), `orca.events`
@@ -114,8 +115,9 @@ most easily broken:
 - **Progress log + recovery.** A run commits `.orca/runs/<key>.progress.json`
   (`RunKey`, the prompt hash — so the path is branch-independent) with one entry
   per completed stage; a later attempt replays recorded entries and skips them. The header is untrusted on
-  load — `orca.progress.RecoveryCheck` validates it (safe ref, prompt-hash match,
-  protected-branch refusal) before any destructive git op.
+  load — its refs are typed, so a malformed one fails to decode (the log reads
+  as corrupt), and `orca.progress.RecoveryCheck` validates the rest
+  (prompt-hash match, protected-branch refusal) before any destructive git op.
 
 - **Sessions.** `AgentBackend.sessions: SessionSupport[B]` is one final class
   built from two per-backend choices: durability —
@@ -131,23 +133,25 @@ most easily broken:
   backends do, live-verified 2026-07-08) — and the `IdScheme`: `ClientClaimed`
   (claude/pi — the client id IS the wire id, put on the wire at spawn) or
   `ServerMinted` (codex/gemini/opencode — the server mints the wire id, learned
-  from the protocol and registered after the turn). `Agent` derives `continuation` /
-  `resumeWireId` / `registerResumeWireId` as `final` methods over the single
+  from the protocol and registered after the turn). `Agent` derives `dispatchFor` /
+  `resumeWireId` / `rehydrateResumeWireId` as `final` methods over the single
   `sessionSupport` hook, so a concrete tool can't wire one session operation
   while silently defaulting the others — that half-wiring is unrepresentable.
   `SessionId[B]` (the client-side handle) is split from `WireSessionId[B]`
   (what actually goes on the wire) — `SessionId#onWire` is the only
-  client→wire crossing. `continuation` stays a best-effort, non-destructive
-  probe and answers one of three: `Recorded` (live under the recorded wire id),
-  `Claimed` (a `ClientClaimed` backend holding the conversation under the
-  client's own id with nothing recorded — a run interrupted during a session's
-  first turn) or `Rebuild`, on which the flow re-seeds, the uniform fallback
-  that holds on every backend. `dispatchFor` reads the same resolution, so a
-  `Claimed` session is resumed rather than re-claimed — claude and pi refuse an
-  id they already hold. A live conversation a PREVIOUS run opened (its record
-  carries a `resumeWireId`, or the backend answers `Claimed`) is told once, on
-  its first turn here, that the tree holds only what earlier stages committed —
-  the re-seeded case needs no telling, its preamble already says so.
+  client→wire crossing. `SessionSupport.dispatchFor` is the one fresh-vs-resume
+  decision, read by both the prompt side (`FlowSession`) and the argv side
+  (`AgentBackend` resolves once per call and hands it to the notice and the
+  spawn): `Fresh(claim)`, on which the flow re-seeds, or `Resume(wireId,
+  origin)`. A rehydrated wire id is probed on first ask and then settled —
+  kept as `EarlierRun`, or dropped so the re-seeded turn's commit records its
+  new id; an id this run committed is `ThisRun` and not probed. A
+  `ClientClaimed` backend holding the conversation under the client's own id
+  with nothing recorded (a run interrupted during a session's first turn)
+  resumes as `EarlierRun` rather than re-claiming — claude and pi refuse an id
+  they already hold. An `EarlierRun` conversation is told once, on its first
+  turn here, that the tree holds only what earlier stages committed — the
+  re-seeded case needs no telling, its preamble already says so.
 
   The user surface is three rungs (README "Sessions"): `agent.run` (one-shot)
   / `agent.chat()` (ephemeral `Chat`, fork-safe, `InStage`-only) /
@@ -407,10 +411,11 @@ screen output and the PR body:
   fixing agent fills, so it carries title and reason and nothing else.
 - **open finding** (`OpenFinding`, `OpenFindings`) — a finding the run ends
   without resolving, paired with an `OpenReason`: declined, never reported on
-  by the fixer, past the round cap, still failing lint, or from a review that
-  could not run at all. This is what `reviewThenFix` and `reviewAndFixLoop`
-  return, what later rounds' reviewers are shown, and what the PR body and
-  the run output list under "Open review findings".
+  by the fixer, past the round cap, or still failing lint. Identified by its
+  `FindingId`, never by its title. This is what `reviewThenFix` and
+  `reviewAndFixLoop` return, what later rounds' reviewers are shown, and what
+  the PR body and the run output list under "Open review findings". A review
+  that could not run at all is `OpenFindings.skipped`, not an open finding.
 
 Don't name the open set after one of its reasons: any such name misreports the
 others. `OpenReason` is where the distinction lives — its `describe` is the only

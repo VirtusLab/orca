@@ -479,25 +479,23 @@ private[orca] class OsGitHubTool(
         Left(new NoCommitsToPr)
       else fail("gh pr create", result)
 
-  /** The current branch name for `--head`, via `git rev-parse --abbrev-ref
-    * HEAD` (carrying [[OsGitTool.nonInteractiveEnv]] so an ssh/credential
-    * prompt can't hang a flow). Throws on detached HEAD (rev-parse yields the
-    * literal `HEAD`) and on a blank name, which would silently re-enable gh's
-    * own head detection.
+  /** The current branch name for `--head` (the git call carries
+    * [[OsGitTool.nonInteractiveEnv]] so an ssh/credential prompt can't hang a
+    * flow). Throws on detached HEAD, where `symbolic-ref --quiet` exits 1.
     */
   private def headBranchForPr(): String =
     val result = cli.run(
-      Seq("git", "rev-parse", "--abbrev-ref", "HEAD"),
+      Seq("git", "symbolic-ref", "--quiet", "HEAD"),
       env = OsGitTool.nonInteractiveEnv,
       cwd = workDir
     )
-    if result.exitCode != 0 then fail("git rev-parse", result)
-    val head = result.stdout.trim
-    if head.isEmpty || head == "HEAD" then
-      throw OrcaFlowException(
-        s"cannot open a PR: not on a branch (git rev-parse gave '$head')"
-      )
-    head
+    result.exitCode match
+      case 0 => OsGitTool.branchOf(result.stdout.trim).value
+      case 1 =>
+        throw OrcaFlowException(
+          "cannot open a PR: HEAD is not on a branch — check out a branch first"
+        )
+      case _ => fail("git symbolic-ref", result)
 
   /** Find the first open PR whose head branch matches `head`, or `None`.
     * Head-only matching suffices: a branch has at most one open PR per base,

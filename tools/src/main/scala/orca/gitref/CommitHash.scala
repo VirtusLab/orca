@@ -1,4 +1,4 @@
-package orca.progress
+package orca.gitref
 
 import com.github.plokhotnyuk.jsoniter_scala.core.{JsonReader, JsonWriter}
 import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
@@ -6,12 +6,11 @@ import orca.agents.JsonData
 import sttp.tapir.Schema
 
 /** A git commit hash that has passed the shape check, so what carries it can't
-  * be confused with an arbitrary string from the progress header.
+  * be confused with an arbitrary string.
   *
-  * Like [[FeatureBranch]], the type is the guarantee: [[CommitHash.from]] is
-  * the only way in, and [[value]] is unwrapped at the `GitTool` call site. The
-  * JSON codec decodes through [[from]] too, so a header holding something else
-  * fails to parse rather than reaching git.
+  * [[CommitHash.from]] is the only way in. The JSON codec decodes through it
+  * too, so a persisted document holding something else fails to parse rather
+  * than reaching git.
   */
 opaque type CommitHash = String
 
@@ -42,8 +41,6 @@ object CommitHash:
   )
 
   extension (h: CommitHash)
-    /** Unwrap for the git layer — call at the `GitTool` call site, not earlier.
-      */
     def value: String = h
 
     /** The hash abbreviated for display (at most 12 hex chars). */

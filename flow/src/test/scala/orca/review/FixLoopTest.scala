@@ -37,7 +37,7 @@ class FixLoopTest extends munit.FunSuite:
       evaluate = scripted(List(ReviewResult.empty)),
       fix = _ => throw new AssertionError("fix must not be called when clean")
     )
-    assertEquals(result, OpenFindings(Nil))
+    assertEquals(result, OpenFindings.empty)
     assert(rec.steps.contains("No findings"))
 
   test(
@@ -69,7 +69,14 @@ class FixLoopTest extends munit.FunSuite:
     )
     assertEquals(
       result.findings,
-      List(OpenFinding(Title("b"), OpenReason.Declined("out of scope"), None))
+      List(
+        OpenFinding(
+          FindingId("R1.I1.2"),
+          Title("b"),
+          OpenReason.Declined("out of scope"),
+          None
+        )
+      )
     )
     // Iterations run under the caller's task stage (ADR 0018 §2.2), so they
     // surface as Step events rather than StageStarted.
@@ -100,7 +107,58 @@ class FixLoopTest extends munit.FunSuite:
           )
         else FixOutcome(fixed = List(Title("nit")), declined = Nil)
     )
-    assertEquals(result, OpenFindings(Nil))
+    assertEquals(result, OpenFindings.empty)
+
+  test("a declined finding re-reported under a new title and fixed is closed"):
+    given FlowContext = ctx
+    // The re-report names the entry's id, so the fix closes it however the
+    // reviewer worded it this time.
+    val reworded =
+      finding("nit, put differently").copy(reopens = Some(FindingId("R1.I1.1")))
+    val result = fixLoop(
+      evaluate = scripted(
+        List(
+          ReviewResult(List(finding("nit"), finding("driver"))),
+          ReviewResult(List(reworded)),
+          ReviewResult.empty
+        )
+      ),
+      fix = found =>
+        if found.size == 2 then
+          FixOutcome(
+            fixed = List(Title("driver")),
+            declined = List(DeclinedFinding(Title("nit"), "deliberate"))
+          )
+        else FixOutcome(fixed = List(Title("I1.1")), declined = Nil)
+    )
+    assertEquals(result, OpenFindings.empty)
+
+  test("two findings sharing a title in different files stay two entries"):
+    given FlowContext = ctx
+    val inFile = (file: String) =>
+      finding("missing test").copy(location = Some(Location(file, None)))
+    val result = fixLoop(
+      evaluate = scripted(
+        List(ReviewResult(List(inFile("A.scala"), inFile("B.scala"))))
+      ),
+      fix = _ =>
+        FixOutcome(
+          Nil,
+          List(
+            DeclinedFinding(Title("I1.1"), "covered elsewhere"),
+            DeclinedFinding(Title("I1.2"), "not worth it")
+          )
+        )
+    )
+    assertEquals(
+      result.findings.map(f => f.location -> f.reason),
+      List(
+        Some(Location("A.scala", None)) -> OpenReason.Declined(
+          "covered elsewhere"
+        ),
+        Some(Location("B.scala", None)) -> OpenReason.Declined("not worth it")
+      )
+    )
 
   test("halts when `fixed` is empty, regardless of `declined` size"):
     given FlowContext = ctx
@@ -116,7 +174,14 @@ class FixLoopTest extends munit.FunSuite:
     assertEquals(evaluates, 1, "must not re-evaluate when nothing was fixed")
     assertEquals(
       result.findings,
-      List(OpenFinding(Title("x"), OpenReason.Declined("won't fix"), None))
+      List(
+        OpenFinding(
+          FindingId("R1.I1.1"),
+          Title("x"),
+          OpenReason.Declined("won't fix"),
+          None
+        )
+      )
     )
 
   test("records what the fixer left unaccounted when it reports no fixes"):
@@ -129,7 +194,9 @@ class FixLoopTest extends munit.FunSuite:
     )
     assertEquals(
       result.findings,
-      List(OpenFinding(Title("x"), OpenReason.NoFixes, None))
+      List(
+        OpenFinding(FindingId("R1.I1.1"), Title("x"), OpenReason.NoFixes, None)
+      )
     )
 
   test("a clean round after a fixed one says no NEW findings"):
@@ -142,7 +209,7 @@ class FixLoopTest extends munit.FunSuite:
         scripted(List(ReviewResult(List(finding("a"))), ReviewResult.empty)),
       fix = _ => FixOutcome(List(Title("a")), Nil)
     )
-    assertEquals(result, OpenFindings(Nil))
+    assertEquals(result, OpenFindings.empty)
     assert(rec.steps.contains("No new findings"), rec.steps.mkString("\n"))
 
   test("the fix line says another review round follows the fixes"):
@@ -195,7 +262,7 @@ class FixLoopTest extends munit.FunSuite:
       fix = _ => FixOutcome(List(Title("I1.1 sorted out the x problem")), Nil)
     )
     assertEquals(evaluates, 2, "a resolved fix must let the loop re-evaluate")
-    assertEquals(result, OpenFindings(Nil))
+    assertEquals(result, OpenFindings.empty)
 
   test("caps at maxIterations and marks remaining findings with that reason"):
     given FlowContext = ctx
@@ -209,7 +276,14 @@ class FixLoopTest extends munit.FunSuite:
     )
     assertEquals(
       result.findings,
-      List(OpenFinding(Title("infinite"), OpenReason.CapReached(2), None))
+      List(
+        OpenFinding(
+          FindingId("R3.I1.1"),
+          Title("infinite"),
+          OpenReason.CapReached(2),
+          None
+        )
+      )
     )
 
   test("the library default cap is 3 fix attempts, so 4 evaluations"):
@@ -255,7 +329,8 @@ class FixLoopTest extends munit.FunSuite:
       title = Title("still broken"),
       description = "still broken",
       location = Some(Location("src/main/Foo.scala", Some(42))),
-      suggestion = None
+      suggestion = None,
+      reopens = None
     )
     val _ = fixLoop(
       evaluate = scripted(
@@ -282,7 +357,8 @@ class FixLoopTest extends munit.FunSuite:
       title = Title("Unbounded growth in `processBatch`"),
       description = "Unbounded growth in `processBatch`",
       location = Some(Location("src/main/Foo.scala", Some(42))),
-      suggestion = Some("stream batches instead of buffering")
+      suggestion = Some("stream batches instead of buffering"),
+      reopens = None
     )
     val rendered = formatFinding("I1.1", real)
     assert(
@@ -315,7 +391,8 @@ class FixLoopTest extends munit.FunSuite:
       title = Title("Nit"),
       description = "Nit",
       location = Some(Location("src/main/Foo.scala", None)),
-      suggestion = None
+      suggestion = None,
+      reopens = None
     )
     val rendered = formatFinding("I1.1", fileOnly)
     assert(

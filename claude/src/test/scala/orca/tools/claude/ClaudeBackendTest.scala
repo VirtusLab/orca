@@ -1,13 +1,15 @@
 package orca.tools.claude
 
 import orca.backend.{
-  Continuation,
+  Dispatch,
   Interaction,
+  ResumeOrigin,
   SupervisedBackend,
   SystemPromptComposer
 }
 import orca.backend.mcp.{GitHubMcpServer, RepoMcpServer}
 import orca.agents.{
+  TurnDispatch,
   BackendTag,
   AgentConfig,
   DefaultPrompts,
@@ -644,7 +646,7 @@ class ClaudeBackendTest extends munit.FunSuite:
       assert(!args.contains("--session-id"), args)
 
   test(
-    "continuation is Recorded when the id is claimed and the transcript exists"
+    "a rehydrated id resumes when its transcript exists"
   ):
     val tmpProjects = TempDirs.dir()
     val cwd = TempDirs.dir()
@@ -658,17 +660,17 @@ class ClaudeBackendTest extends munit.FunSuite:
         workDir = cwd
       )
     ): backend =>
-      backend.sessions.register(freshSid, freshSid.onWire)
+      backend.sessions.rehydrate(freshSid, freshSid.onWire)
       assertEquals(
-        backend.sessions.continuation(freshSid),
-        Continuation.Recorded
+        backend.sessions.dispatchFor(freshSid).asTurnDispatch,
+        TurnDispatch.Resumed
       )
 
   test(
     "workDir is shared, by construction, between the actual spawn cwd and the session-existence probe"
   ):
     // `workDir` is fixed once at construction and BOTH the probe (via
-    // `sessions.continuation`) and the real subprocess spawn (via
+    // `sessions.dispatchFor`) and the real subprocess spawn (via
     // `runAutonomous` → `cli.spawnPiped(..., cwd = workDir)`) read that SAME
     // field, so no per-call value can drift out of sync. A backend constructed
     // with a worktree-style `workDir` (!= the process cwd) must probe AND spawn
@@ -693,10 +695,10 @@ class ClaudeBackendTest extends munit.FunSuite:
       )
     ): backend =>
       assertEquals(backend.workDir, flowWorkDir)
-      backend.sessions.register(freshSid, freshSid.onWire)
+      backend.sessions.rehydrate(freshSid, freshSid.onWire)
       assertEquals(
-        backend.sessions.continuation(freshSid),
-        Continuation.Recorded,
+        backend.sessions.dispatchFor(freshSid).asTurnDispatch,
+        TurnDispatch.Resumed,
         "probe must read the constructor's workDir"
       )
       val _ = backend.runAutonomous("x", freshSid, AgentConfig())
@@ -713,14 +715,14 @@ class ClaudeBackendTest extends munit.FunSuite:
     SupervisedBackend.using(
       new ClaudeBackend(new SpawnStubCliRunner(Nil), projectsDir = tmpProjects)
     ): backend =>
-      backend.sessions.register(freshSid, freshSid.onWire)
+      backend.sessions.rehydrate(freshSid, freshSid.onWire)
       assertEquals(
-        backend.sessions.continuation(freshSid),
-        Continuation.Rebuild
+        backend.sessions.dispatchFor(freshSid).asTurnDispatch,
+        TurnDispatch.Fresh
       )
 
   test(
-    "continuation is Claimed when the transcript is present but nothing is recorded"
+    "an unrecorded id resumes as an earlier run's when its transcript is present"
   ):
     // What a run interrupted during a session's first turn leaves behind:
     // claude wrote the transcript, the drain never committed. The id is one
@@ -739,12 +741,12 @@ class ClaudeBackendTest extends munit.FunSuite:
       )
     ): backend =>
       assertEquals(
-        backend.sessions.continuation(freshSid),
-        Continuation.Claimed
+        backend.sessions.dispatchFor(freshSid),
+        Dispatch.Resume(freshSid.onWire, ResumeOrigin.EarlierRun)
       )
 
   test(
-    "continuation is Rebuild when the id is claimed but the transcript is absent"
+    "a rehydrated id opens fresh when its transcript is absent"
   ):
     val tmpProjects = TempDirs.dir()
     val cwd = TempDirs.dir()
@@ -755,13 +757,13 @@ class ClaudeBackendTest extends munit.FunSuite:
         workDir = cwd
       )
     ): backend =>
-      backend.sessions.register(freshSid, freshSid.onWire)
+      backend.sessions.rehydrate(freshSid, freshSid.onWire)
       assertEquals(
-        backend.sessions.continuation(freshSid),
-        Continuation.Rebuild
+        backend.sessions.dispatchFor(freshSid).asTurnDispatch,
+        TurnDispatch.Fresh
       )
 
-  test("continuation is Rebuild when the projects dir is absent"):
+  test("a rehydrated id opens fresh when the projects dir is absent"):
     val missing = TempDirs.dir() / "no-such-dir"
     val cwd = TempDirs.dir()
     SupervisedBackend.using(
@@ -771,31 +773,8 @@ class ClaudeBackendTest extends munit.FunSuite:
         workDir = cwd
       )
     ): backend =>
-      backend.sessions.register(freshSid, freshSid.onWire)
+      backend.sessions.rehydrate(freshSid, freshSid.onWire)
       assertEquals(
-        backend.sessions.continuation(freshSid),
-        Continuation.Rebuild
-      )
-
-  test(
-    "continuation is Rebuild for a malicious id with path traversal chars"
-  ):
-    val tmpProjects = TempDirs.dir()
-    val cwd = TempDirs.dir()
-    SupervisedBackend.using(
-      new ClaudeBackend(
-        new SpawnStubCliRunner(Nil),
-        projectsDir = tmpProjects,
-        workDir = cwd
-      )
-    ): backend =>
-      val maliciousId =
-        SessionId[BackendTag.ClaudeCode.type]("../../etc/passwd")
-      // `register`'s SessionId.isSafe guard must refuse to record the
-      // traversal id, and the claim arm applies the same guard, so neither
-      // route reaches the probe with a traversal path.
-      backend.sessions.register(maliciousId, maliciousId.onWire)
-      assertEquals(
-        backend.sessions.continuation(maliciousId),
-        Continuation.Rebuild
+        backend.sessions.dispatchFor(freshSid).asTurnDispatch,
+        TurnDispatch.Fresh
       )

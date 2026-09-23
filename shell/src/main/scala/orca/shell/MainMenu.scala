@@ -119,7 +119,7 @@ private[shell] object MainMenu:
     */
   private def resumeLabel(run: InterruptedRun, workDir: os.Path): String =
     val task = TextUtil.onelinePreview(run.userPrompt, 40)
-    val branch = TextUtil.onelinePreview(run.branch, 60)
+    val branch = TextUtil.onelinePreview(run.branch.value, 60)
     // The log can be in one of orca's worktrees, and the run resumes THERE —
     // an offer that read like any other would send the user's work to a
     // directory they were never shown.

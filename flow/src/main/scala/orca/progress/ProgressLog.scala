@@ -2,12 +2,13 @@ package orca.progress
 
 import com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec
 import orca.agents.{JsonData, given}
+import orca.gitref.{BranchName, CommitHash, Head}
 import orca.util.RawJson
 
 /** Whether orca minted [[ProgressHeader.branch]] itself or bound to a
   * pre-existing one. Gates the throwaway-branch auto-delete
   * (`FlowLifecycle.finishBranch`): a branch orca never created must never be
-  * deleted, even if a tampered header's `startingBranch` is crafted to make it
+  * deleted, even if a tampered header's `startingCommit` is crafted to make it
   * look throwaway.
   */
 enum BranchMode derives JsonData:
@@ -28,15 +29,20 @@ enum BranchMode derives JsonData:
   *
   * `startingCommit` is the commit HEAD pointed at when the run bound its branch
   * — the diff base for a review of everything the whole run changed.
+  * `startingBranch` is the branch HEAD was on then, `None` when it was detached
+  * — see [[startingHead]].
   */
 case class ProgressHeader(
-    startingBranch: String,
-    branch: String,
+    startingBranch: Option[BranchName],
+    branch: BranchName,
     branchMode: BranchMode,
     userPrompt: String,
     flowName: Option[String],
     startingCommit: CommitHash
-) derives JsonData
+) derives JsonData:
+  /** Where the run started, which a successful run may hand HEAD back to. */
+  def startingHead: Head =
+    startingBranch.fold(Head.Detached(startingCommit))(Head.OnBranch(_))
 
 /** A single stage's outcome, stored as an already-serialised JSON subtree.
   *

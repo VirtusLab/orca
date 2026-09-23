@@ -11,8 +11,9 @@ import orca.tools.{
   PushFailure
 }
 import orca.{OutsideStage, WorkspaceWrite}
+import orca.gitref.CommitHash
 import orca.plan.Title
-import orca.review.{OpenFinding, OpenFindings, OpenReason}
+import orca.review.{FindingId, OpenFinding, OpenFindings, OpenReason}
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.progress.{
   BranchMode,
@@ -53,8 +54,14 @@ class OpenPrIfGitHubTest extends FunSuite:
 
   private val oneOpen = OpenFindings(
     List(
-      OpenFinding(Title("Null check missing"), OpenReason.CapReached(3), None)
-    )
+      OpenFinding(
+        FindingId("R1.I1.1"),
+        Title("Null check missing"),
+        OpenReason.CapReached(3),
+        None
+      )
+    ),
+    skipped = None
   )
 
   /** A base a test expects never to be resolved. */
@@ -70,7 +77,7 @@ class OpenPrIfGitHubTest extends FunSuite:
       push: => Either[PushFailure, Unit] = Right(()),
       base: => Either[NoDefaultBase, String] = Right("main"),
       store: ProgressStore => ProgressStore = identity,
-      openFindings: OpenFindings = OpenFindings(Nil)
+      openFindings: OpenFindings = OpenFindings.empty
   ): Run =
     val (dir, seededStore) = seededPrRepo(withCode, branchMode, startBranch)
     runOver(
@@ -96,7 +103,7 @@ class OpenPrIfGitHubTest extends FunSuite:
       base: => Either[NoDefaultBase, String] = Right("main"),
       summariser: StubSummariser = new StubSummariser(),
       beforeRun: os.Path => Unit = _ => (),
-      openFindings: OpenFindings = OpenFindings(Nil)
+      openFindings: OpenFindings = OpenFindings.empty
   ): Run =
     val calls = new ConcurrentLinkedQueue[String]()
     val stages = new ConcurrentLinkedQueue[String]()
@@ -154,7 +161,7 @@ class OpenPrIfGitHubTest extends FunSuite:
       given orca.InStage = orca.InStage.unsafe
       openPrIfGitHub(
         summarisingAgent = new StubSummariser(),
-        openFindings = orca.review.OpenFindings(Nil)
+        openFindings = orca.review.OpenFindings.empty
       )
       """
     )
@@ -243,17 +250,24 @@ class OpenPrIfGitHubTest extends FunSuite:
     assertEquals(r.result, Some(samplePr))
     assertEquals(r.calls, List("availability", "push", "createPr"))
 
-  test("a run whose start branch git no longer has gets its PR"):
-    // The header names a branch that is gone, so the no-code check cannot
-    // diff against it: the same fail-open as an unreadable header, rather
-    // than git's error ending the run.
+  test("a run whose starting commit git does not have gets its PR"):
+    // The no-code check cannot diff against a missing commit: the same
+    // fail-open as an unreadable header, rather than git's error ending the
+    // run.
     val (dir, store) = seededPrRepo(withCode = false)
     val r = runOver(
       dir,
       store,
       available,
-      beforeRun =
-        dir => os.proc("git", "branch", "-D", "main").call(cwd = dir): Unit
+      beforeRun = _ =>
+        given WorkspaceWrite = WorkspaceWrite.unsafe
+        store.writeHeader(
+          store
+            .load()
+            .get
+            .header
+            .copy(startingCommit = CommitHash.from("0" * 40).get)
+        )
     )
     assertEquals(r.result, Some(samplePr))
     assertEquals(r.calls, List("availability", "push", "createPr"))

@@ -244,7 +244,7 @@ private def attempt[E <: OrcaFlowException, T](what: String, next: String)(
 
 /** Whether this run's branch carries anything but orca's own bookkeeping —
   * [[ThrowawayBranch]]'s rule, over the progress header the lifecycle reads. A
-  * run that cannot be measured (no readable header, or a start branch git no
+  * run that cannot be measured (no readable header, or a starting commit git no
   * longer resolves) gets its PR; the lifecycle deletes a branch only when its
   * log records nothing published, so the two never strand a branch.
   */
@@ -259,7 +259,7 @@ private def runChangedCode(using
         !ThrowawayBranch.isThrowaway(
           git,
           log.header.branchMode,
-          startBranch = log.header.startingBranch,
+          startingCommit = log.header.startingCommit,
           featureBranch = log.header.branch
         )
       catch case NonFatal(_) => true

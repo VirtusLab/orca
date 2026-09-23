@@ -1,4 +1,4 @@
-package orca.progress
+package orca.gitref
 
 import munit.FunSuite
 

@@ -1,6 +1,6 @@
 package orca
 
-import orca.progress.BranchName
+import orca.gitref.BranchName
 
 /** What a run does with uncommitted and untracked files it finds in the working
   * tree at start (`--keep-changes` asks for [[Uncommitted.Keep]]).

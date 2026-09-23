@@ -40,10 +40,9 @@ import orca.agents.{
   ToolSet
 }
 import orca.backend.{IdScheme, SessionSupport}
+import orca.gitref.{BranchName, CommitHash, Head}
 import orca.progress.{
   BranchMode,
-  BranchName,
-  CommitHash,
   FeatureBranch,
   ProgressHeader,
   ProgressStore,
@@ -68,7 +67,14 @@ import ox.either.orThrow
 
 import java.io.{ByteArrayOutputStream, PrintStream}
 import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
-import orca.testkit.{GitRepo, PushlessGit, StubGitHubTool, TempDirs}
+import orca.testkit.{
+  GitRepo,
+  PushlessGit,
+  StubGitHubTool,
+  TempDirs,
+  branchName,
+  currentBranch
+}
 
 /** Flow lifecycle tests: success/failure teardown and resume. Each uses a real
   * temp git repo (`GitRepo.seeded()`) and a null-sink `TerminalInteraction` so
@@ -231,9 +237,6 @@ class FlowLifecycleTest extends munit.FunSuite:
         val _ = stage[String]("stage-two"):
           throw new RuntimeException("boom")
 
-    // A worktree left detached records `startingBranch` as the literal "HEAD",
-    // which resume refuses as an unsafe ref — the run would be unresumable and
-    // unrestartable, its log still on disk.
     runFlowForTest(worktree, prompt, store):
       val _ = stage("stage-one"):
         stageOneRuns.incrementAndGet()
@@ -257,11 +260,11 @@ class FlowLifecycleTest extends munit.FunSuite:
     given WorkspaceWrite = WorkspaceWrite.unsafe
 
     // Mirror flowSetup: create feature branch, commit progress header.
-    val _ = git.createBranch("feat/lifecycle-failure")
+    val _ = git.createBranch(branchName("feat/lifecycle-failure"))
     store.writeHeader(
       ProgressHeader(
-        startingBranch = "main",
-        branch = "feat/lifecycle-failure",
+        startingBranch = Some(branchName("main")),
+        branch = branchName("feat/lifecycle-failure"),
         branchMode = BranchMode.Created,
         userPrompt = prompt,
         flowName = None,
@@ -328,15 +331,15 @@ class FlowLifecycleTest extends munit.FunSuite:
     given WorkspaceWrite = WorkspaceWrite.unsafe
 
     val git = new OsGitTool(workDir)
-    val _ = git.createBranch("feat/lifecycle-resume")
+    val _ = git.createBranch(branchName("feat/lifecycle-resume"))
     store.writeHeader(
       ProgressHeader(
-        startingBranch = "main",
-        branch = "feat/lifecycle-resume",
+        startingBranch = Some(branchName("main")),
+        branch = branchName("feat/lifecycle-resume"),
         branchMode = BranchMode.Created,
         userPrompt = prompt,
         flowName = None,
-        startingCommit = unreachableCommit
+        startingCommit = GitRepo.headCommit(workDir)
       )
     )
     git.forceAdd(store.path)
@@ -415,7 +418,7 @@ class FlowLifecycleTest extends munit.FunSuite:
 
     val branch = git.currentBranch()
     assertNotEquals(branch, startBranch)
-    assertEquals(branch, store.load().get.header.branch)
+    assertEquals(branch, store.load().get.header.branch.value)
 
     val ids = store.load().get.entries.map(_.id)
     assert(ids.contains("stage-one#0"), "stage one must be recorded")
@@ -649,8 +652,8 @@ class FlowLifecycleTest extends munit.FunSuite:
     // Commit the log on `main` (HEAD) while it names a different feature branch.
     store.writeHeader(
       ProgressHeader(
-        startingBranch = "main",
-        branch = "feat/merged-hazard",
+        startingBranch = Some(branchName("main")),
+        branch = branchName("feat/merged-hazard"),
         branchMode = BranchMode.Created,
         userPrompt = prompt,
         flowName = None,
@@ -718,11 +721,11 @@ class FlowLifecycleTest extends munit.FunSuite:
     // A fresh branch was resolved and created, distinct from the start branch.
     assertEquals(git.currentBranch(), setup.featureBranch.value)
     assertNotEquals(setup.featureBranch.value, startBranch)
-    assertEquals(setup.startBranch, startBranch)
+    assertEquals(setup.startingHead, Head.OnBranch(branchName(startBranch)))
     // A brand-new header replaced the corrupt bytes: a valid fresh log, no entries.
     val loaded = store.load()
     assert(loaded.isDefined, "a fresh header must have been written")
-    assertEquals(loaded.get.header.branch, setup.featureBranch.value)
+    assertEquals(loaded.get.header.branch.value, setup.featureBranch.value)
     assertEquals(loaded.get.entries, Nil)
 
   test(
@@ -790,8 +793,8 @@ class FlowLifecycleTest extends munit.FunSuite:
     val store = ProgressStore.default(workDir, RunKey.of(prompt))
     store.writeHeader(
       ProgressHeader(
-        startingBranch = "main",
-        branch = branch,
+        startingBranch = Some(branchName("main")),
+        branch = branchName(branch),
         branchMode = BranchMode.Created,
         userPrompt = userPrompt,
         flowName = flowName,
@@ -841,7 +844,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val workDir = GitRepo.seeded()
     val git = new OsGitTool(workDir)
     given WorkspaceWrite = WorkspaceWrite.unsafe
-    assert(git.createBranch("my-work").isRight)
+    assert(git.createBranch(branchName("my-work")).isRight)
     val _ = writeForeignLog(workDir, branch = "my-work")
     val thrown = intercept[orca.OrcaFlowException]:
       val _ = FlowLifecycle.setup(
@@ -957,13 +960,13 @@ class FlowLifecycleTest extends munit.FunSuite:
     val prompt = "resume-me"
     given WorkspaceWrite = WorkspaceWrite.unsafe
     val startBranch = git.currentBranch()
-    assert(git.createBranch("feat/resume-me").isRight)
+    assert(git.createBranch(branchName("feat/resume-me")).isRight)
     ProgressStore
       .default(workDir, RunKey.of(prompt))
       .writeHeader(
         ProgressHeader(
-          startingBranch = startBranch,
-          branch = "feat/resume-me",
+          startingBranch = Some(branchName(startBranch)),
+          branch = branchName("feat/resume-me"),
           branchMode = BranchMode.Created,
           userPrompt = prompt,
           flowName = None,
@@ -974,7 +977,7 @@ class FlowLifecycleTest extends munit.FunSuite:
 
     val setup = setupForSettings(workDir, Some(StackSettings.empty), prompt)
     assertEquals(setup.featureBranch.value, "feat/resume-me")
-    assertEquals(setup.startBranch, startBranch)
+    assertEquals(setup.startingHead, Head.OnBranch(branchName(startBranch)))
 
   // --- the commit the run started from (a whole-run review's diff base) ---
 
@@ -985,9 +988,9 @@ class FlowLifecycleTest extends munit.FunSuite:
     val git = new OsGitTool(workDir)
     val boundAt = git.headCommit()
     val setup = setupFresh(workDir)
-    assertEquals(setup.startingCommit.map(_.value), boundAt)
+    assertEquals(setup.startingCommit, boundAt)
     assertEquals(
-      Some(setup.store.load().get.header.startingCommit.value),
+      Some(setup.store.load().get.header.startingCommit),
       boundAt
     )
     assertNotEquals(git.headCommit(), boundAt)
@@ -997,7 +1000,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val workDir = GitRepo.seeded()
     val git = new OsGitTool(workDir)
     given WorkspaceWrite = WorkspaceWrite.unsafe
-    assert(git.createBranch("my-work").isRight)
+    assert(git.createBranch(branchName("my-work")).isRight)
     val boundAt = git.headCommit()
     val prompt = "skip-branch starting commit"
     val store = ProgressStore.default(workDir, RunKey.of(prompt))
@@ -1016,8 +1019,8 @@ class FlowLifecycleTest extends munit.FunSuite:
       sessionStore = scratchSessions(),
       emit = _ => ()
     )
-    assertEquals(setup.startingCommit.map(_.value), boundAt)
-    assertEquals(Some(store.load().get.header.startingCommit.value), boundAt)
+    assertEquals(setup.startingCommit, boundAt)
+    assertEquals(Some(store.load().get.header.startingCommit), boundAt)
 
   test("setup: a resumed run reports the commit the FIRST attempt bound at"):
     // This attempt's HEAD has moved on by everything the interrupted one
@@ -1029,7 +1032,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     given WorkspaceWrite = WorkspaceWrite.unsafe
     os.write(workDir / "stage.txt", "done")
     assert(git.commit("stage one").isRight)
-    assertEquals(setupFresh(workDir).startingCommit.map(_.value), boundAt)
+    assertEquals(setupFresh(workDir).startingCommit, boundAt)
 
   test("setup: a resume drops a commit this repository can no longer diff"):
     // Rebased away, or absent from a fresh clone: the hash is well-formed but
@@ -1040,13 +1043,15 @@ class FlowLifecycleTest extends munit.FunSuite:
     val prompt = "resume-unreachable-commit"
     given WorkspaceWrite = WorkspaceWrite.unsafe
     val startBranch = git.currentBranch()
-    assert(git.createBranch("feat/resume-unreachable-commit").isRight)
+    assert(
+      git.createBranch(branchName("feat/resume-unreachable-commit")).isRight
+    )
     ProgressStore
       .default(workDir, RunKey.of(prompt))
       .writeHeader(
         ProgressHeader(
-          startingBranch = startBranch,
-          branch = "feat/resume-unreachable-commit",
+          startingBranch = Some(branchName(startBranch)),
+          branch = branchName("feat/resume-unreachable-commit"),
           branchMode = BranchMode.Created,
           startingCommit = unreachableCommit,
           userPrompt = prompt,
@@ -1084,7 +1089,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val workDir = GitRepo.seeded()
     val git = new OsGitTool(workDir)
     given WorkspaceWrite = WorkspaceWrite.unsafe
-    assert(git.createBranch("my-work").isRight)
+    assert(git.createBranch(branchName("my-work")).isRight)
     val prompt = "skip-branch bound event"
     val emitted = new AtomicReference[List[OrcaEvent]](Nil)
     val _ = setupForSettings(
@@ -1135,8 +1140,8 @@ class FlowLifecycleTest extends munit.FunSuite:
     val workDir = GitRepo.seeded()
     val git = new OsGitTool(workDir)
     given WorkspaceWrite = WorkspaceWrite.unsafe
-    assert(git.createBranch("feat/x").isRight)
-    assert(git.checkout("main").isRight)
+    assert(git.createBranch(branchName("feat/x")).isRight)
+    assert(git.checkout(branchName("main")).isRight)
     os.write.append(workDir / "seed.txt", " edited")
     val before = localBranches(workDir)
     val thrown = intercept[orca.OrcaFlowException]:
@@ -1187,9 +1192,9 @@ class FlowLifecycleTest extends munit.FunSuite:
     val prompt = "starting-commit-threading"
     val store = ProgressStore.default(workDir, RunKey.of(prompt))
     val boundAt = new OsGitTool(workDir).headCommit()
-    var seen: Option[String] = None
+    var seen: Option[CommitHash] = None
     runFlowForTest(workDir, prompt, store):
-      seen = summon[orca.FlowControl].startingCommit.map(_.value)
+      seen = summon[orca.FlowControl].startingCommit
     assertEquals(seen, boundAt)
 
   // The ADR-0019 gitignored-settings warning message.
@@ -1571,11 +1576,11 @@ class FlowLifecycleTest extends munit.FunSuite:
     val content = os.read(OrcaDir.settingsPath(workDir))
     assert(
       content.contains(
-        "# definitely-not-a-cmd-xyz check: " +
-          "definitely-not-a-cmd-xyz: not found on PATH\nlint = off"
+        "# skipped: lint = definitely-not-a-cmd-xyz check " +
+          "(definitely-not-a-cmd-xyz: not found on PATH)\nlint = off"
       ),
-      s"the demoted command must be a live `off` line with its reason " +
-        s"as the comment above: $content"
+      s"the demoted command must be a comment, followed by a live `off` " +
+        s"line: $content"
     )
     // The written file parses to only the surviving commands, matching the run's.
     assertEquals(
@@ -1602,11 +1607,11 @@ class FlowLifecycleTest extends munit.FunSuite:
     given WorkspaceWrite = WorkspaceWrite.unsafe
     // The delete-to-rediscover fixture: feature branch, committed header — and
     // NO settings file when the run resumes.
-    val _ = git.createBranch("feat/discover-resume")
+    val _ = git.createBranch(branchName("feat/discover-resume"))
     store.writeHeader(
       ProgressHeader(
-        startingBranch = "main",
-        branch = "feat/discover-resume",
+        startingBranch = Some(branchName("main")),
+        branch = branchName("feat/discover-resume"),
         branchMode = BranchMode.Created,
         userPrompt = prompt,
         flowName = None,
@@ -1889,18 +1894,18 @@ class FlowLifecycleTest extends munit.FunSuite:
   ):
     // An aborted run left a session record carrying a learned resumeWireId. On
     // resume, flow setup must replay it into the leading model's registry via
-    // registerResumeWireId BEFORE the body runs.
+    // rehydrateResumeWireId BEFORE the body runs.
     val workDir = GitRepo.seeded()
     val prompt = "rehydrate-feature"
     val store = ProgressStore.default(workDir, RunKey.of(prompt))
     val git = new OsGitTool(workDir)
 
     given WorkspaceWrite = WorkspaceWrite.unsafe
-    val _ = git.createBranch("feat/rehydrate-feature")
+    val _ = git.createBranch(branchName("feat/rehydrate-feature"))
     store.writeHeader(
       ProgressHeader(
-        startingBranch = "main",
-        branch = "feat/rehydrate-feature",
+        startingBranch = Some(branchName("main")),
+        branch = branchName("feat/rehydrate-feature"),
         branchMode = BranchMode.Created,
         userPrompt = prompt,
         flowName = None,
@@ -1943,7 +1948,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         assertEquals(
           recorder.recordedWire("client-uuid"),
           Some("ses_server_1"),
-          "registerResumeWireId must replay the persisted mapping"
+          "rehydrateResumeWireId must replay the persisted mapping"
         )
 
   /** Drive `runFlow` directly (exit-free) with a null-sink interaction so no
@@ -2163,7 +2168,7 @@ class FlowLifecycleTest extends munit.FunSuite:
           throw new UnsupportedOperationException
 
   /** Where one `openPrIfGitHub` run left the checkout. */
-  private case class HandoffRun(head: String, featureBranch: String)
+  private case class HandoffRun(head: Head, featureBranch: String)
 
   /** A run that writes a file and then calls [[openPrIfGitHub]] on GitHub. */
   private def handoffRun(workDir: os.Path = GitRepo.seeded()): HandoffRun =
@@ -2186,12 +2191,21 @@ class FlowLifecycleTest extends munit.FunSuite:
       val _ =
         orca.pr.openPrIfGitHub(
           summarisingAgent = summon[FlowContext].claude,
-          openFindings = orca.review.OpenFindings(Nil)
+          openFindings = orca.review.OpenFindings.empty
         )
-    HandoffRun(git.currentBranch(), featureBranch)
+    HandoffRun(git.head(), featureBranch)
 
   test("a new-branch run that opened a PR is handed back its start branch"):
-    assertEquals(handoffRun().head, "main")
+    assertEquals(handoffRun().head, Head.OnBranch(branchName("main")))
+
+  test("a run started detached that opened a PR is handed back that commit"):
+    // A CI checkout: the run must still see its code and open the PR.
+    val workDir = GitRepo.seeded()
+    val _ = os.proc("git", "checkout", "--detach").call(cwd = workDir)
+    val start = GitRepo.headCommit(workDir)
+    val r = handoffRun(workDir)
+    assertEquals(r.head, Head.Detached(start))
+    assert(branchNames(workDir).contains(r.featureBranch), branchNames(workDir))
 
   test("a run that recorded a PR keeps the empty branch it was opened from"):
     // Pins the read/teardown pair: `run` reads `published` out of the log
@@ -2221,11 +2235,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       case Right(dir) => dir
       case Left(msg)  => fail(s"could not create the worktree: $msg")
     val r = handoffRun(worktree)
-    assertEquals(r.head, r.featureBranch)
-    assert(
-      !r.head.startsWith("orca-worktree-"),
-      s"the run must be left on its feature branch, not ${r.head}"
-    )
+    assertEquals(r.head, Head.OnBranch(branchName(r.featureBranch)))
 
   test("R5: failure teardown keeps feature branch regardless of code changes"):
 
@@ -2349,7 +2359,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val git = new OsGitTool(workDir)
     val listener = new RecordingListener
     given WorkspaceWrite = WorkspaceWrite.unsafe
-    val _ = git.createBranch("taken-name")
+    val _ = git.createBranch(branchName("taken-name"))
     os.write(workDir / "unrelated.txt", "pre-existing work")
     val _ = git.commit("unrelated pre-existing commit")
     val preExistingHead = os
@@ -2358,7 +2368,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       .out
       .text()
       .trim
-    val _ = git.checkout("main")
+    val _ = git.checkout(branchName("main"))
     var featureBranchName = ""
     supervised:
       val interaction = TerminalInteraction.start(
@@ -2422,8 +2432,8 @@ class FlowLifecycleTest extends munit.FunSuite:
     val git = new OsGitTool(workDir)
     val expectedFallback = BranchNamingStrategy.flowFallbackName(prompt)
     given WorkspaceWrite = WorkspaceWrite.unsafe
-    val _ = git.createBranch(expectedFallback)
-    val _ = git.checkout("main")
+    val _ = git.createBranch(branchName(expectedFallback))
+    val _ = git.checkout(branchName("main"))
     val listener = new RecordingListener
     val thrown = intercept[SurfacedFlowFailure]:
       supervised:
@@ -2471,7 +2481,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val prompt = "skip-branch-reuse"
     val git = new OsGitTool(workDir)
     given WorkspaceWrite = WorkspaceWrite.unsafe
-    val _ = git.createBranch("my-work")
+    val _ = git.createBranch(branchName("my-work"))
     val branchesBefore = branchNames(workDir)
     supervised:
       val interaction = TerminalInteraction.start(
@@ -2521,7 +2531,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val store = ProgressStore.default(workDir, RunKey.of(prompt))
     val git = new OsGitTool(workDir)
     given WorkspaceWrite = WorkspaceWrite.unsafe
-    val _ = git.createBranch("my-work")
+    val _ = git.createBranch(branchName("my-work"))
     os.write(workDir / "handoff.md", "the plan")
     val _ = intercept[SurfacedFlowFailure]:
       supervised:
@@ -2601,18 +2611,10 @@ class FlowLifecycleTest extends munit.FunSuite:
     assertEquals(git.currentBranch(), "main")
 
   test("skip-branch mode refuses on detached HEAD"):
-    // `git rev-parse --abbrev-ref HEAD` reads back the literal string "HEAD"
-    // when detached. Binding a skip-branch run to that would commit into an
-    // unnamed, GC-eligible state, and make the resume-side R30 cross-check
-    // vacuous (every detached state reads as "HEAD").
     val workDir = GitRepo.seeded()
     val prompt = "skip-branch-detached"
     val store = ProgressStore.default(workDir, RunKey.of(prompt))
-    val git = new OsGitTool(workDir)
-    val head =
-      os.proc("git", "rev-parse", "HEAD").call(cwd = workDir).out.text().trim
-    val _ = os.proc("git", "checkout", "--detach", head).call(cwd = workDir)
-    assertEquals(git.currentBranch(), "HEAD")
+    val _ = os.proc("git", "checkout", "--detach").call(cwd = workDir)
     val listener = new RecordingListener
     val thrown = intercept[SurfacedFlowFailure]:
       supervised:
@@ -2641,43 +2643,32 @@ class FlowLifecycleTest extends munit.FunSuite:
     )
 
   test(
-    "resume refuses a header naming the literal branch \"HEAD\" (hostile header, not just a valid detached read-back)"
+    "a run started on a detached HEAD resumes, then ends detached at its start"
   ):
     val workDir = GitRepo.seeded()
-    val prompt = "resume-head-header"
+    val prompt = "detached-resume"
     val store = ProgressStore.default(workDir, RunKey.of(prompt))
-    val git = new OsGitTool(workDir)
-    given WorkspaceWrite = WorkspaceWrite.unsafe
-    // Detach HEAD so `git.currentBranch()` also reads back "HEAD" — the
-    // header's claimed branch must still be rejected on its own, independent
-    // of the current-branch cross-check.
-    val head =
-      os.proc("git", "rev-parse", "HEAD").call(cwd = workDir).out.text().trim
-    val _ = os.proc("git", "checkout", "--detach", head).call(cwd = workDir)
-    store.writeHeader(
-      ProgressHeader(
-        startingBranch = "main",
-        branch = "HEAD",
-        branchMode = BranchMode.Created,
-        userPrompt = prompt,
-        flowName = None,
-        startingCommit = unreachableCommit
-      )
-    )
-    git.forceAdd(store.path)
-    val _ = git.commit("orca: progress log")
-    val listener = new RecordingListener
-    val thrown = intercept[SurfacedFlowFailure]:
-      runFlowForTest(workDir, prompt, store, extraListeners = List(listener)):
-        val _ = stage("never-runs")("x")
-    assert(
-      thrown.cause.getMessage.contains("refusing to resume"),
-      s"the refusal message must reach the user: ${thrown.cause.getMessage}"
-    )
-    assert(
-      thrown.cause.getMessage.contains("not a safe ref"),
-      s"abort message must name the unsafe ref: ${thrown.cause.getMessage}"
-    )
+    val _ = os.proc("git", "checkout", "--detach").call(cwd = workDir)
+    val start = GitRepo.headCommit(workDir)
+    val stageOneRuns = new AtomicInteger(0)
+    var featureBranch = ""
+    val _ = intercept[SurfacedFlowFailure]:
+      runFlowForTest(workDir, prompt, store):
+        featureBranch = summon[FlowContext].git.currentBranch()
+        val _ = stage("stage-one"):
+          stageOneRuns.incrementAndGet()
+          "one-done"
+        val _ = stage[String]("stage-two"):
+          throw new RuntimeException("boom")
+    runFlowForTest(workDir, prompt, store):
+      val _ = stage("stage-one"):
+        stageOneRuns.incrementAndGet()
+        "one-done"
+      val _ = stage("stage-two")("two-done")
+    assertEquals(stageOneRuns.get(), 1, "stage one must replay, not re-run")
+    // Nothing but orca's log landed on the branch, so it is deleted.
+    assertEquals(new OsGitTool(workDir).head(), Head.Detached(start))
+    assert(!branchNames(workDir).contains(featureBranch), branchNames(workDir))
 
   /** `git stash list`, one entry per line, for asserting no/some stash was
     * created.
@@ -2699,7 +2690,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val prompt = "skip-branch-dirty-modified"
     val git = new OsGitTool(workDir)
     given WorkspaceWrite = WorkspaceWrite.unsafe
-    val _ = git.createBranch("my-work")
+    val _ = git.createBranch(branchName("my-work"))
     os.write.over(workDir / "seed.txt", "modified in place")
     val listener = new RecordingListener
     var modifiedInBody = false
@@ -2766,7 +2757,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val prompt = "skip-branch-dirty-untracked"
     val git = new OsGitTool(workDir)
     given WorkspaceWrite = WorkspaceWrite.unsafe
-    val _ = git.createBranch("my-work")
+    val _ = git.createBranch(branchName("my-work"))
     os.write(workDir / "docs" / "plan.md", "plan notes", createFolders = true)
     var presentInBody = false
     supervised:
@@ -2830,7 +2821,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val prompt = "skip-branch-dirty-mixed"
     val git = new OsGitTool(workDir)
     given WorkspaceWrite = WorkspaceWrite.unsafe
-    val _ = git.createBranch("my-work")
+    val _ = git.createBranch(branchName("my-work"))
     os.write.over(workDir / "seed.txt", "modified in place")
     os.write(workDir / "docs" / "plan.md", "plan notes", createFolders = true)
     // Noise living right next to orca's own directory — must not confuse the
@@ -2872,7 +2863,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val store = ProgressStore.default(workDir, RunKey.of(prompt))
     val git = new OsGitTool(workDir)
     given WorkspaceWrite = WorkspaceWrite.unsafe
-    val _ = git.createBranch("my-work")
+    val _ = git.createBranch(branchName("my-work"))
     os.write(store.path, "not json {{{", createFolders = true)
     os.write(workDir / "handoff.md", "the plan")
     os.write.over(workDir / "seed.txt", "modified in place")
@@ -2912,12 +2903,12 @@ class FlowLifecycleTest extends munit.FunSuite:
     val store = ProgressStore.default(workDir, RunKey.of(prompt))
     val git = new OsGitTool(workDir)
     given WorkspaceWrite = WorkspaceWrite.unsafe
-    val _ = git.createBranch("my-work")
+    val _ = git.createBranch(branchName("my-work"))
     // A committed header, as if a prior run got this far before being killed.
     store.writeHeader(
       ProgressHeader(
-        startingBranch = "my-work",
-        branch = "my-work",
+        startingBranch = Some(branchName("my-work")),
+        branch = branchName("my-work"),
         branchMode = BranchMode.Reused,
         userPrompt = prompt,
         flowName = None,
@@ -3038,12 +3029,12 @@ class FlowLifecycleTest extends munit.FunSuite:
     val store = ProgressStore.default(workDir, RunKey.of(prompt))
     val git = new OsGitTool(workDir)
     given WorkspaceWrite = WorkspaceWrite.unsafe
-    val _ = git.createBranch("feat/keep-changes-resume")
+    val _ = git.createBranch(branchName("feat/keep-changes-resume"))
     // A committed header, as if a prior run got this far before being killed.
     store.writeHeader(
       ProgressHeader(
-        startingBranch = "main",
-        branch = "feat/keep-changes-resume",
+        startingBranch = Some(branchName("main")),
+        branch = branchName("feat/keep-changes-resume"),
         branchMode = BranchMode.Created,
         userPrompt = prompt,
         flowName = None,
@@ -3270,14 +3261,13 @@ class FlowLifecycleTest extends munit.FunSuite:
     "skip-branch mode: success teardown never deletes the reused branch, even with only orca commits"
   ):
     // Mirrors R5 (throwaway-branch auto-delete on a normal fresh run), but the
-    // reused branch must survive: `featureBranch == startBranch` always holds
-    // in skip mode, so the throwaway check (which compares the two) can never
-    // fire.
+    // reused branch must survive: it is `BranchMode.Reused`, which
+    // `ThrowawayBranch` never treats as throwaway.
     val workDir = GitRepo.seeded()
     val prompt = "skip-branch-throwaway"
     val git = new OsGitTool(workDir)
     given WorkspaceWrite = WorkspaceWrite.unsafe
-    val _ = git.createBranch("my-empty-work")
+    val _ = git.createBranch(branchName("my-empty-work"))
     supervised:
       val interaction = TerminalInteraction.start(
         out = new PrintStream(new ByteArrayOutputStream()),
@@ -3300,28 +3290,33 @@ class FlowLifecycleTest extends munit.FunSuite:
   test(
     "teardownSuccess: branchMode = Reused blocks the throwaway auto-delete even when the diff is blank"
   ):
-    // Direct FlowSetup construction simulates the hazard finding 3 closes: a
-    // tampered header's `startingBranch` (unlike `branch`, never cross-checked
-    // against anything) could name an existing branch that happens to
-    // diff-blank against the feature branch — which is exactly R5's throwaway
-    // signature. `branchMode = Reused` (skip-branch mode) must block the
-    // delete regardless of what `startingBranch` claims.
+    // Direct FlowSetup construction simulates the hazard: a tampered header's
+    // `startingCommit` (unlike `branch`, never cross-checked against anything)
+    // could name a commit that happens to diff-blank against the feature
+    // branch — which is exactly R5's throwaway signature. `branchMode = Reused`
+    // (skip-branch mode) must block the delete regardless of what
+    // `startingCommit` claims.
     val workDir = GitRepo.seeded() // "main"
     val git = new OsGitTool(workDir)
+    val startedAt = git.headCommit()
     val store = ProgressStore.default(workDir, RunKey.of("gated-delete"))
     given WorkspaceWrite = WorkspaceWrite.unsafe
-    val _ = git.createBranch("reused-branch") // diff-blank vs "main"
+    val _ =
+      git.createBranch(branchName("reused-branch")) // diff-blank vs "main"
     val featureBranch =
-      FeatureBranch.resolveReused("reused-branch", Set.empty).toOption.get
+      FeatureBranch
+        .resolveReused(branchName("reused-branch"), Set.empty)
+        .toOption
+        .get
     val setup = FlowLifecycle.FlowSetup(
       store = store,
       sessionStore = scratchSessions(),
       featureBranch = featureBranch,
-      startBranch = "main",
+      startingHead = Head.OnBranch(branchName("main")),
       stackSettings = StackSettings.empty,
       branchMode = BranchMode.Reused,
       untrackedOnFailure = UntrackedFiles.Remove,
-      startingCommit = None,
+      startingCommit = startedAt,
       worktree = None
     )
     FlowLifecycle.teardownSuccess(
@@ -3343,22 +3338,25 @@ class FlowLifecycleTest extends munit.FunSuite:
   ): (OsGitTool, os.Path, FlowLifecycle.FlowSetup) =
     val workDir = GitRepo.seeded() // "main"
     val git = new OsGitTool(workDir)
+    val startedAt = git.headCommit()
     val store = ProgressStore.default(workDir, RunKey.of("handoff"))
     given WorkspaceWrite = WorkspaceWrite.unsafe
-    val _ = git.createBranch("feat/work")
+    val _ = git.createBranch(branchName("feat/work"))
     if withCode then
       os.write(workDir / "code.txt", "real code")
       git.forceCommitOnly(workDir / "code.txt", "work")
     val setup = FlowLifecycle.FlowSetup(
       store = store,
       sessionStore = scratchSessions(),
-      featureBranch =
-        FeatureBranch.resolveReused("feat/work", Set.empty).toOption.get,
-      startBranch = "main",
+      featureBranch = FeatureBranch
+        .resolveReused(branchName("feat/work"), Set.empty)
+        .toOption
+        .get,
+      startingHead = Head.OnBranch(branchName("main")),
       stackSettings = StackSettings.empty,
       branchMode = BranchMode.Created,
       untrackedOnFailure = UntrackedFiles.Remove,
-      startingCommit = None,
+      startingCommit = startedAt,
       worktree = None
     )
     (git, workDir, setup)
@@ -3402,6 +3400,20 @@ class FlowLifecycleTest extends munit.FunSuite:
     )
     assertEquals(git.currentBranch(), "main")
     assertEquals(branchNames(workDir), Set("main"))
+
+  test(
+    "teardownSuccess keeps an empty branch when the starting commit is gone"
+  ):
+    // A resume whose recorded commit is no longer an ancestor of HEAD has
+    // nothing to measure the branch against.
+    val (git, workDir, setup) = handoffFixture(withCode = false)
+    FlowLifecycle.teardownSuccess(
+      git,
+      setup.copy(startingCommit = None),
+      PublishedState.NotPublished,
+      _ => ()
+    )
+    assert(branchNames(workDir).contains("feat/work"), branchNames(workDir))
 
   test(
     "a run whose progress log cannot be read keeps the branch it may have published from"
@@ -3451,7 +3463,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val git = new OsGitTool(workDir)
     val store = ProgressStore.default(workDir, RunKey.of("teardown-push"))
     given WorkspaceWrite = WorkspaceWrite.unsafe
-    val _ = git.createBranch(TeardownPushBranch)
+    val _ = git.createBranch(branchName(TeardownPushBranch))
     os.write.over(store.path, "# progress\n", createFolders = true)
     val remote = TempDirs.dir() / "remote.git"
     val _ =
@@ -3463,10 +3475,10 @@ class FlowLifecycleTest extends munit.FunSuite:
       store = store,
       sessionStore = scratchSessions(),
       featureBranch = FeatureBranch
-        .resolveReused(TeardownPushBranch, Set.empty)
+        .resolveReused(branchName(TeardownPushBranch), Set.empty)
         .toOption
         .get,
-      startBranch = "main",
+      startingHead = Head.OnBranch(branchName("main")),
       stackSettings = StackSettings.empty,
       branchMode = BranchMode.Reused,
       untrackedOnFailure = UntrackedFiles.Remove,
@@ -3560,14 +3572,14 @@ class FlowLifecycleTest extends munit.FunSuite:
       store: ProgressStore,
       branch: String,
       branchMode: BranchMode,
-      startingCommit: Option[orca.progress.CommitHash]
+      startingCommit: Option[orca.gitref.CommitHash]
   ): FlowLifecycle.FlowSetup =
     FlowLifecycle.FlowSetup(
       store = store,
       sessionStore = scratchSessions(),
       featureBranch =
-        FeatureBranch.resolveReused(branch, Set.empty).toOption.get,
-      startBranch = "main",
+        FeatureBranch.resolveReused(branchName(branch), Set.empty).toOption.get,
+      startingHead = Head.OnBranch(branchName("main")),
       stackSettings = StackSettings.empty,
       branchMode = branchMode,
       untrackedOnFailure = UntrackedFiles.Remove,
@@ -3583,8 +3595,8 @@ class FlowLifecycleTest extends munit.FunSuite:
     val workDir = GitRepo.seeded()
     val git = new OsGitTool(workDir)
     given WorkspaceWrite = WorkspaceWrite.unsafe
-    val base = git.headCommit().flatMap(orca.progress.CommitHash.from).get
-    val _ = git.createBranch("closing-stay")
+    val base = git.headCommit().get
+    val _ = git.createBranch(branchName("closing-stay"))
     os.write(workDir / "a.txt", "one")
     os.write(workDir / "b.txt", "two")
     assert(git.commit("the run's work").isRight)
@@ -3614,8 +3626,8 @@ class FlowLifecycleTest extends munit.FunSuite:
     val workDir = GitRepo.seeded()
     val git = new OsGitTool(workDir)
     given WorkspaceWrite = WorkspaceWrite.unsafe
-    val base = git.headCommit().flatMap(orca.progress.CommitHash.from).get
-    val _ = git.createBranch("closing-work")
+    val base = git.headCommit().get
+    val _ = git.createBranch(branchName("closing-work"))
     os.write(workDir / "a.txt", "one")
     os.write(workDir / "b.txt", "two")
     assert(git.commit("the run's work").isRight)
@@ -3641,8 +3653,9 @@ class FlowLifecycleTest extends munit.FunSuite:
     val workDir = GitRepo.seeded()
     val git = new OsGitTool(workDir)
     given WorkspaceWrite = WorkspaceWrite.unsafe
-    val base = git.headCommit().flatMap(orca.progress.CommitHash.from).get
-    val _ = git.createBranch("closing-throwaway") // no user code on it
+    val base = git.headCommit().get
+    val _ =
+      git.createBranch(branchName("closing-throwaway")) // no user code on it
     val setup = closingSetup(
       ProgressStore.default(workDir, RunKey.of("closing-throwaway")),
       "closing-throwaway",
@@ -3658,7 +3671,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val workDir = GitRepo.seeded()
     val git = new OsGitTool(workDir)
     given WorkspaceWrite = WorkspaceWrite.unsafe
-    val _ = git.createBranch("closing-no-base")
+    val _ = git.createBranch(branchName("closing-no-base"))
     os.write(workDir / "a.txt", "one")
     assert(git.commit("the run's work").isRight)
     val setup = closingSetup(
@@ -3680,12 +3693,12 @@ class FlowLifecycleTest extends munit.FunSuite:
     val store = ProgressStore.default(workDir, RunKey.of(prompt))
     val git = new OsGitTool(workDir)
     given WorkspaceWrite = WorkspaceWrite.unsafe
-    val base = git.headCommit().flatMap(orca.progress.CommitHash.from).get
-    val _ = git.createBranch("resumed-work")
+    val base = git.headCommit().get
+    val _ = git.createBranch(branchName("resumed-work"))
     store.writeHeader(
       ProgressHeader(
-        startingBranch = "main",
-        branch = "resumed-work",
+        startingBranch = Some(branchName("main")),
+        branch = branchName("resumed-work"),
         branchMode = BranchMode.Created,
         startingCommit = base,
         userPrompt = prompt,
@@ -3697,7 +3710,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     )
     git.forceAdd(store.path)
     val _ = git.commit("orca: progress log")
-    val head = git.headCommit().flatMap(orca.progress.CommitHash.from).get
+    val head = git.headCommit().get
     // No settings file, so this resume arm rediscovers and commits one, moving
     // HEAD: naming the pre-settings commit is what pins the announcement ahead
     // of orca's own bookkeeping.
@@ -3711,7 +3724,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val (_, steps) =
       setupDiscovering(workDir, CannedDiscoveryAgent(canned), prompt)
     assertNotEquals(
-      git.headCommit().flatMap(orca.progress.CommitHash.from),
+      git.headCommit(),
       Some(head),
       "the fixture must move HEAD, or the ordering isn't exercised"
     )
@@ -3732,25 +3745,24 @@ class FlowLifecycleTest extends munit.FunSuite:
   test(
     "resume after a skip-branch run on a mixed-case/slashed branch name works"
   ):
-    // Before the ADR-0018 amendment, `validateHeader` required the strict
-    // minted-name slug shape for EVERY header.branch, which would reject
-    // "Feature/JIRA-123" outright. The weaker `FeatureBranch.isSafeReusedRef` check now accepts
-    // it, since it also equals the current branch (R30's cross-check).
+    // `validateHeader` must not require the minted-name slug shape: a
+    // reused branch is accepted because it equals the current branch (R30's
+    // cross-check).
     val workDir = GitRepo.seeded()
     val prompt = "skip-branch-resume"
     val store = ProgressStore.default(workDir, RunKey.of(prompt))
     val invocations = new AtomicInteger(0)
     given WorkspaceWrite = WorkspaceWrite.unsafe
     val git = new OsGitTool(workDir)
-    val _ = git.createBranch("Feature/JIRA-123")
+    val _ = git.createBranch(branchName("Feature/JIRA-123"))
     store.writeHeader(
       ProgressHeader(
-        startingBranch = "main",
-        branch = "Feature/JIRA-123",
+        startingBranch = Some(branchName("main")),
+        branch = branchName("Feature/JIRA-123"),
         branchMode = BranchMode.Created,
         userPrompt = prompt,
         flowName = None,
-        startingCommit = unreachableCommit
+        startingCommit = GitRepo.headCommit(workDir)
       )
     )
     git.forceAdd(store.path)
@@ -3808,11 +3820,11 @@ class FlowLifecycleTest extends munit.FunSuite:
     val invocations = new AtomicInteger(0)
     given WorkspaceWrite = WorkspaceWrite.unsafe
     val git = new OsGitTool(workDir)
-    val _ = git.createBranch("feat/resume-dirty-json-break")
+    val _ = git.createBranch(branchName("feat/resume-dirty-json-break"))
     store.writeHeader(
       ProgressHeader(
-        startingBranch = "main",
-        branch = "feat/resume-dirty-json-break",
+        startingBranch = Some(branchName("main")),
+        branch = branchName("feat/resume-dirty-json-break"),
         branchMode = BranchMode.Created,
         userPrompt = prompt,
         flowName = None,
@@ -3872,11 +3884,11 @@ class FlowLifecycleTest extends munit.FunSuite:
     val invocations = new AtomicInteger(0)
     given WorkspaceWrite = WorkspaceWrite.unsafe
     val git = new OsGitTool(workDir)
-    val _ = git.createBranch("feat/keep-changes-dirty-json-break")
+    val _ = git.createBranch(branchName("feat/keep-changes-dirty-json-break"))
     store.writeHeader(
       ProgressHeader(
-        startingBranch = "main",
-        branch = "feat/keep-changes-dirty-json-break",
+        startingBranch = Some(branchName("main")),
+        branch = branchName("feat/keep-changes-dirty-json-break"),
         branchMode = BranchMode.Created,
         userPrompt = prompt,
         flowName = None,
@@ -3932,11 +3944,11 @@ class FlowLifecycleTest extends munit.FunSuite:
     val store = ProgressStore.default(workDir, RunKey.of(prompt))
     val git = new OsGitTool(workDir)
     given WorkspaceWrite = WorkspaceWrite.unsafe
-    val _ = git.createBranch("feat/surfaced-tampered")
+    val _ = git.createBranch(branchName("feat/surfaced-tampered"))
     store.writeHeader(
       ProgressHeader(
-        startingBranch = "main",
-        branch = "feat/surfaced-tampered",
+        startingBranch = Some(branchName("main")),
+        branch = branchName("feat/surfaced-tampered"),
         branchMode = BranchMode.Created,
         userPrompt = "a different prompt",
         flowName = None,
@@ -3977,11 +3989,11 @@ class FlowLifecycleTest extends munit.FunSuite:
     val store = ProgressStore.default(workDir, RunKey.of(prompt))
     val git = new OsGitTool(workDir)
     given WorkspaceWrite = WorkspaceWrite.unsafe
-    val _ = git.createBranch("feat/resume-protected-branch")
+    val _ = git.createBranch(branchName("feat/resume-protected-branch"))
     store.writeHeader(
       ProgressHeader(
-        startingBranch = "main",
-        branch = "master",
+        startingBranch = Some(branchName("main")),
+        branch = branchName("master"),
         branchMode = BranchMode.Created,
         userPrompt = prompt,
         flowName = None,
@@ -4016,11 +4028,11 @@ class FlowLifecycleTest extends munit.FunSuite:
     val store = ProgressStore.default(workDir, RunKey.of(prompt))
     val git = new OsGitTool(workDir)
     given WorkspaceWrite = WorkspaceWrite.unsafe
-    val _ = git.createBranch("feat/surfaced-rehydrate")
+    val _ = git.createBranch(branchName("feat/surfaced-rehydrate"))
     store.writeHeader(
       ProgressHeader(
-        startingBranch = "main",
-        branch = "feat/surfaced-rehydrate",
+        startingBranch = Some(branchName("main")),
+        branch = branchName("feat/surfaced-rehydrate"),
         branchMode = BranchMode.Created,
         userPrompt = prompt,
         flowName = None,

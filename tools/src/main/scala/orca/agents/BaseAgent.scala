@@ -62,8 +62,8 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
 
   /** Exposes the backend's session-durability capability, so a tool built on a
     * real [[orca.backend.AgentBackend]] reflects actual session state rather
-    * than the trait's `None` default. `continuation` / `resumeWireId` /
-    * `registerResumeWireId` on [[Agent]] route through this.
+    * than the trait's `None` default. `dispatchFor` / `resumeWireId` /
+    * `rehydrateResumeWireId` on [[Agent]] route through this.
     */
   override private[orca] def sessionSupport
       : Option[orca.backend.SessionSupport[B]] =

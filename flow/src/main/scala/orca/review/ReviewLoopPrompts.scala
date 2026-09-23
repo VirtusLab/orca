@@ -1,6 +1,7 @@
 package orca.review
 
 import orca.BoundedDiff
+import orca.gitref.CommitHash
 import orca.plan.Task
 import orca.util.PromptResource
 
@@ -79,8 +80,8 @@ object ReviewLoopPrompts:
       userRequest: String,
       diff: String,
       diffIntro: String,
-      base: Option[String],
-      open: OpenFindings
+      base: Option[CommitHash],
+      open: List[OpenFinding]
   ): String =
     PromptResource.render(
       InitialReviewTemplate,
@@ -115,7 +116,7 @@ object ReviewLoopPrompts:
     * — the template writes `{{diffBlock}}{{baseNote}}` with no separator of its
     * own.
     */
-  private def baseNote(base: Option[String]): String =
+  private def baseNote(base: Option[CommitHash]): String =
     base.fold(""): sha =>
       s"\n\nThe diff above is everything that changed since commit $sha. To " +
         "see what the diff doesn't show, read a file as it was before the " +
@@ -139,7 +140,7 @@ object ReviewLoopPrompts:
     */
   private[review] def reReview(
       changes: ReReviewChanges,
-      open: OpenFindings
+      open: List[OpenFinding]
   ): String =
     PromptResource.render(
       ReReviewTemplate,
@@ -154,23 +155,33 @@ object ReviewLoopPrompts:
     * A reviewer told "this was settled" would stop checking, which is the
     * failure this block exists to avoid — the point is to save a round on
     * findings that were already answered, not to withdraw them.
+    *
+    * Each entry leads with its [[FindingId]], the only place ids are shown: a
+    * reviewer names it in `reopens` so a re-report is matched to the entry
+    * however it is worded.
     */
-  private def openFindingsBlock(open: OpenFindings): String =
-    // An entry standing for a review that never ran is no reviewer's finding,
-    // and the block below says every line is one. It reaches here only through
-    // a flow that seeds one loop's result into another's `priorOpenFindings`.
-    val reported = OpenFindings(
-      open.findings.filterNot(_.reason == OpenReason.ReviewSkipped)
-    )
-    if reported.findings.isEmpty then ""
+  private def openFindingsBlock(open: List[OpenFinding]): String =
+    if open.isEmpty then ""
     else
       "\n\nThese findings were reported earlier and are still open. This is " +
-        s"the reason recorded for each:\n\n${reported.format}" +
+        s"the reason recorded for each:\n\n${openFindingLines(open)}" +
+        "\n\nIf you report one of them again, however you word it, set " +
+        "`reopens` to its id (the text in its brackets)." +
         "\n\nThat is a record of what happened, not a ruling. If you still " +
         "think a finding is real, report it again and say why the reason is " +
         "wrong. \"The plan chose this\" is not on its own a sufficient " +
         "answer for a finding in the always-report categories below — " +
         "re-report such a finding."
+
+  /** One bullet per entry: id, title, where it points, reason — each on one
+    * line.
+    */
+  private def openFindingLines(open: List[OpenFinding]): String =
+    open
+      .map: f =>
+        val where = f.location.fold("")(l => s" (at ${l.text})")
+        s"- [${f.id.value}] ${f.titleLine}$where: ${f.reasonLine}"
+      .mkString("\n")
 
   private def changesBlock(changes: ReReviewChanges): String =
     changes match

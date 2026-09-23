@@ -203,7 +203,7 @@ backend's model accessors and backend-specific extras:
 | `opencode` | `anthropicOpus`/`anthropicSonnet`/`anthropicHaiku`, `openaiAstra`/`openaiSol`/`openaiLuna`, `cheap` (provider-matched: openai→luna, else anthropicHaiku), `withModel(providerModel)` / `withModel(provider, modelId)` | [OpenCode](https://opencode.ai) coding/reviewing agent, driven over HTTP+SSE against a headless `opencode serve` (started lazily, shared for the run; sessions survive it — see [Sessions](#sessions)). Spans providers, so models are provider-qualified: use an accessor (`opencode.openaiLuna`) or `opencode.withModel("openai/gpt-5-mini")` / `opencode.withModel("ollama", "llama3.1")`. Inherits the user's configured `opencode` providers/auth. |
 | `pi` | `withModel(Model)` | [Pi](https://pi.dev/) coding agent backend, driven through `pi --mode rpc`. Pi handles provider/model selection through its own CLI configuration; pin a model with `pi.withModel(Model("provider/model"))`. Interactive calls can ask clarifying questions via Orca's `ask_user` bridge. |
 | `gemini` | `flash`, `cheap` (→ flash), `withModel(Model)` | Google Gemini CLI coding/reviewing agent, driven via `gemini --output-format stream-json`. Bare `gemini` pins **Gemini 3.1 Pro (preview)**; use `gemini.flash` (Gemini 3.8 Flash) for cheaper one-shot calls. Structured output is prompt-enforced (Gemini has no schema flag); `withReadOnly` maps to `--approval-mode plan`. See [ADR 0015](adr/0015-gemini-stream-json-driver.md). |
-| `git` | `createBranch`, `checkout`, `ensureClean`, `commit`, `forceAdd`, `push`, `currentBranch`, `headCommit`, `uncommittedDiff`, `changedFiles`, `reviewChanges`, `pendingChanges`, `diffVsBase`, `defaultBase`, `discardUncommitted`, `deleteBranch`, `branchHasChangesExcludingOrca` | Git operations against the working tree. Recoverable failures (`BranchAlreadyExists`, `BranchNotFound`, `NothingToCommit`, `NoDefaultBase`, `PushFailure` — `NonFastForward`/`RemoteDeclined`) surface as `Either`; `.orThrow` converts a `Left` back to an exception when the case is unexpected. `forceAdd`, `discardUncommitted`, `deleteBranch` are used by the flow runtime for bookkeeping and teardown. `uncommittedDiff` covers the whole repository minus `.orca/` bookkeeping, tracked files only, and is empty once the work is committed — `diffVsBase` is the branch-wide view. `reviewChanges` is what `reviewAndFixLoop` hands reviewers: that diff plus the contents of files new to the repo, together with the list of every path in the change set and how much of each changed. It takes an optional commit to compare against (`headCommit` reads one) so work already committed still shows up. `changedFiles` is the path list on its own, for a consumer gating on file names — the diff text alone names neither a binary change nor a rename, and leaves a trailing tab on a path containing a space. `pendingChanges` describes what the next commit will include: a `--stat` summary, the new files, and the diff. |
+| `git` | `createBranch`, `checkout`, `ensureClean`, `commit`, `forceAdd`, `push`, `head`, `headCommit`, `uncommittedDiff`, `changedFiles`, `reviewChanges`, `pendingChanges`, `diffVsBase`, `defaultBase`, `discardUncommitted`, `deleteBranch`, `branchHasChangesExcludingOrca` | Git operations against the working tree. Branches and commits are typed (`orca.gitref.BranchName`, `CommitHash`); `head` answers the branch HEAD is on or the commit it is detached at (`orca.gitref.Head`). Recoverable failures (`BranchAlreadyExists`, `BranchNotFound`, `NothingToCommit`, `NoDefaultBase`, `PushFailure` — `NonFastForward`/`RemoteDeclined`) surface as `Either`; `.orThrow` converts a `Left` back to an exception when the case is unexpected. `forceAdd`, `discardUncommitted`, `deleteBranch` are used by the flow runtime for bookkeeping and teardown. `uncommittedDiff` covers the whole repository minus `.orca/` bookkeeping, tracked files only, and is empty once the work is committed — `diffVsBase` is the branch-wide view. `reviewChanges` is what `reviewAndFixLoop` hands reviewers: that diff plus the contents of files new to the repo, together with the list of every path in the change set and how much of each changed. It takes an optional commit to compare against (`headCommit` reads one) so work already committed still shows up. `changedFiles` is the path list on its own, for a consumer gating on file names — the diff text alone names neither a binary change nor a rename, and leaves a trailing tab on a path containing a space. `pendingChanges` describes what the next commit will include: a `--stat` summary, the new files, and the diff. |
 | `gh` | `availability`, `createPr`, `updatePr`, `readIssue`, `readIssueComments`, `readPrComments`, `writeComment(pr, body)` / `writeComment(issue, body)`, `upsertComment(pr, marker, body)` / `upsertComment(issue, marker, body)`, `buildStatus`, `waitForBuild` | GitHub PR + CI integration via the `gh` CLI. `availability` is a read-only probe of whether a PR can be opened from this checkout, answering with a [`GitHubAvailability`](#data-structures). `createPr` is idempotent by branch (returns the existing PR if one is open); `upsertComment` finds a prior comment carrying `marker` and edits it in place (see [Authoring rules](#authoring-rules) for the re-run pattern). `updatePr` replaces a PR's title + body. `waitForBuild` returns `Either[BuildWaitFailed, …]`. |
 | `fs` | `read`, `write`, `list` | Working-tree file I/O. `read` returns `Option[String]` so a missing file is a branch point, not an exception. |
 
@@ -588,11 +588,11 @@ discovered reviewers: orca (project); scala-fp (project, shadows built-in)
 
 Every discovered command cites the file that evidences it, and two checks run
 before the file is written: the command's executable must be on `PATH`, and the
-cited evidence file must exist. A command failing either is demoted to a live
-`key = off` line with the rejected command and reason as an informative comment
-above (`# just check: just: not found on PATH` / `lint = off`), never run
-silently. A discovery failure (backend unavailable, invalid output) aborts the
-run rather than writing a "gates off" file.
+cited evidence file must exist. A command failing either is kept only as a
+comment (`# skipped: lint = just check (just: not found on PATH)`), never run
+silently; a key left with no command gets a live `key = off` line. A discovery
+failure (backend unavailable, invalid output) aborts the run rather than writing
+a "gates off" file.
 
 `.orca/` is committed by default: settings and each run's progress log
 (`runs/<key>.progress.json`) ride the branch, while machine-local state lives
@@ -928,10 +928,10 @@ PR utilities, available via `import orca.pr.*`:
 | Method | Use |
 |---|---|
 | `summarisePr(agent, diff, context?, instructions?)` | Fold a branch diff into a `PrSummary(title, body)` for `gh.createPr`. `context` is an optional preamble (originating issue link, user prompt, etc.) the model anchors the description to. A diff too large to send is cut short. Use a cheap model (`claude.cheap`, `codingAgent.cheap`). |
-| `openPrFromBranch(summarisingAgent, openFindings, title?, body?, context?, instructions?): PrHandle` | Push the feature branch and open a PR for it, as three stages: push → summarise → create. Requires a GitHub remote and a logged-in `gh` — without either the run fails. `openFindings` is the `OpenFindings` the run's final review returned; each entry is listed under "Open review findings" as its title, where it points if the reviewer named a place, and the reason, verbatim (none open: no section). The same section is printed to the run output, also when the PR fails. `title`/`body` rewrite the generated text. `context` defaults to the run's user prompt, and then the summariser adds a `Closes #N` line per issue the prompt says to fix; a flow that passes `context` adds its own `Closes` line through `body` (`body = s => s"${s.body}\n\nCloses #42."`). Opening the PR is a top-level step of a flow and this runs its own stages, so it does not compile inside one. |
+| `openPrFromBranch(summarisingAgent, openFindings, title?, body?, context?, instructions?): PrHandle` | Push the feature branch and open a PR for it, as three stages: push → summarise → create. Requires a GitHub remote and a logged-in `gh` — without either the run fails. `openFindings` is the `OpenFindings` the run's final review returned; each entry is listed under "Open review findings" as its title, where it points if the reviewer named a place, and the reason, verbatim, after a line saying so if the review was skipped (none open and not skipped: no section). The same section is printed to the run output, also when the PR fails. `title`/`body` rewrite the generated text. `context` defaults to the run's user prompt, and then the summariser adds a `Closes #N` line per issue the prompt says to fix; a flow that passes `context` adds its own `Closes` line through `body` (`body = s => s"${s.body}\n\nCloses #42."`). Opening the PR is a top-level step of a flow and this runs its own stages, so it does not compile inside one. |
 | `openPrIfGitHub(summarisingAgent, openFindings, title?, body?, context?, instructions?): Option[PrHandle]` | Probes `gh.availability` outside any stage, then runs `openPrFromBranch`'s push → summarise → create when the checkout is on GitHub. Where it isn't — no remote, a remote that isn't GitHub, a GitHub `gh` cannot reach, a run that changed no code, or a push/create the remote refuses — it emits one `Step` saying why, returns `None`, and the run finishes. The open findings are printed to the run output either way. A resume replays what its push and create stages recorded, a refusal included. The step every code-producing built-in flow ends with; like `openPrFromBranch`, it does not compile inside a stage. |
-| `bodyWithOpenFindings(body, open)` | `body` with the "Open review findings" section appended, or `body` unchanged when nothing is open — the assembly `openPrFromBranch`/`openPrIfGitHub` use, for a flow that writes its own PR body (`gh.updatePr`). |
-| `reportOpenFindings(open)` | Print the "Open review findings" section to the run output; nothing when nothing is open. `openPrFromBranch`/`openPrIfGitHub` do this themselves, before their PR step; a flow that writes its own PR body calls it before its PR step. |
+| `bodyWithOpenFindings(body, open)` | `body` with the "Open review findings" section appended, or `body` unchanged when nothing is open and the review ran — the assembly `openPrFromBranch`/`openPrIfGitHub` use, for a flow that writes its own PR body (`gh.updatePr`). |
+| `reportOpenFindings(open)` | Print the "Open review findings" section to the run output; nothing when nothing is open and the review ran. `openPrFromBranch`/`openPrIfGitHub` do this themselves, before their PR step; a flow that writes its own PR body calls it before its PR step. |
 | `recordOpenedPr(pr)` | Record the PR's URL as the run's published work, so the run hands the checkout back on the branch it started from and the closing summary names the PR. Only for a flow that opens its PR with a bare `gh.createPr` — `openPrFromBranch`/`openPrIfGitHub` record it themselves. Call it inside the stage that opened the PR (it needs that stage's `WorkspaceWrite`): the stage's commit carries the record, and a resume reads it back without re-running the body. |
 
 ### Customising prompts
@@ -1036,17 +1036,20 @@ results.
   fields feed `gh.createPr(title = …, body = …)` directly.
 - **`orca.review.ReviewFinding` / `ReviewResult`** — what reviewer agents
   return. A finding carries a `title` (shown), a long `description` (sent to
-  the fixer), and an optional `location`.
+  the fixer), an optional `location`, and `reopens`: the `FindingId` of the
+  still-open finding it reports again, if any.
 - **`orca.review.FixOutcome(fixed, declined)`** — what the fix step returns: the
   titles of findings actually fixed in code, plus a
   `DeclinedFinding(title, reason)` per finding it refused (environmental, out of
   scope, false positive). The loop re-evaluates iff `fixed` is non-empty.
-- **`orca.review.OpenFindings`** — accumulated
-  `OpenFinding(title, reason, location)` entries surfaced by `reviewAndFixLoop`
-  once it halts: every finding the run did not resolve, each with where it
-  points and an `OpenReason` — `Declined(text)` (the fixer's own words),
-  `NoFixes`, `Unaccounted`, `CapReached(max)`, `LintStillFailing` or
-  `ReviewSkipped`. `reason.describe` is the sentence shown to a reader.
+- **`orca.review.OpenFindings(findings, skipped)`** — accumulated
+  `OpenFinding(id, title, reason, location)` entries surfaced by
+  `reviewAndFixLoop` once it halts: every finding the run did not resolve, each
+  with where it points and an `OpenReason` — `Declined(text)` (the fixer's own
+  words), `NoFixes`, `Unaccounted`, `CapReached(max)` or `LintStillFailing`.
+  `reason.describe` is the sentence shown to a reader. `id` (`FindingId`) is
+  what entries merge by across rounds; two findings sharing a title stay two.
+  `skipped` is `Some(SkippedReview)` when the review never ran.
 - **`orca.StackSettings(format, lint, test)`** — the resolved per-project
   tooling commands (each field a `List[String]`, run via `bash -c`; empty = task
   disabled). Resolved once per run — see [Settings](#settings) — and read back

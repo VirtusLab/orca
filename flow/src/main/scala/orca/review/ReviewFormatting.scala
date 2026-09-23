@@ -68,9 +68,11 @@ private[review] def formatReviewerOutcome(
   * block spans rounds — an entry from round one carries no key the last round
   * minted.
   */
-private[review] def formatOpenFindings(open: OpenFindings): Option[String] =
-  Option.when(open.findings.nonEmpty):
-    val lines = open.findings.flatMap: f =>
+private[review] def formatOpenFindings(
+    open: List[OpenFinding]
+): Option[String] =
+  Option.when(open.nonEmpty):
+    val lines = open.flatMap: f =>
       val reason = f.reasonLine
       val bullet = TextWrap.wrap(
         s"  - ${f.titleLine}",
@@ -85,4 +87,4 @@ private[review] def formatOpenFindings(open: OpenFindings): Option[String] =
         )
       )
       List(Some(bullet), locationLine(f.location), why).flatten
-    (s"Findings still open (${open.findings.size}):" :: lines).mkString("\n")
+    (s"Findings still open (${open.size}):" :: lines).mkString("\n")

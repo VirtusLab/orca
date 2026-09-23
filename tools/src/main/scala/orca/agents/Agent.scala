@@ -232,9 +232,9 @@ trait Agent[B <: BackendTag]:
   def withSelfManagedGit: Agent[B] = this
 
   /** The backend's session-durability capability, or `None` for tools without a
-    * backend. The ONLY overridable session hook — the `continuation` /
-    * `resumeWireId` / `registerResumeWireId` trio below is `final`, implemented
-    * uniformly through this, so a tool exposes its backend's whole
+    * backend. The ONLY overridable session hook — the `dispatchFor` /
+    * `resumeWireId` / `rehydrateResumeWireId` trio below is `final`,
+    * implemented uniformly through this, so a tool exposes its backend's whole
     * [[orca.backend.SessionSupport]] or nothing, never a partial mix.
     */
   private[orca] def sessionSupport: Option[orca.backend.SessionSupport[B]] =
@@ -274,15 +274,14 @@ trait Agent[B <: BackendTag]:
 
   /** What the NEXT call on `session` does with the backend's conversation:
     * continue one it already holds, or open a fresh one that needs re-seeding —
-    * see [[orca.backend.SessionSupport.continuation]]. A concrete tool that
-    * can't reach a backend answers [[orca.backend.Continuation.Rebuild]], the
-    * safe re-seed.
+    * see [[orca.backend.SessionSupport.dispatchFor]]. A concrete tool that
+    * can't reach a backend answers a claimless `Fresh`, the safe re-seed.
     */
-  final def continuation(
+  private[orca] final def dispatchFor(
       session: SessionId[B]
-  ): orca.backend.Continuation =
-    sessionSupport.fold(orca.backend.Continuation.Rebuild)(
-      _.continuation(session)
+  ): orca.backend.Dispatch[B] =
+    sessionSupport.fold(orca.backend.Dispatch.Fresh[B](None))(
+      _.dispatchFor(session)
     )
 
   /** The [[WireSessionId]] to resume `client` ([[SessionId]], orca's stable
@@ -295,16 +294,15 @@ trait Agent[B <: BackendTag]:
   final def resumeWireId(client: SessionId[B]): Option[WireSessionId[B]] =
     sessionSupport.flatMap(_.persistableWireId(client))
 
-  /** Record a resume wire id for `client` in the backend's registry. The flow
-    * runtime calls this on resume to rehydrate the map from the persisted log,
-    * so `dispatchFor` resumes against the right wire id and the probes target
-    * it. No-op when there is no backend (stubs).
+  /** Record a resume wire id a previous run persisted for `client` — see
+    * [[orca.backend.SessionSupport.rehydrate]]. The flow runtime calls this on
+    * resume, before any turn. No-op when there is no backend (stubs).
     */
-  final def registerResumeWireId(
+  final def rehydrateResumeWireId(
       client: SessionId[B],
       wireId: WireSessionId[B]
   ): Unit =
-    sessionSupport.foreach(_.register(client, wireId))
+    sessionSupport.foreach(_.rehydrate(client, wireId))
 
   /** Release background resources this agent's backend owns. Delegates to
     * [[orca.backend.AgentBackend.close]]; a stub without a backend keeps the

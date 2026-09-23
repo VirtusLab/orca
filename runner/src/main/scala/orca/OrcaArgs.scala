@@ -1,7 +1,7 @@
 package orca
 
 import mainargs.ParserForClass
-import orca.progress.BranchName
+import orca.gitref.BranchName
 
 /** Parsed command-line arguments for the `orca` entry point. */
 case class OrcaArgs(

@@ -1,6 +1,6 @@
 package orca.tools.claude
 
-import orca.backend.Dispatch
+import orca.backend.{Dispatch, ResumeOrigin}
 import orca.agents.{
   AutoApprove,
   BackendTag,
@@ -168,7 +168,7 @@ class ClaudeArgsTest extends munit.FunSuite:
     // rebuilding its own flags is what keeps a resumed reviewer restricted.
     val args = streamJson(
       AgentConfig(tools = ToolSet.ReadOnly),
-      dispatch = Dispatch.Resume(testSid)
+      dispatch = Dispatch.Resume(testSid, ResumeOrigin.ThisRun)
     )
     assert(args.containsSlice(Seq("--tools", "Read,Grep,Glob,Skill")), args)
 
@@ -198,7 +198,10 @@ class ClaudeArgsTest extends munit.FunSuite:
 
   test("Dispatch.Resume emits --resume <uuid>"):
     val args =
-      streamJson(AgentConfig(), dispatch = Dispatch.Resume(testSid))
+      streamJson(
+        AgentConfig(),
+        dispatch = Dispatch.Resume(testSid, ResumeOrigin.ThisRun)
+      )
     assert(
       args.containsSlice(Seq("--resume", WireSessionId.value(testSid))),
       args
@@ -233,7 +236,7 @@ class ClaudeArgsTest extends munit.FunSuite:
         autoApprove = AutoApprove.Only(Set("Read"))
       ),
       systemPromptFile = Some(file),
-      dispatch = Dispatch.Resume(testSid)
+      dispatch = Dispatch.Resume(testSid, ResumeOrigin.ThisRun)
     )
     assert(args.containsSlice(Seq("--model", "opus-4")))
     assert(

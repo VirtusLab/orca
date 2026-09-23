@@ -1,43 +1,19 @@
 package orca.progress
 
 import munit.FunSuite
+import orca.gitref.CommitHash
+import orca.testkit.branchName
 
 class RecoveryCheckTest extends FunSuite:
 
   private val testCommit: CommitHash = CommitHash.from("0" * 40).get
 
-  test("validateHeader rejects a header naming the literal branch \"HEAD\""):
-    val prompt = "do the thing"
-    val header = ProgressHeader(
-      startingBranch = "main",
-      branch = "HEAD",
-      branchMode = BranchMode.Created,
-      userPrompt = prompt,
-      flowName = None,
-      startingCommit = testCommit
-    )
-    assert(RecoveryCheck.validateHeader(header, prompt, Set.empty).isLeft)
-
-  test(
-    "validateHeader rejects a header naming startingBranch as the literal \"HEAD\""
-  ):
-    val prompt = "do the thing"
-    val header = ProgressHeader(
-      startingBranch = "HEAD",
-      branch = "feat/do-the-thing",
-      branchMode = BranchMode.Created,
-      userPrompt = prompt,
-      flowName = None,
-      startingCommit = testCommit
-    )
-    assert(RecoveryCheck.validateHeader(header, prompt, Set.empty).isLeft)
-
   test("validateHeader rejects the main/master floor regardless of the set"):
     val prompt = "do the thing"
     for protectedName <- List("main", "master", "MAIN", "Master") do
       val header = ProgressHeader(
-        startingBranch = "main",
-        branch = protectedName,
+        startingBranch = Some(branchName("main")),
+        branch = branchName(protectedName),
         branchMode = BranchMode.Created,
         userPrompt = prompt,
         flowName = None,
@@ -52,12 +28,9 @@ class RecoveryCheckTest extends FunSuite:
     val prompt = "do the thing"
     // A repo whose default is `trunk` (not main/master): a header naming it as
     // a feature branch must be refused when `trunk` is in the protected set.
-    // `trunk` is lowercase + slug-valid, so it passes `FeatureBranch.isSafeBranchRef` and
-    // reaches the protected-branch check — proving that code path fires (rather
-    // than an incidental safe-ref rejection on a mixed-case name).
     val header = ProgressHeader(
-      startingBranch = "trunk",
-      branch = "trunk",
+      startingBranch = Some(branchName("trunk")),
+      branch = branchName("trunk"),
       branchMode = BranchMode.Created,
       userPrompt = prompt,
       flowName = None,
@@ -77,7 +50,7 @@ class RecoveryCheckTest extends FunSuite:
       "protected-branch match must be case-insensitive"
     )
     // ...but a normal feature branch still passes with the same set.
-    val ok = header.copy(branch = "feat/do-the-thing")
+    val ok = header.copy(branch = branchName("feat/do-the-thing"))
     assertEquals(
       RecoveryCheck.validateHeader(ok, prompt, Set("trunk")).map(_.value),
       Right("feat/do-the-thing")
@@ -86,8 +59,8 @@ class RecoveryCheckTest extends FunSuite:
   test("validateHeader allows a protected startingBranch"):
     val prompt = "do the thing"
     val header = ProgressHeader(
-      startingBranch = "main",
-      branch = "feat/do-the-thing",
+      startingBranch = Some(branchName("main")),
+      branch = branchName("feat/do-the-thing"),
       branchMode = BranchMode.Created,
       userPrompt = prompt,
       flowName = None,
@@ -100,8 +73,8 @@ class RecoveryCheckTest extends FunSuite:
 
   test("validateHeader rejects a header written for a different prompt"):
     val header = ProgressHeader(
-      startingBranch = "main",
-      branch = "feat/do-the-thing",
+      startingBranch = Some(branchName("main")),
+      branch = branchName("feat/do-the-thing"),
       branchMode = BranchMode.Created,
       userPrompt = "a different prompt",
       flowName = None,
@@ -110,15 +83,3 @@ class RecoveryCheckTest extends FunSuite:
     assert(
       RecoveryCheck.validateHeader(header, "do the thing", Set.empty).isLeft
     )
-
-  test("validateHeader rejects an unsafe startingBranch"):
-    val prompt = "do the thing"
-    val header = ProgressHeader(
-      startingBranch = "-evil",
-      branch = "feat/do-the-thing",
-      branchMode = BranchMode.Created,
-      userPrompt = prompt,
-      flowName = None,
-      startingCommit = testCommit
-    )
-    assert(RecoveryCheck.validateHeader(header, prompt, Set.empty).isLeft)

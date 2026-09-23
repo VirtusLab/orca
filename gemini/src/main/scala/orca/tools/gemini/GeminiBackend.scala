@@ -61,10 +61,9 @@ private[orca] class GeminiBackend(
     * and rehydrated on resume. The existence probe runs `gemini
     * --list-sessions` and scans for the resolved SERVER id (substring) — gemini
     * mints its own id; the caller's stable id never appears there.
-    * [[SessionSupport.continuation]] resolves the mapping first, so it reports
-    * `Rebuild` when no server id is mapped (including an id rejected by the
-    * [[orca.agents.SessionId.isSafe]] guard at commit time), on non-zero exit,
-    * or on any exception.
+    * [[SessionSupport.dispatchFor]] answers `Fresh` when no server id is mapped
+    * (including an id rejected by the [[orca.agents.SessionId.isSafe]] guard),
+    * or when the probe exits non-zero or throws.
     */
   val tag: BackendTag.Gemini.type = BackendTag.Gemini
 
@@ -93,6 +92,7 @@ private[orca] class GeminiBackend(
   protected def doRunAutonomous(
       prompt: String,
       session: SessionId[BackendTag.Gemini.type],
+      dispatch: Dispatch[BackendTag.Gemini.type],
       config: AgentConfig,
       events: OrcaListener,
       outputSchema: Option[String]
@@ -104,7 +104,7 @@ private[orca] class GeminiBackend(
       openConversation(
         prompt = prompt,
         mode = ConversationMode.Autonomous,
-        session = session,
+        dispatch = dispatch,
         config = config,
         // Forwarded so `conv.outputSchema` signals structured mode to the drain
         // (suppressing the raw JSON payload from the user log).
@@ -114,6 +114,7 @@ private[orca] class GeminiBackend(
   protected def doRunInteractive(
       prompt: String,
       session: SessionId[BackendTag.Gemini.type],
+      dispatch: Dispatch[BackendTag.Gemini.type],
       displayPrompt: String,
       config: AgentConfig,
       outputSchema: Option[String]
@@ -121,7 +122,7 @@ private[orca] class GeminiBackend(
     openConversation(
       prompt,
       mode = ConversationMode.Interactive(displayPrompt),
-      session = session,
+      dispatch = dispatch,
       config = config,
       outputSchema = outputSchema
     )
@@ -137,7 +138,7 @@ private[orca] class GeminiBackend(
   private def openConversation(
       prompt: String,
       mode: ConversationMode,
-      session: SessionId[BackendTag.Gemini.type],
+      dispatch: Dispatch[BackendTag.Gemini.type],
       config: AgentConfig,
       outputSchema: Option[String]
   )(using Ox): Conversation[BackendTag.Gemini.type] =
@@ -156,8 +157,8 @@ private[orca] class GeminiBackend(
         prompt,
         extraHint = Option.when(askUser.isDefined)(AskUserMcpServer.Hint)
       )
-      val args = sessions.dispatchFor(session) match
-        case Dispatch.Resume(serverId) =>
+      val args = dispatch match
+        case Dispatch.Resume(serverId, _) =>
           GeminiArgs.resume(serverId, finalPrompt, config)
         case Dispatch.Fresh(_) =>
           GeminiArgs.headless(finalPrompt, config)
@@ -173,8 +174,8 @@ private[orca] class GeminiBackend(
       )
     }
 
-  /** Overridable in tests via a stub `CliRunner`; default runs `gemini
-    * --list-sessions`.
+  /** `gemini --list-sessions` in [[workDir]]: gemini keeps sessions per project
+    * directory, so it lists only those the spawns in [[workDir]] can resume.
     */
   private[gemini] def listSessionsOutput(): CliResult =
-    cli.run(Seq("gemini", "--list-sessions"))
+    cli.run(Seq("gemini", "--list-sessions"), cwd = workDir)

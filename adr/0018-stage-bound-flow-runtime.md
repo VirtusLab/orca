@@ -179,7 +179,7 @@ that stage's progress entry. Why two stages can't run concurrently — the
   `WorkspaceWrite`; **all** LLM calls require `InStage`. (Originally one combined
   `InStage` token; split 2026-07-07 for capture checking — §6.)
 - **R16** — Pure reads (`fs.read`, `git.uncommittedDiff` / `log` /
-  `currentBranch`, `gh.readIssue` / `buildStatus` / `waitForBuild`) require
+  `head`, `gh.readIssue` / `buildStatus` / `waitForBuild`) require
   neither token and are callable outside stages.
 - **R17** — Library helpers that perform side effects take the matching token
   clause — `(using InStage)` for LLM calls, `(using WorkspaceWrite)` for workspace
@@ -518,10 +518,10 @@ the wrong branch.
   `CanAskUser[B]`, defined only per concrete backend — use a concrete accessor.)
 - **R32** — The progress header is **untrusted input** on load (the log is
   human-visible and pushable — R26 — so it may be edited). Before any destructive
-  action the runtime validates it: `branch`/`startingBranch` must be safe refs
-  (`slug` rules), `promptHash` must equal the recomputed prompt hash, and it refuses
-  to `checkout`, `reset --hard`, or delete a protected branch (the default branch /
-  `main` / `master`) or any branch outside the orca naming scheme.
+  action the runtime validates it: `branch`/`startingBranch` must be valid
+  branch names (a header holding anything else fails to decode), `userPrompt`
+  must equal the current prompt, and it refuses to `checkout`, `reset --hard`,
+  or delete a protected branch (the default branch / `main` / `master`).
 
 **Design.**
 
@@ -954,6 +954,31 @@ list output and opencode's directory-scoping should be pinned when the probes la
 > nowhere near the wire, so a probe on it would answer about nothing.
 > `SessionId.isSafe` gates the claim as it gates the recorded map's write
 > doors, since the id comes back from the session store.
+
+> **Amendment (2026-09-23, one answer per turn).** `Continuation` and
+> `Dispatch` merge into one `Dispatch`: `Fresh(claim)` — re-seed — or
+> `Resume(wireId, origin)`, where `origin` is `ThisRun` or `EarlierRun`. The
+> prompt side (re-seed, and the carried-over notice iff `EarlierRun`) and the
+> argv side read that one value.
+>
+> **Why.** The prompt side probed a recorded wire id; the argv side resumed any
+> recorded id unprobed. A lost conversation was re-seeded AND resumed — `--resume`
+> of a gone id, which fails the turn — and a probe run three times per turn could
+> answer differently each time.
+>
+> **How.** Rehydration records a wire id as unconfirmed. The first
+> `dispatchFor` probes it once: live, it settles as `EarlierRun` and every later
+> ask reads that; gone, the mapping is dropped, so the re-seeded turn's commit
+> records its new id. A held claim settles the same way. An id this run
+> committed is not probed. `AgentBackend` resolves once per backend call and
+> hands the value to both the enforcement notice and the spawn. A `Fresh` answer
+> is not stored — a failed first turn can leave a claim the next ask must see —
+> so on a `ClientClaimed` backend the backend call runs the claim probe again.
+>
+> **What it costs.** On claude and pi a rehydrated id is now probed before it is
+> resumed, so a probe false negative dispatches `Fresh(claim)`, which those CLIs
+> refuse for an id they hold. The claim probe already carried that risk; both
+> read the same transcript path the spawn writes.
 
 ### 2.7 External-effect idempotency
 

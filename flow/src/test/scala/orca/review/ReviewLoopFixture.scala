@@ -19,7 +19,7 @@ import orca.agents.{
 }
 import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
 import orca.plan.{Task, Title}
-import orca.progress.CommitHash
+import orca.gitref.CommitHash
 
 import scala.util.matching.Regex
 
@@ -196,7 +196,8 @@ private[review] def finding(desc: String): ReviewFinding =
     title = Title(desc),
     description = desc,
     location = None,
-    suggestion = None
+    suggestion = None,
+    reopens = None
   )
 
 /** A [[ReviewerAgent]] over `agent`, its definition named after the agent —

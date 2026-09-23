@@ -272,7 +272,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
   test("the no-sections prompt tells the reviewer to read the files"):
     val prompt = ReviewLoopPrompts.reReview(
       ReReviewChanges.Paths(List("a.scala")),
-      open = OpenFindings(Nil)
+      open = Nil
     )
     assert(prompt.contains("- a.scala"), prompt)
     assert(prompt.contains("read them directly"), prompt)
@@ -286,7 +286,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
         List("b.scala"),
         Nil
       ),
-      open = OpenFindings(Nil)
+      open = Nil
     )
     assert(prompt.contains("as much of it as fits"), prompt)
     assert(!prompt.contains("unchanged since your previous round"), prompt)
@@ -298,7 +298,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
         List("b.scala"),
         List("a.scala")
       ),
-      open = OpenFindings(Nil)
+      open = Nil
     )
     assert(prompt.contains("+three"), prompt)
     assert(prompt.contains("- a.scala"), prompt)
