@@ -1,5 +1,6 @@
-Pick the subset of `availableReviewers` whose scope is relevant to this task.
-The goal is to skip the reviewers that clearly don't apply, not to run them all.
+Pick the subset of the available reviewers whose scope is relevant to this
+task. The goal is to skip the reviewers that clearly don't apply, not to run
+them all.
 
 The title and the changed file names are a weak signal — a path says nothing
 about whether the code inside it parses untrusted input or drops a database
@@ -14,8 +15,5 @@ costs a little time, a missed one costs a defect that ships. Skip a reviewer
 only when the files plainly contain nothing in its scope, e.g. a change that
 touches no test file has nothing for the test reviewer. That bar is highest
 for the risk-bearing reviewers, security and code-functionality above all.
-
-Reply with `names` copied verbatim from the `name` field of
-`availableReviewers`, one entry per chosen reviewer. Name at least one: an
-empty list makes every reviewer run. If you think none apply, name the one or
-two whose scope is closest to the changed files.
+If you think none apply, pick the one or two whose scope is closest to the
+changed files.
