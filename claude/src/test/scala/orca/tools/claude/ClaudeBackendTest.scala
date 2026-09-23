@@ -1,5 +1,6 @@
 package orca.tools.claude
 
+import orca.testkit.OpenTurn
 import orca.backend.{
   Dispatch,
   Interaction,
@@ -240,7 +241,7 @@ class ClaudeBackendTest extends munit.FunSuite:
     // `mcpTools` or the turn loses its only channel to the user.
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     withBackend(runner): backend =>
-      val conv = backend.runInteractive(
+      val conv = OpenTurn.interactive(backend)(
         "x",
         freshSid,
         "x",

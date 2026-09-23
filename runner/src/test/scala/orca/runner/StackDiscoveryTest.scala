@@ -3,10 +3,22 @@ package orca.runner
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import orca.StackSettings
 import orca.agents.JsonData
-import orca.settings.{SettingsEntry, SettingsFile, SettingsScope}
+import orca.settings.{
+  SettingsEntry,
+  SettingsFile,
+  SettingsScope,
+  StackCommand,
+  StackKey,
+  StackValue
+}
 import orca.testkit.TempDirs
 
 class StackDiscoveryTest extends munit.FunSuite:
+
+  private def command(raw: String): StackCommand =
+    StackValue.parse(raw) match
+      case StackValue.Run(command) => command
+      case other                   => fail(s"not a command: $other")
 
   test(
     "a representative always-both envelope shape decodes under the strict codec"
@@ -87,18 +99,26 @@ class StackDiscoveryTest extends munit.FunSuite:
       entries,
       List(
         SettingsEntry.Command(
-          "format",
-          "cargo fmt",
+          StackKey.Format,
+          command("cargo fmt"),
           Some("Cargo.toml; rustfmt ships with the toolchain")
         ),
         SettingsEntry.Command(
-          "format",
-          "pnpm exec prettier --write .",
+          StackKey.Format,
+          command("pnpm exec prettier --write ."),
           Some("package.json")
         ),
         SettingsEntry
-          .Command("lint", "cargo check --tests", Some("Cargo.toml")),
-        SettingsEntry.Command("test", "cargo test", Some("Cargo.toml"))
+          .Command(
+            StackKey.Lint,
+            command("cargo check --tests"),
+            Some("Cargo.toml")
+          ),
+        SettingsEntry.Command(
+          StackKey.Test,
+          command("cargo test"),
+          Some("Cargo.toml")
+        )
       )
     )
     assertEquals(
@@ -132,11 +152,13 @@ class StackDiscoveryTest extends munit.FunSuite:
     assertEquals(
       entries,
       List(
-        SettingsEntry.Unset("format", "no evidence found"),
-        SettingsEntry.Demoted("lint", "just check", "just: not found on PATH"),
-        SettingsEntry.Demoted("lint", "just lint", "just: not found on PATH"),
-        SettingsEntry.Off("lint"),
-        SettingsEntry.Unset("test", "no evidence found")
+        SettingsEntry.Unset(StackKey.Format, "no evidence found"),
+        SettingsEntry
+          .Demoted(StackKey.Lint, "just check", "just: not found on PATH"),
+        SettingsEntry
+          .Demoted(StackKey.Lint, "just lint", "just: not found on PATH"),
+        SettingsEntry.Off(StackKey.Lint),
+        SettingsEntry.Unset(StackKey.Test, "no evidence found")
       )
     )
     assertEquals(settings.lint, Nil, "a demoted command must not join settings")
@@ -161,10 +183,12 @@ class StackDiscoveryTest extends munit.FunSuite:
     assertEquals(
       entries,
       List(
-        SettingsEntry.Unset("format", "no evidence found"),
-        SettingsEntry.Command("lint", "sbt compile", Some("build.sbt")),
-        SettingsEntry.Demoted("lint", "yarn lint", "yarn: not found on PATH"),
-        SettingsEntry.Unset("test", "no evidence found")
+        SettingsEntry.Unset(StackKey.Format, "no evidence found"),
+        SettingsEntry
+          .Command(StackKey.Lint, command("sbt compile"), Some("build.sbt")),
+        SettingsEntry
+          .Demoted(StackKey.Lint, "yarn lint", "yarn: not found on PATH"),
+        SettingsEntry.Unset(StackKey.Test, "no evidence found")
       )
     )
 
@@ -187,13 +211,13 @@ class StackDiscoveryTest extends munit.FunSuite:
       entries,
       List(
         SettingsEntry.Demoted(
-          "format",
+          StackKey.Format,
           "cargo fmt",
           "evidence file Cargo.toml not found"
         ),
-        SettingsEntry.Off("format"),
-        SettingsEntry.Unset("lint", "no evidence found"),
-        SettingsEntry.Unset("test", "no evidence found")
+        SettingsEntry.Off(StackKey.Format),
+        SettingsEntry.Unset(StackKey.Lint, "no evidence found"),
+        SettingsEntry.Unset(StackKey.Test, "no evidence found")
       )
     )
     assertEquals(settings.format, Nil)
@@ -211,9 +235,73 @@ class StackDiscoveryTest extends munit.FunSuite:
       StackDiscovery.toEntries(result, allResolvable, allEvidenceExists)
     assertEquals(
       entries.head,
-      SettingsEntry.Demoted("format", "cargo fmt", "no evidence file cited")
+      SettingsEntry.Demoted(
+        StackKey.Format,
+        "cargo fmt",
+        "no evidence file cited"
+      )
     )
     assertEquals(settings.format, Nil)
+
+  test("toEntries: a command starting with # demotes before the PATH check"):
+    val result = StackDiscoveryResult(
+      format = DiscoveredTask(commands =
+        List(DiscoveredCommand("# cargo fmt", "Cargo.toml"))
+      ),
+      lint = DiscoveredTask(),
+      test = DiscoveredTask()
+    )
+    val (entries, _) = StackDiscovery.toEntries(
+      result,
+      unresolvedReason = _ => Some("#: not found on PATH"),
+      evidenceExists = allEvidenceExists
+    )
+    assertEquals(
+      entries.head,
+      SettingsEntry.Demoted(
+        StackKey.Format,
+        "# cargo fmt",
+        "starts with `#`, so `bash -c` runs nothing"
+      )
+    )
+
+  test("toEntries: `off` demotes, not disabling the gate"):
+    val result = StackDiscoveryResult(
+      format =
+        DiscoveredTask(commands = List(DiscoveredCommand("off", "Cargo.toml"))),
+      lint = DiscoveredTask(),
+      test = DiscoveredTask()
+    )
+    val (entries, _) = StackDiscovery.toEntries(
+      result,
+      unresolvedReason = _ => Some("not found on PATH"),
+      evidenceExists = allEvidenceExists
+    )
+    assertEquals(
+      entries.head,
+      SettingsEntry.Demoted(
+        StackKey.Format,
+        "off",
+        "`off` disables the gate, not a command"
+      )
+    )
+
+  test("toEntries: a blank command demotes"):
+    val result = StackDiscoveryResult(
+      format =
+        DiscoveredTask(commands = List(DiscoveredCommand("  ", "Cargo.toml"))),
+      lint = DiscoveredTask(),
+      test = DiscoveredTask()
+    )
+    val (entries, _) = StackDiscovery.toEntries(
+      result,
+      unresolvedReason = _ => Some("not found on PATH"),
+      evidenceExists = allEvidenceExists
+    )
+    assertEquals(
+      entries.head,
+      SettingsEntry.Demoted(StackKey.Format, "  ", "empty command")
+    )
 
   test("toEntries: a task with no commands and a reason becomes Unset(reason)"):
     val result = StackDiscoveryResult(
@@ -224,7 +312,9 @@ class StackDiscoveryTest extends munit.FunSuite:
     val (entries, _) =
       StackDiscovery.toEntries(result, allResolvable, allEvidenceExists)
     assert(
-      entries.contains(SettingsEntry.Unset("test", "no test directory found")),
+      entries.contains(
+        SettingsEntry.Unset(StackKey.Test, "no test directory found")
+      ),
       s"expected the agent's unset reason to carry through, got: $entries"
     )
 
@@ -247,7 +337,7 @@ class StackDiscoveryTest extends munit.FunSuite:
       SettingsFile
         .parse(SettingsFile.render(entries), SettingsScope.Project)
         .map(_.stack),
-      Right(settings)
+      Right(Some(settings))
     )
 
   test("toEntries: a task with neither commands nor a reason gets a stock one"):
@@ -261,9 +351,9 @@ class StackDiscoveryTest extends munit.FunSuite:
     assertEquals(
       entries,
       List(
-        SettingsEntry.Unset("format", "no evidence found"),
-        SettingsEntry.Unset("lint", "no evidence found"),
-        SettingsEntry.Unset("test", "no evidence found")
+        SettingsEntry.Unset(StackKey.Format, "no evidence found"),
+        SettingsEntry.Unset(StackKey.Lint, "no evidence found"),
+        SettingsEntry.Unset(StackKey.Test, "no evidence found")
       )
     )
     assertEquals(settings, StackSettings.empty)
@@ -355,7 +445,7 @@ class StackDiscoveryTest extends munit.FunSuite:
   test("startMessage: a present stack-silent file names the file, not absence"):
     assertEquals(
       StackDiscovery.startMessage(Some("codingAgent = codex\n")),
-      ".orca/settings.properties has no stack lines — discovering how to " +
+      ".orca/settings.properties configures no stack keys — discovering how to " +
         "format, lint & test this project"
     )
 

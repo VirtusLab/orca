@@ -198,7 +198,7 @@ class FlowSessionTest extends FunSuite:
 
     /** Record the prompt and the dispatch a backend would spawn with, then
       * commit as a real backend does after a clean turn (via
-      * `Conversations.drainAndCommit`): the ephemeral shape claims the id, a
+      * `AgentBackend.runAutonomous`): the ephemeral shape claims the id, a
       * `learnedWireId` is recorded.
       */
     private def capture(
@@ -822,7 +822,7 @@ class FlowSessionTest extends FunSuite:
     // An ephemeral backend has no durable transcript to probe, so an
     // exists-based probe would re-seed every task of a loop; the continuation
     // reads the in-process claim, so a live one runs the prompt verbatim. The stub claims the id after each run (as a real
-    // drainAndCommit does), so the SECOND run must NOT re-inject seed/preamble.
+    // backend turn does), so the SECOND run must NOT re-inject seed/preamble.
     val seed = "You are a planning agent."
     val fc = makeControl(
       sessions = List(

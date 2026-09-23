@@ -1,23 +1,18 @@
 package orca.tools.codex
 
-import orca.events.OrcaListener
 import orca.agents.{
   AutoApprove,
   BackendTag,
-  AgentConfig,
   EnforcementCell,
-  SessionId,
   StructuredOutputMode,
   ToolSet,
   TurnDispatch
 }
 import orca.backend.{
   Conversation,
-  Conversations,
+  TurnRequest,
   Dispatch,
   AgentBackend,
-  AgentResult,
-  ConversationMode,
   IdScheme,
   SessionSupport,
   SubprocessSpawn,
@@ -34,12 +29,10 @@ import ox.Ox
   * the protocol and the rationale for not using the experimental WebSocket
   * app-server.
   *
-  * Both modes wrap the subprocess in a [[CodexConversation]]; the autonomous
-  * path drains it internally via [[orca.backend.Conversations.drainAutonomous]]
-  * while the interactive path returns the conversation for an `Interaction` to
-  * drive. Multi-turn: subsequent `runAutonomous` / `runInteractive` calls with
-  * the same session id route through `codex exec resume <server-id>` via
-  * [[sessions]] ([[IdScheme.ServerMinted]]).
+  * Both modes wrap the subprocess in a [[CodexConversation]]. Multi-turn:
+  * subsequent `runAutonomous` / `runInteractive` calls with the same session id
+  * route through `codex exec resume <server-id>` via [[sessions]]
+  * ([[IdScheme.ServerMinted]]).
   *
   * Interactive calls additionally stand up an `ask_user` MCP host bridge
   * ([[AskUserMcpServer]]) on an ephemeral port and register it with codex via
@@ -50,9 +43,9 @@ import ox.Ox
 private[orca] class CodexBackend(
     cli: CliRunner,
     private[codex] val sessionsDir: os.Path = os.home / ".codex" / "sessions",
-    /** Fixed at construction; every spawn (`openConversation`) runs in this
-      * directory. The `os.pwd` default serves bare/test construction; the
-      * runtime (`CodexAgents.default`) passes the flow's real `workDir`.
+    /** Fixed at construction; every spawn (`open`) runs in this directory. The
+      * `os.pwd` default serves bare/test construction; the runtime
+      * (`CodexAgents.default`) passes the flow's real `workDir`.
       */
     override val workDir: os.Path = os.pwd
 ) extends AgentBackend[BackendTag.Codex.type]:
@@ -101,47 +94,6 @@ private[orca] class CodexBackend(
           )
     )
 
-  protected def doRunAutonomous(
-      prompt: String,
-      session: SessionId[BackendTag.Codex.type],
-      dispatch: Dispatch[BackendTag.Codex.type],
-      config: AgentConfig,
-      events: OrcaListener,
-      outputSchema: Option[String]
-  ): AgentResult[BackendTag.Codex.type] =
-    // Records the client→server mapping so a follow-up call on this client id
-    // resumes the right thread; the result carries the server thread id as its
-    // wireId, and the caller keeps using the client id.
-    Conversations.runAutonomous(session, sessions, config.autoApprove, events):
-      openConversation(
-        prompt = prompt,
-        mode = ConversationMode.Autonomous,
-        dispatch = dispatch,
-        config = config,
-        // Forwarded so (a) `conv.outputSchema` signals structured mode to the
-        // drain (suppressing the raw JSON payload from the user log) and (b)
-        // `--output-schema` enforces the contract on the codex side too. A
-        // resume can't pass `--output-schema`, so it falls back to prompt-only
-        // enforcement.
-        outputSchema = outputSchema
-      )
-
-  protected def doRunInteractive(
-      prompt: String,
-      session: SessionId[BackendTag.Codex.type],
-      dispatch: Dispatch[BackendTag.Codex.type],
-      displayPrompt: String,
-      config: AgentConfig,
-      outputSchema: Option[String]
-  )(using Ox): Conversation[BackendTag.Codex.type] =
-    openConversation(
-      prompt,
-      mode = ConversationMode.Interactive(displayPrompt),
-      dispatch = dispatch,
-      config = config,
-      outputSchema = outputSchema
-    )
-
   /** Spawn `codex exec --json` (fresh) or `codex exec resume <server-id>`
     * (continuation), per `dispatch`, and wrap the process in a live
     * [[CodexConversation]]. On a fresh spawn the post-drain commit records the
@@ -155,13 +107,10 @@ private[orca] class CodexBackend(
     * `Autonomous` skips all of it. Any throw before conversation construction
     * tears down the server so no Netty binding leaks.
     */
-  private def openConversation(
-      prompt: String,
-      mode: ConversationMode,
-      dispatch: Dispatch[BackendTag.Codex.type],
-      config: AgentConfig,
-      outputSchema: Option[String]
+  override protected[orca] def open(
+      turn: TurnRequest[BackendTag.Codex.type]
   )(using Ox): Conversation[BackendTag.Codex.type] =
+    import turn.*
     // Write the schema temp file FIRST — before any resource is allocated — so
     // a temp-write failure can't leak the Netty bridge `AskUserSession.allocate()`
     // would spin up. Threaded into `resources` (failure-path cleanup) and the

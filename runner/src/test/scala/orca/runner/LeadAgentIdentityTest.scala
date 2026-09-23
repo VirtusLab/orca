@@ -1,6 +1,6 @@
 package orca.runner
 
-import orca.testkit.StubEnforcementCell
+import orca.testkit.ScriptedBackend
 import orca.{AgentSet, OrcaArgs, StackSettings, flow, runFlow}
 import orca.agents.{
   AgentConfig,
@@ -17,14 +17,7 @@ import orca.agents.{
   PiAgent,
   ToolSet
 }
-import orca.backend.{
-  AgentBackend,
-  AgentResult,
-  Conversation,
-  Interaction,
-  IdScheme,
-  SessionSupport
-}
+import orca.backend.{AgentResult, Conversation, Interaction, TurnRequest}
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.tools.pi.DefaultPiAgent
 import orca.testkit.GitRepo
@@ -262,37 +255,15 @@ class LeadAgentIdentityTest extends munit.FunSuite:
     * `close()` is CAS-guarded, mirroring the idempotence every real backend
     * provides. `closeCount` counts realised teardowns, not `close()` calls.
     */
-  private class RecordingCloseBackend
-      extends AgentBackend[BackendTag.Pi.type]
-      with StubEnforcementCell[BackendTag.Pi.type]:
-    val workDir: os.Path = os.pwd
+  private class RecordingCloseBackend extends ScriptedBackend(BackendTag.Pi):
     private val closed = new java.util.concurrent.atomic.AtomicBoolean(false)
     var closeCount: Int = 0
     override def close(): Unit =
       if closed.compareAndSet(false, true) then closeCount += 1
-    protected def doRunAutonomous(
-        prompt: String,
-        session: orca.agents.SessionId[BackendTag.Pi.type],
-        dispatch: orca.backend.Dispatch[BackendTag.Pi.type],
-        config: AgentConfig,
-        events: OrcaListener,
-        outputSchema: Option[String]
+    protected def reply(
+        turn: TurnRequest[BackendTag.Pi.type]
     ): AgentResult[BackendTag.Pi.type] =
       throw new UnsupportedOperationException
-    protected def doRunInteractive(
-        prompt: String,
-        session: orca.agents.SessionId[BackendTag.Pi.type],
-        dispatch: orca.backend.Dispatch[BackendTag.Pi.type],
-        displayPrompt: String,
-        config: AgentConfig,
-        outputSchema: Option[String]
-    )(using ox.Ox): Conversation[BackendTag.Pi.type] =
-      throw new UnsupportedOperationException
-    val sessions: SessionSupport[BackendTag.Pi.type] =
-      SessionSupport.ephemeral(IdScheme.ClientClaimed)
-    val tag: BackendTag.Pi.type = BackendTag.Pi
-    def structuredOutputMode: orca.agents.StructuredOutputMode =
-      orca.agents.StructuredOutputMode.RawText
 
   /** One recording stub per wired backend, each incrementing `closeCounts` for
     * its own tag on `close()`. No test ever drives an `autonomous`/`resultAs`

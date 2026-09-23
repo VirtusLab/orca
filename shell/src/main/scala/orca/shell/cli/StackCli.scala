@@ -21,7 +21,7 @@ private[cli] object StackCli:
       case Left(message) =>
         Cli.diagnostic(message)
         ExitCodes.ActionFailed
-      case Right(StackStatus.NoSettings | StackStatus.NoStackLines) =>
+      case Right(StackStatus.NoSettings | StackStatus.NoStackConfigured) =>
         ShellOutput.info(StackAction.noSettingsMessage)
         ExitCodes.Ok
       case Right(StackStatus.Present(stack, content)) =>

@@ -1,7 +1,7 @@
 package orca.agents
 
 import orca.AgentTurnFailed
-import orca.backend.{Conversations, Interaction, AgentBackend}
+import orca.backend.{Interaction, AgentBackend}
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.util.JsonSchemaGen
 import ox.resilience.{ResultPolicy, RetryConfig, retry}
@@ -99,10 +99,10 @@ private[orca] trait AutonomousTextCall[B <: BackendTag]:
   *     retry-with-corrective-prompt loop: a response that fails to parse as `O`
   *     re-prompts with the failed output and parser error so the model can
   *     self-correct.
-  *   - The interactive shape opens a [[orca.backend.Conversation]] and hands it
-  *     to the supplied [[Interaction]] for rendering and user steering. No
-  *     retry: a parse failure on the final payload is more useful surfaced than
-  *     silently relaunched.
+  *   - The interactive shape goes through `backend.runInteractive`, which hands
+  *     the live conversation to the supplied [[Interaction]] for rendering and
+  *     user steering. No retry: a parse failure on the final payload is more
+  *     useful surfaced than silently relaunched.
   */
 class DefaultAgentCall[B <: BackendTag, O](
     backend: AgentBackend[B],
@@ -158,7 +158,6 @@ class DefaultAgentCall[B <: BackendTag, O](
         session: SessionId[B],
         sessionKey: Option[SessionKey]
     )(using orca.InStage): O =
-      backend.checkNotClosed()
       runInteractiveOnce(input, session, sessionKey)
 
   /** Emit a `StructuredResult` event carrying the raw payload and the
@@ -300,37 +299,18 @@ class DefaultAgentCall[B <: BackendTag, O](
     val serialized = ai.serialize(input)
     val prompt = prompts.interactive(serialized, outputSchema, config)
     val accounting = turnAccounting(session, sessionKey)
-    // Per-turn structured-concurrency scope: `runInteractive` forks its workers
-    // into this Ox, `drive` consumes them, and `cancel` (in the `finally`) tears
-    // the conversation down before the scope joins — so a cancelled turn never
-    // leaks the subprocess/forks. On cancel `drive` throws, skipping the
-    // register / session bookkeeping below; `recording` still reports what the
-    // abandoned turn spent.
+    // On cancel the backend throws, skipping the session bookkeeping below;
+    // `recording` still reports what the abandoned turn spent.
     val result = accounting.recording:
-      ox.supervised:
-        val rawConversation = backend.runInteractive(
-          prompt,
-          session,
-          displayPrompt = serialized,
-          config,
-          Some(outputSchema),
-          events
-        )(using summon[ox.Ox])
-        // Withhold the closing structured-payload turn from every `Interaction`
-        // impl uniformly (parallel to `Conversations.TurnBuffer` on the
-        // autonomous drain) rather than leaving each renderer to reinvent it.
-        val conversation = Conversations.withholdInteractiveProse(
-          rawConversation,
-          events
-        )
-        try interaction.drive(conversation)
-        finally
-          conversation.cancel()
-          orca.sweep.EnvCookieSweep.afterTurn(conversation.envCookie, events)
-    // Codex mints its server thread id inside the drain (not at spawn); surface
-    // it back so a follow-up call with the same `session` resumes the right
-    // thread. No-op for backends whose session id IS the client UUID (claude).
-    backend.sessions.register(session, result.wireId)
+      backend.runInteractive(
+        prompt,
+        session,
+        displayPrompt = serialized,
+        config,
+        Some(outputSchema),
+        events,
+        interaction
+      )
     accounting.sessionCommitted()
     accounting.succeeded(result, TurnAccounting.OnlyTurn)
     val parsed = ResponseParser.parse[O](result.output)

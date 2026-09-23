@@ -36,23 +36,17 @@ class AuthoringSandboxTest extends munit.FunSuite:
       assertEquals(remotes.trim, "")
     finally AuthoringSandbox.delete(sandbox)
 
-  test("create: the settings file suppresses stack discovery"):
-    val sandbox = AuthoringSandbox.create(flowName)
-    try
-      val settings = os.read(sandbox / ".orca" / "settings.properties")
-      assert(
-        SettingsFile.hasStackLines(settings),
-        s"live stack lines must satisfy the discovery trigger:\n$settings"
-      )
-    finally AuthoringSandbox.delete(sandbox)
-
-  test("create: lint compiles the flow file; format and test stay off"):
+  test(
+    "create: the stack is configured (no discovery); lint compiles the flow " +
+      "file; format and test stay off"
+  ):
     val sandbox = AuthoringSandbox.create(flowName)
     try
       val settings = os.read(sandbox / ".orca" / "settings.properties")
       val stack = SettingsFile
         .parse(settings, SettingsScope.Project)
         .fold(e => fail(e.message), _.stack)
+        .getOrElse(fail("the stack must be configured, suppressing discovery"))
       assertEquals(stack.lint, List("scala-cli compile 'flow.sc'"))
       assertEquals(stack.format, Nil)
       assertEquals(stack.test, Nil)
@@ -63,6 +57,7 @@ class AuthoringSandboxTest extends munit.FunSuite:
     val stack = SettingsFile
       .parse(contents, SettingsScope.Project)
       .fold(e => fail(e.message), _.stack)
+      .getOrElse(fail("the stack must be configured"))
     assertEquals(stack.lint, List("scala-cli compile 'it'\\''s.sc'"))
 
   test("delete removes the sandbox"):

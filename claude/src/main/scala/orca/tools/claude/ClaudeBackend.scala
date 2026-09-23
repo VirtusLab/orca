@@ -2,26 +2,20 @@ package orca.tools.claude
 
 import java.util.concurrent.atomic.AtomicBoolean
 
-import orca.events.OrcaListener
 import orca.agents.{
   AutoApprove,
   BackendTag,
   AgentConfig,
   EnforcementCell,
   EnforcementNotice,
-  SessionId,
   StructuredOutputMode,
   ToolSet,
-  TurnDispatch,
-  onWire
+  TurnDispatch
 }
 import orca.backend.{
   Conversation,
-  Conversations,
+  TurnRequest,
   AgentBackend,
-  AgentResult,
-  ConversationMode,
-  Dispatch,
   IdScheme,
   SessionSupport,
   SubprocessSpawn,
@@ -53,20 +47,18 @@ private[claude] final case class TurnMcp(
 )
 
 /** Claude Code backend. All calls — autonomous and interactive — drive a
-  * stream-json subprocess through [[ClaudeConversation]]. The autonomous path
-  * drains events and returns the awaited `AgentResult`; the interactive path
-  * hands the `Conversation` back to the caller who runs `Interaction.drive`.
+  * stream-json subprocess through [[ClaudeConversation]].
   *
   * A turn also stands up whichever host MCP servers it is entitled to — see
-  * [[openConversation]]. Every one is a Netty binding whose lifetime tracks the
+  * [[open]]. Every one is a Netty binding whose lifetime tracks the
   * conversation, not the backend, so a long flow doesn't accumulate them.
   */
 private[orca] class ClaudeBackend(
     cli: CliRunner,
     networkTools: Seq[String] = ClaudeBackend.DefaultNetworkTools,
     private[claude] val projectsDir: os.Path = os.home / ".claude" / "projects",
-    /** Shared between the spawn path ([[openConversation]]) and the existence
-      * probe (see [[sessions]]): claude writes a session's transcript under
+    /** Shared between the spawn path ([[open]]) and the existence probe (see
+      * [[sessions]]): claude writes a session's transcript under
       * `<projectsDir>/<cwdSlug(workDir)>/<id>.jsonl`, so both sides reading the
       * SAME field keeps the probe honest. The `os.pwd` default serves only
       * bare/test construction; the runtime passes the flow's real `workDir`.
@@ -150,50 +142,6 @@ private[orca] class ClaudeBackend(
         )
     )
 
-  protected def doRunAutonomous(
-      prompt: String,
-      session: SessionId[BackendTag.ClaudeCode.type],
-      dispatch: Dispatch[BackendTag.ClaudeCode.type],
-      config: AgentConfig,
-      events: OrcaListener,
-      outputSchema: Option[String]
-  ): AgentResult[BackendTag.ClaudeCode.type] =
-    // Commit happens only after a successful drain: a subprocess that crashed
-    // before claude registered the session id would otherwise leave the registry
-    // wedged. The ordering matters for the NEXT `session(...)` call, which must
-    // see a registry that agrees with what claude actually did.
-    Conversations.runAutonomous(session, sessions, config.autoApprove, events):
-      openConversation(
-        prompt = prompt,
-        mode = ConversationMode.Autonomous,
-        dispatch = dispatch,
-        config = config,
-        outputSchema = outputSchema
-      )
-
-  protected def doRunInteractive(
-      prompt: String,
-      session: SessionId[BackendTag.ClaudeCode.type],
-      dispatch: Dispatch[BackendTag.ClaudeCode.type],
-      displayPrompt: String,
-      config: AgentConfig,
-      outputSchema: Option[String]
-  )(using Ox): Conversation[BackendTag.ClaudeCode.type] =
-    val conv = openConversation(
-      prompt = prompt,
-      mode = ConversationMode.Interactive(displayPrompt),
-      dispatch = dispatch,
-      config = config,
-      outputSchema = outputSchema
-    )
-    // Interactive has no in-backend drain to gate on; commit once the
-    // conversation is up. A crash mid-conversation leaves the mark in place, but
-    // interactive sessions aren't auto-retried — the user reruns with a fresh
-    // session. claude claims ids client-side, so the client id IS the wire id
-    // (`onWire`), which is always safe to `register`.
-    sessions.register(session, session.onWire)
-    conv
-
   /** Spawn `claude` in stream-json mode, write the opening user turn, close
     * stdin, and wrap the process in a live [[ClaudeConversation]]. orca sends
     * one message per process, so stdin closes straight away. The CLI answers
@@ -212,13 +160,10 @@ private[orca] class ClaudeBackend(
     * are torn down (and the process SIGINTed if already spawned) so nothing
     * leaks.
     */
-  private def openConversation(
-      prompt: String,
-      mode: ConversationMode,
-      dispatch: Dispatch[BackendTag.ClaudeCode.type],
-      config: AgentConfig,
-      outputSchema: Option[String]
+  override protected[orca] def open(
+      turn: TurnRequest[BackendTag.ClaudeCode.type]
   )(using Ox): Conversation[BackendTag.ClaudeCode.type] =
+    import turn.*
     // Allocate MCP resources up front so a downstream failure can close them
     // deterministically.
     val displayPrompt = mode.displayPrompt

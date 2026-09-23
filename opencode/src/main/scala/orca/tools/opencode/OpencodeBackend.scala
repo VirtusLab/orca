@@ -6,22 +6,19 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
 }
 import orca.backend.{
   Conversation,
-  Conversations,
+  TurnRequest,
   Dispatch,
   AgentBackend,
-  AgentResult,
   ConversationMode,
   IdScheme,
   SessionSupport,
   StreamSource
 }
-import orca.events.OrcaListener
 import orca.agents.{
   AutoApprove,
   BackendTag,
   AgentConfig,
   EnforcementCell,
-  SessionId,
   StructuredOutputMode,
   ToolSet,
   TurnDispatch,
@@ -95,45 +92,6 @@ private[orca] class OpencodeBackend(
     */
   override def close(): Unit = server.close()
 
-  protected def doRunAutonomous(
-      prompt: String,
-      session: SessionId[BackendTag.Opencode.type],
-      dispatch: Dispatch[BackendTag.Opencode.type],
-      config: AgentConfig,
-      events: OrcaListener,
-      outputSchema: Option[String]
-  ): AgentResult[BackendTag.Opencode.type] =
-    val http = server.http
-    Conversations.runAutonomous(session, sessions, config.autoApprove, events):
-      startTurn(
-        http,
-        dispatch,
-        config,
-        prompt,
-        outputSchema,
-        ConversationMode.Autonomous
-      )
-
-  protected def doRunInteractive(
-      prompt: String,
-      session: SessionId[BackendTag.Opencode.type],
-      dispatch: Dispatch[BackendTag.Opencode.type],
-      displayPrompt: String,
-      config: AgentConfig,
-      outputSchema: Option[String]
-  )(using Ox): Conversation[BackendTag.Opencode.type] =
-    val http = server.http
-    // The returned conversation owns its stream: it interrupts on the terminal
-    // event or `cancel`, so no scope-level backstop is needed here.
-    startTurn(
-      http,
-      dispatch,
-      config,
-      prompt,
-      outputSchema,
-      ConversationMode.Interactive(displayPrompt)
-    )
-
   /** Probe `http` for the given session id via `GET /session/<id>` → status
     * 200; `false` on any transport error. The [[orca.agents.SessionId.isSafe]]
     * guard must have passed before this is called — it is not re-checked here.
@@ -157,8 +115,7 @@ private[orca] class OpencodeBackend(
 
   /** The sole session handle. [[IdScheme.ServerMinted]]: the caller's stable id
     * maps to opencode's server-minted `ses_…` id, so subsequent turns resume
-    * it. The bookkeeping is encapsulated; the commit path goes through
-    * `Conversations.runAutonomous(session, sessions, …)`.
+    * it.
     */
   val sessions: SessionSupport[BackendTag.Opencode.type] =
     SessionSupport.durable(
@@ -190,16 +147,15 @@ private[orca] class OpencodeBackend(
     * stream first would leak the `GET /event` connection on that failure. The
     * `try`/`catch` is defense-in-depth for any throw between the stream opening
     * and [[openConversation]] handing it to the owning [[OpencodeConversation]]
-    * (whose own `catch` only covers the later `prompt_async` POST).
+    * (whose own `catch` only covers the later `prompt_async` POST). The
+    * conversation owns its stream: it interrupts on the terminal event or
+    * `cancel`.
     */
-  private def startTurn(
-      http: OpencodeHttp,
-      dispatch: Dispatch[BackendTag.Opencode.type],
-      config: AgentConfig,
-      prompt: String,
-      outputSchema: Option[String],
-      mode: ConversationMode
-  ): OpencodeConversation =
+  override protected[orca] def open(
+      turn: TurnRequest[BackendTag.Opencode.type]
+  )(using Ox): Conversation[BackendTag.Opencode.type] =
+    import turn.*
+    val http = server.http
     val serverSession = serverSessionFor(http, dispatch)
     val source = http.events()
     try
@@ -218,8 +174,8 @@ private[orca] class OpencodeBackend(
         throw e
 
   /** Start the reader on the SSE stream **then** fire `prompt_async`, so no
-    * turn events are missed. Callers ([[startTurn]]) resolve the server session
-    * and open `source` in the leak-safe order.
+    * turn events are missed. [[open]] resolves the server session and opens
+    * `source` in the leak-safe order.
     */
   private def openConversation(
       http: OpencodeHttp,
