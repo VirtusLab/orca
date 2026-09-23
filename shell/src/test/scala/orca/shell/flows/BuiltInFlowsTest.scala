@@ -203,12 +203,6 @@ class BuiltInFlowsTest extends munit.FunSuite:
         s"$name ends with: ${lastStatement(name)}"
       )
 
-  test("every issue flow closes its issue through withClosingRef"):
-    // The summariser may write its own `Closes` line for the issue; the helper
-    // is what keeps the PR body to one.
-    (requiredPrFlows ++ ownBodyPrFlows).foreach: name =>
-      assert(resourceText(name).contains("withClosingRef("), name)
-
   test("a flow that opens its own PR records it for the lifecycle"):
     // A bare `gh.createPr` hands the flow the handle, so it only reaches the
     // lifecycle — and the run only ends on the start branch — if the flow

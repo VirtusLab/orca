@@ -13,3 +13,9 @@ object PrPrompts:
     */
   val Summarise: String =
     PromptResource.load("/orca/pr/prompts/summarise.md")
+
+  /** Appended to the summariser's instructions when the context is the run's
+    * user prompt, the only case where the model decides which issues to close.
+    */
+  val ClosingRefs: String =
+    PromptResource.load("/orca/pr/prompts/closing-refs.md")

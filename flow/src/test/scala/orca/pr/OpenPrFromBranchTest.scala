@@ -35,7 +35,8 @@ class OpenPrFromBranchTest extends FunSuite:
 
   private def run(
       branchDiff: String,
-      openFindings: OpenFindings = OpenFindings(Nil)
+      openFindings: OpenFindings = OpenFindings(Nil),
+      context: Option[String] = None
   ): Run =
     val (dir, store) = seededPrRepo()
     val calls = new ConcurrentLinkedQueue[String]()
@@ -51,7 +52,8 @@ class OpenPrFromBranchTest extends FunSuite:
     val handle = openPrFromBranch(
       summarisingAgent = summariser,
       openFindings = openFindings,
-      body = summary => s"${summary.body}\n\nCloses #1."
+      body = summary => s"${summary.body}\n\nCloses #1.",
+      context = context
     )(using control, control, summon[OutsideStage])
     Run(
       handle,
@@ -135,8 +137,18 @@ class OpenPrFromBranchTest extends FunSuite:
       body
     )
 
-  test("without a context the summariser is shown the run's user prompt"):
-    assert(run("stub-diff").prompt.contains("User prompt: p"))
+  test(
+    "without a context the summariser gets the user prompt and closes its issues"
+  ):
+    val prompt = run("stub-diff").prompt
+    assert(prompt.contains("User prompt: p"), prompt)
+    assert(prompt.contains(PrPrompts.ClosingRefs), prompt)
+
+  test("with a context the summariser is not asked for closing lines"):
+    val prompt =
+      run("stub-diff", context = Some("Originating issue: a/b#1")).prompt
+    assert(prompt.contains("Originating issue: a/b#1"), prompt)
+    assert(!prompt.contains(PrPrompts.ClosingRefs), prompt)
 
   test("with nothing open the body is the flow's own, nothing appended"):
     assertEquals(run("stub-diff").prBody, "Generated body\n\nCloses #1.")

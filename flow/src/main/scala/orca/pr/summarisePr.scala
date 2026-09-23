@@ -18,9 +18,7 @@ object PrSummary:
   *
   * `context` is rendered above the diff as a preamble — typically the
   * originating issue link and title, or the user prompt that drove the work.
-  * Omit for diff-only summarisation. The default `instructions` ask for a
-  * `Closes #N` line per issue the context says the branch closes or fixes;
-  * append it yourself ([[withClosingRef]]) when it must be there.
+  * Omit for diff-only summarisation.
   *
   * A `diff` too large to summarise whole is cut short
   * ([[BoundedDiff.prPayload]]) rather than sent as is, which no context window

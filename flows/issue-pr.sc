@@ -109,7 +109,10 @@ flow(
     openPrFromBranch(
       summarisingAgent = codingAgent.cheap,
       openFindings = openFindings,
-      body = summary => withClosingRef(summary.body, issueHandle),
+      body = summary =>
+        s"""${summary.body}
+           |
+           |Closes ${issueHandle.shortRef}.""".stripMargin,
       context = Some(
         s"""Originating issue: ${issueHandle.shortRef}
            |Issue title: ${issue.title}""".stripMargin
