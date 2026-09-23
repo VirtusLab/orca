@@ -34,9 +34,9 @@ final class WorkspaceWrite private (owner: Thread)
   private[orca] def check(what: String): Unit =
     if Thread.currentThread() ne owner then
       throw new OrcaFlowException(
-        s"$what called off the stage's thread (inside a `fork`, `supervised` " +
+        s"$what called off the flow thread (inside a `fork`, `supervised` " +
           "body, `Par.mapUnordered` or `timeout`) — return the data from " +
-          "there and write on the stage's thread (ADR 0018 §6)"
+          "there and write on the flow thread (ADR 0018 §6)"
       )
 
 object WorkspaceWrite:

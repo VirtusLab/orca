@@ -62,7 +62,7 @@ class RecordOpenedPrTest extends FunSuite:
     assert(thrown.isInstanceOf[OrcaFlowException], s"got $thrown")
     assert(
       thrown.getMessage.contains(
-        "progressStore.recordPublished called off the stage's thread"
+        "progressStore.recordPublished called off the flow thread"
       ),
       thrown.getMessage
     )

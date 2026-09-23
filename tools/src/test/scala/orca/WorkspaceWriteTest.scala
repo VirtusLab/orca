@@ -10,7 +10,7 @@ class WorkspaceWriteTest extends munit.FunSuite:
     val thrown = intercept[OrcaFlowException]:
       supervised(token.check("git.commit"))
     assert(
-      thrown.getMessage.startsWith("git.commit called off the stage's thread"),
+      thrown.getMessage.startsWith("git.commit called off the flow thread"),
       thrown.getMessage
     )
 

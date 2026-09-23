@@ -737,7 +737,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     * reading the tree.
     */
   private def formatWorkspace()(using ws: WorkspaceWrite): Unit =
-    ws.check("format commands")
+    ws.check("reviewFixLoop.formatWorkspace")
     formatCommands.foreach: cmd =>
       val exitCode = runShell(cmd).exitCode
       if exitCode != 0 then

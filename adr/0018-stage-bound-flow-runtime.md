@@ -226,9 +226,9 @@ Four capabilities, all constructible only inside `orca`:
   stage body alongside `InStage`. Exclusive (`caps.ExclusiveCapability`):
   separation checking forbids capturing it into concurrent forks — two forks
   racing on the git index or progress log is exactly the bug this catches (§6).
-  Where separation checking does not run, a runtime check does: the token is
-  bound to the thread that minted it, and every gated write throws off that
-  thread.
+  A runtime check backs this everywhere, including code compiled without
+  separation checking: the token is bound to the thread that minted it, and
+  every gated write throws off that thread.
 
 Every side-effecting tool method gains a token clause. The methods gated:
 

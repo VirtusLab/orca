@@ -9,11 +9,10 @@ import ox.flow.Flow
   * crosses in — so ephemeral agent turns (`agent.run`, `chat.run`,
   * `resultAs[O]...run`) work — while the flow-thread-only operations refuse:
   * `stage(...)` / `agent.session(...)` minting, `session.run(...)` on a
-  * `FlowSession`, and every [[WorkspaceWrite]]-gated write (git, `gh`,
-  * `fs.write`) throw an `OrcaFlowException` when called from a fork (each
-  * guards its owner thread at runtime). Return what the writes need from `f`
-  * and write after the call. Mint durable sessions on the flow thread; hand
-  * forks [[orca.agents.Chat]]s.
+  * `FlowSession`, and every [[WorkspaceWrite]]-gated write throw an
+  * `OrcaFlowException` when called from a fork (each guards its owner thread at
+  * runtime). Return what the writes need from `f` and write after the call.
+  * Mint durable sessions on the flow thread; hand forks [[orca.agents.Chat]]s.
   */
 object Par:
   /** Run `f` over every item, at most `parallelism` at a time; results are
