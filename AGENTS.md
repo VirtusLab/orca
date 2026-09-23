@@ -283,9 +283,10 @@ Three location classes decide what survives:
 | Path | Class | Holds | Written by | Read by | Removed by |
 |---|---|---|---|---|---|
 | `.orca/runs/<key>.progress.json` | committed | `ProgressLog`: header (branches, `branchMode`, `startingCommit`, `userPrompt`, `flowName`), one `StageEntry` per completed stage (`id`, `name`, `resultJson`), `published` | `ProgressStore` (`FlowLifecycle.freshRun`, `Flow.recordAndCommit`, `recordOpenedPr`) | `Flow.resumeFrom`, `RecoveryCheck`, `FlowLifecycle`, shell `ResumeDetector` (header) | success teardown, in a final commit |
-| `.orca/cache/runs/<key>.sessions.json` | cache | `SessionRecord` per durable session: `name`, `stage`, `id`, `seed`, `resumeWireId`, `backend` | `SessionStore` (`Session.mintSession`, `persistResumeWireId`) | `Session`, `FlowLifecycle.rehydrateSessions` | success teardown |
+| `.orca/cache/runs/<key>.sessions.json` | cache | `SessionRecord` per durable session: `name`, `stage`, `id`, `seed`, `resumeWireId`, `backend` | `SessionStore` (`Session.mintSession`, `persistResumeWireId`) | `Session`, `FlowLifecycle.rehydrateSessions` | success teardown; nothing else prunes them |
 | `.orca/cache/attempts/<id>.manifest.json` | cache | `AttemptManifest`: `workDir`, `pid`, `startedAt`, `finishedAt`, `status`, `orcaVersion`, `flow`, `sessions[]` (`ManifestSession`) — written when the attempt starts, then on every stage transition, `SessionCommitted` and finish | `AttemptManifestWriter` | shell `ManifestReader` → session picker / `orca continue` (attempts with no session are left out) | pruning: newest 20 attempts with a session ∪ newest 20 of any kind |
 | `.orca/cache/attempts/<id>.cost.jsonl` | cache | one `CostRecord` line per `TokensUsed` (agent, role, model, stage, turn, usage, cost, session) — created on the first `TokensUsed` | `CostLog` via `AttemptManifestWriter` | nothing in orca; a measurement record for people and scripts | pruned with its manifest |
+| `.orca/cache/attempts/<id>.trace.log` (+ `.trace.1.log`) | cache | DEBUG trace of logger `orca`: prompts, agent output, tool calls; 4 MB roll | `OrcaLog` | people (path in the banner) | pruned with its manifest |
 | `.orca/cache/flow.lock` | cache | holder pid | `FlowLock` | `FlowLock` on contention | `runFlow`'s `finally`; a dead pid is stolen |
 | `.orca/cache/pi-sessions/<session id>/` | cache | pi's own `--session-dir` transcripts | pi | `PiSessionStore` (resume probe), shell pi resume | `PiSessionStore.prune` after 30 days untouched |
 | `.orca/cache/mcp-<session id>.json` | cache | claude `--mcp-config` for one conversation | `ClaudeBackend` | claude | conversation end; a hard kill leaves it |
@@ -293,11 +294,10 @@ Three location classes decide what survives:
 | `.orca/cache/{,runs/,attempts/}.<file>.<n>.tmp` | cache | in-flight temp of a `JsonFile` rewrite: beside its target, except the progress log's, staged in `.orca/cache/` so it is never committed | `JsonFile` | — (`AttemptManifestWriter`'s pruning skips dot-files) | the rename that completes the write |
 | `.orca/worktrees/<key>/` (+ branch `orca-worktree-<key>`) | worktrees | a `--worktree` run's checkout, with its own `.orca/` inside | `WorktreeRun` | `WorktreeScan` (shell) | never — see README |
 | `<workDir>/.gemini/settings.json` | user tree | an `mcpServers.orca` entry for one interactive gemini conversation | `GeminiSettings` | gemini | restored on conversation end |
-| `$TMPDIR/orca-<n>.log` (+ `.1.log`) | temp | DEBUG trace of logger `orca`: prompts, agent output, tool calls; 4 MB roll | `OrcaLog` | people (path in the banner) | never |
 | `$TMPDIR/orca-*` (system prompts, codex schema, pi extension) | temp | per-turn IPC files handed to a CLI on argv | each backend | the CLI | turn end |
-| `$TMPDIR/orca-authoring-<n>/` | temp | the authoring flow's sandbox repo; `.orca/cache/orca-api-<version>/` inside holds the README + example flows (+ `fork-source/`) | `AuthoringSandbox`, `FlowAuthoring` | the coding agent | success or cancel; kept on failure |
-| `$XDG_CACHE_HOME/orca/shell/<version>/flows/` | XDG cache | built-in flows extracted from the jar | `BuiltInFlows` | `FlowCatalog`, scala-cli | never |
-| `$XDG_CACHE_HOME/orca/shell/workspace/` | XDG cache | scala-cli `--workspace` build state | scala-cli | scala-cli | never |
+| `$TMPDIR/orca-authoring-<n>/` | temp | the authoring flow's sandbox repo; `.orca/cache/orca-api-<version>/` inside holds the README + example flows (+ `fork-source/`) | `AuthoringSandbox`, `FlowAuthoring` | the coding agent | success or cancel; kept on failure, and nothing else prunes it |
+| `$XDG_CACHE_HOME/orca/shell/<version>/flows/` | XDG cache | built-in flows extracted from the jar | `BuiltInFlows` | `FlowCatalog`, scala-cli | never; nothing prunes older versions |
+| `$XDG_CACHE_HOME/orca/shell/workspace/` | XDG cache | scala-cli `--workspace` build state | scala-cli | scala-cli | never; nothing prunes it |
 
 Why the resume state is two files: the log must be committed (resume from the
 pushed branch), while a backend session id is a machine-local handle, and a

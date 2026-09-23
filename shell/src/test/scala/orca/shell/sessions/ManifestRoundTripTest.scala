@@ -1,6 +1,6 @@
 package orca.shell.sessions
 
-import orca.StagePath
+import orca.{AttemptId, StagePath}
 import orca.agents.{BackendTag, SessionKey}
 import orca.events.OrcaEvent
 import orca.runner.manifest.{AttemptManifestWriter, AttemptOutcome}
@@ -31,7 +31,7 @@ class ManifestRoundTripTest extends munit.FunSuite:
         workDir,
         "0.0.test",
         Some("a-flow.sc"),
-        pid = 1,
+        AttemptId(Instant.now(), pid = 1),
         () => Instant.now()
       )
       writer.onEvent(OrcaEvent.StageStarted("code"))

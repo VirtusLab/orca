@@ -40,7 +40,7 @@ class AttemptManifestWriterTest extends munit.FunSuite:
       workDir,
       "0.0.test",
       flowName,
-      pid = 1,
+      AttemptId(clock(), pid = 1),
       clock
     )
 
@@ -94,7 +94,7 @@ class AttemptManifestWriterTest extends munit.FunSuite:
     val writer = newWriter(
       workDir,
       fixedClock(
-        Instant.parse("2026-07-18T10:00:00Z"), // constructor: startedAt
+        Instant.parse("2026-07-18T10:00:00Z"), // attempt id: startedAt
         Instant.parse("2026-07-18T10:01:00Z"), // SessionCommitted
         Instant.parse("2026-07-18T10:05:00Z") // finish
       ),
@@ -125,12 +125,12 @@ class AttemptManifestWriterTest extends munit.FunSuite:
 
   test("upsert: same session re-firing updates stage/lastActiveAt"):
     val workDir = TempDirs.dir()
-    // Only the constructor (startedAt) and each SessionCommitted call clock() —
-    // stage events don't, so 3 instants cover ctor + 2 commits.
+    // Only the attempt id (startedAt) and each SessionCommitted call clock() —
+    // stage events don't, so 3 instants cover the id + 2 commits.
     val writer = newWriter(
       workDir,
       fixedClock(
-        Instant.parse("2026-07-18T10:00:00Z"), // constructor: startedAt
+        Instant.parse("2026-07-18T10:00:00Z"), // attempt id: startedAt
         Instant.parse("2026-07-18T10:01:00Z"), // SessionCommitted #1
         Instant.parse("2026-07-18T10:04:00Z") // SessionCommitted #2 (refire)
       )
@@ -303,8 +303,8 @@ class AttemptManifestWriterTest extends munit.FunSuite:
     writer.finish(AttemptOutcome.Failed)
     assertEquals(soleManifest(workDir).status, AttemptStatus.Failed)
 
-  /** Pruning counts attempts, not files. An attempt owns up to two, so a file
-    * count would halve the budget, and could delete a manifest while leaving
+  /** Pruning counts attempts, not files. An attempt owns several, so a file
+    * count would shrink the budget, and could delete a manifest while leaving
     * its cost log behind forever.
     */
   test(
@@ -331,6 +331,20 @@ class AttemptManifestWriterTest extends munit.FunSuite:
       os.exists(attemptsDir / "1000000000025-1.manifest.json") &&
         os.exists(attemptsDir / "1000000000025-1.cost.jsonl"),
       "the newest seeded attempt's two files must both survive"
+    )
+
+  test("a pruned attempt's trace log and its rolled part are deleted"):
+    val workDir = TempDirs.dir()
+    val attemptsDir = OrcaDir.ensureAttempts(workDir)
+    for i <- 1 to 25 do
+      os.write(attemptsDir / f"1000000000$i%03d-1.manifest.json", "{}")
+    os.write(attemptsDir / "1000000000001-1.trace.log", "")
+    os.write(attemptsDir / "1000000000001-1.trace.1.log", "")
+    val _ =
+      newWriter(workDir, fixedClock(Instant.parse("2026-07-18T10:00:00Z")))
+    assert(
+      !os.exists(attemptsDir / "1000000000001-1.trace.log") &&
+        !os.exists(attemptsDir / "1000000000001-1.trace.1.log")
     )
 
   /** An attempt that spends tokens without committing a session is the norm,
@@ -423,7 +437,7 @@ class AttemptManifestWriterTest extends munit.FunSuite:
         workDir,
         "0.0.test",
         None,
-        pid = 1,
+        AttemptId(Instant.now(), pid = 1),
         () => Instant.now()
       )
       val threads = (0 until 2).map: t =>

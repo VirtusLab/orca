@@ -1,7 +1,7 @@
 package orca.runner.manifest
 
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
-import orca.OrcaDir
+import orca.{AttemptId, OrcaDir}
 import orca.agents.{BackendTag, Model}
 import orca.events.{Cost, OrcaEvent, Usage}
 import orca.testkit.TempDirs
@@ -22,7 +22,7 @@ class CostLogTest extends munit.FunSuite:
       workDir,
       "0.0.test",
       Some("review-pr.sc"),
-      pid = 1,
+      AttemptId(Instant.parse("2026-07-18T10:00:00Z"), pid = 1),
       fixedClock(Instant.parse("2026-07-18T10:00:00Z"))
     )
 
