@@ -16,10 +16,7 @@ import orca.tools.codex.CodexAgents
 import orca.tools.gemini.GeminiAgents
 import orca.tools.opencode.OpencodeAgents
 import orca.tools.pi.PiAgents
-import org.slf4j.LoggerFactory
 import ox.{ResourceScope, releaseAfterScope}
-
-import scala.util.control.NonFatal
 
 /** The five agents wired for one run — the [[orca.AgentSet]] the `flow(...)`
   * lead selector resolves against. Built (via [[WiredAgents.build]]) before the
@@ -62,8 +59,6 @@ private[orca] final class WiredAgents(
 
 private[orca] object WiredAgents:
 
-  private val log = LoggerFactory.getLogger(getClass)
-
   /** Wire the run's agents, filling every `None` override with the production
     * default. Every factory is applied against `agentWiring` — the run's single
     * bundle of event sink, interaction, workDir and prompts — so a user agent
@@ -91,24 +86,6 @@ private[orca] object WiredAgents:
         .getOrElse(GeminiAgents.default(agentWiring))
     )
 
-  /** Closes `agents` when the enclosing scope ends (each delegates to its
-    * backend; today only opencode holds a live resource, the shared `serve`
-    * process). Best-effort: a failing close is logged and reported, and does
-    * not keep the others from closing or fail the run.
-    */
+  /** Closes `agents` when the enclosing scope ends. */
   def closeAfterScope(agents: List[Agent[?]])(using ResourceScope): Unit =
-    releaseAfterScope(closeBestEffort(agents))
-
-  private def closeBestEffort(agents: List[Agent[?]]): Unit =
-    agents.foreach: a =>
-      try a.close()
-      catch
-        case NonFatal(e) =>
-          log.error(
-            "agent close failed — a backend resource may have leaked",
-            e
-          )
-          System.err.println(
-            s"[orca] failed to close ${a.getClass.getSimpleName} (a backend " +
-              s"resource may have leaked): ${e.getMessage}"
-          )
+    releaseAfterScope(agents.foreach(_.close()))

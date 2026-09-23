@@ -131,9 +131,9 @@ adr/0014-opencode-server-driver.md
 **Lazily constructed on first use** (the first `runAutonomous`/`runInteractive`
 call), then shared for the rest of the Ox scope. A backend that's wired into the
 flow context but never used — e.g. a flow that only touches claude/codex — starts
-no `opencode serve` process and opens no connection. `OpencodeBackend` guards the
-instance behind a thread-safe once-init (the spawn + health check race-free under
-concurrent first calls). Responsibilities:
+no `opencode serve` process and opens no connection. The server is one daemon fork
+of the run scope that serves client requests one at a time, so concurrent first
+calls start it once. Responsibilities:
 - Spawn `opencode serve --port 0 --log-level WARN` via `CliRunner.spawnPiped`,
   scan stdout for `listening on http://HOST:PORT`, capture the base URL.
 - Generate and pass `OPENCODE_SERVER_PASSWORD` (basic auth) so the bound port
@@ -144,8 +144,9 @@ concurrent first calls). Responsibilities:
   response body the reader fork consumes line-by-line (`java.net.http`'s
   `BodyHandlers.ofInputStream` — closing that `InputStream` is what unblocks the
   reader at turn end; `ofLines().close()` does not).
-- Register teardown (SIGINT the process, close client + event stream) via
-  `releaseAfterScope`.
+- Tear down when the run scope ends: tree-destroy the process in the fork's
+  body `finally` (so the pipe drains reach EOF before the join), then close the
+  client and sweep the process's environment cookie.
 - Health: block until `GET /doc` returns `200` (verified; `/` may 404) before
   returning.
 
@@ -392,7 +393,7 @@ its reused `EventQueue`/`Outcome`). Beyond that:
   closes that connection (not SIGINT); "clean exit without result" = the stream
   ended before `session.idle`.
 - Open the SSE connection before `prompt_async` (source-before-turn).
-- `OpencodeServer` lazy once-init is thread-safe (CAS/guarded); a failed init isn't
+- `OpencodeServer` starts once under concurrent first calls; a failed start isn't
   cached as success.
 - `OrcaListener` is already thread-safe; reader-thread emissions need no extra
   synchronisation.

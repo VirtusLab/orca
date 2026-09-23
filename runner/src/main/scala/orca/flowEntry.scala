@@ -103,7 +103,7 @@ import scala.util.control.NonFatal
   * `AgentWiring`/backend (e.g. `_ => myPrebuiltAgent`) compiles but is
   * event-blind: it never reaches this run's dispatcher, so its cost/steps never
   * surface, and it gets a loud resolution-time warning. Its backend is still
-  * closed at flow end to avoid a leak.
+  * closed at flow end, so later runs through it are refused.
   *
   * `stackSettings` wins outright for the stack commands (ADR 0019): when
   * passed, the project file's stack keys are ignored and discovery is skipped,
@@ -373,11 +373,8 @@ private def runInContext(
   val runKey = RunKey.of(args.userPrompt)
   val store = ProgressStore.default(workDir, runKey)
   val sessions = SessionStore.default(workDir, runKey)
-  // A resource scope rather than `supervised`'s own `releaseAfterScope`, which
-  // runs only after the scope joins its forks: closing destroys the opencode
-  // `serve` process, which is what makes its drain forks' reads EOF, so it
-  // must run first or the join hangs. This method takes no `Ox`, as
-  // `resourceScope` can't start where one is visible.
+  // This method takes no `Ox`, as `resourceScope` can't start where one is
+  // visible.
   resourceScope:
     WiredAgents.closeAfterScope(agents.all)
     def surfaced[T](op: => T): T =

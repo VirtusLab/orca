@@ -25,19 +25,18 @@ import orca.agents.{
   TurnDispatch,
   WireSessionId
 }
+import orca.events.OrcaListener
 import orca.subprocess.CliRunner
 import orca.tools.opencode.OpencodeApi.{SessionCreateBody, SessionCreated}
 import ox.Ox
 
 import scala.util.control.NonFatal
 
-/** Lifecycle seam between the backend and the shared `opencode serve` owner —
-  * lets tests substitute a fake without a real process. `http` may spawn on
-  * first force; `close()` is idempotent.
+/** Seam between the backend and the shared `opencode serve` owner — lets tests
+  * substitute a fake without a real process. `http` may spawn on first call.
   */
 private[opencode] trait OpencodeServerHandle:
-  def http: OpencodeHttp
-  def close(): Unit
+  def http(): OpencodeHttp
 
 /** OpenCode backend (ADR 0014). Drives a shared `opencode serve` over HTTP+SSE.
   *
@@ -60,9 +59,13 @@ private[orca] object OpencodeBackend:
   def apply(
       cli: CliRunner,
       workDir: os.Path,
+      events: OrcaListener,
       launcher: OpencodeLauncher = OpencodeLauncher.default
   )(using Ox): OpencodeBackend =
-    new OpencodeBackend(new OpencodeServer(cli, workDir, launcher), workDir)
+    new OpencodeBackend(
+      OpencodeServer(cli, workDir, events, launcher),
+      workDir
+    )
 
   /** Tool name the server injects for a `format: json_schema` turn: the model
     * delivers the payload by calling it. [[OpencodeConversation]] suppresses
@@ -86,12 +89,6 @@ private[orca] class OpencodeBackend(
     server: OpencodeServerHandle,
     override val workDir: os.Path = os.pwd
 ) extends AgentBackend[BackendTag.Opencode.type]:
-
-  /** Tear down the shared `opencode serve` process and its drain forks. A no-op
-    * if the server was never started. Called in the flow body's `finally`,
-    * before the flow scope joins forks.
-    */
-  override def close(): Unit = server.close()
 
   /** Probe `http` for the given session id via `GET /session/<id>` → status
     * 200; `false` on any transport error. The [[orca.agents.SessionId.isSafe]]
@@ -127,7 +124,7 @@ private[orca] class OpencodeBackend(
       // `SessionSupport` probes a server-minted id only when one is mapped, so
       // the forced spawn only fires on a genuine resume — when the server is
       // about to be needed anyway.
-      id => probeSession(id, server.http)
+      id => probeSession(id, server.http())
     )
 
   /** The server `ses_…` to drive: a fresh `POST /session`, or the one
@@ -156,7 +153,7 @@ private[orca] class OpencodeBackend(
       turn: TurnRequest[BackendTag.Opencode.type]
   )(using Ox): Conversation[BackendTag.Opencode.type] =
     import turn.*
-    val http = server.http
+    val http = server.http()
     val serverSession = serverSessionFor(http, dispatch)
     val source = http.events()
     try

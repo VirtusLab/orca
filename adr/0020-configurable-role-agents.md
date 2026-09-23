@@ -127,7 +127,7 @@ place of a real user-global file, so no test reads the developer's actual
 outside the run's wired five (e.g. `_ => myPrebuiltAgent` from a separate
 `AgentWiring`) still compiles — but is event-blind (never reaches this run's
 dispatcher) and gets a loud resolution-time warning; the runtime still closes
-it at flow end to avoid a resource leak.
+it at flow end, so later runs through it are refused.
 
 Agent closing uses one Ox `resourceScope` that covers building the context and
 running the body. The wired agents are registered when the scope opens, and
@@ -136,9 +136,6 @@ still closed when a later override throws, and a role on a wired backend is
 not closed twice. The context does not close agents. An earlier guard closed
 agents only if building the context failed, then passed them to the context.
 One scope covering the whole run does the same job without that hand-off.
-The scope is a `resourceScope` rather than the enclosing `supervised`, as
-`supervised` releases only after joining its forks. Opencode's drain forks
-end only once its `serve` process is closed, so that join would hang.
 
 ### 5. Role mapping inside the library
 
