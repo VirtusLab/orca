@@ -299,6 +299,14 @@ reuses the existing `Announce` typeclass where one is in scope.
   defaults below. (Commit messages plug in per stage — R13; the log format is JSON —
   R28.)
 
+  > **Amendment (2026-09-23, one progress store).** The progress store is not
+  > pluggable: `flow` takes no `progressStore`, and every run uses
+  > `ProgressStore.default`. **Why.** The lifecycle and the busy-branch scan read
+  > the default file by path, so a custom store was never consulted by them; only
+  > tests passed one, always the default. The store owns the peek, the
+  > post-stash restore and the removal of its file; the trait remains so tests
+  > can inject a failing store.
+
 **Design.**
 
 ```scala

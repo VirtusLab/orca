@@ -132,7 +132,6 @@ def flow(
     planningAgent: Option[AgentSet => Agent[?]] = None,
     codingAgent: Option[AgentSet => Agent[?]] = None,
     reviewAgent: Option[AgentSet => Agent[?]] = None,
-    progressStore: Option[ProgressStore] = None,
     // Agent factories share the `AgentWiring => Ox ?=> Agent` shape — see
     // FlowWiring's scaladoc.
     claude: Option[AgentWiring => Ox ?=> ClaudeAgent] = None,
@@ -231,7 +230,6 @@ def flow(
               planningAgent = planningAgent,
               codingAgent = codingAgent,
               reviewAgent = reviewAgent,
-              progressStore = progressStore,
               flowName = flowName,
               pricing = pricing,
               wiring = FlowWiring(
@@ -304,7 +302,6 @@ private[orca] def runFlow(
     planningAgent: Option[AgentSet => Agent[?]] = None,
     codingAgent: Option[AgentSet => Agent[?]] = None,
     reviewAgent: Option[AgentSet => Agent[?]] = None,
-    progressStore: Option[ProgressStore],
     configHome: ConfigHome = ConfigHome.default,
     // `ORCA_FLOW_NAME`, forwarded into a freshly-written progress header (see
     // `FlowLifecycle.setup`'s own scaladoc) — `flow()` passes its real
@@ -342,11 +339,7 @@ private[orca] def runFlow(
             )
           )
           val runKey = RunKey.of(args.userPrompt)
-          val store =
-            progressStore.getOrElse(ProgressStore.default(workDir, runKey))
-          // Not pluggable alongside `progressStore`: these records are
-          // machine-local cache under `.orca/cache/`, derived from the same
-          // (workDir, prompt) pair a resumed run re-derives.
+          val store = ProgressStore.default(workDir, runKey)
           val sessions = SessionStore.default(workDir, runKey)
           // One wiring bundle handed to every agent factory, so overrides and
           // defaults build against the SAME dispatcher, interaction, workDir and
