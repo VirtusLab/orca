@@ -5,7 +5,8 @@ package orca
 // API the README documents; deliberately omits customisation-only knobs (e.g.
 // `orca.plan.PlanPrompts.Planning`) so they stay self-documenting at the call
 // site. The flow DSL, StackSettings and Configured live at top-level `orca`
-// already, so they need no re-export.
+// already, so they need no re-export. Opaque types are aliased at the bottom of
+// this file, never `export`ed.
 
 // Usage is carried by OrcaEvent.TokensUsed, so listeners matching it need it in
 // scope; CostTracker is instantiable directly by callers via `extraListeners`.

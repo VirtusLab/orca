@@ -321,21 +321,34 @@ class ReviewerCatalogTest extends munit.FunSuite:
       intercept[OrcaFlowException](ReviewerCatalog.discover(project, global))
     assert(e.getMessage.contains("'files:' as a YAML block"), e.getMessage)
 
-  private def assertUnreadLine(description: String, line: String): Unit =
+  private def assertWrappedDescription(description: String): Unit =
     val (project, global) = dirs()
     val _ = writeReviewer(project, "orca", description = description)
     val e =
       intercept[OrcaFlowException](ReviewerCatalog.discover(project, global))
-    assert(e.getMessage.contains(s"frontmatter line '$line'"), e.getMessage)
+    assert(
+      e.getMessage.contains("wraps its 'description:' value"),
+      e.getMessage
+    )
 
-  test("a description wrapped onto the next line aborts, naming the line"):
-    assertUnreadLine("checks the\nthing", "thing")
+  test("a description wrapped onto the next line aborts, naming the key"):
+    assertWrappedDescription("\nchecks the thing")
 
   test("a wrapped line with a colon after a non-key aborts"):
-    assertUnreadLine("checks the\nthing, see: docs", "thing, see: docs")
+    assertWrappedDescription("checks the\nthing, see: docs")
 
   test("an indented wrapped line aborts even when it reads as a key"):
-    assertUnreadLine("checks the\n  thing: here", "  thing: here")
+    assertWrappedDescription("checks the\n  thing: here")
+
+  test("a multi-line value under a key orca does not read is ignored"):
+    val (project, global) = dirs()
+    os.write(
+      project / "orca.md",
+      "---\ndescription: checks\ntools:\n  - Read\n---\n\n## Scope\n",
+      createFolders = true
+    )
+    val catalog = ReviewerCatalog.discover(project, global)
+    assert(named(catalog.all).contains("orca"))
 
   test("a reviewer file with an unparseable files: regex aborts"):
     val (project, global) = dirs()

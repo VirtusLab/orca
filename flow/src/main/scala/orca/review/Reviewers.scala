@@ -72,7 +72,7 @@ private[review] enum ReviewerPromptFailure:
   case Unreadable(source: String, reason: String)
   case MissingDescription(slug: ReviewerSlug, source: String)
   case BlockScalar(slug: ReviewerSlug, source: String, key: String)
-  case UnreadLine(slug: ReviewerSlug, source: String, line: String)
+  case WrappedValue(slug: ReviewerSlug, source: String, key: String)
   case MissingBody(slug: ReviewerSlug, source: String)
   case InvalidFilePattern(
       slug: ReviewerSlug,
@@ -112,10 +112,10 @@ private[review] object ReviewerPromptFailure:
         s"reviewer '$slug' ($source) writes '$key:' as a YAML block scalar, " +
           "which the frontmatter parser does not read — put the whole value " +
           s"on the '$key:' line"
-      case UnreadLine(slug, source, line) =>
-        s"reviewer '$slug' ($source) has a frontmatter line '$line' that is " +
-          "not a `key: value` entry — the parser does not read a value " +
-          "wrapped onto the next line; put the whole value on its key's line"
+      case WrappedValue(slug, source, key) =>
+        s"reviewer '$slug' ($source) wraps its '$key:' value onto the next " +
+          "line, which the frontmatter parser does not read — put the whole " +
+          s"value on the '$key:' line"
       case MissingBody(slug, source) =>
         s"reviewer '$slug' ($source) has no body below the closing '---' — " +
           "the body is the reviewer's system prompt"
@@ -128,7 +128,8 @@ private[review] object ReviewerPromptFailure:
   * `description:` and a non-empty body are required, and `files:`, when
   * present, must be a valid regex. Both keys hold a one-line value; a YAML
   * block-scalar header (`>`, `|-`, …) or a value wrapped onto the next line is
-  * refused, since the parser never reads the lines after the key's own.
+  * refused, since the parser never reads the lines after the key's own. Other
+  * keys are ignored, wrapped or not.
   *
   * The one conversion for both sources: the shipped prompts under
   * `src/main/resources` and the `.md` files [[ReviewerCatalog]] discovers. The
@@ -149,15 +150,17 @@ private[review] def reviewerFrom(
       Left(ReviewerPromptFailure.NoFrontmatter(slug, source)).ok()
     if parsed.metadata.isEmpty then
       Left(ReviewerPromptFailure.MalformedFrontmatter(slug, source)).ok()
+    // A block scalar's lines wrap too, so it is checked first for the more
+    // specific message; both precede the description check, so an empty
+    // `description:` line with its value below is not reported as missing.
     List("description", "files")
       .find(key => parsed.metadata.get(key).exists(isBlockScalarHeader))
       .map(ReviewerPromptFailure.BlockScalar(slug, source, _))
       .toLeft(())
       .ok()
-    // Before the description check: `description:` with its value wrapped
-    // onto the next line should name that line, not report a missing value.
-    parsed.unreadLines.headOption
-      .map(ReviewerPromptFailure.UnreadLine(slug, source, _))
+    List("description", "files")
+      .find(parsed.wrappedKeys.contains)
+      .map(ReviewerPromptFailure.WrappedValue(slug, source, _))
       .toLeft(())
       .ok()
     val description = parsed.metadata
