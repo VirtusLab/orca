@@ -1,7 +1,7 @@
 package orca.shell
 
 import org.jline.terminal.Terminal
-import orca.{ConfigHome, OrcaArgs, OrcaDir, RunKey, RunTarget, Uncommitted}
+import orca.{ConfigHome, OrcaArgs, RunTarget, Uncommitted}
 import orca.shell.actions.{
   AuthorAction,
   AuthorParams,
@@ -32,6 +32,7 @@ import orca.shell.sessions.{
 import orca.shell.ui.{Choice, ShellOutput, ShellUi, UiOutcome}
 import orca.shell.wizard.{FirstRun, FirstRunStatus, Wizard}
 import orca.subprocess.PathProbe
+import orca.util.TextUtil
 import ox.discard
 
 import scala.annotation.tailrec
@@ -486,11 +487,9 @@ object Main:
     * `rm` is undone by the next run's auto-stash restore.
     */
   private def abandonCommand(run: InterruptedRun): String =
-    val log = OrcaDir
-      .progressPath(run.dir, RunKey.of(run.userPrompt))
-      .relativeTo(run.dir)
-    val git = s"git -C ${run.dir}"
-    s"$git rm $log && $git commit -m \"abandon orca run\""
+    val git = s"git -C ${TextUtil.shellQuote(run.dir.toString)}"
+    val log = TextUtil.shellQuote(run.log.relativeTo(run.dir).toString)
+    s"$git rm $log && $git commit -m 'abandon orca run'"
 
   /** Prompts for the flow's task text, re-prompting on blank input — an empty
     * `userPrompt` reaches the flow's agent directly (branch naming, the coding

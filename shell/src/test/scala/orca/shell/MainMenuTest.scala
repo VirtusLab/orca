@@ -107,7 +107,8 @@ class MainMenuTest extends munit.FunSuite:
       flow = FlowSource.Catalog("implement.sc"),
       userPrompt = "fix the flaky integration test in the payments module",
       branch = branchName("feat/x"),
-      dir = os.root / "work"
+      dir = os.root / "work",
+      log = os.root / "work" / "run.progress.json"
     )
     val choices = MainMenu.choices(
       continueSessionCount = None,
@@ -131,7 +132,8 @@ class MainMenuTest extends munit.FunSuite:
       flow = FlowSource.File(path),
       userPrompt = "fix it",
       branch = branchName("feat/x"),
-      dir = os.root / "work"
+      dir = os.root / "work",
+      log = os.root / "work" / "run.progress.json"
     )
     val label = MainMenu
       .choices(
@@ -151,7 +153,8 @@ class MainMenuTest extends munit.FunSuite:
       flow = FlowSource.Catalog("fix.sc"),
       userPrompt = "safe\u001b[31m text\u0007",
       branch = branchName("feat/x"),
-      dir = os.root / "work"
+      dir = os.root / "work",
+      log = os.root / "work" / "run.progress.json"
     )
     val choices = MainMenu.choices(
       continueSessionCount = None,
@@ -168,7 +171,8 @@ class MainMenuTest extends munit.FunSuite:
       flow = FlowSource.Catalog("fix.sc"),
       userPrompt = "line one\nline two",
       branch = branchName("feat/x"),
-      dir = os.root / "work"
+      dir = os.root / "work",
+      log = os.root / "work" / "run.progress.json"
     )
     val choices = MainMenu.choices(
       continueSessionCount = None,
@@ -190,7 +194,8 @@ class MainMenuTest extends munit.FunSuite:
           FlowSource.Catalog("a.sc"),
           "short task",
           branchName("feat/x"),
-          os.root / "work"
+          os.root / "work",
+          os.root / "work" / "run.progress.json"
         )
       )
     )
@@ -215,7 +220,9 @@ class MainMenuTest extends munit.FunSuite:
       flow = FlowSource.Catalog("implement.sc"),
       userPrompt = "fix the flaky test",
       branch = branchName("feat/x"),
-      dir = os.root / "repo" / ".orca" / "worktrees" / "ab12cd34"
+      dir = os.root / "repo" / ".orca" / "worktrees" / "ab12cd34",
+      log =
+        os.root / "repo" / ".orca" / "worktrees" / "ab12cd34" / "run.progress.json"
     )
     val label = MainMenu
       .choices(

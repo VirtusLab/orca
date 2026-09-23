@@ -1,6 +1,6 @@
 package orca.shell.resume
 
-import orca.{RunKey, WorkspaceWrite}
+import orca.{OrcaDir, RunKey, WorkspaceWrite}
 import orca.gitref.CommitHash
 import orca.progress.{BranchMode, FlowSource, ProgressHeader, ProgressStore}
 import orca.testkit.{TempDirs, branchName}
@@ -43,7 +43,8 @@ class ResumeDetectorTest extends munit.FunSuite:
           FlowSource.Catalog("implement.sc"),
           "fix the flaky test",
           branchName("feat/resume"),
-          workDir
+          workDir,
+          OrcaDir.progressPath(workDir, RunKey.of("fix the flaky test"))
         )
       )
     )
@@ -105,7 +106,8 @@ class ResumeDetectorTest extends munit.FunSuite:
           FlowSource.Catalog("b.sc"),
           "newer prompt",
           branchName("feat/resume"),
-          workDir
+          workDir,
+          OrcaDir.progressPath(workDir, RunKey.of("newer prompt"))
         )
       )
     )
@@ -123,7 +125,8 @@ class ResumeDetectorTest extends munit.FunSuite:
           FlowSource.Catalog("implement.sc"),
           "fix the flaky test",
           branchName("feat/resume"),
-          worktree
+          worktree,
+          OrcaDir.progressPath(worktree, RunKey.of("fix the flaky test"))
         )
       )
     )
@@ -155,7 +158,8 @@ class ResumeDetectorTest extends munit.FunSuite:
           FlowSource.Catalog("b.sc"),
           "newer prompt",
           branchName("feat/resume"),
-          shellDir
+          shellDir,
+          OrcaDir.progressPath(shellDir, RunKey.of("newer prompt"))
         )
       )
     )
@@ -182,7 +186,8 @@ class ResumeDetectorTest extends munit.FunSuite:
             FlowSource.Catalog("implement.sc"),
             "fix the flaky test",
             branchName("feat/resume"),
-            shellDir
+            shellDir,
+            OrcaDir.progressPath(shellDir, RunKey.of("fix the flaky test"))
           )
         )
       )

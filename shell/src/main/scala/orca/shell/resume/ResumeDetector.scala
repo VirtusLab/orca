@@ -18,7 +18,9 @@ private[shell] case class InterruptedRun(
       * resume rather than a fresh run: the log it resumes from is in that
       * directory and nowhere else.
       */
-    dir: os.Path
+    dir: os.Path,
+    /** The progress log itself, under `dir`. */
+    log: os.Path
 )
 
 /** Detects an interrupted run for the main menu's "Resume interrupted run"
@@ -51,17 +53,25 @@ private[shell] object ResumeDetector:
     try
       newestProgressLog(dirs).flatMap: found =>
         JsonFile.read[ProgressLog](found.path) match
-          case JsonFile.Read.Loaded(log) => fromHeader(log.header, found.dir)
+          case JsonFile.Read.Loaded(log) => fromHeader(log.header, found)
           case _                         => None
     catch case scala.util.control.NonFatal(_) => None
 
   private def fromHeader(
       header: ProgressHeader,
-      dir: os.Path
+      found: FoundLog
   ): Option[InterruptedRun] =
     header.flow
       .filter(isOfferable)
-      .map(InterruptedRun(_, header.userPrompt, header.branch, dir))
+      .map(
+        InterruptedRun(
+          _,
+          header.userPrompt,
+          header.branch,
+          found.dir,
+          found.path
+        )
+      )
 
   private def isOfferable(source: FlowSource): Boolean = source match
     case FlowSource.Catalog(_) => true

@@ -39,6 +39,11 @@ private[orca] object TextUtil:
   def oneline(text: String): String =
     collapseWhitespace(text.strip()).filterNot(_.isControl)
 
+  /** `s` as one single-quoted POSIX shell word, so spaces or quotes in it can't
+    * split a command.
+    */
+  def shellQuote(s: String): String = "'" + s.replace("'", "'\\''") + "'"
+
   /** Collapse each newline run (with adjacent whitespace) to a single space,
     * leaving other whitespace intact. Enforces the settings-file
     * one-physical-line contract for command lines, so the executed command and

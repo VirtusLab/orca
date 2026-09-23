@@ -1025,7 +1025,8 @@ class MainTest extends munit.FunSuite:
       flow = flow,
       userPrompt = "fix the flaky test\nwith detail",
       branch = branchName("feat/x"),
-      dir = dir
+      dir = dir,
+      log = dir / ".orca" / "runs" / "k.progress.json"
     )
 
   /** Resumes `run` from `shellDir`, returning the launch it made, if any. */
@@ -1121,7 +1122,10 @@ class MainTest extends munit.FunSuite:
       )
     )
     assert(out.contains(gone), out)
-    assert(out.contains(s"git -C $workDir rm .orca/runs/"), out)
+    assert(
+      out.contains(s"git -C '$workDir' rm '.orca/runs/k.progress.json'"),
+      out
+    )
 
   test(
     "resumeInterruptedRun: an unresolvable flow name reports an error and never launches"
