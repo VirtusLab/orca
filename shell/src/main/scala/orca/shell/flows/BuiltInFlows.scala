@@ -1,5 +1,6 @@
 package orca.shell.flows
 
+import orca.XdgDirs
 import orca.shell.ShellVersion
 
 /** Bundles the built-in flows (ADR 0021 §7) as jar resources under
@@ -43,25 +44,9 @@ private[shell] object BuiltInFlows:
       new String(stream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)
     finally stream.close()
 
-  /** `$XDG_CACHE_HOME` (default `home / ".cache"`) — the per-user cache root
-    * shared by [[extracted]] and, via [[orca.shell.run.FlowLauncher]], the
-    * flow-subprocess `--workspace` directory. Exposed at `private[shell]`
-    * rather than duplicated so both agree on the same env/home handling.
-    */
-  private[shell] def cacheHome(
-      env: String => Option[String],
-      home: os.Path
-  ): os.Path =
-    env("XDG_CACHE_HOME")
-      // `os.Path` accepts only absolute paths, so a relative, empty, or
-      // root-climbing value throws and falls back — no separate pre-filter.
-      .flatMap(v => scala.util.Try(os.Path(v)).toOption)
-      .getOrElse(home / ".cache")
-
   /** Extracts the built-in flows to
-    * `$XDG_CACHE_HOME/orca/shell/<version>/flows` (default `~/.cache/...`,
-    * mirroring `ConfigHome`'s env handling: a relative, empty, or root-climbing
-    * `XDG_CACHE_HOME` falls back like an unset one). Returns that directory.
+    * `$XDG_CACHE_HOME/orca/shell/<version>/flows`, resolved by
+    * [[orca.XdgDirs.cacheHome]]. Returns that directory.
     *
     * A release-looking `version` (`ShellVersion.isRelease`) extracts once,
     * keyed by the directory being *complete* — present with every indexed flow
@@ -95,7 +80,8 @@ private[shell] object BuiltInFlows:
       home: os.Path,
       version: String
   ): os.Path =
-    val dir = cacheHome(env, home) / "orca" / "shell" / version / "flows"
+    val dir =
+      XdgDirs.cacheHome(env, home) / "orca" / "shell" / version / "flows"
 
     extractedCache.computeIfAbsent(
       dir,
