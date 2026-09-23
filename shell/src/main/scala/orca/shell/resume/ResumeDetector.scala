@@ -1,5 +1,6 @@
 package orca.shell.resume
 
+import orca.gitref.BranchName
 import orca.progress.{ProgressHeader, ProgressLog, ProgressScan}
 import orca.util.JsonFile
 
@@ -10,7 +11,7 @@ private[shell] case class InterruptedRun(
     flowName: String,
     userPrompt: String,
     /** The branch the run works on, from the progress log's header. */
-    branch: String,
+    branch: BranchName,
     /** The directory the log was found in — the shell's own, or one of the
       * worktrees orca made. The relaunch runs THERE, which is what makes it a
       * resume rather than a fresh run: the log it resumes from is in that

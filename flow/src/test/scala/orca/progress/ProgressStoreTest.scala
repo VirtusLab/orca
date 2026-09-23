@@ -3,7 +3,8 @@ package orca.progress
 import munit.FunSuite
 import orca.{RunKey, WorkspaceWrite}
 import orca.util.RawJson
-import orca.testkit.TempDirs
+import orca.gitref.CommitHash
+import orca.testkit.{TempDirs, branchName}
 
 class ProgressStoreTest extends FunSuite:
 
@@ -11,8 +12,8 @@ class ProgressStoreTest extends FunSuite:
   given WorkspaceWrite = WorkspaceWrite.unsafe
 
   private val header = ProgressHeader(
-    startingBranch = "main",
-    branch = "feat/some-feature",
+    startingBranch = Some(branchName("main")),
+    branch = branchName("feat/some-feature"),
     branchMode = BranchMode.Created,
     userPrompt = "my prompt",
     flowName = None,

@@ -1,7 +1,8 @@
 package orca.runner
 
 import orca.{FlowControl, StackSettings}
-import orca.progress.{CommitHash, ProgressStore}
+import orca.gitref.CommitHash
+import orca.progress.ProgressStore
 import orca.sessions.SessionStore
 import orca.review.ReviewerCatalog
 import orca.tools.{FsTool, GitHubTool, GitTool}

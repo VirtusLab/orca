@@ -34,16 +34,7 @@ class WorktreeRunTest extends munit.FunSuite:
   test("a new worktree is put on a branch of its own, not left detached"):
     val repo = GitRepo.seeded()
     val path = resolved(repo, "task A")
-    // Detached would read back as the literal "HEAD", which the run would
-    // record as its starting branch and resume would then refuse.
-    assertNotEquals(
-      os.proc("git", "rev-parse", "--abbrev-ref", "HEAD")
-        .call(cwd = path)
-        .out
-        .text()
-        .trim,
-      "HEAD"
-    )
+    assert(Worktrees.onABranch(path))
 
   test("resolving from inside the worktree lands on that same worktree"):
     val repo = GitRepo.seeded()
@@ -130,9 +121,9 @@ class WorktreeRunTest extends munit.FunSuite:
     val repo = GitRepo.seeded()
     val path = resolved(repo, "task A")
     // How a half-created worktree looks: `add` succeeded, the branch step did
-    // not. Running there detached records an unresumable starting branch.
+    // not.
     git(path, "checkout", "--detach", "-q")
-    assertEquals(Worktrees.headBranch(path), Some("HEAD"))
+    assert(!Worktrees.onABranch(path))
     assertEquals(WorktreeRun.resolve(repo, RunKey.of("task A")), Right(path))
     assert(Worktrees.onABranch(path))
 

@@ -179,7 +179,7 @@ that stage's progress entry. Why two stages can't run concurrently — the
   `WorkspaceWrite`; **all** LLM calls require `InStage`. (Originally one combined
   `InStage` token; split 2026-07-07 for capture checking — §6.)
 - **R16** — Pure reads (`fs.read`, `git.uncommittedDiff` / `log` /
-  `currentBranch`, `gh.readIssue` / `buildStatus` / `waitForBuild`) require
+  `head`, `gh.readIssue` / `buildStatus` / `waitForBuild`) require
   neither token and are callable outside stages.
 - **R17** — Library helpers that perform side effects take the matching token
   clause — `(using InStage)` for LLM calls, `(using WorkspaceWrite)` for workspace
@@ -518,10 +518,10 @@ the wrong branch.
   `CanAskUser[B]`, defined only per concrete backend — use a concrete accessor.)
 - **R32** — The progress header is **untrusted input** on load (the log is
   human-visible and pushable — R26 — so it may be edited). Before any destructive
-  action the runtime validates it: `branch`/`startingBranch` must be safe refs
-  (`slug` rules), `promptHash` must equal the recomputed prompt hash, and it refuses
-  to `checkout`, `reset --hard`, or delete a protected branch (the default branch /
-  `main` / `master`) or any branch outside the orca naming scheme.
+  action the runtime validates it: `branch`/`startingBranch` must be valid
+  branch names (a header holding anything else fails to decode), `userPrompt`
+  must equal the current prompt, and it refuses to `checkout`, `reset --hard`,
+  or delete a protected branch (the default branch / `main` / `master`).
 
 **Design.**
 

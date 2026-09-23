@@ -3,7 +3,8 @@ package orca
 import language.experimental.captureChecking
 
 import orca.agents.SessionKey
-import orca.progress.{CommitHash, ProgressStore}
+import orca.gitref.CommitHash
+import orca.progress.ProgressStore
 import orca.sessions.SessionStore
 
 import scala.annotation.implicitNotFound
@@ -51,7 +52,7 @@ trait FlowControl extends FlowContext, caps.ExclusiveCapability:
     * `outer#0/inner#0`). Called once by `stage` before the resume lookup; must
     * be balanced by [[exitStage]]. See [[StageFrames]] for the protocol.
     */
-  def enterStage(name: String, baseCommit: Option[String]): StagePath.Stage
+  def enterStage(name: String, baseCommit: Option[CommitHash]): StagePath.Stage
 
   /** Pop the frame opened by the matching [[enterStage]]. */
   def exitStage(): Unit
@@ -73,7 +74,7 @@ trait FlowControl extends FlowContext, caps.ExclusiveCapability:
     * change set that stage has produced, whether or not it has since been
     * committed. `None` when no such commit was recorded (ADR 0018 §2.1).
     */
-  private[orca] def stageBaseCommit: Option[String]
+  private[orca] def stageBaseCommit: Option[CommitHash]
 
   /** The commit the RUN started from — HEAD when lifecycle setup bound the
     * branch, before any stage committed — the baseline for everything the run

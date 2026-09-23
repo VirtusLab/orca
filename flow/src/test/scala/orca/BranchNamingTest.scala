@@ -260,7 +260,7 @@ class BranchNamingTest extends munit.FunSuite:
     assertEquals(result, "fix-login-bug")
 
   test(
-    "producer == validator: slug output always passes FeatureBranch.isSafeBranchRef"
+    "producer == validator: slug output always passes FeatureBranch.isSlug"
   ):
     // Pins that the producer (slug) and the untrusted-header validator agree by
     // construction — they share one predicate (BranchNamingStrategy.isSlugSegment).
@@ -283,6 +283,6 @@ class BranchNamingTest extends munit.FunSuite:
         s"slug('$in') = '$s' must be a valid slug segment"
       )
       assert(
-        orca.progress.FeatureBranch.isSafeBranchRef(s),
-        s"slug('$in') = '$s' must satisfy isSafeBranchRef"
+        orca.progress.FeatureBranch.isSlug(s),
+        s"slug('$in') = '$s' must satisfy isSlug"
       )

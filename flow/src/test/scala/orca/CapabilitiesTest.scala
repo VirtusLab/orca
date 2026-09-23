@@ -15,7 +15,7 @@ class CapabilitiesTest extends munit.FunSuite:
         throw new NotImplementedError
       def sessionStore: orca.sessions.SessionStore =
         throw new NotImplementedError
-      private[orca] def startingCommit: Option[orca.progress.CommitHash] = None
+      private[orca] def startingCommit: Option[orca.gitref.CommitHash] = None
 
   test("FlowControl satisfies a using FlowContext requirement"):
     def needsCtx(using FlowContext): Boolean = true

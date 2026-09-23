@@ -1,7 +1,8 @@
 package orca
 
 import mainargs.{Flag, ParserForClass, arg}
-import orca.progress.BranchName
+import orca.gitref.BranchName
+import orca.progress.FeatureBranch
 
 /** The argv shape mainargs parses, shared by a flow's own argv
   * ([[OrcaArgs.parse]]) and `orca run`, so each option is declared once. It
@@ -43,7 +44,7 @@ private[orca] case class RawArgs(
           )
         case (Some(text), None) => Right(Some(text))
         case (None, text)       => Right(text)
-      branchName <- BranchName.parseOptional(branch)
+      branchName <- FeatureBranch.parseRequestedOptional(branch)
       target <- RunTarget.from(
         worktree = worktree.value,
         skipBranch = skipBranch.value,

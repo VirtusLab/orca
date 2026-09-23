@@ -16,10 +16,9 @@ import orca.agents.{BackendTag, Agent, SessionId, WireSessionId}
 import orca.events.OrcaEvent
 import orca.util.{JsonFile, TextUtil}
 import orca.sessions.{SessionRecord, SessionStore}
+import orca.gitref.{BranchName, CommitHash, Head}
 import orca.progress.{
   BranchMode,
-  BranchName,
-  CommitHash,
   FeatureBranch,
   ProgressHeader,
   ProgressLog,
@@ -29,7 +28,7 @@ import orca.progress.{
   RecoveryCheck,
   ScannedProgressLog,
   ThrowawayBranch,
-  UnsafeBranchRefRefused
+  NotASlugRefused
 }
 import orca.settings.{AgentSettings, SettingsFile, SettingsScope}
 import orca.subprocess.TtyProbe
@@ -210,7 +209,7 @@ object FlowLifecycle:
       store: ProgressStore,
       sessionStore: SessionStore,
       featureBranch: FeatureBranch,
-      startBranch: String,
+      startingHead: Head,
       stackSettings: StackSettings,
       branchMode: BranchMode,
       untrackedOnFailure: UntrackedFiles,
@@ -232,7 +231,7 @@ object FlowLifecycle:
     */
   private[orca] case class BranchBinding(
       featureBranch: FeatureBranch,
-      startBranch: String,
+      startingHead: Head,
       branchMode: BranchMode,
       startingCommit: Option[CommitHash]
   )
@@ -271,18 +270,18 @@ object FlowLifecycle:
     * of that, a resumed run:
     *   - Snapshots the log file before the cleanliness decision and restores it
     *     if a stash removed it, so the header is always readable.
-    *   - Validates the header before any destructive action (safe refs,
-    *     prompt-hash match, no protected feature branch). A
-    *     parseable-but-invalid header is a hard abort (`OrcaFlowException`),
-    *     not a silent fresh start. (An unparseable log → fresh run, but warned
-    *     since it's distinguishable from a genuinely absent log.)
+    *   - Validates the header before any destructive action (prompt-hash match,
+    *     no protected feature branch). A parseable-but-invalid header is a hard
+    *     abort (`OrcaFlowException`), not a silent fresh start. (An unparseable
+    *     log — malformed refs included — → fresh run, but warned since it's
+    *     distinguishable from a genuinely absent log.)
     *   - Cross-checks that the current branch is the one the header records: a
     *     log that surfaced on a branch it does not name (e.g. carried along by
     *     a merge) aborts rather than resuming against the wrong branch.
     *
-    * On resume `startBranch` is the header's recorded `startingBranch` (the
-    * original branch at first run), so a return-to-start goes to that original
-    * branch, not the re-run's current feature branch.
+    * On resume `startingHead` is the header's recorded one (where the first
+    * attempt started), so a return-to-start goes there, not to the re-run's
+    * current feature branch.
     */
   private[orca] def setup(
       args: OrcaArgs,
@@ -320,9 +319,13 @@ object FlowLifecycle:
     given WorkspaceWrite = RuntimeInStage.workspaceToken()
     warnIfSettingsIgnored(git, stackOverridden, emit)
     abortIfNoCommits(git)
-    val startBranch = git.currentBranch()
+    val startingHead = git.head()
     val ownLog = store.loadDetailed()
-    abortIfBranchBusy(ownLog, store.path, workDir, startBranch)
+    startingHead match
+      case Head.OnBranch(branch) =>
+        abortIfBranchBusy(ownLog, store.path, workDir, branch)
+      // No branch for another run to have claimed.
+      case Head.Detached(_) => ()
     // The protected set both binding arms enforce: the always-protected floor
     // (`main`/`master`) plus the repo's detected default branch (best-effort;
     // failed detection falls back to just the floor). Computed once so the
@@ -359,13 +362,13 @@ object FlowLifecycle:
     val (stackSettings, discovered) =
       resolveStackSettings(agent, workDir, resolution, emit)
     val binding =
-      session.bindBranch(startBranch, protectedBranches, discovered)
+      session.bindBranch(startingHead, protectedBranches, discovered)
     emit(OrcaEvent.BranchBound(binding.featureBranch.value))
     FlowSetup(
       store,
       sessionStore,
       binding.featureBranch,
-      binding.startBranch,
+      binding.startingHead,
       stackSettings,
       binding.branchMode,
       untrackedOnFailure,
@@ -399,7 +402,7 @@ object FlowLifecycle:
       case JsonFile.Read.Absent | JsonFile.Read.Corrupt(_) =>
         args.branch.foreach: name =>
           val _ = requestedBranch(name, protectedBranches)
-          if git.branchExists(name.value) then throw requestedBranchExists(name)
+          if git.branchExists(name) then throw requestedBranchExists(name)
       case _ => ()
 
   /** Refuse to start a NEW run on a branch that another run's progress log
@@ -425,17 +428,17 @@ object FlowLifecycle:
       ownLog: JsonFile.Read[ProgressLog],
       ownPath: os.Path,
       workDir: os.Path,
-      startBranch: String
+      startingBranch: BranchName
   ): Unit =
     ownLog match
       case JsonFile.Read.Loaded(_) => ()
       case _ =>
-        busyBranchLog(ownPath, workDir, startBranch).foreach: log =>
+        busyBranchLog(ownPath, workDir, startingBranch).foreach: log =>
           throw new OrcaFlowException(
-            branchBusyMessage(log, workDir, startBranch)
+            branchBusyMessage(log, workDir, startingBranch)
           )
 
-  /** The newest by mtime of the OTHER progress logs naming `startBranch` —
+  /** The newest by mtime of the OTHER progress logs naming `startingBranch` —
     * newest-wins like the shell's resume offer, since several logs (different
     * prompts) can name one branch. Corrupt logs are already dropped by the
     * scan; a scan failure (`.orca` unreadable, or removed mid-listing) yields
@@ -445,12 +448,12 @@ object FlowLifecycle:
   private def busyBranchLog(
       ownPath: os.Path,
       workDir: os.Path,
-      startBranch: String
+      startingBranch: BranchName
   ): Option[ScannedProgressLog] =
     try
       ProgressScan
         .progressLogs(workDir)
-        .filter(l => l.path != ownPath && l.header.branch == startBranch)
+        .filter(l => l.path != ownPath && l.header.branch == startingBranch)
         .maxByOption(l => os.mtime(l.path))
     catch case NonFatal(_) => None
 
@@ -472,7 +475,7 @@ object FlowLifecycle:
   private def branchBusyMessage(
       log: ScannedProgressLog,
       workDir: os.Path,
-      startBranch: String
+      startingBranch: BranchName
   ): String =
     val header = log.header
     val task = TextUtil.onelinePreview(header.userPrompt, 60)
@@ -484,7 +487,7 @@ object FlowLifecycle:
       if header.flowName.isDefined then
         ", which the orca shell may also offer as \"Resume interrupted run\""
       else ""
-    s"branch '$startBranch' already has an unfinished orca run on it " +
+    s"branch '${startingBranch.value}' already has an unfinished orca run on it " +
       s"(task: $task$flow, log: $logPath) — resume it by re-running its flow " +
       s"with the identical task text$shellRoute, abandon it by removing its " +
       s"log (git rm $logPath && git commit -m \"abandon orca run\"), or " +
@@ -586,14 +589,14 @@ object FlowLifecycle:
       * doc for why it always runs after the cleanliness decision.
       */
     def bindBranch(
-        startBranch: String,
+        startingHead: Head,
         protectedBranches: Set[String],
         discovered: Boolean
     )(using InStage, WorkspaceWrite): BranchBinding =
       store.loadDetailed() match
         case JsonFile.Read.Corrupt(reason) =>
           warnCorruptLog(reason)
-          freshBinding(startBranch, protectedBranches, discovered)
+          freshBinding(startingHead, protectedBranches, discovered)
         case JsonFile.Read.Unreadable(reason) =>
           throw new OrcaFlowException(
             s"progress log at ${store.path} exists but cannot be read " +
@@ -601,7 +604,7 @@ object FlowLifecycle:
               "to resume it, or delete the file to start fresh"
           )
         case JsonFile.Read.Absent =>
-          freshBinding(startBranch, protectedBranches, discovered)
+          freshBinding(startingHead, protectedBranches, discovered)
         case JsonFile.Read.Loaded(progressLog) =>
           resumeBinding(progressLog, protectedBranches, discovered)
 
@@ -630,7 +633,7 @@ object FlowLifecycle:
       * `Reused`).
       */
     private def freshBinding(
-        startBranch: String,
+        startingHead: Head,
         protectedBranches: Set[String],
         discovered: Boolean
     )(using InStage, WorkspaceWrite): BranchBinding =
@@ -640,7 +643,6 @@ object FlowLifecycle:
       // output is a hash, so a miss here is a git failure, not a state.
       val headAtBinding = git
         .headCommit()
-        .flatMap(CommitHash.from)
         .getOrElse(
           throw new OrcaFlowException("could not resolve HEAD to a commit")
         )
@@ -651,7 +653,7 @@ object FlowLifecycle:
         workDir,
         branchNaming,
         store,
-        startBranch,
+        startingHead,
         protectedBranches,
         discovered,
         flowName = flowName,
@@ -660,7 +662,7 @@ object FlowLifecycle:
       )
       BranchBinding(
         branch,
-        startBranch,
+        startingHead,
         if args.target.skipBranch then BranchMode.Reused
         else BranchMode.Created,
         Some(headAtBinding)
@@ -671,10 +673,10 @@ object FlowLifecycle:
       * hard abort, not a silent fresh start — and checks the current branch
       * matches the one the header names (R30): a log surfaced on the wrong
       * branch (e.g. carried by a merge) aborts rather than resuming there.
-      * Returns the header's recorded `startingBranch` (the ORIGINAL branch),
-      * not this run's pre-cleanliness `startBranch`, so return-to-start lands
-      * correctly. A just-discovered settings file gets its own commit here (ADR
-      * 0019): this arm creates no branch, so nothing else would commit it.
+      * Returns the header's recorded starting head (where the FIRST attempt
+      * started), not this attempt's, so return-to-start lands correctly. A
+      * just-discovered settings file gets its own commit here (ADR 0019): this
+      * arm creates no branch, so nothing else would commit it.
       */
     private def resumeBinding(
         log: ProgressLog,
@@ -693,20 +695,21 @@ object FlowLifecycle:
               s"refusing to resume: progress log header failed validation ($reason)"
             )
           case Right(featureBranch) => featureBranch
+      val recorded = header.branch.value
       args.branch
-        .filter(_.value != header.branch)
+        .filter(_ != header.branch)
         .foreach: requested =>
           throw new OrcaFlowException(
             s"refusing to resume: this run is already bound to branch " +
-              s"'${header.branch}' — omit --branch or pass " +
-              s"--branch ${header.branch} (got '${requested.value}')"
+              s"'$recorded' — omit --branch or pass " +
+              s"--branch $recorded (got '${requested.value}')"
           )
-      val current = git.currentBranch()
-      if current != header.branch then
+      val current = git.head()
+      if current != Head.OnBranch(header.branch) then
         throw new OrcaFlowException(
-          s"progress log for branch '${header.branch}' found while on " +
-            s"'$current' — was it merged? aborting rather than resuming " +
-            "against the wrong branch"
+          s"progress log for branch '$recorded' found while on " +
+            s"${current.describe} — was it merged? aborting rather than " +
+            "resuming against the wrong branch"
         )
       // The FIRST attempt's commit, read back from the header: this attempt's
       // HEAD has moved on by every stage the interrupted run committed, and a
@@ -714,14 +717,14 @@ object FlowLifecycle:
       // diff against it — a rebase or a fresh clone leaves a hash that would
       // otherwise widen the review to unrelated history.
       val startingCommit =
-        Some(header.startingCommit).filter(c => git.isAncestorOfHead(c.value))
+        Some(header.startingCommit).filter(git.isAncestorOfHead)
       // Ahead of the settings commit, so the reported HEAD is the tree the
       // recorded stages left behind rather than orca's own bookkeeping.
       announceResume(featureBranch, startingCommit, log.entries.size)
       if discovered then commitDiscoveredSettings(git, workDir)
       BranchBinding(
         featureBranch,
-        header.startingBranch,
+        header.startingHead,
         header.branchMode,
         startingCommit
       )
@@ -749,7 +752,6 @@ object FlowLifecycle:
       emit(OrcaEvent.Step(s"on branch '${branch.value}'$from"))
       val at = git
         .headCommit()
-        .flatMap(CommitHash.from)
         .fold("")(c => s", tree at ${c.short}")
       emit(
         OrcaEvent.Step(
@@ -940,8 +942,8 @@ object FlowLifecycle:
     * never falls back: [[createRequestedBranch]] refuses it instead of
     * renaming.
     *
-    * A `CurrentBranch` target skips all of this: the run binds to `startBranch`
-    * verbatim via [[reuseCurrentBranch]] instead.
+    * A `CurrentBranch` target skips all of this: the run binds to the branch
+    * `startingHead` is on via [[reuseCurrentBranch]] instead.
     */
   private def freshRun(
       args: OrcaArgs,
@@ -950,7 +952,7 @@ object FlowLifecycle:
       workDir: os.Path,
       branchNaming: Option[BranchNamingStrategy],
       store: ProgressStore,
-      startBranch: String,
+      startingHead: Head,
       protectedBranches: Set[String],
       discovered: Boolean,
       flowName: Option[String],
@@ -959,7 +961,7 @@ object FlowLifecycle:
   )(using InStage, WorkspaceWrite): FeatureBranch =
     val branch =
       if args.target.skipBranch then
-        reuseCurrentBranch(startBranch, protectedBranches)
+        reuseCurrentBranch(startingHead, protectedBranches)
       else
         args.branch match
           case Some(name) =>
@@ -979,8 +981,8 @@ object FlowLifecycle:
     if discovered then commitDiscoveredSettings(git, workDir)
     store.writeHeader(
       ProgressHeader(
-        startingBranch = startBranch,
-        branch = branch.value,
+        startingBranch = startingHead.branch,
+        branch = branch,
         branchMode =
           if args.target.skipBranch then BranchMode.Reused
           else BranchMode.Created,
@@ -1020,13 +1022,13 @@ object FlowLifecycle:
             )
           )
           fallback
-        case Left(UnsafeBranchRefRefused(name)) =>
+        case Left(NotASlugRefused(name)) =>
           // Unreachable: `strategy.resolve` always returns an
           // already-slugged name, so `resolve`'s shape check can never
           // refuse it. Guarded defensively rather than assumed.
           throw new OrcaFlowException(
             s"internal error: strategy-resolved branch name '$name' is " +
-              "not a safe ref"
+              "not a slug"
           )
     createFreshBranch(git, protectionChecked, fallback, emit)
 
@@ -1040,7 +1042,7 @@ object FlowLifecycle:
       protectedBranches: Set[String]
   )(using WorkspaceWrite): FeatureBranch =
     val featureBranch = requestedBranch(name, protectedBranches)
-    git.createBranch(featureBranch.value) match
+    git.createBranch(featureBranch) match
       case Right(()) => featureBranch
       case Left(_)   => throw requestedBranchExists(name)
 
@@ -1050,9 +1052,8 @@ object FlowLifecycle:
       protectedBranches: Set[String]
   ): FeatureBranch =
     // `resolveReused`, not `resolve`: the latter's slug shape would refuse
-    // valid user names such as `feature/JIRA-123`. Only the protected check
-    // can refuse: `BranchName.parse` already enforces git's ref rules.
-    FeatureBranch.resolveReused(name.value, protectedBranches) match
+    // valid user names such as `feature/JIRA-123`.
+    FeatureBranch.resolveReused(name, protectedBranches) match
       case Right(featureBranch) => featureBranch
       case Left(refused) =>
         throw new OrcaFlowException(
@@ -1086,43 +1087,31 @@ object FlowLifecycle:
         "orca: stack settings (discovered)"
       )
 
-  /** Skip-branch mode's binding (ADR 0018 amendment): mint `startBranch` — the
-    * user's current branch — as the `FeatureBranch` itself, instead of creating
-    * a new one. Refuses outright (no fallback rename, unlike the normal
-    * minted-name path) when `startBranch` is protected: the user must check out
-    * a feature branch themselves before asking to skip creating one.
-    *
-    * `startBranch` is checked for detached HEAD explicitly, ahead of the
-    * generic unsafe-ref case: `git.currentBranch()` reads back the literal
-    * string `"HEAD"` when detached, and binding a run to that would commit into
-    * an unnamed, GC-eligible state, plus make the resume-side R30 cross-check
-    * vacuous (every detached state reads as `"HEAD"`). The generic unsafe-ref
-    * case beyond that is a defensive guard, not expected in practice —
-    * `startBranch` otherwise comes from `git.currentBranch()`, not untrusted
-    * input.
+  /** Skip-branch mode's binding (ADR 0018 amendment): mint the user's current
+    * branch as the `FeatureBranch` itself, instead of creating a new one.
+    * Refuses outright (no fallback rename, unlike the normal minted-name path)
+    * when that branch is protected: the user must check out a feature branch
+    * themselves before asking to skip creating one. Refuses a detached HEAD
+    * too: binding a run there would commit into an unnamed, GC-eligible state.
     */
   private def reuseCurrentBranch(
-      startBranch: String,
+      startingHead: Head,
       protectedBranches: Set[String]
   ): FeatureBranch =
-    if startBranch == "HEAD" then
-      throw new OrcaFlowException(
-        "cannot skip branch creation: in detached HEAD — check out a " +
-          "branch first, or drop --skip-branch"
-      )
-    else
-      FeatureBranch.resolveReused(startBranch, protectedBranches) match
-        case Right(featureBranch) => featureBranch
-        case Left(ProtectedBranchRefused(name)) =>
-          throw new OrcaFlowException(
-            s"cannot skip branch creation: '$name' is a protected branch — " +
-              "check out a feature branch first"
-          )
-        case Left(UnsafeBranchRefRefused(name)) =>
-          throw new OrcaFlowException(
-            s"current branch '$name' is not a safe git ref — refusing to " +
-              "bind the run to it"
-          )
+    startingHead match
+      case Head.Detached(_) =>
+        throw new OrcaFlowException(
+          "cannot skip branch creation: in detached HEAD — check out a " +
+            "branch first, or drop --skip-branch"
+        )
+      case Head.OnBranch(current) =>
+        FeatureBranch.resolveReused(current, protectedBranches) match
+          case Right(featureBranch) => featureBranch
+          case Left(ProtectedBranchRefused(name)) =>
+            throw new OrcaFlowException(
+              s"cannot skip branch creation: '$name' is a protected branch — " +
+                "check out a feature branch first"
+            )
 
   /** The deterministic `flow-<hash>` fallback name for `userPrompt`, minted
     * into a [[FeatureBranch]]. Shared by both places `freshRun` needs a
@@ -1168,7 +1157,7 @@ object FlowLifecycle:
           "on a fresh run, which means a previous run's branch is still " +
           "around; delete it or use a different prompt before retrying"
       )
-    git.createBranch(candidate.value) match
+    git.createBranch(candidate) match
       case Right(()) => candidate
       case Left(_) =>
         if fallback.value == candidate.value then
@@ -1180,7 +1169,7 @@ object FlowLifecycle:
                 s"'${fallback.value}' instead"
             )
           )
-          git.createBranch(fallback.value) match
+          git.createBranch(fallback) match
             case Right(()) => fallback
             case Left(_)   => doubleCollisionAbort(fallback.value)
 
@@ -1256,8 +1245,8 @@ object FlowLifecycle:
           setup.startingCommit.map: base =>
             RunChanges(
               base,
-              git.trackedChangedFiles(base.value).size,
-              setup.featureBranch.value
+              git.trackedChangedFiles(base).size,
+              setup.featureBranch
             )
         bestEffort("remove progress log")(os.remove(setup.store.path): Unit)
         // Dropped with the log, and for the same reason: a later run of this
@@ -1285,13 +1274,13 @@ object FlowLifecycle:
           finishBranch(git, setup, published)
     bestEffort("closing summary"):
       ClosingSummary
-        .lines(git.currentBranch(), changes, setup.worktree, published.work)
+        .lines(git.head(), changes, setup.worktree, published.work)
         .foreach(line => emit(OrcaEvent.Step(line)))
 
   /** Where HEAD ends up after a successful run. A throwaway feature branch
-    * ([[ThrowawayBranch]]) is deleted and HEAD returns to the starting branch.
-    * Otherwise the feature branch is kept, and [[BranchHandoff]] chooses where
-    * HEAD lands. Best-effort and success-path-only; never deletes
+    * ([[ThrowawayBranch]]) is deleted and HEAD returns to where the run
+    * started. Otherwise the feature branch is kept, and [[BranchHandoff]]
+    * chooses where HEAD lands. Best-effort and success-path-only; never deletes
     * start/protected branches.
     *
     * The delete runs only on a [[PublishedState.NotPublished]] log — a branch
@@ -1305,25 +1294,36 @@ object FlowLifecycle:
       setup: FlowSetup,
       published: PublishedState
   )(using WorkspaceWrite): Unit =
+    // No starting commit (a resume whose recorded one is gone) means nothing
+    // to measure against, so the branch is kept.
     val throwaway =
-      published.allowsBranchDelete &&
+      published.allowsBranchDelete && setup.startingCommit.exists: start =>
         ThrowawayBranch.isThrowaway(
           git,
           setup.branchMode,
-          startBranch = setup.startBranch,
-          featureBranch = setup.featureBranch.value
+          startingCommit = start,
+          featureBranch = setup.featureBranch
         )
     if throwaway then
-      // The start branch existed when this run began, so a plain `checkout`
-      // suffices; if it's gone mid-run that's genuinely exceptional, not a case
-      // to paper over by creating it anew.
-      git.checkout(setup.startBranch).orThrow
-      git.deleteBranch(setup.featureBranch.value)
+      returnToStart(git, setup.startingHead)
+      git.deleteBranch(setup.featureBranch)
     else
       BranchHandoff.of(setup.branchMode, setup.worktree, published) match
         case BranchHandoff.ReturnToStart =>
-          git.checkout(setup.startBranch).orThrow
+          returnToStart(git, setup.startingHead)
         case BranchHandoff.StayPut => ()
+
+  /** Put HEAD back where the run started: its start branch, or the detached
+    * start commit.
+    */
+  private def returnToStart(git: GitTool, startingHead: Head)(using
+      WorkspaceWrite
+  ): Unit =
+    startingHead match
+      // The branch existed when this run began; if it's gone mid-run that's
+      // genuinely exceptional, not a case to paper over by creating it anew.
+      case Head.OnBranch(name) => git.checkout(name).orThrow
+      case Head.Detached(at)   => git.checkoutDetached(at)
 
   /** Failure teardown (ADR 0018 §2.5): discard the failed stage's uncommitted
     * partial edits with `git reset --hard` (which restores the last committed

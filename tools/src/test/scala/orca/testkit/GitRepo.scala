@@ -1,5 +1,7 @@
 package orca.testkit
 
+import orca.gitref.CommitHash
+
 /** Test helper: a throwaway temp git repo. `empty` does `git init -b main` plus
   * user config; `seeded` adds one `seed.txt` commit. Every repo's temp root is
   * registered with [[TempDirs]] for cleanup at JVM shutdown.
@@ -49,6 +51,12 @@ object GitRepo:
     val _ = os.proc("git", "config", "user.name", "Test").call(cwd = checkout)
     seed(checkout)
     checkout
+
+  /** The commit `dir`'s HEAD is at. */
+  def headCommit(dir: os.Path): CommitHash =
+    CommitHash
+      .from(os.proc("git", "rev-parse", "HEAD").call(cwd = dir).out.text().trim)
+      .get
 
   private def seed(dir: os.Path): Unit =
     os.write(dir / "seed.txt", "seed")

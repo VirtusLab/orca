@@ -279,12 +279,12 @@ class FlowSessionTest extends FunSuite:
     given WorkspaceWrite = WorkspaceWrite.unsafe
     store.writeHeader(
       ProgressHeader(
-        "main",
-        "feat/test",
+        Some(orca.testkit.branchName("main")),
+        orca.testkit.branchName("feat/test"),
         BranchMode.Created,
         userPrompt = "p",
         flowName = None,
-        startingCommit = orca.progress.CommitHash.from("0" * 40).get
+        startingCommit = orca.gitref.CommitHash.from("0" * 40).get
       )
     )
     for record <- sessions do sessionStore.upsert(record)
@@ -776,12 +776,12 @@ class FlowSessionTest extends FunSuite:
     val sessionStore = SessionStore.default(dir, RunKey.of("p"))
     store.writeHeader(
       ProgressHeader(
-        "main",
-        "feat/test",
+        Some(orca.testkit.branchName("main")),
+        orca.testkit.branchName("feat/test"),
         BranchMode.Created,
         userPrompt = "p",
         flowName = None,
-        startingCommit = orca.progress.CommitHash.from("0" * 40).get
+        startingCommit = orca.gitref.CommitHash.from("0" * 40).get
       )
     )
     sessionStore.upsert(

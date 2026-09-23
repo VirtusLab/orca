@@ -1,6 +1,7 @@
 package orca
 
 import orca.agents.SessionKey
+import orca.gitref.CommitHash
 
 /** Where a turn sits in this run's use of one durable conversation. Minted by
   * [[StageFrames.claimTurn]].
@@ -90,7 +91,7 @@ private[orca] trait StageFrames:
   private final class Frame(
       val name: String,
       val path: StagePath,
-      val baseCommit: Option[String]
+      val baseCommit: Option[CommitHash]
   ):
     private var counts: Map[String, Int] = Map.empty
     def peek(name: String): Int = counts.getOrElse(name, 0)
@@ -107,7 +108,10 @@ private[orca] trait StageFrames:
     * recording `baseCommit`, and return its path. Must be called exactly once
     * per stage attempt — see the class doc's "Exactly-once bump" invariant.
     */
-  def enterStage(name: String, baseCommit: Option[String]): StagePath.Stage =
+  def enterStage(
+      name: String,
+      baseCommit: Option[CommitHash]
+  ): StagePath.Stage =
     assertOwnerThread("stage(...)")
     val parent = frames.head
     val path = parent.path.child(name, parent.next(name))
@@ -123,7 +127,7 @@ private[orca] trait StageFrames:
     val parent = frames.head
     parent.path.child(name, parent.peek(name))
 
-  def stageBaseCommit: Option[String] = frames.head.baseCommit
+  def stageBaseCommit: Option[CommitHash] = frames.head.baseCommit
 
   /** Pop the current stage frame. Balanced with [[enterStage]] by `stage`'s
     * try/finally; never pops the root frame in correct use.

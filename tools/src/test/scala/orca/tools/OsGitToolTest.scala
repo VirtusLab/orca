@@ -2,7 +2,8 @@ package orca.tools
 
 import orca.WorkspaceWrite
 import orca.events.{OrcaEvent, OrcaListener}
-import orca.testkit.GitRepo
+import orca.gitref.{CommitHash, Head}
+import orca.testkit.{GitRepo, branchName}
 
 import ox.either.orThrow
 import java.util.concurrent.atomic.AtomicReference
@@ -38,39 +39,46 @@ class OsGitToolTest extends munit.FunSuite:
 
   test("createBranch switches to the new branch"):
     withSeededRepo: (git, _) =>
-      git.createBranch("feature/x").orThrow
-      assertEquals(git.currentBranch(), "feature/x")
+      git.createBranch(branchName("feature/x")).orThrow
+      assertEquals(git.head(), Head.OnBranch(branchName("feature/x")))
 
   test("checkout switches to an existing branch"):
     withSeededRepo: (git, _) =>
-      git.createBranch("feature/y").orThrow
-      git.checkout("main").orThrow
-      assertEquals(git.currentBranch(), "main")
+      git.createBranch(branchName("feature/y")).orThrow
+      git.checkout(branchName("main")).orThrow
+      assertEquals(git.head(), Head.OnBranch(branchName("main")))
 
   test(
     "createBranch returns Left(BranchAlreadyExists) when the branch is taken"
   ):
     withSeededRepo: (git, _) =>
-      git.createBranch("dup").orThrow
-      git.checkout("main").orThrow
+      git.createBranch(branchName("dup")).orThrow
+      git.checkout(branchName("main")).orThrow
       assert(
-        git.createBranch("dup").left.exists(_.isInstanceOf[BranchAlreadyExists])
+        git
+          .createBranch(branchName("dup"))
+          .left
+          .exists(_.isInstanceOf[BranchAlreadyExists])
       )
 
   test("checkout returns Left(BranchNotFound) when the branch doesn't exist"):
     withRepo: (git, _) =>
-      assert(git.checkout("ghost").left.exists(_.isInstanceOf[BranchNotFound]))
+      assert(
+        git
+          .checkout(branchName("ghost"))
+          .left
+          .exists(_.isInstanceOf[BranchNotFound])
+      )
 
-  test("checkout of a dash-leading name returns Left(BranchNotFound)"):
-    withRepo: (git, _) =>
-      assert(git.checkout("-x").left.exists(_.isInstanceOf[BranchNotFound]))
+  test("head is Detached at the commit a detached checkout sits on"):
+    withSeededRepo: (git, dir) =>
+      val _ = os.proc("git", "checkout", "--detach").call(cwd = dir)
+      assertEquals(git.head(), Head.Detached(GitRepo.headCommit(dir)))
 
-  test("createBranch of a dash-leading name throws instead of returning Left"):
-    // `branchExists` tolerates the name, but `createBranch`'s own
-    // `git checkout -b` still rejects it, so there is no typed Left here.
-    withSeededRepo: (git, _) =>
-      val ex = intercept[orca.OrcaFlowException](git.createBranch("-x"))
-      assert(ex.getMessage.contains("not a valid branch name"), ex.getMessage)
+  test("head names a branch exactly when a tag shares its name"):
+    withSeededRepo: (git, dir) =>
+      val _ = os.proc("git", "tag", "main").call(cwd = dir)
+      assertEquals(git.head(), Head.OnBranch(branchName("main")))
 
   test("isIgnored is true for a gitignored path and false otherwise"):
     withRepo: (git, dir) =>
@@ -186,9 +194,9 @@ class OsGitToolTest extends munit.FunSuite:
       // base branch with one commit
       os.write(dir / "file.txt", "first")
       git.commit("initial").orThrow
-      val baseBranch = git.currentBranch()
+      val baseBranch = "main"
       // feature branch with two commits — both should appear in the diff
-      git.createBranch("feature").orThrow
+      git.createBranch(branchName("feature")).orThrow
       os.write.over(dir / "file.txt", "second")
       git.commit("second").orThrow
       os.write(dir / "new.txt", "added")
@@ -269,8 +277,8 @@ class OsGitToolTest extends munit.FunSuite:
     withRepoCapturingEvents: (git, dir, seen) =>
       os.write(dir / "seed.txt", "x")
       git.commit("initial seed").orThrow
-      git.createBranch("feature/emit").orThrow
-      git.checkout("main").orThrow
+      git.createBranch(branchName("feature/emit")).orThrow
+      git.checkout(branchName("main")).orThrow
 
       val steps = seen.get().reverse.collect { case OrcaEvent.Step(msg) =>
         msg
@@ -435,9 +443,9 @@ class OsGitToolTest extends munit.FunSuite:
 
   test("deleteBranch removes an existing branch"):
     withSeededRepo: (git, dir) =>
-      git.createBranch("to-delete").orThrow
-      git.checkout("main").orThrow
-      git.deleteBranch("to-delete")
+      git.createBranch(branchName("to-delete")).orThrow
+      git.checkout(branchName("main")).orThrow
+      git.deleteBranch(branchName("to-delete"))
       val result =
         os.proc("git", "branch", "--list", "to-delete").call(cwd = dir)
       assertEquals(result.out.text().trim, "")
@@ -445,32 +453,37 @@ class OsGitToolTest extends munit.FunSuite:
   test("deleteBranch is a no-op for a non-existent branch"):
     withSeededRepo: (git, _) =>
       // Must not throw — best-effort.
-      git.deleteBranch("ghost-branch")
+      git.deleteBranch(branchName("ghost-branch"))
 
   test("deleteBranch does not delete the current branch"):
     withSeededRepo: (git, _) =>
       // Attempt to delete the currently checked-out branch: must silently skip.
-      git.deleteBranch("main")
-      assertEquals(git.currentBranch(), "main")
+      git.deleteBranch(branchName("main"))
+      assertEquals(git.head(), Head.OnBranch(branchName("main")))
 
   test("branchHasChangesExcludingOrca is false when only .orca/ differs"):
     withSeededRepo: (git, dir) =>
-      val startBranch = git.currentBranch()
-      git.createBranch("feature/orca-only").orThrow
+      val start = git.headCommit().get
+      git.createBranch(branchName("feature/orca-only")).orThrow
       os.makeDir(dir / ".orca")
       os.write(dir / ".orca" / "progress-abc.json", "{}")
       git.commit("orca: progress log").orThrow
       assert(
-        !git.branchHasChangesExcludingOrca(startBranch, "feature/orca-only")
+        !git.branchHasChangesExcludingOrca(
+          start,
+          branchName("feature/orca-only")
+        )
       )
 
   test("branchHasChangesExcludingOrca is true when code changes exist"):
     withSeededRepo: (git, dir) =>
-      val startBranch = git.currentBranch()
-      git.createBranch("feature/has-code").orThrow
+      val start = git.headCommit().get
+      git.createBranch(branchName("feature/has-code")).orThrow
       os.write(dir / "feature.txt", "new feature")
       git.commit("add feature").orThrow
-      assert(git.branchHasChangesExcludingOrca(startBranch, "feature/has-code"))
+      assert(
+        git.branchHasChangesExcludingOrca(start, branchName("feature/has-code"))
+      )
 
   test("reviewChanges since a base commit reports work committed after it"):
     withSeededRepo: (git, dir) =>
@@ -512,12 +525,11 @@ class OsGitToolTest extends munit.FunSuite:
       os.write(dir / "seed.txt", "seed")
       git.commit("seed").orThrow
       val shared = git.headCommit().getOrElse(fail("no HEAD after the commit"))
-      val trunk = git.currentBranch()
-      git.createBranch("side").orThrow
+      git.createBranch(branchName("side")).orThrow
       os.write(dir / "side.txt", "side")
       git.commit("side work").orThrow
       val diverged = git.headCommit().getOrElse(fail("no HEAD on the branch"))
-      git.checkout(trunk).orThrow
+      git.checkout(branchName("main")).orThrow
       assert(
         git.isAncestorOfHead(shared),
         "HEAD descends from the shared commit"
@@ -527,7 +539,7 @@ class OsGitToolTest extends munit.FunSuite:
         "the side commit is not in history"
       )
       // An unresolvable rev answers false rather than throwing.
-      assert(!git.isAncestorOfHead("0" * 40))
+      assert(!git.isAncestorOfHead(CommitHash.from("0" * 40).get))
 
   test("pendingChanges excludes a modified tracked .orca/ file from the stat"):
     withRepo: (git, dir) =>
@@ -812,10 +824,10 @@ class OsGitToolTest extends munit.FunSuite:
     withRepo: (git, dir) =>
       os.write(dir / "a.txt", "one")
       git.commit("add a").orThrow
-      git.createBranch("side").orThrow
+      git.createBranch(branchName("side")).orThrow
       os.write(dir / "b.txt", "two")
       git.commit("add b").orThrow
-      git.checkout("main").orThrow
+      git.checkout(branchName("main")).orThrow
       val _ = os
         .proc("git", "merge", "--no-ff", "-m", "merge side", "side")
         .call(cwd = dir)
@@ -829,7 +841,7 @@ class OsGitToolTest extends munit.FunSuite:
       val first = git.headCommit().get
       os.write.over(dir / "a.txt", "after")
       git.commit("second").orThrow
-      assertEquals(git.fileAt(first, "a.txt"), Right("before"))
+      assertEquals(git.fileAt(first.value, "a.txt"), Right("before"))
 
   test("a revision git does not know comes back as Refused, not a throw"):
     withSeededRepo: (git, _) =>

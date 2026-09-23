@@ -12,6 +12,7 @@ import orca.agents.{
 }
 import orca.backend.{Dispatch, ResumeOrigin}
 import orca.events.OrcaEvent
+import orca.gitref.CommitHash
 import orca.progress.ProgressLog
 import orca.sessions.SessionRecord
 import orca.util.PromptResource
@@ -400,7 +401,7 @@ private def persistResumeWireId[B <: BackendTag](
   */
 private def progressPreamble(
     log: Option[ProgressLog],
-    headCommit: Option[String]
+    headCommit: Option[CommitHash]
 ): Option[String] =
   val completed = log.map(_.entries.map(_.name)).getOrElse(Nil)
   Option.when(completed.nonEmpty):
@@ -409,7 +410,9 @@ private def progressPreamble(
       "completed" -> completed.mkString(", "),
       // Substituted mid-sentence, so the clause carries its own leading space
       // and is empty when the repo has no commit to name.
-      "tree" -> headCommit.fold("")(c => s" The working tree is at commit $c.")
+      "tree" -> headCommit.fold("")(c =>
+        s" The working tree is at commit ${c.value}."
+      )
     )
 
 private val ProgressPreambleTemplate: String =
