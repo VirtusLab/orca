@@ -163,6 +163,7 @@ private[orca] object Conversations:
                 s"Denied $toolName: $cause; autonomous mode cannot prompt"
               )
             )
+            events.onEvent(OrcaEvent.ToolDenied(toolName, None))
           case ConversationEvent.UserQuestion(_, respond) =>
             // The ask_user MCP bridge isn't wired in autonomous mode (see
             // `ConversationMode.Autonomous`), so this should be unreachable. If it
@@ -178,12 +179,18 @@ private[orca] object Conversations:
             // Wire-level echo of input we already sent; surfaced upstream as
             // `OrcaEvent.UserPrompt` from the Agent layer.
             ()
-          case ConversationEvent.ToolResult(_, _, _) =>
+          case ConversationEvent.ToolResult(_, true, _) =>
             // Tool output volume is unbounded (full cargo-test logs, etc.), so it
             // isn't surfaced here; the matching `AssistantToolCall` already went
             // out as `OrcaEvent.ToolUse`. Listeners needing raw output subscribe
             // at the `ConversationEvent` layer instead.
             ()
+          case ConversationEvent.ToolResult(_, false, content) =>
+            // Only permission refusals are surfaced; they always arrive as
+            // failed results.
+            ToolDenial
+              .fromToolResult(content)
+              .foreach(tool => events.onEvent(OrcaEvent.ToolDenied(tool, None)))
       buffer.finishNormally()
     catch
       case t: Throwable =>
