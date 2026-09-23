@@ -1,16 +1,41 @@
 package orca.tools
 
+import com.github.plokhotnyuk.jsoniter_scala.core.{
+  JsonReaderException,
+  readFromString,
+  writeToString
+}
+import orca.agents.given
+import orca.testkit.prHandle
+
 class PrHandleTest extends munit.FunSuite:
 
   test("url points at the host the PR lives on"):
     assertEquals(
-      PrHandle(
-        host = "ghe.example.com",
-        owner = "acme",
-        repo = "widgets",
-        number = 42
-      ).url,
-      "https://ghe.example.com/acme/widgets/pull/42"
+      PrHandle.from("ghe.example.com", "acme", "widgets", 42).map(_.url),
+      Right("https://ghe.example.com/acme/widgets/pull/42")
+    )
+
+  test("from refuses a host carrying userinfo"):
+    assert(PrHandle.from("github.com@evil.example", "acme", "w", 1).isLeft)
+
+  test("the codec round-trips a handle"):
+    val pr = prHandle("https://ghe.example.com/acme/widgets/pull/42")
+    assertEquals(readFromString[PrHandle](writeToString(pr)), pr)
+
+  test("from refuses a host with an empty label"):
+    assert(PrHandle.from("a..b", "acme", "widgets", 1).isLeft)
+
+  test("from refuses a non-positive PR number"):
+    assert(PrHandle.from("github.com", "acme", "widgets", 0).isLeft)
+
+  test("the codec refuses a recorded URL with trailing text"):
+    // A stage record is read back from the committed progress log, so it is
+    // validated as strictly as a URL parsed from gh.
+    intercept[JsonReaderException](
+      readFromString[PrHandle](
+        "\"https://github.com/acme/widgets/pull/42?x=1\""
+      )
     )
 
   test("fromUrl rejects a host carrying userinfo"):

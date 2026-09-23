@@ -2,6 +2,7 @@ package orca.tools
 
 import orca.{OrcaFlowException, WorkspaceWrite}
 import orca.events.{OrcaEvent, OrcaListener}
+import orca.testkit.prHandle
 import orca.subprocess.{
   CliCall,
   CliResult,
@@ -66,7 +67,7 @@ class OsGitHubToolTest extends munit.FunSuite:
       throw new UnsupportedOperationException("not supported in this stub")
 
   private val samplePr =
-    PrHandle(host = "github.com", owner = "acme", repo = "widgets", number = 42)
+    prHandle("https://github.com/acme/widgets/pull/42")
 
   /** Responses for a `createPr` call: the leading `git symbolic-ref` resolving
     * the head branch (`feat`), then the given `gh pr create` result, then any
@@ -419,12 +420,7 @@ class OsGitHubToolTest extends munit.FunSuite:
     val gh = new OsGitHubTool(cli)
     assertEquals(
       gh.createPr("feat: hi", "hello").orThrow,
-      PrHandle(
-        host = "ghe.example.com",
-        owner = "acme",
-        repo = "widgets",
-        number = 42
-      )
+      prHandle("https://ghe.example.com/acme/widgets/pull/42")
     )
 
   test("createPr emits a Step event with the opened PR URL"):
@@ -565,12 +561,7 @@ class OsGitHubToolTest extends munit.FunSuite:
     val (cli, gh) = stubGh(CliResult(0, "[]", ""))
     val _ =
       gh.readPrComments(
-        PrHandle(
-          host = "ghe.example.com",
-          owner = "acme",
-          repo = "widgets",
-          number = 42
-        )
+        prHandle("https://ghe.example.com/acme/widgets/pull/42")
       )
     val args = cli.lastCall.getOrElse(fail("expected a call")).args
     assert(
@@ -581,12 +572,7 @@ class OsGitHubToolTest extends munit.FunSuite:
   test("a gh api call on a PR handle targets the PR's host"):
     val (cli, gh) = stubGh(CliResult(0, "", ""))
     gh.updatePr(
-      PrHandle(
-        host = "ghe.example.com",
-        owner = "acme",
-        repo = "widgets",
-        number = 42
-      ),
+      prHandle("https://ghe.example.com/acme/widgets/pull/42"),
       "Fix overflow",
       "full description"
     )
@@ -606,12 +592,7 @@ class OsGitHubToolTest extends munit.FunSuite:
   test("a --repo call on a PR handle names the host as HOST/OWNER/REPO"):
     val (cli, gh) = stubGh(CliResult(0, "", ""))
     gh.writeComment(
-      PrHandle(
-        host = "ghe.example.com",
-        owner = "acme",
-        repo = "widgets",
-        number = 42
-      ),
+      prHandle("https://ghe.example.com/acme/widgets/pull/42"),
       "nit: whitespace"
     )
     val args = cli.lastCall.getOrElse(fail("expected a call")).args
@@ -929,12 +910,7 @@ class OsGitHubToolTest extends munit.FunSuite:
     val gh = new OsGitHubTool(cli, readRetry = Schedule.immediate)
     assertEquals(
       gh.createPr("feat: hi", "hello").orThrow,
-      PrHandle(
-        host = "ghe.example.com",
-        owner = "acme",
-        repo = "widgets",
-        number = 42
-      )
+      prHandle("https://ghe.example.com/acme/widgets/pull/42")
     )
 
   test("the --head symbolic-ref carries OsGitTool.nonInteractiveEnv"):
