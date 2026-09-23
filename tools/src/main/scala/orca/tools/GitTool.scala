@@ -118,9 +118,16 @@ enum FileChange:
 case class ChangedFile(path: String, change: FileChange)
 
 /** The change set a reviewer sees — see [[GitTool.reviewChanges]]. `files`
-  * names every path in it, including the ones `diff` cannot show.
+  * names every path in it, including the ones `diff` cannot show. `sections`
+  * maps a path to its own whole part of `diff`. A file has no entry when its
+  * part could not be paired with its stats, was cut by the read cap, or is only
+  * a line naming the file (`# skipped …`).
   */
-case class ReviewSample(diff: String, files: List[ChangedFile])
+case class ReviewSample(
+    diff: String,
+    files: List[ChangedFile],
+    sections: Map[String, String]
+)
 
 /** Returned in the `Left` of [[GitTool.push]] when the remote rejected the push
   * for a reason the caller might recover from. Two shapes with different
@@ -220,9 +227,10 @@ trait GitTool:
     */
   def changedFiles(since: Option[CommitHash] = None): List[String]
 
-  /** The change set a reviewer should see, as diff text and as the list of
-    * paths in it — what a caller rendering a bounded diff needs, since it has
-    * to name the files its diff leaves out (see `orca.BoundedDiff`).
+  /** The change set a reviewer should see, as diff text, as the list of paths
+    * in it, and as each file's own part of the diff — what a caller rendering a
+    * bounded diff needs, since it cuts between files and has to name the ones
+    * it leaves out (see `orca.BoundedDiff`).
     *
     * The diff is everything [[uncommittedDiff]] reports, PLUS each untracked
     * non-`.orca/` file rendered as a new-file diff (`git diff --no-index`
@@ -239,16 +247,20 @@ trait GitTool:
     * committed; pass the commit a unit of work started from (see
     * [[headCommit]]) to see everything it produced either way.
     *
-    * The UNTRACKED set is sampled once for both projections, so a file created
-    * mid-call cannot land in one and not the other. Tracked changes are read
-    * per projection (a patch diff and a `--numstat` diff), so a tracked file
-    * written between those two reads can still differ across them.
+    * The UNTRACKED set is sampled once for every projection, so a file created
+    * mid-call cannot land in one and not the other. Tracked changes come from
+    * one `git diff` call printing both stats and patch — unless the stats alone
+    * fill the read cap, when the two are read separately.
     *
     * The diff text is bounded: untracked files stop being rendered once
     * `OsGitTool.MaxReadBytes` of it has accumulated, so the rendered part
     * reaches at most twice that — the file crossing the budget is rendered
     * whole. Every path past it is still named, one line each. `files` is
     * unaffected, so a caller can still see every path in the change set.
+    *
+    * A tracked file's section is paired with its stats by position in that
+    * call's output, so a rename, a quoted path or a `workDir` below the
+    * repository root is keyed like any other file.
     */
   def reviewChanges(since: Option[CommitHash] = None): ReviewSample
 

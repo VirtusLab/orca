@@ -47,6 +47,9 @@ private[terminal] object ToolInputSummary:
       "description" -> HeadlineKind.Plain
     )
 
+  /** Cap on a rendered line that carries a tool's input summary. */
+  val MaxInlineInputLength: Int = 120
+
   /** Columns the headline's wrapping `(`/`)` take. */
   private val Brackets: Int = 2
 

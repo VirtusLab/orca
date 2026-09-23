@@ -1,6 +1,6 @@
 package orca.runner.terminal
 
-import orca.runner.terminal.ConversationRenderer.{PromptOutcome, Prompter}
+import orca.runner.terminal.TerminalPrompts.{PromptOutcome, Prompter}
 import ox.supervised
 
 import java.io.{ByteArrayOutputStream, PrintStream}

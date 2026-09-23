@@ -106,10 +106,9 @@ trait AgentBackend[B <: BackendTag](
   /** Run one interactive turn against `session`: `interaction` drives the live
     * conversation, and the session is registered once it returns.
     *
-    * The conversation's assistant prose reaches `events` as
-    * `OrcaEvent.AssistantMessage`, with a structured call's closing turn
-    * withheld ([[Conversations.withholdInteractiveProse]]); every other event
-    * goes to `interaction`. A cancelled or failed drive throws and registers
+    * The conversation's display events (prose, tool calls, errors) reach
+    * `events` ([[ObservedConversation]]); `interaction` answers the
+    * [[ChannelEvent]]s. A cancelled or failed drive throws and registers
     * nothing — interactive turns aren't retried, and the next dispatch probes
     * what the backend actually holds. An unsafe wire id is logged and skipped
     * ([[SessionSupport.register]]), so the user's completed turn survives it.
@@ -125,7 +124,7 @@ trait AgentBackend[B <: BackendTag](
   ): AgentResult[B] =
     val dispatch = enterTurn(session, config, events)
     supervised:
-      val conv = Conversations.withholdInteractiveProse(
+      val conv = ObservedConversation(
         open(
           TurnRequest(
             prompt,

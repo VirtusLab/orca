@@ -1,6 +1,11 @@
 package orca.tools.gemini
 
-import orca.backend.{Conversation, Interaction, AgentResult, SupervisedBackend}
+import orca.backend.{
+  Interaction,
+  AgentResult,
+  SupervisedBackend,
+  ObservedConversation
+}
 import orca.events.OrcaListener
 import orca.agents.{BackendTag, DefaultPrompts, AgentConfig}
 import orca.subprocess.{FakePipedCliProcess, SpawnStubCliRunner}
@@ -13,7 +18,7 @@ class DefaultGeminiAgentTest extends munit.FunSuite:
   private val stubInteraction: Interaction = new Interaction:
     val listeners: List[OrcaListener] = Nil
     def drive[B <: BackendTag](
-        conversation: Conversation[B]
+        conversation: ObservedConversation[B]
     ): AgentResult[B] =
       throw new UnsupportedOperationException("test stub")
 

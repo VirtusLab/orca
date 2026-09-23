@@ -1,12 +1,11 @@
 package orca.runner.terminal
 
-import orca.backend.{Conversation, Interaction, AgentResult}
+import orca.backend.{AgentResult, Interaction, ObservedConversation}
 import orca.events.OrcaListener
 import orca.agents.BackendTag
 import org.slf4j.LoggerFactory
 import ox.Ox
 import ox.channels.BufferCapacity
-import ox.either.orThrow
 
 import java.io.PrintStream
 import java.nio.charset.StandardCharsets.UTF_8
@@ -32,30 +31,32 @@ class TerminalInteraction private[terminal] (
     listener: TerminalEventListener,
     useColor: Boolean,
     workDir: Option[os.Path],
-    prompter: ConversationRenderer.Prompter
+    prompter: TerminalPrompts.Prompter
 ) extends Interaction:
 
   private val log = LoggerFactory.getLogger(getClass)
 
   val listeners: List[OrcaListener] = List(listener)
 
-  /** Drive a live conversation to completion on the caller's thread. Returns
-    * when the conversation finishes. Backend errors surface as
-    * `OrcaInteractiveCancelled` or other throwables from `awaitResult`.
+  /** Drive a live conversation to completion on the caller's thread, prompting
+    * for its approvals and questions. Returns when the conversation finishes.
+    * Backend errors surface as `OrcaInteractiveCancelled` or other throwables.
     */
-  def drive[B <: BackendTag](conversation: Conversation[B]): AgentResult[B] =
-    new ConversationRenderer(
+  def drive[B <: BackendTag](
+      conversation: ObservedConversation[B]
+  ): AgentResult[B] =
+    new TerminalPrompts(
       useColor = useColor,
       output = output,
       currentIndent = () => listener.currentIndent,
       workDir = workDir,
       prompter = prompter
-    ).render(conversation).orThrow
+    ).drive(conversation)
 
-  /** Close the prompter (shared across every conversation; renderers never
-    * close it), then the output. The prompter close is guarded so a throwing
-    * prompter can't strand the output uncleared or mask an error already
-    * unwinding through the caller's `finally`.
+  /** Close the prompter (shared across every conversation; `TerminalPrompts`
+    * never closes it), then the output. The prompter close is guarded so a
+    * throwing prompter can't strand the output uncleared or mask an error
+    * already unwinding through the caller's `finally`.
     */
   override def close(): Unit =
     try prompter.close()
@@ -73,8 +74,7 @@ object TerminalInteraction:
       useColor: Boolean = defaultUseColor,
       animated: Boolean = defaultAnimated,
       workDir: Option[os.Path] = None,
-      prompter: ConversationRenderer.Prompter =
-        ConversationRenderer.JLinePrompter
+      prompter: TerminalPrompts.Prompter = TerminalPrompts.JLinePrompter
   )(using Ox, BufferCapacity): TerminalInteraction =
     val output = TerminalOutput.start(out, useColor, animated)
     val listener = new TerminalEventListener(output, useColor, workDir)

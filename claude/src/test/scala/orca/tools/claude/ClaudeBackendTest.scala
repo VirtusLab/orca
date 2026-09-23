@@ -42,7 +42,7 @@ class ClaudeBackendTest extends munit.FunSuite:
   private val stubInteraction: Interaction = new Interaction:
     val listeners: List[OrcaListener] = Nil
     def drive[B <: BackendTag](
-        conversation: orca.backend.Conversation[B]
+        conversation: orca.backend.ObservedConversation[B]
     ): orca.backend.AgentResult[B] =
       throw new UnsupportedOperationException("test stub")
 
