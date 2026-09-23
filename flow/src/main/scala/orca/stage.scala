@@ -4,7 +4,7 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
   readFromString,
   writeToString
 }
-import orca.events.OrcaEvent
+import orca.events.{OrcaEvent, StageOutcome}
 import orca.agents.JsonData
 import orca.progress.StageEntry
 import orca.util.{RawJson, TextUtil}
@@ -34,8 +34,9 @@ private val log = LoggerFactory.getLogger("orca.flow")
   * nested one.
   *
   * A non-fatal failure in `body` emits an Error event once (`fail` and
-  * malformed-output carry their own emission state) and re-raises. Fatal
-  * throwables propagate unreported — they signal shutdown, not a stage outcome.
+  * malformed-output carry their own emission state), then the stage's
+  * `StageEnded(Failed)`, and re-raises. Fatal throwables propagate unreported
+  * and leave the stage unended — they signal shutdown, not a stage outcome.
   */
 def stage[T: JsonData](
     name: String,
@@ -114,10 +115,9 @@ private def resumeFrom[T: JsonData](id: StagePath.Stage, name: String)(using
         catch case NonFatal(_) => None
       decoded.map: value =>
         // A replayed stage announces itself with the stage markers alone: the
-        // run already said once what it is resuming from, and the markers are
-        // what keeps a renderer's indent depth balanced.
-        fc.emit(OrcaEvent.StageStarted(name))
-        fc.emit(OrcaEvent.StageCompleted(name))
+        // run already said once what it is resuming from.
+        fc.emit(OrcaEvent.StageStarted(id, name))
+        fc.emit(OrcaEvent.StageEnded(id, StageOutcome.Replayed))
         value
 
 /** Run the body fresh, then record its result and commit (steps 3–4 above). */
@@ -126,14 +126,14 @@ private def runStage[T: JsonData](
     name: String,
     commitMessage: Option[T => String]
 )(body: (InStage, WorkspaceWrite) ?=> T)(using fc: FlowControl): T =
-  fc.emit(OrcaEvent.StageStarted(name))
+  fc.emit(OrcaEvent.StageStarted(id, name))
   try
     val result =
       given InStage = RuntimeInStage.token()
       given WorkspaceWrite = RuntimeInStage.workspaceToken()
       body
     recordAndCommit(id, name, result, commitMessage)
-    fc.emit(OrcaEvent.StageCompleted(name))
+    fc.emit(OrcaEvent.StageEnded(id, StageOutcome.Completed))
     result
   catch
     case NonFatal(e) =>
@@ -152,6 +152,7 @@ private def runStage[T: JsonData](
                 s"Stage '$name' failed: ${TextUtil.throwableMessage(e, firstLineOnly = true)}"
               )
             )
+      fc.emit(OrcaEvent.StageEnded(id, StageOutcome.Failed))
       throw e
 
 /** Append the stage's result to the log and commit code + log as one commit.

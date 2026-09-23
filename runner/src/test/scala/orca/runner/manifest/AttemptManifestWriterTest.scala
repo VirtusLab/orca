@@ -4,7 +4,7 @@ import orca.{AttemptId, OrcaDir, StagePath}
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import orca.agents.{BackendTag, SessionKey}
 import orca.events.OrcaEvent
-import orca.testkit.TempDirs
+import orca.testkit.{StageEvents, TempDirs}
 import ox.channels.BufferCapacity
 import ox.supervised
 
@@ -101,7 +101,7 @@ class AttemptManifestWriterTest extends munit.FunSuite:
       flowName = Some("review-pr.sc")
     )
     writer.onEvent(OrcaEvent.BranchBound("feat/x"))
-    writer.onEvent(OrcaEvent.StageStarted("code"))
+    writer.onEvent(StageEvents.started("code"))
     writer.onEvent(
       OrcaEvent.SessionCommitted(
         harness = BackendTag.ClaudeCode,
@@ -136,7 +136,7 @@ class AttemptManifestWriterTest extends munit.FunSuite:
         Instant.parse("2026-07-18T10:04:00Z") // SessionCommitted #2 (refire)
       )
     )
-    writer.onEvent(OrcaEvent.StageStarted("plan"))
+    writer.onEvent(StageEvents.started("plan"))
     writer.onEvent(
       OrcaEvent.SessionCommitted(
         harness = BackendTag.ClaudeCode,
@@ -147,8 +147,8 @@ class AttemptManifestWriterTest extends munit.FunSuite:
         role = None
       )
     )
-    writer.onEvent(OrcaEvent.StageCompleted("plan"))
-    writer.onEvent(OrcaEvent.StageStarted("code"))
+    writer.onEvent(StageEvents.ended("plan"))
+    writer.onEvent(StageEvents.started("code"))
     writer.onEvent(
       OrcaEvent.SessionCommitted(
         harness = BackendTag.ClaudeCode,
@@ -197,8 +197,8 @@ class AttemptManifestWriterTest extends munit.FunSuite:
     val workDir = TempDirs.dir()
     val writer =
       newWriter(workDir, fixedClock(Instant.parse("2026-07-18T10:00:00Z")))
-    writer.onEvent(OrcaEvent.StageStarted("outer"))
-    writer.onEvent(OrcaEvent.StageStarted("inner"))
+    writer.onEvent(StageEvents.started("outer"))
+    writer.onEvent(StageEvents.started("inner"))
     writer.onEvent(
       OrcaEvent.SessionCommitted(
         harness = BackendTag.ClaudeCode,
@@ -210,7 +210,7 @@ class AttemptManifestWriterTest extends munit.FunSuite:
       )
     )
     assertEquals(soleManifest(workDir).sessions.head.stage, Some("inner"))
-    writer.onEvent(OrcaEvent.StageCompleted("inner"))
+    writer.onEvent(StageEvents.ended("inner"))
     writer.onEvent(
       OrcaEvent.SessionCommitted(
         harness = BackendTag.Codex,
@@ -468,7 +468,7 @@ class AttemptManifestWriterTest extends munit.FunSuite:
       val threads = (0 until 2).map: t =>
         new Thread(() =>
           for i <- 0 until 50 do
-            writer.onEvent(OrcaEvent.StageStarted(s"stage-$t-$i"))
+            writer.onEvent(StageEvents.started(s"stage-$t-$i"))
             writer.onEvent(
               OrcaEvent.SessionCommitted(
                 harness = BackendTag.ClaudeCode,
@@ -479,7 +479,7 @@ class AttemptManifestWriterTest extends munit.FunSuite:
                 role = None
               )
             )
-            writer.onEvent(OrcaEvent.StageCompleted(s"stage-$t-$i"))
+            writer.onEvent(StageEvents.ended(s"stage-$t-$i"))
         )
       threads.foreach(_.start())
       threads.foreach(_.join())
