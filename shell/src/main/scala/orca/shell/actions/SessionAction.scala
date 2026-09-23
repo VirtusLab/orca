@@ -16,7 +16,7 @@ import scala.util.control.NonFatal
   * own conversation via its CLI resume flag ([[ResumeCommand]]). Not to be
   * confused with a flow's crash/resume (stage replay from the progress log, ADR
   * 0018 §2.4/§2.5) — that resumes a run, this resumes a chat. The picker that
-  * produces `selection` lives in `Main.continueSession`.
+  * produces `selection` lives in `ShellMenu.continueSession`.
   */
 private[shell] object SessionAction:
 

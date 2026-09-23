@@ -1,9 +1,12 @@
 package orca.shell.create
 
 import orca.agents.BackendTag
+import orca.shell.{ShellEnv, TestShellEnv, Tier}
 import orca.testkit.TempDirs
 
 class FlowAuthoringTest extends munit.FunSuite:
+
+  private given ShellEnv = TestShellEnv()
 
   private val resourcePrefix = "/orca/shell/api/"
 
@@ -540,11 +543,8 @@ class FlowAuthoringTest extends munit.FunSuite:
 
   test("prepareAutoTarget: a free name is used as-is"):
     val dir = TempDirs.dir()
-    val target = FlowAuthoring.prepareAutoTarget(
-      CreateTier.Project,
-      "my-flow",
-      dir,
-      dir / "global"
+    val target = FlowAuthoring.prepareAutoTarget(Tier.Project, "my-flow")(using
+      TestShellEnv(dir)
     )
     assertEquals(target.flowPath, dir / ".orca" / "flows" / "my-flow.sc")
 
@@ -552,12 +552,10 @@ class FlowAuthoringTest extends munit.FunSuite:
     val dir = TempDirs.dir()
     os.write(dir / ".orca" / "flows" / "my-flow.sc", "", createFolders = true)
     os.write(dir / ".orca" / "flows" / "my-flow-2.sc", "")
-    val target = FlowAuthoring.prepareAutoTarget(
-      CreateTier.Project,
-      "my-flow.sc",
-      dir,
-      dir / "global"
-    )
+    val target =
+      FlowAuthoring.prepareAutoTarget(Tier.Project, "my-flow.sc")(using
+        TestShellEnv(dir)
+      )
     assertEquals(target.flowPath, dir / ".orca" / "flows" / "my-flow-3.sc")
 
   test("normalizedFileName adds a .sc suffix when missing"):
@@ -566,65 +564,46 @@ class FlowAuthoringTest extends munit.FunSuite:
   test("normalizedFileName leaves an existing .sc suffix alone"):
     assertEquals(FlowAuthoring.normalizedFileName("my-flow.sc"), "my-flow.sc")
 
-  test("resolveTarget (Project): saves under .orca/flows, cwd is workDir"):
-    val workDir = os.root / "repo"
-    val globalFlows = os.root / "home" / "u" / ".config" / "orca" / "flows"
-    assertEquals(
-      FlowAuthoring.resolveTarget(
-        CreateTier.Project,
-        "my-flow",
-        workDir,
-        globalFlows
-      ),
-      CreateTarget(workDir / ".orca" / "flows" / "my-flow.sc", workDir)
-    )
-
   test(
-    "resolveTarget (Global): saves under the global flows dir, cwd is its parent"
+    "resolveTarget (Project): saves under .orca/flows, committed into workDir"
   ):
     val workDir = os.root / "repo"
-    val globalFlows = os.root / "home" / "u" / ".config" / "orca" / "flows"
     assertEquals(
-      FlowAuthoring.resolveTarget(
-        CreateTier.Global,
-        "my-flow",
-        workDir,
-        globalFlows
+      FlowAuthoring.resolveTarget(Tier.Project, "my-flow")(using
+        TestShellEnv(workDir)
       ),
-      CreateTarget(
-        globalFlows / "my-flow.sc",
-        os.root / "home" / "u" / ".config" / "orca"
+      FlowDestination.Project(
+        workDir / ".orca" / "flows" / "my-flow.sc",
+        workDir
       )
+    )
+
+  test("resolveTarget (Global): saves under the global flows dir"):
+    given env: ShellEnv = TestShellEnv()
+    assertEquals(
+      FlowAuthoring.resolveTarget(Tier.Global, "my-flow"),
+      FlowDestination.Global(env.configHome.flows / "my-flow.sc")
     )
 
   test("prepareTarget (Project) ensures .orca/flows/ via OrcaDir.ensureFlows"):
     val workDir = TempDirs.dir()
-    val result =
-      FlowAuthoring.prepareTarget(
-        CreateTier.Project,
-        "my-flow",
-        workDir,
-        TempDirs.dir()
-      )
+    val result = FlowAuthoring.prepareTarget(Tier.Project, "my-flow")(using
+      TestShellEnv(workDir)
+    )
     assertEquals(
-      result,
-      Right(CreateTarget(workDir / ".orca" / "flows" / "my-flow.sc", workDir))
+      result.map(_.flowPath),
+      Right(workDir / ".orca" / "flows" / "my-flow.sc")
     )
     assert(os.isDir(workDir / ".orca" / "flows"))
 
   test("prepareTarget (Global) ensures the global flows dir exists"):
-    val globalFlows = TempDirs.dir() / "flows"
-    val result = FlowAuthoring.prepareTarget(
-      CreateTier.Global,
-      "my-flow",
-      TempDirs.dir(),
-      globalFlows
-    )
+    given env: ShellEnv = TestShellEnv()
+    val result = FlowAuthoring.prepareTarget(Tier.Global, "my-flow")
     assertEquals(
-      result,
-      Right(CreateTarget(globalFlows / "my-flow.sc", globalFlows / os.up))
+      result.map(_.flowPath),
+      Right(env.configHome.flows / "my-flow.sc")
     )
-    assert(os.isDir(globalFlows))
+    assert(os.isDir(env.configHome.flows))
 
   test("prepareTarget refuses a filename collision"):
     val workDir = TempDirs.dir()
@@ -633,32 +612,41 @@ class FlowAuthoringTest extends munit.FunSuite:
       "// existing\n",
       createFolders = true
     )
-    val result =
-      FlowAuthoring.prepareTarget(
-        CreateTier.Project,
-        "my-flow",
-        workDir,
-        TempDirs.dir()
-      )
+    val result = FlowAuthoring.prepareTarget(Tier.Project, "my-flow")(using
+      TestShellEnv(workDir)
+    )
     result match
       case Left(message) => assert(message.contains("already exists"))
       case Right(path) =>
         fail(s"expected a collision refusal, got Right($path)")
 
-  // --- tierCwd ---
+  // --- create/fork filename guard: no path separators (security review) ---
 
-  test("tierCwd (Project) is workDir"):
-    val workDir = os.root / "repo"
+  test(
+    "validateFileName: a name containing '..' plus '/' is rejected outright"
+  ):
     assertEquals(
-      FlowAuthoring.tierCwd(CreateTier.Project, workDir, os.root / "flows"),
-      workDir
+      FlowAuthoring.validateFileName("../escape.sc"),
+      Left(
+        "'../escape.sc' isn't a valid flow filename — path separators aren't allowed"
+      )
     )
 
-  test("tierCwd (Global) is the global flows dir's parent"):
-    val globalFlows = os.root / "home" / "u" / ".config" / "orca" / "flows"
+  test("validateFileName: a nested-directory name is rejected too"):
+    assert(FlowAuthoring.validateFileName("sub/dir.sc").isLeft)
+
+  test("validateFileName: a bare filename is accepted"):
+    assertEquals(FlowAuthoring.validateFileName("my-flow.sc"), Right(()))
+
+  test("safePrepareTarget: an ordinary name resolves like prepareTarget"):
+    val dir = TempDirs.dir()
+    val result =
+      FlowAuthoring.safePrepareTarget(Tier.Project, "x.sc")(using
+        TestShellEnv(dir)
+      )
     assertEquals(
-      FlowAuthoring.tierCwd(CreateTier.Global, os.root / "repo", globalFlows),
-      os.root / "home" / "u" / ".config" / "orca"
+      result.map(_.flowPath),
+      Right(dir / ".orca" / "flows" / "x.sc")
     )
 
   // --- skeletonFlow ---

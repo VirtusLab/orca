@@ -2,28 +2,27 @@ package orca.shell.actions
 
 import orca.OrcaDir
 import orca.settings.{AgentSettings, SettingsFile}
-import orca.shell.create.CreateTier
+import orca.shell.Tier
 import ox.discard
 
 /** Hand-edits the project or global settings file directly (ADR 0021 §4/§10) —
-  * the tier-scoped counterpart to `Main.editFlow`/[[EditAction]]: this object
-  * resolves the path and prepares/validates the file; the actual editor spawn
-  * is [[EditAction.editInPlace]], shared with "Edit a flow".
+  * the tier-scoped counterpart to `AuthoringMenu.editFlow`/[[EditAction]]: this
+  * object resolves the path and prepares/validates the file; the actual editor
+  * spawn is [[EditAction.editInPlace]], shared with "Edit a flow".
   */
 private[shell] object SettingsEditAction:
 
   /** `tier`'s settings file path — `.orca/settings.properties` under `workDir`
-    * for [[CreateTier.Project]], `globalSettingsPath` itself for
-    * [[CreateTier.Global]].
+    * for [[Tier.Project]], `globalSettingsPath` itself for [[Tier.Global]].
     */
   def pathFor(
-      tier: CreateTier,
+      tier: Tier,
       workDir: os.Path,
       globalSettingsPath: os.Path
   ): os.Path =
     tier match
-      case CreateTier.Project => OrcaDir.settingsPath(workDir)
-      case CreateTier.Global  => globalSettingsPath
+      case Tier.Project => OrcaDir.settingsPath(workDir)
+      case Tier.Global  => globalSettingsPath
 
   /** A fresh project settings file's full starter content:
     * [[SettingsFile.Header]] (documenting `off` and the re-discovery trigger)
@@ -53,11 +52,11 @@ private[shell] object SettingsEditAction:
     * wizard and `orca config`. Project: [[ProjectTemplate]] — guarded by
     * [[OrcaDir]] the same way every other `.orca` write is.
     */
-  def ensureExists(tier: CreateTier, path: os.Path, workDir: os.Path): Unit =
+  def ensureExists(tier: Tier, path: os.Path, workDir: os.Path): Unit =
     tier match
-      case CreateTier.Global =>
+      case Tier.Global =>
         if !os.exists(path) then ConfigAction.set(path, AgentSettings.empty)
-      case CreateTier.Project =>
+      case Tier.Project =>
         OrcaDir.assertNoOrcaSymlinks(workDir, path)
         if !os.exists(path) then
           OrcaDir.ensureRoot(workDir).discard
@@ -70,11 +69,11 @@ private[shell] object SettingsEditAction:
     * only a present-but-malformed file is a `Left`.
     */
   def validate(
-      tier: CreateTier,
+      tier: Tier,
       workDir: os.Path,
       globalSettingsPath: os.Path
   ): Either[String, Unit] =
     val result = tier match
-      case CreateTier.Project => ConfigAction.showProject(workDir)
-      case CreateTier.Global  => ConfigAction.show(globalSettingsPath)
+      case Tier.Project => ConfigAction.showProject(workDir)
+      case Tier.Global  => ConfigAction.show(globalSettingsPath)
     result.map(_ => ())

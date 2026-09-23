@@ -228,26 +228,17 @@ class BuiltInFlowsTest extends munit.FunSuite:
     try body(home)
     finally os.remove.all(home)
 
-  test("extracted falls back to home/.cache when XDG_CACHE_HOME is relative"):
-    withTempHome: home =>
-      val dir = BuiltInFlows.extracted(
-        Map("XDG_CACHE_HOME" -> "rel/path").get,
-        home,
-        "0.0.18"
-      )
-      assertEquals(dir, home / ".cache" / "orca" / "shell" / "0.0.18" / "flows")
-
   test(
     "extracted (release version) creates the flows once, unchanged on a second call"
   ):
     withTempHome: home =>
-      val dir = BuiltInFlows.extracted(Map.empty.get, home, "0.0.18")
+      val dir = BuiltInFlows.extracted(home / ".cache", "0.0.18")
       assert(os.isDir(dir))
       val expectedNames = indexNames.sorted
       assertEquals(os.list(dir).map(_.last).toList.sorted, expectedNames)
       val mtimesBefore = expectedNames.map(n => n -> os.mtime(dir / n)).toMap
 
-      val _ = BuiltInFlows.extracted(Map.empty.get, home, "0.0.18")
+      val _ = BuiltInFlows.extracted(home / ".cache", "0.0.18")
 
       val mtimesAfter = expectedNames.map(n => n -> os.mtime(dir / n)).toMap
       assertEquals(mtimesAfter, mtimesBefore)
@@ -255,7 +246,7 @@ class BuiltInFlowsTest extends munit.FunSuite:
   test("extracted (dev version) rewrites the dep pin and injects ivy2Local"):
     withTempHome: home =>
       val runningVersion = "0.0.18+5-abc123"
-      val dir = BuiltInFlows.extracted(Map.empty.get, home, runningVersion)
+      val dir = BuiltInFlows.extracted(home / ".cache", runningVersion)
       val content = os.read(dir / "issue-pr.sc")
       val lines = content.linesIterator.toList
       val depLineIdx = lines.indexWhere(_.startsWith("//> using dep "))
@@ -271,11 +262,11 @@ class BuiltInFlowsTest extends munit.FunSuite:
   ):
     withTempHome: home =>
       val runningVersion = "0.0.18+9-def456"
-      val dir = BuiltInFlows.extracted(Map.empty.get, home, runningVersion)
+      val dir = BuiltInFlows.extracted(home / ".cache", runningVersion)
       val expectedNames = indexNames.sorted
       val mtimesBefore = expectedNames.map(n => n -> os.mtime(dir / n)).toMap
 
-      val _ = BuiltInFlows.extracted(Map.empty.get, home, runningVersion)
+      val _ = BuiltInFlows.extracted(home / ".cache", runningVersion)
 
       val mtimesAfter = expectedNames.map(n => n -> os.mtime(dir / n)).toMap
       assertEquals(mtimesAfter, mtimesBefore)
@@ -295,7 +286,7 @@ class BuiltInFlowsTest extends munit.FunSuite:
         expectedNames.take(2)
       )
 
-      val result = BuiltInFlows.extracted(Map.empty.get, home, "0.0.18")
+      val result = BuiltInFlows.extracted(home / ".cache", "0.0.18")
 
       assertEquals(result, dir)
       assertEquals(os.list(dir).map(_.last).toList.sorted, expectedNames)
@@ -305,7 +296,7 @@ class BuiltInFlowsTest extends munit.FunSuite:
 
   test("extracted (\"dev\") also rewrites the dep pin to the running version"):
     withTempHome: home =>
-      val dir = BuiltInFlows.extracted(Map.empty.get, home, "dev")
+      val dir = BuiltInFlows.extracted(home / ".cache", "dev")
       val lines = os.read(dir / "implement.sc").linesIterator.toList
       val depLineIdx = lines.indexWhere(_.startsWith("//> using dep "))
       assertEquals(

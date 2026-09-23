@@ -15,18 +15,15 @@ private[shell] object RunAction:
     */
   case class RunOptions(args: OrcaArgs, fallback: FallbackPolicy)
 
-  /** Runs `flow` as a tty-inherited child, printing the same start/end section
-    * markers the menu always has — the announced-bracket + terminal handling
-    * lives in [[FlowLauncher.runAnnounced]]. `launch` is injectable,
-    * [[AuthorAction]]-style, so a test can assert on what reaches the launcher
-    * instead of spawning a real subprocess.
+  /** Runs `flow` in `workDir` through `launch` — [[FlowLauncher.runAnnounced]]
+    * in production.
     */
   def run(
       flow: DiscoveredFlow,
       opts: RunOptions,
       workDir: os.Path,
       terminal: Terminal,
-      launch: FlowLauncher.FlowLaunch = FlowLauncher.runAnnounced
+      launch: FlowLauncher.FlowLaunch
   ): LaunchResult =
     launch(
       opts.fallback,

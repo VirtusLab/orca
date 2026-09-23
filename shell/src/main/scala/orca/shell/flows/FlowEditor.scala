@@ -1,7 +1,7 @@
 package orca.shell.flows
 
 import orca.OrcaDir
-import orca.shell.create.CreateTier
+import orca.shell.{ShellEnv, Tier}
 import ox.tap
 
 /** Opens a flow in the user's editor (ADR 0021 §6). */
@@ -23,7 +23,7 @@ private[shell] object FlowEditor:
 
   /** Spawns the editor inheriting the tty (stdin/stdout/stderr), so the child
     * can drive the terminal directly. The §2 subprocess obligations (attribute
-    * restore) are the caller's responsibility — `Main` wraps this call in
+    * restore) are the caller's responsibility — `EditAction` wraps this call in
     * `ChildTerminal.withChild`. Returns the exit code.
     */
   def edit(editor: String, path: os.Path): Int =
@@ -41,15 +41,12 @@ private[shell] object FlowEditor:
     * shadows the built-in (§5). Refuses with a message if a file of the same
     * name already exists at the destination, rather than overwriting it.
     */
-  def customizeTarget(
-      flow: DiscoveredFlow,
-      tier: CreateTier,
-      workDir: os.Path,
-      globalFlows: os.Path
+  def customizeTarget(flow: DiscoveredFlow, tier: Tier)(using
+      env: ShellEnv
   ): Either[String, os.Path] =
     val targetDir = tier match
-      case CreateTier.Project => OrcaDir.ensureFlows(workDir)
-      case CreateTier.Global  => globalFlows.tap(os.makeDir.all(_))
+      case Tier.Project => OrcaDir.ensureFlows(env.workDir)
+      case Tier.Global  => env.configHome.flows.tap(os.makeDir.all(_))
     val target = targetDir / flow.name
     if os.exists(target) then
       Left(s"$target already exists — refusing to overwrite it")

@@ -1,7 +1,7 @@
 package orca.shell.actions
 
 import orca.settings.{SettingsFile, SettingsScope}
-import orca.shell.create.CreateTier
+import orca.shell.Tier
 import orca.testkit.TempDirs
 
 class SettingsEditActionTest extends munit.FunSuite:
@@ -16,14 +16,14 @@ class SettingsEditActionTest extends munit.FunSuite:
   test("pathFor: Project resolves to .orca/settings.properties under workDir"):
     withDirs: (workDir, globalPath) =>
       assertEquals(
-        SettingsEditAction.pathFor(CreateTier.Project, workDir, globalPath),
+        SettingsEditAction.pathFor(Tier.Project, workDir, globalPath),
         workDir / ".orca" / "settings.properties"
       )
 
   test("pathFor: Global resolves to the given global settings path as-is"):
     withDirs: (workDir, globalPath) =>
       assertEquals(
-        SettingsEditAction.pathFor(CreateTier.Global, workDir, globalPath),
+        SettingsEditAction.pathFor(Tier.Global, workDir, globalPath),
         globalPath
       )
 
@@ -34,8 +34,8 @@ class SettingsEditActionTest extends munit.FunSuite:
   ):
     withDirs: (workDir, _) =>
       val path =
-        SettingsEditAction.pathFor(CreateTier.Project, workDir, os.root)
-      SettingsEditAction.ensureExists(CreateTier.Project, path, workDir)
+        SettingsEditAction.pathFor(Tier.Project, workDir, os.root)
+      SettingsEditAction.ensureExists(Tier.Project, path, workDir)
       val content = os.read(path)
       assertEquals(content, SettingsEditAction.ProjectTemplate)
       assert(
@@ -49,8 +49,8 @@ class SettingsEditActionTest extends munit.FunSuite:
   ):
     withDirs: (workDir, _) =>
       val path =
-        SettingsEditAction.pathFor(CreateTier.Project, workDir, os.root)
-      SettingsEditAction.ensureExists(CreateTier.Project, path, workDir)
+        SettingsEditAction.pathFor(Tier.Project, workDir, os.root)
+      SettingsEditAction.ensureExists(Tier.Project, path, workDir)
       // A commented example does not count as "configured", so exiting the
       // editor without touching the template still lets the first flow run
       // auto-discover the stack.
@@ -64,8 +64,8 @@ class SettingsEditActionTest extends munit.FunSuite:
   ):
     withDirs: (workDir, _) =>
       val path =
-        SettingsEditAction.pathFor(CreateTier.Project, workDir, os.root)
-      SettingsEditAction.ensureExists(CreateTier.Project, path, workDir)
+        SettingsEditAction.pathFor(Tier.Project, workDir, os.root)
+      SettingsEditAction.ensureExists(Tier.Project, path, workDir)
       val content = os.read(path)
       assert(content.contains("Stack commands"), content)
       assert(content.contains("Role agents"), content)
@@ -76,7 +76,7 @@ class SettingsEditActionTest extends munit.FunSuite:
 
   test("ensureExists: Global creates a header-only file with no role lines"):
     withDirs: (workDir, globalPath) =>
-      SettingsEditAction.ensureExists(CreateTier.Global, globalPath, workDir)
+      SettingsEditAction.ensureExists(Tier.Global, globalPath, workDir)
       assert(os.exists(globalPath))
       assertEquals(
         ConfigAction.show(globalPath),
@@ -86,9 +86,9 @@ class SettingsEditActionTest extends munit.FunSuite:
   test("ensureExists: never touches a file that already exists"):
     withDirs: (workDir, _) =>
       val path =
-        SettingsEditAction.pathFor(CreateTier.Project, workDir, os.root)
+        SettingsEditAction.pathFor(Tier.Project, workDir, os.root)
       os.write.over(path, "codingAgent = codex\n", createFolders = true)
-      SettingsEditAction.ensureExists(CreateTier.Project, path, workDir)
+      SettingsEditAction.ensureExists(Tier.Project, path, workDir)
       assertEquals(os.read(path), "codingAgent = codex\n")
 
   // --- validate ---
@@ -96,27 +96,27 @@ class SettingsEditActionTest extends munit.FunSuite:
   test("validate: Project — an absent file is valid"):
     withDirs: (workDir, _) =>
       assertEquals(
-        SettingsEditAction.validate(CreateTier.Project, workDir, os.root),
+        SettingsEditAction.validate(Tier.Project, workDir, os.root),
         Right(())
       )
 
   test("validate: Project — a well-formed file is valid"):
     withDirs: (workDir, _) =>
       val path =
-        SettingsEditAction.pathFor(CreateTier.Project, workDir, os.root)
+        SettingsEditAction.pathFor(Tier.Project, workDir, os.root)
       os.write.over(path, "codingAgent = codex\n", createFolders = true)
       assertEquals(
-        SettingsEditAction.validate(CreateTier.Project, workDir, os.root),
+        SettingsEditAction.validate(Tier.Project, workDir, os.root),
         Right(())
       )
 
   test("validate: Project — a malformed file names the parse error"):
     withDirs: (workDir, _) =>
       val path =
-        SettingsEditAction.pathFor(CreateTier.Project, workDir, os.root)
+        SettingsEditAction.pathFor(Tier.Project, workDir, os.root)
       os.write.over(path, "not a valid line\n", createFolders = true)
       assertEquals(
-        SettingsEditAction.validate(CreateTier.Project, workDir, os.root),
+        SettingsEditAction.validate(Tier.Project, workDir, os.root),
         Left(
           "the project settings file is malformed — line 1: `not a valid line` is not a `#` comment and has no `=` — expected `key = value`"
         )
@@ -126,7 +126,7 @@ class SettingsEditActionTest extends munit.FunSuite:
     withDirs: (workDir, globalPath) =>
       os.write.over(globalPath, "not a valid line\n", createFolders = true)
       assertEquals(
-        SettingsEditAction.validate(CreateTier.Global, workDir, globalPath),
+        SettingsEditAction.validate(Tier.Global, workDir, globalPath),
         Left(
           "the global settings file is malformed — line 1: `not a valid line` is not a `#` comment and has no `=` — expected `key = value`"
         )

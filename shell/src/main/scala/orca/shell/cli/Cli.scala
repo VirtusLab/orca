@@ -1,9 +1,17 @@
 package orca.shell.cli
 
-import mainargs.{Flag, ParserForMethods, Renderer, Util, arg, main}
+import mainargs.{
+  Flag,
+  ParserForMethods,
+  Renderer,
+  TokensReader,
+  Util,
+  arg,
+  main
+}
 import org.jline.terminal.Terminal
-import orca.{ConfigHome, RawArgs}
-import orca.shell.WorktreeScan
+import orca.RawArgs
+import orca.shell.{ShellEnv, Tier, WorktreeScan}
 import orca.shell.run.LaunchResult
 import orca.shell.ui.ShellUi
 import orca.subprocess.TtyProbe
@@ -22,16 +30,10 @@ private[shell] object ExitCodes:
   */
 private[cli] case class CliFailure(message: String, exitCode: Int)
 
-/** The non-interactive CLI's mainargs subcommand surface (ADR 0021 §10): one
-  * `@main` method per verb, each a thin parse-and-delegate to the matching
-  * per-command handler in `cli/` and returning the process exit code rather
-  * than calling `sys.exit` itself — [[orca.shell.Main.main]] is the only place
-  * that exits, once [[dispatch]] has returned. The handlers hand off to the
-  * `actions/` layer the interactive menu also calls, so behavior matches
-  * `Main`'s prompting flows exactly, minus the prompts. Each handler's
-  * pulled-out method takes explicit `workDir`/`tty` params instead of reading
-  * `os.pwd`/console state directly, so tests never touch the real filesystem or
-  * console.
+/** The non-interactive CLI (ADR 0021 §10): dispatches argv to [[CliCommands]]'
+  * subcommands and holds the helpers every per-command handler in `cli/`
+  * shares. Returns the process exit code rather than calling `sys.exit` itself
+  * — [[orca.shell.Main.main]] is the only place that exits.
   */
 private[shell] object Cli:
 
@@ -82,11 +84,23 @@ private[shell] object Cli:
     try body(terminal)
     finally terminal.close()
 
+  /** `project|global`, for `--to`/`--edit`. */
+  private[cli] given TokensReader.Simple[Tier] with
+    def shortName: String = "project|global"
+    def read(strs: Seq[String]): Either[String, Tier] =
+      strs.last match
+        case "project" => Right(Tier.Project)
+        case "global"  => Right(Tier.Global)
+        case other     => Left(s"expected 'project' or 'global', got '$other'")
+
+  private def parser(using ShellEnv): ParserForMethods[CliCommands] =
+    ParserForMethods(CliCommands())
+
   /** Every subcommand's dispatch name, kebab-mapped from its method name —
     * `Main.main`'s single source of truth for "is this token a subcommand".
     */
-  def commandNames: Set[String] =
-    ParserForMethods(Cli).mains.value.map(_.name(nameMapper)).toSet
+  def commandNames(using ShellEnv): Set[String] =
+    parser.mains.value.map(_.name(nameMapper)).toSet
 
   /** Runs `args` (the full argv, subcommand name included) and returns the
     * process exit code. `--help`/`-h` anywhere in the subcommand's own
@@ -97,7 +111,7 @@ private[shell] object Cli:
     * unresolvable subcommand) is a usage error, `Right` is the invoked method's
     * own returned exit code.
     */
-  def dispatch(args: Seq[String]): Int =
+  def dispatch(args: Seq[String])(using ShellEnv): Int =
     require(
       args.nonEmpty,
       "dispatch requires a non-empty argv — Main.main only calls this after " +
@@ -108,7 +122,7 @@ private[shell] object Cli:
       println(commandHelp(name).getOrElse(s"orca: unknown command '$name'"))
       ExitCodes.Ok
     else
-      ParserForMethods(Cli).runEither(args, autoPrintHelpAndExit = None) match
+      parser.runEither(args, autoPrintHelpAndExit = None) match
         case Left(usage) =>
           Console.err.println(usage)
           ExitCodes.UsageError
@@ -119,8 +133,10 @@ private[shell] object Cli:
   /** `orca <name> --help`'s text: `name`'s own mainargs-rendered signature and
     * arg docs, or `None` if `name` isn't a known subcommand.
     */
-  private[cli] def commandHelp(name: String): Option[String] =
-    ParserForMethods(Cli).mains.value
+  private[cli] def commandHelp(name: String)(using
+      ShellEnv
+  ): Option[String] =
+    parser.mains.value
       .find(_.name(nameMapper) == name)
       .map: m =>
         val leftColWidth =
@@ -137,177 +153,13 @@ private[shell] object Cli:
           nameMapper = nameMapper
         )
 
-  @main(
-    doc = "Run a flow, propagating its exit code.\n" +
-      "Task is read from stdin when omitted and stdin is piped.\n" +
-      "--branch names the branch to create instead of deriving it from the task.\n" +
-      """Example: orca run implement.sc "add a rate limiter" --branch feature/rate-limiter"""
-  )
-  def run(
-      @arg(positional = true, doc = "flow name or path")
-      flow: String,
-      args: RawArgs,
-      @arg(doc =
-        "run the flow's own pinned orca version instead of forcing this shell's"
-      )
-      honorPin: Flag = Flag()
-  ): Int =
-    RunCli.run(
-      flowRef = flow,
-      args = args,
-      honorPin = honorPin.value,
-      workDir = os.pwd,
-      tty = TtyProbe.stdin()
-    )
-
-  @main(doc =
-    "Print a flow's source (highlighted only when stdout is a terminal; " +
-      "--plain/--color override the auto-detection).\n" +
-      "Example: orca view implement.sc"
-  )
-  def view(
-      @arg(positional = true, doc = "flow name or path")
-      flow: String,
-      @arg(doc = "never highlight, regardless of stdout")
-      plain: Flag = Flag(),
-      @arg(doc = "always highlight, regardless of stdout")
-      color: Flag = Flag()
-  ): Int =
-    ViewCli.run(flow, plain.value, color.value, TtyProbe.stdout(), os.pwd)
-
-  @main(doc =
-    "Open a flow in $VISUAL/$EDITOR/vi.\n" +
-      "A built-in flow needs --to (it's copied into that tier first).\n" +
-      "Example: orca edit implement.sc"
-  )
-  def edit(
-      @arg(positional = true, doc = "flow name or path")
-      flow: String,
-      @arg(doc = "tier to customize a built-in flow into: project|global")
-      to: Option[String] = None
-  ): Int =
-    EditCli.run(flow, to, isTty, os.pwd)
-
-  @main(doc =
-    "Author a new flow: runs the built-in simple.sc flow in an " +
-      "isolated sandbox, using the configured role agents. The goal is " +
-      "required; the filename is derived from it when omitted.\n" +
-      """Example: orca create "summarize a PR's review threads""""
-  )
-  def create(
-      @arg(positional = true, doc = "what the flow should do")
-      goal: String,
-      @arg(doc = "flow filename (default: suggested from the goal)")
-      name: Option[String] = None,
-      @arg(doc =
-        "save under the global flows directory instead of the project's"
-      )
-      global: Flag = Flag()
-  ): Int =
-    AuthorCli.create(goal, name, global, isTty, os.pwd)
-
-  @main(doc =
-    "Fork an existing flow: runs the built-in simple.sc flow " +
-      "in an isolated sandbox, using the configured role agents. The changes " +
-      "are required; the filename defaults to <source>-fork.sc.\n" +
-      """Example: orca fork implement.sc "add a retry step""""
-  )
-  def fork(
-      @arg(positional = true, doc = "source flow name or path")
-      source: String,
-      @arg(positional = true, doc = "the changes to make")
-      changes: String,
-      @arg(doc = "fork's filename (default: <source>-fork.sc)")
-      name: Option[String] = None,
-      @arg(doc =
-        "save the fork under the global flows directory instead of the project's"
-      )
-      global: Flag = Flag()
-  ): Int =
-    AuthorCli.fork(source, changes, name, global, isTty, os.pwd)
-
-  @main(doc =
-    "Resume a recorded harness session. No selector resumes the newest one.\n" +
-      "Example: orca continue --list"
-  )
-  def continue(
-      @arg(
-        positional = true,
-        doc = "session id (from --list), session name, or branch"
-      )
-      selector: Option[String] = None,
-      @arg(doc = "print sessions instead of resuming")
-      list: Flag = Flag(),
-      @arg(doc = "with --list, emit JSON instead of a table")
-      json: Flag = Flag()
-  ): Int =
-    ContinueCli.runContinue(
-      WorktreeScan.dirs(os.pwd),
-      selector,
-      list.value,
-      json.value,
-      isTty
-    )
-
-  @main(doc =
-    "Show or set the global role agents (planning/coding/review).\n" +
-      "No flags prints the current roles; any flag writes the given subset.\n" +
-      "--edit project|global hand-edits that tier's settings file in " +
-      "$VISUAL/$EDITOR/vi instead (created from its template if absent).\n" +
-      "Example: orca config --coding-agent codex"
-  )
-  def config(
-      @arg(doc = "planning role, as harness[:model]")
-      planningAgent: Option[String] = None,
-      @arg(doc = "coding role, as harness[:model]")
-      codingAgent: Option[String] = None,
-      @arg(doc = "review role, as harness[:model]")
-      reviewAgent: Option[String] = None,
-      @arg(doc =
-        "rewrite a malformed settings file from scratch instead of refusing"
-      )
-      force: Flag = Flag(),
-      @arg(doc = "hand-edit that tier's settings file instead: project|global")
-      edit: Option[String] = None
-  ): Int =
-    ConfigCli.run(
-      ConfigHome.default.settings,
-      planningAgent,
-      codingAgent,
-      reviewAgent,
-      force.value,
-      edit,
-      isTty,
-      os.pwd
-    )
-
-  @main(doc =
-    "Clear stack settings (format/lint/test) so the next flow run re-detects them.\n" +
-      "Example: orca clear-stack --yes"
-  )
-  def clearStack(
-      @arg(doc = "skip the confirmation (required off a terminal)")
-      yes: Flag = Flag()
-  ): Int =
-    StackCli.runClearStack(os.pwd, yes.value, isTty)
-
-  @main(doc =
-    "List discovered flows across the project/global/built-in tiers.\n" +
-      "Example: orca list --json"
-  )
-  def list(
-      @arg(doc = "emit JSON instead of a table")
-      json: Flag = Flag()
-  ): Int =
-    ListCli.runList(os.pwd, json.value)
-
   /** Both stdin and stdout are a real terminal — the combined gate every
     * `requireTty` call site needs (an interactive prompt reads one and draws on
     * the other). `run`/`view` each care about exactly one side instead, so they
     * probe [[TtyProbe.stdin]]/[[TtyProbe.stdout]] directly rather than going
     * through this.
     */
-  private def isTty: Boolean = TtyProbe.stdin() && TtyProbe.stdout()
+  private[cli] def isTty: Boolean = TtyProbe.stdin() && TtyProbe.stdout()
 
   /** The mandatory gate before touching any interactive UI or child-exec
     * command (ADR 0021 §4/§10): `create`/`fork`/`edit`/`continue`'s resume and
@@ -337,3 +189,173 @@ private[shell] object Cli:
       value: String
   ): Either[String, Unit] =
     Either.cond(!value.isBlank, (), s"$argName can't be empty")
+
+/** The CLI's mainargs subcommand surface (ADR 0021 §10): one `@main` method per
+  * verb, each a thin parse-and-delegate to the matching per-command handler in
+  * `cli/`, returning the process exit code. The handlers hand off to the
+  * `actions/` layer the interactive menu also calls, so behavior matches the
+  * menu's prompting flows, minus the prompts.
+  */
+private[cli] class CliCommands(using env: ShellEnv):
+  import Cli.isTty
+
+  @main(
+    doc = "Run a flow, propagating its exit code.\n" +
+      "Task is read from stdin when omitted and stdin is piped.\n" +
+      "--branch names the branch to create instead of deriving it from the task.\n" +
+      """Example: orca run implement.sc "add a rate limiter" --branch feature/rate-limiter"""
+  )
+  def run(
+      @arg(positional = true, doc = "flow name or path")
+      flow: String,
+      args: RawArgs,
+      @arg(doc =
+        "run the flow's own pinned orca version instead of forcing this shell's"
+      )
+      honorPin: Flag = Flag()
+  ): Int =
+    RunCli.run(
+      flowRef = flow,
+      args = args,
+      honorPin = honorPin.value,
+      tty = TtyProbe.stdin()
+    )
+
+  @main(doc =
+    "Print a flow's source (highlighted only when stdout is a terminal; " +
+      "--plain/--color override the auto-detection).\n" +
+      "Example: orca view implement.sc"
+  )
+  def view(
+      @arg(positional = true, doc = "flow name or path")
+      flow: String,
+      @arg(doc = "never highlight, regardless of stdout")
+      plain: Flag = Flag(),
+      @arg(doc = "always highlight, regardless of stdout")
+      color: Flag = Flag()
+  ): Int =
+    ViewCli.run(flow, plain.value, color.value, TtyProbe.stdout())
+
+  @main(doc =
+    "Open a flow in $VISUAL/$EDITOR/vi.\n" +
+      "A built-in flow needs --to (it's copied into that tier first).\n" +
+      "Example: orca edit implement.sc"
+  )
+  def edit(
+      @arg(positional = true, doc = "flow name or path")
+      flow: String,
+      @arg(doc = "tier to customize a built-in flow into: project|global")
+      to: Option[Tier] = None
+  ): Int =
+    EditCli.run(flow, to, isTty)
+
+  @main(doc =
+    "Author a new flow: runs the built-in simple.sc flow in an " +
+      "isolated sandbox, using the configured role agents. The goal is " +
+      "required; the filename is derived from it when omitted.\n" +
+      """Example: orca create "summarize a PR's review threads""""
+  )
+  def create(
+      @arg(positional = true, doc = "what the flow should do")
+      goal: String,
+      @arg(doc = "flow filename (default: suggested from the goal)")
+      name: Option[String] = None,
+      @arg(doc =
+        "save under the global flows directory instead of the project's"
+      )
+      global: Flag = Flag()
+  ): Int =
+    AuthorCli.create(goal, name, global, isTty)
+
+  @main(doc =
+    "Fork an existing flow: runs the built-in simple.sc flow " +
+      "in an isolated sandbox, using the configured role agents. The changes " +
+      "are required; the filename defaults to <source>-fork.sc.\n" +
+      """Example: orca fork implement.sc "add a retry step""""
+  )
+  def fork(
+      @arg(positional = true, doc = "source flow name or path")
+      source: String,
+      @arg(positional = true, doc = "the changes to make")
+      changes: String,
+      @arg(doc = "fork's filename (default: <source>-fork.sc)")
+      name: Option[String] = None,
+      @arg(doc =
+        "save the fork under the global flows directory instead of the project's"
+      )
+      global: Flag = Flag()
+  ): Int =
+    AuthorCli.fork(source, changes, name, global, isTty)
+
+  @main(doc =
+    "Resume a recorded harness session. No selector resumes the newest one.\n" +
+      "Example: orca continue --list"
+  )
+  def continue(
+      @arg(
+        positional = true,
+        doc = "session id (from --list), session name, or branch"
+      )
+      selector: Option[String] = None,
+      @arg(doc = "print sessions instead of resuming")
+      list: Flag = Flag(),
+      @arg(doc = "with --list, emit JSON instead of a table")
+      json: Flag = Flag()
+  ): Int =
+    ContinueCli.runContinue(
+      WorktreeScan.dirs(env.workDir),
+      selector,
+      list.value,
+      json.value,
+      isTty
+    )
+
+  @main(doc =
+    "Show or set the global role agents (planning/coding/review).\n" +
+      "No flags prints the current roles; any flag writes the given subset.\n" +
+      "--edit project|global hand-edits that tier's settings file in " +
+      "$VISUAL/$EDITOR/vi instead (created from its template if absent).\n" +
+      "Example: orca config --coding-agent codex"
+  )
+  def config(
+      @arg(doc = "planning role, as harness[:model]")
+      planningAgent: Option[String] = None,
+      @arg(doc = "coding role, as harness[:model]")
+      codingAgent: Option[String] = None,
+      @arg(doc = "review role, as harness[:model]")
+      reviewAgent: Option[String] = None,
+      @arg(doc =
+        "rewrite a malformed settings file from scratch instead of refusing"
+      )
+      force: Flag = Flag(),
+      @arg(doc = "hand-edit that tier's settings file instead: project|global")
+      edit: Option[Tier] = None
+  ): Int =
+    ConfigCli.run(
+      planningAgent,
+      codingAgent,
+      reviewAgent,
+      force.value,
+      edit,
+      isTty
+    )
+
+  @main(doc =
+    "Clear stack settings (format/lint/test) so the next flow run re-detects them.\n" +
+      "Example: orca clear-stack --yes"
+  )
+  def clearStack(
+      @arg(doc = "skip the confirmation (required off a terminal)")
+      yes: Flag = Flag()
+  ): Int =
+    StackCli.runClearStack(env.workDir, yes.value, isTty)
+
+  @main(doc =
+    "List discovered flows across the project/global/built-in tiers.\n" +
+      "Example: orca list --json"
+  )
+  def list(
+      @arg(doc = "emit JSON instead of a table")
+      json: Flag = Flag()
+  ): Int =
+    ListCli.runList(json.value)

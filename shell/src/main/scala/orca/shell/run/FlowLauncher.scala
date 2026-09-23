@@ -1,9 +1,9 @@
 package orca.shell.run
 
 import org.jline.terminal.Terminal
-import orca.{FlowSourceProperty, OrcaArgs, XdgDirs}
+import orca.{FlowSourceProperty, OrcaArgs}
 import orca.progress.FlowSource
-import orca.shell.ShellVersion
+import orca.shell.{ShellEnv, ShellVersion}
 import orca.shell.ui.{ShellOutput, ShellUi, UiOutcome}
 import orca.subprocess.QuietProc
 
@@ -183,13 +183,11 @@ private[shell] object FlowLauncher:
     else if isSignalExit(exit) then LaunchResult.Cancelled
     else LaunchResult.Failed(exit)
 
-  /** `$XDG_CACHE_HOME/orca/shell/workspace` (created with `mkdir -p` before
-    * every spawn) — [[argv]]/[[compileArgv]]'s `--workspace` target, resolved
-    * by [[orca.XdgDirs.cacheHome]].
+  /** `<cacheHome>/orca/shell/workspace` (created with `mkdir -p` before every
+    * spawn) — [[argv]]/[[compileArgv]]'s `--workspace` target.
     */
-  private def resolveWorkspaceDir(): os.Path =
-    val dir = XdgDirs.cacheHome(sys.env.get, os.home) /
-      "orca" / "shell" / "workspace"
+  private def resolveWorkspaceDir()(using env: ShellEnv): os.Path =
+    val dir = env.cacheHome / "orca" / "shell" / "workspace"
     os.makeDir.all(dir)
     dir
 
@@ -249,7 +247,7 @@ private[shell] object FlowLauncher:
       args: OrcaArgs,
       workDir: os.Path,
       terminal: Terminal
-  ): LaunchResult =
+  )(using ShellEnv): LaunchResult =
     announced(s"starting flow ${flow.fileName}", flow.fileName)(
       ChildTerminal.withChild(terminal)(
         run(fallback, flow, args, workDir)
@@ -269,7 +267,7 @@ private[shell] object FlowLauncher:
       args: OrcaArgs,
       workDir: os.Path,
       terminal: Terminal
-  ): LaunchResult =
+  )(using ShellEnv): LaunchResult =
     announced(
       s"starting flow ${flow.fileName} (honoring pin)",
       flow.fileName
@@ -301,7 +299,7 @@ private[shell] object FlowLauncher:
       flow: LaunchedFlow,
       args: OrcaArgs,
       workDir: os.Path
-  ): LaunchResult =
+  )(using ShellEnv): LaunchResult =
     val shellVersion = ShellVersion.value
     val forcedVersion =
       if ShellVersion.isRelease(shellVersion) then Some(shellVersion) else None

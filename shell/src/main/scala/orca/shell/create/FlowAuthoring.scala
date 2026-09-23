@@ -1,32 +1,43 @@
 package orca.shell.create
 
-import orca.{ConfigHome, OrcaDir}
+import orca.OrcaDir
 import orca.agents.BackendTag
 import orca.settings.{AgentSpec, SettingsFile, SettingsScope}
-import orca.shell.ShellVersion
+import orca.shell.{ShellEnv, ShellVersion, Tier}
 import orca.util.PromptResource
 import ox.discard
 
 import scala.util.control.NonFatal
 
-/** Where a new flow is saved (ADR 0021 §9): Project saves under the workdir's
-  * committed `.orca/flows/`; Global saves under the config-home `flows/` dir.
-  * `cwd` (see [[CreateTarget]]) is the tier's associated directory — `workDir`
-  * for Project, the config-home `flows/` dir's parent for Global — the repo a
-  * Project-tier flow is committed into once authored.
+/** Where an authored flow is written (ADR 0021 §9). A Project flow is committed
+  * into `repo` once authored; a Global one has no repo.
   */
-private[shell] enum CreateTier:
-  case Project, Global
+private[shell] enum FlowDestination:
+  case Project(flowPath: os.Path, repo: os.Path)
+  case Global(flowPath: os.Path)
 
-/** The new flow's target path, plus its tier's associated directory (see
-  * [[CreateTier]]'s scaladoc).
-  */
-private[shell] case class CreateTarget(flowPath: os.Path, cwd: os.Path)
+  def flowPath: os.Path
+
+private[shell] object FlowDestination:
+  /** `flowPath` in `tier`; a Project flow's repo is the shell's `workDir`. */
+  def of(tier: Tier, flowPath: os.Path)(using env: ShellEnv): FlowDestination =
+    tier match
+      case Tier.Project => Project(flowPath, env.workDir)
+      case Tier.Global  => Global(flowPath)
+
+  /** `tier`'s flows directory: the project's `.orca/flows/` or the global
+    * `flows/`.
+    */
+  def flowsDir(tier: Tier)(using env: ShellEnv): os.Path =
+    tier match
+      case Tier.Project => OrcaDir.flowsPath(env.workDir)
+      case Tier.Global  => env.configHome.flows
 
 /** Creates a new flow by authoring it through the built-in `simple.sc` flow
   * (ADR 0021 §9): extracts the bundled API material, builds the initial prompt.
-  * The menu wiring itself (target-tier/filename/goal prompts) lives in `Main`;
-  * the flow launch lives in `orca.shell.actions.AuthorAction`.
+  * The menu wiring itself (target-tier/filename/goal prompts) lives in
+  * `menu.AuthoringMenu`; the flow launch lives in
+  * `orca.shell.actions.AuthorAction`.
   */
 private[shell] object FlowAuthoring:
 
@@ -245,8 +256,8 @@ private[shell] object FlowAuthoring:
     * back to its own local word-based derivation within a few seconds if that
     * harness is slow, absent, or unreachable.
     */
-  def suggestFilenameForGoal(goal: String): String =
-    suggestFilename(configuredCodingAgent(ConfigHome.default.settings), goal)
+  def suggestFilenameForGoal(goal: String)(using env: ShellEnv): String =
+    suggestFilename(configuredCodingAgent(env.configHome.settings), goal)
 
   /** The fork target's filename: `<source-stem>-<descriptor>.sc`, where the
     * descriptor is the cheap harness call's answer to [[forkSlugPrompt]]. The
@@ -263,11 +274,11 @@ private[shell] object FlowAuthoring:
       changes: String,
       timeoutMillis: Long = slugTimeoutMillis,
       runner: (Seq[String], Long) => Option[String] = runSlugProc
-  ): String =
+  )(using env: ShellEnv): String =
     val stem = toKebab(sourceName.stripSuffix(".sc"))
     val descriptor = runner(
       slugArgv(
-        configuredCodingAgent(ConfigHome.default.settings),
+        configuredCodingAgent(env.configHome.settings),
         forkSlugPrompt(sourceName, sourceDescription, changes)
       ),
       timeoutMillis
@@ -303,57 +314,29 @@ private[shell] object FlowAuthoring:
       finally if proc.isAlive() then proc.destroy(shutdownGracePeriod = 0)
     catch case NonFatal(_) => None
 
-  /** The directory associated with `tier` (see [[CreateTier]]'s scaladoc):
-    * `workDir` for Project, `globalFlows`'s parent for Global. Shared by
-    * [[resolveTarget]] and `AuthorAction`'s edit-by-agent overwrite path, which
-    * uses it only to build a well-formed `CreateTarget.cwd` — the same shape
-    * every other tier target carries — for its `overwrite`d `CreateTarget`.
-    * `AuthorAction.fork` copies the fork source into the SANDBOX, so this value
-    * plays no part there.
+  /** `fileName` (`.sc` suffix ensured) in `tier`'s flows directory — path
+    * arithmetic only, no I/O.
     */
-  def tierCwd(
-      tier: CreateTier,
-      workDir: os.Path,
-      globalFlows: os.Path
-  ): os.Path =
-    tier match
-      case CreateTier.Project => workDir
-      case CreateTier.Global  => globalFlows / os.up
-
-  /** Pure path arithmetic for the tier choice (ADR 0021 §9) — no I/O, so
-    * unit-testable without touching a real filesystem. `globalFlows` is
-    * `ConfigHome.default.flows` (or a test double), matching
-    * [[orca.shell.flows.FlowEditor.customizeTarget]]'s convention of taking the
-    * resolved path rather than re-deriving it from env/home here.
-    */
-  def resolveTarget(
-      tier: CreateTier,
-      fileName: String,
-      workDir: os.Path,
-      globalFlows: os.Path
-  ): CreateTarget =
-    val name = normalizedFileName(fileName)
-    val cwd = tierCwd(tier, workDir, globalFlows)
-    tier match
-      case CreateTier.Project =>
-        CreateTarget(OrcaDir.flowsPath(workDir) / name, cwd)
-      case CreateTier.Global => CreateTarget(globalFlows / name, cwd)
+  def resolveTarget(tier: Tier, fileName: String)(using
+      ShellEnv
+  ): FlowDestination =
+    FlowDestination.of(
+      tier,
+      FlowDestination.flowsDir(tier) / normalizedFileName(fileName)
+    )
 
   /** [[resolveTarget]] plus the side effects the menu wiring needs before
     * launching: ensuring the tier's flows dir exists, then refusing on a
     * filename collision — the harness itself writes the flow file, so a
     * pre-existing file at the target path is never intended to be overwritten.
     */
-  def prepareTarget(
-      tier: CreateTier,
-      fileName: String,
-      workDir: os.Path,
-      globalFlows: os.Path
-  ): Either[String, CreateTarget] =
-    val target = resolveTarget(tier, fileName, workDir, globalFlows)
+  def prepareTarget(tier: Tier, fileName: String)(using
+      env: ShellEnv
+  ): Either[String, FlowDestination] =
+    val target = resolveTarget(tier, fileName)
     tier match
-      case CreateTier.Project => OrcaDir.ensureFlows(workDir).discard
-      case CreateTier.Global  => os.makeDir.all(globalFlows)
+      case Tier.Project => OrcaDir.ensureFlows(env.workDir).discard
+      case Tier.Global  => os.makeDir.all(env.configHome.flows)
     if os.exists(target.flowPath) then
       Left(s"${target.flowPath} already exists — pick a different name")
     else Right(target)
@@ -363,18 +346,15 @@ private[shell] object FlowAuthoring:
     * before the `.sc` suffix. Authoring never asks for a filename, so a taken
     * name is uniquified rather than refused.
     */
-  def prepareAutoTarget(
-      tier: CreateTier,
-      baseName: String,
-      workDir: os.Path,
-      globalFlows: os.Path
-  ): CreateTarget =
+  def prepareAutoTarget(tier: Tier, baseName: String)(using
+      ShellEnv
+  ): FlowDestination =
     val normalized = normalizedFileName(baseName)
     val stem = normalized.stripSuffix(".sc")
     LazyList
       .from(1)
       .map(n => if n == 1 then normalized else s"$stem-$n.sc")
-      .flatMap(name => prepareTarget(tier, name, workDir, globalFlows).toOption)
+      .flatMap(name => prepareTarget(tier, name).toOption)
       .head
 
   /** A flow filename is documented as a bare filename, not a path — rejects one
@@ -382,10 +362,9 @@ private[shell] object FlowAuthoring:
     * usage error up front, before it ever reaches [[prepareTarget]]'s path
     * arithmetic (which, for a name with enough `..`s, os-lib can reject by
     * throwing a raw `PathError` instead of returning one). Shared by the CLI's
-    * `create`/`fork` (`AuthorCli`) and the interactive shell's new-flow/fork
-    * prompts (`Main.promptFlowTarget`) — either path must re-prompt/re-report
-    * on an invalid name rather than crash or silently escape the target
-    * directory.
+    * `create`/`fork` and the interactive new-flow prompt — either must
+    * re-prompt/re-report on an invalid name rather than crash or silently
+    * escape the target directory.
     */
   def validateFileName(fileName: String): Either[String, Unit] =
     Either.cond(
@@ -401,13 +380,10 @@ private[shell] object FlowAuthoring:
     * shared marker type to catch) converted to a clean `Left` instead of
     * propagating as an uncaught exception.
     */
-  def safePrepareTarget(
-      tier: CreateTier,
-      fileName: String,
-      workDir: os.Path,
-      globalFlows: os.Path
-  ): Either[String, CreateTarget] =
-    try prepareTarget(tier, fileName, workDir, globalFlows)
+  def safePrepareTarget(tier: Tier, fileName: String)(using
+      ShellEnv
+  ): Either[String, FlowDestination] =
+    try prepareTarget(tier, fileName)
     catch
       case _: IllegalArgumentException =>
         Left(s"'$fileName' isn't a valid flow filename")

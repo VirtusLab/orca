@@ -40,7 +40,7 @@ class BuiltInFlowsCompileTest extends munit.FunSuite:
     * `~/.cache/orca` is untouched; `_ => None` supplies no `XDG_CACHE_HOME`.
     */
   private lazy val extractedFlows: os.Path =
-    BuiltInFlows.extracted(_ => None, TempDirs.dir(), version)
+    BuiltInFlows.extracted(TempDirs.dir(), version)
 
   for name <- BuiltInFlows.names do
     test(s"built-in $name compiles via scala-cli"):

@@ -1,6 +1,7 @@
 package orca.shell.cli
 
 import orca.RawArgs
+import orca.shell.ShellEnv
 import orca.shell.actions.{FlowResolution, RunAction}
 import orca.shell.run.{FallbackPolicy, FlowLauncher, LaunchedFlow}
 
@@ -24,14 +25,13 @@ private[cli] object RunCli:
       flowRef: String,
       args: RawArgs,
       honorPin: Boolean,
-      workDir: os.Path,
       tty: Boolean
-  ): Int =
+  )(using env: ShellEnv): Int =
     complete:
       for
         checked <- args.checked.left.map(usageFailure)
         resolved <- FlowResolution
-          .resolve(flowRef, workDir)
+          .resolve(flowRef)
           .left
           .map(actionFailure)
         task <- readTask(checked.givenTask, tty, readAllStdin).left
@@ -43,7 +43,7 @@ private[cli] object RunCli:
             FlowLauncher.runHonoringPin(
               LaunchedFlow.of(resolved),
               orcaArgs,
-              workDir,
+              env.workDir,
               terminal
             )
           else
@@ -53,8 +53,9 @@ private[cli] object RunCli:
                 args = orcaArgs,
                 fallback = FallbackPolicy.Refuse("re-run with --honor-pin")
               ),
-              workDir,
-              terminal
+              env.workDir,
+              terminal,
+              FlowLauncher.runAnnounced
             )
         // propagates the flow child's raw exit code (LaunchResult.Failed's
         // exit, via Cli.exitCodeFor) — run mirrors a wrapped subprocess's

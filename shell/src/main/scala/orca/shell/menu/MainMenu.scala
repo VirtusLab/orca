@@ -1,4 +1,4 @@
-package orca.shell
+package orca.shell.menu
 
 import orca.{RunTarget, Uncommitted}
 import orca.shell.resume.InterruptedRun
@@ -9,7 +9,7 @@ import orca.util.TextUtil
   * added §8, `EditSettings` added §4, `ResumeRun` added §3 amendment
   * 2026-07-27).
   */
-private[shell] enum MenuItem:
+private[menu] enum MenuItem:
   case RunFlow, ResumeRun, ViewFlow, EditFlow, CreateFlow, ForkFlow,
     ContinueSession, Reconfigure, EditSettings, RediscoverStack, Exit
 
@@ -18,10 +18,10 @@ private[shell] enum MenuItem:
   * flow to edit; source+tier to fork; nothing yet for create, where the mode
   * decides whether a goal or a filename comes next).
   */
-private[shell] enum ChangeMode:
+private[menu] enum ChangeMode:
   case Hand, Agent
 
-private[shell] object MainMenu:
+private[menu] object MainMenu:
 
   /** Fixed ADR §3 order. Conditional items are ABSENT when inapplicable, never
     * shown disabled: `resumeOffer` non-None inserts `ResumeRun` right after
@@ -31,10 +31,10 @@ private[shell] object MainMenu:
     */
   def choices(
       continueSessionCount: Option[Int],
-      resumeOffer: Option[InterruptedRun] = None,
+      resumeOffer: Option[InterruptedRun],
       // The shell's own directory, to tell a resume that happens here from one
-      // that happens in a worktree. Defaulted for the tests that don't care.
-      workDir: os.Path = os.pwd
+      // that happens in a worktree.
+      workDir: os.Path
   ): List[Choice[MenuItem]] =
     val continueChoice = continueSessionCount.map(count =>
       Choice(
@@ -114,7 +114,7 @@ private[shell] object MainMenu:
   /** `"Resume interrupted run — <flow>: <first ~40 chars of task> on
     * <branch>"`, plus ` (in <dir>)` when the log is in another directory. The
     * task and branch come from a committed header, and the task is often
-    * multi-line (`Main.promptTask` reads multi-line), so both reach the menu
+    * multi-line ([[RunMenu.runFlow]] reads multi-line), so both reach the menu
     * row through [[TextUtil.onelinePreview]].
     */
   private def resumeLabel(run: InterruptedRun, workDir: os.Path): String =

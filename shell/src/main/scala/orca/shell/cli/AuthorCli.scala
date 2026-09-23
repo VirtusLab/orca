@@ -2,11 +2,10 @@ package orca.shell.cli
 
 import mainargs.Flag
 import org.jline.terminal.Terminal
-import orca.ConfigHome
-import orca.shell.actions.{AuthorAction, AuthorParams}
-import orca.shell.actions.FlowResolution
-import orca.shell.create.{CreateTarget, CreateTier, FlowAuthoring}
-import orca.shell.run.LaunchResult
+import orca.shell.{ShellEnv, Tier}
+import orca.shell.actions.{AuthorAction, FlowResolution}
+import orca.shell.create.{FlowAuthoring, FlowDestination}
+import orca.shell.run.{FlowLauncher, LaunchResult}
 import orca.shell.ui.{ShellOutput, ShellUi}
 
 import Cli.{actionFailure, complete, requireNonBlank, requireTty, usageFailure}
@@ -28,9 +27,8 @@ private[cli] object AuthorCli:
       goal: String,
       name: Option[String],
       global: Flag,
-      tty: Boolean,
-      workDir: os.Path
-  ): Int =
+      tty: Boolean
+  )(using ShellEnv): Int =
     runAuthor(
       command = "create",
       tty = tty,
@@ -38,11 +36,16 @@ private[cli] object AuthorCli:
       blankValue = goal,
       name = name,
       global = global,
-      workDir = workDir,
       resolveSource = Right(()),
       defaultFileName = _ => FlowAuthoring.suggestFilenameForGoal(goal),
-      launch = (_, params, ui, terminal) =>
-        AuthorAction.create(goal, params, ui, terminal)
+      launch = (_, destination, ui, terminal) =>
+        AuthorAction.create(
+          goal,
+          destination,
+          ui,
+          terminal,
+          FlowLauncher.runAnnounced
+        )
     )
 
   def fork(
@@ -50,9 +53,8 @@ private[cli] object AuthorCli:
       changes: String,
       name: Option[String],
       global: Flag,
-      tty: Boolean,
-      workDir: os.Path
-  ): Int =
+      tty: Boolean
+  )(using ShellEnv): Int =
     runAuthor(
       command = "fork",
       tty = tty,
@@ -60,14 +62,19 @@ private[cli] object AuthorCli:
       blankValue = changes,
       name = name,
       global = global,
-      workDir = workDir,
-      resolveSource =
-        FlowResolution.resolve(source, workDir).left.map(actionFailure),
+      resolveSource = FlowResolution.resolve(source).left.map(actionFailure),
       defaultFileName = src =>
         FlowAuthoring
           .suggestFilenameForFork(src.name, src.description, changes),
-      launch = (src, params, ui, terminal) =>
-        AuthorAction.fork(src, changes, params, ui, terminal)
+      launch = (src, destination, ui, terminal) =>
+        AuthorAction.fork(
+          src,
+          changes,
+          destination,
+          ui,
+          terminal,
+          FlowLauncher.runAnnounced
+        )
     )
 
   /** The pipeline `create` and `fork` share (ADR 0021 §9). `resolveSource`
@@ -83,84 +90,51 @@ private[cli] object AuthorCli:
       blankValue: String,
       name: Option[String],
       global: Flag,
-      workDir: os.Path,
       resolveSource: => Either[CliFailure, S],
       defaultFileName: S => String,
-      launch: (S, AuthorParams, ShellUi, Terminal) => LaunchResult
-  ): Int =
-    val globalFlows = ConfigHome.default.flows
+      launch: (S, FlowDestination, ShellUi, Terminal) => LaunchResult
+  )(using ShellEnv): Int =
     complete:
       for
         _ <- requireTty(command, tty).left.map(usageFailure)
         _ <- requireNonBlank(blankArg, blankValue).left.map(usageFailure)
         source <- resolveSource
-        tier = if global.value then CreateTier.Global else CreateTier.Project
-        target <- resolveTarget(
-          tier,
-          name,
-          defaultFileName(source),
-          workDir,
-          globalFlows
-        )
-      yield launchAuthoring(target, AuthorParams(tier, target), source, launch)
+        tier = if global.value then Tier.Global else Tier.Project
+        target <- resolveTarget(tier, name, defaultFileName(source))
+      yield launchAuthoring(target, source, launch)
 
   /** An explicit `name` goes through validation + collision refusal (the caller
     * chose it — silently renaming would be surprising); an omitted one is
     * auto-derived and uniquified via [[FlowAuthoring.prepareAutoTarget]], which
     * never fails. `autoName` is by-name so an explicit `name` never triggers
     * the (possibly agent-backed, multi-second) suggestion call at all — not
-    * just discards its result. `private[cli]` (like [[validateFileName]]/
-    * [[safePrepareTarget]]) so a test can verify that by-name laziness without
-    * going through [[runAuthor]]'s tty gate and real terminal.
+    * just discards its result. `private[cli]` so a test can verify that by-name
+    * laziness without going through [[runAuthor]]'s tty gate and real terminal.
     */
   private[cli] def resolveTarget(
-      tier: CreateTier,
+      tier: Tier,
       name: Option[String],
-      autoName: => String,
-      workDir: os.Path,
-      globalFlows: os.Path
-  ): Either[CliFailure, CreateTarget] =
+      autoName: => String
+  )(using ShellEnv): Either[CliFailure, FlowDestination] =
     name match
       case Some(explicit) =>
         for
-          _ <- validateFileName(explicit).left.map(usageFailure)
-          target <- safePrepareTarget(
-            tier,
-            explicit,
-            workDir,
-            globalFlows
-          ).left.map(actionFailure)
+          _ <- FlowAuthoring.validateFileName(explicit).left.map(usageFailure)
+          target <- FlowAuthoring
+            .safePrepareTarget(tier, explicit)
+            .left
+            .map(actionFailure)
         yield target
       case None =>
         ShellOutput.info("picking a filename…")
-        Right(
-          FlowAuthoring.prepareAutoTarget(tier, autoName, workDir, globalFlows)
-        )
+        Right(FlowAuthoring.prepareAutoTarget(tier, autoName))
 
   private def launchAuthoring[S](
-      target: CreateTarget,
-      params: AuthorParams,
+      target: FlowDestination,
       source: S,
-      launch: (S, AuthorParams, ShellUi, Terminal) => LaunchResult
+      launch: (S, FlowDestination, ShellUi, Terminal) => LaunchResult
   ): Int =
     ShellOutput.info(s"target flow: ${target.flowPath}")
     Cli.withTerminal: terminal =>
       val ui = ShellUi.make(terminal)
-      Cli.exitCodeFor(launch(source, params, ui, terminal))
-
-  /** Forwards to [[FlowAuthoring.validateFileName]], kept as a thin alias since
-    * existing call sites/tests spell it `AuthorCli.*`.
-    */
-  private[cli] def validateFileName(fileName: String): Either[String, Unit] =
-    FlowAuthoring.validateFileName(fileName)
-
-  /** Forwards to [[FlowAuthoring.safePrepareTarget]] — see
-    * [[validateFileName]]'s scaladoc.
-    */
-  private[cli] def safePrepareTarget(
-      tier: CreateTier,
-      fileName: String,
-      workDir: os.Path,
-      globalFlows: os.Path
-  ): Either[String, CreateTarget] =
-    FlowAuthoring.safePrepareTarget(tier, fileName, workDir, globalFlows)
+      Cli.exitCodeFor(launch(source, target, ui, terminal))

@@ -2,11 +2,11 @@ package orca.shell.actions
 
 import org.jline.terminal.{Terminal, TerminalBuilder}
 import orca.{OrcaArgs, RunTarget, Uncommitted}
-import orca.shell.ShellVersion
-import orca.shell.create.{CreateTarget, CreateTier}
+import orca.shell.{ShellEnv, ShellVersion, TestShellEnv}
+import orca.shell.create.FlowDestination
 import orca.discovery.Origin
 import orca.progress.FlowSource
-import orca.shell.flows.{BuiltInFlows, DiscoveredFlow}
+import orca.shell.flows.DiscoveredFlow
 import orca.shell.run.{FallbackPolicy, FlowLauncher, LaunchResult, LaunchedFlow}
 import orca.shell.ui.{Choice, ShellUi, UiOutcome}
 import orca.testkit.{GitRepo, TempDirs}
@@ -59,25 +59,27 @@ private def withTerminal(body: Terminal => Unit): Unit =
 
 class AuthorActionTest extends munit.FunSuite:
 
-  private val builtInFlow =
-    BuiltInFlows.extracted(sys.env.get, os.home, ShellVersion.value) /
-      "simple.sc"
+  private given env: ShellEnv = TestShellEnv()
+
+  private val builtInFlow = env.extractBuiltInFlows() / "simple.sc"
 
   private def captured(body: => Unit): String =
     val buffer = new java.io.ByteArrayOutputStream()
     Console.withOut(new java.io.PrintStream(buffer))(body)
     buffer.toString
 
-  private def projectTarget(name: String): CreateTarget =
-    val workDir = TempDirs.dir()
-    CreateTarget(workDir / ".orca" / "flows" / name, workDir)
+  private def projectTarget(name: String): FlowDestination.Project =
+    projectTargetIn(TempDirs.dir(), name)
 
   /** Like [[projectTarget]], but rooted at an already-created `workDir` — used
     * by the commit tests, which need `workDir` to be a real git repo
     * ([[GitRepo]]) rather than a bare temp dir.
     */
-  private def projectTargetIn(workDir: os.Path, name: String): CreateTarget =
-    CreateTarget(workDir / ".orca" / "flows" / name, workDir)
+  private def projectTargetIn(
+      workDir: os.Path,
+      name: String
+  ): FlowDestination.Project =
+    FlowDestination.Project(workDir / ".orca" / "flows" / name, workDir)
 
   private def lastCommitMessage(repo: os.Path): String =
     os.proc("git", "log", "-1", "--pretty=%s").call(cwd = repo).out.text().trim
@@ -125,7 +127,7 @@ class AuthorActionTest extends munit.FunSuite:
 
       val result = AuthorAction.create(
         "sync issues nightly",
-        AuthorParams(CreateTier.Project, target),
+        target,
         NoPromptUi,
         terminal,
         recording.fn
@@ -159,7 +161,7 @@ class AuthorActionTest extends munit.FunSuite:
   ):
     withTerminal: terminal =>
       val target = projectTarget("implement-fork.sc")
-      val source = forkSource(target.cwd)
+      val source = forkSource(target.repo)
       var taskSourcePathExisted = false
       val recording = RecordingLaunch(onLaunch = sandbox =>
         val copied =
@@ -171,7 +173,7 @@ class AuthorActionTest extends munit.FunSuite:
       val result = AuthorAction.fork(
         source,
         "add a retry step",
-        AuthorParams(CreateTier.Project, target),
+        target,
         NoPromptUi,
         terminal,
         recording.fn
@@ -205,7 +207,7 @@ class AuthorActionTest extends munit.FunSuite:
       val output = captured:
         val result = AuthorAction.create(
           "sync issues nightly",
-          AuthorParams(CreateTier.Project, target),
+          target,
           NoPromptUi,
           terminal,
           recording.fn
@@ -217,14 +219,13 @@ class AuthorActionTest extends munit.FunSuite:
       assert(output.contains(s"flow created at ${target.flowPath}"), output)
 
   test(
-    "fork: overwrite=false with a pre-existing target refuses instead of overwriting it"
+    "fork: a pre-existing target is refused instead of overwritten"
   ):
     // Target == source's own path (forkSource's fixed "implement.sc", pointed
-    // at by a same-named target) — the shape edit-by-agent produces, minus
-    // the overwrite flag.
+    // at by a same-named target) — the shape an edit produces.
     withTerminal: terminal =>
       val target = projectTarget("implement.sc")
-      val source = forkSource(target.cwd)
+      val source = forkSource(target.repo)
       val recording = RecordingLaunch(onLaunch =
         sandbox => os.write(sandbox / "implement.sc", "// edited\n")
       )
@@ -233,7 +234,7 @@ class AuthorActionTest extends munit.FunSuite:
         val result = AuthorAction.fork(
           source,
           "add a retry step",
-          AuthorParams(CreateTier.Project, target),
+          target,
           NoPromptUi,
           terminal,
           recording.fn
@@ -246,20 +247,20 @@ class AuthorActionTest extends munit.FunSuite:
       os.remove.all(recording.calls.head.workDir)
 
   test(
-    "fork: overwrite=true copies over a pre-existing target (edit-by-agent)"
+    "edit: copies over the flow it edits"
   ):
     withTerminal: terminal =>
       val target = projectTarget("implement.sc")
-      val source = forkSource(target.cwd)
+      val source = forkSource(target.repo)
       val recording = RecordingLaunch(onLaunch =
         sandbox => os.write(sandbox / "implement.sc", "// edited\n")
       )
 
       val output = captured:
-        val result = AuthorAction.fork(
+        val result = AuthorAction.edit(
           source,
           "add a retry step",
-          AuthorParams(CreateTier.Project, target, overwrite = true),
+          target,
           NoPromptUi,
           terminal,
           recording.fn
@@ -285,7 +286,7 @@ class AuthorActionTest extends munit.FunSuite:
       val output = captured:
         val result = AuthorAction.create(
           "sync issues nightly",
-          AuthorParams(CreateTier.Project, target),
+          target,
           NoPromptUi,
           terminal,
           recording.fn
@@ -312,7 +313,7 @@ class AuthorActionTest extends munit.FunSuite:
       // own tier check, not merely because there happens to be no repo.
       val repo = GitRepo.seeded()
       val globalFlows = repo / "flows"
-      val target = CreateTarget(globalFlows / "new.sc", globalFlows / os.up)
+      val target = FlowDestination.Global(globalFlows / "new.sc")
       val before = commitCount(repo)
       val recording = RecordingLaunch(onLaunch =
         sandbox => os.write(sandbox / "new.sc", "// a flow\n")
@@ -321,7 +322,7 @@ class AuthorActionTest extends munit.FunSuite:
       val output = captured:
         val result = AuthorAction.create(
           "sync issues nightly",
-          AuthorParams(CreateTier.Global, target),
+          target,
           NoPromptUi,
           terminal,
           recording.fn
@@ -344,7 +345,7 @@ class AuthorActionTest extends munit.FunSuite:
       val output = captured:
         val result = AuthorAction.create(
           "sync issues nightly",
-          AuthorParams(CreateTier.Project, target),
+          target,
           NoPromptUi,
           terminal,
           recording.fn
@@ -355,7 +356,7 @@ class AuthorActionTest extends munit.FunSuite:
       assert(output.contains("commit it yourself"), output)
 
   test(
-    "fork: overwrite=true commits with an 'update' message into the Project tier's repo"
+    "edit: commits with an 'update' message into the Project tier's repo"
   ):
     withTerminal: terminal =>
       val repo = GitRepo.seeded()
@@ -366,10 +367,10 @@ class AuthorActionTest extends munit.FunSuite:
       )
 
       val output = captured:
-        val result = AuthorAction.fork(
+        val result = AuthorAction.edit(
           source,
           "add a retry step",
-          AuthorParams(CreateTier.Project, target, overwrite = true),
+          target,
           NoPromptUi,
           terminal,
           recording.fn
@@ -383,17 +384,15 @@ class AuthorActionTest extends munit.FunSuite:
       )
       assertEquals(lastCommitMessage(repo), "orca: update flow implement.sc")
 
-  test(
-    "fork: overwrite picks editPrompt's wording, plain fork picks forkPrompt's"
-  ):
+  test("fork: the task asks to create the flow"):
     withTerminal: terminal =>
       val plainTarget = projectTarget("implement-fork.sc")
-      val plainSource = forkSource(plainTarget.cwd)
+      val plainSource = forkSource(plainTarget.repo)
       val plainRecording = RecordingLaunch()
       val _ = AuthorAction.fork(
         plainSource,
         "add a retry step",
-        AuthorParams(CreateTier.Project, plainTarget),
+        plainTarget,
         NoPromptUi,
         terminal,
         plainRecording.fn
@@ -402,13 +401,15 @@ class AuthorActionTest extends munit.FunSuite:
       assert(plainTask.contains("Create the Orca flow"), plainTask)
       assert(!plainTask.contains("Edit the Orca flow"), plainTask)
 
+  test("edit: the task asks to edit the flow"):
+    withTerminal: terminal =>
       val editTarget = projectTarget("implement.sc")
-      val editSource = forkSource(editTarget.cwd)
+      val editSource = forkSource(editTarget.repo)
       val editRecording = RecordingLaunch()
-      val _ = AuthorAction.fork(
+      val _ = AuthorAction.edit(
         editSource,
         "add a retry step",
-        AuthorParams(CreateTier.Project, editTarget, overwrite = true),
+        editTarget,
         NoPromptUi,
         terminal,
         editRecording.fn
@@ -427,7 +428,7 @@ class AuthorActionTest extends munit.FunSuite:
       val output = captured:
         val result = AuthorAction.create(
           "sync issues nightly",
-          AuthorParams(CreateTier.Project, target),
+          target,
           NoPromptUi,
           terminal,
           recording.fn
@@ -446,7 +447,7 @@ class AuthorActionTest extends munit.FunSuite:
       val output = captured:
         val result = AuthorAction.create(
           "sync issues nightly",
-          AuthorParams(CreateTier.Project, target),
+          target,
           NoPromptUi,
           terminal,
           recording.fn
@@ -466,7 +467,7 @@ class AuthorActionTest extends munit.FunSuite:
       val output = captured:
         val result = AuthorAction.create(
           "sync issues nightly",
-          AuthorParams(CreateTier.Project, target),
+          target,
           NoPromptUi,
           terminal,
           recording.fn

@@ -1,6 +1,7 @@
 package orca.shell.cli
 
 import orca.settings.{AgentSettings, AgentSpec}
+import orca.shell.{ShellEnv, Tier}
 import orca.shell.actions.{ConfigAction, EditAction, SettingsEditAction}
 
 import Cli.{actionFailure, complete, requireTty, usageFailure, withTerminal}
@@ -12,22 +13,20 @@ import Cli.{actionFailure, complete, requireTty, usageFailure, withTerminal}
   */
 private[cli] object ConfigCli:
 
-  /** `config`'s full dispatch (ADR 0021 §10; test seam). `--edit` can't be
-    * combined with any role flag or `--force`: `runEdit` hands the whole file
-    * to the user's editor, so a role flag given alongside it would be silently
-    * ignored — worth a usage error rather than a surprise. Absent `--edit`,
-    * delegates to [[runConfig]] unchanged.
+  /** `config`'s full dispatch (ADR 0021 §10). `--edit` can't be combined with
+    * any role flag or `--force`: `runEdit` hands the whole file to the user's
+    * editor, so a role flag given alongside it would be silently ignored —
+    * worth a usage error rather than a surprise. Absent `--edit`, delegates to
+    * [[runConfig]] unchanged.
     */
   private[cli] def run(
-      globalSettingsPath: os.Path,
       planning: Option[String],
       coding: Option[String],
       review: Option[String],
       force: Boolean,
-      edit: Option[String],
-      tty: Boolean,
-      workDir: os.Path
-  ): Int =
+      edit: Option[Tier],
+      tty: Boolean
+  )(using env: ShellEnv): Int =
     val editConflictsWithFlags =
       planning.isDefined || coding.isDefined || review.isDefined || force
     edit match
@@ -40,11 +39,11 @@ private[cli] object ConfigCli:
             )
           )
         )
-      case Some(tier) => runEdit(tier, tty, workDir, globalSettingsPath)
+      case Some(tier) => runEdit(tier, tty)
       case None =>
-        runConfig(globalSettingsPath, planning, coding, review, force)
+        runConfig(env.configHome.settings, planning, coding, review, force)
 
-  /** `config`'s full behavior over an explicit settings `path` (test seam). */
+  /** `config`'s behavior over the settings file at `path`. */
   private[cli] def runConfig(
       path: os.Path,
       planning: Option[String],
@@ -92,34 +91,26 @@ private[cli] object ConfigCli:
         ConfigAction.set(path, overrides.orElse(current))
         Right(ExitCodes.Ok)
 
-  /** `orca config --edit <tier>`'s behavior (ADR 0021 §10): tty-gate, parse
-    * `rawTier` with the shared `project|global` grammar
-    * ([[EditCli.parseCustomizeTier]], naming `--edit` rather than `--to` in its
-    * error), create the settings file from its template if absent, then open it
-    * via [[EditAction.editInPlace]] — same exit-code convention as `orca edit`
-    * (the editor child's raw exit code, propagated regardless of whether the
-    * edited file re-parses). A malformed result after the edit is a warning to
-    * stderr, not a failure: the file is the user's to break, and the editor
-    * itself already exited cleanly.
+  /** `orca config --edit <tier>`'s behavior (ADR 0021 §10): tty-gate, create
+    * the settings file from its template if absent, then open it via
+    * [[EditAction.editInPlace]] — same exit-code convention as `orca edit` (the
+    * editor child's raw exit code, propagated regardless of whether the edited
+    * file re-parses). A malformed result after the edit is a warning to stderr,
+    * not a failure: the file is the user's to break, and the editor itself
+    * already exited cleanly.
     */
-  private[cli] def runEdit(
-      rawTier: String,
-      tty: Boolean,
-      workDir: os.Path,
-      globalSettingsPath: os.Path
+  private[cli] def runEdit(tier: Tier, tty: Boolean)(using
+      env: ShellEnv
   ): Int =
     complete:
-      for
-        _ <- requireTty("config", tty).left.map(usageFailure)
-        tier <- EditCli
-          .parseCustomizeTier(rawTier, "--edit")
-          .left
-          .map(usageFailure)
+      for _ <- requireTty("config", tty).left.map(usageFailure)
       yield
-        val path = SettingsEditAction.pathFor(tier, workDir, globalSettingsPath)
-        SettingsEditAction.ensureExists(tier, path, workDir)
+        val globalSettingsPath = env.configHome.settings
+        val path =
+          SettingsEditAction.pathFor(tier, env.workDir, globalSettingsPath)
+        SettingsEditAction.ensureExists(tier, path, env.workDir)
         val exit = withTerminal(EditAction.editInPlace(_, path))
-        SettingsEditAction.validate(tier, workDir, globalSettingsPath) match
+        SettingsEditAction.validate(tier, env.workDir, globalSettingsPath) match
           case Left(error) => Cli.diagnostic(s"warning: $error")
           case Right(_)    => ()
         exit
