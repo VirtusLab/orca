@@ -132,7 +132,7 @@ class OpenPrIfGitHubTest extends FunSuite:
     val result = openPrIfGitHub(
       summarisingAgent = summariser,
       openFindings = openFindings
-    )(using control, control, summon[OutsideStage])
+    )(using control, summon[OutsideStage])
     Run(
       result,
       calls.asScala.toList,
@@ -184,7 +184,7 @@ class OpenPrIfGitHubTest extends FunSuite:
         openPrIfGitHub(
           summarisingAgent = new StubSummariser(),
           openFindings = OpenFindings.empty
-        )(using control, control, summon[OutsideStage])
+        )(using control, summon[OutsideStage])
     )
     assert(e.getMessage.contains("inside stage 'outer#0'"), e.getMessage)
     assertEquals(calls.asScala.toList, Nil)
@@ -364,7 +364,7 @@ class OpenPrIfGitHubTest extends FunSuite:
     val _ = openPrFromBranch(
       summarisingAgent = new StubSummariser(),
       openFindings = OpenFindings.empty
-    )(using first, first, summon[OutsideStage])
+    )(using first, summon[OutsideStage])
     val r = runOver(dir, store, available, base = baseForced)
     assertEquals(r.calls, Nil, "stages were re-run")
     assertEquals(r.result, Some(samplePr))

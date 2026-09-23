@@ -45,11 +45,13 @@ class SessionTest extends FunSuite:
       listeners: List[OrcaListener] = Nil
   ): TestFlowControl =
     new TestFlowControl(
-      new EventDispatcher(listeners),
-      new OsGitTool(dir),
+      new TestFlowContext(
+        new EventDispatcher(listeners),
+        "p",
+        wiredGit = Some(new OsGitTool(dir))
+      ),
       orca.progress.ProgressStore.default(dir, RunKey.of("p")),
-      SessionStore.default(dir, RunKey.of("p")),
-      "p"
+      SessionStore.default(dir, RunKey.of("p"))
     )
 
   private def records(dir: os.Path): List[SessionRecord] =

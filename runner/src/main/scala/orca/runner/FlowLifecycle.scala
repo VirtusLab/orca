@@ -57,37 +57,31 @@ object FlowLifecycle:
     * body failure — the two teardowns are structurally disjoint.
     */
   private[orca] def run(
-      ctx: DefaultFlowContext[?, ?, ?],
+      control: FlowControl,
       flowSetup: FlowSetup,
       debug: Boolean
   )(body: FlowControl ?=> Unit): Unit =
+    val ctx = control.context
     val log = LoggerFactory.getLogger("orca.flow")
     surfaced(ctx.emit, debug)(
-      rehydrateSessions(ctx, ctx.codingAgent, ctx.sessionStore)
+      rehydrateSessions(ctx, ctx.codingAgent, control.sessionStore)
     )
     // The whole flow body runs as a top-level stage: an otherwise unhandled
     // exception surfaces as a single Error event. `teardownFailure` runs only
     // here in the body phase, so a success-teardown error can never trigger
     // `discardUncommitted` or strand the user on the feature branch.
-    try surfaced(ctx.emit, debug)(body(using ctx))
+    try surfaced(ctx.emit, debug)(body(using control))
     catch
       case f: ReportedFailure =>
         // If the reset itself fails, attach it as suppressed (rather than
         // replacing `f`), and log/print it too.
-        //
-        // This Step names WHY the reset is about to discard changes —
-        // `discardUncommitted` itself also emits its own "Discarded
-        // uncommitted changes" Step, which alone would read as unexplained
-        // data loss.
-        ctx.emit(
-          OrcaEvent.Step(
-            "recovering from the failure — discarding uncommitted changes " +
-              "and the files the failed stage created; re-run the same " +
-              "command (the same flow with the same task text) to resume " +
-              "from the last completed stage"
+        try
+          teardownFailure(
+            ctx.git,
+            flowSetup.featureBranch,
+            flowSetup.startingTree,
+            ctx.emit
           )
-        )
-        try teardownFailure(ctx.git, flowSetup.untrackedOnFailure)
         catch
           case NonFatal(t) =>
             f.addSuppressed(t)
@@ -101,7 +95,7 @@ object FlowLifecycle:
             )
         throw f
     // Read before teardownSuccess deletes the log.
-    val published = PublishedState.from(ctx.progressStore.loadDetailed())
+    val published = PublishedState.from(control.progressStore.loadDetailed())
     teardownSuccess(ctx.git, flowSetup, published, ctx.emit)
 
   /** Runs one lifecycle phase: a failure is reported to `emit` unless already
@@ -174,12 +168,6 @@ object FlowLifecycle:
     * `branchMode` (mirrors [[ProgressHeader.branchMode]]) gates
     * [[finishBranch]]'s throwaway auto-delete: `Reused` blocks it, since orca
     * bound to a pre-existing branch rather than minting one.
-    *
-    * `untrackedOnFailure` is the cleanliness policy's verdict on what failure
-    * teardown may delete. `Keep` only when setup deliberately left pre-existing
-    * files in place (a fresh run under `--skip-branch`, `--keep-changes`, or an
-    * interactive keep answer), where orca cannot tell the user's untracked
-    * files from the run's.
     */
   private[orca] case class FlowSetup(
       store: ProgressStore,
@@ -188,7 +176,7 @@ object FlowLifecycle:
       startingHead: Head,
       stackSettings: StackSettings,
       branchMode: BranchMode,
-      untrackedOnFailure: UntrackedFiles,
+      startingTree: StartingTree,
       startingCommit: Option[CommitHash],
       /** The orca worktree the run happened in, when it happened in one —
         * `--worktree`, or a resume the shell relaunched into one without the
@@ -276,7 +264,7 @@ object FlowLifecycle:
         flowSource,
         emit
       )
-    val untrackedOnFailure = session.settle(preflight)
+    val untracked = session.settle(preflight)
     // Discovery (ADR 0019) is sequenced after the stash, which would sweep a
     // just-written untracked file straight back out of the tree, and before
     // binding, so a failed discovery leaves no branch or header behind.
@@ -289,6 +277,7 @@ object FlowLifecycle:
     stack match
       case StackOutcome.Discovered(_) => commitDiscoveredSettings(git, workDir)
       case StackOutcome.Configured(_) => ()
+    val startingTree = StartingTree.capture(untracked, git, emit)
     FlowSetup(
       store,
       sessionStore,
@@ -296,7 +285,7 @@ object FlowLifecycle:
       binding.startingHead,
       stack.settings,
       binding.branchMode,
-      untrackedOnFailure,
+      startingTree,
       binding.startingCommit,
       // From where the run IS, not from the flag: the shell relaunches a resume
       // inside the worktree its log was found in WITHOUT `--worktree` (the flag
@@ -322,7 +311,7 @@ object FlowLifecycle:
     /** Carry out [[SetupPreflight.run]]'s cleanliness verdict, then put back
       * the peeked log if the stash removed it, so the authoritative read in
       * [[bindBranch]] finds it. Returns what failure teardown may then do with
-      * untracked files (see [[FlowSetup.untrackedOnFailure]]).
+      * untracked files (see [[StartingTree.untracked]]).
       */
     def settle(preflight: Preflight)(using WorkspaceWrite): UntrackedFiles =
       val untracked = preflight.tree match
@@ -354,7 +343,7 @@ object FlowLifecycle:
 
     /** Leave a dirty tree in place, naming the file count once. `Keep` then
       * holds failure teardown back from deleting untracked files it cannot tell
-      * apart from the run's own (see [[FlowSetup.untrackedOnFailure]]).
+      * apart from the run's own (see [[StartingTree.untracked]]).
       */
     private def keepDirtyTree(dirtyCount: Int): UntrackedFiles =
       if dirtyCount == 0 then UntrackedFiles.Remove
@@ -507,7 +496,7 @@ object FlowLifecycle:
     private def resumeBinding(
         log: ProgressLog,
         protectedBranches: Set[String]
-    )(using WorkspaceWrite): BranchBinding =
+    ): BranchBinding =
       val header = log.header
       val featureBranch =
         RecoveryCheck.validateHeader(
@@ -1047,12 +1036,45 @@ object FlowLifecycle:
 
   /** Failure teardown (ADR 0018 §2.5): discard the failed stage's uncommitted
     * partial edits with `git reset --hard` (which restores the last committed
-    * log) plus, when `untracked` allows it, the files the stage newly created,
-    * staying on the feature branch so the next run resumes in place.
+    * log) plus, when `startingTree` allows it, the files the stage newly
+    * created, staying on the feature branch so the next run resumes in place.
+    * Kept tracked changes that no commit has carried yet are put back.
+    *
+    * Touches nothing when HEAD is off `featureBranch`: the body moved it, so
+    * the edits there are not known to be only the failed stage's.
     */
   private[orca] def teardownFailure(
       git: GitTool,
-      untracked: UntrackedFiles
+      featureBranch: FeatureBranch,
+      startingTree: StartingTree,
+      emit: OrcaEvent => Unit
   ): Unit =
     given WorkspaceWrite = RuntimeInStage.workspaceToken()
-    git.discardUncommitted(untracked)
+    git.head() match
+      case Head.OnBranch(branch) if branch == featureBranch =>
+        // Names WHY the reset is about to discard changes — the reset's own
+        // "Discarded uncommitted changes" Step alone would read as
+        // unexplained data loss.
+        val discarding = startingTree.untracked match
+          case UntrackedFiles.Remove =>
+            "uncommitted changes and the files the failed stage created"
+          case UntrackedFiles.Keep =>
+            "uncommitted edits to tracked files (new files stay)"
+        emit(
+          OrcaEvent.Step(
+            s"recovering from the failure — discarding $discarding; re-run " +
+              "the same command (the same flow with the same task text) to " +
+              "resume from the last completed stage"
+          )
+        )
+        git.discardUncommitted(startingTree.untracked)
+        startingTree.restore(git, emit)
+      case elsewhere =>
+        emit(
+          OrcaEvent.Step(
+            s"warning: the flow failed on ${elsewhere.describe}, not on its " +
+              s"branch '${featureBranch.value}' — leaving the working tree " +
+              "as it is; commit or stash what is there, check out " +
+              s"'${featureBranch.value}' and re-run the same command to resume"
+          )
+        )

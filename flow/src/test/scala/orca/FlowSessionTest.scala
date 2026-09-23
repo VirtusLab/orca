@@ -295,11 +295,13 @@ class FlowSessionTest extends FunSuite:
       )
     val git = new orca.tools.OsGitTool(dir)
     new TestFlowControl(
-      new orca.events.EventDispatcher(listeners),
-      git,
+      new TestFlowContext(
+        new orca.events.EventDispatcher(listeners),
+        "p",
+        wiredGit = Some(git)
+      ),
       store,
-      sessionStore,
-      "p"
+      sessionStore
     )
 
   /** A record whose `resumeWireId` is set is one a PREVIOUS run committed a
@@ -799,11 +801,13 @@ class FlowSessionTest extends FunSuite:
     )
     val git = new orca.tools.OsGitTool(dir)
     val fc = new TestFlowControl(
-      new orca.events.EventDispatcher(Nil),
-      git,
+      new TestFlowContext(
+        new orca.events.EventDispatcher(Nil),
+        "p",
+        wiredGit = Some(git)
+      ),
       store,
-      sessionStore,
-      "p"
+      sessionStore
     )
     val agent = new StubAgentForSeeded(existsResult = false)
     val _ = flowSession(agent).run("continue")(using fc)
