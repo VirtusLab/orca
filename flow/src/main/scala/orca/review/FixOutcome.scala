@@ -2,6 +2,7 @@ package orca.review
 
 import orca.agents.{Announce, JsonData, given}
 import orca.plan.Title
+import orca.util.PromptResource
 
 /** What the fixing agent reports back per iteration: the findings it actually
   * fixed in the code, and the findings it chose not to fix along with a reason.
@@ -13,7 +14,7 @@ import orca.plan.Title
   * directly: [[FixOutcome.reconcile]] maps it back onto the findings that were
   * handed out.
   */
-case class FixOutcome(
+private[review] case class FixOutcome(
     fixed: List[Title],
     declined: List[DeclinedFinding]
 ) derives JsonData
@@ -23,7 +24,8 @@ case class FixOutcome(
   * finding points is the reviewer's, and [[FixOutcome.reconcile]] puts it back
   * when it resolves the echo to the [[ReviewFinding]] that was handed out.
   */
-case class DeclinedFinding(title: Title, reason: String) derives JsonData
+private[review] case class DeclinedFinding(title: Title, reason: String)
+    derives JsonData
 
 /** A [[FixOutcome]] resolved against the findings the fixer was handed, so
   * every handed finding is in exactly one bucket and no echo is counted twice.
@@ -48,15 +50,26 @@ private[review] case class ReconciledFixOutcome(
     declined: List[OpenFinding],
     unaccounted: List[IdentifiedFinding],
     unresolvedEchoes: List[String]
-)
+):
+  /** What the turn leaves open: the declines, plus every finding neither fixed
+    * nor declined, recorded with `unaccountedReason`.
+    */
+  def stillOpen(unaccountedReason: OpenReason): List[OpenFinding] =
+    declined ++ unaccounted.map(_.open(unaccountedReason))
 
-object FixOutcome:
+private[review] object FixOutcome:
   /** Silent — the fix loop already announces its outcome ("Fixed N, declined
     * N") per iteration; without this, the raw-payload fallback (ADR 0008) would
     * print the JSON on top of that line, since `FixOutcome` has no other
     * `Announce` instance to resolve to.
     */
   given Announce[FixOutcome] = Announce.from(_ => "")
+
+  /** How the fixer must word its reply for [[reconcile]] to match it back. Sent
+    * after the caller's fix instructions, which can be replaced.
+    */
+  val ReplyFormat: String =
+    PromptResource.load("/orca/review/prompts/fix-reply.md")
 
   /** Resolve `outcome`'s echoed entries back to the findings in `handed`.
     *

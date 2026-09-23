@@ -4,13 +4,12 @@ package orca.shell.create
   * flow runs here instead of in the user's repository, so authoring works from
   * any directory, never stashes or commits the user's tree, and leaves no
   * branches behind. A pre-committed settings file counts as "stack configured"
-  * (`SettingsFile.hasStackLines` only sees LIVE lines — a comment would not do)
-  * and keeps stack discovery from ever running. The one mechanical gate a flow
-  * script admits is compiling it, so `lint` is `scala-cli compile <flow-file>`
-  * — the review loop then gets compiler feedback each round — while
-  * `format`/`test` stay off. On success the authored file is copied out to the
-  * real tier and the sandbox deleted; after a failure it is kept for
-  * inspection.
+  * (only LIVE lines configure a stack key — a comment would not do) and keeps
+  * stack discovery from ever running. The one mechanical gate a flow script
+  * admits is compiling it, so `lint` is `scala-cli compile <flow-file>` — the
+  * review loop then gets compiler feedback each round — while `format`/`test`
+  * stay off. On success the authored file is copied out to the real tier and
+  * the sandbox deleted; after a failure it is kept for inspection.
   */
 private[shell] object AuthoringSandbox:
 

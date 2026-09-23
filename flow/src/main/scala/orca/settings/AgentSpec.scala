@@ -51,12 +51,24 @@ private[orca] case class AgentSettings(
     coding: Option[AgentSpec] = None,
     review: Option[AgentSpec] = None
 ):
+  def get(key: AgentKey): Option[AgentSpec] = key match
+    case AgentKey.PlanningAgent => planning
+    case AgentKey.CodingAgent   => coding
+    case AgentKey.ReviewAgent   => review
+
+  def updated(key: AgentKey, spec: Option[AgentSpec]): AgentSettings =
+    key match
+      case AgentKey.PlanningAgent => copy(planning = spec)
+      case AgentKey.CodingAgent   => copy(coding = spec)
+      case AgentKey.ReviewAgent   => copy(review = spec)
+
+  /** The set roles, in planning/coding/review order. */
+  def entries: List[(AgentKey, AgentSpec)] =
+    AgentKey.values.toList.flatMap(key => get(key).map(key -> _))
+
   def orElse(fallback: AgentSettings): AgentSettings =
-    AgentSettings(
-      planning = planning.orElse(fallback.planning),
-      coding = coding.orElse(fallback.coding),
-      review = review.orElse(fallback.review)
-    )
+    AgentKey.values.foldLeft(this): (acc, key) =>
+      acc.updated(key, get(key).orElse(fallback.get(key)))
 
 private[orca] object AgentSettings:
   val empty: AgentSettings = AgentSettings()

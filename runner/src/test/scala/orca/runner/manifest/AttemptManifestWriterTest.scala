@@ -169,6 +169,30 @@ class AttemptManifestWriterTest extends munit.FunSuite:
     assertEquals(session.lastActiveAt, Instant.parse("2026-07-18T10:04:00Z"))
     assertEquals(session.stage, Some("code"))
 
+  test("a re-fired session keeps its position while a new one appends"):
+    val workDir = TempDirs.dir()
+    val writer =
+      newWriter(workDir, fixedClock(Instant.parse("2026-07-18T10:00:00Z")))
+    def commit(clientId: String): Unit =
+      writer.onEvent(
+        OrcaEvent.SessionCommitted(
+          harness = BackendTag.ClaudeCode,
+          clientId = clientId,
+          wireId = Some(s"wire-$clientId"),
+          sessionKey = None,
+          agent = clientId,
+          role = None
+        )
+      )
+    commit("a")
+    commit("b")
+    commit("a")
+    commit("c")
+    assertEquals(
+      soleManifest(workDir).sessions.map(_.agent),
+      List("a", "b", "c")
+    )
+
   test("nested stages stamp the top of the stack"):
     val workDir = TempDirs.dir()
     val writer =

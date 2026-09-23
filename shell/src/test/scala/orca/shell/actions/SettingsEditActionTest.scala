@@ -54,7 +54,10 @@ class SettingsEditActionTest extends munit.FunSuite:
       // A commented example does not count as "configured", so exiting the
       // editor without touching the template still lets the first flow run
       // auto-discover the stack.
-      assert(!SettingsFile.hasStackLines(os.read(path)))
+      assertEquals(
+        SettingsFile.parse(os.read(path), SettingsScope.Project).map(_.stack),
+        Right(None)
+      )
 
   test(
     "ensureExists: Project template guides both stack commands and role agents"

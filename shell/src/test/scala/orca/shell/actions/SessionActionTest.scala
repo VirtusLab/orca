@@ -1,8 +1,7 @@
 package orca.shell.actions
 
 import orca.runner.manifest.{AttemptManifest, ManifestSession}
-import orca.shell.sessions.ManifestFixtures.{durable, manifest}
-import orca.shell.sessions.SessionSelection
+import orca.shell.sessions.ManifestFixtures.{durable, manifest, selection}
 import orca.testkit.TempDirs
 import orca.tools.pi.PiSessionStore
 
@@ -25,7 +24,7 @@ class SessionActionTest extends munit.FunSuite:
     val s = session()
     assertEquals(
       SessionAction.identityNotice(
-        SessionSelection(manifestOf(s), s, crashed = false),
+        selection(manifestOf(s), s),
         "claude"
       ),
       "resuming session 'newest' [claude], in /work"
@@ -35,7 +34,7 @@ class SessionActionTest extends munit.FunSuite:
     val s = session(stage = Some("Task: fix a bug"))
     assertEquals(
       SessionAction.identityNotice(
-        SessionSelection(manifestOf(s), s, crashed = false),
+        selection(manifestOf(s), s),
         "claude"
       ),
       "resuming session 'newest' [claude], stage 'Task: fix a bug', in /work"

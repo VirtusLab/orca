@@ -3,14 +3,19 @@ package orca.shell
 import org.jline.terminal.{Terminal, TerminalBuilder}
 import orca.{OrcaArgs, RunTarget, StackSettings, Uncommitted}
 import orca.agents.BackendTag
-import orca.settings.SettingsFile
+import orca.settings.{SettingsFile, SettingsScope}
 import orca.shell.actions.{SettingsEditAction, StackAction}
 import orca.shell.create.CreateTier
 import orca.discovery.Origin
 import orca.shell.flows.DiscoveredFlow
 import orca.shell.resume.InterruptedRun
 import orca.shell.run.LaunchResult
-import orca.shell.sessions.{RecordedAttempt, SessionPicker, SessionSelection}
+import orca.shell.sessions.{
+  ManifestFixtures,
+  SessionIndex,
+  SessionPicker,
+  SessionSelection
+}
 import orca.shell.sessions.ManifestFixtures.{durable, ephemeral, manifest}
 import orca.shell.ui.{Choice, ShellUi, UiOutcome}
 import orca.testkit.{TempDirs, branchName}
@@ -22,10 +27,9 @@ import orca.testkit.{TempDirs, branchName}
 private class ConfirmOnlyUi(outcome: UiOutcome[Boolean]) extends ShellUi:
   var recordedQuestion: Option[String] = None
   var recordedDefault: Option[Boolean] = None
-  def select[A](
+  protected def selectInOrder[A](
       title: String,
-      choices: List[Choice[A]],
-      preselect: Option[A] = None
+      choices: List[Choice[A]]
   ): UiOutcome[A] =
     throw new UnsupportedOperationException("rediscoverStack doesn't select")
   def confirm(question: String, default: Boolean): UiOutcome[Boolean] =
@@ -37,26 +41,19 @@ private class ConfirmOnlyUi(outcome: UiOutcome[Boolean]) extends ShellUi:
   def inputMultiline(prompt: String): UiOutcome[String] =
     throw new UnsupportedOperationException("rediscoverStack doesn't input")
 
-/** Records every `select` call's shown choices (in shown order) and the
-  * preselection offered, and always answers with the fixed `outcome` — used to
-  * verify [[Main.pickFlow]] hands `ui.select` the ALREADY-reordered list (not
-  * just that the pure `promoteByName`/`reorder` helper computes the right order
-  * in isolation), and that [[Main.promptRunTarget]] offers all three
-  * destinations with the default preselected. `confirm`/`input` are
+/** Records every `select` call's shown choices (in shown order) and always
+  * answers with the fixed `outcome` — used to verify what [[Main.pickFlow]] and
+  * [[Main.promptRunTarget]] show, first row included. `confirm`/`input` are
   * unsupported: neither caller uses them.
   */
 private class RecordingSelectUi[T](outcome: UiOutcome[T]) extends ShellUi:
   private var shown: List[List[Choice[T]]] = Nil
-  private var preselected: List[Option[T]] = Nil
   def recordedChoices: List[List[Choice[T]]] = shown
-  def recordedPreselect: Option[Option[T]] = preselected.headOption
-  def select[A](
+  protected def selectInOrder[A](
       title: String,
-      choices: List[Choice[A]],
-      preselect: Option[A] = None
+      choices: List[Choice[A]]
   ): UiOutcome[A] =
     shown = shown :+ choices.asInstanceOf[List[Choice[T]]]
-    preselected = preselected :+ preselect.asInstanceOf[Option[T]]
     outcome.asInstanceOf[UiOutcome[A]]
   def confirm(question: String, default: Boolean): UiOutcome[Boolean] =
     throw new UnsupportedOperationException("neither caller confirms")
@@ -85,10 +82,9 @@ private class FlowScriptedUi(
   var inputMultilineCount = 0
   var inputCount = 0
 
-  def select[A](
+  protected def selectInOrder[A](
       title: String,
-      choices: List[Choice[A]],
-      preselect: Option[A] = None
+      choices: List[Choice[A]]
   ): UiOutcome[A] =
     selectCount += 1
     val outcome = pendingSelect.head
@@ -130,8 +126,8 @@ class MainTest extends munit.FunSuite:
   // lineage resumed/re-run across three attempts (so three occurrences, newest
   // last-active wins), a Plan-stage ephemeral, and three reviewer ephemeral
   // sessions.
-  private def mixedAttempts(): List[RecordedAttempt] =
-    val attempt1 = RecordedAttempt(
+  private def mixedAttempts(): List[orca.shell.sessions.RecordedAttempt] =
+    val attempt1 = ManifestFixtures.recorded(
       manifest(
         startedAt = "2026-07-16T09:00:00Z",
         sessions = List(
@@ -145,7 +141,7 @@ class MainTest extends munit.FunSuite:
       ),
       crashed = false
     )
-    val attempt2 = RecordedAttempt(
+    val attempt2 = ManifestFixtures.recorded(
       manifest(
         startedAt = "2026-07-17T09:00:00Z",
         sessions = List(
@@ -169,7 +165,7 @@ class MainTest extends munit.FunSuite:
       ),
       crashed = false
     )
-    val attempt3 = RecordedAttempt(
+    val attempt3 = ManifestFixtures.recorded(
       manifest(
         startedAt = "2026-07-18T09:00:00Z",
         sessions = List(
@@ -196,14 +192,20 @@ class MainTest extends munit.FunSuite:
   test(
     "sessionRows (collapsed): shows only the newest durable occurrence, starred"
   ):
-    val rows = SessionPicker.sessionRows(mixedAttempts(), expanded = false)
+    val rows = SessionPicker.sessionRows(
+      SessionIndex.of(mixedAttempts()),
+      expanded = false
+    )
     val resumes = resumeSelections(rows)
     assertEquals(resumes.map(_.session.stage), List(Some("Task: fix bug")))
 
   test(
     "sessionRows (collapsed): render shape is the starred row plus both expander labels"
   ):
-    val rows = SessionPicker.sessionRows(mixedAttempts(), expanded = false)
+    val rows = SessionPicker.sessionRows(
+      SessionIndex.of(mixedAttempts()),
+      expanded = false
+    )
     assertEquals(
       rows.map(_.label),
       List(
@@ -216,7 +218,10 @@ class MainTest extends munit.FunSuite:
   test(
     "sessionRows (collapsed): ephemeral sessions and earlier occurrences are hidden behind expanders"
   ):
-    val rows = SessionPicker.sessionRows(mixedAttempts(), expanded = false)
+    val rows = SessionPicker.sessionRows(
+      SessionIndex.of(mixedAttempts()),
+      expanded = false
+    )
     assertEquals(rows.size, 3)
     assertEquals(rows(1).value, SessionPicker.PickerRow.ShowMore)
     assertEquals(rows(2).value, SessionPicker.PickerRow.ShowMore)
@@ -224,7 +229,10 @@ class MainTest extends munit.FunSuite:
   test(
     "sessionRows (expanded): reveals earlier occurrences and ephemeral sessions, no expander rows"
   ):
-    val rows = SessionPicker.sessionRows(mixedAttempts(), expanded = true)
+    val rows = SessionPicker.sessionRows(
+      SessionIndex.of(mixedAttempts()),
+      expanded = true
+    )
     assert(!rows.exists(_.value == SessionPicker.PickerRow.ShowMore))
     // 1 starred + 2 earlier occurrences + 4 ephemeral sessions
     assertEquals(rows.size, 7)
@@ -232,7 +240,10 @@ class MainTest extends munit.FunSuite:
   test(
     "sessionRows (expanded): earlier occurrences and ephemeral sessions are each sorted newest-first"
   ):
-    val rows = SessionPicker.sessionRows(mixedAttempts(), expanded = true)
+    val rows = SessionPicker.sessionRows(
+      SessionIndex.of(mixedAttempts()),
+      expanded = true
+    )
     val resumes = resumeSelections(rows)
     val stages = resumes.map(_.session.stage.getOrElse(""))
     // starred row (fix bug) is first; then earlier occurrences (auth, then
@@ -254,7 +265,7 @@ class MainTest extends munit.FunSuite:
   test(
     "sessionRows (expanded): earlier-occurrence rows are labeled with the session name and an (earlier occurrence) marker"
   ):
-    val attempt1 = RecordedAttempt(
+    val attempt1 = ManifestFixtures.recorded(
       manifest(
         startedAt = "2026-07-17T09:00:00Z",
         sessions = List(
@@ -263,7 +274,7 @@ class MainTest extends munit.FunSuite:
       ),
       crashed = false
     )
-    val attempt2 = RecordedAttempt(
+    val attempt2 = ManifestFixtures.recorded(
       manifest(
         startedAt = "2026-07-18T09:00:00Z",
         sessions = List(
@@ -273,7 +284,10 @@ class MainTest extends munit.FunSuite:
       crashed = false
     )
     val rows =
-      SessionPicker.sessionRows(List(attempt2, attempt1), expanded = true)
+      SessionPicker.sessionRows(
+        SessionIndex.of(List(attempt2, attempt1)),
+        expanded = true
+      )
     assertEquals(
       rows.map(_.label),
       List(
@@ -285,7 +299,7 @@ class MainTest extends munit.FunSuite:
   test(
     "sessionRows (expanded): ephemeral rows are labeled with agent, role, stage and an (ephemeral) marker"
   ):
-    val run = RecordedAttempt(
+    val run = ManifestFixtures.recorded(
       manifest(sessions =
         List(
           ephemeral(
@@ -298,7 +312,9 @@ class MainTest extends munit.FunSuite:
       crashed = false
     )
     assertEquals(
-      SessionPicker.sessionRows(List(run), expanded = true).map(_.label),
+      SessionPicker
+        .sessionRows(SessionIndex.of(List(run)), expanded = true)
+        .map(_.label),
       List(
         "code-structure (reviewer) — stage Task: add auth [claude] (ephemeral)"
       )
@@ -307,22 +323,26 @@ class MainTest extends munit.FunSuite:
   test(
     "sessionRows omits the earlier-occurrences expander when there's only one occurrence"
   ):
-    val run = RecordedAttempt(
+    val run = ManifestFixtures.recorded(
       manifest(sessions = List(durable())),
       crashed = false
     )
     assertEquals(
-      SessionPicker.sessionRows(List(run), expanded = false).map(_.label),
+      SessionPicker
+        .sessionRows(SessionIndex.of(List(run)), expanded = false)
+        .map(_.label),
       List("★ main — latest (no stage yet) [claude]")
     )
 
   test("sessionRows singularises a count of 1 in the expander label"):
-    val run = RecordedAttempt(
+    val run = ManifestFixtures.recorded(
       manifest(sessions = List(durable(), ephemeral())),
       crashed = false
     )
     assertEquals(
-      SessionPicker.sessionRows(List(run), expanded = false).map(_.label),
+      SessionPicker
+        .sessionRows(SessionIndex.of(List(run)), expanded = false)
+        .map(_.label),
       List(
         "★ main — latest (no stage yet) [claude]",
         "… show 1 ephemeral session (reviews, plan steps)"
@@ -332,7 +352,7 @@ class MainTest extends munit.FunSuite:
   test(
     "sessionRows keeps two sessions sharing a name apart by their minting stage"
   ):
-    val run = RecordedAttempt(
+    val run = ManifestFixtures.recorded(
       manifest(sessions =
         List(
           durable(
@@ -354,7 +374,9 @@ class MainTest extends munit.FunSuite:
       crashed = false
     )
     assertEquals(
-      SessionPicker.sessionRows(List(run), expanded = false).map(_.label),
+      SessionPicker
+        .sessionRows(SessionIndex.of(List(run)), expanded = false)
+        .map(_.label),
       List(
         "★ implementer — latest (stage: Task: wire the parser) [claude]",
         "★ implementer — latest (stage: Task: parse the input) [claude]"
@@ -364,7 +386,7 @@ class MainTest extends munit.FunSuite:
   test(
     "sessionRows groups durable lineages by (agent, sessionName), not agent alone"
   ):
-    val run = RecordedAttempt(
+    val run = ManifestFixtures.recorded(
       manifest(sessions =
         List(
           durable(
@@ -381,7 +403,8 @@ class MainTest extends munit.FunSuite:
       ),
       crashed = false
     )
-    val rows = SessionPicker.sessionRows(List(run), expanded = false)
+    val rows =
+      SessionPicker.sessionRows(SessionIndex.of(List(run)), expanded = false)
     assertEquals(
       rows.map(_.label),
       List(
@@ -395,12 +418,14 @@ class MainTest extends munit.FunSuite:
       "feat-a" -> "2026-07-18T10:00:00Z",
       "feat-b" -> "2026-07-18T09:00:00Z"
     ).map: (b, at) =>
-      RecordedAttempt(
+      ManifestFixtures.recorded(
         manifest(branch = Some(b), sessions = List(durable(lastActiveAt = at))),
         crashed = false
       )
     assertEquals(
-      SessionPicker.sessionRows(attempts, expanded = false).map(_.label),
+      SessionPicker
+        .sessionRows(SessionIndex.of(attempts), expanded = false)
+        .map(_.label),
       List(
         "★ main — latest (no stage yet) [claude] on feat-a",
         "★ main — latest (no stage yet) [claude] on feat-b"
@@ -410,7 +435,7 @@ class MainTest extends munit.FunSuite:
   test("sessionRows groups resumed attempts on one branch into one lineage"):
     val attempts = List("2026-07-18T10:00:00Z", "2026-07-18T09:00:00Z").map:
       at =>
-        RecordedAttempt(
+        ManifestFixtures.recorded(
           manifest(
             branch = Some("feat-a"),
             sessions = List(durable(lastActiveAt = at))
@@ -418,7 +443,9 @@ class MainTest extends munit.FunSuite:
           crashed = false
         )
     assertEquals(
-      SessionPicker.sessionRows(attempts, expanded = false).map(_.label),
+      SessionPicker
+        .sessionRows(SessionIndex.of(attempts), expanded = false)
+        .map(_.label),
       List(
         "★ main — latest (no stage yet) [claude] on feat-a",
         "… show 1 earlier occurrence"
@@ -437,7 +464,7 @@ class MainTest extends munit.FunSuite:
         ephemeral(agent = "security", lastActiveAt = "2026-07-18T09:10:00Z")
       )
     ).map: (startedAt, sessions) =>
-      RecordedAttempt(
+      ManifestFixtures.recorded(
         manifest(
           startedAt = startedAt,
           branch = Some("feat-a"),
@@ -446,7 +473,10 @@ class MainTest extends munit.FunSuite:
         crashed = false
       )
     assertEquals(
-      SessionPicker.sessionRows(attempts, expanded = true).map(_.label).tail,
+      SessionPicker
+        .sessionRows(SessionIndex.of(attempts), expanded = true)
+        .map(_.label)
+        .tail,
       List(
         "main [claude] (earlier occurrence) on feat-a",
         "security [claude] (ephemeral) on feat-a"
@@ -455,14 +485,19 @@ class MainTest extends munit.FunSuite:
 
   test("sessionRows suffixes a crashed attempt's rows with `(crashed)`"):
     val run =
-      RecordedAttempt(manifest(sessions = List(durable())), crashed = true)
+      ManifestFixtures.recorded(
+        manifest(sessions = List(durable())),
+        crashed = true
+      )
     assertEquals(
-      SessionPicker.sessionRows(List(run), expanded = false).map(_.label),
+      SessionPicker
+        .sessionRows(SessionIndex.of(List(run)), expanded = false)
+        .map(_.label),
       List("★ main — latest (no stage yet) [claude] (crashed)")
     )
 
   test("sessionRows disables a wireId-less session, naming its harness"):
-    val run = RecordedAttempt(
+    val run = ManifestFixtures.recorded(
       manifest(sessions =
         List(durable(harness = BackendTag.Pi, wireId = None))
       ),
@@ -470,17 +505,20 @@ class MainTest extends munit.FunSuite:
     )
     assertEquals(
       SessionPicker
-        .sessionRows(List(run), expanded = false)
+        .sessionRows(SessionIndex.of(List(run)), expanded = false)
         .map(_.disabledReason),
       List(Some("Pi session has no resumable id"))
     )
 
   test("sessionRows enables a claude session with a wireId"):
     val run =
-      RecordedAttempt(manifest(sessions = List(durable())), crashed = false)
+      ManifestFixtures.recorded(
+        manifest(sessions = List(durable())),
+        crashed = false
+      )
     assertEquals(
       SessionPicker
-        .sessionRows(List(run), expanded = false)
+        .sessionRows(SessionIndex.of(List(run)), expanded = false)
         .map(_.disabledReason),
       List(None)
     )
@@ -488,10 +526,16 @@ class MainTest extends munit.FunSuite:
   test(
     "sessionRows is a silent no-op shape on an empty run list (no rows, no crash)"
   ):
-    assertEquals(SessionPicker.sessionRows(Nil, expanded = false), Nil)
-    assertEquals(SessionPicker.sessionRows(Nil, expanded = true), Nil)
+    assertEquals(
+      SessionPicker.sessionRows(SessionIndex.of(Nil), expanded = false),
+      Nil
+    )
+    assertEquals(
+      SessionPicker.sessionRows(SessionIndex.of(Nil), expanded = true),
+      Nil
+    )
 
-  // --- promoteByName ---
+  // --- flows ---
 
   private def flow(name: String): DiscoveredFlow =
     DiscoveredFlow(
@@ -519,46 +563,13 @@ class MainTest extends munit.FunSuite:
       shadows = Nil
     )
 
-  test("promoteByName moves the named flow to the front, rest stay ordered"):
-    val flows = List(flow("alpha.sc"), flow("implement.sc"), flow("zeta.sc"))
-    assertEquals(
-      Main.promoteByName("implement.sc", flows).map(_.name),
-      List("implement.sc", "alpha.sc", "zeta.sc")
-    )
-
-  test("promoteByName is a no-op when the name isn't in the list"):
-    val flows = List(flow("alpha.sc"), flow("zeta.sc"))
-    assertEquals(
-      Main.promoteByName("implement.sc", flows).map(_.name),
-      List("alpha.sc", "zeta.sc")
-    )
-
-  test("promoteByName on an empty list stays empty"):
-    assertEquals(Main.promoteByName("implement.sc", Nil), Nil)
-
-  // --- pickFlow: end-to-end, ui.select actually receives the reordered list ---
+  // --- pickFlow ---
 
   private val threeFlows =
     List(flow("alpha.sc"), flow("implement.sc"), flow("zeta.sc"))
 
   test(
-    "pickFlow: the run picker's reorder promotes implement.sc to the front of what ui.select shows"
-  ):
-    val ui = new RecordingSelectUi[DiscoveredFlow](UiOutcome.Cancelled)
-    val _ =
-      Main.pickFlow(
-        ui,
-        "Run which flow?",
-        threeFlows,
-        reorder = Main.promoteByName(Main.FlagshipFlow, _)
-      )
-    assertEquals(
-      ui.recordedChoices.head.map(_.value.name),
-      List("implement.sc", "alpha.sc", "zeta.sc")
-    )
-
-  test(
-    "pickFlow: view/edit pickers (no reorder given) stay alphabetical"
+    "pickFlow: view/edit pickers (no default given) stay alphabetical"
   ):
     val ui = new RecordingSelectUi[DiscoveredFlow](UiOutcome.Cancelled)
     val _ = Main.pickFlow(ui, "View which flow?", threeFlows)
@@ -583,13 +594,6 @@ class MainTest extends munit.FunSuite:
       )
     )
 
-  test(
-    "promptRunTarget: a new branch leads the rows and is marked preselected"
-  ):
-    val ui = RecordingSelectUi(UiOutcome.Selected(newBranch))
-    assertEquals(Main.promptRunTarget(ui), Some(newBranch))
-    assertEquals(ui.recordedPreselect, Some(Some(newBranch)))
-
   test("promptRunTarget: cancelling aborts the run"):
     assertEquals(
       Main.promptRunTarget(RecordingSelectUi[RunTarget](UiOutcome.Cancelled)),
@@ -597,6 +601,14 @@ class MainTest extends munit.FunSuite:
     )
 
   // --- runFlow (the interactive launch path) ---
+
+  test("runFlow: the flow picker starts on the flagship flow"):
+    val ui = new RecordingSelectUi[DiscoveredFlow](UiOutcome.Cancelled)
+    withDumbTerminal(Main.runFlow(ui, _, TempDirs.dir()))
+    assertEquals(
+      ui.recordedChoices.head.headOption.map(_.value.name),
+      Some(Main.FlagshipFlow)
+    )
 
   /** Runs [[Main.runFlow]] picking a flow, typing a task, then picking `target`
     * and answering the branch prompt from `branchAnswers`; returns the UI and
@@ -1258,7 +1270,10 @@ class MainTest extends munit.FunSuite:
     Main.rediscoverStack(ConfirmOnlyUi(UiOutcome.Selected(true)), dir)
     val rewritten = os.read(path)
     assertEquals(rewritten, SettingsFile.stripStackLines(content))
-    assert(!SettingsFile.hasStackLines(rewritten))
+    assertEquals(
+      SettingsFile.parse(rewritten, SettingsScope.Project).map(_.stack),
+      Right(None)
+    )
 
   test("rediscoverStack leaves the file untouched when the user declines"):
     val dir = TempDirs.dir()

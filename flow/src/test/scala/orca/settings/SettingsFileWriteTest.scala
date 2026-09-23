@@ -53,7 +53,7 @@ class SettingsFileWriteTest extends ScalaCheckSuite:
     )
     assertEquals(
       SettingsFile.parse(rendered, SettingsScope.UserGlobal),
-      Right(ParsedSettings(orca.StackSettings.empty, AgentSettings.empty))
+      Right(ParsedSettings(None, AgentSettings.empty))
     )
 
   test("renderGlobal renders one key = harness:model line per set role"):

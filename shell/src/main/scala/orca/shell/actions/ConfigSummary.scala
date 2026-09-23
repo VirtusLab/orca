@@ -2,7 +2,7 @@ package orca.shell.actions
 
 import orca.gitref.Head
 import orca.runner.RoleAgents
-import orca.settings.AgentSpec
+import orca.settings.{AgentSpec, StackKey}
 import orca.tools.OsGitTool
 
 /** The startup configuration summary (ADR 0021 §4/§8): two lines printed right
@@ -69,24 +69,20 @@ private[shell] object ConfigSummary:
   /** `stack: format=X, lint=Y, test=Z` — one entry per [[StackAction.status]]
     * key, `off` for an empty/disabled one; `stack: not discovered yet —
     * detected on the first flow run` when there's no settings file yet or it
-    * carries no stack lines. A malformed settings file renders
+    * configures no stack key. A malformed settings file renders
     * [[StackAction.status]]'s own error as a one-line warning instead of
     * crashing.
     */
   def stackLine(workDir: os.Path): String =
     StackAction.status(workDir) match
       case Left(error) => s"stack: $error"
-      case Right(StackStatus.NoSettings | StackStatus.NoStackLines) =>
+      case Right(StackStatus.NoSettings | StackStatus.NoStackConfigured) =>
         "stack: not discovered yet — detected on the first flow run"
       case Right(StackStatus.Present(stack, _)) =>
-        val keys =
-          List(
-            "format" -> stack.format,
-            "lint" -> stack.lint,
-            "test" -> stack.test
-          )
-        "stack: " + keys
-          .map((key, commands) =>
-            s"$key=${if commands.isEmpty then "off" else commands.mkString("; ")}"
-          )
+        "stack: " + StackKey.values
+          .map: key =>
+            val commands = key.commandsIn(stack)
+            val shown =
+              if commands.isEmpty then "off" else commands.mkString("; ")
+            s"${key.raw}=$shown"
           .mkString(", ")

@@ -171,13 +171,15 @@ most easily broken:
   picker.
   Identity and label are separate here: `SessionKey.describe` renders a key for
   the run's own diagnostics (a stage path id carries `#0` suffixes), and a
-  session reads to a person as its bare `name` — `SessionPicker.displayName` is
+  session reads to a person as its bare `name` — `SessionNaming.displayName` is
   the single home of that. A row's `(stage: ...)` segment is a DIFFERENT field,
   the stage the session was last active in, so `SessionPicker.mintedInTag`
   appends the minting stage to exactly those rows two lineages would otherwise
-  share, and `orca continue --list` gives it a column. The picker groups rows
-  into lineages keyed by `(workDir, branch, agent, minted key)`, and `orca
-  continue <selector>` matches a session name or a recorded branch. Neither half of a `SessionKey` is
+  share, and `orca continue --list` gives it a column. `SessionIndex` groups
+  sessions into lineages keyed by `(workDir, branch, agent, minted key)`, and
+  `orca continue <selector>` matches a `--list` id (`SessionRef`: the attempt id
+  and the session's position in its manifest), a session name or a recorded
+  branch. Neither half of a `SessionKey` is
   hashed or turned into a filename, and only `name` is validated (non-empty).
   Reordering or skipping *other* `session(...)` calls between runs doesn't
   re-key this one; renaming the stage a mint sits in does. Minting one name

@@ -189,6 +189,22 @@ class ReviewAndFixTest extends munit.FunSuite:
       coder.seenPrompts.mkString("\n")
     )
 
+  test("a clean first round says there were no findings"):
+    val steps = new ReviewLoopFixture.StepCapture
+    given FlowControl = ReviewLoopFixture.control(steps.dispatcher)
+    val _ = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
+      reviewers =
+        List(asReviewer(new FakeAgent("quiet", List(ReviewResult.empty)))),
+      task = titled("build the widget"),
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      diff = ReviewDiff.Pinned("")
+    )
+    assert(
+      steps.messages.contains("No findings"),
+      steps.messages.mkString("\n")
+    )
+
   test("an exit with nothing left open prints no closing block"):
     val steps = new ReviewLoopFixture.StepCapture
     given FlowControl = ReviewLoopFixture.control(steps.dispatcher)
@@ -412,6 +428,131 @@ class ReviewAndFixTest extends munit.FunSuite:
       .lift(2)
       .getOrElse(fail(s"expected three review rounds: ${reviewer.seenPrompts}"))
     assert(!roundThree.contains("deliberate"), roundThree)
+
+  test("a declined finding re-reported under a new title and fixed is closed"):
+    given FlowControl = control
+    // The re-report names the entry's id, so the fix closes it however the
+    // reviewer worded it this time.
+    val reworded =
+      finding("nit, put differently").copy(reopens = Some(FindingId("R1.I1.1")))
+    val reviewer = new FakeAgent(
+      name = "loud",
+      outputs = List(
+        ReviewResult(List(finding("nit"), finding("driver"))),
+        ReviewResult(List(reworded)),
+        ReviewResult.empty
+      )
+    )
+    val coder = new FakeAgent(
+      name = "coder",
+      outputs = List(
+        FixOutcome(
+          List(Title("driver")),
+          List(DeclinedFinding(Title("nit"), "deliberate"))
+        ),
+        FixOutcome(List(Title("I1.1")), Nil)
+      )
+    )
+    val result = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(asReviewer(reviewer)),
+      task = titled("build the widget"),
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      diff = ReviewDiff.Pinned("")
+    )
+    assertEquals(result, OpenFindings.empty)
+
+  test("the default cap is 3 fix attempts, so 4 review rounds"):
+    given FlowControl = control
+    // The fixer always claims a fix, so only the cap stops the loop; the
+    // reviewer is scripted for four rounds, and a fifth would throw.
+    val reviewer = new FakeAgent(
+      name = "loud",
+      outputs = List.fill(4)(ReviewResult(List(finding("stubborn"))))
+    )
+    val coder = new FakeAgent(
+      name = "coder",
+      outputs = List.fill(3)(FixOutcome(List(Title("stubborn")), Nil))
+    )
+    val _ = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(asReviewer(reviewer)),
+      task = titled("build the widget"),
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      diff = ReviewDiff.Pinned("")
+    )
+    assertEquals(reviewer.seenPrompts.size, 4)
+
+  test("the fix line says another review round follows the fixes"):
+    val steps = new ReviewLoopFixture.StepCapture
+    given FlowControl = ReviewLoopFixture.control(steps.dispatcher)
+    val reviewer = new FakeAgent(
+      name = "loud",
+      outputs = List(ReviewResult(List(finding("a"))), ReviewResult.empty)
+    )
+    val coder = new FakeAgent(
+      name = "coder",
+      outputs = List(FixOutcome(List(Title("a")), Nil))
+    )
+    val _ = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(asReviewer(reviewer)),
+      task = titled("build the widget"),
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      diff = ReviewDiff.Pinned("")
+    )
+    assert(
+      steps.messages.contains(
+        "Fixed 1, declined 0; reviewing again after the fixes"
+      ),
+      steps.messages.mkString("\n")
+    )
+
+  test("the fix line promises no further review when nothing was fixed"):
+    val steps = new ReviewLoopFixture.StepCapture
+    given FlowControl = ReviewLoopFixture.control(steps.dispatcher)
+    val reviewer = new FakeAgent(
+      name = "loud",
+      outputs = List(ReviewResult(List(finding("a"))))
+    )
+    val coder = new FakeAgent(
+      name = "coder",
+      outputs = List(FixOutcome(Nil, List(DeclinedFinding(Title("a"), "no"))))
+    )
+    val _ = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(asReviewer(reviewer)),
+      task = titled("build the widget"),
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      diff = ReviewDiff.Pinned("")
+    )
+    assert(
+      steps.messages.contains("Fixed 0, declined 1"),
+      steps.messages.mkString("\n")
+    )
+
+  test("the loop numbers its rounds"):
+    val steps = new ReviewLoopFixture.StepCapture
+    given FlowControl = ReviewLoopFixture.control(steps.dispatcher)
+    val reviewer = new FakeAgent(
+      name = "loud",
+      outputs = List(ReviewResult(List(finding("a"))), ReviewResult.empty)
+    )
+    val coder = new FakeAgent(
+      name = "coder",
+      outputs = List(FixOutcome(List(Title("a")), Nil))
+    )
+    val _ = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(asReviewer(reviewer)),
+      task = titled("build the widget"),
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      diff = ReviewDiff.Pinned("")
+    )
+    assertEquals(
+      steps.messages.filter(_.startsWith("Iteration ")),
+      List("Iteration 1", "Iteration 2")
+    )
 
   test("the fix prompt carries each finding's description"):
     // Reviewers are asked for "a longer description with enough context for a
@@ -1825,9 +1966,9 @@ class ReviewAndFixTest extends munit.FunSuite:
 
   test("an empty selection runs no reviewers and stops the round honestly"):
     // An empty selection means exactly what it says: no reviewers run this
-    // round. With nothing found, the shared stop policy converges — the loop
-    // never resurrects the roster behind the selector's back, and the
-    // (empty-output) coder is never asked to fix anything. The round says so,
+    // round. With nothing found, the run ends — the loop never resurrects the
+    // roster behind the selector's back, and the (empty-output) coder is never
+    // asked to fix anything. The round says so,
     // since converging on nothing is otherwise indistinguishable from a clean
     // review.
     val steps = new ReviewLoopFixture.StepCapture

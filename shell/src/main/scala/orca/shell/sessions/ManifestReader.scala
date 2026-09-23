@@ -1,16 +1,18 @@
 package orca.shell.sessions
 
-import orca.OrcaDir
+import orca.{AttemptId, OrcaDir}
 import orca.runner.manifest.{AttemptStatus, AttemptManifest}
 import orca.util.JsonFile
 
 import scala.util.control.NonFatal
 
-/** A manifest paired with whether its attempt is now known to have crashed
-  * (status [[AttemptStatus.Running]] with a dead pid, ADR 0021 §8) — computed
-  * once here rather than re-derived by every caller.
+/** A manifest paired with its attempt's id (from the file name) and whether the
+  * attempt is now known to have crashed (status [[AttemptStatus.Running]] with
+  * a dead pid, ADR 0021 §8) — computed once here rather than re-derived by
+  * every caller.
   */
 private[shell] case class RecordedAttempt(
+    id: AttemptId,
     manifest: AttemptManifest,
     crashed: Boolean
 )
@@ -95,8 +97,8 @@ private[shell] object ManifestReader:
       val results =
         os.list(dir).filter(OrcaDir.isManifest).toList.map(readManifest)
       val attempts = results.collect:
-        case Right(m) if m.continuable =>
-          RecordedAttempt(m, crashed(m, pidAlive))
+        case Right((id, m)) if m.continuable =>
+          RecordedAttempt(id, m, crashed(m, pidAlive))
       AttemptListing(
         attempts,
         results.collect { case Left(warning) => warning }
@@ -114,7 +116,16 @@ private[shell] object ManifestReader:
     * nothing, which for a directory the shell does not control is a race with
     * pruning or removal worth a line.
     */
-  private def readManifest(file: os.Path): Either[String, AttemptManifest] =
+  private def readManifest(
+      file: os.Path
+  ): Either[String, (AttemptId, AttemptManifest)] =
+    OrcaDir.attemptIdOf(file) match
+      case None     => Left(s"skipping $file: not named after an attempt id")
+      case Some(id) => readManifestBody(file).map(id -> _)
+
+  private def readManifestBody(
+      file: os.Path
+  ): Either[String, AttemptManifest] =
     JsonFile.read[AttemptManifest](file) match
       case JsonFile.Read.Loaded(manifest) => Right(manifest)
       case JsonFile.Read.Absent           => Left(s"skipping $file: vanished")

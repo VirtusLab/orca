@@ -6,10 +6,9 @@ import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
 
 import java.util.concurrent.atomic.AtomicReference
 
-/** Integration-style test for the higher-level flow helpers (`reviewAndFixLoop`
-  * / `fixLoop`) wired together inside a FlowContext that records every
-  * OrcaEvent. Uses in-memory fakes for the LLM — no backend, no sbt, no
-  * network.
+/** Integration-style test for `reviewAndFixLoop` wired together inside a
+  * FlowContext that records every OrcaEvent. Uses in-memory fakes for the LLM —
+  * no backend, no sbt, no network.
   */
 class ReviewFixFlowTest extends munit.FunSuite:
 
