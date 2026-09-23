@@ -22,8 +22,10 @@ import ox.either.orThrow
   *
   * Customise the PR text with `title`/`body`, both given the generated
   * [[PrSummary]]; a flow that closes an issue passes e.g. `body = s =>
-  * s"${s.body}\n\nCloses #42."`. Point `summarisingAgent` at a cheap model and
-  * pass `context` to anchor it to the originating issue/prompt.
+  * withClosingRef(s.body, issue)`. Point `summarisingAgent` at a cheap model.
+  * `context` anchors it to the originating issue or prompt; omitted, it is the
+  * run's user prompt, so an issue the prompt says to fix can get its `Closes`
+  * line.
   *
   * `openFindings` is what the run's review loop returned still open; it goes
   * into the body after `body`'s text as its own section
@@ -71,20 +73,21 @@ private[pr] val PushStage: String = "Push branch"
 private[pr] val SummariseStage: String = "Generate PR title and description"
 private[pr] val CreateStage: String = "Open PR"
 
-/** Summarise the branch-vs-`base` diff. `base` is by-name so a resumed run,
-  * whose recorded summary replays without the body, does not resolve it.
+/** Summarise the branch-vs-`base` diff, with the run's user prompt as the
+  * context when `context` is `None`. `base` is by-name so a resumed run, whose
+  * recorded summary replays without the body, does not resolve it.
   */
 private[pr] def summarise(
     summarisingAgent: Agent[?],
     base: => String,
     context: Option[String],
     instructions: String
-)(using FlowContext, FlowControl): PrSummary =
+)(using ctx: FlowContext, control: FlowControl): PrSummary =
   stage(SummariseStage):
     summarisePr(
       agent = summarisingAgent,
       diff = git.diffVsBase(base),
-      context = context,
+      context = context.orElse(Some(s"User prompt: ${ctx.userPrompt}")),
       instructions = instructions
     )
 

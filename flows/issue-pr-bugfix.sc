@@ -141,13 +141,13 @@ flow(
             "that makes it pass.",
           issue
         )
-        val closes = s"""${finalSum.body}
-                        |
-                        |Closes ${issueHandle.shortRef}.""".stripMargin
         gh.updatePr(
           pr,
           title = finalSum.title,
-          body = bodyWithOpenFindings(closes, openFindings)
+          body = bodyWithOpenFindings(
+            withClosingRef(finalSum.body, issueHandle),
+            openFindings
+          )
         )
 
 // ============================ pipeline helpers ============================

@@ -135,6 +135,9 @@ class OpenPrFromBranchTest extends FunSuite:
       body
     )
 
+  test("without a context the summariser is shown the run's user prompt"):
+    assert(run("stub-diff").prompt.contains("User prompt: p"))
+
   test("with nothing open the body is the flow's own, nothing appended"):
     assertEquals(run("stub-diff").prBody, "Generated body\n\nCloses #1.")
 

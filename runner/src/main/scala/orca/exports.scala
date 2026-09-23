@@ -46,9 +46,11 @@ export orca.plan.{BugReportMatch, Plan, Sessioned, Task, Title, Triage, Verdict}
 // PrSummary is the result type of openPrFromBranch and summarisePr;
 // orcaCommentMarker is the idempotency marker gh.upsertComment keys on;
 // recordOpenedPr is for a flow that opens its PR with a bare gh.createPr, and
-// bodyWithOpenFindings builds that PR's body.
+// bodyWithOpenFindings builds that PR's body; withClosingRef appends the
+// issue's closing keyword to a body.
 export orca.pr.{
   bodyWithOpenFindings,
+  withClosingRef,
   openPrFromBranch,
   openPrIfGitHub,
   orcaCommentMarker,
