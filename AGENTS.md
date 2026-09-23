@@ -204,8 +204,8 @@ most easily broken:
   Each record also carries the minting agent's `backend` tag, so
   `FlowLifecycle.rehydrateSessions` replays a resumed run's resume wire ids
   into the record's own backend's agent rather than always the lead
-  (untagged/older records fall back to the lead; a tag matching none of the
-  context's accessors is skipped, not guessed).
+  (untagged records fall back to the lead). The tag is a typed `BackendTag`:
+  a store holding an unknown one fails to decode and reads as empty.
 
 - **Tool enforcement.** `AgentConfig.tools: ToolSet` (ReadOnly/NetworkOnly/Full)
   and `autoApprove: AutoApprove` (All/Only) request a restriction, but each

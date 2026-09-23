@@ -1,7 +1,7 @@
 package orca.shell.sessions
 
 import orca.StagePath
-import orca.agents.{BackendTag, SessionKey}
+import orca.agents.SessionKey
 import orca.runner.manifest.{ManifestSession, SessionKind}
 import orca.settings.AgentSpec
 import orca.shell.ui.Choice
@@ -59,12 +59,11 @@ private[shell] object SessionPicker:
     *
     * `expanded` reveals both collapsed groups in place, sorted the same as the
     * primary rows (newest `lastActiveAt` first). Disabling a row previews only
-    * what [[ResumeCommand.staticGate]] can tell without a live harness call: an
-    * unrecognised harness, or a wireId-less session. The checks that need the
-    * manifest's `workDir` or a live call — gemini's `gemini --list-sessions`
-    * index, pi's session dir — are deferred to selection, in
-    * [[orca.shell.actions.SessionAction.resume]], so those rows stay enabled
-    * pending that later check.
+    * what [[ResumeCommand.staticGate]] can tell without a live harness call: a
+    * wireId-less session. The checks that need the manifest's `workDir` or a
+    * live call — gemini's `gemini --list-sessions` index, pi's session dir —
+    * are deferred to selection, in [[orca.shell.actions.SessionAction.resume]],
+    * so those rows stay enabled pending that later check.
     */
   private[shell] def sessionRows(
       attempts: List[RecordedAttempt],
@@ -176,7 +175,7 @@ private[shell] object SessionPicker:
         SessionSelection(o.attempt.manifest, o.session, o.attempt.crashed)
       ),
       label,
-      disabledReason = ResumeCommand.staticGate(o.session).left.toOption
+      disabledReason = ResumeCommand.staticGate(o.session)
     )
 
   /** A single "show N ..." expander row, or `Nil` when there's nothing to
@@ -199,7 +198,7 @@ private[shell] object SessionPicker:
   private def primaryLabel(o: Occurrence): String =
     val name = displayName(o.session)
     val stage = o.session.stage.fold("no stage yet")(s => s"stage: $s")
-    val harness = harnessSettingsName(o.session.harness)
+    val harness = AgentSpec.harnessNameFor(o.session.harness)
     val crashedSuffix = if o.attempt.crashed then " (crashed)" else ""
     s"★ $name — latest ($stage) [$harness]$crashedSuffix"
 
@@ -209,7 +208,7 @@ private[shell] object SessionPicker:
   private def earlierLabel(o: Occurrence): String =
     val name = displayName(o.session)
     val stage = o.session.stage.fold("")(s => s" — stage $s")
-    val harness = harnessSettingsName(o.session.harness)
+    val harness = AgentSpec.harnessNameFor(o.session.harness)
     val crashedSuffix = if o.attempt.crashed then " (crashed)" else ""
     s"$name$stage [$harness] (earlier occurrence)$crashedSuffix"
 
@@ -219,7 +218,7 @@ private[shell] object SessionPicker:
   private def ephemeralLabel(o: Occurrence): String =
     val role = o.session.role.fold("")(r => s" ($r)")
     val stage = o.session.stage.fold("")(s => s" — stage $s")
-    val harness = harnessSettingsName(o.session.harness)
+    val harness = AgentSpec.harnessNameFor(o.session.harness)
     val crashedSuffix = if o.attempt.crashed then " (crashed)" else ""
     s"${o.session.agent}$role$stage [$harness] (ephemeral)$crashedSuffix"
 
@@ -235,17 +234,6 @@ private[shell] object SessionPicker:
     */
   private[shell] def displayName(session: ManifestSession): String =
     session.minted.fold(session.agent)(_.name)
-
-  /** The settings-file harness name (`claude`, `codex`, …) for a manifest's
-    * [[BackendTag.wireName]] string, falling back to the raw string for an
-    * unrecognised one (the row itself is disabled in that case, so this is
-    * display-only).
-    */
-  private[shell] def harnessSettingsName(wireName: String): String =
-    BackendTag
-      .fromWireName(wireName)
-      .flatMap(AgentSpec.harnessNameFor.get)
-      .getOrElse(wireName)
 
   /** Resolves a `continue` selector to a session: no selector picks the newest
     * durable lineage, a numeric selector picks that 1-based row from the full

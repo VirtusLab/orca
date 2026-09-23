@@ -1,32 +1,26 @@
 package orca.agents
 
+import com.github.plokhotnyuk.jsoniter_scala.macros.{
+  CodecMakerConfig,
+  ConfiguredJsonValueCodec
+}
+
 /** Compile-time type tag for a concrete LLM backend. Carried as the `B`
   * parameter on [[SessionId]], [[orca.backend.AgentResult]],
   * [[orca.backend.Conversation]], [[Agent]], and [[orca.backend.AgentBackend]]
   * so a session id from one backend can't accidentally flow into another.
   * Distinct from the runtime SPI [[orca.backend.AgentBackend]].
   *
-  * `wireName` is the STABLE on-disk/wire representation
-  * (`SessionRecord.backend`) — deliberately independent of the case name so a
-  * future rename can't silently strand every persisted session.
-  * [[BackendTag.fromWireName]] is the inverse; see the `BackendTagCodecTest`
-  * pinning suite.
+  * Persisted (session records, attempt manifests) and emitted as its case name.
   */
-enum BackendTag(val wireName: String):
-  case ClaudeCode extends BackendTag("ClaudeCode")
-  case Codex extends BackendTag("Codex")
-  case Opencode extends BackendTag("Opencode")
-  case Pi extends BackendTag("Pi")
-  case Gemini extends BackendTag("Gemini")
+enum BackendTag:
+  case ClaudeCode, Codex, Opencode, Pi, Gemini
 
 object BackendTag:
-  /** Parse a wire/log-sourced string into a [[BackendTag]], or `None` if it
-    * matches no [[BackendTag.wireName]]. The validated door for
-    * `SessionRecord.backend` — callers that get `None` should skip with a
-    * visible warning rather than guess (see `FlowLifecycle.targetAgent`).
-    */
-  def fromWireName(name: String): Option[BackendTag] =
-    values.find(_.wireName == name)
+  given codec: ConfiguredJsonValueCodec[BackendTag] =
+    ConfiguredJsonValueCodec.derived[BackendTag](using
+      CodecMakerConfig.withDiscriminatorFieldName(None)
+    )
 
 opaque type SessionId[B <: BackendTag] = String
 

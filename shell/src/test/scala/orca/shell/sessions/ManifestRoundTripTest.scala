@@ -1,7 +1,7 @@
 package orca.shell.sessions
 
 import orca.StagePath
-import orca.agents.SessionKey
+import orca.agents.{BackendTag, SessionKey}
 import orca.events.OrcaEvent
 import orca.runner.manifest.{AttemptManifestWriter, AttemptOutcome}
 import orca.testkit.TempDirs
@@ -37,7 +37,7 @@ class ManifestRoundTripTest extends munit.FunSuite:
       writer.onEvent(OrcaEvent.StageStarted("code"))
       writer.onEvent(
         OrcaEvent.SessionCommitted(
-          harness = "claude",
+          harness = BackendTag.ClaudeCode,
           clientId = "client-1",
           wireId = Some("wire-1"),
           sessionKey = Some(coderKey),
@@ -53,7 +53,7 @@ class ManifestRoundTripTest extends munit.FunSuite:
     assertEquals(attempts.size, 1)
     assertEquals(attempts.head.crashed, false)
     val session = attempts.head.manifest.sessions.head
-    assertEquals(session.harness, "claude")
+    assertEquals(session.harness, BackendTag.ClaudeCode)
     assertEquals(session.wireId, Some("wire-1"))
     assertEquals(session.minted, Some(coderKey))
     assertEquals(session.stage, Some("code"))
