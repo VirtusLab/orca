@@ -504,7 +504,7 @@ Orca is 0.x: no backwards compatibility is owed anywhere.
   refuses an existing symlink at the leaf) over `os.write.over` (follows a
   leaf symlink); if `.over` is unavoidable, guard the path with `os.isLink`
   first. The check is lstat/no-follow and runs at the earliest `.orca` touch
-  (`FlowLock.acquireWorkdir` → `ensureCache`), ahead of any mutation.
+  (`FlowLock` → `ensureCache`), ahead of any mutation.
 
 The `direct-style-scala` plugin codifies the Scala-style bullets; re-reading
 its chapters before a non-trivial change is recommended.

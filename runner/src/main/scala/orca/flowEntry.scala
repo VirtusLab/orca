@@ -163,8 +163,8 @@ def flow(
   def resolveRunDir(): Either[String, os.Path] = args.target match
     case RunTarget.NewBranch(_) | RunTarget.CurrentBranch(_) => Right(workDir)
     case RunTarget.Worktree                                  =>
-      // Resolution can throw as well as refuse — a symlinked or unwritable
-      // `.orca`, a git that won't start. One `Left` shape for every outcome
+      // Resolution can throw as well as refuse — another orca resolving the
+      // same task, a symlinked or unwritable `.orca`, a git that won't start. One `Left` shape for every outcome
       // keeps the reporting below the only way out.
       try WorktreeRun.resolve(workDir, runKey)
       catch case NonFatal(e) => Left(TextUtil.throwableMessage(e))
@@ -297,8 +297,7 @@ private[orca] def runFlow(request: RunRequest)(
   val wiring = request.wiring
   // Before `supervised:` (the lock needs no `Ox` scope), so a violation is
   // caught before any git mutation. See [[FlowLock]].
-  val lockPath = FlowLock.acquireWorkdir(workDir)
-  try
+  FlowLock.workdirLocked(workDir):
     // Default TerminalInteraction is built inside `supervised:` because its
     // worker is a `forkUser` bound to that scope; close() in the body's
     // `finally` lets it drain before the scope joins it.
@@ -346,7 +345,6 @@ private[orca] def runFlow(request: RunRequest)(
           fsTool = fsTool
         )(body)
       finally effectiveInteraction.close()
-  finally FlowLock.releaseWorkdir(lockPath)
 
 /** The settings→roles→setup→context→body sequence of `runFlow`: read both
   * settings files, resolve the three role agents (`RoleAgents.resolveAll`, ADR

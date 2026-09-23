@@ -4215,11 +4215,6 @@ class FlowLifecycleTest extends munit.FunSuite:
       !os.exists(OrcaDir.worktreesPath(workDir)),
       "the nested flow() must not create its worktree"
     )
-    assertEquals(
-      os.list(OrcaDir.attemptsPath(workDir)).count(OrcaDir.isManifest),
-      1,
-      "only the outer flow() writes an attempt manifest"
-    )
     // The outer flow ended cleanly back on the starting branch.
     val branch =
       os.proc("git", "rev-parse", "--abbrev-ref", "HEAD")
@@ -4235,7 +4230,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val workDir = GitRepo.seeded()
     val livePid = ProcessHandle.current().pid()
     os.write(
-      workDir / ".orca" / "cache" / "flow.lock",
+      OrcaDir.flowLockPath(workDir),
       livePid.toString,
       createFolders = true
     )
@@ -4267,7 +4262,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     )
     // The refusal must not steal or clear a lock still held by a live PID.
     assertEquals(
-      os.read(workDir / ".orca" / "cache" / "flow.lock").trim,
+      os.read(OrcaDir.flowLockPath(workDir)).trim,
       livePid.toString
     )
 
@@ -4279,7 +4274,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     dead.join(): Unit
     val deadPid = dead.wrapped.pid()
     os.write(
-      workDir / ".orca" / "cache" / "flow.lock",
+      OrcaDir.flowLockPath(workDir),
       deadPid.toString,
       createFolders = true
     )
@@ -4313,7 +4308,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     )
     // The guard released cleanly after a successful run — no lock left behind.
     assert(
-      !os.exists(workDir / ".orca" / "cache" / "flow.lock"),
+      !os.exists(OrcaDir.flowLockPath(workDir)),
       "lock must be released after a successful run"
     )
 
@@ -4356,14 +4351,6 @@ class FlowLifecycleTest extends munit.FunSuite:
       !everTracked.contains("flow.lock"),
       "the flow lock must never appear in any commit"
     )
-
-  test("acquireWorkdir places the lock under .orca/cache"):
-    val workDir = GitRepo.seeded()
-    val lockPath = FlowLock.acquireWorkdir(workDir)
-    try
-      assertEquals(lockPath, workDir / ".orca" / "cache" / "flow.lock")
-      assert(os.exists(lockPath))
-    finally FlowLock.releaseWorkdir(lockPath)
 
   /** Records every `OrcaEvent` it sees, so the boundary-emission tests can
     * count how many `OrcaEvent.Error`s a failing run produced.

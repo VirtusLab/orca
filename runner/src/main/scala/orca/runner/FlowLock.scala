@@ -1,6 +1,7 @@
 package orca.runner
 
 import orca.{OrcaDir, OrcaFlowException, RunKey}
+import ox.discard
 
 import java.nio.file.{FileAlreadyExistsException, NoSuchFileException}
 import java.util.concurrent.atomic.AtomicBoolean
@@ -14,15 +15,18 @@ import scala.util.control.NonFatal
   *   - A process-wide flag ([[processGuarded]]), held by `flow()` for its whole
   *     call: a nested or concurrent `flow()` in the same JVM is refused before
   *     it touches anything.
-  *   - A task lock ([[taskLocked]]), held while a `--worktree` run finds or
-  *     creates its worktree, so two processes starting the same task never
-  *     create or repair it at once.
-  *   - A `workDir`-keyed lock ([[acquireWorkdir]]), held by `runFlow` before
-  *     `FlowLifecycle.setup` mutates git: two processes never run in one
-  *     working tree.
+  *   - A worktree lock ([[worktreeLocked]]), held while a `--worktree` run
+  *     finds or creates its worktree, so two processes starting the same task
+  *     never create or repair it at once.
+  *   - A `workDir`-keyed lock ([[workdirLocked]]), held by `runFlow` for the
+  *     whole run, taken before `FlowLifecycle.setup` mutates git: two processes
+  *     never run in one working tree.
   *
   * The two lock files hold the holder's PID; on contention a live PID
-  * hard-refuses, a dead one is stolen with a warning.
+  * hard-refuses, a dead one is stolen with a warning. Both live under the
+  * self-ignoring `.orca/cache/`, so `git add -A` can never sweep them into a
+  * commit: [[orca.OrcaDir.ensureCache]] writes the cache's `.gitignore` before
+  * the lock file exists.
   */
 private[orca] object FlowLock:
 
@@ -35,34 +39,32 @@ private[orca] object FlowLock:
     try op
     finally processFlowLock.set(false)
 
-  /** Runs `op` holding the lock of the task keyed `key` in the repository whose
-    * main checkout is `mainCheckout`.
+  /** Runs `op` holding the lock of the `--worktree` run keyed `key` in the
+    * repository whose main checkout is `mainCheckout`; throws when a live
+    * process holds it.
     */
-  def taskLocked[T](mainCheckout: os.Path, key: RunKey)(op: => T): T =
-    val lockPath =
-      acquire(
-        OrcaDir.ensureCache(mainCheckout) / s"worktree-${key.value}.lock",
-        "for this task"
-      )
+  def worktreeLocked[T](mainCheckout: os.Path, key: RunKey)(op: => T): T =
+    OrcaDir.ensureCache(mainCheckout).discard
+    locked(OrcaDir.worktreeLockPath(mainCheckout, key), "for this task")(op)
+
+  /** Runs `op` holding the lock of the run in `workDir`; throws when a live
+    * process holds it.
+    */
+  def workdirLocked[T](workDir: os.Path)(op: => T): T =
+    OrcaDir.ensureCache(workDir).discard
+    locked(OrcaDir.flowLockPath(workDir), "in this working tree")(op)
+
+  private def locked[T](lockPath: os.Path, where: String)(op: => T): T =
+    acquire(lockPath, where)
     try op
-    finally release(lockPath)
+    finally
+      try os.remove(lockPath): Unit
+      catch case NonFatal(_) => ()
 
   /** Bound on [[acquire]]'s total `CREATE_NEW` attempts — pathological churn
     * must end in a refusal, not a spin.
     */
   private val MaxLockAcquireAttempts = 4
-
-  /** Acquire the `workDir`-keyed lock file, returning its path (release it with
-    * [[releaseWorkdir]]).
-    *
-    * The lock lives under the self-ignoring `.orca/cache/`, so `git add -A` can
-    * never sweep it into a commit: [[orca.OrcaDir.ensureCache]] writes the
-    * cache's `.gitignore` before the lock file exists.
-    */
-  def acquireWorkdir(workDir: os.Path): os.Path =
-    acquire(OrcaDir.ensureCache(workDir) / "flow.lock", "in this working tree")
-
-  def releaseWorkdir(lockPath: os.Path): Unit = release(lockPath)
 
   /** Create the lock file at `lockPath`, holding this process's PID. Refuses
     * when the holder PID is still alive; steals (after a stderr warning) when
@@ -70,12 +72,12 @@ private[orca] object FlowLock:
     *
     * The only atomic primitive is `os.write`'s `CREATE_NEW`, so everything
     * funnels back through it: a stale lock is stolen by DELETING it and
-    * re-racing the create (two racing stealers can't both win — the loser's
-    * `CREATE_NEW` fails and it re-reads the winner's live PID); a lock that
-    * vanishes between the failed create and the read (holder just released)
-    * retries the create. Bounded at [[MaxLockAcquireAttempts]].
+    * re-racing the create; a lock that vanishes between the failed create and
+    * the read (holder just released) retries the create. Bounded at
+    * [[MaxLockAcquireAttempts]]. Two stealers of one stale lock can both win:
+    * the slower one's delete removes the lock the faster one just created.
     */
-  private def acquire(lockPath: os.Path, where: String): os.Path =
+  private def acquire(lockPath: os.Path, where: String): Unit =
     val pid = ProcessHandle.current().pid()
 
     @tailrec def attempt(attemptsLeft: Int): Unit =
@@ -88,7 +90,8 @@ private[orca] object FlowLock:
         if attemptsLeft <= 1 then
           throw new OrcaFlowException(
             s"a flow is already running $where (the lock at " +
-              s"$lockPath could not be acquired)"
+              s"$lockPath could not be acquired) — retry, or delete the " +
+              "lock if no orca is running"
           )
         val holderContent =
           try Some(os.read(lockPath).trim)
@@ -115,15 +118,10 @@ private[orca] object FlowLock:
                 s"[orca] found a stale lock from PID ${holderPid.getOrElse("?")}, " +
                   "which is no longer running — proceeding"
               )
-              // Steal = delete + re-race; never `write.over`, which would let
-              // two concurrent stealers both think they won.
+              // Steal = delete + re-race, not `write.over`, which would let
+              // every concurrent stealer think it won.
               try os.remove(lockPath): Unit
               catch case NonFatal(_) => ()
               attempt(attemptsLeft - 1)
 
     attempt(attemptsLeft = MaxLockAcquireAttempts)
-    lockPath
-
-  private def release(lockPath: os.Path): Unit =
-    try os.remove(lockPath): Unit
-    catch case NonFatal(_) => ()

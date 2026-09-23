@@ -57,7 +57,7 @@ private[orca] object WorktreeRun:
       .flatMap: mainCheckout =>
         val path =
           OrcaDir.worktreesPath(mainCheckout) / key.value
-        FlowLock.taskLocked(mainCheckout, key):
+        FlowLock.worktreeLocked(mainCheckout, key):
           pathState(invokingDir, path) match
             case PathState.Reusable => reuse(mainCheckout, path)
             case PathState.Occupied =>
@@ -91,10 +91,8 @@ private[orca] object WorktreeRun:
     * `add` having succeeded where the branch step did not. The run belongs on
     * its own branch, which a re-run of the task finds ([[bindBranch]]).
     *
-    * Every path that concludes "reuse the worktree at `path`" comes through
-    * here, so none of them can skip the repair. A run already going in the
-    * worktree — a resumed one takes no task lock — is on its branch, so the
-    * repair never touches it.
+    * A resumed run skips the worktree lock, but its worktree is already on its
+    * branch, so the repair leaves it alone.
     */
   private def reuse(
       mainCheckout: os.Path,
