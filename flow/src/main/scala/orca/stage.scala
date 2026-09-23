@@ -132,23 +132,20 @@ private def runStage[T: JsonData](
     result
   catch
     case NonFatal(e) =>
-      // Report the failure once, then mark it so an enclosing stage / the flow
-      // boundary doesn't re-report it as it unwinds. Exceptions from `fail(...)`
-      // arrive already marked; unmarked ones (tool adapters, plain
-      // RuntimeExceptions) are surfaced here, else the user would see `exit 1`
-      // with no diagnostic. Malformed-output gets a richer render.
-      fc.reportOnce(e):
-        e match
-          case mao: orca.agents.MalformedAgentOutputException =>
-            fc.emit(OrcaEvent.Error(formatMalformedOutput(id.name, mao)))
-          case _ =>
-            fc.emit(
-              OrcaEvent.Error(
-                s"Stage '${id.name}' failed: ${TextUtil.throwableMessage(e, firstLineOnly = true)}"
-              )
+      // A failure from `fail` or a nested stage arrives already reported;
+      // anything else (tool adapters, plain RuntimeExceptions) is reported
+      // here, else the user would see `exit 1` with no diagnostic.
+      val reported = ReportedFailure.reportOnce(e):
+        case mao: orca.agents.MalformedAgentOutputException =>
+          fc.emit(OrcaEvent.Error(formatMalformedOutput(id.name, mao)))
+        case other =>
+          fc.emit(
+            OrcaEvent.Error(
+              s"Stage '${id.name}' failed: ${TextUtil.throwableMessage(other, firstLineOnly = true)}"
             )
+          )
       fc.emit(OrcaEvent.StageEnded(id, StageOutcome.Failed))
-      throw e
+      throw reported
 
 /** Append the stage's result to the log and commit code + log as one commit.
   * The progress file is force-added (so it lands even when `.orca/` is
@@ -233,8 +230,10 @@ private def formatMalformedOutput(
 def display(message: String)(using ctx: FlowContext): Unit =
   ctx.emit(OrcaEvent.Step(message))
 
+/** Show `message` as an error and abort the flow. Enclosing stages and the flow
+  * boundary do not report it again, and it does not match a `catch` on
+  * `OrcaFlowException`.
+  */
 def fail(message: String)(using ctx: FlowContext): Nothing =
   ctx.emit(OrcaEvent.Error(message))
-  val e = new OrcaFlowException(message)
-  ctx.markErrorReported(e)
-  throw e
+  throw ReportedFailure(OrcaFlowException(message))

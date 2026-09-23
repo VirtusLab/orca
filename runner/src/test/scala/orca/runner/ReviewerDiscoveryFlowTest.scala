@@ -1,5 +1,6 @@
 package orca.runner
 
+import orca.ReportedFailure
 import orca.{ConfigHome, FlowContext, OrcaDir, StackSettings}
 import orca.testkit.{GitRepo, TempDirs, currentBranch}
 import orca.tools.OsGitTool
@@ -51,7 +52,7 @@ class ReviewerDiscoveryFlowTest extends munit.FunSuite:
       createFolders = true
     )
     val startBranch = new OsGitTool(workDir).currentBranch()
-    val e = intercept[SurfacedFlowFailure]:
+    val e = intercept[ReportedFailure]:
       driveFlow(workDir)(fail("the body must not run"))
     assert(e.cause.getMessage.contains("description:"), e.cause.getMessage)
     // The abort precedes `ensureClean` and any branch creation.
@@ -66,7 +67,7 @@ class ReviewerDiscoveryFlowTest extends munit.FunSuite:
     os.makeDir.all(OrcaDir.rootPath(workDir))
     os.symlink(OrcaDir.reviewersPath(workDir), outside)
     val startBranch = new OsGitTool(workDir).currentBranch()
-    val e = intercept[SurfacedFlowFailure]:
+    val e = intercept[ReportedFailure]:
       driveFlow(workDir)(fail("the body must not run"))
     assert(e.cause.getMessage.contains("symlink"), e.cause.getMessage)
     assertEquals(new OsGitTool(workDir).currentBranch(), startBranch)

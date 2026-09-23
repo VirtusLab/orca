@@ -9,8 +9,6 @@ import orca.tools.{FsTool, GitHubTool, GitTool}
 import orca.agents.{Agent, BackendTag}
 import orca.events.{OrcaEvent, OrcaListener}
 
-import ox.discard
-
 /** Production FlowContext wiring. Constructed by `runFlow` AFTER the three role
   * agents are resolved and lifecycle setup has run, so the role agents and
   * `stackSettings` are plain constructor facts. Does not own the agents:
@@ -63,16 +61,6 @@ private[orca] class DefaultFlowContext[
   export wired.{claude, codex, opencode, pi, gemini}
 
   def emit(event: OrcaEvent): Unit = dispatcher.onEvent(event)
-
-  // Written possibly from fork threads (`fail` inside a parallel block), read on
-  // the stage thread during unwind. Identity comparison: the mark belongs to the
-  // object instance.
-  private val reportedErrors =
-    new java.util.concurrent.atomic.AtomicReference[List[Throwable]](Nil)
-  private[orca] def markErrorReported(e: Throwable): Unit =
-    reportedErrors.updateAndGet(e :: _).discard
-  private[orca] def errorAlreadyReported(e: Throwable): Boolean =
-    reportedErrors.get().exists(_ eq e)
 
   // Stage-identity bookkeeping (withStage, claimSessionKey) and the
   // per-run turn claim come from the shared `StageFrames` mixin, so test

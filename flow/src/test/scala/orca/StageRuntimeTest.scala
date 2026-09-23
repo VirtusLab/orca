@@ -161,7 +161,7 @@ class StageRuntimeTest extends munit.FunSuite:
     val listener = new RecordingListener
     val (ctx, _) = TestFlowControl.create(new EventDispatcher(List(listener)))
     given FlowControl = ctx
-    val _ = intercept[orca.agents.MalformedAgentOutputException]:
+    val _ = interceptReported[orca.agents.MalformedAgentOutputException]:
       stage[String]("parse"):
         throw new orca.agents.MalformedAgentOutputException(
           "raw output",
@@ -183,7 +183,7 @@ class StageRuntimeTest extends munit.FunSuite:
     val listener = new RecordingListener
     val (ctx, _) = TestFlowControl.create(new EventDispatcher(List(listener)))
     given FlowControl = ctx
-    val _ = intercept[orca.agents.MalformedAgentOutputException]:
+    val _ = interceptReported[orca.agents.MalformedAgentOutputException]:
       stage[String]("outer"):
         val _ = stage[String]("inner"):
           throw new orca.agents.MalformedAgentOutputException(
