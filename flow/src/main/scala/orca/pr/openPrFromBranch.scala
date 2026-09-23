@@ -1,6 +1,6 @@
 package orca.pr
 
-import orca.{FlowContext, FlowControl, OutsideStage, gh, git, stage}
+import orca.{FlowContext, FlowControl, OutsideStage, fail, gh, git, tracedStage}
 import orca.agents.Agent
 import orca.review.OpenFindings
 import orca.tools.PrHandle
@@ -51,59 +51,25 @@ def openPrFromBranch(
     instructions: String = PrPrompts.Summarise
 )(using FlowContext, FlowControl, OutsideStage): PrHandle =
   reportOpenFindings(openFindings)
-  pushBranch()
-  val summary =
-    summarise(
-      summarisingAgent,
-      git.defaultBase().orThrow,
-      context,
-      instructions
-    )
-  createPr(
-    title(summary),
-    bodyWithOpenFindings(body(summary), openFindings)
-  )
-
-// The stage names and `summarise` are shared with [[openPrIfGitHub]], which
-// runs the same sequence with its own best-effort push and create.
-
-private def pushBranch()(using FlowContext, FlowControl): Unit =
-  stage(PushStage):
+  // A refusal throws inside its stage, so it is never recorded and a resume
+  // retries it. A recorded `Refused` is one [[openPrIfGitHub]] wrote.
+  val push = tracedStage(PushStage):
     git.push().orThrow
-
-private[pr] val PushStage: String = "Push branch"
-private[pr] val SummariseStage: String = "Generate PR title and description"
-private[pr] val CreateStage: String = "Open PR"
-
-/** Summarise the branch-vs-`base` diff. `base` is by-name so a resumed run,
-  * whose recorded summary replays without the body, does not resolve it.
-  */
-private[pr] def summarise(
-    summarisingAgent: Agent[?],
-    base: => String,
-    context: Option[String],
-    instructions: String
-)(using ctx: FlowContext, control: FlowControl): PrSummary =
-  val (summaryContext, summaryInstructions) = context match
-    case Some(c) => (c, instructions)
-    case None =>
-      (
-        s"User prompt: ${ctx.userPrompt}",
-        s"$instructions\n\n${PrPrompts.ClosingRefs}"
+    PushAttempt.Pushed
+  push.value.outcome.fold(reason => fail(refusalLine(reason, push)), identity)
+  val summary = summarise(
+    summarisingAgent,
+    git.defaultBase(),
+    context,
+    instructions
+  ).orThrow
+  val create = tracedStage(CreateStage):
+    val pr = gh
+      .createPr(
+        title = title(summary),
+        body = bodyWithOpenFindings(body(summary), openFindings)
       )
-  stage(SummariseStage):
-    summarisePr(
-      agent = summarisingAgent,
-      diff = git.diffVsBase(base),
-      context = Some(summaryContext),
-      instructions = summaryInstructions
-    )
-
-private def createPr(title: String, body: String)(using
-    FlowContext,
-    FlowControl
-): PrHandle =
-  stage(CreateStage):
-    val pr = gh.createPr(title = title, body = body).orThrow
-    recordOpenedPr(pr)
-    pr
+      .orThrow
+    recordOpened(pr)
+  create.value.outcome
+    .fold(reason => fail(refusalLine(reason, create)), identity)

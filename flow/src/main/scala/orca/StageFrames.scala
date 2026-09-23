@@ -94,9 +94,8 @@ private[orca] trait StageFrames:
       val baseCommit: Option[CommitHash]
   ):
     private var counts: Map[String, Int] = Map.empty
-    def peek(name: String): Int = counts.getOrElse(name, 0)
     def next(name: String): Int =
-      val n = peek(name)
+      val n = counts.getOrElse(name, 0)
       counts = counts.updated(name, n + 1)
       n
 
@@ -118,14 +117,6 @@ private[orca] trait StageFrames:
     frames =
       new Frame(name = name, path = path, baseCommit = baseCommit) :: frames
     path
-
-  /** The id the next [[enterStage]] for `name` in the current scope would mint,
-    * without minting it.
-    */
-  def peekStageId(name: String): StagePath.Stage =
-    assertOwnerThread("peekStageId(...)")
-    val parent = frames.head
-    parent.path.child(name, parent.peek(name))
 
   def stageBaseCommit: Option[CommitHash] = frames.head.baseCommit
 

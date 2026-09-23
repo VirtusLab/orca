@@ -340,6 +340,17 @@ class OpenPrIfGitHubTest extends FunSuite:
     // outlive the resume that replays the stage.
     assertEquals(r.published, Some(PublishedWork(samplePr.url)))
 
+  test("a resume replays the stages openPrFromBranch recorded"):
+    val (dir, store) = seededPrRepo()
+    val first = prControl(dir, store, _ => (), new ConcurrentLinkedQueue())
+    val _ = openPrFromBranch(
+      summarisingAgent = new StubSummariser(),
+      openFindings = OpenFindings.empty
+    )(using first, first, summon[OutsideStage])
+    val r = runOver(dir, store, available, base = baseForced)
+    assertEquals(r.calls, Nil, "stages were re-run")
+    assertEquals(r.result, Some(samplePr))
+
   test("a resume replays a recorded push refusal without asking the remote"):
     // The refusal is the push stage's result, so it replays like any other:
     // no probe, no push, and no base branch resolved for a summarise that is
