@@ -1462,7 +1462,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       .trim
 
   test(
-    "setup: fresh arm, no file, no override — discovery gives the settings file its own commit, before the header commit"
+    "setup: fresh arm, no file, no override — discovery gives the settings file its own commit, after the header commit"
   ):
     val workDir = GitRepo.seeded()
     val canned = StackDiscoveryResult(

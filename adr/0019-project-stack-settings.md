@@ -452,7 +452,7 @@ Precedence, end to end: `reviewAndFixLoop(formatCommands = Use(...)/Off)` >
 > its dedicated commit once, after either arm has bound the branch, so on the
 > fresh arm it lands right after the header commit instead of before it. The
 > header commit is pathspec-scoped and never carried the file either way; the
-> header is now the branch's first commit, as ADR 0018 R19 states. The
+> header is now the fresh run's first commit, as ADR 0018 R19 states. The
 > residual above is restated: a run failing between the write and the
 > dedicated commit — a window that now also spans the header write and commit
 > — leaves the file untracked, and the next run does not re-discover: its

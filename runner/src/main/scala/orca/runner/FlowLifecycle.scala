@@ -546,7 +546,7 @@ object FlowLifecycle:
       // otherwise widen the review to unrelated history.
       val startingCommit =
         Some(header.startingCommit).filter(git.isAncestorOfHead)
-      // Ahead of the settings commit, so the reported HEAD is the tree the
+      // Ahead of setup's settings commit, so the reported HEAD is the tree the
       // recorded stages left behind rather than orca's own bookkeeping.
       announceResume(featureBranch, startingCommit, log.entries.size)
       BranchBinding(
