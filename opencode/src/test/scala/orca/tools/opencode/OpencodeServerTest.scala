@@ -13,6 +13,7 @@ import orca.subprocess.{
 import orca.sweep.SweepFixtures
 import orca.testkit.TempDirs
 import ox.{fork, supervised}
+import ox.channels.ChannelClosedException
 
 class OpencodeServerTest extends munit.FunSuite with SweepFixtures:
 
@@ -177,6 +178,16 @@ class OpencodeServerTest extends munit.FunSuite with SweepFixtures:
         httpFor = (_, _) => fail("unused")
       )
     assertEquals(runner.spawnCalls, Nil)
+
+  test("a call after the owning scope ended throws"):
+    val server = supervised:
+      OpencodeServer(
+        new SpawnStubCliRunner(Nil),
+        TempDirs.dir(),
+        OrcaListener.noop,
+        httpFor = (_, _) => fail("unused")
+      )
+    val _ = intercept[ChannelClosedException](server.http())
 
   onLinux("work detached by the server is reported when the scope ends"):
     val pidFile = os.temp.dir(prefix = "orca-opencode-") / "detached.pid"

@@ -50,7 +50,7 @@ focused subpackages: `orca.tools` (os-backed git/gh/fs impls + their traits),
 `orca.gitref` (validated branch names and commit hashes, and `Head`),
 `orca.agents` + `orca.backend` (LLM SPI, `SessionSupport`,
 conversation driver), `orca.subprocess` (subprocess shim), `orca.sweep`
-(finds agent work that outlived a turn), `orca.events`
+(finds agent work that outlived its process), `orca.events`
 (event bus), one `orca.tools.<backend>` per coding agent, and `orca.runner` /
 `orca.runner.terminal` (wiring + terminal UI). The flow module adds
 `orca.{plan,review,pr,progress}`.
