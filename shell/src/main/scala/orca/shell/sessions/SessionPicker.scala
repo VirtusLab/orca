@@ -38,20 +38,21 @@ private[shell] object SessionPicker:
     * first, ephemeral sessions last, with two kinds of rows collapsed by
     * default behind an expander.
     *
-    * A durable lineage is an `(agent, minted key)` pair — every occurrence of
-    * it across every attempt in `attempts`, not just the newest, since a
-    * lineage's key is stable across attempts (each process mints a fresh
-    * `clientId`/`wireId` but reuses the same `agent.session(name, ...)` key)
-    * while one attempt's durable session always upserts onto one manifest row.
-    * The minting stage is part of the key, so the per-task `implementer`
-    * sessions of one attempt are separate lineages rather than occurrences of
-    * each other. Only the occurrence with the max `lastActiveAt` is shown
-    * (marked `★ ... — latest`, the primary continuation target); the rest
-    * collapse behind a "show N earlier occurrences" row. Ephemeral sessions
-    * (Plan-stage calls, reviewer-selection calls, reviewer `chat()` runs) are
-    * never deduped — each is a genuinely distinct fresh session — but collapse
-    * behind a single "show N ephemeral sessions" row, since these are the rows
-    * that otherwise flood the picker with same-named, low-value entries.
+    * A durable lineage is an `(agent, minted key)` pair within one run — every
+    * occurrence of it across every attempt of that run in `attempts`, not just
+    * the newest, since a lineage's key is stable across attempts (each process
+    * mints a fresh `clientId`/`wireId` but reuses the same `agent.session(name,
+    * ...)` key) while one attempt's durable session always upserts onto one
+    * manifest row. The minting stage is part of the key, so the per-task
+    * `implementer` sessions of one attempt are separate lineages rather than
+    * occurrences of each other. Only the occurrence with the max `lastActiveAt`
+    * is shown (marked `★ ... — latest`, the primary continuation target); the
+    * rest collapse behind a "show N earlier occurrences" row. Ephemeral
+    * sessions (Plan-stage calls, reviewer-selection calls, reviewer `chat()`
+    * runs) are never deduped — each is a genuinely distinct fresh session — but
+    * collapse behind a single "show N ephemeral sessions" row, since these are
+    * the rows that otherwise flood the picker with same-named, low-value
+    * entries.
     *
     * Two lineages that differ only in their minting stage otherwise render
     * identically, since a row shows the session's bare name and its LAST ACTIVE
@@ -78,11 +79,6 @@ private[shell] object SessionPicker:
     val (durable, ephemeral) =
       occurrences.partition(_.session.kind == SessionKind.Durable)
 
-    // Keyed on the working directory too: harness sessions are cwd-scoped, and
-    // flow session keys are static ("implementer" on the same task in every
-    // run), so the same key in two worktrees is two different conversations
-    // about two different tasks — deduping them against each other would hide
-    // one behind the other.
     val lineages = durable
       .groupBy(lineageKey)
       .values
@@ -93,7 +89,8 @@ private[shell] object SessionPicker:
     val ephemeralSorted = ephemeral.sortBy(recency).reverse
 
     val tag = dirTag(attempts)
-    val where = (o: Occurrence) => tag(o.attempt.manifest.workDir)
+    val where = (o: Occurrence) =>
+      tag(o.attempt.manifest.workDir, o.attempt.manifest.branch)
     val primaryLabels = primary.map(o => (o, primaryLabel(o) + where(o)))
     val mintedIn = mintedInTag(primaryLabels)
 
@@ -117,14 +114,21 @@ private[shell] object SessionPicker:
 
   private def recency(o: Occurrence): Instant = o.session.lastActiveAt
 
-  /** What makes two occurrences the same durable conversation. Keyed on the
-    * working directory too: harness sessions are cwd-scoped, and flow session
-    * names are static, so the same key in two worktrees is two conversations.
+  /** What makes two occurrences the same durable conversation. Flow session
+    * keys are static ("implementer" on the same task in every run), so the key
+    * alone would merge unrelated runs: the working directory separates them
+    * because harness sessions are cwd-scoped, and the bound branch separates
+    * runs in one directory while grouping the resumed attempts of one run.
     */
   private def lineageKey(
       o: Occurrence
-  ): (String, String, Option[SessionKey]) =
-    (o.attempt.manifest.workDir, o.session.agent, o.session.minted)
+  ): (String, Option[String], String, Option[SessionKey]) =
+    (
+      o.attempt.manifest.workDir,
+      o.attempt.manifest.branch,
+      o.session.agent,
+      o.session.minted
+    )
 
   /** How a row says which stage minted its session, given the primary rows and
     * the labels they would otherwise carry: nothing, unless another lineage
@@ -153,15 +157,28 @@ private[shell] object SessionPicker:
           case _                         => " (minted in the flow body)"
 
   /** How a row says which tree its session is in, given the attempts being
-    * rendered: a suffix per `workDir`, or nothing at all when they share one —
-    * then it would tell the user nothing. The interactive picker and `orca
-    * continue --list` both call this over the same attempts, so the two
-    * surfaces cannot drift on either the rule or the marker's shape.
+    * rendered and the row's `(workDir, branch)`: nothing when the attempts
+    * share one `workDir`, or when the row's branch already identifies it —
+    * recorded, and by attempts from only one `workDir`. Otherwise a ` @<dir>`
+    * suffix. The interactive picker and `orca continue --list` both call this
+    * over the same attempts, so the two surfaces cannot drift on either the
+    * rule or the marker's shape.
     */
-  private[shell] def dirTag(attempts: List[RecordedAttempt]): String => String =
-    if attempts.map(_.manifest.workDir).distinct.sizeIs > 1 then
-      workDir => s" @${lastSegment(workDir)}"
-    else _ => ""
+  private[shell] def dirTag(
+      attempts: List[RecordedAttempt]
+  ): (String, Option[String]) => String =
+    val manifests = attempts.map(_.manifest)
+    if manifests.map(_.workDir).distinct.sizeIs <= 1 then (_, _) => ""
+    else
+      val dirsPerBranch = manifests
+        .flatMap(m => m.branch.map(_ -> m.workDir))
+        .groupMap(_._1)(_._2)
+        .view
+        .mapValues(_.distinct.size)
+        .toMap
+      (workDir, branch) =>
+        if branch.exists(dirsPerBranch(_) == 1) then ""
+        else s" @${lastSegment(workDir)}"
 
   /** A recorded `workDir`'s final segment. String-sliced, not `os.Path`-parsed:
     * the value is manifest content, and a hand-edited one need not be an
@@ -192,36 +209,41 @@ private[shell] object SessionPicker:
       val plural = if count == 1 then "" else "s"
       List(Choice(PickerRow.ShowMore, s"… show $count $noun$plural$suffix"))
 
-  /** `★ <session> — latest (stage: <stage>) [<harness>]`, or `(no stage yet)`
-    * when the durable session hasn't entered a stage (rare — custom flows
-    * only).
+  /** `★ <session> — latest (stage: <stage>) [<harness>] on <branch>`, or `(no
+    * stage yet)` when the durable session hasn't entered a stage (rare — custom
+    * flows only); the branch segment is omitted when the attempt recorded none.
     */
   private def primaryLabel(o: Occurrence): String =
     val name = displayName(o.session)
     val stage = o.session.stage.fold("no stage yet")(s => s"stage: $s")
     val harness = harnessSettingsName(o.session.harness)
     val crashedSuffix = if o.attempt.crashed then " (crashed)" else ""
-    s"★ $name — latest ($stage) [$harness]$crashedSuffix"
+    s"★ $name — latest ($stage) [$harness]${onBranch(o)}$crashedSuffix"
 
-  /** `<session> — stage <stage> [<harness>] (earlier occurrence)`, shown only
-    * when the picker is expanded.
+  /** `<session> — stage <stage> [<harness>] (earlier occurrence) on <branch>`,
+    * shown only when the picker is expanded; the branch segment as in
+    * [[primaryLabel]].
     */
   private def earlierLabel(o: Occurrence): String =
     val name = displayName(o.session)
     val stage = o.session.stage.fold("")(s => s" — stage $s")
     val harness = harnessSettingsName(o.session.harness)
     val crashedSuffix = if o.attempt.crashed then " (crashed)" else ""
-    s"$name$stage [$harness] (earlier occurrence)$crashedSuffix"
+    s"$name$stage [$harness] (earlier occurrence)${onBranch(o)}$crashedSuffix"
 
-  /** `<agent> (<role>) — stage <stage> [<harness>] (ephemeral)`, omitting the
-    * role/stage segments when absent; shown only when the picker is expanded.
+  /** `<agent> (<role>) — stage <stage> [<harness>] (ephemeral) on <branch>`,
+    * omitting the role/stage/branch segments when absent; shown only when the
+    * picker is expanded.
     */
   private def ephemeralLabel(o: Occurrence): String =
     val role = o.session.role.fold("")(r => s" ($r)")
     val stage = o.session.stage.fold("")(s => s" — stage $s")
     val harness = harnessSettingsName(o.session.harness)
     val crashedSuffix = if o.attempt.crashed then " (crashed)" else ""
-    s"${o.session.agent}$role$stage [$harness] (ephemeral)$crashedSuffix"
+    s"${o.session.agent}$role$stage [$harness] (ephemeral)${onBranch(o)}$crashedSuffix"
+
+  private def onBranch(o: Occurrence): String =
+    o.attempt.manifest.branch.fold("")(b => s" on $b")
 
   /** How a session reads to a person: the name it was minted under, or the
     * agent name for an ephemeral session. Every shell surface that shows a

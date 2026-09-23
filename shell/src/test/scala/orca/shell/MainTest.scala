@@ -389,6 +389,69 @@ class MainTest extends munit.FunSuite:
       )
     )
 
+  test("sessionRows keeps two runs in one directory apart by their branch"):
+    val attempts = List(
+      "feat-a" -> "2026-07-18T10:00:00Z",
+      "feat-b" -> "2026-07-18T09:00:00Z"
+    ).map: (b, at) =>
+      RecordedAttempt(
+        manifest(branch = Some(b), sessions = List(durable(lastActiveAt = at))),
+        crashed = false
+      )
+    assertEquals(
+      SessionPicker.sessionRows(attempts, expanded = false).map(_.label),
+      List(
+        "★ main — latest (no stage yet) [claude] on feat-a",
+        "★ main — latest (no stage yet) [claude] on feat-b"
+      )
+    )
+
+  test("sessionRows groups resumed attempts on one branch into one lineage"):
+    val attempts = List("2026-07-18T10:00:00Z", "2026-07-18T09:00:00Z").map:
+      at =>
+        RecordedAttempt(
+          manifest(
+            branch = Some("feat-a"),
+            sessions = List(durable(lastActiveAt = at))
+          ),
+          crashed = false
+        )
+    assertEquals(
+      SessionPicker.sessionRows(attempts, expanded = false).map(_.label),
+      List(
+        "★ main — latest (no stage yet) [claude] on feat-a",
+        "… show 1 earlier occurrence"
+      )
+    )
+
+  test(
+    "sessionRows (expanded): earlier and ephemeral rows carry the attempt's branch"
+  ):
+    val attempts = List(
+      "2026-07-18T10:00:00Z" -> List(
+        durable(lastActiveAt = "2026-07-18T10:00:00Z")
+      ),
+      "2026-07-18T09:00:00Z" -> List(
+        durable(lastActiveAt = "2026-07-18T09:00:00Z"),
+        ephemeral(agent = "security", lastActiveAt = "2026-07-18T09:10:00Z")
+      )
+    ).map: (startedAt, sessions) =>
+      RecordedAttempt(
+        manifest(
+          startedAt = startedAt,
+          branch = Some("feat-a"),
+          sessions = sessions
+        ),
+        crashed = false
+      )
+    assertEquals(
+      SessionPicker.sessionRows(attempts, expanded = true).map(_.label).tail,
+      List(
+        "main [claude] (earlier occurrence) on feat-a",
+        "security [claude] (ephemeral) on feat-a"
+      )
+    )
+
   test("sessionRows suffixes a crashed attempt's rows with `(crashed)`"):
     val run =
       RecordedAttempt(manifest(sessions = List(durable())), crashed = true)

@@ -1035,6 +1035,41 @@ class CliTest extends munit.FunSuite:
     assert(labels.exists(_.contains("@aaaaaaaaaaaa")), labels.toString)
     assert(labels.exists(_.contains("@bbbbbbbbbbbb")), labels.toString)
 
+  test("sessionRows across trees: rows on distinct branches carry no tree tag"):
+    val attempts =
+      List("aaaaaaaaaaaa" -> "feat-a", "bbbbbbbbbbbb" -> "feat-b").zipWithIndex
+        .map:
+          case ((hash, branch), i) =>
+            RecordedAttempt(
+              manifest(
+                workDir = s"/repo/.orca/worktrees/$hash",
+                branch = Some(branch),
+                sessions =
+                  List(durable(lastActiveAt = s"2026-07-18T1${i}:00:00Z"))
+              ),
+              crashed = false
+            )
+    assertEquals(
+      SessionPicker.sessionRows(attempts, expanded = false).map(_.label),
+      List(
+        "★ main — latest (no stage yet) [claude] on feat-b",
+        "★ main — latest (no stage yet) [claude] on feat-a"
+      )
+    )
+
+  test("dirTag across trees: one branch recorded in two trees tags both rows"):
+    val attempts = List("/repo", "/repo/.orca/worktrees/ab12cd34").map: dir =>
+      RecordedAttempt(
+        manifest(workDir = dir, branch = Some("feat-a"), sessions = Nil),
+        crashed = false
+      )
+    val tag = SessionPicker.dirTag(attempts)
+    assertEquals(tag("/repo", Some("feat-a")), " @repo")
+    assertEquals(
+      tag("/repo/.orca/worktrees/ab12cd34", Some("feat-a")),
+      " @ab12cd34"
+    )
+
   test("lineages differing only in their minting stage say which stage"):
     // Two per-task `implementer` sessions of one attempt: same name, same harness,
     // same (absent) last-active stage, one tree — the minting stage is all
@@ -1358,6 +1393,38 @@ class CliTest extends munit.FunSuite:
     val lines = out.linesIterator.toList
     assert(lines.head.contains("branch"), out)
     assert(lines(1).contains("orca-fix-parser"), out)
+
+  test(
+    "runContinue --list: rows across trees on distinct branches carry no tree tag"
+  ):
+    val checkout = TempDirs.dir()
+    val worktree = TempDirs.dir()
+    List(checkout -> "/repo", worktree -> "/repo/.orca/worktrees/ab12cd34")
+      .zip(List("feat-a", "feat-b"))
+      .foreach:
+        case ((dir, workDir), branch) =>
+          writeManifest(
+            dir,
+            manifest(
+              workDir = workDir,
+              branch = Some(branch),
+              sessions = List(durable())
+            )
+          )
+    val out = captured(
+      assertEquals(
+        ContinueCli.runContinue(
+          ScanDirs(checkout, List(worktree)),
+          None,
+          list = true,
+          json = false,
+          tty = false
+        ),
+        ExitCodes.Ok
+      )
+    )
+    assert(out.contains("feat-a") && out.contains("feat-b"), out)
+    assert(!out.contains("@"), out)
 
   test("runContinue --list --json: kind is Durable or Ephemeral"):
     val dir = TempDirs.dir()

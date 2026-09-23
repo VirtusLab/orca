@@ -105,7 +105,7 @@ private[cli] object Tables:
           else s"  not resumable: ${r.reason.getOrElse("")}"
         val sessionName =
           r.sessionName + (if r.crashed then " (crashed)" else "") +
-            tag(r.workDir)
+            tag(r.workDir, r.branch)
         (
           r.index.toString,
           sessionName,
