@@ -2186,7 +2186,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       val _ =
         orca.pr.openPrIfGitHub(
           summarisingAgent = summon[FlowContext].claude,
-          openFindings = orca.review.OpenFindings(Nil)
+          openFindings = orca.review.OpenFindings.empty
         )
     HandoffRun(git.currentBranch(), featureBranch)
 

@@ -19,7 +19,8 @@ class JsonSchemaGenTest extends munit.FunSuite:
         |  "title":"Hello",
         |  "description":"hello",
         |  "location":null,
-        |  "suggestion":null
+        |  "suggestion":null,
+        |  "reopens":null
         |}]}""".stripMargin
     val errors = compiledResultSchema.validate(sample, InputFormat.JSON)
     assert(errors.isEmpty, s"Validation errors: $errors")
@@ -32,7 +33,8 @@ class JsonSchemaGenTest extends munit.FunSuite:
         |  "title":"Hello",
         |  "description":"hello",
         |  "location":{"file":"orca/review/Lint.scala","line":42},
-        |  "suggestion":null
+        |  "suggestion":null,
+        |  "reopens":null
         |}]}""".stripMargin
     val errors = compiledResultSchema.validate(sample, InputFormat.JSON)
     assert(errors.isEmpty, s"Validation errors: $errors")

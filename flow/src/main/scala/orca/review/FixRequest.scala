@@ -55,7 +55,7 @@ private[review] object FixRequest:
   private def renderFinding(key: String, finding: ReviewFinding): String =
     // Exhaustive destructure: a new `ReviewFinding` field stops compiling here
     // until this prompt decides what to do with it.
-    val ReviewFinding(title, description, location, suggestion) = finding
+    val ReviewFinding(title, description, location, suggestion, _) = finding
     val lines = List(
       Some(s"$key $title"),
       locationLine(location),

@@ -405,10 +405,11 @@ screen output and the PR body:
   fixing agent fills, so it carries title and reason and nothing else.
 - **open finding** (`OpenFinding`, `OpenFindings`) — a finding the run ends
   without resolving, paired with an `OpenReason`: declined, never reported on
-  by the fixer, past the round cap, still failing lint, or from a review that
-  could not run at all. This is what `reviewThenFix` and `reviewAndFixLoop`
-  return, what later rounds' reviewers are shown, and what the PR body and
-  the run output list under "Open review findings".
+  by the fixer, past the round cap, or still failing lint. Identified by its
+  `FindingId`, never by its title. This is what `reviewThenFix` and
+  `reviewAndFixLoop` return, what later rounds' reviewers are shown, and what
+  the PR body and the run output list under "Open review findings". A review
+  that could not run at all is `OpenFindings.skipped`, not an open finding.
 
 Don't name the open set after one of its reasons: any such name misreports the
 others. `OpenReason` is where the distinction lives — its `describe` is the only

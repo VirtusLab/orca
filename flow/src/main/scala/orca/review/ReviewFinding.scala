@@ -17,10 +17,20 @@ case class Location(file: String, line: Option[Int]) derives JsonData:
   * in the event log under `▶`); `description` is the longer form fed back to
   * the fixing agent. The split mirrors `Plan.Task`'s title/description pair so
   * flow scripts handling findings and tasks share field names.
+  *
+  * `reopens` names the still-open finding this one reports again, by the id the
+  * reviewer was shown for it; `None` for a new finding.
   */
 case class ReviewFinding(
     title: Title,
     description: String,
     location: Option[Location],
-    suggestion: Option[String]
+    suggestion: Option[String],
+    reopens: Option[FindingId]
 ) derives JsonData
+
+/** A title, or a fixer's echo of one, in the form compared case- and
+  * whitespace-insensitively.
+  */
+private[review] def normalisedTitle(text: String): String =
+  text.trim.toLowerCase(java.util.Locale.ROOT).replaceAll("\\s+", " ")

@@ -103,7 +103,7 @@ flow(
         userRequest = Some(issuePayload),
         diff = ReviewDiff.WholeRun,
         maxIterations = 5,
-        priorOpenFindings = OpenFindings(taskOpenFindings.flatMap(_.findings))
+        priorOpenFindings = taskOpenFindings.flatMap(_.findings)
       )
 
     openPrFromBranch(
