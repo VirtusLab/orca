@@ -1,6 +1,6 @@
 // Plan interactively, asking clarifying questions, implement, then open a PR.
 //> using scala 3.9.0
-//> using dep "org.virtuslab::orca:0.1.8"
+//> using dep "org.virtuslab::orca:0.1.9"
 //> using jvm 21
 
 /** Interactive planning + coding flow.

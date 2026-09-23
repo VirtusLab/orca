@@ -1,6 +1,6 @@
 // Review a PR, a branch, or local changes — a list of findings, no fixes.
 //> using scala 3.9.0
-//> using dep "org.virtuslab::orca:0.1.8"
+//> using dep "org.virtuslab::orca:0.1.9"
 //> using jvm 21
 
 /** Review-only flow: no planning, no coding, nothing committed.
