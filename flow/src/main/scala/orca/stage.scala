@@ -149,7 +149,7 @@ private def runStage[T: JsonData](
 
 /** Append the stage's result to the log and commit code + log as one commit.
   * The progress file is force-added (so it lands even when `.orca/` is
-  * gitignored); `git.commit`'s own `add -A` picks up any code changes.
+  * gitignored); `runtimeGit.commit`'s own `add -A` picks up any code changes.
   */
 private def recordAndCommit[T: JsonData](
     id: StagePath.Stage,
@@ -168,10 +168,10 @@ private def recordAndCommit[T: JsonData](
   fc.progressStore.upsertEntry(
     StageEntry(id = id, resultJson = RawJson(resultJson))
   )
-  fc.context.git.forceAdd(fc.progressStore.path)
+  fc.context.runtimeGit.forceAdd(fc.progressStore.path)
   // The log always changed, so a clean tree is unexpected (a prior partial run
   // may already have committed this entry): log at DEBUG, never fail the stage.
-  fc.context.git.commit(message) match
+  fc.context.runtimeGit.commit(message) match
     case Right(()) => ()
     case Left(_) =>
       log.debug("stage {} commit was empty (already recorded?)", id.name)

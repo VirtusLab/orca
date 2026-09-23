@@ -11,7 +11,7 @@ import orca.progress.{
   ScannedProgressLog
 }
 import orca.runner.FlowLifecycle.SettingsResolution
-import orca.tools.GitTool
+import orca.tools.RuntimeGit
 import orca.util.TextUtil
 
 import scala.util.control.NonFatal
@@ -46,7 +46,7 @@ private[runner] object SetupPreflight:
     */
   def run(
       args: OrcaArgs,
-      git: GitTool,
+      git: RuntimeGit,
       workDir: os.Path,
       stack: SettingsResolution,
       store: ProgressStore,
@@ -67,7 +67,7 @@ private[runner] object SetupPreflight:
         abortIfBranchBusy(peeked, store.path, workDir, branch)
       // No branch for another run to have claimed.
       case Head.Detached(_) => ()
-    // Detection is best-effort; a failure falls back to just the floor.
+    // No recorded default branch leaves just the floor.
     val protectedBranches =
       FeatureBranch.alwaysProtected ++ git
         .defaultBranch()
@@ -129,7 +129,7 @@ private[runner] object SetupPreflight:
     * here with our own message. `headCommit()` is also `None` outside a git
     * repository, hence the message names both cases.
     */
-  private def abortIfNoCommits(git: GitTool): Unit =
+  private def abortIfNoCommits(git: RuntimeGit): Unit =
     if git.headCommit().isEmpty then
       throw new OrcaFlowException(GitPreconditions.needsRepoWithCommit)
 
@@ -140,7 +140,7 @@ private[runner] object SetupPreflight:
   private def abortIfRequestedBranchRefused(
       args: OrcaArgs,
       peeked: PeekedLog,
-      git: GitTool,
+      git: RuntimeGit,
       protectedBranches: Set[String]
   ): Unit =
     peeked match
@@ -245,7 +245,7 @@ private[runner] object SetupPreflight:
     * flow.
     */
   private def warnIfSettingsIgnored(
-      git: GitTool,
+      git: RuntimeGit,
       stack: SettingsResolution,
       emit: OrcaEvent => Unit
   ): Unit =

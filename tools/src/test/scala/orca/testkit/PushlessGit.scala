@@ -1,7 +1,7 @@
 package orca.testkit
 
 import orca.WorkspaceWrite
-import orca.tools.{GitTool, NoDefaultBase, PushFailure}
+import orca.tools.{NoDefaultBase, PushFailure, RuntimeGit}
 
 /** The real git with the calls that need a remote stubbed — `push` and
   * `defaultBase` answer `pushAnswer` / `base`, `diffVsBase` the fixed
@@ -14,11 +14,11 @@ import orca.tools.{GitTool, NoDefaultBase, PushFailure}
   * by throwing from the expression itself.
   */
 class PushlessGit(
-    underlying: GitTool,
+    underlying: RuntimeGit,
     branchDiff: String = "stub-diff",
     pushAnswer: => Either[PushFailure, Unit] = Right(()),
     base: => Either[NoDefaultBase, String] = Right("main")
-) extends GitTool:
+) extends RuntimeGit:
   export underlying.{push => _, defaultBase => _, diffVsBase => _, *}
 
   def push()(using WorkspaceWrite): Either[PushFailure, Unit] = pushAnswer

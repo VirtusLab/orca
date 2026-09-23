@@ -34,17 +34,17 @@ class InStageNegativeTest extends munit.FunSuite:
   test(
     "a gated git mutation does NOT compile without a WorkspaceWrite in scope"
   ):
-    // With a `GitTool` in scope but NO `WorkspaceWrite`, `git.commit(...)` must
+    // With a `GitTool` in scope but NO `WorkspaceWrite`, `git.push()` must
     // fail to compile — a workspace mutation is impossible outside a stage.
     val errors = compileErrors(
       """
       val git: orca.tools.GitTool = ???
-      git.commit("x")
+      git.push()
       """
     )
     assert(
       errors.nonEmpty,
-      "expected a compile error for git.commit without a WorkspaceWrite"
+      "expected a compile error for git.push without a WorkspaceWrite"
     )
     // `WorkspaceWrite`'s `@implicitNotFound` tells the author to move the call
     // into a `stage(...)` body (not a `fork` within one), rather than naming

@@ -31,7 +31,7 @@ import orca.progress.{
 }
 import orca.settings.{AgentSettings, SettingsFile, SettingsScope}
 import orca.subprocess.TtyProbe
-import orca.tools.{GitTool, UntrackedFiles}
+import orca.tools.{RuntimeGit, UntrackedFiles}
 import org.slf4j.LoggerFactory
 import ox.either.orThrow
 
@@ -73,7 +73,7 @@ object FlowLifecycle:
         // replacing `f`), and log/print it too.
         try
           teardownFailure(
-            ctx.git,
+            ctx.runtimeGit,
             flowSetup.featureBranch,
             flowSetup.startingTree,
             ctx.emit
@@ -92,7 +92,7 @@ object FlowLifecycle:
         throw f
     // Read before teardownSuccess deletes the log.
     val published = PublishedState.from(control.progressStore.loadDetailed())
-    teardownSuccess(ctx.git, flowSetup, published, ctx.emit)
+    teardownSuccess(ctx.runtimeGit, flowSetup, published, ctx.emit)
 
   /** Runs one lifecycle phase: a failure is reported to `emit` unless already
     * reported, logged (with its stack trace on stderr under `debug`), and
@@ -173,7 +173,7 @@ object FlowLifecycle:
       // The resolved coding-role agent (ADR 0020): branch-name resolution and
       // stack discovery — the run's privileged pre-body model calls — run here.
       agent: Agent[?],
-      git: GitTool,
+      git: RuntimeGit,
       workDir: os.Path,
       branchNaming: Option[BranchNamingStrategy],
       // The stack resolution, parsed by `runFlow` upstream (ADR 0020 §6); a
@@ -253,7 +253,7 @@ object FlowLifecycle:
   private final class SetupSession(
       args: OrcaArgs,
       agent: Agent[?],
-      git: GitTool,
+      git: RuntimeGit,
       branchNaming: Option[BranchNamingStrategy],
       store: ProgressStore,
       flowSource: Option[FlowSource],
@@ -674,7 +674,7 @@ object FlowLifecycle:
   private def createNamedByStrategy(
       userPrompt: String,
       agent: Agent[?],
-      git: GitTool,
+      git: RuntimeGit,
       branchNaming: Option[BranchNamingStrategy],
       protectedBranches: Set[String],
       emit: OrcaEvent => Unit
@@ -710,7 +710,7 @@ object FlowLifecycle:
     * which parse time cannot know — or already exists.
     */
   private def createRequestedBranch(
-      git: GitTool,
+      git: RuntimeGit,
       name: BranchName,
       protectedBranches: Set[String]
   )(using WorkspaceWrite): FeatureBranch =
@@ -722,14 +722,14 @@ object FlowLifecycle:
   /** Give the just-discovered settings file its own commit (ADR 0019), so no
     * later commit carries it under an unrelated message.
     *
-    * [[GitTool.commitOnly]]'s pathspec guarantees the commit carries exactly
+    * [[RuntimeGit.commitOnly]]'s pathspec guarantees the commit carries exactly
     * this one path — anything else dirty or untracked stays out. Not
     * `forceCommitOnly`: a repo that still ignores `.orca/` must keep the file
     * ignored (the migration warning already covers it), so the commit is
-    * skipped when [[GitTool.isIgnored]] reports the path excluded. Only the
+    * skipped when [[RuntimeGit.isIgnored]] reports the path excluded. Only the
     * progress log punches through the ignore, for resume correctness.
     */
-  private def commitDiscoveredSettings(git: GitTool, workDir: os.Path)(using
+  private def commitDiscoveredSettings(git: RuntimeGit, workDir: os.Path)(using
       WorkspaceWrite
   ): Unit =
     if !git.isIgnored(OrcaDir.settingsSubPath) then
@@ -797,7 +797,7 @@ object FlowLifecycle:
     * is still there; the user must decide what to do with it.
     */
   private def createFreshBranch(
-      git: GitTool,
+      git: RuntimeGit,
       candidate: FeatureBranch,
       fallback: FeatureBranch,
       emit: OrcaEvent => Unit
@@ -862,7 +862,7 @@ object FlowLifecycle:
     * branch it was counted on.
     */
   private[runner] def teardownSuccess(
-      git: GitTool,
+      git: RuntimeGit,
       setup: FlowSetup,
       published: PublishedState,
       emit: OrcaEvent => Unit
@@ -923,7 +923,7 @@ object FlowLifecycle:
     * answer it.
     */
   private def finishBranch(
-      git: GitTool,
+      git: RuntimeGit,
       setup: FlowSetup,
       published: PublishedState
   )(using WorkspaceWrite): Unit =
@@ -949,7 +949,7 @@ object FlowLifecycle:
   /** Put HEAD back where the run started: its start branch, or the detached
     * start commit.
     */
-  private def returnToStart(git: GitTool, startingHead: Head)(using
+  private def returnToStart(git: RuntimeGit, startingHead: Head)(using
       WorkspaceWrite
   ): Unit =
     startingHead match
@@ -968,7 +968,7 @@ object FlowLifecycle:
     * the edits there are not known to be only the failed stage's.
     */
   private[orca] def teardownFailure(
-      git: GitTool,
+      git: RuntimeGit,
       featureBranch: FeatureBranch,
       startingTree: StartingTree,
       emit: OrcaEvent => Unit
