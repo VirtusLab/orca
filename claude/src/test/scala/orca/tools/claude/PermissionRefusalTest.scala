@@ -1,10 +1,10 @@
-package orca.backend
+package orca.tools.claude
 
-class ToolDenialTest extends munit.FunSuite:
+class PermissionRefusalTest extends munit.FunSuite:
 
-  test("extracts the tool name from claude's permission refusal"):
+  test("extracts the tool name from a refusal"):
     assertEquals(
-      ToolDenial.fromToolResult(
+      PermissionRefusal.toolName(
         "Claude requested permissions to use mcp__visdom__agents_md, " +
           "but you haven't granted it yet."
       ),
@@ -13,7 +13,7 @@ class ToolDenialTest extends munit.FunSuite:
 
   test("returns None when the phrase is quoted inside other output"):
     assertEquals(
-      ToolDenial.fromToolResult(
+      PermissionRefusal.toolName(
         "app.log:12: Claude requested permissions to use Bash, " +
           "but you haven't granted it yet.\napp.log:13: done"
       ),
@@ -22,6 +22,6 @@ class ToolDenialTest extends munit.FunSuite:
 
   test("returns None for an unrelated mention of permissions"):
     assertEquals(
-      ToolDenial.fromToolResult("chmod: changing permissions of 'x': denied"),
+      PermissionRefusal.toolName("chmod: changing permissions of 'x': denied"),
       None
     )

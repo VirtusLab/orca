@@ -199,16 +199,26 @@ private[claude] class ClaudeConversation(
         // the id.
         ()
       case ContentBlock.ToolResult(_, body, isError) =>
-        eventQueue.enqueue(
-          ConversationEvent.ToolResult(
-            // claude's tool_result block carries only a tool_use_id, not the
-            // name — the grammar legalizes None here (see ConversationEvent).
-            toolName = None,
-            ok = !isError,
-            content = body
-          )
-        )
+        eventQueue.enqueue(toolResultEvent(body, isError))
       case _ => ()
+
+  /** A refusal arrives as a failed `tool_result`; any other result is passed on
+    * as is.
+    */
+  private def toolResultEvent(
+      body: String,
+      isError: Boolean
+  ): ConversationEvent =
+    PermissionRefusal.toolName(body) match
+      case Some(tool) if isError => ConversationEvent.ToolDenied(tool)
+      case _ =>
+        ConversationEvent.ToolResult(
+          // claude's tool_result block carries only a tool_use_id, not the
+          // name — the grammar legalizes None here (see ConversationEvent).
+          toolName = None,
+          ok = !isError,
+          content = body
+        )
 
   /** Takes the whole [[InboundMessage.Result]] product (not its `output`/
     * `structuredOutput` fields unpacked positionally) — those two are

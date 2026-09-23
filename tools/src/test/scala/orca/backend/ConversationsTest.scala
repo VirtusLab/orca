@@ -364,50 +364,10 @@ class ConversationsTest extends munit.FunSuite:
       supervised(Conversations.drainAutonomous(conv, AutoApprove.All, recorder))
     assertEquals(recorder.events, Nil)
 
-  test("an ordinary failed ToolResult is swallowed"):
+  test("ToolDenied emits OrcaEvent.ToolDenied"):
     val recorder = new RecordingListener
     val conv = new ScriptedConversation(
-      List(
-        ConversationEvent.ToolResult(
-          Some("Bash"),
-          ok = false,
-          "exit status 1: tests failed"
-        )
-      ),
-      Right(sampleResult)
-    )
-    val _ =
-      supervised(Conversations.drainAutonomous(conv, AutoApprove.All, recorder))
-    assertEquals(recorder.events, Nil)
-
-  test("a successful ToolResult quoting the refusal phrase is swallowed"):
-    val recorder = new RecordingListener
-    val conv = new ScriptedConversation(
-      List(
-        ConversationEvent.ToolResult(
-          Some("Read"),
-          ok = true,
-          "Claude requested permissions to use Bash, " +
-            "but you haven't granted it yet."
-        )
-      ),
-      Right(sampleResult)
-    )
-    val _ =
-      supervised(Conversations.drainAutonomous(conv, AutoApprove.All, recorder))
-    assertEquals(recorder.events, Nil)
-
-  test("a claude permission refusal emits ToolDenied"):
-    val recorder = new RecordingListener
-    val conv = new ScriptedConversation(
-      List(
-        ConversationEvent.ToolResult(
-          None,
-          ok = false,
-          "Claude requested permissions to use mcp__visdom__agents_md, " +
-            "but you haven't granted it yet."
-        )
-      ),
+      List(ConversationEvent.ToolDenied("mcp__visdom__agents_md")),
       Right(sampleResult)
     )
     val _ =

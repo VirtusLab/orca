@@ -179,18 +179,14 @@ private[orca] object Conversations:
             // Wire-level echo of input we already sent; surfaced upstream as
             // `OrcaEvent.UserPrompt` from the Agent layer.
             ()
-          case ConversationEvent.ToolResult(_, true, _) =>
+          case ConversationEvent.ToolResult(_, _, _) =>
             // Tool output volume is unbounded (full cargo-test logs, etc.), so it
             // isn't surfaced here; the matching `AssistantToolCall` already went
             // out as `OrcaEvent.ToolUse`. Listeners needing raw output subscribe
             // at the `ConversationEvent` layer instead.
             ()
-          case ConversationEvent.ToolResult(_, false, content) =>
-            // Only permission refusals are surfaced; they always arrive as
-            // failed results.
-            ToolDenial
-              .fromToolResult(content)
-              .foreach(tool => events.onEvent(OrcaEvent.ToolDenied(tool, None)))
+          case ConversationEvent.ToolDenied(toolName) =>
+            events.onEvent(OrcaEvent.ToolDenied(toolName, None))
       buffer.finishNormally()
     catch
       case t: Throwable =>

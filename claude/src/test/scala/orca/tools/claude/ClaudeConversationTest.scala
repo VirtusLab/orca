@@ -411,6 +411,51 @@ class ClaudeConversationTest extends munit.FunSuite:
     ConversationEventConformance.assertGrammar(events, completedNormally = true)
     val _ = conv.awaitResult()
 
+  convTest("a failed permission-refusal tool_result emits ToolDenied"):
+    val process = new FakePipedCliProcess()
+    val conv = new ClaudeConversation(process, AgentConfig())
+
+    process.enqueueStdout(
+      """{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"id-1","content":"Claude requested permissions to use mcp__visdom__agents_md, but you haven't granted it yet.","is_error":true}]}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"result","subtype":"success","session_id":"sid-td"}"""
+    )
+    process.closeStdout()
+
+    val events = conv.events.toList
+    assertEquals(
+      events,
+      List(
+        ConversationEvent.ToolDenied("mcp__visdom__agents_md"),
+        ConversationEvent.AssistantTurnEnd
+      )
+    )
+    ConversationEventConformance.assertGrammar(events, completedNormally = true)
+    val _ = conv.awaitResult()
+
+  convTest(
+    "a successful tool_result quoting the refusal phrase stays a ToolResult"
+  ):
+    val process = new FakePipedCliProcess()
+    val conv = new ClaudeConversation(process, AgentConfig())
+    val quoted =
+      "Claude requested permissions to use Bash, but you haven't granted it yet."
+
+    process.enqueueStdout(
+      s"""{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"id-1","content":"$quoted","is_error":false}]}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"result","subtype":"success","session_id":"sid-tq"}"""
+    )
+    process.closeStdout()
+
+    assertEquals(
+      conv.events.toList.headOption,
+      Some(ConversationEvent.ToolResult(None, ok = true, quoted))
+    )
+    val _ = conv.awaitResult()
+
   convTest("user turn with tool_result blocks emits ToolResult events"):
     val process = new FakePipedCliProcess()
     val conv = new ClaudeConversation(process, AgentConfig())
