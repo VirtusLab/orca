@@ -13,7 +13,7 @@ class OsGitHubIntegrationTest extends munit.FunSuite:
     else Nil
 
   test("gh CLI is installed and invokable via the CliRunner"):
-    val result = OsProcCliRunner.run(Seq("gh", "--version"))
+    val result = OsProcCliRunner.run(Seq("gh", "--version"), cwd = os.pwd)
     assertEquals(result.exitCode, 0)
     assert(
       result.stdout.toLowerCase.contains("gh version"),
@@ -21,7 +21,7 @@ class OsGitHubIntegrationTest extends munit.FunSuite:
     )
 
   test("gh api user succeeds under the authenticated session"):
-    val result = OsProcCliRunner.run(Seq("gh", "api", "user"))
+    val result = OsProcCliRunner.run(Seq("gh", "api", "user"), cwd = os.pwd)
     assertEquals(
       result.exitCode,
       0,

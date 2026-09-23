@@ -10,7 +10,7 @@ import orca.agents.{
   Announce,
   JsonData
 }
-import orca.backend.Continuation
+import orca.backend.{Dispatch, ResumeOrigin}
 import orca.events.OrcaEvent
 import orca.progress.ProgressLog
 import orca.sessions.SessionRecord
@@ -308,34 +308,27 @@ private def effectivePrompt[B <: BackendTag](
     text: String
 )(using fc: FlowControl): String =
   val turn = fc.claimTurn(session.value)
-  val record = fc.sessionStore.records().find(_.id == session.value)
-  agent.continuation(session) match
-    case Continuation.Rebuild => rebuiltPrompt(record, text)
-    case live                 => continuedPrompt(record, live, turn, text)
+  agent.dispatchFor(session) match
+    case Dispatch.Fresh(_) =>
+      rebuiltPrompt(fc.sessionStore.records().find(_.id == session.value), text)
+    case Dispatch.Resume(_, origin) => continuedPrompt(origin, turn, text)
 
 /** The prompt for a turn the backend will answer from a conversation it still
   * holds. Only a conversation that predates this run is told its uncommitted
   * work is gone, and only on this run's first turn against it — from the
   * second, the uncommitted edits in the tree are this run's own (ADR 0018 §2.6,
   * carried-over live conversations).
-  *
-  * Predating this run has two shapes: a recorded wire id, left by a previous
-  * run that committed a turn here, and [[Continuation.Claimed]], left by one
-  * interrupted during its first turn. A conversation this run opened itself is
-  * [[Continuation.Recorded]] with no wire id recorded, and is told nothing.
   */
 private def continuedPrompt(
-    record: Option[SessionRecord],
-    live: Continuation,
+    origin: ResumeOrigin,
     turn: SessionTurn,
     text: String
 ): String =
-  val carriedOver =
-    record.exists(_.resumeWireId.isDefined) || live == Continuation.Claimed
-  turn match
-    case SessionTurn.First if carriedOver =>
+  (turn, origin) match
+    case (SessionTurn.First, ResumeOrigin.EarlierRun) =>
       composePrimedPrompt(Some(InterruptedAttemptNotice), None, text)
-    case SessionTurn.First | SessionTurn.Later => text
+    case (SessionTurn.First, ResumeOrigin.ThisRun) | (SessionTurn.Later, _) =>
+      text
 
 /** The prompt for a turn against a conversation the backend does not hold — a
   * first use, or one lost since the run that opened it — rebuilt from the

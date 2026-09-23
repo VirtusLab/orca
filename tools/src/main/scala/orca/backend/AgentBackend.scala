@@ -75,16 +75,20 @@ trait AgentBackend[B <: BackendTag](
     checkNotClosed()
     // Per call, not once per session: the first call commits the session, so a
     // caller's corrective re-prompt dispatches as `Resumed` — a different
-    // guarantee on codex, and hence possibly a different notice.
-    announceEnforcementShortfall(config, session, events)
-    doRunAutonomous(prompt, session, config, events, outputSchema)
+    // guarantee on codex, and hence possibly a different notice. Callers must
+    // not share a session id across concurrent calls; `reviewAndFixLoop`'s
+    // parallel reviewers each mint their own conversation via `agent.chat()`.
+    val dispatch = sessions.dispatchFor(session)
+    announceEnforcementShortfall(config, dispatch, events)
+    doRunAutonomous(prompt, session, dispatch, config, events, outputSchema)
 
   /** This backend's autonomous turn, run once [[runAutonomous]]'s gate has
-    * passed.
+    * passed. `dispatch` is this turn's fresh-vs-resume answer for `session`.
     */
   protected def doRunAutonomous(
       prompt: String,
       session: SessionId[B],
+      dispatch: Dispatch[B],
       config: AgentConfig,
       events: OrcaListener,
       outputSchema: Option[String]
@@ -112,15 +116,24 @@ trait AgentBackend[B <: BackendTag](
       events: OrcaListener = OrcaListener.noop
   )(using Ox): Conversation[B] =
     checkNotClosed()
-    announceEnforcementShortfall(config, session, events)
-    doRunInteractive(prompt, session, displayPrompt, config, outputSchema)
+    val dispatch = sessions.dispatchFor(session)
+    announceEnforcementShortfall(config, dispatch, events)
+    doRunInteractive(
+      prompt,
+      session,
+      dispatch,
+      displayPrompt,
+      config,
+      outputSchema
+    )
 
   /** This backend's interactive turn, run once [[runInteractive]]'s gate has
-    * passed.
+    * passed. `dispatch` is this turn's fresh-vs-resume answer for `session`.
     */
   protected def doRunInteractive(
       prompt: String,
       session: SessionId[B],
+      dispatch: Dispatch[B],
       displayPrompt: String,
       config: AgentConfig,
       outputSchema: Option[String]
@@ -169,15 +182,21 @@ trait AgentBackend[B <: BackendTag](
   ): EnforcementCell
 
   /** Report, at most once per distinct sentence for this backend, that the turn
-    * about to run against `session` asked for a restriction this backend cannot
+    * about to run as `dispatch` asked for a restriction this backend cannot
     * apply mechanically. Delegates to [[enforcementNotice]], which owns both
     * the wording and the "already said" bookkeeping.
     */
   private def announceEnforcementShortfall(
       config: AgentConfig,
-      session: SessionId[B],
+      dispatch: Dispatch[B],
       events: OrcaListener
-  ): Unit = enforcementNotice.announceShortfall(this, config, session, events)
+  ): Unit =
+    enforcementNotice.announceShortfall(
+      this,
+      config,
+      dispatch.asTurnDispatch,
+      events
+    )
 
   /** How THIS backend's wire delivers a structured (`resultAs[O]`) payload
     * ([[orca.agents.StructuredOutputMode]]). Prompt assembly

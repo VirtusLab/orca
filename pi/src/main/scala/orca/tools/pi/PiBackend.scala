@@ -87,6 +87,7 @@ private[orca] class PiBackend private[pi] (
   protected def doRunAutonomous(
       prompt: String,
       session: SessionId[BackendTag.Pi.type],
+      dispatch: Dispatch[BackendTag.Pi.type],
       config: AgentConfig,
       events: OrcaListener,
       outputSchema: Option[String]
@@ -96,6 +97,7 @@ private[orca] class PiBackend private[pi] (
         prompt = prompt,
         mode = ConversationMode.Autonomous,
         session = session,
+        dispatch = dispatch,
         config = config,
         outputSchema = outputSchema
       )
@@ -103,6 +105,7 @@ private[orca] class PiBackend private[pi] (
   protected def doRunInteractive(
       prompt: String,
       session: SessionId[BackendTag.Pi.type],
+      dispatch: Dispatch[BackendTag.Pi.type],
       displayPrompt: String,
       config: AgentConfig,
       outputSchema: Option[String]
@@ -111,6 +114,7 @@ private[orca] class PiBackend private[pi] (
       prompt = prompt,
       mode = ConversationMode.Interactive(displayPrompt),
       session = session,
+      dispatch = dispatch,
       config = config,
       outputSchema = outputSchema
     )
@@ -119,6 +123,7 @@ private[orca] class PiBackend private[pi] (
       prompt: String,
       mode: ConversationMode,
       session: SessionId[BackendTag.Pi.type],
+      dispatch: Dispatch[BackendTag.Pi.type],
       config: AgentConfig,
       outputSchema: Option[String]
   ): PiConversation =
@@ -142,16 +147,13 @@ private[orca] class PiBackend private[pi] (
       askUserExtension.toList ++ List(systemPromptFile)
 
     SubprocessSpawn.open("pi RPC", resources) {
-      val resume = sessions.dispatchFor(session) match
-        case Dispatch.Resume(_) => true
-        case Dispatch.Fresh(_)  => false
       val args = PiArgs.rpc(
         // The one place the session dir is created: Pi seeds its transcript
         // inside `<base>/<session id>`, so the base must exist by spawn time.
         // Ensured per spawn, so a cache deleted mid-run is recreated.
         sessionDir =
           OrcaDir.ensurePiSessions(workDir) / SessionId.value(session),
-        resume = resume,
+        dispatch = dispatch.asTurnDispatch,
         config = config,
         systemPromptFile = Some(systemPromptFile.file),
         askUserExtension = askUserExtension.map(_.file)

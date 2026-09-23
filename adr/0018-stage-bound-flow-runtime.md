@@ -955,6 +955,31 @@ list output and opencode's directory-scoping should be pinned when the probes la
 > `SessionId.isSafe` gates the claim as it gates the recorded map's write
 > doors, since the id comes back from the session store.
 
+> **Amendment (2026-09-23, one answer per turn).** `Continuation` and
+> `Dispatch` merge into one `Dispatch`: `Fresh(claim)` — re-seed — or
+> `Resume(wireId, origin)`, where `origin` is `ThisRun` or `EarlierRun`. The
+> prompt side (re-seed, and the carried-over notice iff `EarlierRun`) and the
+> argv side read that one value.
+>
+> **Why.** The prompt side probed a recorded wire id; the argv side resumed any
+> recorded id unprobed. A lost conversation was re-seeded AND resumed — `--resume`
+> of a gone id, which fails the turn — and a probe run three times per turn could
+> answer differently each time.
+>
+> **How.** Rehydration records a wire id as unconfirmed. The first
+> `dispatchFor` probes it once: live, it settles as `EarlierRun` and every later
+> ask reads that; gone, the mapping is dropped, so the re-seeded turn's commit
+> records its new id. A held claim settles the same way. An id this run
+> committed is not probed. `AgentBackend` resolves once per backend call and
+> hands the value to both the enforcement notice and the spawn. A `Fresh` answer
+> is not stored — a failed first turn can leave a claim the next ask must see —
+> so on a `ClientClaimed` backend the backend call runs the claim probe again.
+>
+> **What it costs.** On claude and pi a rehydrated id is now probed before it is
+> resumed, so a probe false negative dispatches `Fresh(claim)`, which those CLIs
+> refuse for an id they hold. The claim probe already carried that risk; both
+> read the same transcript path the spawn writes.
+
 ### 2.7 External-effect idempotency
 
 **Requirements.**

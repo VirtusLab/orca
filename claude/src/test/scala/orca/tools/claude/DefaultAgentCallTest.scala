@@ -20,6 +20,7 @@ import orca.events.{OrcaEvent, OrcaListener, TurnDebit, Usage}
 import orca.testkit.Usages.usage
 
 import orca.backend.{
+  Dispatch,
   Interaction,
   AgentBackend,
   AgentResult,
@@ -79,6 +80,7 @@ class SequencedBackend(
   protected def doRunAutonomous(
       prompt: String,
       session: SessionId[BackendTag.ClaudeCode.type],
+      dispatch: Dispatch[BackendTag.ClaudeCode.type],
       config: AgentConfig,
       events: orca.events.OrcaListener,
       outputSchema: Option[String]
@@ -90,6 +92,7 @@ class SequencedBackend(
   protected def doRunInteractive(
       prompt: String,
       session: SessionId[BackendTag.ClaudeCode.type],
+      dispatch: Dispatch[BackendTag.ClaudeCode.type],
       displayPrompt: String,
       config: AgentConfig,
       outputSchema: Option[String]
@@ -432,6 +435,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
       override protected def doRunAutonomous(
           prompt: String,
           session: SessionId[BackendTag.ClaudeCode.type],
+          dispatch: Dispatch[BackendTag.ClaudeCode.type],
           config: AgentConfig,
           events: OrcaListener,
           outputSchema: Option[String]
@@ -464,6 +468,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
       override protected def doRunAutonomous(
           prompt: String,
           session: SessionId[BackendTag.ClaudeCode.type],
+          dispatch: Dispatch[BackendTag.ClaudeCode.type],
           config: AgentConfig,
           events: OrcaListener,
           outputSchema: Option[String]
@@ -497,12 +502,20 @@ class DefaultAgentCallTest extends munit.FunSuite:
       override protected def doRunAutonomous(
           prompt: String,
           session: SessionId[BackendTag.ClaudeCode.type],
+          dispatch: Dispatch[BackendTag.ClaudeCode.type],
           config: AgentConfig,
           events: OrcaListener,
           outputSchema: Option[String]
       ): AgentResult[BackendTag.ClaudeCode.type] =
         if calls.incrementAndGet() == 1 then
-          super.doRunAutonomous(prompt, session, config, events, outputSchema)
+          super.doRunAutonomous(
+            prompt,
+            session,
+            dispatch,
+            config,
+            events,
+            outputSchema
+          )
         else
           throw new AgentTurnFailed(
             "provider error",
@@ -537,6 +550,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
       override protected def doRunAutonomous(
           prompt: String,
           session: SessionId[BackendTag.ClaudeCode.type],
+          dispatch: Dispatch[BackendTag.ClaudeCode.type],
           config: AgentConfig,
           events: OrcaListener,
           outputSchema: Option[String]
@@ -549,6 +563,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
           super.doRunAutonomous(
             prompt,
             session,
+            dispatch,
             config,
             events,
             outputSchema

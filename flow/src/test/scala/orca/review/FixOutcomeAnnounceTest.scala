@@ -11,6 +11,7 @@ import orca.agents.{
   WireSessionId
 }
 import orca.backend.{
+  Dispatch,
   AgentBackend,
   AgentResult,
   Conversation,
@@ -42,6 +43,7 @@ private class CannedBackend(output: String)
   protected def doRunAutonomous(
       prompt: String,
       session: SessionId[BackendTag.Pi.type],
+      dispatch: Dispatch[BackendTag.Pi.type],
       config: AgentConfig,
       events: OrcaListener,
       outputSchema: Option[String]
@@ -54,6 +56,7 @@ private class CannedBackend(output: String)
   protected def doRunInteractive(
       prompt: String,
       session: SessionId[BackendTag.Pi.type],
+      dispatch: Dispatch[BackendTag.Pi.type],
       displayPrompt: String,
       config: AgentConfig,
       outputSchema: Option[String]

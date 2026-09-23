@@ -104,6 +104,7 @@ private[orca] class CodexBackend(
   protected def doRunAutonomous(
       prompt: String,
       session: SessionId[BackendTag.Codex.type],
+      dispatch: Dispatch[BackendTag.Codex.type],
       config: AgentConfig,
       events: OrcaListener,
       outputSchema: Option[String]
@@ -115,7 +116,7 @@ private[orca] class CodexBackend(
       openConversation(
         prompt = prompt,
         mode = ConversationMode.Autonomous,
-        session = session,
+        dispatch = dispatch,
         config = config,
         // Forwarded so (a) `conv.outputSchema` signals structured mode to the
         // drain (suppressing the raw JSON payload from the user log) and (b)
@@ -128,6 +129,7 @@ private[orca] class CodexBackend(
   protected def doRunInteractive(
       prompt: String,
       session: SessionId[BackendTag.Codex.type],
+      dispatch: Dispatch[BackendTag.Codex.type],
       displayPrompt: String,
       config: AgentConfig,
       outputSchema: Option[String]
@@ -135,15 +137,15 @@ private[orca] class CodexBackend(
     openConversation(
       prompt,
       mode = ConversationMode.Interactive(displayPrompt),
-      session = session,
+      dispatch = dispatch,
       config = config,
       outputSchema = outputSchema
     )
 
   /** Spawn `codex exec --json` (fresh) or `codex exec resume <server-id>`
-    * (continuation), and wrap the process in a live [[CodexConversation]]. The
-    * fresh-vs-resume decision comes from `sessions.dispatchFor`; on a fresh
-    * spawn the post-drain commit records the client→server mapping.
+    * (continuation), per `dispatch`, and wrap the process in a live
+    * [[CodexConversation]]. On a fresh spawn the post-drain commit records the
+    * client→server mapping.
     *
     * `Interactive` mode wires the MCP `ask_user` tool: stand up the bridge +
     * Netty server, hand its URL to `CodexArgs` for the `-c mcp_servers.orca`
@@ -156,7 +158,7 @@ private[orca] class CodexBackend(
   private def openConversation(
       prompt: String,
       mode: ConversationMode,
-      session: SessionId[BackendTag.Codex.type],
+      dispatch: Dispatch[BackendTag.Codex.type],
       config: AgentConfig,
       outputSchema: Option[String]
   )(using Ox): Conversation[BackendTag.Codex.type] =
@@ -183,8 +185,8 @@ private[orca] class CodexBackend(
         extraHint = Option.when(askUser.isDefined)(AskUserMcpServer.Hint)
       )
       val mcpUrl = askUser.map(_.server.url)
-      val args = sessions.dispatchFor(session) match
-        case Dispatch.Resume(serverId) =>
+      val args = dispatch match
+        case Dispatch.Resume(serverId, _) =>
           CodexArgs.execResume(
             serverId,
             finalPrompt,

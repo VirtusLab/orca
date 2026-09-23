@@ -5,7 +5,7 @@ trait CliRunner:
       args: Seq[String],
       stdin: String = "",
       env: Map[String, String] = Map.empty,
-      cwd: os.Path = os.pwd
+      cwd: os.Path
   ): CliResult
 
   /** Spawn the command with pipes on stdin / stdout / stderr for programmatic
@@ -21,6 +21,6 @@ trait CliRunner:
   def spawnPiped(
       args: Seq[String],
       env: Map[String, String] = Map.empty,
-      cwd: os.Path = os.pwd,
+      cwd: os.Path,
       pipeStderr: Boolean = false
   ): PipedCliProcess

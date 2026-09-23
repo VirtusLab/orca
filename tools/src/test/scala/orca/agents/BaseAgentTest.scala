@@ -3,6 +3,7 @@ package orca.agents
 import orca.StagePath
 import orca.testkit.StubEnforcementCell
 import orca.backend.{
+  Dispatch,
   Conversation,
   ConversationEvent,
   Conversations,
@@ -771,6 +772,7 @@ class BaseAgentTest extends munit.FunSuite:
     protected def doRunAutonomous(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
+        dispatch: Dispatch[BackendTag.Pi.type],
         config: AgentConfig,
         events: OrcaListener,
         outputSchema: Option[String]
@@ -784,6 +786,7 @@ class BaseAgentTest extends munit.FunSuite:
     protected def doRunInteractive(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
+        dispatch: Dispatch[BackendTag.Pi.type],
         displayPrompt: String,
         config: AgentConfig,
         outputSchema: Option[String]
@@ -805,6 +808,7 @@ class BaseAgentTest extends munit.FunSuite:
     protected def doRunAutonomous(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
+        dispatch: Dispatch[BackendTag.Pi.type],
         config: AgentConfig,
         events: OrcaListener,
         outputSchema: Option[String]
@@ -812,6 +816,7 @@ class BaseAgentTest extends munit.FunSuite:
     protected def doRunInteractive(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
+        dispatch: Dispatch[BackendTag.Pi.type],
         displayPrompt: String,
         config: AgentConfig,
         outputSchema: Option[String]
@@ -834,6 +839,7 @@ class BaseAgentTest extends munit.FunSuite:
     protected def doRunAutonomous(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
+        dispatch: Dispatch[BackendTag.Pi.type],
         config: AgentConfig,
         events: OrcaListener,
         outputSchema: Option[String]
@@ -849,6 +855,7 @@ class BaseAgentTest extends munit.FunSuite:
     protected def doRunInteractive(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
+        dispatch: Dispatch[BackendTag.Pi.type],
         displayPrompt: String,
         config: AgentConfig,
         outputSchema: Option[String]
@@ -885,6 +892,7 @@ class BaseAgentTest extends munit.FunSuite:
     protected def doRunAutonomous(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
+        dispatch: Dispatch[BackendTag.Pi.type],
         config: AgentConfig,
         events: OrcaListener,
         outputSchema: Option[String]
@@ -923,6 +931,7 @@ class BaseAgentTest extends munit.FunSuite:
     protected def doRunInteractive(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
+        dispatch: Dispatch[BackendTag.Pi.type],
         displayPrompt: String,
         config: AgentConfig,
         outputSchema: Option[String]
@@ -1000,12 +1009,20 @@ class BaseAgentTest extends munit.FunSuite:
     override protected def doRunAutonomous(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
+        dispatch: Dispatch[BackendTag.Pi.type],
         config: AgentConfig,
         events: OrcaListener,
         outputSchema: Option[String]
     ): AgentResult[BackendTag.Pi.type] =
       if thrown then
-        super.doRunAutonomous(prompt, session, config, events, outputSchema)
+        super.doRunAutonomous(
+          prompt,
+          session,
+          dispatch,
+          config,
+          events,
+          outputSchema
+        )
       else
         thrown = true
         throw error
@@ -1031,6 +1048,7 @@ class BaseAgentTest extends munit.FunSuite:
     protected def doRunAutonomous(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
+        dispatch: Dispatch[BackendTag.Pi.type],
         config: AgentConfig,
         events: OrcaListener,
         outputSchema: Option[String]
@@ -1038,6 +1056,7 @@ class BaseAgentTest extends munit.FunSuite:
     protected def doRunInteractive(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
+        dispatch: Dispatch[BackendTag.Pi.type],
         displayPrompt: String,
         config: AgentConfig,
         outputSchema: Option[String]
@@ -1086,6 +1105,7 @@ class BaseAgentTest extends munit.FunSuite:
     protected def doRunAutonomous(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
+        dispatch: Dispatch[BackendTag.Pi.type],
         config: AgentConfig,
         events: OrcaListener,
         outputSchema: Option[String]
@@ -1100,6 +1120,7 @@ class BaseAgentTest extends munit.FunSuite:
     protected def doRunInteractive(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
+        dispatch: Dispatch[BackendTag.Pi.type],
         displayPrompt: String,
         config: AgentConfig,
         outputSchema: Option[String]
@@ -1116,6 +1137,7 @@ class BaseAgentTest extends munit.FunSuite:
     protected def doRunAutonomous(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
+        dispatch: Dispatch[BackendTag.Pi.type],
         config: AgentConfig,
         events: OrcaListener,
         outputSchema: Option[String]
@@ -1128,6 +1150,7 @@ class BaseAgentTest extends munit.FunSuite:
     protected def doRunInteractive(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
+        dispatch: Dispatch[BackendTag.Pi.type],
         displayPrompt: String,
         config: AgentConfig,
         outputSchema: Option[String]
@@ -1148,6 +1171,7 @@ class BaseAgentTest extends munit.FunSuite:
     protected def doRunAutonomous(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
+        dispatch: Dispatch[BackendTag.Pi.type],
         config: AgentConfig,
         events: OrcaListener,
         outputSchema: Option[String]
@@ -1155,6 +1179,7 @@ class BaseAgentTest extends munit.FunSuite:
     protected def doRunInteractive(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
+        dispatch: Dispatch[BackendTag.Pi.type],
         displayPrompt: String,
         config: AgentConfig,
         outputSchema: Option[String]

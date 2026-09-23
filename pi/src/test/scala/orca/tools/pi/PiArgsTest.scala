@@ -1,13 +1,13 @@
 package orca.tools.pi
 
-import orca.agents.{AgentConfig, Model, ToolSet}
+import orca.agents.{AgentConfig, Model, ToolSet, TurnDispatch}
 
 class PiArgsTest extends munit.FunSuite:
 
   private val dir: os.Path = os.Path("/tmp/orca-pi-session")
 
   test("a fresh turn opens the session dir without --continue"):
-    val args = PiArgs.rpc(dir, resume = false, AgentConfig(), None)
+    val args = PiArgs.rpc(dir, TurnDispatch.Fresh, AgentConfig(), None)
     assertEquals(
       args.take(5),
       Seq("pi", "--mode", "rpc", "--session-dir", dir.toString)
@@ -15,14 +15,14 @@ class PiArgsTest extends munit.FunSuite:
     assert(!args.contains("--continue"), args)
 
   test("a resumed turn adds --continue for the same session dir"):
-    val args = PiArgs.rpc(dir, resume = true, AgentConfig(), None)
+    val args = PiArgs.rpc(dir, TurnDispatch.Resumed, AgentConfig(), None)
     assert(args.containsSlice(Seq("--session-dir", dir.toString)), args)
     assert(args.contains("--continue"), args)
 
   test("model and system prompt file are rendered"):
     val args = PiArgs.rpc(
       dir,
-      resume = false,
+      TurnDispatch.Fresh,
       AgentConfig().copy(model = Some(Model("openai/gpt-5"))),
       Some(os.Path("/tmp/system.md"))
     )
@@ -35,7 +35,7 @@ class PiArgsTest extends munit.FunSuite:
   test("read-only tools exclude writes"):
     val args = PiArgs.rpc(
       dir,
-      resume = false,
+      TurnDispatch.Fresh,
       AgentConfig().copy(tools = ToolSet.ReadOnly),
       None
     )
@@ -45,7 +45,7 @@ class PiArgsTest extends munit.FunSuite:
     // Backs the Fresh == Resumed claim in PiArgs.enforcementCell.
     val args = PiArgs.rpc(
       dir,
-      resume = true,
+      TurnDispatch.Resumed,
       AgentConfig().copy(tools = ToolSet.ReadOnly),
       None
     )
@@ -55,7 +55,7 @@ class PiArgsTest extends munit.FunSuite:
   test("NetworkOnly adds bash for network access"):
     val args = PiArgs.rpc(
       dir,
-      resume = false,
+      TurnDispatch.Fresh,
       AgentConfig().copy(tools = ToolSet.NetworkOnly),
       None
     )
@@ -64,7 +64,7 @@ class PiArgsTest extends munit.FunSuite:
   test("NoTools disables every tool and extension discovery"):
     val args = PiArgs.rpc(
       dir,
-      resume = false,
+      TurnDispatch.Fresh,
       AgentConfig().copy(tools = ToolSet.NoTools),
       None
     )
@@ -74,7 +74,7 @@ class PiArgsTest extends munit.FunSuite:
   test("interactive ask-user extension adds extension and ask_user tool"):
     val args = PiArgs.rpc(
       dir,
-      resume = false,
+      TurnDispatch.Fresh,
       AgentConfig().copy(tools = ToolSet.ReadOnly),
       None,
       askUserExtension = Some(os.Path("/tmp/ask-user.ts"))

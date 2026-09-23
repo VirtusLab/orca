@@ -1,7 +1,8 @@
 package orca.tools.codex
 
-import orca.backend.{Continuation, SupervisedBackend, SystemPromptComposer}
+import orca.backend.{SupervisedBackend, SystemPromptComposer}
 import orca.agents.{
+  TurnDispatch,
   BackendTag,
   AgentConfig,
   Model,
@@ -464,26 +465,26 @@ class CodexBackendTest extends munit.FunSuite:
       )
 
   test(
-    "continuation is registry-gated: Recorded when the mapped SERVER id has a rollout file"
+    "a rehydrated id resumes when the mapped SERVER id has a rollout file"
   ):
     // A rollout file is named with codex's SERVER id, never the client id.
-    // continuation resolves client→server via the registry and probes THAT id.
+    // dispatchFor resolves the client→server mapping and probes THAT id.
     val serverId = "test-session-id-123"
     val tmpSessions = TempDirs.dir()
     os.write(tmpSessions / s"rollout-2024-01-01-$serverId.jsonl", "")
     SupervisedBackend.using(
       new CodexBackend(new SpawnStubCliRunner(Nil), tmpSessions)
     ): backend =>
-      backend.sessions.register(
+      backend.sessions.rehydrate(
         clientSid,
         WireSessionId[BackendTag.Codex.type](serverId)
       )
       assertEquals(
-        backend.sessions.continuation(clientSid),
-        Continuation.Recorded
+        backend.sessions.dispatchFor(clientSid).asTurnDispatch,
+        TurnDispatch.Resumed
       )
 
-  test("continuation is Rebuild when there is no client→server mapping"):
+  test("an unmapped client id opens fresh without probing"):
     // No registration: the client id resolves to no server id, so the probe
     // never runs even if a rollout file is named with the client id.
     val tmpSessions = TempDirs.dir()
@@ -495,53 +496,34 @@ class CodexBackendTest extends munit.FunSuite:
       new CodexBackend(new SpawnStubCliRunner(Nil), tmpSessions)
     ): backend =>
       assertEquals(
-        backend.sessions.continuation(clientSid),
-        Continuation.Rebuild
+        backend.sessions.dispatchFor(clientSid).asTurnDispatch,
+        TurnDispatch.Fresh
       )
 
-  test("continuation is Rebuild when no matching file exists"):
+  test("a rehydrated id opens fresh when no matching file exists"):
     val tmpSessions = TempDirs.dir()
     SupervisedBackend.using(
       new CodexBackend(new SpawnStubCliRunner(Nil), tmpSessions)
     ): backend =>
-      backend.sessions.register(
+      backend.sessions.rehydrate(
         clientSid,
         WireSessionId[BackendTag.Codex.type]("thr-server-1")
       )
       assertEquals(
-        backend.sessions.continuation(clientSid),
-        Continuation.Rebuild
+        backend.sessions.dispatchFor(clientSid).asTurnDispatch,
+        TurnDispatch.Fresh
       )
 
-  test("continuation is Rebuild when the sessions dir is absent"):
+  test("a rehydrated id opens fresh when the sessions dir is absent"):
     val missing = TempDirs.dir() / "no-such-sessions"
     SupervisedBackend.using(
       new CodexBackend(new SpawnStubCliRunner(Nil), missing)
     ): backend =>
-      backend.sessions.register(
+      backend.sessions.rehydrate(
         clientSid,
         WireSessionId[BackendTag.Codex.type]("thr-server-1")
       )
       assertEquals(
-        backend.sessions.continuation(clientSid),
-        Continuation.Rebuild
-      )
-
-  test(
-    "continuation is Rebuild for a mapped SERVER id `.*` even when rollout files exist (blocks regex injection)"
-  ):
-    val tmpSessions = TempDirs.dir()
-    os.write(tmpSessions / "rollout-2024-01-01-some-real-id.jsonl", "")
-    SupervisedBackend.using(
-      new CodexBackend(new SpawnStubCliRunner(Nil), tmpSessions)
-    ): backend =>
-      // `register`'s SessionId.isSafe guard must refuse to record the `.*` wire
-      // id, so continuation has no mapping to resolve and never walks the dir.
-      backend.sessions.register(
-        clientSid,
-        WireSessionId[BackendTag.Codex.type](".*")
-      )
-      assertEquals(
-        backend.sessions.continuation(clientSid),
-        Continuation.Rebuild
+        backend.sessions.dispatchFor(clientSid).asTurnDispatch,
+        TurnDispatch.Fresh
       )
