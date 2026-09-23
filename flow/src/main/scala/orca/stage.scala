@@ -41,12 +41,19 @@ def stage[T: JsonData](
     name: String,
     commitMessage: Option[T => String] = None
 )(body: (InStage, WorkspaceWrite) ?=> T)(using fc: FlowControl): T =
+  inStageFrame(name): id =>
+    resumeFrom(id, name).getOrElse(runStage(id, name, commitMessage)(body))
+
+/** Run `f` with the frame of the stage `name` open, passing its id. */
+private def inStageFrame[R](name: String)(f: StagePath.Stage => R)(using
+    fc: FlowControl
+): R =
   // `enterStage`/`exitStage` bracket the frame; see StageFrames scaladoc for
   // the frame-stack protocol and invariants, ADR 0018 §2.1 for rationale.
   // HEAD is read HERE, before the body: once the body's agent starts
   // committing, the commit this stage began from is no longer recoverable.
   val id = fc.enterStage(name, fc.git.headCommit())
-  try resumeFrom(id, name).getOrElse(runStage(id, name, commitMessage)(body))
+  try f(id)
   finally fc.exitStage()
 
 /** Where a stage's result came from: this attempt, or the progress log. */
@@ -69,15 +76,19 @@ private[orca] enum Staged[+T]:
 private[orca] def gatedStage[G, A, T: JsonData](name: String)(
     gate: => Either[G, A]
 )(body: A => (InStage, WorkspaceWrite) ?=> T)(using
-    fc: FlowControl
+    FlowControl
 ): Either[G, Staged[T]] =
-  val id = fc.enterStage(name, fc.git.headCommit())
-  try
+  inStageFrame(name): id =>
     resumeFrom[T](id, name) match
       case Some(value) => Right(Staged.Replayed(value))
       case None =>
         gate.map(a => Staged.Fresh(runStage(id, name, None)(body(a))))
-  finally fc.exitStage()
+
+/** [[stage]] reporting where its result came from. */
+private[orca] def tracedStage[T: JsonData](name: String)(
+    body: (InStage, WorkspaceWrite) ?=> T
+)(using FlowControl): Staged[T] =
+  gatedStage[Nothing, Unit, T](name)(Right(()))(_ => body).merge
 
 /** Try to skip the stage by replaying a recorded result. `Some(value)` when the
   * log holds an entry for `id` that decodes to `T`; `None` when there's no

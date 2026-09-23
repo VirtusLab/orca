@@ -5,11 +5,11 @@ import orca.{
   FlowControl,
   OrcaFlowException,
   OutsideStage,
-  Staged,
   WorkspaceWrite,
   gatedStage,
   gh,
-  git
+  git,
+  tracedStage
 }
 import orca.agents.Agent
 import orca.events.OrcaEvent
@@ -88,19 +88,16 @@ private def pushThenCreate(
 ): Either[String, PrHandle] =
   for
     push <- gatedStage(PushStage)(preFlight(base))(_ => pushBestEffort())
-    _ <- push.value match
-      case PushAttempt.Pushed          => Right(())
-      case PushAttempt.Refused(reason) => Left(refusalLine(reason, push))
+    _ <- push.value.outcome.left.map(refusalLine(_, push))
     summary <- summarise(summarisingAgent, base, context, instructions).left
       .map(baseStopReason)
-    create <- gatedStage(CreateStage)(Right(())): _ =>
-      createBestEffort(title(summary.value), body(summary.value))
-    pr <- create.value match
-      case CreateAttempt.Opened(pr)      => Right(pr)
-      case CreateAttempt.Refused(reason) => Left(refusalLine(reason, create))
+    create = tracedStage(CreateStage)(
+      createBestEffort(title(summary), body(summary))
+    )
+    pr <- create.value.outcome.left.map(refusalLine(_, create))
   yield pr
 
-/** Why a fresh run stops before its first write, or `Right` to go ahead.
+/** `Left` is why a fresh run stops before its first write; `Right` goes ahead.
   * Announces where the PR will land once the checks pass, before the push: gh
   * takes the target from the checkout's remotes, not from what the run pushed.
   */
@@ -108,8 +105,8 @@ private def preFlight(base: => Either[NoDefaultBase, String])(using
     ctx: FlowContext,
     control: FlowControl
 ): Either[String, Unit] =
-  for
-    label <- probe
+  val checked = for
+    destination <- probe
     _ <- Either.cond(
       runChangedCode,
       (),
@@ -117,14 +114,18 @@ private def preFlight(base: => Either[NoDefaultBase, String])(using
         "branch that only carries orca's progress log"
     )
     _ <- base.left.map(baseStopReason)
-  yield ctx.emit(OrcaEvent.Step(s"Opening a PR on $label"))
+  yield destination
+  checked.map: to =>
+    ctx.emit(
+      OrcaEvent.Step(s"Opening a PR on ${to.host}/${to.owner}/${to.repo}")
+    )
 
-/** The `<host>/<owner>/<repo>` the PR will land on, or why no PR can be opened.
-  */
-private def probe(using FlowContext): Either[String, String] =
+/** Where the PR will land, or why no PR can be opened. */
+private def probe(using
+    FlowContext
+): Either[String, GitHubAvailability.Available] =
   gh.availability() match
-    case GitHubAvailability.Available(host, owner, repo) =>
-      Right(s"$host/$owner/$repo")
+    case available: GitHubAvailability.Available => Right(available)
     case GitHubAvailability.Unavailable(why) =>
       Left(
         s"${why.explanation}, no PR opened — push the branch and open the " +
@@ -134,15 +135,6 @@ private def probe(using FlowContext): Either[String, String] =
 private def baseStopReason(e: NoDefaultBase): String =
   s"cannot work out the base branch (${e.cause}), no PR opened — run " +
     "`git remote set-head origin -a` and open the PR yourself"
-
-/** A recorded refusal replays on every resume and is never retried; the line
-  * says so, since the user otherwise reads it as this run's attempt.
-  */
-private def refusalLine(reason: String, from: Staged[?]): String =
-  from match
-    case Staged.Fresh(_) => reason
-    case Staged.Replayed(_) =>
-      s"$reason (recorded from the earlier attempt; orca will not retry)"
 
 /** [[openPrFromBranch]]'s push with the push itself under [[attempt]]: the
   * stage machinery around it — the progress commit, the owner-thread assert —
@@ -169,7 +161,7 @@ private def createBestEffort(title: String, body: String)(using
   )(gh.createPr(title = title, body = body)) match
     case Left(reason) => CreateAttempt.Refused(reason)
     // Outside `attempt`, so a log that cannot be written fails the run.
-    case Right(pr) => opened(pr)
+    case Right(pr) => recordOpened(pr)
 
 /** Run one remote-facing leg, turning the refusal it returns or whatever it
   * throws into the line this step reports. `git.push` and `gh.createPr` answer

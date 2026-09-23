@@ -329,6 +329,16 @@ class StageRuntimeTest extends munit.FunSuite:
     assertEquals(listener.events, Nil)
     assertEquals(ctx.progressStore.load().toList.flatMap(_.entries), Nil)
 
+  test("a fresh gated stage hands the gate's value to its body"):
+    val (ctx, _) = TestFlowControl.create(new EventDispatcher(Nil))
+    given FlowControl = ctx
+    val result = gatedStage[String, Int, Int]("gated")(Right(3))(_ + 1)
+    assertEquals(result, Right(Staged.Fresh(4)))
+    assertEquals(
+      ctx.progressStore.load().toList.flatMap(_.entries).map(_.id),
+      List("gated#0")
+    )
+
   test("a replayed gated stage skips its gate"):
     val (ctx, dir) = TestFlowControl.create(new EventDispatcher(Nil))
     locally:

@@ -1,20 +1,9 @@
 package orca.pr
 
-import orca.{
-  FlowContext,
-  FlowControl,
-  OutsideStage,
-  Staged,
-  WorkspaceWrite,
-  fail,
-  gatedStage,
-  gh,
-  git,
-  stage
-}
-import orca.agents.{Agent, JsonData, given}
+import orca.{FlowContext, FlowControl, OutsideStage, fail, gh, git, tracedStage}
+import orca.agents.Agent
 import orca.review.OpenFindings
-import orca.tools.{NoDefaultBase, PrHandle}
+import orca.tools.PrHandle
 
 import ox.either.orThrow
 
@@ -64,80 +53,23 @@ def openPrFromBranch(
   reportOpenFindings(openFindings)
   // A refusal throws inside its stage, so it is never recorded and a resume
   // retries it. A recorded `Refused` is one [[openPrIfGitHub]] wrote.
-  val push = stage(PushStage):
+  val push = tracedStage(PushStage):
     git.push().orThrow
     PushAttempt.Pushed
-  push match
-    case PushAttempt.Refused(reason) => fail(reason)
-    case PushAttempt.Pushed          => ()
+  push.value.outcome.left.foreach(reason => fail(refusalLine(reason, push)))
   val summary = summarise(
     summarisingAgent,
     git.defaultBase(),
     context,
     instructions
-  ).orThrow.value
-  val create = stage(CreateStage):
+  ).orThrow
+  val create = tracedStage(CreateStage):
     val pr = gh
       .createPr(
         title = title(summary),
         body = bodyWithOpenFindings(body(summary), openFindings)
       )
       .orThrow
-    opened(pr)
-  create match
-    case CreateAttempt.Refused(reason) => fail(reason)
-    case CreateAttempt.Opened(pr)      => pr
-
-// The stage names, what they record and `summarise` are shared with
-// [[openPrIfGitHub]], so a resume replays either function's stages.
-
-private[pr] val PushStage: String = "Push branch"
-private[pr] val SummariseStage: String = "Generate PR title and description"
-private[pr] val CreateStage: String = "Open PR"
-
-/** What the push stage records. */
-private[pr] enum PushAttempt derives JsonData:
-  case Pushed
-  case Refused(reason: String)
-
-/** What the create stage records. */
-private[pr] enum CreateAttempt derives JsonData:
-  case Opened(pr: PrHandle)
-  case Refused(reason: String)
-
-/** Summarise the branch-vs-`base` diff. A recorded summary replays without
-  * resolving `base`; a fresh one stops with `base`'s `Left`.
-  */
-private[pr] def summarise(
-    summarisingAgent: Agent[?],
-    base: => Either[NoDefaultBase, String],
-    context: Option[String],
-    instructions: String
-)(using
-    ctx: FlowContext,
-    control: FlowControl
-): Either[NoDefaultBase, Staged[PrSummary]] =
-  val (summaryContext, summaryInstructions) = context match
-    case Some(c) => (c, instructions)
-    case None =>
-      (
-        s"User prompt: ${ctx.userPrompt}",
-        s"$instructions\n\n${PrPrompts.ClosingRefs}"
-      )
-  gatedStage(SummariseStage)(base): resolved =>
-    summarisePr(
-      agent = summarisingAgent,
-      diff = git.diffVsBase(resolved),
-      context = Some(summaryContext),
-      instructions = summaryInstructions
-    )
-
-/** Record `pr` as the run's published work, inside the create stage so its
-  * commit carries the record.
-  */
-private[pr] def opened(pr: PrHandle)(using
-    FlowControl,
-    WorkspaceWrite
-): CreateAttempt =
-  recordOpenedPr(pr)
-  CreateAttempt.Opened(pr)
+    recordOpened(pr)
+  create.value.outcome
+    .fold(reason => fail(refusalLine(reason, create)), identity)
