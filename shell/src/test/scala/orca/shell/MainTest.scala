@@ -607,30 +607,31 @@ class MainTest extends munit.FunSuite:
 
   // --- runFlow (the interactive launch path) ---
 
-  test("runFlow: the chosen destination reaches the launcher's flags"):
+  /** Runs [[Main.runFlow]] picking a flow, typing a task, then picking `target`
+    * and answering the branch prompt from `branchAnswers`; returns the UI and
+    * the flags that reached the launcher.
+    */
+  private def runFlowWith(
+      target: RunTarget,
+      branchAnswers: List[UiOutcome[String]]
+  ): (FlowScriptedUi, Option[FlowFlags]) =
+    val workDir = TempDirs.dir()
+    val flowPath = workDir / ".orca" / "flows" / "run-flow.sc"
+    os.write(flowPath, "// x\n", createFolders = true)
+    val flow = DiscoveredFlow(
+      name = "run-flow.sc",
+      description = None,
+      origin = Origin.Project,
+      path = flowPath,
+      shadows = Nil
+    )
+    val ui = FlowScriptedUi(
+      selectScript = List(UiOutcome.Selected(flow), UiOutcome.Selected(target)),
+      inputMultilineScript = List(UiOutcome.Selected("do the thing")),
+      inputScript = branchAnswers
+    )
+    var recorded: Option[FlowFlags] = None
     withDumbTerminal: terminal =>
-      val workDir = TempDirs.dir()
-      os.write(
-        workDir / ".orca" / "flows" / "run-flow.sc",
-        "// x\n",
-        createFolders = true
-      )
-      val flow = DiscoveredFlow(
-        name = "run-flow.sc",
-        description = None,
-        origin = Origin.Project,
-        path = workDir / ".orca" / "flows" / "run-flow.sc",
-        shadows = Nil
-      )
-      // Pick the flow, type the task, then pick the worktree destination.
-      val ui = FlowScriptedUi(
-        selectScript = List(
-          UiOutcome.Selected(flow),
-          UiOutcome.Selected(RunTarget.Worktree)
-        ),
-        inputMultilineScript = List(UiOutcome.Selected("do the thing"))
-      )
-      var recorded: Option[FlowFlags] = None
       Main.runFlow(
         ui,
         terminal,
@@ -639,12 +640,40 @@ class MainTest extends munit.FunSuite:
           recorded = Some(opts.flags)
           LaunchResult.Ok
       )
-      assertEquals(
-        recorded,
-        Some(
-          FlowFlags.derivedBranch(verbose = false, target = RunTarget.Worktree)
-        )
-      )
+    (ui, recorded)
+
+  test("runFlow: a typed branch name reaches the launcher's flags"):
+    val (_, flags) =
+      runFlowWith(RunTarget.Worktree, List(UiOutcome.Selected("feature/x")))
+    assertEquals(flags.map(_.target), Some(RunTarget.Worktree))
+    assertEquals(flags.flatMap(_.branch).map(_.value), Some("feature/x"))
+
+  test("runFlow: an invalid branch name is re-asked and the next one used"):
+    val (ui, flags) = runFlowWith(
+      RunTarget.NewBranch(Uncommitted.Stash),
+      List(UiOutcome.Selected("bad name"), UiOutcome.Selected("good-name"))
+    )
+    assertEquals(ui.inputCount, 2)
+    assertEquals(flags.flatMap(_.branch).map(_.value), Some("good-name"))
+
+  test("runFlow: Enter at the branch prompt lets the flow derive the name"):
+    val target = RunTarget.NewBranch(Uncommitted.Stash)
+    val (_, flags) = runFlowWith(target, List(UiOutcome.Selected("")))
+    assertEquals(
+      flags,
+      Some(FlowFlags.derivedBranch(verbose = false, target = target))
+    )
+
+  test("runFlow: cancelling the branch prompt aborts the run"):
+    val (ui, flags) = runFlowWith(RunTarget.Worktree, List(UiOutcome.Cancelled))
+    assertEquals(ui.inputCount, 1)
+    assertEquals(flags, None)
+
+  test("runFlow: the current-branch target asks no branch name"):
+    val (ui, flags) =
+      runFlowWith(RunTarget.CurrentBranch(Uncommitted.Stash), Nil)
+    assertEquals(ui.inputCount, 0)
+    assertEquals(flags.map(_.branch), Some(None))
 
   // --- editFlow / createNewFlow / createForkFlow (ADR 0021 §6/§9 amendment:
   // hand-vs-agent mode) ---

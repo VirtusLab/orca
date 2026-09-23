@@ -18,6 +18,7 @@ import orca.shell.actions.{
 import orca.shell.cli.{Cli, CliHelp}
 import orca.shell.create.{CreateTarget, CreateTier, FlowAuthoring}
 import orca.discovery.Origin
+import orca.progress.BranchName
 import orca.shell.flows.{DiscoveredFlow, FlowEditor}
 import orca.shell.resume.{InterruptedRun, ResumeDetector}
 import orca.shell.run.{FallbackPolicy, FlowFlags, LaunchResult}
@@ -368,10 +369,10 @@ object Main:
       case UiOutcome.Cancelled      => None
       case UiOutcome.Selected(tier) => Some(tier)
 
-  /** Selects a flow, prompts for the task text and for where the run's work
-    * should go ([[RunTarget]]), then hands off to [[RunAction.run]]. Verbose is
-    * not exposed here in v1 — a later task can add a verbose confirm alongside
-    * session tracking.
+  /** Selects a flow, prompts for the task text, for where the run's work should
+    * go ([[RunTarget]]) and, when that target creates a branch, for the branch
+    * name, then hands off to [[RunAction.run]]. Verbose is not exposed here in
+    * v1 — a later task can add a verbose confirm alongside session tracking.
     */
   private[shell] def runFlow(
       ui: ShellUi,
@@ -394,12 +395,38 @@ object Main:
       )
       task <- promptTask(ui)
       target <- promptRunTarget(ui)
+      branch <- if target.skipBranch then Some(None) else promptBranchName(ui)
+      // Never `Left` here: a name is only asked for when the target creates a
+      // branch, the same rule `FlowFlags.from` refuses by.
+      flags <- FlowFlags.from(
+        verbose = false,
+        target = target,
+        branch = branch
+      ) match
+        case Left(message) =>
+          ShellOutput.error(message)
+          None
+        case Right(flags) => Some(flags)
     do
-      val opts = RunAction.RunOptions(
-        flags = FlowFlags.derivedBranch(verbose = false, target = target),
-        fallback = FallbackPolicy.Ask(ui)
-      )
+      val opts = RunAction.RunOptions(flags, FallbackPolicy.Ask(ui))
       runAction(flow, task, opts, workDir, terminal).discard
+
+  /** Prompts for the run's branch name: `None` when cancelled (abort the run),
+    * `Some(None)` on a blank answer (the flow derives the name), re-asking on
+    * an invalid name.
+    */
+  @tailrec private def promptBranchName(
+      ui: ShellUi
+  ): Option[Option[BranchName]] =
+    ui.input("Branch name (Enter to derive from the task)") match
+      case UiOutcome.Cancelled                         => None
+      case UiOutcome.Selected(raw) if raw.trim.isEmpty => Some(None)
+      case UiOutcome.Selected(raw) =>
+        BranchName.parse(raw) match
+          case Left(message) =>
+            ShellOutput.error(message)
+            promptBranchName(ui)
+          case Right(name) => Some(Some(name))
 
   /** Resumes `run` (ADR 0021 §3 amendment): resolves its recorded flow name
     * against the current catalog and launches it with the recorded task text
