@@ -162,7 +162,6 @@ private[orca] class ClaudeBackend(
       turn: TurnRequest[BackendTag.ClaudeCode.type]
   )(using Ox): Conversation[BackendTag.ClaudeCode.type] =
     import turn.*
-    val displayPrompt = mode.displayPrompt
     val askUser: Option[AskUserSession] =
       Option.when(mode.isInteractive)(AskUserSession.allocate())
     val servers = turnServers(config.tools)
@@ -200,10 +199,10 @@ private[orca] class ClaudeBackend(
         OutboundMessage.toJson(OutboundMessage.UserText(prompt))
       )
       process.closeStdin()
-      new ClaudeConversation(
+      ClaudeConversation(
         process,
         config,
-        initialPrompt = displayPrompt,
+        initialPrompt = mode.openingPrompt,
         outputSchema = outputSchema,
         askUser = askUser
       )

@@ -1,11 +1,13 @@
 package orca.backend
 
-import orca.agents.BackendTag
-import orca.events.TurnDebit
-import orca.subprocess.OsProcCliRunner
+import orca.agents.{BackendTag, StructuredOutputMode, WireSessionId}
+import orca.events.{TurnDebit, Usage}
+import orca.subprocess.{OsProcCliRunner, PipedCliProcess}
 import orca.testkit.ProcessProbe.{alive, awaitDead}
 
-import ox.supervised
+import ox.{Ox, supervised, timeout}
+
+import scala.concurrent.duration.*
 
 /** End-to-end teardown of a cancelled turn against a REAL agent process, which
   * is the only way to exercise the tree kill — every fake process has no
@@ -13,19 +15,41 @@ import ox.supervised
   */
 class ConversationTeardownTest extends munit.FunSuite:
 
-  /** Minimal driver that republishes each stdout line, so the test can read the
-    * process's output through the conversation surface (the reader fork owns
-    * the pipe, so nothing else may read it).
+  /** Minimal decoder that republishes each stdout line, so the test can read
+    * the process's output through the conversation surface (the reader fork
+    * owns the pipe, so nothing else may read it), and settles on `done`.
     */
-  private class LineEchoingConversation(source: StreamSource)
-      extends ForkedConversation[BackendTag.ClaudeCode.type](
-        source = source,
-        backendName = "fake"
-      ):
-    val outputSchema: Option[String] = None
-    protected def failedTurnDebit: TurnDebit = TurnDebit.Unobserved
-    protected def handleLine(line: String): Unit =
-      eventQueue.enqueue(ConversationEvent.AssistantTextDelta(line))
+  private object LineEchoing
+      extends LineDecoder[BackendTag.ClaudeCode.type, Unit]:
+    def backendName: String = "fake"
+    def terminalMessageNoun: String = "a settle"
+    def init: Unit = ()
+    def failedTurnDebit(state: Unit): TurnDebit = TurnDebit.Unobserved
+    def line(
+        state: Unit,
+        line: String
+    ): Step[BackendTag.ClaudeCode.type, Unit] =
+      if line == "done" then
+        Step.Settle(
+          (),
+          Nil,
+          Settled.Succeeded(AgentResult(WireSessionId("s"), "", Usage.empty))
+        )
+      else Step.continue((), ConversationEvent.AssistantTextDelta(line))
+
+  private def echo(process: PipedCliProcess)(using
+      Ox
+  ): Conversation[BackendTag.ClaudeCode.type] =
+    StreamConversation.start(
+      StreamSource.fromProcess(process),
+      ConversationSpec(
+        openingPrompt = None,
+        outputSchema = None,
+        structuredOutputMode = StructuredOutputMode.RawText,
+        askUser = AskUserChannel.Unavailable,
+        onUnsettledEnd = () => ()
+      )
+    )(_ => LineEchoing)
 
   test("cancel kills work the agent process spawned, not just its own PID"):
     supervised:
@@ -42,8 +66,7 @@ class ConversationTeardownTest extends munit.FunSuite:
       )
       var spawnedPid = 0L
       try
-        val conv =
-          new LineEchoingConversation(StreamSource.fromProcess(process))
+        val conv = echo(process)
         spawnedPid = conv.events.next() match
           case ConversationEvent.AssistantTextDelta(pid) => pid.trim.toLong
           case other => fail(s"expected the spawned PID, got: $other")
@@ -64,3 +87,38 @@ class ConversationTeardownTest extends munit.FunSuite:
           ProcessHandle
             .of(spawnedPid)
             .ifPresent(h => { val _ = h.destroyForcibly() })
+
+  /** Runs `script`, which prints a descendant's PID and then `done`, and
+    * asserts the settled turn completes and leaves no descendant behind.
+    */
+  private def assertSettledTurnEnds(script: String): Unit =
+    supervised:
+      val process = OsProcCliRunner.spawnPiped(
+        Seq("bash", "-c", script),
+        env = Map.empty,
+        cwd = os.pwd,
+        pipeStderr = true
+      )
+      var spawnedPid = 0L
+      try
+        val conv = echo(process)
+        spawnedPid = conv.events.next() match
+          case ConversationEvent.AssistantTextDelta(pid) => pid.trim.toLong
+          case other => fail(s"expected the spawned PID, got: $other")
+        assert(timeout(10.seconds)(conv.awaitResult()).isRight)
+        assert(
+          awaitDead(spawnedPid),
+          "a settled turn must leave no surviving descendant"
+        )
+      finally
+        process.destroyForciblyTree()
+        if spawnedPid > 0 then
+          ProcessHandle
+            .of(spawnedPid)
+            .ifPresent(h => { val _ = h.destroyForcibly() })
+
+  test("a settled turn ends although a descendant holds stderr"):
+    assertSettledTurnEnds("sleep 30 >/dev/null & echo $!; echo done; wait")
+
+  test("a settled turn ends although a descendant holds stdout"):
+    assertSettledTurnEnds("sleep 30 2>/dev/null & echo $!; echo done; wait")

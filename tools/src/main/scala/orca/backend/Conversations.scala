@@ -85,8 +85,8 @@ private[orca] object Conversations:
     /** Normal end of stream: the parked turn IS the payload — drop it (the
       * caller emits StructuredResult); flush any unfinished current buffer.
       *
-      * Since ForkedConversation auto-closes every completed turn, a normal
-      * session ends its last turn with an `AssistantTurnEnd` that already ran
+      * Since StreamConversation closes every completed turn, a normal session
+      * ends its last turn with an `AssistantTurnEnd` that already ran
       * `turnEnd()`, leaving `current` empty. `flushCurrent()` is a safety net
       * for a turn the stream left open (abnormal termination mid-turn).
       */

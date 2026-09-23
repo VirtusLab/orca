@@ -1,15 +1,21 @@
 package orca.tools.opencode
 
 import com.github.plokhotnyuk.jsoniter_scala.core.writeToString
-import orca.AgentTurnFailed
 import orca.backend.{
+  AgentResult,
   ApprovalDecision,
+  AskUserChannel,
+  Conversation,
   ConversationEvent,
-  ForkedConversation,
+  ConversationSpec,
+  LineDecoder,
+  Settled,
+  Step,
+  StreamConversation,
   StreamSource
 }
 import orca.events.{TurnDebit, Usage}
-import orca.agents.{BackendTag, Model, StructuredOutputMode}
+import orca.agents.{BackendTag, Model, WireSessionId}
 import orca.tools.opencode.OpencodeApi.{
   AssistantInfo,
   PermissionReply,
@@ -19,69 +25,41 @@ import orca.tools.opencode.OpencodeApi.{
   QuestionRequest
 }
 
+import ox.Ox
+
 import scala.util.control.NonFatal
 
-/** Drives one OpenCode turn to completion off its `GET /event` SSE stream (ADR
-  * 0014).
+/** Decodes one OpenCode turn off its `GET /event` SSE stream (ADR 0014): SSE
+  * frame → [[OpencodeEvent]] → `ConversationEvent`, deriving the
+  * [[AgentResult]] from the assistant `message.updated` at `session.idle`. The
+  * SSE stream stays open after a turn; the settle closes it.
   *
-  * The reader-loop / event-queue / outcome lifecycle lives in
-  * [[ForkedConversation]]; this class supplies the OpenCode-specific
-  * translation: SSE frame → [[OpencodeEvent]] → `ConversationEvent`, deriving
-  * the [[AgentResult]] from the assistant `message.updated` at `session.idle`.
-  * The SSE stream stays open after a turn, so reaching the terminal interrupts
-  * `source` to make the reader observe EOF.
-  *
-  * `session` is the server-allocated `ses_…` this conversation owns; the
-  * firehose carries other sessions, so every event is filtered to it. Replies
-  * to `ask_user`/permission go back over HTTP via [[http]], not the stream.
+  * `session` is the server-allocated `ses_…` this turn runs in; the firehose
+  * carries other sessions, so every event is filtered to it. Replies to
+  * `ask_user`/permission go back over HTTP via [[http]], not the stream.
   */
-private[opencode] class OpencodeConversation(
-    source: StreamSource,
+private[opencode] final class OpencodeDecoder(
     http: OpencodeHttp,
     session: String,
-    val outputSchema: Option[String],
-    canAsk: Boolean,
-    initialPrompt: String = ""
-) extends ForkedConversation[BackendTag.Opencode.type](
-      source,
-      "opencode",
-      initialPrompt,
-      nativeAskUser = canAsk
-    ):
+    outputSchema: Option[String]
+) extends LineDecoder[BackendTag.Opencode.type, OpencodeDecoder.State]:
 
-  override def structuredOutputMode: StructuredOutputMode =
-    OpencodeBackend.StructuredOutputDelivery
+  import OpencodeDecoder.State
 
-  /** Best-effort `POST /session/{id}/abort`, so a genuinely cancelled turn
-    * (mid-flight, never settled) stops running (and writing) on the shared
-    * server. The base [[ForkedConversation.cancel]] only calls this hook when
-    * the turn hasn't already settled, so a just-idle session that may be
-    * resumed next turn doesn't get a spurious abort.
-    */
-  override protected def onCancelRequested(): Unit =
-    try
-      val _ = http.postJson(s"/session/$session/abort", "{}")
-    catch case NonFatal(_) => ()
+  private type Out = Step[BackendTag.Opencode.type, State]
 
-  /** Turn state, accumulated as the reader thread processes frames.
-    * `handleLine` (and the `settleResult` it drives) run only on that single
-    * thread, so a plain `var` is safe; `awaitResult` reads the outcome only
-    * after joining the reader, which publishes these writes.
-    */
-  private var turnState: TurnState = TurnState()
+  def backendName: String = "opencode"
 
-  private case class TurnState(
-      text: Vector[String] = Vector.empty,
-      info: Option[AssistantInfo] = None,
-      startedTools: Set[String] = Set.empty,
-      reasoningParts: Set[String] = Set.empty
-  )
+  def terminalMessageNoun: String = "a session.idle event"
 
-  protected def handleLine(rawLine: String): Unit =
-    sseData(rawLine).foreach: json =>
-      val event = OpencodeEvent.parse(json)
-      // Drop other sessions' frames; once the turn has settled, ignore the rest.
-      if forThisSession(event) && !isSettled then translate(event)
+  def init: State = State(Vector.empty, None, Set.empty, Set.empty)
+
+  def line(state: State, rawLine: String): Out =
+    sseData(rawLine)
+      .map(OpencodeEvent.parse)
+      // Drop other sessions' frames.
+      .filter(forThisSession)
+      .fold(Step.continue(state))(translate(state, _))
 
   /** The JSON payload of one SSE line, or `None` for blank / comment / framing
     * lines (`event:`, `id:`, heartbeat `:`).
@@ -95,60 +73,73 @@ private[opencode] class OpencodeConversation(
   private def forThisSession(event: OpencodeEvent): Boolean =
     event.sessionId.forall(_ == session)
 
-  private def translate(event: OpencodeEvent): Unit = event match
+  private def translate(state: State, event: OpencodeEvent): Out = event match
     case OpencodeEvent.TextDelta(_, partId, delta) =>
       // A reasoning part's deltas also arrive with `field:"text"`, so route by
       // the part opencode announced rather than by the field name — otherwise a
       // reasoning model's chain of thought renders as the assistant's message.
       // A delta with no id can't be matched against an announced part, so it
       // stays assistant text.
-      if partId.exists(turnState.reasoningParts.contains) then
-        eventQueue.enqueue(ConversationEvent.AssistantThinkingDelta(delta))
+      if partId.exists(state.reasoningParts.contains) then
+        Step.continue(state, ConversationEvent.AssistantThinkingDelta(delta))
       else
-        turnState = turnState.copy(text = turnState.text :+ delta)
-        eventQueue.enqueue(ConversationEvent.AssistantTextDelta(delta))
+        Step.continue(
+          state.copy(text = state.text :+ delta),
+          ConversationEvent.AssistantTextDelta(delta)
+        )
     case OpencodeEvent.ReasoningDelta(_, delta) =>
-      eventQueue.enqueue(ConversationEvent.AssistantThinkingDelta(delta))
+      Step.continue(state, ConversationEvent.AssistantThinkingDelta(delta))
     case OpencodeEvent.ReasoningPart(_, partId) =>
       // A part with no id records nothing, so its deltas render as assistant
       // text.
-      partId.foreach: id =>
-        turnState =
-          turnState.copy(reasoningParts = turnState.reasoningParts + id)
+      Step.continue(
+        partId.fold(state)(id =>
+          state.copy(reasoningParts = state.reasoningParts + id)
+        )
+      )
+    case OpencodeEvent.ToolStarted(_, _, tool, _)
+        if isStructuredOutputEcho(tool) =>
+      Step.continue(state)
     case OpencodeEvent.ToolStarted(_, partId, tool, input) =>
-      if !isStructuredOutputEcho(tool) then
-        // A tool part repeats `running` frames; surface the call once per part,
-        // keyed by its id. A part with no id (protocol drift) can't be deduped
-        // against — surface every frame rather than risk a coerced "" key
-        // wrongly colliding two distinct id-less parts (BB5).
-        partId match
-          case Some(id) if turnState.startedTools.contains(id) => ()
-          case Some(id) =>
-            turnState =
-              turnState.copy(startedTools = turnState.startedTools + id)
-            eventQueue.enqueue(ConversationEvent.AssistantToolCall(tool, input))
-          case None =>
-            eventQueue.enqueue(ConversationEvent.AssistantToolCall(tool, input))
+      val call = ConversationEvent.AssistantToolCall(tool, input)
+      // A tool part repeats `running` frames; surface the call once per part,
+      // keyed by its id. A part with no id (protocol drift) can't be deduped
+      // against — surface every frame rather than risk a coerced "" key
+      // wrongly colliding two distinct id-less parts (BB5).
+      partId match
+        case Some(id) if state.startedTools.contains(id) => Step.continue(state)
+        case Some(id) =>
+          Step.continue(
+            state.copy(startedTools = state.startedTools + id),
+            call
+          )
+        case None => Step.continue(state, call)
     case OpencodeEvent.ToolFinished(_, _, tool, ok, output) =>
-      if !isStructuredOutputEcho(tool) then
-        eventQueue.enqueue(ConversationEvent.ToolResult(Some(tool), ok, output))
+      if isStructuredOutputEcho(tool) then Step.continue(state)
+      else
+        Step.continue(
+          state,
+          ConversationEvent.ToolResult(Some(tool), ok, output)
+        )
     case OpencodeEvent.MessageUpdated(_, info) =>
-      turnState = turnState.copy(info = Some(info))
+      Step.continue(state.copy(info = Some(info)))
     case OpencodeEvent.QuestionAsked(req) =>
-      eventQueue.enqueue(
+      Step.continue(
+        state,
         ConversationEvent.UserQuestion(questionText(req), replyToQuestion(req))
       )
     case OpencodeEvent.PermissionAsked(req) =>
-      eventQueue.enqueue(
+      Step.continue(
+        state,
         ConversationEvent.ApproveTool(
           req.permission,
           req.patterns.mkString(" "),
           replyToPermission(req)
         )
       )
-    case OpencodeEvent.Idle(_)             => finishTurn()
-    case OpencodeEvent.Errored(_, message) => failTurn(message)
-    case OpencodeEvent.Ignored             => ()
+    case OpencodeEvent.Idle(_)             => finishTurn(state)
+    case OpencodeEvent.Errored(_, message) => failTurn(state, message)
+    case OpencodeEvent.Ignored             => Step.continue(state)
 
   /** The server-injected structured-output call: its payload already reaches
     * the caller through the result, so rendering the tool exchange would show
@@ -160,32 +151,37 @@ private[opencode] class OpencodeConversation(
 
   /** Terminal (`session.idle`): a turn whose assistant message carries
     * `info.error`, or that went idle without producing anything, is a failure;
-    * otherwise settle with the built result. Both paths close the otherwise
-    * open-ended SSE stream (via [[succeedWith]]/[[failWith]]).
+    * otherwise settle with the built result.
     */
-  private def finishTurn(): Unit =
-    turnState.info.flatMap(_.error) match
-      case Some(err) => failTurn(OpencodeEvent.errorMessage(err))
+  private def finishTurn(state: State): Out =
+    state.info.flatMap(_.error) match
+      case Some(err) => failTurn(state, OpencodeEvent.errorMessage(err))
       case None =>
-        if turnState.info.isEmpty && turnState.text.isEmpty then
-          failTurn("session went idle without an assistant message")
-        else settleResult()
+        if state.info.isEmpty && state.text.isEmpty then
+          failTurn(state, "session went idle without an assistant message")
+        else settleResult(state)
 
-  private def failTurn(message: String): Unit =
-    failWith(AgentTurnFailed(message, failedTurnDebit))
+  private def failTurn(state: State, message: String): Out =
+    Step.Settle(state, Nil, Settled.Failed(message, failedTurnDebit(state)))
 
   /** Settle the turn with the synthesised result: in structured mode the
     * validated object, otherwise the accrued assistant text. Usage and model
     * come from the captured `info`.
     */
-  private def settleResult(): Unit =
-    val info = turnState.info
+  private def settleResult(state: State): Out =
+    val info = state.info
     val structured = info.flatMap(_.structured).map(_.value)
-    settleSuccess(
-      wireId = session,
-      output = structured.getOrElse(turnState.text.mkString),
-      usage = settledUsage(info),
-      modelId = info.flatMap(_.modelID)
+    Step.Settle(
+      state,
+      Nil,
+      Settled.Succeeded(
+        AgentResult[BackendTag.Opencode.type](
+          WireSessionId(session),
+          structured.getOrElse(state.text.mkString),
+          settledUsage(info),
+          info.flatMap(_.modelID).map(Model.apply)
+        )
+      )
     )
 
   /** What a COMPLETED turn reports. Unlike [[failedTurnDebit]] there is no
@@ -205,8 +201,8 @@ private[opencode] class OpencodeConversation(
     * arrived without any is nothing measured, and an all-zero `TokensUsed`
     * would read as a measured zero.
     */
-  override protected def failedTurnDebit: TurnDebit =
-    turnState.info
+  def failedTurnDebit(state: State): TurnDebit =
+    state.info
       .flatMap(info => usageOf(info).map((_, info.modelID)))
       .fold(TurnDebit.Unobserved): (usage, modelID) =>
         TurnDebit.Observed(usage, modelID.map(Model.apply))
@@ -242,3 +238,44 @@ private[opencode] class OpencodeConversation(
       s"/permission/${req.id}/reply",
       writeToString(PermissionReplyBody(verdict))
     )
+
+private[opencode] object OpencodeDecoder:
+
+  final case class State(
+      text: Vector[String],
+      info: Option[AssistantInfo],
+      startedTools: Set[String],
+      reasoningParts: Set[String]
+  )
+
+private[opencode] object OpencodeConversation:
+
+  /** Starts decoding `source` into the caller's turn scope. */
+  def apply(
+      source: StreamSource,
+      http: OpencodeHttp,
+      session: String,
+      outputSchema: Option[String],
+      askUser: AskUserChannel,
+      initialPrompt: Option[String] = None
+  )(using Ox): Conversation[BackendTag.Opencode.type] =
+    StreamConversation.start(
+      source,
+      ConversationSpec(
+        openingPrompt = initialPrompt,
+        outputSchema = outputSchema,
+        structuredOutputMode = OpencodeBackend.StructuredOutputDelivery,
+        askUser = askUser,
+        onUnsettledEnd = () => abort(http, session)
+      )
+    )(_ => OpencodeDecoder(http, session, outputSchema))
+
+  /** Best-effort `POST /session/{id}/abort`, so a turn that ended unsettled —
+    * cancelled, or its stream lost — stops running (and writing) on the shared
+    * server. A settled, idle session may be resumed next turn, so it is left
+    * alone.
+    */
+  private def abort(http: OpencodeHttp, session: String): Unit =
+    try
+      val _ = http.postJson(s"/session/$session/abort", "{}")
+    catch case NonFatal(_) => ()

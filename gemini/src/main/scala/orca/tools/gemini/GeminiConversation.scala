@@ -1,189 +1,206 @@
 package orca.tools.gemini
 
-import orca.agents.{BackendTag, Model}
+import orca.agents.{BackendTag, Model, StructuredOutputMode, WireSessionId}
 import orca.events.{TurnDebit, Usage}
-import orca.AgentTurnFailed
 import orca.backend.{
-  StderrPipeline,
+  AgentResult,
+  AskUserChannel,
+  AskUserEchoes,
+  Conversation,
   ConversationEvent,
-  ForkedConversation,
+  ConversationSpec,
+  LineDecoder,
+  Settled,
+  Step,
+  StreamConversation,
   StreamSource
 }
 import orca.backend.mcp.{AskUserMcpServer, AskUserSession}
 import orca.subprocess.PipedCliProcess
 import orca.tools.gemini.jsonl.{InboundEvent, Role, ToolStatus}
 
-/** Drives a `gemini -p <prompt> --output-format stream-json` session to
-  * completion. Boilerplate lives in [[orca.backend.ForkedConversation]]; this
-  * class supplies the gemini-specific translation: JSONL → [[InboundEvent]] →
-  * `ConversationEvent`s.
+import ox.Ox
+
+/** Decodes a `gemini -p <prompt> --output-format stream-json` session: JSONL →
+  * [[InboundEvent]] → `ConversationEvent`s.
   *
   * Gemini specifics (see ADR 0015):
   *   - `approval-mode` is pre-baked into spawn args, so `ApproveTool` is never
   *     emitted.
   *   - headless is one-shot; multi-turn happens via `--resume` on a fresh
-  *     spawn, so `sendUserMessage` is a no-op.
+  *     spawn.
   *   - `AgentResult.output` is synthesised: gemini has no single terminal
   *     message carrying the answer, so assistant-role `message` content is
   *     accumulated as it streams and read at the `result` event.
   */
-private[gemini] class GeminiConversation(
-    process: PipedCliProcess,
-    initialPrompt: String = "",
-    val outputSchema: Option[String] = None,
-    override val askUser: Option[AskUserSession] = None
-) extends ForkedConversation[BackendTag.Gemini.type](
-      source = StreamSource.fromProcess(process),
-      backendName = "gemini",
-      initialPrompt = initialPrompt
-    )
-    with StderrPipeline[BackendTag.Gemini.type]:
+private[gemini] object GeminiDecoder
+    extends LineDecoder[BackendTag.Gemini.type, GeminiDecoder.State]:
 
-  // Reader-thread-confined: written and read only from the JSONL reader thread;
-  // `awaitResult`'s `readerFork.join()` publishes the final values to the caller.
-  private var sessionId: String = ""
-  private var model: Option[String] = None
-
-  /** Accumulated assistant-role `message` content — the synthesised answer. See
-    * the class scaladoc for why we build rather than receive.
+  /** @param answer
+    *   assistant-role `message` content, the synthesised answer
+    * @param toolNames
+    *   the `tool_name` each `tool_id` announced, since the matching
+    *   `tool_result` carries only the id
+    * @param echoes
+    *   `ask_user` tool ids whose echo is dropped — the host-side bridge already
+    *   surfaced the `UserQuestion`
     */
-  private val answer = new StringBuilder
+  final case class State(
+      sessionId: Option[String],
+      model: Option[String],
+      answer: Vector[String],
+      toolNames: Map[String, String],
+      echoes: AskUserEchoes
+  )
 
-  /** Maps a tool_use `tool_id` to the `tool_name` it announced, so the matching
-    * `tool_result` (which only carries the id) can be keyed by name in the
-    * emitted [[ConversationEvent.ToolResult]].
-    */
-  private var toolNames: Map[String, String] = Map.empty
+  private type Out = Step[BackendTag.Gemini.type, State]
 
-  /** tool_use ids for `ask_user` MCP calls whose echo we drop — the host-side
-    * bridge already surfaced the matching `UserQuestion`, so rendering the tool
-    * call + the answer-as-result on top would be noise. See
-    * [[orca.backend.AskUserEchoes]].
-    */
-  private val askUserEchoes = new orca.backend.AskUserEchoes
+  def backendName: String = "gemini"
 
-  // No `start()` — see `ForkedConversation.ensureStarted`'s lazy fork spawn.
+  def terminalMessageNoun: String = "a result event"
 
-  // --- Reader hooks ---
+  def init: State =
+    State(None, None, Vector.empty, Map.empty, AskUserEchoes.empty)
 
-  override protected def handleLine(line: String): Unit =
-    handle(InboundEvent.parse(line))
-
-  /** Known-benign chatter gemini prints on every successful run (see
-    * [[GeminiConversation.isKnownStderrNoise]]) is dropped so it doesn't render
-    * as a spurious `✖`; anything else passes through [[StderrPipeline]].
-    */
-  override protected def isStderrNoise(line: String): Boolean =
-    GeminiConversation.isKnownStderrNoise(line)
-
-  override protected def terminalMessageNoun: String = "a result event"
-
-  // --- Per-event dispatch ---
-
-  private def handle(event: InboundEvent): Unit = event match
-    case InboundEvent.Init(sessionId, model) =>
-      this.sessionId = sessionId
-      this.model = model
-    case InboundEvent.Message(role, content) => handleMessage(role, content)
-    case InboundEvent.ToolUse(name, id, params) =>
-      handleToolUse(name, id, params)
-    case InboundEvent.ToolResult(id, status, output) =>
-      handleToolResult(id, status, output)
-    case InboundEvent.Error(message) =>
-      eventQueue.enqueue(ConversationEvent.Error(s"gemini: $message"))
-    case InboundEvent.Result(usage, status) =>
-      // `result` is terminal: the base funnel auto-closes any open turn when
-      // `handleResult` settles (and drops the turn end when the turn was empty),
-      // so nothing is emitted here.
-      handleResult(usage, status)
-    case InboundEvent.Unknown(_) =>
+  def line(state: State, line: String): Out =
+    InboundEvent.parse(line) match
+      case InboundEvent.Init(sessionId, model) =>
+        Step.continue(state.copy(sessionId = Some(sessionId), model = model))
+      case InboundEvent.Message(role, content) => message(state, role, content)
+      case InboundEvent.ToolUse(name, id, params) =>
+        toolUse(state, name, id, params)
+      case InboundEvent.ToolResult(id, status, output) =>
+        toolResult(state, id, status, output)
+      case InboundEvent.Error(message) =>
+        Step.continue(state, ConversationEvent.Error(s"gemini: $message"))
+      case InboundEvent.Result(usage, status) => result(state, usage, status)
       // Forward-compat: gemini may add new top-level event types; drop them
       // silently rather than rendering an error.
-      ()
+      case InboundEvent.Unknown(_) => Step.continue(state)
+
+  /** Known-benign chatter gemini prints on every successful run (see
+    * [[GeminiConversation.isKnownStderrNoise]]).
+    */
+  override def isStderrNoise(line: String): Boolean =
+    GeminiConversation.isKnownStderrNoise(line)
 
   /** Only the terminal `result` event carries stats, and a turn that reaches it
-    * settles itself (with an `Observed` debit) rather than reaching the base's
-    * generic wrap.
+    * settles itself with an `Observed` debit.
     */
-  override protected def failedTurnDebit: TurnDebit = TurnDebit.Unobserved
+  def failedTurnDebit(state: State): TurnDebit = TurnDebit.Unobserved
 
-  /** Settle the conversation outcome at the terminal `result` event. Only an
-    * explicit `"success"` is success ([[ToolStatus.isSuccess]]); any other
-    * status is a failed turn that must NOT be reported as success even though
-    * gemini exited 0 — tagged `AgentTurnFailed` so the autonomous retry loop
-    * doesn't reopen the now-registered session id.
+  /** `result` is terminal. Only an explicit `"success"` is success
+    * ([[ToolStatus.isSuccess]]); any other status is a failed turn even though
+    * gemini exited 0. A success with no `init` event has no session id to
+    * resume, so it fails too.
     */
-  private def handleResult(usage: Usage, status: ToolStatus): Unit =
-    status match
-      case ToolStatus.Success =>
-        settleSuccess(
-          wireId = sessionId,
-          output = answer.toString,
-          usage = usage,
-          modelId = model
-        )
-      case ToolStatus.Failure(raw) =>
-        // Fold in the buffered stderr (the real reason — quota, auth, …) so
-        // the exception carries it even for a noop listener.
-        val description =
-          if raw.isEmpty then "a missing status" else s"status '$raw'"
-        failWith(
-          new AgentTurnFailed(
-            appendContext(s"gemini turn ended with $description"),
-            // The failed `result` frame carries the turn's stats; without them
-            // a quota- or max-turns-killed turn spends invisibly.
-            TurnDebit.Observed(usage, model.map(Model.apply))
+  private def result(state: State, usage: Usage, status: ToolStatus): Out =
+    // The failed `result` frame carries the turn's stats; without them a
+    // quota- or max-turns-killed turn spends invisibly.
+    val debit = TurnDebit.Observed(usage, state.model.map(Model.apply))
+    val settled = (status, state.sessionId) match
+      case (ToolStatus.Success, Some(sessionId)) =>
+        Settled.Succeeded(
+          AgentResult[BackendTag.Gemini.type](
+            WireSessionId(sessionId),
+            state.answer.mkString,
+            usage,
+            state.model.map(Model.apply)
           )
         )
+      case (ToolStatus.Success, None) =>
+        Settled.Failed(
+          "gemini completed the turn without an init event, so it has no " +
+            "session id to resume",
+          debit
+        )
+      case (ToolStatus.Failure(raw), _) =>
+        val description =
+          if raw.isEmpty then "a missing status" else s"status '$raw'"
+        Settled.Failed(s"gemini turn ended with $description", debit)
+    Step.Settle(state, Nil, settled)
 
   /** A `user`-role message is the prompt echo, so it's dropped.
     * [[Role.Assistant]] (any present role other than `"user"`) is agent output.
     * [[Role.Unknown]] (a missing `role` key) is dropped — never treated as
     * assistant prose.
     */
-  private def handleMessage(role: Role, content: String): Unit = role match
-    case Role.User => ()
-    case Role.Assistant =>
-      if content.nonEmpty then
-        val _ = answer.append(content)
-        eventQueue.enqueue(ConversationEvent.AssistantTextDelta(content))
-    case Role.Unknown =>
-      debugLog(
-        "message",
-        s"dropped: message with missing/unrecognized role (${content.length} chars)"
-      )
+  private def message(state: State, role: Role, content: String): Out =
+    role match
+      case Role.User                         => Step.continue(state)
+      case Role.Assistant if content.isEmpty => Step.continue(state)
+      case Role.Assistant =>
+        Step.continue(
+          state.copy(answer = state.answer :+ content),
+          ConversationEvent.AssistantTextDelta(content)
+        )
+      case Role.Unknown =>
+        StreamConversation.trace(
+          backendName,
+          "message",
+          s"dropped: message with missing/unrecognized role (${content.length} chars)"
+        )
+        Step.continue(state)
 
-  private def handleToolUse(name: String, id: String, params: String): Unit =
-    if GeminiConversation.isAskUserTool(name) then askUserEchoes.suppress(id)
+  private def toolUse(
+      state: State,
+      name: String,
+      id: String,
+      params: String
+  ): Out =
+    if GeminiConversation.isAskUserTool(name) then
+      Step.continue(state.copy(echoes = state.echoes.suppress(id)))
     else
-      toolNames = toolNames + (id -> name)
-      eventQueue.enqueue(
+      Step.continue(
+        state.copy(toolNames = state.toolNames + (id -> name)),
         ConversationEvent.AssistantToolCall(toolName = name, rawInput = params)
       )
 
-  private def handleToolResult(
+  private def toolResult(
+      state: State,
       id: String,
       status: ToolStatus,
       output: String
-  ): Unit =
-    if askUserEchoes.consume(id) then ()
-    else
-      eventQueue.enqueue(
-        ConversationEvent.ToolResult(
-          toolName = Some(toolNames.getOrElse(id, id)),
-          ok = status.isSuccess,
-          content = output
+  ): Out =
+    state.echoes.consume(id) match
+      case Some(rest) => Step.continue(state.copy(echoes = rest))
+      case None =>
+        Step.continue(
+          state,
+          ConversationEvent.ToolResult(
+            toolName = Some(state.toolNames.getOrElse(id, id)),
+            ok = status.isSuccess,
+            content = output
+          )
         )
-      )
 
 private[gemini] object GeminiConversation:
+
+  /** Starts decoding `process` into the caller's turn scope. */
+  def apply(
+      process: PipedCliProcess,
+      initialPrompt: Option[String] = None,
+      outputSchema: Option[String] = None,
+      askUser: Option[AskUserSession] = None
+  )(using Ox): Conversation[BackendTag.Gemini.type] =
+    StreamConversation.start(
+      StreamSource.fromProcess(process),
+      ConversationSpec(
+        openingPrompt = initialPrompt,
+        outputSchema = outputSchema,
+        structuredOutputMode = StructuredOutputMode.RawText,
+        askUser =
+          askUser.fold(AskUserChannel.Unavailable)(AskUserChannel.Mcp(_)),
+        onUnsettledEnd = () => ()
+      )
+    )(_ => GeminiDecoder)
 
   /** The `ask_user` MCP tool as gemini names it in `tool_use` events. gemini
     * qualifies an MCP tool as `<server>__<tool>` (e.g. `orca__ask_user`); match
     * that exact name (or the bare slug) rather than any name *containing*
     * `ask_user`, so an unrelated tool isn't suppressed.
     */
-  private def isAskUserTool(name: String): Boolean =
+  private[gemini] def isAskUserTool(name: String): Boolean =
     name == AskUserMcpServer.ToolSlug ||
       name == s"${AskUserMcpServer.ServerName}__${AskUserMcpServer.ToolSlug}"
 

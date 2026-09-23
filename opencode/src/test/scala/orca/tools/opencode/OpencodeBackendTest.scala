@@ -91,10 +91,8 @@ class OpencodeBackendTest extends munit.FunSuite:
         result.wireId,
         WireSessionId[BackendTag.Opencode.type]("ses_server1")
       )
-      // The turn finalizes through `conv.cancel()` (the self-scoped per-turn
-      // `finally`) — but the turn already settled via `session.idle`, so
-      // `onCancelRequested`'s settled-gate means NO `/abort` POST
-      // fires for this just-idle session, which may be resumed next turn.
+      // The turn settled via `session.idle`, so NO `/abort` POST fires for
+      // this just-idle session, which may be resumed next turn.
       assertEquals(
         http.posts.map(_._1),
         List(

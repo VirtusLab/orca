@@ -34,9 +34,9 @@ package orca.backend
   * id). It is never `Some("")`.
   *
   * [[opensTurn]] is the single source of truth for the activity/neutral split
-  * above, dispatched on by both [[ForkedConversation.EventQueue.enqueue]] (the
-  * funnel) and [[orca.backend.ConversationEventConformance]] (the oracle that
-  * asserts this grammar over a recorded sequence).
+  * above, dispatched on by both [[StreamConversation]] (the funnel) and
+  * [[orca.backend.ConversationEventConformance]] (the oracle that asserts this
+  * grammar over a recorded sequence).
   */
 enum ConversationEvent:
   /** A user turn — the opening prompt (emitted by the driver at session start)
@@ -102,6 +102,12 @@ enum ConversationEvent:
     case ConversationEvent.ApproveTool(_, _, _)      => false
     case ConversationEvent.UserQuestion(_, _)        => false
     case ConversationEvent.AssistantTurnEnd          => false
+
+/** The events a conversation's background drains (stderr, `ask_user`) and its
+  * opening prompt may send: none of them affects the turn grammar.
+  */
+type NeutralEvent = ConversationEvent.UserMessage | ConversationEvent.Error |
+  ConversationEvent.UserQuestion
 
 /** Channel's answer to a [[ConversationEvent.ApproveTool]] prompt.
   *

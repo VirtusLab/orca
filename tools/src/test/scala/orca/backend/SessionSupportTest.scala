@@ -1,6 +1,7 @@
 package orca.backend
 
-import orca.OrcaFlowException
+import orca.AgentTurnFailed
+import orca.events.{TurnDebit, Usage}
 import orca.agents.{BackendTag, SessionId, WireSessionId, onWire}
 
 class SessionSupportTest extends munit.FunSuite:
@@ -134,7 +135,11 @@ class SessionSupportTest extends munit.FunSuite:
     val client = SessionId[BackendTag.ClaudeCode.type]("claimed-id")
     s.commitAfterDrain(
       client,
-      WireSessionId[BackendTag.ClaudeCode.type]("reported-other")
+      AgentResult(
+        WireSessionId[BackendTag.ClaudeCode.type]("reported-other"),
+        "",
+        Usage.empty
+      )
     )
     assertEquals(s.persistableWireId(client), Some(client.onWire))
 
@@ -194,7 +199,7 @@ class SessionSupportTest extends munit.FunSuite:
     val client = clientSid("client")
     s.rehydrate(client, wireSid("lost"))
     val _ = s.dispatchFor(client)
-    s.commitAfterDrain(client, wireSid("new"))
+    s.commitAfterDrain(client, AgentResult(wireSid("new"), "", Usage.empty))
     assertEquals(s.persistableWireId(client), Some(wireSid("new")))
 
   test("rehydrated id with a throwing probe: Fresh"):
@@ -235,22 +240,25 @@ class SessionSupportTest extends munit.FunSuite:
     )
 
   test(
-    "commitAfterDrain: valid id commits, unsafe id throws and records nothing"
+    "commitAfterDrain: valid id commits, unsafe id fails the turn and records nothing"
   ):
     // The throwing sibling of `register`: the autonomous drain's pre-commit
-    // guard, aborting (retryable) rather than logging-and-skipping.
+    // guard, failing the turn (not retried, usage kept) rather than
+    // logging-and-skipping.
     val s = SessionSupport.durable[BackendTag.Codex.type](
       IdScheme.ServerMinted,
       _ => true
     )
     val ok = SessionId.fresh[BackendTag.Codex.type]
     val okWire = WireSessionId[BackendTag.Codex.type]("srv-ok")
-    s.commitAfterDrain(ok, okWire)
+    s.commitAfterDrain(ok, AgentResult(okWire, "", Usage.empty))
     assertEquals(s.persistableWireId(ok), Some(okWire))
     val bad = SessionId.fresh[BackendTag.Codex.type]
-    val _ = intercept[OrcaFlowException](
-      s.commitAfterDrain(bad, WireSessionId(""))
+    val usage = Usage.empty.copy(outputTokens = 7L)
+    val failed = intercept[AgentTurnFailed](
+      s.commitAfterDrain(bad, AgentResult(WireSessionId(""), "", usage))
     )
+    assertEquals(failed.debit, TurnDebit.Observed(usage, None))
     assert(
       s.persistableWireId(bad).isEmpty,
       "an unsafe id must never be committed"

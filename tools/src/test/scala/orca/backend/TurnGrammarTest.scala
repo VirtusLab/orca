@@ -1,68 +1,85 @@
 package orca.backend
 
-import orca.agents.{BackendTag, WireSessionId}
+import orca.agents.{BackendTag, StructuredOutputMode, WireSessionId}
 import orca.events.{TurnDebit, Usage}
-import orca.OrcaFlowException
 import orca.subprocess.FakePipedCliProcess
-import ox.supervised
+import ox.{Ox, supervised}
 
-/** Base-level grammar suite: drives a minimal fake [[ForkedConversation]]
-  * through raw `ConversationEvent`-level sequences (bypassing all wire parsing)
-  * and asserts the emitted stream satisfies
+import java.util.concurrent.atomic.AtomicInteger
+
+/** Base-level grammar suite: drives [[StreamConversation]] with a fake
+  * [[LineDecoder]] through raw `ConversationEvent`-level sequences (bypassing
+  * all wire parsing) and asserts the emitted stream satisfies
   * [[ConversationEventConformance.assertGrammar]]. Pins the turn-boundary
-  * grammar once for all backends, since the base class guarantees it by
+  * grammar once for all backends, since the reader guarantees it by
   * construction.
   */
 class TurnGrammarTest extends munit.FunSuite:
 
-  /** Fake driver whose `handleLine` interprets each scripted stdout line as a
-    * direct `ConversationEvent`-level command. Runs on the reader thread inside
-    * `handleLine`, like a real driver, so `openTurn` single-writer confinement
-    * is exercised faithfully.
-    */
-  private class GrammarFakeConversation(source: StreamSource)
-      extends ForkedConversation[BackendTag.ClaudeCode.type](
-        source = source,
-        backendName = "fake"
-      ):
-    val outputSchema: Option[String] = None
-    protected def failedTurnDebit: TurnDebit = TurnDebit.Unobserved
+  private type Tag = BackendTag.ClaudeCode.type
 
-    protected def handleLine(line: String): Unit =
+  /** Interprets each scripted stdout line as a direct `ConversationEvent`-level
+    * command.
+    */
+  private object GrammarDecoder extends LineDecoder[Tag, Unit]:
+    def backendName: String = "fake"
+    def terminalMessageNoun: String = "a settle"
+    def init: Unit = ()
+    def failedTurnDebit(state: Unit): TurnDebit = TurnDebit.Unobserved
+    def line(state: Unit, line: String): Step[Tag, Unit] =
       line match
         case "delta" =>
-          eventQueue.enqueue(ConversationEvent.AssistantTextDelta("t"))
+          Step.continue((), ConversationEvent.AssistantTextDelta("t"))
         case "thinking" =>
-          eventQueue.enqueue(ConversationEvent.AssistantThinkingDelta("t"))
+          Step.continue((), ConversationEvent.AssistantThinkingDelta("t"))
         case "toolcall" =>
-          eventQueue.enqueue(ConversationEvent.AssistantToolCall("tool", "{}"))
+          Step.continue((), ConversationEvent.AssistantToolCall("tool", "{}"))
         case "toolresult" =>
-          eventQueue.enqueue(
+          Step.continue(
+            (),
             ConversationEvent.ToolResult(Some("tool"), true, "ok")
           )
-        case "turnend" =>
-          eventQueue.enqueue(ConversationEvent.AssistantTurnEnd)
-        case "error" =>
-          eventQueue.enqueue(ConversationEvent.Error("boom"))
+        case "turnend" => Step.continue((), ConversationEvent.AssistantTurnEnd)
+        case "error"   => Step.continue((), ConversationEvent.Error("boom"))
         case "succeed" =>
-          succeedWith(AgentResult(WireSessionId("fake"), "done", Usage.empty))
+          Step.Settle(
+            (),
+            Nil,
+            Settled.Succeeded(
+              AgentResult(WireSessionId("fake"), "done", Usage.empty)
+            )
+          )
         case "fail" =>
-          failWith(new OrcaFlowException("boom"))
+          Step.Settle((), Nil, Settled.Failed("boom", TurnDebit.Unobserved))
         case other =>
           throw new IllegalStateException(s"unknown script line: $other")
+
+  private def start(
+      process: FakePipedCliProcess,
+      onUnsettledEnd: () => Unit = () => ()
+  )(using Ox): Conversation[Tag] =
+    StreamConversation.start(
+      StreamSource.fromProcess(process),
+      ConversationSpec(
+        openingPrompt = None,
+        outputSchema = None,
+        structuredOutputMode = StructuredOutputMode.RawText,
+        askUser = AskUserChannel.Unavailable,
+        onUnsettledEnd = onUnsettledEnd
+      )
+    )(_ => GrammarDecoder)
 
   /** Run a scripted sequence and return the emitted events. */
   private def runScript(lines: String*): List[ConversationEvent] =
     supervised:
       val process = new FakePipedCliProcess()
-      val conv = new GrammarFakeConversation(StreamSource.fromProcess(process))
       lines.foreach(process.enqueueStdout)
       process.closeStdout()
       process.closeStderr()
-      conv.events.toList
+      start(process).events.toList
 
   test(
-    "deltas then failWith injects a closing turn end (claude's is_error bug)"
+    "deltas then a failed settle injects a closing turn end (claude's is_error bug)"
   ):
     val events = runScript("delta", "delta", "error", "fail")
     assertEquals(
@@ -98,7 +115,7 @@ class TurnGrammarTest extends munit.FunSuite:
     assertEquals(events, Nil)
     ConversationEventConformance.assertGrammar(events, completedNormally = true)
 
-  test("failWith after activity injects a closing turn end (pi's bug)"):
+  test("a failed settle after activity injects a closing turn end (pi's bug)"):
     val events = runScript("toolresult", "fail")
     assertEquals(
       events,
@@ -148,97 +165,29 @@ class TurnGrammarTest extends munit.FunSuite:
       completedNormally = false
     )
 
-  /** Fake driver counting [[ForkedConversation.onCancelRequested]] invocations,
-    * so `cancel()`'s settled-gate can be pinned independently of any backend's
-    * hook body.
-    */
-  private class HookFakeConversation(source: StreamSource)
-      extends ForkedConversation[BackendTag.ClaudeCode.type](
-        source = source,
-        backendName = "fake"
-      ):
-    val outputSchema: Option[String] = None
-    protected def failedTurnDebit: TurnDebit = TurnDebit.Unobserved
-    var cancelRequests: Int = 0
-    override protected def onCancelRequested(): Unit = cancelRequests += 1
-    protected def handleLine(line: String): Unit =
-      line match
-        case "succeed" =>
-          succeedWith(AgentResult(WireSessionId("fake"), "done", Usage.empty))
-        case other =>
-          throw new IllegalStateException(s"unknown script line: $other")
-
-  test(
-    "onCancelRequested fires once for a genuine mid-turn cancel; repeat cancel() does not re-fire"
-  ):
+  test("onUnsettledEnd runs once when a cancel ends the stream mid-turn"):
+    val unsettledEnds = new AtomicInteger(0)
     supervised:
       val process = new FakePipedCliProcess()
-      val conv = new HookFakeConversation(StreamSource.fromProcess(process))
-      // No settle ever happens — this IS the genuine "torn down mid-turn" case.
+      val conv = start(process, () => unsettledEnds.incrementAndGet(): Unit)
       conv.cancel()
       conv.cancel()
-      assertEquals(conv.cancelRequests, 1)
       val _ = conv.awaitResult()
+    assertEquals(unsettledEnds.get(), 1)
 
-  test(
-    "onCancelRequested does NOT fire when cancel() runs after the turn already settled"
-  ):
+  test("onUnsettledEnd does not run for a turn that settled"):
+    val unsettledEnds = new AtomicInteger(0)
     supervised:
       val process = new FakePipedCliProcess()
-      val conv = new HookFakeConversation(StreamSource.fromProcess(process))
+      val conv = start(process, () => unsettledEnds.incrementAndGet(): Unit)
       process.enqueueStdout("succeed")
       process.closeStdout()
       process.closeStderr()
       conv.events.foreach(_ => ())
       val _ = conv.awaitResult()
-      // The routine `finally cancel()` after a turn that already succeeded must
-      // be a pure teardown, no hook.
       conv.cancel()
-      assertEquals(conv.cancelRequests, 0)
+    assertEquals(unsettledEnds.get(), 0)
 
-  /** Fake driver exposing `succeedWith` to a caller on an arbitrary thread, so
-    * the write-side single-writer assertion can be exercised from outside
-    * `handleLine` — every real backend only ever settles from inside
-    * `handleLine` on the reader thread.
-    */
-  private class ThreadInvariantFakeConversation(source: StreamSource)
-      extends ForkedConversation[BackendTag.ClaudeCode.type](
-        source = source,
-        backendName = "fake"
-      ):
-    val outputSchema: Option[String] = None
-    protected def failedTurnDebit: TurnDebit = TurnDebit.Unobserved
-    protected def handleLine(line: String): Unit =
-      line match
-        case "succeed" =>
-          succeedWith(AgentResult(WireSessionId("fake"), "done", Usage.empty))
-        case other =>
-          throw new IllegalStateException(s"unknown script line: $other")
-    def succeedFromCallerThread(): Unit =
-      succeedWith(AgentResult(WireSessionId("off-thread"), "done", Usage.empty))
-
-  test(
-    "succeedWith off the reader thread trips the write-side single-thread assertion"
-  ):
-    supervised:
-      val process = new FakePipedCliProcess()
-      val conv =
-        new ThreadInvariantFakeConversation(StreamSource.fromProcess(process))
-      process.enqueueStdout("succeed")
-      process.closeStdout()
-      process.closeStderr()
-      conv.events.foreach(_ => ())
-      // The reader thread's identity is recorded on its first settle. A second
-      // settle from a different thread must trip the assertion, not silently no-op.
-      val _ = conv.awaitResult()
-      var caught: Throwable = null
-      val t = new Thread(() =>
-        try conv.succeedFromCallerThread()
-        catch case e: Throwable => caught = e
-      )
-      t.start()
-      t.join()
-      assert(
-        caught != null && caught.isInstanceOf[AssertionError],
-        s"expected an AssertionError from the off-thread settle; got: $caught"
-      )
+  test("lines after a settle are ignored"):
+    val events = runScript("succeed", "delta")
+    assertEquals(events, Nil)

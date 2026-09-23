@@ -5,6 +5,7 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
   writeToString
 }
 import orca.backend.{
+  AskUserChannel,
   Conversation,
   TurnRequest,
   Dispatch,
@@ -185,16 +186,16 @@ private[orca] class OpencodeBackend(
       prompt: String,
       outputSchema: Option[String],
       mode: ConversationMode
-  ): OpencodeConversation =
-    val displayPrompt = mode.displayPrompt
-    val canAsk = mode.isInteractive
-    val conv = new OpencodeConversation(
+  )(using Ox): Conversation[BackendTag.Opencode.type] =
+    val conv = OpencodeConversation(
       source,
       http,
       serverSession,
       outputSchema,
-      canAsk,
-      initialPrompt = displayPrompt
+      askUser =
+        if mode.isInteractive then AskUserChannel.Native
+        else AskUserChannel.Unavailable,
+      initialPrompt = mode.openingPrompt
     )
     val body = OpencodeArgs.message(config, prompt, outputSchema, mode)
     try

@@ -28,7 +28,7 @@ class GeminiConversationTest extends munit.FunSuite:
     "assistant message accumulates into output; init sets session + model"
   ):
     val process = new FakePipedCliProcess()
-    val conv = new GeminiConversation(process)
+    val conv = GeminiConversation(process)
 
     process.enqueueStdout(
       """{"type":"init","session_id":"sess-1","model":"gemini-2.5-pro"}"""
@@ -57,7 +57,7 @@ class GeminiConversationTest extends munit.FunSuite:
 
   convTest("a user-role message is ignored (prompt echo, not agent output)"):
     val process = new FakePipedCliProcess()
-    val conv = new GeminiConversation(process)
+    val conv = GeminiConversation(process)
 
     process.enqueueStdout("""{"type":"init","session_id":"s"}""")
     process.enqueueStdout(
@@ -80,7 +80,7 @@ class GeminiConversationTest extends munit.FunSuite:
 
   convTest("multiple assistant chunks concatenate into the output"):
     val process = new FakePipedCliProcess()
-    val conv = new GeminiConversation(process)
+    val conv = GeminiConversation(process)
 
     process.enqueueStdout("""{"type":"init","session_id":"s"}""")
     process.enqueueStdout(
@@ -99,7 +99,7 @@ class GeminiConversationTest extends munit.FunSuite:
 
   convTest("initialPrompt becomes a UserMessage event before agent output"):
     val process = new FakePipedCliProcess()
-    val conv = new GeminiConversation(process, initialPrompt = "do the thing")
+    val conv = GeminiConversation(process, initialPrompt = Some("do the thing"))
 
     process.enqueueStdout("""{"type":"init","session_id":"s"}""")
     process.enqueueStdout(
@@ -115,7 +115,7 @@ class GeminiConversationTest extends munit.FunSuite:
 
   convTest("tool_use + tool_result become AssistantToolCall + ToolResult"):
     val process = new FakePipedCliProcess()
-    val conv = new GeminiConversation(process)
+    val conv = GeminiConversation(process)
 
     process.enqueueStdout("""{"type":"init","session_id":"s"}""")
     process.enqueueStdout(
@@ -150,7 +150,7 @@ class GeminiConversationTest extends munit.FunSuite:
     // Suppression matches gemini's exact MCP qualification (orca__ask_user),
     // not any name containing the slug — an unrelated tool must still surface.
     val process = new FakePipedCliProcess()
-    val conv = new GeminiConversation(process)
+    val conv = GeminiConversation(process)
 
     process.enqueueStdout("""{"type":"init","session_id":"s"}""")
     process.enqueueStdout(
@@ -172,7 +172,7 @@ class GeminiConversationTest extends munit.FunSuite:
 
   convTest("tool_result with a non-success status yields ok=false"):
     val process = new FakePipedCliProcess()
-    val conv = new GeminiConversation(process)
+    val conv = GeminiConversation(process)
 
     process.enqueueStdout("""{"type":"init","session_id":"s"}""")
     process.enqueueStdout(
@@ -197,7 +197,7 @@ class GeminiConversationTest extends munit.FunSuite:
     // warning, YOLO-mode notices, a cwd-reset line, and IDE-companion probe
     // chatter — all informational.
     val process = new FakePipedCliProcess()
-    val conv = new GeminiConversation(process)
+    val conv = GeminiConversation(process)
 
     process.enqueueStderr(
       "Warning: 256-color support not detected. Using a terminal with at least 256-color support is recommended for a better visual experience."
@@ -229,7 +229,7 @@ class GeminiConversationTest extends munit.FunSuite:
 
   convTest("a real stderr line still surfaces as ConversationEvent.Error"):
     val process = new FakePipedCliProcess()
-    val conv = new GeminiConversation(process)
+    val conv = GeminiConversation(process)
 
     process.enqueueStderr("Error: quota exceeded for project")
     process.enqueueStdout("""{"type":"init","session_id":"s"}""")
@@ -249,7 +249,7 @@ class GeminiConversationTest extends munit.FunSuite:
 
   convTest("stderr strips terminal controls before surfacing as an Error"):
     val process = new FakePipedCliProcess()
-    val conv = new GeminiConversation(process)
+    val conv = GeminiConversation(process)
 
     process.enqueueStderr("Error: quota[?25l exceeded[2K now")
     process.enqueueStdout("""{"type":"init","session_id":"s"}""")
@@ -270,7 +270,7 @@ class GeminiConversationTest extends munit.FunSuite:
 
   convTest("error event surfaces as ConversationEvent.Error"):
     val process = new FakePipedCliProcess()
-    val conv = new GeminiConversation(process)
+    val conv = GeminiConversation(process)
 
     process.enqueueStdout("""{"type":"init","session_id":"s"}""")
     process.enqueueStdout("""{"type":"error","message":"rate limited"}""")
@@ -290,7 +290,7 @@ class GeminiConversationTest extends munit.FunSuite:
 
   convTest("malformed JSONL surfaces as Error and the loop continues"):
     val process = new FakePipedCliProcess()
-    val conv = new GeminiConversation(process)
+    val conv = GeminiConversation(process)
 
     process.enqueueStdout("""{"type":"init","session_id":"s"}""")
     process.enqueueStdout("not json at all")
@@ -314,7 +314,7 @@ class GeminiConversationTest extends munit.FunSuite:
 
   convTest("clean exit without a result event surfaces as OrcaFlowException"):
     val process = new FakePipedCliProcess(initiallyAlive = false)
-    val conv = new GeminiConversation(process)
+    val conv = GeminiConversation(process)
 
     process.enqueueStdout("""{"type":"init","session_id":"s"}""")
     process.closeStdout()
@@ -331,11 +331,11 @@ class GeminiConversationTest extends munit.FunSuite:
     "missing session_id on init surfaces a visible Error and the turn fails loudly"
   ):
     // session_id is identity-critical: a missing key makes InitWire parsing
-    // throw JsonReaderException, which ForkedConversation's per-line catch turns
+    // throw JsonReaderException, which StreamConversation's per-line catch turns
     // into a visible Error event. With no line settling the turn, it then fails
     // loudly via the clean-exit-without-result path.
     val process = new FakePipedCliProcess(initiallyAlive = false)
-    val conv = new GeminiConversation(process)
+    val conv = GeminiConversation(process)
 
     process.enqueueStdout("""{"type":"init","model":"gemini-2.5-pro"}""")
     process.closeStdout()
@@ -354,13 +354,6 @@ class GeminiConversationTest extends munit.FunSuite:
       ex.getMessage.contains("result"),
       s"expected the missing-result message; got: ${ex.getMessage}"
     )
-    // ForkedConversation.awaitResult's generic Outcome.Failed(e) arm must thread
-    // `e` through as the cause, not just fold its message into text.
-    assert(
-      ex.getCause != null,
-      "AgentTurnFailed from the generic clean-exit-without-result path must " +
-        "carry the original failure as its cause"
-    )
 
   convTest(
     "a message with a missing role is dropped, never treated as assistant prose"
@@ -368,7 +361,7 @@ class GeminiConversationTest extends munit.FunSuite:
     // A missing role is typed Role.Unknown and dropped, never landing in the
     // answer as agent output.
     val process = new FakePipedCliProcess()
-    val conv = new GeminiConversation(process)
+    val conv = GeminiConversation(process)
 
     process.enqueueStdout("""{"type":"init","session_id":"s"}""")
     process.enqueueStdout("""{"type":"message","content":"stray content"}""")
@@ -389,7 +382,7 @@ class GeminiConversationTest extends munit.FunSuite:
     // must not be reported as success. "success" is the documented good
     // token (headless stream-json) — anything else non-empty is a failure.
     val process = new FakePipedCliProcess()
-    val conv = new GeminiConversation(process)
+    val conv = GeminiConversation(process)
 
     process.enqueueStdout("""{"type":"init","session_id":"s"}""")
     process.enqueueStdout(
@@ -402,8 +395,8 @@ class GeminiConversationTest extends munit.FunSuite:
     process.closeStderr()
 
     val events = conv.events.toList
-    // The streamed message opened a turn; the base funnel auto-closes it when
-    // the failing `result` settles via `failWith`, so even a failed turn is
+    // The streamed message opened a turn; the reader closes it when the
+    // failing `result` settles, so even a failed turn is
     // grammar-terminated (see the contract) — completedNormally.
     ConversationEventConformance.assertGrammar(events, completedNormally = true)
     val ex = intercept[orca.AgentTurnFailed](conv.awaitResult())
@@ -414,9 +407,21 @@ class GeminiConversationTest extends munit.FunSuite:
 
   // gemini's failing `result` frame carries the turn's stats, and the estimate
   // from them is the only cost signal gemini ever gives.
+  convTest("a successful result with no init event fails the turn"):
+    val process = new FakePipedCliProcess()
+    val conv = GeminiConversation(process)
+
+    process.enqueueStdout(result(input = 5L, output = 2L))
+    process.closeStdout()
+    process.closeStderr()
+
+    val _ = conv.events.toList
+    val ex = intercept[orca.AgentTurnFailed](conv.awaitResult())
+    assertEquals(ex.debit, TurnDebit.Observed(usage(5L, 2L), None))
+
   convTest("a failed result frame carries its stats as the turn's debit"):
     val process = new FakePipedCliProcess()
-    val conv = new GeminiConversation(process)
+    val conv = GeminiConversation(process)
 
     process.enqueueStdout(
       """{"type":"init","session_id":"s","model":"gemini-2.5-pro"}"""
@@ -443,7 +448,7 @@ class GeminiConversationTest extends munit.FunSuite:
     // it as a failure, matching tool_result's handling below, rather than
     // silently reporting success.
     val process = new FakePipedCliProcess()
-    val conv = new GeminiConversation(process)
+    val conv = GeminiConversation(process)
 
     process.enqueueStdout("""{"type":"init","session_id":"s"}""")
     process.enqueueStdout(
@@ -466,7 +471,7 @@ class GeminiConversationTest extends munit.FunSuite:
     // The other half of BB1's pinned case: a missing tool_result status is
     // also treated as failure, via the same ToolStatus decode.
     val process = new FakePipedCliProcess()
-    val conv = new GeminiConversation(process)
+    val conv = GeminiConversation(process)
 
     process.enqueueStdout("""{"type":"init","session_id":"s"}""")
     process.enqueueStdout(
@@ -490,7 +495,7 @@ class GeminiConversationTest extends munit.FunSuite:
     // Two tool calls complete out of order (B before A); each tool_result,
     // which carries only the id, must resolve to the right tool_name.
     val process = new FakePipedCliProcess()
-    val conv = new GeminiConversation(process)
+    val conv = GeminiConversation(process)
 
     process.enqueueStdout("""{"type":"init","session_id":"s"}""")
     process.enqueueStdout(
@@ -528,7 +533,7 @@ class GeminiConversationTest extends munit.FunSuite:
     "cancel surfaces as Left(OrcaInteractiveCancelled) from awaitResult"
   ):
     val process = new FakePipedCliProcess()
-    val conv = new GeminiConversation(process)
+    val conv = GeminiConversation(process)
     conv.cancel()
     conv.awaitResult() match
       case Left(_: OrcaInteractiveCancelled) => ()
@@ -538,7 +543,7 @@ class GeminiConversationTest extends munit.FunSuite:
 
   convTest("unknown top-level events are ignored without surfacing"):
     val process = new FakePipedCliProcess()
-    val conv = new GeminiConversation(process)
+    val conv = GeminiConversation(process)
 
     process.enqueueStdout("""{"type":"init","session_id":"s"}""")
     process.enqueueStdout("""{"type":"some.future.event","data":42}""")
@@ -561,7 +566,7 @@ class GeminiConversationTest extends munit.FunSuite:
 
   convTest("canAskUser is false when no bridge is provided"):
     val process = new FakePipedCliProcess()
-    val conv = new GeminiConversation(process)
+    val conv = GeminiConversation(process)
     assertEquals(conv.canAskUser, false)
     process.closeStdout()
     process.closeStderr()
@@ -574,7 +579,7 @@ class GeminiConversationTest extends munit.FunSuite:
     supervised:
       given BufferCapacity = BufferCapacity(8)
       val process = new FakePipedCliProcess()
-      val conv = new GeminiConversation(
+      val conv = GeminiConversation(
         process,
         askUser = Some(AskUserSession.allocate())
       )
@@ -614,7 +619,7 @@ class GeminiConversationTest extends munit.FunSuite:
       given BufferCapacity = BufferCapacity(8)
       val process = new FakePipedCliProcess()
       val askUser = AskUserSession.allocate()
-      val conv = new GeminiConversation(process, askUser = Some(askUser))
+      val conv = GeminiConversation(process, askUser = Some(askUser))
       val bridge = askUser.bridge
       assert(conv.canAskUser, "canAskUser must be true when a bridge is wired")
 

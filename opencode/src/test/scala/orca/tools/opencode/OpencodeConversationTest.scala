@@ -1,10 +1,12 @@
 package orca.tools.opencode
 
 import orca.AgentTurnFailed
-import orca.agents.Model
+import orca.agents.{BackendTag, Model}
 import orca.events.{TurnDebit, Usage}
 import orca.backend.{
   ApprovalDecision,
+  AskUserChannel,
+  Conversation,
   ConversationEvent,
   ConversationEventConformance,
   StreamSource
@@ -42,20 +44,32 @@ class OpencodeConversationTest extends munit.FunSuite:
     def interrupt(): Unit = ()
     def tryExitCode: Option[Int] = Some(0)
 
+  /** A stream with no frames that stays open until interrupted. */
+  private def openUntilInterrupted: StreamSource = new StreamSource:
+    private val closed = new java.util.concurrent.CountDownLatch(1)
+    def lines: Iterator[String] = new Iterator[String]:
+      def hasNext: Boolean =
+        closed.await()
+        false
+      def next(): String = throw new NoSuchElementException
+    def errorLines: Iterator[String] = Iterator.empty
+    def interrupt(): Unit = closed.countDown()
+    def tryExitCode: Option[Int] = Some(0)
+
   private def data(json: String): String = s"data: $json"
 
   private def conversation(
       lines: List[String],
       session: String = "ses_A",
       schema: Option[String] = None
-  ): (OpencodeConversation, RecordingHttp) =
+  )(using Ox): (Conversation[BackendTag.Opencode.type], RecordingHttp) =
     val http = new RecordingHttp
-    val conv = new OpencodeConversation(
+    val conv = OpencodeConversation(
       source(lines),
       http,
       session,
       outputSchema = schema,
-      canAsk = true
+      askUser = AskUserChannel.Native
     )
     (conv, http)
 
@@ -476,20 +490,27 @@ class OpencodeConversationTest extends munit.FunSuite:
   convTest("canAskUser reflects the constructor flag"):
     val http = new RecordingHttp
     val conv =
-      new OpencodeConversation(empty, http, "ses_A", None, canAsk = false)
+      OpencodeConversation(
+        empty,
+        http,
+        "ses_A",
+        None,
+        AskUserChannel.Unavailable
+      )
     assertEquals(conv.canAskUser, false)
 
   convTest(
-    "a genuine cancel before any settle POSTs /abort once; a repeat cancel() does not re-post"
+    "a cancel before any settle POSTs /abort once; a repeat cancel() does not re-post"
   ):
-    val (conv, http) = conversation(
-      List(
-        data("""{"type":"session.idle","properties":{"sessionID":"ses_A"}}""")
-      )
+    val http = new RecordingHttp
+    val conv = OpencodeConversation(
+      openUntilInterrupted,
+      http,
+      "ses_A",
+      None,
+      AskUserChannel.Unavailable
     )
-    // Cancelled before the reader ever touches the (unconsumed) stream above —
-    // the turn genuinely never settled, mirroring how every caller's `finally
-    // cancel()` can race an interactive interrupt mid-turn.
     conv.cancel()
     conv.cancel()
+    val _ = conv.awaitResult()
     assertEquals(http.posts, List("/session/ses_A/abort" -> "{}"))
