@@ -738,7 +738,8 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     * fan-out becomes a compile error rather than a race with the reviewers
     * reading the tree.
     */
-  private def formatWorkspace()(using WorkspaceWrite): Unit =
+  private def formatWorkspace()(using ws: WorkspaceWrite): Unit =
+    ws.check("reviewFixLoop.formatWorkspace")
     formatCommands.foreach: cmd =>
       val exitCode = runShell(cmd).exitCode
       if exitCode != 0 then

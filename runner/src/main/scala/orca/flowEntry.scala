@@ -21,7 +21,7 @@ import orca.agents.{
   PiAgent,
   Prompts
 }
-import orca.progress.{FlowSource, ProgressStore}
+import orca.progress.ProgressStore
 import orca.sessions.SessionStore
 import orca.review.ReviewerCatalog
 import orca.runner.{
@@ -34,6 +34,8 @@ import orca.runner.{
   OrcaLog,
   RoleAgents,
   RoleOverrides,
+  RunRequest,
+  SetupOptions,
   SurfacedFlowFailure,
   WiredAgents,
   WorktreeRun
@@ -215,31 +217,35 @@ def flow(
         outcome =
           try
             runFlow(
-              args = args,
-              workDir = dir,
-              interaction = interaction,
-              extraListeners = extraListeners ++ List(
-                costTracker,
-                deniedToolTracker,
-                manifestWriter
-              ),
-              branchNaming = branchNaming,
-              stackSettings = stackSettings,
-              planningAgent = planningAgent,
-              codingAgent = codingAgent,
-              reviewAgent = reviewAgent,
-              flowSource = flowSource,
-              pricing = pricing,
-              wiring = FlowWiring(
-                claude = claude,
-                codex = codex,
-                opencode = opencode,
-                pi = pi,
-                gemini = gemini,
-                git = git,
-                gh = gh,
-                fs = fs,
-                prompts = prompts
+              RunRequest(
+                args = args,
+                workDir = dir,
+                interaction = interaction,
+                extraListeners = extraListeners ++ List(
+                  costTracker,
+                  deniedToolTracker,
+                  manifestWriter
+                ),
+                wiring = FlowWiring(
+                  claude = claude,
+                  codex = codex,
+                  opencode = opencode,
+                  pi = pi,
+                  gemini = gemini,
+                  git = git,
+                  gh = gh,
+                  fs = fs,
+                  prompts = prompts
+                ),
+                pricing = pricing,
+                setup = SetupOptions(
+                  branchNaming = branchNaming,
+                  stackSettings = stackSettings,
+                  roles =
+                    RoleOverrides(planningAgent, codingAgent, reviewAgent),
+                  configHome = ConfigHome.default,
+                  flowSource = flowSource
+                )
               )
             )(body)
             AttemptOutcome.Succeeded
@@ -285,28 +291,13 @@ def flow(
   * dispatcher and agents exist (e.g. an agent-override factory) has no event
   * surface and escapes unwrapped.
   *
-  * `extraListeners` is the listener set beyond the interaction's own (the CLI
-  * wrapper adds its [[CostTracker]] here); a [[LoggingListener]] is always
-  * appended. `configHome` is overridden only by tests, which must never read
-  * the developer's real `~/.config`.
+  * A [[LoggingListener]] is always appended to the request's listeners.
   */
-private[orca] def runFlow(
-    args: OrcaArgs,
-    workDir: os.Path,
-    interaction: Option[Interaction],
-    extraListeners: List[OrcaListener],
-    branchNaming: Option[BranchNamingStrategy],
-    stackSettings: Option[StackSettings] = None,
-    planningAgent: Option[AgentSet => Agent[?]] = None,
-    codingAgent: Option[AgentSet => Agent[?]] = None,
-    reviewAgent: Option[AgentSet => Agent[?]] = None,
-    configHome: ConfigHome = ConfigHome.default,
-    // Recorded in a freshly-written progress header.
-    flowSource: Option[FlowSource] = None,
-    wiring: FlowWiring = FlowWiring(),
-    pricing: PriceList = Pricing.default
-)(body: FlowControl ?=> Unit): Unit =
-  val debug = OrcaDebug.enabled || args.verbose
+private[orca] def runFlow(request: RunRequest)(
+    body: FlowControl ?=> Unit
+): Unit =
+  val workDir = request.workDir
+  val wiring = request.wiring
   // Acquire both guards before `supervised:` (neither needs an `Ox` scope) so a
   // violation is caught before any git mutation. See [[FlowLock]] for the
   // two-layer rationale and release-ordering symmetry.
@@ -318,7 +309,7 @@ private[orca] def runFlow(
       // worker is a `forkUser` bound to that scope; close() in the body's
       // `finally` lets it drain before the scope joins it.
       supervised:
-        val effectiveInteraction = interaction.getOrElse(
+        val effectiveInteraction = request.interaction.getOrElse(
           TerminalInteraction.start(workDir = Some(workDir))
         )
         try
@@ -326,16 +317,13 @@ private[orca] def runFlow(
           // on-disk cost log and any listener a caller added all read one
           // figure — none of them holds a price table of its own.
           val dispatcher: OrcaListener = new CostResolvingDispatcher(
-            pricing,
+            request.pricing,
             new EventDispatcher(
               effectiveInteraction.listeners ++ List(
                 new LoggingListener
-              ) ++ extraListeners
+              ) ++ request.extraListeners
             )
           )
-          val runKey = RunKey.of(args.userPrompt)
-          val store = ProgressStore.default(workDir, runKey)
-          val sessions = SessionStore.default(workDir, runKey)
           // One wiring bundle handed to every agent factory, so overrides and
           // defaults build against the SAME dispatcher, interaction, workDir and
           // prompts. Agent construction is pure (no subprocess spawns until the
@@ -354,23 +342,14 @@ private[orca] def runFlow(
           )
           val fsTool = wiring.fs.getOrElse(new OsFsTool(workDir))
           runInContext(
-            args = args,
+            args = request.args,
             workDir = workDir,
-            stackSettings = stackSettings,
-            planningAgent = planningAgent,
-            codingAgent = codingAgent,
-            reviewAgent = reviewAgent,
-            configHome = configHome,
-            branchNaming = branchNaming,
+            options = request.setup,
             dispatcher = dispatcher,
             agents = agents,
             gitTool = gitTool,
             ghTool = ghTool,
-            fsTool = fsTool,
-            store = store,
-            sessions = sessions,
-            flowSource = flowSource,
-            debug = debug
+            fsTool = fsTool
           )(body)
         finally effectiveInteraction.close()
     finally FlowLock.releaseWorkdir(lockPath)
@@ -389,23 +368,18 @@ private[orca] def runFlow(
 private def runInContext(
     args: OrcaArgs,
     workDir: os.Path,
-    stackSettings: Option[StackSettings],
-    planningAgent: Option[AgentSet => Agent[?]],
-    codingAgent: Option[AgentSet => Agent[?]],
-    reviewAgent: Option[AgentSet => Agent[?]],
-    configHome: ConfigHome,
-    branchNaming: Option[BranchNamingStrategy],
+    options: SetupOptions,
     dispatcher: OrcaListener,
     agents: WiredAgents,
     gitTool: GitTool,
     ghTool: GitHubTool,
-    fsTool: FsTool,
-    store: ProgressStore,
-    sessions: SessionStore,
-    flowSource: Option[FlowSource],
-    debug: Boolean
+    fsTool: FsTool
 )(body: FlowControl ?=> Unit): Unit =
   val log = LoggerFactory.getLogger("orca.flow")
+  val debug = OrcaDebug.enabled || args.verbose
+  val runKey = RunKey.of(args.userPrompt)
+  val store = ProgressStore.default(workDir, runKey)
+  val sessions = SessionStore.default(workDir, runKey)
   // A resource scope rather than `supervised`'s own `releaseAfterScope`, which
   // runs only after the scope joins its forks: closing destroys the opencode
   // `serve` process, which is what makes its drain forks' reads EOF, so it
@@ -432,11 +406,15 @@ private def runInContext(
     // mutation (setup runs after).
     val (resolvedRoles, settingsRead) = surfaced:
       val read =
-        FlowLifecycle.readSettings(workDir, configHome.settings, stackSettings)
+        FlowLifecycle.readSettings(
+          workDir,
+          options.configHome.settings,
+          options.stackSettings
+        )
       val resolution = RoleAgents.resolveAll(
         read.projectAgents,
         read.globalAgents,
-        RoleOverrides(planningAgent, codingAgent, reviewAgent),
+        options.roles,
         agents
       )
       resolution.foreignWarnings.foreach: warning =>
@@ -452,7 +430,10 @@ private def runInContext(
       // links, so the tier directory is guarded here.
       OrcaDir.assertNoOrcaSymlinks(workDir, projectReviewersPath)
       val catalog =
-        ReviewerCatalog.discover(projectReviewersPath, configHome.reviewers)
+        ReviewerCatalog.discover(
+          projectReviewersPath,
+          options.configHome.reviewers
+        )
       catalog.describe.foreach(d => dispatcher.onEvent(OrcaEvent.Step(d)))
       catalog
     // Setup (branch + log binding, stack discovery) runs BEFORE the context so
@@ -463,12 +444,11 @@ private def runInContext(
         resolvedRoles.coding,
         gitTool,
         workDir,
-        branchNaming,
+        options.branchNaming,
         settingsRead.stack,
-        stackOverridden = stackSettings.isDefined,
         store,
         sessions,
-        flowSource = flowSource,
+        flowSource = options.flowSource,
         emit = dispatcher.onEvent
       )
     )

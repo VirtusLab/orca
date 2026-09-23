@@ -147,19 +147,21 @@ class LeadAgentIdentityTest extends munit.FunSuite:
     val thrown = intercept[SurfacedFlowFailure]:
       supervised:
         runFlow(
-          args = OrcaArgs(),
-          stackSettings = Some(StackSettings.empty),
-          codingAgent = Some(selector),
-          workDir = GitRepo.seeded(),
-          interaction = Some(interaction()),
-          extraListeners = List(listener),
-          branchNaming = None,
-          wiring = FlowWiring(
-            claude = Some(_ => agents.claude),
-            codex = Some(_ => agents.codex),
-            opencode = Some(_ => agents.opencode),
-            pi = Some(_ => agents.pi),
-            gemini = Some(_ => agents.gemini)
+          FlowHarness.request(
+            args = OrcaArgs(),
+            stackSettings = Some(StackSettings.empty),
+            codingAgent = Some(selector),
+            workDir = GitRepo.seeded(),
+            interaction = Some(interaction()),
+            extraListeners = List(listener),
+            branchNaming = None,
+            wiring = FlowWiring(
+              claude = Some(_ => agents.claude),
+              codex = Some(_ => agents.codex),
+              opencode = Some(_ => agents.opencode),
+              pi = Some(_ => agents.pi),
+              gemini = Some(_ => agents.gemini)
+            )
           )
         ):
           ()
@@ -210,20 +212,22 @@ class LeadAgentIdentityTest extends munit.FunSuite:
     val thrown = intercept[SurfacedFlowFailure]:
       supervised:
         runFlow(
-          args = OrcaArgs(),
-          stackSettings = Some(StackSettings.empty),
-          planningAgent = Some((_: AgentSet) => foreignPlanning),
-          codingAgent = Some((_: AgentSet) => throw boom),
-          workDir = GitRepo.seeded(),
-          interaction = Some(interaction()),
-          extraListeners = Nil,
-          branchNaming = None,
-          wiring = FlowWiring(
-            claude = Some(_ => agents.claude),
-            codex = Some(_ => agents.codex),
-            opencode = Some(_ => agents.opencode),
-            pi = Some(_ => agents.pi),
-            gemini = Some(_ => agents.gemini)
+          FlowHarness.request(
+            args = OrcaArgs(),
+            stackSettings = Some(StackSettings.empty),
+            planningAgent = Some((_: AgentSet) => foreignPlanning),
+            codingAgent = Some((_: AgentSet) => throw boom),
+            workDir = GitRepo.seeded(),
+            interaction = Some(interaction()),
+            extraListeners = Nil,
+            branchNaming = None,
+            wiring = FlowWiring(
+              claude = Some(_ => agents.claude),
+              codex = Some(_ => agents.codex),
+              opencode = Some(_ => agents.opencode),
+              pi = Some(_ => agents.pi),
+              gemini = Some(_ => agents.gemini)
+            )
           )
         ):
           ()

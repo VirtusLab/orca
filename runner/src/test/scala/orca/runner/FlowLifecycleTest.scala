@@ -585,14 +585,16 @@ class FlowLifecycleTest extends munit.FunSuite:
           animated = false
         )
         runFlow(
-          args = OrcaArgs(prompt),
-          stackSettings = Some(StackSettings.empty),
-          workDir = workDir,
-          interaction = Some(interaction),
-          extraListeners = Nil,
-          branchNaming = None,
-          wiring = FlowWiring(claude =
-            Some(_ => throw new RuntimeException("factory boom"))
+          FlowHarness.request(
+            args = OrcaArgs(prompt),
+            stackSettings = Some(StackSettings.empty),
+            workDir = workDir,
+            interaction = Some(interaction),
+            extraListeners = Nil,
+            branchNaming = None,
+            wiring = FlowWiring(claude =
+              Some(_ => throw new RuntimeException("factory boom"))
+            )
           )
         ):
           ()
@@ -671,7 +673,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       resolution = FlowLifecycle
         .readSettings(workDir, noGlobalSettings, Some(StackSettings.empty))
         .stack,
-      stackOverridden = true,
+      flowSource = None,
       store = store,
       sessionStore = scratchSessions(),
       emit = e => { val _ = emitted.updateAndGet(e :: _) }
@@ -716,7 +718,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         resolution = FlowLifecycle
           .readSettings(workDir, noGlobalSettings, Some(StackSettings.empty))
           .stack,
-        stackOverridden = true,
+        flowSource = None,
         store = store,
         sessionStore = scratchSessions(),
         emit = _ => ()
@@ -817,7 +819,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         resolution = FlowLifecycle
           .readSettings(workDir, noGlobalSettings, Some(StackSettings.empty))
           .stack,
-        stackOverridden = true,
+        flowSource = None,
         store = ProgressStore.default(workDir, RunKey.of("a brand new task")),
         sessionStore = scratchSessions(),
         emit = _ => ()
@@ -972,7 +974,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       resolution = FlowLifecycle
         .readSettings(workDir, noGlobalSettings, Some(StackSettings.empty))
         .stack,
-      stackOverridden = true,
+      flowSource = None,
       store = store,
       sessionStore = scratchSessions(),
       emit = _ => ()
@@ -1193,7 +1195,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       resolution = FlowLifecycle
         .readSettings(workDir, noGlobalSettings, settingsOverride)
         .stack,
-      stackOverridden = settingsOverride.isDefined,
+      flowSource = None,
       store = store,
       sessionStore = scratchSessions(),
       emit = e => { val _ = emitted.updateAndGet(e :: _) }
@@ -1268,7 +1270,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       resolution = FlowLifecycle
         .readSettings(workDir, noGlobalSettings, settingsOverride)
         .stack,
-      stackOverridden = settingsOverride.isDefined,
+      flowSource = None,
       store = ProgressStore.default(workDir, RunKey.of(prompt)),
       sessionStore = scratchSessions(),
       emit = emit,
@@ -1318,7 +1320,6 @@ class FlowLifecycleTest extends munit.FunSuite:
       branchNaming = None,
       resolution =
         FlowLifecycle.readSettings(workDir, noGlobalSettings, None).stack,
-      stackOverridden = false,
       store = store,
       sessionStore = scratchSessions(),
       flowSource = Some(FlowSource.Catalog("implement.sc")),
@@ -1436,7 +1437,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       resolution = FlowLifecycle
         .readSettings(workDir, noGlobalSettings, None)
         .stack,
-      stackOverridden = false,
+      flowSource = None,
       store = ProgressStore.default(workDir, RunKey.of(prompt)),
       sessionStore = scratchSessions(),
       emit = e => { val _ = emitted.updateAndGet(e :: _) }
@@ -1469,7 +1470,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       .trim
 
   test(
-    "setup: fresh arm, no file, no override — discovery gives the settings file its own commit, before the header commit"
+    "setup: fresh arm, no file, no override — discovery gives the settings file its own commit, after the header commit"
   ):
     val workDir = GitRepo.seeded()
     val canned = StackDiscoveryResult(
@@ -1496,21 +1497,21 @@ class FlowLifecycleTest extends munit.FunSuite:
         |test = off
         |""".stripMargin
     )
-    // The dedicated settings commit sits immediately before the header commit
+    // The dedicated settings commit sits immediately after the header commit
     // (HEAD~1), carries EXACTLY the settings file, and bears the pinned message.
     assertEquals(
-      commitFiles(workDir, "HEAD~1"),
+      commitFiles(workDir, "HEAD"),
       List(".orca/settings.properties")
     )
     assertEquals(
-      commitMessage(workDir, "HEAD~1"),
+      commitMessage(workDir, "HEAD"),
       "orca: stack settings (discovered)"
     )
-    // The header commit (HEAD) carries only the progress log, not the settings file.
-    assertEquals(commitMessage(workDir, "HEAD"), "orca: progress log")
+    // The header commit carries only the progress log, not the settings file.
+    assertEquals(commitMessage(workDir, "HEAD~1"), "orca: progress log")
     assert(
-      !commitFiles(workDir, "HEAD").contains(".orca/settings.properties"),
-      s"the header commit must NOT include the settings file, got: ${commitFiles(workDir, "HEAD")}"
+      !commitFiles(workDir, "HEAD~1").contains(".orca/settings.properties"),
+      s"the header commit must NOT include the settings file, got: ${commitFiles(workDir, "HEAD~1")}"
     )
     assert(
       steps.contains(
@@ -1689,12 +1690,14 @@ class FlowLifecycleTest extends munit.FunSuite:
           animated = false
         )
         runFlow(
-          args = OrcaArgs(prompt),
-          wiring = FlowWiring(claude = Some(_ => throwing)),
-          workDir = workDir,
-          interaction = Some(interaction),
-          extraListeners = Nil,
-          branchNaming = None
+          FlowHarness.request(
+            args = OrcaArgs(prompt),
+            wiring = FlowWiring(claude = Some(_ => throwing)),
+            workDir = workDir,
+            interaction = Some(interaction),
+            extraListeners = Nil,
+            branchNaming = None
+          )
         ):
           val _ = stage("never-runs"):
             stageRan = true
@@ -1911,13 +1914,15 @@ class FlowLifecycleTest extends munit.FunSuite:
         animated = false
       )
       runFlow(
-        args = OrcaArgs(prompt),
-        stackSettings = Some(StackSettings.empty),
-        workDir = workDir,
-        interaction = Some(interaction),
-        extraListeners = Nil,
-        branchNaming = None,
-        wiring = FlowWiring(claude = Some(_ => recorder))
+        FlowHarness.request(
+          args = OrcaArgs(prompt),
+          stackSettings = Some(StackSettings.empty),
+          workDir = workDir,
+          interaction = Some(interaction),
+          extraListeners = Nil,
+          branchNaming = None,
+          wiring = FlowWiring(claude = Some(_ => recorder))
+        )
       ):
         // The body observes the already-rehydrated mapping.
         assertEquals(
@@ -1952,13 +1957,15 @@ class FlowLifecycleTest extends munit.FunSuite:
         animated = false
       )
       runFlow(
-        args = OrcaArgs(prompt),
-        stackSettings = Some(StackSettings.empty),
-        wiring = FlowWiring(claude = Some(_ => claude), gh = gh, git = git),
-        workDir = workDir,
-        interaction = Some(interaction),
-        extraListeners = extraListeners,
-        branchNaming = None
+        FlowHarness.request(
+          args = OrcaArgs(prompt),
+          stackSettings = Some(StackSettings.empty),
+          wiring = FlowWiring(claude = Some(_ => claude), gh = gh, git = git),
+          workDir = workDir,
+          interaction = Some(interaction),
+          extraListeners = extraListeners,
+          branchNaming = None
+        )
       )(body)
 
   test(
@@ -2004,15 +2011,17 @@ class FlowLifecycleTest extends munit.FunSuite:
           animated = false
         )
         runFlow(
-          args = OrcaArgs(prompt),
-          stackSettings = Some(StackSettings.empty),
-          workDir = workDir,
-          interaction = Some(interaction),
-          extraListeners = Nil,
-          branchNaming = None,
-          wiring = FlowWiring(
-            claude = Some(_ => StubAgent.claude),
-            opencode = Some(_ => recorder)
+          FlowHarness.request(
+            args = OrcaArgs(prompt),
+            stackSettings = Some(StackSettings.empty),
+            workDir = workDir,
+            interaction = Some(interaction),
+            extraListeners = Nil,
+            branchNaming = None,
+            wiring = FlowWiring(
+              claude = Some(_ => StubAgent.claude),
+              opencode = Some(_ => recorder)
+            )
           )
         ):
           throw new RuntimeException("boom in body")
@@ -2409,13 +2418,15 @@ class FlowLifecycleTest extends munit.FunSuite:
           animated = false
         )
         runFlow(
-          args = OrcaArgs(prompt),
-          stackSettings = Some(StackSettings.empty),
-          wiring = FlowWiring(claude = Some(_ => StubAgent.claude)),
-          workDir = workDir,
-          interaction = Some(interaction),
-          extraListeners = List(listener),
-          branchNaming = Some(BranchNamingStrategy.fromText("main"))
+          FlowHarness.request(
+            args = OrcaArgs(prompt),
+            stackSettings = Some(StackSettings.empty),
+            wiring = FlowWiring(claude = Some(_ => StubAgent.claude)),
+            workDir = workDir,
+            interaction = Some(interaction),
+            extraListeners = List(listener),
+            branchNaming = Some(BranchNamingStrategy.fromText("main"))
+          )
         ):
           val _ = stage("never-runs")("x")
     val errors = listener.events.collect { case e: OrcaEvent.Error => e }
@@ -2505,16 +2516,18 @@ class FlowLifecycleTest extends munit.FunSuite:
           animated = false
         )
         runFlow(
-          args = OrcaArgs(
-            prompt,
-            target = RunTarget.CurrentBranch(Uncommitted.Stash)
-          ),
-          stackSettings = Some(StackSettings.empty),
-          wiring = FlowWiring(claude = Some(_ => StubAgent.claude)),
-          workDir = workDir,
-          interaction = Some(interaction),
-          extraListeners = Nil,
-          branchNaming = None
+          FlowHarness.request(
+            args = OrcaArgs(
+              prompt,
+              target = RunTarget.CurrentBranch(Uncommitted.Stash)
+            ),
+            stackSettings = Some(StackSettings.empty),
+            wiring = FlowWiring(claude = Some(_ => StubAgent.claude)),
+            workDir = workDir,
+            interaction = Some(interaction),
+            extraListeners = Nil,
+            branchNaming = None
+          )
         ):
           val _ = stage[String]("crash"):
             throw new RuntimeException("boom body")
@@ -2551,16 +2564,18 @@ class FlowLifecycleTest extends munit.FunSuite:
           animated = false
         )
         runFlow(
-          args = OrcaArgs(
-            prompt,
-            target = RunTarget.CurrentBranch(Uncommitted.Stash)
-          ),
-          stackSettings = Some(StackSettings.empty),
-          wiring = FlowWiring(claude = Some(_ => StubAgent.claude)),
-          workDir = workDir,
-          interaction = Some(interaction),
-          extraListeners = List(listener),
-          branchNaming = None
+          FlowHarness.request(
+            args = OrcaArgs(
+              prompt,
+              target = RunTarget.CurrentBranch(Uncommitted.Stash)
+            ),
+            stackSettings = Some(StackSettings.empty),
+            wiring = FlowWiring(claude = Some(_ => StubAgent.claude)),
+            workDir = workDir,
+            interaction = Some(interaction),
+            extraListeners = List(listener),
+            branchNaming = None
+          )
         ):
           val _ = stage("never-runs")("x")
     assert(
@@ -2583,16 +2598,18 @@ class FlowLifecycleTest extends munit.FunSuite:
           animated = false
         )
         runFlow(
-          args = OrcaArgs(
-            prompt,
-            target = RunTarget.CurrentBranch(Uncommitted.Stash)
-          ),
-          stackSettings = Some(StackSettings.empty),
-          wiring = FlowWiring(claude = Some(_ => StubAgent.claude)),
-          workDir = workDir,
-          interaction = Some(interaction),
-          extraListeners = List(listener),
-          branchNaming = None
+          FlowHarness.request(
+            args = OrcaArgs(
+              prompt,
+              target = RunTarget.CurrentBranch(Uncommitted.Stash)
+            ),
+            stackSettings = Some(StackSettings.empty),
+            wiring = FlowWiring(claude = Some(_ => StubAgent.claude)),
+            workDir = workDir,
+            interaction = Some(interaction),
+            extraListeners = List(listener),
+            branchNaming = None
+          )
         ):
           val _ = stage("never-runs")("x")
     assert(
@@ -3149,14 +3166,16 @@ class FlowLifecycleTest extends munit.FunSuite:
           animated = false
         )
         runFlow(
-          args =
-            OrcaArgs(prompt, target = RunTarget.NewBranch(Uncommitted.Keep)),
-          stackSettings = Some(StackSettings.empty),
-          wiring = FlowWiring(claude = Some(_ => StubAgent.claude)),
-          workDir = workDir,
-          interaction = Some(interaction),
-          extraListeners = Nil,
-          branchNaming = None
+          FlowHarness.request(
+            args =
+              OrcaArgs(prompt, target = RunTarget.NewBranch(Uncommitted.Keep)),
+            stackSettings = Some(StackSettings.empty),
+            wiring = FlowWiring(claude = Some(_ => StubAgent.claude)),
+            workDir = workDir,
+            interaction = Some(interaction),
+            extraListeners = Nil,
+            branchNaming = None
+          )
         ):
           val _ = stage[String]("crash"):
             throw new RuntimeException("boom body")
@@ -4013,13 +4032,15 @@ class FlowLifecycleTest extends munit.FunSuite:
           animated = false
         )
         runFlow(
-          args = OrcaArgs(prompt),
-          stackSettings = Some(StackSettings.empty),
-          workDir = workDir,
-          interaction = Some(interaction),
-          extraListeners = List(listener),
-          branchNaming = None,
-          wiring = FlowWiring(claude = Some(_ => thrower))
+          FlowHarness.request(
+            args = OrcaArgs(prompt),
+            stackSettings = Some(StackSettings.empty),
+            workDir = workDir,
+            interaction = Some(interaction),
+            extraListeners = List(listener),
+            branchNaming = None,
+            wiring = FlowWiring(claude = Some(_ => thrower))
+          )
         ):
           val _ = stage("never-runs")("x")
     val errors = listener.events.collect { case e: OrcaEvent.Error => e }
@@ -4045,15 +4066,17 @@ class FlowLifecycleTest extends munit.FunSuite:
           animated = false
         )
         runFlow(
-          args = OrcaArgs(prompt),
-          stackSettings = Some(StackSettings.empty),
-          workDir = workDir,
-          interaction = Some(interaction),
-          extraListeners = List(listener),
-          branchNaming = None,
-          wiring = FlowWiring(
-            claude = Some(_ => StubAgent.claude),
-            git = Some(new ResetThrowingGit(workDir))
+          FlowHarness.request(
+            args = OrcaArgs(prompt),
+            stackSettings = Some(StackSettings.empty),
+            workDir = workDir,
+            interaction = Some(interaction),
+            extraListeners = List(listener),
+            branchNaming = None,
+            wiring = FlowWiring(
+              claude = Some(_ => StubAgent.claude),
+              git = Some(new ResetThrowingGit(workDir))
+            )
           )
         ):
           val _ = stage[String]("crash"):
@@ -4115,24 +4138,28 @@ class FlowLifecycleTest extends munit.FunSuite:
         animated = false
       )
       runFlow(
-        args = OrcaArgs(prompt),
-        stackSettings = Some(StackSettings.empty),
-        wiring = FlowWiring(claude = Some(_ => StubAgent.claude)),
-        workDir = workDir,
-        interaction = Some(interaction),
-        extraListeners = Nil,
-        branchNaming = None
+        FlowHarness.request(
+          args = OrcaArgs(prompt),
+          stackSettings = Some(StackSettings.empty),
+          wiring = FlowWiring(claude = Some(_ => StubAgent.claude)),
+          workDir = workDir,
+          interaction = Some(interaction),
+          extraListeners = Nil,
+          branchNaming = None
+        )
       ):
         innerThrown =
           try
             runFlow(
-              args = OrcaArgs("inner"),
-              stackSettings = Some(StackSettings.empty),
-              wiring = FlowWiring(claude = Some(_ => StubAgent.claude)),
-              workDir = workDir,
-              interaction = Some(interaction),
-              extraListeners = Nil,
-              branchNaming = None
+              FlowHarness.request(
+                args = OrcaArgs("inner"),
+                stackSettings = Some(StackSettings.empty),
+                wiring = FlowWiring(claude = Some(_ => StubAgent.claude)),
+                workDir = workDir,
+                interaction = Some(interaction),
+                extraListeners = Nil,
+                branchNaming = None
+              )
             )(())
             None
           catch case e: Throwable => Some(e)
@@ -4172,13 +4199,15 @@ class FlowLifecycleTest extends munit.FunSuite:
           animated = false
         )
         runFlow(
-          args = OrcaArgs("live-pid"),
-          stackSettings = Some(StackSettings.empty),
-          wiring = FlowWiring(claude = Some(_ => StubAgent.claude)),
-          workDir = workDir,
-          interaction = Some(interaction),
-          extraListeners = Nil,
-          branchNaming = None
+          FlowHarness.request(
+            args = OrcaArgs("live-pid"),
+            stackSettings = Some(StackSettings.empty),
+            wiring = FlowWiring(claude = Some(_ => StubAgent.claude)),
+            workDir = workDir,
+            interaction = Some(interaction),
+            extraListeners = Nil,
+            branchNaming = None
+          )
         ):
           ()
     // `intercept[orca.OrcaFlowException]` above already pins the static type
@@ -4216,13 +4245,15 @@ class FlowLifecycleTest extends munit.FunSuite:
           animated = false
         )
         runFlow(
-          args = OrcaArgs("steal"),
-          stackSettings = Some(StackSettings.empty),
-          wiring = FlowWiring(claude = Some(_ => StubAgent.claude)),
-          workDir = workDir,
-          interaction = Some(interaction),
-          extraListeners = Nil,
-          branchNaming = None
+          FlowHarness.request(
+            args = OrcaArgs("steal"),
+            stackSettings = Some(StackSettings.empty),
+            wiring = FlowWiring(claude = Some(_ => StubAgent.claude)),
+            workDir = workDir,
+            interaction = Some(interaction),
+            extraListeners = Nil,
+            branchNaming = None
+          )
         ):
           summon[FlowContext].emit(OrcaEvent.Step("ran"))
     finally System.setErr(originalErr)
@@ -4250,13 +4281,15 @@ class FlowLifecycleTest extends munit.FunSuite:
         animated = false
       )
       runFlow(
-        args = OrcaArgs("lock-not-committed"),
-        stackSettings = Some(StackSettings.empty),
-        wiring = FlowWiring(claude = Some(_ => StubAgent.claude)),
-        workDir = workDir,
-        interaction = Some(interaction),
-        extraListeners = Nil,
-        branchNaming = None
+        FlowHarness.request(
+          args = OrcaArgs("lock-not-committed"),
+          stackSettings = Some(StackSettings.empty),
+          wiring = FlowWiring(claude = Some(_ => StubAgent.claude)),
+          workDir = workDir,
+          interaction = Some(interaction),
+          extraListeners = Nil,
+          branchNaming = None
+        )
       ):
         val _ = stage[String]("write"):
           os.write(workDir / "out.txt", "data")

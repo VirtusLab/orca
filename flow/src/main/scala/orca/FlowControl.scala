@@ -77,12 +77,6 @@ trait FlowControl extends FlowContext, caps.ExclusiveCapability:
     */
   private[orca] def startingCommit: Option[CommitHash]
 
-  /** Throw unless the caller is on this control's owner thread — implemented by
-    * [[StageFrames]]; called by the durable run doors so `session.run` from a
-    * fork fails immediately instead of racing the progress log.
-    */
-  private[orca] def assertOwnerThread(what: String): Unit
-
   /** Key a session named `name` to the stage currently open and claim it,
     * throwing if `agent.session(...)` already minted that name there — see
     * [[StageFrames.claimSessionKey]].
