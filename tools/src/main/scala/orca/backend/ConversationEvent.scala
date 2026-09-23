@@ -15,9 +15,10 @@ package orca.backend
   * ==Turn grammar (the contract every driver honours)==
   *
   * A *turn* starts at the first assistant activity (`AssistantTextDelta` /
-  * `AssistantThinkingDelta` / `AssistantToolCall` / `ToolResult`) after the
-  * stream start or the previous `AssistantTurnEnd`. A `ToolResult` counts — a
-  * tool ran in the turn, so a completed-tool-only turn is not empty.
+  * `AssistantThinkingDelta` / `AssistantToolCall` / `ToolResult` /
+  * `ToolDenied`) after the stream start or the previous `AssistantTurnEnd`. A
+  * `ToolResult` counts — a tool ran in the turn, so a completed-tool-only turn
+  * is not empty — and so does a `ToolDenied`, which stands in for one.
   *
   * Every turn the wire *completed* — the backend reported a turn end, or the
   * conversation settled, whether in success or failure — is terminated by
@@ -47,6 +48,13 @@ enum ConversationEvent:
   case AssistantThinkingDelta(text: String)
   case AssistantToolCall(toolName: String, rawInput: String)
   case ToolResult(toolName: Option[String], ok: Boolean, content: String)
+
+  /** A tool call the harness refused for lack of permission, in place of its
+    * `ToolResult`. Only claude's wire tells a refusal apart from a failed tool;
+    * opencode's refusals arrive as `ApproveTool`, and codex's and gemini's are
+    * indistinguishable from tool failures, so they surface as `ToolResult`.
+    */
+  case ToolDenied(toolName: String)
   case AssistantTurnEnd
 
   /** Non-fatal error surfaced mid-session (e.g. a line from the subprocess's
@@ -88,6 +96,7 @@ enum ConversationEvent:
     case ConversationEvent.AssistantThinkingDelta(_) => true
     case ConversationEvent.AssistantToolCall(_, _)   => true
     case ConversationEvent.ToolResult(_, _, _)       => true
+    case ConversationEvent.ToolDenied(_)             => true
     case ConversationEvent.UserMessage(_)            => false
     case ConversationEvent.Error(_)                  => false
     case ConversationEvent.ApproveTool(_, _, _)      => false

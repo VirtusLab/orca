@@ -163,6 +163,7 @@ private[orca] object Conversations:
                 s"Denied $toolName: $cause; autonomous mode cannot prompt"
               )
             )
+            events.onEvent(OrcaEvent.ToolDenied(toolName, None))
           case ConversationEvent.UserQuestion(_, respond) =>
             // The ask_user MCP bridge isn't wired in autonomous mode (see
             // `ConversationMode.Autonomous`), so this should be unreachable. If it
@@ -184,6 +185,8 @@ private[orca] object Conversations:
             // out as `OrcaEvent.ToolUse`. Listeners needing raw output subscribe
             // at the `ConversationEvent` layer instead.
             ()
+          case ConversationEvent.ToolDenied(toolName) =>
+            events.onEvent(OrcaEvent.ToolDenied(toolName, None))
       buffer.finishNormally()
     catch
       case t: Throwable =>

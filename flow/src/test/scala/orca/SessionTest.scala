@@ -301,7 +301,7 @@ class SessionTest extends FunSuite:
         Some(BackendTag.Codex)
     val _ =
       agent.session("implementer", seed = "plan brief")(using control(dir))
-    assertEquals(records(dir).head.backend, Some("Codex"))
+    assertEquals(records(dir).head.backend, Some(BackendTag.Codex))
 
   test("first agent.session call records no backend when the agent has none"):
     val dir = TempDirs.dir()
@@ -340,7 +340,7 @@ class SessionTest extends FunSuite:
         Some(BackendTag.Codex)
     val originalId =
       codexAgent.session("implementer", seed = "brief")(using control(dir))
-    assertEquals(records(dir).head.backend, Some("Codex"))
+    assertEquals(records(dir).head.backend, Some(BackendTag.Codex))
 
     // Second run over the SAME key: a differently-tagged
     // agent — a lead-backend swap between runs. A backend-tag mismatch must
@@ -359,7 +359,7 @@ class SessionTest extends FunSuite:
     )
     assertEquals(
       records(dir).head.backend,
-      Some("ClaudeCode"),
+      Some(BackendTag.ClaudeCode),
       "the record must be re-stamped under the NEW agent's tag"
     )
     assert(

@@ -153,6 +153,16 @@ class ConversationRendererTest extends munit.FunSuite:
     assert(out.contains("ok-output"))
     assert(out.contains("failed"))
 
+  test("ToolDenied renders the denied tool with the ✖ glyph"):
+    val buf = new ByteArrayOutputStream()
+    val conv = new ScriptedConversation(
+      List(ConversationEvent.ToolDenied("mcp__visdom__agents_md")),
+      Right(sampleResult)
+    )
+    val _ = supervised(renderer(buf).render(conv))
+    assert(buf.toString.contains("permission denied: mcp__visdom__agents_md"))
+    assert(buf.toString.contains("✖"))
+
   test("Error event renders the message with the ✖ glyph"):
     val buf = new ByteArrayOutputStream()
     val conv = new ScriptedConversation(

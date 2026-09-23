@@ -1,6 +1,6 @@
 package orca.events
 
-import orca.agents.{Model, SessionKey}
+import orca.agents.{BackendTag, Model, SessionKey}
 
 /** Flow-level event fanned out to every registered [[OrcaListener]]. Covers
   * stage transitions, tool invocations, token usage, structured results, and
@@ -28,6 +28,12 @@ enum OrcaEvent:
     * running in parallel.
     */
   case ToolUse(tool: String, args: String, agent: Option[String] = None)
+
+  /** A tool call the harness refused for lack of permission — as opposed to a
+    * tool that ran and failed. Emitted by the autonomous drain; `agent` carries
+    * the same attribution as [[ToolUse]].
+    */
+  case ToolDenied(tool: String, agent: Option[String])
 
   /** A single instantaneous note in the event log — neither a stage nor a
     * stream-of-text. Tools emit these for discrete progress: "switched to
@@ -136,17 +142,16 @@ enum OrcaEvent:
     * unrelated to a git commit; "commits" here means the mapping becomes
     * durable enough for a later call to resume against it (ADR 0021 §8). Fires
     * once per (harness, clientId, wireId) commit; listeners dedup on a resumed
-    * session's later turns. `harness` is the backend's wire name — the one
-    * string the persisted manifest also calls `harness`
-    * ([[orca.runner.manifest.ManifestSession]]). `wireId` is the persistable id
-    * ([[orca.agents.Agent.resumeWireId]]) — `None` for backends that keep
-    * nothing durably resumable, so a non-resumable commit still fires
-    * accurately. `sessionKey` is the key the flow minted the session under
-    * (`agent.session(name, seed)`) — `None` for a one-shot or chat turn, which
-    * is minted under no key.
+    * session's later turns. `harness` is the backend's tag, persisted as the
+    * manifest's `harness` ([[orca.runner.manifest.ManifestSession]]). `wireId`
+    * is the persistable id ([[orca.agents.Agent.resumeWireId]]) — `None` for
+    * backends that keep nothing durably resumable, so a non-resumable commit
+    * still fires accurately. `sessionKey` is the key the flow minted the
+    * session under (`agent.session(name, seed)`) — `None` for a one-shot or
+    * chat turn, which is minted under no key.
     */
   case SessionCommitted(
-      harness: String,
+      harness: BackendTag,
       clientId: String,
       wireId: Option[String],
       sessionKey: Option[SessionKey],
@@ -190,15 +195,17 @@ object OrcaListener:
     */
   val noop: OrcaListener = (_: OrcaEvent) => ()
 
-  /** Stamps `agentName` onto the three display events a turn produces
-    * ([[OrcaEvent.ToolUse]], [[OrcaEvent.AssistantMessage]],
-    * [[OrcaEvent.Error]]) on their way to `downstream`; every other event
-    * passes through untouched. Wrapped around the listener handed to a backend
-    * drain, which emits those events without knowing which agent it is running
-    * for.
+  /** Stamps `agentName` onto the four display events a turn produces
+    * ([[OrcaEvent.ToolUse]], [[OrcaEvent.ToolDenied]],
+    * [[OrcaEvent.AssistantMessage]], [[OrcaEvent.Error]]) on their way to
+    * `downstream`; every other event passes through untouched. Wrapped around
+    * the listener handed to a backend drain, which emits those events without
+    * knowing which agent it is running for.
     */
   def attributedTo(downstream: OrcaListener, agentName: String): OrcaListener =
     case e: OrcaEvent.ToolUse =>
+      downstream.onEvent(e.copy(agent = Some(agentName)))
+    case e: OrcaEvent.ToolDenied =>
       downstream.onEvent(e.copy(agent = Some(agentName)))
     case e: OrcaEvent.AssistantMessage =>
       downstream.onEvent(e.copy(agent = Some(agentName)))

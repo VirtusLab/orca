@@ -185,6 +185,29 @@ class BaseAgentTest extends munit.FunSuite:
     )
     assertEquals(reply, "Show branch in menu")
 
+  test("cheapOneShot without a fence takes the last line, not the preamble"):
+    val tool = new StubTool(
+      new ScriptedDrainBackend(
+        "Cannot call agents_md without permission; proceeding.\n\nShow branch in menu\n"
+      ),
+      prompts = DefaultPrompts
+    )
+    val reply = tool.cheapOneShot(
+      purpose = "branch name",
+      prompt = "name this branch",
+      fallback = "fb"
+    )
+    assertEquals(reply, "Show branch in menu")
+
+  test("cheapOneShot runs its turn with no tools"):
+    val backend = new RecordingConfigBackend
+    val _ = new StubTool(backend, prompts = DefaultPrompts).cheapOneShot(
+      purpose = "branch name",
+      prompt = "name this branch",
+      fallback = "fb"
+    )
+    assertEquals(backend.lastConfig.map(_.tools), Some(ToolSet.NoTools))
+
   // A caller that asks for a no-edit tier and gets prose has no other signal
   // that the gate isn't mechanical — and a fan-out would repeat the notice per
   // turn, which is why it is deduplicated rather than emitted per run call.
@@ -241,6 +264,22 @@ class BaseAgentTest extends munit.FunSuite:
       notices.listener
     )
     assertEquals(notices.caveats, List(BaseAgentTest.noEditNotice("ReadOnly")))
+
+  test("a NoTools turn the backend doesn't gate reports the tool shortfall"):
+    val notices = new NoticeRecorder
+    val _ = new UngatedBackend("reply").runAutonomous(
+      "one",
+      SessionId.fresh[BackendTag.Pi.type],
+      AgentConfig(tools = ToolSet.NoTools),
+      notices.listener
+    )
+    assertEquals(
+      notices.caveats,
+      List(
+        "Pi cannot stop a NoTools turn from calling tools — only the turn's " +
+          "own prompt asks it not to"
+      )
+    )
 
   // The first attempt commits the session, so the corrective re-prompt runs as
   // a resumed turn — which on this backend (codex's shape) is where the gate
@@ -435,7 +474,7 @@ class BaseAgentTest extends munit.FunSuite:
       e
     }
     assertEquals(committed.size, 1, committed)
-    assertEquals(committed.head.harness, BackendTag.Pi.wireName)
+    assertEquals(committed.head.harness, BackendTag.Pi)
     assertEquals(committed.head.wireId, Some("wire-committed"))
     assertEquals(committed.head.agent, "stub")
     assertEquals(committed.head.role, None)
@@ -494,6 +533,17 @@ class BaseAgentTest extends munit.FunSuite:
     assert(
       !seen.get().exists(_.isInstanceOf[OrcaEvent.SessionCommitted]),
       s"quietTextTurn must not emit SessionCommitted: ${seen.get()}"
+    )
+
+  test("quietTextTurn attributes a denied tool call to the agent"):
+    val seen =
+      new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
+    val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
+    val tool = new StubTool(new NoisyBackend, listener = listener)
+    val _ = tool.quietTextTurn("internal prompt")
+    assert(
+      seen.get().contains(OrcaEvent.ToolDenied("Bash", Some("stub"))),
+      s"expected an attributed ToolDenied: ${seen.get()}"
     )
 
   // A structured resultAs[O] call's closing assistant turn IS the raw JSON
@@ -773,8 +823,9 @@ class BaseAgentTest extends munit.FunSuite:
     def structuredOutputMode: StructuredOutputMode =
       StructuredOutputMode.RawText
 
-  /** Emits the streaming display events a real drain would (a tool line and the
-    * assistant's reply) so the quiet-turn test can assert they are filtered.
+  /** Emits the streaming display events a real drain would (a tool line, a
+    * denied tool call and the assistant's reply) so the quiet-turn tests can
+    * assert which ones are filtered.
     */
   private class NoisyBackend
       extends AgentBackend[BackendTag.Pi.type]
@@ -788,6 +839,7 @@ class BaseAgentTest extends munit.FunSuite:
         outputSchema: Option[String]
     ): AgentResult[BackendTag.Pi.type] =
       events.onEvent(OrcaEvent.ToolUse("Read", "{}"))
+      events.onEvent(OrcaEvent.ToolDenied("Bash", None))
       events.onEvent(OrcaEvent.AssistantMessage("short-label"))
       AgentResult(
         WireSessionId[BackendTag.Pi.type]("wire"),
@@ -919,7 +971,7 @@ class BaseAgentTest extends munit.FunSuite:
     ): EnforcementCell = dispatch match
       case TurnDispatch.Fresh =>
         tools match
-          case ToolSet.ReadOnly | ToolSet.NetworkOnly =>
+          case ToolSet.ReadOnly | ToolSet.NetworkOnly | ToolSet.NoTools =>
             EnforcementCell(
               Enforcement.Hard,
               "the spawn carries the sandbox flag"
@@ -931,7 +983,7 @@ class BaseAgentTest extends munit.FunSuite:
             )
       case TurnDispatch.Resumed =>
         tools match
-          case ToolSet.ReadOnly | ToolSet.NetworkOnly =>
+          case ToolSet.ReadOnly | ToolSet.NetworkOnly | ToolSet.NoTools =>
             EnforcementCell(
               Enforcement.PromptOnly,
               "the resume carries no flag"

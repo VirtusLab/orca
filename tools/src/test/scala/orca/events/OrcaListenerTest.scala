@@ -19,3 +19,15 @@ class OrcaListenerTest extends munit.FunSuite:
         OrcaEvent.Step("Switched to branch 'main'")
       )
     )
+
+  test("attributedTo stamps a ToolDenied"):
+    val seen = new AtomicReference[List[OrcaEvent]](Nil)
+    val listener = OrcaListener.attributedTo(
+      e => seen.updateAndGet(_ :+ e): Unit,
+      "planning"
+    )
+    listener.onEvent(OrcaEvent.ToolDenied("mcp__visdom__agents_md", None))
+    assertEquals(
+      seen.get(),
+      List(OrcaEvent.ToolDenied("mcp__visdom__agents_md", Some("planning")))
+    )

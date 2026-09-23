@@ -191,6 +191,20 @@ private[codex] object CodexArgs:
             "network needs the `workspace-write` sandbox, which also permits writes, so only the prompt withholds edits"
           )
         )
+      // codex's CLI can neither remove its shell tool nor drop the user's MCP
+      // servers: `-c mcp_servers={}` merges into the configured table rather
+      // than replacing it (probed 2026-09-23, codex-cli 0.155.1). The
+      // `read-only` sandbox is the closest it gets.
+      case ToolSet.NoTools =>
+        val (pre, post) = sandboxModeArgs("read-only", dispatch)
+        SandboxWiring(
+          pre,
+          post,
+          EnforcementCell(
+            Enforcement.PromptOnly,
+            "no flag removes codex's shell or the user's MCP servers, so the `read-only` sandbox blocks writes but only the prompt withholds tool calls"
+          )
+        )
       case ToolSet.Full =>
         autoApprove match
           // The one sandbox flag `exec resume` also accepts, so it rides on

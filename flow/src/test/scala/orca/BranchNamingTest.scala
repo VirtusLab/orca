@@ -243,8 +243,10 @@ class BranchNamingTest extends munit.FunSuite:
       BranchNamingStrategy.shortenPrompt.resolve("fix the login bug", agent)
     assertEquals(result, "fix-the-login-bug")
 
-  test("shortenPrompt: agent returns multi-line reply, uses only first line"):
-    val agent = TextReplyingAgent("fix login bug\nsome extra explanation")
+  test("shortenPrompt: a preamble before the label is skipped"):
+    val agent = TextReplyingAgent(
+      "Cannot call agents_md without permission; proceeding.\n\nfix login bug"
+    )
     val result =
       BranchNamingStrategy.shortenPrompt.resolve("Fix login bug", agent)
     assertEquals(result, "fix-login-bug")
@@ -258,7 +260,7 @@ class BranchNamingTest extends munit.FunSuite:
     assertEquals(result, "fix-login-bug")
 
   test(
-    "producer == validator: slug output always passes RecoveryCheck.isSafeBranchRef"
+    "producer == validator: slug output always passes FeatureBranch.isSafeBranchRef"
   ):
     // Pins that the producer (slug) and the untrusted-header validator agree by
     // construction — they share one predicate (BranchNamingStrategy.isSlugSegment).
@@ -281,6 +283,6 @@ class BranchNamingTest extends munit.FunSuite:
         s"slug('$in') = '$s' must be a valid slug segment"
       )
       assert(
-        orca.progress.RecoveryCheck.isSafeBranchRef(s),
+        orca.progress.FeatureBranch.isSafeBranchRef(s),
         s"slug('$in') = '$s' must satisfy isSafeBranchRef"
       )
