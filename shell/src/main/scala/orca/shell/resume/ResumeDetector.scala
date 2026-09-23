@@ -46,8 +46,8 @@ private[shell] object ResumeDetector:
     * against bare temp directories.
     *
     * Any failure here is silent, not surfaced as a menu warning: this runs on
-    * every menu redraw (`Main.loop`), and a warning on each redraw would spam
-    * the terminal for what is, at worst, a missed convenience.
+    * every menu redraw (`ShellMenu.loop`), and a warning on each redraw would
+    * spam the terminal for what is, at worst, a missed convenience.
     */
   def detect(dirs: List[os.Path]): Option[InterruptedRun] =
     try

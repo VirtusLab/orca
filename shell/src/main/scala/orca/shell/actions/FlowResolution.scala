@@ -1,7 +1,7 @@
 package orca.shell.actions
 
-import orca.{ConfigHome, OrcaDir}
-import orca.shell.ShellVersion
+import orca.OrcaDir
+import orca.shell.{ShellEnv, ShellVersion}
 import orca.discovery.Origin
 import orca.progress.FlowSource
 import orca.util.TextUtil
@@ -22,35 +22,38 @@ import scala.util.control.NonFatal
   */
 private[shell] object FlowResolution:
 
-  /** [[FlowCatalog.list]] across all three tiers, guarding the project tier's
-    * component chain against a committed symlink first
+  /** [[FlowCatalog.list]] across all three tiers of `env`, guarding the project
+    * tier's component chain against a committed symlink first
     * ([[OrcaDir.assertNoOrcaSymlinks]]) — the same guarded build the menu's
     * flow picker uses. Left on either the guard or the built-in extraction
     * failing (full-disk, permission error, …).
     */
-  def list(workDir: os.Path): Either[String, List[DiscoveredFlow]] =
+  def list(using env: ShellEnv): Either[String, List[DiscoveredFlow]] =
+    val projectFlows = OrcaDir.flowsPath(env.workDir)
     try
-      OrcaDir.assertNoOrcaSymlinks(workDir, OrcaDir.flowsPath(workDir))
+      OrcaDir.assertNoOrcaSymlinks(env.workDir, projectFlows)
       Right(
         FlowCatalog.list(
-          OrcaDir.flowsPath(workDir),
-          ConfigHome.default.flows,
-          BuiltInFlows.extracted(sys.env.get, os.home, ShellVersion.value)
+          projectFlows,
+          env.configHome.flows,
+          BuiltInFlows.extracted(env.cacheHome, ShellVersion.value)
         )
       )
     catch case NonFatal(e) => Left(s"couldn't list flows — ${e.getMessage}")
 
   /** Resolves `ref` for a non-interactive caller: a token containing `/`, or
-    * naming an existing `.sc` file relative to `workDir`, is a path read
-    * directly off disk; otherwise it's a catalog name (`.sc` suffix optional),
-    * looked up in [[list]] with the same project > global > built-in precedence
-    * the interactive picker shows. A path-resolved flow reports
+    * naming an existing `.sc` file relative to the shell's `workDir`, is a path
+    * read directly off disk; otherwise it's a catalog name (`.sc` suffix
+    * optional), looked up in [[list]] with the same project > global > built-in
+    * precedence the interactive picker shows. A path-resolved flow reports
     * [[Origin.Project]] with no shadowed tiers — it isn't a catalog entry, but
     * Project matches how it behaves (edited in place, never offered a
     * customize-into-a-tier step).
     */
-  def resolve(ref: String, workDir: os.Path): Either[String, DiscoveredFlow] =
-    val asPath = Try(os.Path(ref, workDir)).toOption
+  def resolve(ref: String)(using
+      env: ShellEnv
+  ): Either[String, DiscoveredFlow] =
+    val asPath = Try(os.Path(ref, env.workDir)).toOption
     val pathHit = asPath.filter(p =>
       (ref.contains("/") || ref.endsWith(".sc")) && os.isFile(p)
     )
@@ -58,27 +61,26 @@ private[shell] object FlowResolution:
       case Some(path) => Right(fromPath(path))
       case None =>
         if ref.contains("/") then Left(s"no such flow file: $ref")
-        else byName(ref, workDir)
+        else byName(ref)
 
   /** Looks `ref` up in [[list]] only (`.sc` suffix optional), never reading it
     * as a path.
     */
-  def byName(ref: String, workDir: os.Path): Either[String, DiscoveredFlow] =
+  def byName(ref: String)(using ShellEnv): Either[String, DiscoveredFlow] =
     val name = if ref.endsWith(".sc") then ref else s"$ref.sc"
-    list(workDir).flatMap: flows =>
+    list.flatMap: flows =>
       flows
         .find(_.name == name)
         .toRight(notFoundMessage(ref, flows))
 
-  /** The flow a run recorded as `source`: a catalog name looked up again in
-    * `workDir`'s catalog, or the recorded file itself.
+  /** The flow a run recorded as `source`: a catalog name looked up again in the
+    * shell's catalog, or the recorded file itself.
     */
-  def resolveRecorded(
-      source: FlowSource,
-      workDir: os.Path
+  def resolveRecorded(source: FlowSource)(using
+      ShellEnv
   ): Either[String, DiscoveredFlow] =
     source match
-      case FlowSource.Catalog(name) => byName(name, workDir)
+      case FlowSource.Catalog(name) => byName(name)
       case FlowSource.File(path) =>
         recordedFile(path).filter(os.isFile) match
           case Some(file) => Right(fromPath(file))

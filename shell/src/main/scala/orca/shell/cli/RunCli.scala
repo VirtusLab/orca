@@ -1,14 +1,15 @@
 package orca.shell.cli
 
 import orca.RawArgs
-import orca.shell.actions.{FlowResolution, RunAction}
+import orca.shell.ShellEnv
+import orca.shell.actions.FlowResolution
 import orca.shell.run.{FallbackPolicy, FlowLauncher, LaunchedFlow}
 
 import Cli.{actionFailure, complete, usageFailure, withTerminal}
 
 /** `orca run`'s behavior (ADR 0021 §10): resolve the flow, read the task
   * (argument, `--prompt` or piped stdin), then either the forced run
-  * ([[RunAction.run]]) or the pin-honouring one
+  * ([[FlowLauncher.runAnnounced]]) or the pin-honouring one
   * ([[FlowLauncher.runHonoringPin]]), propagating the flow child's raw exit
   * code.
   */
@@ -24,14 +25,13 @@ private[cli] object RunCli:
       flowRef: String,
       args: RawArgs,
       honorPin: Boolean,
-      workDir: os.Path,
       tty: Boolean
-  ): Int =
+  )(using env: ShellEnv): Int =
     complete:
       for
         checked <- args.checked.left.map(usageFailure)
         resolved <- FlowResolution
-          .resolve(flowRef, workDir)
+          .resolve(flowRef)
           .left
           .map(actionFailure)
         task <- readTask(checked.givenTask, tty, readAllStdin).left
@@ -43,17 +43,15 @@ private[cli] object RunCli:
             FlowLauncher.runHonoringPin(
               LaunchedFlow.of(resolved),
               orcaArgs,
-              workDir,
+              env.workDir,
               terminal
             )
           else
-            RunAction.run(
-              resolved,
-              RunAction.RunOptions(
-                args = orcaArgs,
-                fallback = FallbackPolicy.Refuse("re-run with --honor-pin")
-              ),
-              workDir,
+            FlowLauncher.runAnnounced(
+              FallbackPolicy.Refuse("re-run with --honor-pin"),
+              LaunchedFlow.of(resolved),
+              orcaArgs,
+              env.workDir,
               terminal
             )
         // propagates the flow child's raw exit code (LaunchResult.Failed's

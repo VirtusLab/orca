@@ -17,7 +17,7 @@ private[shell] enum StackStatus:
 
 /** "Clear stack settings (format/lint/test) — re-detected on the next flow run"
   * (ADR 0021 §8/§4). The confirm prompt and rendering live in
-  * `Main.rediscoverStack`.
+  * `SettingsMenu.rediscoverStack`.
   */
 private[shell] object StackAction:
 

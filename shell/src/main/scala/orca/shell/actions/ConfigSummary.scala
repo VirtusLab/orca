@@ -15,8 +15,8 @@ import orca.tools.OsGitTool
   * harness here, whereas a real run's header instead names the resolved agent's
   * own default model, or `<harness default>` when the backend pins none.
   *
-  * [[branchLine]] is NOT part of that summary: `Main.loop` prints it once per
-  * redraw, so it stays true after a flow run switches branches.
+  * [[branchLine]] is NOT part of that summary: `ShellMenu.loop` prints it once
+  * per redraw, so it stays true after a flow run switches branches.
   */
 private[shell] object ConfigSummary:
 
