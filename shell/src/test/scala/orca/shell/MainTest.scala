@@ -988,6 +988,7 @@ class MainTest extends munit.FunSuite:
       val run = InterruptedRun(
         flowName = "resume-flow.sc",
         userPrompt = "fix the flaky test\nwith detail",
+        branch = "feat/x",
         dir = workDir
       )
       var recorded: Option[(String, String)] = None
@@ -1019,6 +1020,7 @@ class MainTest extends munit.FunSuite:
       val run = InterruptedRun(
         flowName = "resume-flow.sc",
         userPrompt = "fix the flaky test",
+        branch = "feat/x",
         dir = worktree
       )
       var recorded: Option[(os.Path, FlowFlags)] = None
@@ -1048,6 +1050,7 @@ class MainTest extends munit.FunSuite:
       val run = InterruptedRun(
         flowName = "no-such-flow.sc",
         userPrompt = "x",
+        branch = "feat/x",
         dir = workDir
       )
       var launched = false

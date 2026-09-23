@@ -40,6 +40,11 @@ private[orca] enum StartBranchFailure:
   case WouldLoseCommits(branch: String)
   case GitFailed(message: String)
 
+/** Where a checkout's HEAD points. */
+private[orca] enum HeadState:
+  case OnBranch(name: String)
+  case Detached
+
 /** Git worktree plumbing for run-level isolation (`--worktree`).
   *
   * Deliberately not on [[GitTool]]: that trait is flow-facing, and a flow's
@@ -198,7 +203,17 @@ private[orca] object Worktrees:
     * closed.
     */
   def onABranch(worktree: os.Path): Boolean =
-    headBranch(worktree).exists(_ != "HEAD")
+    headState(worktree).exists:
+      case HeadState.OnBranch(_) => true
+      case HeadState.Detached    => false
+
+  /** [[headBranch]] with the detached case told apart from a branch name;
+    * `None` when the question could not be answered.
+    */
+  def headState(worktree: os.Path): Option[HeadState] =
+    headBranch(worktree).map:
+      case "HEAD" => HeadState.Detached
+      case name   => HeadState.OnBranch(name)
 
   private def wouldLoseCommits(cwd: os.Path, branch: String): Boolean =
     val exists =

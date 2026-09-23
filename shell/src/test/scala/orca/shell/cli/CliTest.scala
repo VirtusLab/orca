@@ -6,6 +6,7 @@ import orca.agents.{BackendTag, SessionKey}
 import orca.runner.manifest.{AttemptStatus, ManifestSession}
 import orca.settings.{AgentSettings, AgentSpec, SettingsFile}
 import orca.shell.ScanDirs
+import orca.shell.actions.SessionAction
 import orca.shell.create.CreateTier
 import orca.discovery.Origin
 import orca.shell.flows.DiscoveredFlow
@@ -17,7 +18,7 @@ import orca.shell.sessions.ManifestFixtures.{
   manifest,
   writeManifest
 }
-import orca.testkit.TempDirs
+import orca.testkit.{GitRepo, TempDirs}
 
 class CliTest extends munit.FunSuite:
 
@@ -1206,7 +1207,7 @@ class CliTest extends munit.FunSuite:
         crashed = false
       )
     assertEquals(
-      ContinueCli.resumeNotice(selection),
+      SessionAction.resumeNotice(selection),
       "resuming session 'newest' [claude], in /work"
     )
 
@@ -1217,7 +1218,7 @@ class CliTest extends munit.FunSuite:
     val selection =
       SessionSelection(attempt.manifest, withStage, crashed = false)
     assertEquals(
-      ContinueCli.resumeNotice(selection),
+      SessionAction.resumeNotice(selection),
       "resuming session 'newest' [claude], stage 'Task: fix a bug', in /work"
     )
 
@@ -1230,8 +1231,25 @@ class CliTest extends munit.FunSuite:
         crashed = true
       )
     assertEquals(
-      ContinueCli.resumeNotice(selection),
+      SessionAction.resumeNotice(selection),
       "resuming session 'newest' [claude], in /work (crashed)"
+    )
+
+  test(
+    "resumeNotice: warns when the recorded workDir is now on another branch"
+  ):
+    val workDir = GitRepo.seeded()
+    val m = manifest(
+      workDir = workDir.toString,
+      sessions = List(durable(sessionName = "newest")),
+      branch = Some("feat/x")
+    )
+    val notice = SessionAction.resumeNotice(
+      SessionSelection(m, m.sessions.head, crashed = false)
+    )
+    assert(
+      notice.endsWith(s"— warning: $workDir is now on 'main'"),
+      notice
     )
 
   // --- stdout/stderr separation (CLI review finding 1) ---

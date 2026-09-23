@@ -100,6 +100,13 @@ class WorktreesTest extends munit.FunSuite:
     assertEquals(Worktrees.headBranch(path), Some("wt-branch"))
     assertEquals(gitOut(path, "rev-parse", "--abbrev-ref", "HEAD"), "wt-branch")
 
+  test("headState tells a detached HEAD apart from a branch"):
+    val repo = GitRepo.seeded()
+    val path = repo / "wt"
+    assertEquals(Worktrees.add(repo, path), Right(()))
+    assertEquals(Worktrees.headState(path), Some(HeadState.Detached))
+    assertEquals(Worktrees.headState(repo), Some(HeadState.OnBranch("main")))
+
   test("a worktree that cannot be read reads as not on a branch"):
     val repo = GitRepo.seeded()
     val path = repo / "wt"

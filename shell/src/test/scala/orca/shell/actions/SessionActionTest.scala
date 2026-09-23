@@ -4,6 +4,7 @@ import orca.runner.manifest.{AttemptManifest, ManifestSession}
 import orca.shell.sessions.ManifestFixtures.{durable, manifest}
 import orca.shell.sessions.SessionSelection
 import orca.testkit.TempDirs
+import orca.tools.HeadState
 import orca.tools.pi.PiSessionStore
 
 class SessionActionTest extends munit.FunSuite:
@@ -16,8 +17,23 @@ class SessionActionTest extends munit.FunSuite:
       lastActiveAt = "2026-07-18T09:45:00Z"
     )
 
-  private def manifestOf(s: ManifestSession): AttemptManifest =
-    manifest(startedAt = "2026-07-18T09:00:00Z", sessions = List(s))
+  private def manifestOf(
+      s: ManifestSession,
+      branch: Option[String] = None
+  ): AttemptManifest =
+    manifest(
+      startedAt = "2026-07-18T09:00:00Z",
+      sessions = List(s),
+      branch = branch
+    )
+
+  private def noticeOnBranch(head: Option[HeadState]): String =
+    val s = session()
+    SessionAction.identityNotice(
+      SessionSelection(manifestOf(s, Some("feat/x")), s, crashed = false),
+      "claude",
+      head
+    )
 
   // `continue <name>` picks the newest of the sessions sharing a name, so this
   // line is where the user sees which one it landed on.
@@ -26,7 +42,8 @@ class SessionActionTest extends munit.FunSuite:
     assertEquals(
       SessionAction.identityNotice(
         SessionSelection(manifestOf(s), s, crashed = false),
-        "claude"
+        "claude",
+        head = Some(HeadState.OnBranch("main"))
       ),
       "resuming session 'newest' [claude], in /work"
     )
@@ -36,9 +53,34 @@ class SessionActionTest extends munit.FunSuite:
     assertEquals(
       SessionAction.identityNotice(
         SessionSelection(manifestOf(s), s, crashed = false),
-        "claude"
+        "claude",
+        head = None
       ),
       "resuming session 'newest' [claude], stage 'Task: fix a bug', in /work"
+    )
+
+  test("identityNotice: names the recorded branch"):
+    assertEquals(
+      noticeOnBranch(head = Some(HeadState.OnBranch("feat/x"))),
+      "resuming session 'newest' [claude], on branch 'feat/x', in /work"
+    )
+
+  test("identityNotice: warns when workDir is now on another branch"):
+    assertEquals(
+      noticeOnBranch(head = Some(HeadState.OnBranch("main"))),
+      "resuming session 'newest' [claude], on branch 'feat/x', in /work — warning: /work is now on 'main'"
+    )
+
+  test("identityNotice: warns when workDir is now on a detached HEAD"):
+    assertEquals(
+      noticeOnBranch(head = Some(HeadState.Detached)),
+      "resuming session 'newest' [claude], on branch 'feat/x', in /work — warning: /work is now on a detached HEAD"
+    )
+
+  test("identityNotice: no warning when the current branch is unknown"):
+    assertEquals(
+      noticeOnBranch(head = None),
+      "resuming session 'newest' [claude], on branch 'feat/x', in /work"
     )
 
   private def piDir(workDir: os.Path, id: String): os.Path =

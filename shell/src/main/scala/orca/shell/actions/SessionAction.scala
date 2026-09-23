@@ -5,6 +5,7 @@ import orca.shell.run.ChildTerminal
 import orca.shell.sessions.{ResumeCommand, SessionPicker, SessionSelection}
 import orca.shell.ui.ShellOutput
 import orca.subprocess.QuietProc
+import orca.tools.{HeadState, Worktrees}
 import orca.tools.pi.PiSessionStore
 
 import java.time.Instant
@@ -19,20 +20,47 @@ import scala.util.control.NonFatal
   */
 private[shell] object SessionAction:
 
-  /** The resolved session's identity — name, harness, stage, crashed status,
-    * and `workDir` — for display immediately before [[resume]] execs its
-    * harness child (ADR 0021 §10). Shared by the CLI's tty-gated pre-exec
-    * notice and the interactive picker, so both show `workDir` before resuming
-    * rather than only the CLI path. `harnessName` is the caller's
-    * already-resolved settings-file harness name (`claude`, `codex`, …), not
-    * the manifest's wire name.
+  /** The resolved session's identity, printed immediately before [[resume]]
+    * execs its harness child (security fold-in, ADR 0021 §10), by both the
+    * CLI's tty-gated `orca continue` and the interactive picker. A no-selector
+    * `orca continue` could otherwise resume whatever session a hostile repo's
+    * `.orca/cache/attempts/` manifest names without the user ever having chosen
+    * it; the notice gives them a chance to Ctrl-C.
     */
-  def identityNotice(selection: SessionSelection, harnessName: String): String =
+  def resumeNotice(selection: SessionSelection): String =
+    identityNotice(
+      selection,
+      SessionPicker.harnessSettingsName(selection.session.harness),
+      validatedWorkDir(selection.manifest.workDir).toOption
+        .flatMap(Worktrees.headState)
+    )
+
+  /** The notice [[resumeNotice]] prints — name, harness, stage, recorded
+    * branch, crashed status, and `workDir`. `harnessName` is the settings-file
+    * harness name (`claude`, `codex`, …), not the manifest's wire name. `head`
+    * is where `workDir`'s HEAD points now, if known; when it is not on the
+    * recorded branch, a warning is added, but the resume still proceeds.
+    */
+  def identityNotice(
+      selection: SessionSelection,
+      harnessName: String,
+      head: Option[HeadState]
+  ): String =
     val session = selection.session
+    val workDir = selection.manifest.workDir
+    val recordedBranch = selection.manifest.branch
     val name = SessionPicker.displayName(session)
     val stage = session.stage.fold("")(s => s", stage '$s'")
+    val branch = recordedBranch.fold("")(b => s", on branch '$b'")
     val crashedSuffix = if selection.crashed then " (crashed)" else ""
-    s"resuming session '$name' [$harnessName]$stage, in ${selection.manifest.workDir}$crashedSuffix"
+    val branchWarning = (recordedBranch, head) match
+      case (Some(recorded), Some(HeadState.OnBranch(current)))
+          if recorded != current =>
+        s" — warning: $workDir is now on '$current'"
+      case (Some(_), Some(HeadState.Detached)) =>
+        s" — warning: $workDir is now on a detached HEAD"
+      case _ => ""
+    s"resuming session '$name' [$harnessName]$stage$branch, in $workDir$crashedSuffix$branchWarning"
 
   /** Parses the manifest's stored `workDir` and confirms it's still a directory
     * — a checkout deleted after its run finished otherwise crashes resume:
