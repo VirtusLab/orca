@@ -31,11 +31,7 @@ private[orca] object Conversations:
   ): AgentResult[B] =
     ObservedConversation(conv, events).drain(
       answerUnattended(autoApprove, events)
-    ) match
-      case Right(result) => result
-      // Autonomous callers can't produce a Left; throw to honour the
-      // AgentResult call shape.
-      case Left(cancelled) => throw cancelled
+    )
 
   private def answerUnattended(
       autoApprove: AutoApprove,

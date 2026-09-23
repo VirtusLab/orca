@@ -5,7 +5,7 @@ package orca.runner.terminal
   * caller adds the indent.
   */
 private[terminal] object ToolCallLine:
-  import ConversationRenderer.MaxInlineInputLength
+  import ToolInputSummary.MaxInlineInputLength
 
   private val ToolCallGlyph: String = "⏺"
 

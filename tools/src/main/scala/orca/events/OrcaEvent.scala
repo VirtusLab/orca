@@ -37,10 +37,10 @@ enum OrcaEvent:
     */
   case ToolUse(tool: String, args: String, agent: Option[String] = None)
 
-  /** A tool call the harness refused for lack of permission — as opposed to a
-    * tool that ran and failed, or an autonomous turn's approval request, which
-    * has no user to ask. A user's own "no" at an approval prompt is not one.
-    * `agent` carries the same attribution as [[ToolUse]].
+  /** A tool call refused for lack of permission, including an autonomous turn's
+    * approval request, which has no user to ask. Not a tool that ran and
+    * failed, and not a user's "no" at an approval prompt. `agent` carries the
+    * same attribution as [[ToolUse]].
     */
   case ToolDenied(tool: String, agent: Option[String])
 

@@ -1,8 +1,8 @@
 package orca.backend
 
-import orca.OrcaInteractiveCancelled
 import orca.agents.BackendTag
 import orca.events.{OrcaEvent, OrcaListener}
+import ox.either.orThrow
 
 /** A live [[Conversation]] whose display events go to an [[OrcaListener]], on
   * both the autonomous and the interactive path, leaving the consumer only the
@@ -34,13 +34,11 @@ final class ObservedConversation[B <: BackendTag] private[orca] (
   import ObservedConversation.*
 
   /** Consume the conversation to its end, passing each [[ChannelEvent]] to
-    * `answer` as it arrives, then return the outcome. Call once. `answer` must
+    * `answer` as it arrives, then return the result. Call once. `answer` must
     * call the event's `respond` (or [[cancel]]): the backend blocks until it
-    * does.
+    * does. Throws [[orca.OrcaInteractiveCancelled]] if the turn was cancelled.
     */
-  def drain(
-      answer: ChannelEvent => Unit
-  ): Either[OrcaInteractiveCancelled, AgentResult[B]] =
+  def drain(answer: ChannelEvent => Unit): AgentResult[B] =
     val buffer = new TurnBuffer(
       closingProse(conv),
       text => listener.onEvent(OrcaEvent.AssistantMessage(text))
@@ -69,7 +67,7 @@ final class ObservedConversation[B <: BackendTag] private[orca] (
       case t: Throwable =>
         buffer.finishAbnormally()
         throw t
-    conv.awaitResult()
+    conv.awaitResult().orThrow
 
   /** See [[Conversation.cancel]]. */
   def cancel(): Unit = conv.cancel()

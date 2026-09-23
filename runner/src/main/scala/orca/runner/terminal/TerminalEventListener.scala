@@ -9,8 +9,8 @@ import java.util.concurrent.atomic.AtomicReference
   *
   * [[stack]] has a single writer: `StageStarted`/`StageEnded` are emitted only
   * from `stage`'s thread-affine bookkeeping (R12, ADR 0018 §2.2).
-  * [[ConversationRenderer]] reads [[currentIndent]] lock-free from its own
-  * thread mid-`readLine`; the `@volatile` is the whole publication story.
+  * [[TerminalPrompts]] reads [[currentIndent]] lock-free from its own thread
+  * mid-`readLine`; the `@volatile` is the whole publication story.
   */
 private[runner] class TerminalEventListener(
     output: TerminalOutput,
@@ -94,8 +94,8 @@ private[runner] class TerminalEventListener(
       output.log(paint(CaveatStyle, s"$CaveatGlyph ") + message)
     case OrcaEvent.StructuredResult(raw, summary) =>
       // Surfaces the result whose closing turn the drain withheld in
-      // structured mode. `summary` is tri-state (see the event's scaladoc): `Some(s)`
-      // renders as a `▶` step; `Some("")` renders nothing (the call site
+      // structured mode. `summary` is tri-state (see the event's scaladoc):
+      // `Some(s)` renders as a `▶` step; `Some("")` renders nothing (the call site
       // narrates the outcome itself); `None` falls back to the raw payload,
       // collapsed and truncated, in the `●` style — ADR 0008 requires an
       // unannounced result stay visible since the streamed JSON was suppressed.
@@ -228,7 +228,7 @@ private[runner] object TerminalEventListener:
     */
   val CaveatGlyph: String = "!"
 
-  /** Marker for the human input sent to the agent. */
+  /** Marker for the prompt sent to an agent. */
   val UserPromptGlyph: String = "▸"
 
   /** Magenta-bold "primary content" accent shared by stages, steps, and
@@ -239,15 +239,13 @@ private[runner] object TerminalEventListener:
   /** `●` prose glyph, same magenta-bold as [[StepGlyphStyle]]. */
   val AssistantGlyphStyle: fansi.Attrs = StepGlyphStyle
 
-  /** Cyan-bold: the user's own input, a rare accent. */
+  /** Cyan-bold: the prompt, a rare accent. */
   val UserPromptStyle: fansi.Attrs = fansi.Color.Cyan ++ fansi.Bold.On
 
   /** Yellow-bold: a caution, short of the red an [[OrcaEvent.Error]] gets. */
   val CaveatStyle: fansi.Attrs = fansi.Color.Yellow ++ fansi.Bold.On
 
-  /** Per-turn cap collapsing long agent prose to one line. Matches the live
-    * renderer's tool-result-content cap.
-    */
+  /** Per-turn cap collapsing long agent prose to one line. */
   val MaxAssistantMessageLength: Int = 100
 
   /** Cap for the raw-payload fallback in [[OrcaEvent.StructuredResult]] when no

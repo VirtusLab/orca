@@ -113,4 +113,4 @@ class AgentBackendTest extends munit.FunSuite:
     def drive[B <: BackendTag](
         conversation: ObservedConversation[B]
     ): AgentResult[B] =
-      conversation.drain(_ => ()).fold(throw _, identity)
+      conversation.drain(_ => ())

@@ -682,6 +682,28 @@ class BaseAgentTest extends munit.FunSuite:
       s"a free-text interactive turn must still surface its AssistantMessage: ${seen.get()}"
     )
 
+  test("interactive.run: a tool call reaches the listener as ToolUse"):
+    val seen =
+      new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
+    val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
+    val tool = new StubTool(
+      new ScriptedInteractiveBackend(
+        List(
+          ConversationEvent.AssistantToolCall("bash", """{"command":"ls"}""")
+        ),
+        finalOutput = "\"done\"",
+        schema = None
+      ),
+      listener = listener,
+      prompts = DefaultPrompts,
+      interaction = DrainingInteraction
+    )
+    val _ = tool.resultAs[String].interactive.run("list files")
+    assert(
+      seen.get().contains(OrcaEvent.ToolUse("bash", """{"command":"ls"}""")),
+      s"expected the interactive tool call on the listener: ${seen.get()}"
+    )
+
   test("run passes the agent's config to the backend"):
     val backend = new RecordingConfigBackend
     val toolConfig = AgentConfig(
@@ -899,7 +921,7 @@ class BaseAgentTest extends munit.FunSuite:
       new ScriptedConversation(scripted, Right(reply(turn)), schema)
 
   /** A driving `Interaction` that drains the conversation, answering nothing,
-    * and returns its result. Unlike [[StubInteraction]], which never touches
+    * and returns its result, unlike [[StubInteraction]], which never touches
     * it.
     */
   private object DrainingInteraction extends Interaction:
@@ -907,7 +929,7 @@ class BaseAgentTest extends munit.FunSuite:
     def drive[B <: BackendTag](
         conversation: ObservedConversation[B]
     ): AgentResult[B] =
-      conversation.drain(_ => ()).fold(throw _, identity)
+      conversation.drain(_ => ())
 
   /** A durable backend whose turns report `wireId`, so `Agent.resumeWireId`
     * reports it once `runAutonomous` commits the turn.

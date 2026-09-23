@@ -14,20 +14,20 @@ import orca.testkit.ScriptedConversation
 import java.io.{ByteArrayOutputStream, PrintStream}
 import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
 
-class ConversationRendererTest extends munit.FunSuite:
+class TerminalPromptsTest extends munit.FunSuite:
 
-  import ConversationRenderer.{PromptOutcome, Prompter}
+  import TerminalPrompts.{PromptOutcome, Prompter}
 
-  private def renderer(
+  private def prompts(
       out: ByteArrayOutputStream,
       prompter: Prompter = ScriptedPrompter(Nil)
-  ): ConversationRenderer =
+  ): TerminalPrompts =
     val ps = new PrintStream(out)
     // `animated = false` makes the output write inline — no ANSI escapes
     // leak into the captured buffer.
     val terminalOutput =
       new TerminalOutputState(ps, useColor = false, animated = false)
-    new ConversationRenderer(
+    new TerminalPrompts(
       useColor = false,
       output = terminalOutput,
       currentIndent = () => "",
@@ -61,21 +61,23 @@ class ConversationRendererTest extends munit.FunSuite:
       usage = Usage.empty
     )
 
-  test("render surfaces awaitResult's Left as-is"):
+  test("drive throws a cancelled turn's OrcaInteractiveCancelled"):
     val buf = new ByteArrayOutputStream()
     val cancelled = new OrcaInteractiveCancelled(TurnDebit.Unobserved)
     val conv = new ScriptedConversation(Nil, Left(cancelled))
-    assertEquals(renderer(buf).render(observed(conv)), Left(cancelled))
+    val thrown = intercept[OrcaInteractiveCancelled]:
+      prompts(buf).drive(observed(conv))
+    assertEquals(thrown, cancelled)
 
   test("an approval request truncates a long input with an ellipsis"):
     val buf = new ByteArrayOutputStream()
-    val long = "x" * (ConversationRenderer.MaxInlineInputLength + 50)
+    val long = "x" * (ToolInputSummary.MaxInlineInputLength + 50)
     val prompter = new ScriptedPrompter(List(PromptOutcome.Answer("yes")))
     val conv = new ScriptedConversation(
       List(ConversationEvent.ApproveTool("Bash", long, _ => ())),
       Right(sampleResult)
     )
-    val _ = renderer(buf, prompter).render(observed(conv))
+    val _ = prompts(buf, prompter).drive(observed(conv))
     val out = buf.toString
     assert(out.contains("…"), s"expected ellipsis; got: $out")
     assert(out.length < long.length + 100)
@@ -94,7 +96,7 @@ class ConversationRendererTest extends munit.FunSuite:
       ),
       Right(sampleResult)
     )
-    val _ = renderer(buf, prompter = prompter).render(observed(conv))
+    val _ = prompts(buf, prompter = prompter).drive(observed(conv))
     assertEquals(answered.get(), Some(ApprovalDecision.Allow(None)))
     assert(prompter.asked.get().exists(_.contains("[y]es")))
 
@@ -112,7 +114,7 @@ class ConversationRendererTest extends munit.FunSuite:
       ),
       Right(sampleResult)
     )
-    val _ = renderer(buf, prompter = prompter).render(observed(conv))
+    val _ = prompts(buf, prompter = prompter).drive(observed(conv))
     answered.get() match
       case Some(ApprovalDecision.Deny(Some(reason))) =>
         assert(reason.contains("user denied"))
@@ -127,26 +129,26 @@ class ConversationRendererTest extends munit.FunSuite:
       ),
       Right(sampleResult)
     )
-    val _ = renderer(buf, prompter = prompter).render(observed(conv))
+    val _ = prompts(buf, prompter = prompter).drive(observed(conv))
     assertEquals(
       conv.cancelCount.get(),
       1,
       "expected conversation.cancel() to fire"
     )
 
-  test("render does not close its prompter (prompter is process-scoped)"):
+  test("drive does not close its prompter (prompter is process-scoped)"):
     // The prompter is shared across every conversation in a run; a
-    // per-conversation renderer must never close it, or the next prompt would
+    // per-conversation drive must never close it, or the next prompt would
     // operate on closed I/O.
     val buf = new ByteArrayOutputStream()
     val prompter = new ScriptedPrompter(Nil)
     val conv = new ScriptedConversation(Nil, Right(sampleResult))
-    val _ = renderer(buf, prompter = prompter).render(observed(conv))
+    val _ = prompts(buf, prompter = prompter).drive(observed(conv))
     assertEquals(prompter.closes.get(), 0)
 
-  test("two sequential render+prompt cycles against one prompter both ask"):
+  test("two sequential drive+prompt cycles against one prompter both ask"):
     // A single shared prompter survives across conversations, so a second
-    // render still reaches `ask` rather than a closed reader.
+    // drive still reaches `ask` rather than a closed reader.
     val buf = new ByteArrayOutputStream()
     val prompter = new ScriptedPrompter(
       List(PromptOutcome.Answer("yes"), PromptOutcome.Answer("no"))
@@ -155,8 +157,8 @@ class ConversationRendererTest extends munit.FunSuite:
       List(ConversationEvent.ApproveTool("Bash", "{}", _ => ())),
       Right(sampleResult)
     )
-    val _ = renderer(buf, prompter = prompter).render(observed(approveConv()))
-    val _ = renderer(buf, prompter = prompter).render(observed(approveConv()))
+    val _ = prompts(buf, prompter = prompter).drive(observed(approveConv()))
+    val _ = prompts(buf, prompter = prompter).drive(observed(approveConv()))
     assertEquals(prompter.asked.get().size, 2)
 
   test("UserQuestion: question rendered, typed reply passed to respond"):
@@ -172,7 +174,7 @@ class ConversationRendererTest extends munit.FunSuite:
       ),
       Right(sampleResult)
     )
-    val _ = renderer(buf, prompter = prompter).render(observed(conv))
+    val _ = prompts(buf, prompter = prompter).drive(observed(conv))
     assertEquals(answered.get(), Some("Paris"))
     assert(
       buf.toString.contains("target deployment region"),
@@ -188,7 +190,7 @@ class ConversationRendererTest extends munit.FunSuite:
       ),
       Right(sampleResult)
     )
-    val _ = renderer(buf, prompter = prompter).render(observed(conv))
+    val _ = prompts(buf, prompter = prompter).drive(observed(conv))
     assertEquals(
       conv.cancelCount.get(),
       1,

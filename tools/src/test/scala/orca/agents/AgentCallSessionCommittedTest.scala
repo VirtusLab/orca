@@ -85,7 +85,7 @@ class AgentCallSessionCommittedTest extends munit.FunSuite:
       def drive[B <: BackendTag](
           conversation: ObservedConversation[B]
       ): AgentResult[B] =
-        conversation.drain(_ => ()).fold(throw _, identity)
+        conversation.drain(_ => ())
     val seen = AtomicReference[List[OrcaEvent]](Nil)
     val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
     supervised:

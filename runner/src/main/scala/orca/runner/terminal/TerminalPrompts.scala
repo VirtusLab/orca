@@ -1,6 +1,5 @@
 package orca.runner.terminal
 
-import orca.OrcaInteractiveCancelled
 import orca.agents.BackendTag
 import orca.backend.{
   AgentResult,
@@ -26,23 +25,21 @@ import org.jline.terminal.{Terminal, TerminalBuilder}
   * row isn't torn by ad-hoc prints. `output.prompt` around the prompts keeps
   * live event output from scribbling on top of `readLine`.
   */
-private[terminal] class ConversationRenderer(
+private[terminal] class TerminalPrompts(
     useColor: Boolean,
     output: TerminalOutput,
     currentIndent: () => String,
     workDir: Option[os.Path] = None,
-    prompter: ConversationRenderer.Prompter = ConversationRenderer.JLinePrompter
+    prompter: TerminalPrompts.Prompter = TerminalPrompts.JLinePrompter
 ):
 
-  import ConversationRenderer.*
+  import TerminalPrompts.*
 
-  /** Drain the conversation to completion. The `Either` is passed through so
-    * the caller decides whether to throw or surface the cancellation as a
-    * value.
+  /** Drain the conversation to completion; see [[ObservedConversation.drain]].
     */
-  def render[B <: BackendTag](
+  def drive[B <: BackendTag](
       conversation: ObservedConversation[B]
-  ): Either[OrcaInteractiveCancelled, AgentResult[B]] =
+  ): AgentResult[B] =
     conversation.drain(answer(_, conversation))
 
   private def answer[B <: BackendTag](
@@ -69,8 +66,11 @@ private[terminal] class ConversationRenderer(
       respond: ApprovalDecision => Unit,
       conversation: ObservedConversation[B]
   ): Unit =
-    val summary =
-      ToolInputSummary.summarise(rawInput, MaxInlineInputLength, workDir)
+    val summary = ToolInputSummary.summarise(
+      rawInput,
+      ToolInputSummary.MaxInlineInputLength,
+      workDir
+    )
     appendBlock(
       paint(ApprovalStyle, s"$ApprovalGlyph $toolName requested: $summary")
     )
@@ -109,9 +109,7 @@ private[terminal] class ConversationRenderer(
   private def paint(attr: fansi.Attrs, text: String): String =
     Ansi.paint(useColor, attr, text)
 
-private[terminal] object ConversationRenderer:
-  val MaxInlineInputLength: Int = 120
-
+private[terminal] object TerminalPrompts:
   val ApprovalGlyph: String = "?"
 
   val ApprovalStyle: fansi.Attrs = fansi.Color.Yellow
