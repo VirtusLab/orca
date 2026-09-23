@@ -246,7 +246,7 @@ class ReviewThenFixTest extends munit.FunSuite:
       result.findings,
       List(
         OpenFinding(
-          FindingId("R3.I1.1"),
+          FindingId("R2.I1.1"),
           Title("lint broke"),
           OpenReason.LintStillFailing,
           None

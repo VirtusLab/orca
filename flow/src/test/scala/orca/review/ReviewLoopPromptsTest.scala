@@ -301,12 +301,24 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
           FindingId("R1.I2.3"),
           Title("leaks a handle"),
           OpenReason.NoFixes,
+          None
+        )
+      )
+    )
+    assert(prompt.contains("set `reopens` to its id"), prompt)
+
+  test("an open entry names where it points"):
+    val prompt = reRendered(
+      List(
+        OpenFinding(
+          FindingId("R1.I2.3"),
+          Title("leaks a handle"),
+          OpenReason.NoFixes,
           Some(Location("Foo.scala", Some(7)))
         )
       )
     )
-    assert(prompt.contains("[R1.I2.3] leaks a handle (at Foo.scala:7)"), prompt)
-    assert(prompt.contains("set `reopens` to its id"), prompt)
+    assert(prompt.contains("leaks a handle (at Foo.scala:7):"), prompt)
 
   test("the fix prompt names every field the fixer's reply must fill"):
     // The prompt tells the agent which list a finding goes in, in prose; the

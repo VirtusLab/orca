@@ -1063,7 +1063,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       )
     )
 
-  test("seeds sharing a title stay separate findings"):
+  test("seeds sharing an id stay separate findings"):
     // Two tasks can each decline a different defect under one title, and each
     // per-task loop numbers its ids from round one, so the seeds share both;
     // the PR body must still carry both reasons.

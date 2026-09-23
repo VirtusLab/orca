@@ -109,7 +109,7 @@ class FixOutcomeReconcileTest extends munit.FunSuite:
     assertEquals(reconciled.declined, Nil)
     assertEquals(reconciled.unaccounted, Nil)
 
-  test("one finding reported by two reviewers yields one entry"):
+  test("one finding reported twice in a round yields one entry"):
     // The two copies share an id, and buckets are keyed by id, so the second
     // copy is not dropped from `declined` only to reappear as unaccounted.
     val reconciled = FixOutcome.reconcile(
@@ -139,3 +139,22 @@ class FixOutcomeReconcileTest extends munit.FunSuite:
       List(finding("real bug"))
     )
     assertEquals(reconciled.unresolvedEchoes, List("something else"))
+
+  test("a title echo names every handed finding with that title"):
+    // Two findings share a title but not a place, so they have two ids; an
+    // echo naming only the title cannot tell them apart.
+    val twoPlaces = IdentifiedFinding.identify(
+      round = 1,
+      open = Nil,
+      keyed = KeyedFinding.forAgent(
+        0,
+        List("A.scala", "B.scala").map(file =>
+          finding("unused import").copy(location = Some(Location(file, None)))
+        )
+      )
+    )
+    val reconciled = FixOutcome.reconcile(
+      twoPlaces,
+      FixOutcome(Nil, List(DeclinedFinding(Title("unused import"), "kept")))
+    )
+    assertEquals(reconciled.declined.map(_.id), List(idOf(1), idOf(2)))

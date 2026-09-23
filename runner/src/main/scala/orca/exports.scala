@@ -89,10 +89,10 @@ export orca.review.{
   ReviewBatch,
   ReviewDiff,
   ReviewerSelector,
-  SkippedReview,
   ReviewFinding,
   ReviewResult,
-  RosterEntry
+  RosterEntry,
+  SkippedReview
 }
 // PushFailure is the Left of GitTool.push's Either, NoDefaultBase of
 // GitTool.defaultBase's; BuildWaitFailed the same for GitHubTool.waitForBuild;

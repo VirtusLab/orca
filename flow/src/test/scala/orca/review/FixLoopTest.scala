@@ -133,6 +133,33 @@ class FixLoopTest extends munit.FunSuite:
     )
     assertEquals(result, OpenFindings.empty)
 
+  test("two findings sharing a title in different files stay two entries"):
+    given FlowContext = ctx
+    val inFile = (file: String) =>
+      finding("missing test").copy(location = Some(Location(file, None)))
+    val result = fixLoop(
+      evaluate = scripted(
+        List(ReviewResult(List(inFile("A.scala"), inFile("B.scala"))))
+      ),
+      fix = _ =>
+        FixOutcome(
+          Nil,
+          List(
+            DeclinedFinding(Title("I1.1"), "covered elsewhere"),
+            DeclinedFinding(Title("I1.2"), "not worth it")
+          )
+        )
+    )
+    assertEquals(
+      result.findings.map(f => f.location -> f.reason),
+      List(
+        Some(Location("A.scala", None)) -> OpenReason.Declined(
+          "covered elsewhere"
+        ),
+        Some(Location("B.scala", None)) -> OpenReason.Declined("not worth it")
+      )
+    )
+
   test("halts when `fixed` is empty, regardless of `declined` size"):
     given FlowContext = ctx
     val i = finding("x")

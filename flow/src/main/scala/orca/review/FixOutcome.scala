@@ -64,40 +64,41 @@ object FixOutcome:
     * title, then by a title matched case- and whitespace-insensitively, and
     * last by the sole title the echo extends past a non-alphanumeric separator
     * — the shape of a keyless echo carrying the fix prompt's "which alternative
-    * was taken" suffix. Each handed finding takes at most one echo (`fixed`
-    * wins over `declined`, since the fix is the stronger claim) and each echo
-    * at most one finding, so a paraphrase cannot record one real finding twice.
+    * was taken" suffix. A key names one finding; a title names every handed
+    * finding with it, as the echo cannot tell them apart. Each handed finding
+    * takes at most one verdict (`fixed` wins over `declined`, since the fix is
+    * the stronger claim), so a paraphrase cannot record one real finding twice.
     */
   private[review] def reconcile(
       handed: List[IdentifiedFinding],
       outcome: FixOutcome
   ): ReconciledFixOutcome =
+    def titled(normalised: String): List[IdentifiedFinding] =
+      handed.filter(h => normalisedTitle(h.finding.title.value) == normalised)
+
     // Titles can themselves contain " — ", so the echo is prefix-matched
     // against each full title rather than split at a separator; an echo
     // extending more than one distinct title stays unresolved rather than
     // guessed at.
-    def bySuffixedTitle(text: String): Option[IdentifiedFinding] =
+    def bySuffixedTitle(text: String): List[IdentifiedFinding] =
       val echoNorm = normalisedTitle(text)
       handed
-        .filter: h =>
-          val t = normalisedTitle(h.finding.title.value)
+        .map(h => normalisedTitle(h.finding.title.value))
+        .filter: t =>
           echoNorm.length > t.length && echoNorm.startsWith(t) &&
-          !echoNorm.charAt(t.length).isLetterOrDigit
-        .distinctBy(h => normalisedTitle(h.finding.title.value)) match
-        case List(only) => Some(only)
-        case _          => None
+            !echoNorm.charAt(t.length).isLetterOrDigit
+        .distinct match
+        case List(only) => titled(only)
+        case _          => Nil
 
-    def resolve(echo: String): Option[IdentifiedFinding] =
+    // The first rule that matches anything decides.
+    def resolve(echo: String): List[IdentifiedFinding] =
       val text = echo.trim
-      handed
-        .find(h => startsWithKey(text, h.keyed.key))
-        .orElse(handed.find(_.finding.title.value == text))
-        .orElse(
-          handed.find(h =>
-            normalisedTitle(h.finding.title.value) == normalisedTitle(text)
-          )
-        )
-        .orElse(bySuffixedTitle(text))
+      (handed.find(h => startsWithKey(text, h.keyed.key)).toList
+        #:: handed.filter(_.finding.title.value == text)
+        #:: titled(normalisedTitle(text))
+        #:: bySuffixedTitle(text)
+        #:: LazyList.empty).find(_.nonEmpty).getOrElse(Nil)
 
     // Buckets are keyed by id throughout, so two reviewers reporting the same
     // finding cannot land one copy in `declined` and the other in

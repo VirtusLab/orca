@@ -69,7 +69,8 @@ private def oneLine(text: String): String =
 
 /** Why a review never ran, so nothing it would have found is in the record. */
 enum SkippedReview derives JsonData:
-  /** A whole-run review with no commit behind HEAD recorded to diff against. */
+  /** The run recorded no starting commit to diff the whole-run review against.
+    */
   case NoStartingCommit
 
   def describe: String = this match

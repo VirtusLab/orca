@@ -15,7 +15,7 @@ import sttp.tapir.Schema
 opaque type FindingId = String
 
 object FindingId:
-  def apply(s: String): FindingId = s
+  private[orca] def apply(s: String): FindingId = s
   extension (id: FindingId) def value: String = id
 
   /** The id of a finding first reported in `round` under the fix-turn `key`

@@ -47,7 +47,7 @@ class IdentifiedFindingTest extends munit.FunSuite:
     assertEquals(
       idsOf(
         List(open("R1.I1.1", "leaks a handle", "A.scala")),
-        reported("Leaks  a handle", "A.scala", reopens = Some("R9.I9.9"))
+        reported("leaks a handle", "A.scala", reopens = Some("R9.I9.9"))
       ),
       List(FindingId("R1.I1.1"))
     )
@@ -70,4 +70,36 @@ class IdentifiedFindingTest extends munit.FunSuite:
         reported("missing test", "A.scala")
       ),
       List(FindingId("R2.I1.1"), FindingId("R2.I1.2"), FindingId("R2.I1.1"))
+    )
+
+  test("a title matching two open entries in one file is a new finding"):
+    assertEquals(
+      idsOf(
+        List(
+          open("R1.I1.1", "missing test", "A.scala"),
+          open("R1.I1.2", "missing test", "A.scala")
+        ),
+        reported("missing test", "A.scala")
+      ),
+      List(FindingId("R2.I1.1"))
+    )
+
+  test("an entry two different findings match by title reopens neither"):
+    // Which of them the entry was cannot be told, so both are new.
+    val lines = List(10, 50).map: line =>
+      finding("missing null check")
+        .copy(location = Some(Location("Foo.scala", Some(line))))
+    assertEquals(
+      idsOf(List(open("R1.I1.1", "missing null check", "Foo.scala")), lines*),
+      List(FindingId("R2.I1.1"), FindingId("R2.I1.2"))
+    )
+
+  test("a copy of a defect without `reopens` shares the id another names"):
+    assertEquals(
+      idsOf(
+        List(open("R1.I1.1", "leaks a handle", "A.scala")),
+        reported("stream left open", "A.scala"),
+        reported("stream left open", "A.scala", reopens = Some("R1.I1.1"))
+      ),
+      List(FindingId("R1.I1.1"), FindingId("R1.I1.1"))
     )

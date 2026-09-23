@@ -9,7 +9,7 @@ import orca.review.OpenFindings
   * review was skipped, then one bullet per entry, its title and the reason it
   * is still open, verbatim from the loop, not reworded by any model, and where
   * it points when the reviewer that reported it named a place. `body` unchanged
-  * when nothing is open.
+  * when nothing is open and the review ran.
   *
   * The single home for the assembly — [[openPrFromBranch]], [[openPrIfGitHub]]
   * and a flow writing its own body (`gh.updatePr`) all go through it.
@@ -18,7 +18,7 @@ def bodyWithOpenFindings(body: String, open: OpenFindings): String =
   openFindingsSection(open).fold(body)(section => s"$body\n\n$section")
 
 /** Prints `open` to the run output as one `Step` holding the same section the
-  * PR body gets; nothing when nothing is open.
+  * PR body gets; nothing when nothing is open and the review ran.
   *
   * [[openPrFromBranch]] and [[openPrIfGitHub]] call it before their PR step, so
   * a failed PR still leaves the findings in the output. A flow that writes its
@@ -27,7 +27,9 @@ def bodyWithOpenFindings(body: String, open: OpenFindings): String =
 def reportOpenFindings(open: OpenFindings)(using ctx: FlowContext): Unit =
   openFindingsSection(open).foreach(s => ctx.emit(OrcaEvent.Step(s)))
 
-/** The "Open review findings" section, or `None` when nothing is open. */
+/** The "Open review findings" section, or `None` when nothing is open and the
+  * review ran.
+  */
 private[pr] def openFindingsSection(open: OpenFindings): Option[String] =
   Option.when(!open.isEmpty):
     val skipped =
