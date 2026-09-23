@@ -241,7 +241,7 @@ class CodexBackendTest extends munit.FunSuite:
     )
     withBackend(runner): backend =>
       // Simulate the post-interactive-drain registration; the integration path
-      // is wired in AgentCall.runInteractiveOnce.
+      // is wired in AgentBackend.runInteractive.
       backend.sessions.register(
         clientSid,
         WireSessionId[BackendTag.Codex.type]("thr-via-interactive")
@@ -369,7 +369,7 @@ class CodexBackendTest extends munit.FunSuite:
       )
 
   test(
-    "runInteractive writes the output schema to a temp file outside the workdir"
+    "an interactive turn writes the output schema to a temp file outside the workdir"
   ):
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     val workDir = TempDirs.dir()
@@ -381,7 +381,7 @@ class CodexBackendTest extends munit.FunSuite:
         AgentConfig(),
         Some("""{"type":"object"}""")
       )
-      // runInteractive hands back an undrained Conversation, so `onFinalize`
+      // `open` hands back an undrained Conversation, so `onFinalize`
       // hasn't fired — the file is still there to inspect.
       val schemaFile = schemaPathFrom(runner.calls.head)
       assert(
@@ -412,7 +412,7 @@ class CodexBackendTest extends munit.FunSuite:
       assert(finalPrompt.endsWith("q"), finalPrompt)
 
   test(
-    "runInteractive registers an MCP server and folds the ask_user hint"
+    "an interactive turn registers an MCP server and folds the ask_user hint"
   ):
     // Interactive mode stands up the ask_user bridge: codex sees the MCP server
     // via `-c mcp_servers.orca.url=…`, and the tool hint is folded into the
@@ -441,7 +441,7 @@ class CodexBackendTest extends munit.FunSuite:
       )
 
   test(
-    "runInteractive with a systemPrompt folds BOTH it and the ask_user hint"
+    "an interactive turn with a systemPrompt folds BOTH it and the ask_user hint"
   ):
     // The (systemPrompt, askUserHint) combination is concat-prone; pin the
     // both-present case (the other three are covered by adjacent tests).

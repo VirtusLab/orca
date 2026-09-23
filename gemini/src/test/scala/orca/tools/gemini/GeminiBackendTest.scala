@@ -263,7 +263,7 @@ class GeminiBackendTest extends munit.FunSuite:
       )
 
   test(
-    "runInteractive registers the orca MCP server and folds the ask_user hint"
+    "an interactive turn registers the orca MCP server and folds the ask_user hint"
   ):
     val runner = new SpawnStubCliRunner(List(pendingProcess()))
     val workDir = TempDirs.dir()
@@ -288,7 +288,7 @@ class GeminiBackendTest extends munit.FunSuite:
       )
 
   test(
-    "runInteractive with a systemPrompt folds BOTH it and the ask_user hint"
+    "an interactive turn with a systemPrompt folds BOTH it and the ask_user hint"
   ):
     val runner = new SpawnStubCliRunner(List(pendingProcess()))
     withBackend(runner): backend =>

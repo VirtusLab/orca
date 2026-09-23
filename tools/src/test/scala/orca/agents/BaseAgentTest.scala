@@ -520,7 +520,7 @@ class BaseAgentTest extends munit.FunSuite:
       List(Some("wire-joined"))
     )
 
-  // `quietTextTurn` runs `backend.runAutonomous` directly on a fresh session,
+  // `quietTextTurn` runs its turn on a fresh session,
   // bypassing `runWithSession` entirely — it must never surface a session to
   // the manifest writer.
   test("quietTextTurn emits no SessionCommitted"):
@@ -609,7 +609,7 @@ class BaseAgentTest extends munit.FunSuite:
     )
 
   // The interactive structured door's closing turn IS the JSON payload too
-  // (see the autonomous test above) — `DefaultAgentCall.runInteractiveOnce`
+  // (see the autonomous test above) — `AgentBackend.runInteractive`
   // must withhold it the same way, while an earlier genuine turn still shows.
   test(
     "resultAs[O].interactive.run: the raw JSON payload doesn't echo as an AssistantMessage; an earlier turn still does"
