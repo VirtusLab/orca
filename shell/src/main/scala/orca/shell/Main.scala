@@ -26,7 +26,7 @@ import orca.shell.run.{FallbackPolicy, LaunchResult}
 import orca.shell.sessions.{
   AttemptListing,
   ManifestReader,
-  RecordedAttempt,
+  SessionIndex,
   SessionPicker
 }
 import orca.shell.ui.{Choice, ShellOutput, ShellUi, UiOutcome}
@@ -180,7 +180,7 @@ object Main:
         createForkFlow(ui, terminal)
         loop(ui, wizard, globalSettingsPath, terminal, tty)
       case UiOutcome.Selected(MenuItem.ContinueSession) =>
-        continueSession(ui, terminal, attempts)
+        continueSession(ui, terminal, SessionIndex.of(attempts))
         loop(ui, wizard, globalSettingsPath, terminal, tty)
 
   /** The two-line startup configuration summary (ADR 0021 §4/§8,
@@ -389,8 +389,13 @@ object Main:
       ) => LaunchResult = RunAction.run(_, _, _, _)
   ): Unit =
     for
-      flow <- listFlows(workDir).flatMap(
-        pickFlow(ui, "Run which flow?", _, promoteByName(FlagshipFlow, _))
+      flow <- listFlows(workDir).flatMap(flows =>
+        pickFlow(
+          ui,
+          "Run which flow?",
+          flows,
+          default = flows.find(_.name == FlagshipFlow)
+        )
       )
       task <- promptTask(ui)
       target <- promptRunTarget(ui)
@@ -493,13 +498,9 @@ object Main:
       case UiOutcome.Selected(text) => Some(text)
 
   /** "Where should this run's work go?" — the run's destination as ONE choice
-    * ([[RunTarget]]). Enter keeps today's behavior because `NewBranch` is the
-    * FIRST row, which is where both backends start the cursor; `preselect` only
-    * marks it on [[orca.shell.ui.NumberedUi]] and is a documented no-op on the
-    * tty backend, so the ordering is what carries the default, not this.
-    * `CurrentBranch` is skip-branch mode (ADR 0018 amendment): the
-    * handoff-from-harness case, where the user already planned work on a branch
-    * carrying plan files. `Worktree` is `--worktree`, which orca refuses
+    * ([[RunTarget]]). `CurrentBranch` is skip-branch mode (ADR 0018 amendment):
+    * the handoff-from-harness case, where the user already planned work on a
+    * branch carrying plan files. `Worktree` is `--worktree`, which orca refuses
     * together with `--skip-branch` — one choice cannot express that pair, where
     * two independent confirms could. `private[shell]` so a scripted-UI test can
     * drive it directly.
@@ -508,7 +509,7 @@ object Main:
     ui.select(
       "Where should this run's work go?",
       MainMenu.runTargetChoices,
-      preselect = Some(RunTarget.NewBranch(Uncommitted.Stash))
+      default = Some(RunTarget.NewBranch(Uncommitted.Stash))
     ) match
       case UiOutcome.Cancelled        => None
       case UiOutcome.Selected(target) => Some(target)
@@ -518,7 +519,11 @@ object Main:
     * Fork.
     */
   private def pickChangeMode(ui: ShellUi): Option[ChangeMode] =
-    ui.select("How should the changes be made?", MainMenu.modeChoices) match
+    ui.select(
+      "How should the changes be made?",
+      MainMenu.modeChoices,
+      default = Some(ChangeMode.Agent)
+    ) match
       case UiOutcome.Cancelled      => None
       case UiOutcome.Selected(mode) => Some(mode)
 
@@ -742,59 +747,42 @@ object Main:
         promptDescription(ui, label)
       case UiOutcome.Selected(text) => Some(text)
 
-  /** Prompts among every session across `attempts` and resumes the chosen one,
+  /** Prompts among every session in `index` and resumes the chosen one,
     * printing its identity — including `workDir` — before the resume exec
     * ([[SessionAction.identityNotice]], ADR 0021 §10; the CLI's own resume
     * paths print the same notice). Picking the expander re-renders the same
     * picker with `expanded = true`; there is no way back to the collapsed view
     * short of re-opening the menu item, which is fine — the picker is re-read
-    * from disk on every open anyway. A cancelled prompt, or `attempts` being
-    * empty (unreachable via the menu today, since the item is disabled then,
-    * but harmless), is a silent no-op.
+    * from disk on every open anyway. A cancelled prompt, or `index` being empty
+    * (unreachable via the menu today, since the item is disabled then, but
+    * harmless), is a silent no-op.
     */
   private def continueSession(
       ui: ShellUi,
       terminal: Terminal,
-      attempts: List[RecordedAttempt],
+      index: SessionIndex,
       expanded: Boolean = false
   ): Unit =
     ui.select(
       "Continue which session?",
-      SessionPicker.sessionRows(attempts, expanded)
+      SessionPicker.sessionRows(index, expanded)
     ) match
       case UiOutcome.Cancelled => ()
       case UiOutcome.Selected(SessionPicker.PickerRow.ShowMore) =>
-        continueSession(ui, terminal, attempts, expanded = true)
+        continueSession(ui, terminal, index, expanded = true)
       case UiOutcome.Selected(SessionPicker.PickerRow.Resume(selection)) =>
         ShellOutput.info(SessionAction.resumeNotice(selection))
         SessionAction.resume(terminal, selection) match
           case Left(message) => ShellOutput.error(message)
           case Right(_)      => ()
 
-  /** orca's flagship built-in flow — promoted to the front of the run picker
-    * ([[runFlow]]) since the interactive select has no cursor preselection
-    * (`ConsoleUiShell.select`'s scaladoc), so first position is what actually
-    * reads as the default.
-    */
+  /** orca's flagship built-in flow — the run picker's default ([[runFlow]]). */
   private[shell] val FlagshipFlow = "implement.sc"
-
-  /** Moves the flow named `name` to the front, leaving every other flow's
-    * relative order unchanged; a no-op (alphabetical order preserved) if no
-    * flow has that name — e.g. it was deleted from every tier.
-    */
-  private[shell] def promoteByName(
-      name: String,
-      flows: List[DiscoveredFlow]
-  ): List[DiscoveredFlow] =
-    val (front, rest) = flows.partition(_.name == name)
-    front ++ rest
 
   /** Lists flows across the three tiers via [[FlowResolution.list]] — any
     * failure (a committed symlink guard tripping, or built-in extraction
     * hitting a full-disk/permission error) is reported and the caller gets
-    * `None`. Shared by [[selectFlow]] and [[runFlow]], the one caller that
-    * needs [[pickFlow]]'s `reorder` (promoting [[FlagshipFlow]]) instead of its
-    * default alphabetical order.
+    * `None`. Shared by [[selectFlow]] and [[runFlow]].
     */
   private def listFlows(
       workDir: os.Path = os.pwd
@@ -812,18 +800,17 @@ object Main:
   private def selectFlow(ui: ShellUi, title: String): Option[DiscoveredFlow] =
     listFlows().flatMap(pickFlow(ui, title, _))
 
-  /** Applies `reorder` to `flows` and shows the result via `ui.select` — the
-    * half of [[selectFlow]] downstream of flow discovery, so a test can drive
-    * the reorder-then-show wiring (e.g. that the run picker's promotion of
-    * [[FlagshipFlow]] actually reaches `ui.select` first) against a fixed list.
+  /** Shows `flows` via `ui.select`, `default` first — the half of
+    * [[selectFlow]] downstream of flow discovery, so a test can drive it
+    * against a fixed list.
     */
   private[shell] def pickFlow(
       ui: ShellUi,
       title: String,
       flows: List[DiscoveredFlow],
-      reorder: List[DiscoveredFlow] => List[DiscoveredFlow] = identity
+      default: Option[DiscoveredFlow] = None
   ): Option[DiscoveredFlow] =
-    ui.select(title, reorder(flows).map(flowChoice)) match
+    ui.select(title, flows.map(flowChoice), default) match
       case UiOutcome.Cancelled      => None
       case UiOutcome.Selected(flow) => Some(flow)
 

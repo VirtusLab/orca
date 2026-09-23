@@ -1,6 +1,6 @@
 package orca.shell.sessions
 
-import orca.OrcaFlowException
+import orca.{AttemptId, OrcaDir, OrcaFlowException}
 import orca.testkit.TempDirs
 
 import java.time.Instant
@@ -18,14 +18,19 @@ class ManifestReaderTest extends munit.FunSuite:
     """{"harness": "ClaudeCode", "wireId": "w", "agent": "claude", "role": null,
       |"stage": null, "lastActiveAt": "2026-07-18T10:00:00Z"}""".stripMargin
 
+  /** The file name of the manifest of the attempt `startedAt` and `pid` spell.
+    */
+  private def manifestName(startedAt: String, pid: Long = 111): String =
+    s"${AttemptId(Instant.parse(startedAt), pid).value}${OrcaDir.ManifestSuffix}"
+
   private def writeManifest(
       workDir: os.Path,
-      name: String,
       startedAt: String,
       pid: Long = 111,
       status: String = "Succeeded",
       sessions: String = oneSession
   ): Unit =
+    val name = manifestName(startedAt, pid)
     val json =
       s"""{
          |  "orcaVersion": "0.0.test",
@@ -59,17 +64,14 @@ class ManifestReaderTest extends munit.FunSuite:
     val workDir = TempDirs.dir()
     writeManifest(
       workDir,
-      "a.manifest.json",
       startedAt = "2026-07-18T10:00:00Z"
     )
     writeManifest(
       workDir,
-      "b.manifest.json",
       startedAt = "2026-07-18T12:00:00Z"
     )
     writeManifest(
       workDir,
-      "c.manifest.json",
       startedAt = "2026-07-18T11:00:00Z"
     )
     val AttemptListing(attempts, warnings) =
@@ -88,11 +90,10 @@ class ManifestReaderTest extends munit.FunSuite:
     val workDir = TempDirs.dir()
     writeManifest(
       workDir,
-      "good.manifest.json",
       startedAt = "2026-07-18T11:00:00Z"
     )
     os.write(
-      attemptsDir(workDir) / "no-workdir.manifest.json",
+      attemptsDir(workDir) / manifestName("2026-07-18T10:00:00Z"),
       s"""{
         |  "orcaVersion": "0.0.test",
         |  "pid": 111,
@@ -110,15 +111,46 @@ class ManifestReaderTest extends munit.FunSuite:
     )
     assertEquals(warnings.size, 1)
     assert(
-      warnings.head.contains("no-workdir.manifest.json"),
+      warnings.head.contains(manifestName("2026-07-18T10:00:00Z")),
       s"expected the filename in the warning, got: ${warnings.head}"
+    )
+
+  test("a manifest not named after an attempt id is skipped with a warning"):
+    val workDir = TempDirs.dir()
+    writeManifest(workDir, startedAt = "2026-07-18T10:00:00Z")
+    os.move(
+      attemptsDir(workDir) / manifestName("2026-07-18T10:00:00Z"),
+      attemptsDir(workDir) / "copy.manifest.json"
+    )
+    val AttemptListing(attempts, warnings) =
+      ManifestReader.list(workDir, Nil, alwaysDead)
+    assertEquals(attempts, Nil)
+    assertEquals(
+      warnings,
+      List(
+        s"skipping ${attemptsDir(workDir) / "copy.manifest.json"}: not named after an attempt id"
+      )
+    )
+
+  test("list takes the attempt id from the file name, not the manifest body"):
+    val workDir = TempDirs.dir()
+    writeManifest(workDir, startedAt = "2026-07-18T10:00:00Z")
+    val renamed = manifestName("2026-07-18T11:00:00Z", pid = 7)
+    os.move(
+      attemptsDir(workDir) / manifestName("2026-07-18T10:00:00Z"),
+      attemptsDir(workDir) / renamed
+    )
+    val AttemptListing(attempts, _) =
+      ManifestReader.list(workDir, Nil, alwaysDead)
+    assertEquals(
+      attempts.map(_.id),
+      List(AttemptId(Instant.parse("2026-07-18T11:00:00Z"), 7))
     )
 
   test("list ignores a file that is not a manifest by suffix"):
     val workDir = TempDirs.dir()
     writeManifest(
       workDir,
-      "a.manifest.json",
       startedAt = "2026-07-18T10:00:00Z"
     )
     os.write(attemptsDir(workDir) / "a.cost.jsonl", "not json {{{")
@@ -132,12 +164,10 @@ class ManifestReaderTest extends munit.FunSuite:
     val workDir = TempDirs.dir()
     writeManifest(
       workDir,
-      "a.manifest.json",
       startedAt = "2026-07-18T10:00:00Z"
     )
     writeManifest(
       workDir,
-      "empty.manifest.json",
       startedAt = "2026-07-18T12:00:00Z",
       sessions = ""
     )
@@ -153,7 +183,6 @@ class ManifestReaderTest extends munit.FunSuite:
     val workDir = TempDirs.dir()
     writeManifest(
       workDir,
-      "dead.manifest.json",
       startedAt = "2026-07-18T10:00:00Z",
       pid = 999999,
       status = "Running"
@@ -167,7 +196,6 @@ class ManifestReaderTest extends munit.FunSuite:
     val workDir = TempDirs.dir()
     writeManifest(
       workDir,
-      "alive.manifest.json",
       startedAt = "2026-07-18T10:00:00Z",
       pid = 1,
       status = "Running"
@@ -183,7 +211,6 @@ class ManifestReaderTest extends munit.FunSuite:
     val workDir = TempDirs.dir()
     writeManifest(
       workDir,
-      "unknown.manifest.json",
       startedAt = "2026-07-18T10:00:00Z",
       status = "abandoned"
     )
@@ -191,7 +218,10 @@ class ManifestReaderTest extends munit.FunSuite:
       ManifestReader.list(workDir, Nil, alwaysDead)
     assertEquals(attempts, Nil)
     assertEquals(warnings.size, 1)
-    assert(warnings.head.contains("unknown.manifest.json"), warnings.head)
+    assert(
+      warnings.head.contains(manifestName("2026-07-18T10:00:00Z")),
+      warnings.head
+    )
 
   test(
     "list skips a manifest with an unrecognised harness, warning by filename"
@@ -199,7 +229,6 @@ class ManifestReaderTest extends munit.FunSuite:
     val workDir = TempDirs.dir()
     writeManifest(
       workDir,
-      "harness.manifest.json",
       startedAt = "2026-07-18T10:00:00Z",
       sessions = oneSession.replace("ClaudeCode", "claude")
     )
@@ -207,13 +236,15 @@ class ManifestReaderTest extends munit.FunSuite:
       ManifestReader.list(workDir, Nil, alwaysDead)
     assertEquals(attempts, Nil)
     assertEquals(warnings.size, 1)
-    assert(warnings.head.contains("harness.manifest.json"), warnings.head)
+    assert(
+      warnings.head.contains(manifestName("2026-07-18T10:00:00Z")),
+      warnings.head
+    )
 
   test("a finished manifest is never marked crashed, even with a dead pid"):
     val workDir = TempDirs.dir()
     writeManifest(
       workDir,
-      "done.manifest.json",
       startedAt = "2026-07-18T10:00:00Z",
       pid = 999999,
       status = "Succeeded"
@@ -228,7 +259,6 @@ class ManifestReaderTest extends munit.FunSuite:
     val workDir = TempDirs.dir()
     writeManifest(
       workDir,
-      "nostage.manifest.json",
       startedAt = "2026-07-18T10:00:00Z",
       sessions =
         """{"harness": "ClaudeCode", "wireId": "w", "agent": "claude", "role": null,
@@ -240,7 +270,7 @@ class ManifestReaderTest extends munit.FunSuite:
     assertEquals(attempts, Nil)
     assertEquals(warnings.size, 1)
     assert(
-      warnings.head.contains("nostage.manifest.json"),
+      warnings.head.contains(manifestName("2026-07-18T10:00:00Z")),
       s"expected the filename in the warning, got: ${warnings.head}"
     )
 
@@ -260,17 +290,14 @@ class ManifestReaderTest extends munit.FunSuite:
     val worktree = TempDirs.dir()
     writeManifest(
       checkout,
-      "a.manifest.json",
       startedAt = "2026-07-18T10:00:00Z"
     )
     writeManifest(
       worktree,
-      "b.manifest.json",
       startedAt = "2026-07-18T12:00:00Z"
     )
     writeManifest(
       checkout,
-      "c.manifest.json",
       startedAt = "2026-07-18T11:00:00Z"
     )
     val AttemptListing(attempts, warnings) =
@@ -289,29 +316,28 @@ class ManifestReaderTest extends munit.FunSuite:
     val checkout = TempDirs.dir()
     val worktree = TempDirs.dir()
     os.write(
-      attemptsDir(checkout) / "broken-here.manifest.json",
+      attemptsDir(checkout) / manifestName("2026-07-18T10:00:00Z"),
       "not json {{{",
       createFolders = true
     )
     os.write(
-      attemptsDir(worktree) / "broken-there.manifest.json",
+      attemptsDir(worktree) / manifestName("2026-07-18T11:00:00Z"),
       "not json {{{",
       createFolders = true
     )
     writeManifest(
       worktree,
-      "good.manifest.json",
       startedAt = "2026-07-18T12:00:00Z"
     )
     val AttemptListing(attempts, warnings) =
       ManifestReader.list(checkout, List(worktree), alwaysDead)
     assertEquals(attempts.size, 1)
     assert(
-      warnings.exists(_.contains("broken-here.manifest.json")),
+      warnings.exists(_.contains(manifestName("2026-07-18T10:00:00Z"))),
       warnings.toString
     )
     assert(
-      warnings.exists(_.contains("broken-there.manifest.json")),
+      warnings.exists(_.contains(manifestName("2026-07-18T11:00:00Z"))),
       warnings.toString
     )
 
@@ -320,7 +346,6 @@ class ManifestReaderTest extends munit.FunSuite:
     val worktree = TempDirs.dir()
     writeManifest(
       checkout,
-      "a.manifest.json",
       startedAt = "2026-07-18T10:00:00Z"
     )
     // A tree left behind by a run under another uid, or one being removed in
@@ -345,7 +370,6 @@ class ManifestReaderTest extends munit.FunSuite:
     val worktree = TempDirs.dir()
     writeManifest(
       checkout,
-      "a.manifest.json",
       startedAt = "2026-07-18T10:00:00Z"
     )
     val outside = TempDirs.dir() / "outside-attempts"

@@ -118,26 +118,28 @@ private[shell] class Wizard(
       tag <- ui.select(
         s"${role.label} agent",
         choices,
-        preselect = currentTag.orElse(Some(fallback))
+        default = Some(currentTag.getOrElse(fallback))
       )
       currentModel =
         if currentTag.contains(tag) then current.flatMap(_.model) else None
       model <- selectModel(role, tag, currentModel)
     yield AgentSpec(tag, model)
 
-  /** The per-harness model step ([[ModelCatalog.pick]], shared with the
-    * authoring harness picker): a curated select for harnesses with
-    * CLI-resolved aliases ([[Wizard.curatedModels]]), free text otherwise.
-    * `currentModel` is the role's existing pin, already dropped by the caller
-    * if the harness changed.
+  /** The per-harness model step ([[ModelCatalog.pick]]). `currentModel` is the
+    * role's existing pin, already dropped by the caller if the harness changed.
     */
   private def selectModel(
       role: Wizard.Role,
       tag: BackendTag,
       currentModel: Option[String]
   ): UiOutcome[Option[String]] =
-    val curated = Wizard.curatedModels(role, tag, currentModel)
-    ModelCatalog.pick(ui, s"${role.label} model", tag, curated, currentModel)
+    ModelCatalog.pick(
+      ui,
+      s"${role.label} model",
+      tag,
+      default = Wizard.roleDefault(role, tag),
+      current = currentModel
+    )
 
   private def choiceFor(
       tag: BackendTag,
@@ -161,54 +163,11 @@ private[shell] object Wizard:
     case Coding extends Role("Coding")
     case Review extends Role("Review")
 
-  /** Re-exported from [[ModelCatalog]] so existing `Wizard.ModelPick`/etc. call
-    * sites — including tests — need no change.
+  /** A role's starting curated model for `tag` when it isn't the flagship
+    * ([[ModelCatalog.curated]]'s first row): Planning gets the cheaper claude
+    * alias.
     */
-  private[wizard] type ModelPick = ModelCatalog.ModelPick
-  private[wizard] val ModelPick: ModelCatalog.ModelPick.type =
-    ModelCatalog.ModelPick
-
-  private[wizard] def preselectModelPick(
-      curated: List[(String, String)],
-      current: Option[String],
-      default: Option[String]
-  ): ModelPick = ModelCatalog.preselectModelPick(curated, current, default)
-
-  private[wizard] def freeTextHint(tag: BackendTag): String =
-    ModelCatalog.freeTextHint(tag)
-
-  private[wizard] def clearAffordance(current: Option[String]): String =
-    ModelCatalog.clearAffordance(current)
-
-  private[wizard] def resolveModelInput(input: String): Option[String] =
-    ModelCatalog.resolveModelInput(input)
-
-  /** Curated `(id, description)` rows for a role's harness:
-    * [[roleDefaultOrder]] with `current`'s row promoted to the front when it
-    * names one of these ids ([[ModelCatalog.promoteCurrent]]) — reconfigure
-    * onto an existing pin, otherwise a blind Enter would silently flip it to
-    * whichever row `roleDefaultOrder` puts first instead. `Nil` means the
-    * harness is free-text only.
-    */
-  private[wizard] def curatedModels(
-      role: Role,
-      tag: BackendTag,
-      current: Option[String] = None
-  ): List[(String, String)] =
-    ModelCatalog.promoteCurrent(roleDefaultOrder(role, tag), current)
-
-  /** The base curated order, role default first, before any current-pin
-    * promotion: Planning gets the cheaper claude alias, everyone else
-    * ([[ModelCatalog.defaultOrder]]) gets the flagship.
-    */
-  private def roleDefaultOrder(
-      role: Role,
-      tag: BackendTag
-  ): List[(String, String)] =
+  private[wizard] def roleDefault(role: Role, tag: BackendTag): Option[String] =
     (role, tag) match
-      case (Role.Planning, BackendTag.ClaudeCode) =>
-        ModelCatalog.promoteCurrent(
-          ModelCatalog.defaultOrder(tag),
-          Some("fable")
-        )
-      case _ => ModelCatalog.defaultOrder(tag)
+      case (Role.Planning, BackendTag.ClaudeCode) => Some("fable")
+      case _                                      => None
