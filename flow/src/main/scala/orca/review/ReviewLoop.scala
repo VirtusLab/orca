@@ -411,8 +411,8 @@ def reviewAndFixLoop[B <: BackendTag](
       * already-answered findings aren't re-reported from scratch, and returned
       * at exit (minus any since fixed) alongside this loop's own. Each keeps
       * the location the earlier loop recorded, so a seeded entry the exit block
-      * names still points at the code; each gets a new id here, so two seeds
-      * stay two entries.
+      * names still points at the code. Two entries stay two unless they share
+      * title and location, which makes them one defect.
       */
     priorOpenFindings: List[OpenFinding] = Nil
 )(using
@@ -442,7 +442,7 @@ def reviewAndFixLoop[B <: BackendTag](
           )
           ReviewDiffSource.wholeRun(ctx.git, c)
     case ReviewDiff.Pinned(d) => Some(ReviewDiffSource.Pinned(d))
-  val seededOpen = IdentifiedFinding.seed(priorOpenFindings)
+  val seededOpen = IdentifiedFinding.withSeedIds(priorOpenFindings)
   diffSource match
     case None =>
       ctx.emit(

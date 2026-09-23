@@ -1,5 +1,7 @@
 package orca.review
 
+import orca.plan.Title
+
 /** A round's finding with the [[FindingId]] the loop tracks it under across
   * rounds, alongside the key its fix turn names it by.
   */
@@ -14,57 +16,68 @@ private[review] case class IdentifiedFinding(
     OpenFinding(id, finding.title, reason, finding.location)
 
 private[review] object IdentifiedFinding:
-  /** `prior` with ids of their own, for a loop to be seeded with: each loop
-    * mints ids from round one, so what two loops left open can share one.
+  /** `prior` given ids of this loop's own, one per defect: each loop mints ids
+    * from round one, so what two loops left open can share an id, and a defect
+    * two loops left open — same title and location — is one entry, with the
+    * latest reason.
     */
-  def seed(prior: List[OpenFinding]): List[OpenFinding] =
-    prior.zipWithIndex.map((f, i) => f.copy(id = FindingId.seed(i + 1)))
+  def withSeedIds(prior: List[OpenFinding]): List[OpenFinding] =
+    def defectOf(f: OpenFinding) = defect(f.title, f.location)
+    val latest = prior.map(f => defectOf(f) -> f).toMap
+    prior
+      .map(defectOf)
+      .distinct
+      .zipWithIndex
+      .map((d, i) => latest(d).copy(id = FindingId.seed(i + 1)))
 
   /** Give each of one round's findings its id.
     *
     * A finding takes the id of the open entry it reopens: the one its `reopens`
     * names, or else the sole open entry with the same title in the same file,
-    * for a reviewer that re-reports without naming the id — unless different
-    * findings in the round match that entry so, as then which one it is can't
-    * be told. Findings with the same title and location are one defect and
-    * share an id: the entry any of them reopens, or else a new one.
+    * for a reviewer that re-reports without naming the id — unless findings of
+    * different defects in the round all claim that entry; then none takes it by
+    * title. Findings with the same title and location are one defect and share
+    * an id: the entry any of them reopens, or else a new one.
     */
   def identify(
       round: Int,
       open: List[OpenFinding],
       keyed: List[KeyedFinding]
   ): List[IdentifiedFinding] =
-    val reopening = keyed.map(k => k -> reopened(open, keyed, k.finding))
-    reopening.map: (k, _) =>
-      val sameDefect =
-        reopening.filter((other, _) =>
-          defect(other.finding) == defect(k.finding)
-        )
-      val first = sameDefect.map(_._1).headOption.getOrElse(k)
-      val id = sameDefect
-        .collectFirst { case (_, Some(id)) => id }
-        .getOrElse(FindingId.reported(round, first.key))
-      IdentifiedFinding(id, k)
+    val idOfDefect = keyed
+      .map(k => k -> reopened(open, keyed.map(_.finding), k.finding))
+      .groupBy((k, _) => defectOf(k.finding))
+      .view
+      .mapValues: copies =>
+        // A new id is minted from the first copy's key.
+        copies
+          .collectFirst { case (_, Some(id)) => id }
+          .getOrElse(FindingId.reported(round, copies.head._1.key))
+      .toMap
+    keyed.map(k => IdentifiedFinding(idOfDefect(defectOf(k.finding)), k))
 
-  /** The open entry `finding` reopens, among `round`'s findings. */
+  /** The open entry `finding` reopens, given all of `roundFindings`. */
   private def reopened(
       open: List[OpenFinding],
-      round: List[KeyedFinding],
+      roundFindings: List[ReviewFinding],
       finding: ReviewFinding
   ): Option[FindingId] =
+    def named(f: ReviewFinding): Option[FindingId] =
+      f.reopens.filter(id => open.exists(_.id == id))
     def uncontested(id: FindingId): Boolean =
-      round
-        .map(_.finding)
-        .filter(f => sameTitleInFile(open, f).contains(id))
-        .map(defect)
+      roundFindings
+        .filter(f =>
+          named(f).contains(id) ||
+            soleEntryWithTitleInFile(open, f).contains(id)
+        )
+        .map(defectOf)
         .distinct
         .size == 1
-    finding.reopens
-      .filter(id => open.exists(_.id == id))
-      .orElse(sameTitleInFile(open, finding).filter(uncontested))
+    named(finding).orElse(
+      soleEntryWithTitleInFile(open, finding).filter(uncontested)
+    )
 
-  /** The sole open entry with `finding`'s title in its file. */
-  private def sameTitleInFile(
+  private def soleEntryWithTitleInFile(
       open: List[OpenFinding],
       finding: ReviewFinding
   ): Option[FindingId] =
@@ -75,6 +88,12 @@ private[review] object IdentifiedFinding:
       case List(only) => Some(only.id)
       case _          => None
 
-  /** What makes two of a round's findings one defect. */
-  private def defect(f: ReviewFinding): (String, Option[Location]) =
-    (normalisedTitle(f.title.value), f.location)
+  private def defectOf(f: ReviewFinding): (String, Option[Location]) =
+    defect(f.title, f.location)
+
+  /** What makes two findings one defect. */
+  private def defect(
+      title: Title,
+      location: Option[Location]
+  ): (String, Option[Location]) =
+    (normalisedTitle(title.value), location)

@@ -164,9 +164,8 @@ object ReviewLoopPrompts:
     else
       "\n\nThese findings were reported earlier and are still open. This is " +
         s"the reason recorded for each:\n\n${openFindingLines(open)}" +
-        "\n\nIf you report one of them again, set `reopens` to its id, the " +
-        "text in its brackets — " +
-        "however you word it this time." +
+        "\n\nIf you report one of them again, however you word it, set " +
+        "`reopens` to its id (the text in its brackets)." +
         "\n\nThat is a record of what happened, not a ruling. If you still " +
         "think a finding is real, report it again and say why the reason is " +
         "wrong. \"The plan chose this\" is not on its own a sufficient " +

@@ -1070,6 +1070,33 @@ class ReviewAndFixTest extends munit.FunSuite:
     val steps = new ReviewLoopFixture.StepCapture
     given FlowControl =
       ReviewLoopFixture.controlWithoutStartingCommit(steps.dispatcher)
+    val inA = Some(Location("A.scala", None))
+    val inB = Some(Location("B.scala", None))
+    val result = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
+      reviewers = List(asReviewer(new FakeAgent("never-runs"))),
+      task = titled("final review"),
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      diff = ReviewDiff.WholeRun,
+      priorOpenFindings = List(
+        declinedNit("R1.I1.1", "task one declined it").copy(location = inA),
+        declinedNit("R1.I1.1", "task two declined it").copy(location = inB)
+      )
+    )
+    assertEquals(
+      result.findings,
+      List(
+        declinedNit("S1", "task one declined it").copy(location = inA),
+        declinedNit("S2", "task two declined it").copy(location = inB)
+      )
+    )
+
+  test("seeds of one defect are one finding, with the latest reason"):
+    // Two tasks left the same title at the same place open: one defect, so
+    // fixing it must clear one entry, not leave a twin behind.
+    val steps = new ReviewLoopFixture.StepCapture
+    given FlowControl =
+      ReviewLoopFixture.controlWithoutStartingCommit(steps.dispatcher)
     val result = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
       reviewers = List(asReviewer(new FakeAgent("never-runs"))),
@@ -1083,10 +1110,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
     assertEquals(
       result.findings,
-      List(
-        declinedNit("S1", "task one declined it"),
-        declinedNit("S2", "task two declined it too")
-      )
+      List(declinedNit("S1", "task two declined it too"))
     )
 
   test("seeded open findings reach round one's reviewers and return at exit"):

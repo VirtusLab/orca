@@ -103,3 +103,18 @@ class IdentifiedFindingTest extends munit.FunSuite:
       ),
       List(FindingId("R1.I1.1"), FindingId("R1.I1.1"))
     )
+
+  test(
+    "an entry one finding names and another matches by title goes to the first"
+  ):
+    // The reworded finding names the entry, so the other one with its old
+    // title elsewhere in the file is a different defect.
+    assertEquals(
+      idsOf(
+        List(open("R1.I1.1", "missing null check", "Foo.scala")),
+        reported("null deref in parse", "Foo.scala", reopens = Some("R1.I1.1")),
+        finding("missing null check")
+          .copy(location = Some(Location("Foo.scala", Some(50))))
+      ),
+      List(FindingId("R1.I1.1"), FindingId("R2.I1.2"))
+    )
