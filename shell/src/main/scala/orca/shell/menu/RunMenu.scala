@@ -7,7 +7,7 @@ import orca.progress.FeatureBranch
 import orca.shell.ShellEnv
 import orca.shell.actions.FlowResolution
 import orca.shell.resume.InterruptedRun
-import orca.shell.run.{FallbackPolicy, FlowLauncher, LaunchedFlow}
+import orca.shell.run.{FallbackPolicy, FlowLauncher, LaunchedFlow, PinPolicy}
 import orca.shell.ui.{Choice, ShellOutput, ShellUi, UiOutcome}
 import orca.util.TextUtil
 import ox.discard
@@ -77,7 +77,7 @@ private[menu] object RunMenu:
         branch = branch
       )
       launch(
-        FallbackPolicy.Ask(ui),
+        PinPolicy.Force(FallbackPolicy.Ask(ui)),
         LaunchedFlow.of(flow),
         args,
         env.workDir,
@@ -135,7 +135,7 @@ private[menu] object RunMenu:
           branch = None
         )
         launch(
-          FallbackPolicy.Ask(ui),
+          PinPolicy.Force(FallbackPolicy.Ask(ui)),
           LaunchedFlow.of(flow),
           args,
           run.dir,

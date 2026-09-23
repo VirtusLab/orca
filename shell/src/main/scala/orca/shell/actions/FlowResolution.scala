@@ -1,7 +1,7 @@
 package orca.shell.actions
 
 import orca.OrcaDir
-import orca.shell.{ShellEnv, ShellVersion}
+import orca.shell.{OrcaBuild, ShellEnv}
 import orca.discovery.Origin
 import orca.progress.FlowSource
 import orca.util.TextUtil
@@ -36,7 +36,7 @@ private[shell] object FlowResolution:
         FlowCatalog.list(
           projectFlows,
           env.configHome.flows,
-          BuiltInFlows.extracted(env.cacheHome, ShellVersion.value)
+          BuiltInFlows.extracted(env.cacheHome, OrcaBuild.current)
         )
       )
     catch case NonFatal(e) => Left(s"couldn't list flows — ${e.getMessage}")

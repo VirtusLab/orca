@@ -1,7 +1,7 @@
 package orca.shell.menu
 
 import orca.discovery.Origin
-import orca.shell.{ShellEnv, ShellVersion, TestShellEnv, Tier}
+import orca.shell.{OrcaBuild, ShellEnv, TestShellEnv, Tier}
 import orca.shell.create.{FlowAuthoring, FlowDestination}
 import orca.shell.ui.UiOutcome
 import orca.testkit.TempDirs
@@ -226,7 +226,7 @@ class AuthoringMenuTest extends munit.FunSuite:
       assertEquals(spawned, Some(expected))
       assertEquals(
         os.read(expected),
-        FlowAuthoring.skeletonFlow(ShellVersion.value)
+        FlowAuthoring.skeletonFlow(OrcaBuild.current)
       )
 
   test(

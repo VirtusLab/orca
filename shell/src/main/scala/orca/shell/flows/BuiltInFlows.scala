@@ -1,6 +1,6 @@
 package orca.shell.flows
 
-import orca.shell.ShellVersion
+import orca.shell.OrcaBuild
 
 /** Bundles the built-in flows (ADR 0021 §7) as jar resources under
   * `/orca/shell/flows/` (see build.sbt's resource generator) and extracts them
@@ -11,23 +11,21 @@ import orca.shell.ShellVersion
 private[shell] object BuiltInFlows:
   private val resourcePrefix = "/orca/shell/flows/"
 
-  // Per-process memo of [[extracted]]'s result. The non-release path
+  // Per-process memo of [[extracted]]'s result. The snapshot path
   // re-materializes on every call, and callers reach `extracted` on every flow
   // listing (every picker open); once per process is as often as that can
-  // matter, since a process's version and flow resources are both fixed at
-  // startup. Keyed by the target dir — a total function of the cacheHome/version
+  // matter, since a process's build and flow resources are both fixed at
+  // startup. Keyed by the target dir — a total function of the cacheHome/build
   // arguments — so a call with different arguments gets its own extraction
   // rather than the first one's, keeping `extracted` reusable across homes and
-  // versions within one process. `computeIfAbsent` keeps the first extraction
+  // builds within one process. `computeIfAbsent` keeps the first extraction
   // for a given key atomic under concurrent callers.
   private val extractedCache =
     new java.util.concurrent.ConcurrentHashMap[os.Path, os.Path]()
 
-  private val orcaDepModule = "org.virtuslab::orca"
-
   private val depPin =
     s"""^//> using dep "${scala.util.matching.Regex.quote(
-        orcaDepModule
+        OrcaBuild.Module
       )}:[^"]+"$$""".r
 
   /** The bundled flows' filenames, from the generated index resource. Visible
@@ -46,18 +44,15 @@ private[shell] object BuiltInFlows:
   /** Extracts the built-in flows to `<cacheHome>/orca/shell/<version>/flows`
     * and returns that directory.
     *
-    * A release-looking `version` (`ShellVersion.isRelease`) extracts once,
-    * keyed by the directory being *complete* — present with every indexed flow
-    * file — not merely existing; a second call is then a no-op, since a
-    * release's flows are immutable for that version. Any other version always
-    * re-extracts and rewrites each flow's `//> using dep
-    * "org.virtuslab::orca:X"` line to the running `version`, inserting `//>
-    * using repository ivy2Local` right after it — the same treatment
-    * `_seed_lib.sh --local` applies, so built-ins resolve against a locally
-    * published build instead of a not-yet-released Maven Central artifact. It
-    * can't reuse the release path's completeness key: a non-release version
-    * string doesn't identify its flow content, since `"dev"` (an `sbt run` or
-    * test build) is shared by every build, and a dynver snapshot's dirty
+    * A [[OrcaBuild.Release]] extracts once, keyed by the directory being
+    * *complete* — present with every indexed flow file — not merely existing; a
+    * second call is then a no-op, since a release's flows are immutable for
+    * that version. A [[OrcaBuild.Snapshot]] always re-extracts and replaces
+    * each flow's orca `//> using dep` line with the build's
+    * [[OrcaBuild.usingDirectives]] — the same treatment `_seed_lib.sh --local`
+    * applies, so built-ins resolve against the locally published build. It
+    * can't reuse the release path's completeness key: a snapshot version
+    * doesn't identify its flow content, since a dynver snapshot's dirty
     * timestamp is minute-granular, so republishing within a minute reuses it.
     *
     * Both paths write through [[materialize]], which stages every file in a
@@ -70,25 +65,26 @@ private[shell] object BuiltInFlows:
     * treated as absent and self-heals on the next call.
     *
     * Memoized per process ([[extractedCache]]): repeat calls with the same
-    * cacheHome/version — every picker open in one shell process — reuse the
-    * first call's extraction.
+    * cacheHome/build — every picker open in one shell process — reuse the first
+    * call's extraction.
     */
-  def extracted(cacheHome: os.Path, version: String): os.Path =
-    val dir = cacheHome / "orca" / "shell" / version / "flows"
+  def extracted(cacheHome: os.Path, build: OrcaBuild): os.Path =
+    val dir = cacheHome / "orca" / "shell" / build.version / "flows"
 
     extractedCache.computeIfAbsent(
       dir,
       target =>
         val expectedNames = names
-        if ShellVersion.isRelease(version) then
-          if !isComplete(target, expectedNames) then
-            materialize(target, expectedNames, resourceText)
-        else
-          materialize(
-            target,
-            expectedNames,
-            name => pinToRunningVersion(resourceText(name), version)
-          )
+        build match
+          case OrcaBuild.Release(_) =>
+            if !isComplete(target, expectedNames) then
+              materialize(target, expectedNames, resourceText)
+          case OrcaBuild.Snapshot(_) =>
+            materialize(
+              target,
+              expectedNames,
+              name => pinToBuild(resourceText(name), build)
+            )
         target
     )
 
@@ -137,20 +133,12 @@ private[shell] object BuiltInFlows:
           os.move(tmp, dir)
     finally if os.exists(tmp) then os.remove.all(tmp)
 
-  /** Rewrites the `using dep` pin line to `version` and inserts the ivy2Local
-    * repository line right after it — `_seed_lib.sh --local`'s sed treatment,
+  /** Replaces the orca `using dep` pin line with `build`'s
+    * [[OrcaBuild.usingDirectives]] — `_seed_lib.sh --local`'s sed treatment,
     * replicated here.
     */
-  private def pinToRunningVersion(content: String, version: String): String =
+  private def pinToBuild(content: String, build: OrcaBuild): String =
     content
       .split("\n", -1)
-      .toList
-      .flatMap { line =>
-        if depPin.matches(line) then
-          List(
-            s"""//> using dep "$orcaDepModule:$version"""",
-            "//> using repository ivy2Local"
-          )
-        else List(line)
-      }
+      .map(line => if depPin.matches(line) then build.usingDirectives else line)
       .mkString("\n")

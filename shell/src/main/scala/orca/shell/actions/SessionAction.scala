@@ -6,6 +6,7 @@ import orca.shell.run.ChildTerminal
 import orca.shell.sessions.{ResumeCommand, SessionNaming, SessionSelection}
 import orca.shell.ui.ShellOutput
 import orca.subprocess.QuietProc
+import orca.tools.gemini.GeminiSessionList
 import orca.tools.pi.PiSessionStore
 
 import java.time.Instant
@@ -88,9 +89,9 @@ private[shell] object SessionAction:
   private def displayable(raw: String): String =
     raw.filterNot(_.isControl).take(80)
 
-  /** Hands [[ResumeCommand.build]] the two live lookups — gemini's index (a
-    * `gemini --list-sessions` from the manifest's `workDir`, matched against
-    * the wire id) and pi's [[piSessionDir]] — each invoked only by its own
+  /** Hands [[ResumeCommand.build]] the two live lookups — gemini's index (its
+    * [[GeminiSessionList]] from the manifest's `workDir`, matched against the
+    * wire id) and pi's [[piSessionDir]] — each invoked only by its own
     * harness's branch, then execs the resume command as a tty-inherited child
     * under [[ChildTerminal.withChild]] (ADR 0021 §2) from that same `workDir` —
     * which may differ from the shell's own cwd (claude/gemini/opencode scope
@@ -113,9 +114,8 @@ private[shell] object SessionAction:
       case Right(workDir) =>
         def geminiIndex(uuid: String): Option[Int] =
           try
-            val listing =
-              QuietProc.call(Seq("gemini", "--list-sessions"), cwd = workDir)
-            ResumeCommand.geminiIndexOf(listing.out.text(), uuid)
+            val listing = QuietProc.call(GeminiSessionList.argv, cwd = workDir)
+            GeminiSessionList.indexOf(listing.out.text(), uuid)
           catch case NonFatal(_) => None
         ResumeCommand.build(
           selection.session,
