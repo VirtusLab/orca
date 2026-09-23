@@ -11,7 +11,6 @@ import orca.agents.{
   InteractiveAgentCall,
   JsonData,
   AgentCall,
-  AgentConfig,
   SessionId
 }
 import orca.events.{EventDispatcher}
@@ -43,7 +42,6 @@ class LintTest extends munit.FunSuite:
                 i: I,
                 session: SessionId[BackendTag.ClaudeCode.type],
                 sessionKey: Option[SessionKey],
-                c: Option[AgentConfig],
                 emitPrompt: Boolean
             )(using
                 a: AgentInput[I],

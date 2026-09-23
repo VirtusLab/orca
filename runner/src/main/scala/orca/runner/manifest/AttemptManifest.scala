@@ -71,6 +71,9 @@ private[orca] case class ManifestSession(
   *
   * `branch` is the branch the attempt bound to; `None` until `BranchBound`
   * fires, so an attempt that failed before binding has none.
+  *
+  * `sessions` only grows: a session keeps its position once recorded, which the
+  * shell's `orca continue <id>` selector relies on.
   */
 private[orca] case class AttemptManifest(
     orcaVersion: String,

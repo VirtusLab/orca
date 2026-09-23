@@ -2178,7 +2178,6 @@ class FlowLifecycleTest extends munit.FunSuite:
                 input: I,
                 session: SessionId[BackendTag.ClaudeCode.type],
                 sessionKey: Option[SessionKey],
-                config: Option[AgentConfig],
                 emitPrompt: Boolean
             )(using in: AgentInput[I], _s: orca.InStage): O =
               PrSummary("Generated title", "Generated body").asInstanceOf[O]

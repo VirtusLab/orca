@@ -153,7 +153,6 @@ private[review] class FakeAgentCall[O](
           input: I,
           session: SessionId[BackendTag.ClaudeCode.type],
           sessionKey: Option[SessionKey],
-          config: Option[AgentConfig],
           emitPrompt: Boolean
       )(using InStage): O =
         val _ = seenSessions.updateAndGet(session :: _)

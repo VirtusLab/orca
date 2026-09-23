@@ -3,7 +3,7 @@ package orca.shell.actions
 import org.jline.terminal.Terminal
 import orca.settings.AgentSpec
 import orca.shell.run.ChildTerminal
-import orca.shell.sessions.{ResumeCommand, SessionPicker, SessionSelection}
+import orca.shell.sessions.{ResumeCommand, SessionNaming, SessionSelection}
 import orca.shell.ui.ShellOutput
 import orca.subprocess.QuietProc
 import orca.tools.pi.PiSessionStore
@@ -39,7 +39,7 @@ private[shell] object SessionAction:
     */
   def identityNotice(selection: SessionSelection, harnessName: String): String =
     val session = selection.session
-    val name = SessionPicker.displayName(session)
+    val name = SessionNaming.displayName(session)
     val stage = session.stage.fold("")(s => s", stage '$s'")
     val branch = selection.manifest.branch.fold("")(b => s", on branch '$b'")
     val crashedSuffix = if selection.crashed then " (crashed)" else ""

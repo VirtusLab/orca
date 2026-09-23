@@ -28,3 +28,16 @@ case class Choice[A](
     disabledReason.fold(s"'$label' is unavailable.")(reason =>
       s"'$label' is unavailable: $reason"
     )
+
+object Choice:
+
+  /** `choices` with the enabled one whose value is `default` moved to the
+    * front; unchanged when `default` is `None` or names no enabled choice.
+    */
+  def defaultFirst[A](
+      choices: List[Choice[A]],
+      default: Option[A]
+  ): List[Choice[A]] =
+    val (front, rest) =
+      choices.partition(c => c.isEnabled && default.contains(c.value))
+    front ++ rest

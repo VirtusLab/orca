@@ -78,7 +78,6 @@ final class FlowSession[B <: BackendTag] private[orca] (
         effectivePrompt(agent, id, prompt),
         id,
         sessionKey = Some(key),
-        config = None,
         emitPrompt = true
       )
     persistResumeWireId(agent, id)
@@ -131,7 +130,6 @@ final class FlowSessionCall[B <: BackendTag, O] private[orca] (
         effectivePrompt(agent, id, serialized),
         id,
         sessionKey = Some(key),
-        config = None,
         emitPrompt = emitPrompt
       )
     persistResumeWireId(agent, id)

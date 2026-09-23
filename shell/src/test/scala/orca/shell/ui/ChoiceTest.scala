@@ -36,3 +36,18 @@ class ChoiceTest extends munit.FunSuite:
       Choice(1, "First").disabledSelectionMessage,
       "'First' is unavailable."
     )
+
+  private val abc = List(Choice(1, "a"), Choice(2, "b"), Choice(3, "c"))
+
+  test("defaultFirst moves the default to the front, the rest keep order"):
+    assertEquals(
+      Choice.defaultFirst(abc, Some(3)).map(_.value),
+      List(3, 1, 2)
+    )
+
+  test("defaultFirst leaves the order alone without a default"):
+    assertEquals(Choice.defaultFirst(abc, None), abc)
+
+  test("defaultFirst does not move a disabled default"):
+    val choices = List(Choice(1, "a"), Choice(2, "b", Some("unavailable")))
+    assertEquals(Choice.defaultFirst(choices, Some(2)), choices)

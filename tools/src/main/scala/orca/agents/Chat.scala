@@ -29,14 +29,12 @@ final class Chat[B <: BackendTag] private[orca] (
   /** One free-text turn continuing this conversation. */
   def run(
       prompt: String,
-      config: Option[AgentConfig] = None,
       emitPrompt: Boolean = true
   )(using InStage): String =
     agent.autonomous.runWithSession(
       prompt,
       id,
       sessionKey = None,
-      config = config,
       emitPrompt = emitPrompt
     )
 
@@ -57,25 +55,15 @@ final class ChatCall[B <: BackendTag, O] private[orca] (
   object autonomous:
     def run[I: AgentInput](
         input: I,
-        config: Option[AgentConfig] = None,
         emitPrompt: Boolean = true
     )(using InStage): O =
       call.autonomous.runWithSession(
         input,
         id,
         sessionKey = None,
-        config = config,
         emitPrompt = emitPrompt
       )
 
   object interactive:
-    def run[I: AgentInput](
-        input: I,
-        config: Option[AgentConfig] = None
-    )(using InStage): O =
-      call.interactive.runWithSession(
-        input,
-        id,
-        sessionKey = None,
-        config = config
-      )
+    def run[I: AgentInput](input: I)(using InStage): O =
+      call.interactive.runWithSession(input, id, sessionKey = None)

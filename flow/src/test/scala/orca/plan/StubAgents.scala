@@ -51,7 +51,6 @@ private[plan] class CannedResultAgent[T](value: T)
               input: I,
               session: SessionId[BackendTag.ClaudeCode.type],
               sessionKey: Option[SessionKey],
-              config: Option[AgentConfig],
               emitPrompt: Boolean
           )(using orca.InStage): O =
             lastSession = Some(session)

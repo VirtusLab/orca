@@ -94,18 +94,16 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
           prompt: String,
           session: SessionId[B],
           sessionKey: Option[SessionKey],
-          callConfig: Option[AgentConfig],
           emitPrompt: Boolean
       )(using orca.InStage): String =
         backend.checkNotClosed()
-        val effective = effectiveConfig(callConfig)
         if emitPrompt then events.onEvent(OrcaEvent.UserPrompt(prompt))
-        val accounting = turnAccounting(effective, session, sessionKey)
+        val accounting = turnAccounting(session, sessionKey)
         val result = accounting.recording:
           backend.runAutonomous(
             prompt,
             session,
-            effective,
+            config,
             OrcaListener.attributedTo(events, name)
           )
         accounting.succeeded(result, TurnAccounting.OnlyTurn)
@@ -121,16 +119,15 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
       orca.InStage
   ): String =
     backend.checkNotClosed()
-    val effective = effectiveConfig(None)
     val attributed = OrcaListener.attributedTo(events, name)
     val quietEvents: OrcaListener = (e: OrcaEvent) =>
       e match
         case _: OrcaEvent.AssistantMessage | _: OrcaEvent.ToolUse => ()
         case other => attributed.onEvent(other)
     val session = SessionId.fresh[B]
-    val accounting = turnAccounting(effective, session, sessionKey = None)
+    val accounting = turnAccounting(session, sessionKey = None)
     val result = accounting.recording:
-      backend.runAutonomous(prompt, session, effective, quietEvents)
+      backend.runAutonomous(prompt, session, config, quietEvents)
     accounting.succeeded(result, TurnAccounting.OnlyTurn)
     result.output
 
@@ -138,7 +135,7 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
     backend.checkNotClosed()
     new DefaultAgentCall[B, O](
       backend,
-      effectiveConfig,
+      config,
       prompts,
       events,
       interaction,
@@ -147,7 +144,6 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
     )
 
   private def turnAccounting(
-      effective: AgentConfig,
       session: SessionId[B],
       sessionKey: Option[SessionKey]
   ): TurnAccounting[B] =
@@ -158,12 +154,5 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
       backend = backend,
       session = session,
       sessionKey = sessionKey,
-      pinned = effective.model
+      pinned = config.model
     )
-
-  /** `None` (the caller omitted the per-call `config` arg) falls back to the
-    * tool-level config. An explicit `Some(...)` from the call site wholly
-    * replaces the tool-level one — there is no per-field merge.
-    */
-  private def effectiveConfig(callConfig: Option[AgentConfig]): AgentConfig =
-    callConfig.getOrElse(config)
