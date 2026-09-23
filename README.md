@@ -153,7 +153,7 @@ scala-cli run --workspace "$(mktemp -d)" implement.sc -- "Add a rate-limiter to 
 
 Each flow starts by creating a feature branch, named by a short
 cheap-model-generated label derived from the prompt (slugged; pass `branchNaming
-= ...` to override). On success the flow opens a PR when the repository is on a
+= ...` to override, or `--branch <name>` to name it yourself). On success the flow opens a PR when the repository is on a
 GitHub `gh` can reach, and hands you back the branch you started on — the work
 is on the PR. Otherwise it says so in one line and leaves you on the feature
 branch, ready to test or open a PR by hand — see [The flow
@@ -341,7 +341,9 @@ Each run is bound to exactly one feature branch and one progress log
 
 - **Start:** stash a dirty working tree with a warning (recover with `git stash
   pop`); create + checkout the feature branch; write and commit the progress log
-  header. The three flags below reach a flow as one `OrcaArgs.target`
+  header. `--branch <name>` (`OrcaArgs.branch`) names that branch, winning
+  over `branchNaming`; a protected or already existing name is refused rather
+  than renamed. The three flags below reach a flow as one `OrcaArgs.target`
   (`RunTarget`), which has no case for a combination orca refuses. A script can
   also set that field itself — `flow(OrcaArgs(args).copy(target =
   RunTarget.Worktree))` — which overrides whatever the flags said.
@@ -379,7 +381,8 @@ Each run is bound to exactly one feature branch and one progress log
   failure before it runs the teardown's `git reset --hard` and destroys kept
   modifications to tracked files (kept untracked files survive).
 - **Resume:** a re-run with the same prompt finds the progress log and resumes
-  from the first incomplete stage. It says once which branch it bound, how many
+  from the first incomplete stage (a `--branch` naming a different branch than
+  the log's is refused). It says once which branch it bound, how many
   stages are already recorded, and that the interrupted stage's uncommitted work
   was not carried over; every durable session it re-enters through `session.run`
   is told the same — a re-seeded one in its preamble, a still-live one once, on
