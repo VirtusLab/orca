@@ -1189,6 +1189,33 @@ class FlowLifecycleTest extends munit.FunSuite:
     )
     assert(!localBranches(workDir).contains("develop"))
 
+  test("setup: --branch on a script-set CurrentBranch target is refused"):
+    val workDir = GitRepo.seeded()
+    val prompt = "a task with a chosen branch"
+    val thrown = intercept[orca.OrcaFlowException]:
+      FlowLifecycle.setup(
+        args = OrcaArgs(
+          prompt,
+          target = RunTarget.CurrentBranch(Uncommitted.Stash),
+          branch = BranchName.parse("feat/x").toOption
+        ),
+        agent = StubAgent.claude,
+        git = new OsGitTool(workDir),
+        workDir = workDir,
+        branchNaming = None,
+        resolution = FlowLifecycle
+          .readSettings(workDir, noGlobalSettings, Some(StackSettings.empty))
+          .stack,
+        stackOverridden = true,
+        store = ProgressStore.default(workDir, RunKey.of(prompt)),
+        sessionStore = scratchSessions(),
+        emit = _ => ()
+      )
+    assert(
+      thrown.getMessage.contains("--skip-branch"),
+      s"refusal must name --skip-branch: ${thrown.getMessage}"
+    )
+
   test("the commit the run bound at reaches the flow body"):
     // The rest of the path FlowSetup only starts: DefaultFlowContext, and what
     // a flow body actually reads when it asks for the whole-run diff base.

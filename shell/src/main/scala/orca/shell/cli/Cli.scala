@@ -172,17 +172,14 @@ private[shell] object Cli:
   ): Int =
     val flags =
       for
-        givenBranch <- branch match
-          case None      => Right(None)
-          case Some(raw) => BranchName.parse(raw).map(Some(_))
+        givenBranch <- BranchName.parseOptional(branch)
         target <- RunTarget.from(
           worktree = worktree.value,
           skipBranch = skipBranch.value,
           keepChanges = keepChanges.value,
           branch = givenBranch
         )
-        validFlags <- FlowFlags.from(verbose.value, target, givenBranch)
-      yield validFlags
+      yield FlowFlags(verbose.value, target, givenBranch)
     RunCli.run(
       flowRef = flow,
       task = task,

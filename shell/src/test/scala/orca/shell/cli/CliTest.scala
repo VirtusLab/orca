@@ -941,7 +941,7 @@ class CliTest extends munit.FunSuite:
       SessionPicker
         .resolveSelection(attemptsFixture(), Some("no-such-session")),
       Left(
-        "no session named 'no-such-session' found — see `orca continue --list`"
+        "no session or branch named 'no-such-session' found — see `orca continue --list`"
       )
     )
 
@@ -955,12 +955,61 @@ class CliTest extends munit.FunSuite:
       )
     )
 
-  test("resolveSelection: a branch selector resumes its newest lineage"):
+  test(
+    "resolveSelection: a branch selector picks the most recently active lineage"
+  ):
+    def onBranch(
+        startedAt: String,
+        sessionName: String,
+        lastActiveAt: String
+    ): RecordedAttempt =
+      RecordedAttempt(
+        manifest(
+          startedAt = startedAt,
+          branch = Some("feature/x"),
+          sessions = List(
+            durable(sessionName = sessionName, lastActiveAt = lastActiveAt)
+          )
+        ),
+        crashed = false
+      )
+    // The older attempt holds the more recently active session.
+    val attempts = List(
+      onBranch("2026-07-18T10:00:00Z", "planner", "2026-07-18T10:10:00Z"),
+      onBranch("2026-07-18T09:00:00Z", "implementer", "2026-07-18T11:00:00Z")
+    )
     assertEquals(
       SessionPicker
-        .resolveSelection(attemptsFixture(), Some("feature/older"))
+        .resolveSelection(attempts, Some("feature/x"))
         .map(_.session.minted.map(_.name)),
-      Right(Some("older"))
+      Right(Some("implementer"))
+    )
+
+  test(
+    "resolveSelection: a branch whose newest session is unresumable says why"
+  ):
+    val attempts = List(
+      RecordedAttempt(
+        manifest(
+          branch = Some("feature/broken"),
+          sessions = List(
+            durable(sessionName = "ok", lastActiveAt = "2026-07-18T09:00:00Z"),
+            durable(
+              sessionName = "broken",
+              lastActiveAt = "2026-07-18T09:30:00Z",
+              wireId = None
+            )
+          )
+        ),
+        crashed = false
+      )
+    )
+    assertEquals(
+      SessionPicker.resolveSelection(attempts, Some("feature/broken")),
+      Left(
+        "the newest session on branch 'feature/broken' isn't resumable — " +
+          "ClaudeCode session has no resumable id"
+      )
     )
 
   test("resolveSelection: a selector naming a session and a branch is refused"):
@@ -1013,7 +1062,7 @@ class CliTest extends munit.FunSuite:
     assertEquals(
       SessionPicker.resolveSelection(attemptsFixture(), Some("feature")),
       Left(
-        "no session named 'feature' found — see `orca continue --list`; " +
+        "no session or branch named 'feature' found — see `orca continue --list`; " +
           "did you mean: feature/newest, feature/older"
       )
     )
@@ -1032,7 +1081,7 @@ class CliTest extends munit.FunSuite:
     assertEquals(
       SessionPicker.resolveSelection(attempts, Some("feature")),
       Left(
-        "no session named 'feature' found — see `orca continue --list`; " +
+        "no session or branch named 'feature' found — see `orca continue --list`; " +
           "did you mean: feature/newest, feature/older"
       )
     )

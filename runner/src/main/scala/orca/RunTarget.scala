@@ -66,7 +66,8 @@ object RunTarget:
     branch.toList.flatMap(name => Seq("--branch", name.value))
 
   /** Refuses a `--branch` name on a target that creates no branch
-    * ([[CurrentBranch]]), with the message [[from]] gives the same pair.
+    * ([[CurrentBranch]]). [[from]] applies it to parsed flags, and the run's
+    * setup to the final [[OrcaArgs]], which a script may have rebuilt.
     */
   def refuseBranch(
       target: RunTarget,
@@ -98,8 +99,7 @@ object RunTarget:
     * own argv ([[OrcaArgs.parse]]) and `orca run`'s (the shell has its own
     * parser for the same flags) both come through here, so neither the wording
     * of a refusal nor the set of refused pairs can drift. A refused pair is a
-    * message, never a value — which is what keeps it out of every type below
-    * this point.
+    * message, never a value.
     */
   def from(
       worktree: Boolean,
@@ -109,12 +109,13 @@ object RunTarget:
   ): Either[String, RunTarget] =
     val uncommitted =
       if keepChanges then Uncommitted.Keep else Uncommitted.Stash
-    if skipBranch && branch.isDefined then Left(skipBranchWithBranchRefusal)
-    else if !worktree then
-      Right(
-        if skipBranch then CurrentBranch(uncommitted)
-        else NewBranch(uncommitted)
-      )
-    else if skipBranch then Left(worktreeWithSkipBranchRefusal)
-    else if keepChanges then Left(worktreeWithKeepChangesRefusal)
-    else Right(Worktree)
+    val target =
+      if !worktree then
+        Right(
+          if skipBranch then CurrentBranch(uncommitted)
+          else NewBranch(uncommitted)
+        )
+      else if skipBranch then Left(worktreeWithSkipBranchRefusal)
+      else if keepChanges then Left(worktreeWithKeepChangesRefusal)
+      else Right(Worktree)
+    target.flatMap(t => refuseBranch(t, branch).map(_ => t))

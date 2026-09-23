@@ -661,7 +661,7 @@ class MainTest extends munit.FunSuite:
     val (_, flags) = runFlowWith(target, List(UiOutcome.Selected("")))
     assertEquals(
       flags,
-      Some(FlowFlags.derivedBranch(verbose = false, target = target))
+      Some(FlowFlags(verbose = false, target = target, branch = None))
     )
 
   test("runFlow: cancelling the branch prompt aborts the run"):
@@ -1066,9 +1066,10 @@ class MainTest extends munit.FunSuite:
       assertEquals(
         recorded,
         Some(
-          worktree -> FlowFlags.derivedBranch(
+          worktree -> FlowFlags(
             verbose = false,
-            target = RunTarget.NewBranch(Uncommitted.Stash)
+            target = RunTarget.NewBranch(Uncommitted.Stash),
+            branch = None
           )
         )
       )

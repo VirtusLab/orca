@@ -47,9 +47,7 @@ object OrcaArgs:
   def parse(args: Seq[String]): Either[String, OrcaArgs] =
     for
       raw <- summon[ParserForClass[RawArgs]].constructEither(args.toList)
-      branch <- raw.branch match
-        case Some(name) => BranchName.parse(name).map(Some(_))
-        case None       => Right(None)
+      branch <- BranchName.parseOptional(raw.branch)
       target <- RunTarget.from(
         worktree = raw.worktree.value,
         skipBranch = raw.skipBranch.value,

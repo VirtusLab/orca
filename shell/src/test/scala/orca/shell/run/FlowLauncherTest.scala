@@ -17,7 +17,7 @@ class FlowLauncherTest extends munit.FunSuite:
       target: RunTarget = RunTarget.NewBranch(Uncommitted.Stash),
       branch: Option[BranchName] = None
   ): FlowFlags =
-    FlowFlags.from(verbose, target, branch).fold(fail(_), identity)
+    FlowFlags(verbose, target, branch)
 
   test("argv forces --dep with a release version, before --workspace/--"):
     val result = FlowLauncher.argv(
@@ -386,17 +386,4 @@ class FlowLauncherTest extends munit.FunSuite:
     assertEquals(
       result.takeRight(4),
       Seq("do the thing", "--keep-changes", "--branch", "feature/JIRA-123")
-    )
-
-  test("FlowFlags.from refuses --branch with --skip-branch"):
-    val refused = FlowFlags.from(
-      verbose = false,
-      target = RunTarget.CurrentBranch(Uncommitted.Stash),
-      branch = BranchName.parse("feature-x").toOption
-    )
-    assert(
-      refused.left.exists(m =>
-        m.contains("--branch") && m.contains("--skip-branch")
-      ),
-      refused
     )

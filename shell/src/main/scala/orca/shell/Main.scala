@@ -371,8 +371,7 @@ object Main:
 
   /** Selects a flow, prompts for the task text, for where the run's work should
     * go ([[RunTarget]]) and, when that target creates a branch, for the branch
-    * name, then hands off to [[RunAction.run]]. Verbose is not exposed here in
-    * v1 — a later task can add a verbose confirm alongside session tracking.
+    * name, then hands off to [[RunAction.run]]. Always launches non-verbose.
     */
   private[shell] def runFlow(
       ui: ShellUi,
@@ -395,38 +394,39 @@ object Main:
       )
       task <- promptTask(ui)
       target <- promptRunTarget(ui)
-      branch <- if target.skipBranch then Some(None) else promptBranchName(ui)
-      // Never `Left` here: a name is only asked for when the target creates a
-      // branch, the same rule `FlowFlags.from` refuses by.
-      flags <- FlowFlags.from(
-        verbose = false,
-        target = target,
-        branch = branch
-      ) match
-        case Left(message) =>
-          ShellOutput.error(message)
-          None
-        case Right(flags) => Some(flags)
+      branch <- promptBranchFor(ui, target) match
+        case UiOutcome.Selected(branch) => Some(branch)
+        case UiOutcome.Cancelled        => None
     do
+      val flags = FlowFlags(verbose = false, target = target, branch = branch)
       val opts = RunAction.RunOptions(flags, FallbackPolicy.Ask(ui))
       runAction(flow, task, opts, workDir, terminal).discard
 
-  /** Prompts for the run's branch name: `None` when cancelled (abort the run),
-    * `Some(None)` on a blank answer (the flow derives the name), re-asking on
-    * an invalid name.
+  /** The run's `--branch` name, asked for only when `target` creates a branch.
+    */
+  private def promptBranchFor(
+      ui: ShellUi,
+      target: RunTarget
+  ): UiOutcome[Option[BranchName]] =
+    if target.skipBranch then UiOutcome.Selected(None)
+    else promptBranchName(ui)
+
+  /** Prompts for the run's branch name: `Selected(None)` on a blank answer (the
+    * flow derives the name), re-asking on an invalid name.
     */
   @tailrec private def promptBranchName(
       ui: ShellUi
-  ): Option[Option[BranchName]] =
+  ): UiOutcome[Option[BranchName]] =
     ui.input("Branch name (Enter to derive from the task)") match
-      case UiOutcome.Cancelled                         => None
-      case UiOutcome.Selected(raw) if raw.trim.isEmpty => Some(None)
+      case UiOutcome.Cancelled => UiOutcome.Cancelled
+      case UiOutcome.Selected(raw) if raw.trim.isEmpty =>
+        UiOutcome.Selected(None)
       case UiOutcome.Selected(raw) =>
         BranchName.parse(raw) match
           case Left(message) =>
             ShellOutput.error(message)
             promptBranchName(ui)
-          case Right(name) => Some(Some(name))
+          case Right(name) => UiOutcome.Selected(Some(name))
 
   /** Resumes `run` (ADR 0021 §3 amendment): resolves its recorded flow name
     * against the current catalog and launches it with the recorded task text
@@ -465,9 +465,10 @@ object Main:
         val opts =
           RunAction.RunOptions(
             // The progress log's header names the branch on resume.
-            flags = FlowFlags.derivedBranch(
+            flags = FlowFlags(
               verbose = false,
-              target = RunTarget.NewBranch(Uncommitted.Stash)
+              target = RunTarget.NewBranch(Uncommitted.Stash),
+              branch = None
             ),
             fallback = FallbackPolicy.Ask(ui)
           )

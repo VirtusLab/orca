@@ -8,6 +8,7 @@ import orca.{
   OrcaArgs,
   OrcaDir,
   OrcaFlowException,
+  RunTarget,
   RuntimeInStage,
   StackSettings,
   WorkspaceWrite
@@ -337,6 +338,12 @@ object FlowLifecycle:
   ): FlowSetup =
     given InStage = RuntimeInStage.token()
     given WorkspaceWrite = RuntimeInStage.workspaceToken()
+    // `args` may come from a script's own `copy(target = ...)` rather than
+    // `OrcaArgs.parse`, so the pair is re-checked where it is used.
+    RunTarget
+      .refuseBranch(args.target, args.branch)
+      .left
+      .foreach(message => throw OrcaFlowException(message))
     warnIfSettingsIgnored(git, stackOverridden, emit)
     abortIfNoCommits(git)
     val startBranch = git.currentBranch()

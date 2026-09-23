@@ -21,6 +21,12 @@ object BranchName:
         Left(s"Branch name '$raw' $rule; pick another name.")
       case None => Right(raw)
 
+  /** [[parse]] for an optional `--branch` flag; `None` passes through. */
+  def parseOptional(raw: Option[String]): Either[String, Option[BranchName]] =
+    raw match
+      case None       => Right(None)
+      case Some(name) => parse(name).map(Some(_))
+
   extension (b: BranchName) def value: String = b
 
   private val forbiddenChars = "~^:?*[\\"
@@ -32,28 +38,41 @@ object BranchName:
       )("is a protected branch")
     )
 
+  private def components(raw: String): List[String] =
+    raw.split("/", -1).toList
+
+  // Ordered: the first broken rule names the refusal.
+  private val refFormatRules: List[(String => Boolean, String)] = List(
+    (_.isEmpty, "is empty"),
+    (_ == "HEAD", "is the reserved name HEAD"),
+    (_ == "@", "is the reserved name @"),
+    (_.startsWith("-"), "must not start with '-'"),
+    (_.exists(_.isControl), "must not contain control characters"),
+    (_.exists(_.isWhitespace), "must not contain spaces"),
+    (
+      _.exists(forbiddenChars.contains(_)),
+      s"must not contain any of ${forbiddenChars.mkString(" ")}"
+    ),
+    (_.contains(".."), "must not contain '..'"),
+    (_.contains("@{"), "must not contain '@{'"),
+    (
+      components(_).exists(_.isEmpty),
+      "must not start or end with '/' or contain '//'"
+    ),
+    (
+      components(_).exists(_.startsWith(".")),
+      "must not have a '/'-separated part starting with '.'"
+    ),
+    (
+      components(_).exists(_.endsWith(".lock")),
+      "must not have a '/'-separated part ending with '.lock'"
+    ),
+    (_.endsWith("."), "must not end with '.'")
+  )
+
   /** The first `git check-ref-format --branch` rule `raw` breaks, if any.
     * Stricter than git on whitespace and control characters: Unicode ones are
     * refused too.
     */
   private[progress] def refFormatViolation(raw: String): Option[String] =
-    val components = raw.split("/", -1).toList
-    if raw.isEmpty then Some("is empty")
-    else if raw == "HEAD" then Some("is the reserved name HEAD")
-    else if raw == "@" then Some("is the reserved name @")
-    else if raw.startsWith("-") then Some("must not start with '-'")
-    else if raw.exists(_.isControl) then
-      Some("must not contain control characters")
-    else if raw.exists(_.isWhitespace) then Some("must not contain spaces")
-    else if raw.exists(forbiddenChars.contains(_)) then
-      Some(s"must not contain any of ${forbiddenChars.mkString(" ")}")
-    else if raw.contains("..") then Some("must not contain '..'")
-    else if raw.contains("@{") then Some("must not contain '@{'")
-    else if components.exists(_.isEmpty) then
-      Some("must not start or end with '/' or contain '//'")
-    else if components.exists(_.startsWith(".")) then
-      Some("must not have a '/'-separated part starting with '.'")
-    else if components.exists(_.endsWith(".lock")) then
-      Some("must not have a '/'-separated part ending with '.lock'")
-    else if raw.endsWith(".") then Some("must not end with '.'")
-    else None
+    refFormatRules.collectFirst { case (broken, rule) if broken(raw) => rule }

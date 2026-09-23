@@ -383,7 +383,7 @@ private[shell] object SessionPicker:
     selection.session.minted.exists(_.name == name)
 
   private def notFound(name: String): String =
-    s"no session named '$name' found — see `orca continue --list`"
+    s"no session or branch named '$name' found — see `orca continue --list`"
 
   /** Resolves non-empty `matches` for a name selector. */
   private def resolveByName(

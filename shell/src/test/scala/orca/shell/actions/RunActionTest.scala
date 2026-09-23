@@ -19,9 +19,10 @@ class RunActionTest extends munit.FunSuite:
       // A non-default combination, so a launcher handed defaults of its own
       // instead of these fails here.
       val flags =
-        FlowFlags.derivedBranch(
+        FlowFlags(
           verbose = true,
-          target = RunTarget.NewBranch(Uncommitted.Keep)
+          target = RunTarget.NewBranch(Uncommitted.Keep),
+          branch = None
         )
       val recording = RecordingLaunch()
 

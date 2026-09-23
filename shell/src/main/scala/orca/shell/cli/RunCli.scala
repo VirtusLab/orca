@@ -17,8 +17,7 @@ private[cli] object RunCli:
     * is refused first, before anything is resolved or spawned, saving a
     * `scala-cli` start and its dependency resolution; the flow child refuses
     * the same argv on the same shared decision and stays the authority, this
-    * only makes the answer immediate. Below the refusal only the validated
-    * flags exist, so no launch path can be handed a pair orca refuses.
+    * only makes the answer immediate.
     */
   def run(
       flowRef: String,

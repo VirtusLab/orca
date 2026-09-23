@@ -30,35 +30,15 @@ private[shell] enum FallbackPolicy:
   * transpose without a compile error.
   *
   * `target` is the run's destination as one [[orca.RunTarget]] rather than the
-  * three flags it renders to, and `branch` (the `--branch` name, `None` to let
-  * the flow derive one) is only set through [[FlowFlags.from]], so the
-  * combinations orca refuses (`--worktree` with `--skip-branch` or
-  * `--keep-changes`, `--skip-branch` with `--branch`) cannot be handed to a
-  * launch path at all.
+  * three flags it renders to; `branch` is the `--branch` name, `None` to let
+  * the flow derive one. The flow refuses a `branch` on a target that creates no
+  * branch ([[orca.RunTarget.refuseBranch]]).
   */
-private[shell] case class FlowFlags private (
+private[shell] case class FlowFlags(
     verbose: Boolean,
     target: RunTarget,
     branch: Option[BranchName]
 )
-
-private[shell] object FlowFlags:
-
-  /** Flags that let the flow derive its branch name. */
-  def derivedBranch(verbose: Boolean, target: RunTarget): FlowFlags =
-    new FlowFlags(verbose, target, None)
-
-  /** Refuses `branch` on a target that creates no branch, with
-    * [[orca.RunTarget.refuseBranch]]'s message.
-    */
-  def from(
-      verbose: Boolean,
-      target: RunTarget,
-      branch: Option[BranchName]
-  ): Either[String, FlowFlags] =
-    RunTarget
-      .refuseBranch(target, branch)
-      .map(_ => new FlowFlags(verbose, target, branch))
 
 /** Runs a selected flow as a `scala-cli run` child inheriting the shell's
   * terminal (ADR 0021 §2). By default the shell forces its own orca version via
