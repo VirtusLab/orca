@@ -497,6 +497,15 @@ the wrong branch.
   instead of stashing it (R4 amendment), so those untracked files pre-date the
   run and are the flow's hand-off context, not its output. In that case the
   untracked leftovers stay, and the next run's stash (R4) sweeps them up.
+
+  > **Amendment (2026-09-23, failure-teardown guards).** Failure teardown
+  > resets only while HEAD is on the run's feature branch; when the body left
+  > it elsewhere, it touches nothing and says so. The R4 amendment's sharp edge
+  > is closed: a fresh run that keeps a dirty tree snapshots the kept tracked
+  > changes (`git stash create`, no ref) after setup's last commit, and a
+  > failure while HEAD is still at that commit re-applies the snapshot after the
+  > reset. Once HEAD has moved, a commit may already carry the changes, so
+  > teardown only names the snapshot for a manual `git stash apply`.
 - **R6** — Push and PR creation are flow-controlled and usable at any point; the
   runtime imposes no single terminal push.
 - **R30** — On startup the runtime cross-checks the header's recorded branch against
