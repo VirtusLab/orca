@@ -17,8 +17,17 @@ class WithClosingRefTest extends FunSuite:
     val body = "Body\n\nCloses #42\ncloses acme/widgets#42."
     assertEquals(withClosingRef(body, issue), "Body\n\nCloses acme/widgets#42.")
 
+  test("drops closing lines in other keyword, list and URL forms"):
+    val body =
+      """Body
+        |
+        |- Fixes #42 (null deref)
+        |Resolves https://github.com/acme/widgets/issues/42""".stripMargin
+    assertEquals(withClosingRef(body, issue), "Body\n\nCloses acme/widgets#42.")
+
   test("keeps closing lines for other issues"):
+    val body = "Body\n\nCloses #7\nCloses #420\nCloses other/repo#42"
     assertEquals(
-      withClosingRef("Body\n\nCloses #7", issue),
-      "Body\n\nCloses #7\n\nCloses acme/widgets#42."
+      withClosingRef(body, issue),
+      s"$body\n\nCloses acme/widgets#42."
     )
