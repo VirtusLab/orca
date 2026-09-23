@@ -1425,11 +1425,12 @@ class FlowLifecycleTest extends munit.FunSuite:
   private def setupDiscovering(
       workDir: os.Path,
       agent: Agent[?],
-      prompt: String
+      prompt: String,
+      target: RunTarget = RunTarget.NewBranch(Uncommitted.Stash)
   ): (FlowLifecycle.FlowSetup, List[String]) =
     val emitted = new AtomicReference[List[OrcaEvent]](Nil)
     val setup = FlowLifecycle.setup(
-      args = OrcaArgs(prompt),
+      args = OrcaArgs(prompt, target = target),
       agent = agent,
       git = new OsGitTool(workDir),
       workDir = workDir,
@@ -1468,6 +1469,32 @@ class FlowLifecycleTest extends munit.FunSuite:
       .out
       .text()
       .trim
+
+  test(
+    "setup with --keep-changes and discovery: the kept snapshot is based on the settings commit"
+  ):
+    // Teardown restores only while HEAD is at the snapshot's base, so a base
+    // behind setup's last commit would never be restored.
+    val workDir = GitRepo.seeded()
+    os.write.over(workDir / "seed.txt", "modified in place")
+    val (setup, _) = setupDiscovering(
+      workDir,
+      CannedDiscoveryAgent(
+        StackDiscoveryResult(
+          format = DiscoveredTask(commands =
+            List(DiscoveredCommand("echo fmt", "seed.txt"))
+          ),
+          lint = DiscoveredTask(),
+          test = DiscoveredTask()
+        )
+      ),
+      "discover-keep",
+      target = keepChanges
+    )
+    setup.startingTree match
+      case StartingTree.Kept(Some(snapshot)) =>
+        assertEquals(Some(snapshot.base), new OsGitTool(workDir).headCommit())
+      case other => fail(s"expected a kept snapshot, got $other")
 
   test(
     "setup: fresh arm, no file, no override — discovery gives the settings file its own commit, after the header commit"
@@ -3187,9 +3214,10 @@ class FlowLifecycleTest extends munit.FunSuite:
     assertEquals(os.read(workDir / "seed.txt"), "rewritten by the stage")
     val steps = listener.events.collect { case s: OrcaEvent.Step => s.message }
     assert(
-      steps.exists(_.contains("recover them with `git stash apply")),
+      steps.exists(_.contains("are in the run's commits")),
       s"the snapshot must be named for manual recovery: $steps"
     )
+    assert(!steps.exists(_.contains("could not restore")), steps)
 
   test(
     "failure teardown leaves the working tree alone when the body moved HEAD off the feature branch"

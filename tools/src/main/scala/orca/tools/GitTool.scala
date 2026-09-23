@@ -773,15 +773,19 @@ private[orca] class OsGitTool(
   ): Either[SnapshotFailed, Option[UncommittedSnapshot]] =
     ws.check("git.snapshotUncommitted")
     val result = gitProc(Seq("git", "stash", "create"))
+    val out = result.out.text().trim
     if result.exitCode != 0 then
       Left(SnapshotFailed(s"git stash create: ${result.err.text().trim}"))
+    // `stash create` prints nothing when no tracked file differs from HEAD.
+    else if out.isEmpty then Right(None)
     else
-      Right(
-        for
-          commit <- CommitHash.from(result.out.text().trim)
-          base <- headCommit()
-        yield UncommittedSnapshot(commit, base)
-      )
+      (CommitHash.from(out), headCommit()) match
+        case (Some(commit), Some(base)) =>
+          Right(Some(UncommittedSnapshot(commit, base)))
+        case (None, _) =>
+          Left(SnapshotFailed(s"git stash create printed '$out', not a hash"))
+        case (_, None) =>
+          Left(SnapshotFailed("HEAD does not resolve to a commit"))
 
   def restoreSnapshot(snapshot: UncommittedSnapshot)(using
       ws: WorkspaceWrite

@@ -282,14 +282,19 @@ class OsGitToolTest extends munit.FunSuite:
     "restoreSnapshot after discardUncommitted brings back staged and unstaged tracked changes"
   ):
     withSeededRepo: (git, dir) =>
-      os.write(dir / "added.txt", "staged new file")
+      os.write.over(dir / "seed.txt", "staged edit")
+      val _ = os.proc("git", "add", "seed.txt").call(cwd = dir)
       os.write.over(dir / "seed.txt", "unstaged edit")
-      val _ = os.proc("git", "add", "added.txt").call(cwd = dir)
-      val before = git.dirtyPaths()
+      val before = git.dirtyPaths() // "MM seed.txt"
       val snapshot = git
         .snapshotUncommitted()
         .orThrow
         .getOrElse(fail("tracked changes must yield a snapshot"))
+      assertEquals(
+        os.proc("git", "stash", "list").call(cwd = dir).out.text(),
+        "",
+        "the snapshot must not touch the stash stack"
+      )
       git.discardUncommitted(UntrackedFiles.Keep)
       git.restoreSnapshot(snapshot).orThrow
       assertEquals(git.dirtyPaths(), before)
