@@ -4,8 +4,8 @@ import org.jline.terminal.{Terminal, TerminalBuilder}
 
 /** Result of a single prompt: either a value, or [[UiOutcome.Cancelled]] for
   * ESC / Ctrl-C / EOF — the caller's convention is "back out of the current
-  * prompt"; at the top-level menu, [[orca.shell.Main]] treats that as the
-  * signal to end the shell.
+  * prompt"; at the top-level menu, [[orca.shell.menu.ShellMenu]] treats that as
+  * the signal to end the shell.
   */
 enum UiOutcome[+A]:
   case Selected(value: A)
@@ -18,6 +18,10 @@ enum UiOutcome[+A]:
   def flatMap[B](f: A => UiOutcome[B]): UiOutcome[B] = this match
     case Selected(value) => f(value)
     case Cancelled       => Cancelled
+
+  def toOption: Option[A] = this match
+    case Selected(value) => Some(value)
+    case Cancelled       => None
 
 /** The shell's prompt surface (ADR 0021 §3): select menus, confirmations and
   * free-text input. Two implementations share this contract: [[ConsoleUiShell]]

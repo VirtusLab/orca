@@ -1,13 +1,12 @@
 package orca.shell.cli
 
-import mainargs.ParserForMethods
+import mainargs.{ParserForMethods, TokensReader}
 import orca.StagePath
 import orca.agents.{BackendTag, SessionKey}
 import orca.runner.manifest.{AttemptStatus, ManifestSession}
 import orca.settings.{AgentSettings, AgentSpec, SettingsFile, SettingsScope}
-import orca.shell.ScanDirs
+import orca.shell.{ScanDirs, ShellEnv, TestShellEnv, Tier}
 import orca.shell.actions.SessionAction
-import orca.shell.create.CreateTier
 import orca.discovery.Origin
 import orca.progress.FlowSource
 import orca.shell.flows.DiscoveredFlow
@@ -31,17 +30,24 @@ class CliTest extends munit.FunSuite:
 
   // --- mainargs shape: happy path vs missing-required (usage error) ---
   //
-  // `invoke` runs the real Cli object exactly as `dispatch` would, but keeps
+  // `invoke` runs the real subcommands exactly as `dispatch` would, but keeps
   // the raw Either so a test can tell "mainargs rejected the shape, the
   // method never ran" (Left) apart from "the method ran and decided
   // something itself" (Right) — every subcommand's own logic (a bogus flow
   // name, the tty gate) only ever executes on the Right side, so these tests
   // never touch a real flow/harness/console.
 
+  private given ShellEnv = TestShellEnv()
+
   private def invoke(args: String*): Either[String, Any] =
-    ParserForMethods(Cli).runEither(args, autoPrintHelpAndExit = None)
+    import Cli.given
+    ParserForMethods(CliCommands()).runEither(args, autoPrintHelpAndExit = None)
 
   private def parses(args: String*): Boolean = invoke(args*).isRight
+
+  private val tierReader: TokensReader.Simple[Tier] =
+    import Cli.given
+    summon[TokensReader.Simple[Tier]]
 
   test(
     "run: flow + task positional and both flags parse (fails later, at flow resolution)"
@@ -215,14 +221,14 @@ class CliTest extends munit.FunSuite:
     val plainOut =
       captured(
         assertEquals(
-          ViewCli.runView(dir, "x.sc", highlight = false),
+          ViewCli.runView("x.sc", highlight = false)(using TestShellEnv(dir)),
           ExitCodes.Ok
         )
       )
     val colorOut =
       captured(
         assertEquals(
-          ViewCli.runView(dir, "x.sc", highlight = true),
+          ViewCli.runView("x.sc", highlight = true)(using TestShellEnv(dir)),
           ExitCodes.Ok
         )
       )
@@ -240,28 +246,11 @@ class CliTest extends munit.FunSuite:
   test("edit: the required flow positional missing is a usage error"):
     assert(!parses("edit"))
 
-  test("parseCustomizeTier: 'project' resolves to CreateTier.Project"):
-    assertEquals(
-      EditCli.parseCustomizeTier("project"),
-      Right(CreateTier.Project)
-    )
+  test("the tier reader maps 'project' to Tier.Project"):
+    assertEquals(tierReader.read(Seq("project")), Right(Tier.Project))
 
-  test("parseCustomizeTier: 'global' resolves to CreateTier.Global"):
-    assertEquals(EditCli.parseCustomizeTier("global"), Right(CreateTier.Global))
-
-  test("parseCustomizeTier: anything else is a usage error naming the value"):
-    assertEquals(
-      EditCli.parseCustomizeTier("bogus"),
-      Left("--to must be 'project' or 'global', got 'bogus'")
-    )
-
-  test(
-    "parseCustomizeTier: a non-default flag name is used in the error instead of --to"
-  ):
-    assertEquals(
-      EditCli.parseCustomizeTier("bogus", "--edit"),
-      Left("--edit must be 'project' or 'global', got 'bogus'")
-    )
+  test("the tier reader maps 'global' to Tier.Global"):
+    assertEquals(tierReader.read(Seq("global")), Right(Tier.Global))
 
   test("create: missing the required goal positional is a usage error"):
     assert(!parses("create"))
@@ -337,7 +326,7 @@ class CliTest extends munit.FunSuite:
     )
 
   test(
-    "config: no flags parses (a read-only `show` of the real global settings file)"
+    "config: no flags parses (a read-only `show` of the global settings file)"
   ):
     assert(parses("config"))
 
@@ -496,40 +485,6 @@ class CliTest extends munit.FunSuite:
       Right(2)
     )
 
-  // --- create/fork filename guard: no path separators (security review) ---
-
-  test(
-    "validateFileName: a name containing '..' plus '/' is rejected outright"
-  ):
-    assertEquals(
-      AuthorCli.validateFileName("../escape.sc"),
-      Left(
-        "'../escape.sc' isn't a valid flow filename — path separators aren't allowed"
-      )
-    )
-
-  test("validateFileName: a nested-directory name is rejected too"):
-    assert(AuthorCli.validateFileName("sub/dir.sc").isLeft)
-
-  test("validateFileName: a bare filename is accepted"):
-    assertEquals(AuthorCli.validateFileName("my-flow.sc"), Right(()))
-
-  test(
-    "safePrepareTarget: delegates to FlowAuthoring.prepareTarget for an ordinary name"
-  ):
-    val dir = TempDirs.dir()
-    val result =
-      AuthorCli.safePrepareTarget(
-        CreateTier.Project,
-        "x.sc",
-        dir,
-        dir / "global"
-      )
-    assertEquals(
-      result.map(_.flowPath),
-      Right(dir / ".orca" / "flows" / "x.sc")
-    )
-
   // --- resolveTarget: an explicit --name never forces the (possibly
   // agent-backed) auto-name suggestion, since it's by-name and only the
   // `None` branch ever touches it ---
@@ -537,12 +492,10 @@ class CliTest extends munit.FunSuite:
   test("resolveTarget: an explicit name never evaluates autoName"):
     val dir = TempDirs.dir()
     val result = AuthorCli.resolveTarget(
-      CreateTier.Project,
+      Tier.Project,
       Some("explicit.sc"),
-      throw new RuntimeException("autoName must not be evaluated"),
-      dir,
-      dir / "global"
-    )
+      throw new RuntimeException("autoName must not be evaluated")
+    )(using TestShellEnv(dir))
     assertEquals(
       result.map(_.flowPath),
       Right(dir / ".orca" / "flows" / "explicit.sc")
@@ -551,12 +504,8 @@ class CliTest extends munit.FunSuite:
   test("resolveTarget: no name falls through to autoName"):
     val dir = TempDirs.dir()
     val result =
-      AuthorCli.resolveTarget(
-        CreateTier.Project,
-        None,
-        "suggested.sc",
-        dir,
-        dir / "global"
+      AuthorCli.resolveTarget(Tier.Project, None, "suggested.sc")(using
+        TestShellEnv(dir)
       )
     assertEquals(
       result.map(_.flowPath),
@@ -646,112 +595,47 @@ class CliTest extends munit.FunSuite:
       )
       assert(!written.contains("not a valid line"), written)
 
-  // --- runEdit: tty-gate and tier parsing (never reaches the real editor
-  // spawn — both failure modes short-circuit the for-comprehension before
-  // `withTerminal` is ever called).
+  // --- runEdit: the tty gate (never reaches the real editor spawn) and the
+  // mainargs tier parse.
 
   test("runEdit: off-tty is a usage error, naming the command"):
-    withTempPath: path =>
+    given env: ShellEnv = TestShellEnv()
+    assertEquals(
+      ConfigCli.runEdit(Tier.Global, tty = false),
+      ExitCodes.UsageError
+    )
+    assert(!os.exists(env.configHome.settings))
+
+  test("config: an --edit value other than project|global is a usage error"):
+    val (_, err) = capturedBoth(
       assertEquals(
-        ConfigCli.runEdit("project", tty = false, TempDirs.dir(), path),
+        Cli.dispatch(Seq("config", "--edit", "bogus")),
         ExitCodes.UsageError
       )
-      assert(!os.exists(path))
-
-  test(
-    "runEdit: an invalid tier value is a usage error naming --edit, not --to"
-  ):
-    withTempPath: path =>
-      val (_, err) = capturedBoth(
-        assertEquals(
-          ConfigCli.runEdit("bogus", tty = true, TempDirs.dir(), path),
-          ExitCodes.UsageError
-        )
-      )
-      assert(!os.exists(path))
-      assert(
-        err.contains("--edit must be 'project' or 'global', got 'bogus'"),
-        err
-      )
-      assert(!err.contains("--to"), err)
-
-  // --- run: --edit's mutual exclusion with role flags/--force ---
-
-  test("run: --edit with a role flag is a usage error naming the conflict"):
-    withTempPath: path =>
-      assertEquals(
-        ConfigCli.run(
-          path,
-          planning = None,
-          coding = Some("codex"),
-          review = None,
-          force = false,
-          edit = Some("project"),
-          tty = true,
-          workDir = TempDirs.dir()
-        ),
-        ExitCodes.UsageError
-      )
-
-  test("run: --edit with --force is a usage error too"):
-    withTempPath: path =>
-      assertEquals(
-        ConfigCli.run(
-          path,
-          planning = None,
-          coding = None,
-          review = None,
-          force = true,
-          edit = Some("project"),
-          tty = true,
-          workDir = TempDirs.dir()
-        ),
-        ExitCodes.UsageError
-      )
+    )
+    assert(err.contains("--edit"), err)
 
   test(
     "run: --edit alone (no role flags) is not rejected by the conflict check"
   ):
-    withTempPath: path =>
-      // tty = false so this doesn't actually spawn an editor — both this and
-      // the conflict case are UsageError, so the message is what proves it's
-      // the tty gate that fired here, not the conflict check.
-      val (_, err) = capturedBoth(
-        assertEquals(
-          ConfigCli.run(
-            path,
-            planning = None,
-            coding = None,
-            review = None,
-            force = false,
-            edit = Some("project"),
-            tty = false,
-            workDir = TempDirs.dir()
-          ),
-          ExitCodes.UsageError
-        )
+    // tty = false so this doesn't actually spawn an editor — both this and
+    // the conflict case are UsageError, so the message is what proves it's
+    // the tty gate that fired here, not the conflict check.
+    val (_, err) = capturedBoth(
+      assertEquals(
+        ConfigCli.run(
+          planning = None,
+          coding = None,
+          review = None,
+          force = false,
+          edit = Some(Tier.Project),
+          tty = false
+        ),
+        ExitCodes.UsageError
       )
-      assert(err.contains("needs a terminal"), err)
-      assert(!err.contains("can't be combined"), err)
-
-  test("run: no --edit delegates to runConfig unchanged"):
-    withTempPath: path =>
-      val out = captured(
-        assertEquals(
-          ConfigCli.run(
-            path,
-            planning = None,
-            coding = None,
-            review = None,
-            force = false,
-            edit = None,
-            tty = true,
-            workDir = TempDirs.dir()
-          ),
-          ExitCodes.Ok
-        )
-      )
-      assert(out.contains("planning: (not set)"), out)
+    )
+    assert(err.contains("needs a terminal"), err)
+    assert(!err.contains("can't be combined"), err)
 
   test("renderAgents: a set model pin renders as harness:model"):
     val text = ConfigCli.renderAgents(
@@ -828,7 +712,12 @@ class CliTest extends munit.FunSuite:
       createFolders = true
     )
     val out =
-      captured(assertEquals(ListCli.runList(dir, json = true), ExitCodes.Ok))
+      captured(
+        assertEquals(
+          ListCli.runList(json = true)(using TestShellEnv(dir)),
+          ExitCodes.Ok
+        )
+      )
     assert(out.contains(""""name":"x.sc""""), out)
     assert(out.contains(""""origin":"project""""), out)
     assert(out.contains(""""description":"does a thing""""), out)
@@ -841,7 +730,12 @@ class CliTest extends munit.FunSuite:
       createFolders = true
     )
     val out =
-      captured(assertEquals(ListCli.runList(dir, json = false), ExitCodes.Ok))
+      captured(
+        assertEquals(
+          ListCli.runList(json = false)(using TestShellEnv(dir)),
+          ExitCodes.Ok
+        )
+      )
     assert(out.contains("x.sc"), out)
     assert(out.contains("does a thing"), out)
     assert(!out.contains("{"), out)

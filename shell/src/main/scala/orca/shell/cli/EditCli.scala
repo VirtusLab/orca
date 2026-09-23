@@ -1,8 +1,7 @@
 package orca.shell.cli
 
-import orca.ConfigHome
+import orca.shell.{ShellEnv, Tier}
 import orca.shell.actions.{EditAction, FlowResolution}
-import orca.shell.create.CreateTier
 import orca.discovery.Origin
 import orca.shell.flows.DiscoveredFlow
 
@@ -14,23 +13,18 @@ import Cli.{actionFailure, complete, requireTty, usageFailure, withTerminal}
   */
 private[cli] object EditCli:
 
-  def run(
-      flowRef: String,
-      to: Option[String],
-      tty: Boolean,
-      workDir: os.Path
+  def run(flowRef: String, to: Option[Tier], tty: Boolean)(using
+      ShellEnv
   ): Int =
     complete:
       for
         _ <- requireTty("edit", tty).left.map(usageFailure)
-        flow <- FlowResolution.resolve(flowRef, workDir).left.map(actionFailure)
-        exit <- editResolved(flow, to, workDir)
+        flow <- FlowResolution.resolve(flowRef).left.map(actionFailure)
+        exit <- editResolved(flow, to)
       yield exit
 
-  private def editResolved(
-      flow: DiscoveredFlow,
-      to: Option[String],
-      workDir: os.Path
+  private def editResolved(flow: DiscoveredFlow, to: Option[Tier])(using
+      ShellEnv
   ): Either[CliFailure, Int] =
     if flow.origin != Origin.BuiltIn then
       if to.isDefined then
@@ -46,32 +40,6 @@ private[cli] object EditCli:
               "'" + flow.name + "' is built-in — pass --to project|global to customize it"
             )
           )
-        case Some(raw) =>
-          for
-            tier <- parseCustomizeTier(raw).left.map(usageFailure)
-            exit <- withTerminal(
-              EditAction.customizeThenEdit(
-                _,
-                flow,
-                tier,
-                workDir,
-                ConfigHome.default.flows
-              )
-            ).left.map(actionFailure)
-          yield exit
-
-  /** Parses a `project|global` tier value, naming `flagName` in the error so
-    * the message matches whichever flag the caller actually exposes — `--to`
-    * here, `--edit` for [[ConfigCli.runEdit]] (same grammar, shared so the two
-    * can't drift, distinct wording so neither names a flag that command doesn't
-    * have).
-    */
-  private[cli] def parseCustomizeTier(
-      raw: String,
-      flagName: String = "--to"
-  ): Either[String, CreateTier] =
-    raw match
-      case "project" => Right(CreateTier.Project)
-      case "global"  => Right(CreateTier.Global)
-      case other =>
-        Left(s"$flagName must be 'project' or 'global', got '$other'")
+        case Some(tier) =>
+          withTerminal(EditAction.customizeThenEdit(_, flow, tier)).left
+            .map(actionFailure)

@@ -1,4 +1,4 @@
-package orca.shell
+package orca.shell.menu
 
 import orca.progress.FlowSource
 import orca.shell.resume.InterruptedRun
@@ -10,7 +10,7 @@ class MainMenuTest extends munit.FunSuite:
     "choices(Some(count)) yields the 10 ADR-order items, all enabled"
   ):
     val values = MainMenu
-      .choices(continueSessionCount = Some(2))
+      .choices(continueSessionCount = Some(2), None, os.root)
       .map(_.value)
     assertEquals(
       values,
@@ -29,18 +29,19 @@ class MainMenuTest extends munit.FunSuite:
     )
     assert(
       MainMenu
-        .choices(continueSessionCount = Some(2))
+        .choices(continueSessionCount = Some(2), None, os.root)
         .forall(_.disabledReason.isEmpty)
     )
 
   test("choices(None) has no ContinueSession item"):
-    val choices = MainMenu.choices(continueSessionCount = None)
+    val choices = MainMenu.choices(continueSessionCount = None, None, os.root)
     assert(!choices.exists(_.value == MenuItem.ContinueSession))
 
   test(
     "choices(Some(count)) labels ContinueSession with the newest run's session count"
   ):
-    val choices = MainMenu.choices(continueSessionCount = Some(3))
+    val choices =
+      MainMenu.choices(continueSessionCount = Some(3), None, os.root)
     val label =
       choices.find(_.value == MenuItem.ContinueSession).get.label
     assertEquals(
@@ -52,7 +53,7 @@ class MainMenuTest extends munit.FunSuite:
     "EditFlow/CreateFlow/ForkFlow labels name both hand and agent modes"
   ):
     val choices = MainMenu
-      .choices(continueSessionCount = None)
+      .choices(continueSessionCount = None, None, os.root)
     val byValue = choices.map(c => c.value -> c.label).toMap
     assertEquals(
       byValue(MenuItem.EditFlow),
@@ -67,24 +68,11 @@ class MainMenuTest extends munit.FunSuite:
       "Fork a flow — by hand, or an agent adapts the copy"
     )
 
-  test("modeChoices offers agent first — the default — then hand"):
-    assertEquals(
-      MainMenu.modeChoices.map(_.value),
-      List(ChangeMode.Agent, ChangeMode.Hand)
-    )
-    assertEquals(
-      MainMenu.modeChoices.map(_.label),
-      List(
-        "With an agent — describe the changes and let it work",
-        "By hand — open in your editor"
-      )
-    )
-
   test(
     "Reconfigure/RediscoverStack labels say what they reconfigure/re-detect"
   ):
     val choices = MainMenu
-      .choices(continueSessionCount = None)
+      .choices(continueSessionCount = None, None, os.root)
     val byValue = choices.map(c => c.value -> c.label).toMap
     assertEquals(
       byValue(MenuItem.Reconfigure),
@@ -97,7 +85,7 @@ class MainMenuTest extends munit.FunSuite:
 
   test("choices(resumeOffer = None) has no ResumeRun item"):
     val choices = MainMenu
-      .choices(continueSessionCount = None)
+      .choices(continueSessionCount = None, None, os.root)
     assert(!choices.exists(_.value == MenuItem.ResumeRun))
 
   test(
@@ -197,10 +185,11 @@ class MainMenuTest extends munit.FunSuite:
           dir = os.root / "work",
           log = os.root / "work" / "run.progress.json"
         )
-      )
+      ),
+      workDir = os.root
     )
     val without = MainMenu
-      .choices(continueSessionCount = None)
+      .choices(continueSessionCount = None, None, os.root)
     assertEquals(
       withOffer.filterNot(_.value == MenuItem.ResumeRun).map(_.label),
       without.map(_.label)
@@ -208,7 +197,7 @@ class MainMenuTest extends munit.FunSuite:
 
   test("EditSettings label names both tiers it can open"):
     val choices = MainMenu
-      .choices(continueSessionCount = None)
+      .choices(continueSessionCount = None, None, os.root)
     val byValue = choices.map(c => c.value -> c.label).toMap
     assertEquals(
       byValue(MenuItem.EditSettings),

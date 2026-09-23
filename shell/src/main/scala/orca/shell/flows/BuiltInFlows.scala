@@ -1,6 +1,5 @@
 package orca.shell.flows
 
-import orca.XdgDirs
 import orca.shell.ShellVersion
 
 /** Bundles the built-in flows (ADR 0021 §7) as jar resources under
@@ -16,7 +15,7 @@ private[shell] object BuiltInFlows:
   // re-materializes on every call, and callers reach `extracted` on every flow
   // listing (every picker open); once per process is as often as that can
   // matter, since a process's version and flow resources are both fixed at
-  // startup. Keyed by the target dir — a total function of the env/home/version
+  // startup. Keyed by the target dir — a total function of the cacheHome/version
   // arguments — so a call with different arguments gets its own extraction
   // rather than the first one's, keeping `extracted` reusable across homes and
   // versions within one process. `computeIfAbsent` keeps the first extraction
@@ -44,9 +43,8 @@ private[shell] object BuiltInFlows:
       new String(stream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)
     finally stream.close()
 
-  /** Extracts the built-in flows to
-    * `$XDG_CACHE_HOME/orca/shell/<version>/flows`, resolved by
-    * [[orca.XdgDirs.cacheHome]]. Returns that directory.
+  /** Extracts the built-in flows to `<cacheHome>/orca/shell/<version>/flows`
+    * and returns that directory.
     *
     * A release-looking `version` (`ShellVersion.isRelease`) extracts once,
     * keyed by the directory being *complete* — present with every indexed flow
@@ -72,16 +70,11 @@ private[shell] object BuiltInFlows:
     * treated as absent and self-heals on the next call.
     *
     * Memoized per process ([[extractedCache]]): repeat calls with the same
-    * env/home/version — every picker open in one shell process — reuse the
+    * cacheHome/version — every picker open in one shell process — reuse the
     * first call's extraction.
     */
-  def extracted(
-      env: String => Option[String],
-      home: os.Path,
-      version: String
-  ): os.Path =
-    val dir =
-      XdgDirs.cacheHome(env, home) / "orca" / "shell" / version / "flows"
+  def extracted(cacheHome: os.Path, version: String): os.Path =
+    val dir = cacheHome / "orca" / "shell" / version / "flows"
 
     extractedCache.computeIfAbsent(
       dir,

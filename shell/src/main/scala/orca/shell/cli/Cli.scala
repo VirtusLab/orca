@@ -1,9 +1,17 @@
 package orca.shell.cli
 
-import mainargs.{Flag, ParserForMethods, Renderer, Util, arg, main}
+import mainargs.{
+  Flag,
+  ParserForMethods,
+  Renderer,
+  TokensReader,
+  Util,
+  arg,
+  main
+}
 import org.jline.terminal.Terminal
-import orca.{ConfigHome, RawArgs}
-import orca.shell.WorktreeScan
+import orca.RawArgs
+import orca.shell.{ShellEnv, Tier, WorktreeScan}
 import orca.shell.run.LaunchResult
 import orca.shell.ui.ShellUi
 import orca.subprocess.TtyProbe
@@ -22,16 +30,10 @@ private[shell] object ExitCodes:
   */
 private[cli] case class CliFailure(message: String, exitCode: Int)
 
-/** The non-interactive CLI's mainargs subcommand surface (ADR 0021 §10): one
-  * `@main` method per verb, each a thin parse-and-delegate to the matching
-  * per-command handler in `cli/` and returning the process exit code rather
-  * than calling `sys.exit` itself — [[orca.shell.Main.main]] is the only place
-  * that exits, once [[dispatch]] has returned. The handlers hand off to the
-  * `actions/` layer the interactive menu also calls, so behavior matches
-  * `Main`'s prompting flows exactly, minus the prompts. Each handler's
-  * pulled-out method takes explicit `workDir`/`tty` params instead of reading
-  * `os.pwd`/console state directly, so tests never touch the real filesystem or
-  * console.
+/** The non-interactive CLI (ADR 0021 §10): dispatches argv to [[CliCommands]]'
+  * subcommands and holds the helpers every per-command handler in `cli/`
+  * shares. Returns the process exit code rather than calling `sys.exit` itself
+  * — [[orca.shell.Main.main]] is the only place that exits.
   */
 private[shell] object Cli:
 
@@ -82,11 +84,23 @@ private[shell] object Cli:
     try body(terminal)
     finally terminal.close()
 
+  /** `project|global`, for `--to`/`--edit`. */
+  private[cli] given TokensReader.Simple[Tier] with
+    def shortName: String = "project|global"
+    def read(strs: Seq[String]): Either[String, Tier] =
+      strs.last match
+        case "project" => Right(Tier.Project)
+        case "global"  => Right(Tier.Global)
+        case other     => Left(s"expected 'project' or 'global', got '$other'")
+
+  private def parser(using ShellEnv): ParserForMethods[CliCommands] =
+    ParserForMethods(CliCommands())
+
   /** Every subcommand's dispatch name, kebab-mapped from its method name —
     * `Main.main`'s single source of truth for "is this token a subcommand".
     */
-  def commandNames: Set[String] =
-    ParserForMethods(Cli).mains.value.map(_.name(nameMapper)).toSet
+  def commandNames(using ShellEnv): Set[String] =
+    parser.mains.value.map(_.name(nameMapper)).toSet
 
   /** Runs `args` (the full argv, subcommand name included) and returns the
     * process exit code. `--help`/`-h` anywhere in the subcommand's own
@@ -97,7 +111,7 @@ private[shell] object Cli:
     * unresolvable subcommand) is a usage error, `Right` is the invoked method's
     * own returned exit code.
     */
-  def dispatch(args: Seq[String]): Int =
+  def dispatch(args: Seq[String])(using ShellEnv): Int =
     require(
       args.nonEmpty,
       "dispatch requires a non-empty argv — Main.main only calls this after " +
@@ -108,7 +122,7 @@ private[shell] object Cli:
       println(commandHelp(name).getOrElse(s"orca: unknown command '$name'"))
       ExitCodes.Ok
     else
-      ParserForMethods(Cli).runEither(args, autoPrintHelpAndExit = None) match
+      parser.runEither(args, autoPrintHelpAndExit = None) match
         case Left(usage) =>
           Console.err.println(usage)
           ExitCodes.UsageError
@@ -119,8 +133,10 @@ private[shell] object Cli:
   /** `orca <name> --help`'s text: `name`'s own mainargs-rendered signature and
     * arg docs, or `None` if `name` isn't a known subcommand.
     */
-  private[cli] def commandHelp(name: String): Option[String] =
-    ParserForMethods(Cli).mains.value
+  private[cli] def commandHelp(name: String)(using
+      ShellEnv
+  ): Option[String] =
+    parser.mains.value
       .find(_.name(nameMapper) == name)
       .map: m =>
         val leftColWidth =
@@ -136,6 +152,52 @@ private[shell] object Cli:
           sorted = true,
           nameMapper = nameMapper
         )
+
+  /** Both stdin and stdout are a real terminal — the combined gate every
+    * `requireTty` call site needs (an interactive prompt reads one and draws on
+    * the other). `run`/`view` each care about exactly one side instead, so they
+    * probe [[TtyProbe.stdin]]/[[TtyProbe.stdout]] directly rather than going
+    * through this.
+    */
+  private[cli] def isTty: Boolean = TtyProbe.stdin() && TtyProbe.stdout()
+
+  /** The mandatory gate before touching any interactive UI or child-exec
+    * command (ADR 0021 §4/§10): `create`/`fork`/`edit`/`continue`'s resume and
+    * `config --edit` all exec an interactive child or (opencode) confirm via
+    * [[ShellUi]], which NPEs off a real tty — so this runs BEFORE any
+    * [[Terminal]] or [[ShellUi]] is built. `tty` is injected (production:
+    * [[isTty]]) so the decision is unit-testable without a real console.
+    */
+  private[cli] def requireTty(
+      command: String,
+      tty: Boolean
+  ): Either[String, Unit] =
+    Either.cond(
+      tty,
+      (),
+      s"`orca $command` needs a terminal; run it interactively"
+    )
+
+  /** Rejects a blank/whitespace-only `value` (`create`'s goal / `fork`'s
+    * changes positional) with a usage error — the interactive path's
+    * `menu.Prompts.nonBlankMultiline` already re-prompts on blank rather than
+    * passing a degenerate description to the harness, and `create`/`fork` need
+    * the same guard since they have no prompt to re-ask.
+    */
+  private[cli] def requireNonBlank(
+      argName: String,
+      value: String
+  ): Either[String, Unit] =
+    Either.cond(!value.isBlank, (), s"$argName can't be empty")
+
+/** The CLI's mainargs subcommand surface (ADR 0021 §10): one `@main` method per
+  * verb, each a thin parse-and-delegate to the matching per-command handler in
+  * `cli/`, returning the process exit code. The handlers hand off to the
+  * `actions/` layer the interactive menu also calls, so behavior matches the
+  * menu's prompting flows, minus the prompts.
+  */
+private[cli] class CliCommands(using env: ShellEnv):
+  import Cli.isTty
 
   @main(
     doc = "Run a flow, propagating its exit code.\n" +
@@ -156,7 +218,6 @@ private[shell] object Cli:
       flowRef = flow,
       args = args,
       honorPin = honorPin.value,
-      workDir = os.pwd,
       tty = TtyProbe.stdin()
     )
 
@@ -173,7 +234,7 @@ private[shell] object Cli:
       @arg(doc = "always highlight, regardless of stdout")
       color: Flag = Flag()
   ): Int =
-    ViewCli.run(flow, plain.value, color.value, TtyProbe.stdout(), os.pwd)
+    ViewCli.run(flow, plain.value, color.value, TtyProbe.stdout())
 
   @main(doc =
     "Open a flow in $VISUAL/$EDITOR/vi.\n" +
@@ -184,9 +245,9 @@ private[shell] object Cli:
       @arg(positional = true, doc = "flow name or path")
       flow: String,
       @arg(doc = "tier to customize a built-in flow into: project|global")
-      to: Option[String] = None
+      to: Option[Tier] = None
   ): Int =
-    EditCli.run(flow, to, isTty, os.pwd)
+    EditCli.run(flow, to, isTty)
 
   @main(doc =
     "Author a new flow: runs the built-in simple.sc flow in an " +
@@ -204,7 +265,7 @@ private[shell] object Cli:
       )
       global: Flag = Flag()
   ): Int =
-    AuthorCli.create(goal, name, global, isTty, os.pwd)
+    AuthorCli.create(goal, name, tierOf(global), isTty)
 
   @main(doc =
     "Fork an existing flow: runs the built-in simple.sc flow " +
@@ -224,7 +285,7 @@ private[shell] object Cli:
       )
       global: Flag = Flag()
   ): Int =
-    AuthorCli.fork(source, changes, name, global, isTty, os.pwd)
+    AuthorCli.fork(source, changes, name, tierOf(global), isTty)
 
   @main(doc =
     "Resume a recorded harness session. No selector resumes the newest one.\n" +
@@ -242,7 +303,7 @@ private[shell] object Cli:
       json: Flag = Flag()
   ): Int =
     ContinueCli.runContinue(
-      WorktreeScan.dirs(os.pwd),
+      WorktreeScan.dirs(env.workDir),
       selector,
       list.value,
       json.value,
@@ -268,17 +329,15 @@ private[shell] object Cli:
       )
       force: Flag = Flag(),
       @arg(doc = "hand-edit that tier's settings file instead: project|global")
-      edit: Option[String] = None
+      edit: Option[Tier] = None
   ): Int =
     ConfigCli.run(
-      ConfigHome.default.settings,
       planningAgent,
       codingAgent,
       reviewAgent,
       force.value,
       edit,
-      isTty,
-      os.pwd
+      isTty
     )
 
   @main(doc =
@@ -289,7 +348,7 @@ private[shell] object Cli:
       @arg(doc = "skip the confirmation (required off a terminal)")
       yes: Flag = Flag()
   ): Int =
-    StackCli.runClearStack(os.pwd, yes.value, isTty)
+    StackCli.runClearStack(env.workDir, yes.value, isTty)
 
   @main(doc =
     "List discovered flows across the project/global/built-in tiers.\n" +
@@ -299,41 +358,7 @@ private[shell] object Cli:
       @arg(doc = "emit JSON instead of a table")
       json: Flag = Flag()
   ): Int =
-    ListCli.runList(os.pwd, json.value)
+    ListCli.runList(json.value)
 
-  /** Both stdin and stdout are a real terminal — the combined gate every
-    * `requireTty` call site needs (an interactive prompt reads one and draws on
-    * the other). `run`/`view` each care about exactly one side instead, so they
-    * probe [[TtyProbe.stdin]]/[[TtyProbe.stdout]] directly rather than going
-    * through this.
-    */
-  private def isTty: Boolean = TtyProbe.stdin() && TtyProbe.stdout()
-
-  /** The mandatory gate before touching any interactive UI or child-exec
-    * command (ADR 0021 §4/§10): `create`/`fork`/`edit`/`continue`'s resume and
-    * `config --edit` all exec an interactive child or (opencode) confirm via
-    * [[ShellUi]], which NPEs off a real tty — so this runs BEFORE any
-    * [[Terminal]] or [[ShellUi]] is built. `tty` is injected (production:
-    * [[isTty]]) so the decision is unit-testable without a real console.
-    */
-  private[cli] def requireTty(
-      command: String,
-      tty: Boolean
-  ): Either[String, Unit] =
-    Either.cond(
-      tty,
-      (),
-      s"`orca $command` needs a terminal; run it interactively"
-    )
-
-  /** Rejects a blank/whitespace-only `value` (`create`'s goal / `fork`'s
-    * changes positional) with a usage error — the interactive path's
-    * `promptDescription` already re-prompts on blank rather than passing a
-    * degenerate description to the harness, and `create`/`fork` need the same
-    * guard since they have no prompt to re-ask.
-    */
-  private[cli] def requireNonBlank(
-      argName: String,
-      value: String
-  ): Either[String, Unit] =
-    Either.cond(!value.isBlank, (), s"$argName can't be empty")
+  private def tierOf(global: Flag): Tier =
+    if global.value then Tier.Global else Tier.Project
