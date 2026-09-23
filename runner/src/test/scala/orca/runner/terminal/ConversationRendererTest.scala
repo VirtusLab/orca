@@ -3,14 +3,9 @@ package orca.runner.terminal
 import orca.agents.{BackendTag, WireSessionId}
 import orca.events.{TurnDebit, Usage}
 import orca.{OrcaInteractiveCancelled}
-import orca.backend.{
-  ApprovalDecision,
-  Conversation,
-  ConversationEvent,
-  AgentResult
-}
-
-import ox.{Ox, supervised}
+import orca.backend.{ApprovalDecision, ConversationEvent, AgentResult}
+import orca.testkit.ScriptedConversation
+import ox.supervised
 
 import java.io.{ByteArrayOutputStream, PrintStream}
 import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
@@ -34,31 +29,6 @@ class ConversationRendererTest extends munit.FunSuite:
       currentIndent = () => "",
       prompter = prompter
     )
-
-  /** A fake Conversation that replays a scripted event list, then returns a
-    * scripted outcome from `awaitResult`. The shorthand `outcome` encoding
-    * mirrors what real conversations produce:
-    *   - `Right(result)` — successful result, returned as `Right(result)`.
-    *   - `Left(cancelled: OrcaInteractiveCancelled)` — returned as
-    *     `Left(cancelled)` so the caller pattern-matches.
-    *   - `Left(other)` — thrown, simulating a fatal subprocess failure.
-    */
-  private class ScriptedConversation[B <: BackendTag](
-      scripted: List[ConversationEvent],
-      outcome: Either[Throwable, AgentResult[B]],
-      val outputSchema: Option[String] = None
-  ) extends Conversation[B]:
-    val cancelled = new AtomicReference[Boolean](false)
-    def events(using Ox): Iterator[ConversationEvent] = scripted.iterator
-    def awaitResult()(using
-        Ox
-    ): Either[OrcaInteractiveCancelled, AgentResult[B]] =
-      outcome match
-        case Right(r)                          => Right(r)
-        case Left(c: OrcaInteractiveCancelled) => Left(c)
-        case Left(t)                           => throw t
-    def canAskUser: Boolean = false
-    def cancel(): Unit = cancelled.set(true)
 
   /** Test prompter that replays a scripted list of outcomes and records the
     * prompt strings it was asked for.
@@ -239,7 +209,11 @@ class ConversationRendererTest extends munit.FunSuite:
       Right(sampleResult)
     )
     val _ = supervised(renderer(buf, prompter = prompter).render(conv))
-    assert(conv.cancelled.get(), "expected conversation.cancel() to fire")
+    assertEquals(
+      conv.cancelCount.get(),
+      1,
+      "expected conversation.cancel() to fire"
+    )
 
   test("render does not close its prompter (prompter is process-scoped)"):
     // The prompter is shared across every conversation in a run; a
@@ -296,4 +270,8 @@ class ConversationRendererTest extends munit.FunSuite:
       Right(sampleResult)
     )
     val _ = supervised(renderer(buf, prompter = prompter).render(conv))
-    assert(conv.cancelled.get(), "expected conversation.cancel() to fire")
+    assertEquals(
+      conv.cancelCount.get(),
+      1,
+      "expected conversation.cancel() to fire"
+    )

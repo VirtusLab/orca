@@ -1,15 +1,7 @@
 package orca.agents
 
-import orca.testkit.StubEnforcementCell
-import orca.backend.{
-  Dispatch,
-  Conversation,
-  Interaction,
-  AgentBackend,
-  AgentResult,
-  IdScheme,
-  SessionSupport
-}
+import orca.testkit.ScriptedBackend
+import orca.backend.{Conversation, Interaction, AgentResult, TurnRequest}
 import orca.events.OrcaListener
 
 /** `withCheapModel` pins the model that [[Agent.cheap]] resolves to, overriding
@@ -58,31 +50,10 @@ class WithCheapModelTest extends munit.FunSuite:
         role: Option[String] = None
     ): Agent[BackendTag.Pi.type] = new StubTool(config)
 
-  private object StubBackend
-      extends AgentBackend[BackendTag.Pi.type]
-      with StubEnforcementCell[BackendTag.Pi.type]:
-    val workDir: os.Path = os.pwd
-    protected def doRunAutonomous(
-        prompt: String,
-        session: SessionId[BackendTag.Pi.type],
-        dispatch: Dispatch[BackendTag.Pi.type],
-        config: AgentConfig,
-        events: OrcaListener,
-        outputSchema: Option[String]
+  private object StubBackend extends ScriptedBackend(BackendTag.Pi):
+    protected def reply(
+        turn: TurnRequest[BackendTag.Pi.type]
     ): AgentResult[BackendTag.Pi.type] = ???
-    protected def doRunInteractive(
-        prompt: String,
-        session: SessionId[BackendTag.Pi.type],
-        dispatch: Dispatch[BackendTag.Pi.type],
-        displayPrompt: String,
-        config: AgentConfig,
-        outputSchema: Option[String]
-    )(using ox.Ox): Conversation[BackendTag.Pi.type] = ???
-    val sessions: SessionSupport[BackendTag.Pi.type] =
-      SessionSupport.ephemeral(IdScheme.ClientClaimed)
-    val tag: BackendTag.Pi.type = BackendTag.Pi
-    def structuredOutputMode: StructuredOutputMode =
-      StructuredOutputMode.RawText
 
   private object StubPrompts extends Prompts:
     def autonomous(

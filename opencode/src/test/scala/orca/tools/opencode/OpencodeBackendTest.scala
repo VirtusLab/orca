@@ -1,5 +1,6 @@
 package orca.tools.opencode
 
+import orca.testkit.OpenTurn
 import orca.OrcaFlowException
 import orca.backend.StreamSource
 import orca.agents.{
@@ -134,7 +135,7 @@ class OpencodeBackendTest extends munit.FunSuite:
     supervised:
       val http = new FakeHttp(turn("ses_server1", "tool-calls", Nil))
       val backend = new OpencodeBackend(new FakeHandle(http))
-      val conv = backend.runInteractive(
+      val conv = OpenTurn.interactive(backend)(
         "q",
         fresh,
         "display",
@@ -160,7 +161,7 @@ class OpencodeBackendTest extends munit.FunSuite:
       ) // resumed, not created
       assert(http.posts.exists(_._1 == "/session/ses_X/prompt_async"))
 
-  test("runInteractive returns a live conversation that can ask the user"):
+  test("an interactive turn opens a live conversation that can ask the user"):
     supervised:
       val http = new FakeHttp(
         turn(
@@ -174,7 +175,7 @@ class OpencodeBackendTest extends munit.FunSuite:
         )
       )
       val backend = new OpencodeBackend(new FakeHandle(http))
-      val conv = backend.runInteractive(
+      val conv = OpenTurn.interactive(backend)(
         "q",
         fresh,
         "display",
@@ -211,7 +212,7 @@ class OpencodeBackendTest extends munit.FunSuite:
         )
       )
       val backend = new OpencodeBackend(new FakeHandle(http))
-      val conv = backend.runInteractive(
+      val conv = OpenTurn.interactive(backend)(
         "q",
         fresh,
         "display",

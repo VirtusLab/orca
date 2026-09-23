@@ -1,0 +1,24 @@
+package orca.backend
+
+import orca.agents.{AgentConfig, BackendTag, SessionId}
+
+/** Everything a backend needs to open one turn's [[Conversation]] — see
+  * [[AgentBackend.open]].
+  *
+  * @param prompt
+  *   the full wire-level message, with template scaffolding, schema and rules
+  *   already wrapped around the user's input.
+  * @param dispatch
+  *   this turn's fresh-vs-resume answer for `session`.
+  * @param outputSchema
+  *   the JSON Schema the final reply must conform to, or `None` for free-form
+  *   text.
+  */
+private[orca] final case class TurnRequest[B <: BackendTag](
+    prompt: String,
+    session: SessionId[B],
+    dispatch: Dispatch[B],
+    mode: ConversationMode,
+    config: AgentConfig,
+    outputSchema: Option[String]
+)

@@ -1,5 +1,6 @@
 package orca.tools.pi
 
+import orca.testkit.OpenTurn
 import orca.OrcaDir
 import orca.backend.SystemPromptComposer
 import orca.testkit.Usages.usage
@@ -173,7 +174,7 @@ class PiBackendTest extends munit.FunSuite:
     // The conversation forks its workers into the surrounding Ox scope, so it
     // must be created AND consumed within the same `supervised` block.
     ox.supervised:
-      val conv = backend.runInteractive(
+      val conv = OpenTurn.interactive(backend)(
         "q",
         sid,
         displayPrompt = "q",
@@ -203,7 +204,7 @@ class PiBackendTest extends munit.FunSuite:
     // The conversation forks its workers into the surrounding Ox scope, so it
     // must be created AND consumed within the same `supervised` block.
     ox.supervised:
-      val conv = backend.runInteractive(
+      val conv = OpenTurn.interactive(backend)(
         "q",
         sid,
         displayPrompt = "q",

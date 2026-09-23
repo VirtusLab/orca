@@ -1,11 +1,17 @@
 package orca.pr
 
 import munit.FunSuite
-import orca.{BoundedDiff, OutsideStage}
+import orca.{BoundedDiff, OrcaFlowException, OutsideStage}
 import orca.plan.Title
 import orca.progress.PublishedWork
 import orca.review.{FindingId, OpenFinding, OpenFindings, OpenReason}
-import orca.tools.{BranchNotPushed, PrCreateFailed, PrHandle}
+import orca.tools.{
+  BranchNotPushed,
+  GitHubAvailability,
+  PrCreateFailed,
+  PrHandle,
+  PushFailure
+}
 import orca.events.{OrcaEvent, OrcaListener}
 
 import scala.jdk.CollectionConverters.*
@@ -159,6 +165,31 @@ class OpenPrFromBranchTest extends FunSuite:
       store.load().flatMap(_.published),
       Some(PublishedWork(samplePr.url))
     )
+
+  test("a resume over a push refusal openPrIfGitHub recorded fails the run"):
+    val (dir, store) = seededPrRepo()
+    val first = prControl(
+      dir,
+      store,
+      _ => (),
+      new ConcurrentLinkedQueue[String](),
+      availability = GitHubAvailability.Available("github.com", "acme", "w"),
+      push = Left(new PushFailure.RemoteDeclined("protected branch"))
+    )
+    val _ = openPrIfGitHub(
+      summarisingAgent = new StubSummariser(),
+      openFindings = OpenFindings.empty
+    )(using first, first, summon[OutsideStage])
+    val calls = new ConcurrentLinkedQueue[String]()
+    val resumed = prControl(dir, store, _ => (), calls)
+    val e = intercept[OrcaFlowException](
+      openPrFromBranch(
+        summarisingAgent = new StubSummariser(),
+        openFindings = OpenFindings.empty
+      )(using resumed, resumed, summon[OutsideStage])
+    )
+    assert(e.getMessage.contains("orca will not retry"), e.getMessage)
+    assertEquals(calls.asScala.toList, Nil, "the push was re-run")
 
   test("open findings follow the flow's body as their own section"):
     val open = OpenFindings(

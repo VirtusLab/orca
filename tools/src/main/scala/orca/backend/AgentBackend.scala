@@ -14,20 +14,26 @@ import orca.agents.{
   ToolSet,
   TurnDispatch
 }
+import orca.sweep.EnvCookieSweep
 
-import ox.Ox
+import ox.{Ox, supervised}
 
 /** SPI implemented per backend (Claude, Codex, …), called from the
   * autonomous-text and structured-output paths ([[AutonomousTextCall]],
   * [[AgentCall]]).
   *
-  * Each method takes a `session: SessionId[B]` — the same value across calls;
-  * the backend decides internally whether this is a first invocation (session
-  * needs creating) or a continuation. `runAutonomous` runs to completion
-  * off-screen and returns the result; `runInteractive` returns a live
-  * [[Conversation]] the caller drives through an [[Interaction]]. Both are
-  * final: they run the turn-entry gate (close check + enforcement notice), then
-  * delegate to the `doRun*` hooks a backend implements.
+  * A backend implements [[open]]: start one turn and return it as a live
+  * [[Conversation]]. The final [[runAutonomous]] / [[runInteractive]] own the
+  * rest of the turn for every backend: the turn-entry gate (close check,
+  * fresh-vs-resume dispatch, enforcement notice), the per-turn `supervised`
+  * scope, draining or driving the conversation, committing the session, and
+  * teardown.
+  *
+  * Each run method takes a `session: SessionId[B]` — the same value across
+  * calls; [[SessionSupport.dispatchFor]] decides whether this is a first
+  * invocation or a continuation. Callers must not share a session id across
+  * concurrent calls; `reviewAndFixLoop`'s parallel reviewers each mint their
+  * own conversation via `agent.chat()`.
   *
   * `prompt` is the full wire-level message sent to the agent, with all template
   * scaffolding, schema, and rules already wrapped around the user's input.
@@ -51,7 +57,8 @@ trait AgentBackend[B <: BackendTag](
     private[orca] val enforcementNotice: EnforcementNotice =
       new EnforcementNotice
 ):
-  /** Run one autonomous turn against `session` and return its result.
+  /** Run one autonomous turn against `session` and return its result, once it
+    * has drained cleanly and the session is committed as resumable.
     *
     * `events` receives per-tool-use and per-message progress as the subprocess
     * runs. Defaults to a no-op listener for callers (typically tests) that
@@ -60,10 +67,15 @@ trait AgentBackend[B <: BackendTag](
     * `outputSchema`, when supplied, is the JSON Schema the final assistant
     * payload must conform to. Backends that enforce schemas natively (claude's
     * `--json-schema`) pass it to the CLI; others can ignore it. Either way the
-    * schema is forwarded to the conversation so the drain can recognise "the
-    * agent's last message IS the structured payload" and suppress the raw JSON
-    * from the user log — the caller surfaces it via
-    * `OrcaEvent.StructuredResult` instead.
+    * drain withholds the closing turn as the structured payload — the caller
+    * surfaces it via `OrcaEvent.StructuredResult` instead.
+    *
+    * The commit runs only after a clean drain, so a subprocess that crashed
+    * before registering its session doesn't wedge the registry into resuming a
+    * session that was never created. It throws on an unsafe wire id
+    * ([[SessionSupport.commitAfterDrain]]). The cancel before the scope joins
+    * reaches only what is still linked to the agent process; the sweep catches
+    * what detached.
     */
   final def runAutonomous(
       prompt: String,
@@ -72,40 +84,35 @@ trait AgentBackend[B <: BackendTag](
       events: OrcaListener = OrcaListener.noop,
       outputSchema: Option[String] = None
   ): AgentResult[B] =
-    checkNotClosed()
-    // Per call, not once per session: the first call commits the session, so a
-    // caller's corrective re-prompt dispatches as `Resumed` — a different
-    // guarantee on codex, and hence possibly a different notice. Callers must
-    // not share a session id across concurrent calls; `reviewAndFixLoop`'s
-    // parallel reviewers each mint their own conversation via `agent.chat()`.
-    val dispatch = sessions.dispatchFor(session)
-    announceEnforcementShortfall(config, dispatch, events)
-    doRunAutonomous(prompt, session, dispatch, config, events, outputSchema)
+    val dispatch = enterTurn(session, config, events)
+    supervised:
+      val conv = open(
+        TurnRequest(
+          prompt,
+          session,
+          dispatch,
+          ConversationMode.Autonomous,
+          config,
+          outputSchema
+        )
+      )
+      try
+        val result =
+          Conversations.drainAutonomous(conv, config.autoApprove, events)
+        sessions.commitAfterDrain(session, result.wireId)
+        result
+      finally endTurn(conv, events)
 
-  /** This backend's autonomous turn, run once [[runAutonomous]]'s gate has
-    * passed. `dispatch` is this turn's fresh-vs-resume answer for `session`.
-    */
-  protected def doRunAutonomous(
-      prompt: String,
-      session: SessionId[B],
-      dispatch: Dispatch[B],
-      config: AgentConfig,
-      events: OrcaListener,
-      outputSchema: Option[String]
-  ): AgentResult[B]
-
-  /** Launch an interactive session against `session` and return a live
-    * [[Conversation]] the caller hands to [[Interaction.drive]]. The backend
-    * owns the subprocess and event parsing; the channel owns UX.
+  /** Run one interactive turn against `session`: `interaction` drives the live
+    * conversation, and the session is registered once it returns.
     *
-    * `outputSchema` is the JSON Schema the agent's final reply must conform to,
-    * or `None` for free-form text. Backends that support structured-output
-    * validation (claude's `--json-schema`) enforce it; others ignore it and let
-    * the caller validate post-hoc.
-    *
-    * `events` carries the turn-entry notice only — everything the conversation
-    * itself produces reaches the caller through the returned [[Conversation]],
-    * which is why the backend hook never sees this listener.
+    * The conversation's assistant prose reaches `events` as
+    * `OrcaEvent.AssistantMessage`, with a structured call's closing turn
+    * withheld ([[Conversations.withholdInteractiveProse]]); every other event
+    * goes to `interaction`. A cancelled or failed drive throws and registers
+    * nothing — interactive turns aren't retried, and the next dispatch probes
+    * what the backend actually holds. An unsafe wire id is logged and skipped
+    * ([[SessionSupport.register]]), so the user's completed turn survives it.
     */
   final def runInteractive(
       prompt: String,
@@ -113,31 +120,61 @@ trait AgentBackend[B <: BackendTag](
       displayPrompt: String,
       config: AgentConfig,
       outputSchema: Option[String],
-      events: OrcaListener = OrcaListener.noop
-  )(using Ox): Conversation[B] =
+      events: OrcaListener,
+      interaction: Interaction
+  ): AgentResult[B] =
+    val dispatch = enterTurn(session, config, events)
+    supervised:
+      val conv = Conversations.withholdInteractiveProse(
+        open(
+          TurnRequest(
+            prompt,
+            session,
+            dispatch,
+            ConversationMode.Interactive(displayPrompt),
+            config,
+            outputSchema
+          )
+        ),
+        events
+      )
+      try
+        val result = interaction.drive(conv)
+        sessions.register(session, result.wireId)
+        result
+      finally endTurn(conv, events)
+
+  /** Start one turn and return it as a live [[Conversation]] whose forks run in
+    * the caller's per-turn scope. The backend owns the subprocess (or server
+    * stream) and event parsing; draining, driving, session commit and teardown
+    * belong to [[runAutonomous]] / [[runInteractive]].
+    *
+    * `turn.mode` decides whether the turn can ask the user (`ask_user` is wired
+    * on `Interactive` turns only). A failure before the conversation exists
+    * must release whatever the backend allocated for it.
+    */
+  protected[orca] def open(turn: TurnRequest[B])(using Ox): Conversation[B]
+
+  /** The turn-entry gate: refuse a closed backend, then settle this turn's
+    * dispatch and give its enforcement notice.
+    *
+    * Per turn, not once per session: the first turn commits the session, so a
+    * caller's corrective re-prompt dispatches as `Resumed` — a different
+    * guarantee on codex, and hence possibly a different notice.
+    */
+  private def enterTurn(
+      session: SessionId[B],
+      config: AgentConfig,
+      events: OrcaListener
+  ): Dispatch[B] =
     checkNotClosed()
     val dispatch = sessions.dispatchFor(session)
     announceEnforcementShortfall(config, dispatch, events)
-    doRunInteractive(
-      prompt,
-      session,
-      dispatch,
-      displayPrompt,
-      config,
-      outputSchema
-    )
+    dispatch
 
-  /** This backend's interactive turn, run once [[runInteractive]]'s gate has
-    * passed. `dispatch` is this turn's fresh-vs-resume answer for `session`.
-    */
-  protected def doRunInteractive(
-      prompt: String,
-      session: SessionId[B],
-      dispatch: Dispatch[B],
-      displayPrompt: String,
-      config: AgentConfig,
-      outputSchema: Option[String]
-  )(using Ox): Conversation[B]
+  private def endTurn(conv: Conversation[B], events: OrcaListener): Unit =
+    conv.cancel()
+    EnvCookieSweep.afterTurn(conv.envCookie, events)
 
   /** The working directory the agent subprocess sees, fixed for this backend's
     * whole lifetime — every spawn and every session-existence probe runs
@@ -238,10 +275,9 @@ trait AgentBackend[B <: BackendTag](
 
   /** Refuse a run against a backend whose flow has ended, so a leaked agent
     * handle can't emit to a closed run's dispatcher. [[runAutonomous]] /
-    * [[runInteractive]] gate every turn; the agent surface (`BaseAgent`) and
-    * the structured gateway (`DefaultAgentCall`, which holds no agent of its
-    * own) gate earlier still, so a dead handle fails at the door rather than
-    * one frame into the backend.
+    * [[runInteractive]] gate every turn; a caller that emits events before the
+    * turn (the agent surface's `UserPrompt`) gates earlier still, so a dead
+    * handle emits nothing.
     */
   private[orca] final def checkNotClosed(): Unit =
     if isClosed then

@@ -242,7 +242,7 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
     * the turn has run and the wire session may already exist, so a retry
     * against the same id would only cascade into "already in use" / a broken
     * pipe rather than a clean re-attempt. Pre-spawn *open* failures never reach
-    * this method — they throw from `openConversation` as plain
+    * this method — they throw from `AgentBackend.open` as plain
     * [[OrcaFlowException]]s and stay retryable. The retry POLICY lives in
     * `DefaultAgentCall.runAutonomousWithRetry`.
     */

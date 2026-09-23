@@ -1,12 +1,9 @@
 package orca.tools.gemini
 
-import orca.events.OrcaListener
 import orca.agents.{
   AutoApprove,
   BackendTag,
-  AgentConfig,
   EnforcementCell,
-  SessionId,
   StructuredOutputMode,
   ToolSet,
   TurnDispatch
@@ -14,11 +11,9 @@ import orca.agents.{
 import orca.subprocess.CliResult
 import orca.backend.{
   Conversation,
-  Conversations,
+  TurnRequest,
   Dispatch,
   AgentBackend,
-  AgentResult,
-  ConversationMode,
   IdScheme,
   SessionSupport,
   SubprocessSpawn,
@@ -35,11 +30,10 @@ import ox.Ox
   * See [[../../../adr/0015-gemini-stream-json-driver.md ADR 0015]] for the
   * protocol shape and rationale.
   *
-  * Both modes wrap the subprocess in a [[GeminiConversation]]; the autonomous
-  * path drains it internally, the interactive path returns it for an
-  * `Interaction` to drive. Multi-turn calls with the same session id route
-  * through `gemini --resume <session-id>` via [[sessions]] (an
-  * [[IdScheme.ServerMinted]] id learned from the prior run's `init` event).
+  * Both modes wrap the subprocess in a [[GeminiConversation]]. Multi-turn calls
+  * with the same session id route through `gemini --resume <session-id>` via
+  * [[sessions]] (an [[IdScheme.ServerMinted]] id learned from the prior run's
+  * `init` event).
   *
   * Interactive calls additionally stand up an `ask_user` MCP host bridge
   * ([[AskUserMcpServer]]) and register it by merging an `mcpServers.orca` entry
@@ -89,44 +83,6 @@ private[orca] class GeminiBackend(
         )
     )
 
-  protected def doRunAutonomous(
-      prompt: String,
-      session: SessionId[BackendTag.Gemini.type],
-      dispatch: Dispatch[BackendTag.Gemini.type],
-      config: AgentConfig,
-      events: OrcaListener,
-      outputSchema: Option[String]
-  ): AgentResult[BackendTag.Gemini.type] =
-    // drainAndCommit records the client→server mapping so a follow-up call on
-    // this client id resumes the right thread; the result carries the server
-    // thread id as its wireId, and the caller keeps using the client id.
-    Conversations.runAutonomous(session, sessions, config.autoApprove, events):
-      openConversation(
-        prompt = prompt,
-        mode = ConversationMode.Autonomous,
-        dispatch = dispatch,
-        config = config,
-        // Forwarded so `conv.outputSchema` signals structured mode to the drain
-        // (suppressing the raw JSON payload from the user log).
-        outputSchema = outputSchema
-      )
-
-  protected def doRunInteractive(
-      prompt: String,
-      session: SessionId[BackendTag.Gemini.type],
-      dispatch: Dispatch[BackendTag.Gemini.type],
-      displayPrompt: String,
-      config: AgentConfig,
-      outputSchema: Option[String]
-  )(using Ox): Conversation[BackendTag.Gemini.type] =
-    openConversation(
-      prompt,
-      mode = ConversationMode.Interactive(displayPrompt),
-      dispatch = dispatch,
-      config = config,
-      outputSchema = outputSchema
-    )
-
   /** Spawn `gemini -p` (fresh) or `gemini --resume <server-id> -p`
     * (continuation) and wrap the process in a live [[GeminiConversation]].
     * Stdin is closed immediately — gemini consumes the prompt argv-side.
@@ -135,13 +91,10 @@ private[orca] class GeminiBackend(
     * the bridge, merge the server URL into `.gemini/settings.json`, and fold
     * the system-prompt hint into the user prompt. `Autonomous` skips all of it.
     */
-  private def openConversation(
-      prompt: String,
-      mode: ConversationMode,
-      dispatch: Dispatch[BackendTag.Gemini.type],
-      config: AgentConfig,
-      outputSchema: Option[String]
+  override protected[orca] def open(
+      turn: TurnRequest[BackendTag.Gemini.type]
   )(using Ox): Conversation[BackendTag.Gemini.type] =
+    import turn.*
     val displayPrompt = mode.displayPrompt
     val askUser: Option[AskUserSession] =
       Option.when(mode.isInteractive):
