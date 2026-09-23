@@ -486,7 +486,7 @@ class TerminalEventListenerTest extends munit.FunSuite:
   test("currentIndent stays readable while stages push and pop concurrently"):
     // A regression guard for the single-writer / @volatile publication contract,
     // NOT a race proof: the sole writer pushes/pops 500 pairs while a reader
-    // polls `currentIndent` (the same lock-free access ConversationRenderer makes
+    // polls `currentIndent` (the same lock-free access TerminalPrompts makes
     // mid-readLine). Asserts the reader never crashes and the stack unwinds to
     // empty once every pair is balanced.
     val buf = new ByteArrayOutputStream()

@@ -1,7 +1,7 @@
 package orca.runner.terminal
 
 /** How many characters of a line's BODY are left once everything printed ahead
-  * of it is paid for. The caps ([[ConversationRenderer.MaxInlineInputLength]],
+  * of it is paid for. The caps ([[ToolInputSummary.MaxInlineInputLength]],
   * [[TerminalEventListener.MaxAssistantMessageLength]]) bound the whole
   * rendered line, but the body is written after a stage indent, a glyph and
   * sometimes an agent name — spending the full cap on the body puts a line

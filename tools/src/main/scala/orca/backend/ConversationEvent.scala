@@ -1,16 +1,16 @@
 package orca.backend
 
-/** Event the driver emits for the channel to render. One session is a sequence
-  * of these, terminated by the `events` iterator on [[Conversation]] closing;
-  * the final outcome (success or cancel) is read via
-  * [[Conversation.awaitResult]].
+/** Event a backend driver emits for one turn. One session is a sequence of
+  * these, terminated by the `events` iterator on [[Conversation]] closing; the
+  * final outcome (success or cancel) is read via [[Conversation.awaitResult]].
   *
   * The deltas stream as the agent responds. `AssistantToolCall` is purely
   * informational; `ToolResult` echoes what the SDK reported back to the model.
-  * `ApproveTool` is the only event the channel must respond to.
+  * `ApproveTool` and `UserQuestion` ([[ChannelEvent]]) must be answered.
   *
-  * Distinct from [[OrcaEvent]], which fans out flow-wide; conversation events
-  * stay between driver and channel.
+  * Distinct from [[OrcaEvent]], which fans out flow-wide:
+  * [[ObservedConversation]] turns these into `OrcaEvent`s, handing the channel
+  * only the [[ChannelEvent]]s.
   *
   * ==Turn grammar (the contract every driver honours)==
   *
@@ -24,7 +24,7 @@ package orca.backend
   * conversation settled, whether in success or failure — is terminated by
   * exactly one `AssistantTurnEnd`. A missing trailing `AssistantTurnEnd` is
   * legal only when the stream terminates abnormally mid-turn; consumers must
-  * flush at end-of-stream (as [[Conversations.drainAutonomous]] does).
+  * flush at end-of-stream (as [[ObservedConversation.drain]] does).
   *
   * `AssistantTurnEnd` never fires without assistant activity since the last one
   * — there are no empty turns.
@@ -107,6 +107,13 @@ enum ConversationEvent:
   * opening prompt may send: none of them affects the turn grammar.
   */
 type NeutralEvent = ConversationEvent.UserMessage | ConversationEvent.Error |
+  ConversationEvent.UserQuestion
+
+/** The events a channel must answer: the backend blocks until `respond` is
+  * called. Everything else a conversation emits reaches listeners as an
+  * `OrcaEvent` ([[ObservedConversation]]).
+  */
+type ChannelEvent = ConversationEvent.ApproveTool |
   ConversationEvent.UserQuestion
 
 /** Channel's answer to a [[ConversationEvent.ApproveTool]] prompt.

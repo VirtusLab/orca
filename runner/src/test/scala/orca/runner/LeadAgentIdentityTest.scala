@@ -18,7 +18,12 @@ import orca.agents.{
   PiAgent,
   ToolSet
 }
-import orca.backend.{AgentResult, Conversation, Interaction, TurnRequest}
+import orca.backend.{
+  AgentResult,
+  Interaction,
+  TurnRequest,
+  ObservedConversation
+}
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.tools.pi.DefaultPiAgent
 import orca.testkit.GitRepo
@@ -255,7 +260,7 @@ class LeadAgentIdentityTest extends munit.FunSuite:
   private object NoopInteraction extends Interaction:
     def listeners: List[OrcaListener] = Nil
     def drive[B <: BackendTag](
-        conversation: Conversation[B]
+        conversation: ObservedConversation[B]
     ): AgentResult[B] =
       throw new UnsupportedOperationException
 

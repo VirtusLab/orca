@@ -2,7 +2,12 @@ package orca.runner
 
 import orca.testkit.ScriptedBackend
 import orca.{FlowContext, OrcaArgs, StackSettings, flow}
-import orca.backend.{Conversation, Interaction, AgentResult, TurnRequest}
+import orca.backend.{
+  Interaction,
+  AgentResult,
+  TurnRequest,
+  ObservedConversation
+}
 import orca.events.OrcaListener
 import orca.agents.{
   SessionKey,
@@ -99,7 +104,7 @@ class OpencodeFlowTest extends munit.FunSuite:
   private val noInteraction: Interaction = new Interaction:
     def listeners: List[OrcaListener] = Nil
     def drive[B <: BackendTag](
-        conversation: Conversation[B]
+        conversation: ObservedConversation[B]
     ): AgentResult[B] = throw new UnsupportedOperationException
 
   /** OpenCode-typed canned tool whose `resultAs[O]` hands back `value` directly

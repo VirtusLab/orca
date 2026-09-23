@@ -277,9 +277,7 @@ private[terminal] object TerminalOutputState:
 
   private val DefaultLabel: String = "Thinking..."
 
-  /** Same glyph the renderer uses for a tool result, so it reads as belonging
-    * to the line it sits under.
-    */
+  /** Reads as belonging to the line it sits under. */
   private[terminal] val RepeatGlyph: String = "⎿"
 
   val Frames: Vector[String] =

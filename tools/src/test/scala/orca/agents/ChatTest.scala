@@ -2,11 +2,11 @@ package orca.agents
 
 import orca.testkit.ScriptedBackend
 import orca.backend.{
-  Conversation,
   Interaction,
   AgentBackend,
   AgentResult,
-  TurnRequest
+  TurnRequest,
+  ObservedConversation
 }
 import orca.events.OrcaListener
 
@@ -69,7 +69,9 @@ class ChatTest extends munit.FunSuite:
 
   private object ChatStubInteraction extends Interaction:
     def listeners: List[OrcaListener] = Nil
-    def drive[B <: BackendTag](conversation: Conversation[B]): AgentResult[B] =
+    def drive[B <: BackendTag](
+        conversation: ObservedConversation[B]
+    ): AgentResult[B] =
       ???
 
   private class ChatStubTool(

@@ -1,7 +1,12 @@
 package orca.agents
 
 import orca.testkit.ScriptedBackend
-import orca.backend.{Conversation, Interaction, AgentResult, TurnRequest}
+import orca.backend.{
+  Interaction,
+  AgentResult,
+  TurnRequest,
+  ObservedConversation
+}
 import orca.events.OrcaListener
 
 /** `withCheapModel` pins the model that [[Agent.cheap]] resolves to, overriding
@@ -75,5 +80,7 @@ class WithCheapModelTest extends munit.FunSuite:
 
   private object StubInteraction extends Interaction:
     def listeners: List[OrcaListener] = Nil
-    def drive[B <: BackendTag](conversation: Conversation[B]): AgentResult[B] =
+    def drive[B <: BackendTag](
+        conversation: ObservedConversation[B]
+    ): AgentResult[B] =
       ???

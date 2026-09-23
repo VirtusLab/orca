@@ -15,8 +15,8 @@ import org.jline.terminal.Terminal
   * [[registerAll]] wires the widgets onto a reader once at construction;
   * [[withKittyKeyboardProtocol]] wraps the `readLine` call itself. Shared by
   * `orca.shell.ui.ConsoleUiShell.inputMultiline` (the shell's task/goal/fork
-  * prompt) and [[ConversationRenderer.JLinePrompter]] (ask-user prompts during
-  * a flow) — pty-verified against jline `3.30.15` for both call sites (a plain
+  * prompt) and [[TerminalPrompts.JLinePrompter]] (ask-user prompts during a
+  * flow) — pty-verified against jline `3.30.15` for both call sites (a plain
   * unit test can't drive real terminal byte sequences):
   *
   *   - A paste (bracketed paste, on by default) lands intact in one go,

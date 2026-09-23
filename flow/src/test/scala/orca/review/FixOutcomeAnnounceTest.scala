@@ -2,7 +2,12 @@ package orca.review
 
 import orca.testkit.ScriptedBackend
 import orca.agents.{AgentConfig, BackendTag, DefaultAgentCall, DefaultPrompts}
-import orca.backend.{AgentResult, Conversation, Interaction, TurnRequest}
+import orca.backend.{
+  AgentResult,
+  Interaction,
+  TurnRequest,
+  ObservedConversation
+}
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.plan.Title
 import ox.supervised
@@ -30,7 +35,7 @@ class FixOutcomeAnnounceTest extends munit.FunSuite:
   private val stubInteraction: Interaction = new Interaction:
     val listeners: List[OrcaListener] = Nil
     def drive[B <: BackendTag](
-        conversation: Conversation[B]
+        conversation: ObservedConversation[B]
     ): AgentResult[B] =
       throw new UnsupportedOperationException("test stub")
 
