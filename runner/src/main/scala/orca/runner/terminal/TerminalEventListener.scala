@@ -77,6 +77,8 @@ private[runner] class TerminalEventListener(
           )
         else ToolCallLine.format(tool, args, paint, workDir, who, currentIndent)
       output.log(formatIndented(line))
+    case _: OrcaEvent.ToolDenied =>
+      () // Reported once, in the end-of-run summary.
     case _: OrcaEvent.TokensUsed =>
       () // Token accounting is owned by CostTracker.
     case OrcaEvent.Step(message) =>

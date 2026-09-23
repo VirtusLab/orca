@@ -4,6 +4,29 @@ import munit.FunSuite
 
 class FeatureBranchTest extends FunSuite:
 
+  test("isSafeBranchRef accepts slug names and issue branches"):
+    assert(FeatureBranch.isSafeBranchRef("add-foo"))
+    assert(FeatureBranch.isSafeBranchRef("fix/issue-42"))
+    assert(FeatureBranch.isSafeBranchRef("flow-1a2b3c4d"))
+
+  test("isSafeBranchRef rejects empty, leading-dash, traversal, and spaces"):
+    assert(!FeatureBranch.isSafeBranchRef(""))
+    assert(!FeatureBranch.isSafeBranchRef("-x"))
+    assert(!FeatureBranch.isSafeBranchRef("a/.."))
+    assert(!FeatureBranch.isSafeBranchRef("a b"))
+    assert(!FeatureBranch.isSafeBranchRef("Feat"))
+    assert(!FeatureBranch.isSafeBranchRef("a/"))
+
+  test(
+    "isSafeReusedRef accepts mixed case and slashed names slugs would reject"
+  ):
+    assert(FeatureBranch.isSafeReusedRef("feature/JIRA-123"))
+    assert(FeatureBranch.isSafeReusedRef("Feature-ABC"))
+    assert(FeatureBranch.isSafeReusedRef("add-foo")) // a slug also passes
+
+  test("isSafeReusedRef rejects a name git refuses as a branch"):
+    assert(!FeatureBranch.isSafeReusedRef("-flag"))
+
   test("resolve refuses the always-protected floor regardless of the set"):
     for protectedName <- List("main", "master", "MAIN", "Master") do
       assert(

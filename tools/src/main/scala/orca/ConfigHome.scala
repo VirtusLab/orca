@@ -15,15 +15,7 @@ private[orca] case class ConfigHome(root: os.Path):
   def reviewers: os.Path = root / "reviewers"
 
 private[orca] object ConfigHome:
-  /** A relative, empty, or root-climbing `XDG_CONFIG_HOME` is ignored and falls
-    * back to `~/.config`, as the spec mandates.
-    */
   def resolve(env: String => Option[String], home: os.Path): ConfigHome =
-    val base = env("XDG_CONFIG_HOME")
-      // `os.Path` accepts only absolute paths, so a relative, empty, or
-      // root-climbing value throws and falls back — no separate pre-filter.
-      .flatMap(v => scala.util.Try(os.Path(v)).toOption)
-      .getOrElse(home / ".config")
-    ConfigHome(base / "orca")
+    ConfigHome(XdgDirs.configHome(env, home) / "orca")
 
   def default: ConfigHome = resolve(sys.env.get, os.home)

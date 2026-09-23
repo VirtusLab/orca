@@ -51,6 +51,21 @@ private[orca] object OrcaDir:
     */
   val CostLogSuffix: String = ".cost.jsonl"
 
+  private val TraceLogStem = ".trace"
+
+  /** Suffix of a trace log's file name, after the [[AttemptId]]. */
+  val TraceLogSuffix: String = s"$TraceLogStem.log"
+
+  /** The index of a trace log's single rolled-over part: `OrcaLog` keeps only
+    * this one, and [[attemptIdOf]] recognises only this one.
+    */
+  val TraceLogRollIndex: Int = 1
+
+  /** Suffix of a trace log's rolled-over earlier part, after the [[AttemptId]]:
+    * [[traceLogRollPattern]] with [[TraceLogRollIndex]].
+    */
+  val RolledTraceLogSuffix: String = s"$TraceLogStem.$TraceLogRollIndex.log"
+
   /** Repo-relative form of the settings path, for git probes that take a path
     * relative to the repository root.
     */
@@ -128,8 +143,8 @@ private[orca] object OrcaDir:
 
   /** Idempotently ensure `<workDir>/.orca/cache/attempts/` exists and return
     * it. Holds the manifests and cost logs `AttemptManifestWriter` writes (ADR
-    * 0021 §8). Created at every attempt's start: the shell ranks worktrees by
-    * this directory's mtime.
+    * 0021 §8), and the trace logs `OrcaLog` writes. Created at every attempt's
+    * start: the shell ranks worktrees by this directory's mtime.
     */
   def ensureAttempts(workDir: os.Path): os.Path =
     ensureCacheDir(workDir, attemptsPath(workDir))
@@ -150,12 +165,24 @@ private[orca] object OrcaDir:
   def costLogPath(workDir: os.Path, id: AttemptId): os.Path =
     attemptsPath(workDir) / s"${id.value}$CostLogSuffix"
 
+  /** `<workDir>/.orca/cache/attempts/<id>.trace.log` — the trace log of attempt
+    * `id`; its rolled-over part ends in [[RolledTraceLogSuffix]].
+    */
+  def traceLogPath(workDir: os.Path, id: AttemptId): os.Path =
+    attemptsPath(workDir) / s"${id.value}$TraceLogSuffix"
+
+  /** Logback file-name pattern for the rolled-over parts of attempt `id`'s
+    * trace log, `%i` standing for the part's index.
+    */
+  def traceLogRollPattern(workDir: os.Path, id: AttemptId): String =
+    (attemptsPath(workDir) / s"${id.value}$TraceLogStem.%i.log").toString
+
   /** The attempt a file under [[attemptsPath]] belongs to: the [[AttemptId]]
-    * before a manifest or cost-log suffix. `None` for anything else there,
-    * including an in-flight temp file.
+    * before a manifest, cost-log or trace-log suffix. `None` for anything else
+    * there, including an in-flight temp file.
     */
   def attemptIdOf(file: os.Path): Option[AttemptId] =
-    List(ManifestSuffix, CostLogSuffix)
+    List(ManifestSuffix, CostLogSuffix, TraceLogSuffix, RolledTraceLogSuffix)
       .collectFirst:
         case suffix if file.last.endsWith(suffix) =>
           file.last.dropRight(suffix.length)

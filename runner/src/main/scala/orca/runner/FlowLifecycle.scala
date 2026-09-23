@@ -129,12 +129,10 @@ object FlowLifecycle:
   /** Replay the persisted resume-wire-id map (ADR 0018 §2.6) into each
     * session's own agent's in-memory registry, so a resumed run resumes against
     * the right wire id. For each [[orca.sessions.SessionRecord]] carrying a
-    * `resumeWireId`, registers it into the agent [[targetAgent]] resolves for
-    * the record's `backend` tag. A tag matching no known backend (an edited
-    * store or a renamed [[BackendTag]] case) is skipped loudly via an
-    * `OrcaEvent.Step` rather than guessed. `record.id`/`wireId` are equally
-    * untrusted (file-sourced): a value that fails to parse is skipped the same
-    * loud way.
+    * `resumeWireId`, registers it into the agent for the record's `backend`
+    * tag, or into `lead` for an untagged record. `record.id`/`wireId` are
+    * untrusted (file-sourced): a value that fails to parse is skipped with an
+    * `OrcaEvent.Step` warning rather than guessed.
     */
   private[orca] def rehydrateSessions(
       ctx: FlowContext,
@@ -145,29 +143,12 @@ object FlowLifecycle:
       record <- store.records()
       wireId <- record.resumeWireId
     do
-      targetAgent(ctx, lead, record.backend) match
-        case None =>
-          ctx.emit(
-            OrcaEvent.Step(
-              s"warning: session ${record.key.describe} " +
-                s"recorded backend tag '${record.backend.getOrElse("")}' " +
-                "does not match any known backend — skipping rehydration"
-            )
-          )
-        case Some(agent) =>
-          register(ctx, agent, record, wireId)
-
-  /** Untagged records go to the lead; a tag matching no accessor (an edited
-    * store, or a renamed [[BackendTag]] case) is skipped, not guessed.
-    */
-  private def targetAgent(
-      ctx: FlowContext,
-      lead: Agent[?],
-      tag: Option[String]
-  ): Option[Agent[?]] =
-    tag match
-      case None    => Some(lead)
-      case Some(t) => BackendTag.fromWireName(t).map(ctx.agentFor)
+      register(
+        ctx,
+        record.backend.fold[Agent[?]](lead)(ctx.agentFor),
+        record,
+        wireId
+      )
 
   /** Parse `record.id`/`wire` (both file-sourced, untrusted) and register the
     * mapping into `agent`; a value that fails to parse is skipped with a
@@ -380,7 +361,7 @@ object FlowLifecycle:
     // failed detection falls back to just the floor). Computed once so the
     // fresh and resume arms apply the identical policy from the identical set.
     val protectedBranches =
-      RecoveryCheck.alwaysProtected ++ git
+      FeatureBranch.alwaysProtected ++ git
         .defaultBranch()
         .map(_.toLowerCase(java.util.Locale.ROOT))
     val binding =

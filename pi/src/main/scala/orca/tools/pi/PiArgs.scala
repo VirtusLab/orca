@@ -78,6 +78,16 @@ private[pi] object PiArgs:
             "the allowlist has to include `bash` to reach the network, and `bash` also writes, so only the prompt withholds edits"
           )
         )
+      // pi has no MCP support; extensions are how it gains tools, so
+      // discovery is off too.
+      case ToolSet.NoTools =>
+        ToolsWiring(
+          Seq("--no-tools", "--no-extensions"),
+          EnforcementCell(
+            Enforcement.Hard,
+            "`--no-tools` removes every tool, extension tools included, and `--no-extensions` skips extension discovery"
+          )
+        )
       case ToolSet.Full =>
         autoApprove match
           case AutoApprove.All | AutoApprove.Only(_) =>

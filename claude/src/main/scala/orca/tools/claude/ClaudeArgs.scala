@@ -131,6 +131,11 @@ private[claude] object ClaudeArgs:
     * use has to arrive through `mcpTools`. The grants widen what is on offer
     * without changing the tier's guarantee, so the cell ignores them.
     *
+    * `NoTools` passes an empty `--tools` and `--strict-mcp-config`, so neither
+    * built-in tools nor the user's or project's MCP servers are on offer; only
+    * servers orca passes via `--mcp-config` (none on an autonomous turn)
+    * remain.
+    *
     * `Full` follows [[AgentConfig.autoApprove]]: `All` → `bypassPermissions`;
     * `Only(_)` → default permission mode plus `--allowedTools`. Unlike
     * `--tools`, that allowlist adds to claude's defaults rather than confining
@@ -160,6 +165,14 @@ private[claude] object ClaudeArgs:
           Seq("--tools", (ReadOnlyTools ++ networkTools).mkString(",")) ++
             approve(mcpTools ++ networkTools),
           ReadOnlyTiersCell
+        )
+      case ToolSet.NoTools =>
+        PermissionWiring(
+          Seq("--tools", "", "--strict-mcp-config") ++ approve(mcpTools),
+          EnforcementCell(
+            Enforcement.Hard,
+            "an empty `--tools` removes every built-in tool and `--strict-mcp-config` skips every MCP server orca did not pass itself"
+          )
         )
       case ToolSet.Full =>
         autoApprove match

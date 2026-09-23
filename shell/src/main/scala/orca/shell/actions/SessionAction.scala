@@ -1,6 +1,7 @@
 package orca.shell.actions
 
 import org.jline.terminal.Terminal
+import orca.settings.AgentSpec
 import orca.shell.run.ChildTerminal
 import orca.shell.sessions.{ResumeCommand, SessionPicker, SessionSelection}
 import orca.shell.ui.ShellOutput
@@ -30,7 +31,7 @@ private[shell] object SessionAction:
   def resumeNotice(selection: SessionSelection): String =
     identityNotice(
       selection,
-      SessionPicker.harnessSettingsName(selection.session.harness),
+      AgentSpec.harnessNameFor(selection.session.harness),
       validatedWorkDir(selection.manifest.workDir).toOption
         .flatMap(Worktrees.headState)
     )

@@ -12,29 +12,14 @@ import orca.settings.AgentSpec
   */
 private[shell] object ResumeCommand:
 
-  /** Left = not resumable, checkable without a live harness call: an
-    * unrecognised `harness` string, or a wireId-less session — one that never
-    * committed a turn. `Right` carries the recognised [[BackendTag]] but
-    * doesn't mean "definitely resumable" — gemini's row still needs [[build]]'s
-    * live index lookup, and pi's its session-dir check. Used both by [[build]]
-    * itself and by the shell's session-list preview (which runs no live
-    * lookups).
+  /** The wire id to resume `s` by, or why it is not resumable as far as a
+    * static (no-live-call) check can tell: a wireId-less session — one that
+    * never committed a turn. `Right` doesn't mean "definitely resumable" —
+    * gemini's row still needs [[build]]'s live index lookup, and pi's its
+    * session-dir check.
     */
-  private def wireIdAndTag(
-      s: ManifestSession
-  ): Either[String, (String, BackendTag)] =
-    (s.wireId, BackendTag.fromWireName(s.harness)) match
-      case (_, None) =>
-        Left(s"unknown harness in manifest: `${s.harness}`")
-      case (None, Some(_)) =>
-        Left(s"${s.harness} session has no resumable id")
-      case (Some(wireId), Some(tag)) => Right((wireId, tag))
-
-  /** The static (no-live-call) half of [[build]]'s resumability check, exposed
-    * for the shell's session-list preview.
-    */
-  def staticGate(s: ManifestSession): Either[String, BackendTag] =
-    wireIdAndTag(s).map(_._2)
+  def staticGate(s: ManifestSession): Either[String, String] =
+    s.wireId.toRight(s"${s.harness} session has no resumable id")
 
   /** Left = not resumable: [[staticGate]]'s checks, plus whatever the caller's
     * live lookups report — gemini's `geminiIndex` (it resumes by index, not by
@@ -46,22 +31,21 @@ private[shell] object ResumeCommand:
     * lookup is never called, so it can't be mistaken for a failed one.
     *
     * Binary names come from [[AgentSpec.harnessNameFor]] (the settings-file
-    * spelling — `claude`, `codex`, …), not the manifest's
-    * [[BackendTag.wireName]]. Also rejects a blank wireId or one starting with
-    * `-` — passed straight into an argv slot, such a value could otherwise be
-    * parsed as a flag by the harness CLI.
+    * spelling — `claude`, `codex`, …). Also rejects a blank wireId or one
+    * starting with `-` — passed straight into an argv slot, such a value could
+    * otherwise be parsed as a flag by the harness CLI.
     */
   def build(
       s: ManifestSession,
       geminiIndex: String => Option[Int],
       piSessionDir: String => Either[String, os.Path]
   ): Either[String, Seq[String]] =
-    wireIdAndTag(s).flatMap: (wireId, tag) =>
+    staticGate(s).flatMap: wireId =>
       if wireId.isBlank || wireId.startsWith("-") then
         Left(s"manifest wireId `$wireId` is not a valid session id")
       else
-        val binary = AgentSpec.harnessNameFor.getOrElse(tag, s.harness)
-        tag match
+        val binary = AgentSpec.harnessNameFor(s.harness)
+        s.harness match
           case BackendTag.ClaudeCode =>
             Right(Seq(binary, "--resume", wireId))
           case BackendTag.Codex    => Right(Seq(binary, "resume", wireId))

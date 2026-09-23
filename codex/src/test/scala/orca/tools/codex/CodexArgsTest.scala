@@ -146,6 +146,12 @@ class CodexArgsTest extends munit.FunSuite:
       s"expected tool_timeout_sec -c override; got: $cValues"
     )
 
+  test("ToolSet.NoTools maps to --sandbox read-only"):
+    val args =
+      CodexArgs.exec("x", AgentConfig(tools = ToolSet.NoTools), None, os.pwd)
+    assert(args.containsSlice(Seq("--sandbox", "read-only")), args.toString)
+    assert(!args.contains("--dangerously-bypass-approvals-and-sandbox"))
+
   test("exec omits -c mcp_servers when no MCP url is supplied"):
     val args = CodexArgs.exec("x", AgentConfig(), None, os.pwd)
     assert(

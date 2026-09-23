@@ -4,7 +4,7 @@ import java.util.Locale
 
 /** A branch name the user asked for, validated at the CLI boundary against `git
   * check-ref-format --branch` and the always-protected floor
-  * ([[RecoveryCheck.alwaysProtected]]). Does not refuse the repo's own default
+  * ([[FeatureBranch.alwaysProtected]]). Does not refuse the repo's own default
   * branch, which is known only at run time; `FlowLifecycle` refuses it when
   * minting a [[FeatureBranch]] from this name.
   */
@@ -34,7 +34,7 @@ object BranchName:
   private def violation(raw: String): Option[String] =
     refFormatViolation(raw).orElse(
       Option.when(
-        RecoveryCheck.alwaysProtected.contains(raw.toLowerCase(Locale.ROOT))
+        FeatureBranch.alwaysProtected.contains(raw.toLowerCase(Locale.ROOT))
       )("is a protected branch")
     )
 

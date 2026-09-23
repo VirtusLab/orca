@@ -145,6 +145,11 @@ class OpencodeArgsTest extends munit.FunSuite:
     assertEquals(tools.get("edit"), Some(false))
     assertEquals(tools.get("task"), Some(false))
 
+  test("NoTools disables every tool through the * wildcard"):
+    val cfg = AgentConfig().copy(tools = ToolSet.NoTools)
+    val body = OpencodeArgs.message(cfg, "hi", None, interactive)
+    assertEquals(body.tools, Some(Map("*" -> false)))
+
   test("read-only autonomous turn gates both write tools and question"):
     val cfg = AgentConfig().copy(tools = ToolSet.ReadOnly)
     val tools =

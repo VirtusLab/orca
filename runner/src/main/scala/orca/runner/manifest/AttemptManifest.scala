@@ -4,7 +4,7 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.{
   CodecMakerConfig,
   ConfiguredJsonValueCodec
 }
-import orca.agents.{JsonData, SessionKey}
+import orca.agents.{BackendTag, JsonData, SessionKey}
 
 import java.time.Instant
 
@@ -46,7 +46,7 @@ private[orca] object SessionKind:
   * `minted.stage` is the stage that minted it and never changes.
   */
 private[orca] case class ManifestSession(
-    harness: String,
+    harness: BackendTag,
     wireId: Option[String],
     agent: String,
     role: Option[String],

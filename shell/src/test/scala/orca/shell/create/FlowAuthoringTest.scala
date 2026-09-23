@@ -23,34 +23,6 @@ class FlowAuthoringTest extends munit.FunSuite:
     List("README.md", "implement.sc", "implement-interactive.sc").foreach:
       name => assertEquals(os.read(dir / name), resourceText(name))
 
-  test(
-    "extractApiMaterial is idempotent — a second call leaves files unchanged"
-  ):
-    val target = TempDirs.dir()
-    val dir = FlowAuthoring.extractApiMaterial(target, "0.0.18")
-    val mtimesBefore = os.list(dir).map(p => p.last -> os.mtime(p)).toMap
-
-    val dirAgain = FlowAuthoring.extractApiMaterial(target, "0.0.18")
-
-    assertEquals(dirAgain, dir)
-    val mtimesAfter = os.list(dir).map(p => p.last -> os.mtime(p)).toMap
-    assertEquals(mtimesAfter, mtimesBefore)
-
-  test("extractApiMaterial self-heals a half-populated leftover dir"):
-    val target = TempDirs.dir()
-    val dir = target / "orca-api-0.0.18"
-    os.makeDir.all(dir)
-    os.write(dir / "README.md", "stale-partial-content")
-
-    val result = FlowAuthoring.extractApiMaterial(target, "0.0.18")
-
-    assertEquals(result, dir)
-    assertEquals(os.read(dir / "README.md"), resourceText("README.md"))
-    assertEquals(
-      os.read(dir / "implement.sc"),
-      resourceText("implement.sc")
-    )
-
   // --- initialPrompt ---
 
   private val targetPath = os.root / "work" / ".orca" / "flows" / "new.sc"

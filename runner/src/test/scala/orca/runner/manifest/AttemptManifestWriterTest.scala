@@ -2,7 +2,7 @@ package orca.runner.manifest
 
 import orca.{AttemptId, OrcaDir, StagePath}
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
-import orca.agents.SessionKey
+import orca.agents.{BackendTag, SessionKey}
 import orca.events.OrcaEvent
 import orca.testkit.TempDirs
 import ox.channels.BufferCapacity
@@ -40,7 +40,7 @@ class AttemptManifestWriterTest extends munit.FunSuite:
       workDir,
       "0.0.test",
       flowName,
-      pid = 1,
+      AttemptId(clock(), pid = 1),
       clock
     )
 
@@ -65,7 +65,7 @@ class AttemptManifestWriterTest extends munit.FunSuite:
   private def manifestWithSession(startedAt: String): String =
     s"""{"orcaVersion":"0.0.test","flow":null,"workDir":"/work","pid":1,
        |"startedAt":"$startedAt","finishedAt":null,"status":"Succeeded",
-       |"sessions":[{"harness":"claude","wireId":"w","agent":"claude",
+       |"sessions":[{"harness":"ClaudeCode","wireId":"w","agent":"claude",
        |"role":null,"stage":null,"lastActiveAt":"$startedAt"}]}""".stripMargin
 
   /** A valid manifest recording no session, as a pruning test seeds an attempt
@@ -94,7 +94,7 @@ class AttemptManifestWriterTest extends munit.FunSuite:
     val writer = newWriter(
       workDir,
       fixedClock(
-        Instant.parse("2026-07-18T10:00:00Z"), // constructor: startedAt
+        Instant.parse("2026-07-18T10:00:00Z"), // attempt id: startedAt
         Instant.parse("2026-07-18T10:01:00Z"), // SessionCommitted
         Instant.parse("2026-07-18T10:05:00Z") // finish
       ),
@@ -104,7 +104,7 @@ class AttemptManifestWriterTest extends munit.FunSuite:
     writer.onEvent(OrcaEvent.StageStarted("code"))
     writer.onEvent(
       OrcaEvent.SessionCommitted(
-        harness = "claude",
+        harness = BackendTag.ClaudeCode,
         clientId = "client-1",
         wireId = Some("wire-1"),
         sessionKey = Some(coderKey),
@@ -119,7 +119,7 @@ class AttemptManifestWriterTest extends munit.FunSuite:
       s"""{"orcaVersion":"0.0.test","flow":"review-pr.sc","workDir":"$workDir",""" +
         """"branch":"feat/x","pid":1,"startedAt":"2026-07-18T10:00:00Z",""" +
         """"finishedAt":"2026-07-18T10:05:00Z","status":"Succeeded",""" +
-        """"sessions":[{"harness":"claude","wireId":"wire-1","agent":"claude",""" +
+        """"sessions":[{"harness":"ClaudeCode","wireId":"wire-1","agent":"claude",""" +
         """"role":"coder","stage":"code","minted":{"name":"coder","stage":"Task 2#0"},""" +
         """"lastActiveAt":"2026-07-18T10:01:00Z"}]}"""
     )
@@ -132,12 +132,12 @@ class AttemptManifestWriterTest extends munit.FunSuite:
 
   test("upsert: same session re-firing updates stage/lastActiveAt"):
     val workDir = TempDirs.dir()
-    // Only the constructor (startedAt) and each SessionCommitted call clock() —
-    // stage events don't, so 3 instants cover ctor + 2 commits.
+    // Only the attempt id (startedAt) and each SessionCommitted call clock() —
+    // stage events don't, so 3 instants cover the id + 2 commits.
     val writer = newWriter(
       workDir,
       fixedClock(
-        Instant.parse("2026-07-18T10:00:00Z"), // constructor: startedAt
+        Instant.parse("2026-07-18T10:00:00Z"), // attempt id: startedAt
         Instant.parse("2026-07-18T10:01:00Z"), // SessionCommitted #1
         Instant.parse("2026-07-18T10:04:00Z") // SessionCommitted #2 (refire)
       )
@@ -145,7 +145,7 @@ class AttemptManifestWriterTest extends munit.FunSuite:
     writer.onEvent(OrcaEvent.StageStarted("plan"))
     writer.onEvent(
       OrcaEvent.SessionCommitted(
-        harness = "claude",
+        harness = BackendTag.ClaudeCode,
         clientId = "client-1",
         wireId = Some("wire-1"),
         sessionKey = None,
@@ -157,7 +157,7 @@ class AttemptManifestWriterTest extends munit.FunSuite:
     writer.onEvent(OrcaEvent.StageStarted("code"))
     writer.onEvent(
       OrcaEvent.SessionCommitted(
-        harness = "claude",
+        harness = BackendTag.ClaudeCode,
         clientId = "client-1",
         wireId = Some("wire-1"),
         sessionKey = None,
@@ -183,7 +183,7 @@ class AttemptManifestWriterTest extends munit.FunSuite:
     writer.onEvent(OrcaEvent.StageStarted("inner"))
     writer.onEvent(
       OrcaEvent.SessionCommitted(
-        harness = "claude",
+        harness = BackendTag.ClaudeCode,
         clientId = "client-1",
         wireId = Some("wire-1"),
         sessionKey = None,
@@ -195,7 +195,7 @@ class AttemptManifestWriterTest extends munit.FunSuite:
     writer.onEvent(OrcaEvent.StageCompleted("inner"))
     writer.onEvent(
       OrcaEvent.SessionCommitted(
-        harness = "codex",
+        harness = BackendTag.Codex,
         clientId = "client-2",
         wireId = Some("wire-2"),
         sessionKey = None,
@@ -204,7 +204,7 @@ class AttemptManifestWriterTest extends munit.FunSuite:
       )
     )
     val manifest = soleManifest(workDir)
-    val outerSession = manifest.sessions.find(_.harness == "codex").get
+    val outerSession = manifest.sessions.find(_.harness == BackendTag.Codex).get
     assertEquals(outerSession.stage, Some("outer"))
 
   test("an event without a wireId is recorded with none"):
@@ -213,7 +213,7 @@ class AttemptManifestWriterTest extends munit.FunSuite:
       newWriter(workDir, fixedClock(Instant.parse("2026-07-18T10:00:00Z")))
     writer.onEvent(
       OrcaEvent.SessionCommitted(
-        harness = "someharness",
+        harness = BackendTag.Opencode,
         clientId = "client-1",
         wireId = None,
         sessionKey = None,
@@ -229,7 +229,7 @@ class AttemptManifestWriterTest extends munit.FunSuite:
       newWriter(workDir, fixedClock(Instant.parse("2026-07-18T10:00:00Z")))
     writer.onEvent(
       OrcaEvent.SessionCommitted(
-        harness = "claude",
+        harness = BackendTag.ClaudeCode,
         clientId = "durable-client",
         wireId = Some("w1"),
         sessionKey = Some(coderKey),
@@ -239,7 +239,7 @@ class AttemptManifestWriterTest extends munit.FunSuite:
     )
     writer.onEvent(
       OrcaEvent.SessionCommitted(
-        harness = "claude",
+        harness = BackendTag.ClaudeCode,
         clientId = "ephemeral-client",
         wireId = Some("w2"),
         sessionKey = None,
@@ -259,7 +259,7 @@ class AttemptManifestWriterTest extends munit.FunSuite:
       newWriter(workDir, fixedClock(Instant.parse("2026-07-18T10:00:00Z")))
     writer.onEvent(
       OrcaEvent.SessionCommitted(
-        harness = "claude",
+        harness = BackendTag.ClaudeCode,
         clientId = "client-1",
         wireId = Some("wire-1"),
         sessionKey = Some(coderKey),
@@ -269,7 +269,7 @@ class AttemptManifestWriterTest extends munit.FunSuite:
     )
     writer.onEvent(
       OrcaEvent.SessionCommitted(
-        harness = "claude",
+        harness = BackendTag.ClaudeCode,
         clientId = "client-1",
         wireId = Some("wire-1"),
         sessionKey = None,
@@ -310,8 +310,8 @@ class AttemptManifestWriterTest extends munit.FunSuite:
     writer.finish(AttemptOutcome.Failed)
     assertEquals(soleManifest(workDir).status, AttemptStatus.Failed)
 
-  /** Pruning counts attempts, not files. An attempt owns up to two, so a file
-    * count would halve the budget, and could delete a manifest while leaving
+  /** Pruning counts attempts, not files. An attempt owns several, so a file
+    * count would shrink the budget, and could delete a manifest while leaving
     * its cost log behind forever.
     */
   test(
@@ -338,6 +338,20 @@ class AttemptManifestWriterTest extends munit.FunSuite:
       os.exists(attemptsDir / "1000000000025-1.manifest.json") &&
         os.exists(attemptsDir / "1000000000025-1.cost.jsonl"),
       "the newest seeded attempt's two files must both survive"
+    )
+
+  test("a pruned attempt's trace log and its rolled part are deleted"):
+    val workDir = TempDirs.dir()
+    val attemptsDir = OrcaDir.ensureAttempts(workDir)
+    for i <- 1 to 25 do
+      os.write(attemptsDir / f"1000000000$i%03d-1.manifest.json", "{}")
+    os.write(attemptsDir / "1000000000001-1.trace.log", "")
+    os.write(attemptsDir / "1000000000001-1.trace.1.log", "")
+    val _ =
+      newWriter(workDir, fixedClock(Instant.parse("2026-07-18T10:00:00Z")))
+    assert(
+      !os.exists(attemptsDir / "1000000000001-1.trace.log") &&
+        !os.exists(attemptsDir / "1000000000001-1.trace.1.log")
     )
 
   /** An attempt that spends tokens without committing a session is the norm,
@@ -430,7 +444,7 @@ class AttemptManifestWriterTest extends munit.FunSuite:
         workDir,
         "0.0.test",
         None,
-        pid = 1,
+        AttemptId(Instant.now(), pid = 1),
         () => Instant.now()
       )
       val threads = (0 until 2).map: t =>
@@ -439,7 +453,7 @@ class AttemptManifestWriterTest extends munit.FunSuite:
             writer.onEvent(OrcaEvent.StageStarted(s"stage-$t-$i"))
             writer.onEvent(
               OrcaEvent.SessionCommitted(
-                harness = "claude",
+                harness = BackendTag.ClaudeCode,
                 clientId = s"client-$t-$i",
                 wireId = Some(s"wire-$t-$i"),
                 sessionKey = None,
@@ -489,7 +503,7 @@ class AttemptManifestWriterTest extends munit.FunSuite:
     writer.onEvent(
       OrcaEvent
         .SessionCommitted(
-          harness = "claude",
+          harness = BackendTag.ClaudeCode,
           clientId = "client-1",
           wireId = Some("wire-1"),
           sessionKey = None,

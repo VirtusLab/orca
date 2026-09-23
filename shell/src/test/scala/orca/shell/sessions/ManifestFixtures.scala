@@ -2,7 +2,7 @@ package orca.shell.sessions
 
 import com.github.plokhotnyuk.jsoniter_scala.core.writeToString
 import orca.{AttemptId, OrcaDir, StagePath}
-import orca.agents.SessionKey
+import orca.agents.{BackendTag, SessionKey}
 import orca.runner.manifest.{AttemptManifest, AttemptStatus, ManifestSession}
 
 import java.time.Instant
@@ -42,7 +42,7 @@ private[shell] object ManifestFixtures:
       sessionStage: String = "",
       stage: Option[String] = None,
       lastActiveAt: String = "2026-07-18T10:00:00Z",
-      harness: String = "ClaudeCode",
+      harness: BackendTag = BackendTag.ClaudeCode,
       wireId: Option[String] = Some("uuid")
   ): ManifestSession =
     ManifestSession(
@@ -65,7 +65,7 @@ private[shell] object ManifestFixtures:
       role: Option[String] = None,
       stage: Option[String] = None,
       lastActiveAt: String = "2026-07-18T10:00:00Z",
-      harness: String = "ClaudeCode",
+      harness: BackendTag = BackendTag.ClaudeCode,
       wireId: Option[String] = Some("uuid")
   ): ManifestSession =
     ManifestSession(

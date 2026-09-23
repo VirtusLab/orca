@@ -206,14 +206,14 @@ most easily broken:
   Each record also carries the minting agent's `backend` tag, so
   `FlowLifecycle.rehydrateSessions` replays a resumed run's resume wire ids
   into the record's own backend's agent rather than always the lead
-  (untagged/older records fall back to the lead; a tag matching none of the
-  context's accessors is skipped, not guessed).
+  (untagged records fall back to the lead). The tag is a typed `BackendTag`:
+  a store holding an unknown one fails to decode and reads as empty.
 
-- **Tool enforcement.** `AgentConfig.tools: ToolSet` (ReadOnly/NetworkOnly/Full)
-  and `autoApprove: AutoApprove` (All/Only) request a restriction, but each
-  backend enforces it differently. `AgentBackend.enforcementCell(tools,
-  autoApprove, dispatch)` answers with the guarantee actually achieved plus the
-  reason — see `Enforcement`'s scaladoc for what the levels mean.
+- **Tool enforcement.** `AgentConfig.tools: ToolSet`
+  (ReadOnly/NetworkOnly/Full/NoTools) and `autoApprove: AutoApprove`
+  (All/Only) request a restriction, but each backend enforces it differently.
+  `AgentBackend.enforcementCell(tools, autoApprove, dispatch)` answers with the
+  guarantee actually achieved plus the reason — see `Enforcement`'s scaladoc for what the levels mean.
 
   The block below is RENDERED — a fresh-turn table, then the resumed turns that
   differ — by `runner/src/test/scala/orca/runner/EnforcementTableTest.scala`,
@@ -226,6 +226,7 @@ most easily broken:
   | NetworkOnly, *         | Hard       | PromptOnly    | Hard     | PromptOnly | PromptOnly |
   | Full, All              | Hard       | Hard          | Ignored  | Ignored    | Hard       |
   | Full, Only(_) / Only() | Hard       | SandboxApprox | Ignored  | Ignored    | Ignored    |
+  | NoTools, *             | Hard       | PromptOnly    | Hard     | Hard       | PromptOnly |
 
   A resumed turn is classified the same, except:
   - Codex, Full, Only(_) / Only(): Ignored, not SandboxApprox
@@ -285,21 +286,20 @@ Three location classes decide what survives:
 | Path | Class | Holds | Written by | Read by | Removed by |
 |---|---|---|---|---|---|
 | `.orca/runs/<key>.progress.json` | committed | `ProgressLog`: header (branches, `branchMode`, `startingCommit`, `userPrompt`, `flowName`), one `StageEntry` per completed stage (`id`, `name`, `resultJson`), `published` | `ProgressStore` (`FlowLifecycle.freshRun`, `Flow.recordAndCommit`, `recordOpenedPr`) | `Flow.resumeFrom`, `RecoveryCheck`, `FlowLifecycle`, shell `ResumeDetector` (header) | success teardown, in a final commit |
-| `.orca/cache/runs/<key>.sessions.json` | cache | `SessionRecord` per durable session: `name`, `stage`, `id`, `seed`, `resumeWireId`, `backend` | `SessionStore` (`Session.mintSession`, `persistResumeWireId`) | `Session`, `FlowLifecycle.rehydrateSessions` | success teardown |
+| `.orca/cache/runs/<key>.sessions.json` | cache | `SessionRecord` per durable session: `name`, `stage`, `id`, `seed`, `resumeWireId`, `backend` | `SessionStore` (`Session.mintSession`, `persistResumeWireId`) | `Session`, `FlowLifecycle.rehydrateSessions` | success teardown; nothing else prunes them |
 | `.orca/cache/attempts/<id>.manifest.json` | cache | `AttemptManifest`: `workDir`, `pid`, `startedAt`, `finishedAt`, `status`, `orcaVersion`, `flow`, `branch`, `sessions[]` (`ManifestSession`) — written when the attempt starts, then on every stage transition, `BranchBound`, `SessionCommitted` and finish | `AttemptManifestWriter` | shell `ManifestReader` → session picker / `orca continue` (attempts with no session are left out) | pruning: newest 20 attempts with a session ∪ newest 20 of any kind |
 | `.orca/cache/attempts/<id>.cost.jsonl` | cache | one `CostRecord` line per `TokensUsed` (agent, role, model, stage, turn, usage, cost, session) — created on the first `TokensUsed` | `CostLog` via `AttemptManifestWriter` | nothing in orca; a measurement record for people and scripts | pruned with its manifest |
+| `.orca/cache/attempts/<id>.trace.log` (+ `.trace.1.log`) | cache | DEBUG trace of logger `orca`: prompts, agent output, tool calls; 4 MB roll | `OrcaLog` | people (path in the banner) | pruned with its manifest |
 | `.orca/cache/flow.lock` | cache | holder pid | `FlowLock` | `FlowLock` on contention | `runFlow`'s `finally`; a dead pid is stolen |
 | `.orca/cache/pi-sessions/<session id>/` | cache | pi's own `--session-dir` transcripts | pi | `PiSessionStore` (resume probe), shell pi resume | `PiSessionStore.prune` after 30 days untouched |
-| `.orca/cache/mcp-<session id>.json` | cache | claude `--mcp-config` for one conversation | `ClaudeBackend` | claude | conversation end; a hard kill leaves it |
 | `.orca/cache/lint-*.txt` | cache | lint output too large to inline in a prompt | `Lint` | the summarising agent | `lint`'s `finally` |
 | `.orca/cache/{,runs/,attempts/}.<file>.<n>.tmp` | cache | in-flight temp of a `JsonFile` rewrite: beside its target, except the progress log's, staged in `.orca/cache/` so it is never committed | `JsonFile` | — (`AttemptManifestWriter`'s pruning skips dot-files) | the rename that completes the write |
 | `.orca/worktrees/<key>/` (+ branch `orca-worktree-<key>`) | worktrees | a `--worktree` run's checkout, with its own `.orca/` inside | `WorktreeRun` | `WorktreeScan` (shell) | never — see README |
-| `<workDir>/.gemini/settings.json` | user tree | an `mcpServers.orca` entry for one interactive gemini conversation | `GeminiSettings` | gemini | restored on conversation end |
-| `$TMPDIR/orca-<n>.log` (+ `.1.log`) | temp | DEBUG trace of logger `orca`: prompts, agent output, tool calls; 4 MB roll | `OrcaLog` | people (path in the banner) | never |
-| `$TMPDIR/orca-*` (system prompts, codex schema, pi extension) | temp | per-turn IPC files handed to a CLI on argv | each backend | the CLI | turn end |
-| `$TMPDIR/orca-authoring-<n>/` | temp | the authoring flow's sandbox repo; `.orca/cache/orca-api-<version>/` inside holds the README + example flows (+ `fork-source/`) | `AuthoringSandbox`, `FlowAuthoring` | the coding agent | success or cancel; kept on failure |
-| `$XDG_CACHE_HOME/orca/shell/<version>/flows/` | XDG cache | built-in flows extracted from the jar | `BuiltInFlows` | `FlowCatalog`, scala-cli | never |
-| `$XDG_CACHE_HOME/orca/shell/workspace/` | XDG cache | scala-cli `--workspace` build state | scala-cli | scala-cli | never |
+| `<workDir>/.gemini/settings.json` | user tree | an `mcpServers.orca` entry for one interactive gemini conversation | `GeminiSettings` | gemini | restored on conversation end; a `.gemini/` orca created is removed when left empty |
+| `$TMPDIR/orca-*` (system prompts, claude MCP config, codex schema, pi extension) | temp | per-turn IPC files handed to a CLI on argv | each backend | the CLI | turn end |
+| `$TMPDIR/orca-authoring-<n>/` | temp | the authoring flow's sandbox repo; `.orca/cache/orca-api-<version>/` inside holds the README + example flows (+ `fork-source/`) | `AuthoringSandbox`, `FlowAuthoring` | the coding agent | success or cancel; kept on failure, and nothing else prunes it |
+| `$XDG_CACHE_HOME/orca/shell/<version>/flows/` | XDG cache | built-in flows extracted from the jar | `BuiltInFlows` | `FlowCatalog`, scala-cli | never; nothing prunes older versions |
+| `$XDG_CACHE_HOME/orca/shell/workspace/` | XDG cache | scala-cli `--workspace` build state | scala-cli | scala-cli | never; nothing prunes it |
 
 Why the resume state is two files: the log must be committed (resume from the
 pushed branch), while a backend session id is a machine-local handle, and a
@@ -407,8 +407,8 @@ screen output and the PR body:
   without resolving, paired with an `OpenReason`: declined, never reported on
   by the fixer, past the round cap, still failing lint, or from a review that
   could not run at all. This is what `reviewThenFix` and `reviewAndFixLoop`
-  return, what later rounds' reviewers are shown, and what the PR body lists
-  under "Open review findings".
+  return, what later rounds' reviewers are shown, and what the PR body and
+  the run output list under "Open review findings".
 
 Don't name the open set after one of its reasons: any such name misreports the
 others. `OpenReason` is where the distinction lives — its `describe` is the only

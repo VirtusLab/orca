@@ -21,15 +21,18 @@ import ox.either.orThrow
   * cut short by [[summarisePr]].
   *
   * Customise the PR text with `title`/`body`, both given the generated
-  * [[PrSummary]]; a flow that closes an issue passes e.g. `body = s =>
-  * s"${s.body}\n\nCloses #42."`. Point `summarisingAgent` at a cheap model and
-  * pass `context` to anchor it to the originating issue/prompt.
+  * [[PrSummary]]. Point `summarisingAgent` at a cheap model. `context` anchors
+  * it to the originating issue or prompt. Omitted, it is the run's user prompt,
+  * and the summariser adds `Closes` lines for the issues the prompt says to
+  * fix. A flow that passes `context` adds its own `Closes` line through `body`
+  * (`body = s => s"${s.body}\n\nCloses #42."`).
   *
   * `openFindings` is what the run's review loop returned still open; it goes
   * into the body after `body`'s text as its own section
   * ([[bodyWithOpenFindings]]), never through the summariser. Required, not
   * defaulted: a flow that forgets it would open a PR that says nothing about
-  * findings it left unfixed.
+  * findings it left unfixed. The same section is printed to the run output,
+  * also when opening the PR fails.
   *
   * `gh.createPr` is idempotent by head branch: a re-run that already opened the
   * PR gets the existing handle back rather than failing. Returns that handle,
@@ -47,6 +50,7 @@ def openPrFromBranch(
     context: Option[String] = None,
     instructions: String = PrPrompts.Summarise
 )(using FlowContext, FlowControl, OutsideStage): PrHandle =
+  reportOpenFindings(openFindings)
   pushBranch()
   val summary =
     summarise(
@@ -79,13 +83,20 @@ private[pr] def summarise(
     base: => String,
     context: Option[String],
     instructions: String
-)(using FlowContext, FlowControl): PrSummary =
+)(using ctx: FlowContext, control: FlowControl): PrSummary =
+  val (summaryContext, summaryInstructions) = context match
+    case Some(c) => (c, instructions)
+    case None =>
+      (
+        s"User prompt: ${ctx.userPrompt}",
+        s"$instructions\n\n${PrPrompts.ClosingRefs}"
+      )
   stage(SummariseStage):
     summarisePr(
       agent = summarisingAgent,
       diff = git.diffVsBase(base),
-      context = context,
-      instructions = instructions
+      context = Some(summaryContext),
+      instructions = summaryInstructions
     )
 
 private def createPr(title: String, body: String)(using

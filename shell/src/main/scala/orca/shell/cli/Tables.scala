@@ -10,6 +10,7 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.{
 }
 import orca.runner.manifest.SessionKind
 import orca.shell.flows.DiscoveredFlow
+import orca.settings.AgentSpec
 import orca.shell.sessions.{RecordedAttempt, SessionPicker}
 import orca.shell.ui.Choice
 
@@ -82,7 +83,7 @@ private[cli] object Tables:
             kind = session.kind,
             stage = session.stage,
             sessionStage = session.minted.map(_.stage.value),
-            harness = SessionPicker.harnessSettingsName(session.harness),
+            harness = AgentSpec.harnessNameFor(session.harness),
             lastActiveAt = session.lastActiveAt.toString,
             resumable = choice.isEnabled,
             reason = choice.disabledReason,

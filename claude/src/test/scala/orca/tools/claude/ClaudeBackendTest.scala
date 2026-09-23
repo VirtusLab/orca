@@ -19,7 +19,15 @@ import orca.agents.{
 import orca.events.OrcaListener
 import orca.{OrcaFlowException}
 import orca.subprocess.{FakePipedCliProcess, SpawnStubCliRunner}
-import orca.testkit.{GitRepo, TempDirs}
+import orca.testkit.TempDirs
+
+import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
+import com.github.plokhotnyuk.jsoniter_scala.macros.JsonCodecMaker
+
+import scala.concurrent.duration.*
+
+/** Reads only a server entry's `url`, ignoring its other fields. */
+private final case class UrlOnly(url: String)
 
 class ClaudeBackendTest extends munit.FunSuite:
 
@@ -96,17 +104,39 @@ class ClaudeBackendTest extends munit.FunSuite:
       // No ask_user MCP on the autonomous path.
       assert(!args.contains("--mcp-config"), args)
 
-  test("an MCP config left behind by a hard kill can't reach a commit"):
-    val repo = GitRepo.seeded()
-    val _ = orca.OrcaDir.ensureCache(repo)
-    os.write(ClaudeBackend.mcpConfigPath(repo, freshSid), "{}")
-    val _ = os.proc("git", "add", "-A").call(cwd = repo)
-    val staged =
-      os.proc("git", "diff", "--cached", "--name-only")
-        .call(cwd = repo)
-        .out
-        .text()
-    assertEquals(staged, "", "the MCP config must be unstageable")
+  test("the MCP config is written outside the workDir"):
+    // A hard kill skips the deletion; a leftover inside the working tree could
+    // be swept into a stage commit.
+    var configPath: Option[os.Path] = None
+    val runner = new SpawnStubCliRunner(
+      List(successfulProcess()),
+      onSpawn = args =>
+        configPath = Some(os.Path(args(args.indexOf("--mcp-config") + 1)))
+    )
+    withBackend(runner): backend =>
+      val _ = backend.runAutonomous(
+        "x",
+        freshSid,
+        AgentConfig(tools = ToolSet.ReadOnly)
+      )
+      assert(configPath.exists(!_.startsWith(backend.workDir)), configPath)
+
+  test("the MCP config lists each server as an http entry with a ms timeout"):
+    // claude's per-tool-call limit is read in milliseconds; seconds would make
+    // it give up on a pending ask_user almost at once.
+    assertEquals(
+      McpConfig.render(Map("s" -> McpConfig.HttpServer("http://h", 2.seconds))),
+      """{"mcpServers":{"s":{"type":"http","url":"http://h","timeout":2000}}}"""
+    )
+
+  test("the MCP config escapes a URL containing JSON metacharacters"):
+    val url = """http://h/"x\y"""
+    val json =
+      McpConfig.render(Map("s" -> McpConfig.HttpServer(url, 1.second)))
+    val parsed = readFromString[Map[String, Map[String, UrlOnly]]](json)(using
+      JsonCodecMaker.make
+    )
+    assertEquals(parsed("mcpServers")("s").url, url)
 
   test("a read-only autonomous call wires the repo-read MCP server"):
     // The config is read at spawn, not after: the conversation deletes it when
@@ -165,6 +195,16 @@ class ClaudeBackendTest extends munit.FunSuite:
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     withBackend(runner): backend =>
       val _ = backend.runAutonomous("x", freshSid, AgentConfig())
+      assert(!runner.calls.head.contains("--mcp-config"), runner.calls.head)
+
+  test("a NoTools autonomous call stands up no MCP server"):
+    val runner = new SpawnStubCliRunner(List(successfulProcess()))
+    withBackend(runner): backend =>
+      val _ = backend.runAutonomous(
+        "x",
+        freshSid,
+        AgentConfig(tools = ToolSet.NoTools)
+      )
       assert(!runner.calls.head.contains("--mcp-config"), runner.calls.head)
 
   test("a NetworkOnly call also wires the GitHub reads"):

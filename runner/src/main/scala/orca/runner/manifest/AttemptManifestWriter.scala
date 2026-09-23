@@ -10,9 +10,8 @@ import ox.channels.{Actor, ActorRef, BufferCapacity}
 import java.time.Instant
 import scala.util.control.NonFatal
 
-/** The manifest's outcome at finish. Narrower than [[AttemptStatus]] on
-  * purpose: [[AttemptStatus.Running]] is the state an attempt starts in, never
-  * a finish input.
+/** How an attempt ended, passed to [[AttemptManifestWriter.finish]]. Has no
+  * `Running` case, so an unfinished status cannot be recorded as the end.
   */
 private[orca] enum AttemptOutcome:
   case Succeeded, Failed
@@ -45,18 +44,23 @@ private[orca] object AttemptManifestWriter:
   /** Build a production writer whose state is owned by an Ox actor in the given
     * scope (mirrors [[orca.runner.terminal.TerminalOutput.start]]). The actor
     * fork lives as long as the scope, which must span construction through
-    * `finish`; `flow()` provides that scope. `pid` is this process's, recorded
-    * for the shell's liveness check and part of the [[AttemptId]].
+    * `finish`; `flow()` provides that scope. The manifest's `startedAt` and
+    * `pid` (the latter for the shell's liveness check) are `attemptId`'s.
     */
   def start(
       workDir: os.Path,
       orcaVersion: String,
       flowName: Option[String],
-      pid: Long,
+      attemptId: AttemptId,
       clock: () => Instant
   )(using Ox, BufferCapacity): AttemptManifestWriter =
-    val state =
-      new AttemptManifestWriterState(workDir, orcaVersion, flowName, pid, clock)
+    val state = new AttemptManifestWriterState(
+      workDir,
+      orcaVersion,
+      flowName,
+      attemptId,
+      clock
+    )
     new ActorAttemptManifestWriter(Actor.create(state))
 
 /** Actor-backed [[AttemptManifestWriter]]. `onEvent` is a `tell`; `finish` is
@@ -87,14 +91,12 @@ private[runner] class AttemptManifestWriterState(
     workDir: os.Path,
     orcaVersion: String,
     flowName: Option[String],
-    pid: Long,
+    attemptId: AttemptId,
     clock: () => Instant
 ) extends AttemptManifestWriter:
 
   private val log = LoggerFactory.getLogger("orca.flow")
 
-  private val startedAt: Instant = clock()
-  private val attemptId: AttemptId = AttemptId(startedAt, pid)
   private val attemptsDir: os.Path = OrcaDir.ensureAttempts(workDir)
   private val manifestPath: os.Path = OrcaDir.manifestPath(workDir, attemptId)
   private val costLog: CostLog = CostLog(
@@ -161,8 +163,8 @@ private[runner] class AttemptManifestWriterState(
         flow = flowName,
         workDir = workDir.toString,
         branch = state.branch,
-        pid = pid,
-        startedAt = startedAt,
+        pid = attemptId.pid,
+        startedAt = attemptId.startedAt,
         finishedAt = finishedAt,
         status = status,
         sessions = state.entries.map(_.session)

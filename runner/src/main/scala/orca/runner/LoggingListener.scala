@@ -30,6 +30,8 @@ private[orca] class LoggingListener extends OrcaListener:
       log.debug("assistant ({}): {}", agent.getOrElse("?"), text)
     case OrcaEvent.ToolUse(tool, args, agent) =>
       log.debug("tool use ({}): {} {}", agent.getOrElse("?"), tool, args)
+    case OrcaEvent.ToolDenied(tool, agent) =>
+      log.info("tool denied ({}): {}", agent.getOrElse("?"), tool)
     case OrcaEvent.StructuredResult(raw, summary) =>
       // On a deliberately silent summary (`Some("")`) or a missing one
       // (`None`), log the raw JSON — display silence must not hide the result

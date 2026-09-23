@@ -77,6 +77,8 @@ private[terminal] class ConversationRenderer(
       renderToolCall(name, input)
     case ConversationEvent.ToolResult(_, ok, content) =>
       renderToolResult(ok, content)
+    case ConversationEvent.ToolDenied(name) =>
+      renderToolResult(ok = false, s"permission denied: $name")
     case ConversationEvent.AssistantTurnEnd => ()
     case ConversationEvent.Error(message)   => renderError(message)
     case ConversationEvent.ApproveTool(name, input, respond) =>

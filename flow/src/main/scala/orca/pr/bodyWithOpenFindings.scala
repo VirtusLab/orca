@@ -1,5 +1,7 @@
 package orca.pr
 
+import orca.FlowContext
+import orca.events.OrcaEvent
 import orca.review.OpenFindings
 
 /** `body`, then an "Open review findings" section naming what a review loop
@@ -12,8 +14,21 @@ import orca.review.OpenFindings
   * and a flow writing its own body (`gh.updatePr`) all go through it.
   */
 def bodyWithOpenFindings(body: String, open: OpenFindings): String =
-  if open.findings.isEmpty then body
-  else
+  openFindingsSection(open).fold(body)(section => s"$body\n\n$section")
+
+/** Prints `open` to the run output as one `Step` holding the same section the
+  * PR body gets; nothing when nothing is open.
+  *
+  * [[openPrFromBranch]] and [[openPrIfGitHub]] call it before their PR step, so
+  * a failed PR still leaves the findings in the output. A flow that writes its
+  * own PR body calls it the same way.
+  */
+def reportOpenFindings(open: OpenFindings)(using ctx: FlowContext): Unit =
+  openFindingsSection(open).foreach(s => ctx.emit(OrcaEvent.Step(s)))
+
+/** The "Open review findings" section, or `None` when nothing is open. */
+private[pr] def openFindingsSection(open: OpenFindings): Option[String] =
+  Option.when(open.findings.nonEmpty):
     val bullets = open.findings.map: f =>
       val where = f.location.fold("")(l => s" (`${l.text}`)")
       val reason = f.reasonLine
@@ -25,6 +40,4 @@ def bodyWithOpenFindings(body: String, open: OpenFindings): String =
     val lead = "What the run's review left open, each with the reason " +
       "recorded — including findings the fixer declined, and a review the " +
       "run could not run:"
-    val section =
-      (List("## Open review findings", "", lead, "") ++ bullets).mkString("\n")
-    s"$body\n\n$section"
+    (List("## Open review findings", "", lead, "") ++ bullets).mkString("\n")
