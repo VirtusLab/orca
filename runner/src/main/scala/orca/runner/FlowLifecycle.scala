@@ -377,6 +377,7 @@ object FlowLifecycle:
         .map(_.toLowerCase(java.util.Locale.ROOT))
     val binding =
       session.bindBranch(startBranch, protectedBranches, discovered)
+    emit(OrcaEvent.BranchBound(binding.featureBranch.value))
     FlowSetup(
       store,
       sessionStore,

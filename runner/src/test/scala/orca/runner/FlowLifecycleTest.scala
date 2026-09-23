@@ -1055,6 +1055,57 @@ class FlowLifecycleTest extends munit.FunSuite:
     val setup = setupForSettings(workDir, Some(StackSettings.empty), prompt)
     assertEquals(setup.startingCommit, None)
 
+  // --- the branch the run bound to, announced as an event ---
+
+  private def setupRecordingBound(
+      workDir: os.Path
+  ): (FlowLifecycle.FlowSetup, List[String]) =
+    val emitted = new AtomicReference[List[OrcaEvent]](Nil)
+    val setup = setupForSettings(
+      workDir,
+      Some(StackSettings.empty),
+      "a brand new task",
+      emit = e => { val _ = emitted.updateAndGet(e :: _) }
+    )
+    (setup, emitted.get().collect { case OrcaEvent.BranchBound(b) => b })
+
+  test("setup: a fresh run emits the branch it bound to, once"):
+    val (setup, bound) = setupRecordingBound(GitRepo.seeded())
+    assertEquals(bound, List(setup.featureBranch.value))
+
+  test("setup: a resumed run emits the branch it bound to, once"):
+    val workDir = GitRepo.seeded()
+    val (first, _) = setupRecordingBound(workDir)
+    val (_, bound) = setupRecordingBound(workDir)
+    assertEquals(bound, List(first.featureBranch.value))
+
+  test("setup: skip-branch mode emits the current branch as the bound one"):
+    val workDir = GitRepo.seeded()
+    val git = new OsGitTool(workDir)
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    assert(git.createBranch("my-work").isRight)
+    val prompt = "skip-branch bound event"
+    val emitted = new AtomicReference[List[OrcaEvent]](Nil)
+    val _ = FlowLifecycle.setup(
+      args =
+        OrcaArgs(prompt, target = RunTarget.CurrentBranch(Uncommitted.Stash)),
+      agent = StubAgent.claude,
+      git = git,
+      workDir = workDir,
+      branchNaming = None,
+      resolution = FlowLifecycle
+        .readSettings(workDir, noGlobalSettings, Some(StackSettings.empty))
+        .stack,
+      stackOverridden = true,
+      store = ProgressStore.default(workDir, RunKey.of(prompt)),
+      sessionStore = scratchSessions(),
+      emit = e => { val _ = emitted.updateAndGet(e :: _) }
+    )
+    assertEquals(
+      emitted.get().collect { case OrcaEvent.BranchBound(b) => b },
+      List("my-work")
+    )
+
   test("the commit the run bound at reaches the flow body"):
     // The rest of the path FlowSetup only starts: DefaultFlowContext, and what
     // a flow body actually reads when it asks for the whole-run diff base.

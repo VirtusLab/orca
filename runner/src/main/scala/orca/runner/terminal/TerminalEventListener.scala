@@ -83,6 +83,10 @@ private[runner] class TerminalEventListener(
       output.log(formatStepLine(message))
     case _: OrcaEvent.Bookkeeping =>
       () // Not the user's work; it would read as progress. The trace keeps it.
+    case _: OrcaEvent.BranchBound =>
+      // Creating, checking out or resuming a branch already prints it;
+      // --skip-branch stays on the user's own branch.
+      ()
     case OrcaEvent.Caveat(message) =>
       // No `formatIndented`, unlike every sibling arm: it is run-scoped.
       output.log(paint(CaveatStyle, s"$CaveatGlyph ") + message)

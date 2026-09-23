@@ -154,6 +154,13 @@ enum OrcaEvent:
       role: Option[String]
   )
 
+  /** Fires once per attempt, right after the run is bound to its branch —
+    * fresh, resumed and `--skip-branch` runs alike. `branch` is the branch
+    * actually bound, which may be a fallback name rather than the one the
+    * naming strategy proposed. The attempt manifest writer records it.
+    */
+  case BranchBound(branch: String)
+
 object OrcaEvent:
   /** The one identity a backend conversation is known by across events: its
     * wire id once the backend has minted one, else the client id orca
