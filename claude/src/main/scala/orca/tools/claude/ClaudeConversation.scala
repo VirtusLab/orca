@@ -346,11 +346,11 @@ private[claude] class ClaudeConversation(
       None // tool-use blocks, block start/stop, unhandled — driver ignores
 
   /** Answer a control request, or report that the answer can't be delivered.
-    * `ClaudeBackend.openConversation` closes stdin right after the opening
-    * turn, so the write always hits a closed pipe. The failure is reported
-    * rather than thrown: from the reader thread an `IOException` would look
-    * like a parse failure, and from the interactive `ApproveTool` closure it
-    * would fail the whole turn with a bare `Stream Closed` that names nothing.
+    * `ClaudeBackend.open` closes stdin right after the opening turn, so the
+    * write always hits a closed pipe. The failure is reported rather than
+    * thrown: from the reader thread an `IOException` would look like a parse
+    * failure, and from the interactive `ApproveTool` closure it would fail the
+    * whole turn with a bare `Stream Closed` that names nothing.
     *
     * Nothing reaches this today: claude 2.1.220 sends no `can_use_tool` over
     * stdio. Delivering a decision would mean keeping stdin open for the turn.

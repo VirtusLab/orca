@@ -1,5 +1,6 @@
 package orca.tools.gemini
 
+import orca.testkit.OpenTurn
 import orca.backend.{SupervisedBackend, SystemPromptComposer}
 import orca.agents.{
   TurnDispatch,
@@ -267,7 +268,7 @@ class GeminiBackendTest extends munit.FunSuite:
     val runner = new SpawnStubCliRunner(List(pendingProcess()))
     val workDir = TempDirs.dir()
     withBackend(runner, workDir = workDir): backend =>
-      val _ = backend.runInteractive(
+      val _ = OpenTurn.interactive(backend)(
         "q",
         clientSid,
         displayPrompt = "q",
@@ -291,7 +292,7 @@ class GeminiBackendTest extends munit.FunSuite:
   ):
     val runner = new SpawnStubCliRunner(List(pendingProcess()))
     withBackend(runner): backend =>
-      val _ = backend.runInteractive(
+      val _ = OpenTurn.interactive(backend)(
         "list files",
         clientSid,
         displayPrompt = "list files",

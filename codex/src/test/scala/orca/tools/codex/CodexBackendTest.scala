@@ -1,5 +1,6 @@
 package orca.tools.codex
 
+import orca.testkit.OpenTurn
 import orca.backend.{SupervisedBackend, SystemPromptComposer}
 import orca.agents.{
   TurnDispatch,
@@ -373,7 +374,7 @@ class CodexBackendTest extends munit.FunSuite:
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     val workDir = TempDirs.dir()
     withBackend(runner, workDir = workDir): backend =>
-      val _ = backend.runInteractive(
+      val _ = OpenTurn.interactive(backend)(
         "q",
         clientSid,
         displayPrompt = "q",
@@ -418,7 +419,7 @@ class CodexBackendTest extends munit.FunSuite:
     // user prompt (codex has no --append-system-prompt).
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     withBackend(runner): backend =>
-      val _ = backend.runInteractive(
+      val _ = OpenTurn.interactive(backend)(
         "q",
         clientSid,
         displayPrompt = "q",
@@ -446,7 +447,7 @@ class CodexBackendTest extends munit.FunSuite:
     // both-present case (the other three are covered by adjacent tests).
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     withBackend(runner): backend =>
-      val _ = backend.runInteractive(
+      val _ = OpenTurn.interactive(backend)(
         "list files",
         clientSid,
         displayPrompt = "list files",

@@ -1,20 +1,20 @@
 package orca.agents
 
 import orca.StagePath
-import orca.testkit.StubEnforcementCell
+import orca.testkit.{ScriptedBackend, ScriptedConversation}
 import orca.backend.{
-  Dispatch,
   Conversation,
   ConversationEvent,
-  Conversations,
   Interaction,
   AgentBackend,
   AgentResult,
   IdScheme,
-  SessionSupport
+  SessionSupport,
+  TurnRequest
 }
 import orca.events.{OrcaEvent, OrcaListener, TurnDebit, Usage}
 import orca.testkit.Usages.usage
+import ox.Ox
 import ox.scheduling.Schedule
 
 import scala.concurrent.duration.DurationInt
@@ -712,7 +712,7 @@ class BaseAgentTest extends munit.FunSuite:
     assertEquals(backend.lastConfig, Some(toolConfig))
 
   test("resultAs keeps a withReadOnly restriction"):
-    val backend = new RecordingConfigBackend(reply = "\"out\"")
+    val backend = new RecordingConfigBackend(output = "\"out\"")
     val tool = new StubTool(backend, prompts = DefaultPrompts).withReadOnly
     val _ = tool.resultAs[String].autonomous.run("prompt")
     assertEquals(backend.lastConfig.map(_.tools), Some(ToolSet.ReadOnly))
@@ -750,179 +750,78 @@ class BaseAgentTest extends munit.FunSuite:
   /** Records the `AgentConfig` the agent passed to the backend, so tests can
     * assert on it directly.
     */
-  private class RecordingConfigBackend(reply: String = "out")
-      extends AgentBackend[BackendTag.Pi.type]
-      with StubEnforcementCell[BackendTag.Pi.type]:
-    val workDir: os.Path = os.pwd
+  private class RecordingConfigBackend(output: String = "out")
+      extends ScriptedBackend(BackendTag.Pi):
     var lastConfig: Option[AgentConfig] = None
-    protected def doRunAutonomous(
-        prompt: String,
-        session: SessionId[BackendTag.Pi.type],
-        dispatch: Dispatch[BackendTag.Pi.type],
-        config: AgentConfig,
-        events: OrcaListener,
-        outputSchema: Option[String]
+    protected def reply(
+        turn: TurnRequest[BackendTag.Pi.type]
     ): AgentResult[BackendTag.Pi.type] =
-      lastConfig = Some(config)
-      AgentResult(
-        WireSessionId[BackendTag.Pi.type]("server-wire-id"),
-        reply,
-        Usage.empty
-      )
-    protected def doRunInteractive(
-        prompt: String,
-        session: SessionId[BackendTag.Pi.type],
-        dispatch: Dispatch[BackendTag.Pi.type],
-        displayPrompt: String,
-        config: AgentConfig,
-        outputSchema: Option[String]
-    )(using ox.Ox): Conversation[BackendTag.Pi.type] =
-      throw new UnsupportedOperationException
-    val sessions: SessionSupport[BackendTag.Pi.type] =
-      SessionSupport.ephemeral(IdScheme.ClientClaimed)
-    val tag: BackendTag.Pi.type = BackendTag.Pi
-    def structuredOutputMode: StructuredOutputMode =
-      StructuredOutputMode.RawText
+      lastConfig = Some(turn.config)
+      ScriptedBackend.result(output)
 
   /** Fails every turn with `error`, so the fallback/accounting paths around a
     * failed `runAutonomous` can be exercised without a live backend.
     */
   private class FailingBackend(error: Throwable)
-      extends AgentBackend[BackendTag.Pi.type]
-      with StubEnforcementCell[BackendTag.Pi.type]:
-    val workDir: os.Path = os.pwd
-    protected def doRunAutonomous(
-        prompt: String,
-        session: SessionId[BackendTag.Pi.type],
-        dispatch: Dispatch[BackendTag.Pi.type],
-        config: AgentConfig,
-        events: OrcaListener,
-        outputSchema: Option[String]
+      extends ScriptedBackend(BackendTag.Pi):
+    protected def reply(
+        turn: TurnRequest[BackendTag.Pi.type]
     ): AgentResult[BackendTag.Pi.type] = throw error
-    protected def doRunInteractive(
-        prompt: String,
-        session: SessionId[BackendTag.Pi.type],
-        dispatch: Dispatch[BackendTag.Pi.type],
-        displayPrompt: String,
-        config: AgentConfig,
-        outputSchema: Option[String]
-    )(using ox.Ox): Conversation[BackendTag.Pi.type] =
-      throw new UnsupportedOperationException
-    val sessions: SessionSupport[BackendTag.Pi.type] =
-      SessionSupport.ephemeral(IdScheme.ClientClaimed)
-    val tag: BackendTag.Pi.type = BackendTag.Pi
-    def structuredOutputMode: StructuredOutputMode =
-      StructuredOutputMode.RawText
 
-  /** Emits the streaming display events a real drain would (a tool line, a
-    * denied tool call and the assistant's reply) so the quiet-turn tests can
-    * assert which ones are filtered.
+  /** Streams the display events a real turn would (a tool line, a denied tool
+    * call and the assistant's reply) so the quiet-turn tests can assert which
+    * ones are filtered.
     */
-  private class NoisyBackend
-      extends AgentBackend[BackendTag.Pi.type]
-      with StubEnforcementCell[BackendTag.Pi.type]:
-    val workDir: os.Path = os.pwd
-    protected def doRunAutonomous(
-        prompt: String,
-        session: SessionId[BackendTag.Pi.type],
-        dispatch: Dispatch[BackendTag.Pi.type],
-        config: AgentConfig,
-        events: OrcaListener,
-        outputSchema: Option[String]
-    ): AgentResult[BackendTag.Pi.type] =
-      events.onEvent(OrcaEvent.ToolUse("Read", "{}"))
-      events.onEvent(OrcaEvent.ToolDenied("Bash", None))
-      events.onEvent(OrcaEvent.AssistantMessage("short-label"))
-      AgentResult(
-        WireSessionId[BackendTag.Pi.type]("wire"),
-        "short-label",
-        Usage.empty
+  private class NoisyBackend extends ScriptedBackend(BackendTag.Pi):
+    protected def reply(
+        turn: TurnRequest[BackendTag.Pi.type]
+    ): AgentResult[BackendTag.Pi.type] = ScriptedBackend.result("short-label")
+    override protected[orca] def open(turn: TurnRequest[BackendTag.Pi.type])(
+        using Ox
+    ): Conversation[BackendTag.Pi.type] =
+      new ScriptedConversation(
+        List(
+          ConversationEvent.AssistantToolCall("Read", "{}"),
+          ConversationEvent.ToolDenied("Bash"),
+          ConversationEvent.AssistantTextDelta("short-label"),
+          ConversationEvent.AssistantTurnEnd
+        ),
+        Right(reply(turn)),
+        turn.outputSchema
       )
-    protected def doRunInteractive(
-        prompt: String,
-        session: SessionId[BackendTag.Pi.type],
-        dispatch: Dispatch[BackendTag.Pi.type],
-        displayPrompt: String,
-        config: AgentConfig,
-        outputSchema: Option[String]
-    )(using ox.Ox): Conversation[BackendTag.Pi.type] =
-      throw new UnsupportedOperationException
-    val sessions: SessionSupport[BackendTag.Pi.type] =
-      SessionSupport.ephemeral(IdScheme.ClientClaimed)
-    val tag: BackendTag.Pi.type = BackendTag.Pi
-    def structuredOutputMode: StructuredOutputMode =
-      StructuredOutputMode.RawText
 
-  /** Drives a real `Conversations.runAutonomous` (rather than returning a
-    * canned `AgentResult` directly, as the other stub backends do) so the
-    * TurnBuffer withholding logic actually runs: each reply streams as a single
-    * completed assistant turn, exactly the shape a real backend produces for a
-    * one-turn structured reply. Threads the caller's `outputSchema` through
-    * unchanged, so a plain `run()` call (which passes `None`) exercises
-    * non-structured mode and a `resultAs[O]` call (which passes `Some(...)`)
-    * exercises structured mode.
+  /** Streams each reply as a single completed assistant turn — the shape a real
+    * backend produces for a one-turn reply — so the drain's withholding logic
+    * runs: a plain `run()` call (no `outputSchema`) exercises non-structured
+    * mode and a `resultAs[O]` call exercises structured mode.
     *
-    * `replies` are answered one per call, so a retried call can be scripted
+    * `replies` are answered one per turn, so a retried call can be scripted
     * with an output that won't parse followed by one that will.
     */
   private class ScriptedDrainBackend(replies: String*)
-      extends AgentBackend[BackendTag.Pi.type]
-      with StubEnforcementCell[BackendTag.Pi.type]:
+      extends ScriptedBackend(BackendTag.Pi):
     private val remaining = replies.iterator
-    val workDir: os.Path = os.pwd
-    val sessions: SessionSupport[BackendTag.Pi.type] =
-      SessionSupport.ephemeral(IdScheme.ClientClaimed)
-    val tag: BackendTag.Pi.type = BackendTag.Pi
-    def structuredOutputMode: StructuredOutputMode =
-      StructuredOutputMode.RawText
-    protected def doRunAutonomous(
-        prompt: String,
-        session: SessionId[BackendTag.Pi.type],
-        dispatch: Dispatch[BackendTag.Pi.type],
-        config: AgentConfig,
-        events: OrcaListener,
-        outputSchema: Option[String]
+    // A test scripted with too few replies should say so, rather than surface
+    // the iterator's NoSuchElementException — and only once the retry schedule
+    // runs out, since the policy retries anything but `AgentTurnFailed`.
+    protected def reply(
+        turn: TurnRequest[BackendTag.Pi.type]
     ): AgentResult[BackendTag.Pi.type] =
-      val schema = outputSchema
-      // A test scripted with too few replies should say so, rather than
-      // surface the iterator's NoSuchElementException — and only once the
-      // retry schedule runs out, since the policy retries anything but
-      // `AgentTurnFailed`.
       if !remaining.hasNext then
         throw new IllegalStateException("scripted replies exhausted")
-      val reply = remaining.next()
-      Conversations.runAutonomous(
-        session,
-        sessions,
-        config.autoApprove,
-        events
-      ):
-        new Conversation[BackendTag.Pi.type]:
-          val outputSchema: Option[String] = schema
-          def events(using ox.Ox): Iterator[ConversationEvent] =
-            Iterator(
-              ConversationEvent.AssistantTextDelta(reply),
-              ConversationEvent.AssistantTurnEnd
-            )
-          def awaitResult()(using ox.Ox) =
-            Right(
-              AgentResult(
-                WireSessionId[BackendTag.Pi.type]("scripted-wire"),
-                reply,
-                Usage.empty
-              )
-            )
-          def canAskUser: Boolean = false
-          def cancel(): Unit = ()
-    protected def doRunInteractive(
-        prompt: String,
-        session: SessionId[BackendTag.Pi.type],
-        dispatch: Dispatch[BackendTag.Pi.type],
-        displayPrompt: String,
-        config: AgentConfig,
-        outputSchema: Option[String]
-    )(using ox.Ox): Conversation[BackendTag.Pi.type] =
-      throw new UnsupportedOperationException
+      ScriptedBackend.result(remaining.next())
+    override protected[orca] def open(turn: TurnRequest[BackendTag.Pi.type])(
+        using Ox
+    ): Conversation[BackendTag.Pi.type] =
+      val result = reply(turn)
+      new ScriptedConversation(
+        List(
+          ConversationEvent.AssistantTextDelta(result.output),
+          ConversationEvent.AssistantTurnEnd
+        ),
+        Right(result),
+        turn.outputSchema
+      )
 
   /** Records every event a run emitted, projected onto the [[caveats]] and
     * [[steps]] messages in emission order.
@@ -992,74 +891,31 @@ class BaseAgentTest extends munit.FunSuite:
   private class FailFirstBackend(error: Throwable, replies: String*)
       extends ScriptedDrainBackend(replies*):
     private var thrown = false
-    override protected def doRunAutonomous(
-        prompt: String,
-        session: SessionId[BackendTag.Pi.type],
-        dispatch: Dispatch[BackendTag.Pi.type],
-        config: AgentConfig,
-        events: OrcaListener,
-        outputSchema: Option[String]
+    override protected def reply(
+        turn: TurnRequest[BackendTag.Pi.type]
     ): AgentResult[BackendTag.Pi.type] =
-      if thrown then
-        super.doRunAutonomous(
-          prompt,
-          session,
-          dispatch,
-          config,
-          events,
-          outputSchema
-        )
+      if thrown then super.reply(turn)
       else
         thrown = true
         throw error
 
-  /** Interactive counterpart to [[ScriptedDrainBackend]]: `runInteractive`
-    * replays `scripted` verbatim (no drain of its own — the interactive door
-    * has none) and `awaitResult` returns `finalOutput` under the given
-    * `schema`, so `DefaultAgentCall.runInteractiveOnce`'s own turn-withholding
-    * runs against a stream shaped like a real backend's.
+  /** Interactive counterpart to [[ScriptedDrainBackend]]: replays `scripted`
+    * verbatim under the given `schema` and answers `finalOutput`, so the
+    * interactive turn's own withholding runs against a stream shaped like a
+    * real backend's.
     */
   private class ScriptedInteractiveBackend(
       scripted: List[ConversationEvent],
       finalOutput: String,
       schema: Option[String]
-  ) extends AgentBackend[BackendTag.Pi.type]
-      with StubEnforcementCell[BackendTag.Pi.type]:
-    val workDir: os.Path = os.pwd
-    val sessions: SessionSupport[BackendTag.Pi.type] =
-      SessionSupport.ephemeral(IdScheme.ClientClaimed)
-    val tag: BackendTag.Pi.type = BackendTag.Pi
-    def structuredOutputMode: StructuredOutputMode =
-      StructuredOutputMode.RawText
-    protected def doRunAutonomous(
-        prompt: String,
-        session: SessionId[BackendTag.Pi.type],
-        dispatch: Dispatch[BackendTag.Pi.type],
-        config: AgentConfig,
-        events: OrcaListener,
-        outputSchema: Option[String]
-    ): AgentResult[BackendTag.Pi.type] = throw new UnsupportedOperationException
-    protected def doRunInteractive(
-        prompt: String,
-        session: SessionId[BackendTag.Pi.type],
-        dispatch: Dispatch[BackendTag.Pi.type],
-        displayPrompt: String,
-        config: AgentConfig,
-        outputSchema: Option[String]
-    )(using ox.Ox): Conversation[BackendTag.Pi.type] =
-      new Conversation[BackendTag.Pi.type]:
-        val outputSchema: Option[String] = schema
-        def events(using ox.Ox): Iterator[ConversationEvent] = scripted.iterator
-        def awaitResult()(using ox.Ox) =
-          Right(
-            AgentResult(
-              WireSessionId[BackendTag.Pi.type]("scripted-wire"),
-              finalOutput,
-              Usage.empty
-            )
-          )
-        def canAskUser: Boolean = false
-        def cancel(): Unit = ()
+  ) extends ScriptedBackend(BackendTag.Pi):
+    protected def reply(
+        turn: TurnRequest[BackendTag.Pi.type]
+    ): AgentResult[BackendTag.Pi.type] = ScriptedBackend.result(finalOutput)
+    override protected[orca] def open(turn: TurnRequest[BackendTag.Pi.type])(
+        using Ox
+    ): Conversation[BackendTag.Pi.type] =
+      new ScriptedConversation(scripted, Right(reply(turn)), schema)
 
   /** A driving `Interaction` that actually pulls `conversation.events` —
     * recording every one it sees into `seen`, so tests can assert what does and
@@ -1078,103 +934,29 @@ class BaseAgentTest extends munit.FunSuite:
         case Right(r) => r
         case Left(c)  => throw c
 
-  /** Mimics a real subprocess backend's `drainAndCommit`: returns a canned
-    * result and immediately commits the session as resumable, so
-    * `Agent.resumeWireId` reports `wireId` once `runAutonomous` returns.
+  /** A durable backend whose turns report `wireId`, so `Agent.resumeWireId`
+    * reports it once `runAutonomous` commits the turn.
     */
   private class CommittingBackend(wireId: String)
-      extends AgentBackend[BackendTag.Pi.type]
-      with StubEnforcementCell[BackendTag.Pi.type]:
-    val workDir: os.Path = os.pwd
-    val sessions: SessionSupport[BackendTag.Pi.type] =
-      SessionSupport.durable(IdScheme.ServerMinted, _ => true)
-    protected def doRunAutonomous(
-        prompt: String,
-        session: SessionId[BackendTag.Pi.type],
-        dispatch: Dispatch[BackendTag.Pi.type],
-        config: AgentConfig,
-        events: OrcaListener,
-        outputSchema: Option[String]
-    ): AgentResult[BackendTag.Pi.type] =
-      val result = AgentResult(
-        WireSessionId[BackendTag.Pi.type](wireId),
-        "out",
-        Usage.empty
-      )
-      sessions.commitAfterDrain(session, result.wireId)
-      result
-    protected def doRunInteractive(
-        prompt: String,
-        session: SessionId[BackendTag.Pi.type],
-        dispatch: Dispatch[BackendTag.Pi.type],
-        displayPrompt: String,
-        config: AgentConfig,
-        outputSchema: Option[String]
-    )(using ox.Ox): Conversation[BackendTag.Pi.type] =
-      throw new UnsupportedOperationException
-    val tag: BackendTag.Pi.type = BackendTag.Pi
-    def structuredOutputMode: StructuredOutputMode =
-      StructuredOutputMode.RawText
+      extends ScriptedBackend(
+        BackendTag.Pi,
+        SessionSupport.durable(IdScheme.ServerMinted, _ => true)
+      ):
+    protected def reply(
+        turn: TurnRequest[BackendTag.Pi.type]
+    ): AgentResult[BackendTag.Pi.type] = ScriptedBackend.result("out", wireId)
 
-  private object StubBackend
-      extends AgentBackend[BackendTag.Pi.type]
-      with StubEnforcementCell[BackendTag.Pi.type]:
-    val workDir: os.Path = os.pwd
-    protected def doRunAutonomous(
-        prompt: String,
-        session: SessionId[BackendTag.Pi.type],
-        dispatch: Dispatch[BackendTag.Pi.type],
-        config: AgentConfig,
-        events: OrcaListener,
-        outputSchema: Option[String]
-    ): AgentResult[BackendTag.Pi.type] =
-      AgentResult(
-        WireSessionId[BackendTag.Pi.type]("server-wire-id"),
-        "out",
-        Usage.empty
-      )
-    protected def doRunInteractive(
-        prompt: String,
-        session: SessionId[BackendTag.Pi.type],
-        dispatch: Dispatch[BackendTag.Pi.type],
-        displayPrompt: String,
-        config: AgentConfig,
-        outputSchema: Option[String]
-    )(using ox.Ox): Conversation[BackendTag.Pi.type] =
-      throw new UnsupportedOperationException
-    val sessions: SessionSupport[BackendTag.Pi.type] =
-      SessionSupport.ephemeral(IdScheme.ClientClaimed)
-    val tag: BackendTag.Pi.type = BackendTag.Pi
-    def structuredOutputMode: StructuredOutputMode =
-      StructuredOutputMode.RawText
+  private object StubBackend extends ScriptedBackend(BackendTag.Pi):
+    protected def reply(
+        turn: TurnRequest[BackendTag.Pi.type]
+    ): AgentResult[BackendTag.Pi.type] = ScriptedBackend.result("out")
 
-  private class RecordingCloseBackend
-      extends AgentBackend[BackendTag.Pi.type]
-      with StubEnforcementCell[BackendTag.Pi.type]:
-    val workDir: os.Path = os.pwd
+  private class RecordingCloseBackend extends ScriptedBackend(BackendTag.Pi):
     var closeCount: Int = 0
     override def close(): Unit = closeCount += 1
-    protected def doRunAutonomous(
-        prompt: String,
-        session: SessionId[BackendTag.Pi.type],
-        dispatch: Dispatch[BackendTag.Pi.type],
-        config: AgentConfig,
-        events: OrcaListener,
-        outputSchema: Option[String]
+    protected def reply(
+        turn: TurnRequest[BackendTag.Pi.type]
     ): AgentResult[BackendTag.Pi.type] = ???
-    protected def doRunInteractive(
-        prompt: String,
-        session: SessionId[BackendTag.Pi.type],
-        dispatch: Dispatch[BackendTag.Pi.type],
-        displayPrompt: String,
-        config: AgentConfig,
-        outputSchema: Option[String]
-    )(using ox.Ox): Conversation[BackendTag.Pi.type] = ???
-    val sessions: SessionSupport[BackendTag.Pi.type] =
-      SessionSupport.ephemeral(IdScheme.ClientClaimed)
-    val tag: BackendTag.Pi.type = BackendTag.Pi
-    def structuredOutputMode: StructuredOutputMode =
-      StructuredOutputMode.RawText
 
   private object StubPrompts extends Prompts:
     def autonomous(

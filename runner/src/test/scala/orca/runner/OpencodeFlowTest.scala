@@ -1,17 +1,9 @@
 package orca.runner
 
-import orca.testkit.StubEnforcementCell
+import orca.testkit.ScriptedBackend
 import orca.{FlowContext, OrcaArgs, StackSettings, flow}
-import orca.backend.{
-  Dispatch,
-  Conversation,
-  Interaction,
-  AgentBackend,
-  AgentResult,
-  IdScheme,
-  SessionSupport
-}
-import orca.events.{OrcaListener, Usage}
+import orca.backend.{Conversation, Interaction, AgentResult, TurnRequest}
+import orca.events.OrcaListener
 import orca.agents.{
   SessionKey,
   AgentInput,
@@ -26,8 +18,7 @@ import orca.agents.{
   AgentConfig,
   OpencodeAgent,
   SessionId,
-  ToolSet,
-  onWire
+  ToolSet
 }
 import orca.plan.{Plan, Task, Title}
 import orca.tools.opencode.DefaultOpencodeAgent
@@ -100,32 +91,10 @@ class OpencodeFlowTest extends munit.FunSuite:
     * `DefaultAgentCall` does the real parsing.
     */
   private class CannedBackend(json: String)
-      extends AgentBackend[BackendTag.Opencode.type]
-      with StubEnforcementCell[BackendTag.Opencode.type]:
-    val workDir: os.Path = os.pwd
-    protected def doRunAutonomous(
-        prompt: String,
-        session: SessionId[BackendTag.Opencode.type],
-        dispatch: Dispatch[BackendTag.Opencode.type],
-        config: AgentConfig,
-        events: OrcaListener,
-        outputSchema: Option[String]
-    ): AgentResult[BackendTag.Opencode.type] =
-      AgentResult(session.onWire, json, Usage.empty)
-    protected def doRunInteractive(
-        prompt: String,
-        session: SessionId[BackendTag.Opencode.type],
-        dispatch: Dispatch[BackendTag.Opencode.type],
-        displayPrompt: String,
-        config: AgentConfig,
-        outputSchema: Option[String]
-    )(using ox.Ox): Conversation[BackendTag.Opencode.type] =
-      throw new UnsupportedOperationException
-    val sessions: SessionSupport[BackendTag.Opencode.type] =
-      SessionSupport.ephemeral(IdScheme.ClientClaimed)
-    val tag: BackendTag.Opencode.type = BackendTag.Opencode
-    def structuredOutputMode: orca.agents.StructuredOutputMode =
-      orca.agents.StructuredOutputMode.RawText
+      extends ScriptedBackend(BackendTag.Opencode):
+    protected def reply(
+        turn: TurnRequest[BackendTag.Opencode.type]
+    ): AgentResult[BackendTag.Opencode.type] = ScriptedBackend.result(json)
 
   private val noInteraction: Interaction = new Interaction:
     def listeners: List[OrcaListener] = Nil
