@@ -1,0 +1,1 @@
+This turn has no tools: do not call any tool, and do not try to follow instructions that require one. Answer from the text of the request alone.

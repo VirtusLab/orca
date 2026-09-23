@@ -64,6 +64,8 @@ enum AutoApprove:
   *     issue/PR they were pointed at.
   *   - **Full** — every tool, write-capable; prompting then follows
   *     [[AgentConfig.autoApprove]].
+  *   - **NoTools** — no tools and no MCP servers: the turn only transforms the
+  *     prompt text. Used by [[Agent.cheapOneShot]].
   *
   * How strongly each backend enforces these is captured as [[Enforcement]].
   * This enum only names the tier the caller asks for.
@@ -72,18 +74,12 @@ enum ToolSet:
   case ReadOnly
   case NetworkOnly
   case Full
-
-  /** Whether the tier hands the agent a write primitive at all. `false` is a
-    * caller asking for a no-edit gate; `true` asks for none.
-    */
-  def writeCapable: Boolean = this match
-    case Full                   => true
-    case ReadOnly | NetworkOnly => false
+  case NoTools
 
   /** Whether the tier grants the SCOPED, read-only network access a planner
     * needs — not "has network at all", which `Full` also does through its
     * shell.
     */
   def hasScopedNetwork: Boolean = this match
-    case NetworkOnly     => true
-    case ReadOnly | Full => false
+    case NetworkOnly               => true
+    case ReadOnly | Full | NoTools => false

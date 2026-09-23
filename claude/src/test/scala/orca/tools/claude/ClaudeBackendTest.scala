@@ -167,6 +167,16 @@ class ClaudeBackendTest extends munit.FunSuite:
       val _ = backend.runAutonomous("x", freshSid, AgentConfig())
       assert(!runner.calls.head.contains("--mcp-config"), runner.calls.head)
 
+  test("a NoTools autonomous call stands up no MCP server"):
+    val runner = new SpawnStubCliRunner(List(successfulProcess()))
+    withBackend(runner): backend =>
+      val _ = backend.runAutonomous(
+        "x",
+        freshSid,
+        AgentConfig(tools = ToolSet.NoTools)
+      )
+      assert(!runner.calls.head.contains("--mcp-config"), runner.calls.head)
+
   test("a NetworkOnly call also wires the GitHub reads"):
     var mcpConfig: Option[String] = None
     val runner = new SpawnStubCliRunner(

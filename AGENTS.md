@@ -207,11 +207,11 @@ most easily broken:
   (untagged/older records fall back to the lead; a tag matching none of the
   context's accessors is skipped, not guessed).
 
-- **Tool enforcement.** `AgentConfig.tools: ToolSet` (ReadOnly/NetworkOnly/Full)
-  and `autoApprove: AutoApprove` (All/Only) request a restriction, but each
-  backend enforces it differently. `AgentBackend.enforcementCell(tools,
-  autoApprove, dispatch)` answers with the guarantee actually achieved plus the
-  reason — see `Enforcement`'s scaladoc for what the levels mean.
+- **Tool enforcement.** `AgentConfig.tools: ToolSet`
+  (ReadOnly/NetworkOnly/Full/NoTools) and `autoApprove: AutoApprove`
+  (All/Only) request a restriction, but each backend enforces it differently.
+  `AgentBackend.enforcementCell(tools, autoApprove, dispatch)` answers with the
+  guarantee actually achieved plus the reason — see `Enforcement`'s scaladoc for what the levels mean.
 
   The block below is RENDERED — a fresh-turn table, then the resumed turns that
   differ — by `runner/src/test/scala/orca/runner/EnforcementTableTest.scala`,
@@ -224,6 +224,7 @@ most easily broken:
   | NetworkOnly, *         | Hard       | PromptOnly    | Hard     | PromptOnly | PromptOnly |
   | Full, All              | Hard       | Hard          | Ignored  | Ignored    | Hard       |
   | Full, Only(_) / Only() | Hard       | SandboxApprox | Ignored  | Ignored    | Ignored    |
+  | NoTools, *             | Hard       | PromptOnly    | Hard     | Hard       | PromptOnly |
 
   A resumed turn is classified the same, except:
   - Codex, Full, Only(_) / Only(): Ignored, not SandboxApprox

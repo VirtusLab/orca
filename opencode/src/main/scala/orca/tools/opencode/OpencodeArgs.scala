@@ -127,6 +127,18 @@ private[opencode] object OpencodeArgs:
             "the message body disables `write`, `edit`, `bash`, `patch` and `task` by name and leaves `webfetch` to the server default, so the turn reads the web where the server offers it but has no `bash` to run `gh` — a denylist, so it stays exact only while opencode ships no further writing tool"
           )
         )
+      // opencode turns each flag into a permission rule whose tool name is a
+      // wildcard pattern, so `*` disables every tool, MCP tools included (read
+      // from the opencode 1.17.10 source). The MCP servers themselves stay
+      // connected; only their tools are withheld.
+      case ToolSet.NoTools =>
+        TierWiring(
+          Map("*" -> false),
+          EnforcementCell(
+            Enforcement.Hard,
+            "the message body disables `*`, which matches every built-in and MCP tool, so the server offers none"
+          )
+        )
       case ToolSet.Full =>
         autoApprove match
           case AutoApprove.All | AutoApprove.Only(_) =>
