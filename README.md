@@ -60,8 +60,9 @@ agent:
 orca run implement.sc "add a rate limiter to /login"
 ```
 
-Useful flags: `--skip-branch` (continue on the current branch instead of
-creating one), `--keep-changes` (leave uncommitted files in place instead of
+Useful flags: `--branch <name>` (name the branch the run creates),
+`--skip-branch` (continue on the current branch instead of creating one),
+`--keep-changes` (leave uncommitted files in place instead of
 stashing them) and `--worktree` (run in a git worktree of this repository
 instead of the current checkout).
 
@@ -1115,12 +1116,12 @@ action non-interactively and exits.
 
 | Command | Key flags | Does |
 |---|---|---|
-| `orca run <flow> [task]` | `--verbose` (stack trace on abort), `--skip-branch`, `--keep-changes` (leave uncommitted files in place), `--worktree` (run in a git worktree of this repository), `--honor-pin` (use the flow's own pinned orca version) | run a flow, propagating its exit code; task is read from stdin when omitted and piped |
+| `orca run <flow> [task]` | `--verbose` (stack trace on abort), `--branch <name>` (create the run's branch under this name; refused with `--skip-branch`; an existing branch is refused, not renamed), `--skip-branch`, `--keep-changes` (leave uncommitted files in place), `--worktree` (run in a git worktree of this repository), `--honor-pin` (use the flow's own pinned orca version) | run a flow, propagating its exit code; task is read from stdin when omitted and piped |
 | `orca view <flow>` | `--plain`, `--color` | print a flow's source (highlighted when stdout is a terminal) |
 | `orca edit <flow>` | `--to project\|global` | open a flow in `$VISUAL`/`$EDITOR`/vi (`--to` required to customize a built-in) |
 | `orca create "<goal>"` | `--name <file>`, `--global` | author a new flow: the built-in `simple.sc` flow writes it in an isolated sandbox with the configured role agents; `--name` is auto-derived when omitted. The sandbox is a fresh repository with no remote, so the flow's closing PR step opens nothing and says so |
 | `orca fork <source> "<changes>"` | `--name <file>`, `--global` | fork an existing flow, the same way |
-| `orca continue [selector]` | `--list`, `--json` | resume a recorded harness session (no selector = newest); `selector` is an index or session name — a name matching several sessions in one working tree resumes the most recent of them |
+| `orca continue [selector]` | `--list`, `--json` | resume a recorded harness session (no selector = newest); `selector` is an index (all digits), a session name, or a branch — a name matching several sessions in one working tree resumes the most recent of them; a selector matching both a name and a branch is refused; with no match, recorded branches containing it are suggested |
 | `orca config` | `--planning-agent`, `--coding-agent`, `--review-agent`, each taking `harness[:model]`; or `--edit project\|global` | show the configured role agents, set any subset, or hand-edit that tier's settings file in `$VISUAL`/`$EDITOR`/vi (created from its template if absent) |
 | `orca list` | `--json` | list discovered flows across the project/global/built-in tiers |
 | `orca clear-stack` | `--yes` | clear discovered stack settings so the next flow run re-detects them |
@@ -1138,6 +1139,7 @@ orca list --json | jq -r '.[].name'
 orca create "add a token-bucket limiter" --name rate-limit.sc
 orca continue              # resume the last session
 orca continue --list
+orca continue feat/rate-limiter
 orca config --coding-agent codex
 orca config --review-agent claude:sonnet
 orca view implement.sc

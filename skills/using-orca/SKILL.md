@@ -50,6 +50,9 @@ Key flags:
   the flow should pick up (e.g. it was planned with a harness first).
   Uncommitted or untracked files are fine — no need to commit them first, the
   flow leaves them in place and picks them up.
+- `--branch <name>` — create the run's branch under this name. Refused with
+  `--skip-branch`, and when the branch already exists. On success report that
+  branch.
 - `--honor-pin` — run the flow's own pinned orca version instead of forcing
   this shell's.
 
@@ -68,7 +71,8 @@ PR, not the one you are standing on.
 If a run is interrupted, re-run the same `orca run` command: flows are
 resumable and pick up from the last committed stage.
 
-`orca continue` (list sessions with `--list`, resume one by selector)
+`orca continue` (list sessions with `--list`, resume one by selector —
+an index, session name, or branch, e.g. `orca continue <branch>`)
 reattaches to a recorded harness session, but requires a real terminal and
 errors without one — don't invoke it headlessly; tell the user to run it
 themselves instead.
