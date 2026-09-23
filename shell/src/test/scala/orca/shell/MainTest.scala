@@ -1121,6 +1121,7 @@ class MainTest extends munit.FunSuite:
       )
     )
     assert(out.contains(gone), out)
+    assert(out.contains(s"git -C $workDir rm .orca/runs/"), out)
 
   test(
     "resumeInterruptedRun: an unresolvable flow name reports an error and never launches"

@@ -85,9 +85,9 @@ private[shell] object FlowResolution:
           case None       => Left(s"no flow file at $path")
 
   /** A recorded `File` source's path, when it is one a resume may run: an
-    * absolute `.sc` path that prints exactly as it is (no control, format or
-    * collapsible whitespace characters), since the user decides from the
-    * printed path.
+    * absolute, normalised `.sc` path that prints exactly as it is (no control,
+    * format or collapsible whitespace characters), since the user decides from
+    * the printed path.
     */
   def recordedFile(path: String): Option[os.Path] =
     val printsAsIs = TextUtil.oneline(path) == path &&
@@ -95,6 +95,7 @@ private[shell] object FlowResolution:
     Option
       .when(path.endsWith(".sc") && printsAsIs)(path)
       .flatMap(p => Try(os.Path(p)).toOption)
+      .filter(_.toString == path)
 
   /** `no flow named '<ref>' found in the catalog`, or, when any catalog name
     * looks close enough to be a typo of `ref` ([[nearMatches]]), `no flow named

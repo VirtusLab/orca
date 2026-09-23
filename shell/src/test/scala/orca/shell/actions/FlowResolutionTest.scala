@@ -107,3 +107,6 @@ class FlowResolutionTest extends munit.FunSuite:
   test("recordedFile refuses a path that doesn't print as stored"):
     // A right-to-left override makes the printed path read differently.
     assertEquals(FlowResolution.recordedFile("/home/u/x\u202E.sc"), None)
+
+  test("recordedFile refuses a path that isn't normalised"):
+    assertEquals(FlowResolution.recordedFile("/home/u/a/../x.sc"), None)

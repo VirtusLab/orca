@@ -1,7 +1,7 @@
 package orca.shell
 
 import org.jline.terminal.Terminal
-import orca.{ConfigHome, OrcaArgs, RunTarget, Uncommitted}
+import orca.{ConfigHome, OrcaArgs, OrcaDir, RunKey, RunTarget, Uncommitted}
 import orca.shell.actions.{
   AuthorAction,
   AuthorParams,
@@ -467,8 +467,7 @@ object Main:
     FlowResolution.resolveRecorded(run.flow, shellDir) match
       case Left(message) =>
         ShellOutput.error(
-          s"$message — restore it and resume again, or abandon the run by " +
-            s"removing its progress log from ${run.dir / ".orca" / "runs"}"
+          s"$message — to abandon the run: ${abandonCommand(run)}"
         )
       case Right(flow) =>
         val opts =
@@ -482,6 +481,16 @@ object Main:
             fallback = FallbackPolicy.Ask(ui)
           )
         runAction(flow, opts, run.dir, terminal).discard
+
+  /** Removes `run`'s progress log in a commit: the log is committed, so a plain
+    * `rm` is undone by the next run's auto-stash restore.
+    */
+  private def abandonCommand(run: InterruptedRun): String =
+    val log = OrcaDir
+      .progressPath(run.dir, RunKey.of(run.userPrompt))
+      .relativeTo(run.dir)
+    val git = s"git -C ${run.dir}"
+    s"$git rm $log && $git commit -m \"abandon orca run\""
 
   /** Prompts for the flow's task text, re-prompting on blank input — an empty
     * `userPrompt` reaches the flow's agent directly (branch naming, the coding
