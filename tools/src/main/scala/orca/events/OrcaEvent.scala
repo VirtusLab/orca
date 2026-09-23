@@ -68,11 +68,11 @@ enum OrcaEvent:
     *     review loop's `Some("reviewer")`, via `withRole`). `None` for an
     *     ordinary call. Purely a grouping/display hint.
     *
-    * `attempt` is this turn's 1-based position among the turns of a single
-    * call: 2 or more means a retry re-sent the prompt and paid for it again. It
-    * counts turns, not tries — an attempt that fails before the model runs
-    * emits no event, so it doesn't shift the index of the turn that follows.
-    * Emission sites that never retry leave the default.
+    * `turn` is this turn's 1-based position among the turns of a single call: 2
+    * or more means a retry re-sent the prompt and paid for it again. It counts
+    * turns, not tries — a try that fails before the model runs emits no event,
+    * so it doesn't shift the index of the turn that follows. Emission sites
+    * that never retry leave the default.
     *
     * `cost` is this turn's resolved spend, filled in once at the dispatch
     * boundary so every listener reads the same figure. Emitters pass `None`:
@@ -90,7 +90,7 @@ enum OrcaEvent:
       model: Option[Model],
       usage: Usage,
       role: Option[String] = None,
-      attempt: Int = 1,
+      turn: Int = 1,
       session: Option[String] = None,
       cost: Option[Cost]
   )

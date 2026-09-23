@@ -13,13 +13,12 @@ import orca.settings.AgentSpec
 private[shell] object ResumeCommand:
 
   /** Left = not resumable, checkable without a live harness call: an
-    * unrecognised `harness` string, or a wireId-less session — one whose
-    * backend keeps nothing durable, or that never committed a turn (the
-    * manifest's stored `reason` is used when set, else a generic fallback).
-    * `Right` carries the recognised [[BackendTag]] but doesn't mean "definitely
-    * resumable" — gemini's row still needs [[build]]'s live index lookup, and
-    * pi's its session-dir check. Used both by [[build]] itself and by the
-    * shell's session-list preview (which runs no live lookups).
+    * unrecognised `harness` string, or a wireId-less session — one that never
+    * committed a turn. `Right` carries the recognised [[BackendTag]] but
+    * doesn't mean "definitely resumable" — gemini's row still needs [[build]]'s
+    * live index lookup, and pi's its session-dir check. Used both by [[build]]
+    * itself and by the shell's session-list preview (which runs no live
+    * lookups).
     */
   private def wireIdAndTag(
       s: ManifestSession
@@ -28,7 +27,7 @@ private[shell] object ResumeCommand:
       case (_, None) =>
         Left(s"unknown harness in manifest: `${s.harness}`")
       case (None, Some(_)) =>
-        Left(s.reason.getOrElse(s"${s.harness} session has no resumable id"))
+        Left(s"${s.harness} session has no resumable id")
       case (Some(wireId), Some(tag)) => Right((wireId, tag))
 
   /** The static (no-live-call) half of [[build]]'s resumability check, exposed
@@ -73,9 +72,7 @@ private[shell] object ResumeCommand:
                 Right(Seq(binary, "--resume", index.toString))
               case None =>
                 Left(
-                  s.reason.getOrElse(
-                    s"no matching session found via `$binary --list-sessions`"
-                  )
+                  s"no matching session found via `$binary --list-sessions`"
                 )
           case BackendTag.Pi =>
             // An absolute --session-dir, so the argv doesn't depend on the

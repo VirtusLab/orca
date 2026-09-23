@@ -1,9 +1,9 @@
 package orca.agents
 
 /** Machine-checked source of truth for [[BackendTag]]'s wire codec. `wireName`
-  * is the on-disk representation persisted into
-  * [[orca.progress.SessionRecord.backend]]; it must stay pinned to each case's
-  * frozen value, or already-persisted session logs strand on the next resume.
+  * is the on-disk representation persisted into `SessionRecord.backend`; it
+  * must stay pinned to each case's frozen value, or already-persisted session
+  * logs strand on the next resume.
   */
 class BackendTagCodecTest extends munit.FunSuite:
 

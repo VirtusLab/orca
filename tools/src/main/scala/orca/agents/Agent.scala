@@ -237,8 +237,8 @@ trait Agent[B <: BackendTag]:
     None
 
   /** This tool's backend tag, or `None` for tools without a backend
-    * (lightweight stubs). Stamps [[orca.progress.SessionRecord.backend]] so a
-    * resumed run's targeted rehydration knows which agent a session belongs to.
+    * (lightweight stubs). Stamps `SessionRecord.backend` so a resumed run's
+    * targeted rehydration knows which agent a session belongs to.
     */
   private[orca] def backendTag: Option[BackendTag] = None
 

@@ -7,8 +7,8 @@ package orca.agents
   * Distinct from the runtime SPI [[orca.backend.AgentBackend]].
   *
   * `wireName` is the STABLE on-disk/wire representation
-  * ([[orca.progress.SessionRecord.backend]]) — deliberately independent of the
-  * case name so a future rename can't silently strand every persisted session.
+  * (`SessionRecord.backend`) — deliberately independent of the case name so a
+  * future rename can't silently strand every persisted session.
   * [[BackendTag.fromWireName]] is the inverse; see the `BackendTagCodecTest`
   * pinning suite.
   */
@@ -22,9 +22,8 @@ enum BackendTag(val wireName: String):
 object BackendTag:
   /** Parse a wire/log-sourced string into a [[BackendTag]], or `None` if it
     * matches no [[BackendTag.wireName]]. The validated door for
-    * [[orca.progress.SessionRecord.backend]] — callers that get `None` should
-    * skip with a visible warning rather than guess (see
-    * `FlowLifecycle.targetAgent`).
+    * `SessionRecord.backend` — callers that get `None` should skip with a
+    * visible warning rather than guess (see `FlowLifecycle.targetAgent`).
     */
   def fromWireName(name: String): Option[BackendTag] =
     values.find(_.wireName == name)
@@ -57,9 +56,9 @@ object SessionId:
   /** The validated door for a log/wire-sourced string: `Some` iff it passes
     * [[isSafe]]. Use this — not the private raw constructor — for any
     * `SessionId` built from a string the library didn't itself mint (a
-    * persisted [[orca.progress.SessionRecord.id]], primarily). Callers that get
-    * `None` should skip the record with a visible warning rather than guess
-    * (see `Session.session`'s reuse arm).
+    * persisted `SessionRecord.id`, primarily). Callers that get `None` should
+    * skip the record with a visible warning rather than guess (see
+    * `Session.session`'s reuse arm).
     */
   def parse[B <: BackendTag](value: String): Option[SessionId[B]] =
     Option.when(isSafe(value))(value)
@@ -91,8 +90,8 @@ object WireSessionId:
     value
   extension [B <: BackendTag](id: WireSessionId[B]) def value: String = id
 
-  /** The validated door for a log-sourced wire-id string (a persisted
-    * [[orca.progress.SessionRecord.resumeWireId]]): `Some` iff it passes
+  /** The validated door for a wire-id string read back from disk (a persisted
+    * `SessionRecord.resumeWireId` in `orca.sessions`): `Some` iff it passes
     * [[SessionId.isSafe]]. See [[SessionId.parse]] for the sibling on the
     * client-id side.
     */

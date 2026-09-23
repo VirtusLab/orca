@@ -1,6 +1,7 @@
 package orca.shell.resume
 
-import orca.progress.{ProgressHeader, ProgressScan, ProgressStore}
+import orca.progress.{ProgressHeader, ProgressLog, ProgressScan}
+import orca.util.JsonFile
 
 /** An unfinished flow run, byte-identically relaunchable: the flow script's
   * filename and the exact task text that started it (ADR 0021 §3 amendment).
@@ -18,7 +19,7 @@ private[shell] case class InterruptedRun(
 
 /** Detects an interrupted run for the main menu's "Resume interrupted run"
   * offer (ADR 0021 §3 amendment): a run that died mid-flight leaves its
-  * `.orca/progress-<hash>.json` behind (failure teardown keeps the log and
+  * `.orca/runs/<key>.progress.json` behind (failure teardown keeps the log and
   * stays on the branch; success teardown removes it in its final commit — ADR
   * 0018), so the log's mere presence on the current branch IS the detection
   * signal. No exit-code bookkeeping needed.
@@ -28,12 +29,9 @@ private[shell] object ResumeDetector:
   /** The newest unfinished progress log's flow+task, or `None` when there is
     * nothing to offer: nothing found by the scan (see
     * [[orca.progress.ProgressScan]] for what it skips), a corrupt/unparseable
-    * log, or a log whose header predates this feature (no recorded flow name
-    * and/or task text — it still resumes on its own terms via the normal
-    * fresh/resume path, per `ProgressLog`'s documented tolerant decoding; this
-    * offer just doesn't apply to it) or was written by a run outside the shell
-    * (`flowName` unrecorded — the simpler, honest choice over a partial
-    * pick-the-flow-and-prefill-the-task fallback).
+    * log, or a log written by a run outside the shell (`flowName` unrecorded —
+    * the simpler, honest choice over a partial pick-the-flow-and-prefill-the-
+    * task fallback).
     *
     * `dirs` are the directories to scan ([[orca.shell.WorktreeScan.dirs]] picks
     * them); the winner reports the one it was found in, so the caller can run
@@ -48,20 +46,18 @@ private[shell] object ResumeDetector:
   def detect(dirs: List[os.Path]): Option[InterruptedRun] =
     try
       newestProgressLog(dirs).flatMap: found =>
-        ProgressStore.at(found.dir, found.path).loadDetailed() match
-          case ProgressStore.LoadResult.Loaded(log) =>
-            fromHeader(log.header, found.dir)
-          case _ => None
+        JsonFile.read[ProgressLog](found.path) match
+          case JsonFile.Read.Loaded(log) => fromHeader(log.header, found.dir)
+          case _                         => None
     catch case scala.util.control.NonFatal(_) => None
 
   private def fromHeader(
       header: ProgressHeader,
       dir: os.Path
   ): Option[InterruptedRun] =
-    for
-      flowName <- header.flowName.filter(isBareFlowFilename)
-      userPrompt <- header.userPrompt
-    yield InterruptedRun(flowName, userPrompt, dir)
+    header.flowName
+      .filter(isBareFlowFilename)
+      .map(InterruptedRun(_, header.userPrompt, dir))
 
   /** The header is committed repo content, and `flowName` later reaches
     * `FlowResolution.resolve`, which treats path-like refs as literal paths — a

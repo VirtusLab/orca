@@ -21,7 +21,12 @@ import orca.discovery.Origin
 import orca.shell.flows.{DiscoveredFlow, FlowEditor}
 import orca.shell.resume.{InterruptedRun, ResumeDetector}
 import orca.shell.run.{FallbackPolicy, FlowFlags, LaunchResult}
-import orca.shell.sessions.{ManifestReader, RecordedRun, SessionPicker}
+import orca.shell.sessions.{
+  AttemptListing,
+  ManifestReader,
+  RecordedAttempt,
+  SessionPicker
+}
 import orca.shell.ui.{Choice, ShellOutput, ShellUi, UiOutcome}
 import orca.shell.wizard.{FirstRun, FirstRunStatus, Wizard}
 import orca.subprocess.PathProbe
@@ -96,20 +101,20 @@ object Main:
         wizard.repairMalformed()
 
   /** Runs the main menu until Exit is chosen or the top-level prompt is
-    * cancelled (Ctrl-C / EOF). Continue a session re-reads `.orca/cache/runs/`
-    * on every redraw (ADR 0021 §8) — a flow run started from this same menu can
-    * only have just finished, so the freshest listing is worth the re-read.
-    * `ResumeDetector.detect` is likewise re-evaluated every redraw (ADR 0021 §3
-    * amendment). Both scans share ONE `WorktreeScan.dirs` resolution — the
-    * discovery is a git subprocess or two, and nothing between them can change
-    * the answer — over a bounded set of directories, so a redraw stays cheap
-    * enough to repeat and consistent with Continue's own re-read.
-    * Re-discovering per redraw is the point: a `--worktree` run started from
-    * this very menu creates a worktree that was not there when the shell
-    * started. The `branch:` line ([[ConfigSummary.branchLine]]) is printed here
-    * for the same reason: a flow run started from this menu can leave HEAD on a
-    * new branch, so it is re-read per redraw rather than printed once with the
-    * startup summary.
+    * cancelled (Ctrl-C / EOF). Continue a session re-reads
+    * `.orca/cache/attempts/` on every redraw (ADR 0021 §8) — a flow run started
+    * from this same menu can only have just finished, so the freshest listing
+    * is worth the re-read. `ResumeDetector.detect` is likewise re-evaluated
+    * every redraw (ADR 0021 §3 amendment). Both scans share ONE
+    * `WorktreeScan.dirs` resolution — the discovery is a git subprocess or two,
+    * and nothing between them can change the answer — over a bounded set of
+    * directories, so a redraw stays cheap enough to repeat and consistent with
+    * Continue's own re-read. Re-discovering per redraw is the point: a
+    * `--worktree` run started from this very menu creates a worktree that was
+    * not there when the shell started. The `branch:` line
+    * ([[ConfigSummary.branchLine]]) is printed here for the same reason: a flow
+    * run started from this menu can leave HEAD on a new branch, so it is
+    * re-read per redraw rather than printed once with the startup summary.
     */
   @tailrec private def loop(
       ui: ShellUi,
@@ -121,7 +126,7 @@ object Main:
     // Resolved once and shared: both scans want the same answer over the same
     // cwd, and the discovery is a git subprocess or two.
     val scanDirs = WorktreeScan.dirs(os.pwd)
-    val (runs, warnings) =
+    val AttemptListing(attempts, warnings) =
       ManifestReader.list(
         scanDirs.own,
         scanDirs.worktrees,
@@ -129,7 +134,7 @@ object Main:
       )
     warnings.foreach(ShellOutput.info)
     val continueSessionCount =
-      runs.headOption.map(_.manifest.sessions.size)
+      attempts.headOption.map(_.manifest.sessions.size)
     val resumeOffer = ResumeDetector.detect(scanDirs.all)
     ConfigSummary.branchLine(os.pwd).foreach(ShellOutput.info)
     ui.select(
@@ -173,7 +178,7 @@ object Main:
         createForkFlow(ui, terminal)
         loop(ui, wizard, globalSettingsPath, terminal, tty)
       case UiOutcome.Selected(MenuItem.ContinueSession) =>
-        continueSession(ui, terminal, runs)
+        continueSession(ui, terminal, attempts)
         loop(ui, wizard, globalSettingsPath, terminal, tty)
 
   /** The two-line startup configuration summary (ADR 0021 §4/§8,
@@ -703,29 +708,29 @@ object Main:
         promptDescription(ui, label)
       case UiOutcome.Selected(text) => Some(text)
 
-  /** Prompts among every session across `runs` and resumes the chosen one,
+  /** Prompts among every session across `attempts` and resumes the chosen one,
     * printing its identity — including `workDir` — before the resume exec
     * ([[SessionAction.identityNotice]], ADR 0021 §10; the CLI's own resume
     * paths print the same notice). Picking the expander re-renders the same
     * picker with `expanded = true`; there is no way back to the collapsed view
     * short of re-opening the menu item, which is fine — the picker is re-read
-    * from disk on every open anyway. A cancelled prompt, or `runs` being empty
-    * (unreachable via the menu today, since the item is disabled then, but
-    * harmless), is a silent no-op.
+    * from disk on every open anyway. A cancelled prompt, or `attempts` being
+    * empty (unreachable via the menu today, since the item is disabled then,
+    * but harmless), is a silent no-op.
     */
   private def continueSession(
       ui: ShellUi,
       terminal: Terminal,
-      runs: List[RecordedRun],
+      attempts: List[RecordedAttempt],
       expanded: Boolean = false
   ): Unit =
     ui.select(
       "Continue which session?",
-      SessionPicker.sessionRows(runs, expanded)
+      SessionPicker.sessionRows(attempts, expanded)
     ) match
       case UiOutcome.Cancelled => ()
       case UiOutcome.Selected(SessionPicker.PickerRow.ShowMore) =>
-        continueSession(ui, terminal, runs, expanded = true)
+        continueSession(ui, terminal, attempts, expanded = true)
       case UiOutcome.Selected(SessionPicker.PickerRow.Resume(selection)) =>
         ShellOutput.info(
           SessionAction.identityNotice(

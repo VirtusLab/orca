@@ -1,20 +1,13 @@
 package orca.sessions
 
-import com.github.plokhotnyuk.jsoniter_scala.core.{
-  JsonValueCodec,
-  readFromString,
-  writeToString
-}
+import com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec
 import com.github.plokhotnyuk.jsoniter_scala.macros.{
   CodecMakerConfig,
   ConfiguredJsonValueCodec
 }
-import orca.{OrcaDir, StagePath, WorkspaceWrite}
+import orca.{OrcaDir, OrcaFlowException, RunKey, StagePath, WorkspaceWrite}
 import orca.agents.SessionKey
-import orca.progress.ProgressStore
-import orca.util.AtomicFile
-
-import scala.util.control.NonFatal
+import orca.util.JsonFile
 
 /** A durable session as it is stored: the [[SessionKey]] halves that key it —
   * the name, and the path id of the stage that minted it — a minted UUID, the
@@ -38,18 +31,14 @@ import scala.util.control.NonFatal
   * skipped with a warning rather than guessed (`FlowLifecycle.targetAgent`);
   * `agent.session(name, seed)`'s reuse arm self-heals a stale tag from a
   * lead-backend swap.
-  *
-  * The two `Option` fields carry Scala defaults under the tolerant-decoding
-  * exception AGENTS.md grants this shape: these records are live local state an
-  * in-flight run must still read after an orca upgrade.
   */
 case class SessionRecord(
     name: String,
     stage: String,
     id: String,
     seed: String,
-    resumeWireId: Option[String] = None,
-    backend: Option[String] = None
+    resumeWireId: Option[String],
+    backend: Option[String]
 ):
   /** The key this record is stored under. The single place a persisted stage id
     * is read back into a [[StagePath]].
@@ -102,47 +91,47 @@ trait SessionStore:
 
 object SessionStore:
   /** Default OS-backed store: JSON at
-    * `<workDir>/.orca/cache/sessions-<promptHash>.json`, under the same prompt
-    * hash as [[ProgressStore.default]]'s log. A resumed run is the same prompt
-    * in the same working directory — including a `--worktree` run, which does
-    * all of this inside the worktree — so it derives the same path and reads
-    * back its own records.
+    * `<workDir>/.orca/cache/runs/<key>.sessions.json`, under the same
+    * [[RunKey]] as `ProgressStore.default`'s log. A resumed run is the same
+    * prompt in the same working directory — including a `--worktree` run, which
+    * does all of this inside the worktree — so it derives the same path and
+    * reads back its own records.
     */
-  def default(workDir: os.Path, userPrompt: String): SessionStore =
-    OsSessionStore(
-      workDir,
-      OrcaDir.sessionRecordsPath(workDir, ProgressStore.hashPrompt(userPrompt))
-    )
+  def default(workDir: os.Path, key: RunKey): SessionStore =
+    OsSessionStore(workDir, OrcaDir.sessionRecordsPath(workDir, key))
 
 private class OsSessionStore(workDir: os.Path, val path: os.Path)
     extends SessionStore:
 
-  def records(): List[SessionRecord] =
-    try readFromString(os.read(path))(using OsSessionStore.codec)
-    catch case NonFatal(_) => Nil
+  private given JsonValueCodec[List[SessionRecord]] = OsSessionStore.codec
 
+  def records(): List[SessionRecord] =
+    JsonFile.read[List[SessionRecord]](path) match
+      case JsonFile.Read.Loaded(records) => records
+      case _                             => Nil
+
+  // Unlike `records()`, this read-modify-write refuses an unreadable file:
+  // renaming one record over it would destroy whatever it still holds.
   def upsert(record: SessionRecord)(using WorkspaceWrite): Unit =
-    val current = records()
+    val current = JsonFile.read[List[SessionRecord]](path) match
+      case JsonFile.Read.Loaded(records)                   => records
+      case JsonFile.Read.Absent | JsonFile.Read.Corrupt(_) => Nil
+      case JsonFile.Read.Unreadable(reason) =>
+        throw new OrcaFlowException(
+          s"session records at $path exist but cannot be read ($reason)"
+        )
     val idx = current.indexWhere(_.key == record.key)
     val updated =
       if idx >= 0 then current.updated(idx, record) else current :+ record
-    AtomicFile.write(
-      path,
-      OrcaDir.ensureCache(workDir),
-      writeToString(updated)(using OsSessionStore.codec)
-    )
+    JsonFile.write(path, OrcaDir.ensureCacheRuns(workDir), updated)
 
-  def discard()(using WorkspaceWrite): Unit =
-    try os.remove(path): Unit
-    catch case _: java.nio.file.NoSuchFileException => ()
+  def discard()(using WorkspaceWrite): Unit = os.remove(path): Unit
 
 private object OsSessionStore:
-  // Both transient settings off, so `resumeWireId`/`backend` are written as
-  // explicit `null`s while unset: the file is read by a person debugging a
-  // resume, and a key that vanishes reads as a different shape each run.
-  // `transientNone` alone would not do it — the two fields carry `None`
-  // defaults, which `transientDefault` drops on its own.
+  // `transientNone` off, so `resumeWireId`/`backend` are written as explicit
+  // `null`s while unset: the file is read by a person debugging a resume, and
+  // a key that vanishes reads as a different shape each run.
   val codec: JsonValueCodec[List[SessionRecord]] =
     ConfiguredJsonValueCodec.derived[List[SessionRecord]](using
-      CodecMakerConfig.withTransientNone(false).withTransientDefault(false)
+      CodecMakerConfig.withTransientNone(false)
     )

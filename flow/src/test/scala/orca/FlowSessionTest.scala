@@ -245,15 +245,22 @@ class FlowSessionTest extends FunSuite:
       listeners: List[orca.events.OrcaListener] = Nil
   ): TestFlowControl =
     val dir = TempDirs.dir()
-    val store = ProgressStore.default(dir, "p")
-    val sessionStore = SessionStore.default(dir, "p")
+    val store = ProgressStore.default(dir, RunKey.of("p"))
+    val sessionStore = SessionStore.default(dir, RunKey.of("p"))
     given WorkspaceWrite = WorkspaceWrite.unsafe
     store.writeHeader(
-      ProgressHeader("main", "feat/test", "deadbeef", BranchMode.Created)
+      ProgressHeader(
+        "main",
+        "feat/test",
+        BranchMode.Created,
+        userPrompt = "p",
+        flowName = None,
+        startingCommit = orca.progress.CommitHash.from("0" * 40).get
+      )
     )
     for record <- sessions do sessionStore.upsert(record)
     for stageName <- completedStages do
-      store.appendEntry(
+      store.upsertEntry(
         StageEntry(
           id = s"$stageName#0",
           name = stageName,
@@ -279,7 +286,8 @@ class FlowSessionTest extends FunSuite:
       stage = "",
       id = id,
       seed = "seed",
-      resumeWireId = Some("wire-1")
+      resumeWireId = Some("wire-1"),
+      backend = None
     )
 
   private def carriedOver: List[SessionRecord] =
@@ -316,7 +324,9 @@ class FlowSessionTest extends FunSuite:
           name = "s",
           stage = "",
           id = testSessionId,
-          seed = seed
+          seed = seed,
+          resumeWireId = None,
+          backend = None
         )
       )
     )
@@ -369,7 +379,9 @@ class FlowSessionTest extends FunSuite:
           name = "s",
           stage = "",
           id = testSessionId,
-          seed = "You are a planning agent."
+          seed = "You are a planning agent.",
+          resumeWireId = None,
+          backend = None
         )
       )
     )
@@ -482,7 +494,9 @@ class FlowSessionTest extends FunSuite:
           name = "s",
           stage = "",
           id = testSessionId,
-          seed = seed
+          seed = seed,
+          resumeWireId = None,
+          backend = None
         )
       )
     )
@@ -510,7 +524,9 @@ class FlowSessionTest extends FunSuite:
           name = "s",
           stage = "",
           id = testSessionId,
-          seed = "x"
+          seed = "x",
+          resumeWireId = None,
+          backend = None
         )
       )
     )
@@ -544,7 +560,8 @@ class FlowSessionTest extends FunSuite:
           stage = "",
           id = testSessionId,
           seed = "seed",
-          resumeWireId = Some("wire-1")
+          resumeWireId = Some("wire-1"),
+          backend = None
         )
       ),
       listeners = List(listener)
@@ -568,7 +585,9 @@ class FlowSessionTest extends FunSuite:
           name = "s",
           stage = "",
           id = testSessionId,
-          seed = "x"
+          seed = "x",
+          resumeWireId = None,
+          backend = None
         )
       ),
       listeners = List(listener)
@@ -590,7 +609,9 @@ class FlowSessionTest extends FunSuite:
           name = "s",
           stage = "",
           id = testSessionId,
-          seed = seed
+          seed = seed,
+          resumeWireId = None,
+          backend = None
         )
       ),
       completedStages = List("triage", "implement")
@@ -661,7 +682,14 @@ class FlowSessionTest extends FunSuite:
     // NOT start with `---` (the separator only appears between context and prompt).
     val fc = makeControl(
       sessions = List(
-        SessionRecord(name = "s", stage = "", id = testSessionId, seed = "")
+        SessionRecord(
+          name = "s",
+          stage = "",
+          id = testSessionId,
+          seed = "",
+          resumeWireId = None,
+          backend = None
+        )
       ),
       completedStages = List("triage")
     )
@@ -688,15 +716,29 @@ class FlowSessionTest extends FunSuite:
     // A real repo, unlike `makeControl`'s bare temp dir, so `headCommit()` has
     // something to report.
     val dir = GitRepo.seeded()
-    val store = ProgressStore.default(dir, "p")
-    val sessionStore = SessionStore.default(dir, "p")
+    val store = ProgressStore.default(dir, RunKey.of("p"))
+    val sessionStore = SessionStore.default(dir, RunKey.of("p"))
     store.writeHeader(
-      ProgressHeader("main", "feat/test", "deadbeef", BranchMode.Created)
+      ProgressHeader(
+        "main",
+        "feat/test",
+        BranchMode.Created,
+        userPrompt = "p",
+        flowName = None,
+        startingCommit = orca.progress.CommitHash.from("0" * 40).get
+      )
     )
     sessionStore.upsert(
-      SessionRecord(name = "s", stage = "", id = testSessionId, seed = "")
+      SessionRecord(
+        name = "s",
+        stage = "",
+        id = testSessionId,
+        seed = "",
+        resumeWireId = None,
+        backend = None
+      )
     )
-    store.appendEntry(
+    store.upsertEntry(
       StageEntry(id = "triage#0", name = "triage", resultJson = RawJson("null"))
     )
     val git = new orca.tools.OsGitTool(dir)
@@ -734,7 +776,9 @@ class FlowSessionTest extends FunSuite:
           name = "s",
           stage = "",
           id = testSessionId,
-          seed = seed
+          seed = seed,
+          resumeWireId = None,
+          backend = None
         )
       )
     )
@@ -778,7 +822,9 @@ class FlowSessionTest extends FunSuite:
           name = "s",
           stage = "",
           id = testSessionId,
-          seed = seed
+          seed = seed,
+          resumeWireId = None,
+          backend = None
         )
       )
     )
@@ -798,7 +844,9 @@ class FlowSessionTest extends FunSuite:
           name = "s",
           stage = "",
           id = testSessionId,
-          seed = "seed"
+          seed = "seed",
+          resumeWireId = None,
+          backend = None
         )
       )
     )
@@ -830,7 +878,8 @@ class FlowSessionTest extends FunSuite:
           stage = "",
           id = testSessionId,
           seed = "seed",
-          backend = None
+          backend = None,
+          resumeWireId = None
         )
       )
     )
@@ -859,7 +908,9 @@ class FlowSessionTest extends FunSuite:
           name = "s",
           stage = "",
           id = testSessionId,
-          seed = "seed"
+          seed = "seed",
+          resumeWireId = None,
+          backend = None
         )
       )
     )
@@ -882,7 +933,8 @@ class FlowSessionTest extends FunSuite:
           stage = "",
           id = testSessionId,
           seed = "seed",
-          resumeWireId = Some("server-1")
+          resumeWireId = Some("server-1"),
+          backend = None
         )
       )
     )
@@ -911,7 +963,9 @@ class FlowSessionTest extends FunSuite:
           name = "s",
           stage = "",
           id = testSessionId,
-          seed = seed
+          seed = seed,
+          resumeWireId = None,
+          backend = None
         )
       ),
       completedStages = List("triage")
@@ -967,7 +1021,9 @@ class FlowSessionTest extends FunSuite:
           name = "s",
           stage = "",
           id = testSessionId,
-          seed = "seed"
+          seed = "seed",
+          resumeWireId = None,
+          backend = None
         )
       )
     )

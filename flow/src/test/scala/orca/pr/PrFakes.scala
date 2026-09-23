@@ -2,7 +2,7 @@
 // into the real `stage` machinery over a seeded repo.
 package orca.pr
 
-import orca.{FlowControl, TestFlowControl, WorkspaceWrite}
+import orca.{FlowControl, RunKey, TestFlowControl, WorkspaceWrite}
 import orca.agents.{
   SessionKey,
   Agent,
@@ -160,13 +160,20 @@ private[pr] def seededPrRepo(
     os.write(dir / "code.txt", "real code")
     val _ = os.proc("git", "add", "code.txt").call(cwd = dir)
     val _ = os.proc("git", "commit", "-m", "work").call(cwd = dir)
-  val store = ProgressStore.default(dir, "p")
+  val store = ProgressStore.default(dir, RunKey.of("p"))
   given WorkspaceWrite = WorkspaceWrite.unsafe
   val startingBranch = branchMode match
     case BranchMode.Created => startBranch
     case BranchMode.Reused  => "feat/test"
   store.writeHeader(
-    ProgressHeader(startingBranch, "feat/test", "deadbeef", branchMode)
+    ProgressHeader(
+      startingBranch,
+      "feat/test",
+      branchMode,
+      userPrompt = "p",
+      flowName = None,
+      startingCommit = CommitHash.from("0" * 40).get
+    )
   )
   (dir, store)
 
@@ -199,7 +206,7 @@ private[pr] def prControl(
     new RecordingGit(new OsGitTool(dir), calls, branchDiff, push, base),
     new RecordingGh(calls, availability, createPr, prBodies),
     store,
-    SessionStore.default(dir, "p"),
+    SessionStore.default(dir, RunKey.of("p")),
     // Where the run started, as the runtime records it: the tip of the branch
     // the header names.
     CommitHash.from(

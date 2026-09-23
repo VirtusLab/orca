@@ -1,6 +1,6 @@
 package orca.runner
 
-import orca.StackSettings
+import orca.{RunKey, StackSettings}
 import orca.agents.{
   Announce,
   AutonomousTextCall,
@@ -72,8 +72,9 @@ class DefaultFlowContextTest extends munit.FunSuite:
       git = new OsGitTool(workDir),
       gh = new OsGitHubTool(OsProcCliRunner, workDir),
       fs = new OsFsTool(workDir),
-      progressStore = ProgressStore.default(workDir, "test"),
-      sessionStore = orca.sessions.SessionStore.default(workDir, "test"),
+      progressStore = ProgressStore.default(workDir, RunKey.of("test")),
+      sessionStore =
+        orca.sessions.SessionStore.default(workDir, RunKey.of("test")),
       stackSettings = StackSettings.empty,
       reviewerCatalog = orca.review.ReviewerCatalog.builtIn,
       startingCommit = None

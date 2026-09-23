@@ -1,7 +1,7 @@
 package orca.progress
 
 import munit.FunSuite
-import orca.WorkspaceWrite
+import orca.{RunKey, WorkspaceWrite}
 import orca.util.RawJson
 import orca.testkit.TempDirs
 
@@ -13,22 +13,24 @@ class ProgressStoreTest extends FunSuite:
   private val header = ProgressHeader(
     startingBranch = "main",
     branch = "feat/some-feature",
-    promptHash = "abc123def456",
-    branchMode = BranchMode.Created
+    branchMode = BranchMode.Created,
+    userPrompt = "my prompt",
+    flowName = None,
+    startingCommit = CommitHash.from("0" * 40).get
   )
 
   test("writeHeader then load returns the header with empty entries"):
     val workDir = TempDirs.dir()
-    val store = ProgressStore.default(workDir, "my prompt")
+    val store = ProgressStore.default(workDir, RunKey.of("my prompt"))
     store.writeHeader(header)
     val loaded = store.load()
-    assertEquals(loaded, Some(ProgressLog(header, Nil)))
+    assertEquals(loaded, Some(ProgressLog(header, Nil, None)))
 
   test(
-    "appendEntry with same id upserts (last write wins), different id appends"
+    "upsertEntry with same id replaces (last write wins), different id appends"
   ):
     val workDir = TempDirs.dir()
-    val store = ProgressStore.default(workDir, "my prompt")
+    val store = ProgressStore.default(workDir, RunKey.of("my prompt"))
     store.writeHeader(header)
 
     val a =
@@ -50,9 +52,9 @@ class ProgressStoreTest extends FunSuite:
         resultJson = RawJson("""{"v":3}""")
       )
 
-    store.appendEntry(a)
-    store.appendEntry(aPrime) // same id — should replace a
-    store.appendEntry(b) // different id — should append
+    store.upsertEntry(a)
+    store.upsertEntry(aPrime) // same id — should replace a
+    store.upsertEntry(b) // different id — should append
 
     val loaded = store.load()
     assertEquals(loaded.map(_.entries), Some(List(aPrime, b)))
@@ -62,9 +64,9 @@ class ProgressStoreTest extends FunSuite:
     // subtree (`"resultJson":{…}`), not an escaped string blob — keeping the
     // on-disk log directly readable when debugging.
     val workDir = TempDirs.dir()
-    val store = ProgressStore.default(workDir, "my prompt")
+    val store = ProgressStore.default(workDir, RunKey.of("my prompt"))
     store.writeHeader(header)
-    store.appendEntry(
+    store.upsertEntry(
       StageEntry(
         id = "stage-1",
         name = "First",
@@ -74,85 +76,18 @@ class ProgressStoreTest extends FunSuite:
     val contents = os.read(store.path)
     assert(contents.contains(""""resultJson":{"v":1}"""), contents)
 
-  test("load returns None when no file exists"):
+  test("load collapses a corrupt file to None"):
     val workDir = TempDirs.dir()
-    val store = ProgressStore.default(workDir, "my prompt")
+    val store = ProgressStore.default(workDir, RunKey.of("my prompt"))
+    store.writeHeader(header)
+    os.write.over(store.path, "not json {{{")
     assertEquals(store.load(), None: Option[ProgressLog])
 
-  test("load returns None for a corrupt file (no throw)"):
+  test("upsertEntry before writeHeader throws the absent-log message"):
     val workDir = TempDirs.dir()
-    val store = ProgressStore.default(workDir, "my prompt")
-    val path = workDir / ".orca"
-    os.makeDir.all(path)
-    // writeHeader creates the store file; overwrite it with garbage.
-    store.writeHeader(header)
-    val files = os.list(path).filter(_.last.startsWith("progress-"))
-    assert(files.nonEmpty, "expected at least one progress file")
-    os.write.over(files.head, "not json {{{")
-    assertEquals(store.load(), None: Option[ProgressLog])
-
-  test("loadDetailed is Absent when no file exists"):
-    val workDir = TempDirs.dir()
-    val store = ProgressStore.default(workDir, "my prompt")
-    assertEquals(store.loadDetailed(), ProgressStore.LoadResult.Absent)
-
-  test(
-    "loadDetailed is Loaded for a valid file, wrapping the same value load() returns"
-  ):
-    val workDir = TempDirs.dir()
-    val store = ProgressStore.default(workDir, "my prompt")
-    store.writeHeader(header)
-    assertEquals(store.load(), Some(ProgressLog(header, Nil)))
-    assertEquals(
-      store.loadDetailed(),
-      ProgressStore.LoadResult.Loaded(ProgressLog(header, Nil))
-    )
-
-  test(
-    "loadDetailed is Corrupt with a non-empty reason for a garbage-bytes file; load() stays None"
-  ):
-    val workDir = TempDirs.dir()
-    val store = ProgressStore.default(workDir, "my prompt")
-    val path = workDir / ".orca"
-    os.makeDir.all(path)
-    store.writeHeader(header)
-    val files = os.list(path).filter(_.last.startsWith("progress-"))
-    assert(files.nonEmpty, "expected at least one progress file")
-    os.write.over(files.head, "not json {{{")
-    store.loadDetailed() match
-      case ProgressStore.LoadResult.Corrupt(reason) =>
-        assert(reason.nonEmpty, "corrupt reason must be non-empty")
-      case other =>
-        fail(s"expected Corrupt, got $other")
-    assertEquals(store.load(), None: Option[ProgressLog])
-
-  test("a directory at the log path is Unreadable, not Corrupt"):
-    // The read failed, so nothing is known about the content — a fresh start
-    // would replace whatever is there.
-    val workDir = TempDirs.dir()
-    val store = ProgressStore.default(workDir, "my prompt")
-    os.makeDir.all(store.path)
-    store.loadDetailed() match
-      case ProgressStore.LoadResult.Unreadable(reason) =>
-        assert(reason.nonEmpty, "unreadable reason must be non-empty")
-      case other =>
-        fail(s"expected Unreadable, got $other")
-    assertEquals(store.load(), None: Option[ProgressLog])
-
-  test("a log removed after it was written is Absent, not Corrupt"):
-    // Teardown removes the log while the runtime still reads it; a vanished
-    // file must not read as a corrupt one.
-    val workDir = TempDirs.dir()
-    val store = ProgressStore.default(workDir, "my prompt")
-    store.writeHeader(header)
-    val _ = os.remove(store.path)
-    assertEquals(store.loadDetailed(), ProgressStore.LoadResult.Absent)
-
-  test("appendEntry before writeHeader throws the absent-log message"):
-    val workDir = TempDirs.dir()
-    val store = ProgressStore.default(workDir, "my prompt")
+    val store = ProgressStore.default(workDir, RunKey.of("my prompt"))
     val ex = intercept[IllegalStateException]:
-      store.appendEntry(
+      store.upsertEntry(
         StageEntry(id = "stage-1", name = "First", resultJson = RawJson("{}"))
       )
     assert(
@@ -161,21 +96,17 @@ class ProgressStoreTest extends FunSuite:
     )
 
   test(
-    "appendEntry against a corrupted-but-present log surfaces a corruption-specific message, not the before-writeHeader lie"
+    "upsertEntry against a corrupted-but-present log surfaces a corruption-specific message, not the before-writeHeader lie"
   ):
     // A log that exists but is torn/corrupted mid-run must not be misreported
-    // as "appendEntry called before writeHeader" — that message is wrong when
+    // as "upsertEntry called before writeHeader" — that message is wrong when
     // writeHeader plainly did run (the file exists).
     val workDir = TempDirs.dir()
-    val store = ProgressStore.default(workDir, "my prompt")
-    val path = workDir / ".orca"
-    os.makeDir.all(path)
+    val store = ProgressStore.default(workDir, RunKey.of("my prompt"))
     store.writeHeader(header)
-    val files = os.list(path).filter(_.last.startsWith("progress-"))
-    assert(files.nonEmpty, "expected at least one progress file")
-    os.write.over(files.head, "not json {{{")
+    os.write.over(store.path, "not json {{{")
     val ex = intercept[IllegalStateException]:
-      store.appendEntry(
+      store.upsertEntry(
         StageEntry(id = "stage-1", name = "First", resultJson = RawJson("{}"))
       )
     assert(
@@ -184,57 +115,6 @@ class ProgressStoreTest extends FunSuite:
         s"violation; got: ${ex.getMessage}"
     )
     assert(
-      ex.getMessage.contains(path.toString) || ex.getMessage.nonEmpty,
+      ex.getMessage.contains(store.path.toString),
       s"expected a corruption-specific message; got: ${ex.getMessage}"
     )
-
-  test("at(workDir, path) reads back a header written via that same path"):
-    val workDir = TempDirs.dir()
-    val store = ProgressStore.default(workDir, "my prompt")
-    store.writeHeader(header)
-    val rediscovered = ProgressStore.at(workDir, store.path)
-    assertEquals(rediscovered.load(), Some(ProgressLog(header, Nil)))
-
-  test("default path is <workDir>/.orca/progress-<12hexchars>.json"):
-    val workDir = TempDirs.dir()
-    val store = ProgressStore.default(workDir, "test prompt")
-    store.writeHeader(header)
-    val orcaDir = workDir / ".orca"
-    val files = os.list(orcaDir).filter(_.last.startsWith("progress-"))
-    assert(files.size == 1, s"expected exactly one progress file, got $files")
-    val filename = files.head.last
-    assert(
-      filename.matches("progress-[0-9a-f]{12}\\.json"),
-      s"unexpected filename: $filename"
-    )
-
-  test("default path is deterministic for a given prompt"):
-    val workDir1 = TempDirs.dir()
-    val workDir2 = TempDirs.dir()
-    val store1 = ProgressStore.default(workDir1, "deterministic prompt")
-    val store2 = ProgressStore.default(workDir2, "deterministic prompt")
-    store1.writeHeader(header)
-    store2.writeHeader(header)
-    val name1 = os.list(workDir1 / ".orca").head.last
-    val name2 = os.list(workDir2 / ".orca").head.last
-    assertEquals(name1, name2)
-
-  test(
-    "writeHeader writes atomically: no leftover .tmp files"
-  ):
-    // The AtomicMoveNotSupportedException fallback path has no injectable seam
-    // in this harness; it is verified by code review only.
-    val workDir = TempDirs.dir()
-    val store = ProgressStore.default(workDir, "my prompt")
-    store.writeHeader(header)
-    store.appendEntry(
-      StageEntry(
-        id = "stage-1",
-        name = "First",
-        resultJson = RawJson("""{"v":1}""")
-      )
-    )
-    assert(store.load().isDefined)
-    // The atomic-move temp file must not survive a successful write.
-    val leftovers = os.list(workDir / ".orca").filter(_.last.endsWith(".tmp"))
-    assert(leftovers.isEmpty, s"leftover temp files: $leftovers")

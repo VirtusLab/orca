@@ -89,7 +89,7 @@ object ReviewLoopFixture:
   def controlWithoutStartingCommit(
       dispatcher: EventDispatcher
   ): TestFlowControl =
-    TestFlowControl.create(dispatcher, recordStartingCommit = false)._1
+    TestFlowControl.create(dispatcher, startingCommitUsable = false)._1
 
   /** Like [[control]], but the recorded starting commit resolves to nothing in
     * the repo — what a mid-run rebase (or a fresh clone) leaves behind for

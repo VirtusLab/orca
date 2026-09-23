@@ -802,6 +802,31 @@ resume is global, but the resumed context still references that directory):
 > session. Not a task here: the parallel claude plan-mode removal may remove the
 > cause.
 
+> **Amendment (2026-09-22).** `ManifestSession.reason` is removed. The writer
+> filled it with "`<harness>` sessions do not survive the run" whenever `wireId`
+> was absent — false for every backend (all keep durable sessions; an absent
+> `wireId` means the id is not known yet), and shown to the user by the shell.
+> The shell now derives the message itself. The field was an `Option`, so a
+> manifest from either side of this change decodes on the other; an older
+> manifest loses only the wrong message. Second recorded break after
+> `sessionDetail` → `sessionStage`.
+>
+> Correction to the 2026-08-05 amendment: the cost log's `type` values are the
+> enum case names as written, `Run`, `Turn` and `Finish` (`CostRecord`'s codec
+> sets only the discriminator field name), not lowercase.
+
+> **Amendment (2026-09-22, second).** The manifest is an *attempt* manifest —
+> one process's record — at `.orca/cache/attempts/<attemptId>.manifest.json`
+> beside `<attemptId>.cost.jsonl` (`AttemptManifest`, `AttemptManifestWriter`,
+> `RecordedAttempt`; "run" now means the prompt-level unit, ADR 0018). It is
+> written at attempt start, so every attempt has one: the cost log's `Run`
+> header and `Finish` trailer, its `type` discriminator and the two creation
+> gates are gone, `CostRecord` is one line shape, and the shell drops attempts
+> whose `sessions` is empty. The additive-only rule and its golden fixtures are
+> withdrawn: `Unknown(raw)` cases, `firstSeenAt` and the tolerant reader are
+> deleted, and enum values are written as their case names (`Running`,
+> `Durable`, `Ephemeral`).
+
 ### 9. Creating a new flow with a harness
 
 Menu flow (feedback item 9, goal-first): pick global vs project target upfront
