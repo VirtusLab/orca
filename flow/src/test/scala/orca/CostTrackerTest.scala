@@ -56,10 +56,9 @@ class CostTrackerTest extends munit.FunSuite:
   private val opusRatesAsOf: LocalDate = LocalDate.of(2026, 1, 15)
   private val haikuRatesAsOf: LocalDate = LocalDate.of(2026, 3, 1)
 
-  // Tiny price list so token math gives round dollar figures: a model at
+  // Tiny pricing table so token math gives round dollar figures: a model at
   // $1/M input means 1,000,000 input tokens = $1. Each of the four rates is
   // intentionally distinct so a test can tell which one was applied.
-
   private val testTable: PricingTable = Map(
     Model("opus") -> ModelPricing(
       inputUsdPerMillion = 1,

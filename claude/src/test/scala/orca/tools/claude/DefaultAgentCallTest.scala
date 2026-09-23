@@ -95,6 +95,22 @@ class DefaultAgentCallTest extends munit.FunSuite:
     ): AgentResult[B] =
       throw new UnsupportedOperationException("test stub")
 
+  /** Ends an interactive turn at once with `output`, on wire id `wireId`. */
+  private def finishingInteraction(
+      wireId: String,
+      output: String
+  ): Interaction =
+    new Interaction:
+      val listeners: List[OrcaListener] = Nil
+      def drive[B <: BackendTag](
+          conversation: orca.backend.ObservedConversation[B]
+      ): AgentResult[B] =
+        AgentResult[B](
+          wireId = WireSessionId[B](wireId),
+          output = output,
+          usage = Usage.empty
+        )
+
   private def makeCall(
       backend: SequencedBackend
   ): DefaultAgentCall[BackendTag.ClaudeCode.type, Answer] =
@@ -545,16 +561,8 @@ class DefaultAgentCallTest extends munit.FunSuite:
         "commands that change state — only the turn's own prompt asks it not to"
     val seen = new AtomicReference[List[OrcaEvent]](Nil)
     val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
-    val drivingInteraction: Interaction = new Interaction:
-      val listeners: List[OrcaListener] = Nil
-      def drive[B <: BackendTag](
-          conversation: orca.backend.ObservedConversation[B]
-      ): AgentResult[B] =
-        AgentResult[B](
-          wireId = WireSessionId[B]("server-uuid-cccc"),
-          output = """{"value":5}""",
-          usage = Usage.empty
-        )
+    val drivingInteraction =
+      finishingInteraction("server-uuid-cccc", """{"value":5}""")
     supervised:
       val _ = new DefaultAgentCall[BackendTag.ClaudeCode.type, Answer](
         backend = new PromptOnlyBackend,
@@ -569,16 +577,8 @@ class DefaultAgentCallTest extends munit.FunSuite:
 
   test("interactive StructuredResult names no agent"):
     val seen = new AtomicReference[List[OrcaEvent]](Nil)
-    val drivingInteraction: Interaction = new Interaction:
-      val listeners: List[OrcaListener] = Nil
-      def drive[B <: BackendTag](
-          conversation: orca.backend.ObservedConversation[B]
-      ): AgentResult[B] =
-        AgentResult[B](
-          wireId = WireSessionId[B]("server-uuid-dddd"),
-          output = """{"value":4}""",
-          usage = Usage.empty
-        )
+    val drivingInteraction =
+      finishingInteraction("server-uuid-dddd", """{"value":4}""")
     supervised:
       val _ = new DefaultAgentCall[BackendTag.ClaudeCode.type, Answer](
         backend = new PromptOnlyBackend,
@@ -602,16 +602,8 @@ class DefaultAgentCallTest extends munit.FunSuite:
     val serverSid =
       WireSessionId[BackendTag.ClaudeCode.type]("server-uuid-bbbb")
     val backend = new SequencedBackend(List("""{"value":3}"""))
-    val drivingInteraction: Interaction = new Interaction:
-      val listeners: List[OrcaListener] = Nil
-      def drive[B <: BackendTag](
-          conversation: orca.backend.ObservedConversation[B]
-      ): AgentResult[B] =
-        AgentResult[B](
-          wireId = WireSessionId[B](WireSessionId.value(serverSid)),
-          output = """{"value":3}""",
-          usage = Usage.empty
-        )
+    val drivingInteraction =
+      finishingInteraction(WireSessionId.value(serverSid), """{"value":3}""")
     supervised:
       val answer = new DefaultAgentCall[
         BackendTag.ClaudeCode.type,

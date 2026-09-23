@@ -46,10 +46,10 @@ private[orca] object CostLogUsage:
   * log.
   *
   * `model` is `None` when the backend reported none and the caller pinned none,
-  * mirroring `OrcaEvent.TokensUsed.model`. `cost` is `None` for a model absent
-  * from the pricing table, so such a turn shows tokens against no dollars.
-  * `turn` is the turn's 1-based position among the turns of its call, so
-  * retried spend is separable. `session` is the conversation key
+  * mirroring `OrcaEvent.UnpricedTurn.model`. `cost` is `None` for a model
+  * absent from the pricing table, so such a turn shows tokens against no
+  * dollars. `turn` is the turn's 1-based position among the turns of its call,
+  * so retried spend is separable. `session` is the conversation key
   * (`OrcaEvent.conversationKey`): the session's `wireId` in
   * [[AttemptManifest.sessions]] once it has one, else a client id the manifest
   * does not carry.
