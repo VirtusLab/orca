@@ -264,7 +264,7 @@ class ReviewerSelectorTest extends munit.FunSuite:
     )
     assert(
       capture.messages.exists(
-        _.startsWith("reviewer selection: nothing was reported last round")
+        _.startsWith("reviewer selection: no reviewer reported last round")
       ),
       capture.messages.mkString("\n")
     )

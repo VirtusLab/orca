@@ -860,10 +860,12 @@ With no reviewers, the loop just evaluates the check and fixes:
 val benchmark = new ReviewCheck:
   def name = "benchmark"
   def evaluate()(using ctx: FlowContext, ev: InStage): ReviewResult =
-    val ms = os.proc("./bench.sh").call(cwd = ctx.workDir).out.trim().toInt
+    val ms = os.proc("./bench.sh")
+      .call(cwd = ctx.workDir, stderr = os.Pipe).out.trim().toInt
     if ms <= 200 then ReviewResult.empty
     else ReviewResult(List(ReviewFinding(Title("Request too slow"),
-      s"p99 is $ms ms; the target is 200 ms", None, None, None)))
+      s"p99 is $ms ms; the target is 200 ms", location = None,
+      suggestion = None, reopens = None)))
 
 stage("Speed up"):
   reviewAndFixLoop(

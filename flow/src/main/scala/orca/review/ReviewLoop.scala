@@ -782,9 +782,9 @@ private[review] class ReviewFixLoop(
     formatWorkspace()
     // The selector returns roster entries only, so no membership defence is
     // needed — just collapse an accidental duplicate so a reviewer runs at most
-    // once per round. An empty selection stays empty: no reviewers run, the
-    // round finds nothing, so the run ends — the loop never resurrects the
-    // roster behind the selector's back.
+    // once per round. An empty selection stays empty: no reviewers run, and
+    // the round finds only what lint and the checks report — the loop never
+    // resurrects the roster behind the selector's back.
     val active = selectRound(state.history).distinctBy(_.id)
     // Before the fan-out, so a check timing or building the code doesn't compete
     // with lint and the reviewers. Keyed after the reviewers and the lint gate,
@@ -801,8 +801,8 @@ private[review] class ReviewFixLoop(
             agentNames.mkString(", ")
         )
       )
-    // Say so when a round runs nobody though reviewers are configured: the
-    // round then finds nothing and the loop converges, which is otherwise
+    // Say so when a round runs nobody though reviewers are configured: absent
+    // lint and check findings the loop then converges, which is otherwise
     // indistinguishable from a clean review.
     if active.isEmpty && roster.nonEmpty then
       ctx.emit(

@@ -171,7 +171,12 @@ object FlowCanary:
     val benchmark = new ReviewCheck:
       def name = "benchmark"
       def evaluate()(using ctx: FlowContext, ev: InStage): ReviewResult =
-        val ms = os.proc("./bench.sh").call(cwd = ctx.workDir).out.trim().toInt
+        val ms = os
+          .proc("./bench.sh")
+          .call(cwd = ctx.workDir, stderr = os.Pipe)
+          .out
+          .trim()
+          .toInt
         if ms <= 200 then ReviewResult.empty
         else
           ReviewResult(
@@ -179,9 +184,9 @@ object FlowCanary:
               ReviewFinding(
                 Title("Request too slow"),
                 s"p99 is $ms ms; the target is 200 ms",
-                None,
-                None,
-                None
+                location = None,
+                suggestion = None,
+                reopens = None
               )
             )
           )
