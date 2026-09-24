@@ -40,9 +40,7 @@ import scala.annotation.implicitNotFound
   "`stage(...)`, `agent.session(...)`, and `session.run(...)` on a FlowSession can only be called inside a `flow(...)` body — and not inside a `fork` (forks can read and emit, but can't start stages). If this is a helper that starts stages, declare it `(using FlowControl)` so its caller supplies it."
 )
 trait FlowControl extends caps.ExclusiveCapability:
-  /** The run's context — what a fork may be handed. A `val`, so the role type
-    * members (`context.CodeB`, …) are stable paths.
-    */
+  /** The run's context — what a fork may be handed. */
   val context: FlowContext
 
   /** The store backing this run's progress log — the committed, branch-carried

@@ -479,7 +479,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     def taskLoop(failAt: Option[String])(using orca.FlowControl): List[String] =
       for task <- tasks yield stage(s"Task: $task"):
         val _ = bodyRuns.incrementAndGet()
-        val id = agent.session("implementer", seed = "brief").id.value
+        val id = agent.session("implementer", seed = "brief").chat.id.value
         os.write.over(workDir / s"$task.txt", id)
         if failAt.contains(task) then throw new RuntimeException("boom")
         id

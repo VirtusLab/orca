@@ -55,17 +55,6 @@ conversation driver), `orca.subprocess` (subprocess shim), `orca.sweep`
 `orca.runner.terminal` (wiring + terminal UI). The flow module adds
 `orca.{plan,review,pr,progress}`.
 
-`codingAgent: Agent[ctx.CodeB]` (the same holds for `planningAgent`/
-`ctx.PlanB` and `reviewAgent`/`ctx.ReviewB`) is path-dependent, so it only
-works inside a straight-line `flow(...)` body sharing one `using
-FlowContext` — it doesn't survive being factored into a helper function,
-since two `FlowContext` parameters' `CodeB` members don't unify even when
-they're the same backend at runtime. A helper should instead take an
-explicit `[B <: BackendTag]` type parameter, or bundle the agent and its
-durable session as a `FlowSession[B]` handle (`codingAgent.session(name,
-seed)`) — see the `CodeB` scaladoc (`flow/src/main/scala/orca/FlowContext.scala`)
-for the full rationale.
-
 ## The stage-bound runtime
 
 The flow runtime is specified in [ADR 0018](adr/0018-stage-bound-flow-runtime.md) —
@@ -212,10 +201,10 @@ most easily broken:
 
   A mint sits wherever the session is used — inside the driving stage, or above
   the stages that share it. What R22 blocks is one specific route out of a
-  stage: neither `FlowSession[B]` nor `SessionId[B]` has a `JsonData`, so
-  neither can be a stage's result. A handle stashed in an in-memory `var` in
-  stage A and read in stage B still compiles, and fails loudly with
-  `NoSuchElementException` on the resume that skips A.
+  stage: `FlowSession` has no `JsonData`, so it cannot be a stage's result. A
+  handle stashed in an in-memory `var` in stage A and read in stage B still
+  compiles, and fails loudly with `NoSuchElementException` on the resume that
+  skips A.
   When `agent.session(name, seed)` reuses a record, it hands the record's
   resume wire id to that agent (`rehydrateResumeWireId`), so the session's
   first turn this run probes and resumes it. Each record also carries the

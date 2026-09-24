@@ -147,8 +147,6 @@ type FindingId = orca.review.FindingId
 val FindingId: orca.review.FindingId.type = orca.review.FindingId
 type Model = orca.agents.Model
 val Model: orca.agents.Model.type = orca.agents.Model
-type SessionId[B <: BackendTag] = orca.agents.SessionId[B]
-val SessionId: orca.agents.SessionId.type = orca.agents.SessionId
 type OpencodeLauncher = orca.tools.opencode.OpencodeLauncher
 val OpencodeLauncher: orca.tools.opencode.OpencodeLauncher.type =
   orca.tools.opencode.OpencodeLauncher

@@ -31,7 +31,7 @@ flow(OrcaArgs(args)):
   val plan = stage("Plan"):
     Plan.autonomous
       .from(userPrompt, planningAgent)
-      .reviewed(planningAgent)
+      .reviewed()
       .value
 
   val taskOpenFindings =

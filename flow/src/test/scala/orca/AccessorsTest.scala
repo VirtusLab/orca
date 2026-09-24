@@ -29,14 +29,3 @@ class AccessorsTest extends munit.FunSuite:
     val _ = intercept[NotImplementedError](planningAgent)
     val _ = intercept[NotImplementedError](codingAgent)
     val _ = intercept[NotImplementedError](reviewAgent)
-
-  /** Compile-only: a session minted from `codingAgent` must type as
-    * `FlowSession[ctx.CodeB]`, matching the coding role's pinned backend — a
-    * regression here would erase the type and stop sessions from threading
-    * through `session.run`. Typechecking alone is the assertion.
-    */
-  def codingAgentSessionThreads(using
-      ctx: FlowContext,
-      fc: FlowControl
-  ): FlowSession[ctx.CodeB] =
-    codingAgent.session("impl", seed = "seed")

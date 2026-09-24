@@ -184,7 +184,7 @@ class ReviewerSelectorTest extends munit.FunSuite:
   test("the picker's turn is billed as a reviewer-role turn of its own"):
     val picker = recordingPicker(SelectedReviewers(Nil))
     val pickerCtx: FlowContext = new TestFlowContext(new EventDispatcher(Nil)):
-      override lazy val reviewAgent: Agent[ReviewB] = picker.agent
+      override lazy val reviewAgent: Agent[?] = picker.agent
     val _ = ReviewerSelector.agentDriven
       .prepare(all, Title("any"), List("src/main/scala/Foo.scala"))(using
         pickerCtx,

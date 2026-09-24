@@ -1,7 +1,7 @@
 package orca.plan
 
 import orca.{FlowContext, InStage, OrcaFlowException}
-import orca.agents.{Announce, BackendTag, JsonData, Agent, given}
+import orca.agents.{Announce, JsonData, Agent, given}
 
 import scala.annotation.unused
 
@@ -28,7 +28,7 @@ import scala.annotation.unused
   *     [[Triage]] verdict).
   *
   * Every cell returns a [[Sessioned]] — the result plus the agent session that
-  * produced it. A `Sessioned[B, Plan]` can be continued read-only into
+  * produced it. A `Sessioned[Plan]` can be continued read-only into
   * [[Sessioned.reviewed]] (self-critique), or discarded for a fresh implementer
   * session.
   *
@@ -62,23 +62,23 @@ object Plan:
     */
   object autonomous:
     /** Produce a [[Plan]] directly from `userPrompt`. */
-    def from[B <: BackendTag](
+    def from(
         userPrompt: String,
-        agent: Agent[B],
+        agent: Agent[?],
         instructions: String = PlanPrompts.Planning
-    )(using FlowContext, InStage): Sessioned[B, Plan] =
-      autonomousResult[B, Plan, Plan](agent, userPrompt, instructions)(identity)
+    )(using FlowContext, InStage): Sessioned[Plan] =
+      autonomousResult[Plan, Plan](agent, userPrompt, instructions)(identity)
 
     /** Skeptically assess `userPrompt` (typically a bug/feature report) and
       * either proceed with a plan or reject with a [[Verdict.Rejection]] the
       * caller surfaces to whoever filed it.
       */
-    def assessThenPlan[B <: BackendTag](
+    def assessThenPlan(
         userPrompt: String,
-        agent: Agent[B],
+        agent: Agent[?],
         instructions: String = PlanPrompts.AssessThenPlan
-    )(using FlowContext, InStage): Sessioned[B, Verdict[Plan]] =
-      autonomousResult[B, AssessedPlan, Verdict[Plan]](
+    )(using FlowContext, InStage): Sessioned[Verdict[Plan]] =
+      autonomousResult[AssessedPlan, Verdict[Plan]](
         agent,
         userPrompt,
         instructions
@@ -87,12 +87,12 @@ object Plan:
     /** Classify a bug report into a [[Triage]] verdict (not-a-bug / untestable
       * / testable).
       */
-    def triage[B <: BackendTag](
+    def triage(
         report: String,
-        agent: Agent[B],
+        agent: Agent[?],
         instructions: String = PlanPrompts.Triage
-    )(using FlowContext, InStage): Sessioned[B, Triage] =
-      autonomousResult[B, BugTriage, Triage](agent, report, instructions)(b =>
+    )(using FlowContext, InStage): Sessioned[Triage] =
+      autonomousResult[BugTriage, Triage](agent, report, instructions)(b =>
         getOrFail(b.toTriage)
       )
 
@@ -108,12 +108,12 @@ object Plan:
     */
   object interactive:
     /** Produce a [[Plan]] directly from `userPrompt`. */
-    def from[B <: BackendTag](
+    def from(
         userPrompt: String,
-        agent: Agent[B],
+        agent: Agent[?],
         instructions: String = PlanPrompts.Planning
-    )(using FlowContext, InStage): Sessioned[B, Plan] =
-      interactiveResult[B, Plan, Plan](agent, userPrompt, instructions)(
+    )(using FlowContext, InStage): Sessioned[Plan] =
+      interactiveResult[Plan, Plan](agent, userPrompt, instructions)(
         identity
       )
 
@@ -121,12 +121,12 @@ object Plan:
       * questions mid-turn rather than only rejecting with a
       * [[Verdict.RejectionKind.Question]].
       */
-    def assessThenPlan[B <: BackendTag](
+    def assessThenPlan(
         userPrompt: String,
-        agent: Agent[B],
+        agent: Agent[?],
         instructions: String = PlanPrompts.AssessThenPlan
-    )(using FlowContext, InStage): Sessioned[B, Verdict[Plan]] =
-      interactiveResult[B, AssessedPlan, Verdict[Plan]](
+    )(using FlowContext, InStage): Sessioned[Verdict[Plan]] =
+      interactiveResult[AssessedPlan, Verdict[Plan]](
         agent,
         userPrompt,
         instructions
@@ -135,12 +135,12 @@ object Plan:
     /** Classify a bug report into a [[Triage]] verdict, able to ask the
       * reporter clarifying questions before deciding.
       */
-    def triage[B <: BackendTag](
+    def triage(
         report: String,
-        agent: Agent[B],
+        agent: Agent[?],
         instructions: String = PlanPrompts.Triage
-    )(using FlowContext, InStage): Sessioned[B, Triage] =
-      interactiveResult[B, BugTriage, Triage](agent, report, instructions)(b =>
+    )(using FlowContext, InStage): Sessioned[Triage] =
+      interactiveResult[BugTriage, Triage](agent, report, instructions)(b =>
         getOrFail(b.toTriage)
       )
 
@@ -165,14 +165,14 @@ object Plan:
     * the post-planning `reviewed` turn use plain `withReadOnly` instead, with
     * no network.
     */
-  private def autonomousResult[B <: BackendTag, O: JsonData: Announce, A](
-      agent: Agent[B],
+  private def autonomousResult[O: JsonData: Announce, A](
+      agent: Agent[?],
       input: String,
       instructions: String
   )(convert: O => A)(using
       @unused ctx: FlowContext,
       ev: InStage
-  ): Sessioned[B, A] =
+  ): Sessioned[A] =
     // The planning turn runs on the restricted (NetworkOnly) sibling, but the
     // chat handed out is bound to the BASE agent, so a continuation regains the
     // caller's full capability — the restriction stays per-turn.
@@ -187,18 +187,14 @@ object Plan:
     * (interactive planning runs with normal permissions, see [[interactive]]),
     * so the chat is minted on `agent` directly.
     */
-  private def interactiveResult[
-      B <: BackendTag,
-      O: JsonData: Announce,
-      A
-  ](
-      agent: Agent[B],
+  private def interactiveResult[O: JsonData: Announce, A](
+      agent: Agent[?],
       input: String,
       instructions: String
   )(convert: O => A)(using
       @unused ctx: FlowContext,
       ev: InStage
-  ): Sessioned[B, A] =
+  ): Sessioned[A] =
     val chat = agent.chat()
     val raw = chat
       .resultAs[O]
@@ -208,19 +204,18 @@ object Plan:
 
   // `reviewed` resumes the planning session read-only, reusing the planner's
   // exploration. Defined here to keep it in the implicit scope of
-  // `Sessioned[B, Plan]`.
+  // `Sessioned[Plan]`.
 
-  extension [B <: BackendTag](sp: Sessioned[B, Plan])
+  extension (sp: Sessioned[Plan])
     /** Resume the planning conversation for a critical self-review, returning
       * the improved plan (brief included) paired with the (same) chat. The
-      * review turn runs read-only on `agent`; the handed-back chat keeps the
-      * original binding.
+      * review turn runs read-only on the agent that planned; the handed-back
+      * chat keeps the original binding.
       */
     def reviewed(
-        agent: Agent[B],
         instructions: String = PlanPrompts.Review
-    )(using @unused ctx: FlowContext, ev: InStage): Sessioned[B, Plan] =
-      val improved = agent.withReadOnly
+    )(using @unused ctx: FlowContext, ev: InStage): Sessioned[Plan] =
+      val improved = sp.chat.agent.withReadOnly
         .chat(sp.chat.id)
         .resultAs[Plan]
         .autonomous

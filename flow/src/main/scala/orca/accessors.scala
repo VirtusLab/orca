@@ -30,38 +30,26 @@ def userPrompt(using ctx: FlowContext): String = ctx.userPrompt
 /** The planning-role agent (ADR 0020): resolved from settings (`planningAgent =
   * harness[:model]`), default claude. Reference it in `Plan.*` calls instead of
   * a concrete accessor so planning follows whichever backend the settings name.
-  * A session minted from `planningAgent.session` threads because
-  * [[FlowContext.PlanB]] pins the backend; see [[codingAgent]] for the
-  * helper-authoring caveat shared by all three role accessors.
   */
-def planningAgent(using ctx: FlowContext): Agent[ctx.PlanB] = ctx.planningAgent
+def planningAgent(using ctx: FlowContext): Agent[?] = ctx.planningAgent
 
 /** The coding-role agent — the run's primary: implementer sessions, branch
   * naming, stack discovery, and default commit messages run here. Reference it
   * in a body instead of a concrete accessor (`claude`/`codex`) so the flow
   * follows whichever backend `codingAgent = harness[:model]` in settings names.
-  * A session from `codingAgent.session` threads into `session.run` and the
-  * reviewers because [[FlowContext.CodeB]] pins the backend.
   *
   * Two ways to drive a model: a role accessor
   * (`codingAgent`/`planningAgent`/`reviewAgent`) is backend-agnostic — settings
-  * choose the harness, and its session threads. A concrete accessor + tier
-  * (`claude.opus`, `codex.mini`) names a specific backend/tier for a one-off
-  * call; name the tier first, then constraints (`claude.opus.withReadOnly`).
-  * Don't mix the two for one session: a `SessionId` is backend-typed, so a
-  * session minted from `claude` won't thread through `codingAgent` when
-  * settings name a different backend.
-  *
-  * See [[orca.FlowContext.CodeB]] for the helper-authoring caveat shared by all
-  * three role accessors.
+  * choose the harness. A concrete accessor + tier (`claude.opus`, `codex.mini`)
+  * names a specific backend/tier for a one-off call; name the tier first, then
+  * constraints (`claude.opus.withReadOnly`).
   */
-def codingAgent(using ctx: FlowContext): Agent[ctx.CodeB] = ctx.codingAgent
+def codingAgent(using ctx: FlowContext): Agent[?] = ctx.codingAgent
 
 /** The review-role agent: `allReviewers(reviewAgent)`, the reviewer-picker and
-  * the lint summariser default to its tiers. See [[codingAgent]] for the
-  * helper-authoring caveat shared by all three role accessors.
+  * the lint summariser default to its tiers.
   */
-def reviewAgent(using ctx: FlowContext): Agent[ctx.ReviewB] = ctx.reviewAgent
+def reviewAgent(using ctx: FlowContext): Agent[?] = ctx.reviewAgent
 
 /** The reviewer definitions this run works from — the shipped set with any
   * `.orca/reviewers/` or user-global `.md` file layered over it. `allReviewers`

@@ -80,16 +80,14 @@ final class Agent[B <: BackendTag] private (
     */
   def chat(): Chat[B] = new Chat(this, SessionId.fresh[B])
 
-  /** Adopt an existing conversation id as an EPHEMERAL chat — the escape hatch
-    * for continuing a durable `FlowSession`'s conversation where its own doors
-    * can't go (inside a fork): `agent.chat(coder.id)`. Turns run here are NOT
-    * persisted — on crash/resume the durable side finds nothing recorded — and
-    * are not primed: a conversation a previous run carried over is not told
-    * here that its uncommitted work is gone (ADR 0018 §2.6). One live
-    * continuation at a time: concurrent turns against the same backend
-    * conversation fail.
+  /** Adopt an existing conversation id as an EPHEMERAL chat — how the library
+    * continues a conversation it holds the id of (a durable session's
+    * `session.chat`, a planning chat's read-only review turn). Turns run here
+    * are NOT persisted and are not primed. One live continuation at a time:
+    * concurrent turns against the same backend conversation fail.
     */
-  def chat(continueFrom: SessionId[B]): Chat[B] = new Chat(this, continueFrom)
+  private[orca] def chat(continueFrom: SessionId[B]): Chat[B] =
+    new Chat(this, continueFrom)
 
   /** Fix the output type of a structured call and obtain a gateway with both
     * `autonomous` and `interactive` modes. `O` needs a `JsonData[O]` — `derives

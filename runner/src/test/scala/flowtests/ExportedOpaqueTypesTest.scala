@@ -26,14 +26,6 @@ class ExportedOpaqueTypesTest extends munit.FunSuite:
       "String"
     )
 
-  test("SessionId does not widen to String"):
-    assertMismatch(
-      compileErrors(
-        "val s: String = orca.SessionId.fresh[orca.BackendTag.ClaudeCode.type]"
-      ),
-      "String"
-    )
-
   test("OpencodeLauncher does not widen to Seq[String]"):
     assertMismatch(
       compileErrors("val s: Seq[String] = orca.OpencodeLauncher.default"),

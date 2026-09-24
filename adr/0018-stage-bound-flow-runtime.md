@@ -287,7 +287,7 @@ rides along unused — a fair price for not maintaining a second typeclass.
 The library adds `JsonData` givens for the handful of non-case-class results flows
 return — primitives, `Unit`, `Option`, `List`, small tuples (`JsonData.derived` only
 covers `Mirror` types). Deliberately absent: the opaque `SessionId[B]` and the
-`FlowSession[B]` that wraps it (§2.6, R22) — a session is a live handle, not a value
+`FlowSession` that wraps it (§2.6, R22) — a session is a live handle, not a value
 to persist as a stage result, so neither has a `JsonData` given. A return type with no `JsonData` instance — that
 live-handle case, or a closure — fails to compile, the intended boundary. Codecs must
 round-trip losslessly: a resumed run reads the value back from JSON, so a lossy codec
@@ -643,10 +643,10 @@ strategy and the progress store are overridable (R21).
 
 **Requirements.**
 - **R22** — Durable session identity lives in a keyed `SessionRecord`, obtained via
-  `agent.session(name, seed): FlowSession[B]` and persisted in the machine-local
+  `agent.session(name, seed): FlowSession` and persisted in the machine-local
   session store (with the client→server map for server-id backends) — never as a
   stage result: neither
-  `SessionId[B]` nor `FlowSession[B]` has a `JsonData` given, so neither can be
+  `SessionId[B]` nor `FlowSession` has a `JsonData` given, so neither can be
   smuggled through `stage`'s persistence path, where it would get neither the
   wire-map nor the seed-lookup a `SessionRecord` provides. That blocks the
   stage-result route out of a stage and only that route; a handle stashed in an
@@ -937,7 +937,7 @@ list output and opencode's directory-scoping should be pinned when the probes la
 > is told about it, with `git stash pop`, in the resume banner — is the one who
 > can judge that. Redoing the work is what the agent can do unaided.
 >
-> **Adopted chats are not told.** `agent.chat(session.id)` continues the same
+> **Adopted chats are not told.** `session.chat` continues the same
 > conversation as an ephemeral `Chat`, which needs only `InStage` and so runs
 > inside a fork; the claim and the notice sit behind `FlowControl`, which a fork
 > never holds — moving them to the chat door would hand a fork the flow thread's
@@ -1306,7 +1306,7 @@ alongside.
   prompts) is why the header persists the once-computed name for read-back on resume.
 - **`JsonData` coverage.** Sealed `PlanLike` needs jsoniter sum-type config;
   primitives/tuples need hand-written `JsonData` givens; codecs must be lossless (R9).
-  `SessionId[B]` and `FlowSession[B]` deliberately have none (§2.3, §2.6, R22).
+  `SessionId[B]` and `FlowSession` deliberately have none (§2.3, §2.6, R22).
 - **Custom external effects.** Built-in idempotency covers `createPr` /
   `upsertComment` (R24); a flow's own irreversible side effect must be made
   idempotent by its author or it repeats on resume.
