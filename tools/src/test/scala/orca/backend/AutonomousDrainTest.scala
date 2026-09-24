@@ -39,8 +39,9 @@ class AutonomousDrainTest extends munit.FunSuite:
       val _ = decisions.updateAndGet(d :: _)
     val live = new ScriptedTurn(
       List(
-        TurnEvent
-          .ApproveTool("Bash", """{"command":"rm -rf /"}""", record)
+        TurnEvent.Approval(
+          ChannelEvent.ApproveTool("Bash", """{"command":"rm -rf /"}""", record)
+        )
       ),
       Right(sampleResult)
     )
@@ -65,7 +66,7 @@ class AutonomousDrainTest extends munit.FunSuite:
     val record = (d: ApprovalDecision) =>
       val _ = decisions.updateAndGet(d :: _)
     val live = new ScriptedTurn(
-      List(TurnEvent.ApproveTool("Bash", "{}", record)),
+      List(TurnEvent.Approval(ChannelEvent.ApproveTool("Bash", "{}", record))),
       Right(sampleResult)
     )
     val _ =
@@ -87,7 +88,7 @@ class AutonomousDrainTest extends munit.FunSuite:
     val record = (d: ApprovalDecision) =>
       val _ = decisions.updateAndGet(d :: _)
     val live = new ScriptedTurn(
-      List(TurnEvent.ApproveTool("Bash", "{}", record)),
+      List(TurnEvent.Approval(ChannelEvent.ApproveTool("Bash", "{}", record))),
       Right(sampleResult)
     )
     val _ = supervised(
@@ -113,7 +114,7 @@ class AutonomousDrainTest extends munit.FunSuite:
     val record = (s: String) =>
       val _ = answers.updateAndGet(s :: _)
     val live = new ScriptedTurn(
-      List(TurnEvent.UserQuestion("What now?", record)),
+      List(TurnEvent.Question(ChannelEvent.UserQuestion("What now?", record))),
       Right(sampleResult)
     )
     val _ =
@@ -132,7 +133,7 @@ class AutonomousDrainTest extends munit.FunSuite:
   test("an auto-denied ApproveTool emits ToolDenied"):
     val recorder = new RecordingListener
     val live = new ScriptedTurn(
-      List(TurnEvent.ApproveTool("Bash", "{}", _ => ())),
+      List(TurnEvent.Approval(ChannelEvent.ApproveTool("Bash", "{}", _ => ()))),
       Right(sampleResult)
     )
     val _ =

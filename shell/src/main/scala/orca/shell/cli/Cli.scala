@@ -13,6 +13,7 @@ import org.jline.terminal.Terminal
 import orca.RawArgs
 import orca.shell.{ShellEnv, Tier, WorktreeScan}
 import orca.shell.run.LaunchResult
+import orca.shell.sessions.ManifestReader
 import orca.shell.ui.ShellUi
 import orca.subprocess.TtyProbe
 
@@ -307,7 +308,8 @@ private[cli] class CliCommands(using env: ShellEnv):
       selector,
       list.value,
       json.value,
-      isTty
+      isTty,
+      ManifestReader.pidAlive
     )
 
   @main(doc =

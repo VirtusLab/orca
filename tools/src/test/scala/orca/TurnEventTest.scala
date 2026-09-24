@@ -1,6 +1,6 @@
 package orca
 
-import orca.backend.{ApprovalDecision, TurnEvent}
+import orca.backend.{ApprovalDecision, ChannelEvent, TurnEvent}
 import orca.events.TurnDebit
 
 import java.util.concurrent.atomic.AtomicReference
@@ -9,13 +9,13 @@ class TurnEventTest extends munit.FunSuite:
 
   test("ApproveTool.respond captures the channel's decision exactly once"):
     val sink = new AtomicReference[Option[ApprovalDecision]](None)
-    val evt = TurnEvent.ApproveTool(
+    val evt = ChannelEvent.ApproveTool(
       toolName = "Bash",
       rawInput = """{"cmd":"ls"}""",
       respond = decision => sink.set(Some(decision))
     )
     evt match
-      case TurnEvent.ApproveTool(name, input, respond) =>
+      case ChannelEvent.ApproveTool(name, input, respond) =>
         assertEquals(name, "Bash")
         assertEquals(input, """{"cmd":"ls"}""")
         respond(ApprovalDecision.Allow)

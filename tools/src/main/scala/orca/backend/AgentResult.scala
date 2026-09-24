@@ -7,13 +7,13 @@ import orca.events.{Usage}
   * the autonomous path and by [[LiveTurn.awaitResult]] / [[Interaction.drive]]
   * for the interactive path.
   */
-case class AgentResult[B <: BackendTag](
+final case class AgentResult[B <: BackendTag] private[orca] (
     /** The WIRE session id the backend reported for this turn (server thread id
       * for codex/gemini/opencode; the claimed client id for claude/pi). Exists
       * so the registry can learn the wire↔client mapping — callers already hold
       * the stable client handle they passed in.
       */
-    wireId: WireSessionId[B],
+    private[orca] val wireId: WireSessionId[B],
     output: String,
     usage: Usage,
     /** Model the backend reports it actually served the call with — usually

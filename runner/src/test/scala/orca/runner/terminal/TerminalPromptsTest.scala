@@ -2,7 +2,13 @@ package orca.runner.terminal
 
 import orca.agents.{BackendTag, WireSessionId}
 import orca.events.{OrcaListener, Usage}
-import orca.backend.{AgentResult, ApprovalDecision, TurnEvent, ObservedTurn}
+import orca.backend.{
+  AgentResult,
+  ApprovalDecision,
+  ChannelEvent,
+  TurnEvent,
+  ObservedTurn
+}
 import orca.testkit.ScriptedTurn
 
 import java.io.{ByteArrayOutputStream, PrintStream}
@@ -58,7 +64,7 @@ class TerminalPromptsTest extends munit.FunSuite:
     val long = "x" * (ToolInputSummary.MaxInlineInputLength + 50)
     val prompter = new ScriptedPrompter(List(PromptOutcome.Answer("yes")))
     val live = new ScriptedTurn(
-      List(TurnEvent.ApproveTool("Bash", long, _ => ())),
+      List(TurnEvent.Approval(ChannelEvent.ApproveTool("Bash", long, _ => ()))),
       Right(sampleResult)
     )
     val _ = prompts(buf, prompter).drive(observed(live))
@@ -72,10 +78,12 @@ class TerminalPromptsTest extends munit.FunSuite:
     val prompter = new ScriptedPrompter(List(PromptOutcome.Answer("yes")))
     val live = new ScriptedTurn(
       List(
-        TurnEvent.ApproveTool(
-          "Bash",
-          """{"cmd":"ls"}""",
-          d => answered.set(Some(d))
+        TurnEvent.Approval(
+          ChannelEvent.ApproveTool(
+            "Bash",
+            """{"cmd":"ls"}""",
+            d => answered.set(Some(d))
+          )
         )
       ),
       Right(sampleResult)
@@ -90,10 +98,12 @@ class TerminalPromptsTest extends munit.FunSuite:
     val prompter = new ScriptedPrompter(List(PromptOutcome.Answer("no")))
     val live = new ScriptedTurn(
       List(
-        TurnEvent.ApproveTool(
-          "Bash",
-          """{"cmd":"rm"}""",
-          d => answered.set(Some(d))
+        TurnEvent.Approval(
+          ChannelEvent.ApproveTool(
+            "Bash",
+            """{"cmd":"rm"}""",
+            d => answered.set(Some(d))
+          )
         )
       ),
       Right(sampleResult)
@@ -106,7 +116,7 @@ class TerminalPromptsTest extends munit.FunSuite:
     val prompter = new ScriptedPrompter(List(PromptOutcome.Interrupted))
     val live = new ScriptedTurn(
       List(
-        TurnEvent.ApproveTool("Bash", "{}", _ => ())
+        TurnEvent.Approval(ChannelEvent.ApproveTool("Bash", "{}", _ => ()))
       ),
       Right(sampleResult)
     )
@@ -123,9 +133,11 @@ class TerminalPromptsTest extends munit.FunSuite:
     val prompter = new ScriptedPrompter(List(PromptOutcome.Answer("Paris")))
     val live = new ScriptedTurn(
       List(
-        TurnEvent.UserQuestion(
-          "What's the target deployment region?",
-          ans => answered.set(Some(ans))
+        TurnEvent.Question(
+          ChannelEvent.UserQuestion(
+            "What's the target deployment region?",
+            ans => answered.set(Some(ans))
+          )
         )
       ),
       Right(sampleResult)
@@ -142,7 +154,7 @@ class TerminalPromptsTest extends munit.FunSuite:
     val prompter = new ScriptedPrompter(List(PromptOutcome.Interrupted))
     val live = new ScriptedTurn(
       List(
-        TurnEvent.UserQuestion("Pick one", _ => ())
+        TurnEvent.Question(ChannelEvent.UserQuestion("Pick one", _ => ()))
       ),
       Right(sampleResult)
     )

@@ -35,10 +35,8 @@ class ObservedTurnTest extends munit.FunSuite:
     usage = Usage.empty
   )
 
-  private val approveBash = TurnEvent.ApproveTool(
-    "Bash",
-    """{"command":"ls"}""",
-    _ => ()
+  private val approveBash = TurnEvent.Approval(
+    ChannelEvent.ApproveTool("Bash", """{"command":"ls"}""", _ => ())
   )
 
   test("a cancelled turn throws its OrcaInteractiveCancelled"):

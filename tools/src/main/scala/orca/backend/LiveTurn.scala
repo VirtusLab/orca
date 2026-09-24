@@ -13,8 +13,8 @@ import orca.{OrcaInteractiveCancelled}
   * when the turn ends; the final outcome is read via `awaitResult`.
   *
   * Tool-approval decisions are delivered via the closure carried on
-  * [[TurnEvent.ApproveTool]] — the channel does not track request-ids. `cancel`
-  * is safe to call from any thread.
+  * [[ChannelEvent.ApproveTool]] — the channel does not track request-ids.
+  * `cancel` is safe to call from any thread.
   */
 private[orca] trait LiveTurn[B <: BackendTag]:
 
@@ -57,10 +57,10 @@ private[orca] trait LiveTurn[B <: BackendTag]:
 
   /** Whether the agent can pause to ask the host user a clarifying question and
     * have the answer routed back into its turn. When `true`, the turn emits
-    * [[TurnEvent.UserQuestion]] events whose `respond` closure delivers the
-    * typed answer to the blocked agent. True for interactive claude and codex
-    * turns (both via the shared `AskUserMcpServer`); false for autonomous turns
-    * and backends that don't wire the bridge.
+    * [[ChannelEvent.UserQuestion]]s whose `respond` closure delivers the typed
+    * answer to the blocked agent. True for interactive claude and codex turns
+    * (both via the shared `AskUserMcpServer`); false for autonomous turns and
+    * backends that don't wire the bridge.
     */
   def canAskUser: Boolean
 

@@ -4,7 +4,12 @@ import orca.agents.Model
 import orca.events.{TurnDebit, Usage}
 import orca.testkit.Usages.usage
 import orca.{AgentTurnFailed, OrcaFlowException, OrcaInteractiveCancelled}
-import orca.backend.{AskUserChannel, TurnEvent, TurnEventConformance}
+import orca.backend.{
+  AskUserChannel,
+  ChannelEvent,
+  TurnEvent,
+  TurnEventConformance
+}
 import orca.subprocess.FakePipedCliProcess
 import ox.{Ox, supervised}
 
@@ -449,8 +454,8 @@ class ClaudeTurnTest extends munit.FunSuite:
       // events; respond closure unblocks the ask fork.
       val firstEvent = live.events.next()
       val (question, respond) = firstEvent match
-        case TurnEvent.UserQuestion(q, r) => (q, r)
-        case other => fail(s"expected UserQuestion; got: $other")
+        case TurnEvent.Question(ChannelEvent.UserQuestion(q, r)) => (q, r)
+        case other => fail(s"expected Question; got: $other")
       assertEquals(question, "What's your favourite colour?")
       respond("magenta")
       assertEquals(askResult.join(), "magenta")

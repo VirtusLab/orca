@@ -17,9 +17,10 @@ import Cli.{actionFailure, complete, requireTty, usageFailure, withTerminal}
   */
 private[cli] object ContinueCli:
 
-  /** `continue`'s full behavior over explicit `dirs`/`tty` (test seam) — tests
-    * seed each directory with `.orca/cache/attempts/` manifests and simulate
-    * either a terminal or a pipe via `tty`. The directories arrive resolved
+  /** `continue`'s full behavior over explicit `dirs`/`tty`/`pidAlive` (test
+    * seam) — tests seed each directory with `.orca/cache/attempts/` manifests,
+    * simulate either a terminal or a pipe via `tty`, and decide which attempt
+    * pids are alive. The directories arrive resolved
     * ([[orca.shell.WorktreeScan.dirs]], at the real entry point), so nothing
     * here spawns git.
     */
@@ -28,10 +29,11 @@ private[cli] object ContinueCli:
       selector: Option[String],
       list: Boolean,
       json: Boolean,
-      tty: Boolean
+      tty: Boolean,
+      pidAlive: Long => Boolean
   ): Int =
     val AttemptListing(attempts, warnings) =
-      ManifestReader.list(dirs.own, dirs.worktrees, ManifestReader.pidAlive)
+      ManifestReader.list(dirs.own, dirs.worktrees, pidAlive)
     warnings.foreach(Cli.diagnostic)
     val index = SessionIndex.of(attempts)
     if list then

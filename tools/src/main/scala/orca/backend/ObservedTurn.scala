@@ -60,8 +60,8 @@ final class ObservedTurn[B <: BackendTag] private[orca] (
             listener.onEvent(OrcaEvent.Error(message))
           case TurnEvent.UserMessage(text) =>
             listener.onEvent(OrcaEvent.UserPrompt(text))
-          case e: TurnEvent.ApproveTool  => answer(e)
-          case e: TurnEvent.UserQuestion => answer(e)
+          case TurnEvent.Approval(request) => answer(request)
+          case TurnEvent.Question(request) => answer(request)
       buffer.finishNormally()
     catch
       case t: Throwable =>

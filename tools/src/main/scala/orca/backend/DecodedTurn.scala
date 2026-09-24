@@ -298,9 +298,9 @@ private[orca] object DecodedTurn:
         )
     log
 
-  /** Each question the agent asks through `ask_user` becomes a `UserQuestion`
-    * whose `respond` hands the answer back to the blocked MCP handler. Runs
-    * until the turn scope ends.
+  /** Each question the agent asks through `ask_user` becomes a `Question` whose
+    * `respond` hands the answer back to the blocked MCP handler. Runs until the
+    * turn scope ends.
     */
   private def drainQuestions(
       bridge: AskUserBridge,
@@ -308,4 +308,6 @@ private[orca] object DecodedTurn:
   ): Unit =
     while true do
       val q = bridge.nextQuestion()
-      neutral(TurnEvent.UserQuestion(q.question, q.respond))
+      neutral(
+        TurnEvent.Question(ChannelEvent.UserQuestion(q.question, q.respond))
+      )
