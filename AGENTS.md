@@ -157,6 +157,12 @@ most easily broken:
   the raw session-threading doors are `private[orca]` — `Agent.runText` and
   the `AgentCall` modes' `runWithSession` — so ephemeral continuation is only
   reachable through a `Chat` handle).
+  Agent/conversation safety comes from bundling, not from types a flow
+  script combines: `Chat`, `FlowSession` and `Sessioned` carry their agent and
+  conversation from creation, and every way to pair them (`Chat`'s
+  constructor, `Agent.chat(continueFrom)`, `Sessioned`'s `apply`/`copy`,
+  `SessionId`) is `private[orca]` or narrower. An adopted chat refuses a turn
+  while `dispatchFor` says `Fresh` (ADR 0018, amendment 2026-09-24).
 
   Sessions have explicit identity: `agent.session(name, seed)` keys an
   `orca.sessions.SessionRecord` by `orca.agents.SessionKey(name, stage)`. `name`

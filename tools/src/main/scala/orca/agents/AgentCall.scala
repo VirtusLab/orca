@@ -289,6 +289,8 @@ final class AutonomousAgentCall[B <: BackendTag, O] private[agents] (
   * structured `O`. Continuation goes through [[Chat]] (`agent.chat()`), never a
   * `FlowSession`: a live human is steering the turn, so there is no seed to
   * replay on resume — hence durable interactive sessions don't exist.
+  * Interactive turns share the user's terminal: run them one at a time, never
+  * from parallel forks.
   */
 final class InteractiveAgentCall[B <: BackendTag, O] private[agents] (
     call: AgentCall[B, O]

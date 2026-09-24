@@ -1,7 +1,6 @@
 package orca.plan
 
 import orca.events.EventDispatcher
-import orca.agents.{BackendTag, SessionId}
 
 /** Runtime wiring of the autonomous planning grid: each operation pairs its
   * result with the producing session, and `triage` converts the wire
@@ -73,12 +72,13 @@ class PlanGridTest extends munit.FunSuite:
 
   // --- post-planning step (reviewed) on the planning session ---
 
-  private val plannerSession =
-    SessionId[BackendTag.ClaudeCode.type]("planner-sid")
-
-  /** `samplePlan` on a planning chat whose agent answers `reply`. */
+  /** `samplePlan` on a planning chat whose agent answers `reply`, after the
+    * planning turn that opened its conversation.
+    */
   private def planned(reply: CannedResult[Plan]): Sessioned[Plan] =
-    Sessioned(reply.agent.chat(plannerSession), samplePlan)
+    val chat = reply.agent.chat()
+    val _ = chat.resultAs[Plan].autonomous.run("plan")
+    Sessioned(chat, samplePlan)
 
   test("reviewed returns the improved plan on the original chat binding"):
     val improved = samplePlan.copy(description = "tighter", brief = "sharper")
@@ -92,6 +92,7 @@ class PlanGridTest extends munit.FunSuite:
 
   test("reviewed continues the planning conversation read-only"):
     val reply = new CannedResult(samplePlan)
-    val _ = planned(reply).reviewed()
-    assertEquals(reply.lastSession, Some(plannerSession.value))
+    val input = planned(reply)
+    val _ = input.reviewed()
+    assertEquals(reply.lastSession, Some(input.chat.id.value))
     assertEquals(reply.lastToolSet, Some(orca.agents.ToolSet.ReadOnly))

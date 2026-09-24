@@ -22,9 +22,13 @@ object BackendTag:
       CodecMakerConfig.withDiscriminatorFieldName(None)
     )
 
-opaque type SessionId[B <: BackendTag] = String
+/** Orca's stable client handle for one agent conversation. Library-internal:
+  * flow scripts hold a conversation through a `Chat` or `orca.FlowSession`,
+  * which bundle the id with the agent that runs it.
+  */
+private[orca] opaque type SessionId[B <: BackendTag] = String
 
-object SessionId:
+private[orca] object SessionId:
   /** The raw, UNCHECKED constructor — `private[orca]` because a string sourced
     * outside the library must go through [[parse]] instead. Internal trusted
     * callers ([[fresh]], [[onWire]], the write-policy sites) reach it directly.

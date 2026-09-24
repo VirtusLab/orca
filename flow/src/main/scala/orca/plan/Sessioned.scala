@@ -16,10 +16,12 @@ import orca.agents.Chat
   * returned chat is bound to the base agent, so a later `chat.run(task)`
   * continues with write access restored.
   *
-  * Destructure at the call site:
+  * Only the library pairs a value with a chat, so `.reviewed()` always
+  * continues the conversation that produced the plan. Destructure at the call
+  * site:
   *
   * {{{
   * val Sessioned(chat, plan) = Plan.autonomous.from(userPrompt, claude)
   * }}}
   */
-case class Sessioned[+A](chat: Chat[?], value: A)
+final case class Sessioned[+A] private[orca] (chat: Chat[?], value: A)
