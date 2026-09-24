@@ -36,7 +36,7 @@ import scala.annotation.implicitNotFound
   * [[StageFrames]], the mixin shared by every implementation.
   */
 @implicitNotFound(
-  "`stage(...)`, `agent.session(...)`, and `session.run(...)` on a FlowSession can only be called inside a `flow(...)` body — and not inside a `fork` (forks can read and emit, but can't start stages). If this is a helper that starts stages, declare it `(using FlowContext, FlowControl)` so its caller supplies both."
+  "`stage(...)`, `agent.session(...)`, and `session.run(...)` on a FlowSession can only be called inside a `flow(...)` body — and not inside a `fork` (forks can read and `display`, but can't start stages). If this is a helper that starts stages, declare it `(using FlowContext, FlowControl)` so its caller supplies both."
 )
 trait FlowControl extends caps.ExclusiveCapability:
   /** The store backing this run's progress log — the committed, branch-carried

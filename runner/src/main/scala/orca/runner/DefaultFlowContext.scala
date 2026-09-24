@@ -37,4 +37,4 @@ private[orca] class DefaultFlowContext(
 
   export wired.{claude, codex, opencode, pi, gemini}
 
-  def emit(event: OrcaEvent): Unit = dispatcher.onEvent(event)
+  private[orca] def emit(event: OrcaEvent): Unit = dispatcher.onEvent(event)
