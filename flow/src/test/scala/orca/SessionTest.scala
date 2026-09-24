@@ -97,7 +97,7 @@ class SessionTest extends FunSuite:
         SessionRecord(
           name = "implementer",
           stage = StagePath.FlowBody,
-          id = session.id.value,
+          id = session.chat.id.value,
           seed = "plan brief",
           resumeWireId = None,
           backend = BackendTag.ClaudeCode
@@ -110,7 +110,7 @@ class SessionTest extends FunSuite:
     given FlowControl = fc
     val agent = stubAgent(BackendTag.ClaudeCode)
     val _ = stage("Task: add multiply", commitMessage):
-      agent.session("implementer", seed = "brief").id.value
+      agent.session("implementer", seed = "brief").chat.id.value
     assertEquals(
       records(dir).map(_.stage),
       List(StagePath.FlowBody.child("Task: add multiply", 0))
@@ -120,7 +120,7 @@ class SessionTest extends FunSuite:
     val (fc, _) = TestFlowControl.create(new EventDispatcher(Nil))
     given FlowControl = fc
     val agent = stubAgent(BackendTag.ClaudeCode)
-    def mint(): String = agent.session("implementer", seed = "s").id.value
+    def mint(): String = agent.session("implementer", seed = "s").chat.id.value
     val a = stage("A", commitMessage)(mint())
     val b = stage("B", commitMessage)(mint())
     assertNotEquals(a, b)
@@ -135,7 +135,7 @@ class SessionTest extends FunSuite:
     val ids =
       for _ <- (0 until 3).toList
       yield stage("Task", commitMessage):
-        agent.session("implementer", seed = "brief").id.value
+        agent.session("implementer", seed = "brief").chat.id.value
     assertEquals(ids.distinct.size, 3, s"expected three sessions; got: $ids")
     assertEquals(
       records(dir).map(_.stage),
@@ -154,7 +154,7 @@ class SessionTest extends FunSuite:
     def loop(failAt: Option[Int])(using FlowControl): List[String] =
       for i <- (0 until 3).toList
       yield stage("Task", commitMessage):
-        val id = agent.session("implementer", seed = "brief").id.value
+        val id = agent.session("implementer", seed = "brief").chat.id.value
         if failAt.contains(i) then throw new RuntimeException(id)
         id
     val _ = intercept[RuntimeException](loop(Some(1))(using fc))
@@ -180,7 +180,7 @@ class SessionTest extends FunSuite:
     val _ = stage("Implement", idsCommitMessage):
       for _ <- (0 until 2).toList
       yield stage("Task", commitMessage):
-        agent.session("implementer", seed = "brief").id.value
+        agent.session("implementer", seed = "brief").chat.id.value
     assertEquals(
       records(dir).map(_.stage),
       List(
@@ -199,7 +199,7 @@ class SessionTest extends FunSuite:
       stage("Implement", idsCommitMessage):
         for i <- (0 until 2).toList
         yield stage("Task", commitMessage):
-          val id = agent.session("implementer", seed = "brief").id.value
+          val id = agent.session("implementer", seed = "brief").chat.id.value
           if failAt.contains(i) then throw new RuntimeException(id)
           id
     val _ = intercept[RuntimeException](run(Some(1))(using fc))
@@ -216,7 +216,7 @@ class SessionTest extends FunSuite:
     val (fc, dir) = TestFlowControl.create(new EventDispatcher(Nil))
     val agent = stubAgent(BackendTag.ClaudeCode)
     def mint()(using FlowControl): String =
-      agent.session("implementer", seed = "s").id.value
+      agent.session("implementer", seed = "s").chat.id.value
     val (a, b) =
       given FlowControl = fc
       (
@@ -241,7 +241,7 @@ class SessionTest extends FunSuite:
     val ex = interceptReported[OrcaFlowException]:
       stage[String]("Implement", commitMessage):
         val _ = agent.session("implementer", seed = "s")
-        agent.session("implementer", seed = "s").id.value
+        agent.session("implementer", seed = "s").chat.id.value
     assert(
       ex.getMessage.contains("'implementer' twice in stage 'Implement#0'") &&
         ex.getMessage.contains("Give each its own `stage(...)`"),
@@ -270,7 +270,7 @@ class SessionTest extends FunSuite:
     // duplicate.
     val id2 = agent.session("implementer", seed = "brief")(using control(dir))
 
-    assertEquals(id2.id, id1.id)
+    assertEquals(id2.chat.id.value, id1.chat.id.value)
     // Must not mint a second record — still exactly one session.
     assertEquals(records(dir).size, 1)
 
@@ -278,7 +278,7 @@ class SessionTest extends FunSuite:
     val (fc, dir) = TestFlowControl.create(new EventDispatcher(Nil))
     val agent = stubAgent(BackendTag.ClaudeCode)
     def mint()(using FlowControl): String =
-      agent.session("implementer", seed = "b").id.value
+      agent.session("implementer", seed = "b").chat.id.value
     val original =
       given FlowControl = fc
       stage("Task: parse the input", commitMessage)(mint())
@@ -305,7 +305,7 @@ class SessionTest extends FunSuite:
     val implementerRun2 =
       agent.session("implementer", seed = "brief")(using fc2)
 
-    assertEquals(implementerRun2.id, implementerRun1.id)
+    assertEquals(implementerRun2.chat.id.value, implementerRun1.chat.id.value)
 
   test("resume with a matching seed emits no divergence warning"):
     val dir = TempDirs.dir()
@@ -339,7 +339,7 @@ class SessionTest extends FunSuite:
       control(dir, List(recorder))
     )
     // Still returns the recorded id (re-seed is the safe fallback)...
-    assertEquals(resumedId.id, originalId.id)
+    assertEquals(resumedId.chat.id.value, originalId.chat.id.value)
     // ...but the divergence is surfaced, naming the session.
     assert(
       recorder.steps.exists(s =>
@@ -368,7 +368,7 @@ class SessionTest extends FunSuite:
     )
 
     assert(
-      resumedId.id.value != originalId.id.value,
+      resumedId.chat.id.value != originalId.chat.id.value,
       "a backend-tag mismatch must mint a fresh id, not reuse the stale one"
     )
     assertEquals(
@@ -447,10 +447,10 @@ class SessionTest extends FunSuite:
       agent.session("implementer", seed = "brief")(using
         control(dir, List(recorder))
       )
-    assertNotEquals(resumedId.id.value, "../../etc/passwd")
+    assertNotEquals(resumedId.chat.id.value, "../../etc/passwd")
     assert(
-      SessionId.isSafe(resumedId.id.value),
-      s"a freshly-minted id must itself be safe; got: ${resumedId.id.value}"
+      SessionId.isSafe(resumedId.chat.id.value),
+      s"a freshly-minted id must itself be safe; got: ${resumedId.chat.id.value}"
     )
     assert(
       recorder.steps.exists(s =>
@@ -470,7 +470,7 @@ class SessionTest extends FunSuite:
     given FlowControl = fc
     val agent = stubAgent(BackendTag.ClaudeCode)
     val minted = stage("Implement", commitMessage):
-      agent.session("implementer", seed = "brief").id.value
+      agent.session("implementer", seed = "brief").chat.id.value
     assertEquals(records(dir).map(_.id), List(minted))
     // The record is machine-local: it lands in the self-ignoring cache, so the
     // stage's commit carries nothing of it and the tree stays clean.
@@ -486,7 +486,7 @@ class SessionTest extends FunSuite:
     val (fc, dir) = TestFlowControl.create(new EventDispatcher(Nil))
     val agent = stubAgent(BackendTag.ClaudeCode)
     def mint()(using FlowControl): String =
-      agent.session("implementer", seed = "brief").id.value
+      agent.session("implementer", seed = "brief").chat.id.value
 
     val firstAttempt = intercept[RuntimeException]:
       given FlowControl = fc
@@ -494,7 +494,7 @@ class SessionTest extends FunSuite:
       // committed state to revert to — the shape that erased a record kept in
       // the log, where the failing stage's write was the uncommitted delta.
       val _ = stage("Plan", commitMessage):
-        agent.session("planner", seed = "brief").id.value
+        agent.session("planner", seed = "brief").chat.id.value
       stage[String]("Implement", commitMessage):
         throw new RuntimeException(mint())
     new OsGitTool(dir).discardUncommitted(orca.tools.UntrackedFiles.Remove)(
@@ -524,7 +524,7 @@ class SessionTest extends FunSuite:
     val session =
       agent.session("implementer", seed = "brief")(using control(dir))
     assertEquals(
-      agent.dispatchFor(session.id),
+      agent.dispatchFor(SessionId(session.chat.id.value)),
       Dispatch.Resume(
         WireSessionId[BackendTag.ClaudeCode.type]("srv-1"),
         ResumeOrigin.EarlierRun
@@ -541,7 +541,10 @@ class SessionTest extends FunSuite:
     val session = agent.session("implementer", seed = "brief")(using
       control(dir, List(recorder))
     )
-    assertEquals(agent.dispatchFor(session.id), Dispatch.Fresh(None))
+    assertEquals(
+      agent.dispatchFor(SessionId(session.chat.id.value)),
+      Dispatch.Fresh(None)
+    )
     assert(
       recorder.steps.exists(_.contains("invalid recorded wire id")),
       s"expected an invalid-wire warning; got: ${recorder.steps}"

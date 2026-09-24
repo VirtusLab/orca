@@ -246,8 +246,7 @@ There are two ways to drive a model in a flow:
   None of the shipped flows do this; they all follow the roles. The tier
   accessors (`.opus`/`.sonnet`/…) live on the concrete agents, not on the role
   accessors — so `codingAgent.opus` won't compile; that's the cue to name the
-  backend. Pin any other model with `withModel(Model("…"))`. Don't mix the two
-  for one session (a `SessionId` is backend-typed).
+  backend. Pin any other model with `withModel(Model("…"))`.
 
 Two axes constrain an agent. **Capability** (`ToolSet`) is
 which tools exist at all:
@@ -313,9 +312,9 @@ Top-level, available via `import orca.*`:
 | Method | Signature | Use |
 |---|---|---|
 | `flow(args, ...)(body)` | `flow(args: OrcaArgs, branchNaming?, stackSettings?, planningAgent?, codingAgent?, reviewAgent?)(body)` | Entry point. Creates one feature branch + one progress log for the run. The three role agents (below) resolve from settings — see [Settings](#settings) — defaulting to claude; `planningAgent`/`codingAgent`/`reviewAgent` here are per-role programmatic overrides (`Some(_.claude.opus)`) that win over both settings files. Branch naming defaults to a short cheap-model-generated label (slugged); pass `branchNaming = Some(BranchNamingStrategy.issue(handle))` to override (e.g. for issue flows). `stackSettings = Some(StackSettings(...))` pins the run's [stack settings](#settings) — the settings file's stack portion is then neither read nor written (the escape hatch for a language-specific flow; its agent keys are still honoured). See [The flow lifecycle](#the-flow-lifecycle) for the full branch/teardown behavior. |
-| `planningAgent` (in-body accessor) | `planningAgent: Agent[ctx.PlanB]` | The planning-role agent, resolved from settings — see [Coding agent tools](#coding-agent-tools). Hand it to `Plan.*`. |
-| `codingAgent` (in-body accessor) | `codingAgent: Agent[ctx.CodeB]` | The coding-role agent — the run's primary: implementer sessions, branch naming, stack discovery, default commit messages. |
-| `reviewAgent` (in-body accessor) | `reviewAgent: Agent[ctx.ReviewB]` | The review-role agent: `allReviewers(reviewAgent)`, the reviewer-picker and the lint summariser default to its tiers. |
+| `planningAgent` (in-body accessor) | `planningAgent: Agent[?]` | The planning-role agent, resolved from settings — see [Coding agent tools](#coding-agent-tools). Hand it to `Plan.*`. |
+| `codingAgent` (in-body accessor) | `codingAgent: Agent[?]` | The coding-role agent — the run's primary: implementer sessions, branch naming, stack discovery, default commit messages. |
+| `reviewAgent` (in-body accessor) | `reviewAgent: Agent[?]` | The review-role agent: `allReviewers(reviewAgent)`, the reviewer-picker and the lint summariser default to its tiers. |
 | `stage[T: JsonData](name, commitMessage?)(body)` | `(name: String, commitMessage: Option[T => String] = None)(body): T` | The committing, resumable unit of work. On success, records the result, force-adds the progress log, and commits (code changes + log delta = one commit). On re-run, a stage whose result is still recorded is skipped and the stored value is returned. `T` must have `JsonData` — `case class Foo(...) derives JsonData` is enough. Commit message defaults to a `codingAgent.cheap` summary of the diff; override via `commitMessage`. |
 | `display(message)` | `(message: String): Unit` | Progress-only output: no stage, no commit, no log entry. Callable anywhere — outside a stage or inside a fork. |
 | `Par.mapUnordered(n)(items)(f)` | `(parallelism: Int)(items: Seq[A])(f: A => R): List[R]` | The sanctioned script fan-out (no Ox import needed). Ephemeral agent turns (`codingAgent.run`, `chat.run`) work inside `f`; the durable, flow-thread-only operations (`stage`, `codingAgent.session`, `session.run`) throw if called from a fork. Results arrive in completion order. |
@@ -407,8 +406,8 @@ Each run is bound to exactly one feature branch and one progress log
   stages are already recorded, and that the interrupted stage's uncommitted work
   was not carried over; every durable session it re-enters through `session.run`
   is told the same — a re-seeded one in its preamble, a still-live one once, on
-  its first turn (a conversation continued through `agent.chat(session.id)` is
-  not told). A corrupt or truncated progress log is detected at startup — orca
+  its first turn (a conversation continued through `session.chat` is not
+  told). A corrupt or truncated progress log is detected at startup — orca
   warns and starts fresh (previous stages re-run) rather than silently
   mis-resuming.
 - **Success teardown:** remove the progress-log file in a final commit, and push
@@ -655,9 +654,9 @@ construction.
   across `.run` calls *within this run only* — no seeding, no persistence. Runs
   need only the shared `InStage` capability, so chats work inside a
   `Par.mapUnordered` fork: parallel reviewers each holding a multi-turn
-  conversation is the canonical use. `agent.chat(session.id)` adopts a durable
-  session's conversation as an ephemeral chat — the escape hatch for follow-ups
-  from a fork (turns are not persisted; one live continuation at a time).
+  conversation is the canonical use. `session.chat` is a durable session's
+  conversation as an ephemeral chat — the escape hatch for follow-ups from a
+  fork (turns are not persisted; one live continuation at a time).
 
 ```scala
 val session = agent.session("implementer", seed = plan.brief)
@@ -800,7 +799,7 @@ splits `autonomous` / `interactive`:
 | `assessThenPlan(userPrompt, agent, instructions?)` | `Verdict[Plan]` | assess, then `Proceed(plan)` or `Rejection(kind, body)` | same, but can ask the reporter to clarify instead of rejecting |
 | `triage(report, agent, instructions?)` | `Triage` | classify a bug report (not-a-bug / untestable / testable) | same, with clarifying questions |
 
-Every cell returns `Sessioned[B, <result>]` — the result paired with the
+Every cell returns `Sessioned[<result>]` — the result paired with the
 (ephemeral) `Chat` that produced it. Continue that conversation in-run
 (`chat.run(task)`; continuations have write access), or `.value` it and start a
 fresh, durable implementer session via `agent.session("implementer", seed =
@@ -808,9 +807,9 @@ plan.brief)` — the chat does not survive a crash/resume, so every
 shipped example takes `.value`. Destructure when you want both: `val
 Sessioned(chat, plan) = Plan.autonomous.from(...)`.
 
-From a `Sessioned[B, Plan]`, an optional `.reviewed(agent)` step refines the
-plan before implementing — the planner critiques its own draft, producing an
-improved `Plan`. Chain it: `Plan.autonomous.from(...).reviewed(claude).value`.
+From a `Sessioned[Plan]`, an optional `.reviewed()` step refines the plan
+before implementing — the planner critiques its own draft, read-only, producing
+an improved `Plan`. Chain it: `Plan.autonomous.from(...).reviewed().value`.
 
 `assessThenPlan` returns a `Verdict`: `Verdict.Proceed(plan)` to implement, or
 `Verdict.Rejection(kind, body)` — a follow-up question, critique, or rebuff the
@@ -997,20 +996,16 @@ results.
   needs.
 - **`orca.plan.BugReportMatch`** — the agent's decision on whether a CI failure
   matches the original report.
-- **`orca.FlowSession[B]`** — durable, resumable session handle returned by
-  `agent.session(name, seed)`. Bundles the agent with its `SessionId`;
-  call `.run(prompt)` or `.resultAs[O].run(input)` on it to drive the agent,
-  with automatic seed/preamble replay (when the backend conversation isn't live)
-  and
-  resume-wire-id persistence. `agent.chat(session.id)` adopts its conversation
-  as an ephemeral `Chat` (the fork-side escape hatch).
+- **`orca.FlowSession`** — durable, resumable session handle returned by
+  `agent.session(name, seed)`. Call `.run(prompt)` or `.resultAs[O].run(input)`
+  on it to drive the agent, with automatic seed/preamble replay (when the
+  backend conversation isn't live) and resume-wire-id persistence.
+  `session.chat` is its conversation as an ephemeral `Chat` (the fork-side
+  escape hatch).
 - **`orca.agents.Chat[B]`** — ephemeral multi-turn conversation handle from
   `agent.chat()`: tool-using and workspace-editing like any agent turn ("chat"
   names its lifetime, not its powers), in-run only, fork-safe. Also carried by
   `Sessioned` for planning-conversation continuations.
-- **`orca.agents.SessionId[B]`** — typed session id, parameterised by backend,
-  exposed via `FlowSession.id`. Carries the backend identity at the type level,
-  so you cannot accidentally pass a Claude session to Codex.
 - **`orca.Title`** — opaque `String` alias for short labels (`Task.title`,
   `ReviewFinding.title`); `Title("…")` to construct, `.value` to read.
 - **`orca.tools.PrHandle`** — handle to an open pull request (`host`, `owner`,

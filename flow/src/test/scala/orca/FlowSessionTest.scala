@@ -288,8 +288,8 @@ class FlowSessionTest extends FunSuite:
     */
   private def flowSession(
       stub: StubAgentForSeeded
-  ): FlowSession[BackendTag.ClaudeCode.type] =
-    new FlowSession(stub.agent, testSession, testSessionKey)
+  ): FlowSession =
+    new FlowSession(stub.agent.chat(testSession), testSessionKey)
 
   // ── tests: free-text run protocol ───────────────────────────────────────────
 
@@ -456,7 +456,7 @@ class FlowSessionTest extends FunSuite:
       durableSession = otherSession
     )
     val _ = flowSession(first).run("first conversation")(using fc)
-    val _ = new FlowSession(second.agent, otherSession, otherSessionKey)
+    val _ = new FlowSession(second.agent.chat(otherSession), otherSessionKey)
       .run("second conversation")(using fc)
     assert(
       first.capturedPrompt.exists(_.contains(NoticeInstruction)),
@@ -823,7 +823,7 @@ class FlowSessionTest extends FunSuite:
     val _ = flowSession(agent).resultAs[StubResult].run("prompt")(using fc)
     assertEquals(agent.capturedSessionKeys, List(Some(testSessionKey)))
 
-  test("run returns the output from autonomous.run; .id is the session id"):
+  test("run returns the output from autonomous.run"):
     val seed = "seed text"
     val fc = makeControl(
       sessions = List(
@@ -841,7 +841,6 @@ class FlowSessionTest extends FunSuite:
       new StubAgentForSeeded(existsResult = false, runResult = "agent output")
     val session = flowSession(agent)
     val output = session.run("prompt")(using fc)
-    assertEquals(session.id, testSession)
     assertEquals(output, "agent output")
 
   test(
@@ -1012,21 +1011,3 @@ class FlowSessionTest extends FunSuite:
           fc
         )
     assertEquals(agent.capturedPrompt, Some("continue"))
-
-  // ── tests: the chat(...) hatch rejects a FlowSession (takes .id) ────────────
-
-  test("agent.chat(flowSession) does not compile — the hatch takes .id"):
-    val errors = compileErrors(
-      """
-      val agent = new StubAgentForSeeded(existsResult = true).agent
-      val session = new FlowSession(agent, testSession, testSessionKey)
-      val _ = agent.chat(session)
-      """
-    )
-    // Pin the actual mismatch, not just "some error" — the hatch expects a
-    // `SessionId`, and a `FlowSession` must not satisfy that by accident.
-    assert(
-      errors.contains("Found") && errors.contains("orca.FlowSession") &&
-        errors.contains("Required") && errors.contains("SessionId"),
-      s"expected a Found FlowSession / Required SessionId type mismatch, got: $errors"
-    )

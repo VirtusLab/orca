@@ -23,7 +23,7 @@ import orca.{
 }
 import orca.plan.Task
 
-import orca.agents.{BackendTag, Chat, PromptEvent}
+import orca.agents.{Chat, PromptEvent}
 import orca.events.OrcaEvent
 
 import orca.util.TextUtil
@@ -276,8 +276,8 @@ private case class RoundOutcome(
   * unaccounted for comes back in the returned [[OpenFindings]] with a reason,
   * and is printed at the exit.
   */
-def reviewAndFixLoop[B <: BackendTag](
-    coderSession: FlowSession[B],
+def reviewAndFixLoop(
+    coderSession: FlowSession,
     reviewers: List[ReviewerAgent[?]],
     /** The work under review. Reviewers are shown its title and its
       * description, alongside `userRequest`, each labelled — so a reviewer can
@@ -405,8 +405,8 @@ def reviewAndFixLoop[B <: BackendTag](
   * on, and what the lint gate still reports after its own re-run, come back in
   * the returned [[OpenFindings]] with a reason and are printed at the exit.
   */
-def reviewThenFix[B <: BackendTag](
-    coderSession: FlowSession[B],
+def reviewThenFix(
+    coderSession: FlowSession,
     reviewers: List[ReviewerAgent[?]],
     task: Task,
     userRequest: Option[String] = None,
@@ -467,8 +467,8 @@ private def resolveLint(
   * or, failing that, the run's `ctx.userPrompt`. The iteration cap is not here:
   * it belongs to [[LoopShape.Converge]], not to a round.
   */
-private[review] case class ReviewLoopConfig[B <: BackendTag](
-    coderSession: FlowSession[B],
+private[review] case class ReviewLoopConfig(
+    coderSession: FlowSession,
     reviewers: List[ReviewerAgent[?]],
     reviewerSelection: ReviewerSelector,
     task: Task,
@@ -489,8 +489,8 @@ private[review] case class ReviewLoopConfig[B <: BackendTag](
   * within an iteration but each fork reads the snapshot it was handed and the
   * next state is computed once after they all return — no concurrent mutation.
   */
-private[review] class ReviewFixLoop[B <: BackendTag](
-    config: ReviewLoopConfig[B]
+private[review] class ReviewFixLoop(
+    config: ReviewLoopConfig
 )(using
     ctx: FlowContext,
     ev: InStage

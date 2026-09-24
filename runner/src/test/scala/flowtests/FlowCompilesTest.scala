@@ -40,7 +40,7 @@ object FlowCanary:
     flow(OrcaArgs()):
       // Durable structured turns go through the FlowSession door (seeded,
       // persisted); the raw `resultAs[O]` door is exercised with ephemeral
-      // (fresh / `.id`) sessions only — never a durable-session id.
+      // (fresh / `session.chat`) sessions only.
       val session =
         claude.session("plan", seed = userPrompt)
       stage("plan"):
@@ -48,10 +48,9 @@ object FlowCanary:
         val _ = session.resultAs[FlowPlan].run("follow up")
         // Interactive is deliberately ephemeral-only (see FlowSession): a
         // one-shot on the agent, or a continuation on a Chat — including the
-        // `agent.chat(session.id)` escape hatch over a durable session.
+        // `session.chat` escape hatch over a durable session.
         val _ = claude.resultAs[FlowPlan].interactive.run(userPrompt)
-        val _ =
-          claude.chat(session.id).resultAs[FlowPlan].interactive.run("refine")
+        val _ = session.chat.resultAs[FlowPlan].interactive.run("refine")
 
   /** Free-form text prompts and session continuation; the shape the README
     * promises for per-task implementation.
@@ -111,11 +110,10 @@ object FlowCanary:
       val session =
         claude.session("plan", seed = userPrompt)
       // The planning turn is interactive, which FlowSession deliberately does
-      // not offer (see the FlowSession scaladoc); run it on a Chat adopting
-      // the session id (`agent.chat(session.id)`). The stage persists ONLY
-      // the FlowPlan.
+      // not offer (see the FlowSession scaladoc); run it on the session's
+      // `chat`. The stage persists ONLY the FlowPlan.
       val plan: FlowPlan = stage("plan"):
-        claude.chat(session.id).resultAs[FlowPlan].interactive.run(userPrompt)
+        session.chat.resultAs[FlowPlan].interactive.run(userPrompt)
       for task <- plan.tasks do
         stage(task.description):
           reviewAndFixLoop(
@@ -149,7 +147,7 @@ object FlowCanary:
           c.run("re-review after the fixes")
         // The escape hatch: continue the durable conversation ephemerally
         // (e.g. from a fork) — turns here are not persisted.
-        val _ = claude.chat(coder.id).run("one unpersisted follow-up")
+        val _ = coder.chat.run("one unpersisted follow-up")
 
   /** A custom [[ReviewerSelector]] must be implementable from `import orca.*`
     * alone: its `prepare` is handed the roster as opaque `RosterEntry` handles
@@ -316,23 +314,23 @@ object FlowCanary:
           case Right(_)                 => ()
 
   /** Planning grid surface; exercised across `flows/`. Pins the full `mode ×
-    * operation` grid: every cell returns `Sessioned[B, <result>]` where the
-    * result is `Plan` (`from`), `Verdict[Plan]` (`assessThenPlan`), or `Triage`
+    * operation` grid: every cell returns `Sessioned[<result>]` where the result
+    * is `Plan` (`from`), `Verdict[Plan]` (`assessThenPlan`), or `Triage`
     * (`triage`).
     */
   def planningGridSurface(): Unit =
     flow(OrcaArgs()):
       stage("grid"):
-        // --- from → Sessioned[B, Plan], both modes ---
-        val autoFrom: Sessioned[?, Plan] =
+        // --- from → Sessioned[Plan], both modes ---
+        val autoFrom: Sessioned[Plan] =
           Plan.autonomous.from(userPrompt, claude.opus)
-        val intFrom: Sessioned[?, Plan] =
+        val intFrom: Sessioned[Plan] =
           Plan.interactive.from(userPrompt, claude)
         // Codex and Pi also expose ask_user, so the interactive cells
         // compile against them too.
-        val intFromCodex: Sessioned[?, Plan] =
+        val intFromCodex: Sessioned[Plan] =
           Plan.interactive.from(userPrompt, codex)
-        val intFromPi: Sessioned[?, Plan] =
+        val intFromPi: Sessioned[Plan] =
           Plan.interactive.from(userPrompt, pi)
         val _ = (
           autoFrom.value,
@@ -341,10 +339,10 @@ object FlowCanary:
           intFromPi.value
         )
 
-        // --- assessThenPlan → Sessioned[B, Verdict[Plan]], both modes ---
-        val autoAssess: Sessioned[?, Verdict[Plan]] =
+        // --- assessThenPlan → Sessioned[Verdict[Plan]], both modes ---
+        val autoAssess: Sessioned[Verdict[Plan]] =
           Plan.autonomous.assessThenPlan(userPrompt, claude.opus)
-        val intAssess: Sessioned[?, Verdict[Plan]] =
+        val intAssess: Sessioned[Verdict[Plan]] =
           Plan.interactive.assessThenPlan(userPrompt, claude)
         val _ = intAssess
         autoAssess.value match
@@ -353,8 +351,8 @@ object FlowCanary:
           case Verdict.Rejection(Verdict.RejectionKind.Critique, _) => ()
           case Verdict.Rejection(Verdict.RejectionKind.Rebuff, _)   => ()
 
-        // --- triage → Sessioned[B, Triage], both modes ---
-        val autoTriage: Sessioned[?, Triage] =
+        // --- triage → Sessioned[Triage], both modes ---
+        val autoTriage: Sessioned[Triage] =
           Plan.autonomous.triage(userPrompt, claude.opus)
         val _ = autoTriage.value
         // Destructure the concretely-typed interactive result, as the bugfix
@@ -365,17 +363,24 @@ object FlowCanary:
           case Triage.Untestable(_, _)  => ()
           case Triage.Testable(_, _, _) => ()
 
-  /** `Plan.interactive.from` must compile against a type-abstract `Agent[B]`,
-    * not just the concrete backends `planningGridSurface` exercises above — the
-    * role-agent accessors a later stage adds hand out agents typed this way.
+  /** A helper function over the role agents needs no backend type parameter:
+    * the plan, its review and the session each pass through plain signatures.
     */
-  def interactivePlanAgnostic[B <: BackendTag](
-      a: Agent[B]
-  )(using FlowContext, InStage): Unit =
-    val _ = Plan.interactive.from("prompt", a)
+  def roleAgentHelper(task: Task)(using
+      FlowContext,
+      FlowControl,
+      InStage,
+      WorkspaceWrite
+  ): OpenFindings =
+    val _ = Plan.interactive.from("prompt", planningAgent).reviewed()
+    reviewAndFixLoop(
+      coderSession = codingAgent.session("implementer", seed = "brief"),
+      reviewers = allReviewers(reviewAgent),
+      task = task
+    )
 
   /** Post-planning step (`reviewed`) plus the per-task stage loop — exercised
-    * by `flows/implement-enhanced.sc`. Pins that the `Sessioned[B, Plan]`
+    * by `flows/implement-enhanced.sc`. Pins that the `Sessioned[Plan]`
     * extension resolves through `import orca.*` alone. Plans are always
     * briefed: the `brief` rides in the structured output, so `plan.brief` /
     * `plan.taskPrompt` are always available. Resume is the stage log (ADR 0018
@@ -387,7 +392,7 @@ object FlowCanary:
         stage("plan"):
           Plan.autonomous
             .from(userPrompt, claude)
-            .reviewed(claude)
+            .reviewed()
             .value
 
       for task <- plan.tasks do
@@ -449,7 +454,7 @@ object FlowCanary:
   def enhancedImplementFlowShape(): Unit =
     flow(OrcaArgs()):
       val plan: Plan = stage("Plan"):
-        Plan.autonomous.from(userPrompt, claude).reviewed(claude).value
+        Plan.autonomous.from(userPrompt, claude).reviewed().value
 
       val taskOpenFindings =
         for task <- plan.tasks yield stage(s"task: ${task.title}"):
@@ -625,7 +630,7 @@ object FlowCanary:
           val fixPlan: Plan = stage("Plan the fix"):
             Plan.autonomous
               .from(s"Fix ${issueHandle.shortRef}", claude)
-              .reviewed(claude)
+              .reviewed()
               .value
           val taskOpenFindings =
             for task <- fixPlan.tasks yield stage(s"task: ${task.title}"):

@@ -4,7 +4,7 @@ import orca.events.OrcaEvent
 import orca.tools.FsTool
 import orca.tools.{GitTool, RuntimeGit}
 import orca.tools.GitHubTool
-import orca.agents.{Agent, BackendTag}
+import orca.agents.Agent
 import orca.review.ReviewerCatalog
 
 import scala.annotation.implicitNotFound
@@ -29,59 +29,20 @@ import scala.annotation.implicitNotFound
   "the flow tools (`claude`/`codex`/`git`/`gh`/`fs`/…), `display`, and `fail` are only available inside a `flow(...)` body. Wrap this code in `flow(OrcaArgs(args)): ...`."
 )
 trait FlowContext extends AgentSet:
-  /** Backend tag of the planning-role agent (ADR 0020): resolved from
-    * `planningAgent = harness[:model]` in settings, default claude. A type
-    * member, not a parameter, so `FlowContext` stays unparametrised; pins
-    * [[planningAgent]]'s backend so sessions minted from it thread. See
-    * [[CodeB]] for the helper-authoring caveat shared by all three role types.
-    */
-  type PlanB <: BackendTag
-
-  /** Backend tag of the coding-role agent (ADR 0020): resolved from
-    * `codingAgent = harness[:model]` in settings, default claude — the run's
-    * primary backend. A type member, not a parameter, so `FlowContext` stays
-    * unparametrised; pins [[codingAgent]]'s backend so sessions minted from it
-    * thread.
-    *
-    * '''Helper authoring:''' the path-dependent `Agent[ctx.CodeB]` (likewise
-    * `ctx.PlanB` / `ctx.ReviewB`) is fine in a straight-line `flow(...)` body,
-    * but a helper *function* should take an explicit `[B <: BackendTag]` type
-    * parameter instead, so it works for whichever backend settings named and
-    * stays callable wherever the session value is held. Two shapes the library
-    * uses:
-    *
-    *   - Type the helper's parameters against `[B <: BackendTag]` — see
-    *     [[orca.review.reviewAndFixLoop]]`(coderSession: FlowSession[B], ...)`,
-    *     whose [[orca.FlowSession]] bundles the agent and its session so `B` is
-    *     pinned once at the call site.
-    *   - Bundle session and result as a single [[orca.plan.Sessioned]]`[B, A]`
-    *     so callers pass one thing, not two that must agree on `B`. See
-    *     `Plan.autonomous.*` / `Plan.interactive.*`.
-    */
-  type CodeB <: BackendTag
-
-  /** Backend tag of the review-role agent (ADR 0020): resolved from
-    * `reviewAgent = harness[:model]` in settings, default claude. A type
-    * member, not a parameter, so `FlowContext` stays unparametrised; pins
-    * [[reviewAgent]]'s backend so sessions minted from it thread. See [[CodeB]]
-    * for the helper-authoring caveat shared by all three role types.
-    */
-  type ReviewB <: BackendTag
-
   /** The planning-role agent (ADR 0020): resolved from settings, default
     * claude. Scripts hand it to `Plan.*`.
     */
-  def planningAgent: Agent[PlanB]
+  def planningAgent: Agent[?]
 
   /** The coding-role agent — the run's primary: implementer sessions, branch
     * naming, stack discovery, and default commit messages run here.
     */
-  def codingAgent: Agent[CodeB]
+  def codingAgent: Agent[?]
 
   /** The review-role agent: `allReviewers(reviewAgent)`, the reviewer-picker
     * and the lint summariser default to its tiers.
     */
-  def reviewAgent: Agent[ReviewB]
+  def reviewAgent: Agent[?]
 
   /** The git handle scripts see: reads and pushes. */
   final def git: GitTool = runtimeGit
@@ -117,7 +78,6 @@ trait FlowContext extends AgentSet:
 object FlowContext:
   /** The context of the `FlowControl` in scope, for code holding only that — a
     * flow body or a stage-starting helper. A `FlowContext` given in lexical
-    * scope takes precedence. Typed as the singleton so the role type members
-    * stay stable paths across summons.
+    * scope takes precedence.
     */
-  given fromControl(using fc: FlowControl): fc.context.type = fc.context
+  given fromControl(using fc: FlowControl): FlowContext = fc.context

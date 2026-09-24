@@ -39,7 +39,7 @@ object PlanPrompts:
   val Triage: String =
     PromptResource.load("/orca/plan/prompts/triage.md")
 
-  /** Used by `Sessioned[B, Plan].reviewed`. The current plan is appended after
+  /** Used by `Sessioned[Plan].reviewed`. The current plan is appended after
     * this block; the agent returns an improved plan, brief included.
     */
   val Review: String =
