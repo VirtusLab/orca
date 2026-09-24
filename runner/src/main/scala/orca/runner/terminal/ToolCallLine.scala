@@ -1,6 +1,6 @@
 package orca.runner.terminal
 
-/** Formatter for the one-line tool-call summary [[TerminalEventListener]]
+/** Formatter for the one-line tool-call summary [[TerminalEventRenderer]]
   * prints. Returns the head (`⏺ name`) plus an optional styled args tail; the
   * caller adds the indent.
   */

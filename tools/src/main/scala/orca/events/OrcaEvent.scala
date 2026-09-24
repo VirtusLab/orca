@@ -192,6 +192,11 @@ object OrcaEvent:
   * and listeners delegating to other sinks must ensure those tolerate
   * concurrent calls too.
   *
+  * A listener's work completes, or fails, on the calling thread: one backed by
+  * an Ox actor uses `ask`, never `tell`, whose failure would end the actor's
+  * scope instead of reaching the dispatcher. The actor's scope must outlive
+  * every emitter.
+  *
   * A throw from `onEvent` never reaches the emitting flow and does not end the
   * run: the dispatcher logs it at ERROR, announces it on stderr, and
   * quarantines that one listener (presumed unrecoverable) while every other

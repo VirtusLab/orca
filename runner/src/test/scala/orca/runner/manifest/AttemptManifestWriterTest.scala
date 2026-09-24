@@ -17,9 +17,8 @@ import java.time.Instant
   *
   * Single-scenario tests drive [[AttemptManifestWriterState]] directly and
   * synchronously; the concurrency test goes through
-  * [[AttemptManifestWriter.start]] so it exercises the Ox actor's mailbox
-  * serialisation (mirrors the TerminalOutputState / TerminalOutputActor test
-  * split).
+  * [[AttemptManifestWriter.start]] so it exercises the Ox actor's serialisation
+  * (mirrors the TerminalOutputState / TerminalActor test split).
   */
 class AttemptManifestWriterTest extends munit.FunSuite:
 
@@ -484,10 +483,9 @@ class AttemptManifestWriterTest extends munit.FunSuite:
         )
       threads.foreach(_.start())
       threads.foreach(_.join())
-      // `finish` is an `ask`: enqueued after every thread's tells (each
-      // `join()`ed, so all their sends returned) and processed last, so its
-      // final write reflects all 100 sessions. The actor's mailbox — not a
-      // lock — is what serialises the racing read-modify-writes; without it,
+      // `finish` runs after every thread's `onEvent` returned (each
+      // `join()`ed), so its final write reflects all 100 sessions. The actor —
+      // not a lock — is what serialises the racing read-modify-writes; without it,
       // two threads racing `state = state.copy(...)` would drop entries and
       // the count would fall below 100.
       writer.finish(AttemptOutcome.Succeeded)

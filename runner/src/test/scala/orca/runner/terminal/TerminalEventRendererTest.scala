@@ -6,11 +6,10 @@ import orca.testkit.Usages.usage
 import orca.agents.Model
 import java.io.{ByteArrayOutputStream, PrintStream}
 
-/** Drives the listener directly against a synchronous `TerminalOutputState`,
-  * bypassing the actor so output is readable immediately rather than racing a
-  * worker thread.
+/** Drives the renderer directly against a synchronous `TerminalOutputState`,
+  * bypassing the actor.
   */
-class TerminalEventListenerTest extends munit.FunSuite:
+class TerminalEventRendererTest extends munit.FunSuite:
 
   private def renderEvents(events: List[OrcaEvent]): String =
     renderWith(animated = false, events)
@@ -18,15 +17,15 @@ class TerminalEventListenerTest extends munit.FunSuite:
   private def renderWith(
       animated: Boolean,
       events: List[OrcaEvent],
-      listenerUseColor: Boolean = false
+      rendererUseColor: Boolean = false
   ): String =
     val buf = new ByteArrayOutputStream()
     val ps = new PrintStream(buf)
     val output =
       new TerminalOutputState(ps, useColor = false, animated = animated)
-    val listener =
-      new TerminalEventListener(output, useColor = listenerUseColor)
-    events.foreach(listener.onEvent)
+    val renderer =
+      new TerminalEventRenderer(output, useColor = rendererUseColor)
+    events.foreach(renderer.render)
     buf.toString
 
   test("StageStarted prints a ▶ line; StageEnded is silent in the log"):
@@ -37,9 +36,9 @@ class TerminalEventListenerTest extends munit.FunSuite:
       )
     )
     assert(output.contains("plan"))
-    assert(output.contains(TerminalEventListener.StageStartGlyph))
+    assert(output.contains(TerminalEventRenderer.StageStartGlyph))
     assert(
-      !output.contains(TerminalEventListener.StageDoneGlyph),
+      !output.contains(TerminalEventRenderer.StageDoneGlyph),
       s"StageEnded must not render to the event log; got: $output"
     )
 
@@ -80,11 +79,11 @@ class TerminalEventListenerTest extends munit.FunSuite:
     )
     assert(output.contains("Switched to a new branch 'foo'"))
     assert(
-      output.contains(s"${TerminalEventListener.StageStartGlyph} Switched"),
+      output.contains(s"${TerminalEventRenderer.StageStartGlyph} Switched"),
       s"Step should render with the ▶ glyph; got: $output"
     )
     assert(
-      !output.contains(s"${TerminalEventListener.StageDoneGlyph} Switched"),
+      !output.contains(s"${TerminalEventRenderer.StageDoneGlyph} Switched"),
       s"Step events must never produce a closing ✔ line; got: $output"
     )
 
@@ -102,17 +101,17 @@ class TerminalEventListenerTest extends munit.FunSuite:
       .getOrElse(fail(s"missing caveat line; got: $output"))
     assertEquals(
       line,
-      s"${TerminalEventListener.CaveatGlyph} Codex cannot stop a NetworkOnly turn"
+      s"${TerminalEventRenderer.CaveatGlyph} Codex cannot stop a NetworkOnly turn"
     )
 
   test("a Caveat's glyph is painted in the caveat style, its body left plain"):
     val output = renderWith(
       animated = false,
       events = List(OrcaEvent.Caveat("no gate here")),
-      listenerUseColor = true
+      rendererUseColor = true
     )
-    val glyph = TerminalEventListener
-      .CaveatStyle(s"${TerminalEventListener.CaveatGlyph} ")
+    val glyph = TerminalEventRenderer
+      .CaveatStyle(s"${TerminalEventRenderer.CaveatGlyph} ")
       .render
     val line = output.split('\n').head
     assert(line.startsWith(glyph), line)
@@ -130,7 +129,7 @@ class TerminalEventListenerTest extends munit.FunSuite:
     )
     assertEquals(
       output,
-      s"⏺ read\n  ⎿ ×3\n${TerminalEventListener.StageStartGlyph} done\n"
+      s"⏺ read\n  ⎿ ×3\n${TerminalEventRenderer.StageStartGlyph} done\n"
     )
 
   test("read-only calls from several agents still collapse into one line"):
@@ -149,7 +148,7 @@ class TerminalEventListenerTest extends munit.FunSuite:
     )
     assertEquals(
       output,
-      s"⏺ read\n  ⎿ ×3\n${TerminalEventListener.StageStartGlyph} done\n"
+      s"⏺ read\n  ⎿ ×3\n${TerminalEventRenderer.StageStartGlyph} done\n"
     )
 
   test("an agent that only read is still counted as an emitter"):
@@ -185,7 +184,7 @@ class TerminalEventListenerTest extends munit.FunSuite:
     )
     assertEquals(
       output,
-      s"${TerminalEventListener.StageStartGlyph} Committed: orca: fix the terminal renderer\n"
+      s"${TerminalEventRenderer.StageStartGlyph} Committed: orca: fix the terminal renderer\n"
     )
 
   test("a denied tool call stays out of the log"):
@@ -196,7 +195,7 @@ class TerminalEventListenerTest extends munit.FunSuite:
         StageEvents.ended("plan")
       )
     )
-    assertEquals(output, s"${TerminalEventListener.StageStartGlyph} plan\n")
+    assertEquals(output, s"${TerminalEventRenderer.StageStartGlyph} plan\n")
 
   test("an error carrying an agent name is attributed to it"):
     // The stage error that follows carries no name, which is what tells the
@@ -222,7 +221,7 @@ class TerminalEventListenerTest extends munit.FunSuite:
             "\u001b]8;;https://example.com\u0007link\u001b]8;;\u0007"
         )
       ),
-      listenerUseColor = true
+      rendererUseColor = true
     )
     assert(output.contains("beforehiddenafterlink"), output)
     assert(!output.contains("?25l"), output)
@@ -232,7 +231,7 @@ class TerminalEventListenerTest extends munit.FunSuite:
   test("AssistantMessage renders as a `●` line with the body"):
     val output =
       renderEvents(List(OrcaEvent.AssistantMessage("hello there")))
-    assert(output.contains(TerminalEventListener.AssistantGlyph))
+    assert(output.contains(TerminalEventRenderer.AssistantGlyph))
     assert(output.contains("hello there"))
 
   test("AssistantMessage collapses multi-line bodies to one line"):
@@ -243,14 +242,14 @@ class TerminalEventListenerTest extends munit.FunSuite:
     assert(rendered.contains("line one line two line three"), rendered)
 
   test("AssistantMessage truncates long bodies with an ellipsis"):
-    val long = "x" * (TerminalEventListener.MaxAssistantMessageLength + 50)
+    val long = "x" * (TerminalEventRenderer.MaxAssistantMessageLength + 50)
     val output = renderEvents(List(OrcaEvent.AssistantMessage(long)))
     assert(output.contains("…"), output)
     // The cap bounds the whole rendered line, glyph included.
     val bodyLines = output.split('\n').filter(_.contains("x"))
     assert(
       bodyLines.forall(
-        _.length <= TerminalEventListener.MaxAssistantMessageLength
+        _.length <= TerminalEventRenderer.MaxAssistantMessageLength
       ),
       bodyLines.toList
     )
@@ -265,7 +264,7 @@ class TerminalEventListenerTest extends munit.FunSuite:
         StageEvents.started("inner"),
         OrcaEvent.AssistantMessage("first", Some("main")),
         OrcaEvent.AssistantMessage(
-          "y" * (TerminalEventListener.MaxAssistantMessageLength * 2),
+          "y" * (TerminalEventRenderer.MaxAssistantMessageLength * 2),
           Some("readability")
         )
       )
@@ -274,7 +273,7 @@ class TerminalEventListenerTest extends munit.FunSuite:
       .split('\n')
       .find(_.contains("readability:"))
       .getOrElse(fail(s"missing the attributed line; got: $output"))
-    assertEquals(line.length, TerminalEventListener.MaxAssistantMessageLength)
+    assertEquals(line.length, TerminalEventRenderer.MaxAssistantMessageLength)
 
   test("AssistantMessage with whitespace-only body emits nothing"):
     val output = renderEvents(List(OrcaEvent.AssistantMessage("   \n\t  ")))
@@ -364,7 +363,7 @@ class TerminalEventListenerTest extends munit.FunSuite:
       renderEvents(
         List(OrcaEvent.UserPrompt("Add a multiply function\nwith tests"))
       )
-    assert(output.contains(TerminalEventListener.UserPromptGlyph), output)
+    assert(output.contains(TerminalEventRenderer.UserPromptGlyph), output)
     assert(output.contains("Add a multiply function with tests"), output)
 
   test("UserPrompt with whitespace-only body emits nothing"):
@@ -383,7 +382,7 @@ class TerminalEventListenerTest extends munit.FunSuite:
         )
       )
     )
-    assert(output.contains(TerminalEventListener.AssistantGlyph), output)
+    assert(output.contains(TerminalEventRenderer.AssistantGlyph), output)
     assert(output.contains("""{"answer":42}"""), output)
 
   test(
@@ -398,7 +397,7 @@ class TerminalEventListenerTest extends munit.FunSuite:
         )
       )
     )
-    assert(output.contains(TerminalEventListener.StageStartGlyph), output)
+    assert(output.contains(TerminalEventRenderer.StageStartGlyph), output)
     assert(output.contains("Answer: 42"), output)
     assert(!output.contains("""{"answer":42}"""), output)
 
@@ -430,7 +429,7 @@ class TerminalEventListenerTest extends munit.FunSuite:
     val bodyLines = output.split('\n').filter(_.contains("a"))
     assert(
       bodyLines.forall(
-        _.length <= TerminalEventListener.MaxStructuredResultRawLength + 10
+        _.length <= TerminalEventRenderer.MaxStructuredResultRawLength + 10
       ),
       bodyLines.toList
     )
@@ -501,12 +500,12 @@ class TerminalEventListenerTest extends munit.FunSuite:
     val lines = output.split('\n').toList
     val outerStartLine = lines
       .find(l =>
-        l.contains("outer") && l.contains(TerminalEventListener.StageStartGlyph)
+        l.contains("outer") && l.contains(TerminalEventRenderer.StageStartGlyph)
       )
       .getOrElse(fail("outer start line missing"))
     val innerStartLine = lines
       .find(l =>
-        l.contains("inner") && l.contains(TerminalEventListener.StageStartGlyph)
+        l.contains("inner") && l.contains(TerminalEventRenderer.StageStartGlyph)
       )
       .getOrElse(fail("inner start line missing"))
     val errorLine = lines
@@ -525,40 +524,6 @@ class TerminalEventListenerTest extends munit.FunSuite:
       s"inner content indented by 4 (2 levels × 2 spaces): '$errorLine'"
     )
     assert(
-      !output.contains(TerminalEventListener.StageDoneGlyph),
+      !output.contains(TerminalEventRenderer.StageDoneGlyph),
       s"no ✔ should appear in the event log; got: $output"
-    )
-
-  test("currentIndent stays readable while stages push and pop concurrently"):
-    // A regression guard for the single-writer / @volatile publication contract,
-    // NOT a race proof: the sole writer pushes/pops 500 pairs while a reader
-    // polls `currentIndent` (the same lock-free access TerminalPrompts makes
-    // mid-readLine). Asserts the reader never crashes and the stack unwinds to
-    // empty once every pair is balanced.
-    val buf = new ByteArrayOutputStream()
-    val ps = new PrintStream(buf)
-    val output =
-      new TerminalOutputState(ps, useColor = false, animated = false)
-    val listener = new TerminalEventListener(output, useColor = false)
-
-    @volatile var readerFailure: Option[Throwable] = None
-    @volatile var stop = false
-    val reader = new Thread(() =>
-      try
-        while !stop do
-          val _ = listener.currentIndent.length
-      catch case t: Throwable => readerFailure = Some(t)
-    )
-    reader.start()
-    for _ <- 1 to 500 do
-      listener.onEvent(StageEvents.started("s"))
-      listener.onEvent(StageEvents.ended("s"))
-    stop = true
-    reader.join(5000)
-
-    assertEquals(readerFailure, None, s"reader thread failed: $readerFailure")
-    assertEquals(
-      listener.currentIndent,
-      "",
-      "balanced push/pop pairs must unwind the indent stack to empty"
     )

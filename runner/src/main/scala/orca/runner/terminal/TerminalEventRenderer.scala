@@ -1,24 +1,20 @@
 package orca.runner.terminal
 
-import orca.events.{Announcement, OrcaEvent, OrcaListener}
+import orca.events.{Announcement, OrcaEvent}
 
-import java.util.concurrent.atomic.AtomicReference
-
-/** Renders `OrcaEvent`s — stage transitions, steps, tool uses, errors — via a
-  * [[TerminalOutput]] and tracks the active stage stack + indent depth.
+/** Renders `OrcaEvent`s — stage transitions, steps, tool uses, errors — onto a
+  * [[TerminalOutputState]] and tracks the active stage stack + indent depth.
   *
-  * [[stack]] has a single writer: `StageStarted`/`StageEnded` are emitted only
-  * from `stage`'s thread-affine bookkeeping (R12, ADR 0018 §2.2).
-  * [[TerminalPrompts]] reads [[currentIndent]] lock-free from its own thread
-  * mid-`readLine`; the `@volatile` is the whole publication story.
+  * Single-threaded: production runs it on [[TerminalActor]]'s actor, beside the
+  * output state it writes to.
   */
-private[runner] class TerminalEventListener(
-    output: TerminalOutput,
+private[terminal] class TerminalEventRenderer(
+    output: TerminalOutputState,
     useColor: Boolean,
     workDir: Option[os.Path] = None
-) extends OrcaListener:
+):
 
-  import TerminalEventListener.{
+  import TerminalEventRenderer.{
     AssistantGlyph,
     AssistantGlyphStyle,
     CaveatGlyph,
@@ -33,29 +29,25 @@ private[runner] class TerminalEventListener(
     UserPromptStyle
   }
 
-  // Head = most-recently-started stage. See class scaladoc for the
-  // single-writer/@volatile synchronization story.
-  @volatile private var stack: List[String] = Nil
+  // Head = most-recently-started stage.
+  private var stack: List[String] = Nil
 
-  // Unlike `stack` this is written from the parallel agent forks too, hence the
-  // atomic rather than the @volatile single-writer story above.
-  private val stageEmitters =
-    new AtomicReference[StageEmitters](StageEmitters.Silent)
+  private var stageEmitters: StageEmitters = StageEmitters.Silent
 
-  def onEvent(event: OrcaEvent): Unit = event match
+  def render(event: OrcaEvent): Unit = event match
     case OrcaEvent.StageStarted(path) =>
       // Format at the current depth (so the marker aligns with the enclosing
       // stage's content), then push.
       val line = formatStepLine(path.name)
       stack = path.name :: stack
-      stageEmitters.set(StageEmitters.Silent)
+      stageEmitters = StageEmitters.Silent
       output.log(line)
       output.setStatus(stack.headOption)
     case _: OrcaEvent.StageEnded =>
       // `StageEnded` doesn't print: starting the next event implies the
       // previous one finished, and a failure has already printed its Error.
       stack = stack.drop(1)
-      stageEmitters.set(StageEmitters.Silent)
+      stageEmitters = StageEmitters.Silent
       output.setStatus(stack.headOption)
     case OrcaEvent.ToolUse(tool, args, agent) =>
       // Recorded before the branch: an agent whose reads go out unnamed is
@@ -131,7 +123,7 @@ private[runner] class TerminalEventListener(
     case _: OrcaEvent.SessionCommitted =>
       () // Session/manifest tracking (ADR 0021 §8) is AttemptManifestWriter's job.
 
-  /** The current indent string. Lock-free read of the `@volatile` [[stack]]. */
+  /** The current indent string. */
   def currentIndent: String = "  " * stack.length
 
   /** Which agent name, if any, to print on this line. While a stage has a
@@ -149,7 +141,8 @@ private[runner] class TerminalEventListener(
     */
   private def attribution(agent: Option[String]): Option[String] =
     agent.flatMap: name =>
-      stageEmitters.updateAndGet(_.plus(name)) match
+      stageEmitters = stageEmitters.plus(name)
+      stageEmitters match
         case StageEmitters.One(_) => None
         case _                    => Some(name)
 
@@ -198,7 +191,7 @@ private[runner] class TerminalEventListener(
   private def paint(attr: fansi.Attrs, text: String): String =
     Ansi.paint(useColor, attr, text)
 
-private[runner] object TerminalEventListener:
+private[terminal] object TerminalEventRenderer:
 
   /** The agents that have emitted a display event in the current stage, to the
     * precision `attribution` needs: none, exactly one (named), or several.

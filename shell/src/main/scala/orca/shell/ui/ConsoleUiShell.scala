@@ -9,12 +9,7 @@ import org.jline.consoleui.prompt.{
   ListResult,
   PromptResultItemIF
 }
-import org.jline.reader.{
-  EndOfFileException,
-  LineReader,
-  LineReaderBuilder,
-  UserInterruptException
-}
+import org.jline.reader.{EndOfFileException, UserInterruptException}
 import org.jline.terminal.Attributes.LocalFlag
 import org.jline.terminal.{Attributes, Terminal}
 import org.jline.utils.{AttributedStringBuilder, AttributedStyle}
@@ -48,15 +43,7 @@ import scala.annotation.tailrec
   */
 private[ui] final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
 
-  private val lineReader =
-    LineReaderBuilder.builder().terminal(terminal).build()
-
-  // Continuation lines within a single multi-line buffer (a paste, or a
-  // literal newline from MultilineLineReader.registerInsertNewlineWidget) are
-  // shown with the same "… " marker inputMultiline previously used per pasted
-  // line.
-  lineReader.setVariable(LineReader.SECONDARY_PROMPT_PATTERN, "… ")
-  MultilineLineReader.registerAll(lineReader)
+  private val lineReader = new MultilineLineReader(terminal)
 
   // ConsoleUI's own prompt loop (behind select/confirm/input's ConsolePrompt)
   // reads the terminal size once via AbstractPrompt.resetDisplay() when a
@@ -201,43 +188,37 @@ private[ui] final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
     *   - A paste (bracketed paste, on by default) lands intact in one go,
     *     embedded newlines included — never mistaken for a keypress.
     *   - Shift+Enter or Alt+Enter insert a literal newline instead of
-    *     submitting ([[MultilineLineReader.registerInsertNewlineWidget]]).
+    *     submitting.
     *   - Ctrl-C cancels; Ctrl-D cancels only on an empty buffer, otherwise
     *     ordinary forward-delete (same as [[plainLineInput]]).
-    *
-    * The Shift+Enter/Ctrl-C/Ctrl-D bindings above only reach this read because
-    * [[MultilineLineReader.withKittyKeyboardProtocol]] wraps it — see that
-    * method's scaladoc for the underlying kitty-protocol mechanism and why each
-    * needs its own widget.
     */
   def inputMultiline(prompt: String): UiOutcome[String] =
-    MultilineLineReader.withKittyKeyboardProtocol(terminal):
-      val writer = terminal.writer()
-      // Clear any stray bytes (e.g. a late coursier progress line) off the
-      // current line before painting, like the other prompt entry points.
-      print(ShellOutput.AnsiClearLine)
-      writer.println()
-      writer.println(
-        AttributedStringBuilder()
-          .style(AttributedStyle.DEFAULT.foreground(AttributedStyle.GREEN))
-          .append("? ")
-          .style(AttributedStyle.BOLD)
-          .append(prompt)
-          .append(":")
-          .style(AttributedStyle.DEFAULT)
-          .toAnsi(terminal)
-      )
-      writer.flush()
-      val continuationPrompt = AttributedStringBuilder()
-        .style(AttributedStyle.DEFAULT.faint())
-        .append("… ")
+    val writer = terminal.writer()
+    // Clear any stray bytes (e.g. a late coursier progress line) off the
+    // current line before painting, like the other prompt entry points.
+    print(ShellOutput.AnsiClearLine)
+    writer.println()
+    writer.println(
+      AttributedStringBuilder()
+        .style(AttributedStyle.DEFAULT.foreground(AttributedStyle.GREEN))
+        .append("? ")
+        .style(AttributedStyle.BOLD)
+        .append(prompt)
+        .append(":")
         .style(AttributedStyle.DEFAULT)
         .toAnsi(terminal)
+    )
+    writer.flush()
+    val continuationPrompt = AttributedStringBuilder()
+      .style(AttributedStyle.DEFAULT.faint())
+      .append("… ")
+      .style(AttributedStyle.DEFAULT)
+      .toAnsi(terminal)
 
-      try UiOutcome.Selected(lineReader.readLine(continuationPrompt).trim)
-      catch
-        case _: UserInterruptException | _: EndOfFileException | _: IOError =>
-          UiOutcome.Cancelled
+    try UiOutcome.Selected(lineReader.readMultiline(continuationPrompt).trim)
+    catch
+      case _: UserInterruptException | _: EndOfFileException | _: IOError =>
+        UiOutcome.Cancelled
 
   /** Runs one prompt batch. ESC (an empty result map — ConsoleUI's own
     * cancel-to-empty-map behavior, enabled by `cancellableFirstPrompt`),

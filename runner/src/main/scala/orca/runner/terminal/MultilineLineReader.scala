@@ -3,54 +3,65 @@ package orca.runner.terminal
 import org.jline.reader.{
   EndOfFileException,
   LineReader,
+  LineReaderBuilder,
   Reference,
   UserInterruptException
 }
 import org.jline.terminal.Terminal
 
-/** Multiline text entry for a JLine [[LineReader]]: a literal-newline key
+/** Multiline text entry on a JLine [[Terminal]]: a literal-newline key
   * (Alt+Enter, or Shift+Enter where the terminal distinguishes it) so Enter
   * alone submits, plus the kitty keyboard protocol plumbing that makes
   * Shift+Enter/Ctrl-C/Ctrl-D distinguishable on terminals that support it.
-  * [[registerAll]] wires the widgets onto a reader once at construction;
-  * [[withKittyKeyboardProtocol]] wraps the `readLine` call itself. Shared by
-  * `orca.shell.ui.ConsoleUiShell.inputMultiline` (the shell's task/goal/fork
-  * prompt) and [[TerminalPrompts.JLinePrompter]] (ask-user prompts during a
-  * flow) — pty-verified against jline `3.30.15` for both call sites (a plain
-  * unit test can't drive real terminal byte sequences):
+  * Continuation lines of a multi-line buffer are prompted with "… ". Shared by
+  * `orca.shell.ui.ConsoleUiShell` (the shell's prompts) and
+  * [[TerminalPrompts.JLinePrompter]] (ask-user prompts during a flow) —
+  * pty-verified against jline `3.30.15` for both call sites (a plain unit test
+  * can't drive real terminal byte sequences):
   *
   *   - A paste (bracketed paste, on by default) lands intact in one go,
   *     embedded newlines included — never mistaken for a keypress.
-  *   - Shift+Enter or Alt+Enter insert a literal newline instead of submitting
-  *     ([[registerInsertNewlineWidget]]).
+  *   - Shift+Enter or Alt+Enter insert a literal newline instead of submitting.
   *   - Ctrl-C cancels; Ctrl-D cancels only on an empty buffer (otherwise
   *     ordinary forward-delete).
   *
-  * [[withKittyKeyboardProtocol]]'s scaladoc is THE canonical account of the
+  * Both reads throw `UserInterruptException` on Ctrl-C and `EndOfFileException`
+  * on Ctrl-D or closed input.
+  */
+private[orca] final class MultilineLineReader(terminal: Terminal):
+
+  private val reader: LineReader =
+    LineReaderBuilder.builder().terminal(terminal).build()
+  reader.setVariable(LineReader.SECONDARY_PROMPT_PATTERN, "… ")
+  MultilineLineReader.registerInsertNewlineWidget(reader)
+  MultilineLineReader.registerKittyInterruptWidget(reader)
+  MultilineLineReader.registerKittyEofWidget(reader)
+
+  /** A read without the kitty keyboard protocol: Shift+Enter submits on
+    * terminals that need the protocol to tell it from Enter.
+    */
+  def readLine(prompt: String): String = reader.readLine(prompt)
+
+  /** A read with the kitty keyboard protocol pushed for its duration. */
+  def readMultiline(prompt: String): String =
+    MultilineLineReader.withKittyKeyboardProtocol(terminal):
+      reader.readLine(prompt)
+
+/** [[withKittyKeyboardProtocol]]'s scaladoc is THE canonical account of the
   * underlying kitty-protocol mechanism — every other method here only states
   * its own usage contract and points back to it.
   */
-private[orca] object MultilineLineReader:
+private[terminal] object MultilineLineReader:
 
   // Requested by withKittyKeyboardProtocol around a multiline read only; see
   // that method's scaladoc for why the push/pop pair is safe to emit
   // unconditionally and how it restores the terminal's prior flag stack.
-  private[orca] val KittyKeyboardProtocolPush = "\u001b[>1u"
-  private[orca] val KittyKeyboardProtocolPop = "\u001b[<u"
+  private[terminal] val KittyKeyboardProtocolPush = "\u001b[>1u"
+  private[terminal] val KittyKeyboardProtocolPop = "\u001b[<u"
 
   private val insertNewlineWidgetName = "orca-insert-newline"
   private val kittyInterruptWidgetName = "orca-kitty-interrupt"
   private val kittyEofWidgetName = "orca-kitty-eof"
-
-  /** Registers every widget below on `reader`'s main keymap —
-    * [[registerInsertNewlineWidget]], [[registerKittyInterruptWidget]],
-    * [[registerKittyEofWidget]] — in one call. Call once per `LineReader`, at
-    * construction.
-    */
-  private[orca] def registerAll(reader: LineReader): Unit =
-    registerInsertNewlineWidget(reader)
-    registerKittyInterruptWidget(reader)
-    registerKittyEofWidget(reader)
 
   /** Registers a widget on `reader` that writes a literal `\n` into the buffer
     * instead of submitting, bound to Alt+Enter's byte sequence (the portable
@@ -62,7 +73,7 @@ private[orca] object MultilineLineReader:
     * [[withKittyKeyboardProtocol]] for why the kitty sequence reaches this
     * widget at all.
     */
-  private[orca] def registerInsertNewlineWidget(reader: LineReader): Unit =
+  private[terminal] def registerInsertNewlineWidget(reader: LineReader): Unit =
     reader.getWidgets.put(
       insertNewlineWidgetName,
       () =>
@@ -82,7 +93,7 @@ private[orca] object MultilineLineReader:
     * [[withKittyKeyboardProtocol]] for why this escape sequence needs its own
     * binding at all.
     */
-  private[orca] def registerKittyInterruptWidget(reader: LineReader): Unit =
+  private[terminal] def registerKittyInterruptWidget(reader: LineReader): Unit =
     reader.getWidgets.put(
       kittyInterruptWidgetName,
       () => throw UserInterruptException(reader.getBuffer.toString)
@@ -99,7 +110,7 @@ private[orca] object MultilineLineReader:
     * cursor-at-end is a harmless no-op with no completer configured). See
     * [[withKittyKeyboardProtocol]] for why this sequence needs its own binding.
     */
-  private[orca] def registerKittyEofWidget(reader: LineReader): Unit =
+  private[terminal] def registerKittyEofWidget(reader: LineReader): Unit =
     reader.getWidgets.put(
       kittyEofWidgetName,
       () =>
@@ -141,7 +152,7 @@ private[orca] object MultilineLineReader:
     * `select`/`confirm` prompt has no use for a literal-newline key, so pushing
     * this flag there would be pure risk for no benefit.
     */
-  private[orca] def withKittyKeyboardProtocol[A](terminal: Terminal)(
+  private[terminal] def withKittyKeyboardProtocol[A](terminal: Terminal)(
       body: => A
   ): A =
     val writer = terminal.writer()

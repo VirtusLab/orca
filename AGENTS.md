@@ -263,7 +263,9 @@ most easily broken:
   stack) and announced once on stderr, then quarantined — permanently
   excluded from dispatch for the rest of the run. The remaining listeners
   still see every event and the flow itself always survives; see
-  `EventDispatcher`.
+  `EventDispatcher`. This holds only for work done on the calling thread: a
+  listener backed by an Ox actor uses `ask`, never `tell` (a throw in a `tell`
+  ends the actor's scope — the run).
 
 ## What a run writes to disk
 
@@ -367,8 +369,9 @@ with a test pinning the observed wire shape.
 ### Scala style
 
 - Braceless syntax; explicit return types on every public member.
-- No class-level `var`s; mutable state stays in method bodies or
-  `AtomicReference`-guarded test helpers.
+- No class-level `var`s outside an Ox actor's state; other mutable state
+  stays in method bodies, or in an `AtomicReference` over an immutable value
+  updated by a pure function (`CostTracker`, `DeniedToolTracker`).
 - Opaque-type aliases for domain string labels (e.g. `Title`, `SessionId`).
 - Recoverable failures return `Either[E, T]` where `E <: OrcaFlowException`;
   system failures throw. Use Ox's `.orThrow` at the call site when the

@@ -225,3 +225,19 @@ class TerminalOutputStateTest extends munit.FunSuite:
       expected,
       s"output should end with ESC+[2K; got tail bytes: $tail"
     )
+
+  test("a failing tick hides the status row instead of throwing"):
+    val failing = new java.util.concurrent.atomic.AtomicBoolean(false)
+    val buf = new ByteArrayOutputStream()
+    val ps = new PrintStream(buf):
+      override def print(s: String): Unit =
+        if failing.get() then throw new RuntimeException("boom")
+        else super.print(s)
+    val bar = new TerminalOutputState(ps, useColor = false, animated = true)
+    bar.setStatus(Some("running"))
+    failing.set(true)
+    bar.tick()
+    failing.set(false)
+    val before = buf.size()
+    bar.tick()
+    assertEquals(buf.size(), before)

@@ -1,34 +1,22 @@
 package orca.events
 
-import ox.Ox
-import ox.channels.{Actor, ActorRef, BufferCapacity}
+import java.util.concurrent.atomic.AtomicReference
 
 /** Listener that counts `ToolDenied` events per tool, with the names of the
   * agents that were denied it, for an end-of-run summary.
   */
-class DeniedToolTracker private (actor: ActorRef[DeniedToolTracker.Tally])
-    extends OrcaListener:
+class DeniedToolTracker extends OrcaListener:
+
+  private val tools: AtomicReference[DeniedTools] =
+    AtomicReference(DeniedTools.empty)
 
   def onEvent(event: OrcaEvent): Unit = event match
-    case d: OrcaEvent.ToolDenied => actor.tell(_.add(d))
-    case _                       => ()
+    case d: OrcaEvent.ToolDenied =>
+      val _ = tools.updateAndGet(_.add(d))
+    case _ => ()
 
   /** [[DeniedTools.summary]] of the events seen so far. */
-  def summary: String = actor.ask(_.summary)
-
-object DeniedToolTracker:
-
-  /** A tracker whose tally is owned by an actor forked in the given scope,
-    * which must span every `onEvent` through the last `summary`.
-    */
-  def start()(using Ox, BufferCapacity): DeniedToolTracker =
-    new DeniedToolTracker(Actor.create(new Tally))
-
-  // Only ever touched from the actor's thread.
-  private class Tally:
-    private var tools = DeniedTools.empty
-    def add(d: OrcaEvent.ToolDenied): Unit = tools = tools.add(d)
-    def summary: String = tools.summary
+  def summary: String = tools.get().summary
 
 /** Denied tool calls counted per tool, with the names of the agents that were
   * denied it.

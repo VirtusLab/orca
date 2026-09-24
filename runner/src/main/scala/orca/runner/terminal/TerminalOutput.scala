@@ -1,27 +1,23 @@
 package orca.runner.terminal
 
-import ox.{Ox, forever, forkDiscard, sleep}
-import ox.channels.{Actor, ActorRef, BufferCapacity}
+import org.slf4j.LoggerFactory
 
 import java.io.PrintStream
-import java.util.concurrent.Semaphore
 import scala.collection.immutable.Queue
-import scala.concurrent.duration.DurationLong
 import scala.util.control.NonFatal
 
 /** The terminal rendering surface: appends to the event log and advances the
   * persistent status row pinned at the bottom.
   *
-  * Production builds ([[TerminalOutput.start]]) serialise every method on an
-  * internal Ox actor, so a single worker thread owns `out` and log lines can't
-  * interleave with spinner ticks. Tests can instantiate [[TerminalOutputState]]
-  * directly — the same interface, synchronous, no actor or animator fork.
+  * Production ([[TerminalActor]]) serialises every method on an Ox actor, so a
+  * single worker thread owns `out` and log lines can't interleave with spinner
+  * ticks. Tests can instantiate [[TerminalOutputState]] directly — the same
+  * interface, synchronous, no actor or animator fork.
   *
   * **Prompt transaction.** [[prompt]] is the only way to read from the
   * terminal: it clears the status row, buffers concurrent `log` calls, runs
-  * `readUser`, then drains and redraws — all as one bracketed unit. A fair
-  * semaphore serialises transactions so two concurrent prompts queue instead of
-  * interleaving, which also serialises the shared `readLine` reader.
+  * `readUser`, then drains and redraws — all as one bracketed unit. Concurrent
+  * prompts run one at a time.
   */
 private[terminal] trait TerminalOutput:
   /** Append a (possibly multi-line) chunk to the event log. Trailing newline is
@@ -39,63 +35,14 @@ private[terminal] trait TerminalOutput:
   def prompt[A](readUser: () => A): A
 
   /** Flush pending writes, clear the status row, and release the renderer.
-    * Tells arriving after close are still processed against the cleared state:
+    * Calls arriving after close are still processed against the cleared state:
     * `log` writes inline without a status row, `tick` is a no-op.
     */
   def close(): Unit
 
-private[terminal] object TerminalOutput:
-
-  /** Build a production `TerminalOutput` whose state is owned by an Ox actor +
-    * animator fork in the given scope. The animator is `forkDiscard`, so
-    * scope-end interrupts it; the IE from `ox.sleep` is absorbed by the
-    * supervisor as the scope winds down.
-    */
-  def start(
-      out: PrintStream,
-      useColor: Boolean,
-      animated: Boolean,
-      framePeriodMs: Long = 100L
-  )(using Ox, BufferCapacity): TerminalOutput =
-    val state = new TerminalOutputState(out, useColor, animated)
-    val actor = Actor.create(state)
-    if animated then
-      forkDiscard:
-        forever:
-          sleep(framePeriodMs.millis)
-          actor.tell(_.tick())
-    new ActorTerminalOutput(actor)
-
-/** Actor-backed [[TerminalOutput]]. `log`/`setStatus` are tells; `suspend`/
-  * `resume` and `close` are asks (the caller needs completion before
-  * returning). Close-time throws are swallowed so they don't mask an upstream
-  * failure.
-  *
-  * `promptGate` (fair) is held from before the suspend-ask until after the
-  * resume-ask, so a second `prompt` blocks until the first transaction — drain
-  * and redraw included — has fully closed.
-  */
-private class ActorTerminalOutput(actor: ActorRef[TerminalOutputState])
-    extends TerminalOutput:
-  private val promptGate = new Semaphore(1, true)
-
-  def log(text: String): Unit = actor.tell(_.log(text))
-  def setStatus(label: Option[String]): Unit =
-    actor.tell(_.setStatus(label))
-  def prompt[A](readUser: () => A): A =
-    promptGate.acquire()
-    try
-      actor.ask(_.suspend())
-      try readUser()
-      finally actor.ask(_.resume())
-    finally promptGate.release()
-  def close(): Unit =
-    try actor.ask(_.close())
-    catch case NonFatal(_) => ()
-
 /** Mutable rendering state. Not thread-safe in isolation; production wraps it
-  * via [[ActorTerminalOutput]]. Tests construct this directly and drive
-  * rendering synchronously.
+  * in [[TerminalActor]]. Tests construct this directly and drive rendering
+  * synchronously.
   */
 private[terminal] class TerminalOutputState(
     out: PrintStream,
@@ -110,6 +57,8 @@ private[terminal] class TerminalOutputState(
     MaxStatusLineWidth,
     paint
   }
+
+  private val logger = LoggerFactory.getLogger(classOf[TerminalOutputState])
 
   private var currentLabel: Option[String] = None
   private var frameIndex: Int = 0
@@ -157,17 +106,25 @@ private[terminal] class TerminalOutputState(
           out.flush()
 
   /** Advance the spinner frame. Called by the animator fork; no-op when the bar
-    * is hidden or suspended so idle periods don't touch the terminal.
+    * is hidden or suspended so idle periods don't touch the terminal. Never
+    * throws: the animator reaches it through an actor `tell`, where a throw
+    * would end the actor's scope. A failure is logged and hides the status row
+    * until the next [[setStatus]].
     */
   def tick(): Unit =
     if animated && !suspended && currentLabel.isDefined then
-      frameIndex = (frameIndex + 1) % Frames.size
-      drawStatus()
-      out.flush()
+      try
+        frameIndex = (frameIndex + 1) % Frames.size
+        drawStatus()
+        out.flush()
+      catch
+        case NonFatal(e) =>
+          currentLabel = None
+          logger.error("status row animation failed; status row hidden", e)
 
   /** Synchronous [[TerminalOutput.prompt]]: no actor or concurrent callers here
-    * (production serialises one level up in [[ActorTerminalOutput]]), so a
-    * plain `suspend`/`finally resume` bracket suffices.
+    * (production serialises one level up in [[TerminalActor]]), so a plain
+    * `suspend`/`finally resume` bracket suffices.
     */
   def prompt[A](readUser: () => A): A =
     suspend()
@@ -179,9 +136,9 @@ private[terminal] class TerminalOutputState(
     * directly.
     *
     * CAUTION: calling `suspend`/`resume` directly bypasses the `promptGate`
-    * transaction that serialises concurrent prompts (see
-    * [[ActorTerminalOutput]]) — production code MUST go through [[prompt]].
-    * Exposed at package level for tests only.
+    * transaction that serialises concurrent prompts (see [[TerminalActor]]) —
+    * production code MUST go through [[prompt]]. Exposed at package level for
+    * tests only.
     */
   def suspend(): Unit =
     if !suspended then

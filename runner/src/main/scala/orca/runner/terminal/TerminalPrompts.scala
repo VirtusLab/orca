@@ -8,17 +8,12 @@ import orca.backend.{
   ConversationEvent,
   ObservedConversation
 }
-import org.jline.reader.{
-  EndOfFileException,
-  LineReader,
-  LineReaderBuilder,
-  UserInterruptException
-}
-import org.jline.terminal.{Terminal, TerminalBuilder}
+import org.jline.reader.{EndOfFileException, UserInterruptException}
+import org.jline.terminal.TerminalBuilder
 
 /** Answers an interactive turn's approval requests and questions at the
   * terminal. Everything else the turn produces — prose, tool calls, errors, the
-  * opening prompt — reaches [[TerminalEventListener]] as `OrcaEvent`s, the same
+  * opening prompt — reaches [[TerminalEventRenderer]] as `OrcaEvent`s, the same
   * way an autonomous turn's does.
   *
   * All writes go through the shared [[TerminalOutput]] so the persistent status
@@ -29,8 +24,8 @@ private[terminal] class TerminalPrompts(
     useColor: Boolean,
     output: TerminalOutput,
     currentIndent: () => String,
-    workDir: Option[os.Path] = None,
-    prompter: TerminalPrompts.Prompter = TerminalPrompts.JLinePrompter
+    workDir: Option[os.Path],
+    prompter: TerminalPrompts.Prompter
 ):
 
   import TerminalPrompts.*
@@ -118,62 +113,31 @@ private[terminal] object TerminalPrompts:
 
   /** Seam for the approval prompt. Tests inject a stub so they can assert
     * prompt text and feed scripted replies; production uses the JLine-backed
-    * implementation below.
+    * implementation below. `ask` is never called concurrently
+    * ([[TerminalOutput.prompt]] runs one prompt at a time).
     */
   trait Prompter:
     def ask(prompt: String): PromptOutcome
 
-    /** Release any I/O resources the prompter acquired. Called once at
-      * interaction teardown, never per conversation. Default is a no-op.
-      */
-    def close(): Unit = ()
-
-  /** Default production prompter: JLine line reader. Lazy so the terminal is
-    * only opened when an approval prompt fires — non-interactive sessions never
-    * allocate one.
-    *
-    * Entry is multi-line, sharing [[MultilineLineReader]] with the shell's own
-    * task/goal/fork prompt (`orca.shell.ui.ConsoleUiShell.inputMultiline`): the
-    * reader gets its widgets registered once at construction, and `ask` wraps
-    * the read in the kitty-protocol bracket so Shift+Enter/Ctrl-C/Ctrl-D are
-    * recognized on terminals that need it. The `Interrupted` mapping below is
-    * unaffected — the kitty widgets throw the same exceptions this catch
-    * already handles.
-    *
-    * Limitation: process-scoped and its lazy terminal cannot re-initialize
-    * after `close()`, so a second `flow(...)` in the same JVM that fires a
-    * prompt is unsupported. Inject a custom [[Prompter]] for embedded/multi-run
-    * scenarios.
+  /** Default production prompter: a multiline read on a fresh JLine system
+    * terminal per `ask`.
     */
   object JLinePrompter extends Prompter:
-    // `opened` records a SUCCESSFUL build (set inside the lazy-init lock, after
-    // build() returns) so close() never forces the lazy terminal and a failed
-    // build leaves nothing to close. @volatile for the close()-thread read.
-    @volatile private var opened = false
-    private lazy val terminal: Terminal =
-      val t = TerminalBuilder.builder().system(true).dumb(true).build()
-      opened = true
-      t
-    private lazy val reader: LineReader =
-      val r = LineReaderBuilder.builder().terminal(terminal).build()
-      // Continuation lines of a multi-line answer (a paste, or a literal
-      // newline from MultilineLineReader.registerInsertNewlineWidget) get the
-      // same minimal "… " marker as the shell's own multiline prompt, rather
-      // than jline's default (which repeats the primary prompt's full text).
-      r.setVariable(LineReader.SECONDARY_PROMPT_PATTERN, "… ")
-      MultilineLineReader.registerAll(r)
-      r
-
     def ask(prompt: String): PromptOutcome =
+      // Nothing outlives a prompt: a run that never prompts never opens a
+      // terminal, and the terminal's signal handling (Ctrl-C ends the JVM
+      // without shutdown hooks) is in place only during the read. JLine allows
+      // one open system terminal per JVM, which the serialised asks respect.
+      val terminal = TerminalBuilder.builder().system(true).dumb(true).build()
       // Ctrl-C (UserInterrupt) and Ctrl-D / closed-stdin (EndOfFile, also hit by
       // a headless run reaching an ask-user prompt with no tty) both mean "the
       // user isn't answering": map both to Interrupted rather than let
       // EndOfFileException escape as a message-less stage failure.
       try
-        MultilineLineReader.withKittyKeyboardProtocol(terminal):
-          PromptOutcome.Answer(reader.readLine(prompt))
+        PromptOutcome.Answer(
+          new MultilineLineReader(terminal).readMultiline(prompt)
+        )
       catch
         case _: (UserInterruptException | EndOfFileException) =>
           PromptOutcome.Interrupted
-
-    override def close(): Unit = if opened then terminal.close()
+      finally terminal.close()
