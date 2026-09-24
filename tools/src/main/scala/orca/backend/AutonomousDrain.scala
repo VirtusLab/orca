@@ -37,7 +37,7 @@ private[orca] object AutonomousDrain:
       autoApprove: AutoApprove,
       events: OrcaListener
   )(event: ChannelEvent): Unit = event match
-    case TurnEvent.ApproveTool(toolName, _, respond) =>
+    case ChannelEvent.ApproveTool(toolName, _, respond) =>
       // The backend blocks waiting for our decision and autonomous mode has no
       // user to ask, so deny and surface as an error; dropping would deadlock.
       val cause = denialCause(toolName, autoApprove)
@@ -48,7 +48,7 @@ private[orca] object AutonomousDrain:
         )
       )
       events.onEvent(OrcaEvent.ToolDenied(toolName, None))
-    case TurnEvent.UserQuestion(_, respond) =>
+    case ChannelEvent.UserQuestion(_, respond) =>
       // The ask_user MCP bridge isn't wired in autonomous mode (see
       // `TurnMode.Autonomous`), so this should be unreachable. If it
       // ever fires, the bridge thread is blocked on `respond` — unblock it

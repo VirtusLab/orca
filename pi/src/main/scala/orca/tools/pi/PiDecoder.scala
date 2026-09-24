@@ -5,6 +5,7 @@ import orca.agents.{BackendTag, Model, SessionId, WireSessionId}
 import orca.backend.{
   AgentResult,
   AskUserChannel,
+  ChannelEvent,
   LiveTurn,
   TurnEvent,
   DecodedTurnSpec,
@@ -194,9 +195,12 @@ private[pi] final class PiDecoder(
       case "input" | "editor" =>
         Step.continue(
           state,
-          TurnEvent.UserQuestion(
-            question,
-            answer => stdin.reply(OutboundMessage.extensionUiValue(id, answer))
+          TurnEvent.Question(
+            ChannelEvent.UserQuestion(
+              question,
+              answer =>
+                stdin.reply(OutboundMessage.extensionUiValue(id, answer))
+            )
           )
         )
       // TUI decoration/status; fire-and-forget in RPC mode, so ignore them.

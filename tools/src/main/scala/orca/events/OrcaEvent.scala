@@ -13,8 +13,8 @@ import orca.agents.{BackendTag, Model, SessionKey}
   * flow's outcome. Anything that drives logic travels through return values or
   * exceptions instead.
   *
-  * Distinct from [[orca.backend.TurnEvent]], which is scoped to one turn and
-  * consumed only by the [[orca.backend.Interaction]] that drives it;
+  * Distinct from [[orca.backend.ChannelEvent]], which is scoped to one turn and
+  * answered only by the [[orca.backend.Interaction]] that drives it;
   * `OrcaEvent`s fan out to all listeners.
   */
 enum OrcaEvent:
@@ -95,7 +95,7 @@ enum OrcaEvent:
     * the same value; the first turn of a session is the earliest turn carrying
     * it.
     */
-  case UnpricedTurn(
+  case UnpricedTurn private[orca] (
       agent: String,
       model: Option[Model],
       usage: Usage,
@@ -129,9 +129,9 @@ enum OrcaEvent:
   case UserPrompt(text: String)
 
   /** One message of free-form prose from the agent, one per
-    * [[orca.backend.TurnEvent.AssistantMessageEnd]]. The terminal listener
-    * renders it as a one-line `●`; full text reaches non-terminal listeners.
-    * `agent` carries the same attribution as [[ToolUse]].
+    * `TurnEvent.AssistantMessageEnd`. The terminal listener renders it as a
+    * one-line `●`; full text reaches non-terminal listeners. `agent` carries
+    * the same attribution as [[ToolUse]].
     */
   case AssistantMessage(text: String, agent: Option[String] = None)
 

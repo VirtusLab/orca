@@ -4,7 +4,12 @@ import orca.agents.{Model, WireSessionId}
 import orca.events.TurnDebit
 import orca.testkit.Usages.usage
 import orca.{OrcaFlowException, OrcaInteractiveCancelled}
-import orca.backend.{AskUserChannel, TurnEvent, TurnEventConformance}
+import orca.backend.{
+  AskUserChannel,
+  ChannelEvent,
+  TurnEvent,
+  TurnEventConformance
+}
 import orca.subprocess.FakePipedCliProcess
 import ox.{Ox, supervised}
 
@@ -630,8 +635,8 @@ class GeminiTurnTest extends munit.FunSuite:
         bridge.ask("What's your favourite colour?")
 
       val (question, respond) = live.events.next() match
-        case TurnEvent.UserQuestion(q, r) => (q, r)
-        case other => fail(s"expected UserQuestion; got: $other")
+        case TurnEvent.Question(ChannelEvent.UserQuestion(q, r)) => (q, r)
+        case other => fail(s"expected Question; got: $other")
       assertEquals(question, "What's your favourite colour?")
       respond("magenta")
       assertEquals(askResult.join(), "magenta")

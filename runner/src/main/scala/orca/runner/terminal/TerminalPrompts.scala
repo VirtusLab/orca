@@ -1,13 +1,7 @@
 package orca.runner.terminal
 
 import orca.agents.BackendTag
-import orca.backend.{
-  AgentResult,
-  ApprovalDecision,
-  ChannelEvent,
-  TurnEvent,
-  ObservedTurn
-}
+import orca.backend.{AgentResult, ApprovalDecision, ChannelEvent, ObservedTurn}
 import org.jline.reader.{EndOfFileException, UserInterruptException}
 import org.jline.terminal.TerminalBuilder
 
@@ -42,9 +36,9 @@ private[terminal] class TerminalPrompts(
       event: ChannelEvent,
       turn: ObservedTurn[B]
   ): Unit = event match
-    case TurnEvent.ApproveTool(name, input, respond) =>
+    case ChannelEvent.ApproveTool(name, input, respond) =>
       promptApproval(name, input, respond, turn)
-    case TurnEvent.UserQuestion(question, respond) =>
+    case ChannelEvent.UserQuestion(question, respond) =>
       promptUserQuestion(question, respond, turn)
 
   /** A self-contained block (one or more lines) under the current stage indent.

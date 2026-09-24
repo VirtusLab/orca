@@ -39,6 +39,11 @@ class CliTest extends munit.FunSuite:
 
   private given ShellEnv = TestShellEnv()
 
+  /** `runContinue`'s liveness check: every recorded `Running` attempt reads as
+    * crashed.
+    */
+  private val everyPidDead: Long => Boolean = _ => false
+
   private def invoke(args: String*): Either[String, Any] =
     import Cli.given
     ParserForMethods(CliCommands()).runEither(args, autoPrintHelpAndExit = None)
@@ -1375,7 +1380,8 @@ class CliTest extends munit.FunSuite:
             None,
             list = true,
             json = true,
-            tty = false
+            tty = false,
+            pidAlive = everyPidDead
           ),
         ExitCodes.Ok
       )
@@ -1423,7 +1429,8 @@ class CliTest extends munit.FunSuite:
           None,
           list = true,
           json = false,
-          tty = false
+          tty = false,
+          pidAlive = everyPidDead
         ),
         ExitCodes.Ok
       )
@@ -1441,7 +1448,8 @@ class CliTest extends munit.FunSuite:
           None,
           list = true,
           json = false,
-          tty = false
+          tty = false,
+          pidAlive = everyPidDead
         ),
         ExitCodes.Ok
       )
@@ -1459,7 +1467,8 @@ class CliTest extends munit.FunSuite:
           None,
           list = true,
           json = true,
-          tty = false
+          tty = false,
+          pidAlive = everyPidDead
         ),
         ExitCodes.Ok
       )
@@ -1482,7 +1491,8 @@ class CliTest extends munit.FunSuite:
           None,
           list = true,
           json = json,
-          tty = false
+          tty = false,
+          pidAlive = everyPidDead
         ),
         ExitCodes.Ok
       )
@@ -1518,7 +1528,8 @@ class CliTest extends munit.FunSuite:
           None,
           list = true,
           json = true,
-          tty = false
+          tty = false,
+          pidAlive = everyPidDead
         ),
         ExitCodes.Ok
       )
@@ -1537,7 +1548,8 @@ class CliTest extends munit.FunSuite:
             None,
             list = true,
             json = true,
-            tty = false
+            tty = false,
+            pidAlive = everyPidDead
           ),
         ExitCodes.Ok
       )
@@ -1557,7 +1569,8 @@ class CliTest extends munit.FunSuite:
             None,
             list = true,
             json = false,
-            tty = false
+            tty = false,
+            pidAlive = everyPidDead
           ),
         ExitCodes.Ok
       )
@@ -1590,7 +1603,8 @@ class CliTest extends munit.FunSuite:
             None,
             list = false,
             json = false,
-            tty = true
+            tty = true,
+            pidAlive = everyPidDead
           ),
         ExitCodes.ActionFailed
       )

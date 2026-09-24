@@ -4,9 +4,9 @@ package orca.backend
   * dropped from the turn's event stream.
   *
   * A bridged `ask_user` question is already surfaced as a
-  * [[TurnEvent.UserQuestion]], so re-emitting the agent's tool-call block and
-  * paired tool-result would render the exchange twice. Each decoder suppresses
-  * the tool-call and drops its matching result.
+  * [[ChannelEvent.UserQuestion]], so re-emitting the agent's tool-call block
+  * and paired tool-result would render the exchange twice. Each decoder
+  * suppresses the tool-call and drops its matching result.
   *
   * Only this id bookkeeping is shared; the matcher for "is this an `ask_user`
   * call" stays per call site, because backends name the tool differently

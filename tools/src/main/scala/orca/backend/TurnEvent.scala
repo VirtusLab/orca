@@ -6,11 +6,10 @@ package orca.backend
   *
   * The deltas stream as the agent responds. `AssistantToolCall` is purely
   * informational; `ToolResult` echoes what the SDK reported back to the model.
-  * `ApproveTool` and `UserQuestion` ([[ChannelEvent]]) must be answered.
+  * `Approval` and `Question` carry the [[ChannelEvent]]s the channel answers.
   *
   * Distinct from [[OrcaEvent]], which fans out flow-wide: [[ObservedTurn]]
-  * turns these into `OrcaEvent`s, handing the channel only the
-  * [[ChannelEvent]]s.
+  * turns the rest into `OrcaEvent`s.
   *
   * ==Message grammar (the contract every decoder honours)==
   *
@@ -39,7 +38,7 @@ package orca.backend
   * [[orca.backend.TurnEventConformance]] (the oracle that asserts this grammar
   * over a recorded sequence).
   */
-enum TurnEvent:
+private[orca] enum TurnEvent:
   /** The opening prompt of an interactive turn. Rendered so the user sees
     * context for their own input alongside agent output.
     */
@@ -51,7 +50,7 @@ enum TurnEvent:
 
   /** A tool call the harness refused for lack of permission, in place of its
     * `ToolResult`. Only claude's wire tells a refusal apart from a failed tool;
-    * opencode's refusals arrive as `ApproveTool`, and codex's and gemini's are
+    * opencode's refusals arrive as `Approval`, and codex's and gemini's are
     * indistinguishable from tool failures, so they surface as `ToolResult`.
     */
   case ToolDenied(toolName: String)
@@ -63,25 +62,11 @@ enum TurnEvent:
     */
   case Error(message: String)
 
-  /** The agent wants to invoke a tool and is asking our permission. The channel
-    * must call `respond` exactly once — `Allow` to execute, `Deny` to refuse.
-    * The decoder owns the matching request-id bookkeeping; the closure captures
-    * it.
-    */
-  case ApproveTool(
-      toolName: String,
-      rawInput: String,
-      respond: ApprovalDecision => Unit
-  )
+  /** A [[ChannelEvent.ApproveTool]] for the channel to answer. */
+  case Approval(request: ChannelEvent.ApproveTool)
 
-  /** The agent wants a free-form answer from the user. The channel displays
-    * `question`, reads a reply, and calls `respond` exactly once with what the
-    * user typed; the backend feeds the answer back as a tool result.
-    *
-    * Only emitted by backends whose [[LiveTurn.canAskUser]] is true — claude
-    * and codex (both via the shared `AskUserMcpServer`).
-    */
-  case UserQuestion(question: String, respond: String => Unit)
+  /** A [[ChannelEvent.UserQuestion]] for the channel to answer. */
+  case Question(request: ChannelEvent.UserQuestion)
 
   /** True for the events the "Message grammar" scaladoc above classifies as
     * assistant activity (open/continue a message); false for neutral events
@@ -99,22 +84,12 @@ enum TurnEvent:
     case TurnEvent.ToolDenied(_)             => true
     case TurnEvent.UserMessage(_)            => false
     case TurnEvent.Error(_)                  => false
-    case TurnEvent.ApproveTool(_, _, _)      => false
-    case TurnEvent.UserQuestion(_, _)        => false
+    case TurnEvent.Approval(_)               => false
+    case TurnEvent.Question(_)               => false
     case TurnEvent.AssistantMessageEnd       => false
 
 /** The events a turn's background drains (stderr, `ask_user`) and its opening
   * prompt may send: none of them affects the message grammar.
   */
-type NeutralEvent = TurnEvent.UserMessage | TurnEvent.Error |
-  TurnEvent.UserQuestion
-
-/** The events a channel must answer: the backend blocks until `respond` is
-  * called. Everything else a turn emits reaches listeners as an `OrcaEvent`
-  * ([[ObservedTurn]]).
-  */
-type ChannelEvent = TurnEvent.ApproveTool | TurnEvent.UserQuestion
-
-/** Channel's answer to a [[TurnEvent.ApproveTool]] prompt. */
-enum ApprovalDecision:
-  case Allow, Deny
+private[orca] type NeutralEvent = TurnEvent.UserMessage | TurnEvent.Error |
+  TurnEvent.Question

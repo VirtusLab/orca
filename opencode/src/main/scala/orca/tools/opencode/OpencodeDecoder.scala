@@ -5,6 +5,7 @@ import orca.backend.{
   AgentResult,
   ApprovalDecision,
   AskUserChannel,
+  ChannelEvent,
   LiveTurn,
   TurnEvent,
   DecodedTurnSpec,
@@ -141,15 +142,19 @@ private[opencode] final class OpencodeDecoder(
     case OpencodeEvent.QuestionAsked(req) =>
       Step.continue(
         state,
-        TurnEvent.UserQuestion(questionText(req), replyToQuestion(req))
+        TurnEvent.Question(
+          ChannelEvent.UserQuestion(questionText(req), replyToQuestion(req))
+        )
       )
     case OpencodeEvent.PermissionAsked(req) =>
       Step.continue(
         state,
-        TurnEvent.ApproveTool(
-          req.permission,
-          req.patterns.mkString(" "),
-          replyToPermission(req)
+        TurnEvent.Approval(
+          ChannelEvent.ApproveTool(
+            req.permission,
+            req.patterns.mkString(" "),
+            replyToPermission(req)
+          )
         )
       )
     case OpencodeEvent.Idle(_)             => finishTurn(state)

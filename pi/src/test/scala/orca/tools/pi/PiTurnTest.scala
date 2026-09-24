@@ -1,6 +1,11 @@
 package orca.tools.pi
 
-import orca.backend.{AskUserChannel, TurnEvent, TurnEventConformance}
+import orca.backend.{
+  AskUserChannel,
+  ChannelEvent,
+  TurnEvent,
+  TurnEventConformance
+}
 import orca.events.{TurnDebit, Usage}
 import orca.agents.{BackendTag, Model, SessionId, WireSessionId, onWire}
 import orca.{AgentTurnFailed, OrcaFlowException, OrcaInteractiveCancelled}
@@ -243,10 +248,10 @@ class PiTurnTest extends munit.FunSuite:
     )
 
     live.events.next() match
-      case TurnEvent.UserQuestion(question, respond) =>
+      case TurnEvent.Question(ChannelEvent.UserQuestion(question, respond)) =>
         assertEquals(question, "What branch?")
         respond("main")
-      case other => fail(s"expected UserQuestion, got $other")
+      case other => fail(s"expected Question, got $other")
 
     assert(process.writes.exists(_.contains("extension_ui_response")))
     assert(process.writes.exists(_.contains("main")))

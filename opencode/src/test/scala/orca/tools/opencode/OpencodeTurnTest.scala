@@ -7,6 +7,7 @@ import orca.backend.{
   ApprovalDecision,
   AskUserChannel,
   LiveTurn,
+  ChannelEvent,
   TurnEvent,
   TurnEventConformance,
   StreamSource
@@ -447,7 +448,7 @@ class OpencodeTurnTest extends munit.FunSuite:
       )
     )
     live.events.foreach:
-      case TurnEvent.UserQuestion(q, respond) =>
+      case TurnEvent.Question(ChannelEvent.UserQuestion(q, respond)) =>
         assertEquals(q, "Color?")
         respond("Blue")
       case _ => ()
@@ -468,7 +469,7 @@ class OpencodeTurnTest extends munit.FunSuite:
       )
     )
     live.events.foreach:
-      case TurnEvent.ApproveTool(tool, input, respond) =>
+      case TurnEvent.Approval(ChannelEvent.ApproveTool(tool, input, respond)) =>
         assertEquals(tool, "bash")
         assertEquals(input, "echo hi")
         respond(decision)
