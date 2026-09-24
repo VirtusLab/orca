@@ -458,7 +458,7 @@ class RoleSettingsFlowTest extends munit.FunSuite:
       reviewOverride: Option[orca.AgentSet => Agent[?]] = None,
       listeners: List[OrcaListener] = Nil,
       wiring: FlowWiring
-  )(body: orca.FlowControl ?=> Unit): Unit =
+  )(body: (orca.FlowContext, orca.FlowControl) ?=> Unit): Unit =
     FlowHarness.driveFlow(
       workDir = workDir,
       wiring = wiring,

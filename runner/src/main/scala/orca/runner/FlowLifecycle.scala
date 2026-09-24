@@ -2,6 +2,7 @@ package orca.runner
 
 import orca.{
   BranchNamingStrategy,
+  FlowContext,
   FlowControl,
   InStage,
   OrcaArgs,
@@ -56,17 +57,17 @@ object FlowLifecycle:
     * are structurally disjoint.
     */
   private[orca] def run(
+      ctx: FlowContext,
       control: FlowControl,
       flowSetup: FlowSetup,
       debug: Boolean
-  )(body: FlowControl ?=> Unit): Unit =
-    val ctx = control.context
+  )(body: (FlowContext, FlowControl) ?=> Unit): Unit =
     val log = LoggerFactory.getLogger("orca.flow")
     // The whole flow body runs as a top-level stage: an otherwise unhandled
     // exception surfaces as a single Error event. `teardownFailure` runs only
     // here in the body phase, so a success-teardown error can never trigger
     // `discardUncommitted` or strand the user on the feature branch.
-    try surfaced(ctx.emit, debug)(body(using control))
+    try surfaced(ctx.emit, debug)(body(using ctx, control))
     catch
       case f: ReportedFailure =>
         // If the reset itself fails, attach it as suppressed (rather than

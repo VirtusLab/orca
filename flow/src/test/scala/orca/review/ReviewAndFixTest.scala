@@ -1,6 +1,6 @@
 package orca.review
 
-import orca.{Configured, FlowContext, FlowControl, StackSettings, StagePath}
+import orca.{Configured, StackSettings, StagePath, TestRun}
 import orca.plan.{Task, Title}
 import orca.agents.{BackendTag, SessionId, WireSessionId}
 import orca.backend.{IdScheme, SessionSupport}
@@ -34,11 +34,12 @@ class ReviewAndFixTest extends munit.FunSuite:
   private given orca.InStage = orca.InStage.unsafe
   private given orca.WorkspaceWrite = orca.WorkspaceWrite.unsafe
 
-  private def control: FlowControl =
-    ReviewLoopFixture.control(new EventDispatcher(Nil))
+  private def freshRun: TestRun =
+    ReviewLoopFixture.run(new EventDispatcher(Nil))
 
   test("returns empty OpenFindings when no reviewer reports findings"):
-    given FlowControl = control
+    val run = freshRun
+    import run.given
     val silentReviewer = new FakeAgent(
       name = "quiet",
       outputs = List(ReviewResult.empty)
@@ -56,7 +57,8 @@ class ReviewAndFixTest extends munit.FunSuite:
   test("every finding a reviewer reports reaches the fixer"):
     // Nothing between the reviewer and the fix turn filters findings: all
     // three arrive in the one prompt the fixer is sent.
-    given FlowControl = control
+    val run = freshRun
+    import run.given
     val reviewer = new FakeAgent(
       name = "mixed",
       outputs = List(
@@ -86,7 +88,8 @@ class ReviewAndFixTest extends munit.FunSuite:
     // The fixer narrates its work by key ("Fix I2.1"), so a key on screen that
     // named a different finding in the prompt would misattribute every fix.
     val steps = new ReviewLoopFixture.StepCapture
-    given FlowControl = ReviewLoopFixture.control(steps.dispatcher)
+    val run = ReviewLoopFixture.run(steps.dispatcher)
+    import run.given
     val first = new FakeAgent(
       name = "first",
       outputs = List(ReviewResult(List(finding("a"), finding("b"))))
@@ -114,7 +117,8 @@ class ReviewAndFixTest extends munit.FunSuite:
 
   test("a clean first round says there were no findings"):
     val steps = new ReviewLoopFixture.StepCapture
-    given FlowControl = ReviewLoopFixture.control(steps.dispatcher)
+    val run = ReviewLoopFixture.run(steps.dispatcher)
+    import run.given
     val _ = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
       reviewers =
@@ -130,7 +134,8 @@ class ReviewAndFixTest extends munit.FunSuite:
 
   test("an exit with nothing left open prints no closing block"):
     val steps = new ReviewLoopFixture.StepCapture
-    given FlowControl = ReviewLoopFixture.control(steps.dispatcher)
+    val run = ReviewLoopFixture.run(steps.dispatcher)
+    import run.given
     val _ = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
       reviewers =
@@ -150,7 +155,8 @@ class ReviewAndFixTest extends munit.FunSuite:
     // the last round comes back clean while the refusal is still open. The
     // headline must not read as an all-clear.
     val steps = new ReviewLoopFixture.StepCapture
-    given FlowControl = ReviewLoopFixture.control(steps.dispatcher)
+    val run = ReviewLoopFixture.run(steps.dispatcher)
+    import run.given
     val nit = ReviewFinding(
       title = Title("nit"),
       description = "nit",
@@ -197,7 +203,8 @@ class ReviewAndFixTest extends munit.FunSuite:
 
   test("the cap exit names what it leaves open, and why"):
     val steps = new ReviewLoopFixture.StepCapture
-    given FlowControl = ReviewLoopFixture.control(steps.dispatcher)
+    val run = ReviewLoopFixture.run(steps.dispatcher)
+    import run.given
     val reviewer = new FakeAgent(
       name = "loud",
       outputs = List.fill(2)(ReviewResult(List(finding("stubborn"))))
@@ -227,7 +234,8 @@ class ReviewAndFixTest extends munit.FunSuite:
 
   test("the halt exit names what the fixer refused, and its reason"):
     val steps = new ReviewLoopFixture.StepCapture
-    given FlowControl = ReviewLoopFixture.control(steps.dispatcher)
+    val run = ReviewLoopFixture.run(steps.dispatcher)
+    import run.given
     val reviewer = new FakeAgent(
       name = "loud",
       outputs = List(
@@ -266,7 +274,8 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
 
   test("the cap exit keeps earlier declines alongside the capped findings"):
-    given FlowControl = control
+    val run = freshRun
+    import run.given
     // Round one's decline and the finding still reported when the cap is hit
     // are both returned, each with its own reason.
     val reviewer = new FakeAgent(
@@ -312,7 +321,8 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
 
   test("a finding declined then fixed is neither reported nor re-sent"):
-    given FlowControl = control
+    val run = freshRun
+    import run.given
     // The reviewer re-reports what round one declined and the fixer fixes it,
     // so the decline is stale: it must leave the result, and round three's
     // reviewers must not be told the finding is still declined.
@@ -353,7 +363,8 @@ class ReviewAndFixTest extends munit.FunSuite:
     assert(!roundThree.contains("deliberate"), roundThree)
 
   test("a declined finding re-reported under a new title and fixed is closed"):
-    given FlowControl = control
+    val run = freshRun
+    import run.given
     // The re-report names the entry's id, so the fix closes it however the
     // reviewer worded it this time.
     val reworded =
@@ -386,7 +397,8 @@ class ReviewAndFixTest extends munit.FunSuite:
     assertEquals(result, OpenFindings.empty)
 
   test("the default cap is 3 fix attempts, so 4 review rounds"):
-    given FlowControl = control
+    val run = freshRun
+    import run.given
     // The fixer always claims a fix, so only the cap stops the loop; the
     // reviewer is scripted for four rounds, and a fifth would throw.
     val reviewer = new FakeAgent(
@@ -408,7 +420,8 @@ class ReviewAndFixTest extends munit.FunSuite:
 
   test("the fix line says another review round follows the fixes"):
     val steps = new ReviewLoopFixture.StepCapture
-    given FlowControl = ReviewLoopFixture.control(steps.dispatcher)
+    val run = ReviewLoopFixture.run(steps.dispatcher)
+    import run.given
     val reviewer = new FakeAgent(
       name = "loud",
       outputs = List(ReviewResult(List(finding("a"))), ReviewResult.empty)
@@ -433,7 +446,8 @@ class ReviewAndFixTest extends munit.FunSuite:
 
   test("the fix line promises no further review when nothing was fixed"):
     val steps = new ReviewLoopFixture.StepCapture
-    given FlowControl = ReviewLoopFixture.control(steps.dispatcher)
+    val run = ReviewLoopFixture.run(steps.dispatcher)
+    import run.given
     val reviewer = new FakeAgent(
       name = "loud",
       outputs = List(ReviewResult(List(finding("a"))))
@@ -456,7 +470,8 @@ class ReviewAndFixTest extends munit.FunSuite:
 
   test("the loop numbers its rounds"):
     val steps = new ReviewLoopFixture.StepCapture
-    given FlowControl = ReviewLoopFixture.control(steps.dispatcher)
+    val run = ReviewLoopFixture.run(steps.dispatcher)
+    import run.given
     val reviewer = new FakeAgent(
       name = "loud",
       outputs = List(ReviewResult(List(finding("a"))), ReviewResult.empty)
@@ -481,7 +496,8 @@ class ReviewAndFixTest extends munit.FunSuite:
     // Reviewers are asked for "a longer description with enough context for a
     // fixer to act"; the display rendering drops it, so the fix prompt has its
     // own.
-    given FlowControl = control
+    val run = freshRun
+    import run.given
     val reviewer = new FakeAgent(
       name = "loud",
       outputs = List(
@@ -517,7 +533,8 @@ class ReviewAndFixTest extends munit.FunSuite:
     // The echoed title matches no handed finding, so it is dropped from the
     // books and named in a Step, and the finding surfaces once, as unaccounted.
     val steps = new ReviewLoopFixture.StepCapture
-    given FlowControl = ReviewLoopFixture.control(steps.dispatcher)
+    val run = ReviewLoopFixture.run(steps.dispatcher)
+    import run.given
     val reviewer = new FakeAgent(
       name = "loud",
       outputs = List(ReviewResult(List(finding("real bug"))))
@@ -557,7 +574,8 @@ class ReviewAndFixTest extends munit.FunSuite:
   test(
     "a finding declined in two rounds is recorded once, with the latest reason"
   ):
-    given FlowControl = control
+    val run = freshRun
+    import run.given
     // The reviewer re-reports what the fixer declined, and the fixer declines
     // it again. That is one finding, so the result carries one entry.
     val reviewer = new FakeAgent(
@@ -607,7 +625,8 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
 
   test("a declined finding the last turn forgot is recorded once, not twice"):
-    given FlowControl = control
+    val run = freshRun
+    import run.given
     // Round two's reply accounts for nothing, so "nit" is both an earlier
     // decline and now unaccounted for. Two entries would contradict each other
     // about the same finding; the exit records the latest reason only.
@@ -653,7 +672,8 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
 
   test("a reviewer joining in round three sees round one's declines"):
-    given FlowControl = control
+    val run = freshRun
+    import run.given
     // A decline is the one thing a reviewer cannot recover by reading the code.
     // The set accumulates across rounds, so the late joiner's prompt — the
     // initial one, not a resume — carries what was settled before it started,
@@ -693,7 +713,8 @@ class ReviewAndFixTest extends munit.FunSuite:
     assert(joined.contains("- [R1.I1.2] b: by design"), joined)
 
   test("runs multiple reviewers and merges their findings"):
-    given FlowControl = control
+    val run = freshRun
+    import run.given
     val findingA = finding("A")
     val findingB = finding("B")
     val reviewerA = new FakeAgent(
@@ -733,7 +754,8 @@ class ReviewAndFixTest extends munit.FunSuite:
   ):
     // Cross-iteration session-threading contract: a reviewer's first call mints
     // its own chat, and every subsequent call resumes the SAME conversation.
-    given FlowControl = control
+    val run = freshRun
+    import run.given
     val stubborn = finding("never ends")
     val reviewer = new FakeAgent(
       name = "loud",
@@ -763,7 +785,8 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
 
   test("a lint summariser that reports nothing is resumed on later rounds"):
-    given FlowControl = control
+    val run = freshRun
+    import run.given
     // A reviewer, not the lint, keeps the loop iterating; the lint runs every
     // round and finds nothing, so its conversation holds no finding to repeat
     // and carries forward.
@@ -800,7 +823,8 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
 
   test("a lint summariser that reports findings is not resumed"):
-    given FlowControl = control
+    val run = freshRun
+    import run.given
     // The stale-findings guard: once the summariser has reported, its
     // conversation could repeat those findings on a later round whose commands
     // no longer show them, so the next round starts a fresh one.
@@ -833,7 +857,8 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
 
   test("a pinned diff is embedded in the reviewer's first prompt"):
-    given FlowControl = control
+    val run = freshRun
+    import run.given
     val captureReviewer =
       new FakeAgent("capturing", outputs = List(ReviewResult.empty))
     val coder = new FakeAgent("coder")
@@ -853,11 +878,12 @@ class ReviewAndFixTest extends munit.FunSuite:
     // A reviewer given only the title argues with the fixer over choices the
     // planner settled in the description — which the fixer can see and it
     // cannot.
-    given FlowControl =
-      ReviewLoopFixture.control(
+    val run =
+      ReviewLoopFixture.run(
         new EventDispatcher(Nil),
         userPrompt = "add a median function"
       )
+    import run.given
     val reviewer =
       new FakeAgent("capturing", outputs = List(ReviewResult.empty))
     val _ = reviewAndFixLoop(
@@ -880,11 +906,12 @@ class ReviewAndFixTest extends munit.FunSuite:
 
   test("the reviewer's first prompt carries a caller-supplied user request"):
     // The override exists for a flow whose prompt is only an issue reference.
-    given FlowControl =
-      ReviewLoopFixture.control(
+    val run =
+      ReviewLoopFixture.run(
         new EventDispatcher(Nil),
         userPrompt = "acme/widgets#42"
       )
+    import run.given
     val reviewer =
       new FakeAgent("capturing", outputs = List(ReviewResult.empty))
     val _ = reviewAndFixLoop(
@@ -909,13 +936,13 @@ class ReviewAndFixTest extends munit.FunSuite:
   test("the reviewer's first prompt names the stage's base commit"):
     // The base is sent alongside the diff, from the same `stageBaseCommit` the
     // diff is sampled against — not a second notion of "base".
-    val fc = ReviewLoopFixture.control(new EventDispatcher(Nil))
-    given FlowControl = fc
+    val run = ReviewLoopFixture.run(new EventDispatcher(Nil))
+    import run.given
     val base =
-      fc.context.git
+      run.context.git
         .headCommit()
         .getOrElse(fail("the fixture repo has no HEAD"))
-    fc.withStage("review", Some(base)): _ =>
+    run.control.withStage("review", Some(base)): _ =>
       val reviewer =
         new FakeAgent("capturing", outputs = List(ReviewResult.empty))
       val _ = reviewAndFixLoop(
@@ -933,13 +960,13 @@ class ReviewAndFixTest extends munit.FunSuite:
     // so neither naming that commit as its base nor the sampled path's "since
     // its stage began" framing can be claimed: both send the reviewer to the
     // wrong history.
-    val fc = ReviewLoopFixture.control(new EventDispatcher(Nil))
-    given FlowControl = fc
+    val run = ReviewLoopFixture.run(new EventDispatcher(Nil))
+    import run.given
     val base =
-      fc.context.git
+      run.context.git
         .headCommit()
         .getOrElse(fail("the fixture repo has no HEAD"))
-    fc.withStage("review", Some(base)): _ =>
+    run.control.withStage("review", Some(base)): _ =>
       val reviewer =
         new FakeAgent("capturing", outputs = List(ReviewResult.empty))
       val _ = reviewAndFixLoop(
@@ -962,13 +989,13 @@ class ReviewAndFixTest extends munit.FunSuite:
     // The framing the pinned path can't claim, on the path that can — a
     // reviewer that reads it as "since the last commit" would skip committed
     // work.
-    val fc = ReviewLoopFixture.control(new EventDispatcher(Nil))
-    given FlowControl = fc
+    val run = ReviewLoopFixture.run(new EventDispatcher(Nil))
+    import run.given
     val base =
-      fc.context.git
+      run.context.git
         .headCommit()
         .getOrElse(fail("the fixture repo has no HEAD"))
-    fc.withStage("review", Some(base)): _ =>
+    run.control.withStage("review", Some(base)): _ =>
       val reviewer =
         new FakeAgent("capturing", outputs = List(ReviewResult.empty))
       val _ = reviewAndFixLoop(
@@ -985,14 +1012,16 @@ class ReviewAndFixTest extends munit.FunSuite:
     // What an earlier stage committed is exactly what a stage-scoped diff
     // misses, and exactly what a final review over the branch has to see.
     val steps = new ReviewLoopFixture.StepCapture
-    val fc = ReviewLoopFixture.control(steps.dispatcher)
-    given FlowControl = fc
+    val run = ReviewLoopFixture.run(steps.dispatcher)
+    import run.given
     val runStart =
-      fc.startingCommit.getOrElse(fail("the fixture recorded no run start"))
-    os.write(fc.context.workDir / "earlier.txt", "an earlier stage's work")
-    assert(fc.context.runtimeGit.commit("earlier stage").isRight)
-    fc.withStage("final review", fc.context.git.headCommit()): _ =>
-      os.write(fc.context.workDir / "later.txt", "this stage's work")
+      run.control.startingCommit.getOrElse(
+        fail("the fixture recorded no run start")
+      )
+    os.write(run.context.workDir / "earlier.txt", "an earlier stage's work")
+    assert(run.context.runtimeGit.commit("earlier stage").isRight)
+    run.control.withStage("final review", run.context.git.headCommit()): _ =>
+      os.write(run.context.workDir / "later.txt", "this stage's work")
       val reviewer =
         new FakeAgent("capturing", outputs = List(ReviewResult.empty))
       val _ = reviewAndFixLoop(
@@ -1033,8 +1062,8 @@ class ReviewAndFixTest extends munit.FunSuite:
   test("a whole-run diff is re-sampled, so a later round sees the fixes"):
     // The base is fixed for the run, the sample is not: a fix made after round
     // one has to show up in round two's change set.
-    val fc = ReviewLoopFixture.control(new EventDispatcher(Nil))
-    given FlowControl = fc
+    val run = ReviewLoopFixture.run(new EventDispatcher(Nil))
+    import run.given
     val reviewer = new FakeAgent(
       name = "capturing",
       outputs =
@@ -1045,7 +1074,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       outputs = List(FixOutcome(List(Title("needs fixing")), Nil)),
       // The fix the second round must see; FakeAgent otherwise leaves the tree
       // untouched.
-      onRun = () => os.write(fc.context.workDir / "fixed.txt", "the fix")
+      onRun = () => os.write(run.context.workDir / "fixed.txt", "the fix")
     )
     val _ = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
@@ -1065,8 +1094,9 @@ class ReviewAndFixTest extends munit.FunSuite:
     // Without a base, diffing against anything else would review the wrong
     // range — so nothing runs, and the run is told why.
     val steps = new ReviewLoopFixture.StepCapture
-    given FlowControl =
-      ReviewLoopFixture.controlWithoutStartingCommit(steps.dispatcher)
+    val run =
+      ReviewLoopFixture.runWithoutStartingCommit(steps.dispatcher)
+    import run.given
     // No scripted outputs: running either stub throws.
     val reviewer = new FakeAgent("never-runs")
     val result = reviewAndFixLoop(
@@ -1090,8 +1120,9 @@ class ReviewAndFixTest extends munit.FunSuite:
     // fresh clone — so diffing against it would cover unrelated history. The
     // probe runs at review time: binding never checked a fresh run's commit.
     val steps = new ReviewLoopFixture.StepCapture
-    given FlowControl =
-      ReviewLoopFixture.controlWithUnusableStartingCommit(steps.dispatcher)
+    val run =
+      ReviewLoopFixture.runWithUnusableStartingCommit(steps.dispatcher)
+    import run.given
     // No scripted outputs: running either stub throws.
     val reviewer = new FakeAgent("never-runs")
     val result = reviewAndFixLoop(
@@ -1113,8 +1144,9 @@ class ReviewAndFixTest extends munit.FunSuite:
     // this result, and nothing after the final loop reports what the per-task
     // runs left open.
     val steps = new ReviewLoopFixture.StepCapture
-    given FlowControl =
-      ReviewLoopFixture.controlWithoutStartingCommit(steps.dispatcher)
+    val run =
+      ReviewLoopFixture.runWithoutStartingCommit(steps.dispatcher)
+    import run.given
     val result = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
       reviewers = List(asReviewer(new FakeAgent("never-runs"))),
@@ -1136,8 +1168,9 @@ class ReviewAndFixTest extends munit.FunSuite:
     // per-task loop numbers its ids from round one, so the seeds share both;
     // the PR body must still carry both reasons.
     val steps = new ReviewLoopFixture.StepCapture
-    given FlowControl =
-      ReviewLoopFixture.controlWithoutStartingCommit(steps.dispatcher)
+    val run =
+      ReviewLoopFixture.runWithoutStartingCommit(steps.dispatcher)
+    import run.given
     val inA = Some(Location("A.scala", None))
     val inB = Some(Location("B.scala", None))
     val result = reviewAndFixLoop(
@@ -1163,8 +1196,9 @@ class ReviewAndFixTest extends munit.FunSuite:
     // Two tasks left the same title at the same place open: one defect, so
     // fixing it must clear one entry, not leave a twin behind.
     val steps = new ReviewLoopFixture.StepCapture
-    given FlowControl =
-      ReviewLoopFixture.controlWithoutStartingCommit(steps.dispatcher)
+    val run =
+      ReviewLoopFixture.runWithoutStartingCommit(steps.dispatcher)
+    import run.given
     val result = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
       reviewers = List(asReviewer(new FakeAgent("never-runs"))),
@@ -1185,7 +1219,8 @@ class ReviewAndFixTest extends munit.FunSuite:
     // `priorOpenFindings` carries what the per-task runs left open into a final
     // loop: shown from round one — so reviewers don't re-report what was
     // already answered — and still in the exit record.
-    given FlowControl = control
+    val run = freshRun
+    import run.given
     val reviewer = new FakeAgent("r", outputs = List(ReviewResult.empty))
     val result = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
@@ -1219,7 +1254,8 @@ class ReviewAndFixTest extends munit.FunSuite:
     // nothing in the code says a finding was considered and refused. A "fixed"
     // title is the opposite — it answers the question the round exists to ask,
     // so it is deliberately withheld.
-    given FlowControl = control
+    val run = freshRun
+    import run.given
     val reviewer = new FakeAgent(
       name = "loud",
       outputs = List(
@@ -1258,7 +1294,8 @@ class ReviewAndFixTest extends munit.FunSuite:
   test(
     "an agentDriven reviewerSelection narrows the active set via its picker LLM"
   ):
-    given FlowControl = control
+    val run = freshRun
+    import run.given
     val findingX = finding("only-x")
     val reviewerX = new FakeAgent(
       name = "x",
@@ -1320,11 +1357,12 @@ class ReviewAndFixTest extends munit.FunSuite:
         FixOutcome(Nil, List(DeclinedFinding(Title("only-x"), "accepted")))
       )
     )
-    given FlowControl =
-      ReviewLoopFixture.control(
+    val run =
+      ReviewLoopFixture.run(
         new EventDispatcher(Nil),
         lead = Some(coder.agent)
       )
+    import run.given
     val result = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(asReviewer(reviewerX), asReviewer(reviewerY)),
@@ -1368,11 +1406,12 @@ class ReviewAndFixTest extends munit.FunSuite:
         FixOutcome(List(Title("stubborn")), Nil)
       )
     )
-    given FlowControl =
-      ReviewLoopFixture.control(
+    val run =
+      ReviewLoopFixture.run(
         new EventDispatcher(Nil),
         lead = Some(coder.agent)
       )
+    import run.given
     val _ = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(asReviewer(quiet), asReviewer(loud)),
@@ -1401,11 +1440,12 @@ class ReviewAndFixTest extends munit.FunSuite:
         FixOutcome(List(Title("lint-found")), Nil)
       )
     )
-    given FlowControl =
-      ReviewLoopFixture.control(
+    val run =
+      ReviewLoopFixture.run(
         new EventDispatcher(Nil),
         lead = Some(coder.agent)
       )
+    import run.given
     val _ = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(asReviewer(quiet)),
@@ -1421,7 +1461,8 @@ class ReviewAndFixTest extends munit.FunSuite:
   test(
     "explicit allEveryRound reviewerSelection skips the LLM picker entirely"
   ):
-    given FlowControl = control
+    val run = freshRun
+    import run.given
     val findingX = finding("only-x")
     val reviewerX = new FakeAgent(
       name = "x",
@@ -1457,7 +1498,8 @@ class ReviewAndFixTest extends munit.FunSuite:
   test("the round's opening Step names every agent it runs"):
     // The lint gate is one of the named agents, not a silent extra.
     val steps = new ReviewLoopFixture.StepCapture
-    given FlowControl = ReviewLoopFixture.control(steps.dispatcher)
+    val run = ReviewLoopFixture.run(steps.dispatcher)
+    import run.given
     val summariser =
       new FakeAgent(name = "summariser", outputs = List(ReviewResult.empty))
     val _ = reviewAndFixLoop(
@@ -1502,8 +1544,9 @@ class ReviewAndFixTest extends munit.FunSuite:
           val _ = firstStepAt.compareAndSet("", "fast")
           secondStepFinishedLatch.countDown()
         case _ => ()
-    given FlowControl =
-      ReviewLoopFixture.control(new EventDispatcher(List(listener)))
+    val run =
+      ReviewLoopFixture.run(new EventDispatcher(List(listener)))
+    import run.given
 
     def gatedReviewer(
         label: String,
@@ -1549,7 +1592,8 @@ class ReviewAndFixTest extends munit.FunSuite:
     runner.join(5000)
 
   test("lint runs concurrently with reviewers (deterministic via latch)"):
-    given FlowControl = control
+    val run = freshRun
+    import run.given
     // Two-party rendezvous: each branch counts down on entry and awaits the
     // other. If the loop runs them sequentially the second branch never
     // starts (first is blocked on await) — the awaits time out and the test
@@ -1588,7 +1632,8 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
 
   test("a round fan-out is capped, and the lint gate still starts with it"):
-    given FlowControl = control
+    val run = freshRun
+    import run.given
     // The roster is user-extensible (ADR 0023), so the width must not follow
     // it. A rendezvous the size of the cap pins both bounds without a timing
     // margin: no turn returns until that many have entered, so the width
@@ -1641,7 +1686,8 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
 
   test("formatCommands run before every review round (impl + each fix)"):
-    given FlowControl = control
+    val run = freshRun
+    import run.given
     // The formatter appends one line per run. Two review rounds (finding → fix,
     // then clean) mean it must run twice — once before reviewing the
     // implementation, once before re-reviewing the fix.
@@ -1667,7 +1713,8 @@ class ReviewAndFixTest extends munit.FunSuite:
     assertEquals(runs, 2)
 
   test("a failing format command doesn't stop the ones after it"):
-    given FlowControl = control
+    val run = freshRun
+    import run.given
     // `false` exits nonzero; the loop is fail-open on format commands, so the
     // second command must still run.
     val log = TempDirs.dir() / "fmt-log"
@@ -1685,7 +1732,8 @@ class ReviewAndFixTest extends munit.FunSuite:
 
   test("a failing format command is named in a Step, with its exit code"):
     val steps = new ReviewLoopFixture.StepCapture
-    given FlowControl = ReviewLoopFixture.control(steps.dispatcher)
+    val run = ReviewLoopFixture.run(steps.dispatcher)
+    import run.given
     val reviewer = new FakeAgent("quiet", outputs = List(ReviewResult.empty))
     val _ = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
@@ -1703,7 +1751,8 @@ class ReviewAndFixTest extends munit.FunSuite:
 
   test("a format command that succeeds says nothing"):
     val steps = new ReviewLoopFixture.StepCapture
-    given FlowControl = ReviewLoopFixture.control(steps.dispatcher)
+    val run = ReviewLoopFixture.run(steps.dispatcher)
+    import run.given
     val reviewer = new FakeAgent("quiet", outputs = List(ReviewResult.empty))
     val _ = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
@@ -1733,7 +1782,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       name = "lead",
       outputs = List(ReviewResult(List(finding("lint-found"))))
     )
-    given FlowControl = ReviewLoopFixture.control(
+    val run = ReviewLoopFixture.run(
       new EventDispatcher(Nil),
       lead = Some(lead.agent),
       stackSettings = StackSettings(
@@ -1741,6 +1790,7 @@ class ReviewAndFixTest extends munit.FunSuite:
         lint = List("echo lint-output")
       )
     )
+    import run.given
     val reviewer = new FakeAgent("quiet", outputs = List(ReviewResult.empty))
     val coder = new FakeAgent(
       name = "coder",
@@ -1772,7 +1822,8 @@ class ReviewAndFixTest extends munit.FunSuite:
     // Empty settings ≡ no gate: no `Lint` is built, so the context's lead —
     // a throwing stub here (`lead = None`) — must never be touched, and the
     // loop behaves exactly like today's omission.
-    given FlowControl = control
+    val run = freshRun
+    import run.given
     val reviewer = new FakeAgent("quiet", outputs = List(ReviewResult.empty))
     val coder = new FakeAgent("coder")
     val result = reviewAndFixLoop(
@@ -1789,13 +1840,14 @@ class ReviewAndFixTest extends munit.FunSuite:
     // command would create `fmtLog` if it ran; resolving lint from settings
     // would touch the throwing stub lead (`lead = None`).
     val fmtLog = TempDirs.dir() / "fmt-log"
-    given FlowControl = ReviewLoopFixture.control(
+    val run = ReviewLoopFixture.run(
       new EventDispatcher(Nil),
       stackSettings = StackSettings(
         format = List(s"echo x >> '$fmtLog'"),
         lint = List("echo lint-output")
       )
     )
+    import run.given
     val reviewer = new FakeAgent("quiet", outputs = List(ReviewResult.empty))
     val coder = new FakeAgent("coder")
     val result = reviewAndFixLoop(
@@ -1815,13 +1867,14 @@ class ReviewAndFixTest extends munit.FunSuite:
     // only the explicit format command runs, and the explicit summariser (not
     // the throwing stub lead that FromSettings would resolve) handles lint.
     val fmtLog = TempDirs.dir() / "fmt-log"
-    given FlowControl = ReviewLoopFixture.control(
+    val run = ReviewLoopFixture.run(
       new EventDispatcher(Nil),
       stackSettings = StackSettings(
         format = List(s"echo settings >> '$fmtLog'"),
         lint = List("echo from-settings")
       )
     )
+    import run.given
     val summariser =
       new FakeAgent("summariser", outputs = List(ReviewResult.empty))
     val reviewer = new FakeAgent("quiet", outputs = List(ReviewResult.empty))
@@ -1842,7 +1895,8 @@ class ReviewAndFixTest extends munit.FunSuite:
     // The loop keeps reviewer identity as the bare slug and tags the LLM run
     // with the `reviewer` role (not a renamed copy) so `CostTracker` can
     // group/subtotal the spend without a stringly identity convention.
-    given FlowControl = control
+    val run = freshRun
+    import run.given
     val reviewer = new FakeAgent("performance", List(ReviewResult.empty))
     val coder = new FakeAgent("coder")
     val _ = reviewAndFixLoop(
@@ -1862,7 +1916,8 @@ class ReviewAndFixTest extends munit.FunSuite:
     // `RosterEntry` handles and can only return a subset/permutation of them —
     // a foreign agent is unrepresentable. Here the selector keeps only "x", so
     // "y" (an empty-output stub that would throw if run) must never run.
-    given FlowControl = control
+    val run = freshRun
+    import run.given
     val rosterX = new FakeAgent(
       name = "x",
       outputs = List(ReviewResult(List(finding("from-x"))))
@@ -1906,7 +1961,8 @@ class ReviewAndFixTest extends munit.FunSuite:
     // since converging on nothing is otherwise indistinguishable from a clean
     // review.
     val steps = new ReviewLoopFixture.StepCapture
-    given FlowControl = ReviewLoopFixture.control(steps.dispatcher)
+    val run = ReviewLoopFixture.run(steps.dispatcher)
+    import run.given
     val rosterA = new FakeAgent(name = "a") // no outputs: throws if run
     val emptySelector = selector((_, _) => Nil)
     val coder = new FakeAgent(name = "coder") // throws if a fix turn runs
@@ -1937,7 +1993,8 @@ class ReviewAndFixTest extends munit.FunSuite:
     // accidental duplicate: the reviewer runs a single time (one session, one
     // scripted output — a second concurrent run would race its session mint and
     // drain its empty iterator).
-    given FlowControl = control
+    val run = freshRun
+    import run.given
     val rosterX = new FakeAgent(
       name = "x",
       outputs = List(ReviewResult(List(finding("from-x"))))
@@ -1977,9 +2034,9 @@ class ReviewAndFixTest extends munit.FunSuite:
     val seed = "SEED-MARKER: you are the fixer for this repo."
 
     def fixPromptWhen(existsResult: Boolean): String =
-      val control = ReviewLoopFixture.control(new EventDispatcher(Nil))
+      val run = ReviewLoopFixture.run(new EventDispatcher(Nil))
       // Record the coder session's seed under its id ("s", from the fixture).
-      control.sessionStore.upsert(
+      run.control.sessionStore.upsert(
         SessionRecord(
           name = "s",
           stage = StagePath.FlowBody,
@@ -1989,7 +2046,7 @@ class ReviewAndFixTest extends munit.FunSuite:
           backend = BackendTag.ClaudeCode
         )
       )
-      given FlowControl = control
+      import run.given
       val coder = seedProbingCoder(
         existsResult = existsResult,
         fixOutcome = FixOutcome(Nil, List(DeclinedFinding(Title("x"), "ok")))

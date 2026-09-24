@@ -1,7 +1,14 @@
 package orca.review
 
 import orca.StagePath
-import orca.{FlowContext, FlowSession, InStage, StackSettings, TestFlowControl}
+import orca.{
+  FlowContext,
+  FlowSession,
+  InStage,
+  StackSettings,
+  TestFlowControl,
+  TestRun
+}
 import orca.agents.{Agent, BackendTag, JsonData, SessionId, SessionKey}
 import orca.backend.{AgentResult, IdScheme, SessionSupport, TurnRequest}
 import orca.testkit.{PassthroughPrompts, ScriptedBackend, TestAgent}
@@ -48,53 +55,48 @@ object ReviewLoopFixture:
       SessionKey(name = "coder", stage = StagePath.FlowBody)
     )
 
-  /** A [[TestFlowControl]] (a real temp git repo + progress store) wired to
+  /** A [[TestRun]] (a real temp git repo + progress store) wired to
     * `dispatcher`, so the loop's `emit`s reach the suite's listeners and the
-    * fix turn's `progressStore.load()` works. Serves as the `given FlowControl`
-    * for a `reviewAndFixLoop` call. `lead` wires the context's lead agent —
-    * needed by `ReviewerSelector.default`, whose picker resolves as
+    * fix turn's `progressStore.load()` works. Supplies the givens for a
+    * `reviewAndFixLoop` call. `lead` wires the context's lead agent — needed by
+    * `ReviewerSelector.default`, whose picker resolves as
     * `ctx.reviewAgent.cheap`, and by `Configured.FromSettings` lint resolution
     * (`Lint(stackSettings.lint, ctx.reviewAgent.cheap)`). `stackSettings` seeds
     * the context's resolved settings for the `FromSettings` tests, and
     * `userPrompt` seeds the context's run prompt.
     */
-  def control(
+  def run(
       dispatcher: EventDispatcher,
       lead: Option[Agent[BackendTag.ClaudeCode.type]] = None,
       stackSettings: StackSettings = StackSettings.empty,
       userPrompt: String = "p"
-  ): TestFlowControl =
-    TestFlowControl
-      .create(
-        dispatcher,
-        userPrompt = userPrompt,
-        lead = lead,
-        stackSettings = stackSettings
-      )
-      ._1
+  ): TestRun =
+    TestRun.create(
+      dispatcher,
+      userPrompt = userPrompt,
+      lead = lead,
+      stackSettings = stackSettings
+    )
 
-  /** Like [[control]], but the run carries no starting commit: no header
-    * recorded one, or the one it recorded was dropped as unusable. What
+  /** Like [[run]], but the run carries no starting commit: no header recorded
+    * one, or the one it recorded was dropped as unusable. What
     * `ReviewDiff.WholeRun` has to cope with.
     */
-  def controlWithoutStartingCommit(
-      dispatcher: EventDispatcher
-  ): TestFlowControl =
-    TestFlowControl.create(dispatcher, startingCommitUsable = false)._1
+  def runWithoutStartingCommit(dispatcher: EventDispatcher): TestRun =
+    TestRun.create(dispatcher, startingCommitUsable = false)
 
-  /** Like [[control]], but the recorded starting commit resolves to nothing in
-    * the repo — what a mid-run rebase (or a fresh clone) leaves behind for
+  /** Like [[run]], but the recorded starting commit resolves to nothing in the
+    * repo — what a mid-run rebase (or a fresh clone) leaves behind for
     * `ReviewDiff.WholeRun`'s review-time ancestor probe.
     */
-  def controlWithUnusableStartingCommit(
-      dispatcher: EventDispatcher
-  ): TestFlowControl =
-    val base = TestFlowControl.create(dispatcher)._1
-    new TestFlowControl(
-      base.context,
-      base.progressStore,
-      base.sessionStore,
-      CommitHash.from("0" * 40)
+  def runWithUnusableStartingCommit(dispatcher: EventDispatcher): TestRun =
+    val base = TestRun.create(dispatcher)
+    base.copy(control =
+      new TestFlowControl(
+        base.control.progressStore,
+        base.control.sessionStore,
+        CommitHash.from("0" * 40)
+      )
     )
 
 /** A [[Task]] carrying only a title — what a test that doesn't exercise the

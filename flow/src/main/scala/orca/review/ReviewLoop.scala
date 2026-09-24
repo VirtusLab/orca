@@ -5,10 +5,8 @@ package orca.review
 // shared `InStage`, and an exclusive `FlowControl`/`WorkspaceWrite` capture is
 // a compile error (ADR 0018 §6, pinned by `orca.CcNegativeCompileTest`). That
 // is why `fc`/`ws` are method parameters rather than fields throughout this
-// file, and why `ctx` is taken as its own given: a `FlowContext` derived from
-// `fc` would carry `fc` into the fan-out. Tapir `derives`/macro types don't
-// type-check under CC — keep them in a sibling non-CC file (see
-// FixRequest.scala).
+// file. Tapir `derives`/macro types don't type-check under CC — keep them in a
+// sibling non-CC file (see FixRequest.scala).
 import language.experimental.captureChecking
 import language.experimental.separationChecking
 

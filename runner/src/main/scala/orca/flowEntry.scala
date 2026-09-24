@@ -55,8 +55,8 @@ import java.time.Instant
 import scala.util.control.NonFatal
 
 /** Entry point for flow scripts. Takes the parsed CLI args (required) plus any
-  * number of overrides, then runs the body, providing the `FlowControl` (and
-  * through it the `FlowContext`) as a given.
+  * number of overrides, then runs the body, providing the `FlowContext` and the
+  * `FlowControl` as givens.
   *
   * ```
   * flow(OrcaArgs(args)):
@@ -146,7 +146,7 @@ def flow(
     fs: Option[FsTool] = None,
     prompts: Prompts = DefaultPrompts,
     pricing: PricingTable = Pricing.default
-)(body: FlowControl ?=> Unit): Unit =
+)(body: (FlowContext, FlowControl) ?=> Unit): Unit =
   val flowLog = LoggerFactory.getLogger("orca.flow")
   // A daemon thread or unsupervised fork that throws would otherwise disappear
   // with no diagnostic; this leaves a trail on the console and in the trace.
@@ -292,7 +292,7 @@ def flow(
   * A [[LoggingListener]] is always appended to the request's listeners.
   */
 private[orca] def runFlow(request: RunRequest)(
-    body: FlowControl ?=> Unit
+    body: (FlowContext, FlowControl) ?=> Unit
 ): Unit =
   val workDir = request.workDir
   val wiring = request.wiring
@@ -352,8 +352,8 @@ private[orca] def runFlow(request: RunRequest)(
   * settings files, resolve the three role agents (`RoleAgents.resolveAll`, ADR
   * 0020 §10), run pre-context setup (branch + log binding, stack discovery,
   * `FlowLifecycle.setup`), construct the concretely-typed
-  * [[DefaultFlowContext]] and the [[DefaultFlowControl]] over it, then run
-  * `body` with that control.
+  * [[DefaultFlowContext]] and the [[DefaultFlowControl]], then run `body` with
+  * both.
   *
   * Owns closing the agents: the wired ones and any FOREIGN role (an override
   * from a separate backend) are closed when this returns, on success or
@@ -368,7 +368,7 @@ private def runInContext(
     runtimeGit: RuntimeGit,
     ghTool: GitHubTool,
     fsTool: FsTool
-)(body: FlowControl ?=> Unit): Unit =
+)(body: (FlowContext, FlowControl) ?=> Unit): Unit =
   val debug = OrcaDebug.enabled || args.verbose
   val runKey = RunKey.of(args.userPrompt)
   val store = ProgressStore.default(workDir, runKey)
@@ -447,12 +447,11 @@ private def runInContext(
       reviewerCatalog = reviewerCatalog
     )
     val control = new DefaultFlowControl(
-      context = ctx,
       progressStore = store,
       sessionStore = sessions,
       startingCommit = flowSetup.startingCommit
     )
-    FlowLifecycle.run(control, flowSetup, debug = debug)(body)
+    FlowLifecycle.run(ctx, control, flowSetup, debug = debug)(body)
 
 /** Prints each non-empty section as its own block on stderr, the terminal UI's
   * stream and encoding, so stdout carries only what the flow itself prints.

@@ -1,6 +1,14 @@
 package orca.pr
 
-import orca.{FlowControl, Staged, WorkspaceWrite, gatedStage, git}
+import orca.{
+  FlowContext,
+  FlowControl,
+  Staged,
+  WorkspaceWrite,
+  gatedStage,
+  git,
+  userPrompt
+}
 import orca.agents.{Agent, JsonData, given}
 import orca.tools.{NoDefaultBase, PrHandle}
 
@@ -49,14 +57,12 @@ private[pr] def summarise(
     base: => Either[NoDefaultBase, String],
     context: Option[String],
     instructions: String
-)(using
-    control: FlowControl
-): Either[NoDefaultBase, PrSummary] =
+)(using FlowContext, FlowControl): Either[NoDefaultBase, PrSummary] =
   val (summaryContext, summaryInstructions) = context match
     case Some(c) => (c, instructions)
     case None =>
       (
-        s"User prompt: ${control.context.userPrompt}",
+        s"User prompt: $userPrompt",
         s"$instructions\n\n${PrPrompts.ClosingRefs}"
       )
   gatedStage(SummariseStage)(base): resolved =>

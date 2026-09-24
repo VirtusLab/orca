@@ -12,12 +12,11 @@ import scala.annotation.implicitNotFound
 /** Marker capability: the holder is permitted to start a new stage. Carries the
   * run-state `stage` needs — the progress store and a stack of per-stage
   * occurrence counters yielding each stage a hierarchical, path-structured id
-  * (ADR 0018 §2.1). `stage` requires `(using FlowControl)`; `flow` supplies it.
+  * (ADR 0018 §2.1).
   *
-  * Holds the run's [[FlowContext]] as [[context]] rather than being one, so
-  * `flow` can hand forks only the narrow `FlowContext`, preventing them from
-  * starting nested stages. Where no `FlowContext` given is in scope, one is
-  * derived from the `FlowControl` ([[FlowContext.fromControl]]).
+  * Unrelated to [[FlowContext]]: `flow` provides both as separate givens, so a
+  * fork can capture the `FlowContext` alone. `stage`, and so any helper that
+  * starts stages, requires `(using FlowContext, FlowControl)`.
   *
   * Thread-affine: one `FlowControl` exists per top-level `flow(...)` invocation
   * and must not be shared across threads (ADR 0018 §2.2). Extending
@@ -37,12 +36,9 @@ import scala.annotation.implicitNotFound
   * [[StageFrames]], the mixin shared by every implementation.
   */
 @implicitNotFound(
-  "`stage(...)`, `agent.session(...)`, and `session.run(...)` on a FlowSession can only be called inside a `flow(...)` body — and not inside a `fork` (forks can read and emit, but can't start stages). If this is a helper that starts stages, declare it `(using FlowControl)` so its caller supplies it."
+  "`stage(...)`, `agent.session(...)`, and `session.run(...)` on a FlowSession can only be called inside a `flow(...)` body — and not inside a `fork` (forks can read and emit, but can't start stages). If this is a helper that starts stages, declare it `(using FlowContext, FlowControl)` so its caller supplies both."
 )
 trait FlowControl extends caps.ExclusiveCapability:
-  /** The run's context — what a fork may be handed. */
-  val context: FlowContext
-
   /** The store backing this run's progress log — the committed, branch-carried
     * half of a run's state.
     */

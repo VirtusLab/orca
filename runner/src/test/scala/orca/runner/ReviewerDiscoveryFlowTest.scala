@@ -83,7 +83,7 @@ class ReviewerDiscoveryFlowTest extends munit.FunSuite:
       workDir: os.Path,
       configHome: ConfigHome = FlowHarness.absentConfigHome(),
       listeners: List[orca.events.OrcaListener] = Nil
-  )(body: orca.FlowControl ?=> Unit): Unit =
+  )(body: (orca.FlowContext, orca.FlowControl) ?=> Unit): Unit =
     FlowHarness.driveFlow(
       workDir = workDir,
       wiring = FlowWiring(claude = Some(_ => StubAgent.claude)),

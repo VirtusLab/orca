@@ -1,6 +1,6 @@
 package orca.review
 
-import orca.{Configured, FlowControl}
+import orca.{Configured, TestRun}
 import orca.plan.Title
 import orca.events.EventDispatcher
 import orca.testkit.TempDirs
@@ -15,11 +15,11 @@ class ReviewThenFixTest extends munit.FunSuite:
   /** A control whose lead — and so `ctx.reviewAgent.cheap`, the picker
     * `ReviewerSelector.agentDriven` resolves — is `picker`.
     */
-  private def control(
+  private def runPicking(
       picker: FakeAgent,
       dispatcher: EventDispatcher = new EventDispatcher(Nil)
-  ): FlowControl =
-    ReviewLoopFixture.control(dispatcher, lead = Some(picker.agent))
+  ): TestRun =
+    ReviewLoopFixture.run(dispatcher, lead = Some(picker.agent))
 
   private def picking(names: String*): FakeAgent =
     new FakeAgent("picker", outputs = List(SelectedReviewers(names.toList)))
@@ -31,7 +31,8 @@ class ReviewThenFixTest extends munit.FunSuite:
       new FakeAgent("x", outputs = List(ReviewResult(List(finding("a")))))
     val coder =
       new FakeAgent("coder", outputs = List(FixOutcome(List(Title("a")), Nil)))
-    given FlowControl = control(picking("x"))
+    val run = runPicking(picking("x"))
+    import run.given
     val result = reviewThenFix(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(asReviewer(reviewer)),
@@ -45,7 +46,8 @@ class ReviewThenFixTest extends munit.FunSuite:
     // The coder has no scripted outputs: a fix turn would throw.
     val reviewer = new FakeAgent("quiet", outputs = List(ReviewResult.empty))
     val coder = new FakeAgent("coder")
-    given FlowControl = control(picking("quiet"))
+    val run = runPicking(picking("quiet"))
+    import run.given
     val result = reviewThenFix(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(asReviewer(reviewer)),
@@ -79,7 +81,8 @@ class ReviewThenFixTest extends munit.FunSuite:
         )
       )
     )
-    given FlowControl = control(picking("x"))
+    val run = runPicking(picking("x"))
+    import run.given
     val result = reviewThenFix(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(asReviewer(reviewer)),
@@ -110,7 +113,8 @@ class ReviewThenFixTest extends munit.FunSuite:
     val reviewer =
       new FakeAgent("x", outputs = List(ReviewResult(List(finding("a")))))
     val coder = new FakeAgent("coder", outputs = List(FixOutcome(Nil, Nil)))
-    given FlowControl = control(picking("x"), steps.dispatcher)
+    val run = runPicking(picking("x"), steps.dispatcher)
+    import run.given
     val result = reviewThenFix(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(asReviewer(reviewer)),
@@ -135,7 +139,8 @@ class ReviewThenFixTest extends munit.FunSuite:
       new FakeAgent("x", outputs = List(ReviewResult(List(finding("a")))))
     val coder =
       new FakeAgent("coder", outputs = List(FixOutcome(List(Title("a")), Nil)))
-    given FlowControl = control(picking("x"), steps.dispatcher)
+    val run = runPicking(picking("x"), steps.dispatcher)
+    import run.given
     val _ = reviewThenFix(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(asReviewer(reviewer)),
@@ -156,7 +161,8 @@ class ReviewThenFixTest extends munit.FunSuite:
       new FakeAgent("x", outputs = List(ReviewResult(List(finding("a")))))
     val coder =
       new FakeAgent("coder", outputs = List(FixOutcome(List(Title("a")), Nil)))
-    given FlowControl = control(picking("x"), steps.dispatcher)
+    val run = runPicking(picking("x"), steps.dispatcher)
+    import run.given
     val _ = reviewThenFix(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(asReviewer(reviewer)),
@@ -176,7 +182,8 @@ class ReviewThenFixTest extends munit.FunSuite:
       new FakeAgent("x", outputs = List(ReviewResult(List(finding("a")))))
     val coder =
       new FakeAgent("coder", outputs = List(FixOutcome(List(Title("a")), Nil)))
-    given FlowControl = control(picking("x"))
+    val run = runPicking(picking("x"))
+    import run.given
     val _ = reviewThenFix(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(asReviewer(reviewer)),
@@ -190,13 +197,13 @@ class ReviewThenFixTest extends munit.FunSuite:
     // the fixer's edits and re-drives it once — reviewer findings alone stay
     // single-pass.
     val steps = new ReviewLoopFixture.StepCapture
-    val fc =
-      ReviewLoopFixture.control(
+    val run =
+      ReviewLoopFixture.run(
         steps.dispatcher,
         lead = Some(picking("x").agent)
       )
-    given FlowControl = fc
-    val flag = fc.context.workDir / "lint-passes"
+    import run.given
+    val flag = run.context.workDir / "lint-passes"
     val reviewer =
       new FakeAgent("x", outputs = List(ReviewResult(List(finding("a")))))
     // Scripted for the two calls that reach the summariser — round one and the
@@ -233,12 +240,12 @@ class ReviewThenFixTest extends munit.FunSuite:
     // One re-drive is the whole budget: what still fails lands in the record
     // under a warning, and no third fix turn runs.
     val steps = new ReviewLoopFixture.StepCapture
-    val fc =
-      ReviewLoopFixture.control(
+    val run =
+      ReviewLoopFixture.run(
         steps.dispatcher,
         lead = Some(picking("x").agent)
       )
-    given FlowControl = fc
+    import run.given
     val reviewer =
       new FakeAgent("x", outputs = List(ReviewResult(List(finding("a")))))
     // Round one, the post-fix re-check, and the check after the lint-scoped
@@ -286,7 +293,8 @@ class ReviewThenFixTest extends munit.FunSuite:
     // The re-check reports the same lint finding the fixer declined; it is one
     // finding, now open because lint still fails.
     val steps = new ReviewLoopFixture.StepCapture
-    given FlowControl = control(picking("x"), steps.dispatcher)
+    val run = runPicking(picking("x"), steps.dispatcher)
+    import run.given
     val reviewer =
       new FakeAgent("x", outputs = List(ReviewResult(List(finding("a")))))
     val lintBroke = ReviewResult(List(finding("lint broke")))
@@ -326,7 +334,8 @@ class ReviewThenFixTest extends munit.FunSuite:
     // The re-lint runs after the round, so its findings are the ones the
     // round's own location index cannot hold.
     val steps = new ReviewLoopFixture.StepCapture
-    given FlowControl = control(picking("x"), steps.dispatcher)
+    val run = runPicking(picking("x"), steps.dispatcher)
+    import run.given
     val reviewer =
       new FakeAgent("x", outputs = List(ReviewResult(List(finding("a")))))
     val lintBroke = ReviewFinding(
@@ -376,7 +385,8 @@ class ReviewThenFixTest extends munit.FunSuite:
     val coder =
       new FakeAgent("coder", outputs = List(FixOutcome(List(Title("a")), Nil)))
     val picker = picking("x")
-    given FlowControl = control(picker)
+    val run = runPicking(picker)
+    import run.given
     val _ = reviewThenFix(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(asReviewer(reviewer), asReviewer(unpicked)),

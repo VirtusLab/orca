@@ -748,7 +748,8 @@ compile error with a message telling you where the call belongs:
 | `FlowControl` | exclusive (`caps.ExclusiveCapability`) | starting stages, minting sessions | the `flow(...)` body (not forks) | missing-given compile error + a runtime owner-thread check |
 
 (`FlowContext` — reads and event emission — is deliberately *not* a capability:
-it is thread-safe and forks receive it freely.)
+it is thread-safe and forks receive it freely.) A helper that starts stages
+declares `(using FlowContext, FlowControl)`.
 
 The runtime always guards this at run time — a fork that calls
 `stage(...)`/`session(...)` or makes a workspace write fails immediately, a second `flow(...)` in the same

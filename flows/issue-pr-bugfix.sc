@@ -179,6 +179,7 @@ def prSummary(note: String, issue: Issue)(using
   * aborts a sound one.
   */
 def confirmReproductionMatches(pr: PrHandle, issue: Issue)(using
+    FlowContext,
     FlowControl
 ): Unit =
   stage("Post focused failure comment"):
@@ -230,7 +231,7 @@ def confirmReproductionMatches(pr: PrHandle, issue: Issue)(using
 def planAndImplementFix(
     issuePayload: String,
     failingTestPath: String
-)(using FlowControl): OpenFindings =
+)(using FlowContext, FlowControl): OpenFindings =
   val fixPlan = stage("Plan the fix"):
     Plan.autonomous
       .from(

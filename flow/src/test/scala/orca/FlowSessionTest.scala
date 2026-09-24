@@ -79,7 +79,7 @@ class FlowSessionTest extends FunSuite:
     support
 
   /** A fixed session id used across all tests; avoids UUID randomness in
-    * assertions and lets `makeControl` pre-populate the log without forward
+    * assertions and lets `makeRun` pre-populate the log without forward
     * references.
     */
   private val testSessionId = "test-session-uuid-1234"
@@ -211,15 +211,15 @@ class FlowSessionTest extends FunSuite:
 
   // ── test helpers ──────────────────────────────────────────────────────────
 
-  /** Build a `TestFlowControl` over a temp dir with a header already written.
+  /** Build a [[TestRun]] over a temp dir with a header already written.
     * Optionally writes session records and/or completed stage entries so tests
     * can exercise the "progress preamble" and "recorded seed" paths.
     */
-  private def makeControl(
+  private def makeRun(
       sessions: List[SessionRecord],
       completedStages: List[String] = Nil,
       listeners: List[orca.events.OrcaListener] = Nil
-  ): TestFlowControl =
+  ): TestRun =
     val dir = TempDirs.dir()
     val store = ProgressStore.default(dir, RunKey.of("p"))
     val sessionStore = SessionStore.default(dir, RunKey.of("p"))
@@ -243,14 +243,14 @@ class FlowSessionTest extends FunSuite:
         )
       )
     val git = new orca.tools.OsGitTool(dir)
-    new TestFlowControl(
+    TestRun(
+      new TestFlowControl(store, sessionStore),
       new TestFlowContext(
         new orca.events.EventDispatcher(listeners),
         "p",
         wiredGit = Some(git)
       ),
-      store,
-      sessionStore
+      dir
     )
 
   /** A record whose `resumeWireId` is set is one a PREVIOUS run committed a
@@ -295,7 +295,7 @@ class FlowSessionTest extends FunSuite:
 
   test("live session: prompt forwarded verbatim, no preamble, no seed"):
     val seed = "You are a planning agent."
-    val fc = makeControl(
+    val run = makeRun(
       sessions = List(
         SessionRecord(
           name = "s",
@@ -307,9 +307,11 @@ class FlowSessionTest extends FunSuite:
         )
       )
     )
+    import run.given
     val agent = new StubAgentForSeeded(existsResult = true)
     val originalPrompt = "implement feature X"
-    val _ = flowSession(agent).run(originalPrompt)(using fc)
+    val _ =
+      flowSession(agent).run(originalPrompt)
     assertEquals(
       agent.capturedPrompt,
       Some(originalPrompt),
@@ -319,12 +321,13 @@ class FlowSessionTest extends FunSuite:
   test(
     "conversation carried over from a previous run: its first turn is told the tree lost the uncommitted work"
   ):
-    val fc = makeControl(sessions = carriedOver)
+    val run = makeRun(sessions = carriedOver)
+    import run.given
     val agent = new StubAgentForSeeded(
       existsResult = true,
       durability = StubDurability.Rehydrated
     )
-    val _ = flowSession(agent).run("continue the task")(using fc)
+    val _ = flowSession(agent).run("continue the task")
     val prompt = agent.capturedPrompt.getOrElse(fail("no prompt captured"))
     assert(
       prompt.contains("The previous attempt at this run was interrupted."),
@@ -353,7 +356,7 @@ class FlowSessionTest extends FunSuite:
     // transcript and holds the conversation under the claimed id. It is
     // continued, and its memory predates this run just as a recorded one's
     // does.
-    val fc = makeControl(sessions =
+    val run = makeRun(sessions =
       List(
         SessionRecord(
           name = "s",
@@ -365,11 +368,12 @@ class FlowSessionTest extends FunSuite:
         )
       )
     )
+    import run.given
     val agent = new StubAgentForSeeded(
       existsResult = false,
       durability = StubDurability.HeldClaim
     )
-    val _ = flowSession(agent).run("continue the task")(using fc)
+    val _ = flowSession(agent).run("continue the task")
     val prompt = agent.capturedPrompt.getOrElse(fail("no prompt captured"))
     assert(
       prompt.contains(NoticeInstruction),
@@ -385,14 +389,15 @@ class FlowSessionTest extends FunSuite:
   ):
     // The fixer drives one session for several turns inside a stage; from the
     // second turn the uncommitted edits in the tree are this run's own.
-    val fc = makeControl(sessions = carriedOver)
+    val run = makeRun(sessions = carriedOver)
+    import run.given
     val agent = new StubAgentForSeeded(
       existsResult = true,
       durability = StubDurability.Rehydrated
     )
     val session = flowSession(agent)
-    val _ = session.run("first")(using fc)
-    val _ = session.run("second")(using fc)
+    val _ = session.run("first")
+    val _ = session.run("second")
     assertEquals(
       agent.capturedPrompts(1),
       "second",
@@ -404,13 +409,14 @@ class FlowSessionTest extends FunSuite:
   ):
     // The seed + preamble path already says an unfinished stage left nothing
     // behind, so a second telling would be a duplicate.
-    val fc =
-      makeControl(sessions = carriedOver, completedStages = List("triage"))
+    val run =
+      makeRun(sessions = carriedOver, completedStages = List("triage"))
+    import run.given
     val agent = new StubAgentForSeeded(
       existsResult = false,
       durability = StubDurability.Rehydrated
     )
-    val _ = flowSession(agent).run("continue")(using fc)
+    val _ = flowSession(agent).run("continue")
     val prompt = agent.capturedPrompt.getOrElse(fail("no prompt captured"))
     assert(
       prompt.contains("a stage that did not complete left nothing behind"),
@@ -425,12 +431,13 @@ class FlowSessionTest extends FunSuite:
     "carried-over conversation the backend lost: the wire opens fresh too"
   ):
     // The prompt side re-seeds, so the spawn must not resume the lost id.
-    val fc = makeControl(sessions = carriedOver)
+    val run = makeRun(sessions = carriedOver)
+    import run.given
     val agent = new StubAgentForSeeded(
       existsResult = false,
       durability = StubDurability.Rehydrated
     )
-    val _ = flowSession(agent).run("continue")(using fc)
+    val _ = flowSession(agent).run("continue")
     assertEquals(agent.capturedDispatch, Some(Dispatch.Fresh(None)))
 
   test(
@@ -440,12 +447,13 @@ class FlowSessionTest extends FunSuite:
     // though each one's memory predates the run just as the first's does. The
     // two records need distinct names: the store keys a record by (name,
     // stage).
-    val fc = makeControl(sessions =
+    val run = makeRun(sessions =
       List(
         carriedOverRecord("s", testSessionId),
         carriedOverRecord("other", otherSessionId)
       )
     )
+    import run.given
     val first = new StubAgentForSeeded(
       existsResult = true,
       durability = StubDurability.Rehydrated
@@ -455,9 +463,9 @@ class FlowSessionTest extends FunSuite:
       durability = StubDurability.Rehydrated,
       durableSession = otherSession
     )
-    val _ = flowSession(first).run("first conversation")(using fc)
+    val _ = flowSession(first).run("first conversation")
     val _ = new FlowSession(second.agent.chat(otherSession), otherSessionKey)
-      .run("second conversation")(using fc)
+      .run("second conversation")
     assert(
       first.capturedPrompt.exists(_.contains(NoticeInstruction)),
       s"the first conversation must be told; got: ${first.capturedPrompt}"
@@ -474,14 +482,15 @@ class FlowSessionTest extends FunSuite:
     // conversation live — the shape of a session whose recorded conversation
     // was gone and which this run reopened. The turn claim is taken on every
     // turn, so turn 2 is not mistaken for the first.
-    val fc = makeControl(sessions = carriedOver)
+    val run = makeRun(sessions = carriedOver)
+    import run.given
     val agent = new StubAgentForSeeded(
       existsResult = false,
       durability = StubDurability.InProcess
     )
     val session = flowSession(agent)
-    val _ = session.run("first")(using fc)
-    val _ = session.run("second")(using fc)
+    val _ = session.run("first")
+    val _ = session.run("second")
     assertEquals(
       agent.capturedPrompts(1),
       "second",
@@ -492,7 +501,7 @@ class FlowSessionTest extends FunSuite:
     "fresh session (not exists, no completed stages): seed + prompt, no preamble"
   ):
     val seed = "You are a planning agent."
-    val fc = makeControl(
+    val run = makeRun(
       sessions = List(
         SessionRecord(
           name = "s",
@@ -504,9 +513,11 @@ class FlowSessionTest extends FunSuite:
         )
       )
     )
+    import run.given
     val agent = new StubAgentForSeeded(existsResult = false)
     val originalPrompt = "implement feature X"
-    val _ = flowSession(agent).run(originalPrompt)(using fc)
+    val _ =
+      flowSession(agent).run(originalPrompt)
     val prompt = agent.capturedPrompt.getOrElse(fail("no prompt captured"))
     assert(prompt.contains(seed), s"prompt must contain seed; got: $prompt")
     assert(
@@ -522,7 +533,7 @@ class FlowSessionTest extends FunSuite:
     // The durable door persists to the progress log, which is single-threaded
     // per flow — the owner-thread assert refuses it off the flow thread even
     // in code the capture checker never sees (a plain .sc script's fork).
-    val fc = makeControl(
+    val run = makeRun(
       sessions = List(
         SessionRecord(
           name = "s",
@@ -534,10 +545,15 @@ class FlowSessionTest extends FunSuite:
         )
       )
     )
+    import run.given
     val agent = new StubAgentForSeeded(existsResult = true)
     import ox.*
     val outcome = supervised:
-      fork(scala.util.Try(flowSession(agent).run("p")(using fc))).join()
+      fork(
+        scala.util.Try(
+          flowSession(agent).run("p")
+        )
+      ).join()
     val thrown = outcome.failed.toOption
     assert(
       thrown.exists(e =>
@@ -557,7 +573,7 @@ class FlowSessionTest extends FunSuite:
       def onEvent(event: orca.events.OrcaEvent): Unit = event match
         case orca.events.OrcaEvent.Step(msg) => steps += msg
         case _                               => ()
-    val fc = makeControl(
+    val run = makeRun(
       sessions = List(
         SessionRecord(
           name = "s",
@@ -570,8 +586,9 @@ class FlowSessionTest extends FunSuite:
       ),
       listeners = List(listener)
     )
+    import run.given
     val agent = new StubAgentForSeeded(existsResult = false)
-    val _ = flowSession(agent).run("continue")(using fc)
+    val _ = flowSession(agent).run("continue")
     assert(
       steps.exists(s => s.contains("re-seeding") && s.contains("'s'")),
       s"expected a re-seed warning naming the session; got: $steps"
@@ -583,7 +600,7 @@ class FlowSessionTest extends FunSuite:
       def onEvent(event: orca.events.OrcaEvent): Unit = event match
         case orca.events.OrcaEvent.Step(msg) => steps += msg
         case _                               => ()
-    val fc = makeControl(
+    val run = makeRun(
       sessions = List(
         SessionRecord(
           name = "s",
@@ -596,8 +613,9 @@ class FlowSessionTest extends FunSuite:
       ),
       listeners = List(listener)
     )
+    import run.given
     val agent = new StubAgentForSeeded(existsResult = false)
-    val _ = flowSession(agent).run("kick off")(using fc)
+    val _ = flowSession(agent).run("kick off")
     assert(
       !steps.exists(_.contains("re-seeding")),
       s"first use must not warn; got: $steps"
@@ -607,7 +625,7 @@ class FlowSessionTest extends FunSuite:
     "lost session on resume (not exists, completed stages): preamble + seed + prompt"
   ):
     val seed = "You are a planning agent."
-    val fc = makeControl(
+    val run = makeRun(
       sessions = List(
         SessionRecord(
           name = "s",
@@ -620,9 +638,11 @@ class FlowSessionTest extends FunSuite:
       ),
       completedStages = List("triage", "implement")
     )
+    import run.given
     val agent = new StubAgentForSeeded(existsResult = false)
     val originalPrompt = "continue the work"
-    val _ = flowSession(agent).run(originalPrompt)(using fc)
+    val _ =
+      flowSession(agent).run(originalPrompt)
     val prompt = agent.capturedPrompt.getOrElse(fail("no prompt captured"))
     assert(
       prompt.contains("Progress so far"),
@@ -667,10 +687,12 @@ class FlowSessionTest extends FunSuite:
     // Session id not in the log -> seed treated as absent; no preamble
     // (no completed stages) -> prompt must be forwarded verbatim with no
     // leading `---` separator or seed blob.
-    val fc = makeControl(sessions = Nil)
+    val run = makeRun(sessions = Nil)
+    import run.given
     val agent = new StubAgentForSeeded(existsResult = false)
     val originalPrompt = "do something"
-    val _ = flowSession(agent).run(originalPrompt)(using fc)
+    val _ =
+      flowSession(agent).run(originalPrompt)
     assertEquals(
       agent.capturedPrompt,
       Some(originalPrompt),
@@ -684,7 +706,7 @@ class FlowSessionTest extends FunSuite:
     // a preamble is generated.  The prompt must contain the preamble and the
     // original prompt but MUST NOT contain a seed blob (it's empty) and MUST
     // NOT start with `---` (the separator only appears between context and prompt).
-    val fc = makeControl(
+    val run = makeRun(
       sessions = List(
         SessionRecord(
           name = "s",
@@ -697,9 +719,11 @@ class FlowSessionTest extends FunSuite:
       ),
       completedStages = List("triage")
     )
+    import run.given
     val agent = new StubAgentForSeeded(existsResult = false)
     val originalPrompt = "continue"
-    val _ = flowSession(agent).run(originalPrompt)(using fc)
+    val _ =
+      flowSession(agent).run(originalPrompt)
     val prompt = agent.capturedPrompt.getOrElse(fail("no prompt captured"))
     assert(
       prompt.contains("Progress so far"),
@@ -717,7 +741,7 @@ class FlowSessionTest extends FunSuite:
   test(
     "re-seeded session: the preamble names the commit the tree is at and says an unfinished stage left nothing"
   ):
-    // A real repo, unlike `makeControl`'s bare temp dir, so `headCommit()` has
+    // A real repo, unlike `makeRun`'s bare temp dir, so `headCommit()` has
     // something to report.
     val dir = GitRepo.seeded()
     val store = ProgressStore.default(dir, RunKey.of("p"))
@@ -749,17 +773,18 @@ class FlowSessionTest extends FunSuite:
       )
     )
     val git = new orca.tools.OsGitTool(dir)
-    val fc = new TestFlowControl(
+    val run = TestRun(
+      new TestFlowControl(store, sessionStore),
       new TestFlowContext(
         new orca.events.EventDispatcher(Nil),
         "p",
         wiredGit = Some(git)
       ),
-      store,
-      sessionStore
+      dir
     )
+    import run.given
     val agent = new StubAgentForSeeded(existsResult = false)
-    val _ = flowSession(agent).run("continue")(using fc)
+    val _ = flowSession(agent).run("continue")
     val prompt = agent.capturedPrompt.getOrElse(fail("no prompt captured"))
     val head = git.headCommit().getOrElse(fail("no HEAD in the seeded repo"))
     assert(
@@ -779,7 +804,7 @@ class FlowSessionTest extends FunSuite:
     // reads the in-process claim, so a live one runs the prompt verbatim. The stub claims the id after each run (as a real
     // backend turn does), so the SECOND run must NOT re-inject seed/preamble.
     val seed = "You are a planning agent."
-    val fc = makeControl(
+    val run = makeRun(
       sessions = List(
         SessionRecord(
           name = "s",
@@ -791,13 +816,14 @@ class FlowSessionTest extends FunSuite:
         )
       )
     )
+    import run.given
     val agent = new StubAgentForSeeded(
       existsResult = false,
       durability = StubDurability.InProcess
     )
     val fs = flowSession(agent)
-    val _ = fs.run("task one")(using fc)
-    val _ = fs.run("task two")(using fc)
+    val _ = fs.run("task one")
+    val _ = fs.run("task two")
     val prompts = agent.capturedPrompts
     assert(
       prompts(0).contains(seed),
@@ -812,20 +838,24 @@ class FlowSessionTest extends FunSuite:
   test("run hands the session's key to the turn, for SessionCommitted"):
     // The manifest's session name, minting stage and `kind` all come off the
     // event, so the whole key has to reach the emission edge from here.
-    val fc = makeControl(sessions = Nil)
+    val run = makeRun(sessions = Nil)
+    import run.given
     val agent = new StubAgentForSeeded(existsResult = true)
-    val _ = flowSession(agent).run("prompt")(using fc)
+    val _ = flowSession(agent).run("prompt")
     assertEquals(agent.capturedSessionKeys, List(Some(testSessionKey)))
 
   test("resultAs.run hands the session's key to the turn"):
-    val fc = makeControl(sessions = Nil)
+    val run = makeRun(sessions = Nil)
+    import run.given
     val agent = new StubAgentForSeeded(existsResult = true)
-    val _ = flowSession(agent).resultAs[StubResult].run("prompt")(using fc)
+    val _ = flowSession(agent)
+      .resultAs[StubResult]
+      .run("prompt")
     assertEquals(agent.capturedSessionKeys, List(Some(testSessionKey)))
 
   test("run returns the output from autonomous.run"):
     val seed = "seed text"
-    val fc = makeControl(
+    val run = makeRun(
       sessions = List(
         SessionRecord(
           name = "s",
@@ -837,16 +867,17 @@ class FlowSessionTest extends FunSuite:
         )
       )
     )
+    import run.given
     val agent =
       new StubAgentForSeeded(existsResult = false, runResult = "agent output")
     val session = flowSession(agent)
-    val output = session.run("prompt")(using fc)
+    val output = session.run("prompt")
     assertEquals(output, "agent output")
 
   test(
     "run persists a newly-learned wire id into the SessionRecord"
   ):
-    val fc = makeControl(
+    val run = makeRun(
       sessions = List(
         SessionRecord(
           name = "s",
@@ -858,20 +889,21 @@ class FlowSessionTest extends FunSuite:
         )
       )
     )
+    import run.given
     val agent = new StubAgentForSeeded(
       existsResult = false,
       learnedWireId = "server-thread-xyz"
     )
-    val _ = flowSession(agent).run("prompt")(using fc)
+    val _ = flowSession(agent).run("prompt")
     val record =
-      fc.sessionStore.records().find(_.id == testSessionId).get
+      run.control.sessionStore.records().find(_.id == testSessionId).get
     assertEquals(record.resumeWireId, Some("server-thread-xyz"))
 
   test(
     "run leaves resumeWireId None when the backend reports no wire id"
   ):
     // Ephemeral sessions: resumeWireId returns None.
-    val fc = makeControl(
+    val run = makeRun(
       sessions = List(
         SessionRecord(
           name = "s",
@@ -883,13 +915,14 @@ class FlowSessionTest extends FunSuite:
         )
       )
     )
+    import run.given
     val agent = new StubAgentForSeeded(
       existsResult = false,
       durability = StubDurability.InProcess
     )
-    val _ = flowSession(agent).run("prompt")(using fc)
+    val _ = flowSession(agent).run("prompt")
     val record =
-      fc.sessionStore.records().find(_.id == testSessionId).get
+      run.control.sessionStore.records().find(_.id == testSessionId).get
     assertEquals(record.resumeWireId, None)
 
   test(
@@ -897,7 +930,7 @@ class FlowSessionTest extends FunSuite:
   ):
     // The guard in persistResumeWireId calls agent.resumeWireId(session).foreach { … }
     // so a None result short-circuits and the record's resumeWireId is left intact.
-    val fc = makeControl(
+    val run = makeRun(
       sessions = List(
         SessionRecord(
           name = "s",
@@ -909,13 +942,14 @@ class FlowSessionTest extends FunSuite:
         )
       )
     )
+    import run.given
     val agent = new StubAgentForSeeded(
       existsResult = false,
       durability = StubDurability.InProcess
     )
-    val _ = flowSession(agent).run("prompt")(using fc)
+    val _ = flowSession(agent).run("prompt")
     val record =
-      fc.sessionStore.records().find(_.id == testSessionId).get
+      run.control.sessionStore.records().find(_.id == testSessionId).get
     assertEquals(
       record.resumeWireId,
       Some("server-1"),
@@ -930,7 +964,7 @@ class FlowSessionTest extends FunSuite:
     // The structured door must follow the same seed/probe/persist protocol as
     // the free-text door.
     val seed = "You are a fixer."
-    val fc = makeControl(
+    val run = makeRun(
       sessions = List(
         SessionRecord(
           name = "s",
@@ -943,6 +977,7 @@ class FlowSessionTest extends FunSuite:
       ),
       completedStages = List("triage")
     )
+    import run.given
     val agent = new StubAgentForSeeded(
       existsResult = false,
       learnedWireId = "server-structured-1"
@@ -950,9 +985,7 @@ class FlowSessionTest extends FunSuite:
     val result =
       flowSession(agent)
         .resultAs[StubResult]
-        .run("do the fix")(using
-          fc
-        )
+        .run("do the fix")
     assertEquals(result, StubResult("ok"))
     val prompt = agent.capturedPrompt.getOrElse(fail("no prompt captured"))
     assert(
@@ -968,7 +1001,7 @@ class FlowSessionTest extends FunSuite:
       s"structured door must include the input; got: $prompt"
     )
     val record =
-      fc.sessionStore.records().find(_.id == testSessionId).get
+      run.control.sessionStore.records().find(_.id == testSessionId).get
     assertEquals(record.resumeWireId, Some("server-structured-1"))
 
   test(
@@ -976,14 +1009,15 @@ class FlowSessionTest extends FunSuite:
   ):
     // The fix turn drives this door exclusively, so a resume whose first
     // durable turn is a fix turn depends on it.
-    val fc = makeControl(sessions = carriedOver)
+    val run = makeRun(sessions = carriedOver)
+    import run.given
     val agent = new StubAgentForSeeded(
       existsResult = true,
       durability = StubDurability.Rehydrated
     )
     val _ = flowSession(agent)
       .resultAs[StubResult]
-      .run("continue the task")(using fc)
+      .run("continue the task")
     val prompt = agent.capturedPrompt.getOrElse(fail("no prompt captured"))
     assert(
       prompt.contains(NoticeInstruction),
@@ -991,7 +1025,7 @@ class FlowSessionTest extends FunSuite:
     )
 
   test("resultAs.run on a live session forwards the input verbatim"):
-    val fc = makeControl(
+    val run = makeRun(
       sessions = List(
         SessionRecord(
           name = "s",
@@ -1003,11 +1037,10 @@ class FlowSessionTest extends FunSuite:
         )
       )
     )
+    import run.given
     val agent = new StubAgentForSeeded(existsResult = true)
     val _ =
       flowSession(agent)
         .resultAs[StubResult]
-        .run("continue")(using
-          fc
-        )
+        .run("continue")
     assertEquals(agent.capturedPrompt, Some("continue"))
