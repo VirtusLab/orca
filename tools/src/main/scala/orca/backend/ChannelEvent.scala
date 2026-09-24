@@ -10,7 +10,7 @@ enum ChannelEvent:
     * The decoder owns the matching request-id bookkeeping; the closure captures
     * it.
     */
-  case ApproveTool(
+  case ApproveTool private[orca] (
       toolName: String,
       rawInput: String,
       respond: ApprovalDecision => Unit
@@ -18,12 +18,10 @@ enum ChannelEvent:
 
   /** The agent wants a free-form answer from the user. The channel displays
     * `question`, reads a reply, and calls `respond` exactly once with what the
-    * user typed; the backend feeds the answer back as a tool result.
-    *
-    * Only emitted by backends whose `LiveTurn.canAskUser` is true — claude and
-    * codex (both via the shared `AskUserMcpServer`).
+    * user typed; the backend feeds the answer back as a tool result. Only
+    * emitted by turns whose `LiveTurn.canAskUser` is true.
     */
-  case UserQuestion(question: String, respond: String => Unit)
+  case UserQuestion private[orca] (question: String, respond: String => Unit)
 
 /** Channel's answer to a [[ChannelEvent.ApproveTool]] prompt. */
 enum ApprovalDecision:

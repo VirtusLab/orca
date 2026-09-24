@@ -6,11 +6,10 @@ package orca.backend
   *
   * The deltas stream as the agent responds. `AssistantToolCall` is purely
   * informational; `ToolResult` echoes what the SDK reported back to the model.
-  * `Approval` and `Question` carry the [[ChannelEvent]]s that must be answered.
+  * `Approval` and `Question` carry the [[ChannelEvent]]s the channel answers.
   *
   * Distinct from [[OrcaEvent]], which fans out flow-wide: [[ObservedTurn]]
-  * turns these into `OrcaEvent`s, handing the channel only the
-  * [[ChannelEvent]]s.
+  * turns the rest into `OrcaEvent`s.
   *
   * ==Message grammar (the contract every decoder honours)==
   *
@@ -66,9 +65,7 @@ private[orca] enum TurnEvent:
   /** A [[ChannelEvent.ApproveTool]] for the channel to answer. */
   case Approval(request: ChannelEvent.ApproveTool)
 
-  /** A [[ChannelEvent.UserQuestion]] for the channel to answer. Only emitted by
-    * backends whose [[LiveTurn.canAskUser]] is true.
-    */
+  /** A [[ChannelEvent.UserQuestion]] for the channel to answer. */
   case Question(request: ChannelEvent.UserQuestion)
 
   /** True for the events the "Message grammar" scaladoc above classifies as

@@ -19,8 +19,8 @@ private[cli] object ContinueCli:
 
   /** `continue`'s full behavior over explicit `dirs`/`tty`/`pidAlive` (test
     * seam) — tests seed each directory with `.orca/cache/attempts/` manifests,
-    * simulate either a terminal or a pipe via `tty`, and decide which attempt
-    * pids are alive. The directories arrive resolved
+    * simulate a terminal or a pipe via `tty`, and fake pid liveness via
+    * `pidAlive`. The directories arrive resolved
     * ([[orca.shell.WorktreeScan.dirs]], at the real entry point), so nothing
     * here spawns git.
     */

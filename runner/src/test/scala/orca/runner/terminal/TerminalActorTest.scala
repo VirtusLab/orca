@@ -210,14 +210,17 @@ class TerminalActorTest extends munit.FunSuite:
       inSuspend.await()
       val promptingThread = promptingThreadRef.get()
       promptingThread.interrupt()
-      // The ask's `CompletableFuture.get` clears the flag, then returns normally
-      // if the result has landed by now — so `suspend` stays blocked until the
-      // fork parks again. With no result, that park can only be the
-      // resume-ask's, after the suspend-ask threw. Wait for the cleared flag
-      // first: the fork was already WAITING before it noticed the interrupt.
+      // `CompletableFuture.get` clears the flag and still returns normally if
+      // its result lands before it re-checks, so `suspend` stays blocked until
+      // the fork parks again. With the suspend-ask's result pending, its `get`
+      // must throw, and the next park is the resume-ask's. Wait for the flag
+      // to clear first: the fork was already WAITING before it noticed the
+      // interrupt.
       while promptingThread.isInterrupted do Thread.onSpinWait()
-      while promptingThread.getState != Thread.State.WAITING do
-        Thread.onSpinWait()
+      // A fork that ends instead leaves the assertion below to report it.
+      while !Set(Thread.State.WAITING, Thread.State.TERMINATED)
+          .contains(promptingThread.getState)
+      do Thread.onSpinWait()
       releaseSuspend.countDown()
       prompting.join()
       output.log("after")

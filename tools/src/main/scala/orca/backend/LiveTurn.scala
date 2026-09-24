@@ -47,9 +47,8 @@ private[orca] trait LiveTurn[B <: BackendTag]:
   /** Whether the agent can pause to ask the host user a clarifying question and
     * have the answer routed back into its turn. When `true`, the turn emits
     * [[ChannelEvent.UserQuestion]]s whose `respond` closure delivers the typed
-    * answer to the blocked agent. True for interactive claude and codex turns
-    * (both via the shared `AskUserMcpServer`); false for autonomous turns and
-    * backends that don't wire the bridge.
+    * answer to the blocked agent. False for autonomous turns and for backends
+    * that don't wire `ask_user`.
     */
   def canAskUser: Boolean
 
