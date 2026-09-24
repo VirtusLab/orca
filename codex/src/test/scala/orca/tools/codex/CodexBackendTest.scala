@@ -229,7 +229,7 @@ class CodexBackendTest extends munit.FunSuite:
   test(
     "registerSession after an interactive call lets a follow-up autonomous call resume"
   ):
-    // Codex's server thread id is learned inside the conversation drain, so the
+    // Codex's server thread id is learned inside the turn drain, so the
     // framework registers the client→server mapping post-drain. Once
     // registered, a follow-up autonomous call resumes rather than starting a
     // fresh `exec`.

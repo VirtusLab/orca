@@ -1,6 +1,6 @@
 package orca.tools.claude
 
-import orca.testkit.{ScriptedBackend, ScriptedConversation}
+import orca.testkit.{ScriptedBackend, ScriptedTurn}
 import orca.{AgentTurnFailed, OrcaFlowException, OrcaInteractiveCancelled}
 import orca.agents.{
   AutoApprove,
@@ -21,8 +21,8 @@ import orca.testkit.Usages.usage
 
 import orca.backend.{
   AgentResult,
-  Conversation,
-  ConversationEvent,
+  LiveTurn,
+  TurnEvent,
   IdScheme,
   Interaction,
   SessionSupport,
@@ -91,7 +91,7 @@ class AgentCallTest extends munit.FunSuite:
   private val stubInteraction: Interaction = new Interaction:
     val listeners: List[OrcaListener] = Nil
     def drive[B <: BackendTag](
-        conversation: orca.backend.ObservedConversation[B]
+        turn: orca.backend.ObservedTurn[B]
     ): AgentResult[B] =
       throw new UnsupportedOperationException("test stub")
 
@@ -103,7 +103,7 @@ class AgentCallTest extends munit.FunSuite:
     new Interaction:
       val listeners: List[OrcaListener] = Nil
       def drive[B <: BackendTag](
-          conversation: orca.backend.ObservedConversation[B]
+          turn: orca.backend.ObservedTurn[B]
       ): AgentResult[B] =
         AgentResult[B](
           wireId = WireSessionId[B](wireId),
@@ -256,7 +256,7 @@ class AgentCallTest extends munit.FunSuite:
     "autonomous forwards a Some(schema) to backend.runAutonomous"
   ):
     // Structured calls must carry their generated schema down to the backend so
-    // the conversation knows it's in structured mode (drain suppresses raw JSON)
+    // the turn knows it's in structured mode (drain suppresses raw JSON)
     // and the CLI gets `--json-schema`/`--output-schema`.
     val backend = new SequencedBackend(List("""{"value":1}"""))
     supervised:
@@ -280,9 +280,9 @@ class AgentCallTest extends munit.FunSuite:
     val backend = new SequencedBackend(List("""{"value":1}""")):
       override protected[orca] def open(
           turn: TurnRequest[BackendTag.ClaudeCode.type]
-      )(using ox.Ox): Conversation[BackendTag.ClaudeCode.type] =
-        new ScriptedConversation(
-          List(ConversationEvent.AssistantToolCall("Read", "{}")),
+      )(using ox.Ox): LiveTurn[BackendTag.ClaudeCode.type] =
+        new ScriptedTurn(
+          List(TurnEvent.AssistantToolCall("Read", "{}")),
           Right(reply(turn)),
           turn.outputSchema
         )
@@ -478,7 +478,7 @@ class AgentCallTest extends munit.FunSuite:
       assertEquals(calls.get(), 2, "transient failure should be retried once")
 
   // Ctrl-C at an interactive prompt abandons a turn the user is still billed
-  // for; the conversation carries what it spent on the cancellation itself.
+  // for; the turn carries what it spent on the cancellation itself.
   test("an interactive turn cancelled after the model ran emits UnpricedTurn"):
     val seen = new AtomicReference[List[OrcaEvent]](Nil)
     val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
@@ -486,7 +486,7 @@ class AgentCallTest extends munit.FunSuite:
     val cancellingInteraction: Interaction = new Interaction:
       val listeners: List[OrcaListener] = Nil
       def drive[B <: BackendTag](
-          conversation: orca.backend.ObservedConversation[B]
+          turn: orca.backend.ObservedTurn[B]
       ): AgentResult[B] =
         throw new OrcaInteractiveCancelled(
           TurnDebit.Observed(spent, Some(Model("claude-sonnet-5")))
@@ -517,7 +517,7 @@ class AgentCallTest extends munit.FunSuite:
     val failingInteraction: Interaction = new Interaction:
       val listeners: List[OrcaListener] = Nil
       def drive[B <: BackendTag](
-          conversation: orca.backend.ObservedConversation[B]
+          turn: orca.backend.ObservedTurn[B]
       ): AgentResult[B] =
         throw new AgentTurnFailed(
           "provider error",

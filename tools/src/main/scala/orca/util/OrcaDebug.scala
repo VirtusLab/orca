@@ -16,8 +16,8 @@ private[orca] object OrcaDebug:
   val enabled: Boolean = sys.env.get("ORCA_DEBUG").contains("1")
 
   /** `ORCA_DEBUG_STREAM=1` — dump every inbound NDJSON / JSONL line from the
-    * agent subprocess to the parent's stderr before parsing. Read by the
-    * conversation drivers.
+    * agent subprocess to the parent's stderr before parsing. Read by
+    * [[orca.backend.DecodedTurn]] and the decoders.
     */
   val streamTrace: Boolean = sys.env.get("ORCA_DEBUG_STREAM").contains("1")
 

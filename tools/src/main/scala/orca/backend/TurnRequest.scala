@@ -3,7 +3,7 @@ package orca.backend
 import orca.agents.{AgentConfig, BackendTag, SessionId}
 import orca.events.OrcaListener
 
-/** Everything a backend needs to open one turn's [[Conversation]] — see
+/** Everything a backend needs to open one turn's [[LiveTurn]] — see
   * [[AgentBackend.open]].
   *
   * @param prompt
@@ -15,14 +15,14 @@ import orca.events.OrcaListener
   *   the JSON Schema the final reply must conform to, or `None` for free-form
   *   text.
   * @param events
-  *   the turn's listener, for what the backend reports outside the
-  *   conversation's own events (the environment-cookie sweep).
+  *   the turn's listener, for what the backend reports outside the turn's own
+  *   events (the environment-cookie sweep).
   */
 private[orca] final case class TurnRequest[B <: BackendTag](
     prompt: String,
     session: SessionId[B],
     dispatch: Dispatch[B],
-    mode: ConversationMode,
+    mode: TurnMode,
     config: AgentConfig,
     outputSchema: Option[String],
     events: OrcaListener

@@ -9,18 +9,17 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicInteger}
 import scala.concurrent.duration.*
 
-/** Base-level grammar suite: drives [[StreamConversation]] with a fake
-  * [[LineDecoder]] through raw `ConversationEvent`-level sequences (bypassing
-  * all wire parsing) and asserts the emitted stream satisfies
-  * [[ConversationEventConformance.assertGrammar]]. Pins the turn-boundary
-  * grammar once for all backends, since the reader guarantees it by
-  * construction.
+/** Base-level grammar suite: drives [[DecodedTurn]] with a fake [[LineDecoder]]
+  * through raw `TurnEvent`-level sequences (bypassing all wire parsing) and
+  * asserts the emitted stream satisfies [[TurnEventConformance.assertGrammar]].
+  * Pins the message-boundary grammar once for all backends, since the reader
+  * guarantees it by construction.
   */
-class TurnGrammarTest extends munit.FunSuite:
+class MessageGrammarTest extends munit.FunSuite:
 
   private type Tag = BackendTag.ClaudeCode.type
 
-  /** Interprets each scripted stdout line as a direct `ConversationEvent`-level
+  /** Interprets each scripted stdout line as a direct `TurnEvent`-level
     * command.
     */
   private class GrammarDecoder(unsettledEnd: () => Unit)
@@ -33,18 +32,18 @@ class TurnGrammarTest extends munit.FunSuite:
     def line(state: Unit, line: String): Step[Tag, Unit] =
       line match
         case "delta" =>
-          Step.continue((), ConversationEvent.AssistantTextDelta("t"))
+          Step.continue((), TurnEvent.AssistantTextDelta("t"))
         case "thinking" =>
-          Step.continue((), ConversationEvent.AssistantThinkingDelta("t"))
+          Step.continue((), TurnEvent.AssistantThinkingDelta("t"))
         case "toolcall" =>
-          Step.continue((), ConversationEvent.AssistantToolCall("tool", "{}"))
+          Step.continue((), TurnEvent.AssistantToolCall("tool", "{}"))
         case "toolresult" =>
           Step.continue(
             (),
-            ConversationEvent.ToolResult(Some("tool"), true, "ok")
+            TurnEvent.ToolResult(Some("tool"), true, "ok")
           )
-        case "turnend" => Step.continue((), ConversationEvent.AssistantTurnEnd)
-        case "error"   => Step.continue((), ConversationEvent.Error("boom"))
+        case "messageend" => Step.continue((), TurnEvent.AssistantMessageEnd)
+        case "error"      => Step.continue((), TurnEvent.Error("boom"))
         case "succeed" =>
           Step.Settle(
             (),
@@ -61,10 +60,10 @@ class TurnGrammarTest extends munit.FunSuite:
   private def start(
       process: FakePipedCliProcess,
       onUnsettledEnd: () => Unit = () => ()
-  )(using Ox): Conversation[Tag] =
-    StreamConversation.start(
+  )(using Ox): LiveTurn[Tag] =
+    DecodedTurn.start(
       StreamSource.fromProcess(process),
-      ConversationSpec(
+      DecodedTurnSpec(
         openingPrompt = None,
         outputSchema = None,
         structuredOutputMode = StructuredOutputMode.RawText,
@@ -74,7 +73,7 @@ class TurnGrammarTest extends munit.FunSuite:
     )
 
   /** Run a scripted sequence and return the emitted events. */
-  private def runScript(lines: String*): List[ConversationEvent] =
+  private def runScript(lines: String*): List[TurnEvent] =
     supervised:
       val process = new FakePipedCliProcess()
       lines.foreach(process.enqueueStdout)
@@ -83,88 +82,96 @@ class TurnGrammarTest extends munit.FunSuite:
       start(process).events.toList
 
   test(
-    "deltas then a failed settle injects a closing turn end (claude's is_error bug)"
+    "deltas then a failed settle injects a closing message end (claude's is_error bug)"
   ):
     val events = runScript("delta", "delta", "error", "fail")
     assertEquals(
       events,
       List(
-        ConversationEvent.AssistantTextDelta("t"),
-        ConversationEvent.AssistantTextDelta("t"),
-        ConversationEvent.Error("boom"),
-        ConversationEvent.AssistantTurnEnd
+        TurnEvent.AssistantTextDelta("t"),
+        TurnEvent.AssistantTextDelta("t"),
+        TurnEvent.Error("boom"),
+        TurnEvent.AssistantMessageEnd
       )
     )
-    ConversationEventConformance.assertGrammar(events, completedNormally = true)
+    TurnEventConformance.assertGrammar(events, completedNormally = true)
 
-  test("tool-only turn then succeed injects a closing turn end (codex's bug)"):
+  test(
+    "tool-only message then succeed injects a closing message end (codex's bug)"
+  ):
     val events = runScript("toolcall", "toolresult", "succeed")
     assertEquals(
       events,
       List(
-        ConversationEvent.AssistantToolCall("tool", "{}"),
-        ConversationEvent.ToolResult(Some("tool"), true, "ok"),
-        ConversationEvent.AssistantTurnEnd
+        TurnEvent.AssistantToolCall("tool", "{}"),
+        TurnEvent.ToolResult(Some("tool"), true, "ok"),
+        TurnEvent.AssistantMessageEnd
       )
     )
-    ConversationEventConformance.assertGrammar(events, completedNormally = true)
+    TurnEventConformance.assertGrammar(events, completedNormally = true)
 
-  test("activity-free settle emits no synthetic turn end (gemini's bug)"):
+  test("activity-free settle emits no synthetic message end (gemini's bug)"):
     val events = runScript("succeed")
     assertEquals(events, Nil)
-    ConversationEventConformance.assertGrammar(events, completedNormally = true)
+    TurnEventConformance.assertGrammar(events, completedNormally = true)
 
-  test("a bare turn end with no activity is dropped (claude's ask_user turn)"):
-    val events = runScript("turnend", "succeed")
+  test(
+    "a bare message end with no activity is dropped (claude's ask_user message)"
+  ):
+    val events = runScript("messageend", "succeed")
     assertEquals(events, Nil)
-    ConversationEventConformance.assertGrammar(events, completedNormally = true)
+    TurnEventConformance.assertGrammar(events, completedNormally = true)
 
-  test("a failed settle after activity injects a closing turn end (pi's bug)"):
+  test(
+    "a failed settle after activity injects a closing message end (pi's bug)"
+  ):
     val events = runScript("toolresult", "fail")
     assertEquals(
       events,
       List(
-        ConversationEvent.ToolResult(Some("tool"), true, "ok"),
-        ConversationEvent.AssistantTurnEnd
+        TurnEvent.ToolResult(Some("tool"), true, "ok"),
+        TurnEvent.AssistantMessageEnd
       )
     )
-    ConversationEventConformance.assertGrammar(events, completedNormally = true)
+    TurnEventConformance.assertGrammar(events, completedNormally = true)
 
-  test("normal multi-turn happy path is unchanged (no synthetic ends added)"):
+  test(
+    "normal multi-message happy path is unchanged (no synthetic ends added)"
+  ):
     val events =
       runScript(
         "delta",
-        "turnend",
+        "messageend",
         "toolcall",
         "toolresult",
-        "turnend",
+        "messageend",
         "succeed"
       )
     assertEquals(
       events,
       List(
-        ConversationEvent.AssistantTextDelta("t"),
-        ConversationEvent.AssistantTurnEnd,
-        ConversationEvent.AssistantToolCall("tool", "{}"),
-        ConversationEvent.ToolResult(Some("tool"), true, "ok"),
-        ConversationEvent.AssistantTurnEnd
+        TurnEvent.AssistantTextDelta("t"),
+        TurnEvent.AssistantMessageEnd,
+        TurnEvent.AssistantToolCall("tool", "{}"),
+        TurnEvent.ToolResult(Some("tool"), true, "ok"),
+        TurnEvent.AssistantMessageEnd
       )
     )
-    ConversationEventConformance.assertGrammar(events, completedNormally = true)
+    TurnEventConformance.assertGrammar(events, completedNormally = true)
 
-  test("Error is neutral: it neither opens nor closes a turn"):
-    // The Error opens nothing, so the following bare turn end is an empty turn
-    // and gets dropped; the settle then has no open turn to close either.
-    val events = runScript("error", "turnend", "succeed")
-    assertEquals(events, List(ConversationEvent.Error("boom")))
-    ConversationEventConformance.assertGrammar(events, completedNormally = true)
+  test("Error is neutral: it neither opens nor closes a message"):
+    // The Error opens nothing, so the following bare message end closes an
+    // empty message and gets dropped; the settle then has no open message to close either.
+    val events = runScript("error", "messageend", "succeed")
+    assertEquals(events, List(TurnEvent.Error("boom")))
+    TurnEventConformance.assertGrammar(events, completedNormally = true)
 
-  test("abnormal mid-turn termination leaves the turn legitimately open"):
-    // No settle call: the source just ends mid-turn (cancel/crash carve-out).
-    // The base must NOT inject a synthetic turn end here.
+  test("abnormal mid-message termination leaves the message legitimately open"):
+    // No settle call: the source just ends mid-message (cancel/crash carve-out).
+    // The base must NOT inject a synthetic message end here.
     val events = runScript("delta")
-    assertEquals(events, List(ConversationEvent.AssistantTextDelta("t")))
-    ConversationEventConformance.assertGrammar(
+    assertEquals(events, List(TurnEvent.AssistantTextDelta("t")))
+    TurnEventConformance.assertGrammar(
       events,
       completedNormally = false
     )
@@ -173,22 +180,22 @@ class TurnGrammarTest extends munit.FunSuite:
     val unsettledEnds = new AtomicInteger(0)
     supervised:
       val process = new FakePipedCliProcess()
-      val conv = start(process, () => unsettledEnds.incrementAndGet(): Unit)
-      conv.cancel()
-      conv.cancel()
+      val live = start(process, () => unsettledEnds.incrementAndGet(): Unit)
+      live.cancel()
+      live.cancel()
       assertEquals(unsettledEnds.get(), 1)
 
   test("onUnsettledEnd does not run for a turn that settled"):
     val unsettledEnds = new AtomicInteger(0)
     supervised:
       val process = new FakePipedCliProcess()
-      val conv = start(process, () => unsettledEnds.incrementAndGet(): Unit)
+      val live = start(process, () => unsettledEnds.incrementAndGet(): Unit)
       process.enqueueStdout("succeed")
       process.closeStdout()
       process.closeStderr()
-      conv.events.foreach(_ => ())
-      val _ = conv.awaitResult()
-      conv.cancel()
+      live.events.foreach(_ => ())
+      val _ = live.awaitResult()
+      live.cancel()
     assertEquals(unsettledEnds.get(), 0)
 
   test("cancel frees a reader blocked on a full channel"):
@@ -208,9 +215,9 @@ class TurnGrammarTest extends munit.FunSuite:
       def interrupt(): Unit = stopped.set(true)
       def tryExitCode: Option[Int] = Some(0)
     supervised:
-      val conv = StreamConversation.start(
+      val live = DecodedTurn.start(
         endless,
-        ConversationSpec(
+        DecodedTurnSpec(
           openingPrompt = None,
           outputSchema = None,
           structuredOutputMode = StructuredOutputMode.RawText,
@@ -219,7 +226,7 @@ class TurnGrammarTest extends munit.FunSuite:
         GrammarDecoder(() => ())
       )
       channelFull.await()
-      timeout(10.seconds)(conv.cancel())
+      timeout(10.seconds)(live.cancel())
 
   test("lines after a settle are ignored"):
     val events = runScript("succeed", "delta")

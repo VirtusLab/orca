@@ -14,7 +14,7 @@ private[orca] object ClaudeModels:
   val Sonnet: Model = Model("claude-sonnet-5")
 
   /** The default coding model: Opus with the 1M-token context window, via the
-    * `[1m]` model-alias suffix. A coder session runs many agentic turns over
+    * `[1m]` model-alias suffix. A coder session runs many model requests over
     * whole-branch diffs, so 1M keeps it from overflowing ("Prompt is too
     * long"). Cheaper one-shot calls go through `claude.sonnet` /
     * `claude.haiku`.

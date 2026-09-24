@@ -3,7 +3,7 @@ package orca.tools.claude.streamjson
 import com.github.plokhotnyuk.jsoniter_scala.core.writeToString
 import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
 
-/** Messages the driver writes to claude's stdin.
+/** Messages orca writes to claude's stdin.
   *
   * The stdin schema is reverse-engineered from third-party references
   * (`claude-code-parser` etc.) — Anthropic does not publish it. Covered by
@@ -12,8 +12,8 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
   */
 private[claude] object OutboundMessage:
 
-  /** A user turn carrying `text`, as a single NDJSON line (no trailing newline
-    * — the caller appends one).
+  /** A user message carrying `text`, as a single NDJSON line (no trailing
+    * newline — the caller appends one).
     */
   def userText(text: String): String = writeToString(
     UserTextWire(

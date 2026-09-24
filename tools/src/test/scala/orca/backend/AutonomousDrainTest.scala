@@ -2,12 +2,12 @@ package orca.backend
 
 import orca.events.{OrcaEvent, Usage}
 import orca.agents.{AutoApprove, BackendTag, WireSessionId}
-import orca.testkit.ScriptedConversation
+import orca.testkit.ScriptedTurn
 import ox.supervised
 
 import java.util.concurrent.atomic.AtomicReference
 
-class ConversationsTest extends munit.FunSuite:
+class AutonomousDrainTest extends munit.FunSuite:
 
   private val sampleResult = AgentResult[BackendTag.Codex.type](
     wireId = WireSessionId[BackendTag.Codex.type]("sid"),
@@ -15,19 +15,19 @@ class ConversationsTest extends munit.FunSuite:
     usage = Usage.empty
   )
 
-  test("drainAutonomous walks every event before returning the result"):
-    val conv = new ScriptedConversation(
+  test("drain walks every event before returning the result"):
+    val live = new ScriptedTurn(
       List(
-        ConversationEvent.AssistantTextDelta("hi"),
-        ConversationEvent.AssistantTurnEnd
+        TurnEvent.AssistantTextDelta("hi"),
+        TurnEvent.AssistantMessageEnd
       ),
       Right(sampleResult)
     )
     assertEquals(
-      supervised(Conversations.drainAutonomous(conv, AutoApprove.All)),
+      supervised(AutonomousDrain.drain(live, AutoApprove.All)),
       sampleResult
     )
-    assertEquals(conv.drained.get(), 2)
+    assertEquals(live.drained.get(), 2)
 
   test("ApproveTool under AutoApprove.Only auto-denies and surfaces an Error"):
     // The autonomous drain has no user to ask, but the backend is blocked
@@ -37,16 +37,16 @@ class ConversationsTest extends munit.FunSuite:
     val decisions = new AtomicReference[List[ApprovalDecision]](Nil)
     val record = (d: ApprovalDecision) =>
       val _ = decisions.updateAndGet(d :: _)
-    val conv = new ScriptedConversation(
+    val live = new ScriptedTurn(
       List(
-        ConversationEvent
+        TurnEvent
           .ApproveTool("Bash", """{"command":"rm -rf /"}""", record)
       ),
       Right(sampleResult)
     )
     val _ = supervised(
-      Conversations
-        .drainAutonomous(conv, AutoApprove.Only(Set("Read")), recorder)
+      AutonomousDrain
+        .drain(live, AutoApprove.Only(Set("Read")), recorder)
     )
     assertEquals(decisions.get(), List(ApprovalDecision.Deny))
     assertEquals(
@@ -64,12 +64,12 @@ class ConversationsTest extends munit.FunSuite:
     val decisions = new AtomicReference[List[ApprovalDecision]](Nil)
     val record = (d: ApprovalDecision) =>
       val _ = decisions.updateAndGet(d :: _)
-    val conv = new ScriptedConversation(
-      List(ConversationEvent.ApproveTool("Bash", "{}", record)),
+    val live = new ScriptedTurn(
+      List(TurnEvent.ApproveTool("Bash", "{}", record)),
       Right(sampleResult)
     )
     val _ =
-      supervised(Conversations.drainAutonomous(conv, AutoApprove.All, recorder))
+      supervised(AutonomousDrain.drain(live, AutoApprove.All, recorder))
     assertEquals(decisions.get(), List(ApprovalDecision.Deny))
     assertEquals(
       recorder.events.collect { case e: OrcaEvent.Error => e.message },
@@ -86,13 +86,13 @@ class ConversationsTest extends munit.FunSuite:
     val decisions = new AtomicReference[List[ApprovalDecision]](Nil)
     val record = (d: ApprovalDecision) =>
       val _ = decisions.updateAndGet(d :: _)
-    val conv = new ScriptedConversation(
-      List(ConversationEvent.ApproveTool("Bash", "{}", record)),
+    val live = new ScriptedTurn(
+      List(TurnEvent.ApproveTool("Bash", "{}", record)),
       Right(sampleResult)
     )
     val _ = supervised(
-      Conversations
-        .drainAutonomous(conv, AutoApprove.Only(Set("Bash")), recorder)
+      AutonomousDrain
+        .drain(live, AutoApprove.Only(Set("Bash")), recorder)
     )
     assertEquals(decisions.get(), List(ApprovalDecision.Deny))
     assertEquals(
@@ -112,12 +112,12 @@ class ConversationsTest extends munit.FunSuite:
     val answers = new AtomicReference[List[String]](Nil)
     val record = (s: String) =>
       val _ = answers.updateAndGet(s :: _)
-    val conv = new ScriptedConversation(
-      List(ConversationEvent.UserQuestion("What now?", record)),
+    val live = new ScriptedTurn(
+      List(TurnEvent.UserQuestion("What now?", record)),
       Right(sampleResult)
     )
     val _ =
-      supervised(Conversations.drainAutonomous(conv, AutoApprove.All, recorder))
+      supervised(AutonomousDrain.drain(live, AutoApprove.All, recorder))
     answers.get() match
       case ans :: Nil => assert(ans.contains("autonomous mode"), ans)
       case other      => fail(s"expected one answer; got $other")
@@ -131,12 +131,12 @@ class ConversationsTest extends munit.FunSuite:
 
   test("an auto-denied ApproveTool emits ToolDenied"):
     val recorder = new RecordingListener
-    val conv = new ScriptedConversation(
-      List(ConversationEvent.ApproveTool("Bash", "{}", _ => ())),
+    val live = new ScriptedTurn(
+      List(TurnEvent.ApproveTool("Bash", "{}", _ => ())),
       Right(sampleResult)
     )
     val _ =
-      supervised(Conversations.drainAutonomous(conv, AutoApprove.All, recorder))
+      supervised(AutonomousDrain.drain(live, AutoApprove.All, recorder))
     assertEquals(
       recorder.events.collect { case e: OrcaEvent.ToolDenied => e },
       List(OrcaEvent.ToolDenied("Bash", None))

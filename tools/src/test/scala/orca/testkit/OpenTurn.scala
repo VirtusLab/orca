@@ -1,13 +1,13 @@
 package orca.testkit
 
 import orca.agents.{AgentConfig, BackendTag, SessionId}
-import orca.backend.{AgentBackend, Conversation, ConversationMode, TurnRequest}
+import orca.backend.{AgentBackend, LiveTurn, TurnMode, TurnRequest}
 import orca.events.OrcaListener
 import ox.Ox
 
-/** Opens one interactive turn on a real backend and hands back the live
-  * conversation, for tests that inspect what the backend spawned (argv, temp
-  * files, MCP wiring) rather than run the whole turn.
+/** Opens one interactive turn on a real backend and hands back the live turn,
+  * for tests that inspect what the backend spawned (argv, temp files, MCP
+  * wiring) rather than run the whole turn.
   */
 object OpenTurn:
   def interactive[B <: BackendTag](backend: AgentBackend[B])(
@@ -16,13 +16,13 @@ object OpenTurn:
       displayPrompt: String,
       config: AgentConfig,
       outputSchema: Option[String]
-  )(using Ox): Conversation[B] =
+  )(using Ox): LiveTurn[B] =
     backend.open(
       TurnRequest(
         prompt,
         session,
         backend.sessions.dispatchFor(session),
-        ConversationMode.Interactive(displayPrompt),
+        TurnMode.Interactive(displayPrompt),
         config,
         outputSchema,
         OrcaListener.noop

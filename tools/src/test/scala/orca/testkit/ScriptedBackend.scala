@@ -11,7 +11,7 @@ import orca.agents.{
 import orca.backend.{
   AgentBackend,
   AgentResult,
-  Conversation,
+  LiveTurn,
   IdScheme,
   SessionSupport,
   TurnRequest
@@ -20,8 +20,8 @@ import orca.events.Usage
 import ox.Ox
 
 /** An `AgentBackend` double whose every turn, autonomous or interactive, is a
-  * conversation with no events that answers [[reply]]. A `reply` that throws is
-  * a turn that failed to open. It has no cheaper model tier.
+  * turn with no events that answers [[reply]]. A `reply` that throws is a turn
+  * that failed to open. It has no cheaper model tier.
   *
   * `B` is bound to `Singleton` so `ScriptedBackend(BackendTag.Pi)` infers
   * `BackendTag.Pi.type` rather than widening to `BackendTag`.
@@ -41,8 +41,8 @@ abstract class ScriptedBackend[B <: BackendTag & Singleton](
 
   override protected[orca] def open(turn: TurnRequest[B])(using
       Ox
-  ): Conversation[B] =
-    new ScriptedConversation(Nil, Right(reply(turn)), turn.outputSchema)
+  ): LiveTurn[B] =
+    new ScriptedTurn(Nil, Right(reply(turn)), turn.outputSchema)
 
 object ScriptedBackend:
   /** A backend answering every turn with `answer(turn)`'s output. */

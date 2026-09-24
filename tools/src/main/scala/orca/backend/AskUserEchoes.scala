@@ -1,12 +1,12 @@
 package orca.backend
 
 /** Tracks the tool-call ids of `ask_user` invocations whose wire echo must be
-  * dropped from the conversation event stream.
+  * dropped from the turn's event stream.
   *
   * A bridged `ask_user` question is already surfaced as a
-  * [[ConversationEvent.UserQuestion]], so re-emitting the agent's tool-call
-  * block and paired tool-result would render the exchange twice. Each driver
-  * suppresses the tool-call and drops its matching result.
+  * [[TurnEvent.UserQuestion]], so re-emitting the agent's tool-call block and
+  * paired tool-result would render the exchange twice. Each decoder suppresses
+  * the tool-call and drops its matching result.
   *
   * Only this id bookkeeping is shared; the matcher for "is this an `ask_user`
   * call" stays per call site, because backends name the tool differently

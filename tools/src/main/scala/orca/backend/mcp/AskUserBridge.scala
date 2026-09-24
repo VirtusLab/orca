@@ -7,8 +7,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /** Synchronous rendezvous between the MCP `ask_user` tool handler (which needs
   * a string answer to return to the agent) and the host process (the
-  * conversation driver that emits `UserQuestion` events and feeds back what the
-  * user typed).
+  * [[orca.backend.DecodedTurn]] that emits `UserQuestion` events and feeds back
+  * what the user typed).
   *
   * One queue carries `(question, reply)` pairs from the handler side; each call
   * brings its own private reply channel so concurrent `ask_user` invocations

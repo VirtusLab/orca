@@ -225,7 +225,7 @@ class ClaudeBackendTest extends munit.FunSuite:
     // `mcpTools` or the turn loses its only channel to the user.
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     withBackend(runner): backend =>
-      val conv = OpenTurn.interactive(backend)(
+      val live = OpenTurn.interactive(backend)(
         "x",
         freshSid,
         "x",
@@ -239,7 +239,7 @@ class ClaudeBackendTest extends munit.FunSuite:
             .contains(ClaudeBackend.AskUserToolName),
           args
         )
-      finally conv.cancel()
+      finally live.cancel()
 
   test("a ReadOnly call gets no GitHub reads"):
     // ReadOnly is the reviewers' tier and must stay network-free; the GitHub
@@ -497,7 +497,7 @@ class ClaudeBackendTest extends munit.FunSuite:
   test(
     "failed first call leaves the session unclaimed; retry still uses --session-id"
   ):
-    // The session mapping is recorded only after `new ClaudeConversation`
+    // The session mapping is recorded only after `new ClaudeTurn`
     // succeeds, so a first call that throws (e.g. is_error from the result
     // message) doesn't wedge the bookkeeping. The stub CLI writes no
     // transcript, so there is no claim on disk either and the retry opens the
@@ -539,10 +539,10 @@ class ClaudeBackendTest extends munit.FunSuite:
     assertEquals(slug, "-tmp-" + "a" * 195 + "-bxbzwn")
 
   test(
-    "a session the previous run left on disk is resumed, not re-claimed"
+    "a session the previous attempt left on disk is resumed, not re-claimed"
   ):
-    // A run interrupted during a durable session's first turn writes the
-    // transcript and commits nothing, so the next run finds the id recorded
+    // An attempt interrupted during a durable session's first turn writes the
+    // transcript and commits nothing, so the next attempt finds the id recorded
     // with no wire id. `--session-id` on an id claude already knows is refused,
     // which would fail the run outright.
     val tmpProjects = TempDirs.dir()
@@ -639,9 +639,9 @@ class ClaudeBackendTest extends munit.FunSuite:
       )
 
   test(
-    "an unrecorded id resumes as an earlier run's when its transcript is present"
+    "an unrecorded id resumes as an earlier attempt's when its transcript is present"
   ):
-    // What a run interrupted during a session's first turn leaves behind:
+    // What an attempt interrupted during a session's first turn leaves behind:
     // claude wrote the transcript, the drain never committed. The id is one
     // orca minted, so that transcript is this session's — resume it rather
     // than re-claim an id the CLI refuses to create twice.
@@ -659,7 +659,7 @@ class ClaudeBackendTest extends munit.FunSuite:
     ): backend =>
       assertEquals(
         backend.sessions.dispatchFor(freshSid),
-        Dispatch.Resume(freshSid.onWire, ResumeOrigin.EarlierRun)
+        Dispatch.Resume(freshSid.onWire, ResumeOrigin.EarlierAttempt)
       )
 
   test(

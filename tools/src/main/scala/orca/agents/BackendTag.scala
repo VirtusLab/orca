@@ -7,9 +7,9 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.{
 
 /** Compile-time type tag for a concrete LLM backend. Carried as the `B`
   * parameter on [[SessionId]], [[orca.backend.AgentResult]],
-  * [[orca.backend.Conversation]], [[Agent]], and [[orca.backend.AgentBackend]]
-  * so a session id from one backend can't accidentally flow into another.
-  * Distinct from the runtime SPI [[orca.backend.AgentBackend]].
+  * [[orca.backend.LiveTurn]], [[Agent]], and [[orca.backend.AgentBackend]] so a
+  * session id from one backend can't accidentally flow into another. Distinct
+  * from the runtime SPI [[orca.backend.AgentBackend]].
   *
   * Persisted (session records, attempt manifests) and emitted as its case name.
   */

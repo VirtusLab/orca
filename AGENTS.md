@@ -49,7 +49,7 @@ Implementations live in
 focused subpackages: `orca.tools` (os-backed git/gh/fs impls + their traits),
 `orca.gitref` (validated branch names and commit hashes, and `Head`),
 `orca.agents` + `orca.backend` (LLM SPI, `SessionSupport`,
-conversation driver), `orca.subprocess` (subprocess shim), `orca.sweep`
+per-backend decoders), `orca.subprocess` (subprocess shim), `orca.sweep`
 (finds agent work that outlived its process), `orca.events`
 (event bus), one `orca.tools.<backend>` per coding agent, and `orca.runner` /
 `orca.runner.terminal` (wiring + terminal UI). The flow module adds
@@ -61,8 +61,9 @@ The flow runtime is specified in [ADR 0018](adr/0018-stage-bound-flow-runtime.md
 read it before touching `stage`, the progress log, or sessions. The invariants
 most easily broken:
 
-- **Capability gating.** Four compile-time capabilities gate side effects:
-  `FlowContext` (reads + emit; thread-safe), `FlowControl` (authority to start
+- **Capability gating.** `FlowContext` (reads + emit; thread-safe) is not a
+  capability, so forks receive it freely. Three compile-time capabilities gate
+  side effects: `FlowControl` (authority to start
   a stage; thread-affine; holds the run's `FlowContext` as `context`, from
   which a `FlowContext` given is derived when none is in scope), and a SPLIT pair of stage-bound
   capability tokens (both in `tools`, `package orca`) — `InStage`, the SHARED
@@ -139,13 +140,13 @@ most easily broken:
   decision, read by both the prompt side (`FlowSession`) and the argv side
   (`AgentBackend` resolves once per call and hands it to the notice and the
   spawn): `Fresh(claim)`, on which the flow re-seeds, or `Resume(wireId,
-  origin)`. A rehydrated wire id is probed on first ask and then settled —
-  kept as `EarlierRun`, or dropped so the re-seeded turn's commit records its
-  new id; an id this run committed is `ThisRun` and not probed. A
+  origin)`. A rehydrated wire id is probed on first ask and then confirmed —
+  kept as `EarlierAttempt`, or dropped so the re-seeded turn's commit records
+  its new id; an id this attempt committed is `ThisAttempt` and not probed. A
   `ClientClaimed` backend holding the conversation under the client's own id
-  with nothing recorded (a run interrupted during a session's first turn)
-  resumes as `EarlierRun` rather than re-claiming — claude and pi refuse an id
-  they already hold. An `EarlierRun` conversation is told once, on its first
+  with nothing recorded (an attempt interrupted during a session's first turn)
+  resumes as `EarlierAttempt` rather than re-claiming — claude and pi refuse an
+  id they already hold. An `EarlierAttempt` conversation is told once, on its first
   turn here, that the tree holds only what earlier stages committed — the
   re-seeded case needs no telling, its preamble already says so.
 
@@ -213,7 +214,7 @@ most easily broken:
   skips A.
   When `agent.session(name, seed)` reuses a record, it hands the record's
   resume wire id to that agent (`rehydrateResumeWireId`), so the session's
-  first turn this run probes and resumes it. Each record also carries the
+  first turn this attempt probes and resumes it. Each record also carries the
   minting agent's `backend` tag; a reuse by an agent with a different tag
   mints fresh. The tag is a typed `BackendTag`: a store holding an unknown one
   fails to decode and reads as empty.
@@ -261,9 +262,9 @@ most easily broken:
     (`ReadOnly` disables it by name).
   - pi: `bash` — pi has no web tool, and `bash` also writes.
 
-- **Conversation events.** The event grammar (turn boundaries, `Option` tool
-  names) is specified on `ConversationEvent`'s scaladoc and pinned per backend
-  by `ConversationEventConformance` assertions in each module's tests.
+- **Turn events.** The event grammar (message boundaries, `Option` tool
+  names) is specified on `TurnEvent`'s scaladoc and pinned per backend
+  by `TurnEventConformance` assertions in each module's tests.
 
 - **Listener contract.** A listener that throws is logged at ERROR (with its
   stack) and announced once on stderr, then quarantined — permanently
@@ -308,7 +309,7 @@ Three location classes decide what survives:
 | `.orca/cache/lint-*.txt` | cache | lint output too large to inline in a prompt | `Lint` | the summarising agent | `lint`'s `finally` |
 | `.orca/cache/{,runs/,attempts/}.<file>.<uuid>.tmp` | cache | in-flight temp of an `OrcaFile` replace: beside a cache file, in `.orca/cache/` for a committed one (progress log, settings) so it is never committed | `OrcaDir.OrcaFile` | — (`AttemptManifestWriter`'s pruning skips dot-files) | the rename that completes the write |
 | `.orca/worktrees/<key>/` (+ branch `orca-worktree-<key>`) | worktrees | a `--worktree` run's checkout, with its own `.orca/` inside | `WorktreeRun` | `WorktreeScan` (shell) | never — see README |
-| `<workDir>/.gemini/settings.json` | user tree | an `mcpServers.orca` entry for one interactive gemini conversation | `GeminiSettings` | gemini | restored at turn end, and a stale entry from a crash dropped at the next interactive run; a `.gemini/` orca created is removed when left empty |
+| `<workDir>/.gemini/settings.json` | user tree | an `mcpServers.orca` entry for one interactive gemini turn | `GeminiSettings` | gemini | restored at turn end, and a stale entry from a crash dropped at the next interactive turn; a `.gemini/` orca created is removed when left empty |
 | `$TMPDIR/orca-*` (system prompts, claude MCP config, codex schema, pi extension) | temp | per-turn IPC files handed to a CLI on argv | each backend | the CLI | turn end |
 | `$TMPDIR/orca-authoring-<n>/` | temp | the authoring flow's sandbox repo; `.orca/cache/orca-api-<version>/` inside holds the README + example flows (+ `fork-source/`) | `AuthoringSandbox`, `FlowAuthoring` | the coding agent | success or cancel; kept on failure, and nothing else prunes it |
 | `$XDG_CACHE_HOME/orca/shell/<version>/flows/` | XDG cache | built-in flows extracted from the jar | `BuiltInFlows` | `FlowCatalog`, scala-cli | never; nothing prunes older versions |
@@ -343,7 +344,7 @@ surfacing `--json-schema` output as a visible `StructuredOutput` tool call).
 When a flow breaks with no orca change, suspect the CLI first: reproduce
 with a direct probe (e.g.
 `claude -p "…" --model haiku --json-schema '…'`) before touching orca code,
-then fix at the seam (`JsonSchemaGen`, the backend's conversation driver)
+then fix at the seam (`JsonSchemaGen`, the backend's decoder)
 with a test pinning the observed wire shape.
 
 ### Iterating quickly
@@ -458,6 +459,42 @@ prose:
 
 A **plan task** (`orca.plan.Task`) is a flow-author concept and names none of
 these files. Never call a process a run.
+
+### Backend vocabulary
+
+Words for talking to a coding agent, from the outside in:
+
+- **call** — one `agent.run` / `session.run` / `chat.run`. A retry stays inside
+  the call.
+- **turn** — one exchange with the agent that reaches the model: a prompt sent,
+  events streamed back, one outcome. A retry that reaches the model is a new
+  turn (`UnpricedTurn.turn` counts them). `AgentBackend.open` returns one as a
+  `LiveTurn`.
+- **message** — one assistant message inside a turn, closed by
+  `TurnEvent.AssistantMessageEnd` and shown as one `OrcaEvent.AssistantMessage`.
+  The message grammar is on `TurnEvent`'s scaladoc.
+- **decoder** — a backend's wire protocol as a `LineDecoder`: a fold over the
+  lines of its stream. `DecodedTurn` runs it and owns the rest of the turn.
+- **settle** — a decoder's `Step.Settle`: the turn's outcome (`Settled`) is
+  known and later lines are ignored. Only the decoder settles;
+  `SessionSupport` *confirms* a rehydrated wire id.
+- **conversation** — the history a backend keeps across turns, which a
+  session resumes. A `LiveTurn` is not a conversation.
+- **dispatch** — `SessionSupport.dispatchFor`'s answer for the next turn:
+  `Fresh` opens a conversation, `Resume` continues one. `ResumeOrigin` says
+  whether this attempt (`ThisAttempt`) or an earlier one (`EarlierAttempt`)
+  opened it.
+- **client id** (`SessionId`) — orca's own handle for a session, stable across
+  attempts. **wire id** (`WireSessionId`) — the id the backend knows the
+  conversation by; `SessionId#onWire` is the only crossing.
+- **`IdScheme`** — how wire ids come to be: `ClientClaimed` (the client id is
+  the wire id) or `ServerMinted` (the backend mints it on the first turn).
+- **conversation key** (`OrcaEvent.conversationKey`) — the wire id, or the
+  client id before one is known; the one key turns and sessions join on in
+  events and the cost log.
+
+A CLI's own "turn" can differ: codex's `turn.completed` ends orca's turn, but
+claude's `num_turns` (tool calls + 1) counts something else.
 
 ### Review-derived rules
 

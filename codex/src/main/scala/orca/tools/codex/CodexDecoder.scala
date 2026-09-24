@@ -6,13 +6,13 @@ import orca.backend.{
   AgentResult,
   AskUserChannel,
   AskUserEchoes,
-  Conversation,
-  ConversationEvent,
-  ConversationSpec,
+  LiveTurn,
+  TurnEvent,
+  DecodedTurnSpec,
   LineDecoder,
   Settled,
   Step,
-  StreamConversation,
+  DecodedTurn,
   StreamSource
 }
 import orca.backend.mcp.AskUserMcpServer
@@ -23,16 +23,16 @@ import com.github.plokhotnyuk.jsoniter_scala.core.writeToString
 import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
 import ox.Ox
 
-/** Decodes a `codex exec --json` session: JSONL → [[InboundEvent]] →
-  * `ConversationEvent`s.
+/** Decodes one `codex exec --json` turn: JSONL → [[InboundEvent]] →
+  * `TurnEvent`s.
   *
   * Notable parity gaps vs. claude (deliberate, driven by codex's JSONL protocol
   * — see ADR 0007):
   *   - codex emits whole `agent_message` items, not per-token deltas; each
-  *     becomes one `AssistantTextDelta`. Non-structured calls close a turn
-  *     (`AssistantTurnEnd`) after every item; structured calls instead coalesce
-  *     every `agent_message` into a single turn closed at `turn.completed` —
-  *     see [[itemCompleted]].
+  *     becomes one `AssistantTextDelta`. Non-structured calls close a message
+  *     (`AssistantMessageEnd`) after every item; structured calls instead
+  *     coalesce every `agent_message` into a single message closed at
+  *     `turn.completed` — see [[itemCompleted]].
   *   - codex doesn't negotiate tool approvals over the wire; `autoApprove` is
   *     pre-baked into spawn args. `ApproveTool` is never emitted here.
   *   - `codex exec` is one-shot; multi-turn happens via `codex exec resume` on
@@ -111,7 +111,7 @@ private[codex] final class CodexDecoder(
     case Item.CommandExecution(_, command, _, _, _) =>
       Step.continue(
         state,
-        ConversationEvent.AssistantToolCall(
+        TurnEvent.AssistantToolCall(
           toolName = "bash",
           rawInput = writeToString(BashInput(command))
         )
@@ -119,7 +119,7 @@ private[codex] final class CodexDecoder(
     case Item.FileChange(_, changes, _) =>
       Step.continue(
         state,
-        ConversationEvent.AssistantToolCall(
+        TurnEvent.AssistantToolCall(
           toolName = "file_change",
           rawInput = writeToString(FileChangeInput(changes.map(toWire)))
         )
@@ -134,7 +134,7 @@ private[codex] final class CodexDecoder(
     case Item.McpToolCall(_, server, tool, args, _, _) =>
       Step.continue(
         state,
-        ConversationEvent.AssistantToolCall(
+        TurnEvent.AssistantToolCall(
           toolName = mcpToolName(server, tool),
           rawInput = args
         )
@@ -149,33 +149,33 @@ private[codex] final class CodexDecoder(
       // agent_message — often a verbatim draft of the eventual answer —
       // before finishing its tool calls, then a genuine final one; the wire
       // item shape carries no phase/channel field distinguishing the two
-      // (ADR 0007). Leaving the turn open here coalesces every agent_message
-      // of the call into ONE ConversationEvent-level turn, closed exactly
-      // once when turn.completed settles. Without this, the withholding
-      // buffer's one-real-turn-per-payload assumption sees the early draft as
-      // a distinct, already-finished turn and echoes it as `AssistantMessage`
+      // (ADR 0007). Leaving the message open here coalesces every agent_message
+      // of the call into ONE message, closed exactly once when
+      // turn.completed settles. Without this, the withholding buffer's
+      // one-real-message-per-payload assumption sees the early draft as a
+      // distinct, already-finished message and echoes it as `AssistantMessage`
       // prose — the JSON payload leaking as `●` prose right before the
       // structured-result summary. Non-structured calls keep closing per item
       // so live multi-message narration (e.g. "I'll edit X." … "Updated X.")
-      // still streams progressively. Deliberate tradeoff: the single coalesced
-      // turn is always the buffer's last, so a structured codex call shows NO
-      // intermediate agent prose at all — the wire can't distinguish genuine
+      // still streams progressively. Deliberate tradeoff: the single
+      // coalesced message is always the buffer's last, so a structured codex
+      // call shows NO intermediate agent prose at all — the wire can't distinguish genuine
       // narration from payload drafts, and suppressing both is the only way to
       // guarantee the payload never leaks.
       Step.Continue(
         state.copy(lastAgentMessage = text),
-        ConversationEvent.AssistantTextDelta(text) ::
+        TurnEvent.AssistantTextDelta(text) ::
           Option
-            .when(outputSchema.isEmpty)(ConversationEvent.AssistantTurnEnd)
+            .when(outputSchema.isEmpty)(TurnEvent.AssistantMessageEnd)
             .toList
       )
     case Item.Reasoning(_, text) if text.nonEmpty =>
-      Step.continue(state, ConversationEvent.AssistantThinkingDelta(text))
+      Step.continue(state, TurnEvent.AssistantThinkingDelta(text))
     case Item.Reasoning(_, _) => Step.continue(state)
     case Item.CommandExecution(_, _, output, exitCode, status) =>
       Step.continue(
         state,
-        ConversationEvent.ToolResult(
+        TurnEvent.ToolResult(
           toolName = Some("bash"),
           ok = exitCode.contains(0) && status.isCompleted,
           content = output
@@ -184,7 +184,7 @@ private[codex] final class CodexDecoder(
     case Item.FileChange(_, changes, status) =>
       Step.continue(
         state,
-        ConversationEvent.ToolResult(
+        TurnEvent.ToolResult(
           toolName = Some("file_change"),
           ok = status.isCompleted,
           content = changes.map(c => s"${c.kind} ${c.path}").mkString("\n")
@@ -198,7 +198,7 @@ private[codex] final class CodexDecoder(
         case None =>
           Step.continue(
             state,
-            ConversationEvent.ToolResult(
+            TurnEvent.ToolResult(
               toolName = Some(mcpToolName(server, tool)),
               ok = status.isCompleted,
               content = result.getOrElse("")
@@ -244,7 +244,7 @@ private[codex] final class CodexDecoder(
   private def error(state: State, message: String): Out =
     Step.continue(
       state.copy(lastProtocolError = Some(message)),
-      ConversationEvent.Error(s"codex: $message")
+      TurnEvent.Error(s"codex: $message")
     )
 
   /** `turn.failed` replaces `turn.completed` when the turn didn't succeed —
@@ -290,7 +290,7 @@ private[codex] object CodexDecoder:
         "codex_core::session: failed to record rollout items"
       )
 
-  /** Synthetic JSON the driver hands the renderer for `bash` tool calls —
+  /** Synthetic JSON the decoder hands the renderer for `bash` tool calls —
     * codex's `command_execution` items don't natively carry a JSON-shaped
     * input, so we wrap the command string in a one-key object the renderer can
     * introspect.
@@ -303,7 +303,7 @@ private[codex] object CodexDecoder:
   private case class FileChangeInput(changes: List[FileChangeWire])
       derives ConfiguredJsonValueCodec
 
-private[codex] object CodexConversation:
+private[codex] object CodexTurn:
 
   /** Starts decoding `process` into the caller's turn scope. */
   def apply(
@@ -312,10 +312,10 @@ private[codex] object CodexConversation:
       outputSchema: Option[String] = None,
       askUser: AskUserChannel = AskUserChannel.Unavailable,
       configuredModel: Option[Model] = None
-  )(using Ox): Conversation[BackendTag.Codex.type] =
-    StreamConversation.start(
+  )(using Ox): LiveTurn[BackendTag.Codex.type] =
+    DecodedTurn.start(
       StreamSource.fromProcess(process),
-      ConversationSpec(
+      DecodedTurnSpec(
         openingPrompt = openingPrompt,
         outputSchema = outputSchema,
         structuredOutputMode = StructuredOutputMode.RawText,
