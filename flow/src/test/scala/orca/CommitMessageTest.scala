@@ -2,10 +2,8 @@ package orca
 
 import orca.events.EventDispatcher
 import orca.agents.{Agent, BackendTag}
-import orca.progress.ProgressStore
 import orca.sessions.SessionRecord
-import orca.testkit.{GitRepo, ScriptedBackend, TestAgent, TextReplyingAgent}
-import orca.tools.OsGitTool
+import orca.testkit.{ScriptedBackend, TestAgent, TextReplyingAgent}
 
 import java.util.concurrent.ConcurrentLinkedQueue
 
@@ -32,37 +30,10 @@ class CommitMessageTest extends munit.FunSuite:
   // Test helper
   // --------------------------------------------------------------------------
 
-  private def withCtx(
+  private def withRun(
       agentStub: Agent[BackendTag.ClaudeCode.type]
-  )(body: (FlowControl, os.Path) => Unit): Unit =
-    val dir = GitRepo.seeded()
-    val git = new OsGitTool(dir)
-    val store = ProgressStore.default(dir, RunKey.of("p"))
-    given WorkspaceWrite = WorkspaceWrite.unsafe
-    store.writeHeader(
-      orca.progress.ProgressHeader(
-        Some(orca.testkit.branchName("main")),
-        orca.testkit.branchName("feat/test"),
-        orca.progress.BranchMode.Created,
-        userPrompt = "p",
-        flow = None,
-        startingCommit = orca.gitref.CommitHash.from("0" * 40).get
-      )
-    )
-    body(
-      new TestFlowControl(
-        new TestFlowContext(
-          new EventDispatcher(Nil),
-          "p",
-          workDir = dir,
-          lead = Some(agentStub),
-          wiredGit = Some(git)
-        ),
-        store,
-        orca.sessions.SessionStore.default(dir, RunKey.of("p"))
-      ),
-      dir
-    )
+  )(body: TestRun => Unit): Unit =
+    body(TestRun.create(new EventDispatcher(Nil), lead = Some(agentStub)))
 
   private def lastCommitMessage(dir: os.Path): String =
     os.proc("git", "log", "-1", "--pretty=%s").call(cwd = dir).out.text().trim
@@ -80,54 +51,54 @@ class CommitMessageTest extends munit.FunSuite:
   test(
     "stage with no commitMessage and non-empty diff uses agent.cheap message"
   ):
-    withCtx(TextReplyingAgent("Add feature file")): (ctx, dir) =>
-      given FlowControl = ctx
+    withRun(TextReplyingAgent("Add feature file")): run =>
+      import run.given
       val _ = stage("write file"):
         // Modify the tracked seed file (not a new untracked file) so
         // `git diff HEAD` captures the change.
-        os.write.over(dir / "seed.txt", "modified by stage")
+        os.write.over(run.dir / "seed.txt", "modified by stage")
         "done"
-      assertEquals(lastCommitMessage(dir), "Add feature file")
+      assertEquals(lastCommitMessage(run.dir), "Add feature file")
 
   test("stage with no commitMessage but empty diff falls back to stage:<name>"):
     // An empty working-tree diff (no code changes, only the progress file
     // force-added) triggers the `s"stage: $name"` fallback.
-    withCtx(TextReplyingAgent("should not appear")): (ctx, dir) =>
-      given FlowControl = ctx
+    withRun(TextReplyingAgent("should not appear")): run =>
+      import run.given
       val _ = stage("no-op"):
         "done"
-      assertEquals(lastCommitMessage(dir), "stage: no-op")
+      assertEquals(lastCommitMessage(run.dir), "stage: no-op")
 
   test(
     "stage with no commitMessage and throwing agent falls back to stage:<name>"
   ):
-    withCtx(throwingAgent): (ctx, dir) =>
-      given FlowControl = ctx
+    withRun(throwingAgent): run =>
+      import run.given
       val _ = stage("write file"):
-        os.write.over(dir / "seed.txt", "modified by stage")
+        os.write.over(run.dir / "seed.txt", "modified by stage")
         "done"
-      assertEquals(lastCommitMessage(dir), "stage: write file")
+      assertEquals(lastCommitMessage(run.dir), "stage: write file")
 
   test("stage with explicit commitMessage uses it verbatim (no agent call)"):
     val prompts = ConcurrentLinkedQueue[String]()
-    withCtx(TextReplyingAgent("should not appear", prompts)): (ctx, dir) =>
-      given FlowControl = ctx
+    withRun(TextReplyingAgent("should not appear", prompts)): run =>
+      import run.given
       val _ = stage[String](
         "write file",
         commitMessage = Some(_ => "explicit: my message")
       ):
-        os.write.over(dir / "seed.txt", "modified by stage")
+        os.write.over(run.dir / "seed.txt", "modified by stage")
         "done"
-      assertEquals(lastCommitMessage(dir), "explicit: my message")
+      assertEquals(lastCommitMessage(run.dir), "explicit: my message")
       assert(prompts.isEmpty, "the explicit-message path must not call a model")
 
   test("a large stage diff reaches the model bounded, with the --stat summary"):
     val prompts = ConcurrentLinkedQueue[String]()
-    withCtx(TextReplyingAgent("Rewrite seed file", prompts)): (ctx, dir) =>
-      given FlowControl = ctx
+    withRun(TextReplyingAgent("Rewrite seed file", prompts)): run =>
+      import run.given
       val _ = stage("write file"):
         os.write.over(
-          dir / "seed.txt",
+          run.dir / "seed.txt",
           (1 to 20000).map(i => s"line $i").mkString("\n")
         )
         "done"
@@ -148,28 +119,28 @@ class CommitMessageTest extends munit.FunSuite:
     // An untracked file has no tracked history to diff against, but the stage's
     // `add -A` commit includes it — so the model has to see it too.
     val prompts = ConcurrentLinkedQueue[String]()
-    withCtx(TextReplyingAgent("Add ignore rules", prompts)): (ctx, dir) =>
-      given FlowControl = ctx
+    withRun(TextReplyingAgent("Add ignore rules", prompts)): run =>
+      import run.given
       val _ = stage("add file"):
-        os.write(dir / ".gitignore", "target/\n")
+        os.write(run.dir / ".gitignore", "target/\n")
         "done"
       val prompt = nextPrompt(prompts)
       assert(prompt.contains("New files:\n.gitignore"), prompt)
       assert(prompt.contains("+target/"), "the new file's contents are missing")
-      assertEquals(lastCommitMessage(dir), "Add ignore rules")
+      assertEquals(lastCommitMessage(run.dir), "Add ignore rules")
 
   test("a later stage's prompt excludes the .orca progress log"):
     val prompts = ConcurrentLinkedQueue[String]()
-    withCtx(TextReplyingAgent("Update seed", prompts)): (ctx, dir) =>
-      given FlowControl = ctx
+    withRun(TextReplyingAgent("Update seed", prompts)): run =>
+      import run.given
       val _ = stage("first"):
-        os.write.over(dir / "seed.txt", "first change")
+        os.write.over(run.dir / "seed.txt", "first change")
         "done"
       val _ = stage("second"):
-        os.write.over(dir / "seed.txt", "second change")
+        os.write.over(run.dir / "seed.txt", "second change")
         // A mid-body session-store write, to pin that the stage diff carries
         // nothing from `.orca/` — the log the first stage committed included.
-        ctx.sessionStore.upsert(
+        run.control.sessionStore.upsert(
           SessionRecord(
             name = "s",
             stage = StagePath.FlowBody,
@@ -188,9 +159,9 @@ class CommitMessageTest extends munit.FunSuite:
   test(
     "stage with no commitMessage and blank agent reply falls back to stage:<name>"
   ):
-    withCtx(TextReplyingAgent("   ")): (ctx, dir) =>
-      given FlowControl = ctx
+    withRun(TextReplyingAgent("   ")): run =>
+      import run.given
       val _ = stage("write file"):
-        os.write.over(dir / "seed.txt", "modified by stage")
+        os.write.over(run.dir / "seed.txt", "modified by stage")
         "done"
-      assertEquals(lastCommitMessage(dir), "stage: write file")
+      assertEquals(lastCommitMessage(run.dir), "stage: write file")

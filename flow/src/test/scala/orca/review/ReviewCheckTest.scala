@@ -1,6 +1,6 @@
 package orca.review
 
-import orca.{Configured, FlowContext, FlowControl, InStage}
+import orca.{Configured, FlowContext, InStage}
 import orca.plan.Title
 import orca.events.EventDispatcher
 import orca.testkit.TempDirs
@@ -33,7 +33,8 @@ class ReviewCheckTest extends munit.FunSuite:
   private given orca.WorkspaceWrite = orca.WorkspaceWrite.unsafe
 
   test("a loop with only a check converges once the check comes back clean"):
-    given FlowControl = ReviewLoopFixture.control(new EventDispatcher(Nil))
+    val run = ReviewLoopFixture.run(new EventDispatcher(Nil))
+    import run.given
     val check = new ScriptedCheck(
       "bench",
       List(ReviewResult(List(finding("too slow"))), ReviewResult.empty)
@@ -55,7 +56,8 @@ class ReviewCheckTest extends munit.FunSuite:
     assert(check.exhausted, "the check must run again after the fix")
 
   test("checks run after formatting and before the reviewers"):
-    given FlowControl = ReviewLoopFixture.control(new EventDispatcher(Nil))
+    val run = ReviewLoopFixture.run(new EventDispatcher(Nil))
+    import run.given
     val formatted = TempDirs.dir() / "formatted"
     val order = new ConcurrentLinkedQueue[String]()
     val check = new ScriptedCheck(
@@ -84,7 +86,8 @@ class ReviewCheckTest extends munit.FunSuite:
   test("a reviewer, the lint gate and a check reporting together get own keys"):
     // Each finding is named by its key in the fix turn; a shared key would make
     // the fixer's echo resolve to the wrong finding.
-    given FlowControl = ReviewLoopFixture.control(new EventDispatcher(Nil))
+    val run = ReviewLoopFixture.run(new EventDispatcher(Nil))
+    import run.given
     val reviewer = new FakeAgent(
       "r",
       outputs = List(ReviewResult(List(finding("rev"))), ReviewResult.empty)
@@ -119,10 +122,11 @@ class ReviewCheckTest extends munit.FunSuite:
     assertEquals(result, OpenFindings.empty)
 
   test("reviewThenFix re-runs a check after its fix turn"):
-    given FlowControl = ReviewLoopFixture.control(
+    val run = ReviewLoopFixture.run(
       new EventDispatcher(Nil),
       lead = Some(new FakeAgent("picker").agent)
     )
+    import run.given
     val check = new ScriptedCheck(
       "bench",
       List(ReviewResult(List(finding("too slow"))), ReviewResult.empty)
@@ -143,10 +147,11 @@ class ReviewCheckTest extends munit.FunSuite:
     assert(check.exhausted, "the check must run again after the fix")
 
   test("reviewThenFix records which source still fails after its fix turn"):
-    given FlowControl = ReviewLoopFixture.control(
+    val run = ReviewLoopFixture.run(
       new EventDispatcher(Nil),
       lead = Some(new FakeAgent("picker").agent)
     )
+    import run.given
     val slow = ReviewResult(List(finding("too slow")))
     val broke = ReviewResult(List(finding("lint broke")))
     val check = new ScriptedCheck("bench", List(slow, slow, slow))
@@ -179,10 +184,11 @@ class ReviewCheckTest extends munit.FunSuite:
     assert(check.exhausted, "the check must run in the round and twice after")
 
   test("one defect still failing in lint and a check is one entry naming both"):
-    given FlowControl = ReviewLoopFixture.control(
+    val run = ReviewLoopFixture.run(
       new EventDispatcher(Nil),
       lead = Some(new FakeAgent("picker").agent)
     )
+    import run.given
     val broke = ReviewResult(List(finding("broke")))
     val check = new ScriptedCheck("bench", List(broke, broke, broke))
     val summariser =

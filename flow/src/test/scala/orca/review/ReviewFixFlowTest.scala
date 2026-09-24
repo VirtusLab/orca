@@ -1,6 +1,5 @@
 package orca.review
 
-import orca.FlowControl
 import orca.plan.Title
 import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
 
@@ -25,8 +24,9 @@ class ReviewFixFlowTest extends munit.FunSuite:
 
   test("reviewAndFixLoop marks the loop with a `Review & fix` progress line"):
     val listener = new RecordingListener
-    given FlowControl =
-      ReviewLoopFixture.control(new EventDispatcher(List(listener)))
+    val run =
+      ReviewLoopFixture.run(new EventDispatcher(List(listener)))
+    import run.given
 
     val real = finding("real problem")
     val reviewer = new FakeAgent(
@@ -63,8 +63,9 @@ class ReviewFixFlowTest extends munit.FunSuite:
 
   test("max fix turns path surfaces leftover findings with the cap reason"):
     val listener = new RecordingListener
-    given FlowControl =
-      ReviewLoopFixture.control(new EventDispatcher(List(listener)))
+    val run =
+      ReviewLoopFixture.run(new EventDispatcher(List(listener)))
+    import run.given
 
     // Reviewer keeps reporting the same finding every round; coder claims it
     // fixed it every round (so the loop sees progress) but the next eval

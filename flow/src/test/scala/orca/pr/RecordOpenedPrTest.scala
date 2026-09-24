@@ -1,7 +1,7 @@
 package orca.pr
 
 import munit.FunSuite
-import orca.{FlowControl, OrcaFlowException, stage}
+import orca.{OrcaFlowException, stage}
 import orca.progress.PublishedWork
 
 import ox.{fork, supervised}
@@ -18,7 +18,7 @@ class RecordOpenedPrTest extends FunSuite:
   test("recordOpenedPr outside a stage does not compile"):
     val errors = compileErrors(
       """
-      given FlowControl = ???
+      given orca.FlowControl = ???
       recordOpenedPr(samplePr)
       """
     )
@@ -30,7 +30,8 @@ class RecordOpenedPrTest extends FunSuite:
   test("the recorded PR survives a replayed create stage"):
     val (dir, store) = seededPrRepo()
     def open(calls: ConcurrentLinkedQueue[String]): Unit =
-      given FlowControl = prControl(dir, store, _ => (), calls)
+      val run = prRun(dir, store, _ => (), calls)
+      import run.given
       val _ = stage("open"):
         calls.add("body"): Unit
         recordOpenedPr(samplePr)
@@ -46,8 +47,9 @@ class RecordOpenedPrTest extends FunSuite:
 
   test("recordOpenedPr called from a fork inside a stage throws"):
     val (dir, store) = seededPrRepo()
-    given FlowControl =
-      prControl(dir, store, _ => (), new ConcurrentLinkedQueue[String]())
+    val run =
+      prRun(dir, store, _ => (), new ConcurrentLinkedQueue[String]())
+    import run.given
     val caught = new AtomicReference[Throwable](null)
     val _ = stage("open"):
       supervised:

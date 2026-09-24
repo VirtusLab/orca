@@ -476,7 +476,10 @@ class FlowLifecycleTest extends munit.FunSuite:
     val bodyRuns = new AtomicInteger(0)
     val resumedIds = new AtomicReference[List[String]](Nil)
 
-    def taskLoop(failAt: Option[String])(using orca.FlowControl): List[String] =
+    def taskLoop(failAt: Option[String])(using
+        orca.FlowContext,
+        orca.FlowControl
+    ): List[String] =
       for task <- tasks yield stage(s"Task: $task"):
         val _ = bodyRuns.incrementAndGet()
         val id = agent.session("implementer", seed = "brief").chat.id.value
@@ -1784,7 +1787,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       gh: Option[GitHubTool] = None,
       git: Option[RuntimeGit] = None,
       target: RunTarget = RunTarget.NewBranch(Uncommitted.Stash)
-  )(body: orca.FlowControl ?=> Unit): Unit =
+  )(body: (orca.FlowContext, orca.FlowControl) ?=> Unit): Unit =
     supervised:
       val interaction = TerminalInteraction.start(
         out = new PrintStream(new ByteArrayOutputStream()),

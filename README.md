@@ -625,10 +625,10 @@ Every way to talk to an agent, by what the conversation must do:
 | `agent.run(prompt)` | new, one turn | no | autonomous | text | `InStage` | yes |
 | `agent.resultAs[O].{autonomous,interactive}.run(input)` | new, one turn | no | both | `O` | `InStage` | yes* |
 | `agent.chat()` → `chat.run(prompt)` / `chat.resultAs[O].{autonomous,interactive}.run(input)` | new, then continued by every turn | no | both | text or `O` | `InStage` | yes* |
-| `agent.session(name, seed)` → `session.run(prompt)` / `session.resultAs[O].run(input)` | named; continued, or re-seeded if lost | yes | autonomous | text or `O` | `FlowControl`, `InStage`, `WorkspaceWrite` | no |
+| `agent.session(name, seed)` → `session.run(prompt)` / `session.resultAs[O].run(input)` | named; continued, or re-seeded if lost | yes | autonomous | text or `O` | `FlowContext`, `FlowControl`, `InStage`, `WorkspaceWrite` | no |
 | `session.chat` → as `Chat` | the session's; refused while the backend doesn't hold it (never run, or lost on resume) | no (turns not recorded) | both | text or `O` | `InStage` | yes* |
 | `Plan.{autonomous,interactive}.*` → `Sessioned`; `.reviewed()`, `.chat` | new planning conversation, continued by `.reviewed()` and `.chat` | no | as named | `O` | `FlowContext`, `InStage` | yes* |
-| `reviewAndFixLoop` / `reviewThenFix` | new reviewer chats; continues `coderSession` | the coder session does | autonomous | findings | `FlowControl`, `InStage`, `WorkspaceWrite` | no |
+| `reviewAndFixLoop` / `reviewThenFix` | new reviewer chats; continues `coderSession` | the coder session does | autonomous | findings | `FlowContext`, `FlowControl`, `InStage`, `WorkspaceWrite` | no |
 | `lint(commands, agent)` | new (or continues a `Lint.summariser`) | no | autonomous | `ReviewResult` (`LintReport` with a summariser) | `FlowContext`, `InStage` | yes |
 
 \* Interactive turns share your terminal: run them one at a time, never from
@@ -768,7 +768,8 @@ compile error with a message telling you where the call belongs:
 | `FlowControl` | exclusive (`caps.ExclusiveCapability`) | starting stages, minting sessions | the `flow(...)` body (not forks) | missing-given compile error + a runtime owner-thread check |
 
 (`FlowContext` — reads and event emission — is deliberately *not* a capability:
-it is thread-safe and forks receive it freely.)
+it is thread-safe and forks receive it freely.) A helper that starts stages
+declares `(using FlowContext, FlowControl)`.
 
 The runtime always guards this at run time — a fork that calls
 `stage(...)`/`session(...)` or makes a workspace write fails immediately, a second `flow(...)` in the same

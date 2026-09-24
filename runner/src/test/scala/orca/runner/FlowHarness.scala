@@ -34,7 +34,7 @@ object FlowHarness:
       codingOverride: Option[AgentSet => Agent[?]] = None,
       reviewOverride: Option[AgentSet => Agent[?]] = None,
       listeners: List[OrcaListener] = Nil
-  )(body: orca.FlowControl ?=> Unit): Unit =
+  )(body: (orca.FlowContext, orca.FlowControl) ?=> Unit): Unit =
     supervised:
       val interaction = TerminalInteraction.start(
         out = new PrintStream(new ByteArrayOutputStream()),
