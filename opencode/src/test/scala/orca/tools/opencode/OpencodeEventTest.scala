@@ -78,7 +78,7 @@ class OpencodeEventTest extends munit.FunSuite:
 
   test("message.part.updated(reasoning part) → ReasoningPart"):
     // Announced before its deltas, which arrive as `field:"text"` — this is
-    // what lets the driver tell them from real assistant text.
+    // what lets the decoder tell them from real assistant text.
     val e = OpencodeEvent.parse(
       """{"type":"message.part.updated","properties":{"sessionID":"ses_A","part":{"type":"reasoning","id":"prt_7","messageID":"msg_2"}}}"""
     )

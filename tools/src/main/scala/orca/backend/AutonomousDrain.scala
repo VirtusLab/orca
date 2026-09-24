@@ -3,15 +3,15 @@ package orca.backend
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.agents.{AutoApprove, BackendTag}
 
-/** Drains a [[Conversation]] for the autonomous path, returning the awaited
-  * `AgentResult`. Display events reach `events` through
-  * [[ObservedConversation]], as on the interactive path.
+/** Drains a [[LiveTurn]] for the autonomous path, returning the awaited
+  * `AgentResult`. Display events reach `events` through [[ObservedTurn]], as on
+  * the interactive path.
   *
   * The [[ChannelEvent]]s that reach this drain are answered explicitly to avoid
   * blocking the subprocess: `ApproveTool` is auto-denied and `UserQuestion`
   * auto-answered, both also surfacing as `OrcaEvent.Error`.
   */
-private[orca] object Conversations:
+private[orca] object AutonomousDrain:
 
   /** Why the tool wasn't already approved. The auto-approve set is blamed only
     * when the tool really is outside it: a backend that ignores orca's set
@@ -24,12 +24,12 @@ private[orca] object Conversations:
         "it is not in the auto-approve set"
       case _ => "the backend asked for approval itself"
 
-  def drainAutonomous[B <: BackendTag](
-      conv: Conversation[B],
+  def drain[B <: BackendTag](
+      live: LiveTurn[B],
       autoApprove: AutoApprove,
       events: OrcaListener = OrcaListener.noop
   ): AgentResult[B] =
-    ObservedConversation(conv, events).drain(
+    ObservedTurn(live, events).drain(
       answerUnattended(autoApprove, events)
     )
 
@@ -37,7 +37,7 @@ private[orca] object Conversations:
       autoApprove: AutoApprove,
       events: OrcaListener
   )(event: ChannelEvent): Unit = event match
-    case ConversationEvent.ApproveTool(toolName, _, respond) =>
+    case TurnEvent.ApproveTool(toolName, _, respond) =>
       // The backend blocks waiting for our decision and autonomous mode has no
       // user to ask, so deny and surface as an error; dropping would deadlock.
       val cause = denialCause(toolName, autoApprove)
@@ -48,9 +48,9 @@ private[orca] object Conversations:
         )
       )
       events.onEvent(OrcaEvent.ToolDenied(toolName, None))
-    case ConversationEvent.UserQuestion(_, respond) =>
+    case TurnEvent.UserQuestion(_, respond) =>
       // The ask_user MCP bridge isn't wired in autonomous mode (see
-      // `ConversationMode.Autonomous`), so this should be unreachable. If it
+      // `TurnMode.Autonomous`), so this should be unreachable. If it
       // ever fires, the bridge thread is blocked on `respond` — unblock it
       // rather than leak the thread.
       respond("[autonomous mode: no user available to answer]")

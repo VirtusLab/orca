@@ -19,7 +19,7 @@ import scala.util.control.NonFatal
   * forwarding a fabricated client id onto the wire.
   *
   * `Resume` continues the conversation the backend holds under `wireId`;
-  * `origin` says whether that conversation predates this run.
+  * `origin` says whether that conversation predates this attempt.
   */
 enum Dispatch[B <: BackendTag]:
   case Fresh(claim: Option[WireSessionId[B]])
@@ -30,17 +30,17 @@ enum Dispatch[B <: BackendTag]:
     case Dispatch.Fresh(_)     => TurnDispatch.Fresh
     case Dispatch.Resume(_, _) => TurnDispatch.Resumed
 
-/** Which run opened the conversation a [[Dispatch.Resume]] continues. */
+/** Which attempt opened the conversation a [[Dispatch.Resume]] continues. */
 enum ResumeOrigin:
-  /** A turn of this run committed it. */
-  case ThisRun
+  /** A turn of this attempt committed it. */
+  case ThisAttempt
 
-  /** A previous run opened it: its wire id was rehydrated from the session
+  /** A previous attempt opened it: its wire id was rehydrated from the session
     * store, or — under [[IdScheme.ClientClaimed]], with nothing recorded — the
-    * backend already holds the client's own claim, which only a run interrupted
-    * during the session's first turn leaves behind.
+    * backend already holds the client's own claim, which only an attempt
+    * interrupted during the session's first turn leaves behind.
     */
-  case EarlierRun
+  case EarlierAttempt
 
 /** How a backend's wire-level session ids come to be — decides what a `Fresh`
   * dispatch may put on the wire and which id a commit records.
@@ -87,12 +87,12 @@ final class SessionSupport[B <: BackendTag] private (
 
   /** What the next turn against `client` does — see [[Dispatch]].
     *
-    * A resumable answer is settled on first ask: a rehydrated wire id is probed
-    * once, then every later ask this run reads the stored answer, so a turn
-    * whose prompt continues a conversation spawns against it too. A `Fresh`
-    * answer is not stored — a failed first turn can leave a claim the backend
-    * holds, which the next ask must see — so under [[IdScheme.ClientClaimed]]
-    * each ask re-runs the claim probe.
+    * A resumable answer is confirmed on first ask: a rehydrated wire id is
+    * probed once, then every later ask this attempt reads the stored answer, so
+    * a turn whose prompt continues a conversation spawns against it too. A
+    * `Fresh` answer is not stored — a failed first turn can leave a claim the
+    * backend holds, which the next ask must see — so under
+    * [[IdScheme.ClientClaimed]] each ask re-runs the claim probe.
     *
     * For a durable backend the `probe` must NOT create, mutate, or resume the
     * session. An ephemeral backend keeps no durable transcript to probe, so its
@@ -101,34 +101,35 @@ final class SessionSupport[B <: BackendTag] private (
   def dispatchFor(client: SessionId[B]): Dispatch[B] =
     val key = SessionId.value(client)
     Option(entries.get(key)) match
-      case Some(SessionSupport.Entry.Settled(wire, origin)) =>
+      case Some(SessionSupport.Entry.Confirmed(wire, origin)) =>
         Dispatch.Resume(wire, origin)
       case Some(rehydrated @ SessionSupport.Entry.Rehydrated(wire)) =>
         if probe.forall(holds(_, WireSessionId.value(wire))) then
-          val _ = entries.replace(key, rehydrated, settledEarlierRun(wire))
-          Dispatch.Resume(wire, ResumeOrigin.EarlierRun)
+          val _ =
+            entries.replace(key, rehydrated, confirmedEarlierAttempt(wire))
+          Dispatch.Resume(wire, ResumeOrigin.EarlierAttempt)
         else
-          // Dropped so this run's next commit (`putIfAbsent`) records the
+          // Dropped so this attempt's next commit (`putIfAbsent`) records the
           // conversation the re-seeded turn opens, not the lost one.
           val _ = entries.remove(key, rehydrated)
           fresh(client)
       case None =>
         heldClaim(client) match
           case Some(claim) =>
-            val _ = entries.putIfAbsent(key, settledEarlierRun(claim))
-            Dispatch.Resume(claim, ResumeOrigin.EarlierRun)
+            val _ = entries.putIfAbsent(key, confirmedEarlierAttempt(claim))
+            Dispatch.Resume(claim, ResumeOrigin.EarlierAttempt)
           case None => fresh(client)
 
-  private def settledEarlierRun(
+  private def confirmedEarlierAttempt(
       wire: WireSessionId[B]
   ): SessionSupport.Entry[B] =
-    SessionSupport.Entry.Settled(wire, ResumeOrigin.EarlierRun)
+    SessionSupport.Entry.Confirmed(wire, ResumeOrigin.EarlierAttempt)
 
   private def fresh(client: SessionId[B]): Dispatch[B] = scheme match
     case IdScheme.ClientClaimed => Dispatch.Fresh(Some(client.onWire))
     case IdScheme.ServerMinted  => Dispatch.Fresh(None)
 
-  /** Record the wire id a previous run persisted for `client`, unconfirmed
+  /** Record the wire id a previous attempt persisted for `client`, unconfirmed
     * until the next [[dispatchFor]] probes it. `agent.session(name, seed)`
     * calls this when it reuses a recorded session.
     *
@@ -191,12 +192,12 @@ final class SessionSupport[B <: BackendTag] private (
       case IdScheme.ServerMinted  => server
     val _ = entries.putIfAbsent(
       SessionId.value(client),
-      SessionSupport.Entry.Settled(wire, ResumeOrigin.ThisRun)
+      SessionSupport.Entry.Confirmed(wire, ResumeOrigin.ThisAttempt)
     )
 
   /** Under [[IdScheme.ClientClaimed]] the client id IS the wire id, so a
     * conversation the backend already holds under it resumes with nothing
-    * recorded — the state a run interrupted during a session's first turn
+    * recorded — the state an attempt interrupted during a session's first turn
     * leaves behind, having written the transcript but never reached its commit.
     * Claiming that id a second time is what those CLIs refuse, so a `Fresh`
     * dispatch here would fail the run.
@@ -255,11 +256,11 @@ object SessionSupport:
 
   /** What [[SessionSupport]] knows about one client's wire id. */
   private enum Entry[B <: BackendTag]:
-    /** Read back from the session store; not yet probed this run. */
+    /** Read back from the session store; not yet probed this attempt. */
     case Rehydrated(wire: WireSessionId[B])
 
-    /** Committed by this run, or confirmed live by a probe. */
-    case Settled(wire: WireSessionId[B], origin: ResumeOrigin)
+    /** Committed by this attempt, or confirmed live by a probe. */
+    case Confirmed(wire: WireSessionId[B], origin: ResumeOrigin)
 
     def wire: WireSessionId[B]
 
@@ -274,9 +275,9 @@ object SessionSupport:
     new SessionSupport(scheme, Some(probe))
 
   /** Sessions live only for the process lifetime — no on-disk transcript or
-    * server-side thread survives it. Fresh-vs-resume is tracked within the run,
-    * but nothing is durably resumable, so [[SessionSupport.persistableWireId]]
-    * always reports absence.
+    * server-side thread survives it. Fresh-vs-resume is tracked within the
+    * attempt, but nothing is durably resumable, so
+    * [[SessionSupport.persistableWireId]] always reports absence.
     */
   def ephemeral[B <: BackendTag](scheme: IdScheme): SessionSupport[B] =
     new SessionSupport(scheme, None)

@@ -142,21 +142,21 @@ class OpencodeBackendTest extends munit.FunSuite:
         Some(Model("anthropic/claude-haiku-4-5"))
       )
 
-  test("the conversation declares the same mode as the backend"):
+  test("the turn declares the same mode as the backend"):
     // The prompt is built from the BACKEND's mode while the autonomous drain
-    // reads the CONVERSATION's; a disagreement renders the payload turn as
+    // reads the TURN's; a disagreement renders the payload message as
     // prose (or withholds prose that is not the payload).
     supervised:
       val http = new FakeHttp(turn("ses_server1", "tool-calls", Nil))
       val backend = new OpencodeBackend(new FakeHandle(http))
-      val conv = OpenTurn.interactive(backend)(
+      val live = OpenTurn.interactive(backend)(
         "q",
         fresh,
         "display",
         AgentConfig(),
         outputSchema = Some("""{"type":"object"}""")
       )
-      assertEquals(conv.structuredOutputMode, backend.structuredOutputMode)
+      assertEquals(live.structuredOutputMode, backend.structuredOutputMode)
 
   test("registerSession lets a later call resume that server session directly"):
     supervised:
@@ -175,7 +175,7 @@ class OpencodeBackendTest extends munit.FunSuite:
       ) // resumed, not created
       assert(http.posts.exists(_._1 == "/session/ses_X/prompt_async"))
 
-  test("an interactive turn opens a live conversation that can ask the user"):
+  test("an interactive turn can ask the user"):
     supervised:
       val http = new FakeHttp(
         turn(
@@ -189,20 +189,20 @@ class OpencodeBackendTest extends munit.FunSuite:
         )
       )
       val backend = new OpencodeBackend(new FakeHandle(http))
-      val conv = OpenTurn.interactive(backend)(
+      val live = OpenTurn.interactive(backend)(
         "q",
         fresh,
         "display",
         AgentConfig(),
         outputSchema = Some("""{"type":"object"}""")
       )
-      assertEquals(conv.canAskUser, true)
+      assertEquals(live.canAskUser, true)
       assertEquals(
-        conv.outputSchema,
+        live.outputSchema,
         Some("""{"type":"object"}""")
       ) // schema threaded through
-      conv.events.foreach(_ => ())
-      assertEquals(conv.awaitResult().toOption.get.output, "hi")
+      live.events.foreach(_ => ())
+      assertEquals(live.awaitResult().toOption.get.output, "hi")
 
   test(
     "dispatch never spawns the server when there is no client→server " +

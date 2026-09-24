@@ -22,10 +22,10 @@ import ox.{Ox, supervised}
   * [[orca.agents.AgentCall]]).
   *
   * A backend implements [[open]]: start one turn and return it as a live
-  * [[Conversation]]. The final [[runAutonomous]] / [[runInteractive]] own the
-  * rest of the turn for every backend: the turn-entry gate (close check,
+  * [[LiveTurn]]. The final [[runAutonomous]] / [[runInteractive]] own the rest
+  * of the turn for every backend: the turn-entry gate (close check,
   * fresh-vs-resume dispatch, enforcement notice), the per-turn `supervised`
-  * scope, draining or driving the conversation, committing the session, and
+  * scope, draining or driving the [[LiveTurn]], committing the session, and
   * teardown.
   *
   * Each run method takes a `session: SessionId[B]` — the same value across
@@ -49,7 +49,7 @@ trait AgentBackend[B <: BackendTag]:
     * `outputSchema`, when supplied, is the JSON Schema the final assistant
     * payload must conform to. Backends that enforce schemas natively (claude's
     * `--json-schema`) pass it to the CLI; others can ignore it. Either way the
-    * drain withholds the closing turn as the structured payload — the caller
+    * drain withholds the closing message as the structured payload — the caller
     * surfaces it via `OrcaEvent.StructuredResult` instead.
     *
     * The commit runs only after a clean drain, so a subprocess that crashed
@@ -69,12 +69,12 @@ trait AgentBackend[B <: BackendTag]:
   ): AgentResult[B] =
     val dispatch = enterTurn(session, config, events)
     supervised:
-      val conv = open(
+      val live = open(
         TurnRequest(
           prompt,
           session,
           dispatch,
-          ConversationMode.Autonomous,
+          TurnMode.Autonomous,
           config,
           outputSchema,
           events
@@ -82,19 +82,19 @@ trait AgentBackend[B <: BackendTag]:
       )
       try
         val result =
-          Conversations.drainAutonomous(conv, config.autoApprove, events)
+          AutonomousDrain.drain(live, config.autoApprove, events)
         sessions.commitAfterDrain(session, result)
         result
-      finally conv.cancel()
+      finally live.cancel()
 
-  /** Run one interactive turn against `session`: `interaction` drives the live
-    * conversation, and the session is registered once it returns.
+  /** Run one interactive turn against `session`: `interaction` drives the turn,
+    * and the session is registered once it returns.
     *
-    * The conversation's display events (prose, tool calls, errors) reach
-    * `events` ([[ObservedConversation]]); `interaction` answers the
-    * [[ChannelEvent]]s. A cancelled or failed drive throws and registers
-    * nothing — interactive turns aren't retried, and the next dispatch probes
-    * what the backend actually holds. An unsafe wire id is logged and skipped
+    * The turn's display events (prose, tool calls, errors) reach `events`
+    * ([[ObservedTurn]]); `interaction` answers the [[ChannelEvent]]s. A
+    * cancelled or failed drive throws and registers nothing — interactive turns
+    * aren't retried, and the next dispatch probes what the backend actually
+    * holds. An unsafe wire id is logged and skipped
     * ([[SessionSupport.register]]), so the user's completed turn survives it.
     */
   final def runInteractive(
@@ -108,13 +108,13 @@ trait AgentBackend[B <: BackendTag]:
   ): AgentResult[B] =
     val dispatch = enterTurn(session, config, events)
     supervised:
-      val conv = ObservedConversation(
+      val observed = ObservedTurn(
         open(
           TurnRequest(
             prompt,
             session,
             dispatch,
-            ConversationMode.Interactive(displayPrompt),
+            TurnMode.Interactive(displayPrompt),
             config,
             outputSchema,
             events
@@ -123,13 +123,13 @@ trait AgentBackend[B <: BackendTag]:
         events
       )
       try
-        val result = interaction.drive(conv)
+        val result = interaction.drive(observed)
         sessions.register(session, result.wireId)
         result
-      finally conv.cancel()
+      finally observed.cancel()
 
-  /** Start one turn and return it as a live [[Conversation]] whose forks run in
-    * the caller's per-turn scope. The backend owns the subprocess (or server
+  /** Start one turn and return it as a [[LiveTurn]] whose forks run in the
+    * caller's per-turn scope. The backend owns the subprocess (or server
     * stream) and event parsing; draining, driving, session commit and teardown
     * belong to [[runAutonomous]] / [[runInteractive]].
     *
@@ -138,7 +138,7 @@ trait AgentBackend[B <: BackendTag]:
     * is registered with the caller's scope ([[TurnResources]]), which also
     * releases it when `open` fails.
     */
-  protected[orca] def open(turn: TurnRequest[B])(using Ox): Conversation[B]
+  protected[orca] def open(turn: TurnRequest[B])(using Ox): LiveTurn[B]
 
   /** The turn-entry gate: refuse a closed backend, then settle this turn's
     * dispatch and give its enforcement notice.
@@ -256,8 +256,8 @@ trait AgentBackend[B <: BackendTag]:
     */
   private[orca] final def isClosed: Boolean = closedFlag.get()
 
-  /** Refuse a run against a backend whose flow has ended, so a leaked agent
-    * handle can't emit to a closed run's dispatcher. [[runAutonomous]] /
+  /** Refuse a turn against a backend whose flow has ended, so a leaked agent
+    * handle can't emit to a closed flow's dispatcher. [[runAutonomous]] /
     * [[runInteractive]] gate every turn; a caller that emits events before the
     * turn (the agent surface's `UserPrompt`) gates earlier still, so a dead
     * handle emits nothing.

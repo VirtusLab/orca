@@ -11,13 +11,13 @@ import orca.agents.{
 import orca.backend.{
   AgentResult,
   AskUserChannel,
-  Conversation,
-  ConversationEvent,
-  ConversationSpec,
+  LiveTurn,
+  TurnEvent,
+  DecodedTurnSpec,
   LineDecoder,
   Settled,
   Step,
-  StreamConversation,
+  DecodedTurn,
   StreamSource
 }
 import orca.subprocess.PipedCliProcess
@@ -62,9 +62,8 @@ private[pi] final class PiStdin(process: PipedCliProcess):
           s"dropped extension UI reply: ${e.getMessage}"
         )
 
-/** Decodes one `pi --mode rpc` process for a single Orca LLM call: Pi RPC
-  * events → Orca conversation events, with `agent_end` as the terminal
-  * [[AgentResult]].
+/** Decodes one `pi --mode rpc` process for a single Orca turn: Pi RPC events →
+  * `TurnEvent`s, with `agent_end` as the terminal [[AgentResult]].
   */
 private[pi] final class PiDecoder(
     clientSession: SessionId[BackendTag.Pi.type],
@@ -96,12 +95,12 @@ private[pi] final class PiDecoder(
       case InboundEvent.ToolExecutionStart(toolName, rawArgs) =>
         Step.continue(
           state,
-          ConversationEvent.AssistantToolCall(toolName, rawArgs)
+          TurnEvent.AssistantToolCall(toolName, rawArgs)
         )
       case InboundEvent.ToolExecutionEnd(toolName, ok, content) =>
         Step.continue(
           state,
-          ConversationEvent.ToolResult(Some(toolName), ok, content)
+          TurnEvent.ToolResult(Some(toolName), ok, content)
         )
       case InboundEvent.ExtensionUiRequest(id, method, question) =>
         extensionUiRequest(state, id, method, question)
@@ -133,7 +132,7 @@ private[pi] final class PiDecoder(
         )
       Step.Settle(
         state,
-        List(ConversationEvent.Error(message)),
+        List(TurnEvent.Error(message)),
         Settled.Failed(message, failedTurnDebit(state))
       )
 
@@ -144,10 +143,10 @@ private[pi] final class PiDecoder(
           state.copy(textStreamedThisMessage =
             state.textStreamedThisMessage || text.nonEmpty
           ),
-          ConversationEvent.AssistantTextDelta(text)
+          TurnEvent.AssistantTextDelta(text)
         )
       case MessageDelta.Thinking(text) =>
-        Step.continue(state, ConversationEvent.AssistantThinkingDelta(text))
+        Step.continue(state, TurnEvent.AssistantThinkingDelta(text))
       case MessageDelta.Other(_) => Step.continue(state)
 
   private def messageEnd(state: State, message: AgentMessage): Out =
@@ -155,12 +154,12 @@ private[pi] final class PiDecoder(
     else
       val error = message.errorMessage
         .filter(_.nonEmpty)
-        .map(ConversationEvent.Error(_))
+        .map(TurnEvent.Error(_))
       // Fallback: surface the message_end's own text only when no delta already
       // streamed it. An error-only message (empty text) emits nothing.
       val fallbackText =
         Option.when(message.text.nonEmpty && !state.textStreamedThisMessage)(
-          ConversationEvent.AssistantTextDelta(message.text)
+          TurnEvent.AssistantTextDelta(message.text)
         )
       Step.Continue(
         State(
@@ -201,7 +200,7 @@ private[pi] final class PiDecoder(
       case "input" | "editor" =>
         Step.continue(
           state,
-          ConversationEvent.UserQuestion(
+          TurnEvent.UserQuestion(
             question,
             answer => stdin.reply(OutboundMessage.extensionUiValue(id, answer))
           )
@@ -213,7 +212,7 @@ private[pi] final class PiDecoder(
         stdin.reply(OutboundMessage.extensionUiCancelled(id))
         Step.continue(
           state,
-          ConversationEvent.Error(
+          TurnEvent.Error(
             s"Unsupported Pi extension UI request '$other': $question"
           )
         )
@@ -245,7 +244,7 @@ private[pi] object PiDecoder:
     // trimming; this guard catches lines that already lost the leading ESC.
     line.startsWith("]777;notify;")
 
-private[pi] object PiConversation:
+private[pi] object PiTurn:
 
   /** Sends `prompt`, then starts decoding `process` into the caller's turn
     * scope.
@@ -260,12 +259,12 @@ private[pi] object PiConversation:
       openingPrompt: Option[String] = None,
       outputSchema: Option[String] = None,
       askUser: AskUserChannel = AskUserChannel.Unavailable
-  )(using Ox): Conversation[BackendTag.Pi.type] =
+  )(using Ox): LiveTurn[BackendTag.Pi.type] =
     val stdin = PiStdin(process)
     stdin.send(OutboundMessage.prompt(prompt))
-    StreamConversation.start(
+    DecodedTurn.start(
       StreamSource.fromProcess(process),
-      ConversationSpec(
+      DecodedTurnSpec(
         openingPrompt = openingPrompt,
         outputSchema = outputSchema,
         structuredOutputMode = StructuredOutputMode.RawText,

@@ -164,6 +164,50 @@ object FlowCanary:
       )(using FlowContext, InStage) =
         (_: List[ReviewBatch]) => all.reverse
 
+  /** A custom [[ReviewCheck]] and a flow's own open finding must be buildable
+    * from `import orca.*` alone — the README's benchmark example.
+    */
+  def customReviewCheckSurface(): Unit =
+    val benchmark = new ReviewCheck:
+      def name = "benchmark"
+      def evaluate()(using ctx: FlowContext, ev: InStage): ReviewResult =
+        val ms = os
+          .proc("./bench.sh")
+          .call(cwd = ctx.workDir, stderr = os.Pipe)
+          .out
+          .trim()
+          .toInt
+        if ms <= 200 then ReviewResult.empty
+        else
+          ReviewResult(
+            List(
+              ReviewFinding(
+                Title("Request too slow"),
+                s"p99 is $ms ms; the target is 200 ms",
+                location = None,
+                suggestion = None,
+                reopens = None
+              )
+            )
+          )
+    flow(OrcaArgs()):
+      val session = claude.session("impl", seed = userPrompt)
+      val open = stage("speed up"):
+        reviewAndFixLoop(
+          coderSession = session,
+          reviewers = Nil,
+          task = Task(Title("Make requests faster"), ""),
+          lint = Configured.Off,
+          checks = List(benchmark)
+        )
+      val _ = bodyWithOpenFindings(
+        "body",
+        open.copy(findings =
+          OpenFinding.custom(Title("Load test skipped"), "no staging", None) ::
+            open.findings
+        )
+      )
+
   /** The reviewer-customisation surface must be reachable from `import orca.*`
     * alone: `Reviewer`, `ReviewerPrompts` (the shipped set + its preset lists),
     * and `buildReviewers` to turn a composed `List[Reviewer]` into the agents

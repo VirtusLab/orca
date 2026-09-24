@@ -85,7 +85,7 @@ private[terminal] class TerminalEventRenderer(
       // No `formatIndented`, unlike every sibling arm: it is run-scoped.
       output.log(paint(CaveatStyle, s"$CaveatGlyph ") + message)
     case OrcaEvent.StructuredResult(raw, announcement, agent) =>
-      // Surfaces the result whose closing turn the drain withheld in
+      // Surfaces the result whose closing message the drain withheld in
       // structured mode. An unannounced result falls back to the raw payload,
       // collapsed and truncated, in the `●` style — ADR 0008 requires it stay
       // visible since the streamed JSON was suppressed.
@@ -110,7 +110,7 @@ private[terminal] class TerminalEventRenderer(
         val glyph = paint(UserPromptStyle, s"$UserPromptGlyph ")
         output.log(formatIndented(glyph + collapsed))
     case OrcaEvent.AssistantMessage(text, agent) =>
-      // One line per prose turn; empty payloads (turn-without-prose) dropped.
+      // One line per prose message; empty payloads (message-without-prose) dropped.
       assistantLine(text, MaxAssistantMessageLength, attribution(agent))
         .foreach(output.log)
     case OrcaEvent.Error(message, agent) =>
@@ -238,7 +238,7 @@ private[terminal] object TerminalEventRenderer:
   /** Yellow-bold: a caution, short of the red an [[OrcaEvent.Error]] gets. */
   val CaveatStyle: fansi.Attrs = fansi.Color.Yellow ++ fansi.Bold.On
 
-  /** Per-turn cap collapsing long agent prose to one line. */
+  /** Per-message cap collapsing long agent prose to one line. */
   val MaxAssistantMessageLength: Int = 100
 
   /** Cap for the raw-payload fallback in [[OrcaEvent.StructuredResult]] when no

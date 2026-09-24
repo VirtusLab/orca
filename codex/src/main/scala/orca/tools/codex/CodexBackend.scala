@@ -11,7 +11,7 @@ import orca.agents.{
 }
 import orca.backend.{
   AskUserChannel,
-  Conversation,
+  LiveTurn,
   TurnRequest,
   Dispatch,
   AgentBackend,
@@ -32,9 +32,9 @@ import ox.{Ox, ResourceScope}
   * the protocol and the rationale for not using the experimental WebSocket
   * app-server.
   *
-  * Both modes wrap the subprocess in a [[CodexConversation]]. Multi-turn:
-  * subsequent `runAutonomous` / `runInteractive` calls with the same session id
-  * route through `codex exec resume <server-id>` via [[sessions]]
+  * Both modes wrap the subprocess in a [[CodexTurn]]. Multi-turn: subsequent
+  * `runAutonomous` / `runInteractive` calls with the same session id route
+  * through `codex exec resume <server-id>` via [[sessions]]
   * ([[IdScheme.ServerMinted]]).
   *
   * Interactive calls additionally stand up an `ask_user` MCP host bridge
@@ -102,19 +102,19 @@ private[orca] class CodexBackend(
 
   /** Spawn `codex exec --json` (fresh) or `codex exec resume <server-id>`
     * (continuation), per `dispatch`, and wrap the process in a live
-    * [[CodexConversation]]. On a fresh spawn the post-drain commit records the
+    * [[CodexTurn]]. On a fresh spawn the post-drain commit records the
     * client→server mapping.
     *
     * `Interactive` mode wires the MCP `ask_user` tool: stand up the bridge +
     * Netty server, hand its URL to `CodexArgs` for the `-c mcp_servers.orca`
     * override, fold the system-prompt hint into the user prompt (codex has no
-    * `--append-system-prompt`), and hand the bridge to `CodexConversation` to
-    * surface `UserQuestion` events. `Autonomous` skips all of it. The server
-    * and the schema file are released when the turn scope ends.
+    * `--append-system-prompt`), and hand the bridge to `CodexTurn` to surface
+    * `UserQuestion` events. `Autonomous` skips all of it. The server and the
+    * schema file are released when the turn scope ends.
     */
   override protected[orca] def open(
       turn: TurnRequest[BackendTag.Codex.type]
-  )(using Ox): Conversation[BackendTag.Codex.type] =
+  )(using Ox): LiveTurn[BackendTag.Codex.type] =
     import turn.*
     val schemaFile = writeSchemaIfPresent(outputSchema)
     val askUser: Option[AskUserSession] =
@@ -147,10 +147,10 @@ private[orca] class CodexBackend(
           )
       cli.spawnPiped(args, cwd = workDir)
     } { process =>
-      // codex doesn't accept user turns over stdin once the prompt is
+      // codex doesn't accept user messages over stdin once the prompt is
       // argv-supplied; close immediately so the child stops waiting on EOF.
       process.closeStdin()
-      CodexConversation(
+      CodexTurn(
         process,
         openingPrompt = mode.openingPrompt,
         outputSchema = outputSchema,

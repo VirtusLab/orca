@@ -12,7 +12,7 @@ import scala.util.control.NonFatal
   *
   * The shape is documented in
   * [[../../../adr/0007-codex-exec-jsonl-driver.md ADR 0007]]; each variant
-  * carries only the fields the driver actually inspects. Unknown top-level
+  * carries only the fields the decoder actually inspects. Unknown top-level
   * types collapse to [[Unknown]] so protocol drift doesn't crash the pipeline.
   */
 private[codex] enum InboundEvent:
@@ -33,7 +33,7 @@ private[codex] enum InboundEvent:
 
   /** Terminal failure event replacing `turn.completed` when the turn didn't
     * succeed — carries the same diagnostic text as a preceding [[Error]], if
-    * any, but is the one the driver treats as authoritative since it's always
+    * any, but is the one the decoder treats as authoritative since it's always
     * followed by the process exiting non-zero.
     */
   case TurnFailed(message: String)

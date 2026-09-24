@@ -12,7 +12,7 @@ import orca.agents.{
 }
 import orca.backend.{
   AskUserChannel,
-  Conversation,
+  LiveTurn,
   TurnRequest,
   AgentBackend,
   IdScheme,
@@ -47,11 +47,11 @@ private[claude] final case class TurnMcp(
 )
 
 /** Claude Code backend. All calls — autonomous and interactive — drive a
-  * stream-json subprocess through [[ClaudeConversation]].
+  * stream-json subprocess through [[ClaudeTurn]].
   *
   * A turn also stands up whichever host MCP servers it is entitled to — see
-  * [[open]]. Every one is a Netty binding whose lifetime tracks the
-  * conversation, not the backend, so a long flow doesn't accumulate them.
+  * [[open]]. Every one is a Netty binding whose lifetime tracks the turn, not
+  * the backend, so a long flow doesn't accumulate them.
   */
 private[orca] class ClaudeBackend(
     cli: CliRunner,
@@ -70,7 +70,7 @@ private[orca] class ClaudeBackend(
     * (rehydrated on resume so a resumed task uses `--resume`), and existence is
     * a best-effort transcript-file probe. The probe also answers for a claimed
     * id with no mapping recorded — a transcript under an id orca minted is one
-    * an earlier run put on the wire, and claiming it again is what the CLI
+    * an earlier attempt put on the wire, and claiming it again is what the CLI
     * refuses.
     */
   val tag: BackendTag.ClaudeCode.type = BackendTag.ClaudeCode
@@ -102,11 +102,11 @@ private[orca] class ClaudeBackend(
         )
     )
 
-  /** Spawn `claude` in stream-json mode, write the opening user turn, close
-    * stdin, and wrap the process in a live [[ClaudeConversation]]. orca sends
-    * one message per process, so stdin closes straight away. The CLI answers
-    * with stdin open either way; the close is what makes it exit, which ends
-    * the reader on a turn that never settles.
+  /** Spawn `claude` in stream-json mode, write the opening user message, close
+    * stdin, and wrap the process in a [[ClaudeTurn]]. orca sends one message
+    * per process, so stdin closes straight away. The CLI answers with stdin
+    * open either way; the close is what makes it exit, which ends the reader on
+    * a turn that never settles.
     *
     * Host MCP servers may be stood up: `ask_user` on an `Interactive` turn only
     * — an autonomous call has no renderer to answer the question, so exposing
@@ -119,7 +119,7 @@ private[orca] class ClaudeBackend(
     */
   override protected[orca] def open(
       turn: TurnRequest[BackendTag.ClaudeCode.type]
-  )(using Ox): Conversation[BackendTag.ClaudeCode.type] =
+  )(using Ox): LiveTurn[BackendTag.ClaudeCode.type] =
     import turn.*
     val askUser: Option[AskUserSession] =
       Option.when(mode.isInteractive)(AskUserSession.allocate())
@@ -155,7 +155,7 @@ private[orca] class ClaudeBackend(
     } { process =>
       process.writeLine(OutboundMessage.userText(prompt))
       process.closeStdin()
-      ClaudeConversation(
+      ClaudeTurn(
         process,
         openingPrompt = mode.openingPrompt,
         outputSchema = outputSchema,
@@ -193,8 +193,8 @@ private[orca] class ClaudeBackend(
       )
     List(repoReads, githubReads).flatten
 
-  /** Write this conversation's MCP config, listing whichever host servers it
-    * stood up, to a JVM temp file and return its path.
+  /** Write this turn's MCP config, listing whichever host servers it stood up,
+    * to a JVM temp file and return its path.
     *
     * Outside `workDir` like the system-prompt file, so a hard kill that skips
     * the deletion leaves nothing a stage commit can sweep up. Probed 2026-09-23
@@ -281,15 +281,15 @@ object ClaudeBackend:
 
   /** Tool name the claude CLI injects for `--json-schema` structured output:
     * the model "exits" the turn by calling this tool with the payload as its
-    * input. The conversation suppresses that echo — the payload reaches the
-    * caller via the result message as `OrcaEvent.StructuredResult`, so
-    * rendering the tool call too would show the same JSON twice.
+    * input. The decoder suppresses that echo — the payload reaches the caller
+    * via the result message as `OrcaEvent.StructuredResult`, so rendering the
+    * tool call too would show the same JSON twice.
     */
   private[claude] val StructuredOutputToolName: String = "StructuredOutput"
 
-  /** Shared by [[ClaudeBackend.structuredOutputMode]] and
-    * [[ClaudeConversation]], so prompt assembly and the drain can't disagree
-    * about how the payload arrives.
+  /** Shared by [[ClaudeBackend.structuredOutputMode]] and [[ClaudeTurn]], so
+    * prompt assembly and the drain can't disagree about how the payload
+    * arrives.
     */
   private[claude] val StructuredOutputDelivery: StructuredOutputMode =
     StructuredOutputMode.Tool

@@ -4,27 +4,23 @@ import orca.agents.Model
 import orca.events.{TurnDebit, Usage}
 import orca.testkit.Usages.usage
 import orca.{AgentTurnFailed, OrcaFlowException, OrcaInteractiveCancelled}
-import orca.backend.{
-  AskUserChannel,
-  ConversationEvent,
-  ConversationEventConformance
-}
+import orca.backend.{AskUserChannel, TurnEvent, TurnEventConformance}
 import orca.subprocess.FakePipedCliProcess
 import ox.{Ox, supervised}
 
-class ClaudeConversationTest extends munit.FunSuite:
+class ClaudeTurnTest extends munit.FunSuite:
 
-  /** `ClaudeConversation` forks its reader/stderr/ask-user workers into the
-    * caller's per-turn Ox, so construction needs a `using Ox`. Run each test
-    * body in a fresh supervised scope that provides it (and joins the forks on
-    * exit). The ask-user test manages its own scope and stays on plain `test`.
+  /** `ClaudeTurn` forks its reader/stderr/ask-user workers into the caller's
+    * per-turn Ox, so construction needs a `using Ox`. Run each test body in a
+    * fresh supervised scope that provides it (and joins the forks on exit). The
+    * ask-user test manages its own scope and stays on plain `test`.
     */
-  private def convTest(name: String)(body: Ox ?=> Unit): Unit =
+  private def liveTest(name: String)(body: Ox ?=> Unit): Unit =
     test(name)(supervised(body))
 
-  convTest("stream_event text_delta becomes AssistantTextDelta"):
+  liveTest("stream_event text_delta becomes AssistantTextDelta"):
     val process = new FakePipedCliProcess()
-    val conv = ClaudeConversation(process)
+    val live = ClaudeTurn(process)
 
     process.enqueueStdout(
       """{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hello"}}}"""
@@ -35,22 +31,22 @@ class ClaudeConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val events = conv.events.toList
-    // The delta opens a turn; `result:success` settles it, and the base-class
-    // auto-close injects the owed AssistantTurnEnd.
+    val events = live.events.toList
+    // The delta opens a message; `result:success` settles it, and the base-class
+    // auto-close injects the owed AssistantMessageEnd.
     assertEquals(
       events,
       List(
-        ConversationEvent.AssistantTextDelta("hello"),
-        ConversationEvent.AssistantTurnEnd
+        TurnEvent.AssistantTextDelta("hello"),
+        TurnEvent.AssistantMessageEnd
       )
     )
-    ConversationEventConformance.assertGrammar(events, completedNormally = true)
-    val _ = conv.awaitResult()
+    TurnEventConformance.assertGrammar(events, completedNormally = true)
+    val _ = live.awaitResult()
 
-  convTest("result message finishes the session and carries usage"):
+  liveTest("result message finishes the turn and carries usage"):
     val process = new FakePipedCliProcess()
-    val conv = ClaudeConversation(process)
+    val live = ClaudeTurn(process)
 
     process.enqueueStdout(
       """{"type":"result","subtype":"success","session_id":"sid-2","result":"done","usage":{"input_tokens":5,"output_tokens":7}}"""
@@ -58,8 +54,8 @@ class ClaudeConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val _ = conv.events.toList
-    val Right(result) = conv.awaitResult(): @unchecked
+    val _ = live.events.toList
+    val Right(result) = live.awaitResult(): @unchecked
     assertEquals(result.output, "done")
     assertEquals(result.usage, usage(5L, 7L))
 
@@ -67,9 +63,9 @@ class ClaudeConversationTest extends munit.FunSuite:
   // one model response into several `assistant` messages sharing one id, and a
   // response can carry several tool calls, so neither message count nor tool
   // count is the answer — only the distinct ids are.
-  convTest("a turn's API-call count is its distinct response ids"):
+  liveTest("a turn's API-call count is its distinct response ids"):
     val process = new FakePipedCliProcess()
-    val conv = ClaudeConversation(process)
+    val live = ClaudeTurn(process)
 
     // One response, split into prose and two parallel tool calls...
     process.enqueueStdout(
@@ -88,15 +84,15 @@ class ClaudeConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val _ = conv.events.toList
-    val Right(result) = conv.awaitResult(): @unchecked
+    val _ = live.events.toList
+    val Right(result) = live.awaitResult(): @unchecked
     assertEquals(result.usage.apiCalls, Some(2L))
 
-  convTest(
+  liveTest(
     "is_error after streaming deltas emits a short marker, not a duplicate"
   ):
     val process = new FakePipedCliProcess()
-    val conv = ClaudeConversation(process)
+    val live = ClaudeTurn(process)
 
     process.enqueueStdout(
       """{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"API Error: 400 quota exceeded"}}}"""
@@ -107,8 +103,8 @@ class ClaudeConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val events = conv.events.toList
-    val errors = events.collect { case ConversationEvent.Error(msg) => msg }
+    val events = live.events.toList
+    val errors = events.collect { case TurnEvent.Error(msg) => msg }
     assertEquals(
       errors.size,
       1,
@@ -119,21 +115,21 @@ class ClaudeConversationTest extends munit.FunSuite:
       s"the error event should not duplicate the streamed body; got: ${errors.head}"
     )
     // The delta opened a turn; the out-of-band is_error settles it, and the
-    // reader injects the owed AssistantTurnEnd — so the
+    // reader injects the owed AssistantMessageEnd — so the
     // settled-failure sequence is grammar-clean.
-    assertEquals(events.last, ConversationEvent.AssistantTurnEnd)
-    ConversationEventConformance.assertGrammar(events, completedNormally = true)
-    val failure = intercept[OrcaFlowException](conv.awaitResult())
+    assertEquals(events.last, TurnEvent.AssistantMessageEnd)
+    TurnEventConformance.assertGrammar(events, completedNormally = true)
+    val failure = intercept[OrcaFlowException](live.awaitResult())
     assert(
       failure.getMessage.contains("400 quota exceeded"),
       s"awaitResult should still carry the full body; got: ${failure.getMessage}"
     )
 
-  convTest(
+  liveTest(
     "result message with is_error=true fails the session and surfaces the message"
   ):
     val process = new FakePipedCliProcess()
-    val conv = ClaudeConversation(process)
+    val live = ClaudeTurn(process)
 
     process.enqueueStdout(
       """{"type":"result","subtype":"error","session_id":"sid-err","result":"API Error: 400 rate limited","is_error":true}"""
@@ -141,26 +137,26 @@ class ClaudeConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val events = conv.events.toList
+    val events = live.events.toList
     assert(
       events.exists {
-        case ConversationEvent.Error(msg) => msg.contains("rate limited")
-        case _                            => false
+        case TurnEvent.Error(msg) => msg.contains("rate limited")
+        case _                    => false
       },
       s"expected an Error event carrying the result body; got: $events"
     )
-    // Out-of-band is_error before any assistant turn: no turn opened, so the
-    // settled-failure sequence is grammar-clean with no AssistantTurnEnd.
-    ConversationEventConformance.assertGrammar(events, completedNormally = true)
-    val failure = intercept[OrcaFlowException](conv.awaitResult())
+    // Out-of-band is_error before any assistant message: no message opened, so the
+    // settled-failure sequence is grammar-clean with no AssistantMessageEnd.
+    TurnEventConformance.assertGrammar(events, completedNormally = true)
+    val failure = intercept[OrcaFlowException](live.awaitResult())
     assert(failure.getMessage.contains("rate limited"))
 
   // The empty-body case is where the CLI puts the whole reason in `subtype`
   // (a resume replaying a queued pseudo-turn, an exhausted turn budget, …), so
   // it must stand in for the message rather than leaving a bare marker.
-  convTest("is_error with an empty body names the result subtype"):
+  liveTest("is_error with an empty body names the result subtype"):
     val process = new FakePipedCliProcess()
-    val conv = ClaudeConversation(process)
+    val live = ClaudeTurn(process)
 
     process.enqueueStdout(
       """{"type":"result","subtype":"error_max_turns","session_id":"sid-empty","is_error":true}"""
@@ -168,25 +164,25 @@ class ClaudeConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val errors = conv.events.toList.collect {
-      case ConversationEvent.Error(msg) => msg
+    val errors = live.events.toList.collect { case TurnEvent.Error(msg) =>
+      msg
     }
     assertEquals(
       errors,
       List("claude reported is_error (subtype error_max_turns)")
     )
-    val failure = intercept[OrcaFlowException](conv.awaitResult())
+    val failure = intercept[OrcaFlowException](live.awaitResult())
     assertEquals(
       failure.getMessage,
-      "claude session failed (subtype error_max_turns, session sid-empty): " +
+      "claude turn failed (subtype error_max_turns, session sid-empty): " +
         "claude reported is_error (subtype error_max_turns)"
     )
 
   // The failing turn's tokens are on the wire in the same `result` frame; the
-  // exception is the only way they can still reach the run's cost summary.
-  convTest("is_error carries the result's debit on the thrown failure"):
+  // exception is the only way they can still reach the cost summary.
+  liveTest("is_error carries the result's debit on the thrown failure"):
     val process = new FakePipedCliProcess()
-    val conv = ClaudeConversation(process)
+    val live = ClaudeTurn(process)
 
     process.enqueueStdout(
       """{"type":"result","subtype":"error_during_execution","session_id":"sid-cost","is_error":true,"usage":{"input_tokens":11,"output_tokens":3,"cache_read_input_tokens":7},"total_cost_usd":0.25,"model":"claude-sonnet-4-6"}"""
@@ -194,8 +190,8 @@ class ClaudeConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val _ = conv.events.toList
-    val failure = intercept[AgentTurnFailed](conv.awaitResult())
+    val _ = live.events.toList
+    val failure = intercept[AgentTurnFailed](live.awaitResult())
     assertEquals(
       failure.debit,
       TurnDebit.Observed(
@@ -216,9 +212,9 @@ class ClaudeConversationTest extends munit.FunSuite:
 
   // `Observed(Usage.empty)` here would reach the cost summary as a measured
   // zero.
-  convTest("is_error without a usage object reports an unobserved debit"):
+  liveTest("is_error without a usage object reports an unobserved debit"):
     val process = new FakePipedCliProcess()
-    val conv = ClaudeConversation(process)
+    val live = ClaudeTurn(process)
 
     process.enqueueStdout(
       """{"type":"result","subtype":"error","session_id":"sid-nousage","result":"API Error: 400 quota exceeded","is_error":true}"""
@@ -226,19 +222,19 @@ class ClaudeConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val _ = conv.events.toList
-    val failure = intercept[AgentTurnFailed](conv.awaitResult())
+    val _ = live.events.toList
+    val failure = intercept[AgentTurnFailed](live.awaitResult())
     assertEquals(failure.debit, TurnDebit.Unobserved)
 
-  convTest(
-    "is_error after a tool-only turn (no assistant text) surfaces the full error body"
+  liveTest(
+    "is_error after a tool-only message (no assistant text) surfaces the full error body"
   ):
-    // The deltasSinceLastFullTurn-vs-turnIsOpen distinction (see that field's
-    // scaladoc): the ToolResult below makes turnIsOpen true, but no text/
+    // The deltasSinceLastFullMessage-vs-open-message distinction (see that
+    // field's scaladoc): the ToolResult below opens a message, but no text/
     // thinking delta ever streamed, so is_error must NOT collapse into the "see
     // message above" marker — there IS no message above.
     val process = new FakePipedCliProcess()
-    val conv = ClaudeConversation(process)
+    val live = ClaudeTurn(process)
 
     process.enqueueStdout(
       """{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"id-1","name":"Bash","input":{"cmd":"ls"}}]}}"""
@@ -252,8 +248,8 @@ class ClaudeConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val events = conv.events.toList
-    val errors = events.collect { case ConversationEvent.Error(msg) => msg }
+    val events = live.events.toList
+    val errors = events.collect { case TurnEvent.Error(msg) => msg }
     assertEquals(
       errors.size,
       1,
@@ -263,26 +259,26 @@ class ClaudeConversationTest extends munit.FunSuite:
       errors.head.contains("500 internal error"),
       s"expected the full error body, not the marker; got: ${errors.head}"
     )
-    ConversationEventConformance.assertGrammar(events, completedNormally = true)
-    val failure = intercept[OrcaFlowException](conv.awaitResult())
+    TurnEventConformance.assertGrammar(events, completedNormally = true)
+    val failure = intercept[OrcaFlowException](live.awaitResult())
     assert(failure.getMessage.contains("500 internal error"))
 
-  convTest(
+  liveTest(
     "cancel surfaces as Left(OrcaInteractiveCancelled) from awaitResult"
   ):
     val process = new FakePipedCliProcess()
-    val conv = ClaudeConversation(process)
+    val live = ClaudeTurn(process)
 
-    conv.cancel()
-    conv.awaitResult() match
+    live.cancel()
+    live.awaitResult() match
       case Left(_: OrcaInteractiveCancelled) => ()
       case other =>
         fail(s"expected Left(OrcaInteractiveCancelled), got: $other")
     assertEquals(process.sigIntCount, 1)
 
-  convTest("control_request surfaces as an Error without writing to stdin"):
+  liveTest("control_request surfaces as an Error without writing to stdin"):
     val process = new FakePipedCliProcess()
-    val conv = ClaudeConversation(process)
+    val live = ClaudeTurn(process)
 
     process.enqueueStdout(
       """{"type":"control_request","request_id":"req-1","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"cmd":"ls"}}}"""
@@ -294,21 +290,21 @@ class ClaudeConversationTest extends munit.FunSuite:
     process.closeStderr()
 
     val errors =
-      conv.events.toList.collect { case ConversationEvent.Error(m) => m }
+      live.events.toList.collect { case TurnEvent.Error(m) => m }
     assert(
       errors.sizeIs == 1 && errors.head.contains(
         "control_request (can_use_tool)"
       ),
       errors
     )
-    val _ = conv.awaitResult()
+    val _ = live.awaitResult()
     assertEquals(process.writes, Nil)
 
-  convTest(
-    "assistant turn with text falls back to an AssistantTextDelta when no partials streamed"
+  liveTest(
+    "assistant message with text falls back to an AssistantTextDelta when no partials streamed"
   ):
     val process = new FakePipedCliProcess()
-    val conv = ClaudeConversation(process)
+    val live = ClaudeTurn(process)
 
     process.enqueueStdout(
       """{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"no-partials"}]}}"""
@@ -319,20 +315,20 @@ class ClaudeConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val events = conv.events.toList
+    val events = live.events.toList
     assertEquals(
       events,
       List(
-        ConversationEvent.AssistantTextDelta("no-partials"),
-        ConversationEvent.AssistantTurnEnd
+        TurnEvent.AssistantTextDelta("no-partials"),
+        TurnEvent.AssistantMessageEnd
       )
     )
-    ConversationEventConformance.assertGrammar(events, completedNormally = true)
-    val _ = conv.awaitResult()
+    TurnEventConformance.assertGrammar(events, completedNormally = true)
+    val _ = live.awaitResult()
 
-  convTest("a failed permission-refusal tool_result emits ToolDenied"):
+  liveTest("a failed permission-refusal tool_result emits ToolDenied"):
     val process = new FakePipedCliProcess()
-    val conv = ClaudeConversation(process)
+    val live = ClaudeTurn(process)
 
     process.enqueueStdout(
       """{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"id-1","content":"Claude requested permissions to use mcp__visdom__agents_md, but you haven't granted it yet.","is_error":true}]}}"""
@@ -343,22 +339,22 @@ class ClaudeConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val events = conv.events.toList
+    val events = live.events.toList
     assertEquals(
       events,
       List(
-        ConversationEvent.ToolDenied("mcp__visdom__agents_md"),
-        ConversationEvent.AssistantTurnEnd
+        TurnEvent.ToolDenied("mcp__visdom__agents_md"),
+        TurnEvent.AssistantMessageEnd
       )
     )
-    ConversationEventConformance.assertGrammar(events, completedNormally = true)
-    val _ = conv.awaitResult()
+    TurnEventConformance.assertGrammar(events, completedNormally = true)
+    val _ = live.awaitResult()
 
-  convTest(
+  liveTest(
     "a successful tool_result quoting the refusal phrase stays a ToolResult"
   ):
     val process = new FakePipedCliProcess()
-    val conv = ClaudeConversation(process)
+    val live = ClaudeTurn(process)
     val quoted =
       "Claude requested permissions to use Bash, but you haven't granted it yet."
 
@@ -372,14 +368,14 @@ class ClaudeConversationTest extends munit.FunSuite:
     process.closeStderr()
 
     assertEquals(
-      conv.events.toList.headOption,
-      Some(ConversationEvent.ToolResult(None, ok = true, quoted))
+      live.events.toList.headOption,
+      Some(TurnEvent.ToolResult(None, ok = true, quoted))
     )
-    val _ = conv.awaitResult()
+    val _ = live.awaitResult()
 
-  convTest("user turn with tool_result blocks emits ToolResult events"):
+  liveTest("user message with tool_result blocks emits ToolResult events"):
     val process = new FakePipedCliProcess()
-    val conv = ClaudeConversation(process)
+    val live = ClaudeTurn(process)
 
     process.enqueueStdout(
       """{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"id-1","content":"output","is_error":false}]}}"""
@@ -390,28 +386,28 @@ class ClaudeConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val events = conv.events.toList
-    // The ToolResult opens a turn (a tool ran); `result:success` settles it and
-    // the base-class auto-close injects the owed AssistantTurnEnd.
+    val events = live.events.toList
+    // The ToolResult opens a message (a tool ran); `result:success` settles it and
+    // the base-class auto-close injects the owed AssistantMessageEnd.
     assertEquals(
       events,
       List(
-        ConversationEvent.ToolResult(
+        TurnEvent.ToolResult(
           toolName = None,
           ok = true,
           content = "output"
         ),
-        ConversationEvent.AssistantTurnEnd
+        TurnEvent.AssistantMessageEnd
       )
     )
-    ConversationEventConformance.assertGrammar(events, completedNormally = true)
-    val _ = conv.awaitResult()
+    TurnEventConformance.assertGrammar(events, completedNormally = true)
+    val _ = live.awaitResult()
 
-  convTest(
-    "malformed NDJSON line surfaces as ConversationEvent.Error and the loop continues"
+  liveTest(
+    "malformed NDJSON line surfaces as TurnEvent.Error and the loop continues"
   ):
     val process = new FakePipedCliProcess()
-    val conv = ClaudeConversation(process)
+    val live = ClaudeTurn(process)
 
     process.enqueueStdout("this is not json")
     process.enqueueStdout(
@@ -420,15 +416,15 @@ class ClaudeConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val events = conv.events.toList
+    val events = live.events.toList
     assert(
       events.exists {
-        case ConversationEvent.Error(msg) => msg.contains("Failed to parse")
-        case _                            => false
+        case TurnEvent.Error(msg) => msg.contains("Failed to parse")
+        case _                    => false
       },
       s"expected a parse-error event; got: $events"
     )
-    val _ = conv.awaitResult()
+    val _ = live.awaitResult()
 
   test(
     "askUserBridge: questions surface as UserQuestion events; respond unblocks ask"
@@ -440,20 +436,20 @@ class ClaudeConversationTest extends munit.FunSuite:
       given BufferCapacity = BufferCapacity(8)
       val process = new FakePipedCliProcess()
       val askUser = AskUserSession.allocate()
-      val conv =
-        ClaudeConversation(process, askUser = AskUserChannel.Mcp(askUser))
+      val live =
+        ClaudeTurn(process, askUser = AskUserChannel.Mcp(askUser))
       val bridge = askUser.bridge
-      assert(conv.canAskUser, "canAskUser must be true when a bridge is wired")
+      assert(live.canAskUser, "canAskUser must be true when a bridge is wired")
 
       // From a separate fork, ask the bridge — simulates the MCP handler.
       val askResult = forkUser:
         bridge.ask("What's your favourite colour?")
 
-      // The conversation's drainer thread should surface the question on
+      // The turn's drainer thread should surface the question on
       // events; respond closure unblocks the ask fork.
-      val firstEvent = conv.events.next()
+      val firstEvent = live.events.next()
       val (question, respond) = firstEvent match
-        case ConversationEvent.UserQuestion(q, r) => (q, r)
+        case TurnEvent.UserQuestion(q, r) => (q, r)
         case other => fail(s"expected UserQuestion; got: $other")
       assertEquals(question, "What's your favourite colour?")
       respond("magenta")
@@ -465,27 +461,27 @@ class ClaudeConversationTest extends munit.FunSuite:
       )
       process.closeStdout()
       process.closeStderr()
-      val _ = conv.events.toList
-      val _ = conv.awaitResult()
+      val _ = live.events.toList
+      val _ = live.awaitResult()
 
-  convTest("canAskUser is false when no bridge is provided"):
+  liveTest("canAskUser is false when no bridge is provided"):
     val process = new FakePipedCliProcess()
-    val conv = ClaudeConversation(process)
-    assertEquals(conv.canAskUser, false)
+    val live = ClaudeTurn(process)
+    assertEquals(live.canAskUser, false)
     process.closeStdout()
     process.closeStderr()
-    val _ = conv.events.toList
+    val _ = live.events.toList
 
-  convTest(
-    "handleAssistantTurn suppresses the agent's ToolUse for ask_user"
+  liveTest(
+    "assistantMessage suppresses the agent's ToolUse for ask_user"
   ):
     val process = new FakePipedCliProcess()
-    val conv = ClaudeConversation(process)
+    val live = ClaudeTurn(process)
 
-    // Assistant turn carrying a tool_use block for the MCP-prefixed ask_user
-    // tool name. Renderer-side suppression drops the AssistantToolCall event, so
-    // this turn bears no assistant activity — the trailing AssistantTurnEnd is
-    // therefore an empty turn and the base funnel drops it.
+    // Assistant message carrying a tool_use block for the MCP-prefixed ask_user
+    // tool name. Renderer-side suppression drops the AssistantToolCall event,
+    // so this message bears no assistant activity — the trailing
+    // AssistantMessageEnd closes an empty message and the base funnel drops it.
     process.enqueueStdout(
       s"""{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu_1","name":"${ClaudeBackend.AskUserToolName}","input":{"question":"x"}}]}}"""
     )
@@ -495,26 +491,26 @@ class ClaudeConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val events = conv.events.toList
+    val events = live.events.toList
     assert(
-      !events.exists(_.isInstanceOf[ConversationEvent.AssistantToolCall]),
+      !events.exists(_.isInstanceOf[TurnEvent.AssistantToolCall]),
       s"ask_user ToolCall should have been suppressed; got: $events"
     )
     assert(
-      !events.contains(ConversationEvent.AssistantTurnEnd),
-      s"a suppressed ask_user-only turn is empty; its turn end must be dropped, got: $events"
+      !events.contains(TurnEvent.AssistantMessageEnd),
+      s"a suppressed ask_user-only message is empty; its message end must be dropped, got: $events"
     )
-    ConversationEventConformance.assertGrammar(events, completedNormally = true)
-    val _ = conv.awaitResult()
+    TurnEventConformance.assertGrammar(events, completedNormally = true)
+    val _ = live.awaitResult()
 
-  convTest(
+  liveTest(
     "structured mode suppresses the CLI-injected StructuredOutput ToolUse and its tool_result echo"
   ):
     val process = new FakePipedCliProcess()
-    val conv =
-      ClaudeConversation(process, outputSchema = Some("{}"))
+    val live =
+      ClaudeTurn(process, outputSchema = Some("{}"))
 
-    // The final turn of a `--json-schema` run: the model "exits" by calling
+    // The final message of a `--json-schema` call: the model "exits" by calling
     // the CLI-injected StructuredOutput tool with the payload as input, and
     // the SDK echoes a matching tool_result. Both are suppressed — the payload
     // reaches the caller via the result message's structured output and
@@ -532,26 +528,26 @@ class ClaudeConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val events = conv.events.toList
+    val events = live.events.toList
     assert(
-      !events.exists(_.isInstanceOf[ConversationEvent.AssistantToolCall]),
+      !events.exists(_.isInstanceOf[TurnEvent.AssistantToolCall]),
       s"StructuredOutput ToolCall should have been suppressed; got: $events"
     )
     assert(
-      !events.exists(_.isInstanceOf[ConversationEvent.ToolResult]),
+      !events.exists(_.isInstanceOf[TurnEvent.ToolResult]),
       s"StructuredOutput's tool_result echo should have been dropped; got: $events"
     )
-    ConversationEventConformance.assertGrammar(events, completedNormally = true)
-    val _ = conv.awaitResult()
+    TurnEventConformance.assertGrammar(events, completedNormally = true)
+    val _ = live.awaitResult()
 
-  convTest(
+  liveTest(
     "a tool named StructuredOutput is NOT suppressed outside structured mode"
   ):
     // The suppression is gated on `outputSchema.isDefined`: in a plain run the
     // name can only be a genuine (if unluckily named) user tool, and hiding it
     // would silently drop real activity.
     val process = new FakePipedCliProcess()
-    val conv = ClaudeConversation(process)
+    val live = ClaudeTurn(process)
 
     process.enqueueStdout(
       s"""{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu_so2","name":"${ClaudeBackend.StructuredOutputToolName}","input":{}}]}}"""
@@ -562,13 +558,13 @@ class ClaudeConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val events = conv.events.toList
+    val events = live.events.toList
     assert(
       events.exists {
-        case ConversationEvent.AssistantToolCall(name, _) =>
+        case TurnEvent.AssistantToolCall(name, _) =>
           name == ClaudeBackend.StructuredOutputToolName
         case _ => false
       },
       s"an unlucky user tool named StructuredOutput must stay visible in a plain run; got: $events"
     )
-    val _ = conv.awaitResult()
+    val _ = live.awaitResult()

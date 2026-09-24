@@ -14,7 +14,7 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.{
 
 import scala.util.control.NonFatal
 
-/** One JSONL message read from `pi --mode rpc` stdout. The driver models only
+/** One JSONL message read from `pi --mode rpc` stdout. The decoder models only
   * fields needed by Orca and collapses protocol additions to [[Unknown]].
   */
 private[pi] enum InboundEvent:
@@ -108,7 +108,7 @@ private[pi] object InboundEvent:
 
   private def parseExtensionUiRequest(line: String): InboundEvent =
     val wire = readFromString[ExtensionUiRequestWire](line)
-    // A missing/unknown method falls through to the driver's `other` branch,
+    // A missing/unknown method falls through to the decoder's `other` branch,
     // which replies with a cancel so Pi never blocks waiting on us.
     val method = wire.method.getOrElse("")
     val question = wire.title

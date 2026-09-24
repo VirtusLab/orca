@@ -17,7 +17,7 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.{
 import scala.util.Try
 
 /** Registers the ephemeral `ask_user` MCP server with gemini for the lifetime
-  * of one interactive conversation. gemini reads MCP server config only from
+  * of one interactive turn. gemini reads MCP server config only from
   * `settings.json`, so an `mcpServers.orca` entry is merged into the
   * project-local `<workDir>/.gemini/settings.json` and removed when the turn
   * ends.
@@ -58,9 +58,9 @@ private[gemini] object GeminiSettings:
   /** Merge the orca MCP server into `<workDir>/.gemini/settings.json` and
     * return an [[AutoCloseable]] that restores the prior state on `close()`:
     * the original bytes, or no file if there was none. A stale entry from an
-    * earlier run is dropped from that prior state, and a file holding nothing
-    * else counts as none. A `.gemini` directory created here or by that earlier
-    * run is removed too, unless something else was put in it.
+    * earlier attempt is dropped from that prior state, and a file holding
+    * nothing else counts as none. A `.gemini` directory created here or by that
+    * earlier attempt is removed too, unless something else was put in it.
     *
     * Throws [[OrcaFlowException]] when `.gemini` or `settings.json` is a
     * symlink, before touching either.

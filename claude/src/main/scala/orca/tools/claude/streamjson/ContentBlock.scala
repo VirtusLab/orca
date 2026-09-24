@@ -11,7 +11,7 @@ import scala.util.control.NonFatal
 
 /** A single block inside an assistant or user message's `content` array.
   *
-  * Claude Code emits several block shapes; we model the ones the driver
+  * Claude Code emits several block shapes; we model the ones the decoder
   * actually routes on. Unknown block types collapse to `Unknown(rawType)` so
   * protocol drift doesn't crash the parser.
   */

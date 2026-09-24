@@ -690,9 +690,9 @@ brief**, or the issue body when there is no brief. A fresh session is primed
 with it on first use; if the backend lost the conversation on resume, the
 session is re-seeded (with a warning: history is gone, only the seed plus a
 preamble naming completed stages are rebuilt), while a live session continues
-with its full history — told once, on this run's first turn against it, that the
+with its full history — told once, on this attempt's first turn against it, that the
 tree holds only what earlier stages committed, since a conversation a previous
-run opened remembers writing files that are no longer there.
+attempt opened remembers writing files that are no longer there.
 
 **How long a session should live.** A backend conversation is re-sent whole on
 every API call it makes, so what a session costs grows with everything it has
@@ -841,8 +841,10 @@ Review utilities, available via `import orca.review.*`:
 |---|---|
 | `lint(commands, agent, instructions?)` | Run shell lint commands (in order, each via `bash -c`; every one runs even if an earlier one fails) and have `agent` summarise their labelled, concatenated output as a `ReviewResult`. Short output is inlined into the prompt; anything larger is written to a file under `.orca/cache/` for the agent to read, so unbounded output can't overflow the context. |
 | `lint(commands, summariser, instructions)` | As above, but summarising into an existing `Lint.summariser(agent)` conversation instead of a fresh one per call, so a gate run several times within one stage resumes the session rather than re-establishing it each round. Stop reusing a summariser once it has reported: it can repeat those findings on a later call whose commands no longer show them. `reviewAndFixLoop` does this for you. |
-| `reviewAndFixLoop(coderSession, reviewers, task, userRequest?, ..., formatCommands?, lint?, maxFixTurns?, fixInstructions?)` | Run reviewers against `task: Task`, collect their findings, hand them to the `coderSession` (a `FlowSession`) to fix, re-evaluate. Reviewers are asked to report only what they believe should be fixed, and every finding they report reaches the fixer — nothing filters them in between. Reviewers see the task's title and description under separate labels, plus the user's request — the run's prompt by default, or `userRequest` when the prompt is only a pointer, like an issue reference. Keeping them apart is what lets a reviewer report a finding against the planner's choice rather than only against the code. A flow with no planning stage passes its prompt as the title and an empty description. Halts when reviewers come back clean, the fixer reports no fixes, or `maxFixTurns` fix turns have run (default 3, so up to four review rounds). Every exit names the findings it leaves open and why each is still open. Whatever is still open at that point — the findings the fixer declined, didn't account for, or that were first reported in the round that hit the cap — comes back in the returned `OpenFindings` with a reason. `formatCommands: Configured[List[String]]` runs before each review round; `lint: Configured[Lint]` runs alongside the reviewers each round — both default to the project's [stack settings](#settings), see below. |
+| `reviewAndFixLoop(coderSession, reviewers, task, userRequest?, ..., formatCommands?, lint?, checks?, maxFixTurns?, fixInstructions?)` | Run reviewers against `task: Task`, collect their findings, hand them to the `coderSession` (a `FlowSession`) to fix, re-evaluate. Reviewers are asked to report only what they believe should be fixed, and every finding they report reaches the fixer — nothing filters them in between. Reviewers see the task's title and description under separate labels, plus the user's request — the run's prompt by default, or `userRequest` when the prompt is only a pointer, like an issue reference. Keeping them apart is what lets a reviewer report a finding against the planner's choice rather than only against the code. A flow with no planning stage passes its prompt as the title and an empty description. Halts when reviewers come back clean, the fixer reports no fixes, or `maxFixTurns` fix turns have run (default 3, so up to four review rounds). Every exit names the findings it leaves open and why each is still open. Whatever is still open at that point — the findings the fixer declined, didn't account for, or that were first reported in the round that hit the cap — comes back in the returned `OpenFindings` with a reason. `formatCommands: Configured[List[String]]` runs before each review round; `lint: Configured[Lint]` runs alongside the reviewers each round — both default to the project's [stack settings](#settings), see below. `checks: List[ReviewCheck]` (default none) run after formatting and before the reviewers, see below. |
 | `reviewThenFix(coderSession, reviewers, task, userRequest?, formatCommands?, lint?)` | One round of the above and, if it found anything, one fix turn — then done. Nothing re-reviews a reviewer finding, so the fixer's claim that it fixed one is taken on trust; the lint gate is the exception, re-run over the fixer's edits and given one more fix turn if it still fails. Reviewers are picked once (`ReviewerSelector.agentDriven`) and the change set is the enclosing stage's, as above. What the fixer declined, what it never reported on, and what the lint gate still fails on, come back in the returned `OpenFindings` with a reason. Use it per task where a later stage reviews the same code again — a whole-run `reviewAndFixLoop`, below — and pay for the loop where nothing else re-reviews the fixes. |
+| `ReviewCheck` | A check written in Scala — a benchmark, an HTTP probe, a scripted assertion: `name` plus `evaluate(): ReviewResult`. Pass it in `reviewAndFixLoop`'s `checks`; its findings go to the fixer with the reviewers'. |
+| `OpenFinding.custom(title, reason, location)` | An open finding a flow records itself — say, a gate it runs outside the loop still failing. Add it to `OpenFindings` for the PR body, or pass it in `priorOpenFindings` so a loop's reviewers see it. |
 | `allReviewers(base)` | Every reviewer in the run's catalog (the eight canonical ones — code-functionality, test, readability, code-structure, simplicity, performance, security, scala-fp — plus whatever `.orca/reviewers/` and the global tier add, see [Settings](#settings)) as `ReviewerAgent`s: each one its `Reviewer` definition plus a read-only agent built from `base`. |
 | `minimalReviewers(base)` | Universally-applicable subset (code-functionality, readability, test) plus every discovered reviewer, same shape. Pair with the default LLM-driven selector when the full set is overkill. |
 | `reviewerCatalog` (in-body accessor) | The run's resolved reviewer definitions — `.all` and `.minimal` are what the two above build from. Filter it to pick a subset yourself. |
@@ -865,6 +867,38 @@ agent)`). An empty list resolves to no gate at all: `FromSettings` over empty
 settings behaves exactly like `Off`. A script that omits `lint` gets a lint gate
 whenever the target project's settings define one; for format-only, pass `lint =
 Configured.Off`.
+
+Each round runs its `checks` one at a time, after the format commands and
+before the reviewers and the lint gate start, so a check that builds or times
+the code has the machine to itself. A check must not modify sources. Keep a
+finding's title the same across rounds and put measurements in its description:
+the loop recognises a finding it already holds as open by its title and file.
+With no reviewers, the loop just evaluates the check and fixes:
+
+```scala
+val benchmark = new ReviewCheck:
+  def name = "benchmark"
+  def evaluate()(using ctx: FlowContext, ev: InStage): ReviewResult =
+    val ms = os.proc("./bench.sh")
+      .call(cwd = ctx.workDir, stderr = os.Pipe).out.trim().toInt
+    if ms <= 200 then ReviewResult.empty
+    else ReviewResult(List(ReviewFinding(Title("Request too slow"),
+      s"p99 is $ms ms; the target is 200 ms", location = None,
+      suggestion = None, reopens = None)))
+
+stage("Speed up"):
+  reviewAndFixLoop(
+    coderSession = session,
+    reviewers = Nil,
+    task = Task(Title("Make requests faster"), ""),
+    lint = Configured.Off,
+    checks = List(benchmark)
+  )
+```
+
+The whole loop is one stage, so one commit. When each iteration is long, write
+the loop in the flow instead, one stage per iteration calling
+`coderSession.run`, so a resume picks up at the last finished iteration.
 
 The change set reviewers are shown — and that the selector picks from — is
 everything the enclosing `stage` has produced since it began, so it is the same
@@ -1057,7 +1091,8 @@ results.
   `OpenFinding(id, title, reason, location)` entries surfaced by
   `reviewAndFixLoop` once it halts: every finding the run did not resolve, each
   with where it points and an `OpenReason` — `Declined(text)` (the fixer's own
-  words), `NoFixes`, `Unaccounted`, `CapReached(max)` or `LintStillFailing`.
+  words), `NoFixes`, `Unaccounted`, `CapReached(max)`, `LintStillFailing` or
+  `Custom(text)` (from `OpenFinding.custom`).
   `reason.describe` is the sentence shown to a reader. `id` (`FindingId`) is
   what entries merge by across rounds; two findings sharing a title stay two.
   `skipped` is `Some(SkippedReview)` when the review never ran.

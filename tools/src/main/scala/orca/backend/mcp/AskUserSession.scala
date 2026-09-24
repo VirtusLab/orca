@@ -3,7 +3,7 @@ package orca.backend.mcp
 import ox.Ox
 import ox.channels.BufferCapacity
 
-/** One conversation's ask-user wiring: the host-side [[AskUserBridge]] and the
+/** One turn's ask-user wiring: the host-side [[AskUserBridge]] and the
   * [[AskUserMcpServer]] serving it. Both live as long as the enclosing turn
   * scope — the server is registered with it, and its handlers blocked on the
   * bridge are forks of it.

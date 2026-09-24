@@ -11,11 +11,11 @@ import orca.util.RawJson
 
 /** One event parsed from the OpenCode `GET /event` SSE stream (ADR 0014).
   *
-  * Each SSE frame is `{id, type, properties}`. Only the events the conversation
-  * driver acts on get a variant; everything else (`server.*`, `session.status`,
+  * Each SSE frame is `{id, type, properties}`. Only the events the decoder acts
+  * on get a variant; everything else (`server.*`, `session.status`,
   * `session.diff`, `session.next.*`, …) collapses to [[Ignored]] so the reader
   * can drop it after filtering. [[sessionId]] lifts the owning session so the
-  * driver can keep only its own turn's events without re-decoding.
+  * decoder can keep only its own turn's events without re-decoding.
   */
 private[opencode] enum OpencodeEvent:
   /** A `field:"text"` delta. `text` is the name of the accruing field on BOTH a
@@ -63,7 +63,7 @@ private[opencode] enum OpencodeEvent:
   case PermissionAsked(request: PermissionRequest)
 
   /** Terminal frames. `session` is optional: a terminal that omits its id is
-    * treated as belonging to this turn (see [[sessionId]] / the driver's
+    * treated as belonging to this turn (see [[sessionId]] / the decoder's
     * session filter) so a protocol deviation settles the turn instead of
     * hanging it.
     */
@@ -91,7 +91,7 @@ private[opencode] object OpencodeEvent:
 
   /** Parse one SSE `data:` payload into an [[OpencodeEvent]]. Malformed JSON
     * propagates `JsonReaderException`; the caller decides whether to skip or
-    * fail. Unknown event types and ones the driver doesn't model become
+    * fail. Unknown event types and ones the decoder doesn't model become
     * [[OpencodeEvent.Ignored]].
     */
   def parse(json: String): OpencodeEvent =
@@ -188,7 +188,7 @@ private[opencode] object OpencodeEvent:
       .filter(_.nonEmpty)
       .getOrElse(error.value)
 
-  // --- Wire shapes (only the fields the driver inspects) ---
+  // --- Wire shapes (only the fields the decoder inspects) ---
 
   private case class Envelope(`type`: String) derives ConfiguredJsonValueCodec
 

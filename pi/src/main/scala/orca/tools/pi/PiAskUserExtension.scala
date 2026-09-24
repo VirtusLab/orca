@@ -3,8 +3,8 @@ package orca.tools.pi
 import orca.backend.TurnResources
 import ox.ResourceScope
 
-/** Temporary Pi extension exposing Orca's `ask_user` conversation event through
-  * Pi's native extension UI protocol.
+/** Temporary Pi extension exposing Orca's `ask_user` turn event through Pi's
+  * native extension UI protocol.
   *
   * The extension deliberately has no imports, so it can be written to a temp
   * directory and loaded without Node module resolution from there.
