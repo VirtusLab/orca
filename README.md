@@ -852,7 +852,7 @@ compile error with a message telling you where the call belongs:
 | `WorkspaceWrite` | exclusive (`caps.ExclusiveCapability`) | git/`gh` writes, `fs.write`, progress-log writes | `stage(...)` bodies | missing-given compile error + a runtime owner-thread check (never cross a `fork`) |
 | `FlowControl` | exclusive (`caps.ExclusiveCapability`) | starting stages, minting sessions | the `flow(...)` body (not forks) | missing-given compile error + a runtime owner-thread check |
 
-(`FlowContext` — reads and event emission — is deliberately *not* a capability:
+(`FlowContext` — reads and `display` — is deliberately *not* a capability:
 it is thread-safe and forks receive it freely.) A helper that starts stages
 declares `(using FlowContext, FlowControl)`.
 
