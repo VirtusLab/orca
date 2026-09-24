@@ -29,10 +29,10 @@ private[claude] enum InboundMessage:
   case Assistant(content: List[ContentBlock], messageId: Option[String])
   case User(content: List[ContentBlock])
 
-  /** Final turn result. When the session ran with `--json-schema`, the
-    * validated value lands in `structuredOutput` as raw JSON; without the flag
-    * (or in error cases) the agent's free-form reply lands in `output`. Callers
-    * that need a single value should prefer `structuredOutput.orElse(output)`.
+  /** Final turn result. When the turn ran with `--json-schema`, the validated
+    * value lands in `structuredOutput` as raw JSON; without the flag (or in
+    * error cases) the agent's free-form reply lands in `output`. Callers that
+    * need a single value should prefer `structuredOutput.orElse(output)`.
     */
   case Result(
       subtype: String,

@@ -59,7 +59,7 @@ private[orca] class PiBackend private[pi] (
   // there, and a fresh seed when it says no.
 
   /** Durable: each session's transcript lives under
-    * `.orca/cache/pi-sessions/<session id>/` and outlives the run, so the
+    * `.orca/cache/pi-sessions/<session id>/` and outlives the attempt, so the
     * claimed id ([[IdScheme.ClientClaimed]]) is worth persisting and existence
     * is a best-effort on-disk probe (ADR 0018 §2.6).
     */

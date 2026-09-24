@@ -30,7 +30,7 @@ class FixOutcomeAnnounceTest extends munit.FunSuite:
   private val stubInteraction: Interaction = new Interaction:
     val listeners: List[OrcaListener] = Nil
     def drive[B <: BackendTag](
-        live: ObservedTurn[B]
+        turn: ObservedTurn[B]
     ): AgentResult[B] =
       throw new UnsupportedOperationException("test stub")
 

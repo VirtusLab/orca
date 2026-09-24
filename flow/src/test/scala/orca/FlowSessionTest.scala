@@ -98,7 +98,7 @@ class FlowSessionTest extends FunSuite:
     */
   private enum StubDurability:
     /** Durable and server-minted: when the stub's `existsResult` is set, this
-      * run committed a mapping.
+      * attempt committed a mapping.
       */
     case Committed
 
@@ -108,7 +108,8 @@ class FlowSessionTest extends FunSuite:
       */
     case Rehydrated
 
-    /** Ephemeral: no transcript to probe, so the in-run claim is all there is.
+    /** Ephemeral: no transcript to probe, so the in-attempt claim is all there
+      * is.
       */
     case InProcess
 
@@ -348,8 +349,8 @@ class FlowSessionTest extends FunSuite:
   test(
     "conversation the backend still holds with nothing recorded: told, and resumed rather than re-seeded"
   ):
-    // A run interrupted during a client-claimed session's FIRST turn commits no
-    // wire id, so the record carries none — but the backend wrote the
+    // An attempt interrupted during a client-claimed session's FIRST turn
+    // commits no wire id, so the record carries none — but the backend wrote the
     // transcript and holds the conversation under the claimed id. It is
     // continued, and its memory predates this attempt just as a recorded one's
     // does.
@@ -437,9 +438,9 @@ class FlowSessionTest extends FunSuite:
     "a second carried-over conversation is told on its own first turn"
   ):
     // One flag per attempt would leave every conversation after the first
-    // untold, though each one's memory predates the attempt just as the first's does. The
-    // two records need distinct names: the store keys a record by (name,
-    // stage).
+    // untold, though each one's memory predates the attempt just as the
+    // first's does. The two records need distinct names: the store keys a
+    // record by (name, stage).
     val fc = makeControl(sessions =
       List(
         carriedOverRecord("s", testSessionId),

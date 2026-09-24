@@ -385,7 +385,7 @@ class AgentTest extends munit.FunSuite:
 
   // A turn that failed after the model ran still spent tokens; the success path
   // is the only other UnpricedTurn emitter, so without this the failed turn is
-  // invisible in the run's cost summary.
+  // invisible in the cost summary.
   test("a turn failing with reported usage still emits UnpricedTurn"):
     val seen =
       new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
@@ -544,7 +544,7 @@ class AgentTest extends munit.FunSuite:
   // A structured resultAs[O] call's closing assistant message IS the raw JSON
   // payload; the caller re-surfaces it via StructuredResult, so it must not
   // also flow through as an AssistantMessage (double display of the same
-  // result — see AutonomousDrain.MessageBuffer).
+  // result — see ObservedTurn.MessageBuffer).
   test(
     "resultAs[O].autonomous.run: the raw JSON payload doesn't echo as an AssistantMessage"
   ):
@@ -910,16 +910,16 @@ class AgentTest extends munit.FunSuite:
     ): LiveTurn[BackendTag.Pi.type] =
       new ScriptedTurn(scripted, Right(reply(turn)), schema)
 
-  /** A driving `Interaction` that drains the conversation, answering nothing,
-    * and returns its result, unlike [[TestAgent.UnusedInteraction]], which
-    * never touches it.
+  /** A driving `Interaction` that drains the turn, answering nothing, and
+    * returns its result, unlike [[TestAgent.UnusedInteraction]], which never
+    * touches it.
     */
   private object DrainingInteraction extends Interaction:
     def listeners: List[OrcaListener] = Nil
     def drive[B <: BackendTag](
-        live: ObservedTurn[B]
+        turn: ObservedTurn[B]
     ): AgentResult[B] =
-      live.drain(_ => ())
+      turn.drain(_ => ())
 
   /** A durable backend whose turns report `wireId`, so `Agent.resumeWireId`
     * reports it once `runAutonomous` commits the turn.

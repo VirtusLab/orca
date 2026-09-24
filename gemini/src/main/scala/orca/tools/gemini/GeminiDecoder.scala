@@ -22,7 +22,7 @@ import orca.tools.gemini.jsonl.{InboundEvent, Role, ToolStatus}
 
 import ox.Ox
 
-/** Decodes a `gemini -p <prompt> --output-format stream-json` session: JSONL →
+/** Decodes a `gemini -p <prompt> --output-format stream-json` turn: JSONL →
   * [[InboundEvent]] → `TurnEvent`s.
   *
   * Gemini specifics (see ADR 0015):

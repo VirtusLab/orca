@@ -34,7 +34,7 @@ class AgentCallSessionCommittedTest extends munit.FunSuite:
   private val stubInteraction: Interaction = new Interaction:
     val listeners: List[OrcaListener] = Nil
     def drive[B <: BackendTag](
-        live: ObservedTurn[B]
+        turn: ObservedTurn[B]
     ): AgentResult[B] =
       throw new UnsupportedOperationException("test stub")
 
@@ -83,9 +83,9 @@ class AgentCallSessionCommittedTest extends munit.FunSuite:
     val drivingInteraction: Interaction = new Interaction:
       val listeners: List[OrcaListener] = Nil
       def drive[B <: BackendTag](
-          live: ObservedTurn[B]
+          turn: ObservedTurn[B]
       ): AgentResult[B] =
-        live.drain(_ => ())
+        turn.drain(_ => ())
     val seen = AtomicReference[List[OrcaEvent]](Nil)
     val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
     supervised:

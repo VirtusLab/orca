@@ -91,7 +91,7 @@ class AgentCallTest extends munit.FunSuite:
   private val stubInteraction: Interaction = new Interaction:
     val listeners: List[OrcaListener] = Nil
     def drive[B <: BackendTag](
-        live: orca.backend.ObservedTurn[B]
+        turn: orca.backend.ObservedTurn[B]
     ): AgentResult[B] =
       throw new UnsupportedOperationException("test stub")
 
@@ -103,7 +103,7 @@ class AgentCallTest extends munit.FunSuite:
     new Interaction:
       val listeners: List[OrcaListener] = Nil
       def drive[B <: BackendTag](
-          live: orca.backend.ObservedTurn[B]
+          turn: orca.backend.ObservedTurn[B]
       ): AgentResult[B] =
         AgentResult[B](
           wireId = WireSessionId[B](wireId),
@@ -486,7 +486,7 @@ class AgentCallTest extends munit.FunSuite:
     val cancellingInteraction: Interaction = new Interaction:
       val listeners: List[OrcaListener] = Nil
       def drive[B <: BackendTag](
-          live: orca.backend.ObservedTurn[B]
+          turn: orca.backend.ObservedTurn[B]
       ): AgentResult[B] =
         throw new OrcaInteractiveCancelled(
           TurnDebit.Observed(spent, Some(Model("claude-sonnet-5")))
@@ -517,7 +517,7 @@ class AgentCallTest extends munit.FunSuite:
     val failingInteraction: Interaction = new Interaction:
       val listeners: List[OrcaListener] = Nil
       def drive[B <: BackendTag](
-          live: orca.backend.ObservedTurn[B]
+          turn: orca.backend.ObservedTurn[B]
       ): AgentResult[B] =
         throw new AgentTurnFailed(
           "provider error",

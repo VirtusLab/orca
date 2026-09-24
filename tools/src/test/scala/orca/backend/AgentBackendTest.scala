@@ -118,6 +118,6 @@ class AgentBackendTest extends munit.FunSuite:
   private object AwaitingInteraction extends Interaction:
     def listeners: List[OrcaListener] = Nil
     def drive[B <: BackendTag](
-        live: ObservedTurn[B]
+        turn: ObservedTurn[B]
     ): AgentResult[B] =
-      live.drain(_ => ())
+      turn.drain(_ => ())

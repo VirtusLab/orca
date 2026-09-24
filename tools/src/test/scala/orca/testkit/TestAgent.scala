@@ -29,6 +29,6 @@ object TestAgent:
   object UnusedInteraction extends Interaction:
     def listeners: List[OrcaListener] = Nil
     def drive[B <: BackendTag](
-        live: ObservedTurn[B]
+        turn: ObservedTurn[B]
     ): AgentResult[B] =
       throw new UnsupportedOperationException("no interactive turn expected")

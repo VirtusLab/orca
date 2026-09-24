@@ -44,9 +44,9 @@ class SessionSupportTest extends munit.FunSuite:
   test(
     "ClientClaimed: a claim the backend already holds resumes, never re-claims"
   ):
-    // A run interrupted during a session's first turn leaves the transcript
+    // An attempt interrupted during a session's first turn leaves the transcript
     // written and nothing committed. Claiming that id again is what the CLIs
-    // refuse, so the next run must resume against it.
+    // refuse, so the next attempt must resume against it.
     val s = SessionSupport.durable[BackendTag.ClaudeCode.type](
       IdScheme.ClientClaimed,
       _ => true

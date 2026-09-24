@@ -23,7 +23,7 @@ import com.github.plokhotnyuk.jsoniter_scala.core.writeToString
 import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
 import ox.Ox
 
-/** Decodes a `codex exec --json` session: JSONL → [[InboundEvent]] →
+/** Decodes one `codex exec --json` turn: JSONL → [[InboundEvent]] →
   * `TurnEvent`s.
   *
   * Notable parity gaps vs. claude (deliberate, driven by codex's JSONL protocol

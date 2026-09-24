@@ -541,8 +541,8 @@ class ClaudeBackendTest extends munit.FunSuite:
   test(
     "a session the previous attempt left on disk is resumed, not re-claimed"
   ):
-    // A run interrupted during a durable session's first turn writes the
-    // transcript and commits nothing, so the next run finds the id recorded
+    // An attempt interrupted during a durable session's first turn writes the
+    // transcript and commits nothing, so the next attempt finds the id recorded
     // with no wire id. `--session-id` on an id claude already knows is refused,
     // which would fail the run outright.
     val tmpProjects = TempDirs.dir()

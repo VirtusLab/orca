@@ -90,7 +90,7 @@ class ClaudeIntegrationTest extends munit.FunSuite:
         assert(WireSessionId.value(result.wireId).nonEmpty)
       finally live.cancel()
 
-  test("stream-json session emits text deltas as the agent streams"):
+  test("stream-json turn emits text deltas as the agent streams"):
     withBackend: backend =>
       val live = OpenTurn.interactive(backend)(
         prompt =

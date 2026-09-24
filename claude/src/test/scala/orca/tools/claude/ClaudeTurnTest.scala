@@ -179,7 +179,7 @@ class ClaudeTurnTest extends munit.FunSuite:
     )
 
   // The failing turn's tokens are on the wire in the same `result` frame; the
-  // exception is the only way they can still reach the run's cost summary.
+  // exception is the only way they can still reach the cost summary.
   liveTest("is_error carries the result's debit on the thrown failure"):
     val process = new FakePipedCliProcess()
     val live = ClaudeTurn(process)

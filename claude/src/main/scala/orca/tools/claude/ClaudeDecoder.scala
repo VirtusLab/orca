@@ -191,7 +191,7 @@ private[claude] final class ClaudeDecoder(outputSchema: Option[String])
     else usage.copy(apiCalls = Some(state.responseIds.size.toLong))
 
   /** The result message's payload: the `--json-schema` validated value when the
-    * session ran structured, else the free-form reply; `None` when the message
+    * turn ran structured, else the free-form reply; `None` when the message
     * carries neither (or only an empty one). Shared by the success and error
     * paths so the two can't drift on which field is the body.
     */
@@ -200,7 +200,7 @@ private[claude] final class ClaudeDecoder(outputSchema: Option[String])
 
   /** Claude sets `is_error: true` for out-of-band failures (API errors, rate
     * limits, auth) at the CLI boundary rather than inside a turn. Treat these
-    * as session-ending rather than feeding the error body into the response
+    * as turn-ending rather than feeding the error body into the response
     * parser, which might otherwise accept a `{"type":"error",...}` payload as
     * valid output. The settle carries the full message; the in-stream `Error`
     * event is short if the body already streamed as part of a message.
