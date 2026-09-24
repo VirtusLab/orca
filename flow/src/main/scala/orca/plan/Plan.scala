@@ -33,7 +33,7 @@ import scala.annotation.unused
   * session.
   *
   * As a single case class it is a valid stage result (ADR 0018 §2.3) — the
-  * stage log, not a plan file, is what resume reads.
+  * progress log, not a plan file, is what resume reads.
   */
 case class Plan(
     epicId: String,
@@ -242,7 +242,8 @@ object Plan:
   /** Render a plan to markdown (tasks as plain bullets, the brief as a trailing
     * `## Brief` section). Used by [[Sessioned.reviewed]] to feed the plan back
     * into the self-review prompt, and usable as a human-readable summary. Never
-    * parsed back — the stage log is the sole resume mechanism (ADR 0018 §2.8).
+    * parsed back — the progress log is the sole resume mechanism (ADR 0018
+    * §2.8).
     */
   def render(plan: Plan): String =
     val base = renderPlan(plan)

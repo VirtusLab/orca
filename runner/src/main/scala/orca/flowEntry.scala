@@ -101,9 +101,9 @@ import scala.util.control.NonFatal
   * resolve to one of the wired agents or a sibling — anything sharing their
   * backend. An override returning an agent built from a SEPARATE
   * `AgentWiring`/backend (e.g. `_ => myPrebuiltAgent`) compiles but is
-  * event-blind: it never reaches this run's dispatcher, so its cost/steps never
-  * surface, and it gets a loud resolution-time warning. Its backend is still
-  * closed at flow end, so later runs through it are refused.
+  * event-blind: it never reaches this attempt's dispatcher, so its cost/steps
+  * never surface, and it gets a loud resolution-time warning. Its backend is
+  * still closed at flow end, so later calls through it are refused.
   *
   * `stackSettings` wins outright for the stack commands (ADR 0019): when
   * passed, the project file's stack keys are ignored and discovery is skipped,

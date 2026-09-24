@@ -311,8 +311,8 @@ final class Agent[B <: BackendTag] private (
       pinned = config.model
     )
 
-  /** This agent's backend tag. Stamps `SessionRecord.backend`, so a later run
-    * reuses a recorded session only on the same backend.
+  /** This agent's backend tag. Stamps `SessionRecord.backend`, so a later
+    * attempt reuses a recorded session only on the same backend.
     */
   private[orca] def backendTag: B = backend.tag
 

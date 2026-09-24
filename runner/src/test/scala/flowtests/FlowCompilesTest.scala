@@ -430,8 +430,8 @@ object FlowCanary:
     * by `flows/implement-enhanced.sc`. Pins that the `Sessioned[Plan]`
     * extension resolves through `import orca.*` alone. Plans are always
     * briefed: the `brief` rides in the structured output, so `plan.brief` /
-    * `plan.taskPrompt` are always available. Resume is the stage log (ADR 0018
-    * §2.8), and the task loop is a plain per-task `stage(...)`.
+    * `plan.taskPrompt` are always available. Resume is the progress log (ADR
+    * 0018 §2.8), and the task loop is a plain per-task `stage(...)`.
     */
   def planReviewAndBriefSurface(): Unit =
     flow(OrcaArgs()):

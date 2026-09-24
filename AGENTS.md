@@ -187,7 +187,7 @@ most easily broken:
   and the session's position in its manifest), a session name or a recorded
   branch. Neither half of a `SessionKey` is
   hashed or turned into a filename, and only `name` is validated (non-empty).
-  Reordering or skipping *other* `session(...)` calls between runs doesn't
+  Reordering or skipping *other* `session(...)` calls between attempts doesn't
   re-key this one; renaming the stage a mint sits in does. Minting one name
   twice in one stage throws (`FlowControl.claimSessionKey`, the only door that
   MINTS a key — `SessionRecord.key` rebuilds one from persisted halves, and
@@ -471,7 +471,7 @@ The user's input text is the **prompt**, and a stack command (`format`, `lint`,
 Words for talking to a coding agent, from the outside in:
 
 - **call** — one `agent.run` / `session.run` / `chat.run`. A retry stays inside
-  the call.
+  the call. The review loop's "fix turn" (`maxFixTurns`) is a call.
 - **turn** — one exchange with the agent that reaches the model: a prompt sent,
   events streamed back, one outcome. A retry that reaches the model is a new
   turn (`UnpricedTurn.turn` counts them). `AgentBackend.open` returns one as a
