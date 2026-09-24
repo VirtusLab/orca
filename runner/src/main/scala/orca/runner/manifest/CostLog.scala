@@ -46,10 +46,10 @@ private[orca] object CostLogUsage:
   * log.
   *
   * `model` is `None` when the backend reported none and the caller pinned none,
-  * mirroring `OrcaEvent.TokensUsed.model`. `cost` is `None` for a model absent
-  * from the pricing table, so such a turn shows tokens against no dollars.
-  * `turn` is the turn's 1-based position among the turns of its call, so
-  * retried spend is separable. `session` is the conversation key
+  * mirroring `OrcaEvent.UnpricedTurn.model`. `cost` is `None` for a model
+  * absent from the pricing table, so such a turn shows tokens against no
+  * dollars. `turn` is the turn's 1-based position among the turns of its call,
+  * so retried spend is separable. `session` is the conversation key
   * (`OrcaEvent.conversationKey`): the session's `wireId` in
   * [[AttemptManifest.sessions]] once it has one, else a client id the manifest
   * does not carry.
@@ -80,15 +80,15 @@ private[orca] object CostRecord:
       stage: Option[String]
   ): CostRecord = CostRecord(
     at = at,
-    agent = t.agent,
-    role = t.role,
-    model = t.model.map(_.name),
+    agent = t.spend.agent,
+    role = t.spend.role,
+    model = t.spend.model.map(_.name),
     stage = stage,
-    turn = t.turn,
-    apiCalls = t.usage.apiCalls,
-    usage = CostLogUsage.of(t.usage),
+    turn = t.spend.turn,
+    apiCalls = t.spend.usage.apiCalls,
+    usage = CostLogUsage.of(t.spend.usage),
     cost = t.cost,
-    session = t.session
+    session = t.spend.session
   )
 
 /** Append-only writer for one attempt's `<AttemptId>.cost.jsonl`.

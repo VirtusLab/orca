@@ -2,11 +2,12 @@ package orca
 
 import orca.events.{
   Cost,
+  CostBasis,
   CostTracker,
   ModelPricing,
   OrcaEvent,
-  PriceList,
   Pricing,
+  PricingTable,
   Usage
 }
 import orca.agents.Model
@@ -27,15 +28,19 @@ class CostTrackerTest extends munit.FunSuite:
       model: Option[String],
       u: Usage,
       role: Option[String] = None,
-      pricing: PriceList = testTable
+      pricing: PricingTable = testTable
   ): OrcaEvent.TokensUsed =
     val resolved = model.map(Model.apply)
     OrcaEvent.TokensUsed(
-      agent,
-      resolved,
-      u,
-      role,
-      cost = Pricing.resolve(pricing.table, resolved, u)
+      OrcaEvent.UnpricedTurn(
+        agent,
+        resolved,
+        u,
+        role,
+        turn = 1,
+        session = None
+      ),
+      cost = Pricing.resolve(pricing, resolved, u)
     )
 
   /** Every label appears as a section line in `out`, in the order given. */
@@ -48,45 +53,44 @@ class CostTrackerTest extends munit.FunSuite:
       s"lines must appear in this order; got:\n$out"
     )
 
-  // Tiny price list so token math gives round dollar figures: a model at
+  private val opusRatesAsOf: LocalDate = LocalDate.of(2026, 1, 15)
+  private val haikuRatesAsOf: LocalDate = LocalDate.of(2026, 3, 1)
+
+  // Tiny pricing table so token math gives round dollar figures: a model at
   // $1/M input means 1,000,000 input tokens = $1. Each of the four rates is
   // intentionally distinct so a test can tell which one was applied.
-  private val testTable = PriceList(
-    table = Map(
-      Model("opus") -> ModelPricing(
-        inputUsdPerMillion = 1,
-        cacheReadUsdPerMillion = BigDecimal("0.10"),
-        outputUsdPerMillion = 5,
-        cacheWriteUsdPerMillion = 2
-      ),
-      Model("haiku") -> ModelPricing(
-        inputUsdPerMillion = 1,
-        cacheReadUsdPerMillion = BigDecimal("0.10"),
-        outputUsdPerMillion = 5,
-        cacheWriteUsdPerMillion = 2
-      )
+  private val testTable: PricingTable = Map(
+    Model("opus") -> ModelPricing(
+      inputUsdPerMillion = 1,
+      cacheReadUsdPerMillion = BigDecimal("0.10"),
+      outputUsdPerMillion = 5,
+      cacheWriteUsdPerMillion = 2,
+      ratesAsOf = opusRatesAsOf
     ),
-    lastUpdated = LocalDate.of(2026, 1, 15)
+    Model("haiku") -> ModelPricing(
+      inputUsdPerMillion = 1,
+      cacheReadUsdPerMillion = BigDecimal("0.10"),
+      outputUsdPerMillion = 5,
+      cacheWriteUsdPerMillion = 2,
+      ratesAsOf = haikuRatesAsOf
+    )
   )
 
-  /** What the tracker is told the run priced with — only the legend's date. */
-  private val pricingAsOf: LocalDate = testTable.lastUpdated
-
   test("starts at zero and ignores non-TokensUsed events"):
-    val tracker = new CostTracker(pricingAsOf)
+    val tracker = new CostTracker
     tracker.onEvent(StageEvents.started("x"))
     tracker.onEvent(OrcaEvent.Step("hi"))
     assertEquals(tracker.total, Usage.empty)
     assertEquals(tracker.totalCost, None)
 
   test("total sums every TokensUsed event regardless of agent or model"):
-    val tracker = new CostTracker(pricingAsOf)
+    val tracker = new CostTracker
     tracker.onEvent(tokens("claude", Some("opus"), usage(100L, 50L, None)))
     tracker.onEvent(tokens("performance", Some("haiku"), usage(30L, 20L, None)))
     assertEquals(tracker.total, usage(130L, 70L, None))
 
   test("perAgent groups by Agent name"):
-    val tracker = new CostTracker(pricingAsOf)
+    val tracker = new CostTracker
     tracker.onEvent(tokens("claude", Some("opus"), usage(10L, 5L, None)))
     tracker.onEvent(tokens("performance", Some("opus"), usage(20L, 15L, None)))
     tracker.onEvent(tokens("claude", Some("haiku"), usage(3L, 2L, None)))
@@ -94,7 +98,7 @@ class CostTrackerTest extends munit.FunSuite:
     assertEquals(tracker.perAgent("performance"), usage(20L, 15L, None))
 
   test("perModel groups by reported model id, with None as its own bucket"):
-    val tracker = new CostTracker(pricingAsOf)
+    val tracker = new CostTracker
     tracker.onEvent(tokens("claude", Some("opus"), usage(10L, 5L, None)))
     tracker.onEvent(tokens("performance", Some("opus"), usage(20L, 15L, None)))
     tracker.onEvent(tokens("claude", None, usage(3L, 2L, None)))
@@ -102,27 +106,27 @@ class CostTrackerTest extends munit.FunSuite:
     assertEquals(tracker.perModel(None), usage(3L, 2L, None))
 
   test("reported cost from the backend is accumulated as non-estimated"):
-    val tracker = new CostTracker(pricingAsOf)
+    val tracker = new CostTracker
     tracker.onEvent(
       tokens("claude", Some("opus"), usage(100L, 50L, Some(BigDecimal("0.42"))))
     )
     assertEquals(
       tracker.perAgentCost("claude"),
-      Cost(BigDecimal("0.42"), estimated = false)
+      Cost(BigDecimal("0.42"), CostBasis.Reported)
     )
 
   test("missing reported cost falls back to a price-table estimate"):
-    val tracker = new CostTracker(pricingAsOf)
+    val tracker = new CostTracker
     // 1M input @ $1/M + 500k output @ $5/M = $3.50
     tracker.onEvent(
       tokens("claude", Some("opus"), usage(1_000_000L, 500_000L, None))
     )
     val c = tracker.perAgentCost("claude")
-    assertEquals(c.estimated, true)
+    assertEquals(c.basis, CostBasis.Estimated(opusRatesAsOf))
     assertEquals(c.amount, BigDecimal("3.5"))
 
   test("estimate bills cache reads at the read rate, not the input rate"):
-    val tracker = new CostTracker(pricingAsOf)
+    val tracker = new CostTracker
     // A backend that reports one undifferentiated cache number (gemini) leaves
     // the write axis at zero, so nothing is billed twice:
     // 1M input total, 800k of which are cache reads:
@@ -152,7 +156,7 @@ class CostTrackerTest extends munit.FunSuite:
     //   300k write @ $2/M    = $0.60
     // Total: $0.76. Folding writes into reads would bill 900k @ $0.10/M =
     // $0.09 and understate the turn by more than half.
-    val tracker = new CostTracker(pricingAsOf)
+    val tracker = new CostTracker
     tracker.onEvent(
       tokens(
         "claude",
@@ -171,7 +175,7 @@ class CostTrackerTest extends munit.FunSuite:
   test("a reported cost still renders a write-only cache parenthetical"):
     // A cold first turn writes the whole prompt and reads nothing, which is
     // the shape every fresh claude session starts with.
-    val tracker = new CostTracker(pricingAsOf)
+    val tracker = new CostTracker
     tracker.onEvent(
       tokens(
         "claude",
@@ -189,19 +193,20 @@ class CostTrackerTest extends munit.FunSuite:
       tracker.summary
     )
 
-  test("shipped price list is re-checked at least twice a year"):
+  test("shipped pricing table is re-checked at least twice a year"):
     // The rates are only as good as their last check against provider pricing
-    // pages, and the legend advertises `lastUpdated` to users. Fail once the
-    // snapshot is old enough that shipping it is a claim nobody verified.
-    val age = ChronoUnit.DAYS
-      .between(Pricing.default.lastUpdated, LocalDate.now())
+    // pages, and the legend advertises each row's `ratesAsOf` to users. Fail
+    // once a row is old enough that shipping it is a claim nobody verified.
+    val oldest = Pricing.default.values.map(_.ratesAsOf).min
+    val age = ChronoUnit.DAYS.between(oldest, LocalDate.now())
     assert(
       age <= 183,
-      s"the shipped pricing table was last checked ${age} days ago " +
-        s"(${Pricing.default.lastUpdated}), past the 183-day limit.\n" +
-        "To fix: re-check every row in `Pricing.default` " +
+      s"a shipped pricing row was last checked ${age} days ago " +
+        s"($oldest), past the 183-day limit.\n" +
+        "To fix: re-check the stale rows in `Pricing.default` " +
         "(flow/src/main/scala/orca/events/Pricing.scala) against the provider " +
-        "pricing pages, correct any that moved, then set `lastUpdated` to " +
+        "pricing pages, correct any that moved, then set their `ratesAsOf` " +
+        "(`ShippedRatesAsOf` when every row was re-checked) to " +
         "today.\nThis fires on elapsed time, not on a code change — an old " +
         "tag or commit built long after its release fails here with nothing " +
         "wrong in the code, and needs no fix unless you are shipping from it."
@@ -213,7 +218,7 @@ class CostTrackerTest extends munit.FunSuite:
     // the one assertion that catches a whole class of table errors: a wrong
     // cache-write tier, a wrong base rate, or a model id resolving to the
     // wrong row.
-    val tracker = new CostTracker(pricingAsOf)
+    val tracker = new CostTracker
     tracker.onEvent(
       tokens(
         "reviewer",
@@ -234,7 +239,7 @@ class CostTrackerTest extends munit.FunSuite:
     )
 
   test("estimate ignores reasoning tokens (already inside output)"):
-    val tracker = new CostTracker(pricingAsOf)
+    val tracker = new CostTracker
     // Pin the invariant: reasoning is a sub-portion of outputTokens, not
     // an additional billable bucket. Adding 400k reasoning should leave
     // the estimate unchanged at 1M output @ $5/M = $5.00.
@@ -253,7 +258,7 @@ class CostTrackerTest extends munit.FunSuite:
     assertEquals(tracker.perAgentCost("claude").amount, BigDecimal("5.0"))
 
   test("price-table lookup falls back to a prefix match"):
-    val tracker = new CostTracker(pricingAsOf)
+    val tracker = new CostTracker
     tracker.onEvent(
       tokens(
         "claude",
@@ -262,7 +267,7 @@ class CostTrackerTest extends munit.FunSuite:
       )
     )
     val c = tracker.perAgentCost("claude")
-    assertEquals(c.estimated, true)
+    assertEquals(c.basis, CostBasis.Estimated(opusRatesAsOf))
     assertEquals(c.amount, BigDecimal("1.0"))
 
   test(
@@ -272,7 +277,7 @@ class CostTrackerTest extends munit.FunSuite:
     // from "opus", not a dated snapshot of it — unlike "opus-20251015" above,
     // the prefix fallback must not cross tiers just because one name prefixes
     // the other. Mirrors the real-world gemini-2.5-flash / -flash-lite risk.
-    val tracker = new CostTracker(pricingAsOf)
+    val tracker = new CostTracker
     tracker.onEvent(
       tokens("claude", Some("opus-mini"), usage(1_000_000L, 0L, None))
     )
@@ -286,13 +291,13 @@ class CostTrackerTest extends munit.FunSuite:
     // The 1M-context suffix isn't a date, so the snapshot bridge doesn't reach
     // it; without the alias strip such a run shows tokens against no dollars,
     // indistinguishable from an unknown model.
-    val tracker = new CostTracker(pricingAsOf)
+    val tracker = new CostTracker
     tracker.onEvent(tokens("a", Some("opus[1m]"), usage(1_000_000L, 0L)))
     assertEquals(tracker.perAgentCost("a").amount, BigDecimal("1.0"))
 
   test("a dated [1m] spelling still reaches the base row"):
     // Both bridges have to compose: strip the alias, then bridge the snapshot.
-    val tracker = new CostTracker(pricingAsOf)
+    val tracker = new CostTracker
     tracker.onEvent(
       tokens("a", Some("opus-20251015[1m]"), usage(1_000_000L, 0L))
     )
@@ -301,31 +306,30 @@ class CostTrackerTest extends munit.FunSuite:
   test("an explicit [1m] row outprices the alias strip"):
     // The alias strip encodes today's fact that the 1M spelling costs the same;
     // a row saying otherwise is the newer claim and must win.
-    val split = PriceList(
-      table = Map(
-        Model("opus") -> ModelPricing(
-          inputUsdPerMillion = 1,
-          cacheReadUsdPerMillion = BigDecimal("0.10"),
-          outputUsdPerMillion = 5,
-          cacheWriteUsdPerMillion = 2
-        ),
-        Model("opus[1m]") -> ModelPricing(
-          inputUsdPerMillion = 2,
-          cacheReadUsdPerMillion = BigDecimal("0.20"),
-          outputUsdPerMillion = 10,
-          cacheWriteUsdPerMillion = 4
-        )
+    val split: PricingTable = Map(
+      Model("opus") -> ModelPricing(
+        inputUsdPerMillion = 1,
+        cacheReadUsdPerMillion = BigDecimal("0.10"),
+        outputUsdPerMillion = 5,
+        cacheWriteUsdPerMillion = 2,
+        ratesAsOf = opusRatesAsOf
       ),
-      lastUpdated = LocalDate.of(2026, 1, 15)
+      Model("opus[1m]") -> ModelPricing(
+        inputUsdPerMillion = 2,
+        cacheReadUsdPerMillion = BigDecimal("0.20"),
+        outputUsdPerMillion = 10,
+        cacheWriteUsdPerMillion = 4,
+        ratesAsOf = opusRatesAsOf
+      )
     )
-    val tracker = new CostTracker(pricingAsOf)
+    val tracker = new CostTracker
     tracker.onEvent(
       tokens("claude", Some("opus[1m]"), usage(1_000_000L, 0L), pricing = split)
     )
     assertEquals(tracker.perAgentCost("claude").amount, BigDecimal("2.0"))
 
   test("mixed reported + estimated rolls up to an estimated aggregate"):
-    val tracker = new CostTracker(pricingAsOf)
+    val tracker = new CostTracker
     tracker.onEvent(
       tokens("claude", Some("opus"), usage(0L, 0L, Some(BigDecimal("1.0"))))
     )
@@ -333,13 +337,13 @@ class CostTrackerTest extends munit.FunSuite:
       tokens("claude", Some("opus"), usage(1_000_000L, 0L, None))
     )
     val c = tracker.totalCost.get
-    assertEquals(c.estimated, true)
+    assertEquals(c.basis, CostBasis.Estimated(opusRatesAsOf))
     assertEquals(c.amount, BigDecimal("2.0"))
 
   test(
     "summary formats per-line cost as $X.XXXX with an asterisk on estimates"
   ):
-    val tracker = new CostTracker(pricingAsOf)
+    val tracker = new CostTracker
     tracker.onEvent(
       tokens("claude", Some("opus"), usage(10L, 5L, Some(BigDecimal("0.10"))))
     )
@@ -363,7 +367,7 @@ class CostTrackerTest extends munit.FunSuite:
       999_950L -> "1M" // rounds up into the next unit
     )
     cases.foreach: (n, expected) =>
-      val tracker = new CostTracker(pricingAsOf)
+      val tracker = new CostTracker
       tracker.onEvent(tokens("claude", Some("opus"), usage(n, 0L, None)))
       assert(
         tracker.summary.contains(s"opus: $expected in"),
@@ -371,7 +375,7 @@ class CostTrackerTest extends munit.FunSuite:
       )
 
   test("summary compacts the cache and reasoning parentheticals too"):
-    val tracker = new CostTracker(pricingAsOf)
+    val tracker = new CostTracker
     tracker.onEvent(
       tokens(
         "claude",
@@ -396,7 +400,7 @@ class CostTrackerTest extends munit.FunSuite:
 
   test("a group with a sub-unit part renders every count at two decimals"):
     // Counts from a live run: the parts have to sum to the total above them.
-    val tracker = new CostTracker(pricingAsOf)
+    val tracker = new CostTracker
     tracker.onEvent(
       tokens(
         "claude",
@@ -420,7 +424,7 @@ class CostTrackerTest extends munit.FunSuite:
   test("a part far below the group's unit keeps its own scale"):
     // At the group's unit this would round to 0.00M, which reads as "no cache
     // writes at all" — a different fact from "too few to show at this scale".
-    val tracker = new CostTracker(pricingAsOf)
+    val tracker = new CostTracker
     tracker.onEvent(
       tokens(
         "claude",
@@ -443,7 +447,7 @@ class CostTrackerTest extends munit.FunSuite:
   ):
     // Stripping the total to "12.4M" would leave the reader adding 11.9 + 0.51
     // against a headline shown to one fewer digit.
-    val tracker = new CostTracker(pricingAsOf)
+    val tracker = new CostTracker
     tracker.onEvent(
       tokens(
         "claude",
@@ -467,7 +471,7 @@ class CostTrackerTest extends munit.FunSuite:
   test("the output group keeps its own unit, unaffected by a large input"):
     // Sharing ONE unit across the whole line would render this as "0.1K out";
     // output is not a part of input, so nothing is summed across the two.
-    val tracker = new CostTracker(pricingAsOf)
+    val tracker = new CostTracker
     tracker.onEvent(
       tokens(
         "claude",
@@ -478,7 +482,7 @@ class CostTrackerTest extends munit.FunSuite:
     assert(tracker.summary.contains("opus: 3M in, 100 out"), tracker.summary)
 
   test("summary drops the cache-write part when a backend reports no writes"):
-    val tracker = new CostTracker(pricingAsOf)
+    val tracker = new CostTracker
     tracker.onEvent(
       tokens(
         "codex",
@@ -499,7 +503,7 @@ class CostTrackerTest extends munit.FunSuite:
   test("summary leaves per-agent spend to the run's cost log"):
     // The block is read at the point the user wants a verdict; the cost log
     // carries `agent` on every turn for anyone who wants that fold.
-    val tracker = new CostTracker(pricingAsOf)
+    val tracker = new CostTracker
     tracker.onEvent(
       tokens("lint", Some("opus"), usage(1L, 1L, None), role = Some("reviewer"))
     )
@@ -508,21 +512,27 @@ class CostTrackerTest extends munit.FunSuite:
     assert(!out.contains("lint"), out)
 
   test("summary lists By model lines alphabetically by model label"):
-    val tracker = new CostTracker(pricingAsOf)
+    val tracker = new CostTracker
     tracker.onEvent(tokens("a", Some("opus"), usage(1L, 1L, None)))
     tracker.onEvent(tokens("b", Some("haiku"), usage(1L, 1L, None)))
     tracker.onEvent(tokens("c", None, usage(1L, 1L, None)))
     assertLabelsInOrder(tracker.summary, List("(unknown)", "haiku", "opus"))
 
-  test("summary's estimate legend cites pricingAsOf"):
-    val tracker = new CostTracker(pricingAsOf)
+  test("summary's estimate legend cites the rates date of the row it used"):
+    val tracker = new CostTracker
     tracker.onEvent(
       tokens("performance", Some("haiku"), usage(1_000_000L, 0L, None))
     )
+    assert(tracker.summary.contains("rates as of 2026-03-01"), tracker.summary)
+
+  test("summary's estimate legend cites the oldest rates date among rows used"):
+    val tracker = new CostTracker
+    tracker.onEvent(tokens("a", Some("haiku"), usage(1_000_000L, 0L, None)))
+    tracker.onEvent(tokens("b", Some("opus"), usage(1_000_000L, 0L, None)))
     assert(tracker.summary.contains("rates as of 2026-01-15"), tracker.summary)
 
   test("summary omits the legend when every line was reported"):
-    val tracker = new CostTracker(pricingAsOf)
+    val tracker = new CostTracker
     tracker.onEvent(
       tokens("claude", Some("opus"), usage(10L, 5L, Some(BigDecimal("0.10"))))
     )
@@ -534,7 +544,7 @@ class CostTrackerTest extends munit.FunSuite:
   test("summary qualifies a total that leaves out an unpriced turn"):
     // Unmarked, the figure would read as the run's whole spend while covering
     // the claude line alone.
-    val tracker = new CostTracker(pricingAsOf)
+    val tracker = new CostTracker
     tracker.onEvent(
       tokens("claude", Some("opus"), usage(10L, 5L, Some(BigDecimal("0.10"))))
     )
@@ -545,18 +555,18 @@ class CostTrackerTest extends munit.FunSuite:
 
   test("a zero-token turn neither flags nor qualifies the total"):
     // Spending nothing is not a pricing gap: `Pricing.estimate` declines a
-    // zero-token turn on purpose, and a `Cost(0, estimated)` would relabel
+    // zero-token turn on purpose, and an estimated `Cost(0, …)` would relabel
     // exact spend.
-    val tracker = new CostTracker(pricingAsOf)
+    val tracker = new CostTracker
     tracker.onEvent(
       tokens("claude", Some("opus"), usage(10L, 5L, Some(BigDecimal("0.10"))))
     )
     tracker.onEvent(tokens("idle", Some("opus"), usage(0L, 0L)))
-    assertEquals(tracker.totalCost.map(_.estimated), Some(false))
+    assertEquals(tracker.totalCost.map(_.basis), Some(CostBasis.Reported))
     assert(tracker.summary.contains("Total: $0.1000"), tracker.summary)
 
   test("perRole subtotals usage by role, with None as the role-less bucket"):
-    val tracker = new CostTracker(pricingAsOf)
+    val tracker = new CostTracker
     tracker.onEvent(
       tokens(
         "performance",
@@ -581,7 +591,7 @@ class CostTrackerTest extends munit.FunSuite:
     assertEquals(tracker.perRole(None), usage(100L, 50L, None))
 
   test("summary adds a By role section once some call carried a role"):
-    val tracker = new CostTracker(pricingAsOf)
+    val tracker = new CostTracker
     tracker.onEvent(
       tokens(
         "performance",
@@ -596,14 +606,14 @@ class CostTrackerTest extends munit.FunSuite:
     assert(out.contains("  reviewer:"), out)
 
   test("summary omits the By role section when no event carried a role"):
-    val tracker = new CostTracker(pricingAsOf)
+    val tracker = new CostTracker
     tracker.onEvent(tokens("claude", Some("opus"), usage(10L, 5L, None)))
     assert(!tracker.summary.contains("By role:"), tracker.summary)
 
   test(
     "summary's By role section shows role-less spend, so it sums to the total"
   ):
-    val tracker = new CostTracker(pricingAsOf)
+    val tracker = new CostTracker
     tracker.onEvent(
       tokens(
         "performance",
@@ -623,7 +633,7 @@ class CostTrackerTest extends munit.FunSuite:
   test(
     "summary's (no role) bucket sums every role-less agent, not just the lead"
   ):
-    val tracker = new CostTracker(pricingAsOf)
+    val tracker = new CostTracker
     tracker.onEvent(tokens("main", Some("opus"), usage(100L, 50L, None)))
     tracker.onEvent(tokens("helper", Some("opus"), usage(20L, 10L, None)))
     tracker.onEvent(
@@ -642,7 +652,7 @@ class CostTrackerTest extends munit.FunSuite:
   test(
     "summary's By role section has no role-less line when every call carried a role"
   ):
-    val tracker = new CostTracker(pricingAsOf)
+    val tracker = new CostTracker
     tracker.onEvent(
       tokens(
         "performance",
@@ -654,13 +664,13 @@ class CostTrackerTest extends munit.FunSuite:
     assert(!tracker.summary.contains("(no role)"), tracker.summary)
 
   test("summary is empty when nothing has been recorded"):
-    assertEquals(new CostTracker(pricingAsOf).summary, "")
+    assertEquals((new CostTracker).summary, "")
 
   test("concurrent onEvent calls from two threads keep every tally"):
     // The reviewer fan-out emits from parallel forks. `AtomicReference`'s
     // compare-and-set retry is what makes that safe; a get-then-set refactor
     // would drop tallies.
-    val tracker = new CostTracker(pricingAsOf)
+    val tracker = new CostTracker
     supervised:
       val emitters = (0 until 2).map: t =>
         fork:

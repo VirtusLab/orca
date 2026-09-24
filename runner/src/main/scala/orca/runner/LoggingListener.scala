@@ -1,6 +1,6 @@
 package orca.runner
 
-import orca.events.{OrcaEvent, OrcaListener}
+import orca.events.{Announcement, OrcaEvent, OrcaListener}
 import org.slf4j.LoggerFactory
 
 /** Mirrors every [[OrcaEvent]] into the slf4j log (logger `orca.flow`) so the
@@ -34,15 +34,19 @@ private[orca] class LoggingListener extends OrcaListener:
       log.debug("tool use ({}): {} {}", agent.getOrElse("?"), tool, args)
     case OrcaEvent.ToolDenied(tool, agent) =>
       log.info("tool denied ({}): {}", agent.getOrElse("?"), tool)
-    case OrcaEvent.StructuredResult(raw, summary) =>
-      // On a deliberately silent summary (`Some("")`) or a missing one
-      // (`None`), log the raw JSON — display silence must not hide the result
-      // from the trace.
+    case OrcaEvent.StructuredResult(raw, announcement, agent) =>
+      // Display silence must not hide the result from the trace.
+      val text = announcement match
+        case Announcement.Say(summary)                      => summary
+        case Announcement.Silent | Announcement.Unannounced => raw
       log.debug(
-        "structured result: {}",
-        summary.filter(_.nonEmpty).getOrElse(raw)
+        "structured result ({}): {}",
+        agent.getOrElse("interactive"),
+        text
       )
-    case t: OrcaEvent.TokensUsed =>
+    case _: OrcaEvent.UnpricedTurn =>
+      () // Priced by the dispatcher in front of this listener.
+    case OrcaEvent.TokensUsed(t, cost) =>
       log.debug(
         "tokens: agent={} role={} model={} turn={} session={} cost={} usage={}",
         t.agent,
@@ -50,7 +54,7 @@ private[orca] class LoggingListener extends OrcaListener:
         t.model.map(_.name).getOrElse("(unknown)"),
         t.turn,
         t.session.getOrElse("(none)"),
-        t.cost.fold("(none)")(_.amount.toString),
+        cost.fold("(none)")(_.amount.toString),
         t.usage
       )
     case OrcaEvent.Error(message, agent) =>

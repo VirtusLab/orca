@@ -1,5 +1,7 @@
 package orca.agents
 
+import orca.events.Announcement
+
 /** A human-readable summary for a domain value. The library calls
   * `message(parsed)` after `AgentCall.resultAs[O]` succeeds and surfaces the
   * result as an `OrcaEvent.StructuredResult`. Provide a specific given in the
@@ -17,13 +19,27 @@ trait Announce[O]:
 
 object Announce:
 
-  /** The catch-all's class — named (rather than a lambda) so
-    * `AgentCall.emitStructuredResult` can distinguish "no specific instance
-    * exists" (fall back to raw payload) from a specific instance returning
-    * `None` (deliberate silence). Different display contracts.
+  /** The catch-all's class — named (rather than a lambda) so [[announcement]]
+    * can tell "no specific instance exists" from a specific instance returning
+    * `None`.
     */
-  final private[agents] class NoSpecific[O] extends Announce[O]:
+  final private class NoSpecific[O] extends Announce[O]:
     def message(value: O): Option[String] = None
+
+  /** What `instance` asks renderers to show for `value`. An empty message is
+    * [[Announcement.Silent]], like `None`.
+    */
+  private[orca] def announcement[O](
+      instance: Announce[O],
+      value: O
+  ): Announcement =
+    instance match
+      case _: NoSpecific[?] => Announcement.Unannounced
+      case specific =>
+        specific
+          .message(value)
+          .filter(_.nonEmpty)
+          .fold(Announcement.Silent)(Announcement.Say(_))
 
   /** Catch-all no-op so `Announce[O]` is always resolvable. Specific givens
     * (e.g. `given Announce[Plan]`) take precedence.

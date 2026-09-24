@@ -8,7 +8,7 @@ import orca.events.{
   EventDispatcher,
   OrcaEvent,
   OrcaListener,
-  PriceList,
+  PricingTable,
   Pricing
 }
 import orca.agents.{
@@ -145,14 +145,14 @@ def flow(
     gh: Option[GitHubTool] = None,
     fs: Option[FsTool] = None,
     prompts: Prompts = DefaultPrompts,
-    pricing: PriceList = Pricing.default
+    pricing: PricingTable = Pricing.default
 )(body: FlowControl ?=> Unit): Unit =
   val flowLog = LoggerFactory.getLogger("orca.flow")
   // A daemon thread or unsupervised fork that throws would otherwise disappear
   // with no diagnostic; this leaves a trail on the console and in the trace.
   installUncaughtExceptionHandler()
-  // Tally token usage and print the summary on exit (success or failure).
-  val costTracker = new CostTracker(pricing.lastUpdated)
+  // Tally token usage for the summary printed on exit (success or failure).
+  val costTracker = new CostTracker
   // Read once and threaded explicitly from here down (AttemptManifestWriter, and
   // the progress header via `runFlow`/`FlowLifecycle.setup`).
   val flowSource = FlowSourceProperty.read()
@@ -263,8 +263,7 @@ def flow(
         outcome
       finally
         manifestWriter.finish(outcome)
-        costTracker.printSummary()
-        deniedToolTracker.printSummary()
+        printRunSummary(List(costTracker.summary, deniedToolTracker.summary))
 
   // The guard comes before the worktree, trace or manifest exist, so a nested
   // `flow()` throws having touched nothing, and never reaches the exit: the
@@ -463,6 +462,13 @@ private def runInContext(
       startingCommit = flowSetup.startingCommit
     )
     FlowLifecycle.run(control, flowSetup, debug = debug)(body)
+
+/** Prints each non-empty section as its own block on stderr, the terminal UI's
+  * stream and encoding, so stdout carries only what the flow itself prints.
+  */
+private def printRunSummary(sections: List[String]): Unit =
+  val err = TerminalInteraction.utf8Stderr
+  sections.filter(_.nonEmpty).foreach(s => err.println(s"\n$s"))
 
 private def installUncaughtExceptionHandler(): Unit =
   // Idempotent across nested or repeated `flow(...)` calls: install only if no

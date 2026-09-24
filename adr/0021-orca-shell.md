@@ -843,6 +843,12 @@ resume is global, but the resumed context still references that directory):
 > deleted, and enum values are written as their case names (`Running`,
 > `Durable`, `Ephemeral`).
 
+> **Amendment (2026-09-23).** A cost-log line's `cost` is `{"amount": …,
+> "basis": …}`, where `basis` is `{"type":"Reported"}` or
+> `{"type":"Estimated","ratesAsOf":"<date>"}` — the date the pricing row behind
+> the estimate was last checked. It replaces the `estimated` flag; summing
+> costs keeps the oldest `ratesAsOf` among the estimates.
+
 ### 9. Creating a new flow with a harness
 
 Menu flow (feedback item 9, goal-first): pick global vs project target upfront

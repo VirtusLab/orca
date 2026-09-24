@@ -2,7 +2,7 @@ package orca.runner
 
 import orca.{BranchNamingStrategy, ConfigHome, OrcaArgs, StackSettings}
 import orca.backend.Interaction
-import orca.events.{OrcaListener, PriceList}
+import orca.events.{OrcaListener, PricingTable}
 import orca.progress.FlowSource
 
 /** Everything one `flow(...)` attempt was asked to do, built once by `flow` and
@@ -17,7 +17,7 @@ private[orca] case class RunRequest(
     // Beyond the interaction's own listeners.
     extraListeners: List[OrcaListener],
     wiring: FlowWiring,
-    pricing: PriceList,
+    pricing: PricingTable,
     setup: SetupOptions
 )
 
