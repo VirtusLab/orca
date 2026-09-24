@@ -65,11 +65,12 @@ Key shifts vs. the previous TTY path:
 - **The terminal is Orca's, not claude's.** Orca renders turns,
   streams text, displays tool calls, prompts for approvals, and
   decides what to show. The backend never inherits stdio.
-- **Approvals go through `ApproveTool` events**, each carrying a
-  `respond: ApprovalDecision => Unit` closure the channel invokes
-  exactly once. The driver auto-approves tools that match
-  `AgentConfig.autoApprove` before the event would fire; only
-  channel-level decisions surface as events.
+- **Approvals are set by flags, not asked over stdio.** Orca closes
+  claude's stdin after the opening turn, so claude cannot send a
+  `can_use_tool` request orca could answer; `AgentConfig.autoApprove`
+  maps to permission flags, and a tool outside them fails as a
+  tool_result. A `control_request` that arrives anyway surfaces as an
+  `Error` event.
 - **Cancellation surfaces as `Either`**: `Conversation.awaitResult`
   returns `Either[OrcaInteractiveCancelled, AgentResult[B]]`. Genuine
   subprocess failures still throw, since they aren't recoverable, but
@@ -140,13 +141,13 @@ Key shifts vs. the previous TTY path:
 - `ClaudeConversationTest` pins the driver against a
   `FakePipedCliProcess` with scripted NDJSON: every
   `InboundMessage` variant maps to the expected
-  `ConversationEvent` set, autoapprove policy fires silently,
-  cancel propagates through `awaitResult`, multiple pending
-  `ApproveTool`s are distinguishable by their respond closures.
-- `TerminalConversationRendererTest` pins per-event rendering and
-  the approval-prompt path via a `Prompter` stub.
+  `ConversationEvent` set, an unexpected `control_request`
+  becomes an `Error` event, cancel propagates through
+  `awaitResult`.
+- `TerminalPromptsTest` pins the approval and question prompts via
+  a `Prompter` stub.
 - `ClaudeIntegrationTest` (gated on `ORCA_INTEGRATION=1`) exercises
   the real CLI: headless round-trips, a streaming session that
   verifies AssistantTextDelta + AssistantTurnEnd land, and a
-  tool-approval scenario that denies a `Read` request via the
-  `respond` closure.
+  refused `Read` that arrives as a failed tool_result, never as a
+  stdin `control_request`.

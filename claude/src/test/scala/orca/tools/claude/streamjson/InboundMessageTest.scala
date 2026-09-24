@@ -94,17 +94,11 @@ class InboundMessageTest extends munit.FunSuite:
       Some("claude-opus-4-7")
     )
 
-  test("control_request delegates body parsing to ControlRequestBody"):
+  test("control_request carries the request's subtype"):
     val msg = InboundMessage.parse(
       """{"type":"control_request","request_id":"req-7","request":{"subtype":"can_use_tool","tool_name":"Read","input":{"path":"/tmp/x"}}}"""
     )
-    assertEquals(
-      msg,
-      InboundMessage.ControlRequest(
-        "req-7",
-        ControlRequestBody.CanUseTool("Read", """{"path":"/tmp/x"}""")
-      )
-    )
+    assertEquals(msg, InboundMessage.ControlRequest("can_use_tool"))
 
   test("stream_event delegates payload parsing to StreamEventPayload"):
     val msg = InboundMessage.parse(

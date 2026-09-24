@@ -30,10 +30,9 @@ class ConversationsTest extends munit.FunSuite:
     assertEquals(conv.drained.get(), 2)
 
   test("ApproveTool under AutoApprove.Only auto-denies and surfaces an Error"):
-    // The autonomous drain has no user to ask, but the subprocess is
-    // blocked on stdin waiting for our decision. Auto-denying with a
-    // reason unblocks the agent (it can adapt); the Error event lets the
-    // user see what got blocked. Silently dropping would deadlock.
+    // The autonomous drain has no user to ask, but the backend is blocked
+    // waiting for our decision. Auto-denying unblocks it; the Error event lets
+    // the user see what got blocked. Silently dropping would deadlock.
     val recorder = new RecordingListener
     val decisions = new AtomicReference[List[ApprovalDecision]](Nil)
     val record = (d: ApprovalDecision) =>
@@ -49,11 +48,7 @@ class ConversationsTest extends munit.FunSuite:
       Conversations
         .drainAutonomous(conv, AutoApprove.Only(Set("Read")), recorder)
     )
-    decisions.get() match
-      case ApprovalDecision.Deny(Some(reason)) :: Nil =>
-        assert(reason.contains("Bash"), reason)
-        assert(reason.contains("auto-approve"), reason)
-      case other => fail(s"expected Deny with reason; got $other")
+    assertEquals(decisions.get(), List(ApprovalDecision.Deny))
     assertEquals(
       recorder.events.collect { case e: OrcaEvent.Error => e.message },
       List(
@@ -75,11 +70,7 @@ class ConversationsTest extends munit.FunSuite:
     )
     val _ =
       supervised(Conversations.drainAutonomous(conv, AutoApprove.All, recorder))
-    decisions.get() match
-      case ApprovalDecision.Deny(Some(reason)) :: Nil =>
-        assert(reason.contains("Bash"), reason)
-        assert(!reason.contains("auto-approve"), reason)
-      case other => fail(s"expected Deny with reason; got $other")
+    assertEquals(decisions.get(), List(ApprovalDecision.Deny))
     assertEquals(
       recorder.events.collect { case e: OrcaEvent.Error => e.message },
       List(
@@ -103,10 +94,7 @@ class ConversationsTest extends munit.FunSuite:
       Conversations
         .drainAutonomous(conv, AutoApprove.Only(Set("Bash")), recorder)
     )
-    decisions.get() match
-      case ApprovalDecision.Deny(Some(reason)) :: Nil =>
-        assert(!reason.contains("auto-approve"), reason)
-      case other => fail(s"expected Deny with reason; got $other")
+    assertEquals(decisions.get(), List(ApprovalDecision.Deny))
     assertEquals(
       recorder.events.collect { case e: OrcaEvent.Error => e.message },
       List(

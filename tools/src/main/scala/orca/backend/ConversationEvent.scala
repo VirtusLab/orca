@@ -64,9 +64,9 @@ enum ConversationEvent:
   case Error(message: String)
 
   /** The agent wants to invoke a tool and is asking our permission. The channel
-    * must call `respond` exactly once — `Allow(...)` to execute, `Deny(...)` to
-    * refuse. The driver owns the matching request-id bookkeeping; the closure
-    * captures it.
+    * must call `respond` exactly once — `Allow` to execute, `Deny` to refuse.
+    * The driver owns the matching request-id bookkeeping; the closure captures
+    * it.
     */
   case ApproveTool(
       toolName: String,
@@ -116,14 +116,6 @@ type NeutralEvent = ConversationEvent.UserMessage | ConversationEvent.Error |
 type ChannelEvent = ConversationEvent.ApproveTool |
   ConversationEvent.UserQuestion
 
-/** Channel's answer to a [[ConversationEvent.ApproveTool]] prompt.
-  *
-  *   - `Allow(None)` — run the tool with its original input.
-  *   - `Allow(Some(json))` — run the tool but substitute the input with the
-  *     supplied JSON value; useful for edit-then-approve UIs.
-  *   - `Deny(reason)` — refuse the call; `reason`, if given, is surfaced back
-  *     to the agent so it can adapt.
-  */
+/** Channel's answer to a [[ConversationEvent.ApproveTool]] prompt. */
 enum ApprovalDecision:
-  case Allow(updatedInputJson: Option[String] = None)
-  case Deny(reason: Option[String] = None)
+  case Allow, Deny

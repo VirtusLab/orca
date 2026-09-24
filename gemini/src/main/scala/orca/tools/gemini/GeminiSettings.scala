@@ -1,6 +1,7 @@
 package orca.tools.gemini
 
-import orca.backend.mcp.AskUserMcpServer
+import orca.OrcaFlowException
+import orca.backend.mcp.{AskUserMcpServer, McpHost}
 import orca.util.RawJson
 
 import com.github.plokhotnyuk.jsoniter_scala.core.{
@@ -8,23 +9,27 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
   readFromString,
   writeToString
 }
-import com.github.plokhotnyuk.jsoniter_scala.macros.JsonCodecMaker
+import com.github.plokhotnyuk.jsoniter_scala.macros.{
+  CodecMakerConfig,
+  JsonCodecMaker
+}
+
+import scala.util.Try
 
 /** Registers the ephemeral `ask_user` MCP server with gemini for the lifetime
-  * of one interactive conversation. gemini only reads MCP server config from
-  * `settings.json`, so we merge an entry into the project-local
-  * `<workDir>/.gemini/settings.json` and restore the prior state when the turn
+  * of one interactive conversation. gemini reads MCP server config only from
+  * `settings.json`, so an `mcpServers.orca` entry is merged into the
+  * project-local `<workDir>/.gemini/settings.json` and removed when the turn
   * ends.
   *
-  * The merge preserves the user's file: unknown top-level keys and other
-  * configured `mcpServers` ride through verbatim. The `allowedMcpServerNames`
-  * allowlist is only touched when it already exists — introducing one where
-  * there was none would restrict gemini to ONLY orca and hide the user's other
-  * servers.
+  * The merge preserves the user's file: other top-level keys and other
+  * `mcpServers` entries ride through verbatim. gemini intersects the
+  * `mcp.allowed` lists of all settings scopes, so a user who sets one must list
+  * `orca` in it.
   *
-  * Restore is best-effort, not transactional: two interactive runs in the same
-  * `workDir` race on this file, and a hard crash skips the restore, leaving a
-  * stale `orca` entry behind (ADR 0015).
+  * An entry left by a hard crash is removed by the next interactive run in the
+  * same `workDir`; until then other gemini runs there see a dead `orca` server.
+  * Two interactive runs in one `workDir` race on the file (ADR 0015).
   *
   * The modified file sits in the user's tree for the whole turn, so a commit
   * the agent itself makes mid-turn includes it. Orca's own stage commits run
@@ -36,77 +41,102 @@ private[gemini] object GeminiSettings:
     JsonCodecMaker.make
 
   /** One `mcpServers.<name>` entry. jsoniter emits fields in declaration order,
-    * so this serialises as `{"httpUrl":…,"timeout":…}`.
+    * so this serialises as `{"httpUrl":…,"timeout":…}`. Decoding rejects any
+    * other field, so only an entry of exactly this shape parses.
     */
   private case class OrcaServerEntry(httpUrl: String, timeout: Long)
   private given entryCodec: JsonValueCodec[OrcaServerEntry] =
-    JsonCodecMaker.make
+    JsonCodecMaker.make(CodecMakerConfig.withSkipUnexpectedFields(false))
+
+  /** `timeout` (ms) mirrors [[orca.backend.mcp.AskUserMcpServer.ToolTimeout]]
+    * (rendered as ms/sec across backends; keep in sync). Without it gemini
+    * falls back to a shorter per-server default, giving up on `ask_user`
+    * mid-answer and firing a duplicate question.
+    */
+  private val TimeoutMillis: Long = AskUserMcpServer.ToolTimeout.toMillis
 
   /** Merge the orca MCP server into `<workDir>/.gemini/settings.json` and
-    * return an [[AutoCloseable]] that restores the prior state (original bytes,
-    * or file removal if it didn't exist) on `close()`. A `.gemini` directory
-    * created here is removed too, unless something else was put in it.
+    * return an [[AutoCloseable]] that restores the prior state on `close()`:
+    * the original bytes, or no file if there was none. A stale entry from an
+    * earlier run is dropped from that prior state, and a file holding nothing
+    * else counts as none. A `.gemini` directory created here or by that earlier
+    * run is removed too, unless something else was put in it.
+    *
+    * Throws [[OrcaFlowException]] when `.gemini` or `settings.json` is a
+    * symlink, before touching either.
     */
   def register(workDir: os.Path, mcpUrl: String): AutoCloseable =
     val dir = workDir / ".gemini"
     val file = dir / "settings.json"
+    refuseSymlink(dir)
+    refuseSymlink(file)
     val dirExisted = os.exists(dir)
     val fileExisted = os.exists(file)
-    val original = if fileExisted then os.read(file) else ""
+    val prior = if fileExisted then withoutStaleOrca(os.read(file)) else None
+    // A settings file holding only a stale entry means orca created `.gemini`.
+    val orcaCreatedDir = !dirExisted || (fileExisted && prior.isEmpty)
     os.write.over(
       file,
-      merge(if fileExisted then original else "{}", mcpUrl),
+      withOrca(prior.getOrElse("{}"), mcpUrl),
       createFolders = true
     )
     () =>
-      if fileExisted then os.write.over(file, original)
-      else if os.exists(file) then
-        val _ = os.remove(file)
-      if !dirExisted && os.exists(dir) && os.list(dir).isEmpty then
-        val _ = os.remove(dir)
+      prior match
+        case Some(content) => os.write.over(file, content)
+        case None          => os.remove(file): Unit
+      if orcaCreatedDir && os.exists(dir) && os.list(dir).isEmpty then
+        os.remove(dir): Unit
 
-  /** Pure merge: inject `mcpServers.<ServerName> = {httpUrl, timeout}` into the
-    * top-level settings object, preserving every other key.
+  /** A committed `.gemini` symlink would redirect the write outside the working
+    * tree, e.g. into the user's global `~/.gemini`. `os.isLink` does not follow
+    * links, so each path component is checked on its own.
     */
-  private[gemini] def merge(content: String, mcpUrl: String): String =
+  private def refuseSymlink(path: os.Path): Unit =
+    if os.isLink(path) then
+      throw new OrcaFlowException(
+        s"$path is a symlink — refusing to register orca's ask_user MCP " +
+          "server through it. Replace it with a regular file or directory, or " +
+          "run the gemini turn autonomously."
+      )
+
+  /** Inject `mcpServers.<ServerName> = {httpUrl, timeout}` into the top-level
+    * settings object, preserving every other key.
+    */
+  private[gemini] def withOrca(content: String, mcpUrl: String): String =
+    // Serialized through a typed codec, not interpolated, so a URL containing
+    // `"` or `\` stays valid JSON.
+    val entry = RawJson(writeToString(OrcaServerEntry(mcpUrl, TimeoutMillis)))
     val top = readFromString[Map[String, RawJson]](content)
-    val servers = top
+    val servers = mcpServers(top) + (AskUserMcpServer.ServerName -> entry)
+    writeToString(top + ("mcpServers" -> RawJson(writeToString(servers))))
+
+  /** The settings without an `orca` entry that [[withOrca]] wrote; `None` when
+    * nothing else is left. The content is returned verbatim when there is no
+    * such entry, and re-serialized compactly otherwise. An `orca` entry of any
+    * other shape is the user's own and is kept.
+    */
+  private[gemini] def withoutStaleOrca(content: String): Option[String] =
+    val top = readFromString[Map[String, RawJson]](content)
+    val servers = mcpServers(top)
+    if !servers.get(AskUserMcpServer.ServerName).exists(isOrcaEntry) then
+      Some(content)
+    else
+      val rest = servers - AskUserMcpServer.ServerName
+      val stripped =
+        if rest.isEmpty then top - "mcpServers"
+        else top + ("mcpServers" -> RawJson(writeToString(rest)))
+      Option.when(stripped.nonEmpty)(writeToString(stripped))
+
+  private def mcpServers(top: Map[String, RawJson]): Map[String, RawJson] =
+    top
       .get("mcpServers")
       .map(raw => readFromString[Map[String, RawJson]](raw.value))
       .getOrElse(Map.empty)
-    // Serialize through a typed codec rather than interpolating into a raw JSON
-    // string, so a URL containing `"` or `\` stays valid JSON.
-    //
-    // `timeout` (ms) mirrors [[orca.backend.mcp.AskUserMcpServer.ToolTimeout]]
-    // (rendered as ms/sec across backends; keep in sync). Without it gemini
-    // falls back to a shorter per-server default, giving up on `ask_user`
-    // mid-answer and firing a duplicate question.
-    val orcaEntry = RawJson(
-      writeToString(
-        OrcaServerEntry(mcpUrl, AskUserMcpServer.ToolTimeout.toMillis)
-      )
-    )
-    val mergedServers =
-      servers + (AskUserMcpServer.ServerName -> orcaEntry)
-    val withServers =
-      top + ("mcpServers" -> RawJson(writeToString(mergedServers)))
-    writeToString(withAllowlist(withServers))
 
-  /** Append the orca server name to `allowedMcpServerNames`, but only when the
-    * allowlist already exists (see the object scaladoc for why).
+  /** Whether `raw` has the shape [[withOrca]] writes, pointing at an
+    * [[McpHost]]. The timeout's value is not checked, so an entry from an orca
+    * with a different timeout matches.
     */
-  private def withAllowlist(
-      top: Map[String, RawJson]
-  ): Map[String, RawJson] =
-    top.get("allowedMcpServerNames") match
-      case None => top
-      case Some(raw) =>
-        val names = readFromString[List[String]](raw.value)(using listCodec)
-        if names.contains(AskUserMcpServer.ServerName) then top
-        else
-          val updated = names :+ AskUserMcpServer.ServerName
-          top + ("allowedMcpServerNames" -> RawJson(
-            writeToString(updated)(using listCodec)
-          ))
-
-  private given listCodec: JsonValueCodec[List[String]] = JsonCodecMaker.make
+  private def isOrcaEntry(raw: RawJson): Boolean =
+    Try(readFromString[OrcaServerEntry](raw.value)).toOption
+      .exists(entry => McpHost.isHostUrl(entry.httpUrl))

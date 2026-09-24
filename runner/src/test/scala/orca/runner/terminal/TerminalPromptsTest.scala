@@ -73,7 +73,7 @@ class TerminalPromptsTest extends munit.FunSuite:
     assert(out.contains("…"), s"expected ellipsis; got: $out")
     assert(out.length < long.length + 100)
 
-  test("promptApproval 'y' answer → Allow(None), prompt text asked"):
+  test("promptApproval 'y' answer → Allow, prompt text asked"):
     val buf = new ByteArrayOutputStream()
     val answered = new AtomicReference[Option[ApprovalDecision]](None)
     val prompter = new ScriptedPrompter(List(PromptOutcome.Answer("yes")))
@@ -88,10 +88,10 @@ class TerminalPromptsTest extends munit.FunSuite:
       Right(sampleResult)
     )
     val _ = prompts(buf, prompter = prompter).drive(observed(conv))
-    assertEquals(answered.get(), Some(ApprovalDecision.Allow(None)))
+    assertEquals(answered.get(), Some(ApprovalDecision.Allow))
     assert(prompter.asked.get().exists(_.contains("[y]es")))
 
-  test("promptApproval 'n' answer → Deny with reason"):
+  test("promptApproval 'n' answer → Deny"):
     val buf = new ByteArrayOutputStream()
     val answered = new AtomicReference[Option[ApprovalDecision]](None)
     val prompter = new ScriptedPrompter(List(PromptOutcome.Answer("no")))
@@ -106,10 +106,7 @@ class TerminalPromptsTest extends munit.FunSuite:
       Right(sampleResult)
     )
     val _ = prompts(buf, prompter = prompter).drive(observed(conv))
-    answered.get() match
-      case Some(ApprovalDecision.Deny(Some(reason))) =>
-        assert(reason.contains("user denied"))
-      case other => fail(s"expected Deny(Some(...)), got $other")
+    assertEquals(answered.get(), Some(ApprovalDecision.Deny))
 
   test("promptApproval interrupted → conversation.cancel() called"):
     val buf = new ByteArrayOutputStream()
