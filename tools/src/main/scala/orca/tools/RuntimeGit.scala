@@ -6,7 +6,7 @@ import orca.gitref.{BranchName, CommitHash}
 /** What [[RuntimeGit.discardUncommitted]] does with untracked files, which `git
   * reset --hard` alone never touches.
   */
-enum UntrackedFiles:
+private[orca] enum UntrackedFiles:
   /** Delete them. Only correct when everything untracked was created after the
     * tree was last known clean — otherwise this destroys the user's own files.
     */
@@ -20,33 +20,37 @@ enum UntrackedFiles:
   * in it. Git prunes the commit only once it is older than `gc.pruneExpire`
   * (two weeks by default).
   */
-final case class UncommittedSnapshot(commit: CommitHash, base: CommitHash)
+private[orca] final case class UncommittedSnapshot(
+    commit: CommitHash,
+    base: CommitHash
+)
 
 /** Returned in the `Left` of [[RuntimeGit.snapshotUncommitted]] and
   * [[RuntimeGit.restoreSnapshot]] when git refused, e.g. on an unmerged index
   * or a file in the way.
   */
-final class SnapshotFailed(reason: String) extends OrcaFlowException(reason)
+private[orca] final class SnapshotFailed(reason: String)
+    extends OrcaFlowException(reason)
 
 /** Returned in the `Left` of [[RuntimeGit.createBranch]] when a branch by that
   * name already exists. Distinguished from system-level git failures (binary
   * missing, IO error) which surface as thrown `OrcaFlowException`. Subclasses
   * `OrcaFlowException` so callers can `.orThrow` when the case is unexpected.
   */
-class BranchAlreadyExists(name: BranchName)
+private[orca] class BranchAlreadyExists(name: BranchName)
     extends OrcaFlowException(s"branch '${name.value}' already exists")
 
 /** Returned in the `Left` of [[RuntimeGit.checkout]] when no branch by that
   * name exists. Same throw-or-handle contract as [[BranchAlreadyExists]].
   */
-class BranchNotFound(name: BranchName)
+private[orca] class BranchNotFound(name: BranchName)
     extends OrcaFlowException(s"branch '${name.value}' not found")
 
 /** Returned in the `Left` of [[RuntimeGit.commit]] when the working tree has no
   * pending changes. Some flows skip-and-continue when nothing changed; others
   * `.orThrow` to abort.
   */
-class NothingToCommit
+private[orca] class NothingToCommit
     extends OrcaFlowException("nothing to commit; working tree is clean")
 
 /** The flow runtime's git: [[GitTool]] plus the branch, commit and working-tree
@@ -54,7 +58,7 @@ class NothingToCommit
   * each stage, and the setup and teardown around the body. Flow scripts see
   * only [[GitTool]].
   */
-trait RuntimeGit extends GitTool:
+private[orca] trait RuntimeGit extends GitTool:
 
   /** Create `name` from HEAD and switch to it (`git checkout -b`). Returns
     * `Left(BranchAlreadyExists)` when a branch by that name already exists —
@@ -117,16 +121,6 @@ trait RuntimeGit extends GitTool:
     * Always a single explicit path — never a glob or directory.
     */
   def forceAdd(path: os.Path)(using WorkspaceWrite): Unit
-
-  /** True when a local branch named `name` exists. READ-ONLY. */
-  def branchExists(name: BranchName): Boolean
-
-  /** True when git ignores `relPath` relative to the working directory (`git
-    * check-ignore`). READ-ONLY. Best-effort: `false` whenever the probe cannot
-    * answer (not a git repo, git unavailable), so a wrong `false` must fail
-    * loudly in the caller — as a plain `git add` of an ignored path does.
-    */
-  def isIgnored(relPath: os.SubPath): Boolean
 
   /** Name of the repository's default branch, read from the remote's recorded
     * `origin/HEAD`. READ-ONLY. `None` when there is no remote or `origin/HEAD`

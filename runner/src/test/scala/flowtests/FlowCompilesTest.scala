@@ -86,6 +86,8 @@ object FlowCanary:
       stage("tools"):
         val _ = git.head()
         val _ = git.push()
+        val _ = orca.gitref.BranchName.parse("main").map(git.branchExists)
+        val _ = git.isIgnored(os.sub / "build")
         val _ = gh
         val _ = fs
         val _ = codex
@@ -408,7 +410,8 @@ object FlowCanary:
           case Triage.Testable(_, _, _) => ()
 
   /** A helper function over the role agents needs no backend type parameter:
-    * the plan, its review and the session each pass through plain signatures.
+    * the plan, its review on an agent variant and the session each pass through
+    * plain signatures.
     */
   def roleAgentHelper(task: Task)(using
       FlowContext,
@@ -416,7 +419,9 @@ object FlowCanary:
       InStage,
       WorkspaceWrite
   ): OpenFindings =
-    val _ = Plan.interactive.from("prompt", planningAgent).reviewed()
+    val _ = Plan.interactive
+      .from("prompt", planningAgent)
+      .reviewed(variant = _.withName("plan-review"))
     reviewAndFixLoop(
       coderSession = codingAgent.session("implementer", seed = "brief"),
       reviewers = allReviewers(reviewAgent),

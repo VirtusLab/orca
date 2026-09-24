@@ -69,7 +69,7 @@ final class ObservedTurn[B <: BackendTag] private[orca] (
         throw t
     live.awaitResult().orThrow
 
-  /** See [[LiveTurn.cancel]]. */
+  /** End the turn. Safe to call from any thread. */
   def cancel(): Unit = live.cancel()
 
 private[orca] object ObservedTurn:

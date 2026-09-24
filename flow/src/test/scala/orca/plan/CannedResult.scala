@@ -1,6 +1,6 @@
 package orca.plan
 
-import orca.agents.{Agent, BackendTag, JsonData, ToolSet}
+import orca.agents.{Agent, AutoApprove, BackendTag, JsonData, ToolSet}
 import orca.testkit.{ScriptedBackend, TestAgent}
 
 /** An agent whose every structured turn answers `value`, recording the tool
@@ -14,6 +14,9 @@ private[plan] class CannedResult[T: JsonData](value: T):
     */
   var lastToolSet: Option[ToolSet] = None
 
+  /** The approval policy of the most recent turn. */
+  var lastAutoApprove: Option[AutoApprove] = None
+
   /** The session of the most recent turn, so tests can assert the returned
     * [[orca.agents.Chat]] continues that conversation.
     */
@@ -22,6 +25,7 @@ private[plan] class CannedResult[T: JsonData](value: T):
   val agent: Agent[BackendTag.ClaudeCode.type] =
     TestAgent(ScriptedBackend.replying(BackendTag.ClaudeCode): turn =>
       lastToolSet = Some(turn.config.tools)
+      lastAutoApprove = Some(turn.config.autoApprove)
       lastSession = Some(turn.session.value)
       ScriptedBackend.json(value)
     )

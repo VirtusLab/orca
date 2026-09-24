@@ -1,7 +1,7 @@
 package orca.tools
 
 import orca.{OrcaFlowException, WorkspaceWrite}
-import orca.gitref.{CommitHash, Head}
+import orca.gitref.{BranchName, CommitHash, Head}
 
 /** How much of a commit [[GitTool.show]] renders. */
 enum ShowDetail:
@@ -169,7 +169,7 @@ object NoDefaultBase:
 
 /** Git adapter usable from flow scripts — the handle behind the `git` accessor.
   * Reads the working repository and pushes; branches and commits belong to the
-  * runtime ([[RuntimeGit]]).
+  * runtime.
   */
 trait GitTool:
 
@@ -191,6 +191,17 @@ trait GitTool:
     * probe cannot answer.
     */
   def headCommit(): Option[CommitHash]
+
+  /** True when a local branch named `name` exists. READ-ONLY. Throws
+    * `OrcaFlowException` when git fails to answer.
+    */
+  def branchExists(name: BranchName): Boolean
+
+  /** True when git ignores `relPath` relative to the working directory (`git
+    * check-ignore`). READ-ONLY. Best-effort: `false` whenever the probe cannot
+    * answer (not a git repo, git unavailable).
+    */
+  def isIgnored(relPath: os.SubPath): Boolean
 
   /** True when `rev` both resolves in this repository and is an ancestor of
     * HEAD — i.e. usable as a diff base for "everything since `rev`". READ-ONLY.

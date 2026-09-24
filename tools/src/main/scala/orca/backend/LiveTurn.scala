@@ -16,7 +16,7 @@ import orca.{OrcaInteractiveCancelled}
   * [[TurnEvent.ApproveTool]] — the channel does not track request-ids. `cancel`
   * is safe to call from any thread.
   */
-trait LiveTurn[B <: BackendTag]:
+private[orca] trait LiveTurn[B <: BackendTag]:
 
   /** The JSON-schema string the turn was launched with, or `None` for free-form
     * prose. Renderers and channels consult it to decide whether the agent's

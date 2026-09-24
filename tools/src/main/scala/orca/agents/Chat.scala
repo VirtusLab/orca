@@ -17,9 +17,10 @@ import orca.backend.Dispatch
   * they share the user's terminal.
   *
   * The handle bundles the minting [[Agent]] with a reserved [[SessionId]], so
-  * every turn runs on the same agent configuration and conversation. Drive one
-  * chat from one place at a time: concurrent turns against the same backend
-  * conversation fail.
+  * every turn runs on the same agent configuration and conversation;
+  * [[withAgent]] continues it on a variant of that agent. Drive one chat from
+  * one place at a time: concurrent turns against the same backend conversation
+  * fail.
   *
   * A chat adopting a conversation another handle opened (such as a durable
   * session's `session.chat`) refuses a turn with [[ConversationNotHeld]] while
@@ -41,6 +42,19 @@ final class Chat[B <: BackendTag] private[agents] (
   )(using InStage): String =
     requireHeld()
     agent.runText(prompt, id, sessionKey = None, promptEvent = promptEvent)
+
+  /** This conversation continued by `f(agent)` — a builder-derived variant of
+    * this chat's agent (`_.withReadOnly`, `_.cheap`, `_.withName(…)`) — on the
+    * same conversation. The variant must run on this agent's backend, which
+    * holds the conversation; otherwise throws [[AgentOnOtherBackend]].
+    */
+  def withAgent(f: Agent[?] => Agent[?]): Chat[B] =
+    val variant = f(agent)
+    if !agent.sharesBackendWith(variant) then throw new AgentOnOtherBackend
+    // `Agent[?]`, not `Agent[B]`: a lambda can't be typed against the `B` of a
+    // wildcard `Chat[?]` held in a `def` (such as a role agent's chat). The
+    // shared backend instance above guarantees the same `B`.
+    new Chat(variant.asInstanceOf[Agent[B]], id, origin)
 
   /** Fix the output type for structured turns continuing this conversation —
     * both `autonomous` and `interactive` modes, mirroring `agent.resultAs[O]`.
@@ -67,6 +81,16 @@ final class ConversationNotHeld
         "started, or lost on resume). For session.chat, run session.run or " +
         "session.resultAs[O].run on the flow thread first; otherwise start a " +
         "new agent.chat()"
+    )
+
+/** A [[Chat.withAgent]] variant built on another backend instance, which does
+  * not hold the chat's conversation.
+  */
+final class AgentOnOtherBackend
+    extends OrcaFlowException(
+      "chat.withAgent refused: the new agent runs on another backend, which " +
+        "does not hold this conversation. Derive it from the chat's agent with " +
+        "a builder (_.withReadOnly, _.cheap, _.withName(...))"
     )
 
 /** Whether a [[Chat]] opened its conversation or continues one another handle

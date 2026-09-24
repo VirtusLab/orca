@@ -203,7 +203,7 @@ backend's model accessors and backend-specific extras:
 | `opencode` | `anthropicOpus`/`anthropicSonnet`/`anthropicHaiku`, `openaiAstra`/`openaiSol`/`openaiLuna`, `cheap` (provider-matched: openai→luna, else anthropicHaiku), `withModel(providerModel)` / `withModel(provider, modelId)` | [OpenCode](https://opencode.ai) coding/reviewing agent, driven over HTTP+SSE against a headless `opencode serve` (started lazily, shared for the run; sessions survive it — see [Sessions](#sessions)). Spans providers, so models are provider-qualified: use an accessor (`opencode.openaiLuna`) or `opencode.withModel("openai/gpt-5-mini")` / `opencode.withModel("ollama", "llama3.1")`. Inherits the user's configured `opencode` providers/auth. |
 | `pi` | `withModel(Model)` | [Pi](https://pi.dev/) coding agent backend, driven through `pi --mode rpc`. Pi handles provider/model selection through its own CLI configuration; pin a model with `pi.withModel(Model("provider/model"))`. Interactive calls can ask clarifying questions via Orca's `ask_user` bridge. |
 | `gemini` | `flash`, `cheap` (→ flash), `withModel(Model)` | Google Gemini CLI coding/reviewing agent, driven via `gemini --output-format stream-json`. Bare `gemini` pins **Gemini 3.1 Pro (preview)**; use `gemini.flash` (Gemini 3.8 Flash) for cheaper one-shot calls. Structured output is prompt-enforced (Gemini has no schema flag); `withReadOnly` maps to `--approval-mode plan`. See [ADR 0015](adr/0015-gemini-stream-json-driver.md). |
-| `git` | `push`, `head`, `headCommit`, `isAncestorOfHead`, `uncommittedDiff`, `changedFiles`, `reviewChanges`, `pendingChanges`, `diffVsBase`, `defaultBase`, `show`, `fileAt` | Git reads against the working tree, plus `push`. The runtime owns the run's branch and commits, so branch switching and committing are not on `git`. Commits are typed (`orca.gitref.CommitHash`); `head` answers the branch HEAD is on or the commit it is detached at (`orca.gitref.Head`). Recoverable failures (`NoDefaultBase`, `PushFailure` — `NonFastForward`/`RemoteDeclined`, `GitReadFailed`) surface as `Either`; `.orThrow` converts a `Left` back to an exception when the case is unexpected. `uncommittedDiff` covers the whole repository minus `.orca/` bookkeeping, tracked files only, and is empty once the work is committed — `diffVsBase` is the branch-wide view. `reviewChanges` is what `reviewAndFixLoop` hands reviewers: that diff plus the contents of files new to the repo, together with the list of every path in the change set, how much of each changed, and each file's own part of the diff. It takes an optional commit to compare against (`headCommit` reads one) so work already committed still shows up. `changedFiles` is the path list on its own, for a consumer gating on file names — the diff text alone names neither a binary change nor a rename, and leaves a trailing tab on a path containing a space. `pendingChanges` describes what the next commit will include: a `--stat` summary, the new files, and the diff. |
+| `git` | `push`, `head`, `headCommit`, `isAncestorOfHead`, `branchExists`, `isIgnored`, `uncommittedDiff`, `changedFiles`, `reviewChanges`, `pendingChanges`, `diffVsBase`, `defaultBase`, `show`, `fileAt` | Git reads against the working tree, plus `push`. The runtime owns the run's branch and commits, so branch switching and committing are not on `git`. Commits and branch names are typed (`orca.gitref.CommitHash`, `orca.gitref.BranchName`); `head` answers the branch HEAD is on or the commit it is detached at (`orca.gitref.Head`). Recoverable failures (`NoDefaultBase`, `PushFailure` — `NonFastForward`/`RemoteDeclined`, `GitReadFailed`) surface as `Either`; `.orThrow` converts a `Left` back to an exception when the case is unexpected. `uncommittedDiff` covers the whole repository minus `.orca/` bookkeeping, tracked files only, and is empty once the work is committed — `diffVsBase` is the branch-wide view. `reviewChanges` is what `reviewAndFixLoop` hands reviewers: that diff plus the contents of files new to the repo, together with the list of every path in the change set, how much of each changed, and each file's own part of the diff. It takes an optional commit to compare against (`headCommit` reads one) so work already committed still shows up. `changedFiles` is the path list on its own, for a consumer gating on file names — the diff text alone names neither a binary change nor a rename, and leaves a trailing tab on a path containing a space. `pendingChanges` describes what the next commit will include: a `--stat` summary, the new files, and the diff. `isIgnored` answers `false` when git cannot answer. |
 | `gh` | `availability`, `createPr`, `updatePr`, `readIssue`, `readIssueComments`, `readPrComments`, `writeComment(pr, body)` / `writeComment(issue, body)`, `upsertComment(pr, marker, body)` / `upsertComment(issue, marker, body)`, `buildStatus`, `waitForBuild` | GitHub PR + CI integration via the `gh` CLI. `availability` is a read-only probe of whether a PR can be opened from this checkout, answering with a [`GitHubAvailability`](#data-structures). `createPr` is idempotent by branch (returns the existing PR if one is open); `upsertComment` finds a prior comment carrying `marker` and edits it in place (see [Authoring rules](#authoring-rules) for the re-run pattern). `updatePr` replaces a PR's title + body. `waitForBuild` returns `Either[BuildWaitFailed, …]`. |
 | `fs` | `read`, `write`, `list` | Working-tree file I/O. `read` returns `Option[String]` so a missing file is a branch point, not an exception. `write` refuses a path outside the working tree or under `.orca/runs`, `.orca/cache` or `.orca/worktrees`. |
 
@@ -322,11 +322,10 @@ Top-level, available via `import orca.*`:
 
 ### Overriding tools and agents
 
-Any tool or agent `flow(...)` builds by default can be replaced by a named
-argument. Plain tools take the value directly (`git = Some(myGit)`, `interaction
+Any tool (except `git`) or agent `flow(...)` builds by default can be replaced
+by a named argument. Plain tools take the value directly (`gh = Some(myGh)`, `interaction
 = Some(myInteraction)` — your own `orca.backend.Interaction` implementation,
 e.g. for Slack; not exported from `orca.*`, so import it by its full path).
-A `git` override is an `orca.tools.RuntimeGit`, since the runtime drives it too.
 Agents take a **factory** that receives the run's `AgentWiring` (event sink,
 interaction, workDir, prompts), so a tuned agent lands on the same dispatcher
 as the defaults:
@@ -340,6 +339,10 @@ Factories exist for all five backends: `ClaudeAgents.default(w)`,
 `OpencodeAgents.default(w, launcher)` — opencode's factory is applied where the
 run's `Ox` scope exists (it pins a shared `opencode serve` to the scope), so its
 slot is typed `AgentWiring => Ox ?=> OpencodeAgent`.
+
+`git` has no override because the runtime owns the run's branch and commits
+through it. The backend SPI is internal: a new coding-agent harness is added as
+an orca module.
 
 ### Side effects happen inside stages
 
@@ -670,6 +673,10 @@ Use:
   `Par.mapUnordered` fork: parallel reviewers each holding a multi-turn
   conversation is the canonical use. `session.chat` is a durable session's
   conversation as an ephemeral chat (one live continuation at a time).
+  `chat.withAgent(f)` continues the same conversation on a variant of the
+  chat's agent — `_.withReadOnly`, `_.cheap`, `_.withName("…")` — for turns
+  that need other tools, a cheaper model or their own cost line. The variant
+  must be built from the chat's agent (a different backend is refused).
 
 ```scala
 val session = agent.session("implementer", seed = plan.brief)
@@ -823,6 +830,8 @@ Sessioned(chat, plan) = Plan.autonomous.from(...)`.
 From a `Sessioned[Plan]`, an optional `.reviewed()` step refines the plan
 before implementing — the planner critiques its own draft, read-only, producing
 an improved `Plan`. Chain it: `Plan.autonomous.from(...).reviewed().value`.
+`.reviewed(variant = _.cheap)` runs the review on a variant of the read-only
+planner.
 
 `assessThenPlan` returns a `Verdict`: `Verdict.Proceed(plan)` to implement, or
 `Verdict.Rejection(kind, body)` — a follow-up question, critique, or rebuff the
@@ -836,8 +845,8 @@ Review utilities, available via `import orca.review.*`:
 | `lint(commands, agent, instructions?)` | Run shell lint commands (in order, each via `bash -c`; every one runs even if an earlier one fails) and have `agent` summarise their labelled, concatenated output as a `ReviewResult`. Short output is inlined into the prompt; anything larger is written to a file under `.orca/cache/` for the agent to read, so unbounded output can't overflow the context. |
 | `lint(commands, summariser, instructions)` | As above, but summarising into an existing `Lint.summariser(agent)` conversation instead of a fresh one per call, so a gate run several times within one stage resumes the session rather than re-establishing it each round. Stop reusing a summariser once it has reported: it can repeat those findings on a later call whose commands no longer show them. `reviewAndFixLoop` does this for you. |
 | `reviewAndFixLoop(coderSession, reviewers, task, userRequest?, ..., formatCommands?, lint?, checks?, maxFixTurns?, fixInstructions?)` | Run reviewers against `task: Task`, collect their findings, hand them to the `coderSession` (a `FlowSession`) to fix, re-evaluate. Reviewers are asked to report only what they believe should be fixed, and every finding they report reaches the fixer — nothing filters them in between. Reviewers see the task's title and description under separate labels, plus the user's request — the run's prompt by default, or `userRequest` when the prompt is only a pointer, like an issue reference. Keeping them apart is what lets a reviewer report a finding against the planner's choice rather than only against the code. A flow with no planning stage passes its prompt as the title and an empty description. Halts when reviewers come back clean, the fixer reports no fixes, or `maxFixTurns` fix turns have run (default 3, so up to four review rounds). Every exit names the findings it leaves open and why each is still open. Whatever is still open at that point — the findings the fixer declined, didn't account for, or that were first reported in the round that hit the cap — comes back in the returned `OpenFindings` with a reason. `formatCommands: Configured[List[String]]` runs before each review round; `lint: Configured[Lint]` runs alongside the reviewers each round — both default to the project's [stack settings](#settings), see below. `checks: List[ReviewCheck]` (default none) run after formatting and before the reviewers, see below. |
-| `reviewThenFix(coderSession, reviewers, task, userRequest?, formatCommands?, lint?)` | One round of the above and, if it found anything, one fix turn — then done. Nothing re-reviews a reviewer finding, so the fixer's claim that it fixed one is taken on trust; the lint gate is the exception, re-run over the fixer's edits and given one more fix turn if it still fails. Reviewers are picked once (`ReviewerSelector.agentDriven`) and the change set is the enclosing stage's, as above. What the fixer declined, what it never reported on, and what the lint gate still fails on, come back in the returned `OpenFindings` with a reason. Use it per task where a later stage reviews the same code again — a whole-run `reviewAndFixLoop`, below — and pay for the loop where nothing else re-reviews the fixes. |
-| `ReviewCheck` | A check written in Scala — a benchmark, an HTTP probe, a scripted assertion: `name` plus `evaluate(): ReviewResult`. Pass it in `reviewAndFixLoop`'s `checks`; its findings go to the fixer with the reviewers'. |
+| `reviewThenFix(coderSession, reviewers, task, userRequest?, formatCommands?, lint?, checks?)` | One round of the above and, if it found anything, one fix turn — then done. Nothing re-reviews a reviewer finding, so the fixer's claim that it fixed one is taken on trust; the lint gate and `checks` are the exception, re-run over the fixer's edits and given one more fix turn if they still fail, so a check can run three times in one pass. Reviewers are picked once (`ReviewerSelector.agentDriven`) and the change set is the enclosing stage's, as above. What the fixer declined, what it never reported on, and what the lint gate or a check still fails on, come back in the returned `OpenFindings` with a reason. Use it per task where a later stage reviews the same code again — a whole-run `reviewAndFixLoop`, below — and pay for the loop where nothing else re-reviews the fixes. |
+| `ReviewCheck` | A check written in Scala — a benchmark, an HTTP probe, a scripted assertion: `name` plus `evaluate(): ReviewResult`. Pass it in `reviewAndFixLoop`'s or `reviewThenFix`'s `checks`; its findings go to the fixer with the reviewers'. |
 | `OpenFinding.custom(title, reason, location)` | An open finding a flow records itself — say, a gate it runs outside the loop still failing. Add it to `OpenFindings` for the PR body, or pass it in `priorOpenFindings` so a loop's reviewers see it. |
 | `allReviewers(base)` | Every reviewer in the run's catalog (the eight canonical ones — code-functionality, test, readability, code-structure, simplicity, performance, security, scala-fp — plus whatever `.orca/reviewers/` and the global tier add, see [Settings](#settings)) as `ReviewerAgent`s: each one its `Reviewer` definition plus a read-only agent built from `base`. |
 | `minimalReviewers(base)` | Universally-applicable subset (code-functionality, readability, test) plus every discovered reviewer, same shape. Pair with the default LLM-driven selector when the full set is overkill. |
@@ -1085,7 +1094,7 @@ results.
   `OpenFinding(id, title, reason, location)` entries surfaced by
   `reviewAndFixLoop` once it halts: every finding the run did not resolve, each
   with where it points and an `OpenReason` — `Declined(text)` (the fixer's own
-  words), `NoFixes`, `Unaccounted`, `CapReached(max)`, `LintStillFailing` or
+  words), `NoFixes`, `Unaccounted`, `CapReached(max)`, `StillFailing(sources)` or
   `Custom(text)` (from `OpenFinding.custom`).
   `reason.describe` is the sentence shown to a reader. `id` (`FindingId`) is
   what entries merge by across rounds; two findings sharing a title stay two.
