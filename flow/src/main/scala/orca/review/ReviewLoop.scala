@@ -310,6 +310,10 @@ def reviewAndFixLoop(
       * linting, `Configured.Use(Lint(...))` overrides the settings.
       */
     lint: Configured[Lint] = Configured.FromSettings,
+    /** Scala checks run each round before the reviewers, one at a time (see
+      * [[ReviewCheck]]); their findings go to the fixer with the reviewers'.
+      */
+    checks: List[ReviewCheck] = Nil,
     /** How many fix turns before the loop gives up, folding whatever is still
       * open into the returned [[OpenFindings]]. Counts fix turns, not rounds —
       * see [[LoopShape.Converge]].
@@ -382,6 +386,7 @@ def reviewAndFixLoop(
           userRequest = userRequest.getOrElse(ctx.userPrompt),
           formatCommands = resolveFormat(ctx, formatCommands),
           lintGate = resolveLint(ctx, lint),
+          checks = checks,
           fixInstructions = fixInstructions,
           diffSource = source
         )
@@ -427,6 +432,7 @@ def reviewThenFix(
       userRequest = userRequest.getOrElse(ctx.userPrompt),
       formatCommands = resolveFormat(ctx, formatCommands),
       lintGate = resolveLint(ctx, lint),
+      checks = Nil,
       fixInstructions = ReviewLoopPrompts.Fix,
       diffSource = ReviewDiffSource.stage(ctx.git, fc.stageBaseCommit)
     )
@@ -475,6 +481,7 @@ private[review] case class ReviewLoopConfig(
     userRequest: String,
     formatCommands: List[String],
     lintGate: Option[Lint],
+    checks: List[ReviewCheck],
     fixInstructions: String,
     diffSource: ReviewDiffSource
 )
@@ -741,10 +748,25 @@ private[review] class ReviewFixLoop(
           OrcaEvent.Step(s"format command failed (exit $exitCode): $cmd")
         )
 
-  /** One review round: format the tree, narrow the roster with the prepared
-    * `selectRound`, and fan the active reviewers out alongside the lint gate.
-    * Returns what they reported plus the state to carry forward — a round is a
-    * function of the state it is handed, so it can be run once or in a loop.
+  /** Run the checks in order, emitting one Step per check as it finishes. Each
+    * check's findings are keyed as one agent's, the first at `firstAgentIndex`.
+    */
+  private def runChecks(firstAgentIndex: Int): List[KeyedFinding] =
+    if checks.nonEmpty then
+      ctx.emit(
+        OrcaEvent.Step(s"Running checks: ${checks.map(_.name).mkString(", ")}")
+      )
+    checks.zipWithIndex.flatMap: (check, i) =>
+      val findings =
+        KeyedFinding.forAgent(firstAgentIndex + i, check.evaluate().findings)
+      ctx.emit(OrcaEvent.Step(formatReviewerOutcome(check.name, findings)))
+      findings
+
+  /** One review round: format the tree, run the checks, narrow the roster with
+    * the prepared `selectRound`, and fan the active reviewers out alongside the
+    * lint gate. Returns what they reported plus the state to carry forward — a
+    * round is a function of the state it is handed, so it can be run once or in
+    * a loop.
     *
     * `open` is what the round's reviewers are shown as still open, each with
     * the reason recorded for it.
@@ -764,6 +786,10 @@ private[review] class ReviewFixLoop(
     // round finds nothing, so the run ends — the loop never resurrects the
     // roster behind the selector's back.
     val active = selectRound(state.history).distinctBy(_.id)
+    // Before the fan-out, so a check timing or building the code doesn't compete
+    // with lint and the reviewers. Keyed after the reviewers and the lint gate,
+    // the order the fixer is handed them in.
+    val checkFindings = runChecks(active.size + lintGate.size)
     // The same names the per-agent Steps use, in selection order with the lint
     // gate last; those Steps arrive in completion order, not this one.
     val agentNames =
@@ -782,7 +808,8 @@ private[review] class ReviewFixLoop(
       ctx.emit(
         OrcaEvent.Step("reviewer selection returned no reviewers this round")
       )
-    runReviewersAndLint(active, state, open)
+    val reviewed = runReviewersAndLint(active, state, open)
+    reviewed.copy(findings = reviewed.findings ++ checkFindings)
 
   // Routed through the durable [[FlowSession]] door: a coder whose backend
   // conversation is fresh or lost gets the seed + progress preamble re-applied
