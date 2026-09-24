@@ -124,7 +124,7 @@ def flow(
     codingAgent: Option[AgentSet => Agent[?]] = None,
     reviewAgent: Option[AgentSet => Agent[?]] = None
     // …
-)(body: FlowControl ?=> Unit): Unit
+)(body: (FlowContext, FlowControl) ?=> Unit): Unit
 ```
 
 `Some(_.claude.opus.withNetworkTools(...))` composes exactly like the old

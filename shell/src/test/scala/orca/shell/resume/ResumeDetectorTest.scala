@@ -31,7 +31,7 @@ class ResumeDetectorTest extends munit.FunSuite:
     os.makeDir.all(workDir / ".orca")
     assertEquals(ResumeDetector.detect(List(workDir)), None)
 
-  test("detect finds a fresh log's recorded flow, task text, and branch"):
+  test("detect finds a fresh log's recorded flow, prompt, and branch"):
     val workDir = TempDirs.dir()
     ProgressStore
       .default(workDir, RunKey.of("fix the flaky test"))

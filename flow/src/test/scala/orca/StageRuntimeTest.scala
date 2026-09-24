@@ -25,25 +25,29 @@ class StageRuntimeTest extends munit.FunSuite:
     def events: List[OrcaEvent] = seen.get().reverse
 
   test("a completed stage commits both code changes and the progress log"):
-    val (ctx, dir) = TestFlowControl.create(
+    val run = TestRun.create(
       new EventDispatcher(Nil),
       lead = Some(commitMessageAgent)
     )
-    given FlowControl = ctx
-    val before = commitCount(dir)
+    import run.given
+    val before = commitCount(run.dir)
     val _ = stage("write file"):
-      os.write(dir / "out.txt", "hello")
+      os.write(run.dir / "out.txt", "hello")
       "done"
-    assertEquals(commitCount(dir), before + 1)
+    assertEquals(commitCount(run.dir), before + 1)
     // The progress file is tracked even though nothing gitignores it here.
     assert(
-      tracked(dir).contains(ctx.progressStore.path.relativeTo(dir).toString),
+      tracked(run.dir)
+        .contains(run.control.progressStore.path.relativeTo(run.dir).toString),
       "progress log must be committed"
     )
-    assert(tracked(dir).contains("out.txt"), "code change must be committed")
+    assert(
+      tracked(run.dir).contains("out.txt"),
+      "code change must be committed"
+    )
     // And the result is recorded for resume.
     val entry =
-      ctx.progressStore
+      run.control.progressStore
         .load()
         .get
         .entries
@@ -52,23 +56,23 @@ class StageRuntimeTest extends munit.FunSuite:
 
   test("re-running replays the stored result without running the body again"):
     val listener = new RecordingListener
-    val (ctx, dir) = TestFlowControl.create(
+    val run = TestRun.create(
       new EventDispatcher(List(listener)),
       lead = Some(commitMessageAgent)
     )
     val runs = new AtomicInteger(0)
 
-    def runOnce()(using FlowControl): String =
+    def runOnce()(using FlowContext, FlowControl): String =
       stage("compute"):
         val _ = runs.incrementAndGet()
-        os.write(dir / "marker.txt", "x")
+        os.write(run.dir / "marker.txt", "x")
         "value-42"
 
-    val first = runOnce()(using ctx)
+    val first = runOnce()(using run.context, run.control)
     val afterFirstRun = listener.events.size
     // A second control over the SAME repo + store: a fresh process re-run.
-    val (ctx2, _) = reopen(dir, listener)
-    val second = runOnce()(using ctx2)
+    val run2 = reopen(run.dir, listener)
+    val second = runOnce()(using run2.context, run2.control)
 
     assertEquals(first, "value-42")
     assertEquals(second, "value-42")
@@ -85,24 +89,24 @@ class StageRuntimeTest extends munit.FunSuite:
     )
 
   test("a crash in a later stage leaves earlier stages committed and recorded"):
-    val (ctx, dir) = TestFlowControl.create(
+    val run = TestRun.create(
       new EventDispatcher(Nil),
       lead = Some(commitMessageAgent)
     )
-    given FlowControl = ctx
+    import run.given
     val _ = stage("stage one"):
-      os.write(dir / "one.txt", "1")
+      os.write(run.dir / "one.txt", "1")
       "one-result"
-    val countAfterOne = commitCount(dir)
+    val countAfterOne = commitCount(run.dir)
 
     val _ = intercept[RuntimeException]:
       stage[String]("stage two"):
-        os.write(dir / "two.txt", "2")
+        os.write(run.dir / "two.txt", "2")
         throw new RuntimeException("boom")
 
     // Stage one's commit + record survive the crash in stage two.
-    assertEquals(commitCount(dir), countAfterOne)
-    val ids = ctx.progressStore.load().get.entries.map(_.id)
+    assertEquals(commitCount(run.dir), countAfterOne)
+    val ids = run.control.progressStore.load().get.entries.map(_.id)
     assert(
       ids.contains(StagePath.FlowBody.child("stage one", 0)),
       "stage one must remain recorded"
@@ -113,21 +117,21 @@ class StageRuntimeTest extends munit.FunSuite:
     )
 
   test("a nested stage commits and records both the outer and inner stages"):
-    val (ctx, dir) = TestFlowControl.create(
+    val run = TestRun.create(
       new EventDispatcher(Nil),
       lead = Some(commitMessageAgent)
     )
-    given FlowControl = ctx
-    val before = commitCount(dir)
+    import run.given
+    val before = commitCount(run.dir)
     val _ = stage("outer"):
-      os.write(dir / "outer.txt", "o")
+      os.write(run.dir / "outer.txt", "o")
       val _ = stage("inner"):
-        os.write(dir / "inner.txt", "i")
+        os.write(run.dir / "inner.txt", "i")
         "inner-result"
       "outer-result"
     // Two stages → two commits (one per stage, inner committing before outer).
-    assertEquals(commitCount(dir), before + 2)
-    val ids = ctx.progressStore.load().get.entries.map(_.id)
+    assertEquals(commitCount(run.dir), before + 2)
+    val ids = run.control.progressStore.load().get.entries.map(_.id)
     assert(
       ids.contains(StagePath.FlowBody.child("outer", 0).child("inner", 0)),
       s"inner must be recorded under its path id; got $ids"
@@ -141,8 +145,8 @@ class StageRuntimeTest extends munit.FunSuite:
     "a plain exception unwinding through nested stages is reported exactly once"
   ):
     val listener = new RecordingListener
-    val (ctx, _) = TestFlowControl.create(new EventDispatcher(List(listener)))
-    given FlowControl = ctx
+    val run = TestRun.create(new EventDispatcher(List(listener)))
+    import run.given
     val _ = intercept[RuntimeException]:
       stage[String]("outer"):
         val _ = stage[String]("inner"):
@@ -159,8 +163,8 @@ class StageRuntimeTest extends munit.FunSuite:
     "a single stage throwing MalformedAgentOutputException reports one Error"
   ):
     val listener = new RecordingListener
-    val (ctx, _) = TestFlowControl.create(new EventDispatcher(List(listener)))
-    given FlowControl = ctx
+    val run = TestRun.create(new EventDispatcher(List(listener)))
+    import run.given
     val _ = interceptReported[orca.agents.MalformedAgentOutputException]:
       stage[String]("parse"):
         throw new orca.agents.MalformedAgentOutputException(
@@ -181,8 +185,8 @@ class StageRuntimeTest extends munit.FunSuite:
     // Pins the guard-first ordering that makes MAO exactly-once: the inner
     // stage renders it, marks it reported, and the outer stage skips it.
     val listener = new RecordingListener
-    val (ctx, _) = TestFlowControl.create(new EventDispatcher(List(listener)))
-    given FlowControl = ctx
+    val run = TestRun.create(new EventDispatcher(List(listener)))
+    import run.given
     val _ = interceptReported[orca.agents.MalformedAgentOutputException]:
       stage[String]("outer"):
         val _ = stage[String]("inner"):
@@ -200,13 +204,13 @@ class StageRuntimeTest extends munit.FunSuite:
     )
 
   test("an undecodable stored entry re-runs the stage"):
-    val (ctx, _) = TestFlowControl.create(new EventDispatcher(Nil))
-    given FlowControl = ctx
+    val run = TestRun.create(new EventDispatcher(Nil))
+    import run.given
     val ran = new AtomicInteger(0)
     // Seed an entry for stage `typed` whose JSON cannot decode to Int.
     locally:
       given WorkspaceWrite = WorkspaceWrite.unsafe
-      ctx.progressStore.upsertEntry(
+      run.control.progressStore.upsertEntry(
         StageEntry(
           id = StagePath.FlowBody.child("typed", 0),
           resultJson = RawJson("\"not-an-int\"")
@@ -228,19 +232,25 @@ class StageRuntimeTest extends munit.FunSuite:
     // replay "A"; under hierarchical ids the nested inner lives at
     // `outer#0/inner#0`, so the top-level `inner#0` has no record and RUNS.
     val listener = new RecordingListener
-    val (ctx, dir) = TestFlowControl.create(new EventDispatcher(List(listener)))
+    val run = TestRun.create(new EventDispatcher(List(listener)))
 
-    def runFlow(topInner: () => String)(using FlowControl): String =
+    def runFlow(topInner: () => String)(using
+        FlowContext,
+        FlowControl
+    ): String =
       val _ = stage("outer"):
         val _ = stage("inner")("A")
         "outer-done"
       stage("inner")(topInner())
 
     val _ = intercept[RuntimeException]:
-      runFlow(() => throw new RuntimeException("boom"))(using ctx)
+      runFlow(() => throw new RuntimeException("boom"))(using
+        run.context,
+        run.control
+      )
 
-    val (ctx2, _) = reopen(dir, listener)
-    val result = runFlow(() => "B")(using ctx2)
+    val run2 = reopen(run.dir, listener)
+    val result = runFlow(() => "B")(using run2.context, run2.control)
 
     assertEquals(
       result,
@@ -258,22 +268,28 @@ class StageRuntimeTest extends munit.FunSuite:
     // re-runs, and its `upsertEntry` upserts OVER the nested Int record — losing
     // it. Under hierarchical ids the two live at distinct paths and both survive.
     val listener = new RecordingListener
-    val (ctx, dir) = TestFlowControl.create(new EventDispatcher(List(listener)))
+    val run = TestRun.create(new EventDispatcher(List(listener)))
 
-    def runFlow(topInner: () => String)(using FlowControl): String =
+    def runFlow(topInner: () => String)(using
+        FlowContext,
+        FlowControl
+    ): String =
       val _ = stage("outer"):
         val _ = stage[Int]("inner")(42)
         "outer-done"
       stage[String]("inner")(topInner())
 
     val _ = intercept[RuntimeException]:
-      runFlow(() => throw new RuntimeException("boom"))(using ctx)
+      runFlow(() => throw new RuntimeException("boom"))(using
+        run.context,
+        run.control
+      )
 
-    val (ctx2, _) = reopen(dir, listener)
-    val result = runFlow(() => "B")(using ctx2)
+    val run2 = reopen(run.dir, listener)
+    val result = runFlow(() => "B")(using run2.context, run2.control)
 
     assertEquals(result, "B")
-    val entries = ctx2.progressStore.load().get.entries
+    val entries = run2.control.progressStore.load().get.entries
     assert(
       entries.exists(_.resultJson.value == "42"),
       s"the nested inner's Int record must survive resume intact; got $entries"
@@ -297,21 +313,21 @@ class StageRuntimeTest extends munit.FunSuite:
     // second keeps id `dup#1` and replays its own value rather than collapsing
     // onto `dup#0`.
     val listener = new RecordingListener
-    val (ctx, dir) = TestFlowControl.create(new EventDispatcher(List(listener)))
+    val run = TestRun.create(new EventDispatcher(List(listener)))
 
-    def runFlow(using FlowControl): (String, String) =
+    def runFlow(using FlowContext, FlowControl): (String, String) =
       val a = stage("dup")("first")
       val b = stage("dup")("second")
       (a, b)
 
-    assertEquals(runFlow(using ctx), ("first", "second"))
-    val (ctx2, _) = reopen(dir, listener)
+    assertEquals(runFlow(using run.context, run.control), ("first", "second"))
+    val run2 = reopen(run.dir, listener)
     assertEquals(
-      runFlow(using ctx2),
+      runFlow(using run2.context, run2.control),
       ("first", "second"),
       "both same-named siblings must replay their own recorded values on resume"
     )
-    val ids = ctx2.progressStore.load().get.entries.map(_.id).toSet
+    val ids = run2.control.progressStore.load().get.entries.map(_.id).toSet
     assertEquals(
       ids,
       Set(
@@ -322,59 +338,62 @@ class StageRuntimeTest extends munit.FunSuite:
     )
 
   test("a stage's base commit is the one it started from, not a live HEAD"):
-    val (ctx, dir) = TestFlowControl.create(
+    val run = TestRun.create(
       new EventDispatcher(Nil),
       lead = Some(commitMessageAgent)
     )
-    given FlowControl = ctx
-    val atEntry = ctx.context.git.headCommit()
+    import run.given
+    val atEntry = run.context.git.headCommit()
     assert(atEntry.isDefined, "the seeded repo must have a HEAD to record")
     // The body commits before reading it back, which is what a coding agent
     // free to commit its own work does.
     val recorded = stage("moves HEAD"):
-      os.write(dir / "out.txt", "hello")
-      ctx.context.runtimeGit.commit("the body's own commit").orThrow
-      ctx.stageBaseCommit
+      os.write(run.dir / "out.txt", "hello")
+      run.context.runtimeGit.commit("the body's own commit").orThrow
+      run.control.stageBaseCommit
     assertEquals(recorded, atEntry)
 
   test("a gated stage the gate stops runs nothing and records nothing"):
     val listener = new RecordingListener
-    val (ctx, _) = TestFlowControl.create(new EventDispatcher(List(listener)))
-    given FlowControl = ctx
+    val run = TestRun.create(new EventDispatcher(List(listener)))
+    import run.given
     val result = gatedStage[String, Unit, Int]("gated")(Left("stop")): _ =>
       fail("the body ran")
     assertEquals(result, Left("stop"))
     assertEquals(listener.events, Nil)
-    assertEquals(ctx.progressStore.load().toList.flatMap(_.entries), Nil)
+    assertEquals(
+      run.control.progressStore.load().toList.flatMap(_.entries),
+      Nil
+    )
 
   test("a fresh gated stage hands the gate's value to its body"):
-    val (ctx, _) = TestFlowControl.create(new EventDispatcher(Nil))
-    given FlowControl = ctx
+    val run = TestRun.create(new EventDispatcher(Nil))
+    import run.given
     val result = gatedStage[String, Int, Int]("gated")(Right(3))(_ + 1)
     assertEquals(result, Right(Staged.Fresh(4)))
     assertEquals(
-      ctx.progressStore.load().toList.flatMap(_.entries).map(_.id),
+      run.control.progressStore.load().toList.flatMap(_.entries).map(_.id),
       List(StagePath.FlowBody.child("gated", 0))
     )
 
   test("a replayed gated stage skips its gate"):
-    val (ctx, dir) = TestFlowControl.create(new EventDispatcher(Nil))
+    val run = TestRun.create(new EventDispatcher(Nil))
     locally:
-      given FlowControl = ctx
+      import run.given
       val _ = stage("gated")(7)
-    val (ctx2, _) = reopen(dir, _ => ())
-    given FlowControl = ctx2
+    val run2 = reopen(run.dir, _ => ())
+    import run2.given
     val result = gatedStage[String, Unit, Int]("gated")(fail("gate ran")): _ =>
       fail("the body ran")
     assertEquals(result, Right(Staged.Replayed(7)))
 
   test("a stage the gate stops still takes its occurrence"):
-    val (ctx, _) = TestFlowControl.create(new EventDispatcher(Nil))
-    given FlowControl = ctx
+    val run = TestRun.create(new EventDispatcher(Nil))
+    import run.given
     val _ = gatedStage[String, Unit, Int]("dup")(Left("stop"))(_ => 1)
     val _ = stage("dup")(2)
     assertEquals(
-      ctx.progressStore.load().toList.flatMap(_.entries).map(_.id),
+      run.control.progressStore.load().toList.flatMap(_.entries).map(_.id),
       List(StagePath.FlowBody.child("dup", 1))
     )
 
@@ -383,18 +402,18 @@ class StageRuntimeTest extends munit.FunSuite:
   private def reopen(
       dir: os.Path,
       listener: OrcaListener
-  ): (TestFlowControl, os.Path) =
+  ): TestRun =
     val git = new orca.tools.OsGitTool(dir)
     val store = orca.progress.ProgressStore.default(dir, RunKey.of("p"))
-    (
+    TestRun(
       new TestFlowControl(
-        new TestFlowContext(
-          new EventDispatcher(List(listener)),
-          "p",
-          wiredGit = Some(git)
-        ),
         store,
         orca.sessions.SessionStore.default(dir, RunKey.of("p"))
+      ),
+      new TestFlowContext(
+        new EventDispatcher(List(listener)),
+        "p",
+        wiredGit = Some(git)
       ),
       dir
     )

@@ -87,8 +87,8 @@ private[shell] object FlowLauncher:
     * (`<repo>/.orca/flows/<name>.sc`), same pollution class the `orca` shim's
     * own `--workspace` fixes (ADR 0021 §1 amendment).
     *
-    * Requires `args.userPrompt` to be non-blank — callers refuse a blank task
-    * first, so an empty task here means a caller bug, not a user error to
+    * Requires `args.userPrompt` to be non-blank — callers refuse a blank prompt
+    * first, so an empty prompt here means a caller bug, not a user error to
     * report.
     */
   def argv(
@@ -99,7 +99,7 @@ private[shell] object FlowLauncher:
   ): Seq[String] =
     require(
       args.userPrompt.trim.nonEmpty,
-      "task text must be non-blank — callers refuse a blank task first"
+      "the prompt must be non-blank — callers refuse a blank prompt first"
     )
     Seq("scala-cli", "run", flow.path.toString) ++
       loggingArgs ++

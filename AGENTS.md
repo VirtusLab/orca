@@ -64,11 +64,11 @@ most easily broken:
 
 - **Capability gating.** `FlowContext` (reads + emit; thread-safe) is not a
   capability, so forks receive it freely. Three compile-time capabilities gate
-  side effects: `FlowControl` (authority to start
-  a stage; thread-affine; holds the run's `FlowContext` as `context`, from
-  which a `FlowContext` given is derived when none is in scope), and a SPLIT pair of stage-bound
-  capability tokens (both in `tools`, `package orca`) — `InStage`, the SHARED
-  half (`caps.SharedCapability`, fork-capturable): every `agent.*.run` /
+  side effects: `FlowControl` (authority to start a stage; thread-affine;
+  unrelated to `FlowContext` — `flow` provides both, and a stage-starting
+  helper takes `(using FlowContext, FlowControl)`), and a SPLIT pair of
+  stage-bound capability tokens (both in `tools`, `package orca`) — `InStage`,
+  the SHARED half (`caps.SharedCapability`, fork-capturable): every `agent.*.run` /
   `FlowSession.run` (spend tokens, drive an agent) takes `(using InStage)`,
   and it is safe to capture into a `fork` (the reviewer fan-out's shared
   `InStage` capture is load-bearing); and `WorkspaceWrite`, the EXCLUSIVE half
@@ -462,6 +462,9 @@ prose:
 
 A **plan task** (`orca.plan.Task`) is a flow-author concept and names none of
 these files. Never call a process a run.
+
+The user's input text is the **prompt**, and a stack command (`format`, `lint`,
+`test`) is a **gate**; "task" names only a plan task.
 
 ### Backend vocabulary
 

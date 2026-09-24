@@ -52,7 +52,7 @@ class RunMenuTest extends munit.FunSuite:
       Some(RunMenu.FlagshipFlow)
     )
 
-  /** Runs [[RunMenu.runFlow]] picking a flow, typing a task, then picking
+  /** Runs [[RunMenu.runFlow]] picking a flow, typing a prompt, then picking
     * `target` and answering the branch prompt from `branchAnswers`; returns the
     * UI and the args that reached the launcher.
     */
@@ -158,7 +158,7 @@ class RunMenuTest extends munit.FunSuite:
   // --- resumeInterruptedRun ---
   //
   // `runAction` is injected (AuthorAction-style seam) so these never spawn a
-  // real `scala-cli` subprocess; the recorded call's flow+task is what the
+  // real `scala-cli` subprocess; the recorded call's flow+prompt is what the
   // resume offer promises: byte-identical to what's stored on `InterruptedRun`.
 
   private def interrupted(flow: FlowSource, dir: os.Path): InterruptedRun =
@@ -193,7 +193,7 @@ class RunMenuTest extends munit.FunSuite:
     path
 
   test(
-    "resumeInterruptedRun: launches with the recorded task, verbatim"
+    "resumeInterruptedRun: launches with the recorded prompt, verbatim"
   ):
     val workDir = TempDirs.dir()
     val _ = projectFlow(workDir, "resume-flow.sc")

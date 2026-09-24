@@ -226,8 +226,6 @@ object FlowCanary:
         )
         val list: List[Reviewer] = ReviewerPrompts.minimal :+ custom
         val _: List[ReviewerAgent[?]] = buildReviewers(claude, list)
-        // Resolve inside a stage, where the `FlowContext` these read the
-        // run's catalog from is derived from the ambient `FlowControl`.
         val _: List[ReviewerAgent[?]] = allReviewers(claude)
         val _: List[ReviewerAgent[?]] = minimalReviewers(claude)
         val _: ReviewerCatalog = reviewerCatalog
@@ -250,8 +248,8 @@ object FlowCanary:
           results.flatMap(_.findings).map(_.location)
 
   /** `flows/review.sc`'s `pickReviewers` is a top-level helper, so it resolves
-    * the catalog against a bare `FlowContext` — not the `FlowControl` a stage
-    * body supplies. Pins that shape separately.
+    * the catalog against a `FlowContext` alone, with no `FlowControl` in scope.
+    * Pins that shape separately.
     */
   private def narrowToChangedFiles()(using
       FlowContext,

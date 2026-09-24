@@ -56,14 +56,14 @@ class OpenPrFromBranchTest extends FunSuite:
       case _                            => ()
 
     val summariser = new StubSummariser()
-    val control =
-      prControl(dir, store, listener, calls, branchDiff, prBodies = bodies)
+    val run =
+      prRun(dir, store, listener, calls, branchDiff, prBodies = bodies)
     val handle = openPrFromBranch(
       summarisingAgent = summariser.agent,
       openFindings = openFindings,
       body = summary => s"${summary.body}\n\nCloses #1.",
       context = context
-    )(using control, summon[OutsideStage])
+    )(using run.context, run.control, summon[OutsideStage])
     Run(
       handle,
       calls.asScala.toList,
@@ -106,13 +106,13 @@ class OpenPrFromBranchTest extends FunSuite:
     // check; the stage open around it is caught at run time.
     val (dir, store) = seededPrRepo()
     val calls = new ConcurrentLinkedQueue[String]()
-    val control = prControl(dir, store, _ => (), calls)
+    val run = prRun(dir, store, _ => (), calls)
     val e = intercept[OrcaFlowException](
-      control.withStage("outer", None): _ =>
+      run.control.withStage("outer", None): _ =>
         openPrFromBranch(
           summarisingAgent = new StubSummariser().agent,
           openFindings = OpenFindings.empty
-        )(using control, summon[OutsideStage])
+        )(using run.context, run.control, summon[OutsideStage])
     )
     assert(e.getMessage.contains("inside stage 'outer#0'"), e.getMessage)
     assertEquals(calls.asScala.toList, Nil)
@@ -121,7 +121,7 @@ class OpenPrFromBranchTest extends FunSuite:
     // The contract its best-effort sibling deliberately does not share: the
     // finding flows exist to open a PR, so a refusal must fail the run.
     val (dir, store) = seededPrRepo()
-    val control = prControl(
+    val run = prRun(
       dir,
       store,
       _ => (),
@@ -133,7 +133,8 @@ class OpenPrFromBranchTest extends FunSuite:
         summarisingAgent = new StubSummariser().agent,
         openFindings = OpenFindings.empty
       )(using
-        control,
+        run.context,
+        run.control,
         summon[OutsideStage]
       )
     )
@@ -144,7 +145,7 @@ class OpenPrFromBranchTest extends FunSuite:
     val listener: OrcaListener =
       case OrcaEvent.Step(message) => steps.add(message): Unit
       case _                       => ()
-    val control = prControl(
+    val run = prRun(
       dir,
       store,
       listener,
@@ -155,7 +156,7 @@ class OpenPrFromBranchTest extends FunSuite:
       openPrFromBranch(
         summarisingAgent = new StubSummariser().agent,
         openFindings = oneOpen
-      )(using control, summon[OutsideStage])
+      )(using run.context, run.control, summon[OutsideStage])
     )
     assert(steps.contains(openFindingsSection(oneOpen).get), steps)
 
@@ -163,11 +164,11 @@ class OpenPrFromBranchTest extends FunSuite:
     val (dir, store) = seededPrRepo()
     val summariser = new StubSummariser()
     def attempt(calls: ConcurrentLinkedQueue[String]): PrHandle =
-      val control = prControl(dir, store, _ => (), calls)
+      val run = prRun(dir, store, _ => (), calls)
       openPrFromBranch(
         summarisingAgent = summariser.agent,
         openFindings = OpenFindings.empty
-      )(using control, summon[OutsideStage])
+      )(using run.context, run.control, summon[OutsideStage])
 
     val _ = attempt(new ConcurrentLinkedQueue[String]())
     val resumedCalls = new ConcurrentLinkedQueue[String]()
@@ -183,7 +184,7 @@ class OpenPrFromBranchTest extends FunSuite:
 
   test("a resume over a push refusal openPrIfGitHub recorded fails the run"):
     val (dir, store) = seededPrRepo()
-    val first = prControl(
+    val first = prRun(
       dir,
       store,
       _ => (),
@@ -194,14 +195,14 @@ class OpenPrFromBranchTest extends FunSuite:
     val _ = openPrIfGitHub(
       summarisingAgent = new StubSummariser().agent,
       openFindings = OpenFindings.empty
-    )(using first, summon[OutsideStage])
+    )(using first.context, first.control, summon[OutsideStage])
     val calls = new ConcurrentLinkedQueue[String]()
-    val resumed = prControl(dir, store, _ => (), calls)
+    val resumed = prRun(dir, store, _ => (), calls)
     val e = interceptReported[OrcaFlowException](
       openPrFromBranch(
         summarisingAgent = new StubSummariser().agent,
         openFindings = OpenFindings.empty
-      )(using resumed, summon[OutsideStage])
+      )(using resumed.context, resumed.control, summon[OutsideStage])
     )
     assert(e.getMessage.contains("orca will not retry"), e.getMessage)
     assertEquals(calls.asScala.toList, Nil, "the push was re-run")

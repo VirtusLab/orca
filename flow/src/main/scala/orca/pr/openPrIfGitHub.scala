@@ -47,6 +47,7 @@ def openPrIfGitHub(
     context: Option[String] = None,
     instructions: String = PrPrompts.Summarise
 )(using
+    ctx: FlowContext,
     control: FlowControl,
     outside: OutsideStage
 ): Option[PrHandle] =
@@ -82,9 +83,7 @@ private def pushThenCreate(
     body: PrSummary => String,
     context: Option[String],
     instructions: String
-)(using
-    control: FlowControl
-): Either[String, PrHandle] =
+)(using FlowContext, FlowControl): Either[String, PrHandle] =
   for
     push <- gatedStage(PushStage)(preFlight(base))(_ => pushBestEffort())
     _ <- push.value.outcome.left.map(refusalLine(_, push))
@@ -101,6 +100,7 @@ private def pushThenCreate(
   * takes the target from the checkout's remotes, not from what the run pushed.
   */
 private def preFlight(base: => Either[NoDefaultBase, String])(using
+    ctx: FlowContext,
     control: FlowControl
 ): Either[String, Unit] =
   val checked = for
@@ -115,7 +115,7 @@ private def preFlight(base: => Either[NoDefaultBase, String])(using
   yield destination
   checked.map: destination =>
     import destination.{host, owner, repo}
-    control.context.emit(OrcaEvent.Step(s"Opening a PR on $host/$owner/$repo"))
+    ctx.emit(OrcaEvent.Step(s"Opening a PR on $host/$owner/$repo"))
 
 /** Where the PR will land, or why no PR can be opened. */
 private def probe(using
@@ -148,6 +148,7 @@ private def pushBestEffort()(using FlowContext, WorkspaceWrite): PushResult =
   * as [[pushBestEffort]] is for the push.
   */
 private def createBestEffort(title: String, body: String)(using
+    FlowContext,
     FlowControl,
     WorkspaceWrite
 ): CreateResult =
@@ -182,6 +183,7 @@ private def bestEffort[E <: OrcaFlowException, T](what: String, next: String)(
   * log records nothing published, so the two never strand a branch.
   */
 private def runChangedCode(using
+    ctx: FlowContext,
     control: FlowControl
 ): Boolean =
   control.progressStore
@@ -189,7 +191,7 @@ private def runChangedCode(using
     .forall: log =>
       try
         !ThrowawayBranch.isThrowaway(
-          control.context.runtimeGit,
+          ctx.runtimeGit,
           log.header.branchMode,
           startingCommit = log.header.startingCommit,
           featureBranch = log.header.branch

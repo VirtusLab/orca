@@ -2,13 +2,7 @@
 // into the real `stage` machinery over a seeded repo.
 package orca.pr
 
-import orca.{
-  FlowControl,
-  RunKey,
-  TestFlowContext,
-  TestFlowControl,
-  WorkspaceWrite
-}
+import orca.{RunKey, TestFlowContext, TestFlowControl, TestRun, WorkspaceWrite}
 import orca.agents.{Agent, BackendTag}
 import orca.tools.{
   GitHubAvailability,
@@ -144,12 +138,12 @@ private[pr] def seededPrRepo(
   )
   (dir, store)
 
-/** A control over `dir`/`store` whose `git`/`gh` record into `calls` and whose
+/** A run over `dir`/`store` whose `git`/`gh` record into `calls` and whose
   * events reach `listener`. `availability` is only reached by a helper that
   * probes, so it defaults to refusing. `prBodies` collects what `createPr` was
   * given, for a test that reads it back.
   */
-private[pr] def prControl(
+private[pr] def prRun(
     dir: os.Path,
     store: ProgressStore,
     listener: OrcaListener,
@@ -161,8 +155,13 @@ private[pr] def prControl(
     base: => Either[NoDefaultBase, String] = Right("main"),
     prBodies: ConcurrentLinkedQueue[String] =
       new ConcurrentLinkedQueue[String]()
-): FlowControl =
-  new TestFlowControl(
+): TestRun =
+  TestRun(
+    new TestFlowControl(
+      store,
+      SessionStore.default(dir, RunKey.of("p")),
+      store.load().map(_.header.startingCommit)
+    ),
     new TestFlowContext(
       new EventDispatcher(List(listener)),
       "p",
@@ -171,7 +170,5 @@ private[pr] def prControl(
       ),
       wiredGh = Some(new RecordingGh(calls, availability, createPr, prBodies))
     ),
-    store,
-    SessionStore.default(dir, RunKey.of("p")),
-    store.load().map(_.header.startingCommit)
+    dir
   )

@@ -117,7 +117,7 @@ class OpenPrIfGitHubTest extends FunSuite:
       case OrcaEvent.Error(message, _)  => errors.add(message): Unit
       case _                            => ()
 
-    val control = prControl(
+    val run = prRun(
       dir,
       store,
       listener,
@@ -132,7 +132,7 @@ class OpenPrIfGitHubTest extends FunSuite:
     val result = openPrIfGitHub(
       summarisingAgent = summariser.agent,
       openFindings = openFindings
-    )(using control, summon[OutsideStage])
+    )(using run.context, run.control, summon[OutsideStage])
     Run(
       result,
       calls.asScala.toList,
@@ -158,6 +158,7 @@ class OpenPrIfGitHubTest extends FunSuite:
   test("openPrIfGitHub directly inside a stage body does not compile"):
     val errors = compileErrors(
       """
+      given orca.FlowContext = ???
       given orca.FlowControl = ???
       given orca.InStage = orca.InStage.unsafe
       openPrIfGitHub(
@@ -177,14 +178,14 @@ class OpenPrIfGitHubTest extends FunSuite:
     // check; the stage open around it is caught at run time.
     val (dir, store) = seededPrRepo()
     val calls = new ConcurrentLinkedQueue[String]()
-    val control =
-      prControl(dir, store, _ => (), calls, availability = available)
+    val run =
+      prRun(dir, store, _ => (), calls, availability = available)
     val e = intercept[OrcaFlowException](
-      control.withStage("outer", None): _ =>
+      run.control.withStage("outer", None): _ =>
         openPrIfGitHub(
           summarisingAgent = new StubSummariser().agent,
           openFindings = OpenFindings.empty
-        )(using control, summon[OutsideStage])
+        )(using run.context, run.control, summon[OutsideStage])
     )
     assert(e.getMessage.contains("inside stage 'outer#0'"), e.getMessage)
     assertEquals(calls.asScala.toList, Nil)
@@ -360,11 +361,11 @@ class OpenPrIfGitHubTest extends FunSuite:
 
   test("a resume replays the stages openPrFromBranch recorded"):
     val (dir, store) = seededPrRepo()
-    val first = prControl(dir, store, _ => (), new ConcurrentLinkedQueue())
+    val first = prRun(dir, store, _ => (), new ConcurrentLinkedQueue())
     val _ = openPrFromBranch(
       summarisingAgent = new StubSummariser().agent,
       openFindings = OpenFindings.empty
-    )(using first, summon[OutsideStage])
+    )(using first.context, first.control, summon[OutsideStage])
     val r = runOver(dir, store, available, base = baseForced)
     assertEquals(r.calls, Nil, "stages were re-run")
     assertEquals(r.result, Some(samplePr))

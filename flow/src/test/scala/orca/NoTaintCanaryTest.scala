@@ -1,5 +1,7 @@
 package orca
 
+import orca.progress.ProgressStore
+
 /** Consumer-taint canary — pins the no-taint property against future compiler
   * upgrades.
   *
@@ -25,13 +27,13 @@ class NoTaintCanaryTest extends munit.FunSuite:
     def needsWorkspace(using WorkspaceWrite): Boolean = true
     // FlowControl is the exclusive capability mixed into a public trait — the
     // likeliest taint carrier — so name it in a type position too.
-    val contextOf: FlowControl => FlowContext = _.context
+    val storeOf: FlowControl => ProgressStore = _.progressStore
 
     assert(needsInStage, "InStage summonable/passable in a non-CC unit")
     assert(
       needsWorkspace,
       "WorkspaceWrite summonable/passable in a non-CC unit"
     )
-    assert(contextOf ne null)
+    assert(storeOf ne null)
 
 end NoTaintCanaryTest

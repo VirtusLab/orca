@@ -462,7 +462,7 @@ class SettingsFileTest extends FunSuite:
 
   test(
     "a fully-unset discovery render does not re-trigger discovery " +
-      "(every task becomes a live `off` line)"
+      "(every gate becomes a live `off` line)"
   ):
     val rendered = SettingsFile.render(
       List(

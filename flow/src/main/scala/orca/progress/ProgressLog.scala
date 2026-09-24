@@ -23,8 +23,8 @@ enum BranchMode derives JsonData:
 
 /** Header capturing the git context in which the progress log was started.
   *
-  * `userPrompt` is the full task text: the shell's "Resume interrupted run"
-  * offer relaunches the run byte-identically (ADR 0021 §3 amendment), and
+  * `userPrompt` is the full prompt: the shell's "Resume interrupted run" offer
+  * relaunches the run byte-identically (ADR 0021 §3 amendment), and
   * `RecoveryCheck` refuses a log whose prompt is not the current one. `flow` is
   * `None` for a run started outside the shell.
   *

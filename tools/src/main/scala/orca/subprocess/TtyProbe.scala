@@ -7,7 +7,7 @@ import scala.util.control.NonFatal
   * JDK's only built-in check) conflates the two: it is `null` the moment EITHER
   * stdin or stdout is redirected, so it cannot tell "stdin is a terminal but
   * stdout is piped to a file" from "neither is" — wrong for a caller that only
-  * cares about one side (`orca run`'s task-reading only cares about stdin;
+  * cares about one side (`orca run`'s prompt-reading only cares about stdin;
   * `orca view`'s highlighting only cares about stdout; the runner's dirty-tree
   * prompt asks on stderr and reads stdin, so it cares about both of those).
   *

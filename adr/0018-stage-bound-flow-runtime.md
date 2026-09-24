@@ -93,7 +93,7 @@ the design.)
 
 ```scala
 def stage[T: JsonData](name: String, commitMessage: Option[T => String] = None)
-    (body: (InStage, WorkspaceWrite) ?=> T)(using FlowControl): T
+    (body: (InStage, WorkspaceWrite) ?=> T)(using FlowContext, FlowControl): T
 def display(message: String)(using FlowContext): Unit
 def fail(message: String)(using FlowContext): Nothing
 ```
@@ -185,22 +185,21 @@ that stage's progress entry. Why two stages can't run concurrently — the
   clause — `(using InStage)` for LLM calls, `(using WorkspaceWrite)` for workspace
   writes, both if they do both — and run under the caller's stage rather than
   opening their own committing stages, so a task still yields a single commit. A
-  helper that itself *starts* stages instead declares `using FlowControl` (R29),
-  making that visible in its signature.
+  helper that itself *starts* stages instead declares `(using FlowContext,
+  FlowControl)` (R29), making that visible in its signature.
 - **R29** — Starting a stage requires a `FlowControl` capability: the authority to
-  open a stage, holding the run's `FlowContext` (reads, `agent`, `emit`) as
-  `context` — **thread-affine**, never handed to a fork.
-  `flow` provides it; `stage` requires it. At a direct `stage(...)` in a flow body it
-  resolves implicitly (zero ceremony); a stage-starting *helper* spells out
-  `using FlowControl`, so the fact is visible in its type.
+  open a stage — **thread-affine**, never handed to a fork. It is unrelated to the
+  `FlowContext` (reads, `agent`, `emit`): `flow` provides both side by side; `stage`
+  requires both. At a direct `stage(...)` in a flow body they resolve implicitly; a
+  stage-starting *helper* spells out `(using FlowContext, FlowControl)`, so the fact
+  is visible in its type.
 
 **Design.**
 
 ```scala
 trait FlowContext                       // thread-safe, shareable: reads + agent + emit
 trait FlowControl                       // authority to start stages; thread-affine,
-      extends caps.ExclusiveCapability: //   fork-opaque under separation checking
-  val context: FlowContext              // the run's context, what a fork is handed
+      extends caps.ExclusiveCapability  //   fork-opaque under separation checking
 final class InStage                     // in-stage LLM-call token, from `stage(...)`;
       extends caps.SharedCapability     //   fork-capturable
 final class WorkspaceWrite              // in-stage workspace-write token, from `stage(...)`;
@@ -212,18 +211,12 @@ Four capabilities, all constructible only inside `orca`:
 - **`FlowContext`** — the narrow, thread-safe context (tool reads, `agent`,
   `userPrompt`, `emit`/`display`). Safe to share into parallel forks, so concurrent
   reviewers each use it.
-- **`FlowControl`** — the authority to start a stage, holding the run's
-  `FlowContext` as `context`. Where no `FlowContext` given is in scope, one is
-  derived from the `FlowControl` (`FlowContext.fromControl`), so a flow body or a
-  `using FlowControl` helper calls the accessors with zero ceremony; a lexical
-  `FlowContext` given takes precedence. The **downgrade is one-way** — concurrency
-  combinators run each fork with only the `FlowContext` (`val ctx = control.context`),
-  which has no path back, so `stage` (which needs `FlowControl`) cannot be called in
-  a fork. Composition, not subtyping: under capture checking an exclusive
-  `FlowControl` cannot serve as a pure `FlowContext`, so a subtype would win implicit
-  search for `FlowContext` wherever both are in scope and be rejected. Inside a
-  checked fork, the `FlowContext` must come from a lexical binding: deriving it from
-  an outer `FlowControl` captures that `FlowControl`.
+- **`FlowControl`** — the authority to start a stage. Neither it nor `FlowContext`
+  holds or derives the other: `flow` provides both as separate givens, so a fork
+  captures the `FlowContext` alone, and `stage` (which needs `FlowControl`) cannot be
+  called in it. Not a subtype of `FlowContext` either: under capture checking an
+  exclusive `FlowControl` cannot serve as a pure `FlowContext`, so a subtype would
+  win implicit search for `FlowContext` wherever both are in scope and be rejected.
   This was convention pre-capture-checking (a fork could lexically capture an outer
   `FlowControl`); separation checking now makes that capture a compile error at the
   checked fork funnel (`FlowControl` is an exclusive capability — §6).
@@ -255,8 +248,8 @@ whole task still produces one commit. A helper that also writes the workspace
 takes `(using WorkspaceWrite)` too (rare — e.g. the lifecycle's `freshRun`,
 which both names the branch via the cheap model and performs the setup git
 writes). The runtime's own `recordAndCommit` is different: it is a mint site,
-not a token-receiving helper — it takes `(using FlowControl)` and mints fresh
-tokens through the `RuntimeInStage` door.
+not a token-receiving helper — it takes `(using FlowContext, FlowControl)` and
+mints fresh tokens through the `RuntimeInStage` door.
 
 Both tokens and `FlowControl` prove *lexical* enclosure. Since the Epic 0
 capture-checking work (§6), the fork half is a hard guarantee: separation
@@ -562,7 +555,7 @@ def flow[B <: BackendTag](        // B inferred from the selector, never written
     branchNaming: Option[BranchNamingStrategy] = None,
     //   ^ None ⇒ slug the prompt; or Some(BranchNamingStrategy.issue(handle)) for issue flows
     progressStore: Option[ProgressStore] = None     // §2.4; pluggable path + format
-)(body: FlowControl ?=> Unit): Unit  // body is non-generic; `B` is pinned into FlowContext.LeadB
+)(body: (FlowContext, FlowControl) ?=> Unit): Unit  // body is non-generic; `B` is pinned into FlowContext.LeadB
 ```
 
 Per R31, `agent` is a selector resolved against the built `FlowContext` — the
@@ -573,8 +566,8 @@ the same lead off `ctx.agent` (erased) for branch naming, and the in-stage
 default-commit-message path uses `ctx.agent.cheapOneShot`, overridable per stage via
 `commitMessage` (§2.1). The lifecycle therefore builds the context (and
 the progress store) **before** running branch setup, since branch naming needs the
-resolved model. The body is `FlowControl ?=> Unit`
-(R29): a direct `stage(...)` resolves its authority while forks see only its
+resolved model. The body is `(FlowContext, FlowControl) ?=> Unit`
+(R29): a direct `stage(...)` resolves its authority while forks see only the
 `FlowContext`.
 
 `ProgressStore` (§2.4) is the seam behind R21: the default writes JSON to
