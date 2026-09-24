@@ -3,9 +3,9 @@ package orca.tools.opencode
 /** The launch prefix for the shared `opencode serve` process; orca appends
   * `serve --port <n> --log-level WARN`.
   *
-  *   - [[default]] runs the `opencode` binary directly.
-  *   - [[ollama]] wraps it to inject Ollama's generated provider config — the
-  *     zero-config path for local Ollama models.
+  *   - [[OpencodeLauncher.default]] runs the `opencode` binary directly.
+  *   - [[OpencodeLauncher.ollama]] wraps it to inject Ollama's generated
+  *     provider config — the zero-config path for local Ollama models.
   *
   * Select it per flow via the `opencode` agent-override factory: `flow(
   * OrcaArgs(args), opencode = Some(w => OpencodeAgents.default(w,

@@ -7,8 +7,8 @@ import orca.agents.JsonData
   * `HEAD`. Says nothing about which branches orca may write to — that policy is
   * `orca.progress.FeatureBranch`'s.
   *
-  * The JSON codec decodes through [[parse]], so a persisted document holding
-  * anything else fails to parse rather than reaching git.
+  * The JSON codec decodes through [[BranchName.parse]], so a persisted document
+  * holding anything else fails to parse rather than reaching git.
   */
 opaque type BranchName = String
 

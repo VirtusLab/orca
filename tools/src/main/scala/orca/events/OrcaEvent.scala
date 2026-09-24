@@ -72,17 +72,18 @@ enum OrcaEvent:
     * so listeners behind it never see this event. Attributed along three
     * independent axes that `CostTracker` summarises separately:
     *
-    *   - `agent` is the [[Agent.name]] that issued the call — always the bare
-    *     identity (`claude`, `codex`, …), never a display-prefixed copy.
+    *   - `agent` is the [[orca.agents.Agent.name]] that issued the call —
+    *     always the bare identity (`claude`, `codex`, …), never a
+    *     display-prefixed copy.
     *   - `model` is the concrete model the backend reports it served the call
     *     with. `None` when the response didn't carry it and no model was pinned
     *     via `AgentConfig.model`. Coarser groupings (family / provider) are not
     *     a fourth axis: they are derivable at display time, whereas emission
     *     sites would have to guess them for provider-agnostic backends (orca
     *     doesn't normalise model ids — see [[orca.agents.Model]]).
-    *   - `role` is the [[Agent.role]] tag, set at the emission edge (e.g. the
-    *     review loop's `Some("reviewer")`, via `withRole`). `None` for an
-    *     ordinary call. Purely a grouping/display hint.
+    *   - `role` is the [[orca.agents.Agent.role]] tag, set at the emission edge
+    *     (e.g. the review loop's `Some("reviewer")`, via `withRole`). `None`
+    *     for an ordinary call. Purely a grouping/display hint.
     *
     * `turn` is this turn's 1-based position among the turns of a single call: 2
     * or more means a retry re-sent the prompt and paid for it again. It counts
@@ -148,7 +149,7 @@ enum OrcaEvent:
     * durable enough for a later call to resume against it (ADR 0021 §8). Fires
     * once per (backend, clientId, wireId) commit; listeners dedup on a resumed
     * session's later turns. `backend` is persisted as the manifest's `backend`
-    * ([[orca.runner.manifest.ManifestSession]]). `wireId` is the persistable id
+    * (`orca.runner.manifest.ManifestSession`). `wireId` is the persistable id
     * ([[orca.agents.Agent.resumeWireId]]) — `None` for backends that keep
     * nothing durably resumable, so a non-resumable commit still fires
     * accurately. `sessionKey` is the key the flow minted the session under

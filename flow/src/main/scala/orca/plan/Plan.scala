@@ -20,8 +20,9 @@ import scala.annotation.unused
   *
   * The entry points form an orthogonal `mode × operation` grid:
   *
-  *   - **mode** — [[autonomous]] (single agentic turn, read-only, no human) or
-  *     [[interactive]] (a conversation the agent can drive via `ask_user`).
+  *   - **mode** — [[Plan.autonomous]] (single agentic turn, read-only, no
+  *     human) or [[Plan.interactive]] (a conversation the agent can drive via
+  *     `ask_user`).
   *   - **operation** — `from` (produce a [[Plan]] directly), `assessThenPlan`
   *     (skeptically assess first, returning a [[Verdict]] that either proceeds
   *     with a plan or rejects), or `triage` (classify a bug report into a
@@ -29,7 +30,7 @@ import scala.annotation.unused
   *
   * Every cell returns a [[Sessioned]] — the result plus the agent session that
   * produced it. A `Sessioned[Plan]` can be continued read-only into
-  * [[Sessioned.reviewed]] (self-critique), or discarded for a fresh implementer
+  * [[Plan.reviewed]] (self-critique), or discarded for a fresh implementer
   * session.
   *
   * As a single case class it is a valid stage result (ADR 0018 §2.3) — the
@@ -240,8 +241,8 @@ object Plan:
       s"$header\n$body"
 
   /** Render a plan to markdown (tasks as plain bullets, the brief as a trailing
-    * `## Brief` section). Used by [[Sessioned.reviewed]] to feed the plan back
-    * into the self-review prompt, and usable as a human-readable summary. Never
+    * `## Brief` section). Used by [[Plan.reviewed]] to feed the plan back into
+    * the self-review prompt, and usable as a human-readable summary. Never
     * parsed back — the progress log is the sole resume mechanism (ADR 0018
     * §2.8).
     */

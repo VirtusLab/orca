@@ -2,9 +2,9 @@ package orca.plan
 
 import orca.agents.Chat
 
-/** A planning-phase result paired with the (ephemeral) [[Chat]] that produced
-  * it. "Sessioned" names this ephemeral pairing specifically — it is not a
-  * durable session; see `agent.session(name, seed)` for that.
+/** A planning-phase result paired with the (ephemeral) [[orca.agents.Chat]]
+  * that produced it. "Sessioned" names this ephemeral pairing specifically — it
+  * is not a durable session; see `agent.session(name, seed)` for that.
   *
   * Every `Plan.{autonomous,interactive}.*` operation returns one of these, so
   * the caller can continue the same conversation into the implementation phase

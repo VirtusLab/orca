@@ -8,12 +8,12 @@ import orca.subprocess.PathProbe
 import ox.discard
 
 /** Entry point for the `orca` shell executable (ADR 0021). No-arg → the
-  * interactive shell ([[ShellMenu]]). Any argv → the non-interactive CLI
-  * surface (ADR 0021 §10, `cli/Cli.scala`): a curated `--help`/`--version`
-  * handled here, a known subcommand dispatched to [[Cli.dispatch]] with its
-  * returned code the sole `sys.exit` call, anything else a usage error. The CLI
-  * path never prints the banner or runs the first-run wizard — both are
-  * exclusive to the interactive shell.
+  * interactive shell (`ShellMenu`). Any argv → the non-interactive CLI surface
+  * (ADR 0021 §10, `cli/Cli.scala`): a curated `--help`/`--version` handled
+  * here, a known subcommand dispatched to `Cli.dispatch` with its returned code
+  * the sole `sys.exit` call, anything else a usage error. The CLI path never
+  * prints the banner or runs the first-run wizard — both are exclusive to the
+  * interactive shell.
   */
 object Main:
 

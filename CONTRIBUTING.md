@@ -14,6 +14,7 @@ sbt "flow/test"                         # scope to one module
 sbt "flow/testOnly *LintTest"           # scope to one suite
 sbt scalafmtAll                         # reformat every source in place
 sbt scalafmtCheckAll                    # fail if anything would reformat
+sbt doc                                 # scaladoc; CI fails on "Couldn't resolve a member" warnings
 ```
 
 Extra Scala 3 warnings are enabled (`-Wunused:all`, `-Wvalue-discard`,

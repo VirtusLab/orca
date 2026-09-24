@@ -18,9 +18,9 @@ enum Uncommitted:
   * This is what `--skip-branch`, `--keep-changes` and `--worktree` become once
   * argv is parsed. `--worktree` combines with neither of the other two (a
   * worktree is created from a commit, so it starts clean and checks out a
-  * branch of its own), so [[Worktree]] carries no `Uncommitted` and is not a
-  * branch mode: the refused combinations have no representation here, and
-  * [[RunTarget.from]] — the only way in from raw flags — is where they are
+  * branch of its own), so [[RunTarget.Worktree]] carries no `Uncommitted` and
+  * is not a branch mode: the refused combinations have no representation here,
+  * and [[RunTarget.from]] — the only way in from raw flags — is where they are
   * refused.
   */
 enum RunTarget:

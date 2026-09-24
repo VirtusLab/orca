@@ -37,7 +37,9 @@ jobs:
   # change that breaks the flows fails here instead of shipping. Independent of
   # `test` so the fast unit job isn't held up by the publishLocal + scala-cli
   # round-trip. One sbt invocation: the test reads the version `publishLocal`
-  # just used from a system property the build injects.
+  # just used from a system property the build injects. Also fails on a broken
+  # scaladoc `[[link]]`: scaladoc only warns about one, and publishLocal
+  # already generates the docs here.
   flow-scripts:
     runs-on: ubuntu-latest
     steps:
@@ -59,7 +61,15 @@ jobs:
           java-version: '21'
       - uses: sbt/setup-sbt@v1
       - uses: coursier/cache-action@v6
-      - run: sbt publishLocal "shell/testOnly *BuiltInFlowsCompileTest"
+      - run: |
+          sbt publishLocal "shell/testOnly *BuiltInFlowsCompileTest" | tee sbt.log
+          if grep "Couldn't resolve a member" sbt.log; then
+            echo "::error::Unresolved scaladoc link(s), see above"
+            exit 1
+          fi
+        # Unlike the default shell, adds pipefail, so an sbt failure isn't
+        # hidden by tee.
+        shell: bash
         env:
           ORCA_INTEGRATION: '1'
 

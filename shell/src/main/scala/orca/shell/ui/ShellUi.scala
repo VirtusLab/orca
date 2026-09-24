@@ -74,8 +74,9 @@ object ShellUi:
 
   /** The shell's JLine terminal: a system terminal, permitting the dumb
     * fallback (`dumb(true)`) so a non-tty stdin/stdout still yields a usable
-    * [[Terminal]] rather than throwing. Built by [[orca.shell.Main]]'s
-    * interactive loop and by every CLI subcommand that execs a child.
+    * [[org.jline.terminal.Terminal]] rather than throwing. Built by
+    * [[orca.shell.Main]]'s interactive loop and by every CLI subcommand that
+    * execs a child.
     */
   def buildTerminal(): Terminal =
     TerminalBuilder.builder().system(true).dumb(true).build()

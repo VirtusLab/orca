@@ -15,9 +15,9 @@ import ox.resilience.{ResultPolicy, RetryConfig, retry}
   *     re-prompts with the failed output and parser error so the model can
   *     self-correct.
   *   - The interactive shape goes through `backend.runInteractive`, which hands
-  *     the live turn to the supplied [[Interaction]] for rendering and user
-  *     steering. No retry: a parse failure on the final payload is more useful
-  *     surfaced than silently relaunched.
+  *     the live turn to the supplied [[orca.backend.Interaction]] for rendering
+  *     and user steering. No retry: a parse failure on the final payload is
+  *     more useful surfaced than silently relaunched.
   */
 final class AgentCall[B <: BackendTag, O] private[orca] (
     backend: AgentBackend[B],
