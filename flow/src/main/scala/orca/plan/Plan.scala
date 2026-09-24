@@ -28,10 +28,9 @@ import scala.annotation.unused
   *     with a plan or rejects), or `triage` (classify a bug report into a
   *     [[Triage]] verdict).
   *
-  * Every cell returns a [[Sessioned]] — the result plus the agent session that
-  * produced it. A `Sessioned[Plan]` can be continued read-only into
-  * [[Plan.reviewed]] (self-critique), or discarded for a fresh implementer
-  * session.
+  * Every cell returns a [[WithChat]] — the result plus the chat that produced
+  * it. A `WithChat[Plan]` can be continued read-only into [[Plan.reviewed]]
+  * (self-critique), or discarded for a fresh implementer session.
   *
   * As a single case class it is a valid stage result (ADR 0018 §2.3) — the
   * progress log, not a plan file, is what resume reads.
@@ -57,7 +56,7 @@ object Plan:
     * network (issues/PRs/web) but can't edit during the planning turn (see
     * [[autonomousResult]] for the per-backend guarantee).
     *
-    * Each operation returns a [[Sessioned]]: the read-only planning session is
+    * Each operation returns a [[WithChat]]: the read-only planning chat is
     * still resumable by a later writable call, so the caller can continue it
     * into implementation or discard it for a fresh session.
     */
@@ -67,7 +66,7 @@ object Plan:
         userPrompt: String,
         agent: Agent[?],
         instructions: String = PlanPrompts.Planning
-    )(using FlowContext, InStage): Sessioned[Plan] =
+    )(using FlowContext, InStage): WithChat[Plan] =
       autonomousResult[Plan, Plan](agent, userPrompt, instructions)(identity)
 
     /** Skeptically assess `userPrompt` (typically a bug/feature report) and
@@ -78,7 +77,7 @@ object Plan:
         userPrompt: String,
         agent: Agent[?],
         instructions: String = PlanPrompts.AssessThenPlan
-    )(using FlowContext, InStage): Sessioned[Verdict[Plan]] =
+    )(using FlowContext, InStage): WithChat[Verdict[Plan]] =
       autonomousResult[AssessedPlan, Verdict[Plan]](
         agent,
         userPrompt,
@@ -92,7 +91,7 @@ object Plan:
         report: String,
         agent: Agent[?],
         instructions: String = PlanPrompts.Triage
-    )(using FlowContext, InStage): Sessioned[Triage] =
+    )(using FlowContext, InStage): WithChat[Triage] =
       autonomousResult[BugTriage, Triage](agent, report, instructions)(b =>
         getOrFail(b.toTriage)
       )
@@ -102,9 +101,9 @@ object Plan:
     * read-only: the prompt is what forbids edits here, and the user sees any
     * violation. The tier was picked when read-only was believed to cost the
     * `ask_user` MCP tool; claude's `--tools` allowlist does not, so this is
-    * revisitable. Use [[autonomous]] when no mid-session questions are needed.
+    * revisitable. Use [[autonomous]] when no clarifying questions are needed.
     *
-    * Each operation returns a [[Sessioned]] so the conversation can carry into
+    * Each operation returns a [[WithChat]] so the conversation can carry into
     * implementation.
     */
   object interactive:
@@ -113,7 +112,7 @@ object Plan:
         userPrompt: String,
         agent: Agent[?],
         instructions: String = PlanPrompts.Planning
-    )(using FlowContext, InStage): Sessioned[Plan] =
+    )(using FlowContext, InStage): WithChat[Plan] =
       interactiveResult[Plan, Plan](agent, userPrompt, instructions)(
         identity
       )
@@ -126,7 +125,7 @@ object Plan:
         userPrompt: String,
         agent: Agent[?],
         instructions: String = PlanPrompts.AssessThenPlan
-    )(using FlowContext, InStage): Sessioned[Verdict[Plan]] =
+    )(using FlowContext, InStage): WithChat[Verdict[Plan]] =
       interactiveResult[AssessedPlan, Verdict[Plan]](
         agent,
         userPrompt,
@@ -140,7 +139,7 @@ object Plan:
         report: String,
         agent: Agent[?],
         instructions: String = PlanPrompts.Triage
-    )(using FlowContext, InStage): Sessioned[Triage] =
+    )(using FlowContext, InStage): WithChat[Triage] =
       interactiveResult[BugTriage, Triage](agent, report, instructions)(b =>
         getOrFail(b.toTriage)
       )
@@ -157,7 +156,7 @@ object Plan:
     result.fold(msg => throw OrcaFlowException(msg), identity)
 
   /** Run one autonomous turn producing wire type `O`, convert it to the public
-    * result `A`, and pair it with the session. Shared by every `autonomous.*`
+    * result `A`, and pair it with the chat. Shared by every `autonomous.*`
     * operation.
     *
     * Runs `NetworkOnly`: reads plus read-only network, so the planner can fetch
@@ -173,7 +172,7 @@ object Plan:
   )(convert: O => A)(using
       @unused ctx: FlowContext,
       ev: InStage
-  ): Sessioned[A] =
+  ): WithChat[A] =
     // The planning turn runs on the restricted (NetworkOnly) sibling, but the
     // chat handed out is bound to the BASE agent, so a continuation regains the
     // caller's full capability — the restriction stays per-turn.
@@ -183,7 +182,7 @@ object Plan:
       .resultAs[O]
       .autonomous
       .run(withInstructions(input, instructions))
-    Sessioned(chat, convert(raw))
+    WithChat(chat, convert(raw))
 
   /** Interactive counterpart to [[autonomousResult]] — no per-turn restriction
     * (interactive planning runs with normal permissions, see [[interactive]]),
@@ -196,19 +195,19 @@ object Plan:
   )(convert: O => A)(using
       @unused ctx: FlowContext,
       ev: InStage
-  ): Sessioned[A] =
+  ): WithChat[A] =
     val chat = agent.chat()
     val raw = chat
       .resultAs[O]
       .interactive
       .run(withInstructions(input, instructions))
-    Sessioned(chat, convert(raw))
+    WithChat(chat, convert(raw))
 
-  // `reviewed` resumes the planning session read-only, reusing the planner's
+  // `reviewed` resumes the planning chat read-only, reusing the planner's
   // exploration. Defined here to keep it in the implicit scope of
-  // `Sessioned[Plan]`.
+  // `WithChat[Plan]`.
 
-  extension (sp: Sessioned[Plan])
+  extension (planned: WithChat[Plan])
     /** Resume the planning conversation for a critical self-review, returning
       * the improved plan (brief included) paired with the (same) chat. The
       * review turn runs on `variant` of the read-only chat agent — the one the
@@ -218,13 +217,13 @@ object Plan:
     def reviewed(
         instructions: String = PlanPrompts.Review,
         variant: Agent[?] => Agent[?] = identity
-    )(using @unused ctx: FlowContext, ev: InStage): Sessioned[Plan] =
-      val improved = sp.chat
+    )(using @unused ctx: FlowContext, ev: InStage): WithChat[Plan] =
+      val improved = planned.chat
         .withAgent(agent => variant(agent.withReadOnly))
         .resultAs[Plan]
         .autonomous
-        .run(s"$instructions\n\n${render(sp.value)}")
-      Sessioned(sp.chat, improved)
+        .run(s"$instructions\n\n${render(planned.value)}")
+      WithChat(planned.chat, improved)
 
   /** Empty plans render as nothing — surfacing "0 tasks planned" muddies the
     * picture; a planning failure is more useful as an explicit `fail(...)` from

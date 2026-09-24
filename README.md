@@ -712,7 +712,7 @@ Every way to talk to an agent, by what the conversation must do:
 | `agent.chat()` → `chat.run(prompt)` / `chat.resultAs[O].{autonomous,interactive}.run(input)` | new, then continued by every turn | no | both | text or `O` | `InStage` | yes* |
 | `agent.session(name, seed)` → `session.run(prompt)` / `session.resultAs[O].run(input)` | named; continued, or re-seeded if lost | yes | autonomous | text or `O` | `FlowContext`, `FlowControl`, `InStage`, `WorkspaceWrite` | no |
 | `session.chat` → as `Chat` | the session's; refused while the backend doesn't hold it (never run, or lost on resume) | no (turns not recorded) | both | text or `O` | `InStage` | yes* |
-| `Plan.{autonomous,interactive}.*` → `Sessioned`; `.reviewed()`, `.chat` | new planning conversation, continued by `.reviewed()` and `.chat` | no | as named | `O` | `FlowContext`, `InStage` | yes* |
+| `Plan.{autonomous,interactive}.*` → `WithChat`; `.reviewed()`, `.chat` | new planning conversation, continued by `.reviewed()` and `.chat` | no | as named | `O` | `FlowContext`, `InStage` | yes* |
 | `reviewAndFixLoop` / `reviewThenFix` | new reviewer chats; continues `coderSession` | the coder session does | autonomous | findings | `FlowContext`, `FlowControl`, `InStage`, `WorkspaceWrite` | no |
 | `lint(commands, agent)` | new (or continues a `Lint.summariser`) | no | autonomous | `ReviewResult` (`LintReport` with a summariser) | `FlowContext`, `InStage` | yes |
 
@@ -905,15 +905,15 @@ splits `autonomous` / `interactive`:
 | `assessThenPlan(userPrompt, agent, instructions?)` | `Verdict[Plan]` | assess, then `Proceed(plan)` or `Rejection(kind, body)` | same, but can ask the reporter to clarify instead of rejecting |
 | `triage(report, agent, instructions?)` | `Triage` | classify a bug report (not-a-bug / untestable / testable) | same, with clarifying questions |
 
-Every cell returns `Sessioned[<result>]` — the result paired with the
+Every cell returns `WithChat[<result>]` — the result paired with the
 (ephemeral) `Chat` that produced it. Continue that conversation in-run
 (`chat.run(task)`; continuations have write access), or `.value` it and start a
 fresh, durable implementer session via `agent.session("implementer", seed =
 plan.brief)` — the chat does not survive a crash/resume, so every
 shipped example takes `.value`. Destructure when you want both: `val
-Sessioned(chat, plan) = Plan.autonomous.from(...)`.
+WithChat(chat, plan) = Plan.autonomous.from(...)`.
 
-From a `Sessioned[Plan]`, an optional `.reviewed()` step refines the plan
+From a `WithChat[Plan]`, an optional `.reviewed()` step refines the plan
 before implementing — the planner critiques its own draft, read-only, producing
 an improved `Plan`. Chain it: `Plan.autonomous.from(...).reviewed().value`.
 `.reviewed(variant = _.cheap)` runs the review on a variant of the read-only
@@ -1110,7 +1110,7 @@ layer — replace the whole set via `flow(prompts = ...)`. See [ADR
 
 Common types you'll see in flow scripts. Most `derives JsonData`, making them
 valid stage results (the progress log can record and replay them) and usable as
-structured LLM output via `claude.resultAs[T]`. Exceptions: `Sessioned` and
+structured LLM output via `claude.resultAs[T]`. Exceptions: `WithChat` and
 `Verdict` do not derive `JsonData` — they are intermediate values, not stage
 results.
 
@@ -1128,11 +1128,11 @@ results.
   description.
 - **`orca.plan.Task(title, description)`** — `title` is the human-readable label
   shown in the event log.
-- **`orca.plan.Sessioned(chat, value)`** — every `Plan.{autonomous,
+- **`orca.plan.WithChat(chat, value)`** — every `Plan.{autonomous,
   interactive}.*` operation returns one: the result paired with the (ephemeral)
   `Chat` that produced it, so the caller can continue that conversation in-run
   or `.value` it and start fresh. Only the library builds one; destructure it
-  with `val Sessioned(chat, plan) = ...`.
+  with `val WithChat(chat, plan) = ...`.
 - **`orca.plan.Verdict[A]`** — `Verdict.Proceed(value)` or
   `Verdict.Rejection(kind, body)` (kind ∈ Question / Critique / Rebuff).
   Returned by `assessThenPlan` as `Verdict[Plan]`.
@@ -1150,7 +1150,7 @@ results.
 - **`orca.agents.Chat[B]`** — ephemeral multi-turn conversation handle from
   `agent.chat()`: tool-using and workspace-editing like any agent turn ("chat"
   names its lifetime, not its powers), in-run only, fork-safe. Also carried by
-  `Sessioned` for planning-conversation continuations.
+  `WithChat` for planning-conversation continuations.
 - **`orca.Title`** — opaque `String` alias for short labels (`Task.title`,
   `ReviewFinding.title`); `Title("…")` to construct, `.value` to read.
 - **`orca.tools.PrHandle`** — handle to an open pull request (`host`, `owner`,

@@ -159,9 +159,9 @@ most easily broken:
   the `AgentCall` modes' `runWithSession` — so ephemeral continuation is only
   reachable through a `Chat` handle).
   Agent/conversation safety comes from bundling, not from types a flow
-  script combines: `Chat`, `FlowSession` and `Sessioned` carry their agent and
+  script combines: `Chat`, `FlowSession` and `WithChat` carry their agent and
   conversation from creation, and every way to pair them (`Chat`'s
-  constructor, `Agent.chat(continueFrom)`, `Sessioned`'s `apply`/`copy`,
+  constructor, `Agent.chat(continueFrom)`, `WithChat`'s `apply`/`copy`,
   `SessionId`, `WireSessionId`) is `private[orca]` or narrower.
   `Chat.withAgent` swaps in a variant of the chat's agent and refuses one on
   another backend instance. An adopted chat refuses a turn

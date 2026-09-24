@@ -3,8 +3,8 @@ package orca.plan
 import orca.events.EventDispatcher
 
 /** Runtime wiring of the autonomous planning grid: each operation pairs its
-  * result with the producing session, and `triage` converts the wire
-  * [[BugTriage]] into a [[Triage]]. The conversions themselves are covered by
+  * result with the producing chat, and `triage` converts the wire [[BugTriage]]
+  * into a [[Triage]]. The conversions themselves are covered by
   * [[AssessThenPlanTest]] (toVerdict) and [[BugTriageTest]] (toTriage); the
   * interactive cells share the same helper and are pinned at compile time by
   * `flowtests.FlowCompilesTest`.
@@ -70,15 +70,15 @@ class PlanGridTest extends munit.FunSuite:
       "the planning turn must run on the restricted sibling"
     )
 
-  // --- post-planning step (reviewed) on the planning session ---
+  // --- post-planning step (reviewed) on the planning chat ---
 
   /** `samplePlan` on a planning chat whose agent answers `reply`, after the
     * planning turn that opened its conversation.
     */
-  private def planned(reply: CannedResult[Plan]): Sessioned[Plan] =
+  private def planned(reply: CannedResult[Plan]): WithChat[Plan] =
     val chat = reply.agent.chat()
     val _ = chat.resultAs[Plan].autonomous.run("plan")
-    Sessioned(chat, samplePlan)
+    WithChat(chat, samplePlan)
 
   test("reviewed returns the improved plan on the original chat binding"):
     val improved = samplePlan.copy(description = "tighter", brief = "sharper")

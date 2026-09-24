@@ -3,8 +3,7 @@ package orca.plan
 import orca.agents.Chat
 
 /** A planning-phase result paired with the (ephemeral) [[orca.agents.Chat]]
-  * that produced it. "Sessioned" names this ephemeral pairing specifically — it
-  * is not a durable session; see `agent.session(name, seed)` for that.
+  * that produced it.
   *
   * Every `Plan.{autonomous,interactive}.*` operation returns one of these, so
   * the caller can continue the same conversation into the implementation phase
@@ -21,7 +20,7 @@ import orca.agents.Chat
   * site:
   *
   * {{{
-  * val Sessioned(chat, plan) = Plan.autonomous.from(userPrompt, claude)
+  * val WithChat(chat, plan) = Plan.autonomous.from(userPrompt, claude)
   * }}}
   */
-final case class Sessioned[+A] private[orca] (chat: Chat[?], value: A)
+final case class WithChat[+A] private[orca] (chat: Chat[?], value: A)

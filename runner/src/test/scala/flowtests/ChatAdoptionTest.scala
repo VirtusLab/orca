@@ -23,20 +23,20 @@ class ChatAdoptionTest extends munit.FunSuite:
   test("a flow script cannot pair a value with a chat"):
     val errors = compileErrors(
       """
-      def pair(c: orca.Chat[?], p: orca.plan.Plan) = orca.plan.Sessioned(c, p)
+      def pair(c: orca.Chat[?], p: orca.plan.Plan) = orca.plan.WithChat(c, p)
       """
     )
     assert(
       errors.contains(
-        "Sessioned in package orca.plan does not take parameters"
+        "WithChat in package orca.plan does not take parameters"
       ),
       errors
     )
 
-  test("a flow script cannot swap a Sessioned's chat"):
+  test("a flow script cannot swap a WithChat's chat"):
     val errors = compileErrors(
       """
-      def swap(s: orca.plan.Sessioned[orca.plan.Plan], c: orca.Chat[?]) =
+      def swap(s: orca.plan.WithChat[orca.plan.Plan], c: orca.Chat[?]) =
         s.copy(chat = c)
       """
     )
