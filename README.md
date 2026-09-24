@@ -322,8 +322,8 @@ Top-level, available via `import orca.*`:
 
 ### Overriding tools and agents
 
-Any tool or agent `flow(...)` builds by default can be replaced by a named
-argument. Plain tools take the value directly (`gh = Some(myGh)`, `interaction
+Any tool (except `git`) or agent `flow(...)` builds by default can be replaced
+by a named argument. Plain tools take the value directly (`gh = Some(myGh)`, `interaction
 = Some(myInteraction)` — your own `orca.backend.Interaction` implementation,
 e.g. for Slack; not exported from `orca.*`, so import it by its full path).
 Agents take a **factory** that receives the run's `AgentWiring` (event sink,
