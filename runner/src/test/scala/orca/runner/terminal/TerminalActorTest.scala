@@ -217,7 +217,7 @@ class TerminalActorTest extends munit.FunSuite:
       // to clear first: the fork was already WAITING before it noticed the
       // interrupt.
       while promptingThread.isInterrupted do Thread.onSpinWait()
-      // A fork that ends instead leaves the assertion below to report it.
+      // A fork that ends instead is reported by `join` or the output check below.
       while !Set(Thread.State.WAITING, Thread.State.TERMINATED)
           .contains(promptingThread.getState)
       do Thread.onSpinWait()

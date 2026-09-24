@@ -13,9 +13,9 @@ import orca.agents.{BackendTag, Model, SessionKey}
   * flow's outcome. Anything that drives logic travels through return values or
   * exceptions instead.
   *
-  * Distinct from `TurnEvent`, which is scoped to one turn and consumed only by
-  * the [[orca.backend.Interaction]] that drives it; `OrcaEvent`s fan out to all
-  * listeners.
+  * Distinct from [[orca.backend.ChannelEvent]], which is scoped to one turn and
+  * answered only by the [[orca.backend.Interaction]] that drives it;
+  * `OrcaEvent`s fan out to all listeners.
   */
 enum OrcaEvent:
   /** A stage began, whether it runs or replays. Every one is followed by the
