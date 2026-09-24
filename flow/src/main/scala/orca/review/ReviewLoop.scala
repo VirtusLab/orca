@@ -34,19 +34,19 @@ import orca.util.TextUtil
   */
 private[review] val MaxConcurrentReviewTasks: Int = 8
 
-/** How many fix attempts [[reviewAndFixLoop]] allows before giving up. Public
+/** How many fix turns [[reviewAndFixLoop]] allows before giving up. Public
   * because the shipped flows pass the number at their call sites instead of
   * inheriting it, and a test checks those numbers against this one.
   */
-val DefaultMaxIterations: Int = 3
+val DefaultMaxFixTurns: Int = 3
 
 /** How [[ReviewFixLoop.drive]] runs its rounds. */
 private[review] enum LoopShape:
   /** Review, fix, and review again until a round is clean, the fixer fixes
-    * nothing, or `maxIterations` fix attempts have run — up to `maxIterations +
-    * 1` rounds, since it counts fixes, not reviews.
+    * nothing, or `maxFixTurns` fix turns have run — up to `maxFixTurns + 1`
+    * rounds, since it counts fix turns, not rounds.
     */
-  case Converge(maxIterations: Int)
+  case Converge(maxFixTurns: Int)
 
   /** One review and at most one fix turn, whose fixes go unreviewed. */
   case SinglePass
@@ -57,20 +57,20 @@ private[review] enum LoopShape:
     case SinglePass  => AfterFixTurn.Stop
 
 /** The headline shown when a loop gives up at the cap. */
-private[review] def capExitMessage(maxIterations: Int): String =
-  s"Reached max iterations ($maxIterations)"
+private[review] def capExitMessage(maxFixTurns: Int): String =
+  s"Reached max fix turns ($maxFixTurns)"
 
 /** The headline for a round that found nothing for the fixer. Only the run's
-  * first evaluation can claim the review came back clean: a later round reaches
-  * here after earlier rounds put findings on the screen, whether or not any are
+  * first round can claim the review came back clean: a later round reaches here
+  * after earlier rounds put findings on the screen, whether or not any are
   * still open. The block underneath ([[formatOpenFindings]]) counts and names
   * whatever is.
   */
 private[review] def cleanExitMessage(
     open: List[OpenFinding],
-    iteration: Int
+    round: Int
 ): String =
-  if iteration == 0 && open.isEmpty then "No findings"
+  if round == 1 && open.isEmpty then "No findings"
   else "No new findings"
 
 /** The headline shown when a loop stops because the fixer reported no fixes. */
@@ -182,7 +182,7 @@ private[review] def announceFixTurn(
   */
 private case class SessionEntry(chat: Chat[?], lastSent: LastSent)
 
-/** All cross-iteration state for `reviewAndFixLoop`, in one immutable record.
+/** All cross-round state for `reviewAndFixLoop`, in one immutable record.
   * `history` is consulted by [[ReviewerSelector]]; `sessions` holds one
   * [[SessionEntry]] per reviewer that has run at least once; `lintChat` is
   * whatever conversation the last [[lint]] call handed back as safe to resume.
@@ -237,7 +237,7 @@ private case class LintContribution(
   */
 private case class LintRound(gate: Lint, summariser: Lint.Summariser)
 
-/** One evaluation round's outcome: everything reported this round, keyed as the
+/** One review round's outcome: everything reported this round, keyed as the
   * fixer will see it, and the state to carry into the next round.
   */
 private case class RoundOutcome(
@@ -248,9 +248,9 @@ private case class RoundOutcome(
 /** Run reviewers in parallel against `task`, gather per-reviewer outcomes, hand
   * every finding they report to the coder through `coderSession`'s seeded,
   * structured door, and loop. `reviewerSelection` decides which reviewers run
-  * each iteration; the default narrows to the reviewers that reported last
-  * round, so a reviewer that goes quiet won't see the fixes made after it
-  * stopped running (see [[ReviewerSelector]]).
+  * each round; the default narrows to the reviewers that reported last round,
+  * so a reviewer that goes quiet won't see the fixes made after it stopped
+  * running (see [[ReviewerSelector]]).
   *
   * `coderSession` is the coder's durable [[FlowSession]] (obtain it once with
   * `agent.session(name, seed)`). Each fix turn goes through
@@ -289,7 +289,7 @@ def reviewAndFixLoop(
       * reference, say — passes the text it points at instead.
       */
     userRequest: Option[String] = None,
-    /** Which reviewers run each iteration — see [[ReviewerSelector]] for the
+    /** Which reviewers run each round — see [[ReviewerSelector]] for the
       * shipped variants and how each trades coverage for tokens.
       */
     reviewerSelection: ReviewerSelector = ReviewerSelector.default,
@@ -308,11 +308,11 @@ def reviewAndFixLoop(
       * linting, `Configured.Use(Lint(...))` overrides the settings.
       */
     lint: Configured[Lint] = Configured.FromSettings,
-    /** How many fix attempts before the loop gives up, folding whatever is
-      * still open into the returned [[OpenFindings]]. Counts fixes, not
-      * evaluations — see [[LoopShape.Converge]].
+    /** How many fix turns before the loop gives up, folding whatever is still
+      * open into the returned [[OpenFindings]]. Counts fix turns, not rounds —
+      * see [[LoopShape.Converge]].
       */
-    maxIterations: Int = DefaultMaxIterations,
+    maxFixTurns: Int = DefaultMaxFixTurns,
     fixInstructions: String = ReviewLoopPrompts.Fix,
     /** Where the change set under review comes from: sampled from the enclosing
       * stage each round, sampled from where the whole run started, or pinned by
@@ -383,7 +383,7 @@ def reviewAndFixLoop(
           fixInstructions = fixInstructions,
           diffSource = source
         )
-      ).drive(LoopShape.Converge(maxIterations), seededOpen)
+      ).drive(LoopShape.Converge(maxFixTurns), seededOpen)
 
 /** One review round over the enclosing stage's changes and, if it found
   * anything, one fix turn — then done. The fixer's `fixed` claims are taken on
@@ -462,7 +462,7 @@ private def resolveLint(
   * mirror their parameters field-for-field. See [[reviewAndFixLoop]]'s
   * parameter docs for each field; `formatCommands` and `lintGate` hold values
   * `Configured` already resolved, and `userRequest` holds the caller's override
-  * or, failing that, the run's `ctx.userPrompt`. The iteration cap is not here:
+  * or, failing that, the run's `ctx.userPrompt`. The fix-turn cap is not here:
   * it belongs to [[LoopShape.Converge]], not to a round.
   */
 private[review] case class ReviewLoopConfig(
@@ -482,10 +482,10 @@ private[review] case class ReviewLoopConfig(
   * below), so the per-round logic reads as plain methods. Construct and call
   * [[drive]].
   *
-  * All cross-iteration state lives in one immutable [[ReviewLoopState]]
-  * threaded explicitly through [[drive]] (no captured `var`): reviewers fan out
-  * within an iteration but each fork reads the snapshot it was handed and the
-  * next state is computed once after they all return — no concurrent mutation.
+  * All cross-round state lives in one immutable [[ReviewLoopState]] threaded
+  * explicitly through [[drive]] (no captured `var`): reviewers fan out within a
+  * round but each fork reads the snapshot it was handed and the next state is
+  * computed once after they all return — no concurrent mutation.
   */
 private[review] class ReviewFixLoop(
     config: ReviewLoopConfig
@@ -739,7 +739,7 @@ private[review] class ReviewFixLoop(
           OrcaEvent.Step(s"format command failed (exit $exitCode): $cmd")
         )
 
-  /** One evaluation round: format the tree, narrow the roster with the prepared
+  /** One review round: format the tree, narrow the roster with the prepared
     * `selectRound`, and fan the active reviewers out alongside the lint gate.
     * Returns what they reported plus the state to carry forward — a round is a
     * function of the state it is handed, so it can be run once or in a loop.
@@ -853,30 +853,31 @@ private[review] class ReviewFixLoop(
     @scala.annotation.tailrec
     def loop(
         accumulated: List[OpenFinding],
-        iteration: Int,
+        round: Int,
         state: ReviewLoopState
     ): OpenFindings =
       // Only a loop numbers its rounds; a single pass has one.
       shape match
         case LoopShape.Converge(_) =>
-          orca.display(s"Iteration ${iteration + 1}")
+          orca.display(s"Round $round")
         case LoopShape.SinglePass => ()
       // `accumulated` doubles as the open set sent to this round's reviewers:
       // the seeds plus the fixer's declines, minus any since fixed. The whole
       // set rather than the last round's, so a reviewer first activated in
       // round three still learns what was settled in round one. Not split per
       // reviewer — a [[FixOutcome]] doesn't say which reviewer reported what.
-      val round = evaluate(state, selectRound, accumulated)
+      val evaluated = evaluate(state, selectRound, accumulated)
       val findings = IdentifiedFinding.identify(
-        round = iteration + 1,
+        round = round,
         open = accumulated,
-        keyed = round.findings
+        keyed = evaluated.findings
       )
       if findings.isEmpty then
-        exitWith(cleanExitMessage(accumulated, iteration), accumulated)
+        exitWith(cleanExitMessage(accumulated, round), accumulated)
       else
         shape match
-          case LoopShape.Converge(max) if iteration >= max =>
+          // Round N follows N - 1 fix turns.
+          case LoopShape.Converge(max) if round > max =>
             exitWith(
               capExitMessage(max),
               recordOpen(
@@ -901,12 +902,12 @@ private[review] class ReviewFixLoop(
                       outcome.fixed.toSet,
                       outcome.declined
                     ),
-                    iteration + 1,
-                    round.state
+                    round + 1,
+                    evaluated.state
                   )
                 case AfterFixTurn.Stop =>
-                  exitUnreviewed(accumulated, outcome, round.state, iteration)
-    loop(priorOpen, 0, ReviewLoopState.empty)
+                  exitUnreviewed(accumulated, outcome, evaluated.state, round)
+    loop(priorOpen, 1, ReviewLoopState.empty)
 
   /** End a single pass after a fix turn that fixed something: its fixes go
     * unreviewed, so what the fixer did not report on stays open
@@ -917,12 +918,12 @@ private[review] class ReviewFixLoop(
       accumulated: List[OpenFinding],
       outcome: ReconciledFixOutcome,
       state: ReviewLoopState,
-      iteration: Int
+      round: Int
   )(using fc: FlowControl, ws: WorkspaceWrite): OpenFindings =
     val fixTurnOpen = outcome.stillOpen(OpenReason.Unaccounted)
     // The re-check numbers its findings as the round after this one.
     val lintStillFailing =
-      relintAfterFix(state, fixTurnOpen, round = iteration + 2)
+      relintAfterFix(state, fixTurnOpen, round = round + 1)
         .map(_.open(OpenReason.LintStillFailing))
     exitWith(
       SinglePassMessage,

@@ -155,7 +155,7 @@ private[review] class FakeAgent(
   )
 
   /** Session ids this agent was called with, in invocation order. Tests assert
-    * the loop threaded a stable id across iterations.
+    * the loop threaded a stable id across rounds.
     */
   def seenSessions: List[SessionId[BackendTag.ClaudeCode.type]] =
     turns.asScala.toList.map(_.session)

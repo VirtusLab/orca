@@ -213,7 +213,7 @@ class ReviewerSelectorTest extends munit.FunSuite:
     val selectRound =
       selector.prepare(all, Title("any"), List("src/main/scala/Foo.scala"))
     // Apply the pure per-round function to three different histories, as the
-    // loop would over successive iterations.
+    // loop would over successive rounds.
     val r1 = selectRound(Nil)
     val r2 = selectRound(List(ReviewBatch(Nil)))
     val r3 = selectRound(List(ReviewBatch(Nil), ReviewBatch(Nil)))

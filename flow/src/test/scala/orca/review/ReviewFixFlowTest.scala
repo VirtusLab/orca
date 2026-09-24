@@ -61,7 +61,7 @@ class ReviewFixFlowTest extends munit.FunSuite:
       s"missing Step(Review & fix); got: $events"
     )
 
-  test("max iterations path surfaces leftover findings with the cap reason"):
+  test("max fix turns path surfaces leftover findings with the cap reason"):
     val listener = new RecordingListener
     val run =
       ReviewLoopFixture.run(new EventDispatcher(List(listener)))
@@ -84,7 +84,7 @@ class ReviewFixFlowTest extends munit.FunSuite:
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(asReviewer(reviewer)),
       task = titled("never ending"),
-      maxIterations = 2,
+      maxFixTurns = 2,
       reviewerSelection = ReviewerSelector.allEveryRound,
       diff = ReviewDiff.Pinned("")
     )

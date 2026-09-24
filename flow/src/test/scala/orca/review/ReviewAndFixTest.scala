@@ -217,7 +217,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(asReviewer(reviewer)),
       task = titled("build the widget"),
-      maxIterations = 1,
+      maxFixTurns = 1,
       reviewerSelection = ReviewerSelector.allEveryRound,
       diff = ReviewDiff.Pinned("")
     )
@@ -298,7 +298,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(asReviewer(reviewer)),
       task = titled("build the widget"),
-      maxIterations = 1,
+      maxFixTurns = 1,
       reviewerSelection = ReviewerSelector.allEveryRound,
       diff = ReviewDiff.Pinned("")
     )
@@ -396,7 +396,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
     assertEquals(result, OpenFindings.empty)
 
-  test("the default cap is 3 fix attempts, so 4 review rounds"):
+  test("the default cap is 3 fix turns, so 4 review rounds"):
     val run = freshRun
     import run.given
     // The fixer always claims a fix, so only the cap stops the loop; the
@@ -488,8 +488,8 @@ class ReviewAndFixTest extends munit.FunSuite:
       diff = ReviewDiff.Pinned("")
     )
     assertEquals(
-      steps.messages.filter(_.startsWith("Iteration ")),
-      List("Iteration 1", "Iteration 2")
+      steps.messages.filter(_.startsWith("Round ")),
+      List("Round 1", "Round 2")
     )
 
   test("the fix prompt carries each finding's description"):
@@ -750,9 +750,9 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
 
   test(
-    "reviewer is called with the same session id on every iteration"
+    "reviewer is called with the same session id on every round"
   ):
-    // Cross-iteration session-threading contract: a reviewer's first call mints
+    // Cross-round session-threading contract: a reviewer's first call mints
     // its own chat, and every subsequent call resumes the SAME conversation.
     val run = freshRun
     import run.given
@@ -769,7 +769,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(asReviewer(reviewer)),
       task = titled("never ending"),
-      maxIterations = 2,
+      maxFixTurns = 2,
       reviewerSelection = ReviewerSelector.allEveryRound,
       diff = ReviewDiff.Pinned("")
     )
@@ -781,7 +781,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     assertEquals(
       reviewerSessions.distinct.size,
       1,
-      s"reviewer must reuse one session across iterations; got ${reviewerSessions.map(SessionId.value)}"
+      s"reviewer must reuse one session across rounds; got ${reviewerSessions.map(SessionId.value)}"
     )
 
   test("a lint summariser that reports nothing is resumed on later rounds"):
@@ -810,7 +810,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       // `echo` emits output so `lint` doesn't short-circuit before calling the
       // summariser.
       lint = Configured.Use(Lint(List("echo lint-output"), summariser.agent)),
-      maxIterations = 2,
+      maxFixTurns = 2,
       diff = ReviewDiff.Pinned("")
     )
     val lintSessions = summariser.seenSessions
@@ -844,7 +844,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       task = titled("reporting lint"),
       reviewerSelection = ReviewerSelector.allEveryRound,
       lint = Configured.Use(Lint(List("echo lint-output"), summariser.agent)),
-      maxIterations = 1,
+      maxFixTurns = 1,
       diff = ReviewDiff.Pinned("")
     )
     val lintSessions = summariser.seenSessions
@@ -1387,7 +1387,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
 
   test("the default selection drops a reviewer that reported nothing"):
-    // Three evaluation rounds (two fix attempts, then the cap). "quiet" reports
+    // Three review rounds (two fix turns, then the cap). "quiet" reports
     // nothing in round one, so the default narrowing drops it: it must open
     // exactly one session. Its outputs cover all three rounds, so a regression
     // is reported by the assertion rather than by an exhausted iterator inside
@@ -1416,7 +1416,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(asReviewer(quiet), asReviewer(loud)),
       task = titled("narrowing check"),
-      maxIterations = 2,
+      maxFixTurns = 2,
       diff = ReviewDiff.Pinned("")
     )
     assertEquals(quiet.seenSessions.size, 1)
@@ -1453,7 +1453,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       // `echo` emits output so `lint` doesn't short-circuit before calling the
       // summariser.
       lint = Configured.Use(Lint(List("echo lint-output"), summariser.agent)),
-      maxIterations = 2,
+      maxFixTurns = 2,
       diff = ReviewDiff.Pinned("")
     )
     assertEquals(quiet.seenSessions.size, 3)
