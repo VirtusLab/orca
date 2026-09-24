@@ -62,11 +62,12 @@ export orca.pr.{
 }
 // Reviewer-customisation surface: compose your own `List[Reviewer]` and
 // `buildReviewers` it into the agents `reviewAndFixLoop` takes. OpenFinding(s)
-// is the result type of reviewAndFixLoop/reviewThenFix; Lint is constructed at
-// the call site for their `lint` parameter and LintReport is what the
-// summariser-taking `lint` returns. Location is a ReviewFinding and
-// OpenFinding field type, and SkippedReview an OpenFindings one — needed by any
-// flow that consumes findings.
+// is the result type of reviewAndFixLoop/reviewThenFix, and OpenFinding.custom
+// records a flow's own; Lint is constructed at the call site for their `lint`
+// parameter and LintReport is what the summariser-taking `lint` returns;
+// ReviewCheck is implemented for reviewAndFixLoop's `checks`. Location is a
+// ReviewFinding and OpenFinding field type, and SkippedReview an OpenFindings
+// one — needed by any flow that consumes findings.
 export orca.review.{
   allReviewers,
   buildReviewers,
@@ -84,6 +85,7 @@ export orca.review.{
   ReviewerCatalog,
   ReviewerPrompts,
   ReviewBatch,
+  ReviewCheck,
   ReviewDiff,
   ReviewerSelector,
   ReviewFinding,

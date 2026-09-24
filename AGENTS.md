@@ -415,15 +415,17 @@ Three words for the review loop, used the same way in identifiers, prompt text,
 screen output and the PR body:
 
 - **finding** (`ReviewFinding`, `ReviewResult.findings`) — one problem a
-  reviewer or the lint gate reported. `issue` is not a synonym: in this
-  codebase it means a GitHub issue (`orca.tools.Issue`, `IssueHandle`).
+  reviewer, the lint gate or a `ReviewCheck` reported. `issue` is not a
+  synonym: in this codebase it means a GitHub issue (`orca.tools.Issue`,
+  `IssueHandle`).
 - **declined** (`DeclinedFinding`, in `FixOutcome.declined`) — the fixer
   considered a finding and refused it, giving a reason. It names one way a
   finding stays open, not the set of everything that does. The wire shape the
   fixing agent fills, so it carries title and reason and nothing else.
 - **open finding** (`OpenFinding`, `OpenFindings`) — a finding the run ends
   without resolving, paired with an `OpenReason`: declined, never reported on
-  by the fixer, past the round cap, or still failing lint. Identified by its
+  by the fixer, past the round cap, still failing lint, or recorded by a flow
+  itself (`OpenFinding.custom`). Identified by its
   `FindingId`, never by its title. This is what `reviewThenFix` and
   `reviewAndFixLoop` return, what later rounds' reviewers are shown, and what
   the PR body and the run output list under "Open review findings". A review

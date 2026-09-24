@@ -5,9 +5,10 @@ import orca.plan.Title
 import orca.util.TextUtil
 
 /** Why a finding is still open when the run ends — one case per way the loops
-  * leave one behind. [[describe]] is the sentence a reader of the PR body or of
-  * the exit block sees; nothing but [[OpenReason.Declined]] takes its words
-  * from a model, so a run summary can count the rest by case.
+  * leave one behind, plus [[OpenReason.Custom]] for what a flow records itself.
+  * [[describe]] is the sentence a reader of the PR body or of the exit block
+  * sees; nothing but [[OpenReason.Declined]] takes its words from a model, so a
+  * run summary can count the rest by case.
   */
 enum OpenReason derives JsonData:
   /** The fixer considered the finding and refused it, in `text`, its own words.
@@ -32,12 +33,16 @@ enum OpenReason derives JsonData:
   /** The lint gate still reports it after the fix turn scoped to it. */
   case LintStillFailing
 
+  /** A flow's own review policy left it open, in `text`, the flow's words. */
+  case Custom(text: String)
+
   def describe: String = this match
     case Declined(text)   => text
     case NoFixes          => "fixer reported no fixes"
     case Unaccounted      => "fixer did not report on it"
     case CapReached(max)  => s"max fix turns ($max) reached"
     case LintStillFailing => "lint still failing after its fix turn"
+    case Custom(text)     => text
 
 /** A finding the run ends without resolving, the reason recorded for it, and
   * where it points.
@@ -63,6 +68,23 @@ case class OpenFinding(
     * model.
     */
   def reasonLine: String = oneLine(reason.describe)
+
+object OpenFinding:
+  /** A finding a flow's own review policy leaves open, for `reason` — so it
+    * reaches the PR body ([[orca.pr.bodyWithOpenFindings]]) and a later loop's
+    * reviewers (`priorOpenFindings`) like a loop's own.
+    */
+  def custom(
+      title: Title,
+      reason: String,
+      location: Option[Location]
+  ): OpenFinding =
+    OpenFinding(
+      FindingId.custom(title, location),
+      title,
+      OpenReason.Custom(reason),
+      location
+    )
 
 private def oneLine(text: String): String =
   TextUtil.collapseWhitespace(text.trim)

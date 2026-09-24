@@ -5,12 +5,14 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
   JsonValueCodec,
   JsonWriter
 }
+import orca.plan.Title
 import sttp.tapir.Schema
 
 /** A review loop's name for one finding, stable across its rounds: a reviewer
   * re-reporting an open finding names its id in [[ReviewFinding.reopens]], so a
   * reworded title is still the same finding, and two findings sharing a title
-  * stay two.
+  * stay two. A flow's own open findings ([[OpenFinding.custom]]) carry ids of
+  * their own, which never equal a loop's.
   */
 opaque type FindingId = String
 
@@ -26,6 +28,15 @@ object FindingId:
 
   /** The id of the `n`-th (1-based) finding a loop was seeded with. */
   private[review] def seed(n: Int): FindingId = s"S$n"
+
+  /** The id of a finding a flow records itself — the same for two findings
+    * exactly when they are one defect: same title and location.
+    */
+  private[review] def custom(
+      title: Title,
+      location: Option[Location]
+  ): FindingId =
+    s"C:${normalisedTitle(title.value)}@${location.fold("")(_.text)}"
 
   given JsonValueCodec[FindingId] with
     def decodeValue(in: JsonReader, default: FindingId): FindingId =

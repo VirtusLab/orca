@@ -1245,6 +1245,30 @@ class ReviewAndFixTest extends munit.FunSuite:
       )
     )
 
+  test("a flow's own open finding reaches round one's reviewers"):
+    given FlowControl = control
+    val reviewer = new FakeAgent("r", outputs = List(ReviewResult.empty))
+    val _ = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
+      reviewers = List(asReviewer(reviewer)),
+      task = titled("final review"),
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      diff = ReviewDiff.Pinned(""),
+      priorOpenFindings = List(
+        OpenFinding.custom(
+          Title("p99 regressed"),
+          "benchmark still 12% slower",
+          None
+        )
+      )
+    )
+    val sent = reviewer.seenPrompts.headOption
+      .getOrElse(fail("the reviewer was never called"))
+    assert(
+      sent.contains("- [S1] p99 regressed: benchmark still 12% slower"),
+      s"custom open finding missing from the round-one prompt: $sent"
+    )
+
   /** A finding titled "nit" under `id`, declined for `reason`. */
   private def declinedNit(id: String, reason: String): OpenFinding =
     OpenFinding(FindingId(id), Title("nit"), OpenReason.Declined(reason), None)

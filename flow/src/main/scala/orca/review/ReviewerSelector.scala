@@ -32,11 +32,12 @@ import orca.util.TextUtil
   * what it decided, nothing more.
   *
   * Returning an empty list means no reviewers run that round: the loop finds
-  * nothing and — absent lint findings — converges, so a selector that empties a
-  * non-empty roster turns the review into a no-op with a green result. Each
-  * shipped selector carries its own floor against that ([[agentDriven]] falls
-  * back to every eligible reviewer, [[narrowingAcrossRounds]] re-runs the
-  * previous pick); a custom selector owns its own.
+  * nothing and — absent lint and check findings — converges, so a selector that
+  * empties a non-empty roster turns the review into a no-op with a green
+  * result. Each shipped selector carries its own floor against that
+  * ([[agentDriven]] falls back to every eligible reviewer,
+  * [[narrowingAcrossRounds]] re-runs the previous pick); a custom selector owns
+  * its own.
   */
 trait ReviewerSelector:
   def prepare(
@@ -195,9 +196,9 @@ object ReviewerSelector:
     * excluded is never resurrected.
     *
     * Narrowing never empties a non-empty set: a round with no reviewer at all
-    * would let the fixer keep editing unreviewed, since a lint gate keeps the
-    * loop going through reviewer silence. When narrowing would leave none,
-    * `base`'s pick runs again and a `Step` says so.
+    * would let the fixer keep editing unreviewed, since the lint gate and the
+    * checks keep the loop going through reviewer silence. When narrowing would
+    * leave none, `base`'s pick runs again and a `Step` says so.
     */
   def narrowingAcrossRounds(base: ReviewerSelector): ReviewerSelector =
     new ReviewerSelector:
@@ -224,7 +225,7 @@ object ReviewerSelector:
               else
                 ctx.emit(
                   OrcaEvent.Step(
-                    s"reviewer selection: nothing was reported last round; " +
+                    s"reviewer selection: no reviewer reported last round; " +
                       s"re-running all ${active.size} selected reviewer(s) " +
                       s"rather than reviewing nothing"
                   )
