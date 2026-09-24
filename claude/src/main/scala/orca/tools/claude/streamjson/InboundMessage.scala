@@ -43,7 +43,12 @@ private[claude] enum InboundMessage:
       isError: Boolean,
       model: Option[String]
   )
-  case ControlRequest(requestId: String, body: ControlRequestBody)
+
+  /** A request for orca to answer on claude's stdin, e.g. a `can_use_tool`
+    * approval prompt. orca closes stdin after the opening turn and never asks
+    * for stdio prompts, so none is expected.
+    */
+  case ControlRequest(subtype: String)
   case StreamEvent(payload: StreamEventPayload)
   case Unknown(rawType: String)
 
@@ -105,11 +110,7 @@ private[claude] object InboundMessage:
     )
 
   private def parseControlRequest(line: String): InboundMessage =
-    val wire = readFromString[ControlRequestWire](line)
-    ControlRequest(
-      requestId = wire.request_id,
-      body = ControlRequestBody.parse(wire.request.value)
-    )
+    ControlRequest(readFromString[ControlRequestWire](line).request.subtype)
 
   private def parseStreamEvent(line: String): InboundMessage =
     val wire = readFromString[StreamEventWire](line)
@@ -154,7 +155,10 @@ private[claude] object InboundMessage:
       model: Option[String] = None
   ) derives ConfiguredJsonValueCodec
 
-  private case class ControlRequestWire(request_id: String, request: RawJson)
+  private case class ControlRequestInner(subtype: String)
+      derives ConfiguredJsonValueCodec
+
+  private case class ControlRequestWire(request: ControlRequestInner)
       derives ConfiguredJsonValueCodec
 
   private case class StreamEventWire(event: RawJson)

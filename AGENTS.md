@@ -55,17 +55,6 @@ conversation driver), `orca.subprocess` (subprocess shim), `orca.sweep`
 `orca.runner.terminal` (wiring + terminal UI). The flow module adds
 `orca.{plan,review,pr,progress}`.
 
-`codingAgent: Agent[ctx.CodeB]` (the same holds for `planningAgent`/
-`ctx.PlanB` and `reviewAgent`/`ctx.ReviewB`) is path-dependent, so it only
-works inside a straight-line `flow(...)` body sharing one `using
-FlowContext` — it doesn't survive being factored into a helper function,
-since two `FlowContext` parameters' `CodeB` members don't unify even when
-they're the same backend at runtime. A helper should instead take an
-explicit `[B <: BackendTag]` type parameter, or bundle the agent and its
-durable session as a `FlowSession[B]` handle (`codingAgent.session(name,
-seed)`) — see the `CodeB` scaladoc (`flow/src/main/scala/orca/FlowContext.scala`)
-for the full rationale.
-
 ## The stage-bound runtime
 
 The flow runtime is specified in [ADR 0018](adr/0018-stage-bound-flow-runtime.md) —
@@ -212,10 +201,10 @@ most easily broken:
 
   A mint sits wherever the session is used — inside the driving stage, or above
   the stages that share it. What R22 blocks is one specific route out of a
-  stage: neither `FlowSession[B]` nor `SessionId[B]` has a `JsonData`, so
-  neither can be a stage's result. A handle stashed in an in-memory `var` in
-  stage A and read in stage B still compiles, and fails loudly with
-  `NoSuchElementException` on the resume that skips A.
+  stage: `FlowSession` has no `JsonData`, so it cannot be a stage's result. A
+  handle stashed in an in-memory `var` in stage A and read in stage B still
+  compiles, and fails loudly with `NoSuchElementException` on the resume that
+  skips A.
   When `agent.session(name, seed)` reuses a record, it hands the record's
   resume wire id to that agent (`rehydrateResumeWireId`), so the session's
   first turn this run probes and resumes it. Each record also carries the
@@ -307,13 +296,13 @@ Three location classes decide what survives:
 | `.orca/cache/attempts/<id>.manifest.json` | cache | `AttemptManifest`: `workDir`, `pid`, `startedAt`, `finishedAt`, `status`, `orcaVersion`, `flow`, `branch`, `sessions[]` (`ManifestSession`) — written when the attempt starts, then on every stage transition, `BranchBound`, `SessionCommitted` and finish | `AttemptManifestWriter` | shell `ManifestReader` → session picker / `orca continue` (attempts with no session are left out) | pruning: newest 20 attempts with a session ∪ newest 20 of any kind |
 | `.orca/cache/attempts/<id>.cost.jsonl` | cache | one `CostRecord` line per `TokensUsed` (agent, role, model, stage, turn, usage, cost, session) — created on the first `TokensUsed` | `CostLog` via `AttemptManifestWriter` | nothing in orca; a measurement record for people and scripts | pruned with its manifest |
 | `.orca/cache/attempts/<id>.trace.log` (+ `.trace.1.log`) | cache | DEBUG trace of logger `orca`: prompts, agent output, tool calls; 4 MB roll | `OrcaLog` | people (path in the banner) | pruned with its manifest |
-| `.orca/cache/flow.lock` | cache | holder pid | `FlowLock` | `FlowLock` on contention | `FlowLock` when the run ends; a dead pid is stolen |
-| `.orca/cache/worktree-<key>.lock` (main checkout) | cache | holder pid | `FlowLock` | `FlowLock` on contention | `FlowLock` when the worktree is resolved; a dead pid is stolen |
+| `.orca/cache/flow.lock` | cache | an OS file lock, held for the run; holder pid | `FlowLock` | `FlowLock` on contention | never; the OS releases the lock when the holder exits |
+| `.orca/cache/worktree-<key>.lock` (main checkout) | cache | an OS file lock, held while the worktree is resolved; holder pid | `FlowLock` | `FlowLock` on contention | never; the OS releases the lock when the holder exits |
 | `.orca/cache/pi-sessions/<session id>/` | cache | pi's own `--session-dir` transcripts | pi | `PiSessionStore` (resume probe), shell pi resume | `PiSessionStore.prune` after 30 days untouched |
 | `.orca/cache/lint-*.txt` | cache | lint output too large to inline in a prompt | `Lint` | the summarising agent | `lint`'s `finally` |
 | `.orca/cache/{,runs/,attempts/}.<file>.<uuid>.tmp` | cache | in-flight temp of an `OrcaFile` replace: beside a cache file, in `.orca/cache/` for a committed one (progress log, settings) so it is never committed | `OrcaDir.OrcaFile` | — (`AttemptManifestWriter`'s pruning skips dot-files) | the rename that completes the write |
 | `.orca/worktrees/<key>/` (+ branch `orca-worktree-<key>`) | worktrees | a `--worktree` run's checkout, with its own `.orca/` inside | `WorktreeRun` | `WorktreeScan` (shell) | never — see README |
-| `<workDir>/.gemini/settings.json` | user tree | an `mcpServers.orca` entry for one interactive gemini conversation | `GeminiSettings` | gemini | restored at turn end; a `.gemini/` orca created is removed when left empty |
+| `<workDir>/.gemini/settings.json` | user tree | an `mcpServers.orca` entry for one interactive gemini conversation | `GeminiSettings` | gemini | restored at turn end, and a stale entry from a crash dropped at the next interactive run; a `.gemini/` orca created is removed when left empty |
 | `$TMPDIR/orca-*` (system prompts, claude MCP config, codex schema, pi extension) | temp | per-turn IPC files handed to a CLI on argv | each backend | the CLI | turn end |
 | `$TMPDIR/orca-authoring-<n>/` | temp | the authoring flow's sandbox repo; `.orca/cache/orca-api-<version>/` inside holds the README + example flows (+ `fork-source/`) | `AuthoringSandbox`, `FlowAuthoring` | the coding agent | success or cancel; kept on failure, and nothing else prunes it |
 | `$XDG_CACHE_HOME/orca/shell/<version>/flows/` | XDG cache | built-in flows extracted from the jar | `BuiltInFlows` | `FlowCatalog`, scala-cli | never; nothing prunes older versions |
@@ -519,7 +508,8 @@ Orca is 0.x: no backwards compatibility is owed anywhere.
   `OrcaDir.OrcaFile` (only `OrcaDir` creates one) and its `replace`, whose
   rename replaces a leaf symlink instead of following it. Other writes (appends,
   lock files) go inside a directory an `OrcaDir.ensure*` accessor returned, with
-  `os.write` (`CREATE_NEW`, refuses a leaf symlink) over `os.write.over`. The
+  `os.write` (`CREATE_NEW`, refuses a leaf symlink) over `os.write.over`; a lock
+  file opens with `NOFOLLOW_LINKS`. The
   check runs at the earliest `.orca` touch (`FlowLock` → `ensureCache`), ahead
   of any mutation.
 

@@ -103,6 +103,13 @@ them wouldn't thread into `session.run`/reviewers — the entire point of
 type parameter (impossible — a role's backend is resolved from settings at
 runtime, not known at the `flow(...)` call site).
 
+> **Amendment (2026-09-24).** The type members are gone; the accessors are
+> `Agent[?]`. Threading no longer needs them: a `FlowSession` holds its agent
+> and conversation together (`session.chat` replaces `agent.chat(session.id)`),
+> `Sessioned[A]` holds a `Chat[?]`, and `.reviewed()` runs on the planning
+> chat's own agent. No public API pairs two backend-typed values, so helpers
+> take no `[B <: BackendTag]` and `DefaultFlowContext` is unparametrised.
+
 ### 4. `flow(...)` signature
 
 The `agent` selector parameter and the `flow[B](...)` type parameter are

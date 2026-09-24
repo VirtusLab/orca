@@ -1,12 +1,11 @@
 package orca.tools.claude
 
-import orca.agents.{AutoApprove, AgentConfig, Model}
+import orca.agents.Model
 import orca.events.{TurnDebit, Usage}
 import orca.testkit.Usages.usage
 import orca.{AgentTurnFailed, OrcaFlowException, OrcaInteractiveCancelled}
 import orca.backend.{
   AskUserChannel,
-  ApprovalDecision,
   ConversationEvent,
   ConversationEventConformance
 }
@@ -25,7 +24,7 @@ class ClaudeConversationTest extends munit.FunSuite:
 
   convTest("stream_event text_delta becomes AssistantTextDelta"):
     val process = new FakePipedCliProcess()
-    val conv = ClaudeConversation(process, AgentConfig())
+    val conv = ClaudeConversation(process)
 
     process.enqueueStdout(
       """{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hello"}}}"""
@@ -51,7 +50,7 @@ class ClaudeConversationTest extends munit.FunSuite:
 
   convTest("result message finishes the session and carries usage"):
     val process = new FakePipedCliProcess()
-    val conv = ClaudeConversation(process, AgentConfig())
+    val conv = ClaudeConversation(process)
 
     process.enqueueStdout(
       """{"type":"result","subtype":"success","session_id":"sid-2","result":"done","usage":{"input_tokens":5,"output_tokens":7}}"""
@@ -70,7 +69,7 @@ class ClaudeConversationTest extends munit.FunSuite:
   // count is the answer — only the distinct ids are.
   convTest("a turn's API-call count is its distinct response ids"):
     val process = new FakePipedCliProcess()
-    val conv = ClaudeConversation(process, AgentConfig())
+    val conv = ClaudeConversation(process)
 
     // One response, split into prose and two parallel tool calls...
     process.enqueueStdout(
@@ -97,7 +96,7 @@ class ClaudeConversationTest extends munit.FunSuite:
     "is_error after streaming deltas emits a short marker, not a duplicate"
   ):
     val process = new FakePipedCliProcess()
-    val conv = ClaudeConversation(process, AgentConfig())
+    val conv = ClaudeConversation(process)
 
     process.enqueueStdout(
       """{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"API Error: 400 quota exceeded"}}}"""
@@ -134,7 +133,7 @@ class ClaudeConversationTest extends munit.FunSuite:
     "result message with is_error=true fails the session and surfaces the message"
   ):
     val process = new FakePipedCliProcess()
-    val conv = ClaudeConversation(process, AgentConfig())
+    val conv = ClaudeConversation(process)
 
     process.enqueueStdout(
       """{"type":"result","subtype":"error","session_id":"sid-err","result":"API Error: 400 rate limited","is_error":true}"""
@@ -161,7 +160,7 @@ class ClaudeConversationTest extends munit.FunSuite:
   // it must stand in for the message rather than leaving a bare marker.
   convTest("is_error with an empty body names the result subtype"):
     val process = new FakePipedCliProcess()
-    val conv = ClaudeConversation(process, AgentConfig())
+    val conv = ClaudeConversation(process)
 
     process.enqueueStdout(
       """{"type":"result","subtype":"error_max_turns","session_id":"sid-empty","is_error":true}"""
@@ -187,7 +186,7 @@ class ClaudeConversationTest extends munit.FunSuite:
   // exception is the only way they can still reach the run's cost summary.
   convTest("is_error carries the result's debit on the thrown failure"):
     val process = new FakePipedCliProcess()
-    val conv = ClaudeConversation(process, AgentConfig())
+    val conv = ClaudeConversation(process)
 
     process.enqueueStdout(
       """{"type":"result","subtype":"error_during_execution","session_id":"sid-cost","is_error":true,"usage":{"input_tokens":11,"output_tokens":3,"cache_read_input_tokens":7},"total_cost_usd":0.25,"model":"claude-sonnet-4-6"}"""
@@ -219,7 +218,7 @@ class ClaudeConversationTest extends munit.FunSuite:
   // zero.
   convTest("is_error without a usage object reports an unobserved debit"):
     val process = new FakePipedCliProcess()
-    val conv = ClaudeConversation(process, AgentConfig())
+    val conv = ClaudeConversation(process)
 
     process.enqueueStdout(
       """{"type":"result","subtype":"error","session_id":"sid-nousage","result":"API Error: 400 quota exceeded","is_error":true}"""
@@ -239,7 +238,7 @@ class ClaudeConversationTest extends munit.FunSuite:
     // thinking delta ever streamed, so is_error must NOT collapse into the "see
     // message above" marker — there IS no message above.
     val process = new FakePipedCliProcess()
-    val conv = ClaudeConversation(process, AgentConfig())
+    val conv = ClaudeConversation(process)
 
     process.enqueueStdout(
       """{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"id-1","name":"Bash","input":{"cmd":"ls"}}]}}"""
@@ -272,7 +271,7 @@ class ClaudeConversationTest extends munit.FunSuite:
     "cancel surfaces as Left(OrcaInteractiveCancelled) from awaitResult"
   ):
     val process = new FakePipedCliProcess()
-    val conv = ClaudeConversation(process, AgentConfig())
+    val conv = ClaudeConversation(process)
 
     conv.cancel()
     conv.awaitResult() match
@@ -281,16 +280,9 @@ class ClaudeConversationTest extends munit.FunSuite:
         fail(s"expected Left(OrcaInteractiveCancelled), got: $other")
     assertEquals(process.sigIntCount, 1)
 
-  convTest(
-    "can_use_tool with autoApprove=All responds allow without emitting an event"
-  ):
+  convTest("control_request surfaces as an Error without writing to stdin"):
     val process = new FakePipedCliProcess()
-    process
-      .closeStdin() // as ClaudeBackend leaves it, before any control request
-    val conv = ClaudeConversation(
-      process,
-      AgentConfig().copy(autoApprove = AutoApprove.All)
-    )
+    val conv = ClaudeConversation(process)
 
     process.enqueueStdout(
       """{"type":"control_request","request_id":"req-1","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"cmd":"ls"}}}"""
@@ -301,104 +293,22 @@ class ClaudeConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    // Auto-approved, so no ApproveTool for the channel. The decision can't reach
-    // a closed stdin, and that is reported against its request instead of
-    // surfacing as a parse failure.
-    assertEquals(
-      conv.events.toList
-        .collect { case ConversationEvent.Error(m) => m }
-        .count(_.contains("req-1")),
-      1
+    val errors =
+      conv.events.toList.collect { case ConversationEvent.Error(m) => m }
+    assert(
+      errors.sizeIs == 1 && errors.head.contains(
+        "control_request (can_use_tool)"
+      ),
+      errors
     )
     val _ = conv.awaitResult()
     assertEquals(process.writes, Nil)
 
   convTest(
-    "can_use_tool with autoApprove=Only not matching emits ApproveTool for the channel"
-  ):
-    val process = new FakePipedCliProcess()
-    val conv = ClaudeConversation(
-      process,
-      AgentConfig().copy(autoApprove = AutoApprove.Only(Set("Read")))
-    )
-
-    process.enqueueStdout(
-      """{"type":"control_request","request_id":"req-2","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"cmd":"rm"}}}"""
-    )
-
-    // Consume the ApproveTool event; simulate the channel denying.
-    val firstEvent = conv.events.next()
-    firstEvent match
-      case ConversationEvent.ApproveTool(name, _, respond) =>
-        assertEquals(name, "Bash")
-        respond(ApprovalDecision.Deny(Some("too risky")))
-      case other => fail(s"expected ApproveTool, got $other")
-
-    process.enqueueStdout(
-      """{"type":"result","subtype":"success","session_id":"sid-4"}"""
-    )
-    process.closeStdout()
-    process.closeStderr()
-
-    val _ = conv.events.toList
-    val _ = conv.awaitResult()
-
-    // The channel's decision is written back against its own request.
-    assert(
-      process.writes.exists(w => w.contains("req-2") && w.contains("deny")),
-      process.writes
-    )
-
-  convTest(
-    "tool_use surrounding streaming events are ignored; emission comes from the full-turn message"
-  ):
-    // In claude's live protocol the `assistant` message arrives BEFORE the
-    // matching `content_block_stop`, so the full-turn message is the single
-    // source of truth for tool calls. Streaming events for a tool_use block
-    // (start/json_delta/stop) accumulate no state and produce no events —
-    // emitting from them would duplicate the full-turn emit. Feed the streaming
-    // events, then the full-turn message, and expect exactly one
-    // AssistantToolCall.
-    val process = new FakePipedCliProcess()
-    val conv = ClaudeConversation(process, AgentConfig())
-
-    process.enqueueStdout(
-      """{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"id-1","name":"Bash","input":{}}}}"""
-    )
-    process.enqueueStdout(
-      """{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"cmd\":\"l"}}}"""
-    )
-    process.enqueueStdout(
-      """{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"s\"}"}}}"""
-    )
-    // Full-turn assistant message — this is where the emit comes from.
-    process.enqueueStdout(
-      """{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"id-1","name":"Bash","input":{"cmd":"ls"}}]}}"""
-    )
-    process.enqueueStdout(
-      """{"type":"stream_event","event":{"type":"content_block_stop","index":0}}"""
-    )
-    process.enqueueStdout(
-      """{"type":"result","subtype":"success","session_id":"sid-6"}"""
-    )
-    process.closeStdout()
-    process.closeStderr()
-
-    val events = conv.events.toList
-    assertEquals(
-      events,
-      List(
-        ConversationEvent.AssistantToolCall("Bash", """{"cmd":"ls"}"""),
-        ConversationEvent.AssistantTurnEnd
-      )
-    )
-    val _ = conv.awaitResult()
-
-  convTest(
     "assistant turn with text falls back to an AssistantTextDelta when no partials streamed"
   ):
     val process = new FakePipedCliProcess()
-    val conv = ClaudeConversation(process, AgentConfig())
+    val conv = ClaudeConversation(process)
 
     process.enqueueStdout(
       """{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"no-partials"}]}}"""
@@ -422,7 +332,7 @@ class ClaudeConversationTest extends munit.FunSuite:
 
   convTest("a failed permission-refusal tool_result emits ToolDenied"):
     val process = new FakePipedCliProcess()
-    val conv = ClaudeConversation(process, AgentConfig())
+    val conv = ClaudeConversation(process)
 
     process.enqueueStdout(
       """{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"id-1","content":"Claude requested permissions to use mcp__visdom__agents_md, but you haven't granted it yet.","is_error":true}]}}"""
@@ -448,7 +358,7 @@ class ClaudeConversationTest extends munit.FunSuite:
     "a successful tool_result quoting the refusal phrase stays a ToolResult"
   ):
     val process = new FakePipedCliProcess()
-    val conv = ClaudeConversation(process, AgentConfig())
+    val conv = ClaudeConversation(process)
     val quoted =
       "Claude requested permissions to use Bash, but you haven't granted it yet."
 
@@ -469,7 +379,7 @@ class ClaudeConversationTest extends munit.FunSuite:
 
   convTest("user turn with tool_result blocks emits ToolResult events"):
     val process = new FakePipedCliProcess()
-    val conv = ClaudeConversation(process, AgentConfig())
+    val conv = ClaudeConversation(process)
 
     process.enqueueStdout(
       """{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"id-1","content":"output","is_error":false}]}}"""
@@ -501,7 +411,7 @@ class ClaudeConversationTest extends munit.FunSuite:
     "malformed NDJSON line surfaces as ConversationEvent.Error and the loop continues"
   ):
     val process = new FakePipedCliProcess()
-    val conv = ClaudeConversation(process, AgentConfig())
+    val conv = ClaudeConversation(process)
 
     process.enqueueStdout("this is not json")
     process.enqueueStdout(
@@ -520,82 +430,6 @@ class ClaudeConversationTest extends munit.FunSuite:
     )
     val _ = conv.awaitResult()
 
-  convTest(
-    "autoApprove.Only matches the tool → no ApproveTool for the channel"
-  ):
-    val process = new FakePipedCliProcess()
-    process.closeStdin()
-    val conv = ClaudeConversation(
-      process,
-      AgentConfig().copy(autoApprove = AutoApprove.Only(Set("Read")))
-    )
-
-    process.enqueueStdout(
-      """{"type":"control_request","request_id":"req-ok","request":{"subtype":"can_use_tool","tool_name":"Read","input":{"path":"/etc/hosts"}}}"""
-    )
-    process.enqueueStdout(
-      """{"type":"result","subtype":"success","session_id":"sid-only"}"""
-    )
-    process.closeStdout()
-    process.closeStderr()
-
-    val events = conv.events.toList
-    assert(!events.exists(_.isInstanceOf[ConversationEvent.ApproveTool]))
-    assert(
-      events.exists:
-        case ConversationEvent.Error(m) => m.contains("req-ok")
-        case _                          => false
-      ,
-      events
-    )
-    val _ = conv.awaitResult()
-
-  convTest(
-    "multiple back-to-back ApproveTool events carry distinct respond closures"
-  ):
-    val process = new FakePipedCliProcess()
-    val conv = ClaudeConversation(
-      process,
-      AgentConfig().copy(autoApprove = AutoApprove.Only(Set.empty))
-    )
-
-    process.enqueueStdout(
-      """{"type":"control_request","request_id":"req-A","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{}}}"""
-    )
-    process.enqueueStdout(
-      """{"type":"control_request","request_id":"req-B","request":{"subtype":"can_use_tool","tool_name":"Read","input":{}}}"""
-    )
-
-    val first = conv.events.next()
-    val second = conv.events.next()
-
-    second match
-      case ConversationEvent.ApproveTool(_, _, respond) =>
-        respond(ApprovalDecision.Deny())
-      case other => fail(s"expected ApproveTool, got $other")
-    first match
-      case ConversationEvent.ApproveTool(_, _, respond) =>
-        respond(ApprovalDecision.Allow())
-      case other => fail(s"expected ApproveTool, got $other")
-
-    process.enqueueStdout(
-      """{"type":"result","subtype":"success","session_id":"sid-parallel"}"""
-    )
-    process.closeStdout()
-    process.closeStderr()
-    val _ = conv.events.toList
-    val _ = conv.awaitResult()
-
-    // Each closure carries its own request id, so the closures don't alias.
-    assert(
-      process.writes.exists(w => w.contains("req-A") && w.contains("allow")),
-      process.writes
-    )
-    assert(
-      process.writes.exists(w => w.contains("req-B") && w.contains("deny")),
-      process.writes
-    )
-
   test(
     "askUserBridge: questions surface as UserQuestion events; respond unblocks ask"
   ):
@@ -606,11 +440,8 @@ class ClaudeConversationTest extends munit.FunSuite:
       given BufferCapacity = BufferCapacity(8)
       val process = new FakePipedCliProcess()
       val askUser = AskUserSession.allocate()
-      val conv = ClaudeConversation(
-        process,
-        AgentConfig(),
-        askUser = AskUserChannel.Mcp(askUser)
-      )
+      val conv =
+        ClaudeConversation(process, askUser = AskUserChannel.Mcp(askUser))
       val bridge = askUser.bridge
       assert(conv.canAskUser, "canAskUser must be true when a bridge is wired")
 
@@ -639,7 +470,7 @@ class ClaudeConversationTest extends munit.FunSuite:
 
   convTest("canAskUser is false when no bridge is provided"):
     val process = new FakePipedCliProcess()
-    val conv = ClaudeConversation(process, AgentConfig())
+    val conv = ClaudeConversation(process)
     assertEquals(conv.canAskUser, false)
     process.closeStdout()
     process.closeStderr()
@@ -649,7 +480,7 @@ class ClaudeConversationTest extends munit.FunSuite:
     "handleAssistantTurn suppresses the agent's ToolUse for ask_user"
   ):
     val process = new FakePipedCliProcess()
-    val conv = ClaudeConversation(process, AgentConfig())
+    val conv = ClaudeConversation(process)
 
     // Assistant turn carrying a tool_use block for the MCP-prefixed ask_user
     // tool name. Renderer-side suppression drops the AssistantToolCall event, so
@@ -681,7 +512,7 @@ class ClaudeConversationTest extends munit.FunSuite:
   ):
     val process = new FakePipedCliProcess()
     val conv =
-      ClaudeConversation(process, AgentConfig(), outputSchema = Some("{}"))
+      ClaudeConversation(process, outputSchema = Some("{}"))
 
     // The final turn of a `--json-schema` run: the model "exits" by calling
     // the CLI-injected StructuredOutput tool with the payload as input, and
@@ -720,7 +551,7 @@ class ClaudeConversationTest extends munit.FunSuite:
     // name can only be a genuine (if unluckily named) user tool, and hiding it
     // would silently drop real activity.
     val process = new FakePipedCliProcess()
-    val conv = ClaudeConversation(process, AgentConfig())
+    val conv = ClaudeConversation(process)
 
     process.enqueueStdout(
       s"""{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu_so2","name":"${ClaudeBackend.StructuredOutputToolName}","input":{}}]}}"""

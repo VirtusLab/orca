@@ -432,29 +432,20 @@ private def runInContext(
         emit = dispatcher.onEvent
       )
     )
-    // Open the three runtime `Agent[?]` roles into their own backend tags so
-    // `DefaultFlowContext` is concretely typed and each role's sessions
-    // thread.
-    val ctx = (
-      resolvedRoles.planning,
-      resolvedRoles.coding,
-      resolvedRoles.review
-    ) match
-      case (p: Agent[pb], c: Agent[cb], r: Agent[rb]) =>
-        new DefaultFlowContext[pb, cb, rb](
-          userPrompt = args.userPrompt,
-          workDir = workDir,
-          dispatcher = dispatcher,
-          planningAgent = p,
-          codingAgent = c,
-          reviewAgent = r,
-          wired = agents,
-          runtimeGit = runtimeGit,
-          gh = ghTool,
-          fs = fsTool,
-          stackSettings = flowSetup.stackSettings,
-          reviewerCatalog = reviewerCatalog
-        )
+    val ctx = new DefaultFlowContext(
+      userPrompt = args.userPrompt,
+      workDir = workDir,
+      dispatcher = dispatcher,
+      planningAgent = resolvedRoles.planning,
+      codingAgent = resolvedRoles.coding,
+      reviewAgent = resolvedRoles.review,
+      wired = agents,
+      runtimeGit = runtimeGit,
+      gh = ghTool,
+      fs = fsTool,
+      stackSettings = flowSetup.stackSettings,
+      reviewerCatalog = reviewerCatalog
+    )
     val control = new DefaultFlowControl(
       context = ctx,
       progressStore = store,

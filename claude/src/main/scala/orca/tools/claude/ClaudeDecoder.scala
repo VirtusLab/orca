@@ -1,10 +1,9 @@
 package orca.tools.claude
 
-import orca.agents.{AutoApprove, AgentConfig, BackendTag, Model, WireSessionId}
+import orca.agents.{BackendTag, Model, WireSessionId}
 import orca.events.{TurnDebit, Usage}
 import orca.backend.{
   AgentResult,
-  ApprovalDecision,
   AskUserChannel,
   AskUserEchoes,
   Conversation,
@@ -17,28 +16,19 @@ import orca.backend.{
   StreamSource
 }
 import orca.subprocess.PipedCliProcess
-import orca.util.OrcaDebug
 import orca.tools.claude.streamjson.{
   ContentBlock,
-  ControlDecision,
-  ControlRequestBody,
   InboundMessage,
-  OutboundMessage,
   StreamEventPayload
 }
 
 import ox.Ox
 
 /** Decodes a stream-json conversation with claude: NDJSON → [[InboundMessage]]
-  * → `ConversationEvent`s, plus the auto-approve policy for tools listed in
-  * `config.autoApprove`. The backend writes the opening user turn; the only
-  * write here is a tool-approval response.
+  * → `ConversationEvent`s.
   */
-private[claude] final class ClaudeDecoder(
-    process: PipedCliProcess,
-    config: AgentConfig,
-    outputSchema: Option[String]
-) extends LineDecoder[BackendTag.ClaudeCode.type, ClaudeDecoder.State]:
+private[claude] final class ClaudeDecoder(outputSchema: Option[String])
+    extends LineDecoder[BackendTag.ClaudeCode.type, ClaudeDecoder.State]:
 
   import ClaudeDecoder.State
 
@@ -68,8 +58,8 @@ private[claude] final class ClaudeDecoder(
       case result: InboundMessage.Result =>
         if result.isError then resultError(state, result)
         else resultSuccess(state, result)
-      case InboundMessage.ControlRequest(reqId, body) =>
-        Step.Continue(state, controlRequest(reqId, body).toList)
+      case InboundMessage.ControlRequest(subtype) =>
+        Step.continue(state, unexpectedControlRequest(subtype))
       case InboundMessage.StreamEvent(payload) =>
         translateStreamEvent(payload) match
           case Some(delta) =>
@@ -247,30 +237,15 @@ private[claude] final class ClaudeDecoder(
       )
     )
 
-  private def controlRequest(
-      requestId: String,
-      body: ControlRequestBody
-  ): Option[ConversationEvent] = body match
-    case ControlRequestBody.CanUseTool(name, _) if autoApproves(name) =>
-      respond(requestId, ApprovalDecision.Allow()).left.toOption
-    case ControlRequestBody.CanUseTool(name, rawInput) =>
-      Some(
-        ConversationEvent.ApproveTool(
-          toolName = name,
-          rawInput = rawInput,
-          respond = decision =>
-            respond(requestId, decision).left.foreach: error =>
-              OrcaDebug.traceStream(backendName, "stdin", error.message)
-        )
-      )
-    case ControlRequestBody.Unknown(subtype) =>
-      Some(
-        ConversationEvent.Error(s"Unknown control_request subtype: $subtype")
-      )
-
-  private def autoApproves(toolName: String): Boolean = config.autoApprove match
-    case AutoApprove.All         => true
-    case AutoApprove.Only(tools) => tools.contains(toolName)
+  /** claude only sends a control request when asked to prompt over stdio, which
+    * orca never does, and stdin is closed so no answer could reach it.
+    */
+  private def unexpectedControlRequest(subtype: String): ConversationEvent =
+    ConversationEvent.Error(
+      s"claude sent an unexpected control_request ($subtype) that orca cannot " +
+        "answer: its stdin is closed. A claude CLI change or a flag enabling " +
+        "stdio permission prompts may have caused it."
+    )
 
   /** Translate one stream-event payload into a `ConversationEvent`, or `None`
     * if it contributes only to state surfaced elsewhere. Text and thinking
@@ -287,42 +262,6 @@ private[claude] final class ClaudeDecoder(
       Some(ConversationEvent.AssistantThinkingDelta(text))
     case _ =>
       None // tool-use blocks, block start/stop, unhandled — driver ignores
-
-  /** Answer a control request, or report that the answer can't be delivered.
-    * `ClaudeBackend.open` closes stdin right after the opening turn, so the
-    * write always hits a closed pipe. The failure is reported rather than
-    * thrown: from the reader thread an `IOException` would look like a parse
-    * failure, and from the interactive `ApproveTool` closure it would fail the
-    * whole turn with a bare `Stream Closed` that names nothing. The reader
-    * surfaces it as an `Error`; the closure, running on the consumer, can only
-    * trace it.
-    *
-    * Nothing reaches this today: claude 2.1.220 sends no `can_use_tool` over
-    * stdio. Delivering a decision would mean keeping stdin open for the turn.
-    */
-  private def respond(
-      requestId: String,
-      decision: ApprovalDecision
-  ): Either[ConversationEvent.Error, Unit] =
-    val controlDecision = decision match
-      case ApprovalDecision.Allow(update) => ControlDecision.Allow(update)
-      case ApprovalDecision.Deny(reason)  => ControlDecision.Deny(reason)
-    try
-      Right(
-        process.writeLine(
-          OutboundMessage.toJson(
-            OutboundMessage.ControlResponse(requestId, controlDecision)
-          )
-        )
-      )
-    catch
-      case e: java.io.IOException =>
-        Left(
-          ConversationEvent.Error(
-            s"could not deliver the tool-approval decision for request " +
-              s"$requestId — claude's stdin is closed: ${e.getMessage}"
-          )
-        )
 
 private[claude] object ClaudeDecoder:
 
@@ -367,7 +306,6 @@ private[claude] object ClaudeConversation:
   /** Starts decoding `process` into the caller's turn scope. */
   def apply(
       process: PipedCliProcess,
-      config: AgentConfig,
       openingPrompt: Option[String] = None,
       outputSchema: Option[String] = None,
       askUser: AskUserChannel = AskUserChannel.Unavailable
@@ -380,5 +318,5 @@ private[claude] object ClaudeConversation:
         structuredOutputMode = ClaudeBackend.StructuredOutputDelivery,
         askUser = askUser
       ),
-      ClaudeDecoder(process, config, outputSchema)
+      ClaudeDecoder(outputSchema)
     )

@@ -1,7 +1,7 @@
 package orca.plan
 
 import orca.events.EventDispatcher
-import orca.agents.{BackendTag, JsonData, SessionId}
+import orca.agents.{BackendTag, SessionId}
 
 /** Runtime wiring of the autonomous planning grid: each operation pairs its
   * result with the producing session, and `triage` converts the wire
@@ -29,7 +29,7 @@ class PlanGridTest extends munit.FunSuite:
     val canned = new CannedResult(samplePlan)
     val result = Plan.autonomous.from("prompt", canned.agent)
     assertEquals(
-      Some(result.chat.id),
+      Some(result.chat.id.value),
       canned.lastSession,
       "the returned chat must continue the planning turn's conversation"
     )
@@ -46,7 +46,7 @@ class PlanGridTest extends munit.FunSuite:
     )
     val canned = new CannedResult(wire)
     val result = Plan.autonomous.triage("report", canned.agent)
-    assertEquals(Some(result.chat.id), canned.lastSession)
+    assertEquals(Some(result.chat.id.value), canned.lastSession)
     assertEquals(
       result.value,
       Triage.Testable(
@@ -73,21 +73,25 @@ class PlanGridTest extends munit.FunSuite:
 
   // --- post-planning step (reviewed) on the planning session ---
 
-  private def sessioned[A: JsonData](
-      value: A
-  ): Sessioned[BackendTag.ClaudeCode.type, A] =
-    Sessioned(
-      new CannedResult(value).agent
-        .chat(SessionId[BackendTag.ClaudeCode.type]("planner-sid")),
-      value
-    )
+  private val plannerSession =
+    SessionId[BackendTag.ClaudeCode.type]("planner-sid")
+
+  /** `samplePlan` on a planning chat whose agent answers `reply`. */
+  private def planned(reply: CannedResult[Plan]): Sessioned[Plan] =
+    Sessioned(reply.agent.chat(plannerSession), samplePlan)
 
   test("reviewed returns the improved plan on the original chat binding"):
     val improved = samplePlan.copy(description = "tighter", brief = "sharper")
-    val input = sessioned(samplePlan)
-    val result = input.reviewed(new CannedResult(improved).agent)
+    val input = planned(new CannedResult(improved))
+    val result = input.reviewed()
     assertEquals(result.value, improved)
     assert(
       result.chat eq input.chat,
       "reviewed must hand back the original chat, not the review sibling's"
     )
+
+  test("reviewed continues the planning conversation read-only"):
+    val reply = new CannedResult(samplePlan)
+    val _ = planned(reply).reviewed()
+    assertEquals(reply.lastSession, Some(plannerSession.value))
+    assertEquals(reply.lastToolSet, Some(orca.agents.ToolSet.ReadOnly))

@@ -144,12 +144,11 @@ port (ADR 0012). Because gemini reads MCP servers only from
 `settings.json`, `GeminiSettings.register` merges an
 `mcpServers.orca.httpUrl` entry into a project-local
 `<workDir>/.gemini/settings.json` before the spawn and restores the prior
-state afterward. The restore rides as an `extras` `AutoCloseable` on the
-`AskUserSession`, so the base layer runs it when the conversation
-finalises. The merge preserves unknown top-level keys and other configured
-servers (held as `RawJson`), and only touches `allowedMcpServerNames` when
-it already exists — introducing an allowlist where there was none would
-restrict gemini to *only* orca and hide the user's other servers.
+state afterward. The restore is a turn resource, so it runs when the turn
+scope ends. The merge preserves unknown top-level keys and other configured
+servers (held as `RawJson`). gemini intersects the `mcp.allowed` lists of
+all settings scopes, so a user who sets one must list `orca` in it; orca
+does not edit allowlists.
 
 Two sharp edges, accepted:
 
@@ -157,7 +156,9 @@ Two sharp edges, accepted:
   settings file. Flows already mint a fresh session per concurrent
   reviewer, but two *interactive* runs in one directory is unsupported.
 - **Crash safety.** A hard crash skips the restore, leaving a stale `orca`
-  entry. Restore is best-effort, not transactional.
+  entry. The next interactive run in that `workDir` drops it (it matches
+  only an entry of the exact shape orca writes); until then other gemini
+  runs there see a dead `orca` server.
 
 ## Why not the single `json` blob or an app-server
 
@@ -173,9 +174,10 @@ Two sharp edges, accepted:
 - **`gemini mcp add` / `gemini mcp remove`** to register the ask_user
   server. Rejected: mutates the user's *global* config with stateful side
   effects; the project-local merge+restore is narrower and reversible.
-- **A throwaway config-dir override.** Cleaner isolation, but depends on a
-  config-home flag/env we couldn't confirm across versions. Deferred; the
-  project-local merge is the documented path today.
+- **A throwaway config file.** `GEMINI_CLI_HOME` replaces all of
+  `~/.gemini`, auth included. `GEMINI_CLI_SYSTEM_DEFAULTS_PATH` works on
+  gemini 0.50, but gemini-cli #29115 skips system settings files not owned
+  by root, so a per-run temp file is ignored.
 
 ## Testing
 
@@ -185,8 +187,8 @@ Two sharp edges, accepted:
 - `GeminiConversationTest` — scripted JSONL against a
   `FakePipedCliProcess`: answer accumulation, user-echo drop, tool
   round-trip, ask_user suppression, cancel, clean-exit-without-result.
-- `GeminiSettingsTest` — merge preserves keys, allowlist rule, exact-byte
-  restore, file removal when none existed.
+- `GeminiSettingsTest` — merge preserves keys, exact-byte restore, file
+  removal when none existed, stale-entry cleanup, symlink refusal.
 - `GeminiBackendTest` — session id / usage extraction, resume dispatch,
   systemPrompt fold, MCP registration on interactive (autonomous skips it).
 - `DefaultGeminiAgentTest` — `flash`/pro model pins reach `--model`.

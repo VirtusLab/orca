@@ -2,6 +2,7 @@ package orca.tools.gemini
 
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import com.github.plokhotnyuk.jsoniter_scala.macros.JsonCodecMaker
+import orca.OrcaFlowException
 import orca.testkit.TempDirs
 
 class GeminiSettingsTest extends munit.FunSuite:
@@ -30,10 +31,10 @@ class GeminiSettingsTest extends munit.FunSuite:
     assert(servers.contains("orca"), s"expected orca server; got: $servers")
     assert(servers("orca").value.contains("http://127.0.0.1:9999/mcp"))
 
-  test("merge escapes a URL containing JSON metacharacters"):
+  test("withOrca escapes a URL containing JSON metacharacters"):
     // The URL is serialized through a codec, not interpolated, so a `"` or `\`
     // can't break out of the string and produce invalid JSON.
-    val merged = GeminiSettings.merge("{}", """http://h/"x\y""")
+    val merged = GeminiSettings.withOrca("{}", """http://h/"x\y""")
     val servers = topLevel(topLevel(merged)("mcpServers").value)
     val orcaEntry = topLevel(servers("orca").value)
     val httpUrl = readFromString[String](orcaEntry("httpUrl").value)(using
@@ -41,26 +42,15 @@ class GeminiSettingsTest extends munit.FunSuite:
     )
     assertEquals(httpUrl, """http://h/"x\y""")
 
-  test("merge sets the orca server's timeout to the shared ToolTimeout"):
+  test("withOrca sets the orca server's timeout to the shared ToolTimeout"):
     // 3 600 000 ms == 1h == AskUserMcpServer.ToolTimeout. Without it gemini's
     // own MCP client default undercuts the shared budget and fires a duplicate
     // question mid-answer.
-    val merged = GeminiSettings.merge("{}", "http://x/mcp")
+    val merged = GeminiSettings.withOrca("{}", "http://x/mcp")
     val servers = topLevel(topLevel(merged)("mcpServers").value)
     assertEquals(
       servers("orca").value,
       """{"httpUrl":"http://x/mcp","timeout":3600000}"""
-    )
-
-  test("register does NOT add an allowlist when the user has none"):
-    // allowedMcpServerNames is an allowlist; adding one where there was none
-    // would restrict gemini to ONLY orca, hiding the user's other servers.
-    val workDir = TempDirs.dir()
-    val _ = GeminiSettings.register(workDir, "http://x/mcp")
-    val keys = topLevel(os.read(settingsFile(workDir)))
-    assert(
-      !keys.contains("allowedMcpServerNames"),
-      s"must not introduce an allowlist; got: $keys"
     )
 
   test("close removes a .gemini directory it created"):
@@ -108,29 +98,61 @@ class GeminiSettingsTest extends munit.FunSuite:
       "close must restore the original bytes verbatim"
     )
 
-  test("register appends orca to an existing allowlist"):
-    val workDir = TempDirs.dir()
-    val file = settingsFile(workDir)
-    os.write(
-      file,
-      """{"allowedMcpServerNames":["github"]}""",
-      createFolders = true
-    )
-    val _ = GeminiSettings.register(workDir, "http://orca/mcp")
-    val allowlist = topLevel(os.read(file))("allowedMcpServerNames").value
-    assert(allowlist.contains("github"), s"existing entry lost: $allowlist")
-    assert(allowlist.contains("orca"), s"orca not allowlisted: $allowlist")
+  // A timeout other than today's: an older orca's entry still counts as stale.
+  private val StaleEntry: String =
+    """{"orca":{"httpUrl":"http://127.0.0.1:1/mcp","timeout":1}}"""
 
-  test("register does not duplicate orca in an allowlist that already has it"):
+  test("register drops a stale orca entry left by a crashed run"):
     val workDir = TempDirs.dir()
     val file = settingsFile(workDir)
     os.write(
       file,
-      """{"allowedMcpServerNames":["orca"]}""",
+      s"""{"theme":"dark","mcpServers":$StaleEntry}""",
       createFolders = true
     )
-    val _ = GeminiSettings.register(workDir, "http://orca/mcp")
-    val allowlist = readFromString[List[String]](
-      topLevel(os.read(file))("allowedMcpServerNames").value
-    )(using JsonCodecMaker.make[List[String]])
-    assertEquals(allowlist.count(_ == "orca"), 1)
+    GeminiSettings.register(workDir, "http://orca/mcp").close()
+    assertEquals(topLevel(os.read(file)).keySet, Set("theme"))
+
+  test("close removes a .gemini directory that held only a stale orca entry"):
+    val workDir = TempDirs.dir()
+    val file = settingsFile(workDir)
+    os.write(file, s"""{"mcpServers":$StaleEntry}""", createFolders = true)
+    GeminiSettings.register(workDir, "http://orca/mcp").close()
+    assert(!os.exists(workDir / ".gemini"))
+
+  test("register keeps a user's orca entry of another shape"):
+    val workDir = TempDirs.dir()
+    val file = settingsFile(workDir)
+    val original = """{"mcpServers":{"orca":{"command":"my-orca"}}}"""
+    os.write(file, original, createFolders = true)
+    GeminiSettings.register(workDir, "http://orca/mcp").close()
+    assertEquals(os.read(file), original)
+
+  test("register keeps a user's orca entry pointing off the loopback host"):
+    val workDir = TempDirs.dir()
+    val file = settingsFile(workDir)
+    val original =
+      """{"mcpServers":{"orca":{"httpUrl":"http://example.com/mcp","timeout":1}}}"""
+    os.write(file, original, createFolders = true)
+    GeminiSettings.register(workDir, "http://orca/mcp").close()
+    assertEquals(os.read(file), original)
+
+  test("register refuses a symlinked .gemini directory"):
+    val workDir = TempDirs.dir()
+    val target = TempDirs.dir()
+    os.symlink(workDir / ".gemini", target)
+    val _ = intercept[OrcaFlowException](
+      GeminiSettings.register(workDir, "http://orca/mcp")
+    )
+    assertEquals(os.list(target), Seq.empty)
+
+  test("register refuses a symlinked settings.json"):
+    val workDir = TempDirs.dir()
+    val target = TempDirs.dir() / "settings.json"
+    os.write(target, "{}")
+    os.makeDir(workDir / ".gemini")
+    os.symlink(settingsFile(workDir), target)
+    val _ = intercept[OrcaFlowException](
+      GeminiSettings.register(workDir, "http://orca/mcp")
+    )
+    assertEquals(os.read(target), "{}")

@@ -38,15 +38,10 @@ private[orca] object Conversations:
       events: OrcaListener
   )(event: ChannelEvent): Unit = event match
     case ConversationEvent.ApproveTool(toolName, _, respond) =>
-      // The subprocess blocks on stdin waiting for our decision and
-      // autonomous mode has no user to ask, so deny with a reason (so the
-      // agent can adapt) and surface as an error; dropping would deadlock.
+      // The backend blocks waiting for our decision and autonomous mode has no
+      // user to ask, so deny and surface as an error; dropping would deadlock.
       val cause = denialCause(toolName, autoApprove)
-      respond(
-        ApprovalDecision.Deny(
-          Some(s"$toolName denied: $cause, and autonomous mode cannot prompt")
-        )
-      )
+      respond(ApprovalDecision.Deny)
       events.onEvent(
         OrcaEvent.Error(
           s"Denied $toolName: $cause; autonomous mode cannot prompt"

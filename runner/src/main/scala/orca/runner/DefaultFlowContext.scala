@@ -3,7 +3,7 @@ package orca.runner
 import orca.{FlowContext, StackSettings}
 import orca.review.ReviewerCatalog
 import orca.tools.{FsTool, GitHubTool, RuntimeGit}
-import orca.agents.{Agent, BackendTag}
+import orca.agents.Agent
 import orca.events.{OrcaEvent, OrcaListener}
 
 /** Production FlowContext wiring. Constructed by `runFlow` AFTER the three role
@@ -11,20 +11,14 @@ import orca.events.{OrcaEvent, OrcaListener}
   * `stackSettings` are plain constructor facts. Does not own the agents:
   * `runFlow` closes them when the run ends.
   */
-private[orca] class DefaultFlowContext[
-    PB <: BackendTag,
-    CB <: BackendTag,
-    RB <: BackendTag
-](
+private[orca] class DefaultFlowContext(
     val userPrompt: String,
     val workDir: os.Path,
     dispatcher: OrcaListener,
-    // The three role agents (ADR 0020), resolved by `runFlow`. Each is
-    // concretely typed via its own tag parameter so the role type members pin
-    // them and sessions thread.
-    val planningAgent: Agent[PB],
-    val codingAgent: Agent[CB],
-    val reviewAgent: Agent[RB],
+    // The three role agents (ADR 0020), resolved by `runFlow`.
+    val planningAgent: Agent[?],
+    val codingAgent: Agent[?],
+    val reviewAgent: Agent[?],
     wired: WiredAgents,
     private[orca] val runtimeGit: RuntimeGit,
     val gh: GitHubTool,
@@ -40,12 +34,6 @@ private[orca] class DefaultFlowContext[
       */
     val reviewerCatalog: ReviewerCatalog
 ) extends FlowContext:
-
-  // Each role's backend tag, pinned from its type parameter — concrete here so
-  // the role accessors are concretely typed and sessions thread.
-  type PlanB = PB
-  type CodeB = CB
-  type ReviewB = RB
 
   export wired.{claude, codex, opencode, pi, gemini}
 

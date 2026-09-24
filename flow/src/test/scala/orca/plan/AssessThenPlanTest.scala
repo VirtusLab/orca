@@ -63,7 +63,7 @@ class AssessThenPlanTest extends munit.FunSuite:
     val canned = new CannedResult(assessed)
     val result = Plan.autonomous.assessThenPlan("the report", canned.agent)
     // The verdict is carried alongside the conversation that produced it.
-    assertEquals(Some(result.chat.id), canned.lastSession)
+    assertEquals(Some(result.chat.id.value), canned.lastSession)
     assertEquals(
       result.value,
       Verdict.Rejection(Rebuff, "duplicate of #42")

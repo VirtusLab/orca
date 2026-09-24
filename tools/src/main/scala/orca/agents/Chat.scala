@@ -20,9 +20,8 @@ import orca.InStage
   */
 final class Chat[B <: BackendTag] private[orca] (
     private[orca] val agent: Agent[B],
-    /** The underlying conversation id. `private[orca]` — the library's own
-      * continuations reach it; the only public id-adoption door is
-      * `agent.chat(id)` over a `FlowSession.id`.
+    /** The underlying conversation id — library-internal; a durable session
+      * hands out its conversation as `session.chat`.
       */
     private[orca] val id: SessionId[B]
 ):
