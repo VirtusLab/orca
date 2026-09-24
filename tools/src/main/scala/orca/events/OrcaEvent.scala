@@ -95,7 +95,7 @@ enum OrcaEvent:
     * the same value; the first turn of a session is the earliest turn carrying
     * it.
     */
-  case UnpricedTurn(
+  case UnpricedTurn private[orca] (
       agent: String,
       model: Option[Model],
       usage: Usage,
