@@ -43,8 +43,11 @@ private[terminal] final class TerminalActor private (
   def prompt[A](readUser: () => A): A =
     promptGate.acquire()
     try
-      actor.ask(_.output.suspend())
-      try readUser()
+      // An interrupted ask still leaves the suspend queued on the actor, so the
+      // ask sits under the `finally`; resume is a no-op when not suspended.
+      try
+        actor.ask(_.output.suspend())
+        readUser()
       finally actor.ask(_.output.resume())
     finally promptGate.release()
 

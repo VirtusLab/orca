@@ -5,7 +5,7 @@ import ox.channels.BufferCapacity
 import ox.{fork, supervised}
 
 import java.io.{ByteArrayOutputStream, PrintStream}
-import java.util.concurrent.CountDownLatch
+import java.util.concurrent.{CompletableFuture, CountDownLatch}
 import scala.concurrent.duration.DurationInt
 import scala.jdk.CollectionConverters.*
 
@@ -142,6 +142,46 @@ class TerminalActorTest extends munit.FunSuite:
         s"status label stored during suspend must be redrawn on resume; out: $drained"
       )
       output.close()
+
+  test("a prompt interrupted while the actor runs its suspend resumes output"):
+    val buf = new ByteArrayOutputStream()
+    val inSuspend = new CountDownLatch(1)
+    val releaseSuspend = new CountDownLatch(1)
+    // `suspend` prints the count of the open repeat run; blocking that print
+    // holds the actor inside `suspend` while the prompting fork awaits it.
+    val ps = new PrintStream(buf):
+      override def print(s: String): Unit =
+        if s.contains(TerminalOutputState.RepeatGlyph) then
+          inSuspend.countDown()
+          releaseSuspend.await()
+        super.print(s)
+    supervised:
+      val output = TerminalActor.start(
+        ps,
+        useColor = false,
+        animated = false,
+        workDir = None
+      )
+      output.log("repeated")
+      output.log("repeated")
+      val promptingThreadRef = new CompletableFuture[Thread]()
+      val prompting = fork:
+        val _ = promptingThreadRef.complete(Thread.currentThread())
+        try output.prompt(() => fail("the suspend-ask must be interrupted"))
+        catch case _: InterruptedException => ()
+      inSuspend.await()
+      val promptingThread = promptingThreadRef.get()
+      promptingThread.interrupt()
+      // The fork clears the flag when it notices the interrupt; `suspend` is
+      // still blocked then, so the fork's suspend-ask throws.
+      while promptingThread.isInterrupted do Thread.onSpinWait()
+      releaseSuspend.countDown()
+      prompting.join()
+      output.log("after")
+      assert(
+        buf.toString.contains("after"),
+        s"output must not stay suspended; out: $buf"
+      )
 
   test("a render failure reaches the caller and leaves the scope running"):
     val failingOut = new PrintStream(new ByteArrayOutputStream()):
