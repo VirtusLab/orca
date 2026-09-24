@@ -20,7 +20,7 @@ package orca.agents
   * mapping is machine-checked in `runner/.../EnforcementTableTest.scala`, and
   * per-cell rationale lives in each backend's `*Args.enforcementCell`.
   */
-enum Enforcement:
+private[orca] enum Enforcement:
   case Hard, SandboxApprox, PromptOnly, Ignored
 
   /** Whether `this` promises less than `other`. The cases are declared
@@ -40,7 +40,7 @@ enum Enforcement:
   * [[EnforcementNotice]] puts the rationale in the log rather than in the
   * user-facing line.
   */
-case class EnforcementCell(level: Enforcement, rationale: String)
+private[orca] case class EnforcementCell(level: Enforcement, rationale: String)
 
 /** Whether a turn starts a backend session or continues one — the second axis
   * of the enforcement matrix, alongside `(ToolSet, AutoApprove)`. It matters
@@ -51,5 +51,5 @@ case class EnforcementCell(level: Enforcement, rationale: String)
   * Derived from [[orca.backend.Dispatch]] by dropping the wire ids this
   * classification has no use for.
   */
-enum TurnDispatch:
+private[orca] enum TurnDispatch:
   case Fresh, Resumed

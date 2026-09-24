@@ -64,13 +64,13 @@ import scala.util.control.NonFatal
   *   ...
   * ```
   *
-  * Override any tool by passing it as a named argument in the first list (a
-  * `git` override is an `orca.tools.RuntimeGit`):
+  * Override any tool except `git` by passing it as a named argument in the
+  * first list. The runtime owns the run's branch and commits through `git`.
   *
   * ```
   * flow(
   *   OrcaArgs(args),
-  *   git = Some(myGit),
+  *   gh = Some(myGh),
   *   interaction = Some(SlackInteraction(...))
   * ):
   *   ...
@@ -141,7 +141,6 @@ def flow(
     opencode: Option[AgentWiring => Ox ?=> OpencodeAgent] = None,
     pi: Option[AgentWiring => Ox ?=> PiAgent] = None,
     gemini: Option[AgentWiring => Ox ?=> GeminiAgent] = None,
-    git: Option[RuntimeGit] = None,
     gh: Option[GitHubTool] = None,
     fs: Option[FsTool] = None,
     prompts: Prompts = DefaultPrompts,
@@ -233,7 +232,6 @@ def flow(
                   opencode = opencode,
                   pi = pi,
                   gemini = gemini,
-                  git = git,
                   gh = gh,
                   fs = fs,
                   prompts = prompts

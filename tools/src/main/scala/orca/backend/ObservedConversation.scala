@@ -69,7 +69,7 @@ final class ObservedConversation[B <: BackendTag] private[orca] (
         throw t
     conv.awaitResult().orThrow
 
-  /** See [[Conversation.cancel]]. */
+  /** End the turn. Safe to call from any thread. */
   def cancel(): Unit = conv.cancel()
 
 private[orca] object ObservedConversation:

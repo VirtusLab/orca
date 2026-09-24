@@ -13,7 +13,7 @@ import orca.tools.RuntimeGit
   * The lifecycle's teardown delete and the PR helpers' "did this run change
   * code" both read it, so the two cannot disagree.
   */
-object ThrowawayBranch:
+private[orca] object ThrowawayBranch:
   def isThrowaway(
       git: RuntimeGit,
       branchMode: BranchMode,

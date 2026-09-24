@@ -23,3 +23,12 @@ class RuntimeGitNegativeTest extends munit.FunSuite:
       """
     )
     assert(errors.contains("is not a member of orca.tools.GitTool"), errors)
+
+  test("a script cannot name the runtime's git type"):
+    val errors = compileErrors(
+      """
+      val ctx: orca.FlowContext = ???
+      ctx.git.asInstanceOf[orca.tools.RuntimeGit]
+      """
+    )
+    assert(errors.contains("cannot be accessed"), errors)

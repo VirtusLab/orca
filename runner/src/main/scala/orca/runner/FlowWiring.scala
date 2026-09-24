@@ -33,6 +33,7 @@ private[orca] case class FlowWiring(
     opencode: Option[AgentWiring => Ox ?=> OpencodeAgent] = None,
     pi: Option[AgentWiring => Ox ?=> PiAgent] = None,
     gemini: Option[AgentWiring => Ox ?=> GeminiAgent] = None,
+    // Set only by tests: `flow(...)` has no `git` argument.
     git: Option[RuntimeGit] = None,
     gh: Option[GitHubTool] = None,
     fs: Option[FsTool] = None,

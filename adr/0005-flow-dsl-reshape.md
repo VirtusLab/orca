@@ -116,6 +116,12 @@ Five Scala-3-specific constraints pin this shape:
 > remain plain values, so `flow(args, git = Some(myGit))` itself is still
 > accurate as written.
 
+> **Amendment (2026-09-24).** `flow(...)` no longer takes `git`, so the
+> `git = Some(myGit)` examples above no longer compile. The runtime commits,
+> switches branches and tears down through it, and its implementation is
+> internal, so a replacement would mean re-implementing all of that. The other
+> tools remain plain-value overrides.
+
 ## Alternatives considered
 
 - **Keep `orca:` as the entry.** Needs either collapsing to a single

@@ -15,7 +15,7 @@ import orca.{OrcaInteractiveCancelled}
   * [[ConversationEvent.ApproveTool]] — the channel does not track request-ids.
   * `cancel` is safe to call from any thread.
   */
-trait Conversation[B <: BackendTag]:
+private[orca] trait Conversation[B <: BackendTag]:
 
   /** The JSON-schema string the conversation was launched with, or `None` for
     * free-form prose. Renderers and channels consult it to decide whether the
