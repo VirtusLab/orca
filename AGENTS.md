@@ -161,7 +161,9 @@ most easily broken:
   script combines: `Chat`, `FlowSession` and `Sessioned` carry their agent and
   conversation from creation, and every way to pair them (`Chat`'s
   constructor, `Agent.chat(continueFrom)`, `Sessioned`'s `apply`/`copy`,
-  `SessionId`) is `private[orca]` or narrower. An adopted chat refuses a turn
+  `SessionId`, `WireSessionId`) is `private[orca]` or narrower.
+  `Chat.withAgent` swaps in a variant of the chat's agent and refuses one on
+  another backend instance. An adopted chat refuses a turn
   while `dispatchFor` says `Fresh` (ADR 0018, amendment 2026-09-24).
 
   Sessions have explicit identity: `agent.session(name, seed)` keys an
