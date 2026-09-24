@@ -21,9 +21,10 @@ trait Prompts:
   ): String
 
   /** Prompt for an interactive call: the model converses with the user on
-    * intermediate turns, then produces a single JSON value matching the output
-    * schema as its final turn. The runtime validates it against the schema via
-    * `--json-schema` (or equivalent); no in-band completion marker is required.
+    * intermediate messages, then produces a single JSON value matching the
+    * output schema as its final message. The runtime validates it against the
+    * schema via `--json-schema` (or equivalent); no in-band completion marker
+    * is required.
     */
   def interactive(
       input: String,

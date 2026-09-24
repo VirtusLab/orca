@@ -5,11 +5,11 @@ import orca.util.RawJson
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
 
-/** The inner `event` of a `stream_event` message: one chunk of a partial turn.
-  * We route on the block-delta events (text, thinking, tool-input chunks) that
-  * drive responsive UI. Events we recognise but don't act on collapse to
-  * `Unhandled(eventType)`; this is deliberately distinct from `Unknown` in the
-  * other ADTs, which covers types we don't recognise at all.
+/** The inner `event` of a `stream_event` message: one chunk of a partial
+  * message. We route on the block-delta events (text, thinking, tool-input
+  * chunks) that drive responsive UI. Events we recognise but don't act on
+  * collapse to `Unhandled(eventType)`; this is deliberately distinct from
+  * `Unknown` in the other ADTs, which covers types we don't recognise at all.
   */
 private[claude] enum StreamEventPayload:
   case TextDelta(index: Int, text: String)

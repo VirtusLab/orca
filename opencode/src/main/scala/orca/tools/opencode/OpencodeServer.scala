@@ -23,9 +23,9 @@ import org.slf4j.LoggerFactory
 import java.util.UUID
 import scala.util.control.NonFatal
 
-/** A run's shared `opencode serve` process (ADR 0014). The process, its output
-  * drains and its HTTP client live in one daemon fork of the scope that built
-  * the server (see [[OpencodeServer.apply]]).
+/** An attempt's shared `opencode serve` process (ADR 0014). The process, its
+  * output drains and its HTTP client live in one daemon fork of the scope that
+  * built the server (see [[OpencodeServer.apply]]).
   *
   * A random `OPENCODE_SERVER_PASSWORD` keeps the bound localhost port closed to
   * other processes; `--pure` is not passed so the server inherits the user's

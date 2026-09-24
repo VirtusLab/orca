@@ -12,7 +12,7 @@ import orca.agents.{
 import orca.subprocess.CliResult
 import orca.backend.{
   AskUserChannel,
-  Conversation,
+  LiveTurn,
   TurnRequest,
   Dispatch,
   AgentBackend,
@@ -33,9 +33,9 @@ import ox.{Ox, discard}
   * See [[../../../adr/0015-gemini-stream-json-driver.md ADR 0015]] for the
   * protocol shape and rationale.
   *
-  * Both modes wrap the subprocess in a [[GeminiConversation]]. Multi-turn calls
-  * with the same session id route through `gemini --resume <session-id>` via
-  * [[sessions]] (an [[IdScheme.ServerMinted]] id learned from the prior run's
+  * Both modes wrap the subprocess in a [[GeminiTurn]]. Multi-turn calls with
+  * the same session id route through `gemini --resume <session-id>` via
+  * [[sessions]] (an [[IdScheme.ServerMinted]] id learned from the prior turn's
   * `init` event).
   *
   * Interactive calls additionally stand up an `ask_user` MCP host bridge
@@ -89,8 +89,8 @@ private[orca] class GeminiBackend(
     )
 
   /** Spawn `gemini -p` (fresh) or `gemini --resume <server-id> -p`
-    * (continuation) and wrap the process in a live [[GeminiConversation]].
-    * Stdin is closed immediately — gemini consumes the prompt argv-side.
+    * (continuation) and wrap the process in a [[GeminiTurn]]. Stdin is closed
+    * immediately — gemini consumes the prompt argv-side.
     *
     * `Interactive` mode additionally wires the MCP `ask_user` tool: stand up
     * the bridge, merge the server URL into `.gemini/settings.json` (restored
@@ -99,7 +99,7 @@ private[orca] class GeminiBackend(
     */
   override protected[orca] def open(
       turn: TurnRequest[BackendTag.Gemini.type]
-  )(using Ox): Conversation[BackendTag.Gemini.type] =
+  )(using Ox): LiveTurn[BackendTag.Gemini.type] =
     import turn.*
     val askUser: Option[AskUserSession] =
       Option.when(mode.isInteractive):
@@ -125,7 +125,7 @@ private[orca] class GeminiBackend(
     } { process =>
       // Close stdin so the child stops waiting on EOF.
       process.closeStdin()
-      GeminiConversation(
+      GeminiTurn(
         process,
         openingPrompt = mode.openingPrompt,
         outputSchema = outputSchema,

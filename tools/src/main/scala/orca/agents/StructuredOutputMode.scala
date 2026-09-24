@@ -2,9 +2,7 @@ package orca.agents
 
 /** How a backend's wire delivers the payload of a structured (`resultAs[O]`)
   * turn. Declared per backend via `AgentBackend.structuredOutputMode`; read by
-  * [[Prompts]], so every delivery instruction matches the wire, and by the
-  * autonomous drain (`orca.backend.Conversations`), to know whether the closing
-  * assistant turn is the payload.
+  * [[Prompts]], so every delivery instruction matches the wire.
   */
 enum StructuredOutputMode:
   /** The CLI injects a `StructuredOutput` tool and the model answers by calling

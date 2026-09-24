@@ -16,7 +16,7 @@ Status: Accepted · Date: 2026-04-22 (updated 2026-04-23)
 > scope, draining or driving, the session commit and teardown.
 >
 > **Amendment (2026-09-24).** The SPI (`AgentBackend`, `SessionSupport`,
-> `Conversation`) is `private[orca]`: backends are pluggable inside orca, not
+> `LiveTurn`) is `private[orca]`: backends are pluggable inside orca, not
 > from flow scripts. A new harness is added as an orca module.
 
 ## Decision

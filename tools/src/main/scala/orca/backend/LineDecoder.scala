@@ -4,10 +4,10 @@ import orca.agents.BackendTag
 import orca.events.TurnDebit
 
 /** One backend's wire protocol, as a fold over the lines of its stream: each
-  * line turns the decoder's state `S` into a [[Step]]. [[StreamConversation]]
-  * runs the fold on its reader fork and owns everything else — turn grammar,
-  * stderr, outcome, teardown — calling back [[onUnsettledEnd]] for a turn that
-  * ended without a settle.
+  * line turns the decoder's state `S` into a [[Step]]. [[DecodedTurn]] runs the
+  * fold on its reader fork and owns everything else — message grammar, stderr,
+  * outcome, teardown — calling back [[onUnsettledEnd]] for a turn that ended
+  * without a settle.
   *
   * `line` may write to the wire (a stdin reply, an HTTP post) but keeps no
   * state outside `S`. A throw from it is reported as a parse-error `Error`
@@ -49,22 +49,22 @@ private[orca] trait LineDecoder[B <: BackendTag, S]:
 
 /** The result of decoding one line. */
 private[orca] enum Step[B <: BackendTag, S]:
-  case Continue(state: S, events: List[ConversationEvent])
+  case Continue(state: S, events: List[TurnEvent])
 
   /** The turn's outcome is known: `events` are the last ones it emits, and any
     * later line is ignored. `state` still feeds the failure diagnostics.
     */
-  case Settle(state: S, events: List[ConversationEvent], outcome: Settled[B])
+  case Settle(state: S, events: List[TurnEvent], outcome: Settled[B])
 
 private[orca] object Step:
   def continue[B <: BackendTag, S](
       state: S,
-      events: ConversationEvent*
+      events: TurnEvent*
   ): Step[B, S] = Step.Continue(state, events.toList)
 
 /** How a decoder ends a turn. A `Failed` turn surfaces as
   * [[orca.AgentTurnFailed]] with `message` plus the diagnostics the
-  * conversation collected.
+  * [[DecodedTurn]] collected.
   */
 private[orca] enum Settled[B <: BackendTag]:
   case Succeeded(result: AgentResult[B])

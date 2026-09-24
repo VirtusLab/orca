@@ -11,7 +11,7 @@ import orca.agents.{
   ToolSet,
   WireSessionId
 }
-import orca.backend.{ConversationEvent, SupervisedBackend}
+import orca.backend.{TurnEvent, SupervisedBackend}
 import orca.subprocess.OsProcCliRunner
 import orca.testkit.TempDirs
 
@@ -80,9 +80,9 @@ class CodexIntegrationTest extends munit.FunSuite:
         s"expected resumed session to recall '42', got: ${second.output}"
       )
 
-  test("interactive session reaches a result with a session id"):
+  test("interactive turn reaches a result with a session id"):
     withBackend(): backend =>
-      val conversation = OpenTurn.interactive(backend)(
+      val live = OpenTurn.interactive(backend)(
         prompt = "Reply with just the number 7. Nothing else.",
         session = fresh,
         displayPrompt = "reply with 7",
@@ -90,18 +90,18 @@ class CodexIntegrationTest extends munit.FunSuite:
         outputSchema = None
       )
       try
-        conversation.events.foreach(_ => ())
-        val Right(result) = conversation.awaitResult(): @unchecked
+        live.events.foreach(_ => ())
+        val Right(result) = live.awaitResult(): @unchecked
         assert(
           result.output.contains("7"),
           s"expected a reply containing '7', got: ${result.output}"
         )
         assert(WireSessionId.value(result.wireId).nonEmpty)
-      finally conversation.cancel()
+      finally live.cancel()
 
-  test("interactive session emits AssistantTextDelta + AssistantTurnEnd"):
+  test("interactive turn emits AssistantTextDelta + AssistantMessageEnd"):
     withBackend(): backend =>
-      val conversation = OpenTurn.interactive(backend)(
+      val live = OpenTurn.interactive(backend)(
         prompt =
           "Reply with: 1, 2, 3. Just those three numbers separated by commas, nothing else.",
         session = fresh,
@@ -110,17 +110,17 @@ class CodexIntegrationTest extends munit.FunSuite:
         outputSchema = None
       )
       try
-        val events = conversation.events.toList
-        val _ = conversation.awaitResult()
+        val events = live.events.toList
+        val _ = live.awaitResult()
         assert(
-          events.exists(_.isInstanceOf[ConversationEvent.AssistantTextDelta]),
+          events.exists(_.isInstanceOf[TurnEvent.AssistantTextDelta]),
           s"expected an AssistantTextDelta; got: $events"
         )
         assert(
-          events.contains(ConversationEvent.AssistantTurnEnd),
-          s"expected an AssistantTurnEnd; got: $events"
+          events.contains(TurnEvent.AssistantMessageEnd),
+          s"expected an AssistantMessageEnd; got: $events"
         )
-      finally conversation.cancel()
+      finally live.cancel()
 
   test(
     "a reviewer-shaped turn (read-only, systemPrompt, pinned model) succeeds with a valid model"
@@ -167,19 +167,19 @@ class CodexIntegrationTest extends munit.FunSuite:
 
   test(
     "structured call with a tool call before the answer produces exactly " +
-      "one turn (regression for the `●` JSON leak)"
+      "one message (regression for the `●` JSON leak)"
   ):
     // Reproduces the reported bug live: codex, when told to run a tool before
     // answering under `--output-schema`, sometimes emits an early "commentary"
     // agent_message (often identical to the eventual answer) before the tool
-    // call, then the genuine final one. Before the fix, CodexConversation
-    // closed a turn per agent_message, so the commentary message surfaced as
-    // its own finished turn and got echoed as `AssistantMessage` prose by
-    // `Conversations`' withholding buffer once the final turn closed.
+    // call, then the genuine final one. Before the fix, CodexTurn
+    // closed a message per agent_message, so the commentary surfaced as its
+    // own finished message and got echoed as `AssistantMessage` prose by
+    // `ObservedTurn`'s withholding buffer once the final message closed.
     val workDir = TempDirs.dir()
     os.write(workDir / "marker.txt", "orca-codex-marker")
     withBackend(workDir): backend =>
-      val conversation = OpenTurn.interactive(backend)(
+      val live = OpenTurn.interactive(backend)(
         prompt =
           "You MUST run the shell command `cat marker.txt` first, then " +
             "respond with JSON only (no commentary): {\"issues\":[]}",
@@ -191,21 +191,21 @@ class CodexIntegrationTest extends munit.FunSuite:
         )
       )
       try
-        val events = conversation.events.toList
-        val _ = conversation.awaitResult()
+        val events = live.events.toList
+        val _ = live.awaitResult()
         assertEquals(
-          events.count(_ == ConversationEvent.AssistantTurnEnd),
+          events.count(_ == TurnEvent.AssistantMessageEnd),
           1,
           s"expected every agent_message in this structured call to share " +
             s"one turn; got: $events"
         )
-      finally conversation.cancel()
+      finally live.cancel()
 
   test("a tool-using prompt surfaces a ToolResult"):
     val workDir = TempDirs.dir()
     os.write(workDir / "marker.txt", "orca-codex-marker")
     withBackend(workDir): backend =>
-      val conversation = OpenTurn.interactive(backend)(
+      val live = OpenTurn.interactive(backend)(
         prompt =
           "You MUST run the shell command `cat marker.txt` first to read the file. Then tell me what it contained. Reply briefly.",
         session = fresh,
@@ -214,13 +214,13 @@ class CodexIntegrationTest extends munit.FunSuite:
         outputSchema = None
       )
       try
-        val events = conversation.events.toList
-        val _ = conversation.awaitResult()
+        val events = live.events.toList
+        val _ = live.awaitResult()
         // Models occasionally answer from context without invoking bash.
         // Assert the ToolResult side specifically — if codex did run the
         // shell, we'll see one.
         assert(
-          events.exists(_.isInstanceOf[ConversationEvent.ToolResult]),
+          events.exists(_.isInstanceOf[TurnEvent.ToolResult]),
           s"expected a ToolResult after a directed tool-using prompt; got: $events"
         )
-      finally conversation.cancel()
+      finally live.cancel()

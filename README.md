@@ -689,9 +689,9 @@ brief**, or the issue body when there is no brief. A fresh session is primed
 with it on first use; if the backend lost the conversation on resume, the
 session is re-seeded (with a warning: history is gone, only the seed plus a
 preamble naming completed stages are rebuilt), while a live session continues
-with its full history — told once, on this run's first turn against it, that the
+with its full history — told once, on this attempt's first turn against it, that the
 tree holds only what earlier stages committed, since a conversation a previous
-run opened remembers writing files that are no longer there.
+attempt opened remembers writing files that are no longer there.
 
 **How long a session should live.** A backend conversation is re-sent whole on
 every API call it makes, so what a session costs grows with everything it has

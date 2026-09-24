@@ -24,7 +24,7 @@ class SessionSupportTest extends munit.FunSuite:
     s.register(client, client.onWire)
     assertEquals(
       s.dispatchFor(client),
-      Dispatch.Resume(client.onWire, ResumeOrigin.ThisRun)
+      Dispatch.Resume(client.onWire, ResumeOrigin.ThisAttempt)
     )
 
   test("ClientClaimed: distinct client ids are tracked independently"):
@@ -37,16 +37,16 @@ class SessionSupportTest extends munit.FunSuite:
     s.register(a, a.onWire)
     assertEquals(
       s.dispatchFor(a),
-      Dispatch.Resume(a.onWire, ResumeOrigin.ThisRun)
+      Dispatch.Resume(a.onWire, ResumeOrigin.ThisAttempt)
     )
     assertEquals(s.dispatchFor(b), Dispatch.Fresh(Some(b.onWire)))
 
   test(
     "ClientClaimed: a claim the backend already holds resumes, never re-claims"
   ):
-    // A run interrupted during a session's first turn leaves the transcript
+    // An attempt interrupted during a session's first turn leaves the transcript
     // written and nothing committed. Claiming that id again is what the CLIs
-    // refuse, so the next run must resume against it.
+    // refuse, so the next attempt must resume against it.
     val s = SessionSupport.durable[BackendTag.ClaudeCode.type](
       IdScheme.ClientClaimed,
       _ => true
@@ -54,7 +54,7 @@ class SessionSupportTest extends munit.FunSuite:
     val client = SessionId[BackendTag.ClaudeCode.type]("interrupted-id")
     assertEquals(
       s.dispatchFor(client),
-      Dispatch.Resume(client.onWire, ResumeOrigin.EarlierRun)
+      Dispatch.Resume(client.onWire, ResumeOrigin.EarlierAttempt)
     )
 
   test("ClientClaimed: a held claim is probed once, then settled"):
@@ -64,7 +64,7 @@ class SessionSupportTest extends munit.FunSuite:
       _ => { probes += 1; true }
     )
     val client = SessionId[BackendTag.ClaudeCode.type]("interrupted-id")
-    val expected = Dispatch.Resume(client.onWire, ResumeOrigin.EarlierRun)
+    val expected = Dispatch.Resume(client.onWire, ResumeOrigin.EarlierAttempt)
     assertEquals(s.dispatchFor(client), expected)
     s.register(client, client.onWire)
     assertEquals(s.dispatchFor(client), expected)
@@ -105,7 +105,7 @@ class SessionSupportTest extends munit.FunSuite:
     s.register(client, server)
     assertEquals(
       s.dispatchFor(client),
-      Dispatch.Resume(server, ResumeOrigin.ThisRun)
+      Dispatch.Resume(server, ResumeOrigin.ThisAttempt)
     )
 
   test("ServerMinted: first commit wins — a second commit doesn't overwrite"):
@@ -122,7 +122,7 @@ class SessionSupportTest extends munit.FunSuite:
     s.register(client, wireSid("server-2"))
     assertEquals(
       s.dispatchFor(client),
-      Dispatch.Resume(wireSid("server-1"), ResumeOrigin.ThisRun)
+      Dispatch.Resume(wireSid("server-1"), ResumeOrigin.ThisAttempt)
     )
 
   test("ClientClaimed: the stored wire id is the claim, not the reported id"):
@@ -167,7 +167,7 @@ class SessionSupportTest extends munit.FunSuite:
 
   // ── rehydrated wire ids ────────────────────────────────────────────────────
 
-  test("rehydrated id: probed once, then resumed as an earlier run's"):
+  test("rehydrated id: probed once, then resumed as an earlier attempt's"):
     var probed = List.empty[String]
     val s = SessionSupport.durable[BackendTag.Codex.type](
       IdScheme.ServerMinted,
@@ -175,7 +175,8 @@ class SessionSupportTest extends munit.FunSuite:
     )
     val client = clientSid("client")
     s.rehydrate(client, wireSid("srv-1"))
-    val expected = Dispatch.Resume(wireSid("srv-1"), ResumeOrigin.EarlierRun)
+    val expected =
+      Dispatch.Resume(wireSid("srv-1"), ResumeOrigin.EarlierAttempt)
     assertEquals(s.dispatchFor(client), expected)
     assertEquals(s.dispatchFor(client), expected)
     assertEquals(probed, List("srv-1"))

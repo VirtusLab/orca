@@ -1,6 +1,6 @@
 package orca.runner.terminal
 
-import orca.backend.{AgentResult, Interaction, ObservedConversation}
+import orca.backend.{AgentResult, Interaction, ObservedTurn}
 import orca.events.OrcaListener
 import orca.agents.BackendTag
 import ox.Ox
@@ -33,12 +33,12 @@ class TerminalInteraction private[terminal] (
 
   val listeners: List[OrcaListener] = List(output.listener)
 
-  /** Drive a live conversation to completion on the caller's thread, prompting
-    * for its approvals and questions. Returns when the conversation finishes.
-    * Backend errors surface as `OrcaInteractiveCancelled` or other throwables.
+  /** Drive a live turn to completion on the caller's thread, prompting for its
+    * approvals and questions. Returns when the turn finishes. Backend errors
+    * surface as `OrcaInteractiveCancelled` or other throwables.
     */
   def drive[B <: BackendTag](
-      conversation: ObservedConversation[B]
+      turn: ObservedTurn[B]
   ): AgentResult[B] =
     new TerminalPrompts(
       useColor = useColor,
@@ -46,7 +46,7 @@ class TerminalInteraction private[terminal] (
       currentIndent = () => output.currentIndent,
       workDir = workDir,
       prompter = prompter
-    ).drive(conversation)
+    ).drive(turn)
 
   override def close(): Unit = output.close()
 

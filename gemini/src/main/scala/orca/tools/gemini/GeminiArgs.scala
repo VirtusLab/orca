@@ -37,7 +37,7 @@ private[gemini] object GeminiArgs:
       Seq("--output-format", "stream-json", "-p", prompt)
 
   /** Multi-turn continuation: `gemini --resume <id> -p <prompt>`. The id is the
-    * session id learned from the prior run's `init` event.
+    * session id learned from the prior turn's `init` event.
     */
   def resume(
       sessionId: WireSessionId[BackendTag.Gemini.type],
