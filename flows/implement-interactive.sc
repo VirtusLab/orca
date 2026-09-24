@@ -47,7 +47,7 @@ flow(OrcaArgs(args)):
           task = task
         )
 
-  // Nothing reviews again after this loop, hence the raised iteration cap.
+  // Nothing reviews again after this loop, hence the raised fix-turn cap.
   val openFindings = stage("Final review"):
     val finalFixer = codingAgent.session("final-fixer", seed = plan.brief)
     reviewAndFixLoop(
@@ -55,7 +55,7 @@ flow(OrcaArgs(args)):
       reviewers = allReviewers(reviewAgent),
       task = Task(Title("The whole planned change"), plan.brief),
       diff = ReviewDiff.WholeRun,
-      maxIterations = 5,
+      maxFixTurns = 5,
       priorOpenFindings = taskOpenFindings.flatMap(_.findings)
     )
 

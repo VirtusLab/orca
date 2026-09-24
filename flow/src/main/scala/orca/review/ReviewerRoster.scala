@@ -59,7 +59,7 @@ private[review] object RosterEntry:
 
 /** One round of reviews, with each reviewer's individual outcome preserved and
   * kept in configured order, so the loop can decide which reviewers to re-run
-  * next iteration based on which ones reported findings.
+  * next round based on which ones reported findings.
   */
 case class ReviewBatch(outcomes: List[(RosterEntry, ReviewResult)]):
   def reviewersWithFindings: List[RosterEntry] =

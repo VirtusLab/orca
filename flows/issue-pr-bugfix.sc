@@ -265,7 +265,7 @@ def planAndImplementFix(
           userRequest = Some(issuePayload)
         )
 
-  // Nothing reviews again after this loop, hence the raised iteration cap.
+  // Nothing reviews again after this loop, hence the raised fix-turn cap.
   stage("Final review"):
     val finalFixer = codingAgent.session("final-fixer", seed = fixSeed)
     reviewAndFixLoop(
@@ -274,6 +274,6 @@ def planAndImplementFix(
       task = Task(Title(s"Fix for ${issueHandle.shortRef}"), fixPlan.brief),
       userRequest = Some(issuePayload),
       diff = ReviewDiff.WholeRun,
-      maxIterations = 5,
+      maxFixTurns = 5,
       priorOpenFindings = taskOpenFindings.flatMap(_.findings)
     )
