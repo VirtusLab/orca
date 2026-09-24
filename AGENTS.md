@@ -424,8 +424,8 @@ screen output and the PR body:
   fixing agent fills, so it carries title and reason and nothing else.
 - **open finding** (`OpenFinding`, `OpenFindings`) — a finding the run ends
   without resolving, paired with an `OpenReason`: declined, never reported on
-  by the fixer, past the round cap, still failing lint, or recorded by a flow
-  itself (`OpenFinding.custom`). Identified by its
+  by the fixer, past the round cap, still failing lint or a check after its fix
+  turn, or recorded by a flow itself (`OpenFinding.custom`). Identified by its
   `FindingId`, never by its title. This is what `reviewThenFix` and
   `reviewAndFixLoop` return, what later rounds' reviewers are shown, and what
   the PR body and the run output list under "Open review findings". A review
