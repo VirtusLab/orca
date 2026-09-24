@@ -74,13 +74,6 @@ private[orca] object OpencodeBackend:
     */
   private[opencode] val StructuredOutputToolName: String = "StructuredOutput"
 
-  /** Shared by [[OpencodeBackend.structuredOutputMode]] and [[OpencodeTurn]],
-    * so prompt assembly and the drain can't disagree about how the payload
-    * arrives.
-    */
-  private[opencode] val StructuredOutputDelivery: StructuredOutputMode =
-    StructuredOutputMode.Tool
-
 /** `server` and `workDir` must agree; `apply` is the only production
   * constructor.
   */
@@ -108,7 +101,7 @@ private[orca] class OpencodeBackend(
     * `info.structured`) — never as reply text.
     */
   override def structuredOutputMode: StructuredOutputMode =
-    OpencodeBackend.StructuredOutputDelivery
+    StructuredOutputMode.Tool
 
   // Provider-matched so incidental work doesn't pull in a second provider's
   // auth: an openai-led agent's cheap is an openai model, otherwise anthropic

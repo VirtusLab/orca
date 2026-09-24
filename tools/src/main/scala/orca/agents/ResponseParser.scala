@@ -32,7 +32,7 @@ private[agents] object ResponseParser:
   /** Parse an LLM-returned JSON string into `O`, tolerating markdown code
     * fences and prose preamble/coda around the JSON body. Tries candidates from
     * the *right* first, so a final answer `{...}` at the end wins over an
-    * incidental `{ ... }` in prose. If every direct attempt fails, also tries
+    * incidental `{ ... }` in prose. If every direct parse fails, also tries
     * unwrapping a lone `{"input": <value>}` envelope (see
     * [[unwrapInputEnvelope]]) before raising a
     * [[MalformedAgentOutputException]].
@@ -42,8 +42,8 @@ private[agents] object ResponseParser:
     // `trimmed` is always in the candidate list so every failure has
     // at least one recorded JsonReaderException to surface.
     val candidates = (extractJsonObjects(trimmed).reverse :+ trimmed).distinct
-    val attempts = candidates.map(tryParse[O])
-    attempts.collectFirst { case Right(value) => value } match
+    val parseResults = candidates.map(tryParse[O])
+    parseResults.collectFirst { case Right(value) => value } match
       case Some(value) => value
       case None =>
         candidates.flatMap(unwrapInputEnvelope[O]).collectFirst {
@@ -51,7 +51,7 @@ private[agents] object ResponseParser:
         } match
           case Some(value) => value
           case None =>
-            val lastError = attempts.collect { case Left(e) => e }.last
+            val lastError = parseResults.collect { case Left(e) => e }.last
             throw new MalformedAgentOutputException(
               rawOutput = raw,
               shortCause = shortMessage(lastError),

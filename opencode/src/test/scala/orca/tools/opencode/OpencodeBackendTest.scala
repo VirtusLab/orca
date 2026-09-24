@@ -116,10 +116,9 @@ class OpencodeBackendTest extends munit.FunSuite:
       assertEquals(http.posts.count(_._1.endsWith("/prompt_async")), 2)
 
   test("opencode declares Tool structured-output mode"):
-    // The declaration behind the prompt's delivery instruction and the drain's
-    // closing-prose rule: `format: json_schema` (the body field asserted in
-    // OpencodeArgsTest) makes the server deliver the payload through an
-    // injected StructuredOutput tool.
+    // The declaration behind the prompt's delivery instruction:
+    // `format: json_schema` (the body field asserted in OpencodeArgsTest) makes
+    // the server deliver the payload through an injected StructuredOutput tool.
     supervised:
       val backend = new OpencodeBackend(new FakeHandle(new FakeHttp(Nil)))
       assertEquals(backend.structuredOutputMode, StructuredOutputMode.Tool)
@@ -141,22 +140,6 @@ class OpencodeBackendTest extends munit.FunSuite:
         backend.cheapModel(Some(Model("ollama/llama3.1"))),
         Some(Model("anthropic/claude-haiku-4-5"))
       )
-
-  test("the turn declares the same mode as the backend"):
-    // The prompt is built from the BACKEND's mode while the autonomous drain
-    // reads the TURN's; a disagreement renders the payload message as
-    // prose (or withholds prose that is not the payload).
-    supervised:
-      val http = new FakeHttp(turn("ses_server1", "tool-calls", Nil))
-      val backend = new OpencodeBackend(new FakeHandle(http))
-      val live = OpenTurn.interactive(backend)(
-        "q",
-        fresh,
-        "display",
-        AgentConfig(),
-        outputSchema = Some("""{"type":"object"}""")
-      )
-      assertEquals(live.structuredOutputMode, backend.structuredOutputMode)
 
   test("registerSession lets a later call resume that server session directly"):
     supervised:

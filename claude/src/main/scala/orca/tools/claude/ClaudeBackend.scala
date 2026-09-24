@@ -84,7 +84,7 @@ private[orca] class ClaudeBackend(
   export ClaudeArgs.enforcementCell
 
   override def structuredOutputMode: StructuredOutputMode =
-    ClaudeBackend.StructuredOutputDelivery
+    StructuredOutputMode.Tool
 
   def cheapModel(leading: Option[Model]): Option[Model] =
     Some(ClaudeModels.Haiku)
@@ -286,10 +286,3 @@ object ClaudeBackend:
     * tool call too would show the same JSON twice.
     */
   private[claude] val StructuredOutputToolName: String = "StructuredOutput"
-
-  /** Shared by [[ClaudeBackend.structuredOutputMode]] and [[ClaudeTurn]], so
-    * prompt assembly and the drain can't disagree about how the payload
-    * arrives.
-    */
-  private[claude] val StructuredOutputDelivery: StructuredOutputMode =
-    StructuredOutputMode.Tool

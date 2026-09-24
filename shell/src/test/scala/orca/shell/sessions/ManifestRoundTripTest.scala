@@ -37,7 +37,7 @@ class ManifestRoundTripTest extends munit.FunSuite:
       writer.onEvent(StageEvents.started("code"))
       writer.onEvent(
         OrcaEvent.SessionCommitted(
-          harness = BackendTag.ClaudeCode,
+          backend = BackendTag.ClaudeCode,
           clientId = "client-1",
           wireId = Some("wire-1"),
           sessionKey = Some(coderKey),
@@ -53,7 +53,7 @@ class ManifestRoundTripTest extends munit.FunSuite:
     assertEquals(attempts.size, 1)
     assertEquals(attempts.head.crashed, false)
     val session = attempts.head.manifest.sessions.head
-    assertEquals(session.harness, BackendTag.ClaudeCode)
+    assertEquals(session.backend, BackendTag.ClaudeCode)
     assertEquals(session.wireId, Some("wire-1"))
     assertEquals(session.minted, Some(coderKey))
     assertEquals(session.stage, Some("code"))

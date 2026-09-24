@@ -40,11 +40,11 @@ private[shell] object ManifestFixtures:
       sessionStage: StagePath = StagePath.FlowBody,
       stage: Option[String] = None,
       lastActiveAt: String = "2026-07-18T10:00:00Z",
-      harness: BackendTag = BackendTag.ClaudeCode,
+      backend: BackendTag = BackendTag.ClaudeCode,
       wireId: Option[String] = Some("uuid")
   ): ManifestSession =
     ManifestSession(
-      harness = harness,
+      backend = backend,
       wireId = wireId,
       agent = agent,
       role = None,
@@ -63,11 +63,11 @@ private[shell] object ManifestFixtures:
       role: Option[String] = None,
       stage: Option[String] = None,
       lastActiveAt: String = "2026-07-18T10:00:00Z",
-      harness: BackendTag = BackendTag.ClaudeCode,
+      backend: BackendTag = BackendTag.ClaudeCode,
       wireId: Option[String] = Some("uuid")
   ): ManifestSession =
     ManifestSession(
-      harness = harness,
+      backend = backend,
       wireId = wireId,
       agent = agent,
       role = role,

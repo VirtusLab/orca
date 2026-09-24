@@ -316,7 +316,6 @@ private[claude] object ClaudeTurn:
       DecodedTurnSpec(
         openingPrompt = openingPrompt,
         outputSchema = outputSchema,
-        structuredOutputMode = ClaudeBackend.StructuredOutputDelivery,
         askUser = askUser
       ),
       ClaudeDecoder(outputSchema)

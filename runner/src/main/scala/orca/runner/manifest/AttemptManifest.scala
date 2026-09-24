@@ -46,7 +46,7 @@ private[orca] object SessionKind:
   * `minted.stage` is the stage that minted it and never changes.
   */
 private[orca] case class ManifestSession(
-    harness: BackendTag,
+    backend: BackendTag,
     wireId: Option[String],
     agent: String,
     role: Option[String],

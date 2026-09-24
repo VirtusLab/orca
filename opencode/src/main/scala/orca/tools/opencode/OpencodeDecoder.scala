@@ -279,7 +279,6 @@ private[opencode] object OpencodeTurn:
       DecodedTurnSpec(
         openingPrompt = openingPrompt,
         outputSchema = outputSchema,
-        structuredOutputMode = OpencodeBackend.StructuredOutputDelivery,
         askUser = askUser
       ),
       OpencodeDecoder(http, session, outputSchema)

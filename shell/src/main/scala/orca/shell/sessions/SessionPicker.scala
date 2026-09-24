@@ -125,7 +125,7 @@ private[shell] object SessionPicker:
   private def primaryLabel(selection: SessionSelection): String =
     val name = SessionNaming.displayName(selection.session)
     val stage = selection.session.stage.fold("no stage yet")(s => s"stage: $s")
-    val harness = AgentSpec.harnessNameFor(selection.session.harness)
+    val harness = AgentSpec.harnessNameFor(selection.session.backend)
     val crashedSuffix = if selection.crashed then " (crashed)" else ""
     s"★ $name — latest ($stage) [$harness]${onBranch(selection)}$crashedSuffix"
 
@@ -136,7 +136,7 @@ private[shell] object SessionPicker:
   private def earlierLabel(selection: SessionSelection): String =
     val name = SessionNaming.displayName(selection.session)
     val stage = selection.session.stage.fold("")(s => s" — stage $s")
-    val harness = AgentSpec.harnessNameFor(selection.session.harness)
+    val harness = AgentSpec.harnessNameFor(selection.session.backend)
     val crashedSuffix = if selection.crashed then " (crashed)" else ""
     s"$name$stage [$harness] (earlier occurrence)${onBranch(selection)}$crashedSuffix"
 
@@ -147,7 +147,7 @@ private[shell] object SessionPicker:
   private def ephemeralLabel(selection: SessionSelection): String =
     val role = selection.session.role.fold("")(r => s" ($r)")
     val stage = selection.session.stage.fold("")(s => s" — stage $s")
-    val harness = AgentSpec.harnessNameFor(selection.session.harness)
+    val harness = AgentSpec.harnessNameFor(selection.session.backend)
     val crashedSuffix = if selection.crashed then " (crashed)" else ""
     s"${selection.session.agent}$role$stage [$harness] (ephemeral)${onBranch(selection)}$crashedSuffix"
 

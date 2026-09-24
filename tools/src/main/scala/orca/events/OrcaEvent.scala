@@ -89,11 +89,12 @@ enum OrcaEvent:
     * turns, not tries — a try that fails before the model runs emits no event,
     * so it doesn't shift the index of the turn that follows.
     *
-    * `session` is [[OrcaEvent.conversationKey]] for the conversation this turn
-    * ran in — the same key [[SessionCommitted]] is deduplicated under, so turns
-    * and sessions join on it. Two turns of one session carry the same value;
-    * the first turn of a session is the earliest turn carrying it. `None` only
-    * where the emitter has no conversation to name (test stubs).
+    * `conversationKey` is [[OrcaEvent.conversationKey]] for the conversation
+    * this turn ran in — the same key [[SessionCommitted]] is deduplicated
+    * under, so turns and sessions join on it. Two turns of one session carry
+    * the same value; the first turn of a session is the earliest turn carrying
+    * it. `None` only where the emitter has no conversation to name (test
+    * stubs).
     */
   case UnpricedTurn(
       agent: String,
@@ -101,7 +102,7 @@ enum OrcaEvent:
       usage: Usage,
       role: Option[String],
       turn: Int,
-      session: Option[String]
+      conversationKey: Option[String]
   )
 
   /** `spend` with its cost resolved. Emitters send [[UnpricedTurn]]; the
@@ -146,17 +147,17 @@ enum OrcaEvent:
     * id mapping ([[orca.backend.SessionSupport.commit]] / `commitAfterDrain`) —
     * unrelated to a git commit; "commits" here means the mapping becomes
     * durable enough for a later call to resume against it (ADR 0021 §8). Fires
-    * once per (harness, clientId, wireId) commit; listeners dedup on a resumed
-    * session's later turns. `harness` is the backend's tag, persisted as the
-    * manifest's `harness` ([[orca.runner.manifest.ManifestSession]]). `wireId`
-    * is the persistable id ([[orca.agents.Agent.resumeWireId]]) — `None` for
-    * backends that keep nothing durably resumable, so a non-resumable commit
-    * still fires accurately. `sessionKey` is the key the flow minted the
-    * session under (`agent.session(name, seed)`) — `None` for a one-shot or
-    * chat turn, which is minted under no key.
+    * once per (backend, clientId, wireId) commit; listeners dedup on a resumed
+    * session's later turns. `backend` is persisted as the manifest's `backend`
+    * ([[orca.runner.manifest.ManifestSession]]). `wireId` is the persistable id
+    * ([[orca.agents.Agent.resumeWireId]]) — `None` for backends that keep
+    * nothing durably resumable, so a non-resumable commit still fires
+    * accurately. `sessionKey` is the key the flow minted the session under
+    * (`agent.session(name, seed)`) — `None` for a one-shot or chat turn, which
+    * is minted under no key.
     */
   case SessionCommitted(
-      harness: BackendTag,
+      backend: BackendTag,
       clientId: String,
       wireId: Option[String],
       sessionKey: Option[SessionKey],
@@ -174,8 +175,8 @@ enum OrcaEvent:
 object OrcaEvent:
   /** The one identity a backend conversation is known by across events: its
     * wire id once the backend has minted one, else the client id orca
-    * allocated. Named here so [[OrcaEvent.UnpricedTurn.session]] and the
-    * manifest writer's session dedup key cannot drift apart — if they did,
+    * allocated. Named here so [[OrcaEvent.UnpricedTurn.conversationKey]] and
+    * the manifest writer's session dedup key cannot drift apart — if they did,
     * turns would stop joining to the sessions that produced them. Distinct from
     * [[orca.agents.SessionKey]], which is the `(name, stage)` a flow minted a
     * durable session under.

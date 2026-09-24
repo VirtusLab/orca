@@ -64,7 +64,7 @@ class AttemptManifestWriterTest extends munit.FunSuite:
   private def manifestWithSession(startedAt: String): String =
     s"""{"orcaVersion":"0.0.test","flow":null,"workDir":"/work","pid":1,
        |"startedAt":"$startedAt","finishedAt":null,"status":"Succeeded",
-       |"sessions":[{"harness":"ClaudeCode","wireId":"w","agent":"claude",
+       |"sessions":[{"backend":"ClaudeCode","wireId":"w","agent":"claude",
        |"role":null,"stage":null,"lastActiveAt":"$startedAt"}]}""".stripMargin
 
   /** A valid manifest recording no session, as a pruning test seeds an attempt
@@ -103,7 +103,7 @@ class AttemptManifestWriterTest extends munit.FunSuite:
     writer.onEvent(StageEvents.started("code"))
     writer.onEvent(
       OrcaEvent.SessionCommitted(
-        harness = BackendTag.ClaudeCode,
+        backend = BackendTag.ClaudeCode,
         clientId = "client-1",
         wireId = Some("wire-1"),
         sessionKey = Some(coderKey),
@@ -118,7 +118,7 @@ class AttemptManifestWriterTest extends munit.FunSuite:
       s"""{"orcaVersion":"0.0.test","flow":"review-pr.sc","workDir":"$workDir",""" +
         """"branch":"feat/x","pid":1,"startedAt":"2026-07-18T10:00:00Z",""" +
         """"finishedAt":"2026-07-18T10:05:00Z","status":"Succeeded",""" +
-        """"sessions":[{"harness":"ClaudeCode","wireId":"wire-1","agent":"claude",""" +
+        """"sessions":[{"backend":"ClaudeCode","wireId":"wire-1","agent":"claude",""" +
         """"role":"coder","stage":"code","minted":{"name":"coder",""" +
         """"stage":[{"name":"Task 2","occurrence":0}]},""" +
         """"lastActiveAt":"2026-07-18T10:01:00Z"}]}"""
@@ -139,7 +139,7 @@ class AttemptManifestWriterTest extends munit.FunSuite:
     writer.onEvent(StageEvents.started("plan"))
     writer.onEvent(
       OrcaEvent.SessionCommitted(
-        harness = BackendTag.ClaudeCode,
+        backend = BackendTag.ClaudeCode,
         clientId = "client-1",
         wireId = Some("wire-1"),
         sessionKey = None,
@@ -151,7 +151,7 @@ class AttemptManifestWriterTest extends munit.FunSuite:
     writer.onEvent(StageEvents.started("code"))
     writer.onEvent(
       OrcaEvent.SessionCommitted(
-        harness = BackendTag.ClaudeCode,
+        backend = BackendTag.ClaudeCode,
         clientId = "client-1",
         wireId = Some("wire-1"),
         sessionKey = None,
@@ -176,7 +176,7 @@ class AttemptManifestWriterTest extends munit.FunSuite:
     def commit(clientId: String): Unit =
       writer.onEvent(
         OrcaEvent.SessionCommitted(
-          harness = BackendTag.ClaudeCode,
+          backend = BackendTag.ClaudeCode,
           clientId = clientId,
           wireId = Some(s"wire-$clientId"),
           sessionKey = None,
@@ -201,7 +201,7 @@ class AttemptManifestWriterTest extends munit.FunSuite:
     writer.onEvent(StageEvents.started("inner"))
     writer.onEvent(
       OrcaEvent.SessionCommitted(
-        harness = BackendTag.ClaudeCode,
+        backend = BackendTag.ClaudeCode,
         clientId = "client-1",
         wireId = Some("wire-1"),
         sessionKey = None,
@@ -213,7 +213,7 @@ class AttemptManifestWriterTest extends munit.FunSuite:
     writer.onEvent(StageEvents.ended("inner"))
     writer.onEvent(
       OrcaEvent.SessionCommitted(
-        harness = BackendTag.Codex,
+        backend = BackendTag.Codex,
         clientId = "client-2",
         wireId = Some("wire-2"),
         sessionKey = None,
@@ -222,7 +222,7 @@ class AttemptManifestWriterTest extends munit.FunSuite:
       )
     )
     val manifest = soleManifest(workDir)
-    val outerSession = manifest.sessions.find(_.harness == BackendTag.Codex).get
+    val outerSession = manifest.sessions.find(_.backend == BackendTag.Codex).get
     assertEquals(outerSession.stage, Some("outer"))
 
   test("an event without a wireId is recorded with none"):
@@ -231,7 +231,7 @@ class AttemptManifestWriterTest extends munit.FunSuite:
       newWriter(workDir, fixedClock(Instant.parse("2026-07-18T10:00:00Z")))
     writer.onEvent(
       OrcaEvent.SessionCommitted(
-        harness = BackendTag.Opencode,
+        backend = BackendTag.Opencode,
         clientId = "client-1",
         wireId = None,
         sessionKey = None,
@@ -247,7 +247,7 @@ class AttemptManifestWriterTest extends munit.FunSuite:
       newWriter(workDir, fixedClock(Instant.parse("2026-07-18T10:00:00Z")))
     writer.onEvent(
       OrcaEvent.SessionCommitted(
-        harness = BackendTag.ClaudeCode,
+        backend = BackendTag.ClaudeCode,
         clientId = "durable-client",
         wireId = Some("w1"),
         sessionKey = Some(coderKey),
@@ -257,7 +257,7 @@ class AttemptManifestWriterTest extends munit.FunSuite:
     )
     writer.onEvent(
       OrcaEvent.SessionCommitted(
-        harness = BackendTag.ClaudeCode,
+        backend = BackendTag.ClaudeCode,
         clientId = "ephemeral-client",
         wireId = Some("w2"),
         sessionKey = None,
@@ -277,7 +277,7 @@ class AttemptManifestWriterTest extends munit.FunSuite:
       newWriter(workDir, fixedClock(Instant.parse("2026-07-18T10:00:00Z")))
     writer.onEvent(
       OrcaEvent.SessionCommitted(
-        harness = BackendTag.ClaudeCode,
+        backend = BackendTag.ClaudeCode,
         clientId = "client-1",
         wireId = Some("wire-1"),
         sessionKey = Some(coderKey),
@@ -287,7 +287,7 @@ class AttemptManifestWriterTest extends munit.FunSuite:
     )
     writer.onEvent(
       OrcaEvent.SessionCommitted(
-        harness = BackendTag.ClaudeCode,
+        backend = BackendTag.ClaudeCode,
         clientId = "client-1",
         wireId = Some("wire-1"),
         sessionKey = None,
@@ -471,7 +471,7 @@ class AttemptManifestWriterTest extends munit.FunSuite:
             writer.onEvent(StageEvents.started(s"stage-$t-$i"))
             writer.onEvent(
               OrcaEvent.SessionCommitted(
-                harness = BackendTag.ClaudeCode,
+                backend = BackendTag.ClaudeCode,
                 clientId = s"client-$t-$i",
                 wireId = Some(s"wire-$t-$i"),
                 sessionKey = None,
@@ -520,7 +520,7 @@ class AttemptManifestWriterTest extends munit.FunSuite:
     writer.onEvent(
       OrcaEvent
         .SessionCommitted(
-          harness = BackendTag.ClaudeCode,
+          backend = BackendTag.ClaudeCode,
           clientId = "client-1",
           wireId = Some("wire-1"),
           sessionKey = None,
