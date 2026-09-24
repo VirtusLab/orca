@@ -43,8 +43,8 @@ private[shell] object SessionAction:
     val name = SessionNaming.displayName(session)
     val stage = session.stage.fold("")(s => s", stage '$s'")
     val branch = selection.manifest.branch.fold("")(b => s", on branch '$b'")
-    val crashedSuffix = if selection.crashed then " (crashed)" else ""
-    s"resuming session '$name' [$harnessName]$stage$branch, in ${selection.manifest.workDir}$crashedSuffix"
+    val crashed = SessionNaming.crashedSuffix(selection.observedStatus)
+    s"resuming session '$name' [$harnessName]$stage$branch, in ${selection.manifest.workDir}$crashed"
 
   /** Parses the manifest's stored `workDir` and confirms it's still a directory
     * — a checkout deleted after its run finished otherwise crashes resume:

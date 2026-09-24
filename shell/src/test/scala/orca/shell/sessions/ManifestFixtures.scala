@@ -81,19 +81,32 @@ private[shell] object ManifestFixtures:
     */
   def recorded(
       manifest: AttemptManifest,
-      crashed: Boolean = false
+      observedStatus: ObservedStatus
   ): RecordedAttempt =
     RecordedAttempt(
       AttemptId(manifest.startedAt, manifest.pid),
       manifest,
-      crashed
+      observedStatus
     )
+
+  /** [[recorded]] with the writing process still alive. */
+  def recorded(manifest: AttemptManifest): RecordedAttempt =
+    recorded(manifest, ObservedStatus.of(manifest, _ => true))
+
+  /** `session`, recorded in `manifest`, as a [[SessionIndex]] holds it, with
+    * the writing process still alive.
+    */
+  def selection(
+      manifest: AttemptManifest,
+      session: ManifestSession
+  ): SessionSelection =
+    selection(manifest, session, ObservedStatus.of(manifest, _ => true))
 
   /** `session`, recorded in `manifest`, as a [[SessionIndex]] holds it. */
   def selection(
       manifest: AttemptManifest,
       session: ManifestSession,
-      crashed: Boolean = false
+      observedStatus: ObservedStatus
   ): SessionSelection =
     SessionSelection(
       SessionRef(
@@ -102,7 +115,7 @@ private[shell] object ManifestFixtures:
       ),
       manifest,
       session,
-      crashed
+      observedStatus
     )
 
   /** Writes `manifest` where `ManifestReader` lists `dir`'s attempts, under the

@@ -3,7 +3,7 @@ package orca.shell.cli
 import mainargs.{ParserForMethods, TokensReader}
 import orca.StagePath
 import orca.agents.{BackendTag, SessionKey}
-import orca.runner.manifest.{AttemptStatus, ManifestSession}
+import orca.runner.manifest.{AttemptManifest, AttemptStatus, ManifestSession}
 import orca.settings.{AgentSettings, AgentSpec, SettingsFile, SettingsScope}
 import orca.shell.{ScanDirs, ShellEnv, TestShellEnv, Tier}
 import orca.shell.actions.SessionAction
@@ -13,6 +13,7 @@ import orca.shell.flows.DiscoveredFlow
 import orca.shell.run.LaunchResult
 import orca.shell.sessions.{
   ManifestFixtures,
+  ObservedStatus,
   RecordedAttempt,
   SessionIndex,
   SessionPicker,
@@ -42,7 +43,7 @@ class CliTest extends munit.FunSuite:
   /** `runContinue`'s liveness check: every recorded `Running` attempt reads as
     * crashed.
     */
-  private val everyPidDead: Long => Boolean = _ => false
+  private val everyProcessDead: AttemptManifest => Boolean = _ => false
 
   private def invoke(args: String*): Either[String, Any] =
     import Cli.given
@@ -757,8 +758,7 @@ class CliTest extends munit.FunSuite:
               lastActiveAt = "2026-07-18T09:45:00Z"
             )
           )
-        ),
-        crashed = false
+        )
       ),
       ManifestFixtures.recorded(
         manifest(
@@ -775,8 +775,7 @@ class CliTest extends munit.FunSuite:
               wireId = None
             )
           )
-        ),
-        crashed = false
+        )
       )
     )
 
@@ -804,8 +803,7 @@ class CliTest extends munit.FunSuite:
             durable(sessionName = "plan", lastActiveAt = "2026-07-18T09:45:00Z")
               .copy(minted = None)
           )
-        ),
-        crashed = false
+        )
       )
     )
     assertEquals(
@@ -935,8 +933,7 @@ class CliTest extends munit.FunSuite:
           sessions = List(
             durable(sessionName = sessionName, lastActiveAt = lastActiveAt)
           )
-        ),
-        crashed = false
+        )
       )
     // The older attempt holds the more recently active session.
     val attempts = List(
@@ -966,8 +963,7 @@ class CliTest extends munit.FunSuite:
               wireId = None
             )
           )
-        ),
-        crashed = false
+        )
       )
     )
     assertEquals(
@@ -986,8 +982,7 @@ class CliTest extends munit.FunSuite:
         sessions = List(
           durable(sessionName = "other", lastActiveAt = "2026-07-16T09:30:00Z")
         )
-      ),
-      crashed = false
+      )
     )
     assertEquals(
       SessionIndex.of(attempts).resolve(Some("older")),
@@ -1007,8 +1002,7 @@ class CliTest extends munit.FunSuite:
           startedAt = "2026-07-18T08:00:00Z",
           branch = Some("feature/x"),
           sessions = List(durable(lastActiveAt = lastActiveAt))
-        ),
-        crashed = false
+        )
       )
     val attempts = List(
       onBranch("/repo/a", "2026-07-18T09:30:00Z"),
@@ -1056,8 +1050,7 @@ class CliTest extends munit.FunSuite:
                 StagePath.FlowBody.child("Task: wire the parser", 0)
             )
           )
-        ),
-        crashed = false
+        )
       )
     )
     assertEquals(
@@ -1086,8 +1079,7 @@ class CliTest extends munit.FunSuite:
             durableAgent("agentA", "shared", "2026-07-18T09:30:00Z"),
             durableAgent("agentB", "shared", "2026-07-18T09:20:00Z")
           )
-        ),
-        crashed = false
+        )
       )
     )
     assertEquals(
@@ -1116,8 +1108,7 @@ class CliTest extends munit.FunSuite:
               lastActiveAt = "2026-07-18T09:30:00Z"
             )
           )
-        ),
-        crashed = false
+        )
       ),
       ManifestFixtures.recorded(
         manifest(
@@ -1129,8 +1120,7 @@ class CliTest extends munit.FunSuite:
               lastActiveAt = "2026-07-18T08:30:00Z"
             )
           )
-        ),
-        crashed = false
+        )
       )
     )
     assertEquals(
@@ -1160,8 +1150,7 @@ class CliTest extends munit.FunSuite:
                 branch = Some(branch),
                 sessions =
                   List(durable(lastActiveAt = s"2026-07-18T1${i}:00:00Z"))
-              ),
-              crashed = false
+              )
             )
     assertEquals(
       SessionPicker
@@ -1193,8 +1182,7 @@ class CliTest extends munit.FunSuite:
               sessionStage = StagePath.FlowBody.child("Task: wire", 0)
             )
           )
-        ),
-        crashed = false
+        )
       )
     )
     val labels = SessionPicker
@@ -1222,8 +1210,7 @@ class CliTest extends munit.FunSuite:
               sessionStage = StagePath.FlowBody.child("Task: parse", 0)
             )
           )
-        ),
-        crashed = false
+        )
       )
     )
     val labels = SessionPicker
@@ -1244,8 +1231,7 @@ class CliTest extends munit.FunSuite:
                 StagePath.FlowBody.child("Task: wire the parser", 0)
             )
           )
-        ),
-        crashed = false
+        )
       )
     )
     assertEquals(
@@ -1266,8 +1252,7 @@ class CliTest extends munit.FunSuite:
               lastActiveAt = "2026-07-18T09:30:00Z"
             )
           )
-        ),
-        crashed = false
+        )
       ),
       ManifestFixtures.recorded(
         manifest(
@@ -1278,8 +1263,7 @@ class CliTest extends munit.FunSuite:
               lastActiveAt = "2026-07-18T08:30:00Z"
             )
           )
-        ),
-        crashed = false
+        )
       )
     )
     val labels = SessionPicker
@@ -1308,8 +1292,7 @@ class CliTest extends munit.FunSuite:
     val selection =
       ManifestFixtures.selection(
         attempt.manifest,
-        attempt.manifest.sessions.head,
-        crashed = false
+        attempt.manifest.sessions.head
       )
     assertEquals(
       SessionAction.resumeNotice(selection),
@@ -1323,8 +1306,7 @@ class CliTest extends munit.FunSuite:
     val selection =
       ManifestFixtures.selection(
         attempt.manifest,
-        withStage,
-        crashed = false
+        withStage
       )
     assertEquals(
       SessionAction.resumeNotice(selection),
@@ -1337,7 +1319,7 @@ class CliTest extends munit.FunSuite:
       ManifestFixtures.selection(
         attempt.manifest,
         attempt.manifest.sessions.head,
-        crashed = true
+        observedStatus = ObservedStatus.Crashed
       )
     assertEquals(
       SessionAction.resumeNotice(selection),
@@ -1381,7 +1363,7 @@ class CliTest extends munit.FunSuite:
             list = true,
             json = true,
             tty = false,
-            pidAlive = everyPidDead
+            processAlive = everyProcessDead
           ),
         ExitCodes.Ok
       )
@@ -1430,7 +1412,7 @@ class CliTest extends munit.FunSuite:
           list = true,
           json = false,
           tty = false,
-          pidAlive = everyPidDead
+          processAlive = everyProcessDead
         ),
         ExitCodes.Ok
       )
@@ -1449,7 +1431,7 @@ class CliTest extends munit.FunSuite:
           list = true,
           json = false,
           tty = false,
-          pidAlive = everyPidDead
+          processAlive = everyProcessDead
         ),
         ExitCodes.Ok
       )
@@ -1468,7 +1450,7 @@ class CliTest extends munit.FunSuite:
           list = true,
           json = true,
           tty = false,
-          pidAlive = everyPidDead
+          processAlive = everyProcessDead
         ),
         ExitCodes.Ok
       )
@@ -1492,7 +1474,7 @@ class CliTest extends munit.FunSuite:
           list = true,
           json = json,
           tty = false,
-          pidAlive = everyPidDead
+          processAlive = everyProcessDead
         ),
         ExitCodes.Ok
       )
@@ -1529,7 +1511,7 @@ class CliTest extends munit.FunSuite:
           list = true,
           json = true,
           tty = false,
-          pidAlive = everyPidDead
+          processAlive = everyProcessDead
         ),
         ExitCodes.Ok
       )
@@ -1537,7 +1519,9 @@ class CliTest extends munit.FunSuite:
     assert(out.contains("\"kind\":\"Durable\""), out)
     assert(out.contains("\"kind\":\"Ephemeral\""), out)
 
-  test("runContinue --list --json: a crashed attempt reports crashed=true"):
+  test(
+    "runContinue --list --json: a crashed attempt reports attemptStatus Crashed"
+  ):
     val dir = TempDirs.dir()
     writeCrashedManifest(dir)
     val out = captured(
@@ -1549,12 +1533,12 @@ class CliTest extends munit.FunSuite:
             list = true,
             json = true,
             tty = false,
-            pidAlive = everyPidDead
+            processAlive = everyProcessDead
           ),
         ExitCodes.Ok
       )
     )
-    assert(out.contains("\"crashed\":true"), out)
+    assert(out.contains("\"attemptStatus\":\"Crashed\""), out)
 
   test(
     "runContinue --list: a crashed attempt's table row is suffixed (crashed)"
@@ -1570,7 +1554,7 @@ class CliTest extends munit.FunSuite:
             list = true,
             json = false,
             tty = false,
-            pidAlive = everyPidDead
+            processAlive = everyProcessDead
           ),
         ExitCodes.Ok
       )
@@ -1604,7 +1588,7 @@ class CliTest extends munit.FunSuite:
             list = false,
             json = false,
             tty = true,
-            pidAlive = everyPidDead
+            processAlive = everyProcessDead
           ),
         ExitCodes.ActionFailed
       )

@@ -1,20 +1,19 @@
 package orca.shell.sessions
 
 import orca.{AttemptId, OrcaDir}
-import orca.runner.manifest.{AttemptStatus, AttemptManifest}
+import orca.runner.manifest.AttemptManifest
 import orca.util.JsonFile
 
 import scala.util.control.NonFatal
 
-/** A manifest paired with its attempt's id (from the file name) and whether the
-  * attempt is now known to have crashed (status [[AttemptStatus.Running]] with
-  * a dead pid, ADR 0021 §8) — computed once here rather than re-derived by
-  * every caller.
+/** A manifest paired with its attempt's id (from the file name) and its
+  * [[ObservedStatus]] — read that rather than `manifest.status`, which cannot
+  * tell a crashed attempt from a running one.
   */
 private[shell] case class RecordedAttempt(
     id: AttemptId,
     manifest: AttemptManifest,
-    crashed: Boolean
+    observedStatus: ObservedStatus
 )
 
 /** What [[ManifestReader.list]] found: the continuable attempts, newest first,
@@ -46,23 +45,25 @@ private[shell] object ManifestReader:
     * parameters rather than one list, because that is the whole difference
     * between them.
     *
-    * A manifest with [[AttemptStatus.Running]] whose `pid` is no longer alive
-    * is a crashed attempt — its sessions are still offered, per ADR 0021 §8. An
-    * attempt that committed no session is left out: it has nothing to continue.
-    * Each directory's `.orca/cache/attempts/` is read passively
-    * ([[OrcaDir.attemptsPath]], not [[OrcaDir.ensureAttempts]]) — absent or
-    * empty contributes nothing and creates nothing on disk. A file that fails
-    * to parse as JSON, or doesn't match the `AttemptManifest` schema — which
-    * includes a timestamp that isn't an `Instant` — is skipped with a warning
-    * naming the file rather than aborting the whole listing.
+    * A crashed attempt ([[ObservedStatus.Crashed]], decided by `processAlive`;
+    * [[ObservedStatus.processAlive]] in production) still has its sessions
+    * offered, per ADR 0021 §8. An attempt that committed no session is left
+    * out: it has nothing to continue. Each directory's `.orca/cache/attempts/`
+    * is read passively ([[OrcaDir.attemptsPath]], not
+    * [[OrcaDir.ensureAttempts]]) — absent or empty contributes nothing and
+    * creates nothing on disk. A file that fails to parse as JSON, or doesn't
+    * match the `AttemptManifest` schema — which includes a timestamp that isn't
+    * an `Instant` — is skipped with a warning naming the file rather than
+    * aborting the whole listing.
     */
   def list(
       own: os.Path,
       otherWorktrees: List[os.Path],
-      pidAlive: Long => Boolean
+      processAlive: AttemptManifest => Boolean
   ): AttemptListing =
     val perDir =
-      readAttemptsDir(own, pidAlive) :: otherWorktrees.map(guarded(_, pidAlive))
+      readAttemptsDir(own, processAlive) ::
+        otherWorktrees.map(guarded(_, processAlive))
     AttemptListing(
       perDir.flatMap(_.attempts).sortBy(_.manifest.startedAt).reverse,
       perDir.flatMap(_.warnings)
@@ -70,9 +71,9 @@ private[shell] object ManifestReader:
 
   private def guarded(
       workDir: os.Path,
-      pidAlive: Long => Boolean
+      processAlive: AttemptManifest => Boolean
   ): AttemptListing =
-    try readAttemptsDir(workDir, pidAlive)
+    try readAttemptsDir(workDir, processAlive)
     catch
       case NonFatal(e) =>
         AttemptListing(Nil, List(s"skipping $workDir: ${firstLine(e)}"))
@@ -88,7 +89,7 @@ private[shell] object ManifestReader:
     */
   private def readAttemptsDir(
       workDir: os.Path,
-      pidAlive: Long => Boolean
+      processAlive: AttemptManifest => Boolean
   ): AttemptListing =
     val dir = OrcaDir.attemptsPath(workDir)
     OrcaDir.assertNoOrcaSymlinks(workDir, dir)
@@ -98,19 +99,11 @@ private[shell] object ManifestReader:
         os.list(dir).filter(OrcaDir.isManifest).toList.map(readManifest)
       val attempts = results.collect:
         case Right((id, m)) if m.continuable =>
-          RecordedAttempt(id, m, crashed(m, pidAlive))
+          RecordedAttempt(id, m, ObservedStatus.of(m, processAlive))
       AttemptListing(
         attempts,
         results.collect { case Left(warning) => warning }
       )
-
-  private def crashed(
-      manifest: AttemptManifest,
-      pidAlive: Long => Boolean
-  ): Boolean =
-    manifest.status match
-      case AttemptStatus.Running => !pidAlive(manifest.pid)
-      case AttemptStatus.Succeeded | AttemptStatus.Failed => false
 
   /** A missing file is a warning too: the listing saw it and the read found
     * nothing, which for a directory the shell does not control is a race with
@@ -132,12 +125,3 @@ private[shell] object ManifestReader:
       case JsonFile.Read.Unreadable(reason) =>
         Left(s"skipping $file: $reason")
       case JsonFile.Read.Corrupt(reason) => Left(s"skipping $file: $reason")
-
-  /** The production value of [[list]]'s `pidAlive` parameter (ADR 0021 §8):
-    * `ProcessHandle.of` finds nothing for a pid that's been reaped — treated as
-    * not alive, same as a live handle reporting `isAlive == false`. Shared by
-    * the interactive menu and the CLI's `continue`, so both derive an attempt's
-    * crashed status the same way.
-    */
-  private[shell] def pidAlive(pid: Long): Boolean =
-    ProcessHandle.of(pid).map[Boolean](_.isAlive).orElse(false)
