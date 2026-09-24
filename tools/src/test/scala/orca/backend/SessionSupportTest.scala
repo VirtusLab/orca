@@ -138,7 +138,8 @@ class SessionSupportTest extends munit.FunSuite:
       AgentResult(
         WireSessionId[BackendTag.ClaudeCode.type]("reported-other"),
         "",
-        Usage.empty
+        Usage.empty,
+        model = None
       )
     )
     assertEquals(s.persistableWireId(client), Some(client.onWire))
@@ -200,7 +201,10 @@ class SessionSupportTest extends munit.FunSuite:
     val client = clientSid("client")
     s.rehydrate(client, wireSid("lost"))
     val _ = s.dispatchFor(client)
-    s.commitAfterDrain(client, AgentResult(wireSid("new"), "", Usage.empty))
+    s.commitAfterDrain(
+      client,
+      AgentResult(wireSid("new"), "", Usage.empty, model = None)
+    )
     assertEquals(s.persistableWireId(client), Some(wireSid("new")))
 
   test("rehydrated id with a throwing probe: Fresh"):
@@ -250,7 +254,10 @@ class SessionSupportTest extends munit.FunSuite:
     val bad = SessionId.fresh[BackendTag.Codex.type]
     val usage = Usage.empty.copy(outputTokens = 7L)
     val failed = intercept[AgentTurnFailed](
-      s.commitAfterDrain(bad, AgentResult(WireSessionId(""), "", usage))
+      s.commitAfterDrain(
+        bad,
+        AgentResult(WireSessionId(""), "", usage, model = None)
+      )
     )
     assertEquals(failed.debit, TurnDebit.Observed(usage, None))
     assert(

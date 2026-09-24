@@ -378,14 +378,14 @@ class SessionPickerTest extends munit.FunSuite:
   test("sessionRows suffixes a crashed attempt's rows with `(crashed)`"):
     val run =
       ManifestFixtures.recorded(
-        manifest(sessions = List(durable())),
+        manifest(sessions = List(durable()), branch = Some("feat-a")),
         crashed = true
       )
     assertEquals(
       SessionPicker
         .sessionRows(SessionIndex.of(List(run)), expanded = false)
         .map(_.label),
-      List("★ main — latest (no stage yet) [claude] (crashed)")
+      List("★ main — latest (no stage yet) [claude] on feat-a (crashed)")
     )
 
   test("sessionRows disables a wireId-less session, naming its harness"):

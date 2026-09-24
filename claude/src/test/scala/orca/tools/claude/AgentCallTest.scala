@@ -108,7 +108,8 @@ class AgentCallTest extends munit.FunSuite:
         AgentResult[B](
           wireId = WireSessionId[B](wireId),
           output = output,
-          usage = Usage.empty
+          usage = Usage.empty,
+          model = None
         )
 
   private def makeCall(

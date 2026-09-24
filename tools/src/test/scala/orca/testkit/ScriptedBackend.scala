@@ -68,7 +68,7 @@ object ScriptedBackend:
       output: String,
       wireId: String = "scripted-wire"
   ): AgentResult[B] =
-    AgentResult(WireSessionId[B](wireId), output, Usage.empty)
+    AgentResult(WireSessionId[B](wireId), output, Usage.empty, model = None)
 
   /** `value` as the JSON payload a structured (`resultAs[T]`) turn parses. */
   def json[T](value: T)(using jd: JsonData[T]): String =

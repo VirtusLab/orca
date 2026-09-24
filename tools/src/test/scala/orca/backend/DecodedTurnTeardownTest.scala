@@ -34,7 +34,9 @@ class DecodedTurnTeardownTest extends munit.FunSuite:
         Step.Settle(
           (),
           Nil,
-          Settled.Succeeded(AgentResult(WireSessionId("s"), "", Usage.empty))
+          Settled.Succeeded(
+            AgentResult(WireSessionId("s"), "", Usage.empty, model = None)
+          )
         )
       else Step.continue((), TurnEvent.AssistantTextDelta(line))
 

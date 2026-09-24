@@ -93,8 +93,7 @@ enum OrcaEvent:
     * this turn ran in — the same key [[SessionCommitted]] is deduplicated
     * under, so turns and sessions join on it. Two turns of one session carry
     * the same value; the first turn of a session is the earliest turn carrying
-    * it. `None` only where the emitter has no conversation to name (test
-    * stubs).
+    * it.
     */
   case UnpricedTurn(
       agent: String,
@@ -102,7 +101,7 @@ enum OrcaEvent:
       usage: Usage,
       role: Option[String],
       turn: Int,
-      conversationKey: Option[String]
+      conversationKey: String
   )
 
   /** `spend` with its cost resolved. Emitters send [[UnpricedTurn]]; the

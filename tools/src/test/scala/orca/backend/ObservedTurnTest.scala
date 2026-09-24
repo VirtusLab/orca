@@ -32,7 +32,8 @@ class ObservedTurnTest extends munit.FunSuite:
   private val sampleResult = AgentResult[BackendTag.Codex.type](
     wireId = WireSessionId[BackendTag.Codex.type]("sid"),
     output = "out",
-    usage = Usage.empty
+    usage = Usage.empty,
+    model = None
   )
 
   private val approveBash = TurnEvent.ApproveTool(

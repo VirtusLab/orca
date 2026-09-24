@@ -50,7 +50,8 @@ class TerminalPromptsTest extends munit.FunSuite:
     AgentResult(
       wireId = WireSessionId[BackendTag.ClaudeCode.type]("sid"),
       output = """{"ok":true}""",
-      usage = Usage.empty
+      usage = Usage.empty,
+      model = None
     )
 
   test("an approval request truncates a long input with an ellipsis"):
