@@ -3,40 +3,35 @@ package orca.runner.terminal
 import orca.backend.{AgentResult, Interaction, ObservedConversation}
 import orca.events.OrcaListener
 import orca.agents.BackendTag
-import org.slf4j.LoggerFactory
 import ox.Ox
 import ox.channels.BufferCapacity
 
 import java.io.PrintStream
 import java.nio.charset.StandardCharsets.UTF_8
-import scala.util.control.NonFatal
 
 /** Terminal-based `Interaction`. Renders stage transitions, tool uses,
   * streaming LLM output, and errors to a `PrintStream` (defaults to stderr so
   * the structured output on stdout stays clean).
   *
-  * The output has two zones, both owned by [[TerminalOutput]]: an **event log**
+  * The output has two zones, both owned by [[TerminalActor]]: an **event log**
   * growing line-by-line at the top, and a **status line** with an animated
   * spinner pinned at the bottom. When stderr isn't a TTY (CI, redirected
   * output, `NO_COLOR`/`ORCA_NO_ANIMATION`) it degrades to plain inline writes.
   *
   * The default stream is forced to UTF-8 (see [[start]]) so orca's non-ASCII
   * glyphs survive a non-UTF-8 default charset. `drive` runs on the caller's
-  * thread; the spinner advances on a separate fork inside `TerminalOutput`
-  * while drive blocks on the backend. [[close]] runs from `flow(...)`'s
-  * `finally` to flush and clear the status row before the scope ends.
+  * thread; the spinner advances on a separate fork inside `TerminalActor` while
+  * drive blocks on the backend. [[close]] runs from `flow(...)`'s `finally` to
+  * flush and clear the status row before the scope ends.
   */
 class TerminalInteraction private[terminal] (
-    output: TerminalOutput,
-    listener: TerminalEventListener,
+    terminal: TerminalActor,
     useColor: Boolean,
     workDir: Option[os.Path],
     prompter: TerminalPrompts.Prompter
 ) extends Interaction:
 
-  private val log = LoggerFactory.getLogger(getClass)
-
-  val listeners: List[OrcaListener] = List(listener)
+  val listeners: List[OrcaListener] = List(terminal.listener)
 
   /** Drive a live conversation to completion on the caller's thread, prompting
     * for its approvals and questions. Returns when the conversation finishes.
@@ -47,26 +42,18 @@ class TerminalInteraction private[terminal] (
   ): AgentResult[B] =
     new TerminalPrompts(
       useColor = useColor,
-      output = output,
-      currentIndent = () => listener.currentIndent,
+      output = terminal,
+      currentIndent = () => terminal.currentIndent,
       workDir = workDir,
       prompter = prompter
     ).drive(conversation)
 
-  /** Close the prompter (shared across every conversation; `TerminalPrompts`
-    * never closes it), then the output. The prompter close is guarded so a
-    * throwing prompter can't strand the output uncleared or mask an error
-    * already unwinding through the caller's `finally`.
-    */
-  override def close(): Unit =
-    try prompter.close()
-    catch case NonFatal(e) => log.error("prompter close failed", e)
-    output.close()
+  override def close(): Unit = terminal.close()
 
 object TerminalInteraction:
 
   /** Build a `TerminalInteraction` in the given Ox scope. The
-    * [[TerminalOutput]]'s actor and animator fork are tied to the scope and
+    * [[TerminalActor]]'s actor and animator fork are tied to the scope and
     * terminate when it ends.
     */
   def start(
@@ -76,9 +63,12 @@ object TerminalInteraction:
       workDir: Option[os.Path] = None,
       prompter: TerminalPrompts.Prompter = TerminalPrompts.JLinePrompter
   )(using Ox, BufferCapacity): TerminalInteraction =
-    val output = TerminalOutput.start(out, useColor, animated)
-    val listener = new TerminalEventListener(output, useColor, workDir)
-    new TerminalInteraction(output, listener, useColor, workDir, prompter)
+    new TerminalInteraction(
+      TerminalActor.start(out, useColor, animated, workDir),
+      useColor,
+      workDir,
+      prompter
+    )
 
   /** ANSI colors default off when stderr isn't attached to a terminal (no
     * controlling console), the `NO_COLOR` convention is honoured, or we detect

@@ -210,7 +210,7 @@ def flow(
         clock
       )
       // Tally tool calls the harness refused and print them beside the cost.
-      val deniedToolTracker = DeniedToolTracker.start()
+      val deniedToolTracker = new DeniedToolTracker
       var outcome = AttemptOutcome.Failed
       // `try/finally` so the cost summary always lands — even when a fatal
       // throwable (OOM, StackOverflow) escapes the NonFatal catch below.

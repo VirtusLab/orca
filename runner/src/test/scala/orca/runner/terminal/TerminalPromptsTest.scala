@@ -11,7 +11,7 @@ import orca.backend.{
 import orca.testkit.ScriptedConversation
 
 import java.io.{ByteArrayOutputStream, PrintStream}
-import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
+import java.util.concurrent.atomic.AtomicReference
 
 class TerminalPromptsTest extends munit.FunSuite:
 
@@ -30,6 +30,7 @@ class TerminalPromptsTest extends munit.FunSuite:
       useColor = false,
       output = terminalOutput,
       currentIndent = () => "",
+      workDir = None,
       prompter = prompter
     )
 
@@ -40,13 +41,10 @@ class TerminalPromptsTest extends munit.FunSuite:
       extends Prompter:
     private val remaining = new AtomicReference[List[PromptOutcome]](outcomes)
     val asked = new AtomicReference[List[String]](Nil)
-    val closes = new AtomicInteger(0)
     def ask(prompt: String): PromptOutcome =
       val _ = asked.updateAndGet(prompt :: _)
       val next = remaining.getAndUpdate(_.drop(1)).headOption
       next.getOrElse(throw new IllegalStateException("prompter exhausted"))
-    override def close(): Unit =
-      val _ = closes.incrementAndGet()
 
   private def observed[B <: BackendTag](
       conv: ScriptedConversation[B]
@@ -126,31 +124,6 @@ class TerminalPromptsTest extends munit.FunSuite:
       1,
       "expected conversation.cancel() to fire"
     )
-
-  test("drive does not close its prompter (prompter is process-scoped)"):
-    // The prompter is shared across every conversation in a run; a
-    // per-conversation drive must never close it, or the next prompt would
-    // operate on closed I/O.
-    val buf = new ByteArrayOutputStream()
-    val prompter = new ScriptedPrompter(Nil)
-    val conv = new ScriptedConversation(Nil, Right(sampleResult))
-    val _ = prompts(buf, prompter = prompter).drive(observed(conv))
-    assertEquals(prompter.closes.get(), 0)
-
-  test("two sequential drive+prompt cycles against one prompter both ask"):
-    // A single shared prompter survives across conversations, so a second
-    // drive still reaches `ask` rather than a closed reader.
-    val buf = new ByteArrayOutputStream()
-    val prompter = new ScriptedPrompter(
-      List(PromptOutcome.Answer("yes"), PromptOutcome.Answer("no"))
-    )
-    def approveConv() = new ScriptedConversation(
-      List(ConversationEvent.ApproveTool("Bash", "{}", _ => ())),
-      Right(sampleResult)
-    )
-    val _ = prompts(buf, prompter = prompter).drive(observed(approveConv()))
-    val _ = prompts(buf, prompter = prompter).drive(observed(approveConv()))
-    assertEquals(prompter.asked.get().size, 2)
 
   test("UserQuestion: question rendered, typed reply passed to respond"):
     val buf = new ByteArrayOutputStream()

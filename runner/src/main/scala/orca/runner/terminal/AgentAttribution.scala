@@ -1,7 +1,7 @@
 package orca.runner.terminal
 
 /** The `name: ` prefix that tells apart lines from agents running in parallel
-  * (the review fan-out). [[TerminalEventListener]] decides which lines get one.
+  * (the review fan-out). [[TerminalEventRenderer]] decides which lines get one.
   */
 private[terminal] object AgentAttribution:
 

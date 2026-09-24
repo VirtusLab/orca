@@ -73,10 +73,8 @@ private[runner] object DirtyTreePolicy:
     * ever raised by a `StageStarted`, so nothing is pinned at the bottom and
     * the animator's `tick` is a no-op. Routing it through the transaction
     * instead would mean handing setup the run's `Interaction` — including every
-    * embedder's non-terminal one. Residual: a `Step` still queued in the
-    * renderer's mailbox can print into the middle of the menu, which costs a
-    * re-read, not a wrong answer; and the read blocks uninterruptibly, so a
-    * fork failing elsewhere in the run's scope waits for the answer.
+    * embedder's non-terminal one. Residual: the read blocks uninterruptibly, so
+    * a fork failing elsewhere in the run's scope waits for the answer.
     */
   def promptOnStderr(dirtyCount: Int): DirtyTreeChoice =
     Console.err.println(

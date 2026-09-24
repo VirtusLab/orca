@@ -39,10 +39,10 @@ private[orca] trait AttemptManifestWriter extends OrcaListener:
 private[orca] object AttemptManifestWriter:
 
   /** Build a production writer whose state is owned by an Ox actor in the given
-    * scope (mirrors [[orca.runner.terminal.TerminalOutput.start]]). The actor
-    * fork lives as long as the scope, which must span construction through
-    * `finish`; `flow()` provides that scope. The manifest's `startedAt` and
-    * `pid` (the latter for the shell's liveness check) are `attemptId`'s.
+    * scope. The actor fork lives as long as the scope, which must span
+    * construction through `finish` and every `onEvent`; `flow()` provides that
+    * scope. The manifest's `startedAt` and `pid` (the latter for the shell's
+    * liveness check) are `attemptId`'s.
     */
   def start(
       workDir: os.Path,
@@ -60,26 +60,21 @@ private[orca] object AttemptManifestWriter:
     )
     new ActorAttemptManifestWriter(Actor.create(state))
 
-/** Actor-backed [[AttemptManifestWriter]]. `onEvent` is a `tell`; `finish` is
-  * an `ask` so its final write completes before the caller proceeds. A throw
-  * from a `tell`'s handler would close the actor's channel — so the state
-  * guards every write internally and neither entry point ever throws.
+/** Actor-backed [[AttemptManifestWriter]]. Both entry points are `ask`s: a
+  * write lands before the caller proceeds, and a throw reaches the caller — the
+  * dispatcher, which quarantines the writer — instead of the actor's scope.
   */
 private class ActorAttemptManifestWriter(
     actor: ActorRef[AttemptManifestWriterState]
 ) extends AttemptManifestWriter:
-  def onEvent(event: OrcaEvent): Unit = actor.tell(_.onEvent(event))
+  def onEvent(event: OrcaEvent): Unit = actor.ask(_.onEvent(event))
   def finish(outcome: AttemptOutcome): Unit = actor.ask(_.finish(outcome))
 
 /** Mutable manifest-building state — not thread-safe in isolation.
-  * [[ActorAttemptManifestWriter]] serialises every call onto one actor thread:
-  * `onEvent` is a `tell` (fire-and-forget, though a full mailbox blocks the
-  * emitter — every event writes, but turns arrive seconds apart and an append
-  * is one small write, so the queue still drains far faster than it fills) and
-  * `finish` is an `ask` (its write must land before `flow()` moves on to the
-  * cost summary). Every write is guarded internally ([[safeWrite]]) so a
-  * transient failure can't quarantine the writer or throw out of a `tell`'s
-  * handler. Tests construct this directly and drive events synchronously.
+  * [[ActorAttemptManifestWriter]] serialises every call onto one actor thread.
+  * Every write is guarded internally ([[safeWrite]]) so a transient failure
+  * can't quarantine the writer. Tests construct this directly and drive events
+  * synchronously.
   *
   * Construction writes the first manifest and prunes the attempts directory
   * once ([[AttemptPruning]]); the cost log is created by its first append.
@@ -136,9 +131,8 @@ private[runner] class AttemptManifestWriterState(
 
   /** Runs an IO step so a transient failure (e.g. ENOSPC) is logged and
     * swallowed rather than escaping. Both files need this and for the same
-    * reason: a throw from a `tell`'s handler closes the actor's channel and
-    * quarantines the writer for the rest of the attempt, and a throw from
-    * `finish` would surface into teardown.
+    * reason: a throw from `onEvent` quarantines the writer for the rest of the
+    * attempt, and a throw from `finish` would surface into teardown.
     */
   private def guarded(what: String)(op: => Unit): Unit =
     try op

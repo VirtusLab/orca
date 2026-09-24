@@ -1,7 +1,6 @@
 package orca
 
 import orca.events.{DeniedToolTracker, DeniedTools, OrcaEvent}
-import ox.supervised
 
 class DeniedToolTrackerTest extends munit.FunSuite:
 
@@ -45,13 +44,14 @@ class DeniedToolTrackerTest extends munit.FunSuite:
     assertEquals(tools.summary, s"denied tool calls: Write ×1 — $advice")
 
   test("the tracker counts only ToolDenied events"):
-    val summary = supervised:
-      val tracker = DeniedToolTracker.start()
-      List(
-        OrcaEvent.Step("hi"),
-        OrcaEvent.ToolUse("Bash", "ls", Some("review")),
-        denied("Bash", "review"),
-        denied("Bash", "review")
-      ).foreach(tracker.onEvent)
-      tracker.summary
-    assertEquals(summary, s"denied tool calls: Bash ×2 (review) — $advice")
+    val tracker = new DeniedToolTracker
+    List(
+      OrcaEvent.Step("hi"),
+      OrcaEvent.ToolUse("Bash", "ls", Some("review")),
+      denied("Bash", "review"),
+      denied("Bash", "review")
+    ).foreach(tracker.onEvent)
+    assertEquals(
+      tracker.summary,
+      s"denied tool calls: Bash ×2 (review) — $advice"
+    )

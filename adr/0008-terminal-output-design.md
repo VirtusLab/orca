@@ -190,7 +190,7 @@ interactive renderer (`ConversationRenderer`) is untouched — it still shows
 own lines and on the tool-call line both surfaces share.** The stage indent,
 the glyph and any agent prefix come out of the body's budget, floored at 24
 characters so a deeply nested line still shows something. That is
-`TerminalEventListener`'s prose and structured-result caps plus
+`TerminalEventRenderer`'s prose and structured-result caps plus
 `ToolCallLine`'s argument cap. The interactive renderer's other lines — the
 user's message, the `⎿` tool result, the approval prompt — still spend their
 whole cap on the body; carrying the budget into them is a separate change. A

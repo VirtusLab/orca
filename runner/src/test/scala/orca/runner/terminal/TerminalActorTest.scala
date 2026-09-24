@@ -1,5 +1,6 @@
 package orca.runner.terminal
 
+import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
 import ox.channels.BufferCapacity
 import ox.{fork, supervised}
 
@@ -12,7 +13,7 @@ import scala.jdk.CollectionConverters.*
   * keep advancing ticks even while another thread is keeping the actor busy
   * with `log` calls.
   */
-class TerminalOutputActorTest extends munit.FunSuite:
+class TerminalActorTest extends munit.FunSuite:
 
   private val Esc: Char = '\u001b'
 
@@ -21,10 +22,11 @@ class TerminalOutputActorTest extends munit.FunSuite:
     val ps = new PrintStream(buf)
     supervised:
       given BufferCapacity = BufferCapacity(64)
-      val output = TerminalOutput.start(
+      val output = TerminalActor.start(
         ps,
         useColor = false,
         animated = true,
+        workDir = None,
         framePeriodMs = 20L
       )
       output.setStatus(Some("running"))
@@ -38,21 +40,20 @@ class TerminalOutputActorTest extends munit.FunSuite:
         s"expected the animator to have written at least one frame, got $ticks bytes"
       )
 
-  test(
-    "spinner advances during a separate thread's stream of log tells"
-  ):
+  test("spinner advances during a separate thread's stream of log calls"):
     val buf = new ByteArrayOutputStream()
     val ps = new PrintStream(buf)
     supervised:
       given BufferCapacity = BufferCapacity(256)
-      val output = TerminalOutput.start(
+      val output = TerminalActor.start(
         ps,
         useColor = false,
         animated = true,
+        workDir = None,
         framePeriodMs = 20L
       )
       output.setStatus(Some("running"))
-      // Hammer log tells from this thread for ~200ms; animator should
+      // Hammer log calls from this thread for ~200ms; animator should
       // still interleave ticks since both go through the same mailbox
       // and each handler is short.
       val deadline = System.nanoTime() + 200.millis.toNanos
@@ -81,10 +82,11 @@ class TerminalOutputActorTest extends munit.FunSuite:
     val ps = new PrintStream(buf)
     supervised:
       given BufferCapacity = BufferCapacity(64)
-      val output = TerminalOutput.start(
+      val output = TerminalActor.start(
         ps,
         useColor = false,
         animated = true,
+        workDir = None,
         framePeriodMs = 20L
       )
       val events = new java.util.concurrent.ConcurrentLinkedQueue[String]()
@@ -105,7 +107,6 @@ class TerminalOutputActorTest extends munit.FunSuite:
       val sizeDuringPrompt = buf.size()
       output.log("during-first-prompt")
       output.setStatus(Some("stage started"))
-      Thread.sleep(50) // let the actor's mailbox drain the two tells above
       assertEquals(
         buf.size(),
         sizeDuringPrompt,
@@ -141,3 +142,27 @@ class TerminalOutputActorTest extends munit.FunSuite:
         s"status label stored during suspend must be redrawn on resume; out: $drained"
       )
       output.close()
+
+  test(
+    "a render failure quarantines the terminal listener and leaves the scope running"
+  ):
+    val failingOut = new PrintStream(new ByteArrayOutputStream()):
+      override def print(s: String): Unit = throw new RuntimeException("boom")
+    val seen = new java.util.concurrent.ConcurrentLinkedQueue[OrcaEvent]()
+    val recorder: OrcaListener = e =>
+      val _ = seen.add(e)
+    supervised:
+      val terminal = TerminalActor.start(
+        failingOut,
+        useColor = false,
+        animated = false,
+        workDir = None
+      )
+      val dispatcher = new EventDispatcher(List(terminal.listener, recorder))
+      dispatcher.onEvent(OrcaEvent.Step("first"))
+      dispatcher.onEvent(OrcaEvent.Step("second"))
+    // Reaching here means the scope ended without the render failure.
+    assertEquals(
+      seen.asScala.toList,
+      List(OrcaEvent.Step("first"), OrcaEvent.Step("second"))
+    )

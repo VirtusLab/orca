@@ -274,7 +274,9 @@ most easily broken:
   stack) and announced once on stderr, then quarantined — permanently
   excluded from dispatch for the rest of the run. The remaining listeners
   still see every event and the flow itself always survives; see
-  `EventDispatcher`.
+  `EventDispatcher`. This holds only for work done on the calling thread: a
+  listener backed by an Ox actor uses `ask`, never `tell` (a throw in a `tell`
+  ends the actor's scope — the run).
 
 ## What a run writes to disk
 
