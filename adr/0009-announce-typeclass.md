@@ -186,3 +186,11 @@ nothing", and `Announce.from`'s empty-string normalisation plus
 distinction is drawn at the emission edge (`DefaultAgentCall`), which
 recognises the catch-all instance (`Announce.NoSpecific`) rather than
 inspecting the message.
+
+## Amendment (2026-09-23): the summary is an enum
+
+`StructuredResult` carries an `Announcement` — `Say(text)`, `Silent` or
+`Unannounced` — in place of the tri-state `Option[String]`, and names the
+agent that produced the result on an autonomous turn. `Announce.announcement`
+is the one place an instance's answer becomes an `Announcement`; an empty
+message counts as `Silent` there, whichever way the instance was built.

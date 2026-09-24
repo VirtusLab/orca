@@ -3,11 +3,11 @@ package orca.runner.manifest
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import orca.{AttemptId, OrcaDir}
 import orca.agents.{BackendTag, Model}
-import orca.events.{Cost, OrcaEvent, Usage}
+import orca.events.{Cost, CostBasis, OrcaEvent, Usage}
 import orca.testkit.{StageEvents, TempDirs}
 import orca.testkit.Usages.usage
 
-import java.time.Instant
+import java.time.{Instant, LocalDate}
 
 /** The `<AttemptId>.cost.jsonl` half of the attempt record (ADR 0021 §8
   * amendment, 2026-08-05). The session half stays in
@@ -16,6 +16,9 @@ import java.time.Instant
 class CostLogTest extends munit.FunSuite:
 
   private def fixedClock(at: Instant): () => Instant = () => at
+
+  private val estimated: CostBasis =
+    CostBasis.Estimated(LocalDate.of(2026, 9, 22))
 
   private def newWriter(workDir: os.Path): AttemptManifestWriterState =
     new AttemptManifestWriterState(
@@ -73,11 +76,14 @@ class CostLogTest extends munit.FunSuite:
     )
     writer.onEvent(
       OrcaEvent.TokensUsed(
-        "claude",
-        None,
-        usage(107_000, 500, None, apiCalls = Some(3L)),
-        None,
-        session = Some("wire-1"),
+        OrcaEvent.UnpricedTurn(
+          "claude",
+          None,
+          usage(107_000, 500, None, apiCalls = Some(3L)),
+          None,
+          turn = 1,
+          session = Some("wire-1")
+        ),
         cost = None
       )
     )
@@ -86,11 +92,14 @@ class CostLogTest extends munit.FunSuite:
     writer.onEvent(StageEvents.ended("code"))
     writer.onEvent(
       OrcaEvent.TokensUsed(
-        "reviewer",
-        None,
-        usage(0, 0, None),
-        Some("reviewer"),
-        turn = 2,
+        OrcaEvent.UnpricedTurn(
+          "reviewer",
+          None,
+          usage(0, 0, None),
+          Some("reviewer"),
+          turn = 2,
+          session = None
+        ),
         cost = None
       )
     )
@@ -112,19 +121,23 @@ class CostLogTest extends munit.FunSuite:
   test("a turn carries every usage axis and the cost the event arrived with"):
     val workDir = TempDirs.dir()
     val writer = newWriter(workDir)
-    val resolved = Cost(BigDecimal("0.1086"), estimated = true)
+    val resolved = Cost(BigDecimal("0.1086"), estimated)
     writer.onEvent(
       OrcaEvent.TokensUsed(
-        agent = "claude",
-        model = Some(Model("claude-sonnet-5")),
-        usage = usage(
-          input = 120_000,
-          output = 900,
-          cost = None,
-          cacheRead = 107_000,
-          cacheWrite = 8_000
+        OrcaEvent.UnpricedTurn(
+          agent = "claude",
+          model = Some(Model("claude-sonnet-5")),
+          usage = usage(
+            input = 120_000,
+            output = 900,
+            cost = None,
+            cacheRead = 107_000,
+            cacheWrite = 8_000
+          ),
+          role = None,
+          turn = 1,
+          session = None
         ),
-        role = None,
         cost = Some(resolved)
       )
     )
@@ -141,6 +154,30 @@ class CostLogTest extends munit.FunSuite:
     )
     assertEquals(turn.cost, Some(resolved))
 
+  test("an estimated cost is written with the date of the rates behind it"):
+    val workDir = TempDirs.dir()
+    val writer = newWriter(workDir)
+    writer.onEvent(
+      OrcaEvent.TokensUsed(
+        OrcaEvent.UnpricedTurn(
+          agent = "claude",
+          model = None,
+          usage = usage(10, 1, None),
+          role = None,
+          turn = 1,
+          session = None
+        ),
+        cost = Some(Cost(BigDecimal("0.5"), estimated))
+      )
+    )
+    val line = os.read.lines(costLogFiles(workDir).head).head
+    assert(
+      line.contains(
+        """"cost":{"amount":0.5,"basis":{"type":"Estimated","ratesAsOf":"2026-09-22"}}"""
+      ),
+      line
+    )
+
   /** Without the model on the line, the by-model split the run printed cannot
     * be reproduced from the file — which the record's own contract promises.
     */
@@ -149,15 +186,29 @@ class CostLogTest extends munit.FunSuite:
     val writer = newWriter(workDir)
     writer.onEvent(
       OrcaEvent.TokensUsed(
-        agent = "claude",
-        model = Some(Model("claude-sonnet-5")),
-        usage = usage(10, 1, None),
-        role = None,
+        OrcaEvent.UnpricedTurn(
+          agent = "claude",
+          model = Some(Model("claude-sonnet-5")),
+          usage = usage(10, 1, None),
+          role = None,
+          turn = 1,
+          session = None
+        ),
         cost = None
       )
     )
     writer.onEvent(
-      OrcaEvent.TokensUsed("claude", None, usage(10, 1, None), cost = None)
+      OrcaEvent.TokensUsed(
+        OrcaEvent.UnpricedTurn(
+          agent = "claude",
+          model = None,
+          usage = usage(10, 1, None),
+          role = None,
+          turn = 1,
+          session = None
+        ),
+        cost = None
+      )
     )
     assertEquals(
       turns(workDir).map(_.model),
@@ -165,28 +216,36 @@ class CostLogTest extends munit.FunSuite:
     )
 
   /** The attempt total is a read-time fold, so this pins that the lines carry
-    * enough to compute one — including `estimated` surviving the addition, so a
-    * mixed total can't be read as a billed figure.
+    * enough to compute one — including the estimate basis surviving the
+    * addition, so a mixed total can't be read as a billed figure.
     */
   test("per-turn costs fold back into the attempt total"):
     val workDir = TempDirs.dir()
     val writer = newWriter(workDir)
     writer.onEvent(
       OrcaEvent.TokensUsed(
-        agent = "claude",
-        model = Some(Model("claude-sonnet-5")),
-        usage = usage(120_000, 900, None, cacheRead = 107_000),
-        role = None,
-        cost = Some(Cost(BigDecimal("0.0846"), estimated = true))
+        OrcaEvent.UnpricedTurn(
+          agent = "claude",
+          model = Some(Model("claude-sonnet-5")),
+          usage = usage(120_000, 900, None, cacheRead = 107_000),
+          role = None,
+          turn = 1,
+          session = None
+        ),
+        cost = Some(Cost(BigDecimal("0.0846"), estimated))
       )
     )
     writer.onEvent(
       OrcaEvent.TokensUsed(
-        agent = "reviewer",
-        model = Some(Model("claude-haiku-4-5")),
-        usage = usage(5_000, 100, Some(BigDecimal("0.0123"))),
-        role = Some("reviewer"),
-        cost = Some(Cost(BigDecimal("0.0123"), estimated = false))
+        OrcaEvent.UnpricedTurn(
+          agent = "reviewer",
+          model = Some(Model("claude-haiku-4-5")),
+          usage = usage(5_000, 100, Some(BigDecimal("0.0123"))),
+          role = Some("reviewer"),
+          turn = 1,
+          session = None
+        ),
+        cost = Some(Cost(BigDecimal("0.0123"), CostBasis.Reported))
       )
     )
     val recorded = turns(workDir)
@@ -201,7 +260,7 @@ class CostLogTest extends munit.FunSuite:
     )
     assertEquals(
       recorded.flatMap(_.cost).reduce(_ + _),
-      Cost(BigDecimal("0.0969"), estimated = true)
+      Cost(BigDecimal("0.0969"), estimated)
     )
 
   // Guards the invariant CostLogUsage's scaladoc states: it mirrors every one

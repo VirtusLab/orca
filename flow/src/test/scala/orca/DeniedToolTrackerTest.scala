@@ -44,9 +44,8 @@ class DeniedToolTrackerTest extends munit.FunSuite:
     val tools = tally(List(OrcaEvent.ToolDenied("Write", None)))
     assertEquals(tools.summary, s"denied tool calls: Write ×1 — $advice")
 
-  test("the tracker counts only ToolDenied events and prints their summary"):
-    val out = new java.io.ByteArrayOutputStream
-    supervised:
+  test("the tracker counts only ToolDenied events"):
+    val summary = supervised:
       val tracker = DeniedToolTracker.start()
       List(
         OrcaEvent.Step("hi"),
@@ -54,8 +53,5 @@ class DeniedToolTrackerTest extends munit.FunSuite:
         denied("Bash", "review"),
         denied("Bash", "review")
       ).foreach(tracker.onEvent)
-      Console.withOut(out)(tracker.printSummary())
-    assertEquals(
-      out.toString,
-      s"\ndenied tool calls: Bash ×2 (review) — $advice\n"
-    )
+      tracker.summary
+    assertEquals(summary, s"denied tool calls: Bash ×2 (review) — $advice")

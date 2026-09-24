@@ -257,11 +257,11 @@ object FlowCanary:
   def exportsSurface(): Unit =
     flow(OrcaArgs()):
       stage("exports"):
-        val tracker = new CostTracker(Pricing.default.lastUpdated)
+        val tracker = new CostTracker
         val _: Option[Cost] = tracker.totalCost
         val listener: OrcaListener =
           case t: OrcaEvent.TokensUsed =>
-            val _: Usage = t.usage
+            val _: Usage = t.spend.usage
           case _ => ()
         val _ = listener
         val _: List[OpenFinding] = OpenFindings.empty.findings
