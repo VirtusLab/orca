@@ -40,7 +40,7 @@ private[shell] object SessionNaming:
     session.minted.fold(session.agent)(_.name)
 
   /** ` (crashed)` for a crashed attempt's session; nothing otherwise. */
-  def statusSuffix(status: ObservedStatus): String = status match
+  def crashedSuffix(status: ObservedStatus): String = status match
     case ObservedStatus.Crashed => " (crashed)"
     case ObservedStatus.Running | ObservedStatus.Succeeded |
         ObservedStatus.Failed =>

@@ -4,7 +4,6 @@ import orca.{AttemptId, OrcaDir}
 import orca.runner.manifest.AttemptManifest
 import orca.util.JsonFile
 
-import java.time.Duration
 import scala.util.control.NonFatal
 
 /** A manifest paired with its attempt's id (from the file name) and its
@@ -46,10 +45,11 @@ private[shell] object ManifestReader:
     * parameters rather than one list, because that is the whole difference
     * between them.
     *
-    * A crashed attempt ([[ObservedStatus.Crashed]], decided by `processAlive`)
-    * still has its sessions offered, per ADR 0021 §8. An attempt that committed
-    * no session is left out: it has nothing to continue. Each directory's
-    * `.orca/cache/attempts/` is read passively ([[OrcaDir.attemptsPath]], not
+    * A crashed attempt ([[ObservedStatus.Crashed]], decided by `processAlive`;
+    * [[ObservedStatus.processAlive]] in production) still has its sessions
+    * offered, per ADR 0021 §8. An attempt that committed no session is left
+    * out: it has nothing to continue. Each directory's `.orca/cache/attempts/`
+    * is read passively ([[OrcaDir.attemptsPath]], not
     * [[OrcaDir.ensureAttempts]]) — absent or empty contributes nothing and
     * creates nothing on disk. A file that fails to parse as JSON, or doesn't
     * match the `AttemptManifest` schema — which includes a timestamp that isn't
@@ -125,25 +125,3 @@ private[shell] object ManifestReader:
       case JsonFile.Read.Unreadable(reason) =>
         Left(s"skipping $file: $reason")
       case JsonFile.Read.Corrupt(reason) => Left(s"skipping $file: $reason")
-
-  /** The production value of [[list]]'s `processAlive` parameter (ADR 0021 §8),
-    * shared by the interactive menu and the CLI's `continue`. `pid` must name a
-    * live process that started no later than `startedAt` (which the attempt
-    * takes inside that process) — a later start means the pid was reused. The
-    * slack absorbs wall-clock steps, which shift the start instants the OS
-    * reports; a crashed attempt's pid being reused within it is negligible. An
-    * unknown start instant counts as alive.
-    */
-  private[shell] def processAlive(manifest: AttemptManifest): Boolean =
-    ProcessHandle
-      .of(manifest.pid)
-      .filter(_.isAlive)
-      .map[Boolean]: handle =>
-        handle
-          .info()
-          .startInstant()
-          .map[Boolean](!_.isAfter(manifest.startedAt.plus(StartSlack)))
-          .orElse(true)
-      .orElse(false)
-
-  private val StartSlack = Duration.ofMinutes(1)

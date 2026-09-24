@@ -55,8 +55,13 @@ private[cli] object Tables:
       lastActiveAt: String,
       resumable: Boolean,
       reason: Option[String],
-      observedStatus: ObservedStatus
+      /** The attempt's status, `Crashed` included. */
+      attemptStatus: ObservedStatus
   )
+  private given ConfiguredJsonValueCodec[ObservedStatus] =
+    ConfiguredJsonValueCodec.derived[ObservedStatus](using
+      CodecMakerConfig.withDiscriminatorFieldName(None)
+    )
   // `withTransientEmpty`/`withTransientNone` false: `--json` output is for
   // scripts, which should see an always-present `reason` key (null when
   // unset) and `shadows`/similar fields rather than a silently vanishing one.
@@ -81,7 +86,7 @@ private[cli] object Tables:
         lastActiveAt = session.lastActiveAt.toString,
         resumable = gate.isRight,
         reason = gate.left.toOption,
-        observedStatus = selection.observedStatus
+        attemptStatus = selection.observedStatus
       )
 
   private[cli] def printSessionListing(
@@ -99,7 +104,7 @@ private[cli] object Tables:
           if r.resumable then ""
           else s"  not resumable: ${r.reason.getOrElse("")}"
         val sessionName =
-          r.sessionName + SessionNaming.statusSuffix(r.observedStatus) +
+          r.sessionName + SessionNaming.crashedSuffix(r.attemptStatus) +
             tag(r.workDir, r.branch)
         (
           r.id,

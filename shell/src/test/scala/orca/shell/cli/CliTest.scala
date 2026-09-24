@@ -1520,7 +1520,7 @@ class CliTest extends munit.FunSuite:
     assert(out.contains("\"kind\":\"Ephemeral\""), out)
 
   test(
-    "runContinue --list --json: a crashed attempt reports observedStatus Crashed"
+    "runContinue --list --json: a crashed attempt reports attemptStatus Crashed"
   ):
     val dir = TempDirs.dir()
     writeCrashedManifest(dir)
@@ -1538,7 +1538,7 @@ class CliTest extends munit.FunSuite:
         ExitCodes.Ok
       )
     )
-    assert(out.contains("\"observedStatus\":\"Crashed\""), out)
+    assert(out.contains("\"attemptStatus\":\"Crashed\""), out)
 
   test(
     "runContinue --list: a crashed attempt's table row is suffixed (crashed)"

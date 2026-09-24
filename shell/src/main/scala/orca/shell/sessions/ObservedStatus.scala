@@ -1,10 +1,9 @@
 package orca.shell.sessions
 
-import com.github.plokhotnyuk.jsoniter_scala.macros.{
-  CodecMakerConfig,
-  ConfiguredJsonValueCodec
-}
 import orca.runner.manifest.{AttemptManifest, AttemptStatus}
+
+import java.time.Duration
+import scala.jdk.OptionConverters.*
 
 /** An attempt's [[AttemptStatus]] as the shell sees it now: a manifest still
   * [[AttemptStatus.Running]] whose process is gone is `Crashed` (ADR 0021 §8).
@@ -15,7 +14,7 @@ private[shell] enum ObservedStatus:
 private[shell] object ObservedStatus:
 
   /** `processAlive` answers whether the process that wrote `manifest` still
-    * runs.
+    * runs — [[processAlive]] in production.
     */
   def of(
       manifest: AttemptManifest,
@@ -27,7 +26,22 @@ private[shell] object ObservedStatus:
       case AttemptStatus.Succeeded => Succeeded
       case AttemptStatus.Failed    => Failed
 
-  given codec: ConfiguredJsonValueCodec[ObservedStatus] =
-    ConfiguredJsonValueCodec.derived[ObservedStatus](using
-      CodecMakerConfig.withDiscriminatorFieldName(None)
-    )
+  /** Whether `manifest.pid` names a live process that started no later than
+    * `startedAt` (which the attempt takes inside that process) — a later start
+    * means the pid was reused. The slack absorbs wall-clock steps, which shift
+    * the start instants the OS reports; a crashed attempt's pid being reused
+    * within it is negligible. An unknown start instant counts as alive.
+    */
+  def processAlive(manifest: AttemptManifest): Boolean =
+    ProcessHandle
+      .of(manifest.pid)
+      .toScala
+      .filter(_.isAlive)
+      .exists: handle =>
+        handle
+          .info()
+          .startInstant()
+          .toScala
+          .forall(!_.isAfter(manifest.startedAt.plus(ProcessStartSlack)))
+
+  private val ProcessStartSlack = Duration.ofMinutes(1)

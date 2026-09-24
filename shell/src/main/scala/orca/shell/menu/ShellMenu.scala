@@ -8,6 +8,7 @@ import orca.shell.run.FlowLauncher
 import orca.shell.sessions.{
   AttemptListing,
   ManifestReader,
+  ObservedStatus,
   SessionIndex,
   SessionPicker
 }
@@ -49,7 +50,7 @@ private[shell] object ShellMenu:
       ManifestReader.list(
         scanDirs.own,
         scanDirs.worktrees,
-        ManifestReader.processAlive
+        ObservedStatus.processAlive
       )
     warnings.foreach(ShellOutput.info)
     val continueSessionCount =

@@ -93,14 +93,16 @@ private[shell] object ManifestFixtures:
   def recorded(manifest: AttemptManifest): RecordedAttempt =
     recorded(manifest, ObservedStatus.of(manifest, _ => true))
 
-  /** `session`, recorded in `manifest`, as a [[SessionIndex]] holds it. */
+  /** `session`, recorded in `manifest`, as a [[SessionIndex]] holds it, with
+    * the writing process still alive.
+    */
   def selection(
       manifest: AttemptManifest,
       session: ManifestSession
   ): SessionSelection =
     selection(manifest, session, ObservedStatus.of(manifest, _ => true))
 
-  /** [[selection]] with an explicit [[ObservedStatus]]. */
+  /** `session`, recorded in `manifest`, as a [[SessionIndex]] holds it. */
   def selection(
       manifest: AttemptManifest,
       session: ManifestSession,

@@ -151,5 +151,5 @@ private[shell] object SessionPicker:
   private def rowTail(selection: SessionSelection, marker: String): String =
     val harness = AgentSpec.harnessNameFor(selection.session.backend)
     val branch = selection.manifest.branch.fold("")(b => s" on $b")
-    val status = SessionNaming.statusSuffix(selection.observedStatus)
-    s"[$harness]$marker$branch$status"
+    val crashed = SessionNaming.crashedSuffix(selection.observedStatus)
+    s"[$harness]$marker$branch$crashed"

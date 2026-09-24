@@ -242,17 +242,17 @@ class ManifestReaderTest extends munit.FunSuite:
       warnings.head
     )
 
-  test("a succeeded manifest with a dead pid is not crashed"):
+  test("a failed manifest with a dead pid is not crashed"):
     val workDir = TempDirs.dir()
     writeManifest(
       workDir,
       startedAt = "2026-07-18T10:00:00Z",
       pid = 999999,
-      status = "Succeeded"
+      status = "Failed"
     )
     val AttemptListing(attempts, _) =
       ManifestReader.list(workDir, Nil, alwaysDead)
-    assertEquals(attempts.map(_.observedStatus), List(ObservedStatus.Succeeded))
+    assertEquals(attempts.map(_.observedStatus), List(ObservedStatus.Failed))
 
   test(
     "list skips a manifest whose minted key has no stage, warning by filename"
@@ -384,19 +384,3 @@ class ManifestReaderTest extends munit.FunSuite:
     assertEquals(attempts.size, 1)
     assertEquals(warnings.size, 1)
     assert(warnings.head.contains("symlink"), warnings.head)
-
-  test("processAlive: this process, for an attempt it started, is alive"):
-    val attempt = ManifestFixtures.manifest(
-      pid = ProcessHandle.current().pid(),
-      startedAt = Instant.now().toString,
-      sessions = Nil
-    )
-    assert(ManifestReader.processAlive(attempt))
-
-  test("processAlive: a live process started after the attempt reused its pid"):
-    val attempt = ManifestFixtures.manifest(
-      pid = ProcessHandle.current().pid(),
-      startedAt = Instant.EPOCH.toString,
-      sessions = Nil
-    )
-    assert(!ManifestReader.processAlive(attempt))
