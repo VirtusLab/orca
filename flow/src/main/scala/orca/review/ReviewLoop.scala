@@ -23,7 +23,7 @@ import orca.{
 }
 import orca.plan.Task
 
-import orca.agents.Chat
+import orca.agents.{Chat, PromptEvent}
 import orca.events.OrcaEvent
 
 import orca.util.TextUtil
@@ -543,7 +543,10 @@ private[review] class ReviewFixLoop(
     val prompt = ReviewLoopPrompts.reReview(changes, open)
     ReviewLogging.reReview(e.name.value, round, changes, prompt)
     val result =
-      se.chat.resultAs[ReviewResult].autonomous.run(prompt, emitPrompt = false)
+      se.chat
+        .resultAs[ReviewResult]
+        .autonomous
+        .run(prompt, PromptEvent.Suppress)
     // Nothing is sent on `AlreadySeen`, so the reviewer keeps comparing against
     // what it has seen. A cut round still records the whole sample, not what
     // was sent: the next round compares against all of it, so a change that
@@ -580,7 +583,7 @@ private[review] class ReviewFixLoop(
     )
     ReviewLogging.initialReview(e.name.value, round, current, prompt)
     val result =
-      chat.resultAs[ReviewResult].autonomous.run(prompt, emitPrompt = false)
+      chat.resultAs[ReviewResult].autonomous.run(prompt, PromptEvent.Suppress)
     (result, Some(SessionEntry(chat, LastSent.inlined(current))))
 
   /** What one fork of the round's fan-out came back with — the same
@@ -790,7 +793,7 @@ private[review] class ReviewFixLoop(
   ): FixOutcome =
     val request = FixRequest(fixInstructions, findings.map(_.keyed))
     ReviewLogging.fix(request)
-    coderSession.resultAs[FixOutcome].run(request, emitPrompt = false)
+    coderSession.resultAs[FixOutcome].run(request, PromptEvent.Suppress)
 
   /** One fix turn over `findings`: hand them to the coder, reconcile its reply
     * against what it was handed ([[FixOutcome.reconcile]]), and announce the

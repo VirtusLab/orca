@@ -17,7 +17,6 @@ import orca.{*, given}
 // "import it explicitly" requirement honest.
 
 import orca.tools.PrAlreadyExists
-import orca.agents.AgentConfig
 
 import scala.util.matching.Regex
 
@@ -94,9 +93,7 @@ object FlowCanary:
         // Per-tool config knobs resolve and chain on both backends.
         val _ = claude.withReadOnly.withSelfManagedGit
         val _ = codex.withSelfManagedGit
-        val _ = pi.withConfig(
-          AgentConfig().copy(model = Some(Model("gpt-5.5")))
-        )
+        val _ = pi.withAutoApprove(AutoApprove.Only(Set("Read")))
         // Each backend's model tiers resolve as extensions from `orca.*`.
         val _ = claude.opus.withNetworkTools(Seq("WebFetch"))
         val _ = codex.mini

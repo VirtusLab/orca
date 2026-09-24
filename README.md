@@ -192,7 +192,7 @@ one call surface. Durable: `session(name, seed): FlowSession` →
 `.run(prompt)` / `.resultAs[O].run(input)`. One-shot: `run(prompt)`,
 `resultAs[O].{autonomous,interactive}.run(input)`. Ephemeral multi-turn:
 `chat(): Chat` → `.run(prompt)` / `.resultAs[O]...run(input)`. Common tuning:
-`withModel`, `withCheapModel`, `withConfig`, `withSystemPrompt`, `withName`,
+`withModel`, `withCheapModel`, `withAutoApprove`, `withSystemPrompt`, `withName`,
 `withReadOnly`, `withNetworkOnly`, `withSelfManagedGit`. The table lists each
 backend's model accessors and backend-specific extras:
 
@@ -248,7 +248,7 @@ There are two ways to drive a model in a flow:
   accessors — so `codingAgent.opus` won't compile; that's the cue to name the
   backend. Pin any other model with `withModel(Model("…"))`.
 
-Two axes constrain an agent. **Capability** (`AgentConfig.tools: ToolSet`) is
+Two axes constrain an agent. **Capability** (`ToolSet`) is
 which tools exist at all:
 
 ```scala
@@ -269,9 +269,8 @@ on `Full`:
 
 ```scala
 // Restrict auto-approval to a named tool set (honoured by claude).
-val limited = claude.withConfig(
-  AgentConfig(autoApprove = AutoApprove.Only(Set("Read", "Edit", "Grep")))
-)
+val limited =
+  claude.withAutoApprove(AutoApprove.Only(Set("Read", "Edit", "Grep")))
 ```
 
 `AutoApprove.Only` fits interactive flows, where a human answers anything
@@ -291,7 +290,7 @@ files (`~/.claude/CLAUDE.md`, `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`,
 
 Autonomous turns have no one to answer prompts (see above), so:
 
-- Coding turns auto-approve everything by default (`AgentConfig.autoApprove`
+- Coding turns auto-approve everything by default (`withAutoApprove`
   narrows it).
 - On claude, read-only roles (planner, reviewers, reviewer picker) deny any
   tool outside orca's list, your MCP tools included, unless your claude

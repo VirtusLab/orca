@@ -1,7 +1,7 @@
 package orca.runner
 
 import orca.{InStage, StackSettings}
-import orca.agents.{Agent, Announce, JsonData, given}
+import orca.agents.{Agent, Announce, JsonData, PromptEvent, given}
 import orca.events.OrcaEvent
 import orca.settings.{SettingsEntry, StackCommand, StackKey, StackValue}
 import orca.subprocess.PathProbe
@@ -91,7 +91,7 @@ private[runner] object StackDiscovery:
     val result = agent.cheap.withReadOnly
       .resultAs[StackDiscoveryReply]
       .autonomous
-      .run(Prompt, emitPrompt = false)
+      .run(Prompt, PromptEvent.Suppress)
       .result
     val (entries, settings) = toEntries(
       result,

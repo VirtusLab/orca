@@ -491,7 +491,7 @@ class AgentTest extends munit.FunSuite:
       "prompt",
       SessionId.fresh[BackendTag.Pi.type],
       sessionKey = Some(coderKey),
-      emitPrompt = true
+      promptEvent = PromptEvent.Emit
     )
     assertEquals(
       seen.get().collect { case e: OrcaEvent.SessionCommitted =>
@@ -719,6 +719,11 @@ class AgentTest extends munit.FunSuite:
     val tool = stubTool(backend, prompts = DefaultPrompts).withReadOnly
     val _ = tool.resultAs[String].autonomous.run("prompt")
     assertEquals(backend.lastConfig.map(_.tools), Some(ToolSet.ReadOnly))
+
+  test("withAutoApprove keeps a withReadOnly restriction"):
+    val tool = stubTool(new RecordingConfigBackend).withReadOnly
+      .withAutoApprove(AutoApprove.Only(Set("Read")))
+    assertEquals(tool.config.tools, ToolSet.ReadOnly)
 
   private def stubTool(
       backend: AgentBackend[BackendTag.Pi.type],

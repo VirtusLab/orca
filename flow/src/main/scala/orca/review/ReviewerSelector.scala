@@ -9,7 +9,7 @@ import language.experimental.separationChecking
 
 import orca.{FlowContext, InStage}
 import orca.events.OrcaEvent
-import orca.agents.Agent
+import orca.agents.{Agent, PromptEvent}
 import orca.plan.Title
 import orca.util.TextUtil
 
@@ -156,7 +156,7 @@ object ReviewerSelector:
             .withRole(ReviewerPrompts.Role)
             .resultAs[SelectedReviewers]
             .autonomous
-            .run(request, emitPrompt = false)
+            .run(request, PromptEvent.Suppress)
             .names
       // Post-filter against `eligible`, not `all`, so a picker that hallucinates
       // a name pre-filtered out can't resurrect it.

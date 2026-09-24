@@ -1,7 +1,7 @@
 package orca.pr
 
 import orca.{BoundedDiff, FlowContext, InStage}
-import orca.agents.{Announce, JsonData, Agent}
+import orca.agents.{Announce, JsonData, Agent, PromptEvent}
 
 import scala.annotation.unused
 
@@ -24,8 +24,8 @@ object PrSummary:
   * ([[BoundedDiff.prPayload]]) rather than sent as is, which no context window
   * would take.
   *
-  * Use a cheap model. The autonomous call runs `emitPrompt = false` because the
-  * diff dominates the prompt and would dwarf the event log.
+  * Use a cheap model. The autonomous call runs with `PromptEvent.Suppress`
+  * because the diff dominates the prompt and would dwarf the event log.
   */
 def summarisePr(
     agent: Agent[?],
@@ -39,4 +39,4 @@ def summarisePr(
   val prompt =
     s"$instructions\n\n${contextBlock}Branch diff (vs base):\n\n" +
       s"```diff\n${BoundedDiff.prPayload(diff)}\n```"
-  agent.resultAs[PrSummary].autonomous.run(prompt, emitPrompt = false)
+  agent.resultAs[PrSummary].autonomous.run(prompt, PromptEvent.Suppress)

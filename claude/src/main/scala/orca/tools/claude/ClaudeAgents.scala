@@ -40,8 +40,4 @@ object ClaudeAgents:
       * `claude.opus.withNetworkTools(Seq("WebFetch"))`.
       */
     def withNetworkTools(tools: Seq[String]): ClaudeAgent =
-      agent.withConfig(
-        agent.config.copy(networkTools =
-          Some(ClaudeNetworkTools.validated(tools))
-        )
-      )
+      agent.withNetworkToolSet(ClaudeNetworkTools.validated(tools))

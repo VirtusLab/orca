@@ -6,7 +6,7 @@ import language.experimental.captureChecking
 import language.experimental.separationChecking
 
 import orca.{FlowContext, InStage, OrcaDir}
-import orca.agents.{Agent, Chat}
+import orca.agents.{Agent, Chat, PromptEvent}
 
 /** The lint gate run alongside the reviewers each round: `commands` (each run
   * via `bash -c`, in order) and the `agent` that summarises their concatenated
@@ -123,7 +123,7 @@ private def summariseRuns(
     summariser.chat
       .resultAs[ReviewResult]
       .autonomous
-      .run(prompt, emitPrompt = false)
+      .run(prompt, PromptEvent.Suppress)
   val combined = runs.map(_.labelled).mkString("\n\n")
   val statusHint =
     "Each command's combined stdout+stderr is a block headed " +

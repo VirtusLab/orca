@@ -28,7 +28,7 @@ import orca.backend.{
   SessionSupport,
   TurnRequest
 }
-import orca.agents.{AgentCall, DefaultPrompts}
+import orca.agents.{AgentCall, DefaultPrompts, PromptEvent}
 import ox.supervised
 
 import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
@@ -170,7 +170,7 @@ class AgentCallTest extends munit.FunSuite:
           "next step",
           sid,
           sessionKey = None,
-          emitPrompt = true
+          promptEvent = PromptEvent.Emit
         )
       assertEquals(answer, Answer(11))
       val Seq(first, second) = backend.prompts: @unchecked

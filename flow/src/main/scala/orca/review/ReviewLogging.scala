@@ -5,12 +5,12 @@ import org.slf4j.LoggerFactory
 
 /** Records what each review turn was actually sent, at DEBUG.
   *
-  * The review, fix and reviewer-picker turns all run with `emitPrompt = false`
-  * — a `▸` line per reviewer per round is noise on screen — so no `UserPrompt`
-  * event exists for the runner's listener to mirror, and without this the run's
-  * trace would hold no copy of what a reviewer saw. Written straight to the
-  * `orca.flow` logger, which `OrcaLog` makes non-additive, so none of it
-  * reaches the console.
+  * The review, fix and reviewer-picker turns all run with
+  * `PromptEvent.Suppress` — a `▸` line per reviewer per round is noise on
+  * screen — so no `UserPrompt` event exists for the runner's listener to
+  * mirror, and without this the run's trace would hold no copy of what a
+  * reviewer saw. Written straight to the `orca.flow` logger, which `OrcaLog`
+  * makes non-additive, so none of it reaches the console.
   *
   * Kept out of `ReviewLoop.scala`/`ReviewerSelector.scala` so both can render
   * their prompt through the same [[AgentInput]] the agent call will use, which
