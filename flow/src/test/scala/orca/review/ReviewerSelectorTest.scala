@@ -2,65 +2,25 @@ package orca.review
 
 import orca.{FlowContext, TestFlowContext}
 import orca.events.EventDispatcher
-import orca.agents.{
-  SessionKey,
-  Agent,
-  AgentInput,
-  Announce,
-  AutonomousAgentCall,
-  BackendTag,
-  JsonData,
-  AgentCall,
-  SessionId
-}
+import orca.agents.Agent
 import orca.plan.Title
 
-import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
+/** A picker replying `response` to each of up to two selection turns. */
+private def recordingPicker(response: SelectedReviewers): FakeAgent =
+  new FakeAgent("review", List(response, response))
 
-/** Captures every `ReviewerSelectionRequest` handed to the picker and replies
-  * with a scripted `SelectedReviewers`, counting each call and recording the
-  * `(name, role)` the agent carried when the turn ran.
-  *
-  * `withName`/`withRole` are honoured — the [[StubAgent]] base returns `this`,
-  * so the tags [[ReviewerSelector.agentDriven]] applies are only observable on
-  * a copy that actually keeps them.
+/** The reviewer slugs the picker's first turn was offered, read off its
+  * `Available reviewers:` list; `None` if the picker never ran.
   */
-private class RecordingPicker(
-    response: SelectedReviewers,
-    captured: AtomicReference[Option[ReviewerSelectionRequest]] =
-      new AtomicReference[Option[ReviewerSelectionRequest]](None),
-    calls: AtomicInteger = new AtomicInteger(0),
-    identity: AtomicReference[Option[(String, Option[String])]] =
-      new AtomicReference[Option[(String, Option[String])]](None),
-    agentName: String = "review",
-    roleTag: Option[String] = None
-) extends StubAgent(agentName):
-  override def role: Option[String] = roleTag
-  override def withName(n: String): Agent[BackendTag.ClaudeCode.type] =
-    new RecordingPicker(response, captured, calls, identity, n, roleTag)
-  override def withRole(r: String): Agent[BackendTag.ClaudeCode.type] =
-    new RecordingPicker(response, captured, calls, identity, agentName, Some(r))
-  def resultAs[O: JsonData: Announce]
-      : AgentCall[BackendTag.ClaudeCode.type, O] =
-    new AgentCall[BackendTag.ClaudeCode.type, O]:
-      val autonomous: AutonomousAgentCall[BackendTag.ClaudeCode.type, O] =
-        new AutonomousAgentCall[BackendTag.ClaudeCode.type, O]:
-          private[orca] def runWithSession[I: AgentInput](
-              input: I,
-              session: SessionId[BackendTag.ClaudeCode.type],
-              sessionKey: Option[SessionKey],
-              emitPrompt: Boolean
-          )(using orca.InStage): O =
-            val _ = calls.incrementAndGet()
-            identity.set(Some((name, role)))
-            input match
-              case r: ReviewerSelectionRequest =>
-                captured.set(Some(r))
-              case _ => ()
-            response.asInstanceOf[O]
-      def interactive
-          : orca.agents.InteractiveAgentCall[BackendTag.ClaudeCode.type, O] =
-        ???
+private def offered(picker: FakeAgent): Option[List[String]] =
+  picker.seenPrompts.headOption.map(
+    _.linesIterator
+      .dropWhile(_ != "Available reviewers:")
+      .drop(1)
+      .takeWhile(_.startsWith("  - "))
+      .map(_.stripPrefix("  - ").takeWhile(_ != ':'))
+      .toList
+  )
 
 class ReviewerSelectorTest extends munit.FunSuite:
 
@@ -90,12 +50,8 @@ class ReviewerSelectorTest extends munit.FunSuite:
     ReviewBatch(List(e -> ReviewResult(List(finding("found something")))))
 
   test("file-pattern reviewers are dropped before the picker sees them"):
-    val captured = new AtomicReference[Option[ReviewerSelectionRequest]](None)
-    val picker = new RecordingPicker(
-      SelectedReviewers(List("scala-fp", "generic")),
-      captured
-    )
-    val selector = ReviewerSelector.agentDriven(agent = picker)
+    val picker = recordingPicker(SelectedReviewers(List("scala-fp", "generic")))
+    val selector = ReviewerSelector.agentDriven(agent = picker.agent)
     val picked =
       selector.prepare(all, Title("any"), List("src/lib.rs"))(Nil)
     // Even though the picker tried to include scala-fp, it was never offered
@@ -104,16 +60,15 @@ class ReviewerSelectorTest extends munit.FunSuite:
     // The picker is shown bare slugs — no `reviewer: ` cost-attribution prefix
     // reaches it.
     assertEquals(
-      captured.get().map(_.availableReviewers.map(_.name)),
+      offered(picker),
       Some(List("generic"))
     )
 
   test("the picker is shown each reviewer's own description"):
     // A reviewer the library does not ship: its description can only reach the
     // picker off its own definition.
-    val captured = new AtomicReference[Option[ReviewerSelectionRequest]](None)
     val picker =
-      new RecordingPicker(SelectedReviewers(List("bespoke")), captured)
+      recordingPicker(SelectedReviewers(List("bespoke")))
     val bespoke = new RosterEntry(
       asReviewer(
         new FakeAgent("bespoke"),
@@ -122,20 +77,18 @@ class ReviewerSelectorTest extends munit.FunSuite:
       ReviewerId(0)
     )
     val _ = ReviewerSelector
-      .agentDriven(agent = picker)
+      .agentDriven(agent = picker.agent)
       .prepare(List(bespoke), Title("any"), List("Widget.scala"))(Nil)
-    assertEquals(
-      captured.get().map(_.availableReviewers),
-      Some(List(ReviewerInfo("bespoke", "checks the widget wiring")))
+    assert(
+      picker.seenPrompts.exists(
+        _.contains("  - bespoke: checks the widget wiring")
+      ),
+      picker.seenPrompts.toString
     )
 
   test("picker reply resolves reviewers by bare slug"):
-    val captured = new AtomicReference[Option[ReviewerSelectionRequest]](None)
-    val picker = new RecordingPicker(
-      SelectedReviewers(List("generic", "scala-fp")),
-      captured
-    )
-    val selector = ReviewerSelector.agentDriven(agent = picker)
+    val picker = recordingPicker(SelectedReviewers(List("generic", "scala-fp")))
+    val selector = ReviewerSelector.agentDriven(agent = picker.agent)
     val picked =
       selector.prepare(all, Title("any"), List("src/main/scala/Foo.scala"))(Nil)
     assertEquals(
@@ -146,9 +99,8 @@ class ReviewerSelectorTest extends munit.FunSuite:
   test(
     "empty picker selection falls back to all eligible (review never skipped)"
   ):
-    val captured = new AtomicReference[Option[ReviewerSelectionRequest]](None)
-    val picker = new RecordingPicker(SelectedReviewers(Nil), captured)
-    val selector = ReviewerSelector.agentDriven(agent = picker)
+    val picker = recordingPicker(SelectedReviewers(Nil))
+    val selector = ReviewerSelector.agentDriven(agent = picker.agent)
     // scala-fp is filtered out for a .rs change; generic is eligible. The
     // picker picks nothing, so the floor falls back to the eligible set.
     val picked =
@@ -156,12 +108,8 @@ class ReviewerSelectorTest extends munit.FunSuite:
     assertEquals(picked.map(_.name.value), List("generic"))
 
   test("file-pattern reviewers are offered when matching files are present"):
-    val captured = new AtomicReference[Option[ReviewerSelectionRequest]](None)
-    val picker = new RecordingPicker(
-      SelectedReviewers(List("scala-fp", "generic")),
-      captured
-    )
-    val selector = ReviewerSelector.agentDriven(agent = picker)
+    val picker = recordingPicker(SelectedReviewers(List("scala-fp", "generic")))
+    val selector = ReviewerSelector.agentDriven(agent = picker.agent)
     val picked = selector.prepare(
       all,
       Title("any"),
@@ -173,26 +121,21 @@ class ReviewerSelectorTest extends munit.FunSuite:
     )
 
   test("an empty diff keeps file-pattern reviewers eligible"):
-    val captured = new AtomicReference[Option[ReviewerSelectionRequest]](None)
-    val picker = new RecordingPicker(
-      SelectedReviewers(List("scala-fp")),
-      captured
-    )
-    val selector = ReviewerSelector.agentDriven(agent = picker)
+    val picker = recordingPicker(SelectedReviewers(List("scala-fp")))
+    val selector = ReviewerSelector.agentDriven(agent = picker.agent)
     // No changed files means the diff didn't say which files changed, not that
     // none did: the pre-filter is skipped, so scala-fp reaches the picker.
     val picked = selector.prepare(all, Title("any"), Nil)(Nil)
     assertEquals(
-      captured.get().map(_.availableReviewers.map(_.name)),
+      offered(picker),
       Some(List("scala-fp", "generic"))
     )
     assertEquals(picked.map(_.name.value), List("scala-fp"))
 
   test("an empty diff announces the skipped file-pattern filter"):
     val capture = new SelectorSteps
-    val captured = new AtomicReference[Option[ReviewerSelectionRequest]](None)
     val selector = ReviewerSelector.agentDriven(agent =
-      new RecordingPicker(SelectedReviewers(List("scala-fp")), captured)
+      recordingPicker(SelectedReviewers(List("scala-fp"))).agent
     )
     val _ = selector.prepare(all, Title("any"), Nil)(using
       capture.ctx,
@@ -207,10 +150,9 @@ class ReviewerSelectorTest extends munit.FunSuite:
     )
 
   test("a picker name that differs only in case still resolves"):
-    val captured = new AtomicReference[Option[ReviewerSelectionRequest]](None)
     val picker =
-      new RecordingPicker(SelectedReviewers(List(" Scala-FP ")), captured)
-    val selector = ReviewerSelector.agentDriven(agent = picker)
+      recordingPicker(SelectedReviewers(List(" Scala-FP ")))
+    val selector = ReviewerSelector.agentDriven(agent = picker.agent)
     val picked =
       selector.prepare(all, Title("any"), List("src/main/scala/Foo.scala"))(Nil)
     assertEquals(picked.map(_.name.value), List("scala-fp"))
@@ -219,12 +161,9 @@ class ReviewerSelectorTest extends munit.FunSuite:
     // Without the announcement a single-character echo error removes a reviewer
     // from the whole loop with no event, and nothing downstream can restore it.
     val capture = new SelectorSteps
-    val captured = new AtomicReference[Option[ReviewerSelectionRequest]](None)
     val selector = ReviewerSelector.agentDriven(
-      agent = new RecordingPicker(
-        SelectedReviewers(List("generic", "scla-fp")),
-        captured
-      )
+      agent =
+        recordingPicker(SelectedReviewers(List("generic", "scla-fp"))).agent
     )
     val picked = selector.prepare(all, Title("any"), List("Foo.scala"))(using
       capture.ctx,
@@ -243,44 +182,33 @@ class ReviewerSelectorTest extends munit.FunSuite:
     )
 
   test("the picker's turn is billed as a reviewer-role turn of its own"):
-    val seen = new AtomicReference[Option[(String, Option[String])]](None)
-    val picker = new RecordingPicker(SelectedReviewers(Nil), identity = seen)
+    val picker = recordingPicker(SelectedReviewers(Nil))
     val pickerCtx: FlowContext = new TestFlowContext(new EventDispatcher(Nil)):
-      override lazy val reviewAgent: Agent[ReviewB] = picker
+      override lazy val reviewAgent: Agent[ReviewB] = picker.agent
     val _ = ReviewerSelector.agentDriven
       .prepare(all, Title("any"), List("src/main/scala/Foo.scala"))(using
         pickerCtx,
         summon[orca.InStage]
       )(Nil)
     assertEquals(
-      seen.get(),
-      Some((ReviewerSelector.PickerName, Some(ReviewerPrompts.Role)))
+      picker.seenIdentities,
+      List((ReviewerSelector.PickerName, Some(ReviewerPrompts.Role)))
     )
 
   test("selector skips the picker LLM entirely when no reviewer is eligible"):
-    val captured = new AtomicReference[Option[ReviewerSelectionRequest]](None)
-    val picker = new RecordingPicker(
-      SelectedReviewers(List("scala-fp")),
-      captured
-    )
+    val picker = recordingPicker(SelectedReviewers(List("scala-fp")))
     val onlyScala = List(scalaFp)
-    val selector = ReviewerSelector.agentDriven(agent = picker)
+    val selector = ReviewerSelector.agentDriven(agent = picker.agent)
     val picked =
       selector.prepare(onlyScala, Title("any"), List("src/lib.rs"))(Nil)
     assertEquals(picked, Nil)
-    assertEquals(captured.get(), None)
+    assertEquals(picker.seenPrompts, Nil)
 
   test(
     "agentDriven queries the picker exactly once per prepare, across many rounds"
   ):
-    val captured = new AtomicReference[Option[ReviewerSelectionRequest]](None)
-    val calls = new AtomicInteger(0)
-    val picker = new RecordingPicker(
-      SelectedReviewers(List("scala-fp", "generic")),
-      captured,
-      calls
-    )
-    val selector = ReviewerSelector.agentDriven(agent = picker)
+    val picker = recordingPicker(SelectedReviewers(List("scala-fp", "generic")))
+    val selector = ReviewerSelector.agentDriven(agent = picker.agent)
     // ONE prepare — the single LLM call happens here.
     val selectRound =
       selector.prepare(all, Title("any"), List("src/main/scala/Foo.scala"))
@@ -295,22 +223,16 @@ class ReviewerSelectorTest extends munit.FunSuite:
     )
     assertEquals(r2, r1)
     assertEquals(r3, r1)
-    assertEquals(calls.get(), 1)
+    assertEquals(picker.seenPrompts.size, 1)
 
   test("a selector value is reusable across loops"):
-    val captured = new AtomicReference[Option[ReviewerSelectionRequest]](None)
-    val calls = new AtomicInteger(0)
-    val picker = new RecordingPicker(
-      SelectedReviewers(List("scala-fp", "generic")),
-      captured,
-      calls
-    )
-    val selector = ReviewerSelector.agentDriven(agent = picker)
+    val picker = recordingPicker(SelectedReviewers(List("scala-fp", "generic")))
+    val selector = ReviewerSelector.agentDriven(agent = picker.agent)
     // Two loops reuse the same selector value — each `prepare` re-queries the
     // picker (fresh pick per loop, no cross-loop cache).
     val _ = selector.prepare(all, Title("loop-1"), List("a.scala"))(Nil)
     val _ = selector.prepare(all, Title("loop-2"), List("b.scala"))(Nil)
-    assertEquals(calls.get(), 2)
+    assertEquals(picker.seenPrompts.size, 2)
 
   test("narrowing re-runs only the reviewers that reported last round"):
     val selector =

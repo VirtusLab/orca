@@ -6,94 +6,9 @@ import orca.events.{OrcaEvent, OrcaListener}
 import orca.util.JsonSchemaGen
 import ox.resilience.{ResultPolicy, RetryConfig, retry}
 
-/** Structured-output gateway — obtained via `tool.resultAs[O]`. Splits the
+/** Structured-output gateway — obtained via `agent.resultAs[O]`. Splits the
   * autonomous-vs-interactive choice into two sibling objects so the call site
-  * always shows which mode it picked.
-  */
-trait AgentCall[B <: BackendTag, O]:
-  def autonomous: AutonomousAgentCall[B, O]
-  def interactive: InteractiveAgentCall[B, O]
-
-/** Autonomous structured calls — single agentic turn, no human in the loop.
-  * `run` is a one-shot on a fresh, throwaway conversation; to continue a
-  * conversation across calls, mint a [[Chat]] (`agent.chat()`) and go through
-  * its `resultAs[O]` door instead.
-  */
-trait AutonomousAgentCall[B <: BackendTag, O]:
-  /** One ephemeral structured turn on a fresh conversation. When `emitPrompt`
-    * is true (the default), fires an `OrcaEvent.UserPrompt` carrying the
-    * human-readable form of `input`; internal callers producing near-identical
-    * prompts in quick succession pass `false` to keep the event log focused.
-    * Other events (`ToolUse`, `TokensUsed`, etc.) fire regardless.
-    */
-  final def run[I: AgentInput](
-      input: I,
-      emitPrompt: Boolean = true
-  )(using orca.InStage): O =
-    runWithSession(
-      input,
-      SessionId.fresh[B],
-      sessionKey = None,
-      emitPrompt = emitPrompt
-    )
-
-  /** The session-threading door behind [[run]] and [[Chat]]: runs `input`
-    * against `session`, continuing it if the backend already has it this run.
-    * Ephemeral — no seeding, no wire-id persistence.
-    *
-    * `sessionKey` is the durable key this session was minted under, carried
-    * onto `OrcaEvent.SessionCommitted`; only `orca.FlowSession` has one.
-    */
-  private[orca] def runWithSession[I: AgentInput](
-      input: I,
-      session: SessionId[B],
-      sessionKey: Option[SessionKey],
-      emitPrompt: Boolean
-  )(using orca.InStage): O
-
-/** Interactive structured calls — open a conversation the user can drive
-  * (clarifying questions, refinements) before the agent produces the final
-  * structured `O`. Continuation goes through [[Chat]] (`agent.chat()`), never a
-  * `FlowSession`: a live human is steering the turn, so there is no seed to
-  * replay on resume — hence durable interactive sessions don't exist.
-  */
-trait InteractiveAgentCall[B <: BackendTag, O]:
-  /** One interactive structured turn on a fresh conversation. */
-  final def run[I: AgentInput](input: I)(using orca.InStage): O =
-    runWithSession(input, SessionId.fresh[B], sessionKey = None)
-
-  /** The session-threading door behind [[run]] and [[Chat]]. `sessionKey` is
-    * the durable key this session was minted under (see
-    * [[AutonomousAgentCall.runWithSession]]).
-    */
-  private[orca] def runWithSession[I: AgentInput](
-      input: I,
-      session: SessionId[B],
-      sessionKey: Option[SessionKey]
-  )(using orca.InStage): O
-
-/** Free-form text turns — the internal engine behind `Agent.run` and
-  * [[Chat.run]] (the non-structured sibling of [[AutonomousAgentCall]]).
-  * Ephemeral: no seeding, no wire-id persistence; `orca.FlowSession` layers the
-  * durable protocol on top of this same door.
-  */
-private[orca] trait AutonomousTextCall[B <: BackendTag]:
-  /** Run the agent on `prompt` against `session`, continuing it if the backend
-    * already has it this run. `emitPrompt = false` suppresses the
-    * `OrcaEvent.UserPrompt` (used by internal callers producing near-identical
-    * prompts in quick succession); other events fire regardless.
-    *
-    * `sessionKey` is the durable key this session was minted under (see
-    * [[AutonomousAgentCall.runWithSession]]).
-    */
-  private[orca] def runWithSession(
-      prompt: String,
-      session: SessionId[B],
-      sessionKey: Option[SessionKey],
-      emitPrompt: Boolean
-  )(using orca.InStage): String
-
-/** Default implementation of [[AgentCall]] for any backend, wiring both modes:
+  * always shows which mode it picked:
   *
   *   - The autonomous shape goes through `backend.runAutonomous` with a
   *     retry-with-corrective-prompt loop: a response that fails to parse as `O`
@@ -104,7 +19,7 @@ private[orca] trait AutonomousTextCall[B <: BackendTag]:
   *     user steering. No retry: a parse failure on the final payload is more
   *     useful surfaced than silently relaunched.
   */
-class DefaultAgentCall[B <: BackendTag, O](
+final class AgentCall[B <: BackendTag, O] private[orca] (
     backend: AgentBackend[B],
     config: AgentConfig,
     prompts: Prompts,
@@ -118,8 +33,7 @@ class DefaultAgentCall[B <: BackendTag, O](
       * e.g. `Some("reviewer")` for a review-loop run.
       */
     agentRole: Option[String] = None
-)(using jd: JsonData[O], announce: Announce[O])
-    extends AgentCall[B, O]:
+)(using jd: JsonData[O], announce: Announce[O]):
 
   private given sttp.tapir.Schema[O] = jd.schema
   private given com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec[O] =
@@ -139,26 +53,20 @@ class DefaultAgentCall[B <: BackendTag, O](
   private val attributedEvents: OrcaListener =
     OrcaListener.attributedTo(events, agentName)
 
-  val autonomous: AutonomousAgentCall[B, O] = new AutonomousAgentCall[B, O]:
-    private[orca] def runWithSession[I: AgentInput](
-        input: I,
-        session: SessionId[B],
-        sessionKey: Option[SessionKey],
-        emitPrompt: Boolean
-    )(using orca.InStage): O =
-      // `resultAs[O]` refuses construction on a closed agent, but a gateway
-      // built before the flow ended and stored across the close boundary would
-      // still reach the backend — this per-call check closes that gap.
-      backend.checkNotClosed()
-      runAutonomousWithRetry(input, session, sessionKey, emitPrompt)
+  val autonomous: AutonomousAgentCall[B, O] = new AutonomousAgentCall(this)
+  val interactive: InteractiveAgentCall[B, O] = new InteractiveAgentCall(this)
 
-  val interactive: InteractiveAgentCall[B, O] = new InteractiveAgentCall[B, O]:
-    private[orca] def runWithSession[I: AgentInput](
-        input: I,
-        session: SessionId[B],
-        sessionKey: Option[SessionKey]
-    )(using orca.InStage): O =
-      runInteractiveOnce(input, session, sessionKey)
+  private[agents] def runAutonomous[I: AgentInput](
+      input: I,
+      session: SessionId[B],
+      sessionKey: Option[SessionKey],
+      emitPrompt: Boolean
+  ): O =
+    // `resultAs[O]` refuses construction on a closed agent, but a gateway
+    // built before the flow ended and stored across the close boundary would
+    // still reach the backend — this per-call check closes that gap.
+    backend.checkNotClosed()
+    runAutonomousWithRetry(input, session, sessionKey, emitPrompt)
 
   /** Emit a `StructuredResult` event carrying the raw payload and the
     * `Announce[O]`-derived summary — tri-state per
@@ -291,7 +199,7 @@ class DefaultAgentCall[B <: BackendTag, O](
     * expected schema — surface it directly so the flow sees it rather than
     * silently relaunching the agent.
     */
-  private def runInteractiveOnce[I](
+  private[agents] def runInteractive[I](
       input: I,
       session: SessionId[B],
       sessionKey: Option[SessionKey]
@@ -330,5 +238,69 @@ class DefaultAgentCall[B <: BackendTag, O](
       sessionKey = sessionKey,
       pinned = config.model
     )
+
+/** Autonomous structured calls — single agentic turn, no human in the loop.
+  * `run` is a one-shot on a fresh, throwaway conversation; to continue a
+  * conversation across calls, mint a [[Chat]] (`agent.chat()`) and go through
+  * its `resultAs[O]` door instead.
+  */
+final class AutonomousAgentCall[B <: BackendTag, O] private[agents] (
+    call: AgentCall[B, O]
+):
+  /** One ephemeral structured turn on a fresh conversation. When `emitPrompt`
+    * is true (the default), fires an `OrcaEvent.UserPrompt` carrying the
+    * human-readable form of `input`; internal callers producing near-identical
+    * prompts in quick succession pass `false` to keep the event log focused.
+    * Other events (`ToolUse`, `TokensUsed`, etc.) fire regardless.
+    */
+  def run[I: AgentInput](
+      input: I,
+      emitPrompt: Boolean = true
+  )(using orca.InStage): O =
+    runWithSession(
+      input,
+      SessionId.fresh[B],
+      sessionKey = None,
+      emitPrompt = emitPrompt
+    )
+
+  /** The session-threading door behind [[run]] and [[Chat]]: runs `input`
+    * against `session`, continuing it if the backend already has it this run.
+    * Ephemeral — no seeding, no wire-id persistence.
+    *
+    * `sessionKey` is the durable key this session was minted under, carried
+    * onto `OrcaEvent.SessionCommitted`; only `orca.FlowSession` has one.
+    */
+  private[orca] def runWithSession[I: AgentInput](
+      input: I,
+      session: SessionId[B],
+      sessionKey: Option[SessionKey],
+      emitPrompt: Boolean
+  )(using orca.InStage): O =
+    call.runAutonomous(input, session, sessionKey, emitPrompt)
+
+/** Interactive structured calls — open a conversation the user can drive
+  * (clarifying questions, refinements) before the agent produces the final
+  * structured `O`. Continuation goes through [[Chat]] (`agent.chat()`), never a
+  * `FlowSession`: a live human is steering the turn, so there is no seed to
+  * replay on resume — hence durable interactive sessions don't exist.
+  */
+final class InteractiveAgentCall[B <: BackendTag, O] private[agents] (
+    call: AgentCall[B, O]
+):
+  /** One interactive structured turn on a fresh conversation. */
+  def run[I: AgentInput](input: I)(using orca.InStage): O =
+    runWithSession(input, SessionId.fresh[B], sessionKey = None)
+
+  /** The session-threading door behind [[run]] and [[Chat]]. `sessionKey` is
+    * the durable key this session was minted under (see
+    * [[AutonomousAgentCall.runWithSession]]).
+    */
+  private[orca] def runWithSession[I: AgentInput](
+      input: I,
+      session: SessionId[B],
+      sessionKey: Option[SessionKey]
+  )(using orca.InStage): O =
+    call.runInteractive(input, session, sessionKey)
 
 private case class FailedAttempt(response: String, parserError: String)

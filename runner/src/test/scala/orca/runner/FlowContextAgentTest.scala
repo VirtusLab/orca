@@ -16,6 +16,7 @@ class FlowContextAgentTest extends munit.FunSuite:
   test("the `codingAgent` accessor resolves the run's coding-role agent"):
     val workDir = GitRepo.seeded()
     var seen: Option[Agent[?]] = None
+    val claude = StubAgent.claude
     supervised:
       val interaction = TerminalInteraction.start(
         out = new PrintStream(new ByteArrayOutputStream()),
@@ -30,13 +31,13 @@ class FlowContextAgentTest extends munit.FunSuite:
           interaction = Some(interaction),
           extraListeners = Nil,
           branchNaming = None,
-          wiring = FlowWiring(claude = Some(_ => StubAgent.claude))
+          wiring = FlowWiring(claude = Some(_ => claude))
         )
       ):
         seen = Some(codingAgent)
     assert(
-      seen.exists(_ eq StubAgent.claude),
-      s"expected the `codingAgent` accessor to be StubAgent.claude but got: $seen"
+      seen.exists(_.sharesBackendWith(claude)),
+      s"expected the `codingAgent` accessor to be the wired claude, got: $seen"
     )
 
 end FlowContextAgentTest

@@ -1,7 +1,7 @@
 package orca.agents
 
 import orca.StagePath
-import orca.testkit.{ScriptedBackend, ScriptedConversation}
+import orca.testkit.{ScriptedBackend, ScriptedConversation, TestAgent}
 import orca.backend.{
   Conversation,
   ConversationEvent,
@@ -32,7 +32,7 @@ case class MapCarrier(m: Map[String, Int]) derives JsonData
 private case class FixOutcome(fixed: List[String], ignored: List[String])
     derives JsonData
 
-private object BaseAgentTest:
+private object AgentTest:
   /** The `EnforcementNotice` line for an ungated read-only `turn`, spelled out
     * once so the tests below assert the sentence a user sees, not a fragment.
     */
@@ -40,7 +40,7 @@ private object BaseAgentTest:
     s"Pi cannot stop a $turn turn from editing files or running commands " +
       "that change state — only the turn's own prompt asks it not to"
 
-class BaseAgentTest extends munit.FunSuite:
+class AgentTest extends munit.FunSuite:
 
   // LLM `run` is gated on `InStage`; mint the token for the suite.
   private given orca.InStage = orca.InStage.unsafe
@@ -48,7 +48,7 @@ class BaseAgentTest extends munit.FunSuite:
   // A closed agent must fail loud rather than let a leaked handle
   // silently emit to a closed run's dispatcher.
   test("run after close() throws OrcaFlowException"):
-    val tool = new StubTool(new UnrunBackend)
+    val tool = stubTool(new UnrunBackend)
     tool.close()
     val thrown = intercept[orca.OrcaFlowException]:
       tool.run("prompt")
@@ -61,7 +61,7 @@ class BaseAgentTest extends munit.FunSuite:
   // JsonSchemaGen) must fail at `resultAs[O]` construction, before any stage
   // runs — not remotely, after `.run()` spawns a backend process.
   test("resultAs[O] with a Map field throws OrcaFlowException at construction"):
-    val tool = new StubTool(StubBackend)
+    val tool = stubTool(StubBackend)
     val thrown = intercept[orca.OrcaFlowException]:
       tool.resultAs[MapCarrier]
     assert(
@@ -70,7 +70,7 @@ class BaseAgentTest extends munit.FunSuite:
     )
 
   test("resultAs after close() throws OrcaFlowException"):
-    val tool = new StubTool(new UnrunBackend)
+    val tool = stubTool(new UnrunBackend)
     tool.close()
     val thrown = intercept[orca.OrcaFlowException]:
       tool.resultAs[String]
@@ -80,11 +80,11 @@ class BaseAgentTest extends munit.FunSuite:
     )
 
   // The closed latch lives on the shared backend, so it survives the two ways a
-  // leaked handle re-derives a "fresh" object after close: copyTool builders (a
-  // new Agent over the same backend) and a resultAs gateway built before close
+  // leaked handle re-derives a "fresh" object after close: builders (a new
+  // Agent over the same backend) and a resultAs gateway built before close
   // and invoked after.
-  test("a copyTool-derived handle after close() throws OrcaFlowException"):
-    val tool = new StubTool(new UnrunBackend)
+  test("a builder-derived handle after close() throws OrcaFlowException"):
+    val tool = stubTool(new UnrunBackend)
     tool.close()
     val derived = tool.withName("derived")
     val thrown = intercept[orca.OrcaFlowException]:
@@ -95,7 +95,7 @@ class BaseAgentTest extends munit.FunSuite:
     )
 
   test("a resultAs gateway obtained before close() throws when run after it"):
-    val tool = new StubTool(new UnrunBackend)
+    val tool = stubTool(new UnrunBackend)
     val gateway = tool.resultAs[String]
     tool.close()
     val thrown = intercept[orca.OrcaFlowException]:
@@ -114,7 +114,7 @@ class BaseAgentTest extends munit.FunSuite:
     val seen =
       new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
     val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
-    val tool = new StubTool(new NoisyBackend, listener = listener)
+    val tool = stubTool(new NoisyBackend, listener = listener)
     val reply = tool.cheapOneShot(
       purpose = "branch name",
       prompt = "name this branch",
@@ -146,7 +146,7 @@ class BaseAgentTest extends munit.FunSuite:
     val seen =
       new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
     val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
-    val tool = new StubTool(
+    val tool = stubTool(
       new FailingBackend(new RuntimeException("Prompt is too long")),
       listener = listener
     )
@@ -168,7 +168,7 @@ class BaseAgentTest extends munit.FunSuite:
   // Cheap models routinely narrate before answering and fence the answer; the
   // narration line must not become the commit message / branch label.
   test("cheapOneShot prefers a fenced answer over the narration above it"):
-    val tool = new StubTool(
+    val tool = stubTool(
       new ScriptedDrainBackend(
         "Looking at this diff, the main changes are:\n\n```\nShow branch in menu\n```\n"
       ),
@@ -182,7 +182,7 @@ class BaseAgentTest extends munit.FunSuite:
     assertEquals(reply, "Show branch in menu")
 
   test("cheapOneShot without a fence takes the last line, not the preamble"):
-    val tool = new StubTool(
+    val tool = stubTool(
       new ScriptedDrainBackend(
         "Cannot call agents_md without permission; proceeding.\n\nShow branch in menu\n"
       ),
@@ -197,7 +197,7 @@ class BaseAgentTest extends munit.FunSuite:
 
   test("cheapOneShot runs its turn with no tools"):
     val backend = new RecordingConfigBackend
-    val _ = new StubTool(backend, prompts = DefaultPrompts).cheapOneShot(
+    val _ = stubTool(backend, prompts = DefaultPrompts).cheapOneShot(
       purpose = "branch name",
       prompt = "name this branch",
       fallback = "fb"
@@ -209,7 +209,7 @@ class BaseAgentTest extends munit.FunSuite:
   // turn, which is why it is deduplicated rather than emitted per run call.
   test("a read-only tier the backend doesn't gate is reported once"):
     val notices = new NoticeRecorder
-    val tool = new StubTool(
+    val tool = stubTool(
       new UngatedBackend("first", "second"),
       toolConfig = AgentConfig(tools = ToolSet.ReadOnly),
       listener = notices.listener,
@@ -217,11 +217,11 @@ class BaseAgentTest extends munit.FunSuite:
     )
     val _ = tool.run("one")
     val _ = tool.run("two")
-    assertEquals(notices.caveats, List(BaseAgentTest.noEditNotice("ReadOnly")))
+    assertEquals(notices.caveats, List(AgentTest.noEditNotice("ReadOnly")))
 
   test("the shortfall is not announced as progress"):
     val notices = new NoticeRecorder
-    val tool = new StubTool(
+    val tool = stubTool(
       new UngatedBackend("first"),
       toolConfig = AgentConfig(tools = ToolSet.ReadOnly),
       listener = notices.listener,
@@ -236,7 +236,7 @@ class BaseAgentTest extends munit.FunSuite:
   // one, so it has to raise the notice itself.
   test("a read-only structured turn reports the shortfall too"):
     val notices = new NoticeRecorder
-    val tool = new StubTool(
+    val tool = stubTool(
       new UngatedBackend("""{"fixed":[],"ignored":[]}"""),
       toolConfig = AgentConfig(tools = ToolSet.NetworkOnly),
       listener = notices.listener,
@@ -245,11 +245,11 @@ class BaseAgentTest extends munit.FunSuite:
     val _ = tool.resultAs[FixOutcome].autonomous.run("fix compile errors")
     assertEquals(
       notices.caveats,
-      List(BaseAgentTest.noEditNotice("NetworkOnly"))
+      List(AgentTest.noEditNotice("NetworkOnly"))
     )
 
   // The gate lives on `AgentBackend.runAutonomous` itself, so a turn entry
-  // point that never goes through `BaseAgent` or `DefaultAgentCall` still
+  // point that never goes through `Agent` or `AgentCall` still
   // announces — a new door cannot forget it.
   test("a direct runAutonomous call announces the shortfall"):
     val notices = new NoticeRecorder
@@ -259,7 +259,7 @@ class BaseAgentTest extends munit.FunSuite:
       AgentConfig(tools = ToolSet.ReadOnly),
       notices.listener
     )
-    assertEquals(notices.caveats, List(BaseAgentTest.noEditNotice("ReadOnly")))
+    assertEquals(notices.caveats, List(AgentTest.noEditNotice("ReadOnly")))
 
   test("a NoTools turn the backend doesn't gate reports the tool shortfall"):
     val notices = new NoticeRecorder
@@ -284,7 +284,7 @@ class BaseAgentTest extends munit.FunSuite:
   // so the single Caveat below is entirely the second attempt's, and says so.
   test("a corrective retry reports the resumed turn's weaker guarantee"):
     val notices = new NoticeRecorder
-    val tool = new StubTool(
+    val tool = stubTool(
       new WeakerOnResumeBackend(
         "not json at all",
         """{"fixed":[],"ignored":[]}"""
@@ -299,7 +299,7 @@ class BaseAgentTest extends munit.FunSuite:
     val _ = tool.resultAs[FixOutcome].autonomous.run("fix compile errors")
     assertEquals(
       notices.caveats,
-      List(BaseAgentTest.noEditNotice("resumed ReadOnly"))
+      List(AgentTest.noEditNotice("resumed ReadOnly"))
     )
 
   // The turn is named "resumed" whenever resuming is what weakened the answer,
@@ -308,7 +308,7 @@ class BaseAgentTest extends munit.FunSuite:
   // second sentence has to say which turn it is about.
   test("a retry whose approximation is dropped names the resumed turn"):
     val notices = new NoticeRecorder
-    val tool = new StubTool(
+    val tool = stubTool(
       new WeakerOnResumeBackend(
         "not json at all",
         """{"fixed":[],"ignored":[]}"""
@@ -336,7 +336,7 @@ class BaseAgentTest extends munit.FunSuite:
   // with nothing else saying so.
   test("a Full turn whose Only list isn't encoded is reported"):
     val notices = new NoticeRecorder
-    val tool = new StubTool(
+    val tool = stubTool(
       new UngatedBackend("only"),
       toolConfig = AgentConfig(autoApprove = AutoApprove.Only(Set("read"))),
       listener = notices.listener,
@@ -356,7 +356,7 @@ class BaseAgentTest extends munit.FunSuite:
   // stay silent.
   test("a Full turn approving everything reports no shortfall"):
     val notices = new NoticeRecorder
-    val tool = new StubTool(
+    val tool = stubTool(
       new UngatedBackend("only"),
       listener = notices.listener,
       prompts = DefaultPrompts
@@ -370,7 +370,7 @@ class BaseAgentTest extends munit.FunSuite:
   // sits rather than of anything the notice does.
   test("a second backend of the same kind gives its own notice"):
     val notices = new NoticeRecorder
-    def readOnlyTool = new StubTool(
+    def readOnlyTool = stubTool(
       new UngatedBackend("reply"),
       toolConfig = AgentConfig(tools = ToolSet.ReadOnly),
       listener = notices.listener,
@@ -380,7 +380,7 @@ class BaseAgentTest extends munit.FunSuite:
     val _ = readOnlyTool.run("two")
     assertEquals(
       notices.caveats,
-      List.fill(2)(BaseAgentTest.noEditNotice("ReadOnly"))
+      List.fill(2)(AgentTest.noEditNotice("ReadOnly"))
     )
 
   // A turn that failed after the model ran still spent tokens; the success path
@@ -391,7 +391,7 @@ class BaseAgentTest extends munit.FunSuite:
       new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
     val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
     val spent = usage(120L, 8L, Some(BigDecimal("0.0031")))
-    val tool = new StubTool(
+    val tool = stubTool(
       new FailingBackend(
         new orca.AgentTurnFailed(
           "claude session failed",
@@ -410,7 +410,7 @@ class BaseAgentTest extends munit.FunSuite:
     val seen =
       new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
     val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
-    val tool = new StubTool(
+    val tool = stubTool(
       // The first reply doesn't parse as FixOutcome, so the call re-prompts.
       new ScriptedDrainBackend(
         "not json at all",
@@ -435,7 +435,7 @@ class BaseAgentTest extends munit.FunSuite:
     val seen =
       new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
     val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
-    val tool = new StubTool(
+    val tool = stubTool(
       new FailFirstBackend(
         // Not AgentTurnFailed, so the retry policy retries it — the shape of a
         // broken pipe before the session was registered.
@@ -464,7 +464,7 @@ class BaseAgentTest extends munit.FunSuite:
       new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
     val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
     val tool =
-      new StubTool(new CommittingBackend("wire-committed"), listener = listener)
+      stubTool(new CommittingBackend("wire-committed"), listener = listener)
     val _ = tool.run("prompt")
     val committed = seen.get().collect { case e: OrcaEvent.SessionCommitted =>
       e
@@ -478,7 +478,7 @@ class BaseAgentTest extends munit.FunSuite:
 
   // The manifest classifies a session as durable off this field alone and
   // groups its lineages by it, so the key a `FlowSession` hands to
-  // `runWithSession` has to survive to the event whole.
+  // `runText` has to survive to the event whole.
   test("a named session's key reaches SessionCommitted"):
     val coderKey =
       SessionKey(name = "coder", stage = StagePath.FlowBody.child("Task 2", 0))
@@ -486,8 +486,8 @@ class BaseAgentTest extends munit.FunSuite:
       new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
     val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
     val tool =
-      new StubTool(new CommittingBackend("wire-named"), listener = listener)
-    val _ = tool.autonomous.runWithSession(
+      stubTool(new CommittingBackend("wire-named"), listener = listener)
+    val _ = tool.runText(
       "prompt",
       SessionId.fresh[BackendTag.Pi.type],
       sessionKey = Some(coderKey),
@@ -508,7 +508,7 @@ class BaseAgentTest extends munit.FunSuite:
       new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
     val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
     val tool =
-      new StubTool(new CommittingBackend("wire-joined"), listener = listener)
+      stubTool(new CommittingBackend("wire-joined"), listener = listener)
     val _ = tool.run("prompt")
     assertEquals(
       seen.get().collect { case t: OrcaEvent.TokensUsed => t.session },
@@ -516,14 +516,14 @@ class BaseAgentTest extends munit.FunSuite:
     )
 
   // `quietTextTurn` runs its turn on a fresh session, bypassing
-  // `runWithSession` entirely — it must never surface a session to the
+  // `runText` entirely — it must never surface a session to the
   // manifest writer.
   test("quietTextTurn emits no SessionCommitted"):
     val seen =
       new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
     val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
     val tool =
-      new StubTool(new CommittingBackend("wire-quiet"), listener = listener)
+      stubTool(new CommittingBackend("wire-quiet"), listener = listener)
     val _ = tool.quietTextTurn("internal prompt")
     assert(
       !seen.get().exists(_.isInstanceOf[OrcaEvent.SessionCommitted]),
@@ -534,7 +534,7 @@ class BaseAgentTest extends munit.FunSuite:
     val seen =
       new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
     val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
-    val tool = new StubTool(new NoisyBackend, listener = listener)
+    val tool = stubTool(new NoisyBackend, listener = listener)
     val _ = tool.quietTextTurn("internal prompt")
     assert(
       seen.get().contains(OrcaEvent.ToolDenied("Bash", Some("stub"))),
@@ -553,7 +553,7 @@ class BaseAgentTest extends munit.FunSuite:
     val seen =
       new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
     val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
-    val tool = new StubTool(
+    val tool = stubTool(
       new ScriptedDrainBackend(json),
       listener = listener,
       prompts = DefaultPrompts
@@ -585,7 +585,7 @@ class BaseAgentTest extends munit.FunSuite:
     val seen =
       new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
     val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
-    val tool = new StubTool(
+    val tool = stubTool(
       new ScriptedDrainBackend("plain prose reply"),
       listener = listener,
       prompts = DefaultPrompts
@@ -614,7 +614,7 @@ class BaseAgentTest extends munit.FunSuite:
     val seen =
       new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
     val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
-    val tool = new StubTool(
+    val tool = stubTool(
       new ScriptedInteractiveBackend(
         List(
           ConversationEvent.AssistantTextDelta(
@@ -662,7 +662,7 @@ class BaseAgentTest extends munit.FunSuite:
     val seen =
       new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
     val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
-    val tool = new StubTool(
+    val tool = stubTool(
       new ScriptedInteractiveBackend(
         List(
           ConversationEvent.AssistantTextDelta("hello there"),
@@ -686,7 +686,7 @@ class BaseAgentTest extends munit.FunSuite:
     val seen =
       new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
     val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
-    val tool = new StubTool(
+    val tool = stubTool(
       new ScriptedInteractiveBackend(
         List(
           ConversationEvent.AssistantToolCall("bash", """{"command":"ls"}""")
@@ -710,17 +710,17 @@ class BaseAgentTest extends munit.FunSuite:
       model = Some(Model("tool-level-model")),
       systemPrompt = Some("tool-level-prompt")
     )
-    val tool = new StubTool(backend, toolConfig)
+    val tool = stubTool(backend, toolConfig)
     val _ = tool.run("prompt")
     assertEquals(backend.lastConfig, Some(toolConfig))
 
   test("resultAs keeps a withReadOnly restriction"):
     val backend = new RecordingConfigBackend(output = "\"out\"")
-    val tool = new StubTool(backend, prompts = DefaultPrompts).withReadOnly
+    val tool = stubTool(backend, prompts = DefaultPrompts).withReadOnly
     val _ = tool.resultAs[String].autonomous.run("prompt")
     assertEquals(backend.lastConfig.map(_.tools), Some(ToolSet.ReadOnly))
 
-  private class StubTool(
+  private def stubTool(
       backend: AgentBackend[BackendTag.Pi.type],
       toolConfig: AgentConfig = AgentConfig(),
       listener: OrcaListener = OrcaListener.noop,
@@ -728,27 +728,12 @@ class BaseAgentTest extends munit.FunSuite:
       // defaults to the stub; tests that actually run a resultAs/run call pass
       // DefaultPrompts to get a real prompt string.
       prompts: Prompts = StubPrompts,
-      // Most tests never drive an interactive call (StubInteraction throws);
+      // Most tests never drive an interactive call (UnusedInteraction throws);
       // the interactive tests pass `DrainingInteraction`, which drains the
       // conversation.
-      interaction: Interaction = StubInteraction
-  ) extends BaseAgent[BackendTag.Pi.type, Agent[BackendTag.Pi.type]](
-        backend,
-        toolConfig,
-        prompts,
-        listener,
-        interaction
-      ):
-    val name: String = "stub"
-    // A new instance over the same backend, as production implementations do, so
-    // the copyTool-after-close test exercises the real leak shape rather than a
-    // same-instance alias.
-    protected def copyTool(
-        config: AgentConfig = toolConfig,
-        name: String = name,
-        role: Option[String] = None
-    ): Agent[BackendTag.Pi.type] =
-      new StubTool(backend, config, listener, prompts, interaction)
+      interaction: Interaction = TestAgent.UnusedInteraction
+  ): Agent[BackendTag.Pi.type] =
+    TestAgent(backend, "stub", toolConfig, listener, prompts, interaction)
 
   /** Records the `AgentConfig` the agent passed to the backend, so tests can
     * assert on it directly.
@@ -921,8 +906,8 @@ class BaseAgentTest extends munit.FunSuite:
       new ScriptedConversation(scripted, Right(reply(turn)), schema)
 
   /** A driving `Interaction` that drains the conversation, answering nothing,
-    * and returns its result, unlike [[StubInteraction]], which never touches
-    * it.
+    * and returns its result, unlike [[TestAgent.UnusedInteraction]], which
+    * never touches it.
     */
   private object DrainingInteraction extends Interaction:
     def listeners: List[OrcaListener] = Nil
@@ -970,9 +955,3 @@ class BaseAgentTest extends munit.FunSuite:
         parseError: String,
         mode: StructuredOutputMode
     ): String = ???
-
-  private object StubInteraction extends Interaction:
-    def listeners: List[OrcaListener] = Nil
-    def drive[B <: BackendTag](
-        conversation: ObservedConversation[B]
-    ): AgentResult[B] = ???

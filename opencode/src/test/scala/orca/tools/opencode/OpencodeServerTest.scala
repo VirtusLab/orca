@@ -230,6 +230,5 @@ class OpencodeServerTest extends munit.FunSuite with SweepFixtures:
     def spawnPiped(
         args: Seq[String],
         env: Map[String, String],
-        cwd: os.Path,
-        pipeStderr: Boolean
+        cwd: os.Path
     ): PipedCliProcess = spawn(script)

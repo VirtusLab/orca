@@ -181,11 +181,10 @@ Task 9.1 decides.
 
 **Lessons from the Claude backend that apply verbatim:**
 
-- **Don't pipe stderr for verbose-mode CLIs.** Route through `os.Inherit`
-  or drain on its own thread — the 64KB pipe buffer fills silently and
-  hangs the subprocess otherwise. `stderrLoop` in `ClaudeConversation`
-  shows the drain-as-`ConversationEvent.Error` pattern when you *do*
-  need stderr contents.
+- **Drain stderr on its own fork.** `spawnPiped` always pipes it, and a
+  full 64KB pipe buffer silently hangs the subprocess.
+  `StreamConversation.drainStderr` shows the drain-as-`ConversationEvent.Error`
+  pattern.
 - **Close stdin after the opening turn** when the CLI takes only one message
   per process. claude answers with stdin open, but exits only on EOF
   (measured, 2.1.220), and the exit is what ends the reader on a turn that
@@ -303,10 +302,10 @@ Items deferred during the Epic 11 reviews. Independent, order-agnostic, each ~ha
 
 | # | Item | Description | Status |
 |---|---|---|---|
-| 12.1 | `ConversationEvent.Usage` | Emit an event as `result.usage` arrives (and, if upstream ever adds it, mid-session usage deltas) so Slack/HTTP channels can show live cost/token readouts. `DefaultAgentCall` keeps translating to `OrcaEvent.TokensUsed` for `CostTracker`. | |
+| 12.1 | `ConversationEvent.Usage` | Emit an event as `result.usage` arrives (and, if upstream ever adds it, mid-session usage deltas) so Slack/HTTP channels can show live cost/token readouts. `AgentCall` keeps translating to `OrcaEvent.TokensUsed` for `CostTracker`. | |
 | 12.2 | Ctrl-C-during-streaming → graceful cancel | Today Ctrl-C kills the JVM when no readline prompt is active; only approval prompts cancel gracefully (via `UserInterruptException`). Install a `Signal("INT")` handler around `TerminalConversationRenderer.render` that calls `conversation.cancel()` instead of exiting, then removes itself on return. | |
 | 12.3 | Real-subprocess cancel integration test | `ClaudeConversation.cancel()` is unit-tested against `FakePipedCliProcess` only. Add a gated integration case that spawns real `claude` with a long-running prompt, calls `cancel`, asserts `awaitResult` throws `OrcaInteractiveCancelled` within a timeout, and the subprocess exits. | |
-| 12.4 | Interactive-path schema-threading test | `DefaultAgentCall.interactive` generates `JsonSchemaGen[O]` and forwards it as `Some(schema)` to `backend.runInteractive`. No unit test pins this; add one that captures `outputSchema` on a stub `AgentBackend.runInteractive` and asserts the schema is present + shaped for the case-class `O`. | |
+| 12.4 | Interactive-path schema-threading test | `AgentCall.interactive` generates `JsonSchemaGen[O]` and forwards it as `Some(schema)` to `backend.runInteractive`. No unit test pins this; add one that captures `outputSchema` on a stub `AgentBackend.runInteractive` and asserts the schema is present + shaped for the case-class `O`. | |
 | 12.5 | `writeOutbound` I/O failures fail the session | `ClaudeConversation.handleControlRequest`'s stdin writes can throw `IOException` if the child died; today that surfaces as a `ConversationEvent.Error` and the reader keeps polling. Let the exception propagate so the reader's `NonFatal` catch records `Outcome.Failed` and `awaitResult` rethrows. | |
 | 12.6 | `ClaudeConversation` safe-publication factory | The reader thread starts in the constructor — safe in practice given final-field + `Thread.start` happens-before, not structurally enforced. Split into a private constructor + `object ClaudeConversation.open(process, config)` that constructs then starts the thread. | |
 | 12.7 | Reader-thread join timeout on `awaitResult` | If the child ignores SIGINT (hung GC, attached debugger), the reader leaks forever. `readerThread.join(timeout)` with a sensible default (30s?) + a `Failed(OrcaFlowException("reader did not terminate"))` path. | |

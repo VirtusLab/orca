@@ -12,15 +12,11 @@ trait CliRunner:
     * orchestration (stream-json, tool-approval, etc.); see [[PipedCliProcess]]
     * for the I/O surface.
     *
-    * `pipeStderr = false` (default) inherits the child's stderr to the parent's
-    * terminal — needed for chatty CLIs whose stderr can fill the pipe buffer
-    * faster than the driver drains it (claude with `--verbose`). Set `true`
-    * when the driver wants stderr lines as `ConversationEvent.Error`s and the
-    * child's stderr volume is bounded enough that a 64KB pipe is safe.
+    * The caller must keep draining both `stdoutLines` and `stderrLines` until
+    * EOF: a child blocks once either pipe's buffer is full.
     */
   def spawnPiped(
       args: Seq[String],
       env: Map[String, String] = Map.empty,
-      cwd: os.Path,
-      pipeStderr: Boolean = false
+      cwd: os.Path
   ): PipedCliProcess

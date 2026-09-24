@@ -19,7 +19,7 @@ class ReviewThenFixTest extends munit.FunSuite:
       picker: FakeAgent,
       dispatcher: EventDispatcher = new EventDispatcher(Nil)
   ): FlowControl =
-    ReviewLoopFixture.control(dispatcher, lead = Some(picker))
+    ReviewLoopFixture.control(dispatcher, lead = Some(picker.agent))
 
   private def picking(names: String*): FakeAgent =
     new FakeAgent("picker", outputs = List(SelectedReviewers(names.toList)))
@@ -191,7 +191,10 @@ class ReviewThenFixTest extends munit.FunSuite:
     // single-pass.
     val steps = new ReviewLoopFixture.StepCapture
     val fc =
-      ReviewLoopFixture.control(steps.dispatcher, lead = Some(picking("x")))
+      ReviewLoopFixture.control(
+        steps.dispatcher,
+        lead = Some(picking("x").agent)
+      )
     given FlowControl = fc
     val flag = fc.context.workDir / "lint-passes"
     val reviewer =
@@ -217,7 +220,7 @@ class ReviewThenFixTest extends munit.FunSuite:
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(asReviewer(reviewer)),
       task = titled("do the thing"),
-      lint = Configured.Use(Lint(List(s"test -f '$flag'"), lintAgent))
+      lint = Configured.Use(Lint(List(s"test -f '$flag'"), lintAgent.agent))
     )
     assertEquals(result, OpenFindings.empty)
     assertEquals(coder.seenSessions.size, 2)
@@ -231,7 +234,10 @@ class ReviewThenFixTest extends munit.FunSuite:
     // under a warning, and no third fix turn runs.
     val steps = new ReviewLoopFixture.StepCapture
     val fc =
-      ReviewLoopFixture.control(steps.dispatcher, lead = Some(picking("x")))
+      ReviewLoopFixture.control(
+        steps.dispatcher,
+        lead = Some(picking("x").agent)
+      )
     given FlowControl = fc
     val reviewer =
       new FakeAgent("x", outputs = List(ReviewResult(List(finding("a")))))
@@ -257,7 +263,7 @@ class ReviewThenFixTest extends munit.FunSuite:
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(asReviewer(reviewer)),
       task = titled("do the thing"),
-      lint = Configured.Use(Lint(List("false"), lintAgent))
+      lint = Configured.Use(Lint(List("false"), lintAgent.agent))
     )
     assertEquals(
       result.findings,
@@ -302,7 +308,7 @@ class ReviewThenFixTest extends munit.FunSuite:
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(asReviewer(reviewer)),
       task = titled("do the thing"),
-      lint = Configured.Use(Lint(List("false"), lintAgent))
+      lint = Configured.Use(Lint(List("false"), lintAgent.agent))
     )
     assertEquals(
       result.findings,
@@ -349,7 +355,7 @@ class ReviewThenFixTest extends munit.FunSuite:
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(asReviewer(reviewer)),
       task = titled("do the thing"),
-      lint = Configured.Use(Lint(List("false"), lintAgent))
+      lint = Configured.Use(Lint(List("false"), lintAgent.agent))
     )
     assert(
       steps.messages.contains(

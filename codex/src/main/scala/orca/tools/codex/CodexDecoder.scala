@@ -44,7 +44,7 @@ import ox.Ox
   *
   * @param configuredModel
   *   names the turn's model when codex's `thread.started` omits it, which
-  *   0.145.0 always does — see [[DefaultCodexAgent.Sol]]
+  *   0.145.0 always does — see [[CodexModels.Sol]]
   */
 private[codex] final class CodexDecoder(
     outputSchema: Option[String],

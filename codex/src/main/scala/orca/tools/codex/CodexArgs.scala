@@ -54,8 +54,8 @@ private[codex] object CodexArgs:
     *   - no `--cd / -C`, so cwd is set on the OS process spawn, not the argv.
     *   - `--output-schema` is not passed, so the resumed turn's
     *     structured-output validation falls to the prompt template + post-hoc
-    *     parser; the retry-with-corrective-prompt loop in `DefaultAgentCall`
-    *     handles parse failures.
+    *     parser; the retry-with-corrective-prompt loop in `AgentCall` handles
+    *     parse failures.
     *   - rejects `--sandbox <mode>` ("unexpected argument"), which is why the
     *     tier's sandbox is re-applied through [[sandboxWiring]]'s `-c` override
     *     instead.

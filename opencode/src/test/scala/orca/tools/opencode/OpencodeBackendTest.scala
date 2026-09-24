@@ -124,6 +124,24 @@ class OpencodeBackendTest extends munit.FunSuite:
       val backend = new OpencodeBackend(new FakeHandle(new FakeHttp(Nil)))
       assertEquals(backend.structuredOutputMode, StructuredOutputMode.Tool)
 
+  // Provider-matched, so incidental work doesn't pull in a second provider's
+  // auth.
+  test("an openai-led agent's cheap tier is openai luna"):
+    supervised:
+      val backend = new OpencodeBackend(new FakeHandle(new FakeHttp(Nil)))
+      assertEquals(
+        backend.cheapModel(Some(Model("openai/gpt-6-sol"))),
+        Some(Model("openai/gpt-6-luna"))
+      )
+
+  test("any other agent's cheap tier is anthropic haiku"):
+    supervised:
+      val backend = new OpencodeBackend(new FakeHandle(new FakeHttp(Nil)))
+      assertEquals(
+        backend.cheapModel(Some(Model("ollama/llama3.1"))),
+        Some(Model("anthropic/claude-haiku-4-5"))
+      )
+
   test("the conversation declares the same mode as the backend"):
     // The prompt is built from the BACKEND's mode while the autonomous drain
     // reads the CONVERSATION's; a disagreement renders the payload turn as

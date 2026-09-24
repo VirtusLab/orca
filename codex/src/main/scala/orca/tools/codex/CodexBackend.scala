@@ -1,6 +1,7 @@
 package orca.tools.codex
 
 import orca.agents.{
+  Model,
   AutoApprove,
   BackendTag,
   EnforcementCell,
@@ -80,6 +81,9 @@ private[orca] class CodexBackend(
   override def structuredOutputMode: StructuredOutputMode =
     StructuredOutputMode.RawText
 
+  def cheapModel(leading: Option[Model]): Option[Model] =
+    Some(CodexModels.Luna)
+
   /** The sole session handle. [[IdScheme.ServerMinted]]: the client-allocated
     * id (the UUID the caller passes around) maps to codex's server-allocated
     * thread id (learned from `thread.started`), so subsequent calls dispatch
@@ -141,7 +145,7 @@ private[orca] class CodexBackend(
             workDir,
             mcpServerUrl = mcpUrl
           )
-      cli.spawnPiped(args, cwd = workDir, pipeStderr = true)
+      cli.spawnPiped(args, cwd = workDir)
     } { process =>
       // codex doesn't accept user turns over stdin once the prompt is
       // argv-supplied; close immediately so the child stops waiting on EOF.

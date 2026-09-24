@@ -1,6 +1,7 @@
 package orca.tools.gemini
 
 import orca.agents.{
+  Model,
   AutoApprove,
   BackendTag,
   EnforcementCell,
@@ -71,6 +72,9 @@ private[orca] class GeminiBackend(
   override def structuredOutputMode: StructuredOutputMode =
     StructuredOutputMode.RawText
 
+  def cheapModel(leading: Option[Model]): Option[Model] =
+    Some(GeminiModels.Flash)
+
   /** The sole session handle. [[IdScheme.ServerMinted]]: the client-allocated
     * id maps to gemini's `init`-reported session id, so subsequent calls
     * dispatch through `gemini --resume <server-id>`.
@@ -117,7 +121,7 @@ private[orca] class GeminiBackend(
           GeminiArgs.resume(serverId, finalPrompt, config)
         case Dispatch.Fresh(_) =>
           GeminiArgs.headless(finalPrompt, config)
-      cli.spawnPiped(args, cwd = workDir, pipeStderr = true)
+      cli.spawnPiped(args, cwd = workDir)
     } { process =>
       // Close stdin so the child stops waiting on EOF.
       process.closeStdin()

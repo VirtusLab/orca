@@ -42,20 +42,11 @@ private[orca] final class WiredAgents(
     */
   def all: List[Agent[?]] = byTag.values.toList
 
-  /** True when `a` IS one of the five wired agents, or was derived from one via
-    * a builder (`_.claude.opus`, `.withReadOnly`, …). A builder-derived sibling
-    * is a different `Agent` instance sharing the same backend, so the primary
-    * test compares shared [[orca.agents.Agent.backendIdentity]] by `eq`; a
-    * naive `eq` on the `Agent`s alone would false-positive-warn on
-    * `_.claude.opus`. The direct `eq` fallback covers agents with no backend
-    * (e.g. test stubs, whose `backendIdentity` is `None`). Used only for the
-    * foreign-lead warning, where a false warning (not a leak) is the failure
-    * mode.
+  /** True when `a` runs on one of the five wired backends — a wired agent
+    * itself or a builder-derived sibling (`_.claude.opus`, `.withReadOnly`, …).
+    * Used only for the foreign-lead warning.
     */
-  def isWiredBackend(a: Agent[?]): Boolean =
-    byTag.values.exists: w =>
-      (w: AnyRef).eq(a) ||
-        a.backendIdentity.exists(ai => w.backendIdentity.exists(_ eq ai))
+  def isWiredBackend(a: Agent[?]): Boolean = all.exists(_.sharesBackendWith(a))
 
 private[orca] object WiredAgents:
 

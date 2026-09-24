@@ -1,19 +1,8 @@
 package orca
 
-import orca.testkit.TextReplyingAgent
+import orca.testkit.{ScriptedBackend, TestAgent, TextReplyingAgent}
 
-import orca.agents.{
-  SessionKey,
-  Announce,
-  AutonomousTextCall,
-  BackendTag,
-  JsonData,
-  AgentCall,
-  AgentConfig,
-  Agent,
-  SessionId,
-  ToolSet
-}
+import orca.agents.{Agent, BackendTag}
 import orca.tools.IssueHandle
 
 /** Tests for BranchNamingStrategy.slug (security-critical) and the
@@ -22,40 +11,17 @@ import orca.tools.IssueHandle
 class BranchNamingTest extends munit.FunSuite:
 
   /** Throwing stub — issue/fromText must never touch the LLM. */
-  private object ThrowingAgent extends Agent[BackendTag.ClaudeCode.type]:
-    val name: String = "throwing-stub"
-    def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
-      throw new AssertionError("LLM must not be called")
-    def withConfig(c: AgentConfig): Agent[BackendTag.ClaudeCode.type] = this
-    def withSystemPrompt(p: String): Agent[BackendTag.ClaudeCode.type] = this
-    def withName(n: String): Agent[BackendTag.ClaudeCode.type] = this
-    def withTools(t: ToolSet): Agent[BackendTag.ClaudeCode.type] = this
-    def resultAs[O: JsonData: Announce]
-        : AgentCall[BackendTag.ClaudeCode.type, O] =
-      throw new AssertionError("LLM must not be called")
+  private val ThrowingAgent: Agent[BackendTag.ClaudeCode.type] =
+    TestAgent(ScriptedBackend.unused(BackendTag.ClaudeCode), "throwing-stub")
 
-  /** Stub LLM that throws on `autonomous.run`. */
+  /** Stub LLM whose every turn fails. */
   private val throwingAutonomousAgent: Agent[BackendTag.ClaudeCode.type] =
-    new Agent[BackendTag.ClaudeCode.type]:
-      val name: String = "throwing-autonomous"
-      def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
-        new AutonomousTextCall[BackendTag.ClaudeCode.type]:
-          private[orca] def runWithSession(
-              prompt: String,
-              session: SessionId[BackendTag.ClaudeCode.type],
-              sessionKey: Option[SessionKey],
-              emitPrompt: Boolean
-          )(using
-              orca.InStage
-          ): String =
-            throw new RuntimeException("LLM unavailable")
-      def withConfig(c: AgentConfig): Agent[BackendTag.ClaudeCode.type] = this
-      def withSystemPrompt(p: String): Agent[BackendTag.ClaudeCode.type] =
-        this
-      def withName(n: String): Agent[BackendTag.ClaudeCode.type] = this
-      def withTools(t: ToolSet): Agent[BackendTag.ClaudeCode.type] = this
-      def resultAs[O: JsonData: Announce]
-          : AgentCall[BackendTag.ClaudeCode.type, O] = ???
+    TestAgent(
+      ScriptedBackend.replying(BackendTag.ClaudeCode)(_ =>
+        throw new RuntimeException("LLM unavailable")
+      ),
+      "throwing-autonomous"
+    )
 
   private given InStage = InStage.unsafe
 

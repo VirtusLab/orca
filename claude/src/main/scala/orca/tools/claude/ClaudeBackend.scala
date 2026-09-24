@@ -1,13 +1,11 @@
 package orca.tools.claude
 
-import java.util.concurrent.atomic.AtomicBoolean
-
 import orca.agents.{
   AutoApprove,
   BackendTag,
   AgentConfig,
   EnforcementCell,
-  EnforcementNotice,
+  Model,
   StructuredOutputMode,
   ToolSet,
   TurnDispatch
@@ -57,7 +55,6 @@ private[claude] final case class TurnMcp(
   */
 private[orca] class ClaudeBackend(
     cli: CliRunner,
-    networkTools: Seq[String] = ClaudeBackend.DefaultNetworkTools,
     private[claude] val projectsDir: os.Path = os.home / ".claude" / "projects",
     /** Shared between the spawn path ([[open]]) and the existence probe (see
       * [[sessions]]): claude writes a session's transcript under
@@ -65,50 +62,8 @@ private[orca] class ClaudeBackend(
       * SAME field keeps the probe honest. The `os.pwd` default serves only
       * bare/test construction; the runtime passes the flow's real `workDir`.
       */
-    override val workDir: os.Path = os.pwd,
-    /** Threaded into [[AgentBackend]]'s `closedFlag` and `enforcementNotice`.
-      * Bare construction gets fresh ones; [[withNetworkTools]] passes THIS
-      * instance's, so the sibling shares one close latch and one notice log
-      * with its parent — see `AgentBackend` for why each must be shared.
-      */
-    sharedClosedFlag: AtomicBoolean = new AtomicBoolean(false),
-    sharedNotice: EnforcementNotice = new EnforcementNotice
-) extends AgentBackend[BackendTag.ClaudeCode.type](
-      sharedClosedFlag,
-      sharedNotice
-    ):
-
-  /** Return a sibling backend that, on [[ToolSet.NetworkOnly]] turns, adds
-    * `tools` to the read-only `--tools` allowlist. Lives on the backend, not
-    * `AgentConfig`, since the names are claude-specific.
-    *
-    * Rejects anything that is not a bare tool name. These used to be
-    * `--allowedTools` patterns and could be command-scoped (`Bash(gh api:*)`);
-    * `--tools` takes bare names and drops what it does not recognise silently,
-    * exit 0, no warning. Without this check a flow script carrying the old
-    * syntax would keep compiling, keep running, and grant nothing.
-    *
-    * Also rejects the write-capable builtins: a `NetworkOnly` turn puts these
-    * names on both `--tools` and `--allowedTools`, so passing one here hands
-    * back an auto-approved shell while the tier still reports `Hard`.
-    *
-    * Shares `closedFlag` and `enforcementNotice` with `this`: the sibling is a
-    * genuinely different `AgentBackend` instance, so without threading the SAME
-    * values through, a handle derived here and leaked past flow-end would
-    * bypass the use-after-close guard, and every enforcement notice would be
-    * given a second time.
-    */
-  def withNetworkTools(tools: Seq[String]): ClaudeBackend =
-    ClaudeBackend.rejectNonBareNames(tools)
-    ClaudeBackend.rejectWriteCapable(tools)
-    new ClaudeBackend(
-      cli,
-      tools,
-      projectsDir,
-      workDir,
-      closedFlag,
-      enforcementNotice
-    )
+    override val workDir: os.Path = os.pwd
+) extends AgentBackend[BackendTag.ClaudeCode.type]:
 
   /** Claude's sessions live on disk (`~/.claude/projects/.../<id>.jsonl`) and
     * outlive the process, so it is durable: the claim survives a restart
@@ -130,6 +85,9 @@ private[orca] class ClaudeBackend(
 
   override def structuredOutputMode: StructuredOutputMode =
     ClaudeBackend.StructuredOutputDelivery
+
+  def cheapModel(leading: Option[Model]): Option[Model] =
+    Some(ClaudeModels.Haiku)
 
   /** The sole session handle. [[IdScheme.ClientClaimed]]: ids are claimed via
     * `--session-id` so subsequent calls use `--resume` (the CLI refuses to
@@ -188,7 +146,6 @@ private[orca] class ClaudeBackend(
         dispatch = dispatch,
         outputSchema,
         mcpConfig = mcpConfig,
-        networkTools = networkTools,
         mcpTools = askUser.toSeq.map(_ => ClaudeBackend.AskUserToolName) ++
           servers.flatMap(s =>
             ClaudeBackend.qualifiedToolNames(s.name, s.slugs)
@@ -300,59 +257,6 @@ object ClaudeBackend:
       s"${slug.take(MaxSlugLength)}-$hash"
 
   private val MaxSlugLength = 200
-
-  /** Built-in tools added to `ClaudeArgs.ReadOnlyTools` on
-    * [[ToolSet.NetworkOnly]] turns. Bare tool names only — `--tools` takes no
-    * command scoping, so there is no `gh` entry. Nothing replaces it: measured
-    * planner use of `gh` was zero
-    * (`docs/research/run-cost/12-reviewer-tool-surface.md` §5) and orca reads
-    * issues host-side via `GitHubTool.readIssue`. Flows wanting a different set
-    * pass their own via `claude.withNetworkTools(...)`.
-    */
-  private[claude] val DefaultNetworkTools: Seq[String] =
-    Seq("WebFetch", "WebSearch")
-
-  /** What `--tools` accepts: a bare built-in name. Not MCP names — those pass
-    * `--tools` unfiltered, so listing one there does nothing.
-    */
-  private val BareToolName = "[A-Za-z][A-Za-z0-9]*".r
-
-  /** Builtins [[withNetworkTools]] refuses: each writes, shells out, or drives
-    * a shell, and `withNetworkTools` exists only to add network reads. Probed
-    * 2026-08-08, claude 2.1.226: only `Bash`, `Monitor`, `Write`, `Edit` and
-    * `NotebookEdit` are still in the built-in set; the rest are kept because a
-    * stale name here is harmless while a missing one is not.
-    */
-  private val WriteCapableTools: Set[String] = Set(
-    "Bash",
-    "BashOutput",
-    "KillBash",
-    "KillShell",
-    "Monitor",
-    "Write",
-    "Edit",
-    "MultiEdit",
-    "NotebookEdit"
-  )
-
-  private def rejectNonBareNames(tools: Seq[String]): Unit =
-    val bad = tools.filterNot(BareToolName.matches)
-    if bad.nonEmpty then
-      throw new IllegalArgumentException(
-        "withNetworkTools takes bare claude tool names; these are not: " +
-          s"${bad.mkString(", ")}. Command-scoped entries like " +
-          "\"Bash(gh api:*)\" belonged to the old --allowedTools mapping and " +
-          "are silently ignored by --tools."
-      )
-
-  private def rejectWriteCapable(tools: Seq[String]): Unit =
-    val bad = tools.filter(WriteCapableTools.contains)
-    if bad.nonEmpty then
-      throw new IllegalArgumentException(
-        "withNetworkTools adds network reads to a NetworkOnly turn; these " +
-          s"write or shell out: ${bad.mkString(", ")}. Use ToolSet.Full if " +
-          "the agent needs to write or run commands."
-      )
 
   /** Fully-qualified tool name (MCP server name + tool slug). Always
     * auto-approved on the interactive path — the user is already typing an

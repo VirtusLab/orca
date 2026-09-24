@@ -61,8 +61,7 @@ class OsGitHubToolTest extends munit.FunSuite:
     def spawnPiped(
         args: Seq[String],
         env: Map[String, String],
-        cwd: os.Path,
-        pipeStderr: Boolean
+        cwd: os.Path
     ): PipedCliProcess =
       throw new UnsupportedOperationException("not supported in this stub")
 
@@ -346,8 +345,7 @@ class OsGitHubToolTest extends munit.FunSuite:
       def spawnPiped(
           args: Seq[String],
           env: Map[String, String],
-          cwd: os.Path,
-          pipeStderr: Boolean
+          cwd: os.Path
       ): PipedCliProcess =
         throw new UnsupportedOperationException("not supported in this stub")
     val reason = probeGh(cli).availability() match
@@ -376,8 +374,7 @@ class OsGitHubToolTest extends munit.FunSuite:
       def spawnPiped(
           args: Seq[String],
           env: Map[String, String],
-          cwd: os.Path,
-          pipeStderr: Boolean
+          cwd: os.Path
       ): PipedCliProcess =
         throw new UnsupportedOperationException("not supported in this stub")
     val reason = probeGh(cli).availability() match

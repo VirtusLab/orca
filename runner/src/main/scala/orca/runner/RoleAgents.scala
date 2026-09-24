@@ -141,21 +141,15 @@ private[orca] object RoleAgents:
     *
     * The model comes from the spec's pin first, and only then from the agent's
     * own configured model (claude/codex/gemini pin a default; pi and opencode
-    * don't). That order matters because an agent implementing `Agent` directly
-    * rather than via `BaseAgent` reports no configured model, which would
-    * otherwise drop the user's pin.
+    * don't).
     */
   private def harnessAndModel(
       agent: Agent[?],
       spec: Option[AgentSpec]
   ): (String, Option[String]) =
-    val harness = spec match
-      case Some(s) => AgentSpec.harnessNameFor(s.backend)
-      case None =>
-        agent.backendTag
-          .map(AgentSpec.harnessNameFor)
-          .getOrElse("claude")
-    (harness, spec.flatMap(_.model).orElse(agent.configuredModel.map(_.name)))
+    val harness =
+      AgentSpec.harnessNameFor(spec.fold(agent.backendTag)(_.backend))
+    (harness, spec.flatMap(_.model).orElse(agent.config.model.map(_.name)))
 
   private def resolveOne(
       label: String,
@@ -196,39 +190,23 @@ private[orca] object RoleAgents:
               model,
               foreign = false
             )
-    choice.copy(agent = tagged(choice.label, costRole, choice.agent, agents))
+    choice.copy(agent = tagged(choice.label, costRole, choice.agent))
 
-  /** Stamp the role onto its agent as the cost-report `name` (the role's label)
-    * and the `role` axis (`costRole`, which for review is the reviewers' own
-    * tag). Done here rather than in the shipped flows because a user-written
-    * flow, the shell, and the runtime's own cheap one-shots (branch naming,
-    * default commit messages) never pass through one; `Agent.cheap` carries
-    * name and role over, so those sub-calls are covered by tagging the role
-    * agent itself.
-    *
-    * Guards ONE channel: a role override that renames a wired agent
-    * (`flow(codingAgent = Some(_.claude.withName("bob")))`) keeps its name,
-    * since the resolved agent's name then differs from that of the wired agent
-    * for its backend. Nothing else is guarded — a name given at WIRING time
-    * (`flow(claude = Some(w => ClaudeAgents.default(w).withName("bob")))`) is
-    * the wired agent's own name, so the comparison passes and the name is
-    * replaced by the role's label. `Agent` carries no record of who set its
-    * name, and what a wrong answer costs is a mislabelled cost line and
-    * terminal attribution: nothing behavioural reads `Agent.name` (sessions key
-    * off `FlowSession.name`).
-    *
-    * An agent reporting no backend tag has no wired agent to compare against,
-    * so it is left alone.
+  /** Stamp the role onto its agent: the role's label as the cost-report `name`,
+    * unless the agent was named with `withName`, and `costRole` (for review,
+    * the reviewers' own tag) as the `role` axis, unless one is set. Done here
+    * rather than in the shipped flows because a user-written flow, the shell,
+    * and the runtime's own cheap one-shots (branch naming, default commit
+    * messages) never pass through one; `Agent.cheap` carries name and role
+    * over, so those sub-calls are covered by tagging the role agent itself.
     */
   private def tagged(
       label: String,
       costRole: String,
-      agent: Agent[?],
-      agents: WiredAgents
+      agent: Agent[?]
   ): Agent[?] =
-    if agent.backendTag.map(agents.agentFor).exists(_.name == agent.name) then
-      agent.withName(label).withRole(costRole)
-    else agent
+    val named = agent.withDefaultNameReplacedBy(label)
+    if named.role.isEmpty then named.withRole(costRole) else named
 
   /** Stands in for a role where nothing orca can see pins a model — neither the
     * settings nor the wired agent (pi and opencode pin no default). The harness

@@ -217,7 +217,7 @@ class ClaudeIntegrationTest extends munit.FunSuite:
 
   test("the ReadOnly allowlist reaches claude with every name intact"):
     assertEquals(
-      grantedTools(AgentConfig(tools = ToolSet.ReadOnly), Seq.empty),
+      grantedTools(AgentConfig(tools = ToolSet.ReadOnly)),
       ClaudeArgs.ReadOnlyTools.toSet
     )
 
@@ -225,11 +225,8 @@ class ClaudeIntegrationTest extends munit.FunSuite:
     // Pins the names only. The init frame lists what is advertised, which says
     // nothing about whether the tool may run — the next test covers that.
     assertEquals(
-      grantedTools(
-        AgentConfig(tools = ToolSet.NetworkOnly),
-        ClaudeBackend.DefaultNetworkTools
-      ),
-      (ClaudeArgs.ReadOnlyTools ++ ClaudeBackend.DefaultNetworkTools).toSet
+      grantedTools(AgentConfig(tools = ToolSet.NetworkOnly)),
+      (ClaudeArgs.ReadOnlyTools ++ ClaudeArgs.DefaultNetworkTools).toSet
     )
 
   test("a NetworkOnly turn can run a fetch, not merely advertise one"):
@@ -271,10 +268,7 @@ class ClaudeIntegrationTest extends munit.FunSuite:
     * announces in its `system.init` frame. `mcp__*` names are excluded: they
     * pass through `--tools` unfiltered and depend on the host's MCP config.
     */
-  private def grantedTools(
-      config: AgentConfig,
-      networkTools: Seq[String]
-  ): Set[String] =
+  private def grantedTools(config: AgentConfig): Set[String] =
     val args = ClaudeArgs.streamJson(
       config = config,
       systemPromptFile = None,
@@ -284,8 +278,7 @@ class ClaudeIntegrationTest extends munit.FunSuite:
             java.util.UUID.randomUUID().toString
           )
         )
-      ),
-      networkTools = networkTools
+      )
     )
     val stdout = os
       .proc(args)

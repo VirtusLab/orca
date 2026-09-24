@@ -26,7 +26,7 @@ class SessionStoreTest extends FunSuite:
       id = id,
       seed = seed,
       resumeWireId = None,
-      backend = None
+      backend = BackendTag.ClaudeCode
     )
 
   test("records() is empty before anything is written"):
@@ -82,18 +82,14 @@ class SessionStoreTest extends FunSuite:
     store.upsert(planner)
     assertEquals(store.records(), List(implementer, planner))
 
-  test("the optional wire id and backend tag round-trip"):
+  test("the optional wire id round-trips"):
     val dir = TempDirs.dir()
     val store = SessionStore.default(dir, RunKey.of("p"))
-    val tagged =
-      record().copy(
-        resumeWireId = Some("ses_server_123"),
-        backend = Some(BackendTag.Codex)
-      )
-    store.upsert(tagged)
-    assertEquals(store.records(), List(tagged))
+    val withWire = record().copy(resumeWireId = Some("ses_server_123"))
+    store.upsert(withWire)
+    assertEquals(store.records(), List(withWire))
 
-  test("an unset wire id and backend tag are written as explicit nulls"):
+  test("an unset wire id is written as an explicit null"):
     // The file is read by a person debugging a resume, so the key set does not
     // depend on how far the run got.
     val dir = TempDirs.dir()
@@ -101,7 +97,6 @@ class SessionStoreTest extends FunSuite:
     store.upsert(record())
     val written = os.read(store.path)
     assert(written.contains("\"resumeWireId\":null"), written)
-    assert(written.contains("\"backend\":null"), written)
 
   test("a file that does not parse reads as no records"):
     val dir = TempDirs.dir()
@@ -115,7 +110,7 @@ class SessionStoreTest extends FunSuite:
   ):
     val dir = TempDirs.dir()
     val store = SessionStore.default(dir, RunKey.of("p"))
-    store.upsert(record().copy(backend = Some(BackendTag.Codex)))
+    store.upsert(record().copy(backend = BackendTag.Codex))
     val written = os.read(store.path)
     assert(written.contains("\"backend\":\"Codex\""), written)
     os.write.over(

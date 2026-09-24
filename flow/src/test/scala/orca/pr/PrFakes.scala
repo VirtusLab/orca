@@ -9,21 +9,7 @@ import orca.{
   TestFlowControl,
   WorkspaceWrite
 }
-import orca.agents.{
-  SessionKey,
-  Agent,
-  AgentCall,
-  AgentConfig,
-  AgentInput,
-  Announce,
-  AutonomousAgentCall,
-  AutonomousTextCall,
-  BackendTag,
-  InteractiveAgentCall,
-  JsonData,
-  SessionId,
-  ToolSet
-}
+import orca.agents.{Agent, BackendTag}
 import orca.tools.{
   GitHubAvailability,
   NoDefaultBase,
@@ -35,7 +21,16 @@ import orca.tools.{
 }
 import orca.progress.{BranchMode, ProgressHeader, ProgressStore}
 import orca.sessions.SessionStore
-import orca.testkit.{GitRepo, PushlessGit, StubGitHubTool, branchName, prHandle}
+import orca.testkit.{
+  GitRepo,
+  PassthroughPrompts,
+  PushlessGit,
+  ScriptedBackend,
+  StubGitHubTool,
+  TestAgent,
+  branchName,
+  prHandle
+}
 import orca.events.{EventDispatcher, OrcaListener}
 
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -83,38 +78,25 @@ private[pr] class RecordingGh(
     bodies.add(body): Unit
     createPrAnswer
 
-/** Records the prompt it was sent and answers `answer` — a fixed [[PrSummary]]
-  * unless a test makes the summarise stage fail.
+/** An agent that records the prompt it was sent and answers `answer` — a fixed
+  * [[PrSummary]] unless a test makes the summarise stage fail.
   */
 private[pr] class StubSummariser(
     answer: => PrSummary = PrSummary("Generated title", "Generated body")
-) extends Agent[BackendTag.ClaudeCode.type]:
+):
   private val prompt = new AtomicReference[String]("")
 
   /** The prompt this summariser was last sent. */
   def captured: String = prompt.get()
-  val name: String = "summariser"
-  def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
-    nyi("autonomous")
-  def withConfig(c: AgentConfig): Agent[BackendTag.ClaudeCode.type] = this
-  def withSystemPrompt(p: String): Agent[BackendTag.ClaudeCode.type] = this
-  def withName(n: String): Agent[BackendTag.ClaudeCode.type] = this
-  def withTools(t: ToolSet): Agent[BackendTag.ClaudeCode.type] = this
-  def resultAs[O: JsonData: Announce]
-      : AgentCall[BackendTag.ClaudeCode.type, O] =
-    new AgentCall[BackendTag.ClaudeCode.type, O]:
-      val autonomous: AutonomousAgentCall[BackendTag.ClaudeCode.type, O] =
-        new AutonomousAgentCall[BackendTag.ClaudeCode.type, O]:
-          private[orca] def runWithSession[I](
-              input: I,
-              session: SessionId[BackendTag.ClaudeCode.type],
-              sessionKey: Option[SessionKey],
-              emitPrompt: Boolean
-          )(using in: AgentInput[I], _s: orca.InStage): O =
-            prompt.set(in.serialize(input))
-            answer.asInstanceOf[O]
-      def interactive: InteractiveAgentCall[BackendTag.ClaudeCode.type, O] =
-        nyi("interactive")
+
+  val agent: Agent[BackendTag.ClaudeCode.type] = TestAgent(
+    ScriptedBackend.replying(BackendTag.ClaudeCode): turn =>
+      prompt.set(turn.prompt)
+      ScriptedBackend.json(answer)
+    ,
+    "summariser",
+    prompts = PassthroughPrompts
+  )
 
 /** A seeded repo on the `feat/test` branch its written header names, ready for
   * the PR helpers to stage into. Repo and store come back together so a second
