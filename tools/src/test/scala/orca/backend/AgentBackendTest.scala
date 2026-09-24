@@ -1,7 +1,13 @@
 package orca.backend
 
 import orca.{OrcaFlowException, OrcaInteractiveCancelled}
-import orca.agents.{AgentConfig, BackendTag, SessionId, StructuredOutputMode}
+import orca.agents.{
+  AgentConfig,
+  BackendTag,
+  Model,
+  SessionId,
+  StructuredOutputMode
+}
 import orca.events.{OrcaListener, TurnDebit}
 import orca.testkit.{ScriptedBackend, ScriptedConversation, StubEnforcementCell}
 import ox.Ox
@@ -103,6 +109,7 @@ class AgentBackendTest extends munit.FunSuite:
       SessionSupport.durable(IdScheme.ServerMinted, _ => false)
     def structuredOutputMode: StructuredOutputMode =
       StructuredOutputMode.RawText
+    def cheapModel(leading: Option[Model]): Option[Model] = None
     override protected[orca] def open(turn: TurnRequest[Codex])(using
         Ox
     ): Conversation[Codex] = conv

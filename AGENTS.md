@@ -136,10 +136,14 @@ most easily broken:
   backends do, live-verified 2026-07-08) — and the `IdScheme`: `ClientClaimed`
   (claude/pi — the client id IS the wire id, put on the wire at spawn) or
   `ServerMinted` (codex/gemini/opencode — the server mints the wire id, learned
-  from the protocol and registered after the turn). `Agent` derives `dispatchFor` /
-  `resumeWireId` / `rehydrateResumeWireId` as `final` methods over the single
-  `sessionSupport` hook, so a concrete tool can't wire one session operation
-  while silently defaulting the others — that half-wiring is unrepresentable.
+  from the protocol and registered after the turn). `Agent` is a final class
+  over one `AgentBackend` instance; its `dispatchFor` / `resumeWireId` /
+  `rehydrateResumeWireId` read that backend's `sessions`, and every builder
+  (`withModel`, `withReadOnly`, `claude.withNetworkTools`, …) returns a
+  sibling on the same backend, so siblings share sessions, the close latch
+  and enforcement notices. Per-backend knowledge (cheap tier, model ids) lives
+  on the backend or in its `*Agents` object as extensions; tests fake an
+  agent through a scripted `AgentBackend` (`ScriptedBackend` + `TestAgent`).
   `SessionId[B]` (the client-side handle) is split from `WireSessionId[B]`
   (what actually goes on the wire) — `SessionId#onWire` is the only
   client→wire crossing. `SessionSupport.dispatchFor` is the one fresh-vs-resume
@@ -160,8 +164,9 @@ most easily broken:
   / `agent.chat()` (ephemeral `Chat`, fork-safe, `InStage`-only) /
   `agent.session(name, seed)` (durable `FlowSession`, flow-thread-only
   — the owner-thread assert on every `FlowSession` turn enforces it at runtime, and
-  the raw session-threading doors are `private[orca] runWithSession`, so
-  ephemeral continuation is only reachable through a `Chat` handle).
+  the raw session-threading doors are `private[orca]` — `Agent.runText` and
+  the `AgentCall` modes' `runWithSession` — so ephemeral continuation is only
+  reachable through a `Chat` handle).
 
   Sessions have explicit identity: `agent.session(name, seed)` keys an
   `orca.sessions.SessionRecord` by `orca.agents.SessionKey(name, stage)`. `name`
@@ -249,7 +254,7 @@ most easily broken:
   GRANTS. For `NetworkOnly` the grant is per-backend, and this list is
   hand-maintained — nothing renders or checks it:
 
-  - claude: `WebFetch`/`WebSearch` (`ClaudeBackend.DefaultNetworkTools`; a flow
+  - claude: `WebFetch`/`WebSearch` (`ClaudeArgs.DefaultNetworkTools`; a flow
     can substitute its own via `claude.withNetworkTools(...)`) on `--tools` AND
     on `--allowedTools` — `--tools` only advertises, so a name missing from the
     approval flag comes back as a failed call. Plus the host-served GitHub
@@ -327,7 +332,8 @@ Build/test/format commands and the gated integration suites are in
 [CONTRIBUTING.md](CONTRIBUTING.md). Unit tests use in-memory fakes
 (`StubCliRunner` / `SpawnStubCliRunner`, `FakeAgent`,
 `FakePipedCliProcess`, `TestFlowContext` / `TestFlowControl`) and the shared
-`orca.testkit` fixtures — the `GitRepo` temp repo, `StubGitHubTool` (every `gh`
+`orca.testkit` fixtures — `TestAgent` (a real `Agent` over a
+`ScriptedBackend`), the `GitRepo` temp repo, `StubGitHubTool` (every `gh`
 endpoint refusing, override the ones a suite reaches) and `PushlessGit` (the
 real git with the remote-facing calls stubbed) — published via `tools %
 test->test`; no network, no real filesystem outside `os.temp.dir()`.
@@ -489,7 +495,10 @@ Orca is 0.x: no backwards compatibility is owed anywhere.
   [`subprocess.QuietProc.call`](tools/src/main/scala/orca/subprocess/QuietProc.scala)
   or a `CliRunner`. os-lib defaults `os.proc(...).call(...)`'s `stderr` to
   `Inherit`, which lets subprocess output bypass the renderer's StatusBar
-  and tear the spinner row.
+  and tear the spinner row. `CliRunner.spawnPiped` always pipes stderr, so
+  its caller must drain `stderrLines` as well as `stdoutLines`. Raw `os.proc`
+  with `os.Inherit` is only for the `shell/` terminal handoffs (editor, flow
+  run, agent session) and `TtyProbe`, which inherits the fd it probes.
 - Every `spawnPiped` child carries a unique `ORCA_TURN_COOKIE`
   (`orca.sweep.EnvCookie`). `SubprocessSpawn.open` registers `EnvCookieSweep`
   with the turn scope, so at turn end it scans `/proc/*/environ` for the

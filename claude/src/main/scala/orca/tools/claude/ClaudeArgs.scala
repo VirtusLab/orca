@@ -33,7 +33,6 @@ private[claude] object ClaudeArgs:
       dispatch: Dispatch[BackendTag.ClaudeCode.type],
       jsonSchema: Option[String] = None,
       mcpConfig: Option[os.Path] = None,
-      networkTools: Seq[String] = Seq.empty,
       mcpTools: Seq[String] = Seq.empty
   ): Seq[String] =
     Seq(
@@ -52,7 +51,7 @@ private[claude] object ClaudeArgs:
       permissionWiring(
         config.tools,
         config.autoApprove,
-        networkTools = networkTools,
+        networkTools = config.networkTools.fold(DefaultNetworkTools)(_.names),
         mcpTools = mcpTools
       ).args ++
       jsonSchemaArgs(jsonSchema) ++
@@ -65,7 +64,7 @@ private[claude] object ClaudeArgs:
     */
   private def modelArgs(config: AgentConfig): Seq[String] =
     CliArgs.flag("--model", config.model): model =>
-      if model.name == "haiku" then DefaultClaudeAgent.Haiku.name
+      if model.name == "haiku" then ClaudeModels.Haiku.name
       else model.name
 
   private def systemPromptFileArgs(file: Option[os.Path]): Seq[String] =
@@ -110,6 +109,16 @@ private[claude] object ClaudeArgs:
     */
   private[claude] val ReadOnlyTools: Seq[String] =
     Seq("Read", "Grep", "Glob", "Skill")
+
+  /** Built-in tools added to [[ReadOnlyTools]] on [[ToolSet.NetworkOnly]] turns
+    * unless [[AgentConfig.networkTools]] names others. Bare tool names only —
+    * `--tools` takes no command scoping, so there is no `gh` entry. Nothing
+    * replaces it: measured planner use of `gh` was zero
+    * (`docs/research/run-cost/12-reviewer-tool-surface.md` §5) and orca reads
+    * issues host-side via `GitHubTool.readIssue`.
+    */
+  private[claude] val DefaultNetworkTools: Seq[String] =
+    Seq("WebFetch", "WebSearch")
 
   private case class PermissionWiring(args: Seq[String], cell: EnforcementCell)
 

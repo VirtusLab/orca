@@ -1,13 +1,16 @@
 package orca.tools.opencode
 
-import orca.agents.{AgentConfig, OpencodeAgent}
+import orca.agents.{Agent, AgentConfig, Model, OpencodeAgent}
 import orca.backend.AgentWiring
 import orca.subprocess.OsProcCliRunner
 import ox.Ox
 
-/** Public constructors for the default opencode agent. The concrete
-  * [[DefaultOpencodeAgent]] / [[OpencodeBackend]] stay `private[orca]`; this
-  * object is the user-facing way to build a standard opencode wired into a run.
+/** The default opencode agent and its provider-prefixed model accessors.
+  * OpenCode spans providers, so the prefix keeps the vendor explicit at the
+  * call site. The openai accessors follow OpenAI's durable capability tiers —
+  * astra (flagship), sol (balanced), luna (efficiency) — the same way the
+  * anthropic accessors follow opus/sonnet/haiku. The pinned ids are convenience
+  * defaults — any id from `opencode models` is valid.
   */
 object OpencodeAgents:
 
@@ -20,7 +23,7 @@ object OpencodeAgents:
       wiring: AgentWiring,
       launcher: OpencodeLauncher = OpencodeLauncher.default
   )(using Ox): OpencodeAgent =
-    new DefaultOpencodeAgent(
+    Agent(
       backend = OpencodeBackend(
         OsProcCliRunner,
         wiring.workDir,
@@ -30,5 +33,29 @@ object OpencodeAgents:
       config = AgentConfig(),
       prompts = wiring.prompts,
       events = wiring.events,
-      interaction = wiring.interaction
+      interaction = wiring.interaction,
+      defaultName = "main"
     )
+
+  extension (agent: OpencodeAgent)
+    def anthropicOpus: OpencodeAgent =
+      agent.withModel(OpencodeModels.AnthropicOpus)
+    def anthropicSonnet: OpencodeAgent =
+      agent.withModel(OpencodeModels.AnthropicSonnet)
+    def anthropicHaiku: OpencodeAgent =
+      agent.withModel(OpencodeModels.AnthropicHaiku)
+    def openaiAstra: OpencodeAgent = agent.withModel(OpencodeModels.OpenaiAstra)
+    def openaiSol: OpencodeAgent = agent.withModel(OpencodeModels.OpenaiSol)
+    def openaiLuna: OpencodeAgent = agent.withModel(OpencodeModels.OpenaiLuna)
+
+    /** Pin any `provider/model` id (e.g. `ollama/llama3.1`,
+      * `myhost/qwen-coder`).
+      */
+    def withModel(providerModel: String): OpencodeAgent =
+      agent.withModel(Model(providerModel))
+
+    /** Two-arg form of `withModel`, e.g. `withModel("ollama", "llama3.1")`;
+      * validates both parts.
+      */
+    def withModel(provider: String, modelId: String): OpencodeAgent =
+      agent.withModel(OpencodeModel(provider, modelId))

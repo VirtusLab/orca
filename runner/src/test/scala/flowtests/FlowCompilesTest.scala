@@ -98,6 +98,11 @@ object FlowCanary:
         val _ = pi.withConfig(
           AgentConfig().copy(model = Some(Model("gpt-5.5")))
         )
+        // Each backend's model tiers resolve as extensions from `orca.*`.
+        val _ = claude.opus.withNetworkTools(Seq("WebFetch"))
+        val _ = codex.mini
+        val _ = gemini.flash
+        val _ = opencode.openaiLuna.withModel("ollama", "llama3.1")
 
   /** Review-and-fix loop; pulls in `allReviewers` and the internal `display`/
     * fork machinery (which now runs under the caller's stage).

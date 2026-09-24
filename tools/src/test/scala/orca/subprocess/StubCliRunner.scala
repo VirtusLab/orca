@@ -43,8 +43,7 @@ class StubCliRunner(
   def spawnPiped(
       args: Seq[String],
       env: Map[String, String],
-      cwd: os.Path,
-      pipeStderr: Boolean
+      cwd: os.Path
   ): PipedCliProcess =
     throw new UnsupportedOperationException(
       "StubCliRunner does not support spawnPiped; use FakePipedCliProcess directly"

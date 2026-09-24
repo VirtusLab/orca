@@ -2,17 +2,8 @@ package orca.review
 
 import orca.{FlowContext}
 import orca.plan.Title
-import orca.agents.{
-  SessionKey,
-  AgentInput,
-  Announce,
-  AutonomousAgentCall,
-  BackendTag,
-  InteractiveAgentCall,
-  JsonData,
-  AgentCall,
-  SessionId
-}
+import orca.agents.{Agent, BackendTag}
+import orca.testkit.{PassthroughPrompts, ScriptedBackend, TestAgent}
 import orca.events.{EventDispatcher}
 import orca.{TestFlowContext}
 
@@ -24,37 +15,25 @@ class LintTest extends munit.FunSuite:
   private def ctx: FlowContext =
     new TestFlowContext(new EventDispatcher(Nil))
 
-  /** Agent that records the serialized prompt passed to
-    * `resultAs.autonomous.run` and returns a canned ReviewResult.
-    */
-  private class CapturingAgent(canned: ReviewResult) extends StubAgent("mock"):
-    var captured: String = ""
-    // Contents of the `*.txt` file the prompt references, read inside `run`
-    // while it still exists — `lint` deletes it once `run` returns. Empty when
-    // the output was inlined rather than spilled to a file.
-    var capturedFileContent: String = ""
-    def resultAs[O: JsonData: Announce]
-        : AgentCall[BackendTag.ClaudeCode.type, O] =
-      new AgentCall[BackendTag.ClaudeCode.type, O]:
-        val autonomous: AutonomousAgentCall[BackendTag.ClaudeCode.type, O] =
-          new AutonomousAgentCall[BackendTag.ClaudeCode.type, O]:
-            private[orca] def runWithSession[I](
-                i: I,
-                session: SessionId[BackendTag.ClaudeCode.type],
-                sessionKey: Option[SessionKey],
-                emitPrompt: Boolean
-            )(using
-                a: AgentInput[I],
-                _x: orca.InStage
-            ): O =
-              captured = a.serialize(i)
-              capturedFileContent = "`([^`]+\\.txt)`".r
-                .findFirstMatchIn(captured)
-                .map(m => os.read(os.Path(m.group(1))))
-                .getOrElse("")
-              canned.asInstanceOf[O]
-        def interactive: InteractiveAgentCall[BackendTag.ClaudeCode.type, O] =
-          ???
+  /** An agent that records the prompt it was sent and returns `canned`. */
+  private class CapturingAgent(canned: ReviewResult):
+    @volatile var captured: String = ""
+    // Contents of the `*.txt` file the prompt references, read inside the turn
+    // while it still exists — `lint` deletes it once the turn returns. Empty
+    // when the output was inlined rather than spilled to a file.
+    @volatile var capturedFileContent: String = ""
+    val agent: Agent[BackendTag.ClaudeCode.type] = TestAgent(
+      ScriptedBackend.replying(BackendTag.ClaudeCode): turn =>
+        captured = turn.prompt
+        capturedFileContent = "`([^`]+\\.txt)`".r
+          .findFirstMatchIn(captured)
+          .map(m => os.read(os.Path(m.group(1))))
+          .getOrElse("")
+        ScriptedBackend.json(canned)
+      ,
+      "mock",
+      prompts = PassthroughPrompts
+    )
 
   private val expected = ReviewResult(
     findings = List(
@@ -71,7 +50,7 @@ class LintTest extends munit.FunSuite:
   test("lint inlines small output into the prompt, references no file"):
     given FlowContext = ctx
     val mock = new CapturingAgent(expected)
-    val result = lint(List("echo LINT-BODY-MARKER"), mock)
+    val result = lint(List("echo LINT-BODY-MARKER"), mock.agent)
     assertEquals(result, expected)
     // Small output is inlined directly, so a read-only autonomous agent that
     // can't reach files outside its worktree still sees it: no `.txt` file is
@@ -88,7 +67,7 @@ class LintTest extends munit.FunSuite:
   test("lint output keeps a line whose first non-blank character is `|`"):
     given FlowContext = ctx
     val mock = new CapturingAgent(expected)
-    val _ = lint(List("""printf 'plain\n |marked\n'"""), mock)
+    val _ = lint(List("""printf 'plain\n |marked\n'"""), mock.agent)
     // The leading newline is load-bearing: the block's label line quotes the
     // command, where ` |marked` also appears — but preceded by a literal `\n`.
     assert(
@@ -99,7 +78,7 @@ class LintTest extends munit.FunSuite:
   test("lint labels each command's block, blank line between blocks"):
     given FlowContext = ctx
     val mock = new CapturingAgent(expected)
-    val result = lint(List("echo ONE-OUT; exit 2", "echo TWO-OUT"), mock)
+    val result = lint(List("echo ONE-OUT; exit 2", "echo TWO-OUT"), mock.agent)
     assertEquals(result, expected)
     // The FIRST command fails, and the second's block still follows — an
     // earlier failure never hides later diagnostics. Blocks are concatenated in
@@ -115,7 +94,7 @@ class LintTest extends munit.FunSuite:
   test("lint reaches the summariser when a silent command exits nonzero"):
     given FlowContext = ctx
     val mock = new CapturingAgent(expected)
-    val result = lint(List("exit 3"), mock)
+    val result = lint(List("exit 3"), mock.agent)
     assertEquals(result, expected)
     // A linter can fail with no stdout — the nonzero exit must not be
     // swallowed by the empty-output short-circuit. The block is the label line
@@ -138,7 +117,7 @@ class LintTest extends munit.FunSuite:
     // Output well over the inline threshold, carrying a marker so we can check
     // the file the agent is pointed at actually holds the command's output.
     val big = "printf 'LINT-BIG-MARKER'; printf 'X%.0s' {1..9000}"
-    val result = lint(List(big), mock)
+    val result = lint(List(big), mock.agent)
     assertEquals(result, expected)
     // The spilled file holds the same labeled text the inline path would
     // embed, so the summariser sees per-command exit statuses either way.
@@ -166,7 +145,7 @@ class LintTest extends munit.FunSuite:
   test("lint short-circuits when every command is silent and exits zero"):
     given FlowContext = ctx
     val mock = new CapturingAgent(ReviewResult.empty)
-    val result = lint(List("true", "true"), mock)
+    val result = lint(List("true", "true"), mock.agent)
     assertEquals(result, ReviewResult.empty)
     assertEquals(
       mock.captured,
@@ -177,7 +156,7 @@ class LintTest extends munit.FunSuite:
   test("lint with no commands is a no-op: empty result, no LLM call"):
     given FlowContext = ctx
     val mock = new CapturingAgent(ReviewResult.empty)
-    val result = lint(Nil, mock)
+    val result = lint(Nil, mock.agent)
     assertEquals(result, ReviewResult.empty)
     assertEquals(
       mock.captured,

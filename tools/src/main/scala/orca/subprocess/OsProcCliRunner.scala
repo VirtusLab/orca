@@ -34,8 +34,7 @@ object OsProcCliRunner extends CliRunner:
   def spawnPiped(
       args: Seq[String],
       env: Map[String, String],
-      cwd: os.Path,
-      pipeStderr: Boolean
+      cwd: os.Path
   ): PipedCliProcess =
     log.debug("spawn: {} (cwd={})", args.mkString(" "), cwd)
     // os-lib applies `env` on top of the inherited environment (replacing it
@@ -49,20 +48,15 @@ object OsProcCliRunner extends CliRunner:
         env = env + (EnvCookie.VarName -> cookie.value),
         stdin = os.Pipe,
         stdout = os.Pipe,
-        // Inherit by default: piping risks a buffer-fill hang when the child
-        // emits more stderr than the driver drains (claude --verbose).
-        // Bounded-stderr backends (codex) opt into piping to surface stderr
-        // lines as ConversationEvent.Errors.
-        stderr = if pipeStderr then os.Pipe else os.Inherit
+        stderr = os.Pipe
       )
-    new OsPipedSubProcess(sub, pipeStderr, cookie)
+    new OsPipedSubProcess(sub, cookie)
 
 /** Takes the cookie unwrapped: a process orca actually spawned always carries
   * one, so it cannot be constructed without it.
   */
 private final class OsPipedSubProcess(
     sub: os.SubProcess,
-    stderrPiped: Boolean,
     cookie: EnvCookie
 ) extends PipedCliProcess:
 
@@ -77,11 +71,8 @@ private final class OsPipedSubProcess(
   // exits. The underlying `BufferedReader` gives a lazy line-by-line iterator.
   private lazy val stdoutIterator: Iterator[String] =
     sub.stdout.buffered.lines().iterator().asScala
-  // Empty iterator when stderr is inherited, so the `PipedCliProcess` contract
-  // holds without reading a nonexistent pipe; the actual stream when piped.
   private lazy val stderrIterator: Iterator[String] =
-    if stderrPiped then sub.stderr.buffered.lines().iterator().asScala
-    else Iterator.empty
+    sub.stderr.buffered.lines().iterator().asScala
 
   /** Descendants that were alive when the root was signalled. Signalling the
     * root can make it exit, at which point its children are reparented to init

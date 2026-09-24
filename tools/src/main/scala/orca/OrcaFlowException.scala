@@ -36,7 +36,7 @@ class OrcaInteractiveCancelled(
   *
   * Marks a failure as non-retryable: reusing the locked session id makes a
   * retry futile. Classified at [[orca.backend.StreamConversation]];
-  * `DefaultAgentCall.runAutonomousWithRetry` is the policy that acts on it.
+  * `AgentCall.runAutonomousWithRetry` is the policy that acts on it.
   *
   * `cause` is optional so `getCause` still reaches the original exception
   * (stack trace, exact type) for `--verbose`/debug inspection rather than being

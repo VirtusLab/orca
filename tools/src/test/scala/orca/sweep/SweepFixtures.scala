@@ -22,8 +22,7 @@ trait SweepFixtures:
     OsProcCliRunner.spawnPiped(
       Seq("bash", "-c", script),
       env = Map.empty,
-      cwd = os.pwd,
-      pipeStderr = false
+      cwd = os.pwd
     )
 
   /** A script that starts a worker `setsid` detaches from the spawned process's

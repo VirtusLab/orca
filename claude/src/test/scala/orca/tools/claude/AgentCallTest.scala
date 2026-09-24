@@ -28,7 +28,7 @@ import orca.backend.{
   SessionSupport,
   TurnRequest
 }
-import orca.agents.{DefaultAgentCall, DefaultPrompts}
+import orca.agents.{AgentCall, DefaultPrompts}
 import ox.supervised
 
 import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
@@ -59,8 +59,8 @@ class SequencedBackend(
   def prompts: List[String] = promptsRef.get().reverse
 
   /** `outputSchema` values the backend received, in invocation order. Lets
-    * tests assert that `DefaultAgentCall` actually passes `Some(<schema>)`
-    * rather than dropping to `None`.
+    * tests assert that `AgentCall` actually passes `Some(<schema>)` rather than
+    * dropping to `None`.
     */
   def schemas: List[Option[String]] = seenSchemas.get().reverse
 
@@ -77,7 +77,7 @@ class SequencedBackend(
       .getOrElse(throw new IllegalStateException("ran out of canned outputs"))
     ScriptedBackend.result(next, "sess-test")
 
-class DefaultAgentCallTest extends munit.FunSuite:
+class AgentCallTest extends munit.FunSuite:
 
   // LLM `run` is gated on `InStage`; mint the token once for the suite.
   private given orca.InStage = orca.InStage.unsafe
@@ -113,8 +113,8 @@ class DefaultAgentCallTest extends munit.FunSuite:
 
   private def makeCall(
       backend: SequencedBackend
-  ): DefaultAgentCall[BackendTag.ClaudeCode.type, Answer] =
-    new DefaultAgentCall[BackendTag.ClaudeCode.type, Answer](
+  ): AgentCall[BackendTag.ClaudeCode.type, Answer] =
+    new AgentCall[BackendTag.ClaudeCode.type, Answer](
       backend = backend,
       config = AgentConfig(retrySchedule = fastRetry),
       prompts = DefaultPrompts,
@@ -193,7 +193,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
       orca.agents.Announce.from(a => s"answer is ${a.value}")
     val backend = new SequencedBackend(List("""{"value":99}"""))
     val seen = AtomicReference[List[orca.events.OrcaEvent]](Nil)
-    val call = new DefaultAgentCall[BackendTag.ClaudeCode.type, Answer](
+    val call = new AgentCall[BackendTag.ClaudeCode.type, Answer](
       backend = backend,
       config = AgentConfig(retrySchedule = fastRetry),
       prompts = DefaultPrompts,
@@ -276,7 +276,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
     // Without this wiring, structured calls (which is what every reviewer
     // uses) lose tool-use / assistant-message visibility — the per-turn
     // events fire only when the backend gets the same listener the
-    // DefaultAgentCall was constructed with.
+    // AgentCall was constructed with.
     val backend = new SequencedBackend(List("""{"value":1}""")):
       override protected[orca] def open(
           turn: TurnRequest[BackendTag.ClaudeCode.type]
@@ -292,7 +292,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
       val _ = received.updateAndGet(e :: _)
     }
     supervised:
-      val _ = new DefaultAgentCall[BackendTag.ClaudeCode.type, Answer](
+      val _ = new AgentCall[BackendTag.ClaudeCode.type, Answer](
         backend = backend,
         config = AgentConfig(retrySchedule = fastRetry),
         prompts = DefaultPrompts,
@@ -312,7 +312,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
     val backend = new SequencedBackend(List("""{"value":3}"""))
     val seen = AtomicReference[List[OrcaEvent]](Nil)
     supervised:
-      val _ = new DefaultAgentCall[BackendTag.ClaudeCode.type, Answer](
+      val _ = new AgentCall[BackendTag.ClaudeCode.type, Answer](
         backend = backend,
         config = AgentConfig(retrySchedule = fastRetry),
         prompts = DefaultPrompts,
@@ -341,7 +341,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
     )
     val seen = AtomicReference[List[orca.events.OrcaEvent]](Nil)
     supervised:
-      val _ = new DefaultAgentCall[BackendTag.ClaudeCode.type, Answer](
+      val _ = new AgentCall[BackendTag.ClaudeCode.type, Answer](
         backend = backend,
         config = AgentConfig(retrySchedule = fastRetry),
         prompts = DefaultPrompts,
@@ -407,7 +407,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
         throw new AgentTurnFailed("no usage on the wire", TurnDebit.Unobserved)
     supervised:
       val _ = intercept[AgentTurnFailed]:
-        new DefaultAgentCall[BackendTag.ClaudeCode.type, Answer](
+        new AgentCall[BackendTag.ClaudeCode.type, Answer](
           backend = backend,
           config = AgentConfig(),
           prompts = DefaultPrompts,
@@ -441,7 +441,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
           )
     supervised:
       val _ = intercept[AgentTurnFailed]:
-        new DefaultAgentCall[BackendTag.ClaudeCode.type, Answer](
+        new AgentCall[BackendTag.ClaudeCode.type, Answer](
           backend = backend,
           config = AgentConfig(retrySchedule = fastRetry),
           prompts = DefaultPrompts,
@@ -493,7 +493,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
         )
     supervised:
       val _ = intercept[OrcaInteractiveCancelled]:
-        new DefaultAgentCall[BackendTag.ClaudeCode.type, Answer](
+        new AgentCall[BackendTag.ClaudeCode.type, Answer](
           backend = new SequencedBackend(List("""{"value":1}""")),
           config = AgentConfig(),
           prompts = DefaultPrompts,
@@ -525,7 +525,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
         )
     supervised:
       val _ = intercept[AgentTurnFailed]:
-        new DefaultAgentCall[BackendTag.ClaudeCode.type, Answer](
+        new AgentCall[BackendTag.ClaudeCode.type, Answer](
           backend = new SequencedBackend(List("""{"value":1}""")),
           config = AgentConfig(),
           prompts = DefaultPrompts,
@@ -564,7 +564,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
     val drivingInteraction =
       finishingInteraction("server-uuid-cccc", """{"value":5}""")
     supervised:
-      val _ = new DefaultAgentCall[BackendTag.ClaudeCode.type, Answer](
+      val _ = new AgentCall[BackendTag.ClaudeCode.type, Answer](
         backend = new PromptOnlyBackend,
         config = AgentConfig(tools = ToolSet.ReadOnly),
         prompts = DefaultPrompts,
@@ -580,7 +580,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
     val drivingInteraction =
       finishingInteraction("server-uuid-dddd", """{"value":4}""")
     supervised:
-      val _ = new DefaultAgentCall[BackendTag.ClaudeCode.type, Answer](
+      val _ = new AgentCall[BackendTag.ClaudeCode.type, Answer](
         backend = new PromptOnlyBackend,
         config = AgentConfig(),
         prompts = DefaultPrompts,
@@ -605,7 +605,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
     val drivingInteraction =
       finishingInteraction(WireSessionId.value(serverSid), """{"value":3}""")
     supervised:
-      val answer = new DefaultAgentCall[
+      val answer = new AgentCall[
         BackendTag.ClaudeCode.type,
         Answer
       ](

@@ -2,22 +2,8 @@ package orca.runner
 
 import orca.{FlowContext, OrcaArgs, StackSettings, flow, fs, pi}
 import orca.tools.{FsTool}
-import orca.testkit.GitRepo
-import orca.agents.{
-  SessionKey,
-  Announce,
-  AutonomousTextCall,
-  BackendTag,
-  ClaudeAgent,
-  JsonData,
-  PiAgent,
-  AgentCall,
-  AgentConfig,
-  Model,
-  OpencodeAgent,
-  SessionId,
-  ToolSet
-}
+import orca.testkit.{GitRepo, ScriptedBackend, TestAgent}
+import orca.agents.{BackendTag, ClaudeAgent, Model, OpencodeAgent, PiAgent}
 import orca.events.{CostTracker, OrcaEvent, OrcaListener}
 import orca.testkit.Usages.usage
 import orca.tools.opencode.OpencodeAgents
@@ -59,32 +45,12 @@ class OrcaOverridesTest extends munit.FunSuite:
     assertEquals(observed, Some("canned content"))
 
   test("flow uses a custom ClaudeAgent when supplied"):
-    val fakeClaude = new ClaudeAgent:
-      val name = "fake"
-      def haiku = this
-      def sonnet = this
-      def opus = this
-      def fable = this
-      def withModel(model: Model) = this
-      def withNetworkTools(t: Seq[String]) = this
-      def withConfig(c: AgentConfig) = this
-      def withSystemPrompt(p: String) = this
-      def withName(n: String) = this
-      def withTools(tools: ToolSet) = this
-      val autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
-        new AutonomousTextCall[BackendTag.ClaudeCode.type]:
-          private[orca] def runWithSession(
-              p: String,
-              session: SessionId[BackendTag.ClaudeCode.type],
-              sessionKey: Option[SessionKey],
-              emitPrompt: Boolean
-          )(using
-              orca.InStage
-          ): String =
-            s"echo: $p"
-      def resultAs[O: JsonData: Announce]
-          : AgentCall[BackendTag.ClaudeCode.type, O] =
-        ???
+    val fakeClaude: ClaudeAgent = TestAgent(
+      ScriptedBackend.replying(BackendTag.ClaudeCode)(t =>
+        s"echo: ${t.prompt}"
+      ),
+      "fake"
+    )
     var observed: String = ""
     supervised:
       val interaction = TerminalInteraction.start(
@@ -103,30 +69,12 @@ class OrcaOverridesTest extends munit.FunSuite:
     assertEquals(observed, "echo: hi")
 
   test("flow uses a custom OpencodeAgent when supplied"):
-    val fakeOpencode = new OpencodeAgent:
-      val name = "fake"
-      def anthropicOpus = this
-      def anthropicSonnet = this
-      def anthropicHaiku = this
-      def openaiSol = this
-      def openaiAstra = this
-      def openaiLuna = this
-      def withModel(providerModel: String) = this
-      def withConfig(c: AgentConfig) = this
-      def withSystemPrompt(p: String) = this
-      def withName(n: String) = this
-      def withTools(tools: ToolSet) = this
-      val autonomous: AutonomousTextCall[BackendTag.Opencode.type] =
-        new AutonomousTextCall[BackendTag.Opencode.type]:
-          private[orca] def runWithSession(
-              p: String,
-              session: SessionId[BackendTag.Opencode.type],
-              sessionKey: Option[SessionKey],
-              emitPrompt: Boolean
-          )(using orca.InStage): String =
-            s"opencode: $p"
-      def resultAs[O: JsonData: Announce]
-          : AgentCall[BackendTag.Opencode.type, O] = ???
+    val fakeOpencode: OpencodeAgent = TestAgent(
+      ScriptedBackend.replying(BackendTag.Opencode)(t =>
+        s"opencode: ${t.prompt}"
+      ),
+      "fake"
+    )
     var observed: String = ""
     supervised:
       val interaction = TerminalInteraction.start(
@@ -173,24 +121,10 @@ class OrcaOverridesTest extends munit.FunSuite:
     assert(ran, "flow with an opencode default-factory override must run")
 
   test("flow uses a custom PiAgent when supplied"):
-    val fakePi = new PiAgent:
-      val name = "fake-pi"
-      def withModel(model: Model) = this
-      def withConfig(c: AgentConfig) = this
-      def withSystemPrompt(p: String) = this
-      def withName(n: String) = this
-      def withTools(tools: ToolSet) = this
-      val autonomous: AutonomousTextCall[BackendTag.Pi.type] =
-        new AutonomousTextCall[BackendTag.Pi.type]:
-          private[orca] def runWithSession(
-              p: String,
-              session: SessionId[BackendTag.Pi.type],
-              sessionKey: Option[SessionKey],
-              emitPrompt: Boolean
-          )(using orca.InStage): String =
-            s"pi: $p"
-      def resultAs[O: JsonData: Announce]: AgentCall[BackendTag.Pi.type, O] =
-        ???
+    val fakePi: PiAgent = TestAgent(
+      ScriptedBackend.replying(BackendTag.Pi)(t => s"pi: ${t.prompt}"),
+      "fake-pi"
+    )
     var observed: String = ""
     supervised:
       val interaction = TerminalInteraction.start(
@@ -214,43 +148,13 @@ class OrcaOverridesTest extends munit.FunSuite:
   ):
     // A user agent built by the override factory must land on the SAME
     // dispatcher as the defaults, so the tokens it spends reach the cost tracker
-    // and terminal. The factory receives `w.events`; the stub emits an UnpricedTurn
-    // through it on `run`, which the listener sees priced as a TokensUsed.
-    def wiredClaude(events: OrcaListener): ClaudeAgent = new ClaudeAgent:
-      val name = "wired"
-      def haiku = this
-      def sonnet = this
-      def opus = this
-      def fable = this
-      def withModel(model: Model) = this
-      def withNetworkTools(t: Seq[String]) = this
-      def withConfig(c: AgentConfig) = this
-      def withSystemPrompt(p: String) = this
-      def withName(n: String) = this
-      def withTools(tools: ToolSet) = this
-      val autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
-        new AutonomousTextCall[BackendTag.ClaudeCode.type]:
-          private[orca] def runWithSession(
-              p: String,
-              session: SessionId[BackendTag.ClaudeCode.type],
-              sessionKey: Option[SessionKey],
-              emitPrompt: Boolean
-          )(using
-              orca.InStage
-          ): String =
-            events.onEvent(
-              OrcaEvent.UnpricedTurn(
-                "wired",
-                Some(Model("wired-model")),
-                usage(7L, 3L),
-                role = None,
-                turn = 1,
-                session = None
-              )
-            )
-            s"ok: $p"
-      def resultAs[O: JsonData: Announce]
-          : AgentCall[BackendTag.ClaudeCode.type, O] = ???
+    // and terminal. The factory receives `w.events`, which the agent's `run`
+    // reports its spend through.
+    def wiredClaude(events: OrcaListener): ClaudeAgent = TestAgent(
+      ScriptedBackend.replying(BackendTag.ClaudeCode)(t => s"ok: ${t.prompt}"),
+      "wired",
+      events = events
+    )
     // Records which agents' TokensUsed reach a run listener — the override
     // agent's "wired" event must be among them.
     var seen: List[String] = Nil

@@ -6,6 +6,7 @@ import orca.agents.{
   BackendTag,
   AgentConfig,
   Model,
+  NetworkTools,
   WireSessionId,
   ToolSet
 }
@@ -20,13 +21,12 @@ class ClaudeArgsTest extends munit.FunSuite:
       config: AgentConfig,
       dispatch: Dispatch[BackendTag.ClaudeCode.type] =
         Dispatch.Fresh(Some(testSid)),
-      networkTools: Seq[String] = Seq.empty
+      networkTools: Option[Seq[String]] = None
   ): Seq[String] =
     ClaudeArgs.streamJson(
-      config = config,
+      config = config.copy(networkTools = networkTools.map(NetworkTools(_))),
       systemPromptFile = None,
-      dispatch = dispatch,
-      networkTools = networkTools
+      dispatch = dispatch
     )
 
   test("stream-json shape: --print, --input/--output-format stream-json, etc."):
@@ -106,7 +106,7 @@ class ClaudeArgsTest extends munit.FunSuite:
   test("ToolSet.NetworkOnly appends networkTools to the read-only allowlist"):
     val args = streamJson(
       AgentConfig(tools = ToolSet.NetworkOnly),
-      networkTools = Seq("WebFetch", "WebSearch")
+      networkTools = Some(Seq("WebFetch", "WebSearch"))
     )
     assert(
       args.containsSlice(
@@ -120,15 +120,18 @@ class ClaudeArgsTest extends munit.FunSuite:
     // with stdin closed, comes back as a failed tool_result.
     val args = streamJson(
       AgentConfig(tools = ToolSet.NetworkOnly),
-      networkTools = Seq("WebFetch", "WebSearch")
+      networkTools = Some(Seq("WebFetch", "WebSearch"))
     )
     assert(
       args.containsSlice(Seq("--allowedTools", "WebFetch,WebSearch")),
       args
     )
 
-  test("ToolSet.NetworkOnly with no networkTools maps to the read-only list"):
-    val args = streamJson(AgentConfig(tools = ToolSet.NetworkOnly))
+  test("an empty networkTools list maps NetworkOnly to the read-only list"):
+    val args = streamJson(
+      AgentConfig(tools = ToolSet.NetworkOnly),
+      networkTools = Some(Nil)
+    )
     assert(args.containsSlice(Seq("--tools", "Read,Grep,Glob,Skill")), args)
     assert(!args.contains("--allowedTools"), args)
 
@@ -152,10 +155,12 @@ class ClaudeArgsTest extends munit.FunSuite:
     // grant would silently drop whichever claude ignores, and the tier that
     // loses WebFetch plans from the prompt alone with no error.
     val args = ClaudeArgs.streamJson(
-      config = AgentConfig(tools = ToolSet.NetworkOnly),
+      config = AgentConfig(
+        tools = ToolSet.NetworkOnly,
+        networkTools = Some(NetworkTools(Seq("WebFetch")))
+      ),
       systemPromptFile = None,
       dispatch = Dispatch.Fresh(Some(testSid)),
-      networkTools = Seq("WebFetch"),
       mcpTools = Seq("mcp__orca_repo__git_show")
     )
     assertEquals(args.count(_ == "--allowedTools"), 1, args)
@@ -176,7 +181,7 @@ class ClaudeArgsTest extends munit.FunSuite:
     // Reviewers/triage use ReadOnly and must stay network-free.
     val args = streamJson(
       AgentConfig(tools = ToolSet.ReadOnly),
-      networkTools = Seq("WebFetch")
+      networkTools = Some(Seq("WebFetch"))
     )
     assert(args.containsSlice(Seq("--tools", "Read,Grep,Glob,Skill")), args)
     assert(!args.contains("WebFetch"), args)

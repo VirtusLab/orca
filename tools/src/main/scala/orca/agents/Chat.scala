@@ -31,12 +31,7 @@ final class Chat[B <: BackendTag] private[orca] (
       prompt: String,
       emitPrompt: Boolean = true
   )(using InStage): String =
-    agent.autonomous.runWithSession(
-      prompt,
-      id,
-      sessionKey = None,
-      emitPrompt = emitPrompt
-    )
+    agent.runText(prompt, id, sessionKey = None, emitPrompt = emitPrompt)
 
   /** Fix the output type for structured turns continuing this conversation —
     * both `autonomous` and `interactive` modes, mirroring `agent.resultAs[O]`.

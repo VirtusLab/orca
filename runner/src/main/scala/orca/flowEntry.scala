@@ -79,9 +79,8 @@ import scala.util.control.NonFatal
   * Agent overrides are `AgentWiring => Ox ?=> Agent` factories, not prebuilt
   * agents — see [[orca.runner.FlowWiring]] for the shared shape. Start from a
   * per-backend factory and tune it, `claude = Some(w =>
-  * ClaudeAgents.default(w).opus)`, or wrap a prebuilt agent `claude = Some(_ =>
-  * myAgent)`. Select a non-default opencode launcher through the factory
-  * itself: `opencode = Some(w => OpencodeAgents.default(w,
+  * ClaudeAgents.default(w).opus)`. Select a non-default opencode launcher
+  * through the factory itself: `opencode = Some(w => OpencodeAgents.default(w,
   * OpencodeLauncher.ollama("qwen3-coder")))`.
   *
   * '''Role agents (ADR 0020).''' A run has three role agents —
@@ -97,7 +96,7 @@ import scala.util.control.NonFatal
   * here?".
   *
   * The three overrides are the programmatic top of that precedence — selector-
-  * shaped (`Some(_.claude.opus)`) so a `copyTool`-derived sibling stays
+  * shaped (`Some(_.claude.opus)`) so a builder-derived sibling stays
   * expressible, and the seam tests use in place of a global file. Each must
   * resolve to one of the wired agents or a sibling — anything sharing their
   * backend. An override returning an agent built from a SEPARATE

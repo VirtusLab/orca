@@ -129,14 +129,11 @@ private[opencode] object OpencodeServer:
               forever(requests.receive().send(Right(client)))
           finally process.destroyForciblyTree()
 
-    // Pipe stderr (don't inherit): a failed launch (e.g. `ollama launch`
-    // reporting a missing model) writes the reason there, for the error below.
     private def spawn(password: String): PipedCliProcess =
       cli.spawnPiped(
         OpencodeArgs.serve(launcher),
         env = Map("OPENCODE_SERVER_PASSWORD" -> password),
-        cwd = workDir,
-        pipeStderr = true
+        cwd = workDir
       )
 
     /** Waits for the server to bind and returns a client for it, keeping its

@@ -2,24 +2,7 @@ package orca.runner
 
 import orca.ReportedFailure
 import orca.{ConfigHome, FlowContext, OrcaDir, OrcaFlowException, StackSettings}
-import orca.agents.{
-  SessionKey,
-  Agent,
-  AgentCall,
-  AgentConfig,
-  AgentInput,
-  Announce,
-  AutonomousAgentCall,
-  AutonomousTextCall,
-  BackendTag,
-  CodexAgent,
-  GeminiAgent,
-  InteractiveAgentCall,
-  JsonData,
-  Model,
-  SessionId,
-  ToolSet
-}
+import orca.agents.{Agent, BackendTag, CodexAgent, GeminiAgent, Model}
 import orca.events.OrcaListener
 import orca.settings.SettingsFile
 import orca.testkit.{GitRepo, TempDirs, currentBranch}
@@ -35,10 +18,11 @@ class RoleSettingsFlowTest extends munit.FunSuite:
   test("no settings anywhere: every role resolves to the wired claude"):
     val workDir = GitRepo.seeded()
     var roles: Option[(Agent[?], Agent[?], Agent[?])] = None
+    val claude = StubAgent.claude
     driveFlow(
       workDir,
       stackSettings = Some(StackSettings.empty),
-      wiring = wiringWith(claude = StubAgent.claude)
+      wiring = wiringWith(claude = claude)
     ):
       roles = Some(
         (
@@ -48,28 +32,35 @@ class RoleSettingsFlowTest extends munit.FunSuite:
         )
       )
     val (planning, coding, review) = roles.getOrElse(fail("body never ran"))
-    assert(planning.eq(StubAgent.claude), "planning must be the wired claude")
-    assert(coding.eq(StubAgent.claude), "coding must be the wired claude")
-    assert(review.eq(StubAgent.claude), "review must be the wired claude")
+    assert(
+      planning.sharesBackendWith(claude),
+      "planning must be the wired claude"
+    )
+    assert(coding.sharesBackendWith(claude), "coding must be the wired claude")
+    assert(review.sharesBackendWith(claude), "review must be the wired claude")
 
   test(
     "project file codingAgent = codex: coding is codex, planning stays claude"
   ):
     val workDir = GitRepo.seeded()
     writeProject(workDir, "codingAgent = codex\n")
-    val codex = new StubCodex
+    val claude = StubAgent.claude
+    val codex = StubAgent.codex
     var coding: Option[Agent[?]] = None
     var planning: Option[Agent[?]] = None
     driveFlow(
       workDir,
       stackSettings = Some(StackSettings.empty),
-      wiring = wiringWith(claude = StubAgent.claude, codex = codex)
+      wiring = wiringWith(claude = claude, codex = codex)
     ):
       coding = Some(summon[FlowContext].codingAgent)
       planning = Some(summon[FlowContext].planningAgent)
-    assert(coding.exists(_.eq(codex)), "coding must be the wired codex")
     assert(
-      planning.exists(_.eq(StubAgent.claude)),
+      coding.exists(_.sharesBackendWith(codex)),
+      "coding must be the wired codex"
+    )
+    assert(
+      planning.exists(_.sharesBackendWith(claude)),
       "an unset role stays the wired claude"
     )
 
@@ -77,8 +68,8 @@ class RoleSettingsFlowTest extends munit.FunSuite:
     val workDir = GitRepo.seeded()
     writeProject(workDir, "reviewAgent = gemini\n")
     val globalHome = writeGlobal("reviewAgent = codex\n")
-    val gemini = new StubGemini
-    val codex = new StubCodex
+    val gemini = StubAgent.of(BackendTag.Gemini)
+    val codex = StubAgent.codex
     var review: Option[Agent[?]] = None
     driveFlow(
       workDir,
@@ -88,13 +79,16 @@ class RoleSettingsFlowTest extends munit.FunSuite:
         wiringWith(claude = StubAgent.claude, codex = codex, gemini = gemini)
     ):
       review = Some(summon[FlowContext].reviewAgent)
-    assert(review.exists(_.eq(gemini)), "the project file must win over global")
+    assert(
+      review.exists(_.sharesBackendWith(gemini)),
+      "the project file must win over global"
+    )
 
   test("a programmatic codingAgent override beats a project file naming codex"):
     val workDir = GitRepo.seeded()
     writeProject(workDir, "codingAgent = codex\n")
-    val gemini = new StubGemini
-    val codex = new StubCodex
+    val gemini = StubAgent.of(BackendTag.Gemini)
+    val codex = StubAgent.codex
     var coding: Option[Agent[?]] = None
     driveFlow(
       workDir,
@@ -105,7 +99,7 @@ class RoleSettingsFlowTest extends munit.FunSuite:
     ):
       coding = Some(summon[FlowContext].codingAgent)
     assert(
-      coding.exists(_.eq(gemini)),
+      coding.exists(_.sharesBackendWith(gemini)),
       "the override must beat the project file"
     )
 
@@ -129,7 +123,7 @@ class RoleSettingsFlowTest extends munit.FunSuite:
   test("agent keys are honoured under a stack override"):
     val workDir = GitRepo.seeded()
     writeProject(workDir, "codingAgent = codex\n")
-    val codex = new StubCodex
+    val codex = StubAgent.codex
     val override_ = StackSettings(format = List("echo fmt"))
     var coding: Option[Agent[?]] = None
     var seenStack: Option[StackSettings] = None
@@ -140,7 +134,10 @@ class RoleSettingsFlowTest extends munit.FunSuite:
     ):
       coding = Some(summon[FlowContext].codingAgent)
       seenStack = Some(summon[FlowContext].stackSettings)
-    assert(coding.exists(_.eq(codex)), "codex must still be selected")
+    assert(
+      coding.exists(_.sharesBackendWith(codex)),
+      "codex must still be selected"
+    )
     assertEquals(seenStack, Some(override_), "the stack override still governs")
 
   test(
@@ -148,7 +145,7 @@ class RoleSettingsFlowTest extends munit.FunSuite:
   ):
     val workDir = GitRepo.seeded()
     writeProject(workDir, "codingAgent = codex\n")
-    val canned = new CannedDiscoveryCodex(
+    val canned = CannedDiscoveryAgent.on(BackendTag.Codex)(
       StackDiscoveryResult(
         format = DiscoveredTask(commands =
           List(DiscoveredCommand("echo fmt", "seed.txt"))
@@ -226,7 +223,7 @@ class RoleSettingsFlowTest extends munit.FunSuite:
       workDir,
       "codingAgent = codex\nformat = off\n"
     )
-    val codex = new StubCodex
+    val codex = StubAgent.codex
     var coding: Option[Agent[?]] = None
     driveFlow(
       workDir,
@@ -234,7 +231,7 @@ class RoleSettingsFlowTest extends munit.FunSuite:
     ):
       coding = Some(summon[FlowContext].codingAgent)
     assert(
-      coding.exists(_.eq(codex)),
+      coding.exists(_.sharesBackendWith(codex)),
       "coding is codex and discovery never ran"
     )
 
@@ -250,8 +247,8 @@ class RoleSettingsFlowTest extends munit.FunSuite:
       listeners = List(recordSteps(steps)),
       wiring = wiringWith(
         claude = StubAgent.claude,
-        codex = new StubCodex,
-        gemini = new StubGemini
+        codex = StubAgent.codex,
+        gemini = StubAgent.of(BackendTag.Gemini)
       )
     )(())
     val announcements = steps.get().filter(_.startsWith("agents:"))
@@ -273,7 +270,7 @@ class RoleSettingsFlowTest extends munit.FunSuite:
       workDir,
       stackSettings = Some(StackSettings.empty),
       listeners = List(recordSteps(steps)),
-      wiring = wiringWith(claude = StubAgent.claude, codex = new StubCodex)
+      wiring = wiringWith(claude = StubAgent.claude, codex = StubAgent.codex)
     )(())
     val announcements = steps.get().filter(_.startsWith("agents:"))
     assertEquals(
@@ -296,8 +293,10 @@ class RoleSettingsFlowTest extends munit.FunSuite:
       workDir,
       stackSettings = Some(StackSettings.empty),
       listeners = List(recordSteps(steps)),
-      wiring =
-        wiringWith(claude = new DefaultModelClaude, codex = new StubCodex)
+      wiring = wiringWith(
+        claude = StubAgent.claude.withModel(Model("claude-opus-5-5[1m]")),
+        codex = StubAgent.codex
+      )
     )(())
     val announcements = steps.get().filter(_.startsWith("agents:"))
     assertEquals(
@@ -436,8 +435,8 @@ class RoleSettingsFlowTest extends munit.FunSuite:
 
   private def wiringWith(
       claude: orca.agents.ClaudeAgent,
-      codex: CodexAgent = new StubCodex,
-      gemini: GeminiAgent = new StubGemini
+      codex: CodexAgent = StubAgent.codex,
+      gemini: GeminiAgent = StubAgent.of(BackendTag.Gemini)
   ): FlowWiring =
     FlowWiring(
       claude = Some(_ => claude),
@@ -494,60 +493,3 @@ class RoleSettingsFlowTest extends munit.FunSuite:
       startBranch,
       "the malformed-file abort must precede any branch mutation"
     )
-
-  /** A `ClaudeAgent` stub whose `configuredModel` mirrors the real wired
-    * default (claude's Opus1M pin), exercising the announcement's
-    * show-the-wired-default-model path end to end.
-    */
-  private class DefaultModelClaude extends StubClaudeAgent("claude"):
-    override private[orca] def configuredModel: Option[Model] =
-      Some(Model("claude-opus-5-5[1m]"))
-
-  /** A `CodexAgent` stub: every builder returns `this`, every call throws. */
-  private class StubCodex extends CodexAgent:
-    val name = "stub-codex"
-    def mini: CodexAgent = this
-    def withModel(model: Model): CodexAgent = this
-    def withConfig(config: AgentConfig): CodexAgent = this
-    def withSystemPrompt(prompt: String): CodexAgent = this
-    def withName(name: String): CodexAgent = this
-    def withTools(tools: ToolSet): CodexAgent = this
-    def autonomous: AutonomousTextCall[BackendTag.Codex.type] =
-      throw new UnsupportedOperationException
-    def resultAs[O: JsonData: Announce]: AgentCall[BackendTag.Codex.type, O] =
-      throw new UnsupportedOperationException
-
-  /** A `GeminiAgent` stub, sibling of [[StubCodex]]. */
-  private class StubGemini extends GeminiAgent:
-    val name = "stub-gemini"
-    def flash: GeminiAgent = this
-    def withModel(model: Model): GeminiAgent = this
-    def withConfig(config: AgentConfig): GeminiAgent = this
-    def withSystemPrompt(prompt: String): GeminiAgent = this
-    def withName(name: String): GeminiAgent = this
-    def withTools(tools: ToolSet): GeminiAgent = this
-    def autonomous: AutonomousTextCall[BackendTag.Gemini.type] =
-      throw new UnsupportedOperationException
-    def resultAs[O: JsonData: Announce]: AgentCall[BackendTag.Gemini.type, O] =
-      throw new UnsupportedOperationException
-
-  /** The codex discovery seam, mirroring [[CannedDiscoveryAgent]]:
-    * `resultAs[O].autonomous.run` returns the canned discovery result in the
-    * [[StackDiscoveryReply]] envelope; free-text calls throw.
-    */
-  private class CannedDiscoveryCodex(result: StackDiscoveryResult)
-      extends StubCodex:
-    override def resultAs[O: JsonData: Announce]
-        : AgentCall[BackendTag.Codex.type, O] =
-      new AgentCall[BackendTag.Codex.type, O]:
-        val autonomous: AutonomousAgentCall[BackendTag.Codex.type, O] =
-          new AutonomousAgentCall[BackendTag.Codex.type, O]:
-            private[orca] def runWithSession[I: AgentInput](
-                input: I,
-                session: SessionId[BackendTag.Codex.type],
-                sessionKey: Option[SessionKey],
-                emitPrompt: Boolean
-            )(using orca.InStage): O =
-              StackDiscoveryReply(result).asInstanceOf[O]
-        def interactive: InteractiveAgentCall[BackendTag.Codex.type, O] =
-          throw new UnsupportedOperationException

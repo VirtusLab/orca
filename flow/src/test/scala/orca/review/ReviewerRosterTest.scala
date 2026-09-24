@@ -17,7 +17,7 @@ class ReviewerRosterTest extends munit.FunSuite:
     // The agent is named differently so the assertions distinguish the two
     // sources; `buildReviewers` keeps the two names equal in production.
     val entry = new RosterEntry(
-      ReviewerAgent(definition, new FakeAgent("unused-agent-name")),
+      ReviewerAgent(definition, new FakeAgent("unused-agent-name").agent),
       ReviewerId(0)
     )
     assertEquals(entry.name.value, "scala-fp")
@@ -26,7 +26,7 @@ class ReviewerRosterTest extends munit.FunSuite:
 
   test("SelectedReviewers.pick filters the reviewer list by name"):
     val all =
-      allReviewers(new FakeAgent("base")).zipWithIndex.map((r, i) =>
+      allReviewers(new FakeAgent("base").agent).zipWithIndex.map((r, i) =>
         new RosterEntry(r, ReviewerId(i))
       )
     val picked =

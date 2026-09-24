@@ -30,21 +30,19 @@ trait AgentSet:
     * is one match to update. `WiredAgents.byTag` and `RoleAgents` both resolve
     * through it.
     */
-  private[orca] def agentFor(tag: BackendTag): Agent[?] = agentFor(tag, None)
+  private[orca] def agentFor(tag: BackendTag): Agent[?] = tag match
+    case BackendTag.ClaudeCode => claude
+    case BackendTag.Codex      => codex
+    case BackendTag.Opencode   => opencode
+    case BackendTag.Pi         => pi
+    case BackendTag.Gemini     => gemini
 
-  /** [[agentFor]] with an optional model pin (a settings `harness:model`
-    * value), applied through the backend's own `withModel` — opencode's takes
-    * the raw `provider/model` string, the rest a [[Model]].
+  /** [[agentFor]] with an optional model pin (a settings `harness:model` value)
+    * applied through `withModel`.
     */
   private[orca] def agentFor(
       tag: BackendTag,
       modelPin: Option[String]
-  ): Agent[?] = tag match
-    case BackendTag.ClaudeCode =>
-      modelPin.fold(claude)(m => claude.withModel(Model(m)))
-    case BackendTag.Codex =>
-      modelPin.fold(codex)(m => codex.withModel(Model(m)))
-    case BackendTag.Opencode => modelPin.fold(opencode)(opencode.withModel)
-    case BackendTag.Pi       => modelPin.fold(pi)(m => pi.withModel(Model(m)))
-    case BackendTag.Gemini =>
-      modelPin.fold(gemini)(m => gemini.withModel(Model(m)))
+  ): Agent[?] =
+    val agent = agentFor(tag)
+    modelPin.fold(agent)(m => agent.withModel(Model(m)))

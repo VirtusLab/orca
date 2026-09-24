@@ -1,13 +1,9 @@
 package orca.runner
 
-import orca.agents.{Agent, BackendTag, DefaultPrompts}
-import orca.backend.{
-  AgentResult,
-  AgentWiring,
-  Interaction,
-  ObservedConversation
-}
+import orca.agents.{Agent, DefaultPrompts}
+import orca.backend.AgentWiring
 import orca.events.{OrcaListener, Pricing}
+import orca.testkit.TestAgent
 import orca.testkit.Usages.usage
 import orca.tools.claude.ClaudeAgents
 import orca.tools.codex.CodexAgents
@@ -20,16 +16,9 @@ import orca.tools.gemini.GeminiAgents
   */
 class DefaultModelsPricedTest extends munit.FunSuite:
 
-  private val stubInteraction: Interaction = new Interaction:
-    val listeners: List[OrcaListener] = Nil
-    def drive[B <: BackendTag](
-        conversation: ObservedConversation[B]
-    ): AgentResult[B] =
-      throw new UnsupportedOperationException("test stub")
-
   private val wiring = AgentWiring(
     events = OrcaListener.noop,
-    interaction = stubInteraction,
+    interaction = TestAgent.UnusedInteraction,
     workDir = os.pwd,
     prompts = DefaultPrompts
   )
@@ -42,11 +31,11 @@ class DefaultModelsPricedTest extends munit.FunSuite:
       Pricing
         .resolve(
           Pricing.default,
-          agent.configuredModel,
+          agent.config.model,
           usage(input = 1_000L, output = 100L)
         )
         .isDefined,
-      s"$backend's default model ${agent.configuredModel} is unpriced"
+      s"$backend's default model ${agent.config.model} is unpriced"
     )
 
   test("the default claude agent pins a model the default price table knows"):
