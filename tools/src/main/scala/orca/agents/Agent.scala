@@ -80,7 +80,7 @@ final class Agent[B <: BackendTag] private (
     * only: nothing is persisted, so a crash/resume starts over. Needs only
     * `InStage`, so a chat can be minted and driven inside an `ox` fork.
     */
-  def chat(): Chat[B] = new Chat(this, SessionId.fresh[B])
+  def chat(): Chat[B] = new Chat(this, SessionId.fresh[B], ChatOrigin.Minted)
 
   /** Adopt an existing conversation id as an EPHEMERAL chat — how the library
     * continues a conversation it holds the id of (a durable session's
@@ -89,7 +89,7 @@ final class Agent[B <: BackendTag] private (
     * concurrent turns against the same backend conversation fail.
     */
   private[orca] def chat(continueFrom: SessionId[B]): Chat[B] =
-    new Chat(this, continueFrom)
+    new Chat(this, continueFrom, ChatOrigin.Adopted)
 
   /** Fix the output type of a structured call and obtain a gateway with both
     * `autonomous` and `interactive` modes. `O` needs a `JsonData[O]` — `derives

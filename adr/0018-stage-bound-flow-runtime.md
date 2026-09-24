@@ -953,6 +953,13 @@ list output and opencode's directory-scoping should be pinned when the probes la
 > prompt event (`emitPrompt = false`, as the fix turn does) carries the notice
 > without it appearing in the transcript.
 
+> **Amendment (2026-09-24, adopted chats need a held conversation).** A chat
+> adopting a conversation (such as `session.chat`) refuses a turn while
+> `dispatchFor` answers `Fresh`. Such a turn would open the conversation
+> unseeded, and the next durable turn — reading `Resume(ThisRun)` — would send
+> bare text, so the seed would never arrive. The chat cannot seed: a fork never
+> holds `FlowControl`. So the session must run on the flow thread first.
+
 > **Amendment (2026-09-21, a session the backend already holds).** The R22
 > probe also decides fresh-vs-resume for a session with NOTHING recorded, on a
 > `ClientClaimed` backend. `AgentBackend.sessions` answers one of three
