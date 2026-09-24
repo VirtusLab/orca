@@ -162,8 +162,8 @@ object Plan:
     * Runs `NetworkOnly`: reads plus read-only network, so the planner can fetch
     * an issue/PR and verify external claims. How strongly each backend blocks
     * edits varies — see the enforcement matrix in `AGENTS.md`. Reviewers and
-    * the post-planning `reviewed` turn use plain `withReadOnly` instead, with
-    * no network.
+    * the post-planning `reviewed` turn default to plain `withReadOnly` instead,
+    * with no network.
     */
   private def autonomousResult[O: JsonData: Announce, A](
       agent: Agent[?],
@@ -176,12 +176,13 @@ object Plan:
     // The planning turn runs on the restricted (NetworkOnly) sibling, but the
     // chat handed out is bound to the BASE agent, so a continuation regains the
     // caller's full capability — the restriction stays per-turn.
-    val planningChat = agent.withNetworkOnly.chat()
-    val raw = planningChat
+    val chat = agent.chat()
+    val raw = chat
+      .withAgent(_.withNetworkOnly)
       .resultAs[O]
       .autonomous
       .run(withInstructions(input, instructions))
-    Sessioned(agent.chat(planningChat.id), convert(raw))
+    Sessioned(chat, convert(raw))
 
   /** Interactive counterpart to [[autonomousResult]] — no per-turn restriction
     * (interactive planning runs with normal permissions, see [[interactive]]),
@@ -209,14 +210,16 @@ object Plan:
   extension (sp: Sessioned[Plan])
     /** Resume the planning conversation for a critical self-review, returning
       * the improved plan (brief included) paired with the (same) chat. The
-      * review turn runs read-only on the chat's agent — the one the planning
-      * call was given; the handed-back chat keeps the original binding.
+      * review turn runs on `variant` of the read-only chat agent — the one the
+      * planning call was given — e.g. `_.cheap` or `_.withName("plan-review")`;
+      * the handed-back chat keeps the original binding.
       */
     def reviewed(
-        instructions: String = PlanPrompts.Review
+        instructions: String = PlanPrompts.Review,
+        variant: Agent[?] => Agent[?] = identity
     )(using @unused ctx: FlowContext, ev: InStage): Sessioned[Plan] =
-      val improved = sp.chat.agent.withReadOnly
-        .chat(sp.chat.id)
+      val improved = sp.chat
+        .withAgent(agent => variant(agent.withReadOnly))
         .resultAs[Plan]
         .autonomous
         .run(s"$instructions\n\n${render(sp.value)}")

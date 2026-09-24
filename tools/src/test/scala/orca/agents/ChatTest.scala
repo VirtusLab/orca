@@ -5,9 +5,9 @@ import orca.backend.{AgentBackend, AgentResult, TurnRequest}
 
 /** The [[Chat]] handle contract: one conversation id threads through every
   * turn, `agent.run` mints a fresh one per call, and `agent.chat(continueFrom)`
-  * adopts the given id, only while the backend holds it. The underlying engine
-  * (retry, events, config precedence) is covered by `AgentTest` /
-  * `AgentCallTest`.
+  * adopts the given id, only while the backend holds it, and `withAgent` swaps
+  * the agent but keeps the id. The underlying engine (retry, events, config
+  * precedence) is covered by `AgentTest` / `AgentCallTest`.
   */
 class ChatTest extends munit.FunSuite:
 
@@ -47,15 +47,31 @@ class ChatTest extends munit.FunSuite:
       adopted.resultAs[Reply].interactive.run("continue")
     assertEquals(backend.seen, Nil)
 
+  test("a withAgent turn runs the variant on the same conversation"):
+    val backend = new RecordingSessionBackend
+    val chat = chatStubTool(backend).chat()
+    val _ = chat.run("open")
+    val _ = chat.withAgent(_.withReadOnly).run("continue")
+    val id = SessionId.value(chat.id)
+    assertEquals(backend.seen, List(id, id))
+    assertEquals(backend.tools.last, ToolSet.ReadOnly)
+
+  test("withAgent refuses an agent on another backend"):
+    val chat = chatStubTool(new RecordingSessionBackend).chat()
+    val _ = intercept[AgentOnOtherBackend]:
+      chat.withAgent(_ => chatStubTool(new RecordingSessionBackend))
+
   private case class Reply(text: String) derives JsonData
 
-  /** Records the session id of every `runAutonomous` call. */
+  /** Records the session id and tool tier of every `runAutonomous` call. */
   private class RecordingSessionBackend extends ScriptedBackend(BackendTag.Pi):
     var seen: List[String] = Nil
+    var tools: List[ToolSet] = Nil
     protected def reply(
         turn: TurnRequest[BackendTag.Pi.type]
     ): AgentResult[BackendTag.Pi.type] =
       seen = seen :+ SessionId.value(turn.session)
+      tools = tools :+ turn.config.tools
       ScriptedBackend.result("out")
 
   private def chatStubTool(
