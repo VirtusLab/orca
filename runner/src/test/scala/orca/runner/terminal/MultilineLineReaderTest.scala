@@ -15,16 +15,6 @@ import java.nio.charset.StandardCharsets
 
 class MultilineLineReaderTest extends munit.FunSuite:
 
-  // The terminal actually distinguishing Shift+Enter because of this flag is
-  // only pty-verifiable (a real terminal emulator has to interpret the CSI
-  // sequence it's sent). What's a pure seam is the byte-level contract
-  // withKittyKeyboardProtocol owns: the push is written and flushed before
-  // body runs, and the pop follows once body returns — even if it throws —
-  // restoring the terminal's flag stack on every exit path, per the rigor
-  // requirement (submit/Ctrl-C/EOF/exception all reduce to "body completes or
-  // throws" from this method's point of view). A DumbTerminal wrapping a
-  // captured ByteArrayOutputStream is enough to observe exactly the bytes
-  // written, without a real tty.
   private def readVia(
       read: (MultilineLineReader, String) => String
   ): (String, String) =
@@ -55,6 +45,16 @@ class MultilineLineReaderTest extends munit.FunSuite:
       written
     )
 
+  // The terminal actually distinguishing Shift+Enter because of this flag is
+  // only pty-verifiable (a real terminal emulator has to interpret the CSI
+  // sequence it's sent). What's a pure seam is the byte-level contract
+  // withKittyKeyboardProtocol owns: the push is written and flushed before
+  // body runs, and the pop follows once body returns — even if it throws —
+  // restoring the terminal's flag stack on every exit path, per the rigor
+  // requirement (submit/Ctrl-C/EOF/exception all reduce to "body completes or
+  // throws" from this method's point of view). A DumbTerminal wrapping a
+  // captured ByteArrayOutputStream is enough to observe exactly the bytes
+  // written, without a real tty.
   test(
     "withKittyKeyboardProtocol writes the push sequence before body runs, and the pop sequence after"
   ):
