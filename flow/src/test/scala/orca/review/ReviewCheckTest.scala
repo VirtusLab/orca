@@ -172,8 +172,37 @@ class ReviewCheckTest extends munit.FunSuite:
     assertEquals(
       result.findings.map(f => (f.id, f.reason)),
       List(
-        FindingId("R2.I1.1") -> OpenReason.StillFailing("lint"),
-        FindingId("R2.I2.1") -> OpenReason.StillFailing("bench")
+        FindingId("R2.I2.1") -> OpenReason.StillFailing(List("bench")),
+        FindingId("R2.I1.1") -> OpenReason.StillFailing(List("lint"))
       )
     )
     assert(check.exhausted, "the check must run in the round and twice after")
+
+  test("one defect still failing in lint and a check is one entry naming both"):
+    given FlowControl = ReviewLoopFixture.control(
+      new EventDispatcher(Nil),
+      lead = Some(new FakeAgent("picker").agent)
+    )
+    val broke = ReviewResult(List(finding("broke")))
+    val check = new ScriptedCheck("bench", List(broke, broke, broke))
+    val summariser =
+      new FakeAgent("lint", outputs = List(ReviewResult.empty, broke, broke))
+    val coder = new FakeAgent(
+      "coder",
+      outputs = List(
+        FixOutcome(List(Title("broke")), Nil),
+        FixOutcome(List(Title("broke")), Nil)
+      )
+    )
+    val result = reviewThenFix(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = Nil,
+      task = titled("t"),
+      formatCommands = Configured.Off,
+      lint = Configured.Use(Lint(List("false"), summariser.agent)),
+      checks = List(check)
+    )
+    assertEquals(
+      result.findings.map(_.reason),
+      List(OpenReason.StillFailing(List("bench", "lint")))
+    )

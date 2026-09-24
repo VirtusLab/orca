@@ -271,7 +271,7 @@ class ReviewThenFixTest extends munit.FunSuite:
         OpenFinding(
           FindingId("R2.I1.1"),
           Title("lint broke"),
-          OpenReason.StillFailing("lint"),
+          OpenReason.StillFailing(List("lint")),
           None
         )
       )
@@ -318,7 +318,7 @@ class ReviewThenFixTest extends munit.FunSuite:
         OpenFinding(
           FindingId("R1.I2.1"),
           Title("lint broke"),
-          OpenReason.StillFailing("lint"),
+          OpenReason.StillFailing(List("lint")),
           None
         )
       )
@@ -364,7 +364,7 @@ class ReviewThenFixTest extends munit.FunSuite:
         s"""Findings still open (1):
            |  - lint broke
            |    at src/main/Foo.scala:7
-           |    ${OpenReason.StillFailing("lint").describe}""".stripMargin
+           |    ${OpenReason.StillFailing(List("lint")).describe}""".stripMargin
       ),
       steps.messages.mkString("\n")
     )

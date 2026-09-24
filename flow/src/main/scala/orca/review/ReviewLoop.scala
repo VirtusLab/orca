@@ -988,7 +988,7 @@ private[review] class ReviewFixLoop(
     * commit and break the tree later tasks build on. A failure gets ONE fix
     * turn scoped to what failed and one last run of every source, since a fix
     * for one can break another; what still fails is returned — under a warning
-    * Step — as open findings recording which source still reports each
+    * Step — as open findings recording which sources still report each
     * ([[OpenReason.StillFailing]]) and where each points. Reviewer findings
     * stay single-pass.
     *
@@ -1026,7 +1026,13 @@ private[review] class ReviewFixLoop(
               " — the stage commits with these findings open"
           )
         )
-        stillFailing.map((source, f) => f.open(OpenReason.StillFailing(source)))
+        // Findings of one defect from two sources share an id; the record
+        // keeps one entry for it, naming both.
+        val sourcesOf = stillFailing.groupMap(_._2.id)(_._1)
+        stillFailing
+          .map(_._2)
+          .distinctBy(_.id)
+          .map(f => f.open(OpenReason.StillFailing(sourcesOf(f.id).distinct)))
 
   /** Run the checks, then the lint gate — the order of a round — over the tree
     * as it is now. `lintChat` is a lint conversation safe to resume, if any;
@@ -1045,6 +1051,6 @@ private[review] class ReviewFixLoop(
         val linted = KeyedFinding.forAgent(0, report.result.findings)
         ctx.emit(OrcaEvent.Step(formatReviewerOutcome(lintName, linted)))
         Recheck(
-          SourceFindings(lintName, linted) :: checked,
+          checked :+ SourceFindings(lintName, linted),
           report.resumableSummariser
         )
