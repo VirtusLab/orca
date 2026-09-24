@@ -40,8 +40,8 @@ reference, or just run `orca` / `orca help`.
 ## Three ways to work with Orca
 
 **Interactively**: install the CLI, run `orca`, pick a flow (`implement.sc`
-comes first in the list) and enter your task. Non-interactively, use `orca run
-<flow> "<task>"`. See [Orca Shell](#orca-shell) for installation and the full
+comes first in the list) and enter your prompt. Non-interactively, use `orca run
+<flow> "<prompt>"`. See [Orca Shell](#orca-shell) for installation and the full
 command-line reference.
 
 > [!WARNING] **Orca is designed to work in a sandboxed environment!** Coding
@@ -71,7 +71,7 @@ roles comes from `settings.properties` — written for you by the shell's
 first-run wizard or `orca config`, hand-editable too; see [Settings](#settings).
 
 Agents can load [`skills/orca`](skills/orca/SKILL.md) to know when
-and how to delegate here; in Claude Code, `/orca [task]` asks which flow to run
+and how to delegate here; in Claude Code, `/orca [prompt]` asks which flow to run
 and where, then starts it — installable as a Claude Code plugin, a Pi package, or
 by symlinking into any harness's skills directory; see [its
 README](skills/orca/README.md) for specifics.
@@ -85,7 +85,7 @@ scala-cli run --workspace "$(mktemp -d)" implement.sc -- "add a rate limiter to 
 
 ## An example flow
 
-Save this as `implement.sc` and run it with your task:
+Save this as `implement.sc` and run it with your prompt:
 
 ```scala
 //> using scala 3.9.0
@@ -354,13 +354,13 @@ outside a stage — it records a session, not a side effect. Where to
 
 ### The flow lifecycle
 
-Two words this section leans on: a **run** is one task's flow execution, across
+Two words this section leans on: a **run** is one prompt's flow execution, across
 however many processes it takes to finish it; an **attempt** is one of those
 processes — one `orca run`, or one `flow(...)` call. An interrupted run is
-resumed by attempting it again with the same task.
+resumed by attempting it again with the same prompt.
 
 Each run is bound to exactly one feature branch and one progress log
-(`.orca/runs/<key>.progress.json`, where `<key>` is derived from the task):
+(`.orca/runs/<key>.progress.json`, where `<key>` is derived from the prompt):
 
 - **Start:** stash a dirty working tree with a warning (recover with `git stash
   pop`); create + checkout the feature branch; write and commit the progress log
@@ -387,9 +387,9 @@ Each run is bound to exactly one feature branch and one progress log
   `--worktree` (`RunTarget.Worktree`) runs the whole flow in
   `.orca/worktrees/<hash>` of this repository — a second checkout, keyed on the
   same prompt hash as the progress log, created on the first run and reused by
-  every later one for that task. It isolates the run: two tasks can run at once
-  without sharing a checkout or a branch. Uncommitted work does NOT come along —
-  a worktree is made from a commit — so `--worktree` is refused with
+  every later one for that prompt. It isolates the run: two runs never share a
+  checkout or a branch. Uncommitted work does NOT come along — a worktree is
+  made from a commit — so `--worktree` is refused with
   `--skip-branch` and with `--keep-changes`: `RunTarget.Worktree` carries
   neither a branch mode nor an `Uncommitted`, so the pair is refused while argv
   is parsed and has no representation after that. The first run in a worktree
@@ -398,7 +398,7 @@ Each run is bound to exactly one feature branch and one progress log
   `.gitignore` will see the second checkout, and orca never removes it. The run
   starts on an `orca-worktree-<hash>` branch orca also never deletes, so full
   cleanup is `git worktree remove .orca/worktrees/<hash>` **and** `git branch -d
-  orca-worktree-<hash>`; a re-run of the task refuses rather than moving that
+  orca-worktree-<hash>`; a re-run of the prompt refuses rather than moving that
   branch if it has gained commits since.
 - **Resume:** a re-run with the same prompt finds the progress log and resumes
   from the first incomplete stage (a `--branch` naming a different branch than
@@ -463,9 +463,9 @@ is also an error.
 **Stack commands.** Keys `format`, `lint`, and `test`. Each value is one shell
 command, run via `bash -c` in the flow's working directory; everything after the
 first `=` is command text (`lint = FOO=bar cargo check` works). Repeating a key
-appends — the task's commands run in file order, so a multi-stack repo lists one
+appends: its commands run in file order, so a multi-stack repo lists one
 line per stack half. A key's value may also be the literal `off`, which
-explicitly disables that task; a missing key has the same runtime effect (the
+explicitly disables that gate; a missing key has the same runtime effect (the
 gate is skipped) but, unlike `off`, does not count as "configured" — see
 Auto-discovery below. `#` lines are comments; commenting out a line is the same
 as deleting it. A typical discovered project file:
@@ -1097,7 +1097,7 @@ results.
   what entries merge by across rounds; two findings sharing a title stay two.
   `skipped` is `Some(SkippedReview)` when the review never ran.
 - **`orca.StackSettings(format, lint, test)`** — the resolved per-project
-  tooling commands (each field a `List[String]`, run via `bash -c`; empty = task
+  tooling commands (each field a `List[String]`, run via `bash -c`; empty = gate
   disabled). Resolved once per run — see [Settings](#settings) — and read back
   via `summon[FlowContext].stackSettings`; pass `flow(stackSettings =
   Some(...))` to pin it.
@@ -1165,7 +1165,7 @@ Orca is published to Maven Central — `scala-cli` fetches the artifacts on firs
 run:
 
 ```bash
-scala-cli run --workspace "$(mktemp -d)" implement.sc -- "your task here"
+scala-cli run --workspace "$(mktemp -d)" implement.sc -- "your prompt here"
 ```
 
 `--workspace` keeps scala-cli's build output out of your repository; without it
@@ -1183,7 +1183,7 @@ described under [Settings](#settings) — then a menu lets you discover flows
 (project, global, and built-in), run one, view or edit its source, create a new
 flow (or fork an existing one) with the configured role agents' help, or
 continue a session left by a previous run. It launches flows the same way
-`scala-cli run` does — direct `scala-cli run flow.sc -- "task"` keeps working
+`scala-cli run` does — direct `scala-cli run flow.sc -- "prompt"` keeps working
 unchanged.
 
 ### Command-line usage
@@ -1194,7 +1194,7 @@ action non-interactively and exits.
 
 | Command | Key flags | Does |
 |---|---|---|
-| `orca run <flow> [task]` | `--prompt <task>` (the task, for text starting with `-`; not with the positional), `--verbose` (stack trace on abort), `--branch <name>` (create the run's branch under this name; refused with `--skip-branch`), `--skip-branch`, `--keep-changes` (leave uncommitted files in place), `--worktree` (run in a git worktree of this repository), `--honor-pin` (use the flow's own pinned orca version) | run a flow, propagating its exit code; task is read from stdin when omitted and piped |
+| `orca run <flow> [prompt]` | `--prompt <prompt>` (the prompt, for text starting with `-`; not with the positional), `--verbose` (stack trace on abort), `--branch <name>` (create the run's branch under this name; refused with `--skip-branch`), `--skip-branch`, `--keep-changes` (leave uncommitted files in place), `--worktree` (run in a git worktree of this repository), `--honor-pin` (use the flow's own pinned orca version) | run a flow, propagating its exit code; the prompt is read from stdin when omitted and piped |
 | `orca view <flow>` | `--plain`, `--color` | print a flow's source (highlighted when stdout is a terminal) |
 | `orca edit <flow>` | `--to project\|global` | open a flow in `$VISUAL`/`$EDITOR`/vi (`--to` required to customize a built-in) |
 | `orca create "<goal>"` | `--name <file>`, `--global` | author a new flow: the built-in `simple.sc` flow writes it in an isolated sandbox with the configured role agents; `--name` is auto-derived when omitted. The sandbox is a fresh repository with no remote, so the flow's closing PR step opens nothing and says so |

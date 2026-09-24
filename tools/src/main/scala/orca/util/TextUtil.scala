@@ -27,7 +27,7 @@ private[orca] object TextUtil:
     *
     * Used for text read back from a progress-log header — committed,
     * hand-editable content, so a stray escape byte would otherwise corrupt the
-    * menu row or error message it lands in — and to keep a long task from
+    * menu row or error message it lands in — and to keep a long prompt from
     * burying the text around it.
     */
   def onelinePreview(text: String, maxLen: Int): String =

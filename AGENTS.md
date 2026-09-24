@@ -462,6 +462,9 @@ prose:
 A **plan task** (`orca.plan.Task`) is a flow-author concept and names none of
 these files. Never call a process a run.
 
+The user's input text is the **prompt**, and a stack command (`format`, `lint`,
+`test`) is a **gate**; "task" names only a plan task.
+
 ### Backend vocabulary
 
 Words for talking to a coding agent, from the outside in:

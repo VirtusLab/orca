@@ -285,7 +285,7 @@ object FlowLifecycle:
         if args.target.keepChanges then
           emit(
             OrcaEvent.Step(
-              "ignoring --keep-changes: this task already has a progress " +
+              "ignoring --keep-changes: this run already has a progress " +
                 "log, so the tree is stashed clean — an interrupted stage's " +
                 "partial work must not leak into the stages that re-run"
             )
@@ -987,7 +987,7 @@ object FlowLifecycle:
         emit(
           OrcaEvent.Step(
             s"recovering from the failure — discarding $discarding; re-run " +
-              "the same command (the same flow with the same task text) to " +
+              "the same command (the same flow with the same prompt) to " +
               "resume from the last completed stage"
           )
         )

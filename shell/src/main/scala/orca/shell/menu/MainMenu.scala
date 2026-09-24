@@ -66,18 +66,18 @@ private[menu] object MainMenu:
       Choice(MenuItem.Exit, "Exit")
     )
 
-  /** `"Resume interrupted run — <flow>: <first ~40 chars of task> on
+  /** `"Resume interrupted run — <flow>: <first ~40 chars of prompt> on
     * <branch>"`, plus ` (in <dir>)` when the log is in another directory. The
-    * task and branch come from a committed header, and the task is often
+    * prompt and branch come from a committed header, and the prompt is often
     * multi-line ([[RunMenu.runFlow]] reads multi-line), so both reach the menu
     * row through [[TextUtil.onelinePreview]].
     */
   private def resumeLabel(run: InterruptedRun, workDir: os.Path): String =
-    val task = TextUtil.onelinePreview(run.userPrompt, 40)
+    val prompt = TextUtil.onelinePreview(run.userPrompt, 40)
     val branch = TextUtil.onelinePreview(run.branch.value, 60)
     // The log can be in one of orca's worktrees, and the run resumes THERE —
     // an offer that read like any other would send the user's work to a
     // directory they were never shown.
     val where = if run.dir == workDir then "" else s" (in ${run.dir.last})"
     // Unclipped: a recorded path is run as is, so the user must see all of it.
-    s"Resume interrupted run — ${run.flow.display}: $task on $branch$where"
+    s"Resume interrupted run — ${run.flow.display}: $prompt on $branch$where"

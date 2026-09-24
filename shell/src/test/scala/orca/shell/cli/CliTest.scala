@@ -50,10 +50,10 @@ class CliTest extends munit.FunSuite:
     summon[TokensReader.Simple[Tier]]
 
   test(
-    "run: flow + task positional and both flags parse (fails later, at flow resolution)"
+    "run: flow + prompt positional and both flags parse (fails later, at flow resolution)"
   ):
     assertEquals(
-      invoke("run", "no-such-flow.sc", "a task", "--verbose", "--honor-pin"),
+      invoke("run", "no-such-flow.sc", "a prompt", "--verbose", "--honor-pin"),
       Right(1)
     )
 
@@ -64,7 +64,7 @@ class CliTest extends munit.FunSuite:
       invoke(
         "run",
         "no-such-flow.sc",
-        "a task",
+        "a prompt",
         "--verbose",
         "--skip-branch",
         "--honor-pin"
@@ -76,7 +76,7 @@ class CliTest extends munit.FunSuite:
     "run: --keep-changes parses too (fails later, at flow resolution)"
   ):
     assertEquals(
-      invoke("run", "no-such-flow.sc", "a task", "--keep-changes"),
+      invoke("run", "no-such-flow.sc", "a prompt", "--keep-changes"),
       Right(1)
     )
 
@@ -84,7 +84,7 @@ class CliTest extends munit.FunSuite:
     "run: --worktree parses too (fails later, at flow resolution)"
   ):
     assertEquals(
-      invoke("run", "no-such-flow.sc", "a task", "--worktree"),
+      invoke("run", "no-such-flow.sc", "a prompt", "--worktree"),
       Right(1)
     )
 
@@ -98,7 +98,7 @@ class CliTest extends munit.FunSuite:
         invoke(
           "run",
           "no-such-flow.sc",
-          "a task",
+          "a prompt",
           "--worktree",
           "--skip-branch"
         ),
@@ -113,7 +113,7 @@ class CliTest extends munit.FunSuite:
         invoke(
           "run",
           "no-such-flow.sc",
-          "a task",
+          "a prompt",
           "--worktree",
           "--keep-changes"
         ),
@@ -132,7 +132,7 @@ class CliTest extends munit.FunSuite:
         invoke(
           "run",
           "no-such-flow.sc",
-          "a task",
+          "a prompt",
           "--branch",
           "feature-x",
           "--skip-branch"
@@ -145,7 +145,7 @@ class CliTest extends munit.FunSuite:
   test("run: an invalid --branch value is refused before the flow is resolved"):
     val (_, err) = capturedBoth(
       assertEquals(
-        invoke("run", "no-such-flow.sc", "a task", "--branch", "a..b"),
+        invoke("run", "no-such-flow.sc", "a prompt", "--branch", "a..b"),
         Right(ExitCodes.UsageError)
       )
     )
@@ -159,10 +159,10 @@ class CliTest extends munit.FunSuite:
       Right(1)
     )
 
-  test("run: a task given both positionally and with --prompt is refused"):
+  test("run: a prompt given both positionally and with --prompt is refused"):
     val (_, err) = capturedBoth(
       assertEquals(
-        invoke("run", "no-such-flow.sc", "a task", "--prompt", "another"),
+        invoke("run", "no-such-flow.sc", "a prompt", "--prompt", "another"),
         Right(ExitCodes.UsageError)
       )
     )
@@ -415,42 +415,40 @@ class CliTest extends munit.FunSuite:
       Left("`orca create` needs a terminal; run it interactively")
     )
 
-  // --- readTask (injected tty + stdin reader; never touches real stdin/console) ---
+  // --- readPrompt (injected tty + stdin reader; never touches real stdin/console) ---
 
-  test("readTask: a non-blank positional task wins outright"):
+  test("readPrompt: a non-blank positional prompt wins outright"):
     assertEquals(
-      RunCli.readTask(Some("do it"), tty = false, () => "unused"),
+      RunCli.readPrompt(Some("do it"), tty = false, () => "unused"),
       Right("do it")
     )
 
-  test("readTask: a blank positional task is rejected"):
+  test("readPrompt: a blank positional prompt is rejected"):
     assertEquals(
-      RunCli.readTask(Some("   "), tty = true, () => "unused"),
-      Left("task text can't be empty")
+      RunCli.readPrompt(Some("   "), tty = true, () => "unused"),
+      Left("prompt can't be empty")
     )
 
-  test("readTask: omitted + tty is a usage error, and never calls readStdin"):
+  test("readPrompt: omitted + tty is a usage error, and never calls readStdin"):
     var called = false
-    val result = RunCli.readTask(None, tty = true, () => { called = true; "x" })
+    val result =
+      RunCli.readPrompt(None, tty = true, () => { called = true; "x" })
     assert(result.isLeft)
     assert(!called, "must not read stdin when it's a terminal")
 
-  test("readTask: omitted + piped stdin reads and trims it"):
+  test("readPrompt: omitted + piped stdin reads and trims it"):
     assertEquals(
-      RunCli.readTask(None, tty = false, () => "  piped task\n"),
-      Right("piped task")
+      RunCli.readPrompt(None, tty = false, () => "  piped prompt\n"),
+      Right("piped prompt")
     )
 
-  test("readTask: omitted + empty piped stdin is a usage error"):
-    assert(RunCli.readTask(None, tty = false, () => "   \n").isLeft)
-
   test(
-    "readTask: omitted + empty piped stdin names the next action, like the tty message does"
+    "readPrompt: omitted + empty piped stdin names the next action, like the tty message does"
   ):
     assertEquals(
-      RunCli.readTask(None, tty = false, () => "   \n"),
+      RunCli.readPrompt(None, tty = false, () => "   \n"),
       Left(
-        "no task given, and stdin was empty — pass the task as an " +
+        "no prompt given, and stdin was empty — pass the prompt as an " +
           "argument (--prompt=<text> if it starts with '-'), or pipe " +
           "non-empty input"
       )

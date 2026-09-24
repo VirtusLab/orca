@@ -26,7 +26,7 @@ private[orca] enum SettingsError:
         SettingKey.values.map(_.raw).sorted.mkString(", ")
     case CommentedValue(line, key) =>
       s"line $line: the value of `$key` starts with `#` — under `bash -c` " +
-        "that runs nothing and exits 0, silently disabling the task; " +
+        "that runs nothing and exits 0, silently disabling the gate; " +
         "comment out the whole line instead"
     case DuplicateKey(line, key) =>
       s"line $line: `$key` appears twice — agent keys are single-valued"
@@ -226,7 +226,7 @@ private[orca] object SettingsFile:
               .mkString("", "\n", "\n") + commandLine
           case None => commandLine
       case SettingsEntry.Unset(key, reason) =>
-        // A live `off` line, not a comment: an unset task must still count as
+        // A live `off` line, not a comment: an unset gate must still count as
         // "configured" so discovery doesn't re-run over the same absence
         // every time. The reason is purely informative, one `#` line above.
         s"# ${collapseWhitespace(reason)}\n${key.raw} = ${StackValue.OffLiteral}"

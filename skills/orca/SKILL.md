@@ -1,7 +1,7 @@
 ---
 name: orca
 description: Use when the user asks to run an Orca flow (e.g. "use orca to implement …"), or when delegating a well-defined implementation task to Orca's autonomous multi-agent flow — a headless plan-code-review CLI to hand a coding task to instead of implementing it yourself.
-argument-hint: "[task]"
+argument-hint: "[prompt]"
 ---
 
 # Orca
@@ -62,17 +62,18 @@ them — or "Run without them". To commit:
 
 Don't pre-create a branch or worktree: the flow creates its own.
 
-## 2. Get the task
+## 2. Get the prompt
 
-Task given with the invocation (may be empty):
+Prompt given with the invocation (may be empty):
 
 $ARGUMENTS
 
-If empty, use the task from the conversation. If there is none, ask for it in
-plain text, phrased after the chosen flow's description (e.g. an issue
-reference, a PR or branch to review, or a prompt describing the change).
+If empty, write one from the task discussed in the conversation. If there is
+none, ask for it in plain text, phrased after the chosen flow's description
+(e.g. an issue reference, a PR or branch to review, or a description of the
+change).
 
-Orca's agents don't see this conversation: write the task so it stands on its
+Orca's agents don't see this conversation: write the prompt so it stands on its
 own — goal, acceptance criteria, relevant files, and the path of any spec.
 
 ## 3. Run
@@ -87,13 +88,13 @@ Capture the output in a temporary file, so the user can follow it
    ```
 
 2. Start the run with Bash `run_in_background: true`, using the literal path
-   from step 1 and the flags chosen above. The task goes on stdin, so quotes
+   from step 1 and the flags chosen above. The prompt goes on stdin, so quotes
    and `$` in it need no escaping:
 
    ```bash
-   orca run <flow> <flags> > <path> 2>&1 <<'ORCA_TASK'
-   <task>
-   ORCA_TASK
+   orca run <flow> <flags> > <path> 2>&1 <<'ORCA_PROMPT'
+   <prompt>
+   ORCA_PROMPT
    echo "orca exit code: $?" >> <path>
    ```
 

@@ -89,7 +89,7 @@ class MainMenuTest extends munit.FunSuite:
     assert(!choices.exists(_.value == MenuItem.ResumeRun))
 
   test(
-    "choices(resumeOffer = Some(...)) inserts ResumeRun right after RunFlow, labeled with flow, task, and branch"
+    "choices(resumeOffer = Some(...)) inserts ResumeRun right after RunFlow, labeled with flow, prompt, and branch"
   ):
     val run = InterruptedRun(
       flow = FlowSource.Catalog("implement.sc"),
@@ -153,7 +153,7 @@ class MainMenuTest extends munit.FunSuite:
     assert(!label.exists(_.isControl), label)
 
   test(
-    "choices(resumeOffer = Some(...)) label flattens a multi-line task"
+    "choices(resumeOffer = Some(...)) label flattens a multi-line prompt"
   ):
     val run = InterruptedRun(
       flow = FlowSource.Catalog("fix.sc"),

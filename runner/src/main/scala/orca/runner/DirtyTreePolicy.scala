@@ -47,7 +47,7 @@ private[runner] object DirtyTreePolicy:
     * only in that one case: the probe spawns a subprocess, and it is worth
     * nothing in the settled cases, where an off-tty run must also reach the
     * stash default without reading stdin. Both are injected (as in
-    * `RunCli.readTask`) so tests decide without a terminal.
+    * `RunCli.readPrompt`) so tests decide without a terminal.
     */
   def decide(
       facts: DirtyTreeFacts,

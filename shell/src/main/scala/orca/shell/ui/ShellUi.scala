@@ -52,8 +52,8 @@ trait ShellUi:
   def confirm(question: String, default: Boolean): UiOutcome[Boolean]
   def input(prompt: String, default: Option[String] = None): UiOutcome[String]
 
-  /** Multi-line free-text input, for prompts whose answer is often more than
-    * one line (currently just the flow task text): prints `$prompt:` on its own
+  /** Multi-line free-text input, for questions whose answer is often more than
+    * one line (currently only the run's prompt): prints `$prompt:` on its own
     * line, then reads the answer. On [[ConsoleUiShell]] (a real tty) this is a
     * normal single-line-feeling input — Enter submits, and a multi-line paste
     * lands intact in one go (bracketed paste), with Alt+Enter available to
