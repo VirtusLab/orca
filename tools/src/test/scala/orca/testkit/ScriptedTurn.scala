@@ -1,7 +1,7 @@
 package orca.testkit
 
 import orca.OrcaInteractiveCancelled
-import orca.agents.{BackendTag, StructuredOutputMode}
+import orca.agents.BackendTag
 import orca.backend.{AgentResult, LiveTurn, TurnEvent}
 
 import java.util.concurrent.atomic.AtomicInteger
@@ -13,9 +13,7 @@ import java.util.concurrent.atomic.AtomicInteger
 class ScriptedTurn[B <: BackendTag](
     scripted: List[TurnEvent],
     outcome: Either[Throwable, AgentResult[B]],
-    val outputSchema: Option[String] = None,
-    override val structuredOutputMode: StructuredOutputMode =
-      StructuredOutputMode.RawText
+    val outputSchema: Option[String] = None
 ) extends LiveTurn[B]:
   /** How many events a consumer pulled. */
   val drained = new AtomicInteger(0)

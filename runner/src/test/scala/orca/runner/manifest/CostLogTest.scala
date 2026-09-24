@@ -48,7 +48,7 @@ class CostLogTest extends munit.FunSuite:
     writer.onEvent(
       OrcaEvent
         .SessionCommitted(
-          harness = BackendTag.ClaudeCode,
+          backend = BackendTag.ClaudeCode,
           clientId = "client-1",
           wireId = Some("wire-1"),
           sessionKey = None,
@@ -66,7 +66,7 @@ class CostLogTest extends munit.FunSuite:
     writer.onEvent(
       OrcaEvent
         .SessionCommitted(
-          harness = BackendTag.ClaudeCode,
+          backend = BackendTag.ClaudeCode,
           clientId = "client-1",
           wireId = Some("wire-1"),
           sessionKey = None,
@@ -82,7 +82,7 @@ class CostLogTest extends munit.FunSuite:
           usage(107_000, 500, None, apiCalls = Some(3L)),
           None,
           turn = 1,
-          session = Some("wire-1")
+          conversationKey = Some("wire-1")
         ),
         cost = None
       )
@@ -98,14 +98,14 @@ class CostLogTest extends munit.FunSuite:
           usage(0, 0, None),
           Some("reviewer"),
           turn = 2,
-          session = None
+          conversationKey = None
         ),
         cost = None
       )
     )
     assertEquals(
       turns(workDir).map(t =>
-        (t.agent, t.role, t.stage, t.turn, t.session, t.apiCalls)
+        (t.agent, t.role, t.stage, t.turn, t.conversationKey, t.apiCalls)
       ),
       List(
         ("claude", None, Some("code"), 1, Some("wire-1"), Some(3L)),
@@ -136,7 +136,7 @@ class CostLogTest extends munit.FunSuite:
           ),
           role = None,
           turn = 1,
-          session = None
+          conversationKey = None
         ),
         cost = Some(resolved)
       )
@@ -165,7 +165,7 @@ class CostLogTest extends munit.FunSuite:
           usage = usage(10, 1, None),
           role = None,
           turn = 1,
-          session = None
+          conversationKey = None
         ),
         cost = Some(Cost(BigDecimal("0.5"), estimated))
       )
@@ -192,7 +192,7 @@ class CostLogTest extends munit.FunSuite:
           usage = usage(10, 1, None),
           role = None,
           turn = 1,
-          session = None
+          conversationKey = None
         ),
         cost = None
       )
@@ -205,7 +205,7 @@ class CostLogTest extends munit.FunSuite:
           usage = usage(10, 1, None),
           role = None,
           turn = 1,
-          session = None
+          conversationKey = None
         ),
         cost = None
       )
@@ -230,7 +230,7 @@ class CostLogTest extends munit.FunSuite:
           usage = usage(120_000, 900, None, cacheRead = 107_000),
           role = None,
           turn = 1,
-          session = None
+          conversationKey = None
         ),
         cost = Some(Cost(BigDecimal("0.0846"), estimated))
       )
@@ -243,7 +243,7 @@ class CostLogTest extends munit.FunSuite:
           usage = usage(5_000, 100, Some(BigDecimal("0.0123"))),
           role = Some("reviewer"),
           turn = 1,
-          session = None
+          conversationKey = None
         ),
         cost = Some(Cost(BigDecimal("0.0123"), CostBasis.Reported))
       )

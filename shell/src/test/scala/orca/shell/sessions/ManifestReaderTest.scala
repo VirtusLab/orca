@@ -15,7 +15,7 @@ class ManifestReaderTest extends munit.FunSuite:
 
   /** One recorded session, so the manifest is one the listing offers. */
   private val oneSession =
-    """{"harness": "ClaudeCode", "wireId": "w", "agent": "claude", "role": null,
+    """{"backend": "ClaudeCode", "wireId": "w", "agent": "claude", "role": null,
       |"stage": null, "lastActiveAt": "2026-07-18T10:00:00Z"}""".stripMargin
 
   /** The file name of the manifest of the attempt `startedAt` and `pid` spell.
@@ -224,7 +224,7 @@ class ManifestReaderTest extends munit.FunSuite:
     )
 
   test(
-    "list skips a manifest with an unrecognised harness, warning by filename"
+    "list skips a manifest with an unrecognised backend, warning by filename"
   ):
     val workDir = TempDirs.dir()
     writeManifest(
@@ -261,7 +261,7 @@ class ManifestReaderTest extends munit.FunSuite:
       workDir,
       startedAt = "2026-07-18T10:00:00Z",
       sessions =
-        """{"harness": "ClaudeCode", "wireId": "w", "agent": "claude", "role": null,
+        """{"backend": "ClaudeCode", "wireId": "w", "agent": "claude", "role": null,
           |"stage": null, "minted": {"name": "coder"},
           |"lastActiveAt": "2026-07-18T10:00:00Z"}""".stripMargin
     )

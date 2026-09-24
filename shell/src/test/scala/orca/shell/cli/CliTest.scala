@@ -858,7 +858,7 @@ class CliTest extends munit.FunSuite:
     assertEquals(
       SessionIndex.of(attemptsFixture()).resolve(Some(ref)),
       Left(
-        s"session $ref isn't resumable — ClaudeCode session has no resumable id"
+        s"session $ref isn't resumable — claude session has no resumable id"
       )
     )
 
@@ -913,7 +913,7 @@ class CliTest extends munit.FunSuite:
     assertEquals(
       SessionIndex.of(attemptsFixture()).resolve(Some("unresumable")),
       Left(
-        "session 'unresumable' isn't resumable — ClaudeCode session has no resumable id"
+        "session 'unresumable' isn't resumable — claude session has no resumable id"
       )
     )
 
@@ -971,7 +971,7 @@ class CliTest extends munit.FunSuite:
       SessionIndex.of(attempts).resolve(Some("feature/broken")),
       Left(
         "the newest session on branch 'feature/broken' isn't resumable — " +
-          "ClaudeCode session has no resumable id"
+          "claude session has no resumable id"
       )
     )
 

@@ -57,7 +57,7 @@ def openPrFromBranch(
   // retries it. A recorded `Refused` is one [[openPrIfGitHub]] wrote.
   val push = tracedStage(PushStage):
     git.push().orThrow
-    PushAttempt.Pushed
+    PushResult.Pushed
   push.value.outcome.fold(reason => fail(refusalLine(reason, push)), identity)
   val summary = summarise(
     summarisingAgent,

@@ -162,7 +162,7 @@ private[runner] class AttemptManifestWriterState(
       case AttemptOutcome.Failed    => AttemptStatus.Failed
 
 /** A tracked session plus its conversation key (wireId-or-clientId); with
-  * `session.harness` that is the event's dedup key
+  * `session.backend` that is the event's dedup key
   * (`OrcaEvent.SessionCommitted`). Kept here because the manifest never carries
   * the raw `clientId`.
   */
@@ -191,7 +191,7 @@ private case class ManifestState(
 
   def exited: ManifestState = copy(stageStack = stageStack.drop(1))
 
-  /** Upsert by `(harness, conversationKey)`: the same session re-firing
+  /** Upsert by `(backend, conversationKey)`: the same session re-firing
     * `SessionCommitted` on a later turn (retries, resumed durable calls)
     * updates `stage`/`lastActiveAt` in place (last-write-wins). The minted key
     * is kept once seen, because a chat turn continuing the same durable session
@@ -204,13 +204,13 @@ private case class ManifestState(
     val conversationKey =
       OrcaEvent.conversationKey(event.clientId, event.wireId)
     val idx = entries.indexWhere(e =>
-      e.session.harness == event.harness && e.conversationKey == conversationKey
+      e.session.backend == event.backend && e.conversationKey == conversationKey
     )
     val existing = entries.lift(idx)
     val entry = SessionEntry(
       conversationKey,
       ManifestSession(
-        harness = event.harness,
+        backend = event.backend,
         wireId = event.wireId,
         agent = event.agent,
         role = event.role,

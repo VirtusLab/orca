@@ -1,13 +1,7 @@
 package orca.tools.pi
 
 import orca.events.{TurnDebit, Usage}
-import orca.agents.{
-  BackendTag,
-  Model,
-  SessionId,
-  StructuredOutputMode,
-  WireSessionId
-}
+import orca.agents.{BackendTag, Model, SessionId, WireSessionId}
 import orca.backend.{
   AgentResult,
   AskUserChannel,
@@ -267,7 +261,6 @@ private[pi] object PiTurn:
       DecodedTurnSpec(
         openingPrompt = openingPrompt,
         outputSchema = outputSchema,
-        structuredOutputMode = StructuredOutputMode.RawText,
         askUser = askUser
       ),
       PiDecoder(clientSession, stdin)

@@ -1,6 +1,6 @@
 package orca.backend
 
-import orca.agents.{BackendTag, StructuredOutputMode}
+import orca.agents.BackendTag
 import orca.{OrcaInteractiveCancelled}
 
 /** One turn in progress on a backend: its events as they arrive, its outcome,
@@ -24,17 +24,6 @@ trait LiveTurn[B <: BackendTag]:
     * favour of an `OrcaEvent.StructuredResult`) or genuine prose to flush.
     */
   def outputSchema: Option[String]
-
-  /** Turn-side view of [[AgentBackend.structuredOutputMode]], read only when
-    * [[outputSchema]] is defined.
-    *
-    * Defaults to `RawText`, the withholding shape: a `Tool` backend that
-    * forgets to declare loses its closing message's prose, whereas the reverse
-    * default would leak the JSON payload. A decorator must forward what it
-    * wraps: leaving the default there silently changes the wrapped backend's
-    * delivery.
-    */
-  def structuredOutputMode: StructuredOutputMode = StructuredOutputMode.RawText
 
   /** Events from the subprocess, in arrival order. Blocks on `next()` until a
     * line has been parsed or the turn ends; `hasNext` returns false once the

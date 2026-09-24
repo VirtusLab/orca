@@ -12,7 +12,7 @@ private[pr] val SummariseStage: String = "Generate PR title and description"
 private[pr] val CreateStage: String = "Open PR"
 
 /** What the push stage records. */
-private[pr] enum PushAttempt derives JsonData:
+private[pr] enum PushResult derives JsonData:
   case Pushed
   case Refused(reason: String)
 
@@ -22,7 +22,7 @@ private[pr] enum PushAttempt derives JsonData:
     case Refused(reason) => Left(reason)
 
 /** What the create stage records. */
-private[pr] enum CreateAttempt derives JsonData:
+private[pr] enum CreateResult derives JsonData:
   case Opened(pr: PrHandle)
   case Refused(reason: String)
 
@@ -33,7 +33,7 @@ private[pr] enum CreateAttempt derives JsonData:
 
 /** A refusal as the step reports it. A recorded refusal replays on every resume
   * and is never retried; the line says so, since the user otherwise reads it as
-  * this run's attempt.
+  * this attempt's refusal.
   */
 private[pr] def refusalLine(reason: String, from: Staged[?]): String =
   from match
@@ -74,6 +74,6 @@ private[pr] def summarise(
 private[pr] def recordOpened(pr: PrHandle)(using
     FlowControl,
     WorkspaceWrite
-): CreateAttempt =
+): CreateResult =
   recordOpenedPr(pr)
-  CreateAttempt.Opened(pr)
+  CreateResult.Opened(pr)

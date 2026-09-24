@@ -65,7 +65,7 @@ private[orca] class TurnAccounting[B <: BackendTag](
   def sessionCommitted(): Unit =
     events.onEvent(
       OrcaEvent.SessionCommitted(
-        harness = backend.tag,
+        backend = backend.tag,
         clientId = session.value,
         wireId = backend.sessions.persistableWireId(session).map(_.value),
         sessionKey = sessionKey,
@@ -86,7 +86,7 @@ private[orca] class TurnAccounting[B <: BackendTag](
         usage = usage,
         role = role,
         turn = turn,
-        session = Some(conversationKey)
+        conversationKey = Some(conversationKey)
       )
     )
 

@@ -1,7 +1,7 @@
 package orca.backend
 
 import orca.{OrcaFlowException, OrcaInteractiveCancelled}
-import orca.agents.{BackendTag, StructuredOutputMode, WireSessionId}
+import orca.agents.{BackendTag, WireSessionId}
 import orca.events.{OrcaEvent, OrcaListener, TurnDebit, Usage}
 import orca.testkit.ScriptedTurn
 
@@ -256,13 +256,11 @@ class ObservedTurnTest extends munit.FunSuite:
       )
     )
 
-  test(
-    "structured mode drops the final message's text (the JSON payload)"
-  ):
-    // In structured mode the agent's last assistant message IS the JSON
-    // payload that the caller will surface via OrcaEvent.StructuredResult.
-    // Emitting it here would double-render the result. Intermediate messages
-    // still flush so the user sees the agent's prose along the way.
+  test("a structured call withholds its closing message"):
+    // That message is the JSON payload, or a sign-off on a payload delivered
+    // through a tool; the caller surfaces the result via
+    // OrcaEvent.StructuredResult. Intermediate messages still flush so the
+    // user sees the agent's prose along the way.
     val recorder = new RecordingListener
     val live = new ScriptedTurn(
       List(
@@ -333,28 +331,6 @@ class ObservedTurnTest extends munit.FunSuite:
         ),
         OrcaEvent.ToolUse("Read", """{"file":"stats.py"}""")
       )
-    )
-
-  test("a Tool-mode structured call withholds its closing prose message"):
-    // That message signs off on work the StructuredResult states in full. Both
-    // Tool-mode decoders suppress the schema-exit tool call itself, so nothing
-    // message-opening follows the sign-off to release it.
-    val recorder = new RecordingListener
-    val live = new ScriptedTurn(
-      List(
-        TurnEvent.AssistantTextDelta("Reading the file first."),
-        TurnEvent.AssistantMessageEnd,
-        TurnEvent.AssistantTextDelta("Reviewed it; no issues found."),
-        TurnEvent.AssistantMessageEnd
-      ),
-      Right(sampleResult),
-      outputSchema = Some("""{"type":"object"}"""),
-      structuredOutputMode = StructuredOutputMode.Tool
-    )
-    val _ = ObservedTurn(live, recorder).drain(_ => ())
-    assertEquals(
-      recorder.events,
-      List(OrcaEvent.AssistantMessage("Reading the file first."))
     )
 
   test("two back-to-back messages flush independently"):

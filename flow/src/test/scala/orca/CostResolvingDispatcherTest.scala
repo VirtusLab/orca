@@ -40,7 +40,7 @@ class CostResolvingDispatcherTest extends munit.FunSuite:
       usage(1_000_000L, 0L),
       role = Some("reviewer"),
       turn = 2,
-      session = Some("s1")
+      conversationKey = Some("s1")
     )
 
   // Resolving before the fan-out is what stops two listeners reporting

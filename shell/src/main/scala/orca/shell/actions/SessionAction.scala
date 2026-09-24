@@ -31,12 +31,12 @@ private[shell] object SessionAction:
   def resumeNotice(selection: SessionSelection): String =
     identityNotice(
       selection,
-      AgentSpec.harnessNameFor(selection.session.harness)
+      AgentSpec.harnessNameFor(selection.session.backend)
     )
 
   /** The notice [[resumeNotice]] prints — name, harness, stage, recorded
     * branch, crashed status, and `workDir`. `harnessName` is the settings-file
-    * harness name (`claude`, `codex`, …), not the manifest's wire name.
+    * harness name (`claude`, `codex`, …), not the manifest's `backend` tag.
     */
   def identityNotice(selection: SessionSelection, harnessName: String): String =
     val session = selection.session
