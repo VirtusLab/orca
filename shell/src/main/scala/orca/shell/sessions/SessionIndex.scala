@@ -166,7 +166,7 @@ private[shell] object SessionIndex:
         SessionRef(attempt.id, i + 1),
         attempt.manifest,
         session,
-        attempt.crashed
+        attempt.observedStatus
       )
     val byLineage = all.groupBy(LineageKey.of)
     val lineages = byLineage.collect:

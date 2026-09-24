@@ -1,14 +1,15 @@
 package orca.shell.sessions
 
 import orca.{AttemptId, OrcaDir, OrcaFlowException}
+import orca.runner.manifest.AttemptManifest
 import orca.testkit.TempDirs
 
 import java.time.Instant
 
 class ManifestReaderTest extends munit.FunSuite:
 
-  private val alwaysDead: Long => Boolean = _ => false
-  private val alwaysAlive: Long => Boolean = _ => true
+  private val alwaysDead: AttemptManifest => Boolean = _ => false
+  private val alwaysAlive: AttemptManifest => Boolean = _ => true
 
   private def attemptsDir(workDir: os.Path): os.Path =
     workDir / ".orca" / "cache" / "attempts"
@@ -190,9 +191,9 @@ class ManifestReaderTest extends munit.FunSuite:
     val AttemptListing(attempts, warnings) =
       ManifestReader.list(workDir, Nil, alwaysDead)
     assertEquals(warnings, Nil)
-    assertEquals(attempts.map(_.crashed), List(true))
+    assertEquals(attempts.map(_.observedStatus), List(ObservedStatus.Crashed))
 
-  test("a running manifest with a live pid is included and not marked crashed"):
+  test("a running manifest with a live pid is included and running"):
     val workDir = TempDirs.dir()
     writeManifest(
       workDir,
@@ -203,7 +204,7 @@ class ManifestReaderTest extends munit.FunSuite:
     val AttemptListing(attempts, warnings) =
       ManifestReader.list(workDir, Nil, alwaysAlive)
     assertEquals(warnings, Nil)
-    assertEquals(attempts.map(_.crashed), List(false))
+    assertEquals(attempts.map(_.observedStatus), List(ObservedStatus.Running))
 
   test(
     "list skips a manifest with an unrecognised outcome, warning by filename"
@@ -241,7 +242,7 @@ class ManifestReaderTest extends munit.FunSuite:
       warnings.head
     )
 
-  test("a finished manifest is never marked crashed, even with a dead pid"):
+  test("a succeeded manifest with a dead pid is not crashed"):
     val workDir = TempDirs.dir()
     writeManifest(
       workDir,
@@ -251,7 +252,7 @@ class ManifestReaderTest extends munit.FunSuite:
     )
     val AttemptListing(attempts, _) =
       ManifestReader.list(workDir, Nil, alwaysDead)
-    assertEquals(attempts.map(_.crashed), List(false))
+    assertEquals(attempts.map(_.observedStatus), List(ObservedStatus.Succeeded))
 
   test(
     "list skips a manifest whose minted key has no stage, warning by filename"
@@ -383,3 +384,19 @@ class ManifestReaderTest extends munit.FunSuite:
     assertEquals(attempts.size, 1)
     assertEquals(warnings.size, 1)
     assert(warnings.head.contains("symlink"), warnings.head)
+
+  test("processAlive: this process, for an attempt it started, is alive"):
+    val attempt = ManifestFixtures.manifest(
+      pid = ProcessHandle.current().pid(),
+      startedAt = Instant.now().toString,
+      sessions = Nil
+    )
+    assert(ManifestReader.processAlive(attempt))
+
+  test("processAlive: a live process started after the attempt reused its pid"):
+    val attempt = ManifestFixtures.manifest(
+      pid = ProcessHandle.current().pid(),
+      startedAt = Instant.EPOCH.toString,
+      sessions = Nil
+    )
+    assert(!ManifestReader.processAlive(attempt))

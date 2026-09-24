@@ -309,7 +309,7 @@ private[cli] class CliCommands(using env: ShellEnv):
       list.value,
       json.value,
       isTty,
-      ManifestReader.pidAlive
+      ManifestReader.processAlive
     )
 
   @main(doc =

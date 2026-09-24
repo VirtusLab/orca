@@ -30,8 +30,7 @@ class SessionPickerTest extends munit.FunSuite:
             lastActiveAt = "2026-07-16T09:01:00Z"
           )
         )
-      ),
-      crashed = false
+      )
     )
     val attempt2 = ManifestFixtures.recorded(
       manifest(
@@ -54,8 +53,7 @@ class SessionPickerTest extends munit.FunSuite:
             lastActiveAt = "2026-07-17T09:21:00Z"
           )
         )
-      ),
-      crashed = false
+      )
     )
     val attempt3 = ManifestFixtures.recorded(
       manifest(
@@ -72,8 +70,7 @@ class SessionPickerTest extends munit.FunSuite:
             lastActiveAt = "2026-07-18T09:40:00Z"
           )
         )
-      ),
-      crashed = false
+      )
     )
     List(
       attempt3,
@@ -163,8 +160,7 @@ class SessionPickerTest extends munit.FunSuite:
         sessions = List(
           durable(stage = Some("Plan"), lastActiveAt = "2026-07-17T09:05:00Z")
         )
-      ),
-      crashed = false
+      )
     )
     val attempt2 = ManifestFixtures.recorded(
       manifest(
@@ -172,8 +168,7 @@ class SessionPickerTest extends munit.FunSuite:
         sessions = List(
           durable(stage = Some("Task"), lastActiveAt = "2026-07-18T09:05:00Z")
         )
-      ),
-      crashed = false
+      )
     )
     val rows =
       SessionPicker.sessionRows(
@@ -200,8 +195,7 @@ class SessionPickerTest extends munit.FunSuite:
             stage = Some("Task: add auth")
           )
         )
-      ),
-      crashed = false
+      )
     )
     assertEquals(
       SessionPicker
@@ -216,8 +210,7 @@ class SessionPickerTest extends munit.FunSuite:
     "sessionRows omits the earlier-occurrences expander when there's only one occurrence"
   ):
     val run = ManifestFixtures.recorded(
-      manifest(sessions = List(durable())),
-      crashed = false
+      manifest(sessions = List(durable()))
     )
     assertEquals(
       SessionPicker
@@ -228,8 +221,7 @@ class SessionPickerTest extends munit.FunSuite:
 
   test("sessionRows singularises a count of 1 in the expander label"):
     val run = ManifestFixtures.recorded(
-      manifest(sessions = List(durable(), ephemeral())),
-      crashed = false
+      manifest(sessions = List(durable(), ephemeral()))
     )
     assertEquals(
       SessionPicker
@@ -262,8 +254,7 @@ class SessionPickerTest extends munit.FunSuite:
             lastActiveAt = "2026-07-18T09:05:00Z"
           )
         )
-      ),
-      crashed = false
+      )
     )
     assertEquals(
       SessionPicker
@@ -292,8 +283,7 @@ class SessionPickerTest extends munit.FunSuite:
             lastActiveAt = "2026-07-18T09:05:00Z"
           )
         )
-      ),
-      crashed = false
+      )
     )
     val rows =
       SessionPicker.sessionRows(SessionIndex.of(List(run)), expanded = false)
@@ -311,8 +301,7 @@ class SessionPickerTest extends munit.FunSuite:
       "feat-b" -> "2026-07-18T09:00:00Z"
     ).map: (b, at) =>
       ManifestFixtures.recorded(
-        manifest(branch = Some(b), sessions = List(durable(lastActiveAt = at))),
-        crashed = false
+        manifest(branch = Some(b), sessions = List(durable(lastActiveAt = at)))
       )
     assertEquals(
       SessionPicker
@@ -331,8 +320,7 @@ class SessionPickerTest extends munit.FunSuite:
           manifest(
             branch = Some("feat-a"),
             sessions = List(durable(lastActiveAt = at))
-          ),
-          crashed = false
+          )
         )
     assertEquals(
       SessionPicker
@@ -361,8 +349,7 @@ class SessionPickerTest extends munit.FunSuite:
           startedAt = startedAt,
           branch = Some("feat-a"),
           sessions = sessions
-        ),
-        crashed = false
+        )
       )
     assertEquals(
       SessionPicker
@@ -379,7 +366,7 @@ class SessionPickerTest extends munit.FunSuite:
     val run =
       ManifestFixtures.recorded(
         manifest(sessions = List(durable()), branch = Some("feat-a")),
-        crashed = true
+        observedStatus = ObservedStatus.Crashed
       )
     assertEquals(
       SessionPicker
@@ -390,10 +377,7 @@ class SessionPickerTest extends munit.FunSuite:
 
   test("sessionRows disables a wireId-less session, naming its harness"):
     val run = ManifestFixtures.recorded(
-      manifest(sessions =
-        List(durable(backend = BackendTag.Pi, wireId = None))
-      ),
-      crashed = false
+      manifest(sessions = List(durable(backend = BackendTag.Pi, wireId = None)))
     )
     assertEquals(
       SessionPicker
@@ -405,8 +389,7 @@ class SessionPickerTest extends munit.FunSuite:
   test("sessionRows enables a claude session with a wireId"):
     val run =
       ManifestFixtures.recorded(
-        manifest(sessions = List(durable())),
-        crashed = false
+        manifest(sessions = List(durable()))
       )
     assertEquals(
       SessionPicker

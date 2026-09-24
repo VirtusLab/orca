@@ -49,7 +49,7 @@ private[shell] object ShellMenu:
       ManifestReader.list(
         scanDirs.own,
         scanDirs.worktrees,
-        ManifestReader.pidAlive
+        ManifestReader.processAlive
       )
     warnings.foreach(ShellOutput.info)
     val continueSessionCount =

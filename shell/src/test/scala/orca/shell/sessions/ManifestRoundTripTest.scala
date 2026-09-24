@@ -48,10 +48,10 @@ class ManifestRoundTripTest extends munit.FunSuite:
       writer.finish(AttemptOutcome.Succeeded)
 
     val AttemptListing(attempts, warnings) =
-      ManifestReader.list(workDir, Nil, pidAlive = _ => true)
+      ManifestReader.list(workDir, Nil, processAlive = _ => true)
     assertEquals(warnings, Nil)
     assertEquals(attempts.size, 1)
-    assertEquals(attempts.head.crashed, false)
+    assertEquals(attempts.head.observedStatus, ObservedStatus.Succeeded)
     val session = attempts.head.manifest.sessions.head
     assertEquals(session.backend, BackendTag.ClaudeCode)
     assertEquals(session.wireId, Some("wire-1"))

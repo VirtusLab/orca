@@ -1,5 +1,6 @@
 package orca.shell.cli
 
+import orca.runner.manifest.AttemptManifest
 import orca.shell.ScanDirs
 import orca.shell.actions.SessionAction
 import orca.shell.sessions.{
@@ -17,10 +18,10 @@ import Cli.{actionFailure, complete, requireTty, usageFailure, withTerminal}
   */
 private[cli] object ContinueCli:
 
-  /** `continue`'s full behavior over explicit `dirs`/`tty`/`pidAlive` (test
+  /** `continue`'s full behavior over explicit `dirs`/`tty`/`processAlive` (test
     * seam) — tests seed each directory with `.orca/cache/attempts/` manifests,
-    * simulate a terminal or a pipe via `tty`, and fake pid liveness via
-    * `pidAlive`. The directories arrive resolved
+    * simulate a terminal or a pipe via `tty`, and fake process liveness via
+    * `processAlive`. The directories arrive resolved
     * ([[orca.shell.WorktreeScan.dirs]], at the real entry point), so nothing
     * here spawns git.
     */
@@ -30,10 +31,10 @@ private[cli] object ContinueCli:
       list: Boolean,
       json: Boolean,
       tty: Boolean,
-      pidAlive: Long => Boolean
+      processAlive: AttemptManifest => Boolean
   ): Int =
     val AttemptListing(attempts, warnings) =
-      ManifestReader.list(dirs.own, dirs.worktrees, pidAlive)
+      ManifestReader.list(dirs.own, dirs.worktrees, processAlive)
     warnings.foreach(Cli.diagnostic)
     val index = SessionIndex.of(attempts)
     if list then

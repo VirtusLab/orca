@@ -12,7 +12,12 @@ import orca.StagePath
 import orca.runner.manifest.SessionKind
 import orca.shell.flows.DiscoveredFlow
 import orca.settings.AgentSpec
-import orca.shell.sessions.{ResumeCommand, SessionIndex, SessionNaming}
+import orca.shell.sessions.{
+  ObservedStatus,
+  ResumeCommand,
+  SessionIndex,
+  SessionNaming
+}
 
 /** The CLI's table/JSON rendering (ADR 0021 §10) — the row shapes `list` and
   * `continue --list` emit, their jsoniter codecs, and the shared space-padded
@@ -50,7 +55,7 @@ private[cli] object Tables:
       lastActiveAt: String,
       resumable: Boolean,
       reason: Option[String],
-      crashed: Boolean
+      observedStatus: ObservedStatus
   )
   // `withTransientEmpty`/`withTransientNone` false: `--json` output is for
   // scripts, which should see an always-present `reason` key (null when
@@ -76,7 +81,7 @@ private[cli] object Tables:
         lastActiveAt = session.lastActiveAt.toString,
         resumable = gate.isRight,
         reason = gate.left.toOption,
-        crashed = selection.crashed
+        observedStatus = selection.observedStatus
       )
 
   private[cli] def printSessionListing(
@@ -94,7 +99,7 @@ private[cli] object Tables:
           if r.resumable then ""
           else s"  not resumable: ${r.reason.getOrElse("")}"
         val sessionName =
-          r.sessionName + (if r.crashed then " (crashed)" else "") +
+          r.sessionName + SessionNaming.statusSuffix(r.observedStatus) +
             tag(r.workDir, r.branch)
         (
           r.id,
