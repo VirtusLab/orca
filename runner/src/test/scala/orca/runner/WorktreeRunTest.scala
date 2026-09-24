@@ -119,20 +119,17 @@ class WorktreeRunTest extends munit.FunSuite:
 
   test("resolving is refused while a live process holds the worktree lock"):
     val repo = GitRepo.seeded()
-    val key = RunKey.of("task A")
-    val livePid = ProcessHandle.current().pid()
-    os.write(
-      OrcaDir.worktreeLockPath(repo, key),
-      livePid.toString,
-      createFolders = true
-    )
-    val thrown = intercept[OrcaFlowException](WorktreeRun.resolve(repo, key))
-    assertEquals(
-      thrown.getMessage,
-      s"a flow is already running for this task (pid $livePid) — " +
-        "wait for it to finish, or stop it"
-    )
-    assert(!os.exists(OrcaDir.worktreesPath(repo)), "nothing was created")
+    val holder = LockHolder.acquire(LockHolder.Lock.Worktree(repo, "task A"))
+    try
+      val thrown = intercept[OrcaFlowException]:
+        WorktreeRun.resolve(repo, RunKey.of("task A"))
+      assertEquals(
+        thrown.getMessage,
+        s"a flow is already running for this task (pid " +
+          s"${holder.wrapped.pid()}) — wait for it to finish, or stop it"
+      )
+      assert(!os.exists(OrcaDir.worktreesPath(repo)), "nothing was created")
+    finally LockHolder.kill(holder)
 
   test("reuse puts a detached worktree back on its branch"):
     val repo = GitRepo.seeded()

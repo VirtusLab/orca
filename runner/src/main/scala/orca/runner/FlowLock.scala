@@ -3,10 +3,11 @@ package orca.runner
 import orca.{OrcaDir, OrcaFlowException, RunKey}
 import ox.discard
 
-import java.nio.file.{FileAlreadyExistsException, NoSuchFileException}
+import java.nio.ByteBuffer
+import java.nio.channels.FileChannel
+import java.nio.charset.StandardCharsets.UTF_8
+import java.nio.file.{LinkOption, StandardOpenOption}
 import java.util.concurrent.atomic.AtomicBoolean
-import scala.annotation.tailrec
-import scala.util.control.NonFatal
 
 /** Reentrancy/concurrency guards for `flow(...)`, since a nested or concurrent
   * flow would corrupt the outer flow's git tree (ADR 0018 §6). Three layers,
@@ -22,8 +23,9 @@ import scala.util.control.NonFatal
   *     whole run, taken before `FlowLifecycle.setup` mutates git: two processes
   *     never run in one working tree.
   *
-  * The two lock files hold the holder's PID; on contention a live PID
-  * hard-refuses, a dead one is stolen with a warning. Both live under the
+  * The two locks are OS file locks, which the OS releases when the holder
+  * exits, however it exits: a lock left by a dead process is free. The files
+  * hold the holder's PID, named in the refusal. Both live under the
   * self-ignoring `.orca/cache/`, so `git add -A` can never sweep them into a
   * commit: [[orca.OrcaDir.ensureCache]] writes the cache's `.gitignore` before
   * the lock file exists.
@@ -40,88 +42,70 @@ private[orca] object FlowLock:
     finally processFlowLock.set(false)
 
   /** Runs `op` holding the lock of the `--worktree` run keyed `key` in the
-    * repository whose main checkout is `mainCheckout`; throws when a live
+    * repository whose main checkout is `mainCheckout`; throws when another
     * process holds it.
     */
   def worktreeLocked[T](mainCheckout: os.Path, key: RunKey)(op: => T): T =
     OrcaDir.ensureCache(mainCheckout).discard
     locked(OrcaDir.worktreeLockPath(mainCheckout, key), "for this task")(op)
 
-  /** Runs `op` holding the lock of the run in `workDir`; throws when a live
+  /** Runs `op` holding the lock of the run in `workDir`; throws when another
     * process holds it.
     */
   def workdirLocked[T](workDir: os.Path)(op: => T): T =
     OrcaDir.ensureCache(workDir).discard
     locked(OrcaDir.flowLockPath(workDir), "in this working tree")(op)
 
-  private def locked[T](lockPath: os.Path, where: String)(op: => T): T =
-    acquire(lockPath, where)
-    try op
-    finally
-      try os.remove(lockPath): Unit
-      catch case NonFatal(_) => ()
-
-  /** Bound on [[acquire]]'s total `CREATE_NEW` attempts — pathological churn
-    * must end in a refusal, not a spin.
-    */
-  private val MaxLockAcquireAttempts = 4
-
-  /** Create the lock file at `lockPath`, holding this process's PID. Refuses
-    * when the holder PID is still alive; steals (after a stderr warning) when
-    * it isn't. `where` completes "a flow is already running …" in the refusal.
+  /** Runs `op` holding the OS lock on `lockPath`; throws when another process
+    * holds it. `where` completes "a flow is already running …" in the refusal.
     *
-    * The only atomic primitive is `os.write`'s `CREATE_NEW`, so everything
-    * funnels back through it: a stale lock is stolen by DELETING it and
-    * re-racing the create; a lock that vanishes between the failed create and
-    * the read (holder just released) retries the create. Bounded at
-    * [[MaxLockAcquireAttempts]]. Two stealers of one stale lock can both win:
-    * the slower one's delete removes the lock the faster one just created.
+    * The lock belongs to the whole JVM, and closing any channel on the file
+    * drops it (POSIX locks), so a JVM must have at most one channel open on a
+    * lock file. [[processGuarded]] ensures it: its one flow takes each lock
+    * once.
     */
-  private def acquire(lockPath: os.Path, where: String): Unit =
-    val pid = ProcessHandle.current().pid()
+  private def locked[T](lockPath: os.Path, where: String)(op: => T): T =
+    val channel = FileChannel.open(
+      lockPath.toNIO,
+      StandardOpenOption.CREATE,
+      StandardOpenOption.READ,
+      StandardOpenOption.WRITE,
+      LinkOption.NOFOLLOW_LINKS
+    )
+    // Closing the channel releases the lock. The file stays: deleting it would
+    // let a process that opened it just before the delete lock the unlinked
+    // file while another locks a fresh one.
+    try
+      if Option(channel.tryLock()).isDefined then
+        recordHolder(channel)
+        try op
+        finally channel.truncate(0).discard
+      else throw refusal(channel, where)
+    finally channel.close()
 
-    @tailrec def attempt(attemptsLeft: Int): Unit =
-      val acquired =
-        try
-          os.write(lockPath, pid.toString)
-          true
-        catch case _: FileAlreadyExistsException => false
-      if !acquired then
-        if attemptsLeft <= 1 then
-          throw new OrcaFlowException(
-            s"a flow is already running $where (the lock at " +
-              s"$lockPath could not be acquired) — retry, or delete the " +
-              "lock if no orca is running"
-          )
-        val holderContent =
-          try Some(os.read(lockPath).trim)
-          catch case _: NoSuchFileException => None
-        holderContent match
-          case None =>
-            // Holder released between our failed create and the read — re-race.
-            attempt(attemptsLeft - 1)
-          case Some(content) =>
-            val holderPid = content.toLongOption
-            // `isAlive`, not `isPresent`: the latter reports a zombie
-            // (terminated, unreaped) process as a holder. PID reuse can make a
-            // stale lock look held — that fails safe (refusal).
-            val holderAlive = holderPid.exists(p =>
-              ProcessHandle.of(p).map(_.isAlive).orElse(false)
-            )
-            if holderAlive then
-              throw new OrcaFlowException(
-                s"a flow is already running $where (pid ${holderPid.get}) — " +
-                  "wait for it to finish, or stop it"
-              )
-            else
-              System.err.println(
-                s"[orca] found a stale lock from PID ${holderPid.getOrElse("?")}, " +
-                  "which is no longer running — proceeding"
-              )
-              // Steal = delete + re-race, not `write.over`, which would let
-              // every concurrent stealer think it won.
-              try os.remove(lockPath): Unit
-              catch case NonFatal(_) => ()
-              attempt(attemptsLeft - 1)
+  /** Replaces the file's content with this process's PID, for the refusal a
+    * contender reads.
+    */
+  private def recordHolder(channel: FileChannel): Unit =
+    val pid = ProcessHandle.current().pid().toString.getBytes(UTF_8)
+    channel.truncate(0).discard
+    channel.write(ByteBuffer.wrap(pid), 0).discard
 
-    attempt(attemptsLeft = MaxLockAcquireAttempts)
+  private def refusal(channel: FileChannel, where: String): OrcaFlowException =
+    val holder = holderPid(channel).fold("")(pid => s" (pid $pid)")
+    new OrcaFlowException(
+      s"a flow is already running $where$holder — wait for it to finish, or " +
+        "stop it"
+    )
+
+  /** The PID in the lock file: the holder's, or — until the holder records
+    * itself — that of a killed earlier holder; absent when an earlier holder
+    * released the lock normally.
+    */
+  private def holderPid(channel: FileChannel): Option[Long] =
+    val buffer = ByteBuffer.allocate(MaxPidBytes)
+    channel.read(buffer, 0).discard
+    new String(buffer.array(), 0, buffer.position(), UTF_8).trim.toLongOption
+
+  /** Room for any `Long` PID in decimal. */
+  private val MaxPidBytes = 20
