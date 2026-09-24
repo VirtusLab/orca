@@ -3962,92 +3962,37 @@ class FlowLifecycleTest extends munit.FunSuite:
     assertEquals(branch, "main")
 
   test(
-    "reentrancy guards: a workdir lock held by a live PID refuses a new runFlow"
+    "reentrancy guards: a workdir lock held by a live process refuses a new runFlow"
   ):
     val workDir = GitRepo.seeded()
-    val livePid = ProcessHandle.current().pid()
-    os.write(
-      OrcaDir.flowLockPath(workDir),
-      livePid.toString,
-      createFolders = true
-    )
-    val thrown = intercept[orca.OrcaFlowException]:
-      supervised:
-        val interaction = TerminalInteraction.start(
-          out = new PrintStream(new ByteArrayOutputStream()),
-          useColor = false,
-          animated = false
-        )
-        runFlow(
-          FlowHarness.request(
-            args = OrcaArgs("live-pid"),
-            stackSettings = Some(StackSettings.empty),
-            wiring = FlowWiring(claude = Some(_ => StubAgent.claude)),
-            workDir = workDir,
-            interaction = Some(interaction),
-            extraListeners = Nil,
-            branchNaming = None
-          )
-        ):
-          ()
-    // `intercept[orca.OrcaFlowException]` above already pins the static type
-    // (unwrapped, not a `ReportedFailure`); nothing further to assert.
-    assertEquals(
-      thrown.getMessage,
-      s"a flow is already running in this working tree (pid $livePid) — " +
-        "wait for it to finish, or stop it"
-    )
-    // The refusal must not steal or clear a lock still held by a live PID.
-    assertEquals(
-      os.read(OrcaDir.flowLockPath(workDir)).trim,
-      livePid.toString
-    )
-
-  test(
-    "reentrancy guards: a stale dead-PID lock is stolen with a warning, and the flow proceeds"
-  ):
-    val workDir = GitRepo.seeded()
-    val dead = os.proc("true").spawn()
-    dead.join(): Unit
-    val deadPid = dead.wrapped.pid()
-    os.write(
-      OrcaDir.flowLockPath(workDir),
-      deadPid.toString,
-      createFolders = true
-    )
-    val originalErr = System.err
-    val captured = new ByteArrayOutputStream()
-    System.setErr(new PrintStream(captured))
+    val holder = LockHolder.acquire(LockHolder.Lock.Workdir(workDir))
     try
-      supervised:
-        val interaction = TerminalInteraction.start(
-          out = new PrintStream(new ByteArrayOutputStream()),
-          useColor = false,
-          animated = false
-        )
-        runFlow(
-          FlowHarness.request(
-            args = OrcaArgs("steal"),
-            stackSettings = Some(StackSettings.empty),
-            wiring = FlowWiring(claude = Some(_ => StubAgent.claude)),
-            workDir = workDir,
-            interaction = Some(interaction),
-            extraListeners = Nil,
-            branchNaming = None
+      val thrown = intercept[orca.OrcaFlowException]:
+        supervised:
+          val interaction = TerminalInteraction.start(
+            out = new PrintStream(new ByteArrayOutputStream()),
+            useColor = false,
+            animated = false
           )
-        ):
-          summon[FlowContext].emit(OrcaEvent.Step("ran"))
-    finally System.setErr(originalErr)
-    val warning = captured.toString
-    assert(
-      warning.contains("stale lock") && warning.contains(deadPid.toString),
-      s"expected a stale-lock warning mentioning pid $deadPid, got: $warning"
-    )
-    // The guard released cleanly after a successful run — no lock left behind.
-    assert(
-      !os.exists(OrcaDir.flowLockPath(workDir)),
-      "lock must be released after a successful run"
-    )
+          runFlow(
+            FlowHarness.request(
+              args = OrcaArgs("locked"),
+              stackSettings = Some(StackSettings.empty),
+              wiring = FlowWiring(claude = Some(_ => StubAgent.claude)),
+              workDir = workDir,
+              interaction = Some(interaction),
+              extraListeners = Nil,
+              branchNaming = None
+            )
+          ):
+            ()
+      // `intercept` pins the unwrapped type, not a `ReportedFailure`.
+      assertEquals(
+        thrown.getMessage,
+        s"a flow is already running in this working tree (pid " +
+          s"${holder.wrapped.pid()}) — wait for it to finish, or stop it"
+      )
+    finally LockHolder.kill(holder)
 
   test("reentrancy guards: the lock file is never swept into a stage commit"):
     // The stage runtime's commit is `git add -A` + a force-add of the progress
