@@ -1035,9 +1035,9 @@ private[review] class ReviewFixLoop(
           .map(f => f.open(OpenReason.StillFailing(sourcesOf(f.id).distinct)))
 
   /** Run the checks, then the lint gate, over the tree as it is now — both
-    * orders as in a round: checks run first, lint's findings come before theirs.
-    * `lintChat` is a lint conversation safe to resume, if any; the result
-    * carries the one this run hands back.
+    * orders as in a round: checks run first, lint's findings come before
+    * theirs. `lintChat` is a lint conversation safe to resume, if any; the
+    * result carries the one this run hands back.
     */
   private def recheck(lintChat: Option[Lint.Summariser]): Recheck =
     val checked = runChecks(firstAgentIndex = lintGate.size)
