@@ -369,9 +369,11 @@ with a test pinning the observed wire shape.
 ### Scala style
 
 - Braceless syntax; explicit return types on every public member.
-- No class-level `var`s outside an Ox actor's state; other mutable state
-  stays in method bodies, or in an `AtomicReference` over an immutable value
-  updated by a pure function (`CostTracker`, `DeniedToolTracker`).
+- No class-level `var`s outside an Ox actor's state. Mutable state whose
+  updates also write to the terminal or files lives in an actor; other
+  mutable state stays in method bodies, or in an `AtomicReference` over an
+  immutable value updated by a pure function (`CostTracker`,
+  `DeniedToolTracker`).
 - Opaque-type aliases for domain string labels (e.g. `Title`, `SessionId`).
 - Recoverable failures return `Either[E, T]` where `E <: OrcaFlowException`;
   system failures throw. Use Ox's `.orThrow` at the call site when the
