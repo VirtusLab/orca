@@ -48,12 +48,12 @@ private[orca] class LoggingListener extends OrcaListener:
       () // Priced by the dispatcher in front of this listener.
     case OrcaEvent.TokensUsed(t, cost) =>
       log.debug(
-        "tokens: agent={} role={} model={} turn={} session={} cost={} usage={}",
+        "tokens: agent={} role={} model={} turn={} conversationKey={} cost={} usage={}",
         t.agent,
         t.role.getOrElse("(none)"),
         t.model.map(_.name).getOrElse("(unknown)"),
         t.turn,
-        t.session.getOrElse("(none)"),
+        t.conversationKey,
         cost.fold("(none)")(_.amount.toString),
         t.usage
       )
@@ -61,8 +61,8 @@ private[orca] class LoggingListener extends OrcaListener:
       log.error("error ({}): {}", agent.getOrElse("flow"), message)
     case e: OrcaEvent.SessionCommitted =>
       log.debug(
-        "session committed: harness={} clientId={} wireId={} session={} agent={} role={}",
-        e.harness,
+        "session committed: backend={} clientId={} wireId={} session={} agent={} role={}",
+        e.backend,
         e.clientId,
         e.wireId.getOrElse("(none)"),
         e.sessionKey.fold("(none)")(_.describe),

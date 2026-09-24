@@ -1,6 +1,6 @@
 package orca.review
 
-import orca.{FlowContext, FlowControl, InStage, TestFlowControl, stage}
+import orca.{FlowContext, InStage, TestRun, stage}
 import orca.plan.Title
 import orca.events.EventDispatcher
 import orca.testkit.TextReplyingAgent
@@ -15,8 +15,8 @@ class ReviewChangeSetTest extends munit.FunSuite:
   /** Stages commit, and the message is drafted by the coding role's cheap
     * model, so every control here needs a lead that answers.
     */
-  private def stagingControl(): (TestFlowControl, os.Path) =
-    TestFlowControl.create(
+  private def stagingRun(): TestRun =
+    TestRun.create(
       new EventDispatcher(Nil),
       lead = Some(TextReplyingAgent("stage commit message"))
     )
@@ -38,11 +38,11 @@ class ReviewChangeSetTest extends munit.FunSuite:
       .getOrElse(fail(s"${agent.name} was never called"))
 
   test("a reviewer sees work the coding agent committed inside the stage"):
-    val (ctx, dir) = stagingControl()
+    val run = stagingRun()
     val reviewer = new FakeAgent("r", outputs = List(ReviewResult.empty))
-    given FlowControl = ctx
+    import run.given
     stage("implement the widget"):
-      commit(dir, "widget.scala", "object Widget")
+      commit(run.dir, "widget.scala", "object Widget")
       val _ = reviewAndFixLoop(
         coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
         reviewers = List(asReviewer(reviewer)),
@@ -53,7 +53,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
     assert(prompt.contains("widget.scala"), prompt)
 
   test("a reviewer joining a later round sees an edit the fixer committed"):
-    val (ctx, dir) = stagingControl()
+    val run = stagingRun()
     // Round one runs `early` alone; its finding triggers a fix turn that
     // commits. Round two admits `late`, whose first prompt must carry that
     // commit.
@@ -66,11 +66,11 @@ class ReviewChangeSetTest extends munit.FunSuite:
     val coder = new FakeAgent(
       "coder",
       outputs = List(FixOutcome(List(Title("real bug")), Nil)),
-      onRun = () => commit(dir, "fixed.scala", "object Fixed")
+      onRun = () => commit(run.dir, "fixed.scala", "object Fixed")
     )
     val lateJoiner = selector: (all, history) =>
       if history.isEmpty then all.filter(_.name.value == "early") else all
-    given FlowControl = ctx
+    import run.given
     stage("implement the widget"):
       val _ = reviewAndFixLoop(
         coderSession = ReviewLoopFixture.coderSession(coder),
@@ -82,7 +82,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
     assert(prompt.contains("fixed.scala"), prompt)
 
   test("a resumed reviewer sees an edit the fixer committed"):
-    val (ctx, dir) = stagingControl()
+    val run = stagingRun()
     // The reviewer runs both rounds, so round two resumes its session — and its
     // own `git diff HEAD` is empty once the fixer commits. Nothing is committed
     // before the loop, so round one's sample is empty and round two's is not.
@@ -94,9 +94,9 @@ class ReviewChangeSetTest extends munit.FunSuite:
     val coder = new FakeAgent(
       "coder",
       outputs = List(FixOutcome(List(Title("real bug")), Nil)),
-      onRun = () => commit(dir, "fixed.scala", "object Fixed")
+      onRun = () => commit(run.dir, "fixed.scala", "object Fixed")
     )
-    given FlowControl = ctx
+    import run.given
     stage("implement the widget"):
       val _ = reviewAndFixLoop(
         coderSession = ReviewLoopFixture.coderSession(coder),
@@ -110,7 +110,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
     assert(resumePrompt.contains("fixed.scala"), resumePrompt)
 
   test("a pinned diff is not re-sent to a resumed reviewer as a fresh sample"):
-    val (ctx, _) = stagingControl()
+    val run = stagingRun()
     // `ReviewDiff.Pinned` is one constant for the whole loop, so round two's
     // sample is byte-identical to round one's. Re-sending it would claim the
     // fixer's edits are inside a diff that predates them. The pinned diff is
@@ -126,7 +126,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
       "coder",
       outputs = List(FixOutcome(List(Title("real bug")), Nil))
     )
-    given FlowControl = ctx
+    import run.given
     stage("implement the widget"):
       val _ = reviewAndFixLoop(
         coderSession = ReviewLoopFixture.coderSession(coder),
@@ -145,7 +145,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
     assert(!resumePrompt.contains("pinned.scala"), resumePrompt)
 
   test("after an empty-sample round an unchanged sample says so again"):
-    val (ctx, _) = stagingControl()
+    val run = stagingRun()
     // Nothing could be sampled in round one, so all the reviewer holds is the
     // placeholder note saying so. Round two samples the same nothing: pointing
     // it back at the diff in its conversation would name a diff it was never
@@ -159,7 +159,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
       "coder",
       outputs = List(FixOutcome(List(Title("real bug")), Nil))
     )
-    given FlowControl = ctx
+    import run.given
     stage("implement the widget"):
       val _ = reviewAndFixLoop(
         coderSession = ReviewLoopFixture.coderSession(coder),
@@ -185,7 +185,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
     )
 
   test("a single file too large for the budget is named but not shown"):
-    val (ctx, dir) = stagingControl()
+    val run = stagingRun()
     // Past the inline threshold the reviewer gets the changed files' sections
     // cut to that threshold, so a resumed conversation accumulates at most that
     // much per round. One file past it on its own leaves room for no section at
@@ -199,9 +199,9 @@ class ReviewChangeSetTest extends munit.FunSuite:
     val coder = new FakeAgent(
       "coder",
       outputs = List(FixOutcome(List(Title("real bug")), Nil)),
-      onRun = () => commit(dir, "big.scala", big)
+      onRun = () => commit(run.dir, "big.scala", big)
     )
-    given FlowControl = ctx
+    import run.given
     stage("implement the widget"):
       val _ = reviewAndFixLoop(
         coderSession = ReviewLoopFixture.coderSession(coder),
@@ -336,7 +336,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
     // only difference from what the reviewer saw in round one is the fixer's
     // one file — so that file's diff is what the resumed prompt carries, and
     // the rest of the change set is named as unchanged rather than re-sent.
-    val (ctx, dir) = stagingControl()
+    val run = stagingRun()
     val big = (1 to 3000).map(i => s"// line $i").mkString("\n")
     val reviewer = new FakeAgent(
       "r",
@@ -346,11 +346,11 @@ class ReviewChangeSetTest extends munit.FunSuite:
     val coder = new FakeAgent(
       "coder",
       outputs = List(FixOutcome(List(Title("real bug")), Nil)),
-      onRun = () => commit(dir, "fix.scala", "object Fix")
+      onRun = () => commit(run.dir, "fix.scala", "object Fix")
     )
-    given FlowControl = ctx
+    import run.given
     stage("implement the widget"):
-      commit(dir, "big.scala", big)
+      commit(run.dir, "big.scala", big)
       val _ = reviewAndFixLoop(
         coderSession = ReviewLoopFixture.coderSession(coder),
         reviewers = List(asReviewer(reviewer)),
@@ -392,17 +392,17 @@ class ReviewChangeSetTest extends munit.FunSuite:
     (reviewer, coder)
 
   test("after a sections round an unchanged sample points at the sections"):
-    val (ctx, dir) = stagingControl()
+    val run = stagingRun()
     // Round two's change set is past the inline threshold, and the fixer's one
     // file fits, so sections reach the reviewer. Round three re-samples the
     // same bytes, and must point it back at what it holds rather than at a
     // diff it was never sent.
     val big = (1 to 3000).map(i => s"// line $i").mkString("\n")
     val (reviewer, coder) =
-      repeatUntilUnchanged(dir, "fix.scala", "object Fix")
-    given FlowControl = ctx
+      repeatUntilUnchanged(run.dir, "fix.scala", "object Fix")
+    import run.given
     stage("implement the widget"):
-      commit(dir, "big.scala", big)
+      commit(run.dir, "big.scala", big)
       val _ = reviewAndFixLoop(
         coderSession = ReviewLoopFixture.coderSession(coder),
         reviewers = List(asReviewer(reviewer)),
@@ -418,13 +418,13 @@ class ReviewChangeSetTest extends munit.FunSuite:
     )
 
   test("after a no-sections round an unchanged sample points at the file list"):
-    val (ctx, dir) = stagingControl()
+    val run = stagingRun()
     // The other half of the arm above: round two's one file is too large for
     // any section to fit, so all the reviewer holds is a file list — and that
     // is what an unchanged round three must point it at.
     val big = (1 to 3000).map(i => s"// line $i").mkString("\n")
-    val (reviewer, coder) = repeatUntilUnchanged(dir, "big.scala", big)
-    given FlowControl = ctx
+    val (reviewer, coder) = repeatUntilUnchanged(run.dir, "big.scala", big)
+    import run.given
     stage("implement the widget"):
       val _ = reviewAndFixLoop(
         coderSession = ReviewLoopFixture.coderSession(coder),
@@ -446,21 +446,24 @@ class ReviewChangeSetTest extends munit.FunSuite:
     // names as not shown. A rename, a deletion and a binary change are in the
     // fixture because none of them is visible in a diff body the way a plain
     // edit is.
-    val (ctx, dir) = stagingControl()
-    os.write(dir / "old.scala", "object Old")
-    os.write(dir / "gone.scala", "object Gone")
-    os.write(dir / "logo.png", Array[Byte](0, 1, 2, 3))
-    commitAll(dir, "seed")
+    val run = stagingRun()
+    os.write(run.dir / "old.scala", "object Old")
+    os.write(run.dir / "gone.scala", "object Gone")
+    os.write(run.dir / "logo.png", Array[Byte](0, 1, 2, 3))
+    commitAll(run.dir, "seed")
     val reviewer = new FakeAgent("r", outputs = List(ReviewResult.empty))
-    given FlowControl = ctx
+    import run.given
     stage("implement the widget"):
-      os.move(dir / "old.scala", dir / "new.scala")
-      val _ = os.remove(dir / "gone.scala")
-      os.write.over(dir / "logo.png", Array[Byte](4, 5, 6, 7))
+      os.move(run.dir / "old.scala", run.dir / "new.scala")
+      val _ = os.remove(run.dir / "gone.scala")
+      os.write.over(run.dir / "logo.png", Array[Byte](4, 5, 6, 7))
       // Sorts last, so the files before it are shown whole and it is the one
       // the cap pushes into the trailer.
-      os.write(dir / "zz-big.scala", (1 to 4000).map(bigLine).mkString("\n"))
-      commitAll(dir, "the work")
+      os.write(
+        run.dir / "zz-big.scala",
+        (1 to 4000).map(bigLine).mkString("\n")
+      )
+      commitAll(run.dir, "the work")
       val _ = reviewAndFixLoop(
         coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
         reviewers = List(asReviewer(reviewer)),
@@ -487,7 +490,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
     // The defect's other half: an empty change set means the file-pattern
     // pre-filter matches nothing, dropping every file-gated reviewer before the
     // picker is even asked.
-    val (ctx, dir) = stagingControl()
+    val run = stagingRun()
     val seen =
       new java.util.concurrent.atomic.AtomicReference[List[String]](Nil)
     val recording = new ReviewerSelector:
@@ -498,9 +501,9 @@ class ReviewChangeSetTest extends munit.FunSuite:
       )(using FlowContext, InStage) =
         seen.set(changedFiles)
         _ => all
-    given FlowControl = ctx
+    import run.given
     stage("implement the widget"):
-      commit(dir, "widget.scala", "object Widget")
+      commit(run.dir, "widget.scala", "object Widget")
       val _ = reviewAndFixLoop(
         coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
         reviewers = List(

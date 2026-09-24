@@ -47,6 +47,7 @@ def openPrIfGitHub(
     context: Option[String] = None,
     instructions: String = PrPrompts.Summarise
 )(using
+    ctx: FlowContext,
     control: FlowControl,
     outside: OutsideStage
 ): Option[PrHandle] =
@@ -65,10 +66,10 @@ def openPrIfGitHub(
   ).fold(skipped, Some(_))
 
 /** [[openPrFromBranch]]'s three stages, the two remote-facing legs under
-  * [[attempt]], each recording its refusal as the stage's result. The summarise
-  * stage is deliberately NOT wrapped: a summariser that fails or answers
-  * unparseably is a failure of the run, not a GitHub answer this step should
-  * absorb. `Left` is the line saying why no PR was opened.
+  * [[bestEffort]], each recording its refusal as the stage's result. The
+  * summarise stage is deliberately NOT wrapped: a summariser that fails or
+  * answers unparseably is a failure of the run, not a GitHub answer this step
+  * should absorb. `Left` is the line saying why no PR was opened.
   *
   * The pre-flight checks only read, so they gate the push stage rather than run
   * in it: a check that stops the step records nothing a resume would replay as
@@ -82,9 +83,7 @@ private def pushThenCreate(
     body: PrSummary => String,
     context: Option[String],
     instructions: String
-)(using
-    control: FlowControl
-): Either[String, PrHandle] =
+)(using FlowContext, FlowControl): Either[String, PrHandle] =
   for
     push <- gatedStage(PushStage)(preFlight(base))(_ => pushBestEffort())
     _ <- push.value.outcome.left.map(refusalLine(_, push))
@@ -101,6 +100,7 @@ private def pushThenCreate(
   * takes the target from the checkout's remotes, not from what the run pushed.
   */
 private def preFlight(base: => Either[NoDefaultBase, String])(using
+    ctx: FlowContext,
     control: FlowControl
 ): Either[String, Unit] =
   val checked = for
@@ -115,7 +115,7 @@ private def preFlight(base: => Either[NoDefaultBase, String])(using
   yield destination
   checked.map: destination =>
     import destination.{host, owner, repo}
-    control.context.emit(OrcaEvent.Step(s"Opening a PR on $host/$owner/$repo"))
+    ctx.emit(OrcaEvent.Step(s"Opening a PR on $host/$owner/$repo"))
 
 /** Where the PR will land, or why no PR can be opened. */
 private def probe(using
@@ -133,30 +133,31 @@ private def baseStopReason(e: NoDefaultBase): String =
   s"cannot work out the base branch (${e.cause}), no PR opened — run " +
     "`git remote set-head origin -a` and open the PR yourself"
 
-/** [[openPrFromBranch]]'s push with the push itself under [[attempt]]: the
+/** [[openPrFromBranch]]'s push with the push itself under [[bestEffort]]: the
   * stage machinery around it — the progress commit, the owner-thread assert —
   * still fails the run.
   */
-private def pushBestEffort()(using FlowContext, WorkspaceWrite): PushAttempt =
-  attempt(
+private def pushBestEffort()(using FlowContext, WorkspaceWrite): PushResult =
+  bestEffort(
     "could not push the branch",
     "push it yourself and open the PR from there"
   )(git.push())
-    .fold(PushAttempt.Refused(_), _ => PushAttempt.Pushed)
+    .fold(PushResult.Refused(_), _ => PushResult.Pushed)
 
-/** [[openPrFromBranch]]'s create with the `gh pr create` under [[attempt]], as
-  * [[pushBestEffort]] is for the push.
+/** [[openPrFromBranch]]'s create with the `gh pr create` under [[bestEffort]],
+  * as [[pushBestEffort]] is for the push.
   */
 private def createBestEffort(title: String, body: String)(using
+    FlowContext,
     FlowControl,
     WorkspaceWrite
-): CreateAttempt =
-  attempt(
+): CreateResult =
+  bestEffort(
     "could not open a PR",
     "open it yourself from the pushed branch"
   )(gh.createPr(title = title, body = body)) match
-    case Left(reason) => CreateAttempt.Refused(reason)
-    // Outside `attempt`, so a log that cannot be written fails the run.
+    case Left(reason) => CreateResult.Refused(reason)
+    // Outside `bestEffort`, so a log that cannot be written fails the run.
     case Right(pr) => recordOpened(pr)
 
 /** Run one remote-facing leg, turning the refusal it returns or whatever it
@@ -166,7 +167,7 @@ private def createBestEffort(title: String, body: String)(using
   * absorbed too. Only the message's first line is kept: the reason is spliced
   * into a single `Step`.
   */
-private def attempt[E <: OrcaFlowException, T](what: String, next: String)(
+private def bestEffort[E <: OrcaFlowException, T](what: String, next: String)(
     leg: => Either[E, T]
 ): Either[String, T] =
   def report(e: Throwable): String =
@@ -182,6 +183,7 @@ private def attempt[E <: OrcaFlowException, T](what: String, next: String)(
   * log records nothing published, so the two never strand a branch.
   */
 private def runChangedCode(using
+    ctx: FlowContext,
     control: FlowControl
 ): Boolean =
   control.progressStore
@@ -189,7 +191,7 @@ private def runChangedCode(using
     .forall: log =>
       try
         !ThrowawayBranch.isThrowaway(
-          control.context.runtimeGit,
+          ctx.runtimeGit,
           log.header.branchMode,
           startingCommit = log.header.startingCommit,
           featureBranch = log.header.branch

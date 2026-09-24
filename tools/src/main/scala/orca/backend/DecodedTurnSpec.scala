@@ -1,7 +1,5 @@
 package orca.backend
 
-import orca.agents.StructuredOutputMode
-
 /** The per-turn settings a [[DecodedTurn]] runs with, beside its source and
   * decoder.
   *
@@ -11,6 +9,5 @@ import orca.agents.StructuredOutputMode
 private[orca] final case class DecodedTurnSpec(
     openingPrompt: Option[String],
     outputSchema: Option[String],
-    structuredOutputMode: StructuredOutputMode,
     askUser: AskUserChannel
 )

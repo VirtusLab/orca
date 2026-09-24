@@ -21,9 +21,9 @@ private val log = LoggerFactory.getLogger("orca.flow")
   * parent. On resume, if the progress log holds an entry for this id whose JSON
   * decodes to `T`, the decoded value is returned without running `body`; a
   * decode failure (result type changed under this id) falls through and
-  * re-runs. A fresh run appends a `StageEntry(id, resultJson)`, force-adds the
-  * log, and commits — the commit also `add -A`s code changes, so a stage yields
-  * one commit covering code + progress.
+  * re-runs. Otherwise it runs `body`, appends a `StageEntry(id, resultJson)`,
+  * force-adds the log, and commits — the commit also `add -A`s code changes, so
+  * a stage yields one commit covering code + progress.
   *
   * A nested stage's commit stages the whole tree, so it sweeps up any
   * uncommitted edits the outer stage's body made before the nesting point. If
@@ -41,17 +41,18 @@ private val log = LoggerFactory.getLogger("orca.flow")
 def stage[T: JsonData](
     name: String,
     commitMessage: Option[T => String] = None
-)(body: (InStage, WorkspaceWrite) ?=> T)(using fc: FlowControl): T =
+)(body: (InStage, WorkspaceWrite) ?=> T)(using FlowContext, FlowControl): T =
   inStageFrame(name): id =>
     resumeFrom(id).getOrElse(runStage(id, commitMessage)(body))
 
 /** Run `f` with the frame of the stage `name` open, passing its id. */
 private def inStageFrame[R](name: String)(f: StagePath.Stage => R)(using
+    ctx: FlowContext,
     fc: FlowControl
 ): R =
   // HEAD is read HERE, before the body: once the body's agent starts
   // committing, the commit this stage began from is no longer recoverable.
-  fc.withStage(name, fc.context.git.headCommit())(f)
+  fc.withStage(name, ctx.git.headCommit())(f)
 
 /** Where a stage's result came from: this attempt, or the progress log. */
 private[orca] enum Staged[+T]:
@@ -73,6 +74,7 @@ private[orca] enum Staged[+T]:
 private[orca] def gatedStage[G, A, T: JsonData](name: String)(
     gate: => Either[G, A]
 )(body: A => (InStage, WorkspaceWrite) ?=> T)(using
+    FlowContext,
     FlowControl
 ): Either[G, Staged[T]] =
   inStageFrame(name): id =>
@@ -84,7 +86,7 @@ private[orca] def gatedStage[G, A, T: JsonData](name: String)(
 /** [[stage]] reporting where its result came from. */
 private[orca] def tracedStage[T: JsonData](name: String)(
     body: (InStage, WorkspaceWrite) ?=> T
-)(using FlowControl): Staged[T] =
+)(using FlowContext, FlowControl): Staged[T] =
   gatedStage[Nothing, Unit, T](name)(Right(()))(_ => body).merge
 
 /** Try to skip the stage by replaying a recorded result. `Some(value)` when the
@@ -92,6 +94,7 @@ private[orca] def tracedStage[T: JsonData](name: String)(
   * entry or it no longer decodes (fail-safe: the caller then re-runs the body).
   */
 private def resumeFrom[T: JsonData](id: StagePath.Stage)(using
+    ctx: FlowContext,
     fc: FlowControl
 ): Option[T] =
   fc.progressStore
@@ -112,23 +115,26 @@ private def resumeFrom[T: JsonData](id: StagePath.Stage)(using
       decoded.map: value =>
         // A replayed stage announces itself with the stage markers alone: the
         // run already said once what it is resuming from.
-        fc.context.emit(OrcaEvent.StageStarted(id))
-        fc.context.emit(OrcaEvent.StageEnded(id, StageOutcome.Replayed))
+        ctx.emit(OrcaEvent.StageStarted(id))
+        ctx.emit(OrcaEvent.StageEnded(id, StageOutcome.Replayed))
         value
 
 /** Run the body fresh, then record its result and commit (steps 3–4 above). */
 private def runStage[T: JsonData](
     id: StagePath.Stage,
     commitMessage: Option[T => String]
-)(body: (InStage, WorkspaceWrite) ?=> T)(using fc: FlowControl): T =
-  fc.context.emit(OrcaEvent.StageStarted(id))
+)(body: (InStage, WorkspaceWrite) ?=> T)(using
+    ctx: FlowContext,
+    fc: FlowControl
+): T =
+  ctx.emit(OrcaEvent.StageStarted(id))
   try
     val result =
       given InStage = RuntimeInStage.token()
       given WorkspaceWrite = RuntimeInStage.workspaceToken()
       body
     recordAndCommit(id, result, commitMessage)
-    fc.context.emit(OrcaEvent.StageEnded(id, StageOutcome.Completed))
+    ctx.emit(OrcaEvent.StageEnded(id, StageOutcome.Completed))
     result
   catch
     case NonFatal(e) =>
@@ -137,14 +143,14 @@ private def runStage[T: JsonData](
       // here, else the user would see `exit 1` with no diagnostic.
       val reported = ReportedFailure.reportOnce(e):
         case mao: orca.agents.MalformedAgentOutputException =>
-          fc.context.emit(OrcaEvent.Error(formatMalformedOutput(id.name, mao)))
+          ctx.emit(OrcaEvent.Error(formatMalformedOutput(id.name, mao)))
         case other =>
-          fc.context.emit(
+          ctx.emit(
             OrcaEvent.Error(
               s"Stage '${id.name}' failed: ${TextUtil.throwableMessage(other, firstLineOnly = true)}"
             )
           )
-      fc.context.emit(OrcaEvent.StageEnded(id, StageOutcome.Failed))
+      ctx.emit(OrcaEvent.StageEnded(id, StageOutcome.Failed))
       throw reported
 
 /** Append the stage's result to the log and commit code + log as one commit.
@@ -155,7 +161,7 @@ private def recordAndCommit[T: JsonData](
     id: StagePath.Stage,
     result: T,
     commitMessage: Option[T => String]
-)(using fc: FlowControl): Unit =
+)(using ctx: FlowContext, fc: FlowControl): Unit =
   val resultJson = writeToString(result)(using summon[JsonData[T]].codec)
   // Fresh runtime tokens rather than the body's: recording + committing is the
   // runtime's own privileged step, not part of the user body. `InStage` is for
@@ -168,38 +174,38 @@ private def recordAndCommit[T: JsonData](
   fc.progressStore.upsertEntry(
     StageEntry(id = id, resultJson = RawJson(resultJson))
   )
-  fc.context.runtimeGit.forceAdd(fc.progressStore.path)
+  ctx.runtimeGit.forceAdd(fc.progressStore.path)
   // The log always changed, so a clean tree is unexpected (a prior partial run
   // may already have committed this entry): log at DEBUG, never fail the stage.
-  fc.context.runtimeGit.commit(message) match
+  ctx.runtimeGit.commit(message) match
     case Right(()) => ()
     case Left(_) =>
       log.debug("stage {} commit was empty (already recorded?)", id.name)
 
 /** Generate a commit message from the current working-tree changes via the
-  * coding-role agent's cheap model (`fc.context.codingAgent.cheapOneShot`),
-  * which is sent the bounded summary built by [[BoundedDiff.commitPayload]]
-  * rather than the whole diff. The reads span what the stage is about to commit
-  * — tracked edits and files new to the repo — and all exclude `.orca/`, so the
-  * model sees the change set the commit is about rather than orca's
-  * bookkeeping. Falls back to `"stage: <name>"` when there is nothing to
-  * describe, the agent returns blank, or any `NonFatal` is thrown — committing
-  * must never break, though `cheapOneShot` announces the fallback rather than
-  * hiding it. Only called when the caller supplied no explicit `commitMessage`.
+  * coding-role agent's cheap model (`codingAgent.cheapOneShot`), which is sent
+  * the bounded summary built by [[BoundedDiff.commitPayload]] rather than the
+  * whole diff. The reads span what the stage is about to commit — tracked edits
+  * and files new to the repo — and all exclude `.orca/`, so the model sees the
+  * change set the commit is about rather than orca's bookkeeping. Falls back to
+  * `"stage: <name>"` when there is nothing to describe, the agent returns
+  * blank, or any `NonFatal` is thrown — committing must never break, though
+  * `cheapOneShot` announces the fallback rather than hiding it. Only called
+  * when the caller supplied no explicit `commitMessage`.
   */
 private def defaultCommitMessage(
     name: String
-)(using fc: FlowControl, ev: InStage): String =
+)(using ctx: FlowContext, ev: InStage): String =
   val fallback = s"stage: $name"
   // The git reads shouldn't fail, but stay defensive: a commit message must
   // never break a stage. The cheap agent call is guarded by `cheapOneShot`
   // itself.
   val payload =
-    try BoundedDiff.commitPayload(fc.context.git.pendingChanges())
+    try BoundedDiff.commitPayload(ctx.git.pendingChanges())
     catch case NonFatal(_) => ""
   if payload.isBlank then fallback
   else
-    fc.context.codingAgent.cheapOneShot(
+    ctx.codingAgent.cheapOneShot(
       purpose = "commit message",
       prompt =
         "Write a concise one-line git commit message (imperative mood, ≤72 chars) " +

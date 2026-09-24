@@ -7,16 +7,16 @@ import orca.shell.run.{FallbackPolicy, FlowLauncher, LaunchedFlow, PinPolicy}
 
 import Cli.{actionFailure, complete, usageFailure, withTerminal}
 
-/** `orca run`'s behavior (ADR 0021 §10): resolve the flow, read the task
+/** `orca run`'s behavior (ADR 0021 §10): resolve the flow, read the prompt
   * (argument, `--prompt` or piped stdin), then runs it
   * ([[FlowLauncher.runAnnounced]]) forced or pin-honouring, propagating the
   * flow child's raw exit code.
   */
 private[cli] object RunCli:
 
-  /** `args` arrives unchecked. A task given twice or an invalid flag is refused
-    * first, before anything is resolved, stdin is read or `scala-cli` starts;
-    * the flow child refuses the same argv on the same shared decision
+  /** `args` arrives unchecked. A prompt given twice or an invalid flag is
+    * refused first, before anything is resolved, stdin is read or `scala-cli`
+    * starts; the flow child refuses the same argv on the same shared decision
     * ([[orca.RawArgs.checked]]) and stays the authority, this only makes the
     * answer immediate.
     */
@@ -33,10 +33,10 @@ private[cli] object RunCli:
           .resolve(flowRef)
           .left
           .map(actionFailure)
-        task <- readTask(checked.givenTask, tty, readAllStdin).left
+        prompt <- readPrompt(checked.givenPrompt, tty, readAllStdin).left
           .map(usageFailure)
       yield withTerminal: terminal =>
-        val orcaArgs = checked.withTask(task)
+        val orcaArgs = checked.withPrompt(prompt)
         val policy =
           if honorPin then PinPolicy.Honor
           else PinPolicy.Force(FallbackPolicy.Refuse("re-run with --honor-pin"))
@@ -55,36 +55,36 @@ private[cli] object RunCli:
   private def readAllStdin(): String =
     String(System.in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)
 
-  /** `task` when non-blank; `readStdin()` read to EOF when `task` is omitted
-    * and `tty` is false (`enables generate-prompt | orca run fix.sc`); a usage
-    * error otherwise — never blocks waiting on a terminal that has no task
-    * coming. `tty` is stdin-specific (production: `TtyProbe.stdin()`, not the
-    * combined `System.console() != null` — a redirected stdout alone, e.g.
-    * `orca run flow.sc > out.log` from a real terminal, must still error here
-    * instead of blocking on a keyboard read). `tty`/`readStdin` are injected so
-    * tests exercise every branch without touching the real console or blocking
-    * on real stdin.
+  /** `prompt` when non-blank; `readStdin()` read to EOF when `prompt` is
+    * omitted and `tty` is false (`enables generate-prompt | orca run fix.sc`);
+    * a usage error otherwise — never blocks waiting on a terminal that has no
+    * prompt coming. `tty` is stdin-specific (production: `TtyProbe.stdin()`,
+    * not the combined `System.console() != null` — a redirected stdout alone,
+    * e.g. `orca run flow.sc > out.log` from a real terminal, must still error
+    * here instead of blocking on a keyboard read). `tty`/`readStdin` are
+    * injected so tests exercise every branch without touching the real console
+    * or blocking on real stdin.
     */
-  private[cli] def readTask(
-      task: Option[String],
+  private[cli] def readPrompt(
+      prompt: Option[String],
       tty: Boolean,
       readStdin: () => String
   ): Either[String, String] =
-    task match
+    prompt match
       case Some(text) if text.trim.nonEmpty => Right(text.trim)
-      case Some(_)                          => Left("task text can't be empty")
+      case Some(_)                          => Left("prompt can't be empty")
       case None =>
         if tty then
           Left(
-            "no task given, and stdin is a terminal — " +
-              "pass the task as an argument (--prompt=<text> if it starts " +
+            "no prompt given, and stdin is a terminal — " +
+              "pass the prompt as an argument (--prompt=<text> if it starts " +
               "with '-'), or pipe it in"
           )
         else
           val piped = readStdin().trim
           if piped.isEmpty then
             Left(
-              "no task given, and stdin was empty — pass the task as an " +
+              "no prompt given, and stdin was empty — pass the prompt as an " +
                 "argument (--prompt=<text> if it starts with '-'), or pipe " +
                 "non-empty input"
             )

@@ -1,6 +1,6 @@
 package orca.pr
 
-import orca.{FlowControl, OutsideStage, fail, gh, git, tracedStage}
+import orca.{FlowContext, FlowControl, OutsideStage, fail, gh, git, tracedStage}
 import orca.agents.Agent
 import orca.review.OpenFindings
 import orca.tools.PrHandle
@@ -50,14 +50,14 @@ def openPrFromBranch(
     body: PrSummary => String = _.body,
     context: Option[String] = None,
     instructions: String = PrPrompts.Summarise
-)(using FlowControl, OutsideStage): PrHandle =
+)(using FlowContext, FlowControl, OutsideStage): PrHandle =
   summon[FlowControl].assertAtFlowBody("openPrFromBranch(...)")
   reportOpenFindings(openFindings)
   // A refusal throws inside its stage, so it is never recorded and a resume
   // retries it. A recorded `Refused` is one [[openPrIfGitHub]] wrote.
   val push = tracedStage(PushStage):
     git.push().orThrow
-    PushAttempt.Pushed
+    PushResult.Pushed
   push.value.outcome.fold(reason => fail(refusalLine(reason, push)), identity)
   val summary = summarise(
     summarisingAgent,

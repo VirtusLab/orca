@@ -2,6 +2,7 @@ package orca.runner
 
 import orca.{
   BranchNamingStrategy,
+  FlowContext,
   FlowControl,
   InStage,
   OrcaArgs,
@@ -56,17 +57,17 @@ object FlowLifecycle:
     * are structurally disjoint.
     */
   private[orca] def run(
+      ctx: FlowContext,
       control: FlowControl,
       flowSetup: FlowSetup,
       debug: Boolean
-  )(body: FlowControl ?=> Unit): Unit =
-    val ctx = control.context
+  )(body: (FlowContext, FlowControl) ?=> Unit): Unit =
     val log = LoggerFactory.getLogger("orca.flow")
     // The whole flow body runs as a top-level stage: an otherwise unhandled
     // exception surfaces as a single Error event. `teardownFailure` runs only
     // here in the body phase, so a success-teardown error can never trigger
     // `discardUncommitted` or strand the user on the feature branch.
-    try surfaced(ctx.emit, debug)(body(using control))
+    try surfaced(ctx.emit, debug)(body(using ctx, control))
     catch
       case f: ReportedFailure =>
         // If the reset itself fails, attach it as suppressed (rather than
@@ -285,7 +286,7 @@ object FlowLifecycle:
         if args.target.keepChanges then
           emit(
             OrcaEvent.Step(
-              "ignoring --keep-changes: this task already has a progress " +
+              "ignoring --keep-changes: this run already has a progress " +
                 "log, so the tree is stashed clean — an interrupted stage's " +
                 "partial work must not leak into the stages that re-run"
             )
@@ -961,8 +962,8 @@ object FlowLifecycle:
   /** Failure teardown (ADR 0018 §2.5): discard the failed stage's uncommitted
     * partial edits with `git reset --hard` (which restores the last committed
     * log) plus, when `startingTree` allows it, the files the stage newly
-    * created, staying on the feature branch so the next run resumes in place.
-    * Kept tracked changes that no commit has carried yet are put back.
+    * created, staying on the feature branch so the next attempt resumes in
+    * place. Kept tracked changes that no commit has carried yet are put back.
     *
     * Touches nothing when HEAD is off `featureBranch`: the body moved it, so
     * the edits there are not known to be only the failed stage's.
@@ -987,7 +988,7 @@ object FlowLifecycle:
         emit(
           OrcaEvent.Step(
             s"recovering from the failure — discarding $discarding; re-run " +
-              "the same command (the same flow with the same task text) to " +
+              "the same command (the same flow with the same prompt) to " +
               "resume from the last completed stage"
           )
         )

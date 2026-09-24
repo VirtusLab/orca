@@ -16,10 +16,10 @@ final case class AgentResult[B <: BackendTag] private[orca] (
     private[orca] val wireId: WireSessionId[B],
     output: String,
     usage: Usage,
-    /** Model the backend reports it actually served the call with — usually
-      * present for autonomous calls (the CLI returns it), absent for some
-      * conversation paths. The bucket key in `CostTracker`, so spend is
-      * attributed to the concrete model rather than the tool name.
+    /** The model the backend attributes the turn to: the one the turn's own
+      * output names, else a backend-specific fallback (codex: its configured
+      * model); `None` when neither exists. Spend is attributed to it, falling
+      * back to the call's pinned model.
       */
-    model: Option[Model] = None
+    model: Option[Model]
 )

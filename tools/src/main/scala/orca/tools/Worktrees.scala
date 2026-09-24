@@ -166,7 +166,7 @@ private[orca] object Worktrees:
     * `-B` would reset an existing `name`, so a branch already carrying commits
     * this HEAD cannot reach is refused instead: every removal route for a
     * worktree (`git clean -xdff`, `rm -rf`, `git worktree remove`) leaves its
-    * branch behind, so a re-run of the same task finds it, possibly with work
+    * branch behind, so a re-run of the same prompt finds it, possibly with work
     * on it. A probe that cannot answer counts as "would lose", so an unreadable
     * repository refuses rather than resets.
     */

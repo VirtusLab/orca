@@ -1,6 +1,6 @@
 package orca.backend
 
-import orca.agents.{BackendTag, StructuredOutputMode, WireSessionId}
+import orca.agents.{BackendTag, WireSessionId}
 import orca.events.{TurnDebit, Usage}
 import orca.subprocess.FakePipedCliProcess
 import ox.{Ox, supervised, timeout}
@@ -49,7 +49,12 @@ class MessageGrammarTest extends munit.FunSuite:
             (),
             Nil,
             Settled.Succeeded(
-              AgentResult(WireSessionId("fake"), "done", Usage.empty)
+              AgentResult(
+                WireSessionId("fake"),
+                "done",
+                Usage.empty,
+                model = None
+              )
             )
           )
         case "fail" =>
@@ -66,7 +71,6 @@ class MessageGrammarTest extends munit.FunSuite:
       DecodedTurnSpec(
         openingPrompt = None,
         outputSchema = None,
-        structuredOutputMode = StructuredOutputMode.RawText,
         askUser = AskUserChannel.Unavailable
       ),
       GrammarDecoder(onUnsettledEnd)
@@ -220,7 +224,6 @@ class MessageGrammarTest extends munit.FunSuite:
         DecodedTurnSpec(
           openingPrompt = None,
           outputSchema = None,
-          structuredOutputMode = StructuredOutputMode.RawText,
           askUser = AskUserChannel.Unavailable
         ),
         GrammarDecoder(() => ())

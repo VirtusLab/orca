@@ -226,8 +226,6 @@ object FlowCanary:
         )
         val list: List[Reviewer] = ReviewerPrompts.minimal :+ custom
         val _: List[ReviewerAgent[?]] = buildReviewers(claude, list)
-        // Resolve inside a stage, where the `FlowContext` these read the
-        // run's catalog from is derived from the ambient `FlowControl`.
         val _: List[ReviewerAgent[?]] = allReviewers(claude)
         val _: List[ReviewerAgent[?]] = minimalReviewers(claude)
         val _: ReviewerCatalog = reviewerCatalog
@@ -250,8 +248,8 @@ object FlowCanary:
           results.flatMap(_.findings).map(_.location)
 
   /** `flows/review.sc`'s `pickReviewers` is a top-level helper, so it resolves
-    * the catalog against a bare `FlowContext` — not the `FlowControl` a stage
-    * body supplies. Pins that shape separately.
+    * the catalog against a `FlowContext` alone, with no `FlowControl` in scope.
+    * Pins that shape separately.
     */
   private def narrowToChangedFiles()(using
       FlowContext,
@@ -432,8 +430,8 @@ object FlowCanary:
     * by `flows/implement-enhanced.sc`. Pins that the `Sessioned[Plan]`
     * extension resolves through `import orca.*` alone. Plans are always
     * briefed: the `brief` rides in the structured output, so `plan.brief` /
-    * `plan.taskPrompt` are always available. Resume is the stage log (ADR 0018
-    * §2.8), and the task loop is a plain per-task `stage(...)`.
+    * `plan.taskPrompt` are always available. Resume is the progress log (ADR
+    * 0018 §2.8), and the task loop is a plain per-task `stage(...)`.
     */
   def planReviewAndBriefSurface(): Unit =
     flow(OrcaArgs()):

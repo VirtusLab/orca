@@ -49,8 +49,8 @@ private[orca] object CostLogUsage:
   * mirroring `OrcaEvent.UnpricedTurn.model`. `cost` is `None` for a model
   * absent from the pricing table, so such a turn shows tokens against no
   * dollars. `turn` is the turn's 1-based position among the turns of its call,
-  * so retried spend is separable. `session` is the conversation key
-  * (`OrcaEvent.conversationKey`): the session's `wireId` in
+  * so retried spend is separable. `conversationKey` is
+  * `OrcaEvent.conversationKey`: the session's `wireId` in
   * [[AttemptManifest.sessions]] once it has one, else a client id the manifest
   * does not carry.
   */
@@ -64,7 +64,7 @@ private[orca] case class CostRecord(
     apiCalls: Option[Long],
     usage: CostLogUsage,
     cost: Option[Cost],
-    session: Option[String]
+    conversationKey: String
 )
 
 private[orca] object CostRecord:
@@ -88,7 +88,7 @@ private[orca] object CostRecord:
     apiCalls = t.spend.usage.apiCalls,
     usage = CostLogUsage.of(t.spend.usage),
     cost = t.cost,
-    session = t.spend.session
+    conversationKey = t.spend.conversationKey
   )
 
 /** Append-only writer for one attempt's `<AttemptId>.cost.jsonl`.

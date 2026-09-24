@@ -15,8 +15,8 @@ import ox.{fork, supervised}
 class StageFramesTest extends munit.FunSuite:
 
   test("stage(...) called from an ox fork throws the R12 message"):
-    val (ctx, _) = TestFlowControl.create(new EventDispatcher(Nil))
-    given FlowControl = ctx
+    val run = TestRun.create(new EventDispatcher(Nil))
+    import run.given
     // The fork catches internally and stashes the throwable, rather than
     // letting it propagate through `supervised`'s own cross-thread exception
     // machinery — keeps the assertion below independent of ox's scope-ending
@@ -46,7 +46,7 @@ class StageFramesTest extends munit.FunSuite:
     )
 
   test("stage(...) called on the owning thread still succeeds"):
-    val (ctx, _) = TestFlowControl.create(new EventDispatcher(Nil))
-    given FlowControl = ctx
+    val run = TestRun.create(new EventDispatcher(Nil))
+    import run.given
     val result = stage("same-thread")("ok")
     assertEquals(result, "ok")

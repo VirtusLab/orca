@@ -65,9 +65,10 @@ final class FlowSession private[orca] (
     * signature-level fact (ADR 0018 §6); inside a stage it is already ambient.
     */
   def run(prompt: String)(using
-      fc: FlowControl,
-      ev: InStage,
-      ws: WorkspaceWrite
+      FlowContext,
+      FlowControl,
+      InStage,
+      WorkspaceWrite
   ): String =
     val output = chat.agent.runText(
       effectivePrompt(chat, prompt),
@@ -113,6 +114,7 @@ final class FlowSessionCall[O] private[orca] (chat: Chat[?], key: SessionKey)(
     * turn) can pass `PromptEvent.Suppress`.
     */
   def run[I](input: I, promptEvent: PromptEvent = PromptEvent.Emit)(using
+      ctx: FlowContext,
       fc: FlowControl,
       ai: AgentInput[I],
       ev: InStage,
@@ -147,10 +149,10 @@ extension [B <: BackendTag](agent: Agent[B])
     * first use and replays it on loss.
     *
     * Identity follows the stage, not the call's position within it: inserting,
-    * reordering or skipping other `session(...)` calls between runs leaves this
-    * one alone. What does re-key it is moving the call into another stage, or
-    * renaming the stage it sits in — the new key has nothing recorded, so the
-    * session is minted fresh and primed from the seed.
+    * reordering or skipping other `session(...)` calls between attempts leaves
+    * this one alone. What does re-key it is moving the call into another stage,
+    * or renaming the stage it sits in — the new key has nothing recorded, so
+    * the session is minted fresh and primed from the seed.
     *
     * Minting one name twice in one stage throws (see
     * [[StageFrames.claimSessionKey]]): two handles driving one conversation is
@@ -179,6 +181,7 @@ extension [B <: BackendTag](agent: Agent[B])
     * stage either way — see [[orca.sessions.SessionStore]].
     */
   def session(name: String, seed: String)(using
+      ctx: FlowContext,
       fc: FlowControl
   ): FlowSession =
     // An empty name decodes ambiguously; treat it as an authoring defect.
@@ -193,7 +196,7 @@ private def resolveSessionId[B <: BackendTag](
     agent: Agent[B],
     key: SessionKey,
     seed: String
-)(using fc: FlowControl): SessionId[B] =
+)(using ctx: FlowContext, fc: FlowControl): SessionId[B] =
   fc.sessionStore.records().find(_.key == key) match
     case Some(recorded) => reuseOrMint(agent, key, seed, recorded)
     case None           => mintSession(agent, key, seed)
@@ -207,11 +210,11 @@ private def reuseOrMint[B <: BackendTag](
     key: SessionKey,
     seed: String,
     recorded: SessionRecord
-)(using fc: FlowControl): SessionId[B] =
+)(using ctx: FlowContext, fc: FlowControl): SessionId[B] =
   if recorded.backend != agent.backendTag then
-    // Backend swapped between runs: `recorded.id` is meaningful only in the
+    // Backend swapped between attempts: `recorded.id` is meaningful only in the
     // old backend's registry, so mint fresh rather than reuse it.
-    warnBackendSwap(fc, key, recorded.backend, agent.backendTag)
+    warnBackendSwap(ctx, key, recorded.backend, agent.backendTag)
     mintSession(agent, key, seed)
   else
     // The recorded id is log-sourced and untrusted: parse it rather than
@@ -221,11 +224,11 @@ private def reuseOrMint[B <: BackendTag](
       case Some(validId) =>
         // Reuse is the safe fallback (ADR 0018 §2.6): a seed edited between
         // attempts is surfaced as a warning, never a re-mint.
-        warnIfSeedDiffers(fc, key, recorded.seed, seed)
+        warnIfSeedDiffers(ctx, key, recorded.seed, seed)
         recorded.resumeWireId.foreach(rehydrate(agent, validId, key, _))
         validId
       case None =>
-        warnInvalidRecordedId(fc, key)
+        warnInvalidRecordedId(ctx, key)
         mintSession(agent, key, seed)
 
 /** Hand the wire id a previous attempt recorded for `id` to `agent`, so its
@@ -238,11 +241,11 @@ private def rehydrate[B <: BackendTag](
     id: SessionId[B],
     key: SessionKey,
     wire: String
-)(using fc: FlowControl): Unit =
+)(using ctx: FlowContext): Unit =
   WireSessionId.parse[B](wire) match
     case Some(wireId) => agent.rehydrateResumeWireId(id, wireId)
     case None =>
-      fc.context.emit(
+      ctx.emit(
         OrcaEvent.Step(
           s"warning: session ${key.describe} has an invalid recorded wire " +
             "id — not resuming its conversation"
@@ -250,12 +253,12 @@ private def rehydrate[B <: BackendTag](
       )
 
 private def warnBackendSwap(
-    fc: FlowControl,
+    ctx: FlowContext,
     key: SessionKey,
     recordedTag: BackendTag,
     currentTag: BackendTag
 ): Unit =
-  fc.context.emit(
+  ctx.emit(
     OrcaEvent.Step(
       s"warning: session ${key.describe} was minted on " +
         s"$recordedTag; this agent is $currentTag — minting fresh"
@@ -263,21 +266,21 @@ private def warnBackendSwap(
   )
 
 private def warnIfSeedDiffers(
-    fc: FlowControl,
+    ctx: FlowContext,
     key: SessionKey,
     recordedSeed: String,
     seed: String
 ): Unit =
   if recordedSeed != seed then
-    fc.context.emit(
+    ctx.emit(
       OrcaEvent.Step(
         s"warning: session ${key.describe} recorded seed differs " +
           "for this key — the seed was edited; reusing the recorded session"
       )
     )
 
-private def warnInvalidRecordedId(fc: FlowControl, key: SessionKey): Unit =
-  fc.context.emit(
+private def warnInvalidRecordedId(ctx: FlowContext, key: SessionKey): Unit =
+  ctx.emit(
     OrcaEvent.Step(
       s"warning: session ${key.describe} has an invalid recorded id " +
         "— minting fresh"
@@ -315,6 +318,7 @@ private def mintSession[B <: BackendTag](
   * read as first twice.
   */
 private def effectivePrompt(chat: Chat[?], text: String)(using
+    ctx: FlowContext,
     fc: FlowControl
 ): String =
   val turn = fc.claimTurn(chat.id.value)
@@ -346,6 +350,7 @@ private def continuedPrompt(
   * recorded seed and the progress preamble.
   */
 private def rebuiltPrompt(record: Option[SessionRecord], text: String)(using
+    ctx: FlowContext,
     fc: FlowControl
 ): String =
   // A recorded wire id proves a conversation once existed, so a failed probe
@@ -353,7 +358,7 @@ private def rebuiltPrompt(record: Option[SessionRecord], text: String)(using
   // its prior turns; silently degraded context is hard to debug. No wire id is
   // a plain first use.
   if record.exists(_.resumeWireId.isDefined) then
-    fc.context.emit(
+    ctx.emit(
       OrcaEvent.Step(
         s"warning: session ${record.fold("'?'")(_.key.describe)} — backend " +
           "conversation not found; re-seeding (prior conversation history " +
@@ -362,7 +367,7 @@ private def rebuiltPrompt(record: Option[SessionRecord], text: String)(using
     )
   val seed = record.map(_.seed).filter(_.nonEmpty)
   val preamble =
-    progressPreamble(fc.progressStore.load(), fc.context.git.headCommit())
+    progressPreamble(fc.progressStore.load(), ctx.git.headCommit())
   composePrimedPrompt(preamble, seed, text)
 
 /** Points at the files rather than ordering a redo: a run killed between stages

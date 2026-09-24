@@ -378,20 +378,20 @@ class SessionPickerTest extends munit.FunSuite:
   test("sessionRows suffixes a crashed attempt's rows with `(crashed)`"):
     val run =
       ManifestFixtures.recorded(
-        manifest(sessions = List(durable())),
+        manifest(sessions = List(durable()), branch = Some("feat-a")),
         crashed = true
       )
     assertEquals(
       SessionPicker
         .sessionRows(SessionIndex.of(List(run)), expanded = false)
         .map(_.label),
-      List("★ main — latest (no stage yet) [claude] (crashed)")
+      List("★ main — latest (no stage yet) [claude] on feat-a (crashed)")
     )
 
   test("sessionRows disables a wireId-less session, naming its harness"):
     val run = ManifestFixtures.recorded(
       manifest(sessions =
-        List(durable(harness = BackendTag.Pi, wireId = None))
+        List(durable(backend = BackendTag.Pi, wireId = None))
       ),
       crashed = false
     )
@@ -399,7 +399,7 @@ class SessionPickerTest extends munit.FunSuite:
       SessionPicker
         .sessionRows(SessionIndex.of(List(run)), expanded = false)
         .map(_.disabledReason),
-      List(Some("Pi session has no resumable id"))
+      List(Some("pi session has no resumable id"))
     )
 
   test("sessionRows enables a claude session with a wireId"):

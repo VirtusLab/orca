@@ -17,7 +17,7 @@ import java.util.concurrent.atomic.AtomicBoolean
   *     call: a nested or concurrent `flow()` in the same JVM is refused before
   *     it touches anything.
   *   - A worktree lock ([[worktreeLocked]]), held while a `--worktree` run
-  *     finds or creates its worktree, so two processes starting the same task
+  *     finds or creates its worktree, so two processes starting the same prompt
   *     never create or repair it at once.
   *   - A `workDir`-keyed lock ([[workdirLocked]]), held by `runFlow` for the
   *     whole run, taken before `FlowLifecycle.setup` mutates git: two processes
@@ -47,7 +47,7 @@ private[orca] object FlowLock:
     */
   def worktreeLocked[T](mainCheckout: os.Path, key: RunKey)(op: => T): T =
     OrcaDir.ensureCache(mainCheckout).discard
-    locked(OrcaDir.worktreeLockPath(mainCheckout, key), "for this task")(op)
+    locked(OrcaDir.worktreeLockPath(mainCheckout, key), "for this prompt")(op)
 
   /** Runs `op` holding the lock of the run in `workDir`; throws when another
     * process holds it.

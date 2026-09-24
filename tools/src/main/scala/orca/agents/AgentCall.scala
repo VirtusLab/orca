@@ -110,27 +110,27 @@ final class AgentCall[B <: BackendTag, O] private[orca] (
 
     val accounting = turnAccounting(session, sessionKey)
 
-    // Carries a parse failure into the next attempt's corrective prompt. Local
+    // Carries a parse failure into the next try's corrective prompt. Local
     // contract: written only in the `MalformedAgentOutputException` catch below,
-    // read only at the top of the next `attemptOnce` call, which `retry`
+    // read only at the top of the next `tryOnce` call, which `retry`
     // re-executes sequentially — never concurrently.
-    var lastFailure: Option[FailedAttempt] = None
+    var lastFailure: Option[FailedParse] = None
 
-    // Counts the turns this call reported, not the attempts it started: an
-    // attempt that dies before the model runs (a pre-spawn open failure,
+    // Counts the turns this call reported, not the tries it started: a
+    // try that dies before the model runs (a pre-spawn open failure,
     // retried below) reports no turn. Counting on entry would label the first
     // turn that is actually paid for as a retry. Same sequential-write contract
     // as `lastFailure` above.
     var turnsRecorded = 0
 
-    /** One attempt: build this iteration's prompt (the initial one, or a
-      * corrective re-prompt carrying the prior parse failure), run the turn,
-      * and parse its output as `O`. A `MalformedAgentOutputException` records
-      * itself as `lastFailure` for the next call before rethrowing, so `retry`
-      * can drive a corrective re-prompt loop around repeated calls to this.
+    /** One try: build this iteration's prompt (the initial one, or a corrective
+      * re-prompt carrying the prior parse failure), run the turn, and parse its
+      * output as `O`. A `MalformedAgentOutputException` records itself as
+      * `lastFailure` for the next call before rethrowing, so `retry` can drive
+      * a corrective re-prompt loop around repeated calls to this.
       */
-    def attemptOnce(): O =
-      // This attempt's turn index, whether it ends in a debit or a result.
+    def tryOnce(): O =
+      // This try's turn index, whether it ends in a debit or a result.
       val thisTurn = turnsRecorded + 1
       val promptText = lastFailure match
         case Some(f) =>
@@ -159,8 +159,8 @@ final class AgentCall[B <: BackendTag, O] private[orca] (
             throw e
       // Fire as soon as the backend drain commits — before the fallible
       // parse below — so a session that later exhausts its retries (parse
-      // keeps failing) or throws on a subsequent attempt still gets
-      // announced as durably resumable (ADR 0021 §8). Every attempt on this
+      // keeps failing) or throws on a subsequent try still gets
+      // announced as durably resumable (ADR 0021 §8). Every try on this
       // session re-fires with the same payload; listeners dedup on
       // (backend, clientId, wireId) per the event's scaladoc.
       accounting.sessionCommitted()
@@ -173,7 +173,7 @@ final class AgentCall[B <: BackendTag, O] private[orca] (
       catch
         case e: MalformedAgentOutputException =>
           lastFailure = Some(
-            FailedAttempt(
+            FailedParse(
               response = e.rawOutput,
               parserError = e.shortCause
             )
@@ -187,7 +187,7 @@ final class AgentCall[B <: BackendTag, O] private[orca] (
       )
     )
 
-    try retry(retryConfig)(attemptOnce())
+    try retry(retryConfig)(tryOnce())
     catch
       // Attribute the failure: name the agent and this turn's input size, so
       // "Prompt is too long" becomes actionable. The session's accumulated
@@ -310,4 +310,4 @@ final class InteractiveAgentCall[B <: BackendTag, O] private[agents] (
   )(using orca.InStage): O =
     call.runInteractive(input, session, sessionKey)
 
-private case class FailedAttempt(response: String, parserError: String)
+private case class FailedParse(response: String, parserError: String)

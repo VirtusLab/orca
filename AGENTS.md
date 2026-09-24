@@ -64,11 +64,11 @@ most easily broken:
 
 - **Capability gating.** `FlowContext` (reads + emit; thread-safe) is not a
   capability, so forks receive it freely. Three compile-time capabilities gate
-  side effects: `FlowControl` (authority to start
-  a stage; thread-affine; holds the run's `FlowContext` as `context`, from
-  which a `FlowContext` given is derived when none is in scope), and a SPLIT pair of stage-bound
-  capability tokens (both in `tools`, `package orca`) — `InStage`, the SHARED
-  half (`caps.SharedCapability`, fork-capturable): every `agent.*.run` /
+  side effects: `FlowControl` (authority to start a stage; thread-affine;
+  unrelated to `FlowContext` — `flow` provides both, and a stage-starting
+  helper takes `(using FlowContext, FlowControl)`), and a SPLIT pair of
+  stage-bound capability tokens (both in `tools`, `package orca`) — `InStage`,
+  the SHARED half (`caps.SharedCapability`, fork-capturable): every `agent.*.run` /
   `FlowSession.run` (spend tokens, drive an agent) takes `(using InStage)`,
   and it is safe to capture into a `fork` (the reviewer fan-out's shared
   `InStage` capture is load-bearing); and `WorkspaceWrite`, the EXCLUSIVE half
@@ -187,7 +187,7 @@ most easily broken:
   and the session's position in its manifest), a session name or a recorded
   branch. Neither half of a `SessionKey` is
   hashed or turned into a filename, and only `name` is validated (non-empty).
-  Reordering or skipping *other* `session(...)` calls between runs doesn't
+  Reordering or skipping *other* `session(...)` calls between attempts doesn't
   re-key this one; renaming the stage a mint sits in does. Minting one name
   twice in one stage throws (`FlowControl.claimSessionKey`, the only door that
   MINTS a key — `SessionRecord.key` rebuilds one from persisted halves, and
@@ -304,7 +304,7 @@ Three location classes decide what survives:
 | `.orca/runs/<key>.progress.json` | committed | `ProgressLog`: header (branches, `branchMode`, `startingCommit`, `userPrompt`, `flow`), one `StageEntry` per completed stage (`id` as `StagePath` segments, `resultJson`), `published` | `ProgressStore` (`FlowLifecycle.freshRun`, `Flow.recordAndCommit`, `recordOpenedPr`) | `Flow.resumeFrom`, `RecoveryCheck`, `FlowLifecycle`, shell `ResumeDetector` (header) | success teardown, in a final commit |
 | `.orca/cache/runs/<key>.sessions.json` | cache | `SessionRecord` per durable session: `name`, `stage`, `id`, `seed`, `resumeWireId`, `backend` | `SessionStore` (`Session.mintSession`, `persistResumeWireId`) | `Session` | success teardown; nothing else prunes them |
 | `.orca/cache/attempts/<id>.manifest.json` | cache | `AttemptManifest`: `workDir`, `pid`, `startedAt`, `finishedAt`, `status`, `orcaVersion`, `flow`, `branch`, `sessions[]` (`ManifestSession`) — written when the attempt starts, then on every stage transition, `BranchBound`, `SessionCommitted` and finish | `AttemptManifestWriter` | shell `ManifestReader` → session picker / `orca continue` (attempts with no session are left out) | pruning: newest 20 attempts with a session ∪ newest 20 of any kind |
-| `.orca/cache/attempts/<id>.cost.jsonl` | cache | one `CostRecord` line per `TokensUsed` (agent, role, model, stage, turn, usage, cost, session) — created on the first `TokensUsed` | `CostLog` via `AttemptManifestWriter` | nothing in orca; a measurement record for people and scripts | pruned with its manifest |
+| `.orca/cache/attempts/<id>.cost.jsonl` | cache | one `CostRecord` line per `TokensUsed` (agent, role, model, stage, turn, apiCalls, usage, cost, conversationKey) — created on the first `TokensUsed` | `CostLog` via `AttemptManifestWriter` | nothing in orca; a measurement record for people and scripts | pruned with its manifest |
 | `.orca/cache/attempts/<id>.trace.log` (+ `.trace.1.log`) | cache | DEBUG trace of logger `orca`: prompts, agent output, tool calls; 4 MB roll | `OrcaLog` | people (path in the banner) | pruned with its manifest |
 | `.orca/cache/flow.lock` | cache | an OS file lock, held for the run; holder pid | `FlowLock` | `FlowLock` on contention | never; the OS releases the lock when the holder exits |
 | `.orca/cache/worktree-<key>.lock` (main checkout) | cache | an OS file lock, held while the worktree is resolved; holder pid | `FlowLock` | `FlowLock` on contention | never; the OS releases the lock when the holder exits |
@@ -463,12 +463,15 @@ prose:
 A **plan task** (`orca.plan.Task`) is a flow-author concept and names none of
 these files. Never call a process a run.
 
+The user's input text is the **prompt**, and a stack command (`format`, `lint`,
+`test`) is a **gate**; "task" names only a plan task.
+
 ### Backend vocabulary
 
 Words for talking to a coding agent, from the outside in:
 
 - **call** — one `agent.run` / `session.run` / `chat.run`. A retry stays inside
-  the call.
+  the call. The review loop's "fix turn" (`maxFixTurns`) is a call.
 - **turn** — one exchange with the agent that reaches the model: a prompt sent,
   events streamed back, one outcome. A retry that reaches the model is a new
   turn (`UnpricedTurn.turn` counts them). `AgentBackend.open` returns one as a

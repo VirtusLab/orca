@@ -17,8 +17,7 @@ import scala.annotation.implicitNotFound
   *
   * One is built per `flow(...)` invocation — flow scripts don't normally
   * instantiate `FlowContext` directly, just call the accessors inside a
-  * `flow(args): ...` block, whose `FlowControl` supplies it
-  * ([[FlowContext.fromControl]]).
+  * `flow(args): ...` block, which provides one.
   *
   * The five per-backend accessors (`claude`, `codex`, …) come from
   * [[AgentSet]]. The three role accessors ([[planningAgent]] / [[codingAgent]]
@@ -26,7 +25,7 @@ import scala.annotation.implicitNotFound
   * before the context exists, each landing on its own backend.
   */
 @implicitNotFound(
-  "the flow tools (`claude`/`codex`/`git`/`gh`/`fs`/…), `display`, and `fail` are only available inside a `flow(...)` body. Wrap this code in `flow(OrcaArgs(args)): ...`."
+  "the flow tools (`claude`/`codex`/`git`/`gh`/`fs`/…), `display`, and `fail` are only available inside a `flow(...)` body. Wrap this code in `flow(OrcaArgs(args)): ...`, or declare `(using FlowContext)` on this helper."
 )
 trait FlowContext extends AgentSet:
   /** The planning-role agent (ADR 0020): resolved from settings, default
@@ -74,10 +73,3 @@ trait FlowContext extends AgentSet:
 
   def userPrompt: String
   def emit(event: OrcaEvent): Unit
-
-object FlowContext:
-  /** The context of the `FlowControl` in scope, for code holding only that — a
-    * flow body or a stage-starting helper. A `FlowContext` given in lexical
-    * scope takes precedence.
-    */
-  given fromControl(using fc: FlowControl): FlowContext = fc.context

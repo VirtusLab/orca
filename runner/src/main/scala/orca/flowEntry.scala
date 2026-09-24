@@ -55,8 +55,8 @@ import java.time.Instant
 import scala.util.control.NonFatal
 
 /** Entry point for flow scripts. Takes the parsed CLI args (required) plus any
-  * number of overrides, then runs the body, providing the `FlowControl` (and
-  * through it the `FlowContext`) as a given.
+  * number of overrides, then runs the body, providing the `FlowContext` and the
+  * `FlowControl` as givens.
   *
   * ```
   * flow(OrcaArgs(args)):
@@ -101,9 +101,9 @@ import scala.util.control.NonFatal
   * resolve to one of the wired agents or a sibling — anything sharing their
   * backend. An override returning an agent built from a SEPARATE
   * `AgentWiring`/backend (e.g. `_ => myPrebuiltAgent`) compiles but is
-  * event-blind: it never reaches this run's dispatcher, so its cost/steps never
-  * surface, and it gets a loud resolution-time warning. Its backend is still
-  * closed at flow end, so later runs through it are refused.
+  * event-blind: it never reaches this attempt's dispatcher, so its cost/steps
+  * never surface, and it gets a loud resolution-time warning. Its backend is
+  * still closed at flow end, so later calls through it are refused.
   *
   * `stackSettings` wins outright for the stack commands (ADR 0019): when
   * passed, the project file's stack keys are ignored and discovery is skipped,
@@ -111,7 +111,7 @@ import scala.util.control.NonFatal
   *
   * '''`--worktree`.''' `workDir` is where the run starts looking, not always
   * where it happens: with `--worktree` the run moves into
-  * `.orca/worktrees/<task hash>` of this repository, created on first use and
+  * `.orca/worktrees/<prompt hash>` of this repository, created on first use and
   * reused after, and everything below it — git, the progress log, the session
   * manifest — uses that directory instead. A refusal (no repository, no
   * commits, something orca did not create already at the path) ends the run
@@ -145,7 +145,7 @@ def flow(
     fs: Option[FsTool] = None,
     prompts: Prompts = DefaultPrompts,
     pricing: PricingTable = Pricing.default
-)(body: FlowControl ?=> Unit): Unit =
+)(body: (FlowContext, FlowControl) ?=> Unit): Unit =
   val flowLog = LoggerFactory.getLogger("orca.flow")
   // A daemon thread or unsupervised fork that throws would otherwise disappear
   // with no diagnostic; this leaves a trail on the console and in the trace.
@@ -164,7 +164,7 @@ def flow(
     case RunTarget.NewBranch(_) | RunTarget.CurrentBranch(_) => Right(workDir)
     case RunTarget.Worktree                                  =>
       // Resolution can throw as well as refuse — another orca resolving the
-      // same task, a symlinked or unwritable `.orca`, a git that won't start.
+      // same prompt, a symlinked or unwritable `.orca`, a git that won't start.
       // One `Left` shape for every outcome keeps the reporting below the only
       // way out.
       try WorktreeRun.resolve(workDir, runKey)
@@ -290,7 +290,7 @@ def flow(
   * A [[LoggingListener]] is always appended to the request's listeners.
   */
 private[orca] def runFlow(request: RunRequest)(
-    body: FlowControl ?=> Unit
+    body: (FlowContext, FlowControl) ?=> Unit
 ): Unit =
   val workDir = request.workDir
   val wiring = request.wiring
@@ -350,8 +350,8 @@ private[orca] def runFlow(request: RunRequest)(
   * settings files, resolve the three role agents (`RoleAgents.resolveAll`, ADR
   * 0020 §10), run pre-context setup (branch + log binding, stack discovery,
   * `FlowLifecycle.setup`), construct the concretely-typed
-  * [[DefaultFlowContext]] and the [[DefaultFlowControl]] over it, then run
-  * `body` with that control.
+  * [[DefaultFlowContext]] and the [[DefaultFlowControl]], then run `body` with
+  * both.
   *
   * Owns closing the agents: the wired ones and any FOREIGN role (an override
   * from a separate backend) are closed when this returns, on success or
@@ -366,7 +366,7 @@ private def runInContext(
     runtimeGit: RuntimeGit,
     ghTool: GitHubTool,
     fsTool: FsTool
-)(body: FlowControl ?=> Unit): Unit =
+)(body: (FlowContext, FlowControl) ?=> Unit): Unit =
   val debug = OrcaDebug.enabled || args.verbose
   val runKey = RunKey.of(args.userPrompt)
   val store = ProgressStore.default(workDir, runKey)
@@ -445,12 +445,11 @@ private def runInContext(
       reviewerCatalog = reviewerCatalog
     )
     val control = new DefaultFlowControl(
-      context = ctx,
       progressStore = store,
       sessionStore = sessions,
       startingCommit = flowSetup.startingCommit
     )
-    FlowLifecycle.run(control, flowSetup, debug = debug)(body)
+    FlowLifecycle.run(ctx, control, flowSetup, debug = debug)(body)
 
 /** Prints each non-empty section as its own block on stderr, the terminal UI's
   * stream and encoding, so stdout carries only what the flow itself prints.

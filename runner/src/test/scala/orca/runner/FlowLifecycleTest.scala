@@ -476,7 +476,10 @@ class FlowLifecycleTest extends munit.FunSuite:
     val bodyRuns = new AtomicInteger(0)
     val resumedIds = new AtomicReference[List[String]](Nil)
 
-    def taskLoop(failAt: Option[String])(using orca.FlowControl): List[String] =
+    def taskLoop(failAt: Option[String])(using
+        orca.FlowContext,
+        orca.FlowControl
+    ): List[String] =
       for task <- tasks yield stage(s"Task: $task"):
         val _ = bodyRuns.incrementAndGet()
         val id = agent.session("implementer", seed = "brief").chat.id.value
@@ -722,7 +725,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       workDir: os.Path,
       branch: String,
       // `prompt` keys the log file (so two foreign logs can coexist);
-      // `userPrompt` is the task text the header records. A real run records
+      // `userPrompt` is the prompt the header records. A real run records
       // the same string for both — tests that vary one pass both.
       prompt: String = "the other task",
       userPrompt: String = "the other task",
@@ -766,9 +769,9 @@ class FlowLifecycleTest extends munit.FunSuite:
     assert(
       thrown.getMessage.contains(startBranch) &&
         thrown.getMessage.contains("the other task"),
-      s"the refusal must name the branch and the interrupted task: ${thrown.getMessage}"
+      s"the refusal must name the branch and the interrupted prompt: ${thrown.getMessage}"
     )
-    // Flow name and task text both recorded: the shell row can be offered, and
+    // Flow name and prompt both recorded: the shell row can be offered, and
     // abandoning must be spelled as a git removal (a plain `rm` is undone by
     // the next run's stash restore, since the log is committed).
     assert(thrown.getMessage.contains("orca shell"), thrown.getMessage)
@@ -845,7 +848,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       prompt = "older task",
       userPrompt = "older task"
     )
-    // The newer log is the CLI-run shape: a task recorded, no flow, so it
+    // The newer log is the CLI-run shape: a prompt recorded, no flow, so it
     // also covers what the message
     // can and can't say for such a header.
     val newer = writeForeignLog(
@@ -1460,11 +1463,11 @@ class FlowLifecycleTest extends munit.FunSuite:
       workDir,
       CannedDiscoveryAgent(
         StackDiscoveryResult(
-          format = DiscoveredTask(commands =
+          format = DiscoveredGate(commands =
             List(DiscoveredCommand("echo fmt", "seed.txt"))
           ),
-          lint = DiscoveredTask(),
-          test = DiscoveredTask()
+          lint = DiscoveredGate(),
+          test = DiscoveredGate()
         )
       ),
       "discover-keep",
@@ -1480,11 +1483,11 @@ class FlowLifecycleTest extends munit.FunSuite:
   ):
     val workDir = GitRepo.seeded()
     val canned = StackDiscoveryResult(
-      format = DiscoveredTask(commands =
+      format = DiscoveredGate(commands =
         List(DiscoveredCommand("echo fmt", "seed.txt", Some("seeded fixture")))
       ),
-      lint = DiscoveredTask(unsetReason = Some("no lint config found")),
-      test = DiscoveredTask()
+      lint = DiscoveredGate(unsetReason = Some("no lint config found")),
+      test = DiscoveredGate()
     )
     val (setup, steps) =
       setupDiscovering(workDir, CannedDiscoveryAgent(canned), "discover-fresh")
@@ -1537,13 +1540,13 @@ class FlowLifecycleTest extends munit.FunSuite:
   ):
     val workDir = GitRepo.seeded()
     val canned = StackDiscoveryResult(
-      format = DiscoveredTask(commands =
+      format = DiscoveredGate(commands =
         List(DiscoveredCommand("echo fmt", "seed.txt"))
       ),
-      lint = DiscoveredTask(commands =
+      lint = DiscoveredGate(commands =
         List(DiscoveredCommand("definitely-not-a-cmd-xyz check", "seed.txt"))
       ),
-      test = DiscoveredTask(commands =
+      test = DiscoveredGate(commands =
         List(DiscoveredCommand("echo test", "seed.txt"))
       )
     )
@@ -1603,11 +1606,11 @@ class FlowLifecycleTest extends munit.FunSuite:
     val headBefore =
       os.proc("git", "rev-parse", "HEAD").call(cwd = workDir).out.text().trim
     val canned = StackDiscoveryResult(
-      format = DiscoveredTask(commands =
+      format = DiscoveredGate(commands =
         List(DiscoveredCommand("echo fmt", "seed.txt"))
       ),
-      lint = DiscoveredTask(),
-      test = DiscoveredTask()
+      lint = DiscoveredGate(),
+      test = DiscoveredGate()
     )
     val (setup, _) =
       setupDiscovering(workDir, CannedDiscoveryAgent(canned), prompt)
@@ -1639,11 +1642,11 @@ class FlowLifecycleTest extends munit.FunSuite:
       os.write(workDir / ".gitignore", ".orca/\n")
       assert(git.commit("add .gitignore").isRight)
     val canned = StackDiscoveryResult(
-      format = DiscoveredTask(commands =
+      format = DiscoveredGate(commands =
         List(DiscoveredCommand("echo fmt", "seed.txt"))
       ),
-      lint = DiscoveredTask(),
-      test = DiscoveredTask()
+      lint = DiscoveredGate(),
+      test = DiscoveredGate()
     )
     val (_, steps) =
       setupDiscovering(workDir, CannedDiscoveryAgent(canned), "discover-legacy")
@@ -1721,9 +1724,9 @@ class FlowLifecycleTest extends munit.FunSuite:
   ):
     val workDir = GitRepo.seeded()
     val canned = StackDiscoveryResult(
-      format = DiscoveredTask(unsetReason = Some("no formatter config found")),
-      lint = DiscoveredTask(),
-      test = DiscoveredTask(unsetReason = Some("no test directory found"))
+      format = DiscoveredGate(unsetReason = Some("no formatter config found")),
+      lint = DiscoveredGate(),
+      test = DiscoveredGate(unsetReason = Some("no test directory found"))
     )
     val (setup, steps) = setupDiscovering(
       workDir,
@@ -1784,7 +1787,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       gh: Option[GitHubTool] = None,
       git: Option[RuntimeGit] = None,
       target: RunTarget = RunTarget.NewBranch(Uncommitted.Stash)
-  )(body: orca.FlowControl ?=> Unit): Unit =
+  )(body: (orca.FlowContext, orca.FlowControl) ?=> Unit): Unit =
     supervised:
       val interaction = TerminalInteraction.start(
         out = new PrintStream(new ByteArrayOutputStream()),
@@ -3542,11 +3545,11 @@ class FlowLifecycleTest extends munit.FunSuite:
     // HEAD: naming the pre-settings commit is what pins the announcement ahead
     // of orca's own bookkeeping.
     val canned = StackDiscoveryResult(
-      format = DiscoveredTask(commands =
+      format = DiscoveredGate(commands =
         List(DiscoveredCommand("echo fmt", "seed.txt"))
       ),
-      lint = DiscoveredTask(),
-      test = DiscoveredTask()
+      lint = DiscoveredGate(),
+      test = DiscoveredGate()
     )
     val (_, steps) =
       setupDiscovering(workDir, CannedDiscoveryAgent(canned), prompt)

@@ -19,7 +19,9 @@ private[shell] object ResumeCommand:
     * session-dir check.
     */
   def staticGate(s: ManifestSession): Either[String, String] =
-    s.wireId.toRight(s"${s.harness} session has no resumable id")
+    s.wireId.toRight(
+      s"${AgentSpec.harnessNameFor(s.backend)} session has no resumable id"
+    )
 
   /** Left = not resumable: [[staticGate]]'s checks, plus whatever the caller's
     * live lookups report — gemini's `geminiIndex` (it resumes by index, not by
@@ -45,8 +47,8 @@ private[shell] object ResumeCommand:
       if wireId.isBlank || wireId.startsWith("-") then
         Left(s"manifest wireId `$wireId` is not a valid session id")
       else
-        val binary = AgentSpec.harnessNameFor(s.harness)
-        s.harness match
+        val binary = AgentSpec.harnessNameFor(s.backend)
+        s.backend match
           case BackendTag.ClaudeCode =>
             Right(Seq(binary, "--resume", wireId))
           case BackendTag.Codex    => Right(Seq(binary, "resume", wireId))

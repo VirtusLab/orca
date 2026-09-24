@@ -23,7 +23,7 @@ class StackDiscoveryTest extends munit.FunSuite:
   test(
     "a representative always-both envelope shape decodes under the strict codec"
   ):
-    // The strict schema requires both keys on every task ("commands": [] and
+    // The strict schema requires both keys on every gate ("commands": [] and
     // "unsetReason": null where a side doesn't apply); this pins that the codec
     // accepts that shape, including the single-property "result" envelope.
     val json =
@@ -43,7 +43,7 @@ class StackDiscoveryTest extends munit.FunSuite:
     assertEquals(
       decoded.result,
       StackDiscoveryResult(
-        format = DiscoveredTask(
+        format = DiscoveredGate(
           commands = List(
             DiscoveredCommand(
               "acme style --write",
@@ -55,13 +55,13 @@ class StackDiscoveryTest extends munit.FunSuite:
           ),
           unsetReason = None
         ),
-        lint = DiscoveredTask(
+        lint = DiscoveredGate(
           commands = List(
             DiscoveredCommand("acme compile --include-tests", "acme.build")
           ),
           unsetReason = None
         ),
-        test = DiscoveredTask(
+        test = DiscoveredGate(
           commands = Nil,
           unsetReason = Some("no test directory or CI test step found")
         )
@@ -74,9 +74,9 @@ class StackDiscoveryTest extends munit.FunSuite:
   private val allResolvable: String => Option[String] = _ => None
   private val allEvidenceExists: String => Boolean = _ => true
 
-  test("toEntries: surviving commands become Command entries, in task order"):
+  test("toEntries: surviving commands become Command entries, in gate order"):
     val result = StackDiscoveryResult(
-      format = DiscoveredTask(commands =
+      format = DiscoveredGate(commands =
         List(
           DiscoveredCommand(
             "cargo fmt",
@@ -86,10 +86,10 @@ class StackDiscoveryTest extends munit.FunSuite:
           DiscoveredCommand("pnpm exec prettier --write .", "package.json")
         )
       ),
-      lint = DiscoveredTask(commands =
+      lint = DiscoveredGate(commands =
         List(DiscoveredCommand("cargo check --tests", "Cargo.toml"))
       ),
-      test = DiscoveredTask(commands =
+      test = DiscoveredGate(commands =
         List(DiscoveredCommand("cargo test", "Cargo.toml"))
       )
     )
@@ -132,14 +132,14 @@ class StackDiscoveryTest extends munit.FunSuite:
 
   test("toEntries: an unresolvable command demotes with the check's reason"):
     val result = StackDiscoveryResult(
-      format = DiscoveredTask(),
-      lint = DiscoveredTask(commands =
+      format = DiscoveredGate(),
+      lint = DiscoveredGate(commands =
         List(
           DiscoveredCommand("just check", "justfile"),
           DiscoveredCommand("just lint", "justfile")
         )
       ),
-      test = DiscoveredTask()
+      test = DiscoveredGate()
     )
     val (entries, settings) = StackDiscovery.toEntries(
       result,
@@ -147,7 +147,7 @@ class StackDiscoveryTest extends munit.FunSuite:
         if c.startsWith("just") then Some("just: not found on PATH") else None,
       evidenceExists = allEvidenceExists
     )
-    // Exact list: the all-demoted lint task contributes its demoted lines plus
+    // Exact list: the all-demoted lint gate contributes its demoted lines plus
     // exactly one Off.
     assertEquals(
       entries,
@@ -165,14 +165,14 @@ class StackDiscoveryTest extends munit.FunSuite:
 
   test("toEntries: a demoted command next to a surviving one adds no Off"):
     val result = StackDiscoveryResult(
-      format = DiscoveredTask(),
-      lint = DiscoveredTask(commands =
+      format = DiscoveredGate(),
+      lint = DiscoveredGate(commands =
         List(
           DiscoveredCommand("sbt compile", "build.sbt"),
           DiscoveredCommand("yarn lint", "package.json")
         )
       ),
-      test = DiscoveredTask()
+      test = DiscoveredGate()
     )
     val (entries, _) = StackDiscovery.toEntries(
       result,
@@ -194,18 +194,18 @@ class StackDiscoveryTest extends munit.FunSuite:
 
   test("toEntries: a missing evidence file demotes, naming the file"):
     val result = StackDiscoveryResult(
-      format = DiscoveredTask(commands =
+      format = DiscoveredGate(commands =
         List(DiscoveredCommand("cargo fmt", "Cargo.toml"))
       ),
-      lint = DiscoveredTask(),
-      test = DiscoveredTask()
+      lint = DiscoveredGate(),
+      test = DiscoveredGate()
     )
     val (entries, settings) = StackDiscovery.toEntries(
       result,
       unresolvedReason = allResolvable,
       evidenceExists = _ => false
     )
-    // Exact list: the all-demoted format task contributes its demoted line
+    // Exact list: the all-demoted format gate contributes its demoted line
     // plus one Off.
     assertEquals(
       entries,
@@ -225,9 +225,9 @@ class StackDiscoveryTest extends munit.FunSuite:
   test("toEntries: a blank evidence citation demotes"):
     val result = StackDiscoveryResult(
       format =
-        DiscoveredTask(commands = List(DiscoveredCommand("cargo fmt", "  "))),
-      lint = DiscoveredTask(),
-      test = DiscoveredTask()
+        DiscoveredGate(commands = List(DiscoveredCommand("cargo fmt", "  "))),
+      lint = DiscoveredGate(),
+      test = DiscoveredGate()
     )
     // `allEvidenceExists` would accept the citation, so only the blank guard
     // can demote here.
@@ -245,11 +245,11 @@ class StackDiscoveryTest extends munit.FunSuite:
 
   test("toEntries: a command starting with # demotes before the PATH check"):
     val result = StackDiscoveryResult(
-      format = DiscoveredTask(commands =
+      format = DiscoveredGate(commands =
         List(DiscoveredCommand("# cargo fmt", "Cargo.toml"))
       ),
-      lint = DiscoveredTask(),
-      test = DiscoveredTask()
+      lint = DiscoveredGate(),
+      test = DiscoveredGate()
     )
     val (entries, _) = StackDiscovery.toEntries(
       result,
@@ -268,9 +268,9 @@ class StackDiscoveryTest extends munit.FunSuite:
   test("toEntries: `off` demotes, not disabling the gate"):
     val result = StackDiscoveryResult(
       format =
-        DiscoveredTask(commands = List(DiscoveredCommand("off", "Cargo.toml"))),
-      lint = DiscoveredTask(),
-      test = DiscoveredTask()
+        DiscoveredGate(commands = List(DiscoveredCommand("off", "Cargo.toml"))),
+      lint = DiscoveredGate(),
+      test = DiscoveredGate()
     )
     val (entries, _) = StackDiscovery.toEntries(
       result,
@@ -289,9 +289,9 @@ class StackDiscoveryTest extends munit.FunSuite:
   test("toEntries: a blank command demotes"):
     val result = StackDiscoveryResult(
       format =
-        DiscoveredTask(commands = List(DiscoveredCommand("  ", "Cargo.toml"))),
-      lint = DiscoveredTask(),
-      test = DiscoveredTask()
+        DiscoveredGate(commands = List(DiscoveredCommand("  ", "Cargo.toml"))),
+      lint = DiscoveredGate(),
+      test = DiscoveredGate()
     )
     val (entries, _) = StackDiscovery.toEntries(
       result,
@@ -303,11 +303,11 @@ class StackDiscoveryTest extends munit.FunSuite:
       SettingsEntry.Demoted(StackKey.Format, "  ", "empty command")
     )
 
-  test("toEntries: a task with no commands and a reason becomes Unset(reason)"):
+  test("toEntries: a gate with no commands and a reason becomes Unset(reason)"):
     val result = StackDiscoveryResult(
-      format = DiscoveredTask(),
-      lint = DiscoveredTask(),
-      test = DiscoveredTask(unsetReason = Some("no test directory found"))
+      format = DiscoveredGate(),
+      lint = DiscoveredGate(),
+      test = DiscoveredGate(unsetReason = Some("no test directory found"))
     )
     val (entries, _) =
       StackDiscovery.toEntries(result, allResolvable, allEvidenceExists)
@@ -322,11 +322,11 @@ class StackDiscoveryTest extends munit.FunSuite:
     "toEntries: a command containing a newline is sanitized at assembly — settings and rendered file agree"
   ):
     val result = StackDiscoveryResult(
-      format = DiscoveredTask(commands =
+      format = DiscoveredGate(commands =
         List(DiscoveredCommand("cargo fmt --all\n  --check", "Cargo.toml"))
       ),
-      lint = DiscoveredTask(),
-      test = DiscoveredTask()
+      lint = DiscoveredGate(),
+      test = DiscoveredGate()
     )
     val (entries, settings) =
       StackDiscovery.toEntries(result, allResolvable, allEvidenceExists)
@@ -340,11 +340,11 @@ class StackDiscoveryTest extends munit.FunSuite:
       Right(Some(settings))
     )
 
-  test("toEntries: a task with neither commands nor a reason gets a stock one"):
+  test("toEntries: a gate with neither commands nor a reason gets a stock one"):
     val result = StackDiscoveryResult(
-      format = DiscoveredTask(),
-      lint = DiscoveredTask(),
-      test = DiscoveredTask()
+      format = DiscoveredGate(),
+      lint = DiscoveredGate(),
+      test = DiscoveredGate()
     )
     val (entries, settings) =
       StackDiscovery.toEntries(result, allResolvable, allEvidenceExists)

@@ -470,7 +470,7 @@ class AgentTest extends munit.FunSuite:
       e
     }
     assertEquals(committed.size, 1, committed)
-    assertEquals(committed.head.harness, BackendTag.Pi)
+    assertEquals(committed.head.backend, BackendTag.Pi)
     assertEquals(committed.head.wireId, Some("wire-committed"))
     assertEquals(committed.head.agent, "stub")
     assertEquals(committed.head.role, None)
@@ -511,8 +511,10 @@ class AgentTest extends munit.FunSuite:
       stubTool(new CommittingBackend("wire-joined"), listener = listener)
     val _ = tool.run("prompt")
     assertEquals(
-      seen.get().collect { case t: OrcaEvent.UnpricedTurn => t.session },
-      List(Some("wire-joined"))
+      seen.get().collect { case t: OrcaEvent.UnpricedTurn =>
+        t.conversationKey
+      },
+      List("wire-joined")
     )
 
   // `quietTextTurn` runs its turn on a fresh session, bypassing

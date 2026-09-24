@@ -100,7 +100,7 @@ private[terminal] class TerminalEventRenderer(
           assistantLine(raw, MaxStructuredResultRawLength, attribution(agent))
             .foreach(output.log)
     case OrcaEvent.UserPrompt(text) =>
-      // One line so a long task description doesn't dominate the log; empty
+      // One line so a long prompt doesn't dominate the log; empty
       // payloads dropped.
       val collapsed = Text.oneLine(
         text,

@@ -5,10 +5,8 @@ package orca.review
 // shared `InStage`, and an exclusive `FlowControl`/`WorkspaceWrite` capture is
 // a compile error (ADR 0018 §6, pinned by `orca.CcNegativeCompileTest`). That
 // is why `fc`/`ws` are method parameters rather than fields throughout this
-// file, and why `ctx` is taken as its own given: a `FlowContext` derived from
-// `fc` would carry `fc` into the fan-out. Tapir `derives`/macro types don't
-// type-check under CC — keep them in a sibling non-CC file (see
-// FixRequest.scala).
+// file. Tapir `derives`/macro types don't type-check under CC — keep them in a
+// sibling non-CC file (see FixRequest.scala).
 import language.experimental.captureChecking
 import language.experimental.separationChecking
 
@@ -880,7 +878,7 @@ private[review] class ReviewFixLoop(
     * left open, threading the immutable [[ReviewLoopState]] (reviewer history +
     * sessions) from round to round.
     *
-    * A round that finds nothing ends the run, as does a fix turn that fixes
+    * A round that finds nothing ends the loop, as does a fix turn that fixes
     * nothing ([[OpenReason.NoFixes]]). A converging loop also stops at its cap
     * ([[OpenReason.CapReached]]); a single pass stops after its one fix turn,
     * re-checking only the lint gate and the checks ([[recheckAfterFix]]), and

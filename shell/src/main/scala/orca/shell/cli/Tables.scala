@@ -72,7 +72,7 @@ private[cli] object Tables:
         kind = session.kind,
         stage = session.stage,
         sessionStage = session.minted.map(_.stage),
-        harness = AgentSpec.harnessNameFor(session.harness),
+        harness = AgentSpec.harnessNameFor(session.backend),
         lastActiveAt = session.lastActiveAt.toString,
         resumable = gate.isRight,
         reason = gate.left.toOption,

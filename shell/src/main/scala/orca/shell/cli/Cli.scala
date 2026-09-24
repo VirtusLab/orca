@@ -202,8 +202,8 @@ private[cli] class CliCommands(using env: ShellEnv):
 
   @main(
     doc = "Run a flow, propagating its exit code.\n" +
-      "Task is read from stdin when omitted and stdin is piped.\n" +
-      "--branch names the branch to create instead of deriving it from the task.\n" +
+      "The prompt is read from stdin when omitted and stdin is piped.\n" +
+      "--branch names the branch to create instead of deriving it from the prompt.\n" +
       """Example: orca run implement.sc "add a rate limiter" --branch feature/rate-limiter"""
   )
   def run(

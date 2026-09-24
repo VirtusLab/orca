@@ -6,7 +6,7 @@ import orca.shell.actions.FlowResolution
 import orca.util.JsonFile
 
 /** An unfinished flow run, byte-identically relaunchable: the flow script and
-  * the exact task text that started it (ADR 0021 §3 amendment).
+  * the exact prompt that started it (ADR 0021 §3 amendment).
   */
 private[shell] case class InterruptedRun(
     flow: FlowSource,
@@ -32,11 +32,11 @@ private[shell] case class InterruptedRun(
   */
 private[shell] object ResumeDetector:
 
-  /** The newest unfinished progress log's flow+task, or `None` when there is
+  /** The newest unfinished progress log's flow+prompt, or `None` when there is
     * nothing to offer: nothing found by the scan (see
     * [[orca.progress.ProgressScan]] for what it skips), a corrupt/unparseable
     * log, or a log written by a run outside the shell (`flow` unrecorded — the
-    * simpler, honest choice over a partial pick-the-flow-and-prefill-the-task
+    * simpler, honest choice over a partial pick-the-flow-and-prefill-the-prompt
     * fallback).
     *
     * `dirs` are the directories to scan ([[orca.shell.WorktreeScan.dirs]] picks

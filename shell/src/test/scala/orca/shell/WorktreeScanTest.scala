@@ -41,7 +41,7 @@ class WorktreeScanTest extends munit.FunSuite:
     val theirs = repo / "review-their-branch"
     assertEquals(Worktrees.add(repo, theirs), Right(()))
     // Its branch's committed progress log would otherwise become a resume
-    // offer, handing that branch's task text to an agent.
+    // offer, handing that branch's prompt to an agent.
     assertEquals(WorktreeScan.dirs(repo).all, List(repo))
 
   test("worktrees are ranked by when each last recorded an attempt"):

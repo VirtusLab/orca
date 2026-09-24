@@ -120,36 +120,36 @@ private[shell] object SessionPicker:
 
   /** `★ <session> — latest (stage: <stage>) [<harness>] on <branch>`, or `(no
     * stage yet)` when the durable session hasn't entered a stage (rare — custom
-    * flows only); the branch segment is omitted when the attempt recorded none.
+    * flows only); the tail as in [[rowTail]].
     */
   private def primaryLabel(selection: SessionSelection): String =
     val name = SessionNaming.displayName(selection.session)
     val stage = selection.session.stage.fold("no stage yet")(s => s"stage: $s")
-    val harness = AgentSpec.harnessNameFor(selection.session.harness)
-    val crashedSuffix = if selection.crashed then " (crashed)" else ""
-    s"★ $name — latest ($stage) [$harness]${onBranch(selection)}$crashedSuffix"
+    s"★ $name — latest ($stage) ${rowTail(selection, marker = "")}"
 
   /** `<session> — stage <stage> [<harness>] (earlier occurrence) on <branch>`,
-    * shown only when the picker is expanded; the branch segment as in
-    * [[primaryLabel]].
+    * shown only when the picker is expanded; the tail as in [[rowTail]].
     */
   private def earlierLabel(selection: SessionSelection): String =
     val name = SessionNaming.displayName(selection.session)
     val stage = selection.session.stage.fold("")(s => s" — stage $s")
-    val harness = AgentSpec.harnessNameFor(selection.session.harness)
-    val crashedSuffix = if selection.crashed then " (crashed)" else ""
-    s"$name$stage [$harness] (earlier occurrence)${onBranch(selection)}$crashedSuffix"
+    s"$name$stage ${rowTail(selection, marker = " (earlier occurrence)")}"
 
   /** `<agent> (<role>) — stage <stage> [<harness>] (ephemeral) on <branch>`,
-    * omitting the role/stage/branch segments when absent; shown only when the
-    * picker is expanded.
+    * omitting the role/stage segments when absent; the tail as in [[rowTail]].
+    * Shown only when the picker is expanded.
     */
   private def ephemeralLabel(selection: SessionSelection): String =
     val role = selection.session.role.fold("")(r => s" ($r)")
     val stage = selection.session.stage.fold("")(s => s" — stage $s")
-    val harness = AgentSpec.harnessNameFor(selection.session.harness)
-    val crashedSuffix = if selection.crashed then " (crashed)" else ""
-    s"${selection.session.agent}$role$stage [$harness] (ephemeral)${onBranch(selection)}$crashedSuffix"
+    s"${selection.session.agent}$role$stage ${rowTail(selection, marker = " (ephemeral)")}"
 
-  private def onBranch(selection: SessionSelection): String =
-    selection.manifest.branch.fold("")(b => s" on $b")
+  /** `[<harness>]<marker> on <branch> (crashed)`, the end every row shares. The
+    * branch segment is omitted when the attempt recorded none, and the crashed
+    * marker shows only for a crashed attempt.
+    */
+  private def rowTail(selection: SessionSelection, marker: String): String =
+    val harness = AgentSpec.harnessNameFor(selection.session.backend)
+    val branch = selection.manifest.branch.fold("")(b => s" on $b")
+    val crashed = if selection.crashed then " (crashed)" else ""
+    s"[$harness]$marker$branch$crashed"

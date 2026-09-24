@@ -207,7 +207,7 @@ class OrcaOverridesTest extends munit.FunSuite:
             usage(10L, 5L),
             role = None,
             turn = 1,
-            session = None
+            conversationKey = "c"
           )
         )
     // TerminalInteraction ignores TokensUsed; CostTracker should accumulate.

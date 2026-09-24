@@ -37,11 +37,11 @@ Procedure:
 5. For every command, cite the repo-relative file that justifies it
    (evidencePath) and optionally the key/task/line (evidenceNote)
    (required when rule 4's exception applies). If you cannot cite a
-   file, do not propose the command — leave the task unset with a
-   one-line reason. An unset task with an accurate reason is a correct,
+   file, do not propose the command — leave the gate unset with a
+   one-line reason. An unset gate with an accurate reason is a correct,
    complete answer; never guess to fill a slot.
 6. A repo with several stacks (e.g. a Rust core and a JS frontend)
-   contributes its commands to the relevant tasks.
+   contributes its commands to the relevant gates.
 7. Ignore orca flow scripts (.sc files depending on the `orca` library) —
    they drive this automation and are not part of the project's stack.
 
@@ -53,8 +53,8 @@ build file that selects the toolchain is that trace.
 The example below uses a FICTIONAL build tool, only to show the output
 shape and the lint-vs-test distinction — derive real values from the
 repository. Everything lives under the single top-level "result" key.
-Per task, always emit both fields: a task with commands has
-"unsetReason": null; an unset task has "commands": [] and a one-line
+Per gate, always emit both fields: a gate with commands has
+"unsetReason": null; an unset gate has "commands": [] and a one-line
 reason. Likewise every command carries "evidenceNote" — null when you
 have nothing to add beyond the evidence file itself:
 

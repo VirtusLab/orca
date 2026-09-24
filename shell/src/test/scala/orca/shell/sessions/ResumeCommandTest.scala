@@ -7,10 +7,10 @@ import orca.shell.sessions.ManifestFixtures.ephemeral
 class ResumeCommandTest extends munit.FunSuite:
 
   private def session(
-      harness: BackendTag,
+      backend: BackendTag,
       wireId: Option[String]
   ): ManifestSession =
-    ephemeral(harness = harness, wireId = wireId)
+    ephemeral(backend = backend, wireId = wireId)
 
   /** [[ResumeCommand.build]] with lookup stubs that fail the test if invoked —
     * each test overrides only the lookup its harness actually reads.

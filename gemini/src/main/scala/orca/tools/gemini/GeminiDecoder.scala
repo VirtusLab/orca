@@ -1,6 +1,6 @@
 package orca.tools.gemini
 
-import orca.agents.{BackendTag, Model, StructuredOutputMode, WireSessionId}
+import orca.agents.{BackendTag, Model, WireSessionId}
 import orca.events.{TurnDebit, Usage}
 import orca.backend.{
   AgentResult,
@@ -215,7 +215,6 @@ private[gemini] object GeminiTurn:
       DecodedTurnSpec(
         openingPrompt = openingPrompt,
         outputSchema = outputSchema,
-        structuredOutputMode = StructuredOutputMode.RawText,
         askUser = askUser
       ),
       GeminiDecoder

@@ -16,7 +16,7 @@ object LockHolder:
   /** Which lock a holder takes. */
   enum Lock:
     case Workdir(workDir: os.Path)
-    case Worktree(mainCheckout: os.Path, task: String)
+    case Worktree(mainCheckout: os.Path, prompt: String)
 
   /** What a holder reports after trying its lock. */
   enum Outcome:
@@ -27,8 +27,8 @@ object LockHolder:
   def spawn(lock: Lock): os.SubProcess =
     val args = lock match
       case Lock.Workdir(workDir) => List(workDir.toString)
-      case Lock.Worktree(mainCheckout, task) =>
-        List(mainCheckout.toString, task)
+      case Lock.Worktree(mainCheckout, prompt) =>
+        List(mainCheckout.toString, prompt)
     os.proc(
       os.Path(System.getProperty("java.home")) / "bin" / "java",
       "-cp",
@@ -80,8 +80,8 @@ object LockHolder:
   def main(args: Array[String]): Unit =
     val lock = args.toList match
       case List(workDir) => Lock.Workdir(os.Path(workDir))
-      case List(mainCheckout, task) =>
-        Lock.Worktree(os.Path(mainCheckout), task)
+      case List(mainCheckout, prompt) =>
+        Lock.Worktree(os.Path(mainCheckout), prompt)
       case other => sys.error(s"unexpected arguments: $other")
     println(Ready)
     val _ = StdIn.readLine()
@@ -94,5 +94,5 @@ object LockHolder:
 
   private def hold(lock: Lock)(op: => Unit): Unit = lock match
     case Lock.Workdir(workDir) => FlowLock.workdirLocked(workDir)(op)
-    case Lock.Worktree(mainCheckout, task) =>
-      FlowLock.worktreeLocked(mainCheckout, RunKey.of(task))(op)
+    case Lock.Worktree(mainCheckout, prompt) =>
+      FlowLock.worktreeLocked(mainCheckout, RunKey.of(prompt))(op)

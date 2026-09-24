@@ -1,7 +1,7 @@
 package orca.backend
 
 import orca.AgentTurnFailed
-import orca.agents.{BackendTag, StructuredOutputMode, WireSessionId}
+import orca.agents.{BackendTag, WireSessionId}
 import orca.events.{TurnDebit, Usage}
 import orca.subprocess.{OsProcCliRunner, PipedCliProcess}
 import orca.testkit.ProcessProbe.{alive, awaitDead}
@@ -34,7 +34,9 @@ class DecodedTurnTeardownTest extends munit.FunSuite:
         Step.Settle(
           (),
           Nil,
-          Settled.Succeeded(AgentResult(WireSessionId("s"), "", Usage.empty))
+          Settled.Succeeded(
+            AgentResult(WireSessionId("s"), "", Usage.empty, model = None)
+          )
         )
       else Step.continue((), TurnEvent.AssistantTextDelta(line))
 
@@ -46,7 +48,6 @@ class DecodedTurnTeardownTest extends munit.FunSuite:
       DecodedTurnSpec(
         openingPrompt = None,
         outputSchema = None,
-        structuredOutputMode = StructuredOutputMode.RawText,
         askUser = AskUserChannel.Unavailable
       ),
       LineEchoing

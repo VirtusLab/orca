@@ -12,7 +12,8 @@ class AutonomousDrainTest extends munit.FunSuite:
   private val sampleResult = AgentResult[BackendTag.Codex.type](
     wireId = WireSessionId[BackendTag.Codex.type]("sid"),
     output = "out",
-    usage = Usage.empty
+    usage = Usage.empty,
+    model = None
   )
 
   test("drain walks every event before returning the result"):

@@ -108,7 +108,7 @@ class FlowLauncherTest extends munit.FunSuite:
     assertEquals(result.length, 11)
 
   test(
-    "argv rejects a blank task — the menu's task prompt should have re-prompted before this is ever called"
+    "argv rejects a blank prompt — the menu should have re-prompted before this is ever called"
   ):
     intercept[IllegalArgumentException](
       FlowLauncher.argv(

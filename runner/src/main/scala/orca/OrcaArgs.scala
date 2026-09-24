@@ -14,13 +14,13 @@ case class OrcaArgs(
     * to a flow child. A `branch` with a [[RunTarget.CurrentBranch]] target
     * renders an argv that `parse` refuses.
     *
-    * The task is positional unless it starts with `-`, which mainargs reads as
-    * a flag; then it is `--prompt=<text>`. A pin-honouring launch (ADR 0021 §2)
-    * runs a flow built against an older orca, whose parser knows only the
+    * The prompt is positional unless it starts with `-`, which mainargs reads
+    * as a flag; then it is `--prompt=<text>`. A pin-honouring launch (ADR 0021
+    * §2) runs a flow built against an older orca, whose parser knows only the
     * positional.
     */
   def toArgv: Seq[String] =
-    val taskArgv =
+    val promptArgv =
       if userPrompt.startsWith("-") then Seq(s"--prompt=$userPrompt")
       else Seq(userPrompt)
     val verboseArgv = if verbose then Seq("--verbose") else Nil
@@ -32,7 +32,7 @@ case class OrcaArgs(
         Seq("--skip-branch", "--keep-changes")
       case RunTarget.Worktree => Seq("--worktree")
     val branchArgv = branch.toList.flatMap(name => Seq("--branch", name.value))
-    taskArgv ++ verboseArgv ++ targetArgv ++ branchArgv
+    promptArgv ++ verboseArgv ++ targetArgv ++ branchArgv
 
 object OrcaArgs:
 
@@ -44,7 +44,7 @@ object OrcaArgs:
     for
       raw <- summon[ParserForClass[RawArgs]].constructEither(args.toList)
       checked <- raw.checked
-    yield checked.withTask(checked.givenTask.getOrElse(""))
+    yield checked.withPrompt(checked.givenPrompt.getOrElse(""))
 
   /** Overload for scala-cli flow scripts, whose top-level `args` is
     * `Array[String]`. Throws `OrcaFlowException` on a parse failure.

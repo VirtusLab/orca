@@ -13,7 +13,7 @@ import orca.tools.{
   * first use and reused after.
   *
   * The one place that derives the path. It is keyed on the run's [[RunKey]],
-  * like its progress log, so re-running the same task with `--worktree` lands
+  * like its progress log, so re-running the same prompt with `--worktree` lands
   * back in the worktree that holds that log, without anyone re-deriving where
   * that is. (The shell's resume relaunch does not use the flag at all — it runs
   * in the directory the log was found in.)
@@ -44,7 +44,7 @@ private[orca] object WorktreeRun:
     *   - git's own refusal of the create or of the branch step.
     *
     * Throws [[orca.OrcaFlowException]] while another live orca resolves the
-    * same task.
+    * same prompt.
     */
   def resolve(
       invokingDir: os.Path,
@@ -89,7 +89,7 @@ private[orca] object WorktreeRun:
     * place (`git clean -xdf` in the main checkout removes it and leaves the
     * worktree it hides), and off a detached HEAD — a create that got half way,
     * `add` having succeeded where the branch step did not. The run belongs on
-    * its own branch, which a re-run of the task finds ([[bindBranch]]).
+    * its own branch, which a re-run of the prompt finds ([[bindBranch]]).
     *
     * A resumed run works in the worktree without the worktree lock; it is on
     * its branch, so a concurrent `reuse` leaves it alone.
@@ -136,8 +136,8 @@ private[orca] object WorktreeRun:
         Left(s"could not create the worktree at $path: $message")
 
   /** Put the worktree on the branch named after the same run key, so a re-run
-    * of the task finds its own branch rather than a stranger's. Its refusals
-    * say the worktree exists — it does by then, and the next run finds it.
+    * of the prompt finds its own branch rather than a stranger's. Its refusals
+    * say the worktree exists — it does by then, and the next attempt finds it.
     */
   private def bindBranch(path: os.Path): Either[String, os.Path] =
     BranchName

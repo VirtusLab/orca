@@ -1,6 +1,6 @@
 package orca.backend
 
-import orca.agents.{BackendTag, StructuredOutputMode}
+import orca.agents.BackendTag
 import orca.backend.mcp.AskUserBridge
 import orca.util.{OrcaDebug, TerminalControl}
 import orca.{AgentTurnFailed, OrcaInteractiveCancelled}
@@ -73,8 +73,6 @@ private[orca] object DecodedTurn:
       reader: UnsupervisedFork[Outcome[B]]
   ) extends LiveTurn[B]:
     def outputSchema: Option[String] = spec.outputSchema
-    override def structuredOutputMode: StructuredOutputMode =
-      spec.structuredOutputMode
     def canAskUser: Boolean = spec.askUser.isAvailable
 
     val events: Iterator[TurnEvent] =

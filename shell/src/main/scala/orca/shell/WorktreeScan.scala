@@ -23,7 +23,7 @@ private[shell] case class ScanDirs(own: os.Path, worktrees: List[os.Path]):
 private[shell] object WorktreeScan:
 
   /** How many worktrees are scanned besides the shell's own directory. Orca
-    * never removes a worktree and makes one per distinct task, so
+    * never removes a worktree and makes one per distinct prompt, so
     * `.orca/worktrees/` grows for the life of the repository — while these
     * scans run on every menu redraw. Matches `AttemptManifestWriter`'s own
     * kept-attempts budget.
@@ -31,7 +31,7 @@ private[shell] object WorktreeScan:
     * A worktree past the cap is invisible to both scans: its sessions do not
     * reach `continue`, and an interrupted run in it is not offered. Ranked by
     * when each last recorded a run, so what drops out is what nobody has
-    * touched in the last twenty tasks.
+    * touched in the last twenty runs.
     */
   private[shell] val MaxScannedWorktrees = 20
 
@@ -52,8 +52,8 @@ private[shell] object WorktreeScan:
     *
     * Deliberately NOT every worktree git reports. A progress log is committed
     * repo content, so a worktree checked out to review someone else's branch
-    * carries that branch's log — and its `userPrompt` is the task text the
-    * resume offer would hand an agent verbatim.
+    * carries that branch's log — and its `userPrompt` is the prompt the resume
+    * offer would hand an agent verbatim.
     */
   def dirs(workDir: os.Path): ScanDirs =
     val root = OrcaDir.worktreesPath(workDir)
