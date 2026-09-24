@@ -29,9 +29,9 @@ final class Chat[B <: BackendTag] private[orca] (
   /** One free-text turn continuing this conversation. */
   def run(
       prompt: String,
-      emitPrompt: Boolean = true
+      promptEvent: PromptEvent = PromptEvent.Emit
   )(using InStage): String =
-    agent.runText(prompt, id, sessionKey = None, emitPrompt = emitPrompt)
+    agent.runText(prompt, id, sessionKey = None, promptEvent = promptEvent)
 
   /** Fix the output type for structured turns continuing this conversation —
     * both `autonomous` and `interactive` modes, mirroring `agent.resultAs[O]`.
@@ -50,13 +50,13 @@ final class ChatCall[B <: BackendTag, O] private[orca] (
   object autonomous:
     def run[I: AgentInput](
         input: I,
-        emitPrompt: Boolean = true
+        promptEvent: PromptEvent = PromptEvent.Emit
     )(using InStage): O =
       call.autonomous.runWithSession(
         input,
         id,
         sessionKey = None,
-        emitPrompt = emitPrompt
+        promptEvent = promptEvent
       )
 
   object interactive:

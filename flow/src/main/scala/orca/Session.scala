@@ -9,7 +9,8 @@ import orca.agents.{
   WireSessionId,
   AgentInput,
   Announce,
-  JsonData
+  JsonData,
+  PromptEvent
 }
 import orca.backend.{Dispatch, ResumeOrigin}
 import orca.events.OrcaEvent
@@ -77,7 +78,7 @@ final class FlowSession[B <: BackendTag] private[orca] (
       effectivePrompt(agent, id, prompt),
       id,
       sessionKey = Some(key),
-      emitPrompt = true
+      promptEvent = PromptEvent.Emit
     )
     persistResumeWireId(agent, id)
     output
@@ -111,12 +112,11 @@ final class FlowSessionCall[B <: BackendTag, O] private[orca] (
     * seed/probe/persist protocol as [[FlowSession.run]] to the serialized
     * `input`.
     *
-    * `emitPrompt` gates the `UserPrompt` event: a structured `input` serializes
-    * to (potentially large) JSON, so callers producing near-identical inputs in
-    * quick succession (e.g. a per-task fix turn) can pass `false` to suppress
-    * it.
+    * A structured `input` serializes to (potentially large) JSON, so callers
+    * producing near-identical inputs in quick succession (e.g. a per-task fix
+    * turn) can pass `PromptEvent.Suppress`.
     */
-  def run[I](input: I, emitPrompt: Boolean = true)(using
+  def run[I](input: I, promptEvent: PromptEvent = PromptEvent.Emit)(using
       fc: FlowControl,
       ai: AgentInput[I],
       ev: InStage,
@@ -128,7 +128,7 @@ final class FlowSessionCall[B <: BackendTag, O] private[orca] (
         effectivePrompt(agent, id, serialized),
         id,
         sessionKey = Some(key),
-        emitPrompt = emitPrompt
+        promptEvent = promptEvent
       )
     persistResumeWireId(agent, id)
     output

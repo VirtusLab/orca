@@ -71,8 +71,10 @@ final class Agent[B <: BackendTag] private (
     * within the run, mint [[chat]]; to survive a crash/resume, use
     * `agent.session(name, seed)` (a durable `orca.FlowSession`).
     */
-  def run(prompt: String, emitPrompt: Boolean = true)(using InStage): String =
-    runText(prompt, SessionId.fresh[B], sessionKey = None, emitPrompt)
+  def run(prompt: String, promptEvent: PromptEvent = PromptEvent.Emit)(using
+      InStage
+  ): String =
+    runText(prompt, SessionId.fresh[B], sessionKey = None, promptEvent)
 
   /** Start a fresh EPHEMERAL multi-turn conversation — see [[Chat]]. In-run
     * only: nothing is persisted, so a crash/resume starts over. Needs only
@@ -111,11 +113,9 @@ final class Agent[B <: BackendTag] private (
       agentRole = role
     )
 
-  /** Sibling running on `config` — replaces every field, including a
-    * [[withTools]] restriction or claude's `withNetworkTools`; to change one
-    * field, use its builder.
-    */
-  def withConfig(newConfig: AgentConfig): Agent[B] = copy(config = newConfig)
+  /** Sibling whose config pins [[AgentConfig.autoApprove]] to `autoApprove`. */
+  def withAutoApprove(autoApprove: AutoApprove): Agent[B] =
+    copy(config = config.copy(autoApprove = autoApprove))
 
   def withSystemPrompt(prompt: String): Agent[B] =
     copy(config = config.copy(systemPrompt = Some(prompt)))
@@ -178,9 +178,16 @@ final class Agent[B <: BackendTag] private (
   def withSelfManagedGit: Agent[B] =
     copy(config = config.copy(selfManagedGit = true))
 
+  /** Sibling whose config pins [[AgentConfig.networkTools]] to `tools`.
+    * Backends that support network tools expose it as their own validated
+    * builder.
+    */
+  private[orca] def withNetworkToolSet(tools: NetworkTools): Agent[B] =
+    copy(config = config.copy(networkTools = Some(tools)))
+
   /** The free-text engine behind [[run]], [[Chat.run]] and `FlowSession.run`:
     * runs `prompt` against `session`, continuing it if the backend already has
-    * it this run. `emitPrompt = false` suppresses the `OrcaEvent.UserPrompt`;
+    * it this run. `promptEvent` decides whether `OrcaEvent.UserPrompt` fires;
     * `sessionKey` is the durable key this session was minted under, carried
     * onto `OrcaEvent.SessionCommitted`.
     */
@@ -188,10 +195,10 @@ final class Agent[B <: BackendTag] private (
       prompt: String,
       session: SessionId[B],
       sessionKey: Option[SessionKey],
-      emitPrompt: Boolean
+      promptEvent: PromptEvent
   )(using InStage): String =
     backend.checkNotClosed()
-    if emitPrompt then events.onEvent(OrcaEvent.UserPrompt(prompt))
+    promptEvent.fire(events, prompt)
     val accounting = turnAccounting(session, sessionKey)
     val result =
       textTurn(

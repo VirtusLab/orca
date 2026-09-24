@@ -60,13 +60,13 @@ final class AgentCall[B <: BackendTag, O] private[orca] (
       input: I,
       session: SessionId[B],
       sessionKey: Option[SessionKey],
-      emitPrompt: Boolean
+      promptEvent: PromptEvent
   ): O =
     // `resultAs[O]` refuses construction on a closed agent, but a gateway
     // built before the flow ended and stored across the close boundary would
     // still reach the backend — this per-call check closes that gap.
     backend.checkNotClosed()
-    runAutonomousWithRetry(input, session, sessionKey, emitPrompt)
+    runAutonomousWithRetry(input, session, sessionKey, promptEvent)
 
   /** `agent` follows the same rule as the turn's other display events: named on
     * an autonomous turn, `None` on an interactive one.
@@ -94,7 +94,7 @@ final class AgentCall[B <: BackendTag, O] private[orca] (
       input: I,
       session: SessionId[B],
       sessionKey: Option[SessionKey],
-      emitPrompt: Boolean
+      promptEvent: PromptEvent
   )(using ai: AgentInput[I]): O =
     val serialized = ai.serialize(input)
     val initialPrompt = prompts.autonomous(
@@ -106,7 +106,7 @@ final class AgentCall[B <: BackendTag, O] private[orca] (
 
     // Surface `serialized` (the human-readable input), not `initialPrompt` (the
     // schema-wrapped form the agent sees): listeners want the question.
-    if emitPrompt then events.onEvent(OrcaEvent.UserPrompt(serialized))
+    promptEvent.fire(events, serialized)
 
     val accounting = turnAccounting(session, sessionKey)
 
@@ -140,7 +140,7 @@ final class AgentCall[B <: BackendTag, O] private[orca] (
               f.parserError,
               backend.structuredOutputMode
             )
-          if emitPrompt then events.onEvent(OrcaEvent.UserPrompt(corrective))
+          promptEvent.fire(events, corrective)
           corrective
         case None => initialPrompt
       val result =
@@ -253,21 +253,20 @@ final class AgentCall[B <: BackendTag, O] private[orca] (
 final class AutonomousAgentCall[B <: BackendTag, O] private[agents] (
     call: AgentCall[B, O]
 ):
-  /** One ephemeral structured turn on a fresh conversation. When `emitPrompt`
-    * is true (the default), fires an `OrcaEvent.UserPrompt` carrying the
-    * human-readable form of `input`; internal callers producing near-identical
-    * prompts in quick succession pass `false` to keep the event log focused.
-    * Other events (`ToolUse`, `UnpricedTurn`, etc.) fire regardless.
+  /** One ephemeral structured turn on a fresh conversation. The
+    * `OrcaEvent.UserPrompt` it fires carries the human-readable form of
+    * `input`; internal callers producing near-identical prompts in quick
+    * succession pass `PromptEvent.Suppress` to keep the event log focused.
     */
   def run[I: AgentInput](
       input: I,
-      emitPrompt: Boolean = true
+      promptEvent: PromptEvent = PromptEvent.Emit
   )(using orca.InStage): O =
     runWithSession(
       input,
       SessionId.fresh[B],
       sessionKey = None,
-      emitPrompt = emitPrompt
+      promptEvent = promptEvent
     )
 
   /** The session-threading door behind [[run]] and [[Chat]]: runs `input`
@@ -281,9 +280,9 @@ final class AutonomousAgentCall[B <: BackendTag, O] private[agents] (
       input: I,
       session: SessionId[B],
       sessionKey: Option[SessionKey],
-      emitPrompt: Boolean
+      promptEvent: PromptEvent
   )(using orca.InStage): O =
-    call.runAutonomous(input, session, sessionKey, emitPrompt)
+    call.runAutonomous(input, session, sessionKey, promptEvent)
 
 /** Interactive structured calls — open a conversation the user can drive
   * (clarifying questions, refinements) before the agent produces the final
