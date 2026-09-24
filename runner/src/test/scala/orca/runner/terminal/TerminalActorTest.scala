@@ -94,7 +94,7 @@ class TerminalActorTest extends munit.FunSuite:
       val releaseFirst = new CountDownLatch(1)
 
       val f1 = fork:
-        output.prompt: () =>
+        output.prompt("first?"): () =>
           events.add("first-start")
           firstStarted.countDown()
           releaseFirst.await()
@@ -117,7 +117,7 @@ class TerminalActorTest extends munit.FunSuite:
       // bracket has fully closed — asserted structurally via `events`
       // (deterministic: f2 blocks on the semaphore, not on timing).
       val f2 = fork:
-        output.prompt: () =>
+        output.prompt("second?"): () =>
           events.add("second-start")
           "B"
 
@@ -143,6 +143,43 @@ class TerminalActorTest extends munit.FunSuite:
       )
       output.close()
 
+  test("nothing logged concurrently lands between a prompt's header and read"):
+    val buf = new ByteArrayOutputStream()
+    val headerPrinting = new CountDownLatch(1)
+    val releaseHeader = new CountDownLatch(1)
+    // Blocking the header's print holds the actor between the prompt's header
+    // and its suspend — where a concurrent line must not slip in.
+    val ps = new PrintStream(buf):
+      override def print(s: String): Unit =
+        super.print(s)
+        if s.contains("first?") then
+          headerPrinting.countDown()
+          releaseHeader.await()
+    supervised:
+      val output = TerminalActor.start(
+        ps,
+        useColor = false,
+        animated = false,
+        workDir = None
+      )
+      val prompting = fork:
+        output.prompt("first?")(() => buf.toString)
+      headerPrinting.await()
+      val loggingThread = new CompletableFuture[Thread]()
+      val logging = fork:
+        val _ = loggingThread.complete(Thread.currentThread())
+        output.log("event")
+      // Parked on its ask: the line is queued behind the blocked print.
+      while loggingThread.get().getState != Thread.State.WAITING do
+        Thread.onSpinWait()
+      releaseHeader.countDown()
+      val seenByRead = prompting.join()
+      logging.join()
+      assert(
+        !seenByRead.contains("event"),
+        s"the read must sit directly under its header; out: $seenByRead"
+      )
+
   test("a prompt interrupted while the actor runs its suspend resumes output"):
     val buf = new ByteArrayOutputStream()
     val inSuspend = new CountDownLatch(1)
@@ -167,7 +204,8 @@ class TerminalActorTest extends munit.FunSuite:
       val promptingThreadRef = new CompletableFuture[Thread]()
       val prompting = fork:
         val _ = promptingThreadRef.complete(Thread.currentThread())
-        try output.prompt(() => fail("the suspend-ask must be interrupted"))
+        try
+          output.prompt("?")(() => fail("the suspend-ask must be interrupted"))
         catch case _: InterruptedException => ()
       inSuspend.await()
       val promptingThread = promptingThreadRef.get()

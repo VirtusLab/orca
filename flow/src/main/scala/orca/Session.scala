@@ -38,11 +38,13 @@ import orca.util.PromptResource
   */
 final class FlowSession private[orca] (
     /** An EPHEMERAL [[orca.agents.Chat]] on this session's conversation — the
-      * way to continue it from inside a fork, where [[run]] and [[resultAs]]
-      * are banned. Interactive turns work here too. Chat turns forfeit seeding,
-      * the interrupted-attempt notice and wire-id persistence: they are in-run
-      * only and never write back to the session store, so on crash/resume the
-      * durable side finds nothing recorded for them.
+      * way to continue it from a fork (where [[run]] and [[resultAs]] are
+      * banned) or interactively. Chat turns forfeit seeding, the
+      * interrupted-attempt notice and wire-id persistence: they are in-run only
+      * and never write back to the session store, so on crash/resume the
+      * durable side finds nothing recorded for them. Since a chat cannot seed,
+      * its turns fail until the backend holds the conversation: [[run]] the
+      * session on the flow thread first (again after a resume that lost it).
       */
     val chat: Chat[?],
     /** The key this session was minted under. Carried onto every turn's
@@ -87,8 +89,9 @@ final class FlowSession private[orca] (
 
 /** Structured-durable gateway for a [[FlowSession]] (obtained via
   * [[FlowSession.resultAs]]). Fixes the output type `O`, and exposes a single
-  * `run` (no `autonomous`/`interactive` split): interactive durable sessions
-  * are deliberately not offered — see the [[FlowSession]] class scaladoc.
+  * autonomous `run`: a turn a human steers cannot be replayed from the seed on
+  * resume. An interactive turn on a session's conversation goes through
+  * [[FlowSession.chat]] after a [[FlowSession.run]].
   */
 final class FlowSessionCall[O] private[orca] (chat: Chat[?], key: SessionKey)(
     using

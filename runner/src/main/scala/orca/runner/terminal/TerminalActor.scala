@@ -16,9 +16,9 @@ import scala.util.control.NonFatal
   * Every call is an `ask`, per the `OrcaListener` contract. The scope must
   * outlive every caller.
   *
-  * `promptGate` (fair) is held from before the suspend-ask until after the
-  * resume-ask, so a second `prompt` blocks until the first transaction — drain
-  * and redraw included — has fully closed.
+  * `promptGate` (fair) is held from before the header-and-suspend ask until
+  * after the resume-ask, so a second `prompt` blocks until the first
+  * transaction — drain and redraw included — has fully closed.
   */
 private[terminal] final class TerminalActor private (
     actor: ActorRef[TerminalActor.Owned]
@@ -40,13 +40,16 @@ private[terminal] final class TerminalActor private (
   def log(text: String): Unit = actor.ask(_.output.log(text))
   def setStatus(label: Option[String]): Unit =
     actor.ask(_.output.setStatus(label))
-  def prompt[A](readUser: () => A): A =
+  def prompt[A](header: String)(readUser: () => A): A =
     promptGate.acquire()
     try
       // An interrupted ask still leaves the suspend queued on the actor, so the
       // ask sits under the `finally`; resume is a no-op when not suspended.
+      // Header and suspend are one ask, so no event lands between them.
       try
-        actor.ask(_.output.suspend())
+        actor.ask: owned =>
+          owned.output.log(header)
+          owned.output.suspend()
         readUser()
       finally actor.ask(_.output.resume())
     finally promptGate.release()

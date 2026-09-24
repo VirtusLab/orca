@@ -11,6 +11,7 @@ import orca.backend.{
 import orca.agents.{
   Agent,
   BackendTag,
+  ConversationNotHeld,
   JsonData,
   SessionId,
   SessionKey,
@@ -1044,3 +1045,30 @@ class FlowSessionTest extends FunSuite:
         .resultAs[StubResult]
         .run("continue")
     assertEquals(agent.capturedPrompt, Some("continue"))
+
+  // ── tests: session.chat ─────────────────────────────────────────────────────
+
+  test("a chat turn on a session never run this attempt is refused"):
+    val agent = new StubAgentForSeeded(existsResult = false)
+    val _ = intercept[ConversationNotHeld]:
+      flowSession(agent).chat.run("follow-up")
+    assertEquals(agent.capturedPrompt, None)
+
+  test("a chat turn after a session run continues its conversation"):
+    val agent = new StubAgentForSeeded(existsResult = false)
+    val session = flowSession(agent)
+    val _ = session.run("kick off")(using makeControl(sessions = Nil))
+    val _ = session.chat.run("follow-up")
+    assertEquals(agent.capturedPrompt, Some("follow-up"))
+    assert(
+      agent.capturedDispatch.exists(_.isInstanceOf[Dispatch.Resume[?]]),
+      s"got: ${agent.capturedDispatch}"
+    )
+
+  test("a chat turn on a session whose conversation was lost is refused"):
+    val agent = new StubAgentForSeeded(
+      existsResult = false,
+      durability = StubDurability.Rehydrated
+    )
+    val _ = intercept[ConversationNotHeld]:
+      flowSession(agent).chat.run("follow-up")

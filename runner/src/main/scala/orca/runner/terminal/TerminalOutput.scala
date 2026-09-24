@@ -15,9 +15,10 @@ import scala.util.control.NonFatal
   * interface, synchronous, no actor or animator fork.
   *
   * **Prompt transaction.** [[prompt]] is the only way to read from the
-  * terminal: it clears the status row, buffers concurrent `log` calls, runs
-  * `readUser`, then drains and redraws — all as one bracketed unit. Concurrent
-  * prompts run one at a time.
+  * terminal: it logs the prompt's header, clears the status row, buffers
+  * concurrent `log` calls, runs `readUser`, then drains and redraws — all as
+  * one bracketed unit. Concurrent prompts run one at a time, so a header always
+  * sits directly above the read it belongs to.
   */
 private[terminal] trait TerminalOutput:
   /** Append a (possibly multi-line) chunk to the event log. Trailing newline is
@@ -28,11 +29,11 @@ private[terminal] trait TerminalOutput:
   /** Show / relabel / hide the status row. `None` hides it. */
   def setStatus(label: Option[String]): Unit
 
-  /** Run `readUser` as the only writer of the terminal — see the class
-    * scaladoc's "Prompt transaction". Drains and redraws even if `readUser`
-    * throws.
+  /** Log `header` (what the user is asked about), then run `readUser` as the
+    * only writer of the terminal — see the class scaladoc's "Prompt
+    * transaction". Drains and redraws even if `readUser` throws.
     */
-  def prompt[A](readUser: () => A): A
+  def prompt[A](header: String)(readUser: () => A): A
 
   /** Flush pending writes, clear the status row, and release the renderer.
     * Calls arriving after close are still processed against the cleared state:
@@ -126,7 +127,8 @@ private[terminal] class TerminalOutputState(
     * (production serialises one level up in [[TerminalActor]]), so a plain
     * `suspend`/`finally resume` bracket suffices.
     */
-  def prompt[A](readUser: () => A): A =
+  def prompt[A](header: String)(readUser: () => A): A =
+    log(header)
     suspend()
     try readUser()
     finally resume()

@@ -615,21 +615,35 @@ stages.
 
 ### Sessions
 
-Three rungs, by how long the conversation must live — the handle you hold tells
-you which one you're on:
+Every way to talk to an agent, by what the conversation must do:
 
-| Call site | Kind | Survives crash/resume | Runs in a fork |
-|---|---|---|---|
-| `agent.run(prompt)` | one-shot | no | yes |
-| `agent.chat()` → `chat.run(prompt)` | ephemeral multi-turn | no | yes |
-| `agent.session(name, seed)` → `session.run(prompt)` | durable | yes (resumable identity; re-seeded if the backend lost the conversation) | no |
+| Call | Conversation | Survives crash/resume | Mode | Output | Needs | In a fork |
+|---|---|---|---|---|---|---|
+| `agent.run(prompt)` | new, one turn | no | autonomous | text | `InStage` | yes |
+| `agent.resultAs[O].{autonomous,interactive}.run(input)` | new, one turn | no | both | `O` | `InStage` | yes* |
+| `agent.chat()` → `chat.run(prompt)` / `chat.resultAs[O].{autonomous,interactive}.run(input)` | new, then continued by every turn | no | both | text or `O` | `InStage` | yes* |
+| `agent.session(name, seed)` → `session.run(prompt)` / `session.resultAs[O].run(input)` | named; continued, or re-seeded if lost | yes | autonomous | text or `O` | `FlowControl`, `InStage`, `WorkspaceWrite` | no |
+| `session.chat` → as `Chat` | the session's; refused while the backend doesn't hold it (never run, or lost on resume) | no (turns not recorded) | both | text or `O` | `InStage` | yes* |
+| `Plan.{autonomous,interactive}.*` → `Sessioned`; `.reviewed()`, `.chat` | new planning conversation, continued by `.reviewed()` and `.chat` | no | as named | `O` | `FlowContext`, `InStage` | yes* |
+| `reviewAndFixLoop` / `reviewThenFix` | new reviewer chats; continues `coderSession` | the coder session does | autonomous | findings | `FlowControl`, `InStage`, `WorkspaceWrite` | no |
+| `lint(commands, agent)` | new (or continues a `Lint.summariser`) | no | autonomous | `ReviewResult` (`LintReport` with a summariser) | `FlowContext`, `InStage` | yes |
 
-The rule: **name + seed ⇒ durable; anonymous ⇒ gone on crash.** Structured
-output mirrors it (`agent.resultAs[O].{autonomous,interactive}.run(input)`,
-`chat.resultAs[O]...`, `session.resultAs[O].run(input)`), and `interactive`
-exists only on the ephemeral rungs — a live human steering a turn can't be
-replayed from a seed, so durable interactive sessions don't exist by
-construction.
+\* Interactive turns share your terminal: run them one at a time, never from
+parallel forks.
+
+Use:
+
+- **`agent.run` / `agent.resultAs[O]`** for a one-shot question.
+- **`agent.chat()`** for follow-ups within this attempt, including inside forks
+  (each fork mints its own).
+- **`agent.session(name, seed)`**, on the flow thread, for work that edits the
+  tree and must pick up after a crash.
+- **`session.chat`** to continue a durable conversation from a fork, once the
+  session has run on the flow thread (a chat can't seed it).
+- **`resultAs[O].interactive`** on an agent or a chat when a human steers the
+  turn. `session.run` has no interactive mode, since a steered turn can't be
+  replayed from a seed; steer a session's conversation through `session.chat`
+  after it has run.
 
 - **Durable — `agent.session(name, seed)`.** A get-or-create keyed by the
   `name` and the stage the call sits in, returning a `FlowSession` handle that
@@ -655,8 +669,7 @@ construction.
   need only the shared `InStage` capability, so chats work inside a
   `Par.mapUnordered` fork: parallel reviewers each holding a multi-turn
   conversation is the canonical use. `session.chat` is a durable session's
-  conversation as an ephemeral chat — the escape hatch for follow-ups from a
-  fork (turns are not persisted; one live continuation at a time).
+  conversation as an ephemeral chat (one live continuation at a time).
 
 ```scala
 val session = agent.session("implementer", seed = plan.brief)
@@ -988,7 +1001,8 @@ results.
 - **`orca.plan.Sessioned(chat, value)`** — every `Plan.{autonomous,
   interactive}.*` operation returns one: the result paired with the (ephemeral)
   `Chat` that produced it, so the caller can continue that conversation in-run
-  or `.value` it and start fresh.
+  or `.value` it and start fresh. Only the library builds one; destructure it
+  with `val Sessioned(chat, plan) = ...`.
 - **`orca.plan.Verdict[A]`** — `Verdict.Proceed(value)` or
   `Verdict.Rejection(kind, body)` (kind ∈ Question / Critique / Rebuff).
   Returned by `assessThenPlan` as `Verdict[Plan]`.
