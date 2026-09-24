@@ -11,7 +11,7 @@ import orca.agents.{
 import orca.backend.{
   AgentBackend,
   AgentResult,
-  Conversation,
+  LiveTurn,
   IdScheme,
   SessionSupport,
   TurnRequest
@@ -41,8 +41,8 @@ abstract class ScriptedBackend[B <: BackendTag & Singleton](
 
   override protected[orca] def open(turn: TurnRequest[B])(using
       Ox
-  ): Conversation[B] =
-    new ScriptedConversation(Nil, Right(reply(turn)), turn.outputSchema)
+  ): LiveTurn[B] =
+    new ScriptedTurn(Nil, Right(reply(turn)), turn.outputSchema)
 
 object ScriptedBackend:
   /** A backend answering every turn with `answer(turn)`'s output. */

@@ -173,15 +173,15 @@ class PiBackendTest extends munit.FunSuite:
     // The conversation forks its workers into the surrounding Ox scope, so it
     // must be created AND consumed within the same `supervised` block.
     ox.supervised:
-      val conv = OpenTurn.interactive(backend)(
+      val live = OpenTurn.interactive(backend)(
         "q",
         sid,
         displayPrompt = "q",
         AgentConfig().copy(tools = ToolSet.ReadOnly),
         outputSchema = Some("{}")
       )
-      assert(conv.canAskUser)
-      assertEquals(conv.outputSchema, Some("{}"))
+      assert(live.canAskUser)
+      assertEquals(live.outputSchema, Some("{}"))
 
       val args = runner.calls.head
       assert(
@@ -190,8 +190,8 @@ class PiBackendTest extends munit.FunSuite:
       )
       assert(args.contains("--extension"), args)
 
-      val _ = conv.events.toList
-      val _ = conv.awaitResult()
+      val _ = live.events.toList
+      val _ = live.awaitResult()
 
   test(
     "interactive system prompt file contains configured prompt, hint, and standing rules"
@@ -204,7 +204,7 @@ class PiBackendTest extends munit.FunSuite:
     // must be created AND consumed within the same `supervised` block; the
     // temp files go when that scope ends.
     val (promptFile, extensionFile) = ox.supervised:
-      val conv = OpenTurn.interactive(backend)(
+      val live = OpenTurn.interactive(backend)(
         "q",
         sid,
         displayPrompt = "q",
@@ -233,8 +233,8 @@ class PiBackendTest extends munit.FunSuite:
         """{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"done"}]}}"""
       )
       process.enqueueStdout("""{"type":"agent_end","messages":[]}""")
-      val _ = conv.events.toList
-      val _ = conv.awaitResult()
+      val _ = live.events.toList
+      val _ = live.awaitResult()
       (promptFile, extensionFile)
     assert(!os.exists(promptFile))
     assert(!os.exists(extensionFile))

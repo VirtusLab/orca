@@ -381,7 +381,7 @@ class FlowSessionTest extends FunSuite:
     )
 
   test(
-    "carried-over conversation: the notice is said once, not on every turn"
+    "carried-over live: the notice is said once, not on every turn"
   ):
     // The fixer drives one session for several turns inside a stage; from the
     // second turn the uncommitted edits in the tree are this run's own.

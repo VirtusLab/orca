@@ -6,8 +6,8 @@ import orca.backend.StreamSource
   * (session create, prompt, ask_user/permission replies) and the `GET /event`
   * SSE stream as a [[StreamSource]].
   *
-  * A small seam so [[OpencodeConversation]] and [[OpencodeBackend]] are
-  * testable without a live server — implemented over `java.net.http` in
+  * A small seam so [[OpencodeTurn]] and [[OpencodeBackend]] are testable
+  * without a live server — implemented over `java.net.http` in
   * [[OpencodeServer]], stubbed in tests.
   */
 private[opencode] trait OpencodeHttp:

@@ -1,7 +1,7 @@
 package orca.testkit
 
 import orca.agents.{AgentConfig, BackendTag, SessionId}
-import orca.backend.{AgentBackend, Conversation, ConversationMode, TurnRequest}
+import orca.backend.{AgentBackend, LiveTurn, TurnMode, TurnRequest}
 import orca.events.OrcaListener
 import ox.Ox
 
@@ -16,13 +16,13 @@ object OpenTurn:
       displayPrompt: String,
       config: AgentConfig,
       outputSchema: Option[String]
-  )(using Ox): Conversation[B] =
+  )(using Ox): LiveTurn[B] =
     backend.open(
       TurnRequest(
         prompt,
         session,
         backend.sessions.dispatchFor(session),
-        ConversationMode.Interactive(displayPrompt),
+        TurnMode.Interactive(displayPrompt),
         config,
         outputSchema,
         OrcaListener.noop

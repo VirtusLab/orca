@@ -39,7 +39,7 @@ private[gemini] object ToolStatus:
 /** One event parsed off gemini's stdout under `-p <prompt> --output-format
   * stream-json` (shape in
   * [[../../../adr/0015-gemini-stream-json-driver.md ADR 0015]]). Each variant
-  * carries only the fields the driver inspects. Unknown top-level types
+  * carries only the fields the decoder inspects. Unknown top-level types
   * collapse to [[Unknown]] so protocol drift doesn't crash the pipeline. Most
   * wire fields default so a renamed/missing key degrades gracefully; the
   * identity-critical exceptions are `init`'s `session_id` (required — a missing

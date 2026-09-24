@@ -14,7 +14,7 @@ import orca.agents.{
 }
 import orca.backend.{
   AskUserChannel,
-  Conversation,
+  LiveTurn,
   TurnRequest,
   AgentBackend,
   IdScheme,
@@ -77,8 +77,8 @@ private[orca] class PiBackend private[pi] (
 
   export PiArgs.enforcementCell
 
-  /** Pi has no native structured-output / JSON-schema flag (see
-    * [[PiConversation]]) — the reply text is the JSON value.
+  /** Pi has no native structured-output / JSON-schema flag (see [[PiTurn]]) —
+    * the reply text is the JSON value.
     */
   override def structuredOutputMode: StructuredOutputMode =
     StructuredOutputMode.RawText
@@ -88,7 +88,7 @@ private[orca] class PiBackend private[pi] (
 
   override protected[orca] def open(
       turn: TurnRequest[BackendTag.Pi.type]
-  )(using Ox): Conversation[BackendTag.Pi.type] =
+  )(using Ox): LiveTurn[BackendTag.Pi.type] =
     import turn.*
     val extraHint = Option.when(mode.isInteractive)(PiAskUserExtension.Hint)
     val systemPromptFile = writeSystemPrompt(config, extraHint)
@@ -109,7 +109,7 @@ private[orca] class PiBackend private[pi] (
       )
       cli.spawnPiped(args, cwd = workDir)
     } { process =>
-      PiConversation(
+      PiTurn(
         process = process,
         clientSession = session,
         prompt = prompt,

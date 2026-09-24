@@ -7,7 +7,7 @@ import orca.backend.{
   IdScheme,
   SessionSupport,
   TurnRequest,
-  ObservedConversation
+  ObservedTurn
 }
 import orca.events.{OrcaEvent, OrcaListener}
 import ox.supervised
@@ -34,7 +34,7 @@ class AgentCallSessionCommittedTest extends munit.FunSuite:
   private val stubInteraction: Interaction = new Interaction:
     val listeners: List[OrcaListener] = Nil
     def drive[B <: BackendTag](
-        conversation: ObservedConversation[B]
+        live: ObservedTurn[B]
     ): AgentResult[B] =
       throw new UnsupportedOperationException("test stub")
 
@@ -83,9 +83,9 @@ class AgentCallSessionCommittedTest extends munit.FunSuite:
     val drivingInteraction: Interaction = new Interaction:
       val listeners: List[OrcaListener] = Nil
       def drive[B <: BackendTag](
-          conversation: ObservedConversation[B]
+          live: ObservedTurn[B]
       ): AgentResult[B] =
-        conversation.drain(_ => ())
+        live.drain(_ => ())
     val seen = AtomicReference[List[OrcaEvent]](Nil)
     val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
     supervised:

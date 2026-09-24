@@ -149,14 +149,14 @@ class OpencodeBackendTest extends munit.FunSuite:
     supervised:
       val http = new FakeHttp(turn("ses_server1", "tool-calls", Nil))
       val backend = new OpencodeBackend(new FakeHandle(http))
-      val conv = OpenTurn.interactive(backend)(
+      val live = OpenTurn.interactive(backend)(
         "q",
         fresh,
         "display",
         AgentConfig(),
         outputSchema = Some("""{"type":"object"}""")
       )
-      assertEquals(conv.structuredOutputMode, backend.structuredOutputMode)
+      assertEquals(live.structuredOutputMode, backend.structuredOutputMode)
 
   test("registerSession lets a later call resume that server session directly"):
     supervised:
@@ -189,20 +189,20 @@ class OpencodeBackendTest extends munit.FunSuite:
         )
       )
       val backend = new OpencodeBackend(new FakeHandle(http))
-      val conv = OpenTurn.interactive(backend)(
+      val live = OpenTurn.interactive(backend)(
         "q",
         fresh,
         "display",
         AgentConfig(),
         outputSchema = Some("""{"type":"object"}""")
       )
-      assertEquals(conv.canAskUser, true)
+      assertEquals(live.canAskUser, true)
       assertEquals(
-        conv.outputSchema,
+        live.outputSchema,
         Some("""{"type":"object"}""")
       ) // schema threaded through
-      conv.events.foreach(_ => ())
-      assertEquals(conv.awaitResult().toOption.get.output, "hi")
+      live.events.foreach(_ => ())
+      assertEquals(live.awaitResult().toOption.get.output, "hi")
 
   test(
     "dispatch never spawns the server when there is no client→server " +

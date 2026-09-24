@@ -6,11 +6,11 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
 }
 import orca.backend.{
   AskUserChannel,
-  Conversation,
+  LiveTurn,
   TurnRequest,
   Dispatch,
   AgentBackend,
-  ConversationMode,
+  TurnMode,
   IdScheme,
   SessionSupport,
   StreamSource
@@ -42,10 +42,9 @@ private[opencode] trait OpencodeServerHandle:
 /** OpenCode backend (ADR 0014). Drives a shared `opencode serve` over HTTP+SSE.
   *
   * Each turn opens its own `GET /event` SSE stream, starts the turn with
-  * `prompt_async`, and reads the result off the stream via
-  * [[OpencodeConversation]]. The single [[OpencodeServerHandle]] is built once
-  * at construction and shared across turns; the process spawn behind it stays
-  * lazy.
+  * `prompt_async`, and reads the result off the stream via [[OpencodeTurn]].
+  * The single [[OpencodeServerHandle]] is built once at construction and shared
+  * across turns; the process spawn behind it stays lazy.
   *
   * A turn relies on the server emitting a terminal
   * `session.idle`/`session.error` (or closing the SSE stream). There is no
@@ -69,16 +68,15 @@ private[orca] object OpencodeBackend:
     )
 
   /** Tool name the server injects for a `format: json_schema` turn: the model
-    * delivers the payload by calling it. [[OpencodeConversation]] suppresses
-    * that echo — the payload reaches the caller as
-    * `OrcaEvent.StructuredResult`, so rendering the tool call too would show
-    * the same JSON twice.
+    * delivers the payload by calling it. [[OpencodeTurn]] suppresses that echo
+    * — the payload reaches the caller as `OrcaEvent.StructuredResult`, so
+    * rendering the tool call too would show the same JSON twice.
     */
   private[opencode] val StructuredOutputToolName: String = "StructuredOutput"
 
-  /** Shared by [[OpencodeBackend.structuredOutputMode]] and
-    * [[OpencodeConversation]], so prompt assembly and the drain can't disagree
-    * about how the payload arrives.
+  /** Shared by [[OpencodeBackend.structuredOutputMode]] and [[OpencodeTurn]],
+    * so prompt assembly and the drain can't disagree about how the payload
+    * arrives.
     */
   private[opencode] val StructuredOutputDelivery: StructuredOutputMode =
     StructuredOutputMode.Tool
@@ -154,14 +152,13 @@ private[orca] class OpencodeBackend(
     * can throw (fresh `POST /session`, or a bad resume id), and opening the
     * stream first would leak the `GET /event` connection on that failure. The
     * `try`/`catch` is defense-in-depth for any throw between the stream opening
-    * and [[openConversation]] handing it to the owning [[OpencodeConversation]]
-    * (whose own `catch` only covers the later `prompt_async` POST). The
-    * conversation owns its stream: it interrupts on the terminal event or
-    * `cancel`.
+    * and [[openConversation]] handing it to the owning [[OpencodeTurn]] (whose
+    * own `catch` only covers the later `prompt_async` POST). The conversation
+    * owns its stream: it interrupts on the terminal event or `cancel`.
     */
   override protected[orca] def open(
       turn: TurnRequest[BackendTag.Opencode.type]
-  )(using Ox): Conversation[BackendTag.Opencode.type] =
+  )(using Ox): LiveTurn[BackendTag.Opencode.type] =
     import turn.*
     val http = server.http()
     val serverSession = serverSessionFor(http, dispatch)
@@ -192,9 +189,9 @@ private[orca] class OpencodeBackend(
       config: AgentConfig,
       prompt: String,
       outputSchema: Option[String],
-      mode: ConversationMode
-  )(using Ox): Conversation[BackendTag.Opencode.type] =
-    val conv = OpencodeConversation(
+      mode: TurnMode
+  )(using Ox): LiveTurn[BackendTag.Opencode.type] =
+    val live = OpencodeTurn(
       source,
       http,
       serverSession,
@@ -214,6 +211,6 @@ private[orca] class OpencodeBackend(
       // The reader is already live on the SSE stream; cancel it so it doesn't
       // sit blocked until scope teardown if the turn never started.
       case e: Throwable =>
-        conv.cancel()
+        live.cancel()
         throw e
-    conv
+    live

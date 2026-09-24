@@ -1,6 +1,6 @@
 package orca.tools.opencode
 
-import orca.backend.{ConversationMode, SystemPromptComposer}
+import orca.backend.{TurnMode, SystemPromptComposer}
 import orca.agents.{
   AgentConfig,
   AutoApprove,
@@ -57,7 +57,7 @@ private[opencode] object OpencodeArgs:
       config: AgentConfig,
       prompt: String,
       outputSchema: Option[String],
-      mode: ConversationMode
+      mode: TurnMode
   ): MessageBody =
     MessageBody(
       parts = List(MessagePart("text", prompt)),
@@ -157,7 +157,7 @@ private[opencode] object OpencodeArgs:
     */
   private def toolFlags(
       config: AgentConfig,
-      mode: ConversationMode
+      mode: TurnMode
   ): Option[Map[String, Boolean]] =
     val question =
       if mode.isInteractive then Map.empty[String, Boolean]

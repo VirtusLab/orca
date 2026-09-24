@@ -4,8 +4,8 @@ import orca.agents.{BackendTag, Model, WireSessionId}
 import orca.events.{Usage}
 
 /** Outcome of a single LLM call. Returned by [[AgentBackend.runAutonomous]] for
-  * the autonomous path and by [[Conversation.awaitResult]] /
-  * [[Interaction.drive]] for the interactive path.
+  * the autonomous path and by [[LiveTurn.awaitResult]] / [[Interaction.drive]]
+  * for the interactive path.
   */
 case class AgentResult[B <: BackendTag](
     /** The WIRE session id the backend reported for this turn (server thread id

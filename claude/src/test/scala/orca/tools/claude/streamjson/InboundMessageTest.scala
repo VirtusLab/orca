@@ -26,7 +26,7 @@ class InboundMessageTest extends munit.FunSuite:
     )
     assertEquals(
       msg,
-      InboundMessage.AssistantTurn(
+      InboundMessage.Assistant(
         List(ContentBlock.Text("hi"), ContentBlock.Thinking("ponder")),
         None
       )
@@ -39,7 +39,7 @@ class InboundMessageTest extends munit.FunSuite:
       """{"type":"assistant","message":{"id":"msg_01ab","role":"assistant","content":[{"type":"text","text":"hi"}]}}"""
     )
     assertEquals(
-      msg.asInstanceOf[InboundMessage.AssistantTurn].messageId,
+      msg.asInstanceOf[InboundMessage.Assistant].messageId,
       Some("msg_01ab")
     )
 
@@ -117,7 +117,7 @@ class InboundMessageTest extends munit.FunSuite:
     val msg = InboundMessage.parse(
       """{"type":"assistant","message":{"role":"assistant","content":[]}}"""
     )
-    assertEquals(msg, InboundMessage.AssistantTurn(Nil, None))
+    assertEquals(msg, InboundMessage.Assistant(Nil, None))
 
   test(
     "result with all optional fields absent leaves usage absent and isError false"

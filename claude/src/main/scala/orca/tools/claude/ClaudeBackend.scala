@@ -12,7 +12,7 @@ import orca.agents.{
 }
 import orca.backend.{
   AskUserChannel,
-  Conversation,
+  LiveTurn,
   TurnRequest,
   AgentBackend,
   IdScheme,
@@ -47,7 +47,7 @@ private[claude] final case class TurnMcp(
 )
 
 /** Claude Code backend. All calls — autonomous and interactive — drive a
-  * stream-json subprocess through [[ClaudeConversation]].
+  * stream-json subprocess through [[ClaudeTurn]].
   *
   * A turn also stands up whichever host MCP servers it is entitled to — see
   * [[open]]. Every one is a Netty binding whose lifetime tracks the
@@ -102,11 +102,11 @@ private[orca] class ClaudeBackend(
         )
     )
 
-  /** Spawn `claude` in stream-json mode, write the opening user turn, close
-    * stdin, and wrap the process in a live [[ClaudeConversation]]. orca sends
-    * one message per process, so stdin closes straight away. The CLI answers
-    * with stdin open either way; the close is what makes it exit, which ends
-    * the reader on a turn that never settles.
+  /** Spawn `claude` in stream-json mode, write the opening user message, close
+    * stdin, and wrap the process in a live [[ClaudeTurn]]. orca sends one
+    * message per process, so stdin closes straight away. The CLI answers with
+    * stdin open either way; the close is what makes it exit, which ends the
+    * reader on a turn that never settles.
     *
     * Host MCP servers may be stood up: `ask_user` on an `Interactive` turn only
     * — an autonomous call has no renderer to answer the question, so exposing
@@ -119,7 +119,7 @@ private[orca] class ClaudeBackend(
     */
   override protected[orca] def open(
       turn: TurnRequest[BackendTag.ClaudeCode.type]
-  )(using Ox): Conversation[BackendTag.ClaudeCode.type] =
+  )(using Ox): LiveTurn[BackendTag.ClaudeCode.type] =
     import turn.*
     val askUser: Option[AskUserSession] =
       Option.when(mode.isInteractive)(AskUserSession.allocate())
@@ -155,7 +155,7 @@ private[orca] class ClaudeBackend(
     } { process =>
       process.writeLine(OutboundMessage.userText(prompt))
       process.closeStdin()
-      ClaudeConversation(
+      ClaudeTurn(
         process,
         openingPrompt = mode.openingPrompt,
         outputSchema = outputSchema,
@@ -287,9 +287,9 @@ object ClaudeBackend:
     */
   private[claude] val StructuredOutputToolName: String = "StructuredOutput"
 
-  /** Shared by [[ClaudeBackend.structuredOutputMode]] and
-    * [[ClaudeConversation]], so prompt assembly and the drain can't disagree
-    * about how the payload arrives.
+  /** Shared by [[ClaudeBackend.structuredOutputMode]] and [[ClaudeTurn]], so
+    * prompt assembly and the drain can't disagree about how the payload
+    * arrives.
     */
   private[claude] val StructuredOutputDelivery: StructuredOutputMode =
     StructuredOutputMode.Tool

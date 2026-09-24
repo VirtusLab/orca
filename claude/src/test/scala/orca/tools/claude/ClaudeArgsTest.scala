@@ -173,7 +173,7 @@ class ClaudeArgsTest extends munit.FunSuite:
     // rebuilding its own flags is what keeps a resumed reviewer restricted.
     val args = streamJson(
       AgentConfig(tools = ToolSet.ReadOnly),
-      dispatch = Dispatch.Resume(testSid, ResumeOrigin.ThisRun)
+      dispatch = Dispatch.Resume(testSid, ResumeOrigin.ThisAttempt)
     )
     assert(args.containsSlice(Seq("--tools", "Read,Grep,Glob,Skill")), args)
 
@@ -205,7 +205,7 @@ class ClaudeArgsTest extends munit.FunSuite:
     val args =
       streamJson(
         AgentConfig(),
-        dispatch = Dispatch.Resume(testSid, ResumeOrigin.ThisRun)
+        dispatch = Dispatch.Resume(testSid, ResumeOrigin.ThisAttempt)
       )
     assert(
       args.containsSlice(Seq("--resume", WireSessionId.value(testSid))),
@@ -241,7 +241,7 @@ class ClaudeArgsTest extends munit.FunSuite:
         autoApprove = AutoApprove.Only(Set("Read"))
       ),
       systemPromptFile = Some(file),
-      dispatch = Dispatch.Resume(testSid, ResumeOrigin.ThisRun)
+      dispatch = Dispatch.Resume(testSid, ResumeOrigin.ThisAttempt)
     )
     assert(args.containsSlice(Seq("--model", "opus-4")))
     assert(

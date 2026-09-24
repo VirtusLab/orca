@@ -5,18 +5,17 @@ package orca
   */
 class OrcaFlowException(message: String) extends RuntimeException(message)
 
-/** Returned in the `Left` of [[orca.backend.Conversation.awaitResult]] when the
+/** Returned in the `Left` of [[orca.backend.LiveTurn.awaitResult]] when the
   * user cancels the current interactive call, and rethrown by
   * [[orca.backend.Interaction.drive]] so the enclosing `stage(...)` can catch
   * it and decide whether to fail the stage or recover.
   *
   * Deliberately a subtype of [[OrcaFlowException]]: when nobody catches it, the
   * right default is to end the flow like any other failure, and a blanket
-  * `OrcaFlowException` recovery treats a cancelled conversation as "this
-  * attempt produced no result". The autonomous path — the only one with a retry
-  * policy — cannot produce this (see
-  * [[orca.backend.Conversations.drainAutonomous]]), so subtyping never causes a
-  * cancellation to be retried.
+  * `OrcaFlowException` recovery treats a cancelled turn as "this call produced
+  * no result". The autonomous path — the only one with a retry policy — cannot
+  * produce this (see [[orca.backend.AutonomousDrain.drain]]), so subtyping
+  * never causes a cancellation to be retried.
   *
   * `debit` is what the abandoned turn had spent, on the same terms as
   * [[AgentTurnFailed.debit]]: a user who Ctrl-Cs a long interactive turn is
@@ -24,18 +23,18 @@ class OrcaFlowException(message: String) extends RuntimeException(message)
   */
 class OrcaInteractiveCancelled(
     val debit: orca.events.TurnDebit,
-    message: String = "interactive session cancelled"
+    message: String = "interactive turn cancelled"
 ) extends OrcaFlowException(message)
 
-/** A semantic failure of an agent *turn that actually ran*: the conversation
-  * was spawned — so the backend has already registered the session id — and
-  * then ended in a terminal error (`is_error`, a rate limit, a non-zero CLI
+/** A semantic failure of an agent *turn that actually ran*: its process or
+  * stream was opened — so the backend has already registered the session id —
+  * and then ended in a terminal error (`is_error`, a rate limit, a non-zero CLI
   * exit, or a clean exit with no result). Distinct from a pre-spawn *open*
   * failure (e.g. a transient broken pipe before the session was registered),
   * which stays a plain [[OrcaFlowException]].
   *
   * Marks a failure as non-retryable: reusing the locked session id makes a
-  * retry futile. Classified at [[orca.backend.StreamConversation]];
+  * retry futile. Classified at [[orca.backend.DecodedTurn]];
   * `AgentCall.runAutonomousWithRetry` is the policy that acts on it.
   *
   * `cause` is optional so `getCause` still reaches the original exception
@@ -43,10 +42,10 @@ class OrcaInteractiveCancelled(
   * flattened into the message string.
   *
   * `debit` is what the turn spent before failing. It has no default: the
-  * success path is the only other `OrcaEvent.UnpricedTurn` emitter, so a driver
-  * that skipped the question would silently drop the failed turn from the run's
-  * cost summary. A driver whose protocol reports nothing on its failure frame
-  * says so with [[orca.events.TurnDebit.Unobserved]].
+  * success path is the only other `OrcaEvent.UnpricedTurn` emitter, so a
+  * decoder that skipped the question would silently drop the failed turn from
+  * the run's cost summary. A decoder whose protocol reports nothing on its
+  * failure frame says so with [[orca.events.TurnDebit.Unobserved]].
   */
 class AgentTurnFailed(
     message: String,

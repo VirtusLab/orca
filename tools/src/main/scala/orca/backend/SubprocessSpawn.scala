@@ -7,7 +7,7 @@ import orca.sweep.EnvCookieSweep
 
 import ox.{ResourceScope, releaseAfterScope}
 
-/** Spawns one turn's agent process and wraps it in a [[Conversation]], for the
+/** Spawns one turn's agent process and wraps it in a [[LiveTurn]], for the
   * subprocess backends (claude/codex/gemini/pi).
   *
   *   - `spawn` builds the argv and launches the process.
@@ -16,7 +16,7 @@ import ox.{ResourceScope, releaseAfterScope}
   *
   * Once spawned, the process's environment cookie is swept when the turn scope
   * ends ([[EnvCookieSweep.afterScope]], reporting to `events`) — after the
-  * scope body's `conv.cancel()` kills the process tree.
+  * scope body's `live.cancel()` kills the process tree.
   *
   * `sessionLabel` is the backend's descriptor for the failure message —
   * deliberately not the bare backend name, which is pinned by tests.
@@ -31,7 +31,7 @@ private[orca] object SubprocessSpawn:
     try build(process)
     catch
       case e: Exception =>
-        // No conversation exists to tear the process down.
+        // No LiveTurn exists to tear the process down.
         process.sendSigInt()
         process.destroyForciblyTree()
         throw OrcaFlowException(

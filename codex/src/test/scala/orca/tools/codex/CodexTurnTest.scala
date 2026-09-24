@@ -4,26 +4,22 @@ import orca.agents.{Model, WireSessionId}
 import orca.events.{TurnDebit, Usage}
 import orca.testkit.Usages.usage
 import orca.{OrcaFlowException, OrcaInteractiveCancelled}
-import orca.backend.{
-  AskUserChannel,
-  ConversationEvent,
-  ConversationEventConformance
-}
+import orca.backend.{AskUserChannel, TurnEvent, TurnEventConformance}
 import orca.subprocess.FakePipedCliProcess
 import ox.{Ox, supervised}
 
-class CodexConversationTest extends munit.FunSuite:
+class CodexTurnTest extends munit.FunSuite:
 
-  /** Runs each test body in a fresh supervised scope, which `CodexConversation`
-    * needs to fork its reader/stderr/ask-user workers. Tests managing their own
-    * scope (the ask-user ones) stay on plain `test`.
+  /** Runs each test body in a fresh supervised scope, which `CodexTurn` needs
+    * to fork its reader/stderr/ask-user workers. Tests managing their own scope
+    * (the ask-user ones) stay on plain `test`.
     */
-  private def convTest(name: String)(body: Ox ?=> Unit): Unit =
+  private def liveTest(name: String)(body: Ox ?=> Unit): Unit =
     test(name)(supervised(body))
 
-  convTest("turn.completed keeps cache reads and cache writes on own axes"):
+  liveTest("turn.completed keeps cache reads and cache writes on own axes"):
     val process = new FakePipedCliProcess()
-    val conv = CodexConversation(process)
+    val live = CodexTurn(process)
 
     process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-c"}""")
     process.enqueueStdout("""{"type":"turn.started"}""")
@@ -36,8 +32,8 @@ class CodexConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val _ = conv.events.toList
-    val Right(result) = conv.awaitResult(): @unchecked
+    val _ = live.events.toList
+    val Right(result) = live.awaitResult(): @unchecked
     assertEquals(
       result.usage,
       Usage(
@@ -53,9 +49,11 @@ class CodexConversationTest extends munit.FunSuite:
       )
     )
 
-  convTest("agent_message item completes a turn with TextDelta + TurnEnd"):
+  liveTest(
+    "agent_message item completes a message with TextDelta + MessageEnd"
+  ):
     val process = new FakePipedCliProcess()
-    val conv = CodexConversation(process)
+    val live = CodexTurn(process)
 
     process.enqueueStdout(
       """{"type":"thread.started","thread_id":"thr-1"}"""
@@ -70,28 +68,28 @@ class CodexConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val events = conv.events.toList
+    val events = live.events.toList
     assertEquals(
       events,
       List(
-        ConversationEvent.AssistantTextDelta("hello"),
-        ConversationEvent.AssistantTurnEnd
+        TurnEvent.AssistantTextDelta("hello"),
+        TurnEvent.AssistantMessageEnd
       )
     )
-    ConversationEventConformance.assertGrammar(events, completedNormally = true)
-    val Right(result) = conv.awaitResult(): @unchecked
+    TurnEventConformance.assertGrammar(events, completedNormally = true)
+    val Right(result) = live.awaitResult(): @unchecked
     assertEquals(WireSessionId.value(result.wireId), "thr-1")
     assertEquals(result.output, "hello")
     assertEquals(result.usage, usage(10L, 3L))
 
-  convTest(
+  liveTest(
     "usage attributes to the configured model when the wire omits it"
   ):
     // `thread.started` here carries no `model` field (as codex's `resume` exec
     // often doesn't); without the configured-model fallback the turn's tokens
     // would land under `(unknown)` and go unpriced.
     val process = new FakePipedCliProcess()
-    val conv = CodexConversation(
+    val live = CodexTurn(
       process,
       configuredModel = Some(Model("gpt-5.4-mini"))
     )
@@ -106,13 +104,13 @@ class CodexConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val _ = conv.events.toList
-    val Right(result) = conv.awaitResult(): @unchecked
+    val _ = live.events.toList
+    val Right(result) = live.awaitResult(): @unchecked
     assertEquals(result.model, Some(Model("gpt-5.4-mini")))
 
-  convTest("the wire's model wins over the configured fallback"):
+  liveTest("the wire's model wins over the configured fallback"):
     val process = new FakePipedCliProcess()
-    val conv = CodexConversation(
+    val live = CodexTurn(
       process,
       configuredModel = Some(Model("configured-fallback"))
     )
@@ -129,15 +127,15 @@ class CodexConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val _ = conv.events.toList
-    val Right(result) = conv.awaitResult(): @unchecked
+    val _ = live.events.toList
+    val Right(result) = live.awaitResult(): @unchecked
     assertEquals(result.model, Some(Model("gpt-5.4")))
 
-  convTest(
+  liveTest(
     "the opening prompt becomes a UserMessage event before agent output"
   ):
     val process = new FakePipedCliProcess()
-    val conv = CodexConversation(process, openingPrompt = Some("do the thing"))
+    val live = CodexTurn(process, openingPrompt = Some("do the thing"))
 
     process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-2"}""")
     process.enqueueStdout(
@@ -149,16 +147,16 @@ class CodexConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val events = conv.events.toList
+    val events = live.events.toList
     assertEquals(
       events.head,
-      ConversationEvent.UserMessage("do the thing")
+      TurnEvent.UserMessage("do the thing")
     )
-    val _ = conv.awaitResult()
+    val _ = live.awaitResult()
 
-  convTest("the LAST agent_message wins when a turn produces several"):
+  liveTest("the LAST agent_message wins when a turn produces several"):
     val process = new FakePipedCliProcess()
-    val conv = CodexConversation(process)
+    val live = CodexTurn(process)
 
     process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-3"}""")
     process.enqueueStdout(
@@ -173,14 +171,14 @@ class CodexConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val events = conv.events.toList
+    val events = live.events.toList
     // Each agent_message item closes its own turn, so two items means two turns
     // are KEPT; "last wins" only picks the final result text, below.
-    assertEquals(events.count(_ == ConversationEvent.AssistantTurnEnd), 2)
-    val Right(result) = conv.awaitResult(): @unchecked
+    assertEquals(events.count(_ == TurnEvent.AssistantMessageEnd), 2)
+    val Right(result) = live.awaitResult(): @unchecked
     assertEquals(result.output, "final answer")
 
-  convTest(
+  liveTest(
     "structured mode coalesces a commentary agent_message across a tool " +
       "call into the same turn as the final one"
   ):
@@ -192,7 +190,7 @@ class CodexConversationTest extends munit.FunSuite:
     // "previous" turn and echo it as prose once the final turn closed. In
     // structured mode both must collapse into ONE turn so nothing echoes.
     val process = new FakePipedCliProcess()
-    val conv = CodexConversation(
+    val live = CodexTurn(
       process,
       outputSchema = Some("""{"type":"object"}""")
     )
@@ -217,21 +215,21 @@ class CodexConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val events = conv.events.toList
+    val events = live.events.toList
     assertEquals(
-      events.count(_ == ConversationEvent.AssistantTurnEnd),
+      events.count(_ == TurnEvent.AssistantMessageEnd),
       1,
       s"expected the commentary + final agent_message to share one turn; got: $events"
     )
-    ConversationEventConformance.assertGrammar(events, completedNormally = true)
-    val Right(result) = conv.awaitResult(): @unchecked
+    TurnEventConformance.assertGrammar(events, completedNormally = true)
+    val Right(result) = live.awaitResult(): @unchecked
     assertEquals(result.output, """{"issues":[]}""")
 
-  convTest(
+  liveTest(
     "command_execution items become AssistantToolCall + ToolResult events"
   ):
     val process = new FakePipedCliProcess()
-    val conv = CodexConversation(process)
+    val live = CodexTurn(process)
 
     process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-4"}""")
     process.enqueueStdout(
@@ -246,29 +244,29 @@ class CodexConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val events = conv.events.toList
+    val events = live.events.toList
     // A tool-only turn: AssistantToolCall + ToolResult open the turn, and
     // the `turn.completed` settle closes it with the owed
-    // AssistantTurnEnd.
+    // AssistantMessageEnd.
     assertEquals(events.size, 3)
     events(0) match
-      case ConversationEvent.AssistantToolCall(name, rawInput) =>
+      case TurnEvent.AssistantToolCall(name, rawInput) =>
         assertEquals(name, "bash")
         assert(rawInput.contains("/bin/bash -lc ls"))
       case other => fail(s"expected AssistantToolCall, got $other")
     events(1) match
-      case ConversationEvent.ToolResult(name, ok, content) =>
+      case TurnEvent.ToolResult(name, ok, content) =>
         assertEquals(name, Some("bash"))
         assertEquals(ok, true)
         assertEquals(content, "hello.txt\n")
       case other => fail(s"expected ToolResult, got $other")
-    assertEquals(events(2), ConversationEvent.AssistantTurnEnd)
-    ConversationEventConformance.assertGrammar(events, completedNormally = true)
-    val _ = conv.awaitResult()
+    assertEquals(events(2), TurnEvent.AssistantMessageEnd)
+    TurnEventConformance.assertGrammar(events, completedNormally = true)
+    val _ = live.awaitResult()
 
-  convTest("command_execution with non-zero exit yields ok=false"):
+  liveTest("command_execution with non-zero exit yields ok=false"):
     val process = new FakePipedCliProcess()
-    val conv = CodexConversation(process)
+    val live = CodexTurn(process)
 
     process.enqueueStdout(
       """{"type":"thread.started","thread_id":"thr-fail"}"""
@@ -285,23 +283,23 @@ class CodexConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val events = conv.events.toList
+    val events = live.events.toList
     val toolResult = events
-      .collectFirst { case r: ConversationEvent.ToolResult =>
+      .collectFirst { case r: TurnEvent.ToolResult =>
         r
       }
       .getOrElse(fail("expected a ToolResult"))
     assertEquals(toolResult.ok, false)
-    val _ = conv.awaitResult()
+    val _ = live.awaitResult()
 
-  convTest(
+  liveTest(
     "file_change with an unrecognized status (not completed/failed) yields ok=false"
   ):
     // Any status other than the documented "completed" collapses to
     // ItemStatus.Unknown, regardless of whether it's a known failure token
     // ("failed") or something the driver has never seen before.
     val process = new FakePipedCliProcess()
-    val conv = CodexConversation(process)
+    val live = CodexTurn(process)
 
     process.enqueueStdout(
       """{"type":"thread.started","thread_id":"thr-unknown"}"""
@@ -315,15 +313,15 @@ class CodexConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val toolResult = conv.events.toList
-      .collectFirst { case r: ConversationEvent.ToolResult => r }
+    val toolResult = live.events.toList
+      .collectFirst { case r: TurnEvent.ToolResult => r }
       .getOrElse(fail("expected a ToolResult"))
     assertEquals(toolResult.ok, false)
-    val _ = conv.awaitResult()
+    val _ = live.awaitResult()
 
-  convTest("file_change with a missing status yields ok=false, not completed"):
+  liveTest("file_change with a missing status yields ok=false, not completed"):
     val process = new FakePipedCliProcess()
-    val conv = CodexConversation(process)
+    val live = CodexTurn(process)
 
     process.enqueueStdout(
       """{"type":"thread.started","thread_id":"thr-missing"}"""
@@ -337,15 +335,15 @@ class CodexConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val toolResult = conv.events.toList
-      .collectFirst { case r: ConversationEvent.ToolResult => r }
+    val toolResult = live.events.toList
+      .collectFirst { case r: TurnEvent.ToolResult => r }
       .getOrElse(fail("expected a ToolResult"))
     assertEquals(toolResult.ok, false)
-    val _ = conv.awaitResult()
+    val _ = live.awaitResult()
 
-  convTest("file_change items become file_change tool calls and results"):
+  liveTest("file_change items become file_change tool calls and results"):
     val process = new FakePipedCliProcess()
-    val conv = CodexConversation(process)
+    val live = CodexTurn(process)
 
     process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-5"}""")
     process.enqueueStdout(
@@ -360,11 +358,10 @@ class CodexConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val events = conv.events.toList
+    val events = live.events.toList
     val toolCall = events
       .collectFirst {
-        case c: ConversationEvent.AssistantToolCall
-            if c.toolName == "file_change" =>
+        case c: TurnEvent.AssistantToolCall if c.toolName == "file_change" =>
           c
       }
       .getOrElse(fail("expected file_change AssistantToolCall"))
@@ -372,17 +369,16 @@ class CodexConversationTest extends munit.FunSuite:
     assert(toolCall.rawInput.contains("update"))
     val toolResult = events
       .collectFirst {
-        case r: ConversationEvent.ToolResult
-            if r.toolName == Some("file_change") =>
+        case r: TurnEvent.ToolResult if r.toolName == Some("file_change") =>
           r
       }
       .getOrElse(fail("expected file_change ToolResult"))
     assertEquals(toolResult.ok, true)
-    val _ = conv.awaitResult()
+    val _ = live.awaitResult()
 
-  convTest("reasoning items emit AssistantThinkingDelta when non-empty"):
+  liveTest("reasoning items emit AssistantThinkingDelta when non-empty"):
     val process = new FakePipedCliProcess()
-    val conv = CodexConversation(process)
+    val live = CodexTurn(process)
 
     process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-r"}""")
     process.enqueueStdout(
@@ -397,53 +393,53 @@ class CodexConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val events = conv.events.toList
+    val events = live.events.toList
     assertEquals(
       events.head,
-      ConversationEvent.AssistantThinkingDelta("checking inputs")
+      TurnEvent.AssistantThinkingDelta("checking inputs")
     )
-    val _ = conv.awaitResult()
+    val _ = live.awaitResult()
 
-  convTest(
+  liveTest(
     "cancel surfaces as Left(OrcaInteractiveCancelled) from awaitResult"
   ):
     val process = new FakePipedCliProcess()
-    val conv = CodexConversation(process)
-    conv.cancel()
-    conv.awaitResult() match
+    val live = CodexTurn(process)
+    live.cancel()
+    live.awaitResult() match
       case Left(_: OrcaInteractiveCancelled) => ()
       case other =>
         fail(s"expected Left(OrcaInteractiveCancelled), got: $other")
     assertEquals(process.sigIntCount, 1)
 
-  convTest(
+  liveTest(
     "clean process exit without turn.completed surfaces as OrcaFlowException"
   ):
     val process = new FakePipedCliProcess(initiallyAlive = false)
-    val conv = CodexConversation(process)
+    val live = CodexTurn(process)
 
     process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-x"}""")
     process.closeStdout()
     process.closeStderr()
 
-    val events = conv.events.toList
+    val events = live.events.toList
     // Abnormal termination: the stream ends before turn.completed, so a
-    // trailing open turn is legal — completedNormally = false.
-    ConversationEventConformance.assertGrammar(
+    // trailing open message is legal — completedNormally = false.
+    TurnEventConformance.assertGrammar(
       events,
       completedNormally = false
     )
-    val ex = intercept[OrcaFlowException](conv.awaitResult())
+    val ex = intercept[OrcaFlowException](live.awaitResult())
     assert(
       ex.getMessage.contains("turn.completed"),
       s"expected the missing-turn.completed message; got: ${ex.getMessage}"
     )
 
-  convTest(
-    "malformed JSONL line surfaces as ConversationEvent.Error and the loop continues"
+  liveTest(
+    "malformed JSONL line surfaces as TurnEvent.Error and the loop continues"
   ):
     val process = new FakePipedCliProcess()
-    val conv = CodexConversation(process)
+    val live = CodexTurn(process)
 
     process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-bad"}""")
     process.enqueueStdout("not json at all")
@@ -456,19 +452,19 @@ class CodexConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val events = conv.events.toList
+    val events = live.events.toList
     assert(
       events.exists {
-        case ConversationEvent.Error(msg) => msg.contains("Failed to parse")
-        case _                            => false
+        case TurnEvent.Error(msg) => msg.contains("Failed to parse")
+        case _                    => false
       },
       s"expected a parse-error event; got: $events"
     )
-    val _ = conv.awaitResult()
+    val _ = live.awaitResult()
 
-  convTest("stderr noise about reading stdin is filtered out"):
+  liveTest("stderr noise about reading stdin is filtered out"):
     val process = new FakePipedCliProcess()
-    val conv = CodexConversation(process)
+    val live = CodexTurn(process)
 
     process.enqueueStderr("Reading additional input from stdin...")
     process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-q"}""")
@@ -481,24 +477,24 @@ class CodexConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val events = conv.events.toList
+    val events = live.events.toList
     assert(
       !events.exists {
-        case ConversationEvent.Error(_) => true
-        case _                          => false
+        case TurnEvent.Error(_) => true
+        case _                  => false
       },
       s"benign stderr noise must not surface as Error events: $events"
     )
-    val _ = conv.awaitResult()
+    val _ = live.awaitResult()
 
-  convTest(
+  liveTest(
     "`failed to record rollout items` shutdown noise is filtered out"
   ):
     // Codex emits this ERROR line during shutdown after the rollout writer is
     // torn down; the rollout file is still written correctly, so it's harmless
     // noise that would otherwise spam the user log on every call.
     val process = new FakePipedCliProcess()
-    val conv = CodexConversation(process)
+    val live = CodexTurn(process)
 
     process.enqueueStderr(
       "2026-05-27T06:30:35.948974Z ERROR codex_core::session: " +
@@ -514,19 +510,19 @@ class CodexConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val events = conv.events.toList
+    val events = live.events.toList
     assert(
       !events.exists {
-        case ConversationEvent.Error(_) => true
-        case _                          => false
+        case TurnEvent.Error(_) => true
+        case _                  => false
       },
       s"benign shutdown stderr must not surface as Error events: $events"
     )
-    val _ = conv.awaitResult()
+    val _ = live.awaitResult()
 
-  convTest("real stderr lines surface as ConversationEvent.Error"):
+  liveTest("real stderr lines surface as TurnEvent.Error"):
     val process = new FakePipedCliProcess()
-    val conv = CodexConversation(process)
+    val live = CodexTurn(process)
 
     process.enqueueStderr("Error: thread/resume failed: not found")
     process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-e"}""")
@@ -536,22 +532,22 @@ class CodexConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val events = conv.events.toList
+    val events = live.events.toList
     assert(
       events.exists {
-        case ConversationEvent.Error(msg) =>
+        case TurnEvent.Error(msg) =>
           msg.contains("thread/resume failed")
         case _ => false
       },
       s"expected a stderr-derived Error event; got: $events"
     )
-    val _ = conv.awaitResult()
+    val _ = live.awaitResult()
 
-  convTest("consecutive identical stderr lines collapse to a single Error"):
+  liveTest("consecutive identical stderr lines collapse to a single Error"):
     // The stderr drain suppresses a line identical to the one just surfaced (some
     // CLIs repeat the same warning on every invocation).
     val process = new FakePipedCliProcess()
-    val conv = CodexConversation(process)
+    val live = CodexTurn(process)
 
     process.enqueueStderr("Warning: some repeated warning")
     process.enqueueStderr("Warning: some repeated warning")
@@ -563,8 +559,8 @@ class CodexConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val errors = conv.events.toList.collect {
-      case ConversationEvent.Error(msg) if msg.contains("repeated warning") =>
+    val errors = live.events.toList.collect {
+      case TurnEvent.Error(msg) if msg.contains("repeated warning") =>
         msg
     }
     assertEquals(
@@ -572,13 +568,13 @@ class CodexConversationTest extends munit.FunSuite:
       1,
       s"3 identical stderr lines should surface once; got: $errors"
     )
-    val _ = conv.awaitResult()
+    val _ = live.awaitResult()
 
-  convTest("interleaved different stderr lines all surface"):
+  liveTest("interleaved different stderr lines all surface"):
     // Dedup only collapses CONSECUTIVE identical lines; an a/b/a run, where the
     // second `a` isn't adjacent to the first, surfaces all three.
     val process = new FakePipedCliProcess()
-    val conv = CodexConversation(process)
+    val live = CodexTurn(process)
 
     process.enqueueStderr("Error: alpha")
     process.enqueueStderr("Error: beta")
@@ -590,8 +586,8 @@ class CodexConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val errors = conv.events.toList.collect {
-      case ConversationEvent.Error(msg)
+    val errors = live.events.toList.collect {
+      case TurnEvent.Error(msg)
           if msg.contains("alpha") || msg.contains("beta") =>
         msg
     }
@@ -600,13 +596,13 @@ class CodexConversationTest extends munit.FunSuite:
       3,
       s"three distinct stderr lines should all surface; got: $errors"
     )
-    val _ = conv.awaitResult()
+    val _ = live.awaitResult()
 
-  convTest("stderr strips terminal controls before surfacing as an Error"):
+  liveTest("stderr strips terminal controls before surfacing as an Error"):
     // The stderr drain strips ANSI/terminal control sequences before surfacing
     // stderr as an Error event.
     val process = new FakePipedCliProcess()
-    val conv = CodexConversation(process)
+    val live = CodexTurn(process)
 
     process.enqueueStderr("auth[?25l failed[2K now")
     process.enqueueStdout(
@@ -618,22 +614,22 @@ class CodexConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val events = conv.events.toList
+    val events = live.events.toList
     assert(
       events.exists {
-        case ConversationEvent.Error(msg) =>
+        case TurnEvent.Error(msg) =>
           msg.contains("auth failed now") && !msg.contains("?25l")
         case _ => false
       },
       s"expected an ANSI-stripped Error event; got: $events"
     )
-    val _ = conv.awaitResult()
+    val _ = live.awaitResult()
 
-  convTest("mcp_tool_call emits AssistantToolCall + ToolResult"):
+  liveTest("mcp_tool_call emits AssistantToolCall + ToolResult"):
     // A non-ask_user MCP tool round-trips into matching AssistantToolCall +
     // ToolResult events using the dotted `server.tool` naming.
     val process = new FakePipedCliProcess()
-    val conv = CodexConversation(process)
+    val live = CodexTurn(process)
 
     process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-mcp"}""")
     process.enqueueStdout("""{"type":"turn.started"}""")
@@ -652,29 +648,29 @@ class CodexConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val events = conv.events.toList
+    val events = live.events.toList
     assert(
       events.contains(
-        ConversationEvent.AssistantToolCall("docs.search", """{"q":"hi"}""")
+        TurnEvent.AssistantToolCall("docs.search", """{"q":"hi"}""")
       ),
       s"expected AssistantToolCall for docs.search; got: $events"
     )
     assert(
       events.contains(
-        ConversationEvent.ToolResult(Some("docs.search"), ok = true, "page-1")
+        TurnEvent.ToolResult(Some("docs.search"), ok = true, "page-1")
       ),
       s"expected matching ToolResult; got: $events"
     )
-    val _ = conv.awaitResult()
+    val _ = live.awaitResult()
 
-  convTest(
+  liveTest(
     "mcp_tool_call ToolResult drops non-text content fragments"
   ):
     // The MCP content array can carry text + image + resource fragments; only
     // text is rendered, and non-text fragments must not leak their wire shape
     // into the ToolResult.
     val process = new FakePipedCliProcess()
-    val conv = CodexConversation(process)
+    val live = CodexTurn(process)
 
     process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-mx"}""")
     process.enqueueStdout("""{"type":"turn.started"}""")
@@ -690,21 +686,21 @@ class CodexConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val events = conv.events.toList
+    val events = live.events.toList
     val result = events.collectFirst {
-      case ConversationEvent.ToolResult(Some("docs.search"), _, content) =>
+      case TurnEvent.ToolResult(Some("docs.search"), _, content) =>
         content
     }
     assertEquals(result, Some("text1text2"))
-    val _ = conv.awaitResult()
+    val _ = live.awaitResult()
 
-  convTest(
+  liveTest(
     "mcp_tool_call ToolResult surfaces raw JSON when result fails to parse"
   ):
     // For non-standard result shapes the parser falls back to the raw JSON so
     // the diagnostic isn't lost.
     val process = new FakePipedCliProcess()
-    val conv = CodexConversation(process)
+    val live = CodexTurn(process)
 
     process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-bad"}""")
     process.enqueueStdout("""{"type":"turn.started"}""")
@@ -720,15 +716,15 @@ class CodexConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val events = conv.events.toList
+    val events = live.events.toList
     val result = events.collectFirst {
-      case ConversationEvent.ToolResult(Some("odd.do"), _, content) => content
+      case TurnEvent.ToolResult(Some("odd.do"), _, content) => content
     }
     assert(
       result.exists(_.contains("not")),
       s"expected raw JSON fallback to include the array content; got: $result"
     )
-    val _ = conv.awaitResult()
+    val _ = live.awaitResult()
 
   test(
     "ask_user mcp_tool_call items are suppressed (no echo in event stream)"
@@ -741,7 +737,7 @@ class CodexConversationTest extends munit.FunSuite:
     supervised:
       given BufferCapacity = BufferCapacity(8)
       val process = new FakePipedCliProcess()
-      val conv = CodexConversation(
+      val live = CodexTurn(
         process,
         askUser = AskUserChannel.Mcp(AskUserSession.allocate())
       )
@@ -765,23 +761,23 @@ class CodexConversationTest extends munit.FunSuite:
       process.closeStdout()
       process.closeStderr()
 
-      val events = conv.events.toList
+      val events = live.events.toList
       assert(
         !events.exists {
-          case ConversationEvent.AssistantToolCall("orca.ask_user", _) => true
-          case _                                                       => false
+          case TurnEvent.AssistantToolCall("orca.ask_user", _) => true
+          case _                                               => false
         },
         s"ask_user MCP call must be suppressed; got: $events"
       )
       assert(
         !events.exists {
-          case ConversationEvent.ToolResult(Some("orca.ask_user"), _, _) =>
+          case TurnEvent.ToolResult(Some("orca.ask_user"), _, _) =>
             true
           case _ => false
         },
         s"ask_user ToolResult must be suppressed; got: $events"
       )
-      val _ = conv.awaitResult()
+      val _ = live.awaitResult()
 
   test(
     "askUserBridge: questions surface as UserQuestion events; respond unblocks ask"
@@ -795,35 +791,35 @@ class CodexConversationTest extends munit.FunSuite:
       given BufferCapacity = BufferCapacity(8)
       val process = new FakePipedCliProcess()
       val askUser = AskUserSession.allocate()
-      val conv = CodexConversation(
+      val live = CodexTurn(
         process,
         askUser = AskUserChannel.Mcp(askUser)
       )
       val bridge = askUser.bridge
-      assert(conv.canAskUser, "canAskUser must be true when a bridge is wired")
+      assert(live.canAskUser, "canAskUser must be true when a bridge is wired")
 
       val askResult = forkUser:
         bridge.ask("What's your favourite colour?")
 
-      val firstEvent = conv.events.next()
+      val firstEvent = live.events.next()
       val (question, respond) = firstEvent match
-        case ConversationEvent.UserQuestion(q, r) => (q, r)
+        case TurnEvent.UserQuestion(q, r) => (q, r)
         case other => fail(s"expected UserQuestion; got: $other")
       assertEquals(question, "What's your favourite colour?")
       respond("magenta")
       assertEquals(askResult.join(), "magenta")
 
-  convTest("canAskUser is false when no bridge is provided"):
+  liveTest("canAskUser is false when no bridge is provided"):
     val process = new FakePipedCliProcess()
-    val conv = CodexConversation(process)
-    assertEquals(conv.canAskUser, false)
+    val live = CodexTurn(process)
+    assertEquals(live.canAskUser, false)
     process.closeStdout()
     process.closeStderr()
-    val _ = conv.events.toList
+    val _ = live.events.toList
 
-  convTest("a completed turn with no thread.started fails the turn"):
+  liveTest("a completed turn with no thread.started fails the turn"):
     val process = new FakePipedCliProcess()
-    val conv = CodexConversation(process)
+    val live = CodexTurn(process)
 
     process.enqueueStdout(
       """{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":3,"cached_input_tokens":0,"reasoning_output_tokens":0}}"""
@@ -831,11 +827,11 @@ class CodexConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val _ = conv.events.toList
-    val ex = intercept[orca.AgentTurnFailed](conv.awaitResult())
+    val _ = live.events.toList
+    val ex = intercept[orca.AgentTurnFailed](live.awaitResult())
     assertEquals(ex.debit, TurnDebit.Observed(usage(10L, 3L), None))
 
-  convTest(
+  liveTest(
     "turn.failed surfaces codex's own message via AgentTurnFailed, not a bare exit code"
   ):
     // Reproduces the real failure: an invalid/unsupported model produces an
@@ -843,7 +839,7 @@ class CodexConversationTest extends munit.FunSuite:
     // Before the fix, both events collapsed to `Unknown` and the turn only
     // failed later from the bare exit code, with no diagnostic text.
     val process = new FakePipedCliProcess()
-    val conv = CodexConversation(process)
+    val live = CodexTurn(process)
 
     process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-tf"}""")
     process.enqueueStdout("""{"type":"turn.started"}""")
@@ -856,8 +852,8 @@ class CodexConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val _ = conv.events.toList
-    val ex = intercept[orca.AgentTurnFailed](conv.awaitResult())
+    val _ = live.events.toList
+    val ex = intercept[orca.AgentTurnFailed](live.awaitResult())
     assert(
       ex.getMessage.contains(
         "The 'gpt-5.6-terra' model requires a newer version of Codex."
@@ -865,14 +861,14 @@ class CodexConversationTest extends munit.FunSuite:
       s"expected codex's own error text in the failure message; got: ${ex.getMessage}"
     )
 
-  convTest(
+  liveTest(
     "a bare exit after `error` with no `turn.failed` still surfaces codex's message"
   ):
     // Defense in depth: if codex ever exits without emitting `turn.failed`
     // (e.g. a crash right after reporting the error), the last `error`
     // message is still folded into the exit-code failure via protocolContext.
     val process = new FakePipedCliProcess(initiallyAlive = false)
-    val conv = CodexConversation(process)
+    val live = CodexTurn(process)
 
     process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-e2"}""")
     process.enqueueStdout(
@@ -881,16 +877,16 @@ class CodexConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val _ = conv.events.toList
-    val ex = intercept[orca.OrcaFlowException](conv.awaitResult())
+    val _ = live.events.toList
+    val ex = intercept[orca.OrcaFlowException](live.awaitResult())
     assert(
       ex.getMessage.contains("rate limit exceeded"),
       s"expected the error event's message folded into the exit failure; got: ${ex.getMessage}"
     )
 
-  convTest("`error` alone (no turn.failed) surfaces as a live Error event"):
+  liveTest("`error` alone (no turn.failed) surfaces as a live Error event"):
     val process = new FakePipedCliProcess()
-    val conv = CodexConversation(process)
+    val live = CodexTurn(process)
 
     process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-e3"}""")
     process.enqueueStdout(
@@ -905,19 +901,19 @@ class CodexConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val events = conv.events.toList
+    val events = live.events.toList
     assert(
       events.exists {
-        case ConversationEvent.Error(msg) => msg.contains("transient hiccup")
-        case _                            => false
+        case TurnEvent.Error(msg) => msg.contains("transient hiccup")
+        case _                    => false
       },
-      s"expected the error event surfaced as ConversationEvent.Error; got: $events"
+      s"expected the error event surfaced as TurnEvent.Error; got: $events"
     )
-    val _ = conv.awaitResult()
+    val _ = live.awaitResult()
 
-  convTest("unknown top-level events are ignored without surfacing"):
+  liveTest("unknown top-level events are ignored without surfacing"):
     val process = new FakePipedCliProcess()
-    val conv = CodexConversation(process)
+    val live = CodexTurn(process)
 
     process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-u"}""")
     process.enqueueStdout("""{"type":"some.future.event","data":42}""")
@@ -930,12 +926,12 @@ class CodexConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val events = conv.events.toList
+    val events = live.events.toList
     assert(
       !events.exists {
-        case ConversationEvent.Error(_) => true
-        case _                          => false
+        case TurnEvent.Error(_) => true
+        case _                  => false
       },
       s"unknown top-level events must drop silently; got: $events"
     )
-    val _ = conv.awaitResult()
+    val _ = live.awaitResult()

@@ -732,7 +732,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     "reviewer is called with the same session id on every iteration"
   ):
     // Cross-iteration session-threading contract: a reviewer's first call mints
-    // its own chat, and every subsequent call resumes the SAME conversation.
+    // its own chat, and every subsequent call resumes the SAME live.
     given FlowControl = control
     val stubborn = finding("never ends")
     val reviewer = new FakeAgent(

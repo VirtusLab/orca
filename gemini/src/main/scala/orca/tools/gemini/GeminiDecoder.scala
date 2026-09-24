@@ -6,13 +6,13 @@ import orca.backend.{
   AgentResult,
   AskUserChannel,
   AskUserEchoes,
-  Conversation,
-  ConversationEvent,
-  ConversationSpec,
+  LiveTurn,
+  TurnEvent,
+  TurnSpec,
   LineDecoder,
   Settled,
   Step,
-  StreamConversation,
+  DecodedTurn,
   StreamSource
 }
 import orca.backend.mcp.AskUserMcpServer
@@ -23,7 +23,7 @@ import orca.tools.gemini.jsonl.{InboundEvent, Role, ToolStatus}
 import ox.Ox
 
 /** Decodes a `gemini -p <prompt> --output-format stream-json` session: JSONL →
-  * [[InboundEvent]] → `ConversationEvent`s.
+  * [[InboundEvent]] → `TurnEvent`s.
   *
   * Gemini specifics (see ADR 0015):
   *   - `approval-mode` is pre-baked into spawn args, so `ApproveTool` is never
@@ -75,7 +75,7 @@ private[gemini] object GeminiDecoder
       case InboundEvent.ToolResult(id, status, output) =>
         toolResult(state, id, status, output)
       case InboundEvent.Error(message) =>
-        Step.continue(state, ConversationEvent.Error(s"gemini: $message"))
+        Step.continue(state, TurnEvent.Error(s"gemini: $message"))
       case InboundEvent.Result(usage, status) => result(state, usage, status)
       // Forward-compat: gemini may add new top-level event types; drop them
       // silently rather than rendering an error.
@@ -135,7 +135,7 @@ private[gemini] object GeminiDecoder
       case Role.Assistant =>
         Step.continue(
           state.copy(answer = state.answer :+ content),
-          ConversationEvent.AssistantTextDelta(content)
+          TurnEvent.AssistantTextDelta(content)
         )
       case Role.Unknown =>
         OrcaDebug.traceStream(
@@ -156,7 +156,7 @@ private[gemini] object GeminiDecoder
     else
       Step.continue(
         state.copy(toolNames = state.toolNames + (id -> name)),
-        ConversationEvent.AssistantToolCall(toolName = name, rawInput = params)
+        TurnEvent.AssistantToolCall(toolName = name, rawInput = params)
       )
 
   private def toolResult(
@@ -170,7 +170,7 @@ private[gemini] object GeminiDecoder
       case None =>
         Step.continue(
           state,
-          ConversationEvent.ToolResult(
+          TurnEvent.ToolResult(
             toolName = Some(state.toolNames.getOrElse(id, id)),
             ok = status.isSuccess,
             content = output
@@ -201,7 +201,7 @@ private[gemini] object GeminiDecoder
       line.startsWith("Shell cwd was reset to") ||
       line.contains("[IDEClient]")
 
-private[gemini] object GeminiConversation:
+private[gemini] object GeminiTurn:
 
   /** Starts decoding `process` into the caller's turn scope. */
   def apply(
@@ -209,10 +209,10 @@ private[gemini] object GeminiConversation:
       openingPrompt: Option[String] = None,
       outputSchema: Option[String] = None,
       askUser: AskUserChannel = AskUserChannel.Unavailable
-  )(using Ox): Conversation[BackendTag.Gemini.type] =
-    StreamConversation.start(
+  )(using Ox): LiveTurn[BackendTag.Gemini.type] =
+    DecodedTurn.start(
       StreamSource.fromProcess(process),
-      ConversationSpec(
+      TurnSpec(
         openingPrompt = openingPrompt,
         outputSchema = outputSchema,
         structuredOutputMode = StructuredOutputMode.RawText,

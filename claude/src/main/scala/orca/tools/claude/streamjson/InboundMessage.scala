@@ -8,7 +8,7 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
 
 /** One message parsed off of claude's stdout when running with `--output-format
   * stream-json --verbose --include-partial-messages`. Each variant carries only
-  * the fields the driver actually inspects; the rest of the JSON is dropped.
+  * the fields the decoder actually inspects; the rest of the JSON is dropped.
   * Unknown top-level types collapse to [[Unknown]] so protocol drift doesn't
   * crash the pipeline.
   */
@@ -24,10 +24,10 @@ private[claude] enum InboundMessage:
     * call), all repeating the same id — so counting DISTINCT ids counts model
     * responses, which is what [[orca.events.Usage.apiCalls]] wants. `None` if
     * the CLI ever omits it, which would make the count an undercount, so the
-    * driver keeps it optional rather than substituting a placeholder.
+    * decoder keeps it optional rather than substituting a placeholder.
     */
-  case AssistantTurn(content: List[ContentBlock], messageId: Option[String])
-  case UserTurn(content: List[ContentBlock])
+  case Assistant(content: List[ContentBlock], messageId: Option[String])
+  case User(content: List[ContentBlock])
 
   /** Final turn result. When the session ran with `--json-schema`, the
     * validated value lands in `structuredOutput` as raw JSON; without the flag
@@ -76,11 +76,11 @@ private[claude] object InboundMessage:
 
   private def parseAssistant(line: String): InboundMessage =
     val wire = readFromString[MessageWire](line)
-    AssistantTurn(wire.message.toBlocks, wire.message.id)
+    Assistant(wire.message.toBlocks, wire.message.id)
 
   private def parseUser(line: String): InboundMessage =
     val wire = readFromString[MessageWire](line)
-    UserTurn(wire.message.toBlocks)
+    User(wire.message.toBlocks)
 
   private def parseResult(line: String): InboundMessage =
     val wire = readFromString[ResultWire](line)
@@ -88,7 +88,7 @@ private[claude] object InboundMessage:
     // one: measured against claude 2.1.220 it is (tool calls + 1), so a
     // response issuing three tool calls at once reports three turns where one
     // request was made. The count comes from the distinct `assistant` message
-    // ids instead — see [[ClaudeConversation]].
+    // ids instead — see `ClaudeDecoder.State.responseIds`.
     Result(
       subtype = wire.subtype,
       sessionId = wire.session_id,

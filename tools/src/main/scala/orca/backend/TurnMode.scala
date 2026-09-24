@@ -6,7 +6,7 @@ package orca.backend
   * structured or free-form — so `outputSchema` stays a separate [[TurnRequest]]
   * field.
   */
-private[orca] enum ConversationMode:
+private[orca] enum TurnMode:
   case Autonomous
   case Interactive(prompt: String)
 

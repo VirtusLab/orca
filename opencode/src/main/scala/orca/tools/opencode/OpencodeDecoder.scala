@@ -5,13 +5,13 @@ import orca.backend.{
   AgentResult,
   ApprovalDecision,
   AskUserChannel,
-  Conversation,
-  ConversationEvent,
-  ConversationSpec,
+  LiveTurn,
+  TurnEvent,
+  TurnSpec,
   LineDecoder,
   Settled,
   Step,
-  StreamConversation,
+  DecodedTurn,
   StreamSource
 }
 import orca.events.{TurnDebit, Usage}
@@ -30,9 +30,9 @@ import ox.Ox
 import scala.util.control.NonFatal
 
 /** Decodes one OpenCode turn off its `GET /event` SSE stream (ADR 0014): SSE
-  * frame → [[OpencodeEvent]] → `ConversationEvent`, deriving the
-  * [[AgentResult]] from the assistant `message.updated` at `session.idle`. The
-  * SSE stream stays open after a turn; the settle closes it.
+  * frame → [[OpencodeEvent]] → `TurnEvent`, deriving the [[AgentResult]] from
+  * the assistant `message.updated` at `session.idle`. The SSE stream stays open
+  * after a turn; the settle closes it.
   *
   * `session` is the server-allocated `ses_…` this turn runs in; the firehose
   * carries other sessions, so every event is filtered to it. Replies to
@@ -96,14 +96,14 @@ private[opencode] final class OpencodeDecoder(
       // A delta with no id can't be matched against an announced part, so it
       // stays assistant text.
       if partId.exists(state.reasoningParts.contains) then
-        Step.continue(state, ConversationEvent.AssistantThinkingDelta(delta))
+        Step.continue(state, TurnEvent.AssistantThinkingDelta(delta))
       else
         Step.continue(
           state.copy(text = state.text :+ delta),
-          ConversationEvent.AssistantTextDelta(delta)
+          TurnEvent.AssistantTextDelta(delta)
         )
     case OpencodeEvent.ReasoningDelta(_, delta) =>
-      Step.continue(state, ConversationEvent.AssistantThinkingDelta(delta))
+      Step.continue(state, TurnEvent.AssistantThinkingDelta(delta))
     case OpencodeEvent.ReasoningPart(_, partId) =>
       // A part with no id records nothing, so its deltas render as assistant
       // text.
@@ -116,7 +116,7 @@ private[opencode] final class OpencodeDecoder(
         if isStructuredOutputEcho(tool) =>
       Step.continue(state)
     case OpencodeEvent.ToolStarted(_, partId, tool, input) =>
-      val call = ConversationEvent.AssistantToolCall(tool, input)
+      val call = TurnEvent.AssistantToolCall(tool, input)
       // A tool part repeats `running` frames; surface the call once per part,
       // keyed by its id. A part with no id (protocol drift) can't be deduped
       // against — surface every frame rather than risk a coerced "" key
@@ -134,19 +134,19 @@ private[opencode] final class OpencodeDecoder(
       else
         Step.continue(
           state,
-          ConversationEvent.ToolResult(Some(tool), ok, output)
+          TurnEvent.ToolResult(Some(tool), ok, output)
         )
     case OpencodeEvent.MessageUpdated(_, info) =>
       Step.continue(state.copy(info = Some(info)))
     case OpencodeEvent.QuestionAsked(req) =>
       Step.continue(
         state,
-        ConversationEvent.UserQuestion(questionText(req), replyToQuestion(req))
+        TurnEvent.UserQuestion(questionText(req), replyToQuestion(req))
       )
     case OpencodeEvent.PermissionAsked(req) =>
       Step.continue(
         state,
-        ConversationEvent.ApproveTool(
+        TurnEvent.ApproveTool(
           req.permission,
           req.patterns.mkString(" "),
           replyToPermission(req)
@@ -263,7 +263,7 @@ private[opencode] object OpencodeDecoder:
       reasoningParts: Set[String]
   )
 
-private[opencode] object OpencodeConversation:
+private[opencode] object OpencodeTurn:
 
   /** Starts decoding `source` into the caller's turn scope. */
   def apply(
@@ -273,10 +273,10 @@ private[opencode] object OpencodeConversation:
       outputSchema: Option[String],
       askUser: AskUserChannel,
       openingPrompt: Option[String] = None
-  )(using Ox): Conversation[BackendTag.Opencode.type] =
-    StreamConversation.start(
+  )(using Ox): LiveTurn[BackendTag.Opencode.type] =
+    DecodedTurn.start(
       source,
-      ConversationSpec(
+      TurnSpec(
         openingPrompt = openingPrompt,
         outputSchema = outputSchema,
         structuredOutputMode = OpencodeBackend.StructuredOutputDelivery,

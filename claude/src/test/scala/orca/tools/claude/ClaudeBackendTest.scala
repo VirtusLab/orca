@@ -225,7 +225,7 @@ class ClaudeBackendTest extends munit.FunSuite:
     // `mcpTools` or the turn loses its only channel to the user.
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     withBackend(runner): backend =>
-      val conv = OpenTurn.interactive(backend)(
+      val live = OpenTurn.interactive(backend)(
         "x",
         freshSid,
         "x",
@@ -239,7 +239,7 @@ class ClaudeBackendTest extends munit.FunSuite:
             .contains(ClaudeBackend.AskUserToolName),
           args
         )
-      finally conv.cancel()
+      finally live.cancel()
 
   test("a ReadOnly call gets no GitHub reads"):
     // ReadOnly is the reviewers' tier and must stay network-free; the GitHub
@@ -497,7 +497,7 @@ class ClaudeBackendTest extends munit.FunSuite:
   test(
     "failed first call leaves the session unclaimed; retry still uses --session-id"
   ):
-    // The session mapping is recorded only after `new ClaudeConversation`
+    // The session mapping is recorded only after `new ClaudeTurn`
     // succeeds, so a first call that throws (e.g. is_error from the result
     // message) doesn't wedge the bookkeeping. The stub CLI writes no
     // transcript, so there is no claim on disk either and the retry opens the
@@ -659,7 +659,7 @@ class ClaudeBackendTest extends munit.FunSuite:
     ): backend =>
       assertEquals(
         backend.sessions.dispatchFor(freshSid),
-        Dispatch.Resume(freshSid.onWire, ResumeOrigin.EarlierRun)
+        Dispatch.Resume(freshSid.onWire, ResumeOrigin.EarlierAttempt)
       )
 
   test(

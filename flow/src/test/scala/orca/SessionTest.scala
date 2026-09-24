@@ -527,7 +527,7 @@ class SessionTest extends FunSuite:
       agent.dispatchFor(SessionId(session.chat.id.value)),
       Dispatch.Resume(
         WireSessionId[BackendTag.ClaudeCode.type]("srv-1"),
-        ResumeOrigin.EarlierRun
+        ResumeOrigin.EarlierAttempt
       )
     )
 

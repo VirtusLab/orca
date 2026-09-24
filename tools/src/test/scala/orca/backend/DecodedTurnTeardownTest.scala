@@ -14,7 +14,7 @@ import scala.concurrent.duration.*
   * is the only way to exercise the tree kill — every fake process has no
   * descendants, so the `destroyForciblyTree` default hides the wiring.
   */
-class ConversationTeardownTest extends munit.FunSuite:
+class DecodedTurnTeardownTest extends munit.FunSuite:
 
   /** Minimal decoder that republishes each stdout line, so the test can read
     * the process's output through the conversation surface (the reader fork
@@ -36,14 +36,14 @@ class ConversationTeardownTest extends munit.FunSuite:
           Nil,
           Settled.Succeeded(AgentResult(WireSessionId("s"), "", Usage.empty))
         )
-      else Step.continue((), ConversationEvent.AssistantTextDelta(line))
+      else Step.continue((), TurnEvent.AssistantTextDelta(line))
 
   private def echo(process: PipedCliProcess)(using
       Ox
-  ): Conversation[BackendTag.ClaudeCode.type] =
-    StreamConversation.start(
+  ): LiveTurn[BackendTag.ClaudeCode.type] =
+    DecodedTurn.start(
       StreamSource.fromProcess(process),
-      ConversationSpec(
+      TurnSpec(
         openingPrompt = None,
         outputSchema = None,
         structuredOutputMode = StructuredOutputMode.RawText,
@@ -56,7 +56,7 @@ class ConversationTeardownTest extends munit.FunSuite:
     * and hands `check` the conversation and that PID.
     */
   private def withSpawned(script: String)(
-      check: (Conversation[BackendTag.ClaudeCode.type], Long) => Unit
+      check: (LiveTurn[BackendTag.ClaudeCode.type], Long) => Unit
   ): Unit =
     supervised:
       val process = OsProcCliRunner.spawnPiped(
@@ -66,11 +66,11 @@ class ConversationTeardownTest extends munit.FunSuite:
       )
       var spawnedPid = 0L
       try
-        val conv = echo(process)
-        spawnedPid = conv.events.next() match
-          case ConversationEvent.AssistantTextDelta(pid) => pid.trim.toLong
+        val live = echo(process)
+        spawnedPid = live.events.next() match
+          case TurnEvent.AssistantTextDelta(pid) => pid.trim.toLong
           case other => fail(s"expected the spawned PID, got: $other")
-        check(conv, spawnedPid)
+        check(live, spawnedPid)
       finally
         // A descendant this test failed to reap still holds a pipe open, so
         // without an unconditional kill the scope join would deadlock on the
@@ -87,9 +87,9 @@ class ConversationTeardownTest extends munit.FunSuite:
     // the descendant is recorded by the signal-time snapshot. It is normally
     // NOT reachable by the time the forcible step runs — the shell dies within
     // milliseconds of the signal and the `sleep` is reparented to init.
-    withSpawned("sleep 30 & echo $!; wait"): (conv, pid) =>
+    withSpawned("sleep 30 & echo $!; wait"): (live, pid) =>
       assert(alive(pid), "the spawned work should be running")
-      conv.cancel()
+      live.cancel()
       assert(
         awaitDead(pid),
         "a cancelled turn must leave no surviving descendant"
@@ -97,8 +97,8 @@ class ConversationTeardownTest extends munit.FunSuite:
 
   /** The settle (`done`) SIGINTs the shell while its descendant is alive. */
   private def assertSettledTurnEnds(script: String): Unit =
-    withSpawned(script): (conv, pid) =>
-      assert(timeout(10.seconds)(conv.awaitResult()).isRight)
+    withSpawned(script): (live, pid) =>
+      assert(timeout(10.seconds)(live.awaitResult()).isRight)
       assert(
         awaitDead(pid),
         "a settled turn must leave no surviving descendant"
@@ -115,9 +115,9 @@ class ConversationTeardownTest extends munit.FunSuite:
     * pipe before the root exits.
     */
   private def assertUnsettledTurnEnds(script: String): Unit =
-    withSpawned(script): (conv, _) =>
+    withSpawned(script): (live, _) =>
       val _ = intercept[AgentTurnFailed](
-        timeout(10.seconds)(conv.awaitResult())
+        timeout(10.seconds)(live.awaitResult())
       )
 
   test("an unsettled turn ends although an orphan holds stdout"):
