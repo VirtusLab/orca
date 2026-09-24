@@ -550,7 +550,7 @@ object FlowLifecycle:
         StackOutcome.Configured(settings)
       case SettingsResolution.NeedsDiscovery(existingContent) =>
         val (settings, entries) =
-          activity("Discovering format, lint & test commands", emit):
+          withActivity("Discovering format, lint & test commands", emit):
             StackDiscovery.discover(agent, workDir, emit, existingContent)
         val fileText = existingContent match
           case None => SettingsFile.render(entries)
@@ -564,11 +564,7 @@ object FlowLifecycle:
         )
         StackOutcome.Discovered(settings)
 
-  /** Run `op` bracketed by [[OrcaEvent.ActivityStarted]] /
-    * [[OrcaEvent.ActivityEnded]], so the terminal shows `label` on its status
-    * row while setup work runs outside any stage.
-    */
-  private def activity[T](label: String, emit: OrcaEvent => Unit)(
+  private def withActivity[T](label: String, emit: OrcaEvent => Unit)(
       op: => T
   ): T =
     emit(OrcaEvent.ActivityStarted(label))
@@ -693,8 +689,8 @@ object FlowLifecycle:
       emit: OrcaEvent => Unit
   )(using InStage, WorkspaceWrite): FeatureBranch =
     val strategy = branchNaming.getOrElse(BranchNamingStrategy.shortenPrompt)
-    val resolvedName =
-      activity("Naming the branch", emit)(strategy.resolve(userPrompt, agent))
+    val resolvedName = withActivity("Naming the branch", emit):
+      strategy.resolve(userPrompt, agent)
     // Resolved once, shared by both fallback triggers below (a
     // protected-name refusal and a git-level `BranchAlreadyExists`
     // collision use the exact same deterministic name).

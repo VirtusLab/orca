@@ -488,15 +488,7 @@ class TerminalEventRendererTest extends munit.FunSuite:
     )
 
   test("an activity outside any stage pins its label until it ends"):
-    val started = renderWith(
-      animated = true,
-      List(OrcaEvent.ActivityStarted("Naming the branch"))
-    )
-    assert(
-      started.contains("Naming the branch"),
-      s"activity label missing from the status row; got: '$started'"
-    )
-    val ended = renderWith(
+    val rendered = renderWith(
       animated = true,
       List(
         OrcaEvent.ActivityStarted("Naming the branch"),
@@ -504,8 +496,12 @@ class TerminalEventRendererTest extends munit.FunSuite:
       )
     )
     assert(
-      ended.endsWith("\r\u001b[2K"),
-      s"status row should be cleared once the activity ends; got: '$ended'"
+      rendered.contains("Naming the branch"),
+      s"activity label missing from the status row; got: '$rendered'"
+    )
+    assert(
+      rendered.endsWith(TerminalOutputState.ClearLine),
+      s"status row should be cleared once the activity ends; got: '$rendered'"
     )
 
   test("nested stages indent inner content; no ✔ ever appears in the log"):

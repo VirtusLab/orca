@@ -69,12 +69,12 @@ private[runner] object DirtyTreePolicy:
     *
     * This writes the terminal outside `TerminalOutput`'s prompt transaction,
     * which is otherwise the single owner of the cursor. What makes that safe is
-    * WHEN it runs: setup precedes the first stage, and the status row is only
-    * ever raised by a `StageStarted`, so nothing is pinned at the bottom and
-    * the animator's `tick` is a no-op. Routing it through the transaction
-    * instead would mean handing setup the run's `Interaction` — including every
-    * embedder's non-terminal one. Residual: the read blocks uninterruptibly, so
-    * a fork failing elsewhere in the run's scope waits for the answer.
+    * WHEN it runs: before any stage or setup activity raises the status row, so
+    * nothing is pinned at the bottom and the animator's `tick` is a no-op.
+    * Routing it through the transaction instead would mean handing setup the
+    * run's `Interaction` — including every embedder's non-terminal one.
+    * Residual: the read blocks uninterruptibly, so a fork failing elsewhere in
+    * the run's scope waits for the answer.
     */
   def promptOnStderr(dirtyCount: Int): DirtyTreeChoice =
     Console.err.println(

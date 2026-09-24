@@ -28,10 +28,10 @@ enum OrcaEvent:
   /** The stage at `path` ended; see [[StageStarted]]. */
   case StageEnded private[orca] (path: StagePath.Stage, outcome: StageOutcome)
 
-  /** Orca began work that runs before any stage opens — today, setup's model
-    * calls (stack discovery, branch naming). `label` says what is running.
-    * Always followed by [[ActivityEnded]], before the next `ActivityStarted` or
-    * [[StageStarted]]; emitted on the flow's owner thread.
+  /** Orca began work outside any stage, such as a setup model call; `label`
+    * names it for display. Always followed by [[ActivityEnded]], before the
+    * next `ActivityStarted` or [[StageStarted]]; emitted on the flow's owner
+    * thread.
     */
   case ActivityStarted private[orca] (label: String)
 
