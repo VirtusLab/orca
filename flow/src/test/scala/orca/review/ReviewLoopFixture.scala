@@ -42,10 +42,9 @@ object ReviewLoopFixture:
   def coderSession(
       coder: FakeAgent,
       id: String = "s"
-  ): FlowSession[BackendTag.ClaudeCode.type] =
+  ): FlowSession =
     new FlowSession(
-      coder.agent,
-      SessionId[BackendTag.ClaudeCode.type](id),
+      coder.agent.chat(SessionId[BackendTag.ClaudeCode.type](id)),
       SessionKey(name = "coder", stage = StagePath.FlowBody)
     )
 

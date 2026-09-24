@@ -240,7 +240,7 @@ def planAndImplementFix(
            |tests.""".stripMargin,
         planningAgent
       )
-      .reviewed(planningAgent)
+      .reviewed()
       .value
 
   // No session below wrote the failing test, so the seed names it: the seed is

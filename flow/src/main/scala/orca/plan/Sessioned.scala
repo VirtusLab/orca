@@ -1,6 +1,6 @@
 package orca.plan
 
-import orca.agents.{BackendTag, Chat}
+import orca.agents.Chat
 
 /** A planning-phase result paired with the (ephemeral) [[Chat]] that produced
   * it. "Sessioned" names this ephemeral pairing specifically — it is not a
@@ -22,4 +22,4 @@ import orca.agents.{BackendTag, Chat}
   * val Sessioned(chat, plan) = Plan.autonomous.from(userPrompt, claude)
   * }}}
   */
-case class Sessioned[B <: BackendTag, +A](chat: Chat[B], value: A)
+case class Sessioned[+A](chat: Chat[?], value: A)
