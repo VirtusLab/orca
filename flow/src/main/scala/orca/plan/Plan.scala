@@ -209,8 +209,8 @@ object Plan:
   extension (sp: Sessioned[Plan])
     /** Resume the planning conversation for a critical self-review, returning
       * the improved plan (brief included) paired with the (same) chat. The
-      * review turn runs read-only on the agent that planned; the handed-back
-      * chat keeps the original binding.
+      * review turn runs read-only on the chat's agent — the one the planning
+      * call was given; the handed-back chat keeps the original binding.
       */
     def reviewed(
         instructions: String = PlanPrompts.Review

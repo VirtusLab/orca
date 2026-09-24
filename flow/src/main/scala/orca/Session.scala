@@ -38,9 +38,9 @@ import orca.util.PromptResource
 final class FlowSession private[orca] (
     /** An EPHEMERAL [[orca.agents.Chat]] on this session's conversation — the
       * way to continue it from inside a fork, where [[run]] and [[resultAs]]
-      * are banned, interactive turns included. Chat turns forfeit seeding, the
-      * interrupted-attempt notice and wire-id persistence: they are in-run only
-      * and never write back to the session store, so on crash/resume the
+      * are banned. Interactive turns work here too. Chat turns forfeit seeding,
+      * the interrupted-attempt notice and wire-id persistence: they are in-run
+      * only and never write back to the session store, so on crash/resume the
       * durable side finds nothing recorded for them.
       */
     val chat: Chat[?],
@@ -67,12 +67,12 @@ final class FlowSession private[orca] (
       ws: WorkspaceWrite
   ): String =
     val output = chat.agent.runText(
-      effectivePrompt(chat.agent, chat.id, prompt),
+      effectivePrompt(chat, prompt),
       chat.id,
       sessionKey = Some(key),
       emitPrompt = true
     )
-    persistResumeWireId(chat.agent, chat.id)
+    persistResumeWireId(chat)
     output
 
   /** Structured (`resultAs[O]`) durable door. Fixes the output type and yields
@@ -81,18 +81,18 @@ final class FlowSession private[orca] (
     * [[FlowSessionCall]]).
     */
   def resultAs[O: JsonData: Announce]: FlowSessionCall[O] =
-    new FlowSessionCall(this)
+    new FlowSessionCall(chat, key)
 
 /** Structured-durable gateway for a [[FlowSession]] (obtained via
   * [[FlowSession.resultAs]]). Fixes the output type `O`, and exposes a single
   * `run` (no `autonomous`/`interactive` split): interactive durable sessions
   * are deliberately not offered — see the [[FlowSession]] class scaladoc.
   */
-final class FlowSessionCall[O] private[orca] (session: FlowSession)(using
+final class FlowSessionCall[O] private[orca] (chat: Chat[?], key: SessionKey)(
+    using
     JsonData[O],
     Announce[O]
 ):
-  private val chat: Chat[?] = session.chat
 
   /** Held as a val so schema derivation (`JsonSchemaGen`) fails fast at
     * construction time — matching `agent.resultAs[O]` — instead of on the first
@@ -118,12 +118,12 @@ final class FlowSessionCall[O] private[orca] (session: FlowSession)(using
     val serialized = ai.serialize(input)
     val output = call.autonomous
       .runWithSession(
-        effectivePrompt(chat.agent, chat.id, serialized),
+        effectivePrompt(chat, serialized),
         chat.id,
-        sessionKey = Some(session.key),
+        sessionKey = Some(key),
         emitPrompt = emitPrompt
       )
-    persistResumeWireId(chat.agent, chat.id)
+    persistResumeWireId(chat)
     output
 
 /** Get-or-create session extension for `Agent`. Lives in the `flow` module so
@@ -311,15 +311,13 @@ private def mintSession[B <: BackendTag](
   * exactly once per turn, on either branch, so no turn can run unclaimed and
   * read as first twice.
   */
-private def effectivePrompt[B <: BackendTag](
-    agent: Agent[B],
-    session: SessionId[B],
-    text: String
-)(using fc: FlowControl): String =
-  val turn = fc.claimTurn(session.value)
-  agent.dispatchFor(session) match
+private def effectivePrompt(chat: Chat[?], text: String)(using
+    fc: FlowControl
+): String =
+  val turn = fc.claimTurn(chat.id.value)
+  chat.agent.dispatchFor(chat.id) match
     case Dispatch.Fresh(_) =>
-      rebuiltPrompt(fc.sessionStore.records().find(_.id == session.value), text)
+      rebuiltPrompt(fc.sessionStore.records().find(_.id == chat.id.value), text)
     case Dispatch.Resume(_, origin) => continuedPrompt(origin, turn, text)
 
 /** The prompt for a turn the backend will answer from a conversation it still
@@ -377,13 +375,13 @@ private val InterruptedAttemptNotice: String =
   * differs, so a no-op run writes nothing. Takes the [[WorkspaceWrite]] token
   * explicitly to keep these writes flow-thread-only (ADR 0018 §6).
   */
-private def persistResumeWireId[B <: BackendTag](
-    agent: Agent[B],
-    session: SessionId[B]
-)(using fc: FlowControl, ws: WorkspaceWrite): Unit =
+private def persistResumeWireId(chat: Chat[?])(using
+    fc: FlowControl,
+    ws: WorkspaceWrite
+): Unit =
   for
-    wireId <- agent.resumeWireId(session)
-    record <- fc.sessionStore.records().find(_.id == session.value)
+    wireId <- chat.agent.resumeWireId(chat.id)
+    record <- fc.sessionStore.records().find(_.id == chat.id.value)
     if !record.resumeWireId.contains(wireId.value)
   do fc.sessionStore.upsert(record.copy(resumeWireId = Some(wireId.value)))
 
