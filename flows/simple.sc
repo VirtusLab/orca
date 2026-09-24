@@ -36,7 +36,7 @@ flow(OrcaArgs(args)):
       // No planning stage, so the prompt is the whole task.
       task = Task(Title(userPrompt), ""),
       // Spelled out rather than inherited, like every cap in flows/.
-      maxIterations = 3
+      maxFixTurns = 3
     )
 
   openPrIfGitHub(

@@ -13,14 +13,14 @@ import orca.agents.{Agent, PromptEvent}
 import orca.plan.Title
 import orca.util.TextUtil
 
-/** Picks which reviewers run on each iteration of [[reviewAndFixLoop]].
+/** Picks which reviewers run on each round of [[reviewAndFixLoop]].
   *
   * Two-phase: [[prepare]] is called ONCE at loop start with the loop-constant
   * context (the roster as opaque [[RosterEntry]] handles, task title, changed
   * files); any gated effect (e.g. [[ReviewerSelector.agentDriven]]'s picker LLM
-  * call) happens there, inside the loop's stage. It returns the pure
-  * per-iteration narrowing: given the review history (most recent batch first),
-  * which reviewers run this round.
+  * call) happens there, inside the loop's stage. It returns the pure per-round
+  * narrowing: given the review history (most recent batch first), which
+  * reviewers run this round.
   *
   * A selector can only ever return a subset/permutation of the [[RosterEntry]]
   * handles it was handed (the ctor is `private[review]`), so the loop needs no
@@ -67,7 +67,7 @@ object ReviewerSelector:
     */
   val default: ReviewerSelector = narrowingAcrossRounds(agentDriven)
 
-  /** Costlier but thorough: every reviewer runs every iteration, regardless of
+  /** Costlier but thorough: every reviewer runs every round, regardless of
     * whether it's been quiet so far. Pick this when regression coverage matters
     * more than tokens.
     */

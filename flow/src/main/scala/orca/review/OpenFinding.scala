@@ -25,7 +25,7 @@ enum OpenReason derives JsonData:
     */
   case Unaccounted
 
-  /** The loop used up its `max` fix attempts with the finding still reported.
+  /** The loop used up its `max` fix turns with the finding still reported.
     */
   case CapReached(max: Int)
 
@@ -36,7 +36,7 @@ enum OpenReason derives JsonData:
     case Declined(text)   => text
     case NoFixes          => "fixer reported no fixes"
     case Unaccounted      => "fixer did not report on it"
-    case CapReached(max)  => s"max iterations ($max) reached"
+    case CapReached(max)  => s"max fix turns ($max) reached"
     case LintStillFailing => "lint still failing after its fix turn"
 
 /** A finding the run ends without resolving, the reason recorded for it, and

@@ -4,7 +4,7 @@ import orca.agents.{Announce, JsonData, given}
 import orca.plan.Title
 import orca.util.PromptResource
 
-/** What the fixing agent reports back per iteration: the findings it actually
+/** What the fixing agent reports back per fix turn: the findings it actually
   * fixed in the code, and the findings it chose not to fix along with a reason.
   * Each is named by the per-turn key [[FixRequest]] gave it, followed by its
   * title.
@@ -59,7 +59,7 @@ private[review] case class ReconciledFixOutcome(
 
 private[review] object FixOutcome:
   /** Silent — the fix loop already announces its outcome ("Fixed N, declined
-    * N") per iteration; without this, the raw-payload fallback (ADR 0008) would
+    * N") per fix turn; without this, the raw-payload fallback (ADR 0008) would
     * print the JSON on top of that line, since `FixOutcome` has no other
     * `Announce` instance to resolve to.
     */

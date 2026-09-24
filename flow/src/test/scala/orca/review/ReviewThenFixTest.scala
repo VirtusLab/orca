@@ -163,7 +163,7 @@ class ReviewThenFixTest extends munit.FunSuite:
       task = titled("do the thing")
     )
     assert(
-      !steps.messages.exists(_.startsWith("Iteration ")),
+      !steps.messages.exists(_.startsWith("Round ")),
       steps.messages.mkString("\n")
     )
 

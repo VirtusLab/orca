@@ -1,6 +1,6 @@
 package orca.shell.flows
 
-import orca.review.DefaultMaxIterations
+import orca.review.DefaultMaxFixTurns
 import orca.shell.OrcaBuild
 
 class BuiltInFlowsTest extends munit.FunSuite:
@@ -43,7 +43,7 @@ class BuiltInFlowsTest extends munit.FunSuite:
     // a per-call proof: it catches a call added without a cap, but not two caps
     // on one of two calls.
     val calls = "\\breviewAndFixLoop\\(".r
-    val caps = "maxIterations\\s*=\\s*\\d+".r
+    val caps = "maxFixTurns\\s*=\\s*\\d+".r
     val counted = indexNames.map: name =>
       val text = resourceText(name)
       (name, calls.findAllIn(text).size, caps.findAllIn(text).size)
@@ -112,19 +112,19 @@ class BuiltInFlowsTest extends munit.FunSuite:
       val call = finalReviewCall(name)
       assert(call.contains("diff = ReviewDiff.WholeRun"), s"$name: $call")
 
-  /** The cap every whole-run final review states. Above `DefaultMaxIterations`
+  /** The cap every whole-run final review states. Above `DefaultMaxFixTurns`
     * because nothing reviews again after that loop: what it leaves open ships,
     * listed in the PR.
     */
   private val FinalReviewCap: Int = 5
 
-  private val statedCap = "maxIterations\\s*=\\s*(\\d+)".r
+  private val statedCap = "maxFixTurns\\s*=\\s*(\\d+)".r
 
   test("the final-review cap exceeds the library default"):
     assert(
-      FinalReviewCap > DefaultMaxIterations,
+      FinalReviewCap > DefaultMaxFixTurns,
       s"the final-review cap ($FinalReviewCap) must exceed the default " +
-        s"($DefaultMaxIterations): nothing reviews again after that loop"
+        s"($DefaultMaxFixTurns): nothing reviews again after that loop"
     )
 
   test("every final review states the final-review cap"):
@@ -137,7 +137,7 @@ class BuiltInFlowsTest extends munit.FunSuite:
 
   test("every cap outside a final review is the library default, spelled out"):
     // Each flow writes the number instead of inheriting it, so raising
-    // `DefaultMaxIterations` fails here until the flows follow.
+    // `DefaultMaxFixTurns` fails here until the flows follow.
     val outside = indexNames
       .map: name =>
         val text = resourceText(name)
@@ -149,7 +149,7 @@ class BuiltInFlowsTest extends munit.FunSuite:
       .filter((_, stated) => stated.nonEmpty)
     assert(outside.nonEmpty, "no flow states a cap outside a final review")
     outside.foreach: (name, stated) =>
-      assertEquals(stated.distinct, List(DefaultMaxIterations.toString), name)
+      assertEquals(stated.distinct, List(DefaultMaxFixTurns.toString), name)
 
   /** A flow's last statement: from the last line where one starts — flow-body
     * indentation, opening with a name — to the end, so a call spread over
