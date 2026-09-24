@@ -172,8 +172,8 @@ class ReviewCheckTest extends munit.FunSuite:
     assertEquals(
       result.findings.map(f => (f.id, f.reason)),
       List(
-        FindingId("R2.I2.1") -> OpenReason.StillFailing(List("bench")),
-        FindingId("R2.I1.1") -> OpenReason.StillFailing(List("lint"))
+        FindingId("R2.I1.1") -> OpenReason.StillFailing(List("lint")),
+        FindingId("R2.I2.1") -> OpenReason.StillFailing(List("bench"))
       )
     )
     assert(check.exhausted, "the check must run in the round and twice after")
@@ -204,5 +204,5 @@ class ReviewCheckTest extends munit.FunSuite:
     )
     assertEquals(
       result.findings.map(_.reason),
-      List(OpenReason.StillFailing(List("bench", "lint")))
+      List(OpenReason.StillFailing(List("lint", "bench")))
     )

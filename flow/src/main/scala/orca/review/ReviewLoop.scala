@@ -1034,9 +1034,10 @@ private[review] class ReviewFixLoop(
           .distinctBy(_.id)
           .map(f => f.open(OpenReason.StillFailing(sourcesOf(f.id).distinct)))
 
-  /** Run the checks, then the lint gate — the order of a round — over the tree
-    * as it is now. `lintChat` is a lint conversation safe to resume, if any;
-    * the result carries the one this run hands back.
+  /** Run the checks, then the lint gate, over the tree as it is now — both
+    * orders as in a round: checks run first, lint's findings come before theirs.
+    * `lintChat` is a lint conversation safe to resume, if any; the result
+    * carries the one this run hands back.
     */
   private def recheck(lintChat: Option[Lint.Summariser]): Recheck =
     val checked = runChecks(firstAgentIndex = lintGate.size)
@@ -1051,6 +1052,6 @@ private[review] class ReviewFixLoop(
         val linted = KeyedFinding.forAgent(0, report.result.findings)
         ctx.emit(OrcaEvent.Step(formatReviewerOutcome(lintName, linted)))
         Recheck(
-          checked :+ SourceFindings(lintName, linted),
+          SourceFindings(lintName, linted) :: checked,
           report.resumableSummariser
         )
