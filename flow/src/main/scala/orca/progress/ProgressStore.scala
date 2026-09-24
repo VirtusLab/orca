@@ -22,7 +22,7 @@ trait ProgressStore:
   def load(): Option[ProgressLog]
 
   /** Classifies the log for callers that must act differently per outcome — the
-    * lifecycle's resume decision. See [[JsonFile.Read]].
+    * lifecycle's resume decision. See [[orca.util.JsonFile.Read]].
     */
   def loadDetailed(): JsonFile.Read[ProgressLog]
 

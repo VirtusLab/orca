@@ -4,7 +4,8 @@ import orca.{FlowControl, WorkspaceWrite}
 import orca.progress.PublishedWork
 import orca.tools.PrHandle
 
-/** Record `pr` as this run's [[PublishedWork]]; only its URL is kept.
+/** Record `pr` as this run's [[orca.progress.PublishedWork]]; only its URL is
+  * kept.
   *
   * Call it inside the stage that opened the PR, so the stage's commit carries
   * the record and a resumed run reads it back without re-running the body. A

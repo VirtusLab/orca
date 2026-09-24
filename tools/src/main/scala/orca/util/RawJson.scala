@@ -13,7 +13,7 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
   * the file readable. The codec reads and writes raw bytes without re-parsing.
   *
   * Public because it appears in the progress-log surface
-  * ([[orca.progress.StageEntry.resultJson]]).
+  * (`orca.progress.StageEntry.resultJson`).
   *
   * `nullValue` is the string `"null"`, so a missing field decodes
   * indistinguishably from a JSON `null`; fields that must detect absence wrap
@@ -39,9 +39,9 @@ object RawJson:
 
     def nullValue: RawJson = "null"
 
-  /** For `Schema.derived` on container types (e.g.
-    * [[orca.progress.StageEntry]]). These are persistence DTOs, never rendered
-    * into an agent's `--json-schema`; `string` is the closest primitive for an
-    * opaque serialized subtree.
+  /** For `Schema.derived` on container types (e.g. `orca.progress.StageEntry`).
+    * These are persistence DTOs, never rendered into an agent's
+    * `--json-schema`; `string` is the closest primitive for an opaque
+    * serialized subtree.
     */
   given sttp.tapir.Schema[RawJson] = sttp.tapir.Schema.string

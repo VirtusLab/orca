@@ -4,9 +4,9 @@ import orca.agents.BackendTag
 import orca.events.{OrcaEvent, OrcaListener}
 import ox.either.orThrow
 
-/** A [[LiveTurn]] whose display events go to an [[OrcaListener]], on both the
-  * autonomous and the interactive path, leaving the consumer only the
-  * [[ChannelEvent]]s it must answer.
+/** A [[LiveTurn]] whose display events go to an [[orca.events.OrcaListener]],
+  * on both the autonomous and the interactive path, leaving the consumer only
+  * the [[ChannelEvent]]s it must answer.
   *
   * [[drain]] maps each turn event to what listeners see: assistant prose to
   * `OrcaEvent.AssistantMessage` (one per completed message), tool calls to

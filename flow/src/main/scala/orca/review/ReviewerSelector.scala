@@ -35,9 +35,9 @@ import orca.util.TextUtil
   * nothing and — absent lint and check findings — converges, so a selector that
   * empties a non-empty roster turns the review into a no-op with a green
   * result. Each shipped selector carries its own floor against that
-  * ([[agentDriven]] falls back to every eligible reviewer,
-  * [[narrowingAcrossRounds]] re-runs the previous pick); a custom selector owns
-  * its own.
+  * ([[ReviewerSelector.agentDriven]] falls back to every eligible reviewer,
+  * [[ReviewerSelector.narrowingAcrossRounds]] re-runs the previous pick); a
+  * custom selector owns its own.
   */
 trait ReviewerSelector:
   def prepare(

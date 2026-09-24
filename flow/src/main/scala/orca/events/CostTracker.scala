@@ -100,8 +100,9 @@ class CostTracker extends OrcaListener:
   /** Per-model cost breakdown. Same key semantics as [[perModel]]. */
   def perModelCost: Map[Option[Model], Cost] = costsOf(state.get().byModel)
 
-  /** Per-role usage breakdown ([[Agent.role]], e.g. `Some("reviewer")`). `None`
-    * collects calls from every agent with no role tag — the common case.
+  /** Per-role usage breakdown ([[orca.agents.Agent.role]], e.g.
+    * `Some("reviewer")`). `None` collects calls from every agent with no role
+    * tag — the common case.
     */
   def perRole: Map[Option[String], Usage] =
     state.get().byRole.view.mapValues(_.usage).toMap

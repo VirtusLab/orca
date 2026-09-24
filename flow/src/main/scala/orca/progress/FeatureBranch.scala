@@ -4,13 +4,13 @@ import orca.gitref.BranchName
 
 /** A branch name orca itself may create, commit to, or delete during its own
   * lifecycle bookkeeping (ADR 0018 §2.4/§2.5) — as opposed to any
-  * [[BranchName]] git accepts. Every [[FeatureBranch]] is guaranteed
-  * non-protected: not in the always-protected floor
+  * [[orca.gitref.BranchName]] git accepts. Every [[FeatureBranch]] is
+  * guaranteed non-protected: not in the always-protected floor
   * [[FeatureBranch.alwaysProtected]] unioned with the caller-supplied set, in
   * practice the repo's detected default.
   *
-  * [[resolve]]/[[resolveReused]] are the only constructors — one pair, one home
-  * for the protected-branch check.
+  * [[FeatureBranch.resolve]]/[[FeatureBranch.resolveReused]] are the only
+  * constructors — one pair, one home for the protected-branch check.
   *
   * Takes `protectedBranches: Set[String]` rather than a `GitTool` so it stays
   * pure and unit-testable without a repo fixture.
@@ -38,8 +38,8 @@ object FeatureBranch:
   val alwaysProtected: Set[String] = Set("main", "master")
 
   /** A branch name the user asked for (`--branch`, the shell's prompt): a valid
-    * [[BranchName]] outside the always-protected floor. Does not refuse the
-    * repo's own default branch, which is known only at run time;
+    * [[orca.gitref.BranchName]] outside the always-protected floor. Does not
+    * refuse the repo's own default branch, which is known only at run time;
     * `FlowLifecycle` refuses it when minting a [[FeatureBranch]] from this
     * name.
     */

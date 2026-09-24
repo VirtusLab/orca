@@ -12,9 +12,9 @@ import orca.agents.Model
   */
 object OpencodeModel:
 
-  /** Build a provider-qualified [[Model]], e.g. `OpencodeModel("ollama",
-    * "llama3.1")`. Both parts must be non-empty; an empty part is a caller
-    * defect, not a recoverable condition.
+  /** Build a provider-qualified [[orca.agents.Model]], e.g.
+    * `OpencodeModel("ollama", "llama3.1")`. Both parts must be non-empty; an
+    * empty part is a caller defect, not a recoverable condition.
     */
   def apply(providerID: String, modelID: String): Model =
     require(providerID.nonEmpty, "providerID must be non-empty")

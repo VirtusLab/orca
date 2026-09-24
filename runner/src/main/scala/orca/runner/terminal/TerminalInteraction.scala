@@ -18,11 +18,12 @@ import java.nio.charset.StandardCharsets.UTF_8
   * spinner pinned at the bottom. When stderr isn't a TTY (CI, redirected
   * output, `NO_COLOR`/`ORCA_NO_ANIMATION`) it degrades to plain inline writes.
   *
-  * The default stream is forced to UTF-8 (see [[start]]) so orca's non-ASCII
-  * glyphs survive a non-UTF-8 default charset. `drive` runs on the caller's
-  * thread; the spinner advances on a separate fork inside `TerminalActor` while
-  * drive blocks on the backend. [[close]] runs from `flow(...)`'s `finally` to
-  * flush and clear the status row before the scope ends.
+  * The default stream is forced to UTF-8 (see [[TerminalInteraction.start]]) so
+  * orca's non-ASCII glyphs survive a non-UTF-8 default charset. `drive` runs on
+  * the caller's thread; the spinner advances on a separate fork inside
+  * `TerminalActor` while drive blocks on the backend. [[close]] runs from
+  * `flow(...)`'s `finally` to flush and clear the status row before the scope
+  * ends.
   */
 class TerminalInteraction private[terminal] (
     output: TerminalActor,

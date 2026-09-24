@@ -3,10 +3,10 @@ package orca.sessions
 import orca.StagePath
 import orca.agents.{BackendTag, SessionKey}
 
-/** A durable session as it is stored: the [[SessionKey]] halves that key it —
-  * the name, and the path of the stage that minted it — a minted UUID, the seed
-  * string the author supplied, and, once a turn has committed, the wire id to
-  * resume the live backend conversation against.
+/** A durable session as it is stored: the [[orca.agents.SessionKey]] halves
+  * that key it — the name, and the path of the stage that minted it — a minted
+  * UUID, the seed string the author supplied, and, once a turn has committed,
+  * the wire id to resume the live backend conversation against.
   *
   * `id` is the stable client id the framework hands across calls;
   * `resumeWireId` is the id to put on the wire when resuming (same `wireId`
