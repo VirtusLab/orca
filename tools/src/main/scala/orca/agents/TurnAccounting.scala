@@ -86,7 +86,7 @@ private[orca] class TurnAccounting[B <: BackendTag](
         usage = usage,
         role = role,
         turn = turn,
-        conversationKey = Some(conversationKey)
+        conversationKey = conversationKey
       )
     )
 

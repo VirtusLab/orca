@@ -38,7 +38,7 @@ class CostTrackerTest extends munit.FunSuite:
         u,
         role,
         turn = 1,
-        conversationKey = None
+        conversationKey = "c"
       ),
       cost = Pricing.resolve(pricing, resolved, u)
     )

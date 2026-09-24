@@ -49,7 +49,12 @@ class MessageGrammarTest extends munit.FunSuite:
             (),
             Nil,
             Settled.Succeeded(
-              AgentResult(WireSessionId("fake"), "done", Usage.empty)
+              AgentResult(
+                WireSessionId("fake"),
+                "done",
+                Usage.empty,
+                model = None
+              )
             )
           )
         case "fail" =>

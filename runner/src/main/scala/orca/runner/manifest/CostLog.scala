@@ -64,7 +64,7 @@ private[orca] case class CostRecord(
     apiCalls: Option[Long],
     usage: CostLogUsage,
     cost: Option[Cost],
-    conversationKey: Option[String]
+    conversationKey: String
 )
 
 private[orca] object CostRecord:

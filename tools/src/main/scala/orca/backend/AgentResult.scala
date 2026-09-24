@@ -21,5 +21,5 @@ case class AgentResult[B <: BackendTag](
       * model); `None` when neither exists. Spend is attributed to it, falling
       * back to the call's pinned model.
       */
-    model: Option[Model] = None
+    model: Option[Model]
 )

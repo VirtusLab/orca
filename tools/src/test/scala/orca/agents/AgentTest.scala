@@ -514,7 +514,7 @@ class AgentTest extends munit.FunSuite:
       seen.get().collect { case t: OrcaEvent.UnpricedTurn =>
         t.conversationKey
       },
-      List(Some("wire-joined"))
+      List("wire-joined")
     )
 
   // `quietTextTurn` runs its turn on a fresh session, bypassing

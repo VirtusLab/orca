@@ -454,7 +454,7 @@ class TerminalEventRendererTest extends munit.FunSuite:
             usage(10L, 5L),
             role = None,
             turn = 1,
-            conversationKey = None
+            conversationKey = "c"
           ),
           cost = None
         )

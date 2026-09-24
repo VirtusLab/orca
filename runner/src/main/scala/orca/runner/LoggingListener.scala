@@ -53,7 +53,7 @@ private[orca] class LoggingListener extends OrcaListener:
         t.role.getOrElse("(none)"),
         t.model.map(_.name).getOrElse("(unknown)"),
         t.turn,
-        t.conversationKey.getOrElse("(none)"),
+        t.conversationKey,
         cost.fold("(none)")(_.amount.toString),
         t.usage
       )

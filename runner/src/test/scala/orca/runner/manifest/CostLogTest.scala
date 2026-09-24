@@ -82,7 +82,7 @@ class CostLogTest extends munit.FunSuite:
           usage(107_000, 500, None, apiCalls = Some(3L)),
           None,
           turn = 1,
-          conversationKey = Some("wire-1")
+          conversationKey = "wire-1"
         ),
         cost = None
       )
@@ -98,7 +98,7 @@ class CostLogTest extends munit.FunSuite:
           usage(0, 0, None),
           Some("reviewer"),
           turn = 2,
-          conversationKey = None
+          conversationKey = "wire-2"
         ),
         cost = None
       )
@@ -108,8 +108,8 @@ class CostLogTest extends munit.FunSuite:
         (t.agent, t.role, t.stage, t.turn, t.conversationKey, t.apiCalls)
       ),
       List(
-        ("claude", None, Some("code"), 1, Some("wire-1"), Some(3L)),
-        ("reviewer", Some("reviewer"), None, 2, None, None)
+        ("claude", None, Some("code"), 1, "wire-1", Some(3L)),
+        ("reviewer", Some("reviewer"), None, 2, "wire-2", None)
       )
     )
 
@@ -136,7 +136,7 @@ class CostLogTest extends munit.FunSuite:
           ),
           role = None,
           turn = 1,
-          conversationKey = None
+          conversationKey = "c"
         ),
         cost = Some(resolved)
       )
@@ -165,7 +165,7 @@ class CostLogTest extends munit.FunSuite:
           usage = usage(10, 1, None),
           role = None,
           turn = 1,
-          conversationKey = None
+          conversationKey = "c"
         ),
         cost = Some(Cost(BigDecimal("0.5"), estimated))
       )
@@ -192,7 +192,7 @@ class CostLogTest extends munit.FunSuite:
           usage = usage(10, 1, None),
           role = None,
           turn = 1,
-          conversationKey = None
+          conversationKey = "c"
         ),
         cost = None
       )
@@ -205,7 +205,7 @@ class CostLogTest extends munit.FunSuite:
           usage = usage(10, 1, None),
           role = None,
           turn = 1,
-          conversationKey = None
+          conversationKey = "c"
         ),
         cost = None
       )
@@ -230,7 +230,7 @@ class CostLogTest extends munit.FunSuite:
           usage = usage(120_000, 900, None, cacheRead = 107_000),
           role = None,
           turn = 1,
-          conversationKey = None
+          conversationKey = "c"
         ),
         cost = Some(Cost(BigDecimal("0.0846"), estimated))
       )
@@ -243,7 +243,7 @@ class CostLogTest extends munit.FunSuite:
           usage = usage(5_000, 100, Some(BigDecimal("0.0123"))),
           role = Some("reviewer"),
           turn = 1,
-          conversationKey = None
+          conversationKey = "c"
         ),
         cost = Some(Cost(BigDecimal("0.0123"), CostBasis.Reported))
       )
