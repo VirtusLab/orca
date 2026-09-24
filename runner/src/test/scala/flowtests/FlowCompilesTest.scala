@@ -47,8 +47,8 @@ object FlowCanary:
         val _ = session.resultAs[FlowPlan].run(userPrompt)
         val _ = session.resultAs[FlowPlan].run("follow up")
         // Interactive is deliberately ephemeral-only (see FlowSession): a
-        // one-shot on the agent, or a continuation on a Chat — including the
-        // `session.chat` escape hatch over a durable session.
+        // one-shot on the agent, or a continuation on a Chat — including
+        // `session.chat` over a durable session that has run.
         val _ = claude.resultAs[FlowPlan].interactive.run(userPrompt)
         val _ = session.chat.resultAs[FlowPlan].interactive.run("refine")
 
@@ -110,10 +110,10 @@ object FlowCanary:
       val session =
         claude.session("plan", seed = userPrompt)
       // The planning turn is interactive, which FlowSession deliberately does
-      // not offer (see the FlowSession scaladoc); run it on the session's
-      // `chat`. The stage persists ONLY the FlowPlan.
+      // not offer (see the FlowSession scaladoc); it runs as a one-shot. The
+      // stage persists ONLY the FlowPlan.
       val plan: FlowPlan = stage("plan"):
-        session.chat.resultAs[FlowPlan].interactive.run(userPrompt)
+        claude.resultAs[FlowPlan].interactive.run(userPrompt)
       for task <- plan.tasks do
         stage(task.description):
           reviewAndFixLoop(

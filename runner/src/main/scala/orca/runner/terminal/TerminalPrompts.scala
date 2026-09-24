@@ -18,7 +18,8 @@ import org.jline.terminal.TerminalBuilder
   *
   * All writes go through the shared [[TerminalOutput]] so the persistent status
   * row isn't torn by ad-hoc prints. `output.prompt` around the prompts keeps
-  * live event output from scribbling on top of `readLine`.
+  * live event output from scribbling on top of `readLine`, and keeps a question
+  * directly above its read when two turns ask at once.
   */
 private[terminal] class TerminalPrompts(
     useColor: Boolean,
@@ -46,12 +47,12 @@ private[terminal] class TerminalPrompts(
     case ConversationEvent.UserQuestion(question, respond) =>
       promptUserQuestion(question, respond, conversation)
 
-  /** Append a self-contained block (one or more lines) to the event log under
-    * the current stage indent. Embedded `\n`s are re-indented so multi-line
-    * content stays aligned with the leading glyph.
+  /** A self-contained block (one or more lines) under the current stage indent.
+    * Embedded `\n`s are re-indented so multi-line content stays aligned with
+    * the leading glyph.
     */
-  private def appendBlock(s: String): Unit =
-    output.log(Text.indentBlock(currentIndent(), s))
+  private def indented(s: String): String =
+    Text.indentBlock(currentIndent(), s)
 
   // --- Prompts ---
 
@@ -66,12 +67,11 @@ private[terminal] class TerminalPrompts(
       ToolInputSummary.MaxInlineInputLength,
       workDir
     )
-    appendBlock(
-      paint(ApprovalStyle, s"$ApprovalGlyph $toolName requested: $summary")
-    )
-    // `prompt` suspends the status and buffers concurrent log tells so the
-    // readline lands cleanly, then drains/redraws on the way out.
-    output.prompt: () =>
+    output.prompt(
+      indented(
+        paint(ApprovalStyle, s"$ApprovalGlyph $toolName requested: $summary")
+      )
+    ): () =>
       prompter.ask(
         currentIndent() + paint(ApprovalStyle, "  [y]es / [n]o ? ")
       ) match
@@ -83,10 +83,9 @@ private[terminal] class TerminalPrompts(
       respond: String => Unit,
       conversation: ObservedConversation[B]
   ): Unit =
-    appendBlock(
-      paint(ApprovalStyle, s"$ApprovalGlyph ") + question
-    )
-    output.prompt: () =>
+    output.prompt(
+      indented(paint(ApprovalStyle, s"$ApprovalGlyph ") + question)
+    ): () =>
       prompter.ask(
         currentIndent() + paint(ApprovalStyle, "  > ")
       ) match
