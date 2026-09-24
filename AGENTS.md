@@ -61,9 +61,9 @@ The flow runtime is specified in [ADR 0018](adr/0018-stage-bound-flow-runtime.md
 read it before touching `stage`, the progress log, or sessions. The invariants
 most easily broken:
 
-- **Capability gating.** Three compile-time capabilities gate side effects,
-  beside `FlowContext` (reads + emit; thread-safe; not a capability, so forks
-  receive it freely): `FlowControl` (authority to start
+- **Capability gating.** `FlowContext` (reads + emit; thread-safe) is not a
+  capability, so forks receive it freely. Three compile-time capabilities gate
+  side effects: `FlowControl` (authority to start
   a stage; thread-affine; holds the run's `FlowContext` as `context`, from
   which a `FlowContext` given is derived when none is in scope), and a SPLIT pair of stage-bound
   capability tokens (both in `tools`, `package orca`) — `InStage`, the SHARED
@@ -303,7 +303,7 @@ Three location classes decide what survives:
 | `.orca/cache/lint-*.txt` | cache | lint output too large to inline in a prompt | `Lint` | the summarising agent | `lint`'s `finally` |
 | `.orca/cache/{,runs/,attempts/}.<file>.<uuid>.tmp` | cache | in-flight temp of an `OrcaFile` replace: beside a cache file, in `.orca/cache/` for a committed one (progress log, settings) so it is never committed | `OrcaDir.OrcaFile` | — (`AttemptManifestWriter`'s pruning skips dot-files) | the rename that completes the write |
 | `.orca/worktrees/<key>/` (+ branch `orca-worktree-<key>`) | worktrees | a `--worktree` run's checkout, with its own `.orca/` inside | `WorktreeRun` | `WorktreeScan` (shell) | never — see README |
-| `<workDir>/.gemini/settings.json` | user tree | an `mcpServers.orca` entry for one interactive gemini turn | `GeminiSettings` | gemini | restored at turn end, and a stale entry from a crash dropped at the next interactive run; a `.gemini/` orca created is removed when left empty |
+| `<workDir>/.gemini/settings.json` | user tree | an `mcpServers.orca` entry for one interactive gemini turn | `GeminiSettings` | gemini | restored at turn end, and a stale entry from a crash dropped at the next interactive turn; a `.gemini/` orca created is removed when left empty |
 | `$TMPDIR/orca-*` (system prompts, claude MCP config, codex schema, pi extension) | temp | per-turn IPC files handed to a CLI on argv | each backend | the CLI | turn end |
 | `$TMPDIR/orca-authoring-<n>/` | temp | the authoring flow's sandbox repo; `.orca/cache/orca-api-<version>/` inside holds the README + example flows (+ `fork-source/`) | `AuthoringSandbox`, `FlowAuthoring` | the coding agent | success or cancel; kept on failure, and nothing else prunes it |
 | `$XDG_CACHE_HOME/orca/shell/<version>/flows/` | XDG cache | built-in flows extracted from the jar | `BuiltInFlows` | `FlowCatalog`, scala-cli | never; nothing prunes older versions |
@@ -460,15 +460,13 @@ Words for talking to a coding agent, from the outside in:
   the call.
 - **turn** — one exchange with the agent that reaches the model: a prompt sent,
   events streamed back, one outcome. A retry that reaches the model is a new
-  turn (`UnpricedTurn.turn` counts them). `TurnRequest` opens one;
-  `AgentBackend.open` returns it as a `LiveTurn` (its events, outcome and
-  cancel); `ObservedTurn` routes its display events to listeners.
+  turn (`UnpricedTurn.turn` counts them). `AgentBackend.open` returns one as a
+  `LiveTurn`.
 - **message** — one assistant message inside a turn, closed by
   `TurnEvent.AssistantMessageEnd` and shown as one `OrcaEvent.AssistantMessage`.
   The message grammar is on `TurnEvent`'s scaladoc.
 - **decoder** — a backend's wire protocol as a `LineDecoder`: a fold over the
   lines of its stream. `DecodedTurn` runs it and owns the rest of the turn.
-  There are no per-backend drivers.
 - **settle** — a decoder's `Step.Settle`: the turn's outcome (`Settled`) is
   known and later lines are ignored. Only the decoder settles;
   `SessionSupport` *confirms* a rehydrated wire id.

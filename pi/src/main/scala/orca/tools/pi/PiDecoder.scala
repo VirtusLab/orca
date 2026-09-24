@@ -13,7 +13,7 @@ import orca.backend.{
   AskUserChannel,
   LiveTurn,
   TurnEvent,
-  TurnSpec,
+  DecodedTurnSpec,
   LineDecoder,
   Settled,
   Step,
@@ -62,9 +62,8 @@ private[pi] final class PiStdin(process: PipedCliProcess):
           s"dropped extension UI reply: ${e.getMessage}"
         )
 
-/** Decodes one `pi --mode rpc` process for a single Orca LLM call: Pi RPC
-  * events → Orca conversation events, with `agent_end` as the terminal
-  * [[AgentResult]].
+/** Decodes one `pi --mode rpc` process for a single Orca turn: Pi RPC events →
+  * `TurnEvent`s, with `agent_end` as the terminal [[AgentResult]].
   */
 private[pi] final class PiDecoder(
     clientSession: SessionId[BackendTag.Pi.type],
@@ -265,7 +264,7 @@ private[pi] object PiTurn:
     stdin.send(OutboundMessage.prompt(prompt))
     DecodedTurn.start(
       StreamSource.fromProcess(process),
-      TurnSpec(
+      DecodedTurnSpec(
         openingPrompt = openingPrompt,
         outputSchema = outputSchema,
         structuredOutputMode = StructuredOutputMode.RawText,

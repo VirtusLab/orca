@@ -20,7 +20,7 @@ class InboundMessageTest extends munit.FunSuite:
       InboundMessage.SystemInit("sid-1", Some("claude-sonnet-4-6"))
     )
 
-  test("assistant turn decodes every content block into the domain enum"):
+  test("assistant message decodes every content block into the domain enum"):
     val msg = InboundMessage.parse(
       """{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"hi"},{"type":"thinking","thinking":"ponder"}]}}"""
     )
@@ -32,9 +32,9 @@ class InboundMessageTest extends munit.FunSuite:
       )
     )
 
-  // The driver counts a turn's model responses by their distinct ids, so the id
+  // The decoder counts a turn's model responses by their distinct ids, so the id
   // has to survive parsing.
-  test("assistant turn carries the id of the response it came from"):
+  test("assistant message carries the id of the response it came from"):
     val msg = InboundMessage.parse(
       """{"type":"assistant","message":{"id":"msg_01ab","role":"assistant","content":[{"type":"text","text":"hi"}]}}"""
     )
@@ -75,7 +75,7 @@ class InboundMessageTest extends munit.FunSuite:
     )
 
   // `num_turns` is the obvious-looking call count and is the wrong one — it
-  // counts tool calls, not requests. The driver must not pick it up here.
+  // counts tool calls, not requests. The decoder must not pick it up here.
   test("result ignores num_turns: the call count is not the parser's to set"):
     val msg = InboundMessage.parse(
       """{"type":"result","subtype":"success","session_id":"sid-1","num_turns":4,"usage":{"input_tokens":10,"output_tokens":20}}"""
@@ -113,7 +113,7 @@ class InboundMessageTest extends munit.FunSuite:
     val msg = InboundMessage.parse("""{"type":"heartbeat"}""")
     assertEquals(msg, InboundMessage.Unknown("heartbeat"))
 
-  test("assistant turn with empty content decodes to an empty block list"):
+  test("assistant message with empty content decodes to an empty block list"):
     val msg = InboundMessage.parse(
       """{"type":"assistant","message":{"role":"assistant","content":[]}}"""
     )

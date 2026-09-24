@@ -1,7 +1,7 @@
 package orca.backend
 
-/** The stderr lines a conversation surfaced, kept for its failure messages: a
-  * noop listener (tests, simple scripts) would otherwise lose the per-line
+/** The stderr lines a turn surfaced, kept for its failure messages: a noop
+  * listener (tests, simple scripts) would otherwise lose the per-line
   * `TurnEvent.Error`s. Bounded on line count and bytes.
   *
   * @param last

@@ -7,7 +7,7 @@ import orca.backend.{
   AskUserChannel,
   LiveTurn,
   TurnEvent,
-  TurnSpec,
+  DecodedTurnSpec,
   LineDecoder,
   Settled,
   Step,
@@ -276,7 +276,7 @@ private[opencode] object OpencodeTurn:
   )(using Ox): LiveTurn[BackendTag.Opencode.type] =
     DecodedTurn.start(
       source,
-      TurnSpec(
+      DecodedTurnSpec(
         openingPrompt = openingPrompt,
         outputSchema = outputSchema,
         structuredOutputMode = OpencodeBackend.StructuredOutputDelivery,

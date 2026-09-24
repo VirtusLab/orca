@@ -19,7 +19,7 @@ class OrcaFlowException(message: String) extends RuntimeException(message)
   *
   * `debit` is what the abandoned turn had spent, on the same terms as
   * [[AgentTurnFailed.debit]]: a user who Ctrl-Cs a long interactive turn is
-  * billed for it, so the run's cost summary has to see it.
+  * billed for it, so the cost summary has to see it.
   */
 class OrcaInteractiveCancelled(
     val debit: orca.events.TurnDebit,
@@ -44,8 +44,8 @@ class OrcaInteractiveCancelled(
   * `debit` is what the turn spent before failing. It has no default: the
   * success path is the only other `OrcaEvent.UnpricedTurn` emitter, so a
   * decoder that skipped the question would silently drop the failed turn from
-  * the run's cost summary. A decoder whose protocol reports nothing on its
-  * failure frame says so with [[orca.events.TurnDebit.Unobserved]].
+  * the cost summary. A decoder whose protocol reports nothing on its failure
+  * frame says so with [[orca.events.TurnDebit.Unobserved]].
   */
 class AgentTurnFailed(
     message: String,

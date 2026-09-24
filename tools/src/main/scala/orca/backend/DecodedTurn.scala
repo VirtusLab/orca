@@ -44,7 +44,7 @@ private[orca] object DecodedTurn:
 
   def start[B <: BackendTag, S](
       source: StreamSource,
-      spec: TurnSpec,
+      spec: DecodedTurnSpec,
       decoder: LineDecoder[B, S]
   )(using Ox): LiveTurn[B] =
     val channel = Channel.buffered[TurnEvent](ChannelCapacity)
@@ -66,7 +66,7 @@ private[orca] object DecodedTurn:
     Either[OrcaInteractiveCancelled | AgentTurnFailed, AgentResult[B]]
 
   private final class Live[B <: BackendTag](
-      spec: TurnSpec,
+      spec: DecodedTurnSpec,
       source: StreamSource,
       channel: Channel[TurnEvent],
       cancelled: AtomicBoolean,

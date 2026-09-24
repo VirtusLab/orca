@@ -8,7 +8,7 @@ import orca.agents.StructuredOutputMode
   * @param openingPrompt
   *   surfaced as a `UserMessage` before any agent output (interactive turns)
   */
-private[orca] final case class TurnSpec(
+private[orca] final case class DecodedTurnSpec(
     openingPrompt: Option[String],
     outputSchema: Option[String],
     structuredOutputMode: StructuredOutputMode,

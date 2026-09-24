@@ -32,7 +32,7 @@ class ClaudeTurnTest extends munit.FunSuite:
     process.closeStderr()
 
     val events = live.events.toList
-    // The delta opens a turn; `result:success` settles it, and the base-class
+    // The delta opens a message; `result:success` settles it, and the base-class
     // auto-close injects the owed AssistantMessageEnd.
     assertEquals(
       events,
@@ -44,7 +44,7 @@ class ClaudeTurnTest extends munit.FunSuite:
     TurnEventConformance.assertGrammar(events, completedNormally = true)
     val _ = live.awaitResult()
 
-  liveTest("result message finishes the session and carries usage"):
+  liveTest("result message finishes the turn and carries usage"):
     val process = new FakePipedCliProcess()
     val live = ClaudeTurn(process)
 
@@ -145,7 +145,7 @@ class ClaudeTurnTest extends munit.FunSuite:
       },
       s"expected an Error event carrying the result body; got: $events"
     )
-    // Out-of-band is_error before any assistant turn: no turn opened, so the
+    // Out-of-band is_error before any assistant message: no message opened, so the
     // settled-failure sequence is grammar-clean with no AssistantMessageEnd.
     TurnEventConformance.assertGrammar(events, completedNormally = true)
     val failure = intercept[OrcaFlowException](live.awaitResult())
@@ -301,7 +301,7 @@ class ClaudeTurnTest extends munit.FunSuite:
     assertEquals(process.writes, Nil)
 
   liveTest(
-    "assistant turn with text falls back to an AssistantTextDelta when no partials streamed"
+    "assistant message with text falls back to an AssistantTextDelta when no partials streamed"
   ):
     val process = new FakePipedCliProcess()
     val live = ClaudeTurn(process)
@@ -373,7 +373,7 @@ class ClaudeTurnTest extends munit.FunSuite:
     )
     val _ = live.awaitResult()
 
-  liveTest("user turn with tool_result blocks emits ToolResult events"):
+  liveTest("user message with tool_result blocks emits ToolResult events"):
     val process = new FakePipedCliProcess()
     val live = ClaudeTurn(process)
 
@@ -387,7 +387,7 @@ class ClaudeTurnTest extends munit.FunSuite:
     process.closeStderr()
 
     val events = live.events.toList
-    // The ToolResult opens a turn (a tool ran); `result:success` settles it and
+    // The ToolResult opens a message (a tool ran); `result:success` settles it and
     // the base-class auto-close injects the owed AssistantMessageEnd.
     assertEquals(
       events,
@@ -498,7 +498,7 @@ class ClaudeTurnTest extends munit.FunSuite:
     )
     assert(
       !events.contains(TurnEvent.AssistantMessageEnd),
-      s"a suppressed ask_user-only turn is empty; its turn end must be dropped, got: $events"
+      s"a suppressed ask_user-only message is empty; its message end must be dropped, got: $events"
     )
     TurnEventConformance.assertGrammar(events, completedNormally = true)
     val _ = live.awaitResult()
@@ -510,7 +510,7 @@ class ClaudeTurnTest extends munit.FunSuite:
     val live =
       ClaudeTurn(process, outputSchema = Some("{}"))
 
-    // The final turn of a `--json-schema` run: the model "exits" by calling
+    // The final message of a `--json-schema` call: the model "exits" by calling
     // the CLI-injected StructuredOutput tool with the payload as input, and
     // the SDK echoes a matching tool_result. Both are suppressed — the payload
     // reaches the caller via the result message's structured output and

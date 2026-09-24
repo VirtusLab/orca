@@ -20,8 +20,8 @@ import orca.events.Usage
 import ox.Ox
 
 /** An `AgentBackend` double whose every turn, autonomous or interactive, is a
-  * conversation with no events that answers [[reply]]. A `reply` that throws is
-  * a turn that failed to open. It has no cheaper model tier.
+  * turn with no events that answers [[reply]]. A `reply` that throws is a turn
+  * that failed to open. It has no cheaper model tier.
   *
   * `B` is bound to `Singleton` so `ScriptedBackend(BackendTag.Pi)` infers
   * `BackendTag.Pi.type` rather than widening to `BackendTag`.

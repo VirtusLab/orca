@@ -69,7 +69,7 @@ class ClaudeIntegrationTest extends munit.FunSuite:
         s"expected resumed session to recall '42', got: ${second.output}"
       )
 
-  test("stream-json interactive session reaches a Result with a session id"):
+  test("stream-json interactive turn reaches a Result with a session id"):
     withBackend: backend =>
       val live = OpenTurn.interactive(backend)(
         prompt = "Reply with just the number 7. Nothing else.",
@@ -79,7 +79,7 @@ class ClaudeIntegrationTest extends munit.FunSuite:
         outputSchema = None
       )
       try
-        // Drain events so the driver can process them; we don't render
+        // Drain events so the decoder can process them; we don't render
         // anything in the integration test — awaitResult gives the outcome.
         live.events.foreach(_ => ())
         val Right(result) = live.awaitResult(): @unchecked

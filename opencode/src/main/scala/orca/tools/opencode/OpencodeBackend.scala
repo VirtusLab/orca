@@ -152,9 +152,9 @@ private[orca] class OpencodeBackend(
     * can throw (fresh `POST /session`, or a bad resume id), and opening the
     * stream first would leak the `GET /event` connection on that failure. The
     * `try`/`catch` is defense-in-depth for any throw between the stream opening
-    * and [[openConversation]] handing it to the owning [[OpencodeTurn]] (whose
-    * own `catch` only covers the later `prompt_async` POST). The conversation
-    * owns its stream: it interrupts on the terminal event or `cancel`.
+    * and [[openTurn]] handing it to the owning [[OpencodeTurn]] (whose own
+    * `catch` only covers the later `prompt_async` POST). The turn owns its
+    * stream: it interrupts on the terminal event or `cancel`.
     */
   override protected[orca] def open(
       turn: TurnRequest[BackendTag.Opencode.type]
@@ -164,7 +164,7 @@ private[orca] class OpencodeBackend(
     val serverSession = serverSessionFor(http, dispatch)
     val source = http.events()
     try
-      openConversation(
+      openTurn(
         http,
         source,
         serverSession,
@@ -182,7 +182,7 @@ private[orca] class OpencodeBackend(
     * turn events are missed. [[open]] resolves the server session and opens
     * `source` in the leak-safe order.
     */
-  private def openConversation(
+  private def openTurn(
       http: OpencodeHttp,
       source: StreamSource,
       serverSession: String,

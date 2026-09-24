@@ -142,9 +142,9 @@ class OpencodeBackendTest extends munit.FunSuite:
         Some(Model("anthropic/claude-haiku-4-5"))
       )
 
-  test("the conversation declares the same mode as the backend"):
+  test("the turn declares the same mode as the backend"):
     // The prompt is built from the BACKEND's mode while the autonomous drain
-    // reads the CONVERSATION's; a disagreement renders the payload turn as
+    // reads the TURN's; a disagreement renders the payload message as
     // prose (or withholds prose that is not the payload).
     supervised:
       val http = new FakeHttp(turn("ses_server1", "tool-calls", Nil))
@@ -175,7 +175,7 @@ class OpencodeBackendTest extends munit.FunSuite:
       ) // resumed, not created
       assert(http.posts.exists(_._1 == "/session/ses_X/prompt_async"))
 
-  test("an interactive turn opens a live conversation that can ask the user"):
+  test("an interactive turn can ask the user"):
     supervised:
       val http = new FakeHttp(
         turn(

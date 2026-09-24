@@ -7,10 +7,10 @@ import orca.testkit.ScriptedTurn
 
 import java.util.concurrent.atomic.AtomicInteger
 
-/** A conversation whose event stream throws partway through iteration, standing
-  * in for a subprocess that dies mid-turn: the scripted events are yielded
-  * first, then the next `foreach` step raises `crash`. `awaitResult()` is never
-  * reached because the drain's event loop throws before it.
+/** A turn whose event stream throws partway through iteration, standing in for
+  * a subprocess that dies mid-turn: the scripted events are yielded first, then
+  * the next `foreach` step raises `crash`. `awaitResult()` is never reached
+  * because the drain's event loop throws before it.
   */
 private class CrashingTurn(
     eventList: List[TurnEvent],
@@ -337,7 +337,7 @@ class ObservedTurnTest extends munit.FunSuite:
 
   test("a Tool-mode structured call withholds its closing prose message"):
     // That message signs off on work the StructuredResult states in full. Both
-    // Tool-mode drivers suppress the schema-exit tool call itself, so nothing
+    // Tool-mode decoders suppress the schema-exit tool call itself, so nothing
     // message-opening follows the sign-off to release it.
     val recorder = new RecordingListener
     val live = new ScriptedTurn(

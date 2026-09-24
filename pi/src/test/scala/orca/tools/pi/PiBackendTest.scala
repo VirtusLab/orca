@@ -170,7 +170,7 @@ class PiBackendTest extends munit.FunSuite:
     val runner = new SpawnStubCliRunner(List(process))
     val backend = backendWith(runner)
 
-    // The conversation forks its workers into the surrounding Ox scope, so it
+    // The turn forks its workers into the surrounding Ox scope, so it
     // must be created AND consumed within the same `supervised` block.
     ox.supervised:
       val live = OpenTurn.interactive(backend)(
@@ -200,7 +200,7 @@ class PiBackendTest extends munit.FunSuite:
     val runner = new SpawnStubCliRunner(List(process))
     val backend = backendWith(runner)
 
-    // The conversation forks its workers into the surrounding Ox scope, so it
+    // The turn forks its workers into the surrounding Ox scope, so it
     // must be created AND consumed within the same `supervised` block; the
     // temp files go when that scope ends.
     val (promptFile, extensionFile) = ox.supervised:

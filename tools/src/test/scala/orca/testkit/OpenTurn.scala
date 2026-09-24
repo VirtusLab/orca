@@ -5,9 +5,9 @@ import orca.backend.{AgentBackend, LiveTurn, TurnMode, TurnRequest}
 import orca.events.OrcaListener
 import ox.Ox
 
-/** Opens one interactive turn on a real backend and hands back the live
-  * conversation, for tests that inspect what the backend spawned (argv, temp
-  * files, MCP wiring) rather than run the whole turn.
+/** Opens one interactive turn on a real backend and hands back the live turn,
+  * for tests that inspect what the backend spawned (argv, temp files, MCP
+  * wiring) rather than run the whole turn.
   */
 object OpenTurn:
   def interactive[B <: BackendTag](backend: AgentBackend[B])(

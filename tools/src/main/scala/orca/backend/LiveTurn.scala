@@ -46,8 +46,8 @@ trait LiveTurn[B <: BackendTag]:
     *
     *   - `Right(result)` — the turn produced an [[AgentResult]] cleanly.
     *   - `Left(cancelled)` — [[cancel]] was called, or the subprocess died in a
-    *     way the decoder classified as a cancellation. Recoverable: the caller
-    *     can render a "cancelled" message, fail the stage, or propagate.
+    *     way the turn classified as a cancellation. Recoverable: the caller can
+    *     render a "cancelled" message, fail the stage, or propagate.
     *
     * Genuine subprocess failures (parse errors, the agent reporting `is_error`,
     * abnormal exit codes) keep throwing [[OrcaFlowException]] — non-recoverable

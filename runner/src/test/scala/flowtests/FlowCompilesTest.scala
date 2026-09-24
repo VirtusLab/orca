@@ -70,7 +70,7 @@ object FlowCanary:
         val _ = chat.run("keep going")
 
   /** A session may be minted inside the stage that drives it — the shape
-    * `flows/simple.sc` uses when one stage owns the whole live.
+    * `flows/simple.sc` uses when one stage owns the whole conversation.
     */
   def sessionMintedInsideItsStage(): Unit =
     flow(OrcaArgs()):

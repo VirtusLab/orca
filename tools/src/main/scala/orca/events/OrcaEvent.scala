@@ -67,7 +67,7 @@ enum OrcaEvent:
     */
   case Caveat(message: String)
 
-  /** Token usage for one turn, as its emitter reports it — unpriced. The run's
+  /** Token usage for one turn, as its emitter reports it — unpriced. The
     * dispatcher turns each one into a [[TokensUsed]] carrying the turn's cost,
     * so listeners behind it never see this event. Attributed along three
     * independent axes that `CostTracker` summarises separately:
@@ -104,7 +104,7 @@ enum OrcaEvent:
       session: Option[String]
   )
 
-  /** `spend` with its cost resolved. Emitters send [[UnpricedTurn]]; the run's
+  /** `spend` with its cost resolved. Emitters send [[UnpricedTurn]]; the
     * dispatcher builds this, so every listener behind it reads the same figure.
     * `cost` is `None` when the turn could not be priced.
     */

@@ -22,18 +22,22 @@ class TurnEventConformanceTest extends munit.FunSuite:
         completedNormally = true
       )
 
-  test("trailing activity with no turn end is rejected when completedNormally"):
+  test(
+    "trailing activity with no message end is rejected when completedNormally"
+  ):
     intercept[AssertionError]:
       TurnEventConformance
         .assertGrammar(List(AssistantTextDelta("x")), completedNormally = true)
 
   test(
-    "trailing activity with no turn end is allowed when not completedNormally"
+    "trailing activity with no message end is allowed when not completedNormally"
   ):
     TurnEventConformance
       .assertGrammar(List(AssistantTextDelta("x")), completedNormally = false)
 
-  test("a ToolResult opens the turn, so [ToolResult, TurnEnd] is a valid turn"):
+  test(
+    "a ToolResult opens a message, so [ToolResult, MessageEnd] is a valid message"
+  ):
     TurnEventConformance.assertGrammar(
       List(ToolResult(Some("bash"), ok = true, "out"), AssistantMessageEnd),
       completedNormally = true

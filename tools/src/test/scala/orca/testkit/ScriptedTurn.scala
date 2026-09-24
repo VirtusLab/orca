@@ -6,9 +6,9 @@ import orca.backend.{AgentResult, LiveTurn, TurnEvent}
 
 import java.util.concurrent.atomic.AtomicInteger
 
-/** A conversation that yields `scripted`, then answers `awaitResult` with
-  * `outcome`: a `Left(OrcaInteractiveCancelled)` is returned, any other `Left`
-  * is thrown, standing in for a turn that failed.
+/** A turn that yields `scripted`, then answers `awaitResult` with `outcome`: a
+  * `Left(OrcaInteractiveCancelled)` is returned, any other `Left` is thrown,
+  * standing in for a turn that failed.
   */
 class ScriptedTurn[B <: BackendTag](
     scripted: List[TurnEvent],

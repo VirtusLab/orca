@@ -14,8 +14,8 @@ package orca.backend
   *
   * ==Message grammar (the contract every decoder honours)==
   *
-  * A turn holds one or more assistant *messages*. A message starts at the first
-  * assistant activity (`AssistantTextDelta` / `AssistantThinkingDelta` /
+  * A turn holds zero or more assistant *messages*. A message starts at the
+  * first assistant activity (`AssistantTextDelta` / `AssistantThinkingDelta` /
   * `AssistantToolCall` / `ToolResult` / `ToolDenied`) after the stream start or
   * the previous `AssistantMessageEnd`. A `ToolResult` counts — a tool ran in
   * the message, so a completed-tool-only message is not empty — and so does a

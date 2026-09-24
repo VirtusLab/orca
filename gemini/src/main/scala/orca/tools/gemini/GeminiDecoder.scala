@@ -8,7 +8,7 @@ import orca.backend.{
   AskUserEchoes,
   LiveTurn,
   TurnEvent,
-  TurnSpec,
+  DecodedTurnSpec,
   LineDecoder,
   Settled,
   Step,
@@ -212,7 +212,7 @@ private[gemini] object GeminiTurn:
   )(using Ox): LiveTurn[BackendTag.Gemini.type] =
     DecodedTurn.start(
       StreamSource.fromProcess(process),
-      TurnSpec(
+      DecodedTurnSpec(
         openingPrompt = openingPrompt,
         outputSchema = outputSchema,
         structuredOutputMode = StructuredOutputMode.RawText,

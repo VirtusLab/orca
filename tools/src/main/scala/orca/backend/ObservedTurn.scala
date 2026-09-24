@@ -22,7 +22,7 @@ import ox.either.orThrow
   * `StructuredResult` states in full. Both `Tool`-mode decoders suppress the
   * exit call itself (`ClaudeDecoder.assistantMessage`,
   * `OpencodeDecoder.isStructuredOutputEcho`), so no message-opening event
-  * follows the sign-off to release it. Mid-message narration is unaffected — a
+  * follows the sign-off to release it. Mid-turn narration is unaffected — a
   * real tool call still releases the message that announced it. The interactive
   * path withholds it too: `Prompts.interactive` asks every backend for a
   * JSON-only final message.

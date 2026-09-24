@@ -35,7 +35,7 @@ import ox.{Ox, discard}
   *
   * Both modes wrap the subprocess in a [[GeminiTurn]]. Multi-turn calls with
   * the same session id route through `gemini --resume <session-id>` via
-  * [[sessions]] (an [[IdScheme.ServerMinted]] id learned from the prior run's
+  * [[sessions]] (an [[IdScheme.ServerMinted]] id learned from the prior turn's
   * `init` event).
   *
   * Interactive calls additionally stand up an `ask_user` MCP host bridge
@@ -89,8 +89,8 @@ private[orca] class GeminiBackend(
     )
 
   /** Spawn `gemini -p` (fresh) or `gemini --resume <server-id> -p`
-    * (continuation) and wrap the process in a live [[GeminiTurn]]. Stdin is
-    * closed immediately — gemini consumes the prompt argv-side.
+    * (continuation) and wrap the process in a [[GeminiTurn]]. Stdin is closed
+    * immediately — gemini consumes the prompt argv-side.
     *
     * `Interactive` mode additionally wires the MCP `ask_user` tool: stand up
     * the bridge, merge the server URL into `.gemini/settings.json` (restored

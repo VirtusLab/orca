@@ -539,7 +539,7 @@ class ClaudeBackendTest extends munit.FunSuite:
     assertEquals(slug, "-tmp-" + "a" * 195 + "-bxbzwn")
 
   test(
-    "a session the previous run left on disk is resumed, not re-claimed"
+    "a session the previous attempt left on disk is resumed, not re-claimed"
   ):
     // A run interrupted during a durable session's first turn writes the
     // transcript and commits nothing, so the next run finds the id recorded
@@ -639,9 +639,9 @@ class ClaudeBackendTest extends munit.FunSuite:
       )
 
   test(
-    "an unrecorded id resumes as an earlier run's when its transcript is present"
+    "an unrecorded id resumes as an earlier attempt's when its transcript is present"
   ):
-    // What a run interrupted during a session's first turn leaves behind:
+    // What an attempt interrupted during a session's first turn leaves behind:
     // claude wrote the transcript, the drain never committed. The id is one
     // orca minted, so that transcript is this session's — resume it rather
     // than re-claim an id the CLI refuses to create twice.

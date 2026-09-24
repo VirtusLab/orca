@@ -394,7 +394,7 @@ class AgentTest extends munit.FunSuite:
     val tool = stubTool(
       new FailingBackend(
         new orca.AgentTurnFailed(
-          "claude session failed",
+          "claude turn failed",
           TurnDebit.Observed(spent, None)
         )
       ),
@@ -541,7 +541,7 @@ class AgentTest extends munit.FunSuite:
       s"expected an attributed ToolDenied: ${seen.get()}"
     )
 
-  // A structured resultAs[O] call's closing assistant turn IS the raw JSON
+  // A structured resultAs[O] call's closing assistant message IS the raw JSON
   // payload; the caller re-surfaces it via StructuredResult, so it must not
   // also flow through as an AssistantMessage (double display of the same
   // result — see AutonomousDrain.MessageBuffer).
@@ -735,7 +735,7 @@ class AgentTest extends munit.FunSuite:
       prompts: Prompts = StubPrompts,
       // Most tests never drive an interactive call (UnusedInteraction throws);
       // the interactive tests pass `DrainingInteraction`, which drains the
-      // live.
+      // turn.
       interaction: Interaction = TestAgent.UnusedInteraction
   ): Agent[BackendTag.Pi.type] =
     TestAgent(backend, "stub", toolConfig, listener, prompts, interaction)
@@ -783,10 +783,10 @@ class AgentTest extends munit.FunSuite:
         turn.outputSchema
       )
 
-  /** Streams each reply as a single completed assistant turn — the shape a real
-    * backend produces for a one-turn reply — so the drain's withholding logic
-    * runs: a plain `run()` call (no `outputSchema`) exercises non-structured
-    * mode and a `resultAs[O]` call exercises structured mode.
+  /** Streams each reply as a single completed assistant message — the shape a
+    * real backend produces for a one-message reply — so the drain's withholding
+    * logic runs: a plain `run()` call (no `outputSchema`) exercises
+    * non-structured mode and a `resultAs[O]` call exercises structured mode.
     *
     * `replies` are answered one per turn, so a retried call can be scripted
     * with an output that won't parse followed by one that will.

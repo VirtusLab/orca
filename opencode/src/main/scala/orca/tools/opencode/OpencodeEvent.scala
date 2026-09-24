@@ -11,12 +11,11 @@ import orca.util.RawJson
 
 /** One event parsed from the OpenCode `GET /event` SSE stream (ADR 0014).
   *
-  * Each SSE frame is `{id, type, properties}`. Only the events the conversation
-  * decoder acts on get a variant; everything else (`server.*`,
-  * `session.status`, `session.diff`, `session.next.*`, …) collapses to
-  * [[Ignored]] so the reader can drop it after filtering. [[sessionId]] lifts
-  * the owning session so the decoder can keep only its own turn's events
-  * without re-decoding.
+  * Each SSE frame is `{id, type, properties}`. Only the events the decoder acts
+  * on get a variant; everything else (`server.*`, `session.status`,
+  * `session.diff`, `session.next.*`, …) collapses to [[Ignored]] so the reader
+  * can drop it after filtering. [[sessionId]] lifts the owning session so the
+  * decoder can keep only its own turn's events without re-decoding.
   */
 private[opencode] enum OpencodeEvent:
   /** A `field:"text"` delta. `text` is the name of the accruing field on BOTH a

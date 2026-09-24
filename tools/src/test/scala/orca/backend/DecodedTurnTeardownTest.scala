@@ -17,7 +17,7 @@ import scala.concurrent.duration.*
 class DecodedTurnTeardownTest extends munit.FunSuite:
 
   /** Minimal decoder that republishes each stdout line, so the test can read
-    * the process's output through the conversation surface (the reader fork
+    * the process's output through the [[LiveTurn]] surface (the reader fork
     * owns the pipe, so nothing else may read it), and settles on `done`.
     */
   private object LineEchoing
@@ -43,7 +43,7 @@ class DecodedTurnTeardownTest extends munit.FunSuite:
   ): LiveTurn[BackendTag.ClaudeCode.type] =
     DecodedTurn.start(
       StreamSource.fromProcess(process),
-      TurnSpec(
+      DecodedTurnSpec(
         openingPrompt = None,
         outputSchema = None,
         structuredOutputMode = StructuredOutputMode.RawText,
@@ -53,7 +53,7 @@ class DecodedTurnTeardownTest extends munit.FunSuite:
     )
 
   /** Runs `script` as the agent, whose first stdout line is a descendant's PID,
-    * and hands `check` the conversation and that PID.
+    * and hands `check` the turn and that PID.
     */
   private def withSpawned(script: String)(
       check: (LiveTurn[BackendTag.ClaudeCode.type], Long) => Unit

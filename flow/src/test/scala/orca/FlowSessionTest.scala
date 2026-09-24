@@ -45,9 +45,9 @@ class FlowSessionTest extends FunSuite:
   private given orca.WorkspaceWrite = orca.WorkspaceWrite.unsafe
 
   /** Builds the durability capability the stubs expose through
-    * `sessionSupport`. When `exists`, a mapping this run committed is recorded
-    * through the public `register` door, so the conversation reads as live and
-    * opened by this run.
+    * `sessionSupport`. When `exists`, a mapping this attempt committed is
+    * recorded through the public `register` door, so the conversation reads as
+    * live and opened by this attempt.
     */
   private def stubSupport(
       exists: Boolean,
@@ -62,7 +62,7 @@ class FlowSessionTest extends FunSuite:
       )
     support
 
-  /** Builds a durability capability holding the wire id a previous run
+  /** Builds a durability capability holding the wire id a previous attempt
     * recorded, rehydrated as `agent.session(...)`'s reuse does; the probe
     * answers `exists`.
     */
@@ -102,7 +102,7 @@ class FlowSessionTest extends FunSuite:
       */
     case Committed
 
-    /** Durable and server-minted, with the wire id a previous run recorded
+    /** Durable and server-minted, with the wire id a previous attempt recorded
       * rehydrated as `agent.session(...)`'s reuse does; the probe answers the
       * stub's `existsResult`.
       */
@@ -113,8 +113,8 @@ class FlowSessionTest extends FunSuite:
     case InProcess
 
     /** Durable and client-claimed, with nothing recorded: the backend holds a
-      * conversation under the client's own id. What a run interrupted during a
-      * session's first turn leaves behind.
+      * conversation under the client's own id. What an attempt interrupted
+      * during a session's first turn leaves behind.
       */
     case HeldClaim
 
@@ -317,7 +317,7 @@ class FlowSessionTest extends FunSuite:
     )
 
   test(
-    "conversation carried over from a previous run: its first turn is told the tree lost the uncommitted work"
+    "conversation carried over from a previous attempt: its first turn is told the tree lost the uncommitted work"
   ):
     val fc = makeControl(sessions = carriedOver)
     val agent = new StubAgentForSeeded(
@@ -351,7 +351,7 @@ class FlowSessionTest extends FunSuite:
     // A run interrupted during a client-claimed session's FIRST turn commits no
     // wire id, so the record carries none — but the backend wrote the
     // transcript and holds the conversation under the claimed id. It is
-    // continued, and its memory predates this run just as a recorded one's
+    // continued, and its memory predates this attempt just as a recorded one's
     // does.
     val fc = makeControl(sessions =
       List(
@@ -384,7 +384,7 @@ class FlowSessionTest extends FunSuite:
     "carried-over conversation: the notice is said once, not on every turn"
   ):
     // The fixer drives one session for several turns inside a stage; from the
-    // second turn the uncommitted edits in the tree are this run's own.
+    // second turn the uncommitted edits in the tree are this attempt's own.
     val fc = makeControl(sessions = carriedOver)
     val agent = new StubAgentForSeeded(
       existsResult = true,
@@ -436,8 +436,8 @@ class FlowSessionTest extends FunSuite:
   test(
     "a second carried-over conversation is told on its own first turn"
   ):
-    // One flag per run would leave every conversation after the first untold,
-    // though each one's memory predates the run just as the first's does. The
+    // One flag per attempt would leave every conversation after the first
+    // untold, though each one's memory predates the attempt just as the first's does. The
     // two records need distinct names: the store keys a record by (name,
     // stage).
     val fc = makeControl(sessions =
@@ -468,11 +468,11 @@ class FlowSessionTest extends FunSuite:
     )
 
   test(
-    "conversation opened by THIS run: a later turn is not told, though the record carries a wire id"
+    "conversation opened by THIS attempt: a later turn is not told, though the record carries a wire id"
   ):
     // The stub claims the id after its first turn, so turn 2 finds the
     // conversation live — the shape of a session whose recorded conversation
-    // was gone and which this run reopened. The turn claim is taken on every
+    // was gone and which this attempt reopened. The turn claim is taken on every
     // turn, so turn 2 is not mistaken for the first.
     val fc = makeControl(sessions = carriedOver)
     val agent = new StubAgentForSeeded(
@@ -485,7 +485,7 @@ class FlowSessionTest extends FunSuite:
     assertEquals(
       agent.capturedPrompts(1),
       "second",
-      "a conversation this run opened must not be told its work was lost"
+      "a conversation this attempt opened must not be told its work was lost"
     )
 
   test(

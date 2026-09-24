@@ -80,7 +80,7 @@ class CodexIntegrationTest extends munit.FunSuite:
         s"expected resumed session to recall '42', got: ${second.output}"
       )
 
-  test("interactive session reaches a result with a session id"):
+  test("interactive turn reaches a result with a session id"):
     withBackend(): backend =>
       val live = OpenTurn.interactive(backend)(
         prompt = "Reply with just the number 7. Nothing else.",
@@ -99,7 +99,7 @@ class CodexIntegrationTest extends munit.FunSuite:
         assert(WireSessionId.value(result.wireId).nonEmpty)
       finally live.cancel()
 
-  test("interactive session emits AssistantTextDelta + AssistantMessageEnd"):
+  test("interactive turn emits AssistantTextDelta + AssistantMessageEnd"):
     withBackend(): backend =>
       val live = OpenTurn.interactive(backend)(
         prompt =
@@ -167,15 +167,15 @@ class CodexIntegrationTest extends munit.FunSuite:
 
   test(
     "structured call with a tool call before the answer produces exactly " +
-      "one turn (regression for the `●` JSON leak)"
+      "one message (regression for the `●` JSON leak)"
   ):
     // Reproduces the reported bug live: codex, when told to run a tool before
     // answering under `--output-schema`, sometimes emits an early "commentary"
     // agent_message (often identical to the eventual answer) before the tool
     // call, then the genuine final one. Before the fix, CodexTurn
-    // closed a turn per agent_message, so the commentary message surfaced as
-    // its own finished turn and got echoed as `AssistantMessage` prose by
-    // `AutonomousDrain`' withholding buffer once the final turn closed.
+    // closed a message per agent_message, so the commentary surfaced as its
+    // own finished message and got echoed as `AssistantMessage` prose by
+    // `ObservedTurn`'s withholding buffer once the final message closed.
     val workDir = TempDirs.dir()
     os.write(workDir / "marker.txt", "orca-codex-marker")
     withBackend(workDir): backend =>

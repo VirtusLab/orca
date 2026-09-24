@@ -8,7 +8,7 @@ import orca.backend.{
   AskUserEchoes,
   LiveTurn,
   TurnEvent,
-  TurnSpec,
+  DecodedTurnSpec,
   LineDecoder,
   Settled,
   Step,
@@ -24,8 +24,8 @@ import orca.tools.claude.streamjson.{
 
 import ox.Ox
 
-/** Decodes a stream-json conversation with claude: NDJSON → [[InboundMessage]]
-  * → `TurnEvent`s.
+/** Decodes one claude stream-json turn: NDJSON → [[InboundMessage]] →
+  * `TurnEvent`s.
   */
 private[claude] final class ClaudeDecoder(outputSchema: Option[String])
     extends LineDecoder[BackendTag.ClaudeCode.type, ClaudeDecoder.State]:
@@ -313,7 +313,7 @@ private[claude] object ClaudeTurn:
   )(using Ox): LiveTurn[BackendTag.ClaudeCode.type] =
     DecodedTurn.start(
       StreamSource.fromProcess(process),
-      TurnSpec(
+      DecodedTurnSpec(
         openingPrompt = openingPrompt,
         outputSchema = outputSchema,
         structuredOutputMode = ClaudeBackend.StructuredOutputDelivery,

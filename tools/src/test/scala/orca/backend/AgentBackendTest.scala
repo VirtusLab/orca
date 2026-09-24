@@ -114,7 +114,7 @@ class AgentBackendTest extends munit.FunSuite:
         Ox
     ): LiveTurn[Codex] = live
 
-  /** Answers with whatever the conversation settles on. */
+  /** Answers with whatever the turn settles on. */
   private object AwaitingInteraction extends Interaction:
     def listeners: List[OrcaListener] = Nil
     def drive[B <: BackendTag](

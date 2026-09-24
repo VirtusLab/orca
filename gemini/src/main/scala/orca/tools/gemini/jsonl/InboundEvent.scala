@@ -9,7 +9,7 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
 /** Typed classification of a `message` event's `role` field. gemini spells the
   * assistant side `model`/`assistant` across versions, so any *present* value
   * that isn't `"user"` counts as [[Role.Assistant]]. A *missing* `role` key is
-  * [[Role.Unknown]] — dropped by the conversation rather than treated as agent
+  * [[Role.Unknown]] — dropped by the decoder rather than treated as agent
   * output.
   */
 private[gemini] enum Role:

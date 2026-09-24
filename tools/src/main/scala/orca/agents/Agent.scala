@@ -185,9 +185,9 @@ final class Agent[B <: BackendTag] private (
 
   /** The free-text engine behind [[run]], [[Chat.run]] and `FlowSession.run`:
     * runs `prompt` against `session`, continuing it if the backend already has
-    * it this run. `promptEvent` decides whether `OrcaEvent.UserPrompt` fires;
-    * `sessionKey` is the durable key this session was minted under, carried
-    * onto `OrcaEvent.SessionCommitted`.
+    * it this attempt. `promptEvent` decides whether `OrcaEvent.UserPrompt`
+    * fires; `sessionKey` is the durable key this session was minted under,
+    * carried onto `OrcaEvent.SessionCommitted`.
     */
   private[orca] def runText(
       prompt: String,
@@ -344,7 +344,7 @@ final class Agent[B <: BackendTag] private (
   ): Option[WireSessionId[B]] =
     backend.sessions.persistableWireId(client)
 
-  /** Record a resume wire id a previous run persisted for `client` — see
+  /** Record a resume wire id a previous attempt persisted for `client` — see
     * [[orca.backend.SessionSupport.rehydrate]]. `agent.session(name, seed)`
     * calls this when it reuses a recorded session.
     */

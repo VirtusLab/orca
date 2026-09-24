@@ -167,7 +167,7 @@ class SessionSupportTest extends munit.FunSuite:
 
   // ── rehydrated wire ids ────────────────────────────────────────────────────
 
-  test("rehydrated id: probed once, then resumed as an earlier run's"):
+  test("rehydrated id: probed once, then resumed as an earlier attempt's"):
     var probed = List.empty[String]
     val s = SessionSupport.durable[BackendTag.Codex.type](
       IdScheme.ServerMinted,

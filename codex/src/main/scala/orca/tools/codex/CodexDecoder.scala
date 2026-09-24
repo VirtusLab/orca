@@ -8,7 +8,7 @@ import orca.backend.{
   AskUserEchoes,
   LiveTurn,
   TurnEvent,
-  TurnSpec,
+  DecodedTurnSpec,
   LineDecoder,
   Settled,
   Step,
@@ -315,7 +315,7 @@ private[codex] object CodexTurn:
   )(using Ox): LiveTurn[BackendTag.Codex.type] =
     DecodedTurn.start(
       StreamSource.fromProcess(process),
-      TurnSpec(
+      DecodedTurnSpec(
         openingPrompt = openingPrompt,
         outputSchema = outputSchema,
         structuredOutputMode = StructuredOutputMode.RawText,

@@ -185,10 +185,10 @@ class CodexTurnTest extends munit.FunSuite:
     // Reproduces the reported `●` leak: codex sometimes emits an early
     // "commentary" agent_message — here identical to the eventual answer —
     // before running a tool, then the genuine final agent_message. Per-item
-    // turn closing (as non-structured mode still does) would make the
+    // message closing (as non-structured mode still does) would make the
     // withholding buffer treat the commentary message as an already-finished
-    // "previous" turn and echo it as prose once the final turn closed. In
-    // structured mode both must collapse into ONE turn so nothing echoes.
+    // "previous" message and echo it as prose once the final message closed. In
+    // structured mode both must collapse into ONE message so nothing echoes.
     val process = new FakePipedCliProcess()
     val live = CodexTurn(
       process,
@@ -245,7 +245,7 @@ class CodexTurnTest extends munit.FunSuite:
     process.closeStderr()
 
     val events = live.events.toList
-    // A tool-only turn: AssistantToolCall + ToolResult open the turn, and
+    // A tool-only message: AssistantToolCall + ToolResult open the message, and
     // the `turn.completed` settle closes it with the owed
     // AssistantMessageEnd.
     assertEquals(events.size, 3)
@@ -297,7 +297,7 @@ class CodexTurnTest extends munit.FunSuite:
   ):
     // Any status other than the documented "completed" collapses to
     // ItemStatus.Unknown, regardless of whether it's a known failure token
-    // ("failed") or something the driver has never seen before.
+    // ("failed") or something the decoder has never seen before.
     val process = new FakePipedCliProcess()
     val live = CodexTurn(process)
 

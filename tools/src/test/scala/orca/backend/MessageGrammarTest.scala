@@ -63,7 +63,7 @@ class MessageGrammarTest extends munit.FunSuite:
   )(using Ox): LiveTurn[Tag] =
     DecodedTurn.start(
       StreamSource.fromProcess(process),
-      TurnSpec(
+      DecodedTurnSpec(
         openingPrompt = None,
         outputSchema = None,
         structuredOutputMode = StructuredOutputMode.RawText,
@@ -217,7 +217,7 @@ class MessageGrammarTest extends munit.FunSuite:
     supervised:
       val live = DecodedTurn.start(
         endless,
-        TurnSpec(
+        DecodedTurnSpec(
           openingPrompt = None,
           outputSchema = None,
           structuredOutputMode = StructuredOutputMode.RawText,

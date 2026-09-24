@@ -191,7 +191,7 @@ class PiTurnTest extends munit.FunSuite:
       )
     )
 
-  liveTest("failed prompt response fails the conversation"):
+  liveTest("failed prompt response fails the turn"):
     val process = new FakePipedCliProcess()
     val live = PiTurn(process, sid, "go")
 

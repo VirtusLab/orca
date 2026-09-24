@@ -15,9 +15,9 @@ import ox.resilience.{ResultPolicy, RetryConfig, retry}
   *     re-prompts with the failed output and parser error so the model can
   *     self-correct.
   *   - The interactive shape goes through `backend.runInteractive`, which hands
-  *     the live conversation to the supplied [[Interaction]] for rendering and
-  *     user steering. No retry: a parse failure on the final payload is more
-  *     useful surfaced than silently relaunched.
+  *     the live turn to the supplied [[Interaction]] for rendering and user
+  *     steering. No retry: a parse failure on the final payload is more useful
+  *     surfaced than silently relaunched.
   */
 final class AgentCall[B <: BackendTag, O] private[orca] (
     backend: AgentBackend[B],
@@ -270,8 +270,8 @@ final class AutonomousAgentCall[B <: BackendTag, O] private[agents] (
     )
 
   /** The session-threading door behind [[run]] and [[Chat]]: runs `input`
-    * against `session`, continuing it if the backend already has it this run.
-    * Ephemeral — no seeding, no wire-id persistence.
+    * against `session`, continuing it if the backend already has it this
+    * attempt. Ephemeral — no seeding, no wire-id persistence.
     *
     * `sessionKey` is the durable key this session was minted under, carried
     * onto `OrcaEvent.SessionCommitted`; only `orca.FlowSession` has one.
