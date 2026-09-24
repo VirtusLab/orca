@@ -28,6 +28,16 @@ enum OrcaEvent:
   /** The stage at `path` ended; see [[StageStarted]]. */
   case StageEnded private[orca] (path: StagePath.Stage, outcome: StageOutcome)
 
+  /** Orca began work outside any stage, such as a setup model call; `label`
+    * names it for display. Always followed by [[ActivityEnded]], before the
+    * next `ActivityStarted` or [[StageStarted]]; emitted on the flow's owner
+    * thread.
+    */
+  case ActivityStarted private[orca] (label: String)
+
+  /** The work announced by the preceding [[ActivityStarted]] finished. */
+  case ActivityEnded private[orca] ()
+
   /** One tool invocation by the agent named in `agent`. Backends emit `None` —
     * a drain doesn't know which agent it runs for;
     * [[OrcaListener.attributedTo]] wraps it and stamps the name on the way out.

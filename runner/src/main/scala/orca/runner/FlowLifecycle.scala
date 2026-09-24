@@ -550,7 +550,8 @@ object FlowLifecycle:
         StackOutcome.Configured(settings)
       case SettingsResolution.NeedsDiscovery(existingContent) =>
         val (settings, entries) =
-          StackDiscovery.discover(agent, workDir, emit, existingContent)
+          withActivity("Discovering format, lint & test commands", emit):
+            StackDiscovery.discover(agent, workDir, emit, existingContent)
         val fileText = existingContent match
           case None => SettingsFile.render(entries)
           case Some(content) =>
@@ -562,6 +563,13 @@ object FlowLifecycle:
           )
         )
         StackOutcome.Discovered(settings)
+
+  private def withActivity[T](label: String, emit: OrcaEvent => Unit)(
+      op: => T
+  ): T =
+    emit(OrcaEvent.ActivityStarted(label))
+    try op
+    finally emit(OrcaEvent.ActivityEnded())
 
   /** The run's stack settings, and whether [[resolveStackSettings]] just wrote
     * them to the settings file, which then still needs its own commit.
@@ -681,7 +689,8 @@ object FlowLifecycle:
       emit: OrcaEvent => Unit
   )(using InStage, WorkspaceWrite): FeatureBranch =
     val strategy = branchNaming.getOrElse(BranchNamingStrategy.shortenPrompt)
-    val resolvedName = strategy.resolve(userPrompt, agent)
+    val resolvedName = withActivity("Naming the branch", emit):
+      strategy.resolve(userPrompt, agent)
     // Resolved once, shared by both fallback triggers below (a
     // protected-name refusal and a git-level `BranchAlreadyExists`
     // collision use the exact same deterministic name).
