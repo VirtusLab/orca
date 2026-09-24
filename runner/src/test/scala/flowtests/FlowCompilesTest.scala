@@ -86,6 +86,8 @@ object FlowCanary:
       stage("tools"):
         val _ = git.head()
         val _ = git.push()
+        val _ = orca.gitref.BranchName.parse("main").map(git.branchExists)
+        val _ = git.isIgnored(os.sub / "build")
         val _ = gh
         val _ = fs
         val _ = codex

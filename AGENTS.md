@@ -16,7 +16,7 @@ generation.
 ```
 orca/
 ├── build.sbt / project/
-├── tools/      # tool traits + os-backed impls (git/gh/fs), LLM SPI + session durability, InStage, events, subprocess, sweep
+├── tools/      # tool traits + os-backed impls (git/gh/fs), internal LLM SPI + session durability, InStage, events, subprocess, sweep
 ├── flow/       # stage/display/fail + FlowContext/FlowControl; orca.{plan,review,pr,progress}
 ├── claude/ codex/ gemini/ opencode/ pi/   # one module per coding-agent backend
 ├── runner/     # flow() entry, DefaultFlowContext/DefaultFlowControl, FlowLifecycle, terminal UI
@@ -48,8 +48,9 @@ backend-agnostic role accessors (ADR 0020) — `stage`/`display`/`fail`,
 Implementations live in
 focused subpackages: `orca.tools` (os-backed git/gh/fs impls + their traits),
 `orca.gitref` (validated branch names and commit hashes, and `Head`),
-`orca.agents` + `orca.backend` (LLM SPI, `SessionSupport`,
-per-backend decoders), `orca.subprocess` (subprocess shim), `orca.sweep`
+`orca.agents` + `orca.backend` (LLM SPI, `SessionSupport`, per-backend
+decoders; the SPI is `private[orca]`, so a new harness is added in orca
+itself), `orca.subprocess` (subprocess shim), `orca.sweep`
 (finds agent work that outlived its process), `orca.events`
 (event bus), one `orca.tools.<backend>` per coding agent, and `orca.runner` /
 `orca.runner.terminal` (wiring + terminal UI). The flow module adds

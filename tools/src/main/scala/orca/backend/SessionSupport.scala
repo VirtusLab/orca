@@ -21,7 +21,7 @@ import scala.util.control.NonFatal
   * `Resume` continues the conversation the backend holds under `wireId`;
   * `origin` says whether that conversation predates this attempt.
   */
-enum Dispatch[B <: BackendTag]:
+private[orca] enum Dispatch[B <: BackendTag]:
   case Fresh(claim: Option[WireSessionId[B]])
   case Resume(wireId: WireSessionId[B], origin: ResumeOrigin)
 
@@ -31,7 +31,7 @@ enum Dispatch[B <: BackendTag]:
     case Dispatch.Resume(_, _) => TurnDispatch.Resumed
 
 /** Which attempt opened the conversation a [[Dispatch.Resume]] continues. */
-enum ResumeOrigin:
+private[orca] enum ResumeOrigin:
   /** A turn of this attempt committed it. */
   case ThisAttempt
 
@@ -45,7 +45,7 @@ enum ResumeOrigin:
 /** How a backend's wire-level session ids come to be — decides what a `Fresh`
   * dispatch may put on the wire and which id a commit records.
   */
-enum IdScheme:
+private[orca] enum IdScheme:
   /** The caller-allocated client id IS the wire id: the CLI creates the session
     * under it and resumes against it (claude's `--session-id <uuid>` →
     * `--resume <uuid>`; pi's per-id `--session-dir` → `--continue`).
@@ -72,7 +72,7 @@ enum IdScheme:
   * internal map is concurrent because flows fan reviewers out via
   * `mapParUnordered`.
   */
-final class SessionSupport[B <: BackendTag] private (
+private[orca] final class SessionSupport[B <: BackendTag] private (
     scheme: IdScheme,
     probe: Option[String => Boolean]
 ):
@@ -251,7 +251,7 @@ final class SessionSupport[B <: BackendTag] private (
       persistableWireId(client).map(WireSessionId.value)
     )
 
-object SessionSupport:
+private[orca] object SessionSupport:
   private val log = LoggerFactory.getLogger(classOf[SessionSupport[?]])
 
   /** What [[SessionSupport]] knows about one client's wire id. */

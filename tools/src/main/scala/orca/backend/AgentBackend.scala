@@ -38,7 +38,7 @@ import ox.{Ox, supervised}
   * scaffolding, schema, and rules already wrapped around the user's input.
   * `displayPrompt` (interactive only) is what the renderer shows the user.
   */
-trait AgentBackend[B <: BackendTag]:
+private[orca] trait AgentBackend[B <: BackendTag]:
   /** Run one autonomous turn against `session` and return its result, once it
     * has drained cleanly and the session is committed as resumable.
     *
@@ -266,7 +266,7 @@ trait AgentBackend[B <: BackendTag]:
     if isClosed then
       throw new orca.OrcaFlowException(AgentBackend.ClosedMessage)
 
-object AgentBackend:
+private[orca] object AgentBackend:
   /** The use-after-close guard's user-facing message, thrown by every
     * `isClosed` gate so a leaked-handle failure reads identically no matter
     * which gate caught it.

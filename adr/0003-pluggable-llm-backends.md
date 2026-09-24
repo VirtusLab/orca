@@ -14,6 +14,10 @@ Status: Accepted · Date: 2026-04-22 (updated 2026-04-23)
 > `open(turn: TurnRequest[B]): Conversation[B]`. The final `runAutonomous` /
 > `runInteractive` own the rest of every turn: the entry gate, the per-turn
 > scope, draining or driving, the session commit and teardown.
+>
+> **Amendment (2026-09-24).** The SPI (`AgentBackend`, `SessionSupport`,
+> `LiveTurn`) is `private[orca]`: backends are pluggable inside orca, not
+> from flow scripts. A new harness is added as an orca module.
 
 ## Decision
 
