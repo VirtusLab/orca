@@ -3,9 +3,12 @@ package orca.subprocess
 import orca.sweep.EnvCookie
 
 import org.slf4j.LoggerFactory
-import ox.discard
+import ox.{abandonOnInterruptReads, discard, raceResult, sleep}
 
+import java.io.{BufferedReader, InputStream, InputStreamReader}
+import java.nio.charset.StandardCharsets.UTF_8
 import java.util.concurrent.atomic.AtomicReference
+import scala.concurrent.duration.*
 import scala.jdk.CollectionConverters.given
 
 /** Runs external commands via os-lib. `check = false` is intentional — callers
@@ -64,15 +67,38 @@ private final class OsPipedSubProcess(
 
   // Memoised so repeated calls return the same iterator, avoiding a second
   // `BufferedReader` leak against the pipe.
-  //
-  // CRITICAL: must read line-by-line as the child emits — NOT
-  // `sub.stdout.lines()`, which reads the whole stream to EOF before returning
-  // a `Vector[String]`, turning stream-json into a no-op until the subprocess
-  // exits. The underlying `BufferedReader` gives a lazy line-by-line iterator.
   private lazy val stdoutIterator: Iterator[String] =
-    sub.stdout.buffered.lines().iterator().asScala
+    linesOf(sub.wrapped.getInputStream)
   private lazy val stderrIterator: Iterator[String] =
-    sub.stderr.buffered.lines().iterator().asScala
+    linesOf(sub.wrapped.getErrorStream)
+
+  /** Lines of `pipe`, ending at EOF or once the process has exited and no line
+    * arrives within [[OsPipedSubProcess.OrphanedPipeGrace]].
+    *
+    * Everything the process wrote is in the pipe buffer by the time it exits,
+    * so a read still blocked after the grace waits only on a descendant that
+    * inherited the pipe and outlived the process. That descendant keeps
+    * running, and so does the pipe's detached reader thread: blocked in the
+    * read until the descendant exits or writes, and parked for good if it
+    * writes. An unterminated last line is dropped in that case.
+    */
+  private def linesOf(pipe: InputStream): Iterator[String] =
+    val reader = BufferedReader(
+      InputStreamReader(abandonOnInterruptReads(pipe), UTF_8)
+    )
+    // `raceResult`, so a failed read surfaces at once. Not `reader.lines()`: its
+    // iterator reads again on each `hasNext` after the end.
+    Iterator
+      .continually(raceResult(reader.readLine(), endOfOutput()))
+      .takeWhile(_ != null)
+
+  /** `null`, as `readLine` at EOF, once the process has exited and the grace
+    * has passed.
+    */
+  private def endOfOutput(): String =
+    sub.wrapped.waitFor().discard
+    sleep(OsPipedSubProcess.OrphanedPipeGrace)
+    null
 
   /** Descendants that were alive when the root was signalled. Signalling the
     * root can make it exit, at which point its children are reparented to init
@@ -85,8 +111,7 @@ private final class OsPipedSubProcess(
     * The snapshot only ever fills when orca signals a root that is still alive
     * — a turn that settles, or a cancel. A root that exited on its own (an
     * agent crash, a clean exit with no terminal message) was never signalled,
-    * so nothing was recorded and a descendant that redirected its own stdio
-    * survives.
+    * so nothing was recorded and its descendants survive.
     */
   private val signalledDescendants: AtomicReference[List[ProcessHandle]] =
     new AtomicReference(Nil)
@@ -116,11 +141,6 @@ private final class OsPipedSubProcess(
     val _ = sub.wrapped.destroyForcibly()
 
   override def destroyForciblyTree(): Unit =
-    // Descendants first, then the root: a child that outlives its parent holds
-    // the inherited stdout/stderr pipe write-ends, so killing only the root PID
-    // can leave a drain still waiting for EOF (the JDK closes our read end when
-    // the root exits, but that runs under the stream's own monitor, which a
-    // reader blocked mid-read may hold).
     // Remembered handles are re-expanded rather than killed flat: by now the
     // root is usually gone, so they are the only reachable branch of the tree,
     // and each may have spawned children since the snapshot was taken.
@@ -159,3 +179,10 @@ private final class OsPipedSubProcess(
 
   def tryExitCode: Option[Int] =
     if sub.isAlive() then None else Some(sub.exitCode())
+
+private[subprocess] object OsPipedSubProcess:
+
+  /** How long a pipe may stay silent after the process exited before its stream
+    * ends.
+    */
+  val OrphanedPipeGrace: FiniteDuration = 1.second

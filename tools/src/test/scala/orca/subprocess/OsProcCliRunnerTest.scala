@@ -163,3 +163,15 @@ class OsProcCliRunnerTest extends munit.FunSuite:
     )
     try assertEquals(proc.stderrLines.toList, List("oops"))
     finally proc.destroyForciblyTree()
+
+  /** Only the exit starts the grace that ends a held pipe, so a live process
+    * may stay silent for longer.
+    */
+  test("output a process sends after a long silence is still read"):
+    val silence = (OsPipedSubProcess.OrphanedPipeGrace * 2).toMillis / 1000.0
+    val proc = OsProcCliRunner.spawnPiped(
+      Seq("bash", "-c", s"sleep $silence; echo late"),
+      cwd = os.pwd
+    )
+    try assertEquals(proc.stdoutLines.toList, List("late"))
+    finally proc.destroyForciblyTree()

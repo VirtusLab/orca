@@ -32,10 +32,9 @@ import scala.util.control.NonFatal
   *
   * Teardown: once the decoder settles, the reader SIGINTs the source and, when
   * the root process has exited, kills the process tree — reaching every
-  * descendant alive at the SIGINT, so none of them can hold stdout or stderr
-  * open and keep the turn going. A descendant of a root that exited on its own
-  * is out of reach, and one holding a pipe keeps the reader waiting until it
-  * exits.
+  * descendant alive at the SIGINT. A descendant of a root that exited on its
+  * own is out of reach; if it holds stdout or stderr, the process's streams end
+  * shortly after the root's exit anyway ([[orca.subprocess.PipedCliProcess]]).
   */
 private[orca] object StreamConversation:
 

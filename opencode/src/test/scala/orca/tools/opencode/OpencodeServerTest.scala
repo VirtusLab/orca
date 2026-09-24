@@ -12,8 +12,10 @@ import orca.subprocess.{
 }
 import orca.sweep.SweepFixtures
 import orca.testkit.TempDirs
-import ox.{fork, supervised}
+import ox.{fork, supervised, timeout}
 import ox.channels.ChannelClosedException
+
+import scala.concurrent.duration.*
 
 class OpencodeServerTest extends munit.FunSuite with SweepFixtures:
 
@@ -211,6 +213,27 @@ class OpencodeServerTest extends munit.FunSuite with SweepFixtures:
       val detachedPid = awaitPid(pidFile)
       assertEquals(listener.steps.size, 1)
       assert(listener.steps.head.contains(detachedPid.toString), listener.steps)
+    finally killPid(pidFile)
+
+  onLinux("scope end is not held up by detached work holding the pipes"):
+    val pidFile = os.temp.dir(prefix = "orca-opencode-") / "detached.pid"
+    // The detached worker inherits the server's stdout and stderr, so the
+    // drains get no EOF when the server is destroyed.
+    val script =
+      s"""echo "opencode server listening on http://127.0.0.1:1"
+         |( setsid bash -c 'echo $$$$ > "$pidFile"; sleep 20' & )
+         |sleep 60""".stripMargin
+    try
+      timeout(10.seconds):
+        supervised:
+          val server = OpencodeServer(
+            new ScriptRunner(script),
+            os.pwd,
+            OrcaListener.noop,
+            httpFor = (_, _) => stubHttp
+          )
+          val _ = server.http()
+          val _ = awaitPid(pidFile)
     finally killPid(pidFile)
 
   private class TrackingHttp extends OpencodeHttp:

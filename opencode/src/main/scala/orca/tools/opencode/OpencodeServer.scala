@@ -118,10 +118,9 @@ private[opencode] object OpencodeServer:
           releaseAfterScope(
             EnvCookieSweep.afterScope(process.envCookie, events)
           )
-          // The drains block in pipe reads that interruption can't end:
-          // destroying the process here, before the scope joins them, EOFs
-          // those reads. Tree-destroy, as a launch wrapper (ollama) forks the
-          // real serve, which inherits the pipes.
+          // Destroying the process here, before the scope joins the drains,
+          // ends their pipe reads. Tree-destroy, as a launch wrapper (ollama)
+          // forks the real serve.
           try
             val started = connect(process, password).catching[Throwable]
             firstReplyTo.send(started)
