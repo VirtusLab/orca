@@ -44,7 +44,7 @@ export orca.agents.{
   schemaFromJsonData,
   codecFromJsonData
 }
-export orca.plan.{BugReportMatch, Plan, Sessioned, Task, Triage, Verdict}
+export orca.plan.{BugReportMatch, Plan, Task, Triage, Verdict, WithChat}
 // PrSummary is the result type of openPrFromBranch and summarisePr;
 // orcaCommentMarker is the idempotency marker gh.upsertComment keys on;
 // recordOpenedPr is for a flow that opens its PR with a bare gh.createPr, and

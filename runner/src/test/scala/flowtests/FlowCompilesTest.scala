@@ -358,23 +358,23 @@ object FlowCanary:
           case Right(_)                 => ()
 
   /** Planning grid surface; exercised across `flows/`. Pins the full `mode ×
-    * operation` grid: every cell returns `Sessioned[<result>]` where the result
+    * operation` grid: every cell returns `WithChat[<result>]` where the result
     * is `Plan` (`from`), `Verdict[Plan]` (`assessThenPlan`), or `Triage`
     * (`triage`).
     */
   def planningGridSurface(): Unit =
     flow(OrcaArgs()):
       stage("grid"):
-        // --- from → Sessioned[Plan], both modes ---
-        val autoFrom: Sessioned[Plan] =
+        // --- from → WithChat[Plan], both modes ---
+        val autoFrom: WithChat[Plan] =
           Plan.autonomous.from(userPrompt, claude.opus)
-        val intFrom: Sessioned[Plan] =
+        val intFrom: WithChat[Plan] =
           Plan.interactive.from(userPrompt, claude)
         // Codex and Pi also expose ask_user, so the interactive cells
         // compile against them too.
-        val intFromCodex: Sessioned[Plan] =
+        val intFromCodex: WithChat[Plan] =
           Plan.interactive.from(userPrompt, codex)
-        val intFromPi: Sessioned[Plan] =
+        val intFromPi: WithChat[Plan] =
           Plan.interactive.from(userPrompt, pi)
         val _ = (
           autoFrom.value,
@@ -383,10 +383,10 @@ object FlowCanary:
           intFromPi.value
         )
 
-        // --- assessThenPlan → Sessioned[Verdict[Plan]], both modes ---
-        val autoAssess: Sessioned[Verdict[Plan]] =
+        // --- assessThenPlan → WithChat[Verdict[Plan]], both modes ---
+        val autoAssess: WithChat[Verdict[Plan]] =
           Plan.autonomous.assessThenPlan(userPrompt, claude.opus)
-        val intAssess: Sessioned[Verdict[Plan]] =
+        val intAssess: WithChat[Verdict[Plan]] =
           Plan.interactive.assessThenPlan(userPrompt, claude)
         val _ = intAssess
         autoAssess.value match
@@ -395,13 +395,12 @@ object FlowCanary:
           case Verdict.Rejection(Verdict.RejectionKind.Critique, _) => ()
           case Verdict.Rejection(Verdict.RejectionKind.Rebuff, _)   => ()
 
-        // --- triage → Sessioned[Triage], both modes ---
-        val autoTriage: Sessioned[Triage] =
+        // --- triage → WithChat[Triage], both modes ---
+        val autoTriage: WithChat[Triage] =
           Plan.autonomous.triage(userPrompt, claude.opus)
         val _ = autoTriage.value
-        // Destructure the concretely-typed interactive result, as the bugfix
-        // plan does (`val Sessioned(session, triage) = ...`).
-        val Sessioned(_, triage) = Plan.interactive.triage(userPrompt, claude)
+        // Destructure the concretely-typed interactive result.
+        val WithChat(_, triage) = Plan.interactive.triage(userPrompt, claude)
         triage match
           case Triage.NotABug(_)        => ()
           case Triage.Untestable(_, _)  => ()
@@ -427,9 +426,9 @@ object FlowCanary:
     )
 
   /** Post-planning step (`reviewed`) plus the per-task stage loop — exercised
-    * by `flows/implement-enhanced.sc`. Pins that the `Sessioned[Plan]`
-    * extension resolves through `import orca.*` alone. Plans are always
-    * briefed: the `brief` rides in the structured output, so `plan.brief` /
+    * by `flows/implement-enhanced.sc`. Pins that the `WithChat[Plan]` extension
+    * resolves through `import orca.*` alone. Plans are always briefed: the
+    * `brief` rides in the structured output, so `plan.brief` /
     * `plan.taskPrompt` are always available. Resume is the progress log (ADR
     * 0018 §2.8), and the task loop is a plain per-task `stage(...)`.
     */

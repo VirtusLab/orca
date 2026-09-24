@@ -18,7 +18,7 @@ import orca.agents.{Announce, JsonData}
   * with runtime `Option#get` / empty-string checks.
   *
   * Produced by [[Plan.autonomous.triage]] / [[Plan.interactive.triage]],
-  * wrapped in a [[Sessioned]]. Flows typically discard the triage session
+  * wrapped in a [[WithChat]]. Flows typically discard the triage chat
   * (`.value`) and seed a fresh implementer session from the issue body.
   *
   * A `stage` can record and replay a `Triage` result — the triage stage is a
