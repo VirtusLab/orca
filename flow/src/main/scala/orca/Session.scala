@@ -28,7 +28,7 @@ import orca.util.PromptResource
   * Use [[run]] for free-form text and [[resultAs]]`.run` for a structured `O`.
   * Both prime the conversation with the recorded seed and a progress preamble
   * when the backend conversation isn't live (first use or lost on resume), and
-  * with the interrupted-attempt notice when it IS live but a previous run
+  * with the interrupted-attempt notice when it IS live but a previous attempt
   * opened it, then persist the backend's learned resume wire id.
   *
   * The handle is a plain immutable value with no stage affinity of its own —
@@ -223,7 +223,7 @@ private def reuseOrMint[B <: BackendTag](
     SessionId.parse[B](recorded.id) match
       case Some(validId) =>
         // Reuse is the safe fallback (ADR 0018 §2.6): a seed edited between
-        // runs is surfaced as a warning, never a re-mint.
+        // attempts is surfaced as a warning, never a re-mint.
         warnIfSeedDiffers(ctx, key, recorded.seed, seed)
         recorded.resumeWireId.foreach(rehydrate(agent, validId, key, _))
         validId
@@ -231,10 +231,10 @@ private def reuseOrMint[B <: BackendTag](
         warnInvalidRecordedId(ctx, key)
         mintSession(agent, key, seed)
 
-/** Hand the wire id a previous run recorded for `id` to `agent`, so its first
-  * turn this run — durable, or through a chat adopting `id` — probes and
-  * resumes that conversation. The wire id is file-sourced and untrusted: one
-  * that fails to parse is skipped with a warning, and the session re-seeds.
+/** Hand the wire id a previous attempt recorded for `id` to `agent`, so its
+  * first turn this attempt — durable, or through a chat adopting `id` — probes
+  * and resumes that conversation. The wire id is file-sourced and untrusted:
+  * one that fails to parse is skipped with a warning, and the session re-seeds.
   */
 private def rehydrate[B <: BackendTag](
     agent: Agent[B],
@@ -328,10 +328,10 @@ private def effectivePrompt(chat: Chat[?], text: String)(using
     case Dispatch.Resume(_, origin) => continuedPrompt(origin, turn, text)
 
 /** The prompt for a turn the backend will answer from a conversation it still
-  * holds. Only a conversation that predates this run is told its uncommitted
-  * work is gone, and only on this run's first turn against it — from the
-  * second, the uncommitted edits in the tree are this run's own (ADR 0018 §2.6,
-  * carried-over live conversations).
+  * holds. Only a conversation that predates this attempt is told its
+  * uncommitted work is gone, and only on this attempt's first turn against it —
+  * from the second, the uncommitted edits in the tree are this attempt's own
+  * (ADR 0018 §2.6, carried-over live conversations).
   */
 private def continuedPrompt(
     origin: ResumeOrigin,
@@ -339,13 +339,14 @@ private def continuedPrompt(
     text: String
 ): String =
   (turn, origin) match
-    case (SessionTurn.First, ResumeOrigin.EarlierRun) =>
+    case (SessionTurn.First, ResumeOrigin.EarlierAttempt) =>
       composePrimedPrompt(Some(InterruptedAttemptNotice), None, text)
-    case (SessionTurn.First, ResumeOrigin.ThisRun) | (SessionTurn.Later, _) =>
+    case (SessionTurn.First, ResumeOrigin.ThisAttempt) |
+        (SessionTurn.Later, _) =>
       text
 
 /** The prompt for a turn against a conversation the backend does not hold — a
-  * first use, or one lost since the run that opened it — rebuilt from the
+  * first use, or one lost since the attempt that opened it — rebuilt from the
   * recorded seed and the progress preamble.
   */
 private def rebuiltPrompt(record: Option[SessionRecord], text: String)(using

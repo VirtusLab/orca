@@ -1,10 +1,6 @@
 package orca.tools.pi
 
-import orca.backend.{
-  AskUserChannel,
-  ConversationEvent,
-  ConversationEventConformance
-}
+import orca.backend.{AskUserChannel, TurnEvent, TurnEventConformance}
 import orca.events.{TurnDebit, Usage}
 import orca.agents.{BackendTag, Model, SessionId, WireSessionId, onWire}
 import orca.{AgentTurnFailed, OrcaFlowException, OrcaInteractiveCancelled}
@@ -12,23 +8,23 @@ import orca.subprocess.FakePipedCliProcess
 import orca.testkit.Usages.usage
 import ox.{Ox, supervised}
 
-class PiConversationTest extends munit.FunSuite:
+class PiTurnTest extends munit.FunSuite:
 
   private val sid: SessionId[BackendTag.Pi.type] =
     SessionId[BackendTag.Pi.type]("pi-session")
 
-  /** `PiConversation` forks its reader/stderr workers into the caller's
-    * per-turn Ox, so construction needs a `using Ox`. Run each test body in a
-    * fresh supervised scope that provides it.
+  /** `PiTurn` forks its reader/stderr workers into the caller's per-turn Ox, so
+    * construction needs a `using Ox`. Run each test body in a fresh supervised
+    * scope that provides it.
     */
-  private def convTest(name: String)(body: Ox ?=> Unit): Unit =
+  private def liveTest(name: String)(body: Ox ?=> Unit): Unit =
     test(name)(supervised(body))
 
-  convTest(
-    "text deltas complete with AssistantTurnEnd and produce AgentResult"
+  liveTest(
+    "text deltas complete with AssistantMessageEnd and produce AgentResult"
   ):
     val process = new FakePipedCliProcess()
-    val conv = PiConversation(process, sid, "go")
+    val live = PiTurn(process, sid, "go")
 
     process.enqueueStdout(
       """{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"hello"}}"""
@@ -38,16 +34,16 @@ class PiConversationTest extends munit.FunSuite:
     )
     process.enqueueStdout("""{"type":"agent_end","messages":[]}""")
 
-    val events = conv.events.toList
+    val events = live.events.toList
     assertEquals(
       events,
       List(
-        ConversationEvent.AssistantTextDelta("hello"),
-        ConversationEvent.AssistantTurnEnd
+        TurnEvent.AssistantTextDelta("hello"),
+        TurnEvent.AssistantMessageEnd
       )
     )
-    ConversationEventConformance.assertGrammar(events, completedNormally = true)
-    val Right(result) = conv.awaitResult(): @unchecked
+    TurnEventConformance.assertGrammar(events, completedNormally = true)
+    val Right(result) = live.awaitResult(): @unchecked
     val wire: WireSessionId[BackendTag.Pi.type] = sid.onWire
     assertEquals(result.wireId, wire)
     assertEquals(result.output, "hello")
@@ -68,9 +64,9 @@ class PiConversationTest extends munit.FunSuite:
     assertEquals(process.sigIntCount, 1)
     assert(process.isStdinClosed)
 
-  convTest("message_end emits assistant text when no text delta streamed"):
+  liveTest("message_end emits assistant text when no text delta streamed"):
     val process = new FakePipedCliProcess()
-    val conv = PiConversation(process, sid, "go")
+    val live = PiTurn(process, sid, "go")
 
     process.enqueueStdout(
       """{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"fallback"}]}}"""
@@ -78,18 +74,18 @@ class PiConversationTest extends munit.FunSuite:
     process.enqueueStdout("""{"type":"agent_end","messages":[]}""")
 
     assertEquals(
-      conv.events.toList,
+      live.events.toList,
       List(
-        ConversationEvent.AssistantTextDelta("fallback"),
-        ConversationEvent.AssistantTurnEnd
+        TurnEvent.AssistantTextDelta("fallback"),
+        TurnEvent.AssistantMessageEnd
       )
     )
-    val Right(result) = conv.awaitResult(): @unchecked
+    val Right(result) = live.awaitResult(): @unchecked
     assertEquals(result.output, "fallback")
 
-  convTest("thinking delta becomes AssistantThinkingDelta"):
+  liveTest("thinking delta becomes AssistantThinkingDelta"):
     val process = new FakePipedCliProcess()
-    val conv = PiConversation(process, sid, "go")
+    val live = PiTurn(process, sid, "go")
 
     process.enqueueStdout(
       """{"type":"message_update","assistantMessageEvent":{"type":"thinking_delta","delta":"checking"}}"""
@@ -99,16 +95,16 @@ class PiConversationTest extends munit.FunSuite:
     )
     process.enqueueStdout("""{"type":"agent_end","messages":[]}""")
 
-    val events = conv.events.toList
+    val events = live.events.toList
     assertEquals(
       events.head,
-      ConversationEvent.AssistantThinkingDelta("checking")
+      TurnEvent.AssistantThinkingDelta("checking")
     )
-    val _ = conv.awaitResult()
+    val _ = live.awaitResult()
 
-  convTest("tool execution events become tool call and tool result"):
+  liveTest("tool execution events become tool call and tool result"):
     val process = new FakePipedCliProcess()
-    val conv = PiConversation(process, sid, "go")
+    val live = PiTurn(process, sid, "go")
 
     process.enqueueStdout(
       """{"type":"tool_execution_start","toolCallId":"call-1","toolName":"bash","args":{"command":"ls"}}"""
@@ -118,23 +114,23 @@ class PiConversationTest extends munit.FunSuite:
     )
     process.enqueueStdout("""{"type":"agent_end","messages":[]}""")
 
-    val events = conv.events.toList
+    val events = live.events.toList
     events(0) match
-      case ConversationEvent.AssistantToolCall(name, rawInput) =>
+      case TurnEvent.AssistantToolCall(name, rawInput) =>
         assertEquals(name, "bash")
         assert(rawInput.contains("ls"))
       case other => fail(s"expected AssistantToolCall, got $other")
     events(1) match
-      case ConversationEvent.ToolResult(name, ok, content) =>
+      case TurnEvent.ToolResult(name, ok, content) =>
         assertEquals(name, Some("bash"))
         assertEquals(ok, true)
         assertEquals(content, "ok\n")
       case other => fail(s"expected ToolResult, got $other")
-    val _ = conv.awaitResult()
+    val _ = live.awaitResult()
 
-  convTest("a tool-call-only turn still ends with AssistantTurnEnd"):
+  liveTest("a tool-call-only turn still ends with AssistantMessageEnd"):
     val process = new FakePipedCliProcess()
-    val conv = PiConversation(process, sid, "go")
+    val live = PiTurn(process, sid, "go")
 
     process.enqueueStdout(
       """{"type":"tool_execution_start","toolCallId":"call-1","toolName":"bash","args":{"command":"ls"}}"""
@@ -144,14 +140,14 @@ class PiConversationTest extends munit.FunSuite:
     )
     process.enqueueStdout("""{"type":"agent_end","messages":[]}""")
 
-    val events = conv.events.toList
-    assertEquals(events.count(_ == ConversationEvent.AssistantTurnEnd), 1)
-    ConversationEventConformance.assertGrammar(events, completedNormally = true)
-    val _ = conv.awaitResult()
+    val events = live.events.toList
+    assertEquals(events.count(_ == TurnEvent.AssistantMessageEnd), 1)
+    TurnEventConformance.assertGrammar(events, completedNormally = true)
+    val _ = live.awaitResult()
 
-  convTest("unknown events are ignored"):
+  liveTest("unknown events are ignored"):
     val process = new FakePipedCliProcess()
-    val conv = PiConversation(process, sid, "go")
+    val live = PiTurn(process, sid, "go")
 
     process.enqueueStdout("""{"type":"session","id":"s"}""")
     process.enqueueStdout(
@@ -159,14 +155,14 @@ class PiConversationTest extends munit.FunSuite:
     )
     process.enqueueStdout("""{"type":"agent_end","messages":[]}""")
 
-    val events = conv.events.toList
-    assert(!events.exists(_.isInstanceOf[ConversationEvent.Error]))
-    val Right(result) = conv.awaitResult(): @unchecked
+    val events = live.events.toList
+    assert(!events.exists(_.isInstanceOf[TurnEvent.Error]))
+    val Right(result) = live.awaitResult(): @unchecked
     assertEquals(result.output, "ok")
 
-  convTest("usage accumulates across assistant messages"):
+  liveTest("usage accumulates across assistant messages"):
     val process = new FakePipedCliProcess()
-    val conv = PiConversation(process, sid, "go")
+    val live = PiTurn(process, sid, "go")
 
     process.enqueueStdout(
       """{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"first"}],"usage":{"input":1,"output":2,"cacheRead":3}}}"""
@@ -176,10 +172,10 @@ class PiConversationTest extends munit.FunSuite:
     )
     process.enqueueStdout("""{"type":"agent_end","messages":[]}""")
 
-    val events = conv.events.toList
-    // Two assistant message_ends, but one turn → exactly one AssistantTurnEnd.
-    assertEquals(events.count(_ == ConversationEvent.AssistantTurnEnd), 1)
-    val Right(result) = conv.awaitResult(): @unchecked
+    val events = live.events.toList
+    // Two wire message_ends, but one orca message → one AssistantMessageEnd.
+    assertEquals(events.count(_ == TurnEvent.AssistantMessageEnd), 1)
+    val Right(result) = live.awaitResult(): @unchecked
     assertEquals(result.output, "second")
     assertEquals(
       result.usage,
@@ -195,30 +191,30 @@ class PiConversationTest extends munit.FunSuite:
       )
     )
 
-  convTest("failed prompt response fails the conversation"):
+  liveTest("failed prompt response fails the turn"):
     val process = new FakePipedCliProcess()
-    val conv = PiConversation(process, sid, "go")
+    val live = PiTurn(process, sid, "go")
 
     process.enqueueStdout(
       """{"type":"response","id":"orca-prompt","command":"prompt","success":false,"error":"model unavailable"}"""
     )
 
-    val events = conv.events.toList
+    val events = live.events.toList
     assert(events.exists {
-      case ConversationEvent.Error(message) =>
+      case TurnEvent.Error(message) =>
         message.contains("model unavailable")
       case _ => false
     })
-    // Failure with no assistant activity: no turn opened, so no turn end.
-    ConversationEventConformance.assertGrammar(events, completedNormally = true)
-    val ex = intercept[OrcaFlowException](conv.awaitResult())
+    // Failure with no assistant activity: no message opened, so no message end.
+    TurnEventConformance.assertGrammar(events, completedNormally = true)
+    val ex = intercept[OrcaFlowException](live.awaitResult())
     assert(ex.getMessage.contains("model unavailable"))
 
   // A pi turn runs many assistant messages; a late RPC failure would otherwise
   // discard every message_end's usage already accrued for the turn.
-  convTest("a failed response debits the usage accrued earlier in the turn"):
+  liveTest("a failed response debits the usage accrued earlier in the turn"):
     val process = new FakePipedCliProcess()
-    val conv = PiConversation(process, sid, "go")
+    val live = PiTurn(process, sid, "go")
 
     process.enqueueStdout(
       """{"type":"message_end","message":{"role":"assistant","model":"anthropic/claude-sonnet","content":[{"type":"text","text":"first"}],"usage":{"input":40,"output":9}}}"""
@@ -227,54 +223,54 @@ class PiConversationTest extends munit.FunSuite:
       """{"type":"response","id":"orca-prompt","command":"prompt","success":false,"error":"model unavailable"}"""
     )
 
-    val _ = conv.events.toList
-    val ex = intercept[AgentTurnFailed](conv.awaitResult())
+    val _ = live.events.toList
+    val ex = intercept[AgentTurnFailed](live.awaitResult())
     assertEquals(
       ex.debit,
       TurnDebit.Observed(usage(40L, 9L), Some(Model("anthropic/claude-sonnet")))
     )
 
-  convTest(
+  liveTest(
     "extension UI input request becomes UserQuestion and writes response"
   ):
     val process = new FakePipedCliProcess()
-    val conv =
-      PiConversation(process, sid, "go", askUser = AskUserChannel.Native)
-    assert(conv.canAskUser)
+    val live =
+      PiTurn(process, sid, "go", askUser = AskUserChannel.Native)
+    assert(live.canAskUser)
 
     process.enqueueStdout(
       """{"type":"extension_ui_request","id":"ui-1","method":"input","title":"What branch?"}"""
     )
 
-    conv.events.next() match
-      case ConversationEvent.UserQuestion(question, respond) =>
+    live.events.next() match
+      case TurnEvent.UserQuestion(question, respond) =>
         assertEquals(question, "What branch?")
         respond("main")
       case other => fail(s"expected UserQuestion, got $other")
 
     assert(process.writes.exists(_.contains("extension_ui_response")))
     assert(process.writes.exists(_.contains("main")))
-    conv.cancel()
-    conv.awaitResult() match
+    live.cancel()
+    live.awaitResult() match
       case Left(_: OrcaInteractiveCancelled) => ()
       case other =>
         fail(s"expected cancellation after test cleanup, got $other")
 
   // Ctrl-C at an interactive prompt abandons a turn that has already been
   // billed for every assistant message it ran.
-  convTest("a cancelled turn carries the usage accrued before the cancel"):
+  liveTest("a cancelled turn carries the usage accrued before the cancel"):
     val process = new FakePipedCliProcess()
-    val conv = PiConversation(process, sid, "go")
+    val live = PiTurn(process, sid, "go")
 
     process.enqueueStdout(
       """{"type":"message_end","message":{"role":"assistant","model":"anthropic/claude-sonnet","content":[{"type":"text","text":"partial"}],"usage":{"input":60,"output":4}}}"""
     )
     assertEquals(
-      conv.events.next(),
-      ConversationEvent.AssistantTextDelta("partial")
+      live.events.next(),
+      TurnEvent.AssistantTextDelta("partial")
     )
-    conv.cancel()
-    conv.awaitResult() match
+    live.cancel()
+    live.awaitResult() match
       case Left(cancelled) =>
         assertEquals(
           cancelled.debit,
@@ -285,9 +281,9 @@ class PiConversationTest extends munit.FunSuite:
         )
       case other => fail(s"expected cancellation, got $other")
 
-  convTest("fire-and-forget extension UI requests are ignored"):
+  liveTest("fire-and-forget extension UI requests are ignored"):
     val process = new FakePipedCliProcess()
-    val conv = PiConversation(process, sid, "go")
+    val live = PiTurn(process, sid, "go")
 
     process.enqueueStdout(
       """{"type":"extension_ui_request","id":"ui-status","method":"setStatus","statusKey":"x","statusText":"running"}"""
@@ -297,83 +293,83 @@ class PiConversationTest extends munit.FunSuite:
     )
     process.enqueueStdout("""{"type":"agent_end","messages":[]}""")
 
-    val events = conv.events.toList
+    val events = live.events.toList
     assertEquals(events, Nil)
     assert(!process.writes.exists(_.contains("extension_ui_response")))
-    val _ = conv.awaitResult()
+    val _ = live.awaitResult()
 
-  convTest(
+  liveTest(
     "an extension_ui_request without a method is cancelled, not dropped"
   ):
     val process = new FakePipedCliProcess()
-    val conv = PiConversation(process, sid, "go")
+    val live = PiTurn(process, sid, "go")
 
     process.enqueueStdout(
       """{"type":"extension_ui_request","id":"ui-x","title":"hm"}"""
     )
     process.enqueueStdout("""{"type":"agent_end","messages":[]}""")
 
-    val _ = conv.events.toList
+    val _ = live.events.toList
     // A cancel is written so Pi doesn't block waiting on a reply.
     assert(
       process.writes.exists(_.contains("extension_ui_response")),
       process.writes
     )
-    val _ = conv.awaitResult()
+    val _ = live.awaitResult()
 
-  convTest(
+  liveTest(
     "message_end without content surfaces the error, not a parse failure"
   ):
     val process = new FakePipedCliProcess()
-    val conv = PiConversation(process, sid, "go")
+    val live = PiTurn(process, sid, "go")
 
     process.enqueueStdout(
       """{"type":"message_end","message":{"role":"assistant","errorMessage":"model exploded"}}"""
     )
     process.enqueueStdout("""{"type":"agent_end","messages":[]}""")
 
-    val events = conv.events.toList
+    val events = live.events.toList
     assert(
       events.exists {
-        case ConversationEvent.Error(m) => m.contains("model exploded")
-        case _                          => false
+        case TurnEvent.Error(m) => m.contains("model exploded")
+        case _                  => false
       },
       events
     )
     assert(
       !events.exists {
-        case ConversationEvent.Error(m) => m.contains("parse")
-        case _                          => false
+        case TurnEvent.Error(m) => m.contains("parse")
+        case _                  => false
       },
       events
     )
-    val _ = conv.awaitResult()
+    val _ = live.awaitResult()
 
-  convTest("clean exit before agent_end fails"):
+  liveTest("clean exit before agent_end fails"):
     val process = new FakePipedCliProcess(initiallyAlive = false)
-    val conv = PiConversation(process, sid, "go")
+    val live = PiTurn(process, sid, "go")
     process.closeStdout()
     process.closeStderr()
 
-    val _ = conv.events.toList
-    val ex = intercept[OrcaFlowException](conv.awaitResult())
+    val _ = live.events.toList
+    val ex = intercept[OrcaFlowException](live.awaitResult())
     assert(ex.getMessage.contains("agent_end"))
 
-  convTest("stderr diagnostics are attached to failures"):
+  liveTest("stderr diagnostics are attached to failures"):
     val process = new FakePipedCliProcess(initiallyAlive = false):
       override def tryExitCode: Option[Int] = Some(7)
-    val conv = PiConversation(process, sid, "go")
+    val live = PiTurn(process, sid, "go")
     process.enqueueStderr("Pi auth failed")
     process.closeStdout()
     process.closeStderr()
 
-    val _ = conv.events.toList
-    val ex = intercept[OrcaFlowException](conv.awaitResult())
+    val _ = live.events.toList
+    val ex = intercept[OrcaFlowException](live.awaitResult())
     assert(ex.getMessage.contains("Pi auth failed"), ex.getMessage)
 
-  convTest("terminal notification stderr noise is ignored"):
+  liveTest("terminal notification stderr noise is ignored"):
     val process = new FakePipedCliProcess()
-    val conv = PiConversation(process, sid, "go")
+    val live = PiTurn(process, sid, "go")
 
     process.enqueueStderr(
       "]777;notify;π;Implemented. Changed: extensions/relay/core/file.ts"
@@ -381,24 +377,24 @@ class PiConversationTest extends munit.FunSuite:
     process.closeStderr()
     process.enqueueStdout("""{"type":"agent_end","messages":[]}""")
 
-    val events = conv.events.toList
+    val events = live.events.toList
     assertEquals(events, Nil)
-    val _ = conv.awaitResult()
+    val _ = live.awaitResult()
 
-  convTest("stderr strips terminal controls before surfacing diagnostics"):
+  liveTest("stderr strips terminal controls before surfacing diagnostics"):
     val process = new FakePipedCliProcess(initiallyAlive = false):
       override def tryExitCode: Option[Int] = Some(7)
-    val conv = PiConversation(process, sid, "go")
+    val live = PiTurn(process, sid, "go")
 
     process.enqueueStderr("auth\u001b[?25l failed\u001b[2K now")
     process.closeStdout()
     process.closeStderr()
 
-    val events = conv.events.toList
+    val events = live.events.toList
     assert(events.exists {
-      case ConversationEvent.Error(message) =>
+      case TurnEvent.Error(message) =>
         message.contains("auth failed now") && !message.contains("?25l")
       case _ => false
     })
-    val ex = intercept[OrcaFlowException](conv.awaitResult())
+    val ex = intercept[OrcaFlowException](live.awaitResult())
     assert(ex.getMessage.contains("auth failed now"), ex.getMessage)

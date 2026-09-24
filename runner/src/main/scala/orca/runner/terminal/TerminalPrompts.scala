@@ -5,8 +5,8 @@ import orca.backend.{
   AgentResult,
   ApprovalDecision,
   ChannelEvent,
-  ConversationEvent,
-  ObservedConversation
+  TurnEvent,
+  ObservedTurn
 }
 import org.jline.reader.{EndOfFileException, UserInterruptException}
 import org.jline.terminal.TerminalBuilder
@@ -31,21 +31,21 @@ private[terminal] class TerminalPrompts(
 
   import TerminalPrompts.*
 
-  /** Drain the conversation to completion; see [[ObservedConversation.drain]].
+  /** Drain the turn to completion; see [[ObservedTurn.drain]].
     */
   def drive[B <: BackendTag](
-      conversation: ObservedConversation[B]
+      turn: ObservedTurn[B]
   ): AgentResult[B] =
-    conversation.drain(answer(_, conversation))
+    turn.drain(answer(_, turn))
 
   private def answer[B <: BackendTag](
       event: ChannelEvent,
-      conversation: ObservedConversation[B]
+      turn: ObservedTurn[B]
   ): Unit = event match
-    case ConversationEvent.ApproveTool(name, input, respond) =>
-      promptApproval(name, input, respond, conversation)
-    case ConversationEvent.UserQuestion(question, respond) =>
-      promptUserQuestion(question, respond, conversation)
+    case TurnEvent.ApproveTool(name, input, respond) =>
+      promptApproval(name, input, respond, turn)
+    case TurnEvent.UserQuestion(question, respond) =>
+      promptUserQuestion(question, respond, turn)
 
   /** A self-contained block (one or more lines) under the current stage indent.
     * Embedded `\n`s are re-indented so multi-line content stays aligned with
@@ -60,7 +60,7 @@ private[terminal] class TerminalPrompts(
       toolName: String,
       rawInput: String,
       respond: ApprovalDecision => Unit,
-      conversation: ObservedConversation[B]
+      turn: ObservedTurn[B]
   ): Unit =
     val summary = ToolInputSummary.summarise(
       rawInput,
@@ -76,12 +76,12 @@ private[terminal] class TerminalPrompts(
         currentIndent() + paint(ApprovalStyle, "  [y]es / [n]o ? ")
       ) match
         case PromptOutcome.Answer(reply) => respond(decisionFor(reply))
-        case PromptOutcome.Interrupted   => conversation.cancel()
+        case PromptOutcome.Interrupted   => turn.cancel()
 
   private def promptUserQuestion[B <: BackendTag](
       question: String,
       respond: String => Unit,
-      conversation: ObservedConversation[B]
+      turn: ObservedTurn[B]
   ): Unit =
     output.prompt(
       indented(paint(ApprovalStyle, s"$ApprovalGlyph ") + question)
@@ -90,7 +90,7 @@ private[terminal] class TerminalPrompts(
         currentIndent() + paint(ApprovalStyle, "  > ")
       ) match
         case PromptOutcome.Answer(reply) => respond(reply)
-        case PromptOutcome.Interrupted   => conversation.cancel()
+        case PromptOutcome.Interrupted   => turn.cancel()
 
   private def decisionFor(reply: String): ApprovalDecision =
     val normalised = reply.trim.toLowerCase

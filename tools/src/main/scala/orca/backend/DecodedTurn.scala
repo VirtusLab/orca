@@ -20,15 +20,14 @@ import ox.channels.{Channel, ChannelClosed}
 import java.util.concurrent.atomic.AtomicBoolean
 import scala.util.control.NonFatal
 
-/** A [[Conversation]] over a line [[StreamSource]], decoded by a
-  * [[LineDecoder]].
+/** A [[LiveTurn]] over a line [[StreamSource]], decoded by a [[LineDecoder]].
   *
   * [[start]] forks into the caller's per-turn scope: a reader running the
   * decoder's fold over the source's lines, a stderr drain, and — for
   * [[AskUserChannel.Mcp]] — a drain of the agent's questions. The reader
-  * enforces the [[ConversationEvent]] turn grammar and returns the turn's
-  * outcome, which `awaitResult` joins. The drains can send only
-  * [[NeutralEvent]]s, which leave the turn state alone.
+  * enforces the [[TurnEvent]] message grammar and returns the turn's outcome,
+  * which `awaitResult` joins. The drains can send only [[NeutralEvent]]s, which
+  * leave the message state alone.
   *
   * Teardown: once the decoder settles, the reader SIGINTs the source and, when
   * the root process has exited, kills the process tree — reaching every
@@ -36,7 +35,7 @@ import scala.util.control.NonFatal
   * own is out of reach; if it holds stdout or stderr, the process's streams end
   * shortly after the root's exit anyway ([[orca.subprocess.PipedCliProcess]]).
   */
-private[orca] object StreamConversation:
+private[orca] object DecodedTurn:
 
   /** Cap on in-flight unread events. The reader blocks once full, so a slow
     * consumer's backpressure flows back into the subprocess pipe.
@@ -45,13 +44,13 @@ private[orca] object StreamConversation:
 
   def start[B <: BackendTag, S](
       source: StreamSource,
-      spec: ConversationSpec,
+      spec: DecodedTurnSpec,
       decoder: LineDecoder[B, S]
-  )(using Ox): Conversation[B] =
-    val channel = Channel.buffered[ConversationEvent](ChannelCapacity)
+  )(using Ox): LiveTurn[B] =
+    val channel = Channel.buffered[TurnEvent](ChannelCapacity)
     def neutral(event: NeutralEvent): Unit =
       channel.sendOrClosed(event).discard
-    spec.openingPrompt.foreach(p => neutral(ConversationEvent.UserMessage(p)))
+    spec.openingPrompt.foreach(p => neutral(TurnEvent.UserMessage(p)))
     val cancelled = new AtomicBoolean(false)
     val stderr = fork(drainStderr(source, decoder, neutral))
     spec.askUser match
@@ -67,22 +66,22 @@ private[orca] object StreamConversation:
     Either[OrcaInteractiveCancelled | AgentTurnFailed, AgentResult[B]]
 
   private final class Live[B <: BackendTag](
-      spec: ConversationSpec,
+      spec: DecodedTurnSpec,
       source: StreamSource,
-      channel: Channel[ConversationEvent],
+      channel: Channel[TurnEvent],
       cancelled: AtomicBoolean,
       reader: UnsupervisedFork[Outcome[B]]
-  ) extends Conversation[B]:
+  ) extends LiveTurn[B]:
     def outputSchema: Option[String] = spec.outputSchema
     override def structuredOutputMode: StructuredOutputMode =
       spec.structuredOutputMode
     def canAskUser: Boolean = spec.askUser.isAvailable
 
-    val events: Iterator[ConversationEvent] =
+    val events: Iterator[TurnEvent] =
       Iterator
         .continually(channel.receiveOrClosed())
         .takeWhile(!_.isInstanceOf[ChannelClosed])
-        .collect { case e: ConversationEvent => e }
+        .collect { case e: TurnEvent => e }
 
     /** Every failure of a turn that ran surfaces as [[AgentTurnFailed]]: the
       * wire session may already exist, so a retry against the same id would
@@ -110,10 +109,10 @@ private[orca] object StreamConversation:
       channel.doneOrClosed().discard
       reader.join().discard
 
-  /** Where the reader is in the turn grammar. */
+  /** Where the reader is in the message grammar. */
   private enum Phase[B <: BackendTag]:
-    case BetweenTurns()
-    case InTurn()
+    case BetweenMessages()
+    case InMessage()
     case Done(settled: Settled[B])
 
   /** The reader's fold state beside the decoder's own. */
@@ -125,7 +124,7 @@ private[orca] object StreamConversation:
   private final class Reader[B <: BackendTag, S](
       source: StreamSource,
       decoder: LineDecoder[B, S],
-      channel: Channel[ConversationEvent],
+      channel: Channel[TurnEvent],
       cancelled: AtomicBoolean,
       stderr: Fork[StderrLog]
   )(using Ox):
@@ -133,7 +132,7 @@ private[orca] object StreamConversation:
 
     /** Returns the outcome and never throws, so `join` always yields one. */
     def run(): Outcome[B] =
-      var progress = Progress[B, S](decoder.init, Phase.BetweenTurns())
+      var progress = Progress[B, S](decoder.init, Phase.BetweenMessages())
       try
         val readError: Option[Throwable] =
           try
@@ -142,7 +141,7 @@ private[orca] object StreamConversation:
               if !cancelled.get() then
                 progress = progress.phase match
                   case Phase.Done(_) => progress
-                  case Phase.BetweenTurns() | Phase.InTurn() =>
+                  case Phase.BetweenMessages() | Phase.InMessage() =>
                     step(progress, line)
             None
           catch
@@ -151,8 +150,9 @@ private[orca] object StreamConversation:
               Some(e)
         val stderrLog = stderr.join()
         progress.phase match
-          case Phase.Done(_)                         => ()
-          case Phase.BetweenTurns() | Phase.InTurn() => decoder.onUnsettledEnd()
+          case Phase.Done(_) => ()
+          case Phase.BetweenMessages() | Phase.InMessage() =>
+            decoder.onUnsettledEnd()
         outcome(progress, readError, stderrLog)
       catch
         case NonFatal(t) =>
@@ -170,45 +170,45 @@ private[orca] object StreamConversation:
       val decoded =
         try Right(decoder.line(progress.state, line))
         catch case NonFatal(e) => Left(e)
-      val inTurn = progress.phase == Phase.InTurn()
+      val inMessage = progress.phase == Phase.InMessage()
       decoded match
         case Left(e) =>
           send(
-            ConversationEvent.Error(
+            TurnEvent.Error(
               s"Failed to parse $name line: ${e.getMessage}"
             )
           )
           progress
         case Right(Step.Continue(state, events)) =>
           val phase: Phase[B] =
-            if emitAll(inTurn, events) then Phase.InTurn()
-            else Phase.BetweenTurns()
+            if emitAll(inMessage, events) then Phase.InMessage()
+            else Phase.BetweenMessages()
           Progress(state, phase)
         case Right(Step.Settle(state, events, settled)) =>
-          // A settle completes the turn, so it owes the closing turn end.
-          if emitAll(inTurn, events) then
-            send(ConversationEvent.AssistantTurnEnd)
+          // A settle completes the turn, so it owes the open message its end.
+          if emitAll(inMessage, events) then send(TurnEvent.AssistantMessageEnd)
           stopSource()
           Progress(state, Phase.Done(settled))
 
-    /** Sends `events` under the turn grammar and returns whether a turn is open
-      * afterwards: activity opens a turn, and an `AssistantTurnEnd` closes it —
-      * or is dropped when no turn is open, as there are no empty turns.
+    /** Sends `events` under the message grammar and returns whether a message
+      * is open afterwards: activity opens a message, and an
+      * `AssistantMessageEnd` closes it — or is dropped when no message is open,
+      * as there are no empty messages.
       */
     private def emitAll(
-        inTurn: Boolean,
-        events: List[ConversationEvent]
+        inMessage: Boolean,
+        events: List[TurnEvent]
     ): Boolean =
-      events.foldLeft(inTurn): (open, event) =>
+      events.foldLeft(inMessage): (open, event) =>
         event match
-          case ConversationEvent.AssistantTurnEnd =>
+          case TurnEvent.AssistantMessageEnd =>
             if open then send(event)
             false
           case _ =>
             send(event)
-            open || event.opensTurn
+            open || event.opensMessage
 
-    private def send(event: ConversationEvent): Unit =
+    private def send(event: TurnEvent): Unit =
       channel.sendOrClosed(event).discard
 
     /** SIGINT ends the turn's process, or closes a connection; the tree kill
@@ -241,7 +241,7 @@ private[orca] object StreamConversation:
         case Phase.Done(Settled.Succeeded(result)) => Right(result)
         case Phase.Done(Settled.Failed(message, debit)) =>
           Left(new AgentTurnFailed(withContext(message), debit))
-        case Phase.BetweenTurns() | Phase.InTurn() =>
+        case Phase.BetweenMessages() | Phase.InMessage() =>
           val debit = decoder.failedTurnDebit(progress.state)
           // A cancel's kill can make the in-flight read throw rather than EOF,
           // so `cancelled` is checked first: a Ctrl-C is never a failure.
@@ -286,7 +286,7 @@ private[orca] object StreamConversation:
         OrcaDebug.traceStream(decoder.backendName, "stderr", raw)
         val line = TerminalControl.stripControlSequences(raw).trim
         if log.surfaces(line, decoder.isStderrNoise) then
-          neutral(ConversationEvent.Error(s"${decoder.backendName}: $line"))
+          neutral(TurnEvent.Error(s"${decoder.backendName}: $line"))
           log = log.add(line)
     catch
       case NonFatal(t) =>
@@ -308,4 +308,4 @@ private[orca] object StreamConversation:
   ): Unit =
     while true do
       val q = bridge.nextQuestion()
-      neutral(ConversationEvent.UserQuestion(q.question, q.respond))
+      neutral(TurnEvent.UserQuestion(q.question, q.respond))

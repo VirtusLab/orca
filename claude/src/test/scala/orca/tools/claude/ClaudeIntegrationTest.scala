@@ -11,7 +11,7 @@ import orca.agents.{
   ToolSet,
   WireSessionId
 }
-import orca.backend.{ConversationEvent, Dispatch, SupervisedBackend}
+import orca.backend.{TurnEvent, Dispatch, SupervisedBackend}
 import orca.subprocess.OsProcCliRunner
 import orca.testkit.{GitRepo, TempDirs}
 import orca.tools.claude.streamjson.OutboundMessage
@@ -69,9 +69,9 @@ class ClaudeIntegrationTest extends munit.FunSuite:
         s"expected resumed session to recall '42', got: ${second.output}"
       )
 
-  test("stream-json interactive session reaches a Result with a session id"):
+  test("stream-json interactive turn reaches a Result with a session id"):
     withBackend: backend =>
-      val conversation = OpenTurn.interactive(backend)(
+      val live = OpenTurn.interactive(backend)(
         prompt = "Reply with just the number 7. Nothing else.",
         session = fresh,
         displayPrompt = "reply with 7",
@@ -79,20 +79,20 @@ class ClaudeIntegrationTest extends munit.FunSuite:
         outputSchema = None
       )
       try
-        // Drain events so the driver can process them; we don't render
+        // Drain events so the decoder can process them; we don't render
         // anything in the integration test — awaitResult gives the outcome.
-        conversation.events.foreach(_ => ())
-        val Right(result) = conversation.awaitResult(): @unchecked
+        live.events.foreach(_ => ())
+        val Right(result) = live.awaitResult(): @unchecked
         assert(
           result.output.contains("7"),
           s"expected a reply containing '7', got: ${result.output}"
         )
         assert(WireSessionId.value(result.wireId).nonEmpty)
-      finally conversation.cancel()
+      finally live.cancel()
 
-  test("stream-json session emits text deltas as the agent streams"):
+  test("stream-json turn emits text deltas as the agent streams"):
     withBackend: backend =>
-      val conversation = OpenTurn.interactive(backend)(
+      val live = OpenTurn.interactive(backend)(
         prompt =
           "Count from 1 to 5, one per line, then stop. Do not emit anything else.",
         session = fresh,
@@ -101,17 +101,17 @@ class ClaudeIntegrationTest extends munit.FunSuite:
         outputSchema = None
       )
       try
-        val events = conversation.events.toList
-        val _ = conversation.awaitResult()
+        val events = live.events.toList
+        val _ = live.awaitResult()
         assert(
-          events.exists(_.isInstanceOf[ConversationEvent.AssistantTextDelta]),
+          events.exists(_.isInstanceOf[TurnEvent.AssistantTextDelta]),
           s"expected at least one AssistantTextDelta; got: $events"
         )
         assert(
-          events.exists(_ == ConversationEvent.AssistantTurnEnd),
-          s"expected an AssistantTurnEnd; got: $events"
+          events.exists(_ == TurnEvent.AssistantMessageEnd),
+          s"expected an AssistantMessageEnd; got: $events"
         )
-      finally conversation.cancel()
+      finally live.cancel()
 
   test(
     "a read the CLI refuses is reported as a failed tool_result, never prompted over stdin"
@@ -124,7 +124,7 @@ class ClaudeIntegrationTest extends munit.FunSuite:
       // failed tool_result, not as a `can_use_tool` control request. Stdin is
       // closed at spawn, so orca could not answer such a request — a future CLI
       // reviving that subchannel fails here first.
-      val conversation = OpenTurn.interactive(backend)(
+      val live = OpenTurn.interactive(backend)(
         prompt = "Read the file at /etc/hostname and reply with its contents.",
         session = fresh,
         displayPrompt = "read /etc/hostname",
@@ -132,22 +132,22 @@ class ClaudeIntegrationTest extends munit.FunSuite:
         outputSchema = None
       )
       try
-        val events = conversation.events.toList
+        val events = live.events.toList
         assert(
           !events.exists:
-            case ConversationEvent.Error(m) => m.contains("control_request")
-            case _                          => false
+            case TurnEvent.Error(m) => m.contains("control_request")
+            case _                  => false
           ,
           s"claude routed a tool approval over stdio, which orca cannot answer: $events"
         )
         assert(
           events.exists:
-            case ConversationEvent.ToolResult(_, ok, _) => !ok
-            case _                                      => false
+            case TurnEvent.ToolResult(_, ok, _) => !ok
+            case _                              => false
           ,
           s"expected the refused Read to surface as a failed tool_result: $events"
         )
-      finally conversation.cancel()
+      finally live.cancel()
 
   test("a read-only turn can read a file at a commit through MCP"):
     // The whole point of the repo-read server: --tools leaves the turn without
@@ -234,7 +234,7 @@ class ClaudeIntegrationTest extends munit.FunSuite:
     // with stdin closed nobody can approve, so the planner gets a failed
     // tool_result and plans from the prompt alone. Needs live network.
     withBackend: backend =>
-      val conversation = OpenTurn.interactive(backend)(
+      val live = OpenTurn.interactive(backend)(
         prompt =
           "Use the WebFetch tool on https://example.com and reply with " +
             "the page title. Use no other tool.",
@@ -244,12 +244,12 @@ class ClaudeIntegrationTest extends munit.FunSuite:
         outputSchema = None
       )
       try
-        val events = conversation.events.toList
-        val _ = conversation.awaitResult()
+        val events = live.events.toList
+        val _ = live.awaitResult()
         assert(
           events.exists:
-            case ConversationEvent.AssistantToolCall("WebFetch", _) => true
-            case _                                                  => false
+            case TurnEvent.AssistantToolCall("WebFetch", _) => true
+            case _                                          => false
           ,
           s"claude never called WebFetch: $events"
         )
@@ -257,12 +257,12 @@ class ClaudeIntegrationTest extends munit.FunSuite:
         // result; the prompt asks for WebFetch and nothing else.
         assert(
           !events.exists:
-            case ConversationEvent.ToolResult(_, ok, _) => !ok
-            case _                                      => false
+            case TurnEvent.ToolResult(_, ok, _) => !ok
+            case _                              => false
           ,
           s"a tool call was denied on a NetworkOnly turn: $events"
         )
-      finally conversation.cancel()
+      finally live.cancel()
 
   /** Run the shipped args for `config` and return the built-in tools claude
     * announces in its `system.init` frame. `mcp__*` names are excluded: they

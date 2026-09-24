@@ -1,21 +1,21 @@
 package orca
 
-import orca.backend.{ApprovalDecision, ConversationEvent}
+import orca.backend.{ApprovalDecision, TurnEvent}
 import orca.events.TurnDebit
 
 import java.util.concurrent.atomic.AtomicReference
 
-class ConversationEventTest extends munit.FunSuite:
+class TurnEventTest extends munit.FunSuite:
 
   test("ApproveTool.respond captures the channel's decision exactly once"):
     val sink = new AtomicReference[Option[ApprovalDecision]](None)
-    val evt = ConversationEvent.ApproveTool(
+    val evt = TurnEvent.ApproveTool(
       toolName = "Bash",
       rawInput = """{"cmd":"ls"}""",
       respond = decision => sink.set(Some(decision))
     )
     evt match
-      case ConversationEvent.ApproveTool(name, input, respond) =>
+      case TurnEvent.ApproveTool(name, input, respond) =>
         assertEquals(name, "Bash")
         assertEquals(input, """{"cmd":"ls"}""")
         respond(ApprovalDecision.Allow)
@@ -23,11 +23,11 @@ class ConversationEventTest extends munit.FunSuite:
     assertEquals(sink.get(), Some(ApprovalDecision.Allow))
 
   test("AssistantTextDelta and AssistantThinkingDelta are distinguishable"):
-    val text = ConversationEvent.AssistantTextDelta("hello")
-    val thinking = ConversationEvent.AssistantThinkingDelta("ponder")
-    assertNotEquals[ConversationEvent, ConversationEvent](text, thinking)
+    val text = TurnEvent.AssistantTextDelta("hello")
+    val thinking = TurnEvent.AssistantThinkingDelta("ponder")
+    assertNotEquals[TurnEvent, TurnEvent](text, thinking)
 
   test("OrcaInteractiveCancelled is an OrcaFlowException"):
     val cancelled = new OrcaInteractiveCancelled(TurnDebit.Unobserved)
     assert(cancelled.isInstanceOf[OrcaFlowException])
-    assertEquals(cancelled.getMessage, "interactive session cancelled")
+    assertEquals(cancelled.getMessage, "interactive turn cancelled")

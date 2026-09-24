@@ -2,13 +2,8 @@ package orca.runner.terminal
 
 import orca.agents.{BackendTag, WireSessionId}
 import orca.events.{OrcaListener, Usage}
-import orca.backend.{
-  AgentResult,
-  ApprovalDecision,
-  ConversationEvent,
-  ObservedConversation
-}
-import orca.testkit.ScriptedConversation
+import orca.backend.{AgentResult, ApprovalDecision, TurnEvent, ObservedTurn}
+import orca.testkit.ScriptedTurn
 
 import java.io.{ByteArrayOutputStream, PrintStream}
 import java.util.concurrent.atomic.AtomicReference
@@ -47,9 +42,9 @@ class TerminalPromptsTest extends munit.FunSuite:
       next.getOrElse(throw new IllegalStateException("prompter exhausted"))
 
   private def observed[B <: BackendTag](
-      conv: ScriptedConversation[B]
-  ): ObservedConversation[B] =
-    ObservedConversation(conv, OrcaListener.noop)
+      live: ScriptedTurn[B]
+  ): ObservedTurn[B] =
+    ObservedTurn(live, OrcaListener.noop)
 
   private def sampleResult: AgentResult[BackendTag.ClaudeCode.type] =
     AgentResult(
@@ -62,11 +57,11 @@ class TerminalPromptsTest extends munit.FunSuite:
     val buf = new ByteArrayOutputStream()
     val long = "x" * (ToolInputSummary.MaxInlineInputLength + 50)
     val prompter = new ScriptedPrompter(List(PromptOutcome.Answer("yes")))
-    val conv = new ScriptedConversation(
-      List(ConversationEvent.ApproveTool("Bash", long, _ => ())),
+    val live = new ScriptedTurn(
+      List(TurnEvent.ApproveTool("Bash", long, _ => ())),
       Right(sampleResult)
     )
-    val _ = prompts(buf, prompter).drive(observed(conv))
+    val _ = prompts(buf, prompter).drive(observed(live))
     val out = buf.toString
     assert(out.contains("…"), s"expected ellipsis; got: $out")
     assert(out.length < long.length + 100)
@@ -75,9 +70,9 @@ class TerminalPromptsTest extends munit.FunSuite:
     val buf = new ByteArrayOutputStream()
     val answered = new AtomicReference[Option[ApprovalDecision]](None)
     val prompter = new ScriptedPrompter(List(PromptOutcome.Answer("yes")))
-    val conv = new ScriptedConversation(
+    val live = new ScriptedTurn(
       List(
-        ConversationEvent.ApproveTool(
+        TurnEvent.ApproveTool(
           "Bash",
           """{"cmd":"ls"}""",
           d => answered.set(Some(d))
@@ -85,7 +80,7 @@ class TerminalPromptsTest extends munit.FunSuite:
       ),
       Right(sampleResult)
     )
-    val _ = prompts(buf, prompter = prompter).drive(observed(conv))
+    val _ = prompts(buf, prompter = prompter).drive(observed(live))
     assertEquals(answered.get(), Some(ApprovalDecision.Allow))
     assert(prompter.asked.get().exists(_.contains("[y]es")))
 
@@ -93,9 +88,9 @@ class TerminalPromptsTest extends munit.FunSuite:
     val buf = new ByteArrayOutputStream()
     val answered = new AtomicReference[Option[ApprovalDecision]](None)
     val prompter = new ScriptedPrompter(List(PromptOutcome.Answer("no")))
-    val conv = new ScriptedConversation(
+    val live = new ScriptedTurn(
       List(
-        ConversationEvent.ApproveTool(
+        TurnEvent.ApproveTool(
           "Bash",
           """{"cmd":"rm"}""",
           d => answered.set(Some(d))
@@ -103,57 +98,57 @@ class TerminalPromptsTest extends munit.FunSuite:
       ),
       Right(sampleResult)
     )
-    val _ = prompts(buf, prompter = prompter).drive(observed(conv))
+    val _ = prompts(buf, prompter = prompter).drive(observed(live))
     assertEquals(answered.get(), Some(ApprovalDecision.Deny))
 
-  test("promptApproval interrupted → conversation.cancel() called"):
+  test("promptApproval interrupted → turn.cancel() called"):
     val buf = new ByteArrayOutputStream()
     val prompter = new ScriptedPrompter(List(PromptOutcome.Interrupted))
-    val conv = new ScriptedConversation(
+    val live = new ScriptedTurn(
       List(
-        ConversationEvent.ApproveTool("Bash", "{}", _ => ())
+        TurnEvent.ApproveTool("Bash", "{}", _ => ())
       ),
       Right(sampleResult)
     )
-    val _ = prompts(buf, prompter = prompter).drive(observed(conv))
+    val _ = prompts(buf, prompter = prompter).drive(observed(live))
     assertEquals(
-      conv.cancelCount.get(),
+      live.cancelCount.get(),
       1,
-      "expected conversation.cancel() to fire"
+      "expected turn.cancel() to fire"
     )
 
   test("UserQuestion: question rendered, typed reply passed to respond"):
     val buf = new ByteArrayOutputStream()
     val answered = new AtomicReference[Option[String]](None)
     val prompter = new ScriptedPrompter(List(PromptOutcome.Answer("Paris")))
-    val conv = new ScriptedConversation(
+    val live = new ScriptedTurn(
       List(
-        ConversationEvent.UserQuestion(
+        TurnEvent.UserQuestion(
           "What's the target deployment region?",
           ans => answered.set(Some(ans))
         )
       ),
       Right(sampleResult)
     )
-    val _ = prompts(buf, prompter = prompter).drive(observed(conv))
+    val _ = prompts(buf, prompter = prompter).drive(observed(live))
     assertEquals(answered.get(), Some("Paris"))
     assert(
       buf.toString.contains("target deployment region"),
       s"question text missing from output: ${buf.toString}"
     )
 
-  test("UserQuestion interrupted → conversation.cancel() called"):
+  test("UserQuestion interrupted → turn.cancel() called"):
     val buf = new ByteArrayOutputStream()
     val prompter = new ScriptedPrompter(List(PromptOutcome.Interrupted))
-    val conv = new ScriptedConversation(
+    val live = new ScriptedTurn(
       List(
-        ConversationEvent.UserQuestion("Pick one", _ => ())
+        TurnEvent.UserQuestion("Pick one", _ => ())
       ),
       Right(sampleResult)
     )
-    val _ = prompts(buf, prompter = prompter).drive(observed(conv))
+    val _ = prompts(buf, prompter = prompter).drive(observed(live))
     assertEquals(
-      conv.cancelCount.get(),
+      live.cancelCount.get(),
       1,
-      "expected conversation.cancel() to fire"
+      "expected turn.cancel() to fire"
     )

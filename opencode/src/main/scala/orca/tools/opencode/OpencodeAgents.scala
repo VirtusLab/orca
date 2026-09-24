@@ -14,9 +14,9 @@ import ox.Ox
   */
 object OpencodeAgents:
 
-  /** The default opencode agent for a run: standard config, served through
+  /** The default opencode agent for an attempt: standard config, served through
     * `launcher` (defaults to a bare `opencode serve`). The backend pins a
-    * shared `opencode serve` process to the run scope, so this needs the
+    * shared `opencode serve` process to the attempt's scope, so this needs the
     * ambient [[ox.Ox]].
     */
   def default(

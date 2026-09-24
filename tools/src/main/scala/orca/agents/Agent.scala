@@ -68,7 +68,7 @@ final class Agent[B <: BackendTag] private (
   /** One ephemeral free-text turn — a fresh conversation, discarded after the
     * reply. Use when the agent's reply is prose / code / anything that doesn't
     * need to parse as a structured `O` (that's [[resultAs]]). To keep talking
-    * within the run, mint [[chat]]; to survive a crash/resume, use
+    * within the attempt, mint [[chat]]; to survive a crash/resume, use
     * `agent.session(name, seed)` (a durable `orca.FlowSession`).
     */
   def run(prompt: String, promptEvent: PromptEvent = PromptEvent.Emit)(using
@@ -185,9 +185,9 @@ final class Agent[B <: BackendTag] private (
 
   /** The free-text engine behind [[run]], [[Chat.run]] and `FlowSession.run`:
     * runs `prompt` against `session`, continuing it if the backend already has
-    * it this run. `promptEvent` decides whether `OrcaEvent.UserPrompt` fires;
-    * `sessionKey` is the durable key this session was minted under, carried
-    * onto `OrcaEvent.SessionCommitted`.
+    * it this attempt. `promptEvent` decides whether `OrcaEvent.UserPrompt`
+    * fires; `sessionKey` is the durable key this session was minted under,
+    * carried onto `OrcaEvent.SessionCommitted`.
     */
   private[orca] def runText(
       prompt: String,
@@ -336,15 +336,15 @@ final class Agent[B <: BackendTag] private (
     * handle) against, or `None` if unknown or not durably resumable — equal to
     * `client` where the client id IS the wire id (claude, pi), a learned
     * server-thread id for codex/gemini/opencode, `None` for a backend whose
-    * sessions don't outlive the run. The flow runtime reads this after a turn
-    * to persist it into the session store.
+    * sessions don't outlive the attempt. The flow runtime reads this after a
+    * turn to persist it into the session store.
     */
   private[orca] def resumeWireId(
       client: SessionId[B]
   ): Option[WireSessionId[B]] =
     backend.sessions.persistableWireId(client)
 
-  /** Record a resume wire id a previous run persisted for `client` — see
+  /** Record a resume wire id a previous attempt persisted for `client` — see
     * [[orca.backend.SessionSupport.rehydrate]]. `agent.session(name, seed)`
     * calls this when it reuses a recorded session.
     */

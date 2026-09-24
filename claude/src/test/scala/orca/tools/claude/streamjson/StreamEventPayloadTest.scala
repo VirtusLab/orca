@@ -35,7 +35,7 @@ class StreamEventPayloadTest extends munit.FunSuite:
     )
     assertEquals(payload, StreamEventPayload.ContentBlockStop(4))
 
-  test("message_start is ignorable — driver has nothing to render"):
+  test("message_start is ignorable — decoder has nothing to render"):
     val payload = StreamEventPayload.parse(
       """{"type":"message_start","message":{}}"""
     )

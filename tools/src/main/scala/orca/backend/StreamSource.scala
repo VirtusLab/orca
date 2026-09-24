@@ -4,9 +4,9 @@ import orca.subprocess.PipedCliProcess
 
 import ox.discard
 
-/** The line-oriented source a [[orca.backend.StreamConversation]] drives: a
-  * primary line stream, an optional secondary diagnostic stream, a way to stop
-  * it, and a terminal status — so one driver serves both a subprocess
+/** The line-oriented source a [[orca.backend.DecodedTurn]] drives: a primary
+  * line stream, an optional secondary diagnostic stream, a way to stop it, and
+  * a terminal status — so one reader serves both a subprocess
   * ([[StreamSource.fromProcess]]) and any other line producer (the OpenCode
   * `GET /event` SSE connection).
   *
