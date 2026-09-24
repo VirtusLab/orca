@@ -1057,7 +1057,9 @@ class FlowSessionTest extends FunSuite:
   test("a chat turn after a session run continues its conversation"):
     val agent = new StubAgentForSeeded(existsResult = false)
     val session = flowSession(agent)
-    val _ = session.run("kick off")(using makeControl(sessions = Nil))
+    val run = makeRun(sessions = Nil)
+    import run.given
+    val _ = session.run("kick off")
     val _ = session.chat.run("follow-up")
     assertEquals(agent.capturedPrompt, Some("follow-up"))
     assert(
