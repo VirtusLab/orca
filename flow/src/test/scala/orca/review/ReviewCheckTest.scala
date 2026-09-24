@@ -117,3 +117,63 @@ class ReviewCheckTest extends munit.FunSuite:
     List("I1.1 rev", "I2.1 lnt", "I3.1 chk").foreach: keyed =>
       assert(fixPrompt.contains(keyed), s"missing '$keyed' in: $fixPrompt")
     assertEquals(result, OpenFindings.empty)
+
+  test("reviewThenFix re-runs a check after its fix turn"):
+    given FlowControl = ReviewLoopFixture.control(
+      new EventDispatcher(Nil),
+      lead = Some(new FakeAgent("picker").agent)
+    )
+    val check = new ScriptedCheck(
+      "bench",
+      List(ReviewResult(List(finding("too slow"))), ReviewResult.empty)
+    )
+    val coder = new FakeAgent(
+      "coder",
+      outputs = List(FixOutcome(List(Title("too slow")), Nil))
+    )
+    val result = reviewThenFix(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = Nil,
+      task = titled("speed it up"),
+      formatCommands = Configured.Off,
+      lint = Configured.Off,
+      checks = List(check)
+    )
+    assertEquals(result, OpenFindings.empty)
+    assert(check.exhausted, "the check must run again after the fix")
+
+  test("reviewThenFix records which source still fails after its fix turn"):
+    given FlowControl = ReviewLoopFixture.control(
+      new EventDispatcher(Nil),
+      lead = Some(new FakeAgent("picker").agent)
+    )
+    val slow = ReviewResult(List(finding("too slow")))
+    val broke = ReviewResult(List(finding("lint broke")))
+    val check = new ScriptedCheck("bench", List(slow, slow, slow))
+    // `false` fails every time, so each run reaches the summariser.
+    val summariser =
+      new FakeAgent("lint", outputs = List(ReviewResult.empty, broke, broke))
+    // Two scripted turns: a third would throw.
+    val coder = new FakeAgent(
+      "coder",
+      outputs = List(
+        FixOutcome(List(Title("too slow")), Nil),
+        FixOutcome(List(Title("too slow"), Title("lint broke")), Nil)
+      )
+    )
+    val result = reviewThenFix(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = Nil,
+      task = titled("speed it up"),
+      formatCommands = Configured.Off,
+      lint = Configured.Use(Lint(List("false"), summariser.agent)),
+      checks = List(check)
+    )
+    assertEquals(
+      result.findings.map(f => (f.id, f.reason)),
+      List(
+        FindingId("R2.I1.1") -> OpenReason.StillFailing("lint"),
+        FindingId("R2.I2.1") -> OpenReason.StillFailing("bench")
+      )
+    )
+    assert(check.exhausted, "the check must run in the round and twice after")

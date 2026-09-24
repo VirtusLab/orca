@@ -30,19 +30,21 @@ enum OpenReason derives JsonData:
     */
   case CapReached(max: Int)
 
-  /** The lint gate still reports it after the fix turn scoped to it. */
-  case LintStillFailing
+  /** `source` — a check's name, or `lint` for the lint gate — still reports it
+    * after the fix turn scoped to what failed.
+    */
+  case StillFailing(source: String)
 
   /** A flow's own review policy left it open, in `text`, the flow's words. */
   case Custom(text: String)
 
   def describe: String = this match
-    case Declined(text)   => text
-    case NoFixes          => "fixer reported no fixes"
-    case Unaccounted      => "fixer did not report on it"
-    case CapReached(max)  => s"max fix turns ($max) reached"
-    case LintStillFailing => "lint still failing after its fix turn"
-    case Custom(text)     => text
+    case Declined(text)       => text
+    case NoFixes              => "fixer reported no fixes"
+    case Unaccounted          => "fixer did not report on it"
+    case CapReached(max)      => s"max fix turns ($max) reached"
+    case StillFailing(source) => s"$source still failing after its fix turn"
+    case Custom(text)         => text
 
 /** A finding the run ends without resolving, the reason recorded for it, and
   * where it points.

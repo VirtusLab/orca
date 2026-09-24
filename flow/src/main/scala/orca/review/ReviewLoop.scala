@@ -239,6 +239,20 @@ private case class LintContribution(
   */
 private case class LintRound(gate: Lint, summariser: Lint.Summariser)
 
+/** What one source — a check, or the lint gate — reported in a run, keyed as
+  * the fixer will see it, under the name it is displayed and recorded by.
+  */
+private case class SourceFindings(name: String, findings: List[KeyedFinding])
+
+/** One re-run of the lint gate and the checks after a single pass's fix turn,
+  * and the lint conversation it hands back as safe to resume.
+  */
+private case class Recheck(
+    sources: List[SourceFindings],
+    lintChat: Option[Lint.Summariser]
+):
+  def isClean: Boolean = sources.forall(_.findings.isEmpty)
+
 /** One review round's outcome: everything reported this round, keyed as the
   * fixer will see it, and the state to carry into the next round.
   */
@@ -395,20 +409,21 @@ def reviewAndFixLoop(
 /** One review round over the enclosing stage's changes and, if it found
   * anything, one fix turn — then done. The fixer's `fixed` claims are taken on
   * trust here, which is the trade [[reviewAndFixLoop]] exists to avoid making.
-  * The one exception is the lint gate: machine-checkable, so it is re-run over
-  * the fixer's edits and re-driven once if it still fails — reviewer findings
-  * alone stay single-pass. Use this per task, where a later stage reviews the
-  * same code again with fresh eyes — a whole-run final [[reviewAndFixLoop]],
-  * say, which is what verifies these fixes. Pay for the loop where nothing else
-  * re-reviews the result (ADR 0022 §2).
+  * The exceptions are the lint gate and the checks: machine-checkable, so they
+  * are re-run over the fixer's edits and re-driven once if they still fail —
+  * reviewer findings alone stay single-pass. Use this per task, where a later
+  * stage reviews the same code again with fresh eyes — a whole-run final
+  * [[reviewAndFixLoop]], say, which is what verifies these fixes. Pay for the
+  * loop where nothing else re-reviews the result (ADR 0022 §2).
   *
   * Reviewers are picked once by [[ReviewerSelector.agentDriven]] and run once,
   * alongside the lint gate; see [[reviewAndFixLoop]] for what each of the
   * shared parameters means and how the review turns are framed.
   *
   * Nothing is silently dropped: what the fixer declined, what it never reported
-  * on, and what the lint gate still reports after its own re-run, come back in
-  * the returned [[OpenFindings]] with a reason and are printed at the exit.
+  * on, and what the lint gate or a check still reports after its re-run, come
+  * back in the returned [[OpenFindings]] with a reason and are printed at the
+  * exit.
   */
 def reviewThenFix(
     coderSession: FlowSession,
@@ -416,7 +431,12 @@ def reviewThenFix(
     task: Task,
     userRequest: Option[String] = None,
     formatCommands: Configured[List[String]] = Configured.FromSettings,
-    lint: Configured[Lint] = Configured.FromSettings
+    lint: Configured[Lint] = Configured.FromSettings,
+    /** Run as in [[reviewAndFixLoop]], and again after the fix turn like the
+      * lint gate — so a check can run three times in one pass: in the round,
+      * after the fix turn, and after the fix turn scoped to what it reported.
+      */
+    checks: List[ReviewCheck] = Nil
 )(using
     ctx: FlowContext,
     ev: InStage,
@@ -432,7 +452,7 @@ def reviewThenFix(
       userRequest = userRequest.getOrElse(ctx.userPrompt),
       formatCommands = resolveFormat(ctx, formatCommands),
       lintGate = resolveLint(ctx, lint),
-      checks = Nil,
+      checks = checks,
       fixInstructions = ReviewLoopPrompts.Fix,
       diffSource = ReviewDiffSource.stage(ctx.git, fc.stageBaseCommit)
     )
@@ -648,13 +668,7 @@ private[review] class ReviewFixLoop(
     // conversation even on a round that short-circuits before any turn; minting
     // one reserves an id and contacts nothing.
     val lintRound: Option[LintRound] = lintGate.map: gate =>
-      val summariser = currentState.lintChat.getOrElse:
-        // Group lint tokens under the same `reviewer` cost role as the
-        // reviewers; the tagged copy stays local to this loop.
-        Lint.summariser(
-          gate.agent.withName(lintName).withRole(ReviewerPrompts.Role)
-        )
-      LintRound(gate, summariser)
+      LintRound(gate, currentState.lintChat.getOrElse(lintSummariser(gate)))
 
     val lintTaskOpt: Option[() => AgentOutcome] =
       lintRound.map: r =>
@@ -748,19 +762,28 @@ private[review] class ReviewFixLoop(
           OrcaEvent.Step(s"format command failed (exit $exitCode): $cmd")
         )
 
+  /** A fresh conversation for the lint gate's summary. Its tokens are grouped
+    * under the same `reviewer` cost role as the reviewers; the tagged copy
+    * stays local to this loop.
+    */
+  private def lintSummariser(gate: Lint): Lint.Summariser =
+    Lint.summariser(
+      gate.agent.withName(lintName).withRole(ReviewerPrompts.Role)
+    )
+
   /** Run the checks in order, emitting one Step per check as it finishes. Each
     * check's findings are keyed as one agent's, the first at `firstAgentIndex`.
     */
-  private def runChecks(firstAgentIndex: Int): List[KeyedFinding] =
+  private def runChecks(firstAgentIndex: Int): List[SourceFindings] =
     if checks.nonEmpty then
       ctx.emit(
         OrcaEvent.Step(s"Running checks: ${checks.map(_.name).mkString(", ")}")
       )
-    checks.zipWithIndex.flatMap: (check, i) =>
+    checks.zipWithIndex.map: (check, i) =>
       val findings =
         KeyedFinding.forAgent(firstAgentIndex + i, check.evaluate().findings)
       ctx.emit(OrcaEvent.Step(formatReviewerOutcome(check.name, findings)))
-      findings
+      SourceFindings(check.name, findings)
 
   /** One review round: format the tree, run the checks, narrow the roster with
     * the prepared `selectRound`, and fan the active reviewers out alongside the
@@ -789,7 +812,8 @@ private[review] class ReviewFixLoop(
     // Before the fan-out, so a check timing or building the code doesn't compete
     // with lint and the reviewers. Keyed after the reviewers and the lint gate,
     // the order the fixer is handed them in.
-    val checkFindings = runChecks(active.size + lintGate.size)
+    val checkFindings =
+      runChecks(active.size + lintGate.size).flatMap(_.findings)
     // The same names the per-agent Steps use, in selection order with the lint
     // gate last; those Steps arrive in completion order, not this one.
     val agentNames =
@@ -859,9 +883,9 @@ private[review] class ReviewFixLoop(
     * A round that finds nothing ends the run, as does a fix turn that fixes
     * nothing ([[OpenReason.NoFixes]]). A converging loop also stops at its cap
     * ([[OpenReason.CapReached]]); a single pass stops after its one fix turn,
-    * re-checking only the lint gate ([[relintAfterFix]]), and records what the
-    * fixer did not report on as [[OpenReason.Unaccounted]], since no later
-    * round can recover it.
+    * re-checking only the lint gate and the checks ([[recheckAfterFix]]), and
+    * records what the fixer did not report on as [[OpenReason.Unaccounted]],
+    * since no later round can recover it.
     *
     * `priorOpen` starts the open set, each entry already given its id — see
     * [[reviewAndFixLoop]]'s `priorOpenFindings`.
@@ -940,8 +964,8 @@ private[review] class ReviewFixLoop(
 
   /** End a single pass after a fix turn that fixed something: its fixes go
     * unreviewed, so what the fixer did not report on stays open
-    * ([[OpenReason.Unaccounted]]), and only the lint gate is re-checked
-    * ([[relintAfterFix]]).
+    * ([[OpenReason.Unaccounted]]), and only the lint gate and the checks are
+    * re-checked ([[recheckAfterFix]]).
     */
   private def exitUnreviewed(
       accumulated: List[OpenFinding],
@@ -951,73 +975,76 @@ private[review] class ReviewFixLoop(
   )(using fc: FlowControl, ws: WorkspaceWrite): OpenFindings =
     val fixTurnOpen = outcome.stillOpen(OpenReason.Unaccounted)
     // The re-check numbers its findings as the round after this one.
-    val lintStillFailing =
-      relintAfterFix(state, fixTurnOpen, round = round + 1)
-        .map(_.open(OpenReason.LintStillFailing))
+    val stillFailing =
+      recheckAfterFix(state.lintChat, fixTurnOpen, round = round + 1)
     exitWith(
       SinglePassMessage,
-      recordOpen(accumulated, fixTurnOpen ++ lintStillFailing)
+      recordOpen(accumulated, fixTurnOpen ++ stillFailing)
     )
 
-  /** Re-run the lint gate over the fix turn's edits — the machine-checkable
-    * check the single pass would otherwise skip, letting a fix that fails lint
-    * (or doesn't compile) land in the stage's commit and break the tree later
-    * tasks build on. A failure gets ONE fix turn scoped to it and one last
-    * check; what still fails is returned — under a warning Step — as whole
-    * findings, so the caller can record both the reason
-    * ([[OpenReason.LintStillFailing]]) and where each points. Reviewer findings
-    * stay single-pass — only this gate is re-driven, as the loop's rounds
-    * re-drive it.
+  /** Re-run the lint gate and the checks over the fix turn's edits — the
+    * machine-checkable part the single pass would otherwise skip, letting a fix
+    * that fails lint (or doesn't compile, or fails a check) land in the stage's
+    * commit and break the tree later tasks build on. A failure gets ONE fix
+    * turn scoped to what failed and one last run of every source, since a fix
+    * for one can break another; what still fails is returned — under a warning
+    * Step — as open findings recording which source still reports each
+    * ([[OpenReason.StillFailing]]) and where each points. Reviewer findings
+    * stay single-pass.
     *
-    * `state` is the round's outcome state: its resumable lint conversation, if
-    * any, is reused. `open` is what the fix turn left open, so a lint finding
-    * the fixer declined that still fails keeps its id. `round` numbers the ids
-    * of what the re-checks report. `fc`/`ws` are method parameters, not fields
-    * — see the file header.
+    * `lintChat` is the round's resumable lint conversation, if any. `open` is
+    * what the fix turn left open, so a finding the fixer declined that still
+    * fails keeps its id. `round` numbers the ids of what the re-checks report.
+    * `fc`/`ws` are method parameters, not fields — see the file header.
     */
-  private def relintAfterFix(
-      state: ReviewLoopState,
+  private def recheckAfterFix(
+      lintChat: Option[Lint.Summariser],
       open: List[OpenFinding],
       round: Int
-  )(using fc: FlowControl, ws: WorkspaceWrite): List[IdentifiedFinding] =
+  )(using fc: FlowControl, ws: WorkspaceWrite): List[OpenFinding] =
+    // Both runs share `round`: the first run's ids reach only its fix turn,
+    // never the record. One `identify` over every source, as in a round, so
+    // findings of one defect from two sources share an id.
+    def identified(run: Recheck): List[(String, IdentifiedFinding)] =
+      val sourceOf =
+        run.sources.flatMap(s => s.findings.map(_.key -> s.name)).toMap
+      IdentifiedFinding
+        .identify(round, open, run.sources.flatMap(_.findings))
+        .map(f => sourceOf(f.keyed.key) -> f)
+    val first = recheck(lintChat)
+    if first.isClean then Nil
+    else
+      val _ = fixTurn(identified(first).map(_._2), AfterFixTurn.Stop)
+      val last = recheck(first.lintChat)
+      if last.isClean then Nil
+      else
+        val stillFailing = identified(last)
+        ctx.emit(
+          OrcaEvent.Step(
+            "warning: still failing after the fix turn: " +
+              stillFailing.map(_._1).distinct.mkString(", ") +
+              " — the stage commits with these findings open"
+          )
+        )
+        stillFailing.map((source, f) => f.open(OpenReason.StillFailing(source)))
+
+  /** Run the checks, then the lint gate — the order of a round — over the tree
+    * as it is now. `lintChat` is a lint conversation safe to resume, if any;
+    * the result carries the one this run hands back.
+    */
+  private def recheck(lintChat: Option[Lint.Summariser]): Recheck =
+    val checked = runChecks(firstAgentIndex = lintGate.size)
     lintGate match
-      case None => Nil
+      case None => Recheck(checked, lintChat = None)
       case Some(gate) =>
-        def freshSummariser(): Lint.Summariser =
-          Lint.summariser(
-            gate.agent.withName(lintName).withRole(ReviewerPrompts.Role)
-          )
-        def check(summariser: Lint.Summariser): LintReport =
-          lint(gate.commands, summariser, ReviewLoopPrompts.SummariseLint)
-        // Both checks share `round`: the first check's ids reach only its fix
-        // turn, never the record.
-        def identified(report: LintReport): List[IdentifiedFinding] =
-          IdentifiedFinding.identify(
-            round = round,
-            open = open,
-            keyed = KeyedFinding.forAgent(0, report.result.findings)
-          )
-        val recheck = check(state.lintChat.getOrElse(freshSummariser()))
-        if recheck.result.findings.isEmpty then Nil
-        else
-          val findings = identified(recheck)
-          ctx.emit(
-            OrcaEvent.Step(
-              formatReviewerOutcome(lintName, findings.map(_.keyed))
-            )
-          )
-          val _ = fixTurn(findings, AfterFixTurn.Stop)
-          // A reporting summariser is never resumable, so this is a fresh
-          // conversation (see [[LintReport.resumableSummariser]]).
-          val last = check(
-            recheck.resumableSummariser.getOrElse(freshSummariser())
-          )
-          if last.result.findings.isEmpty then Nil
-          else
-            ctx.emit(
-              OrcaEvent.Step(
-                "warning: lint still fails after its fix turn — the stage " +
-                  "commits with these findings open"
-              )
-            )
-            identified(last)
+        val report = lint(
+          gate.commands,
+          lintChat.getOrElse(lintSummariser(gate)),
+          ReviewLoopPrompts.SummariseLint
+        )
+        val linted = KeyedFinding.forAgent(0, report.result.findings)
+        ctx.emit(OrcaEvent.Step(formatReviewerOutcome(lintName, linted)))
+        Recheck(
+          SourceFindings(lintName, linted) :: checked,
+          report.resumableSummariser
+        )
