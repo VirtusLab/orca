@@ -15,7 +15,7 @@ private[plan] class CannedResult[T: JsonData](value: T):
   var lastToolSet: Option[ToolSet] = None
 
   /** The session of the most recent turn, so tests can assert the returned
-    * [[orca.agents.Chat]] continues that live.
+    * [[orca.agents.Chat]] continues that conversation.
     */
   var lastSession: Option[String] = None
 

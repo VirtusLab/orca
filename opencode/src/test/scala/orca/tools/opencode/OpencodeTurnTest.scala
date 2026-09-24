@@ -58,7 +58,7 @@ class OpencodeTurnTest extends munit.FunSuite:
 
   private def data(json: String): String = s"data: $json"
 
-  private def conversation(
+  private def startTurn(
       lines: List[String],
       session: String = "ses_A",
       schema: Option[String] = None
@@ -76,7 +76,7 @@ class OpencodeTurnTest extends munit.FunSuite:
   liveTest(
     "free-form turn: text deltas, then result from accrued text + tokens"
   ):
-    val (live, _) = conversation(
+    val (live, _) = startTurn(
       List(
         data(
           """{"type":"message.part.delta","properties":{"sessionID":"ses_A","field":"text","delta":"Hel"}}"""
@@ -112,7 +112,7 @@ class OpencodeTurnTest extends munit.FunSuite:
     assertEquals(result.model.map(_.name), Some("gpt-4o-mini"))
 
   liveTest("structured turn: result is the validated object, not text"):
-    val (live, _) = conversation(
+    val (live, _) = startTurn(
       List(
         data(
           """{"type":"message.part.updated","properties":{"part":{"type":"tool","tool":"StructuredOutput","state":{"status":"completed","input":{"x":1},"output":"ok"},"id":"prt_1","sessionID":"ses_A"}}}"""
@@ -133,7 +133,7 @@ class OpencodeTurnTest extends munit.FunSuite:
   ):
     // Its payload already reaches the caller as the result, so rendering the
     // call and its result would show the same JSON twice.
-    val (live, _) = conversation(
+    val (live, _) = startTurn(
       List(
         data(
           """{"type":"message.part.updated","properties":{"part":{"type":"tool","tool":"StructuredOutput","state":{"status":"running","input":{"x":1}},"id":"prt_1","sessionID":"ses_A"}}}"""
@@ -152,7 +152,7 @@ class OpencodeTurnTest extends munit.FunSuite:
 
   liveTest("a plain turn renders a user tool named StructuredOutput"):
     // The suppression is gated on the schema, not on the name.
-    val (live, _) = conversation(
+    val (live, _) = startTurn(
       List(
         data(
           """{"type":"message.part.updated","properties":{"part":{"type":"tool","tool":"StructuredOutput","state":{"status":"running","input":{"x":1}},"id":"prt_1","sessionID":"ses_A"}}}"""
@@ -179,7 +179,7 @@ class OpencodeTurnTest extends munit.FunSuite:
     // opencode names a reasoning part's accruing field "text" too, so without
     // the part announcement the chain of thought would render as the
     // assistant's message and end up in the free-form result.
-    val (live, _) = conversation(
+    val (live, _) = startTurn(
       List(
         data(
           """{"type":"message.part.updated","properties":{"sessionID":"ses_A","part":{"type":"reasoning","id":"prt_1"}}}"""
@@ -212,7 +212,7 @@ class OpencodeTurnTest extends munit.FunSuite:
       data(
         """{"type":"message.part.updated","properties":{"part":{"type":"tool","tool":"bash","state":{"status":"running","input":{"command":"echo hi"}},"id":"prt_1","sessionID":"ses_A"}}}"""
       )
-    val (live, _) = conversation(
+    val (live, _) = startTurn(
       List(
         running,
         running,
@@ -241,7 +241,7 @@ class OpencodeTurnTest extends munit.FunSuite:
     // Neither part carries an `id`; under the old `getOrElse("")` coercion
     // both keyed to the same "" entry in `startedTools`, so the second
     // AssistantToolCall was wrongly suppressed as a dupe of the first.
-    val (live, _) = conversation(
+    val (live, _) = startTurn(
       List(
         data(
           """{"type":"message.part.updated","properties":{"part":{"type":"tool","tool":"bash","state":{"status":"running","input":{"command":"echo hi"}},"sessionID":"ses_A"}}}"""
@@ -261,7 +261,7 @@ class OpencodeTurnTest extends munit.FunSuite:
     assertEquals(toolCalls, List("bash", "read"))
 
   liveTest("events for other sessions are dropped"):
-    val (live, _) = conversation(
+    val (live, _) = startTurn(
       List(
         data(
           """{"type":"message.part.delta","properties":{"sessionID":"ses_OTHER","field":"text","delta":"nope"}}"""
@@ -284,7 +284,7 @@ class OpencodeTurnTest extends munit.FunSuite:
     )
 
   liveTest("blank, comment, and event: framing lines are skipped"):
-    val (live, _) = conversation(
+    val (live, _) = startTurn(
       List(
         ":heartbeat",
         "event: message",
@@ -304,7 +304,7 @@ class OpencodeTurnTest extends munit.FunSuite:
     )
 
   liveTest("free-form turn with no message.updated: text result, zero usage"):
-    val (live, _) = conversation(
+    val (live, _) = startTurn(
       List(
         data(
           """{"type":"message.part.delta","properties":{"sessionID":"ses_A","field":"text","delta":"hi"}}"""
@@ -322,7 +322,7 @@ class OpencodeTurnTest extends munit.FunSuite:
   // `tokens` and `cost` are independent fields on the assistant message, so a
   // turn can report money without counts — which must still reach the summary.
   liveTest("a completed turn keeps a reported cost when tokens are absent"):
-    val (live, _) = conversation(
+    val (live, _) = startTurn(
       List(
         data(
           """{"type":"message.updated","properties":{"info":{"role":"assistant","sessionID":"ses_A","cost":0.25,"finish":"stop"}}}"""
@@ -336,7 +336,7 @@ class OpencodeTurnTest extends munit.FunSuite:
     assertEquals(result.usage.inputTokens, 0L)
 
   liveTest("idle with no assistant message at all fails the turn"):
-    val (live, _) = conversation(
+    val (live, _) = startTurn(
       List(
         data("""{"type":"session.idle","properties":{"sessionID":"ses_A"}}""")
       )
@@ -345,7 +345,7 @@ class OpencodeTurnTest extends munit.FunSuite:
     intercept[AgentTurnFailed](live.awaitResult())
 
   liveTest("message.updated carrying info.error fails the turn"):
-    val (live, _) = conversation(
+    val (live, _) = startTurn(
       List(
         data(
           """{"type":"message.updated","properties":{"info":{"role":"assistant","sessionID":"ses_A","error":{"message":"model exploded"}}}}"""
@@ -359,7 +359,7 @@ class OpencodeTurnTest extends munit.FunSuite:
   // An assistant message with no `tokens` measured nothing; an all-zero debit
   // would be indistinguishable from a turn measured at zero.
   liveTest("a failed turn whose message reported no tokens debits nothing"):
-    val (live, _) = conversation(
+    val (live, _) = startTurn(
       List(
         data(
           """{"type":"message.updated","properties":{"info":{"role":"assistant","sessionID":"ses_A","modelID":"gpt-4o-mini","error":{"message":"model exploded"}}}}"""
@@ -372,7 +372,7 @@ class OpencodeTurnTest extends munit.FunSuite:
     assertEquals(failure.debit, TurnDebit.Unobserved)
 
   liveTest("a failed turn debits the tokens its message did report"):
-    val (live, _) = conversation(
+    val (live, _) = startTurn(
       List(
         data(
           """{"type":"message.updated","properties":{"info":{"role":"assistant","sessionID":"ses_A","modelID":"gpt-4o-mini","tokens":{"input":10,"output":2,"reasoning":0,"cache":{"read":1,"write":3}},"error":{"message":"model exploded"}}}}"""
@@ -401,7 +401,7 @@ class OpencodeTurnTest extends munit.FunSuite:
   liveTest(
     "a failure settle after assistant activity still emits AssistantMessageEnd"
   ):
-    val (live, _) = conversation(
+    val (live, _) = startTurn(
       List(
         data(
           """{"type":"message.part.delta","properties":{"sessionID":"ses_A","field":"text","delta":"partial"}}"""
@@ -423,7 +423,7 @@ class OpencodeTurnTest extends munit.FunSuite:
     intercept[AgentTurnFailed](live.awaitResult())
 
   liveTest("session.error fails the turn"):
-    val (live, _) = conversation(
+    val (live, _) = startTurn(
       List(
         data(
           """{"type":"session.error","properties":{"sessionID":"ses_A","error":{"message":"boom"}}}"""
@@ -438,7 +438,7 @@ class OpencodeTurnTest extends munit.FunSuite:
     intercept[AgentTurnFailed](live.awaitResult())
 
   liveTest("answering a question.asked POSTs the reply"):
-    val (live, http) = conversation(
+    val (live, http) = startTurn(
       List(
         data(
           """{"type":"question.asked","properties":{"id":"que_1","sessionID":"ses_A","questions":[{"question":"Color?","options":[{"label":"Blue","description":""}]}]}}"""
@@ -459,7 +459,7 @@ class OpencodeTurnTest extends munit.FunSuite:
   private def permissionReplyPost(
       decision: ApprovalDecision
   )(using Ox): List[(String, String)] =
-    val (live, http) = conversation(
+    val (live, http) = startTurn(
       List(
         data(
           """{"type":"permission.asked","properties":{"id":"per_1","sessionID":"ses_A","permission":"bash","patterns":["echo hi"]}}"""

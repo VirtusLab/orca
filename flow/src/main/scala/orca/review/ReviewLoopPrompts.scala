@@ -126,9 +126,9 @@ object ReviewLoopPrompts:
       .load("/orca/review/prompts/re-review.md")
       .replace("{{mandatoryCategories}}", MandatoryCategories)
 
-  /** Continuation prompt for a reviewer's session on iterations after the
-    * first. The session already holds the reviewer's earlier findings and every
-    * change set it has been sent, so `changes` carries only what is new to it —
+  /** Continuation prompt for a reviewer's session on rounds after the first.
+    * The session already holds the reviewer's earlier findings and every change
+    * set it has been sent, so `changes` carries only what is new to it —
     * including the base commit, which the initial prompt named and this one
     * therefore doesn't repeat.
     *
