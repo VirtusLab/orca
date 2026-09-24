@@ -76,9 +76,9 @@ private[orca] object SessionId:
   * makes returning a wire id as the caller's handle — or resuming against a
   * client id — a compile error.
   */
-opaque type WireSessionId[B <: BackendTag] = String
+private[orca] opaque type WireSessionId[B <: BackendTag] = String
 
-object WireSessionId:
+private[orca] object WireSessionId:
   /** The raw, UNCHECKED constructor — `private[orca]` for the same reason as
     * [[SessionId.apply]]: a log/wire-sourced string must go through [[parse]].
     * Internal trusted callers (backends building a wire id from a live protocol

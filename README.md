@@ -670,6 +670,10 @@ Use:
   `Par.mapUnordered` fork: parallel reviewers each holding a multi-turn
   conversation is the canonical use. `session.chat` is a durable session's
   conversation as an ephemeral chat (one live continuation at a time).
+  `chat.withAgent(f)` continues the same conversation on a variant of the
+  chat's agent — `_.withReadOnly`, `_.cheap`, `_.withName("…")` — for turns
+  that need other tools, a cheaper model or their own cost line. The variant
+  must be built from the chat's agent (a different backend is refused).
 
 ```scala
 val session = agent.session("implementer", seed = plan.brief)
@@ -823,6 +827,8 @@ Sessioned(chat, plan) = Plan.autonomous.from(...)`.
 From a `Sessioned[Plan]`, an optional `.reviewed()` step refines the plan
 before implementing — the planner critiques its own draft, read-only, producing
 an improved `Plan`. Chain it: `Plan.autonomous.from(...).reviewed().value`.
+`.reviewed(variant = _.cheap)` runs the review on a variant of the read-only
+planner.
 
 `assessThenPlan` returns a `Verdict`: `Verdict.Proceed(plan)` to implement, or
 `Verdict.Rejection(kind, body)` — a follow-up question, critique, or rebuff the

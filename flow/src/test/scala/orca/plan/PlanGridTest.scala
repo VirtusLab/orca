@@ -96,3 +96,10 @@ class PlanGridTest extends munit.FunSuite:
     val _ = input.reviewed()
     assertEquals(reply.lastSession, Some(input.chat.id.value))
     assertEquals(reply.lastToolSet, Some(orca.agents.ToolSet.ReadOnly))
+
+  test("reviewed runs its variant of the read-only agent"):
+    val reply = new CannedResult(samplePlan)
+    val onlyReads = orca.agents.AutoApprove.Only(Set("Read"))
+    val _ = planned(reply).reviewed(variant = _.withAutoApprove(onlyReads))
+    assertEquals(reply.lastAutoApprove, Some(onlyReads))
+    assertEquals(reply.lastToolSet, Some(orca.agents.ToolSet.ReadOnly))

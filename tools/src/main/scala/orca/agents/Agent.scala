@@ -84,9 +84,9 @@ final class Agent[B <: BackendTag] private (
 
   /** Adopt an existing conversation id as an EPHEMERAL chat — how the library
     * continues a conversation it holds the id of (a durable session's
-    * `session.chat`, a planning chat's read-only review turn). Turns run here
-    * are NOT persisted and are not primed. One live continuation at a time:
-    * concurrent turns against the same backend conversation fail.
+    * `session.chat`). Turns run here are NOT persisted and are not primed. One
+    * live continuation at a time: concurrent turns against the same backend
+    * conversation fail.
     */
   private[orca] def chat(continueFrom: SessionId[B]): Chat[B] =
     new Chat(this, continueFrom, ChatOrigin.Adopted)
