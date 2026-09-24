@@ -232,7 +232,7 @@ class ReviewThenFixTest extends munit.FunSuite:
     assertEquals(result, OpenFindings.empty)
     assertEquals(coder.seenSessions.size, 2)
     assert(
-      !steps.messages.exists(_.contains("lint still fails")),
+      !steps.messages.exists(_.startsWith("warning: still failing")),
       steps.messages.mkString("\n")
     )
 
@@ -278,14 +278,16 @@ class ReviewThenFixTest extends munit.FunSuite:
         OpenFinding(
           FindingId("R2.I1.1"),
           Title("lint broke"),
-          OpenReason.LintStillFailing,
+          OpenReason.StillFailing(List("lint")),
           None
         )
       )
     )
     assertEquals(coder.seenSessions.size, 2)
     assert(
-      steps.messages.exists(_.contains("lint still fails after its fix turn")),
+      steps.messages.exists(
+        _.startsWith("warning: still failing after the fix turn: lint —")
+      ),
       steps.messages.mkString("\n")
     )
 
@@ -324,7 +326,7 @@ class ReviewThenFixTest extends munit.FunSuite:
         OpenFinding(
           FindingId("R1.I2.1"),
           Title("lint broke"),
-          OpenReason.LintStillFailing,
+          OpenReason.StillFailing(List("lint")),
           None
         )
       )
@@ -371,7 +373,7 @@ class ReviewThenFixTest extends munit.FunSuite:
         s"""Findings still open (1):
            |  - lint broke
            |    at src/main/Foo.scala:7
-           |    ${OpenReason.LintStillFailing.describe}""".stripMargin
+           |    ${OpenReason.StillFailing(List("lint")).describe}""".stripMargin
       ),
       steps.messages.mkString("\n")
     )

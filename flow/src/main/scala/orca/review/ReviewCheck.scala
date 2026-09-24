@@ -3,9 +3,10 @@ package orca.review
 import orca.{FlowContext, InStage}
 
 /** A check written in Scala — a benchmark, an HTTP probe, a scripted assertion
-  * — whose findings [[reviewAndFixLoop]] hands to the fixer alongside the
-  * reviewers'. With no reviewers it is a plain evaluate-fix loop over the
-  * check.
+  * — whose findings [[reviewAndFixLoop]] and [[reviewThenFix]] hand to the
+  * fixer alongside the reviewers'. With no reviewers, `reviewAndFixLoop` is a
+  * plain evaluate-fix loop over the check. `reviewThenFix` re-runs its checks
+  * after its fix turn, like the lint gate.
   *
   * The loop runs its checks one at a time each round, after formatting and
   * before the reviewers and the lint gate start, so a check timing or building
