@@ -1,5 +1,6 @@
 package orca.backend
 
+import orca.AgentTurnFailed
 import orca.agents.{BackendTag, StructuredOutputMode, WireSessionId}
 import orca.events.{TurnDebit, Usage}
 import orca.subprocess.{OsProcCliRunner, PipedCliProcess}
@@ -108,3 +109,19 @@ class ConversationTeardownTest extends munit.FunSuite:
 
   test("a settled turn ends although a descendant holds stdout"):
     assertSettledTurnEnds("sleep 30 2>/dev/null & echo $!; echo done; wait")
+
+  /** The root exits on its own, so its descendant is never signalled and the
+    * tree kill cannot reach it. The `sleep 0.5` lets the reader block on the
+    * pipe before the root exits.
+    */
+  private def assertUnsettledTurnEnds(script: String): Unit =
+    withSpawned(script): (conv, _) =>
+      val _ = intercept[AgentTurnFailed](
+        timeout(10.seconds)(conv.awaitResult())
+      )
+
+  test("an unsettled turn ends although an orphan holds stdout"):
+    assertUnsettledTurnEnds("sleep 30 2>/dev/null & echo $!; sleep 0.5")
+
+  test("an unsettled turn ends although an orphan holds stderr"):
+    assertUnsettledTurnEnds("sleep 30 >/dev/null & echo $!; sleep 0.5")

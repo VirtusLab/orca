@@ -16,13 +16,11 @@ trait CliProcess:
   def destroyForcibly(): Unit
 
   /** Forcibly terminate this process AND every descendant still reachable from
-    * it — the teardown every caller driving a real, spawned process wants. Two
-    * reasons a single-PID kill isn't enough: a surviving descendant holds the
-    * inherited stdout/stderr pipe write-ends, so a reader blocked on the pipe
-    * can be left waiting for EOF; and it keeps running after the turn that
-    * started it, free to hold a build lock or write into the working tree the
-    * flow is about to commit. A descendant that detached itself into its own
-    * session is out of reach — see the OS-backed implementation.
+    * it — the teardown every caller driving a real, spawned process wants. A
+    * surviving descendant keeps running after the turn that started it, free to
+    * hold a build lock or write into the working tree the flow is about to
+    * commit. A descendant that detached itself into its own session is out of
+    * reach — see the OS-backed implementation.
     *
     * Defaults to just this process, which is what fakes with no real children
     * want. Same call-anywhere / idempotent contract as [[destroyForcibly]].
@@ -41,9 +39,12 @@ trait CliProcess:
   *   - opencode's `serve` is a long-lived server, ended by a kill.
   *
   * Reads on `stdoutLines` / `stderrLines` block until a line is available or
-  * the stream closes. Each iterator must be consumed by a single thread;
-  * pending-line buffering is not thread-safe across readers. Implementations
-  * memoise the iterator so repeated accesses return the same stream.
+  * the stream closes. A stream also ends shortly after the process exits, even
+  * if a descendant that inherited the pipe still holds it open — so the process
+  * must outlive its output (a launcher waits for, or `exec`s, the real CLI).
+  * Each iterator must be consumed by a single thread; pending-line buffering is
+  * not thread-safe across readers. Implementations memoise the iterator so
+  * repeated accesses return the same stream.
   */
 trait PipedCliProcess extends CliProcess:
 
