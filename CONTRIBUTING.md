@@ -103,7 +103,7 @@ XDG_CONFIG_HOME=... XDG_CACHE_HOME=... \
   scala-cli run --workspace /tmp/orca-dev/workspace --jvm 21 --quiet --verbose \
     --dep "org.virtuslab::orca-shell:$version" \
     --repository ivy2local \
-    --main-class orca.shell.Main -- run implement.sc "your task"
+    --main-class orca.shell.Main -- run implement.sc "your prompt"
 ```
 
 A snapshot (non-release) version automatically rewrites the built-in flows'

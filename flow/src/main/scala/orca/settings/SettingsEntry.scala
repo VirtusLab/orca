@@ -9,7 +9,7 @@ private[orca] enum SettingsEntry:
     */
   case Command(key: StackKey, command: StackCommand, comment: Option[String])
 
-  /** Rendered as a LIVE `key = off` line — the task stays disabled, but the
+  /** Rendered as a LIVE `key = off` line — the gate stays disabled, but the
     * assignment still counts as "configured" so discovery doesn't re-run over
     * the same absence next time. `reason` is purely informative, one `#` line
     * above:

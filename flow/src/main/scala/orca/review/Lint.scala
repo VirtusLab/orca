@@ -17,7 +17,7 @@ import orca.agents.{Agent, Chat, PromptEvent}
   * The commands must not modify sources. They run concurrently with the
   * reviewers, against the change set sampled when the round started, so a
   * rewrite mid-round makes the reviewers review a moving target. Source
-  * rewriting belongs to the format task, which `reviewAndFixLoop` runs
+  * rewriting belongs to the format gate, which `reviewAndFixLoop` runs
   * serialized before the round (ADR 0019).
   */
 case class Lint(commands: List[String], agent: Agent[?])

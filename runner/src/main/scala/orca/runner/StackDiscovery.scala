@@ -7,7 +7,7 @@ import orca.settings.{SettingsEntry, StackCommand, StackKey, StackValue}
 import orca.subprocess.PathProbe
 import orca.util.{PromptResource, TextUtil}
 
-/** One command the discovery agent proposes for a task, with the repo-relative
+/** One command the discovery agent proposes for a gate, with the repo-relative
   * file that justifies it and an optional free-text note (key/line/why) — the
   * evidence that makes the written settings file reviewable (ADR 0019).
   */
@@ -17,13 +17,13 @@ private[runner] case class DiscoveredCommand(
     evidenceNote: Option[String] = None
 ) derives JsonData
 
-/** A task's proposed commands, or a one-line reason it was left unset. The
-  * strict output schema requires BOTH keys on every task (Options nullable —
+/** A gate's proposed commands, or a one-line reason it was left unset. The
+  * strict output schema requires BOTH keys on every gate (Options nullable —
   * see [[orca.util.JsonSchemaGen]]), so the agent emits `"commands": []` /
   * `"unsetReason": null` for whichever side doesn't apply. The Scala-side
   * defaults keep the jsoniter parse lenient about a genuinely omitted field.
   */
-private[runner] case class DiscoveredTask(
+private[runner] case class DiscoveredGate(
     commands: List[DiscoveredCommand] = Nil,
     unsetReason: Option[String] = None
 ) derives JsonData
@@ -33,9 +33,9 @@ private[runner] case class DiscoveredTask(
   * [[StackDiscoveryReply]].
   */
 private[runner] case class StackDiscoveryResult(
-    format: DiscoveredTask,
-    lint: DiscoveredTask,
-    test: DiscoveredTask
+    format: DiscoveredGate,
+    lint: DiscoveredGate,
+    test: DiscoveredGate
 ) derives JsonData
 
 /** Single-property envelope around [[StackDiscoveryResult]] — the actual
@@ -56,7 +56,7 @@ private[runner] object StackDiscoveryReply:
   given Announce[StackDiscoveryReply] = Announce.from(_ => "")
 
 /** Agent-based stack discovery (ADR 0019 § Auto-discovery): one read-only
-  * cheap-tier agent run proposes per-task commands with evidence; two orca-side
+  * cheap-tier agent run proposes per-gate commands with evidence; two orca-side
   * mechanical checks demote unresolvable ones to commented-out lines; the
   * assembled entries render into `.orca/settings.properties`.
   */
@@ -137,7 +137,7 @@ private[runner] object StackDiscovery:
         )
       case SettingsEntry.Unset(_, _) | SettingsEntry.Off(_) => ()
 
-  /** Emit a warning `Step` for each task that ended up with no commands — its
+  /** Emit a warning `Step` for each gate that ended up with no commands — its
     * gate stays disabled (the file now carries a live `key = off` line for it)
     * until the user hand-edits in a real command.
     */
@@ -198,8 +198,8 @@ private[runner] object StackDiscovery:
     *
     * Per command: passing both checks → a [[SettingsEntry.Command]] carrying
     * its evidence as the comment, and the command joins the returned settings;
-    * failing one → a [[SettingsEntry.Demoted]] with the reason. A task that
-    * proposed no commands becomes [[SettingsEntry.Unset]]; a task whose every
+    * failing one → a [[SettingsEntry.Demoted]] with the reason. A gate that
+    * proposed no commands becomes [[SettingsEntry.Unset]]; a gate whose every
     * command was demoted gets a trailing [[SettingsEntry.Off]], so each key has
     * exactly one live line kind: its commands, or `off`.
     */
@@ -245,23 +245,23 @@ private[runner] object StackDiscovery:
         case StackValue.CommentedOut =>
           demoted("starts with `#`, so `bash -c` runs nothing")
 
-    def taskEntries(key: StackKey, task: DiscoveredTask): List[SettingsEntry] =
-      if task.commands.isEmpty then
+    def gateEntries(key: StackKey, gate: DiscoveredGate): List[SettingsEntry] =
+      if gate.commands.isEmpty then
         List(
           SettingsEntry
-            .Unset(key, task.unsetReason.getOrElse("no evidence found"))
+            .Unset(key, gate.unsetReason.getOrElse("no evidence found"))
         )
       else
-        val checked = task.commands.map(checkedEntry(key, _))
+        val checked = gate.commands.map(checkedEntry(key, _))
         val anySurvived = checked.exists:
           case SettingsEntry.Command(_, _, _) => true
           case _                              => false
         if anySurvived then checked else checked :+ SettingsEntry.Off(key)
 
     val entries =
-      taskEntries(StackKey.Format, result.format) ++
-        taskEntries(StackKey.Lint, result.lint) ++
-        taskEntries(StackKey.Test, result.test)
+      gateEntries(StackKey.Format, result.format) ++
+        gateEntries(StackKey.Lint, result.lint) ++
+        gateEntries(StackKey.Test, result.test)
 
     val settings = StackKey.tabulate: key =>
       entries.collect:

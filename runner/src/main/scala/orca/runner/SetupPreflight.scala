@@ -153,7 +153,7 @@ private[runner] object SetupPreflight:
   /** Refuse to start a NEW run on a branch that another run's progress log
     * already claims (ADR 0018 §2.5, R1 amendment).
     *
-    * Logs are prompt-keyed, so a differently worded task finds this run's own
+    * Logs are prompt-keyed, so a differently worded prompt finds this run's own
     * log `Absent` and would otherwise start fresh on whatever branch is checked
     * out — silently sharing it with an interrupted run whose stages are
     * half-done. A log naming the current branch IS such a run: failure teardown
@@ -202,13 +202,13 @@ private[runner] object SetupPreflight:
         .maxByOption(l => os.mtime(l.path))
     catch case NonFatal(_) => None
 
-  /** Identifies the run being refused — its recorded task and flow, plus the
-    * log's own path, which is both how the user reads the full task text back
-    * and what they delete to abandon the run — and lists every way out.
+  /** Identifies the run being refused — its recorded prompt and flow, plus the
+    * log's own path, which is both how the user reads the full prompt back and
+    * what they delete to abandon the run — and lists every way out.
     *
-    * The task is header content, committed and hand-editable, so it reaches the
-    * terminal through [[TextUtil.onelinePreview]]: sanitized, and clipped so a
-    * long task can't bury the guidance after it.
+    * The prompt is header content, committed and hand-editable, so it reaches
+    * the terminal through [[TextUtil.onelinePreview]]: sanitized, and clipped
+    * so a long prompt can't bury the guidance after it.
     *
     * The shell's menu row is mentioned as a possibility, not a promise, and
     * only when the header records a flow — the shell needs one to offer the row
@@ -223,7 +223,7 @@ private[runner] object SetupPreflight:
       startingBranch: BranchName
   ): String =
     val header = log.header
-    val task = TextUtil.onelinePreview(header.userPrompt, 60)
+    val prompt = TextUtil.onelinePreview(header.userPrompt, 60)
     val flow = header.flow
       .map(source => s", flow: ${source.display}")
       .getOrElse("")
@@ -233,8 +233,8 @@ private[runner] object SetupPreflight:
         ", which the orca shell may also offer as \"Resume interrupted run\""
       else ""
     s"branch '${startingBranch.value}' already has an unfinished orca run on it " +
-      s"(task: $task$flow, log: $logPath) — resume it by re-running its flow " +
-      s"with the identical task text$shellRoute, abandon it by removing its " +
+      s"(prompt: $prompt$flow, log: $logPath) — resume it by re-running its flow " +
+      s"with the identical prompt$shellRoute, abandon it by removing its " +
       s"log (git rm $logPath && git commit -m \"abandon orca run\"), or " +
       "switch to a different branch before starting a new run"
 

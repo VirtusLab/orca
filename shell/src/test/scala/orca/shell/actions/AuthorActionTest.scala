@@ -49,7 +49,7 @@ private class RecordingLaunch(
       args: OrcaArgs,
       workDir: os.Path
   ):
-    def task: String = args.userPrompt
+    def prompt: String = args.userPrompt
   var calls: List[Call] = Nil
   val fn: FlowLauncher.FlowLaunch =
     (policy, flow, args, workDir, _) =>
@@ -112,7 +112,7 @@ class AuthorActionTest extends munit.FunSuite:
     )
 
   test(
-    "create: launches the built-in simple.sc flow in a sandbox git repo, task targeting the sandbox"
+    "create: launches the built-in simple.sc flow in a sandbox git repo, prompt targeting the sandbox"
   ):
     withTerminal: terminal =>
       val target = projectTarget("new.sc")
@@ -152,10 +152,13 @@ class AuthorActionTest extends munit.FunSuite:
         (false, RunTarget.NewBranch(Uncommitted.Stash), None)
       )
       assertEquals(call.policy, PinPolicy.Force(FallbackPolicy.Ask(NoPromptUi)))
-      assert(call.task.contains("sync issues nightly"), call.task)
+      assert(call.prompt.contains("sync issues nightly"), call.prompt)
       // The prompt targets the sandbox-local file, never the real tier path.
-      assert(call.task.contains((call.workDir / "new.sc").toString), call.task)
-      assert(!call.task.contains(target.flowPath.toString), call.task)
+      assert(
+        call.prompt.contains((call.workDir / "new.sc").toString),
+        call.prompt
+      )
+      assert(!call.prompt.contains(target.flowPath.toString), call.prompt)
       val (isGitRepo, hasApiMaterial, settings) = sandboxState.get
       assert(isGitRepo, "sandbox must be an initialized git repo")
       assert(hasApiMaterial, "API material must be extracted in the sandbox")
@@ -169,12 +172,12 @@ class AuthorActionTest extends munit.FunSuite:
     withTerminal: terminal =>
       val target = projectTarget("implement-fork.sc")
       val source = forkSource(target.repo)
-      var taskSourcePathExisted = false
+      var promptSourcePathExisted = false
       val recording = RecordingLaunch(onLaunch = sandbox =>
         val copied =
           sandbox / ".orca" / "cache" / s"orca-api-${OrcaBuild.current.version}" /
             "fork-source" / "implement.sc"
-        taskSourcePathExisted = os.isFile(copied)
+        promptSourcePathExisted = os.isFile(copied)
       )
 
       val result = AuthorAction.fork(
@@ -192,13 +195,13 @@ class AuthorActionTest extends munit.FunSuite:
         call.flow,
         LaunchedFlow(builtInFlow, FlowSource.File(builtInFlow.toString))
       )
-      assert(call.task.contains("add a retry step"), call.task)
+      assert(call.prompt.contains("add a retry step"), call.prompt)
       assert(
-        call.task.contains((call.workDir / "implement-fork.sc").toString),
-        call.task
+        call.prompt.contains((call.workDir / "implement-fork.sc").toString),
+        call.prompt
       )
       assert(
-        taskSourcePathExisted,
+        promptSourcePathExisted,
         "the fork source must be copied into the sandbox's API-material dir"
       )
 
@@ -391,7 +394,7 @@ class AuthorActionTest extends munit.FunSuite:
       )
       assertEquals(lastCommitMessage(repo), "orca: update flow implement.sc")
 
-  test("fork: the task asks to create the flow"):
+  test("fork: the prompt asks to create the flow"):
     withTerminal: terminal =>
       val plainTarget = projectTarget("implement-fork.sc")
       val plainSource = forkSource(plainTarget.repo)
@@ -404,11 +407,11 @@ class AuthorActionTest extends munit.FunSuite:
         terminal,
         plainRecording.fn
       )
-      val plainTask = plainRecording.calls.head.task
-      assert(plainTask.contains("Create the Orca flow"), plainTask)
-      assert(!plainTask.contains("Edit the Orca flow"), plainTask)
+      val plainPrompt = plainRecording.calls.head.prompt
+      assert(plainPrompt.contains("Create the Orca flow"), plainPrompt)
+      assert(!plainPrompt.contains("Edit the Orca flow"), plainPrompt)
 
-  test("edit: the task asks to edit the flow"):
+  test("edit: the prompt asks to edit the flow"):
     withTerminal: terminal =>
       val editTarget = projectTarget("implement.sc")
       val editSource = forkSource(editTarget.repo)
@@ -421,9 +424,9 @@ class AuthorActionTest extends munit.FunSuite:
         terminal,
         editRecording.fn
       )
-      val editTask = editRecording.calls.head.task
-      assert(editTask.contains("Edit the Orca flow"), editTask)
-      assert(!editTask.contains("Create the Orca flow"), editTask)
+      val editPrompt = editRecording.calls.head.prompt
+      assert(editPrompt.contains("Edit the Orca flow"), editPrompt)
+      assert(!editPrompt.contains("Create the Orca flow"), editPrompt)
 
   test(
     "create: Ok with the authored file absent warns clearly instead of silently succeeding"

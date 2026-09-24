@@ -8,7 +8,7 @@ import ox.discard
 
 class WorktreeRunTest extends munit.FunSuite:
 
-  test("the worktree lives under .orca/worktrees, keyed by the task text"):
+  test("the worktree lives under .orca/worktrees, keyed by the prompt"):
     val repo = GitRepo.seeded()
     val path = resolved(repo, "task A")
     assertEquals(path / os.up, OrcaDir.worktreesPath(repo))
@@ -24,7 +24,7 @@ class WorktreeRunTest extends munit.FunSuite:
       path.last
     )
 
-  test("re-resolving the same task text reuses the worktree already there"):
+  test("re-resolving the same prompt reuses the worktree already there"):
     val repo = GitRepo.seeded()
     val first = resolved(repo, "task A")
     assertEquals(resolved(repo, "task A"), first)
@@ -125,7 +125,7 @@ class WorktreeRunTest extends munit.FunSuite:
         WorktreeRun.resolve(repo, RunKey.of("task A"))
       assertEquals(
         thrown.getMessage,
-        s"a flow is already running for this task (pid " +
+        s"a flow is already running for this prompt (pid " +
           s"${holder.wrapped.pid()}) — wait for it to finish, or stop it"
       )
       assert(!os.exists(OrcaDir.worktreesPath(repo)), "nothing was created")

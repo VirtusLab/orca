@@ -147,11 +147,11 @@ class RoleSettingsFlowTest extends munit.FunSuite:
     writeProject(workDir, "codingAgent = codex\n")
     val canned = CannedDiscoveryAgent.on(BackendTag.Codex)(
       StackDiscoveryResult(
-        format = DiscoveredTask(commands =
+        format = DiscoveredGate(commands =
           List(DiscoveredCommand("echo fmt", "seed.txt"))
         ),
-        lint = DiscoveredTask(),
-        test = DiscoveredTask()
+        lint = DiscoveredGate(),
+        test = DiscoveredGate()
       )
     )
     driveFlow(
@@ -188,11 +188,11 @@ class RoleSettingsFlowTest extends munit.FunSuite:
     writeProject(workDir, "   \n\t \n")
     val canned = CannedDiscoveryAgent(
       StackDiscoveryResult(
-        format = DiscoveredTask(commands =
+        format = DiscoveredGate(commands =
           List(DiscoveredCommand("echo fmt", "seed.txt"))
         ),
-        lint = DiscoveredTask(),
-        test = DiscoveredTask()
+        lint = DiscoveredGate(),
+        test = DiscoveredGate()
       )
     )
     driveFlow(
@@ -215,7 +215,7 @@ class RoleSettingsFlowTest extends munit.FunSuite:
     "a discovery-written file with a live `off` line does not re-trigger discovery"
   ):
     val workDir = GitRepo.seeded()
-    // A live `format = off` (discovery's own shape for an unset task)
+    // A live `format = off` (discovery's own shape for an unset gate)
     // configures the stack, so discovery must not run again — the plain codex
     // stub would throw if it did. A merely-commented example would not count —
     // this pins the live-line case specifically.
@@ -325,11 +325,11 @@ class RoleSettingsFlowTest extends munit.FunSuite:
     // not a discovery failure, that keeps the target file from being created.
     val canned = CannedDiscoveryAgent(
       StackDiscoveryResult(
-        format = DiscoveredTask(commands =
+        format = DiscoveredGate(commands =
           List(DiscoveredCommand("echo fmt", "seed.txt"))
         ),
-        lint = DiscoveredTask(),
-        test = DiscoveredTask()
+        lint = DiscoveredGate(),
+        test = DiscoveredGate()
       )
     )
     val _ = intercept[ReportedFailure]:
@@ -361,11 +361,11 @@ class RoleSettingsFlowTest extends munit.FunSuite:
     // not a discovery failure, that keeps the target from being written.
     val canned = CannedDiscoveryAgent(
       StackDiscoveryResult(
-        format = DiscoveredTask(commands =
+        format = DiscoveredGate(commands =
           List(DiscoveredCommand("echo fmt", "seed.txt"))
         ),
-        lint = DiscoveredTask(),
-        test = DiscoveredTask()
+        lint = DiscoveredGate(),
+        test = DiscoveredGate()
       )
     )
     val _ = intercept[OrcaFlowException]:
@@ -399,11 +399,11 @@ class RoleSettingsFlowTest extends munit.FunSuite:
     // not a discovery failure, that keeps the target from being written.
     val canned = CannedDiscoveryAgent(
       StackDiscoveryResult(
-        format = DiscoveredTask(commands =
+        format = DiscoveredGate(commands =
           List(DiscoveredCommand("echo fmt", "seed.txt"))
         ),
-        lint = DiscoveredTask(),
-        test = DiscoveredTask()
+        lint = DiscoveredGate(),
+        test = DiscoveredGate()
       )
     )
     val _ = intercept[OrcaFlowException]:

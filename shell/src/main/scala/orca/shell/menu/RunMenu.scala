@@ -46,7 +46,7 @@ private[menu] object RunMenu:
     )
   )
 
-  /** Selects a flow, prompts for the task text, for where the run's work should
+  /** Selects a flow, asks for the prompt, then for where the run's work should
     * go ([[RunTarget]]) and, when that target creates a branch, for the branch
     * name, then launches it in the shell's `workDir` through `launch`
     * ([[FlowLauncher.runAnnounced]] in production). Always launches
@@ -66,12 +66,12 @@ private[menu] object RunMenu:
           default = flows.find(_.name == FlagshipFlow)
         )
       )
-      task <- promptTask(ui)
+      prompt <- promptUserPrompt(ui)
       target <- promptRunTarget(ui)
       branch <- promptBranchFor(ui, target).toOption
     do
       val args = OrcaArgs(
-        userPrompt = task,
+        userPrompt = prompt,
         verbose = false,
         target = target,
         branch = branch
@@ -99,7 +99,7 @@ private[menu] object RunMenu:
   @tailrec private def promptBranchName(
       ui: ShellUi
   ): UiOutcome[Option[BranchName]] =
-    ui.input("Branch name (Enter to derive from the task)") match
+    ui.input("Branch name (Enter to derive from the prompt)") match
       case UiOutcome.Cancelled => UiOutcome.Cancelled
       case UiOutcome.Selected(raw) if raw.trim.isEmpty =>
         UiOutcome.Selected(None)
@@ -111,9 +111,9 @@ private[menu] object RunMenu:
           case Right(name) => UiOutcome.Selected(Some(name))
 
   /** Resumes `run` (ADR 0021 §3 amendment): relaunches its recorded flow with
-    * the recorded task text verbatim — the progress log is keyed by a hash of
-    * it — through the same path "Run a flow" uses. A catalog name is looked up
-    * in the shell's catalog, where the run was launched from; the run itself
+    * the recorded prompt verbatim — the progress log is keyed by a hash of it —
+    * through the same path "Run a flow" uses. A catalog name is looked up in
+    * the shell's catalog, where the run was launched from; the run itself
     * happens in `run.dir`, where its log is.
     */
   def resumeInterruptedRun(
@@ -150,11 +150,11 @@ private[menu] object RunMenu:
     val log = TextUtil.shellQuote(run.log.relativeTo(run.dir).toString)
     s"$git rm $log && $git commit -m 'abandon orca run'"
 
-  private def promptTask(ui: ShellUi): Option[String] =
+  private def promptUserPrompt(ui: ShellUi): Option[String] =
     Prompts.nonBlankMultiline(
       ui,
-      "Describe the task for this flow run",
-      "task text can't be empty"
+      "Your prompt for this run",
+      "prompt can't be empty"
     )
 
   /** "Where should this run's work go?" — the run's destination as ONE choice

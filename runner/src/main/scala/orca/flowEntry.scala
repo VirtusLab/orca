@@ -111,7 +111,7 @@ import scala.util.control.NonFatal
   *
   * '''`--worktree`.''' `workDir` is where the run starts looking, not always
   * where it happens: with `--worktree` the run moves into
-  * `.orca/worktrees/<task hash>` of this repository, created on first use and
+  * `.orca/worktrees/<prompt hash>` of this repository, created on first use and
   * reused after, and everything below it — git, the progress log, the session
   * manifest — uses that directory instead. A refusal (no repository, no
   * commits, something orca did not create already at the path) ends the run
@@ -164,7 +164,7 @@ def flow(
     case RunTarget.NewBranch(_) | RunTarget.CurrentBranch(_) => Right(workDir)
     case RunTarget.Worktree                                  =>
       // Resolution can throw as well as refuse — another orca resolving the
-      // same task, a symlinked or unwritable `.orca`, a git that won't start.
+      // same prompt, a symlinked or unwritable `.orca`, a git that won't start.
       // One `Left` shape for every outcome keeps the reporting below the only
       // way out.
       try WorktreeRun.resolve(workDir, runKey)

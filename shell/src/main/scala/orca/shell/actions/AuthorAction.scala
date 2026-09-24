@@ -45,7 +45,7 @@ private[shell] object AuthorAction:
     case New, Overwrite
 
   /** New-flow authoring: builds [[FlowAuthoring.initialPrompt]] against the
-    * sandbox-local target and runs it as the authoring flow's task.
+    * sandbox-local target and runs it as the authoring flow's prompt.
     */
   def create(
       goal: String,
@@ -74,7 +74,7 @@ private[shell] object AuthorAction:
 
   /** Fork-an-existing-flow authoring: copies `source` beside the API material
     * ([[FlowAuthoring.copyForkSource]]) and runs [[FlowAuthoring.forkPrompt]]
-    * as the authoring flow's task. `destination` must not exist yet.
+    * as the authoring flow's prompt. `destination` must not exist yet.
     */
   def fork(
       source: DiscoveredFlow,
@@ -170,10 +170,10 @@ private[shell] object AuthorAction:
     sandbox / destination.flowPath.last
 
   /** Runs the built-in authoring flow ([[AuthoringFlowName]], resolved from the
-    * built-in tier) with `prompt` as its task, via
-    * [[FlowLauncher.runAnnounced]] — same launch path, forced-version/fallback
-    * semantics, and tty-inherited terminal as "Run a flow" — with the SANDBOX
-    * as the working directory, then hands the result to [[finishAuthoring]].
+    * built-in tier) with `prompt`, via [[FlowLauncher.runAnnounced]] — same
+    * launch path, forced-version/fallback semantics, and tty-inherited terminal
+    * as "Run a flow" — with the SANDBOX as the working directory, then hands
+    * the result to [[finishAuthoring]].
     */
   private def launchAuthoringFlow(
       prompt: String,
