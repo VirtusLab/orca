@@ -89,7 +89,7 @@ Save this as `implement.sc` and run it with your prompt:
 
 ```scala
 //> using scala 3.9.0
-//> using dep "org.virtuslab::orca:0.1.9"
+//> using dep "org.virtuslab::orca:0.1.10"
 //> using jvm 21
 
 import orca.{*, given}
@@ -1344,7 +1344,7 @@ scala-cli's own build metadata out of the current directory (it lands under the
 given directory instead):
 
 ```bash
-scala-cli run --workspace "${XDG_CACHE_HOME:-$HOME/.cache}/orca/shell/workspace" --jvm 21 --quiet --verbose --dep "org.virtuslab::orca-shell:0.1.9" --main-class orca.shell.Main
+scala-cli run --workspace "${XDG_CACHE_HOME:-$HOME/.cache}/orca/shell/workspace" --jvm 21 --quiet --verbose --dep "org.virtuslab::orca-shell:0.1.10" --main-class orca.shell.Main
 ```
 
 ## Documentation
