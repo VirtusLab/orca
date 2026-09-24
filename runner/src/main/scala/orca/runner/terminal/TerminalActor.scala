@@ -1,35 +1,38 @@
 package orca.runner.terminal
 
-import orca.events.OrcaListener
+import orca.events.{OrcaEvent, OrcaListener}
 import ox.{Ox, forever, forkDiscard, sleep}
 import ox.channels.{Actor, ActorRef, BufferCapacity}
 
 import java.io.PrintStream
 import java.util.concurrent.Semaphore
-import scala.concurrent.duration.DurationLong
+import scala.concurrent.duration.{DurationInt, FiniteDuration}
 import scala.util.control.NonFatal
 
 /** The production terminal: one Ox actor owns the [[TerminalOutputState]] and
   * the [[TerminalEventRenderer]] writing to it, so an event's line is formatted
   * and written in one step, on one thread.
   *
-  * Every call is an `ask`, so a failure reaches the caller and the actor keeps
-  * running — a [[listener]] that throws is quarantined by the dispatcher
-  * instead of failing the actor's scope. The scope must outlive every caller.
+  * Every call is an `ask`, per the `OrcaListener` contract. The scope must
+  * outlive every caller.
   *
   * `promptGate` (fair) is held from before the suspend-ask until after the
   * resume-ask, so a second `prompt` blocks until the first transaction — drain
   * and redraw included — has fully closed.
   */
 private[terminal] final class TerminalActor private (
-    actor: ActorRef[TerminalActor.Surface]
+    actor: ActorRef[TerminalActor.Owned]
 ) extends TerminalOutput:
   private val promptGate = new Semaphore(1, true)
 
   /** Renders every event it receives. A `val`: the dispatcher quarantines a
-    * listener by identity.
+    * listener by identity, and names its class when it does.
     */
-  val listener: OrcaListener = event => actor.ask(_.renderer.render(event))
+  val listener: OrcaListener = new RenderingListener
+
+  private final class RenderingListener extends OrcaListener:
+    def onEvent(event: OrcaEvent): Unit =
+      actor.ask(_.renderer.render(event))
 
   /** The indent of the innermost open stage, for prompt text. */
   def currentIndent: String = actor.ask(_.renderer.currentIndent)
@@ -53,7 +56,7 @@ private[terminal] final class TerminalActor private (
 private[terminal] object TerminalActor:
 
   /** What the actor owns; `renderer` writes to `output`. */
-  final class Surface(
+  final class Owned(
       val output: TerminalOutputState,
       val renderer: TerminalEventRenderer
   )
@@ -66,17 +69,16 @@ private[terminal] object TerminalActor:
       useColor: Boolean,
       animated: Boolean,
       workDir: Option[os.Path],
-      framePeriodMs: Long = 100L
+      framePeriod: FiniteDuration = 100.millis
   )(using Ox, BufferCapacity): TerminalActor =
     val output = new TerminalOutputState(out, useColor, animated)
     val actor = Actor.create(
-      Surface(output, new TerminalEventRenderer(output, useColor, workDir))
+      Owned(output, new TerminalEventRenderer(output, useColor, workDir))
     )
     if animated then
       forkDiscard:
         forever:
-          sleep(framePeriodMs.millis)
-          // A `tell`, so the animator never waits on a busy actor; `tick`
-          // never throws.
+          sleep(framePeriod)
+          // A `tell`, so the animator never waits on a busy actor.
           actor.tell(_.output.tick())
     new TerminalActor(actor)

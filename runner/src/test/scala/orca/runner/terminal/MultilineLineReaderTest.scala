@@ -25,6 +25,36 @@ class MultilineLineReaderTest extends munit.FunSuite:
   // throws" from this method's point of view). A DumbTerminal wrapping a
   // captured ByteArrayOutputStream is enough to observe exactly the bytes
   // written, without a real tty.
+  private def readVia(
+      read: (MultilineLineReader, String) => String
+  ): (String, String) =
+    val out = ByteArrayOutputStream()
+    val terminal = DumbTerminal(
+      ByteArrayInputStream("x\n".getBytes(StandardCharsets.UTF_8)),
+      out
+    )
+    try
+      val answer = read(new MultilineLineReader(terminal), "> ")
+      (answer, out.toString(StandardCharsets.UTF_8))
+    finally terminal.close()
+
+  test("readMultiline brackets the read with the kitty push and pop"):
+    val (answer, written) = readVia(_.readMultiline(_))
+    assertEquals(answer, "x")
+    assert(
+      written.startsWith(MultilineLineReader.KittyKeyboardProtocolPush) &&
+        written.endsWith(MultilineLineReader.KittyKeyboardProtocolPop),
+      written
+    )
+
+  test("readLine reads without the kitty push"):
+    val (answer, written) = readVia(_.readLine(_))
+    assertEquals(answer, "x")
+    assert(
+      !written.contains(MultilineLineReader.KittyKeyboardProtocolPush),
+      written
+    )
+
   test(
     "withKittyKeyboardProtocol writes the push sequence before body runs, and the pop sequence after"
   ):

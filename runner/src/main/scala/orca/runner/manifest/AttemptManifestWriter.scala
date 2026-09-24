@@ -60,9 +60,8 @@ private[orca] object AttemptManifestWriter:
     )
     new ActorAttemptManifestWriter(Actor.create(state))
 
-/** Actor-backed [[AttemptManifestWriter]]. Both entry points are `ask`s: a
-  * write lands before the caller proceeds, and a throw reaches the caller — the
-  * dispatcher, which quarantines the writer — instead of the actor's scope.
+/** Actor-backed [[AttemptManifestWriter]]. Both entry points are `ask`s, per
+  * the `OrcaListener` contract, so a write lands before the caller proceeds.
   */
 private class ActorAttemptManifestWriter(
     actor: ActorRef[AttemptManifestWriterState]

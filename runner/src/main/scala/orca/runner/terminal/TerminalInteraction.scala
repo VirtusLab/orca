@@ -25,13 +25,13 @@ import java.nio.charset.StandardCharsets.UTF_8
   * flush and clear the status row before the scope ends.
   */
 class TerminalInteraction private[terminal] (
-    terminal: TerminalActor,
+    output: TerminalActor,
     useColor: Boolean,
     workDir: Option[os.Path],
     prompter: TerminalPrompts.Prompter
 ) extends Interaction:
 
-  val listeners: List[OrcaListener] = List(terminal.listener)
+  val listeners: List[OrcaListener] = List(output.listener)
 
   /** Drive a live conversation to completion on the caller's thread, prompting
     * for its approvals and questions. Returns when the conversation finishes.
@@ -42,13 +42,13 @@ class TerminalInteraction private[terminal] (
   ): AgentResult[B] =
     new TerminalPrompts(
       useColor = useColor,
-      output = terminal,
-      currentIndent = () => terminal.currentIndent,
+      output = output,
+      currentIndent = () => output.currentIndent,
       workDir = workDir,
       prompter = prompter
     ).drive(conversation)
 
-  override def close(): Unit = terminal.close()
+  override def close(): Unit = output.close()
 
 object TerminalInteraction:
 
@@ -64,7 +64,12 @@ object TerminalInteraction:
       prompter: TerminalPrompts.Prompter = TerminalPrompts.JLinePrompter
   )(using Ox, BufferCapacity): TerminalInteraction =
     new TerminalInteraction(
-      TerminalActor.start(out, useColor, animated, workDir),
+      TerminalActor.start(
+        out = out,
+        useColor = useColor,
+        animated = animated,
+        workDir = workDir
+      ),
       useColor,
       workDir,
       prompter

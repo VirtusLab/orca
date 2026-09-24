@@ -3,8 +3,7 @@ package orca.events
 import java.util.concurrent.atomic.AtomicReference
 
 /** Listener that counts `ToolDenied` events per tool, with the names of the
-  * agents that were denied it, for an end-of-run summary. Safe to share across
-  * concurrent emitters.
+  * agents that were denied it, for an end-of-run summary.
   */
 class DeniedToolTracker extends OrcaListener:
 

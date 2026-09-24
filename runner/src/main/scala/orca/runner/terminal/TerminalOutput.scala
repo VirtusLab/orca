@@ -16,9 +16,8 @@ import scala.util.control.NonFatal
   *
   * **Prompt transaction.** [[prompt]] is the only way to read from the
   * terminal: it clears the status row, buffers concurrent `log` calls, runs
-  * `readUser`, then drains and redraws — all as one bracketed unit. A fair
-  * semaphore serialises transactions so two concurrent prompts queue instead of
-  * interleaving, which also serialises the shared `readLine` reader.
+  * `readUser`, then drains and redraws — all as one bracketed unit. Concurrent
+  * prompts run one at a time.
   */
 private[terminal] trait TerminalOutput:
   /** Append a (possibly multi-line) chunk to the event log. Trailing newline is
@@ -59,7 +58,7 @@ private[terminal] class TerminalOutputState(
     paint
   }
 
-  private val log = LoggerFactory.getLogger(classOf[TerminalOutputState])
+  private val logger = LoggerFactory.getLogger(classOf[TerminalOutputState])
 
   private var currentLabel: Option[String] = None
   private var frameIndex: Int = 0
@@ -121,7 +120,7 @@ private[terminal] class TerminalOutputState(
       catch
         case NonFatal(e) =>
           currentLabel = None
-          log.error("status row animation failed; status row hidden", e)
+          logger.error("status row animation failed; status row hidden", e)
 
   /** Synchronous [[TerminalOutput.prompt]]: no actor or concurrent callers here
     * (production serialises one level up in [[TerminalActor]]), so a plain

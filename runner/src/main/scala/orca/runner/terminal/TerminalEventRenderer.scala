@@ -8,7 +8,7 @@ import orca.events.{Announcement, OrcaEvent}
   * Single-threaded: production runs it on [[TerminalActor]]'s actor, beside the
   * output state it writes to.
   */
-private[runner] class TerminalEventRenderer(
+private[terminal] class TerminalEventRenderer(
     output: TerminalOutputState,
     useColor: Boolean,
     workDir: Option[os.Path] = None
@@ -191,7 +191,7 @@ private[runner] class TerminalEventRenderer(
   private def paint(attr: fansi.Attrs, text: String): String =
     Ansi.paint(useColor, attr, text)
 
-private[runner] object TerminalEventRenderer:
+private[terminal] object TerminalEventRenderer:
 
   /** The agents that have emitted a display event in the current stage, to the
     * precision `attribution` needs: none, exactly one (named), or several.

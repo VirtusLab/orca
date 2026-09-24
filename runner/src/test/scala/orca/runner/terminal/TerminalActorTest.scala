@@ -1,6 +1,6 @@
 package orca.runner.terminal
 
-import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
+import orca.events.OrcaEvent
 import ox.channels.BufferCapacity
 import ox.{fork, supervised}
 
@@ -27,7 +27,7 @@ class TerminalActorTest extends munit.FunSuite:
         useColor = false,
         animated = true,
         workDir = None,
-        framePeriodMs = 20L
+        framePeriod = 20.millis
       )
       output.setStatus(Some("running"))
       // Give the animator several frame periods to land; it runs on its
@@ -50,7 +50,7 @@ class TerminalActorTest extends munit.FunSuite:
         useColor = false,
         animated = true,
         workDir = None,
-        framePeriodMs = 20L
+        framePeriod = 20.millis
       )
       output.setStatus(Some("running"))
       // Hammer log calls from this thread for ~200ms; animator should
@@ -87,7 +87,7 @@ class TerminalActorTest extends munit.FunSuite:
         useColor = false,
         animated = true,
         workDir = None,
-        framePeriodMs = 20L
+        framePeriod = 20.millis
       )
       val events = new java.util.concurrent.ConcurrentLinkedQueue[String]()
       val firstStarted = new CountDownLatch(1)
@@ -143,14 +143,9 @@ class TerminalActorTest extends munit.FunSuite:
       )
       output.close()
 
-  test(
-    "a render failure quarantines the terminal listener and leaves the scope running"
-  ):
+  test("a render failure reaches the caller and leaves the scope running"):
     val failingOut = new PrintStream(new ByteArrayOutputStream()):
       override def print(s: String): Unit = throw new RuntimeException("boom")
-    val seen = new java.util.concurrent.ConcurrentLinkedQueue[OrcaEvent]()
-    val recorder: OrcaListener = e =>
-      val _ = seen.add(e)
     supervised:
       val terminal = TerminalActor.start(
         failingOut,
@@ -158,11 +153,7 @@ class TerminalActorTest extends munit.FunSuite:
         animated = false,
         workDir = None
       )
-      val dispatcher = new EventDispatcher(List(terminal.listener, recorder))
-      dispatcher.onEvent(OrcaEvent.Step("first"))
-      dispatcher.onEvent(OrcaEvent.Step("second"))
-    // Reaching here means the scope ended without the render failure.
-    assertEquals(
-      seen.asScala.toList,
-      List(OrcaEvent.Step("first"), OrcaEvent.Step("second"))
-    )
+      val _ = intercept[RuntimeException]:
+        terminal.listener.onEvent(OrcaEvent.Step("first"))
+      // A later call finds the actor still running.
+      assertEquals(terminal.currentIndent, "")

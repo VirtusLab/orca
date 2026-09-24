@@ -116,20 +116,21 @@ private[terminal] object TerminalPrompts:
 
   /** Seam for the approval prompt. Tests inject a stub so they can assert
     * prompt text and feed scripted replies; production uses the JLine-backed
-    * implementation below.
+    * implementation below. `ask` is never called concurrently
+    * ([[TerminalOutput.prompt]] runs one prompt at a time).
     */
   trait Prompter:
     def ask(prompt: String): PromptOutcome
 
-  /** Default production prompter: a [[MultilineLineReader]] on a JLine system
-    * terminal opened for each `ask` and closed after it. Nothing outlives a
-    * prompt, so a run that never prompts never opens a terminal, and the
-    * terminal's signal handling (Ctrl-C ends the JVM without shutdown hooks) is
-    * in place only while one is open. JLine allows one open system terminal per
-    * JVM; `TerminalOutput.prompt` serialises the asks.
+  /** Default production prompter: a multiline read on a fresh JLine system
+    * terminal per `ask`.
     */
   object JLinePrompter extends Prompter:
     def ask(prompt: String): PromptOutcome =
+      // Nothing outlives a prompt: a run that never prompts never opens a
+      // terminal, and the terminal's signal handling (Ctrl-C ends the JVM
+      // without shutdown hooks) is in place only during the read. JLine allows
+      // one open system terminal per JVM, which the serialised asks respect.
       val terminal = TerminalBuilder.builder().system(true).dumb(true).build()
       // Ctrl-C (UserInterrupt) and Ctrl-D / closed-stdin (EndOfFile, also hit by
       // a headless run reaching an ask-user prompt with no tty) both mean "the
@@ -137,7 +138,7 @@ private[terminal] object TerminalPrompts:
       // EndOfFileException escape as a message-less stage failure.
       try
         PromptOutcome.Answer(
-          MultilineLineReader(terminal).readMultiline(prompt)
+          new MultilineLineReader(terminal).readMultiline(prompt)
         )
       catch
         case _: (UserInterruptException | EndOfFileException) =>
