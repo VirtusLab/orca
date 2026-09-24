@@ -232,7 +232,7 @@ private[terminal] object TerminalOutputState:
   /** Carriage return + ANSI Erase-In-Line-2 (clear entire line). `\u001b` is
     * the ESC byte, a Unicode escape so the source stays grep-friendly.
     */
-  private val ClearLine: String = "\r\u001b[2K"
+  private[terminal] val ClearLine: String = "\r\u001b[2K"
 
   private val DefaultLabel: String = "Thinking..."
 

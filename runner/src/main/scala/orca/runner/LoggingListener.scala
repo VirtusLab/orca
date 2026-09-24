@@ -22,7 +22,10 @@ private[orca] class LoggingListener extends OrcaListener:
       log.info("stage start: {}", path.display)
     case OrcaEvent.StageEnded(path, outcome) =>
       log.info("stage end: {} ({})", path.display, outcome)
-    case OrcaEvent.Step(message) => log.info("step: {}", message)
+    case OrcaEvent.ActivityStarted(label) =>
+      log.info("activity start: {}", label)
+    case _: OrcaEvent.ActivityEnded => log.info("activity end")
+    case OrcaEvent.Step(message)    => log.info("step: {}", message)
     case OrcaEvent.Bookkeeping(message) =>
       log.info("bookkeeping: {}", message)
     case OrcaEvent.Caveat(message)     => log.info("caveat: {}", message)
