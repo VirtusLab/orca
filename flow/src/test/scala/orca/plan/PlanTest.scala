@@ -103,7 +103,7 @@ class PlanTest extends munit.FunSuite:
       "Add a divide method."
     )
 
-  // --- JSON compat: pre-ADR-0018 stage logs carry a "completed" field ---
+  // --- JSON compat: older progress logs carry a "completed" field on tasks ---
 
   test(
     "decoding a Task JSON payload with a legacy \"completed\" field skips it (JsonData's default jsoniter config, not overridden by strictCodecConfig)"

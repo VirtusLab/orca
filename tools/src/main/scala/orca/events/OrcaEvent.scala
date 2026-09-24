@@ -45,7 +45,7 @@ enum OrcaEvent:
 
   /** A single instantaneous note in the event log — neither a stage nor a
     * stream-of-text. Tools emit these for discrete progress: "switched to
-    * branch X", "discarded N issues", etc.
+    * branch X", "Opened PR: <url>", etc.
     */
   case Step(message: String)
 

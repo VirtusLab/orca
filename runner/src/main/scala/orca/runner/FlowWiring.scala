@@ -19,13 +19,13 @@ import ox.Ox
   * field here plus one arm in `WiredAgents.build`.
   *
   * Agent overrides are `AgentWiring => Ox ?=> Agent` factories, not prebuilt
-  * agents: the runtime hands the factory the run's [[AgentWiring]] (event sink,
-  * interaction, workDir, prompts) so a user agent is wired into the same
+  * agents: the runtime hands the factory the attempt's [[AgentWiring]] (event
+  * sink, interaction, workDir, prompts) so a user agent is wired into the same
   * dispatcher as the defaults — costs/steps reach the tracker and terminal. All
   * five fields share the `Ox ?=>` shape even though only opencode's default
-  * factory needs it (it pins a `serve` process + drain forks to the run scope,
-  * so its factory is applied inside `WiredAgents.build`'s Ox scope); a plain
-  * `AgentWiring => Agent` lambda literal auto-adapts to the shape.
+  * factory needs it (it pins a `serve` process + drain forks to the attempt's
+  * scope, so its factory is applied inside `WiredAgents.build`'s Ox scope); a
+  * plain `AgentWiring => Agent` lambda literal auto-adapts to the shape.
   */
 private[orca] case class FlowWiring(
     claude: Option[AgentWiring => Ox ?=> ClaudeAgent] = None,

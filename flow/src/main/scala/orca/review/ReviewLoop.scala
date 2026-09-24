@@ -878,7 +878,7 @@ private[review] class ReviewFixLoop(
     * left open, threading the immutable [[ReviewLoopState]] (reviewer history +
     * sessions) from round to round.
     *
-    * A round that finds nothing ends the run, as does a fix turn that fixes
+    * A round that finds nothing ends the loop, as does a fix turn that fixes
     * nothing ([[OpenReason.NoFixes]]). A converging loop also stops at its cap
     * ([[OpenReason.CapReached]]); a single pass stops after its one fix turn,
     * re-checking only the lint gate and the checks ([[recheckAfterFix]]), and

@@ -149,10 +149,10 @@ extension [B <: BackendTag](agent: Agent[B])
     * first use and replays it on loss.
     *
     * Identity follows the stage, not the call's position within it: inserting,
-    * reordering or skipping other `session(...)` calls between runs leaves this
-    * one alone. What does re-key it is moving the call into another stage, or
-    * renaming the stage it sits in — the new key has nothing recorded, so the
-    * session is minted fresh and primed from the seed.
+    * reordering or skipping other `session(...)` calls between attempts leaves
+    * this one alone. What does re-key it is moving the call into another stage,
+    * or renaming the stage it sits in — the new key has nothing recorded, so
+    * the session is minted fresh and primed from the seed.
     *
     * Minting one name twice in one stage throws (see
     * [[StageFrames.claimSessionKey]]): two handles driving one conversation is
@@ -212,7 +212,7 @@ private def reuseOrMint[B <: BackendTag](
     recorded: SessionRecord
 )(using ctx: FlowContext, fc: FlowControl): SessionId[B] =
   if recorded.backend != agent.backendTag then
-    // Backend swapped between runs: `recorded.id` is meaningful only in the
+    // Backend swapped between attempts: `recorded.id` is meaningful only in the
     // old backend's registry, so mint fresh rather than reuse it.
     warnBackendSwap(ctx, key, recorded.backend, agent.backendTag)
     mintSession(agent, key, seed)

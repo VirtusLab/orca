@@ -137,7 +137,7 @@ private[orca] object WorktreeRun:
 
   /** Put the worktree on the branch named after the same run key, so a re-run
     * of the prompt finds its own branch rather than a stranger's. Its refusals
-    * say the worktree exists — it does by then, and the next run finds it.
+    * say the worktree exists — it does by then, and the next attempt finds it.
     */
   private def bindBranch(path: os.Path): Either[String, os.Path] =
     BranchName
