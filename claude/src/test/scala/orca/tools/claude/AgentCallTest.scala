@@ -16,7 +16,7 @@ import orca.agents.{
   TurnDispatch,
   WireSessionId
 }
-import orca.events.{OrcaEvent, OrcaListener, TurnDebit, Usage}
+import orca.events.{Announcement, OrcaEvent, OrcaListener, TurnDebit, Usage}
 import orca.testkit.Usages.usage
 
 import orca.backend.{
@@ -94,6 +94,22 @@ class AgentCallTest extends munit.FunSuite:
         conversation: orca.backend.ObservedConversation[B]
     ): AgentResult[B] =
       throw new UnsupportedOperationException("test stub")
+
+  /** Ends an interactive turn at once with `output`, on wire id `wireId`. */
+  private def finishingInteraction(
+      wireId: String,
+      output: String
+  ): Interaction =
+    new Interaction:
+      val listeners: List[OrcaListener] = Nil
+      def drive[B <: BackendTag](
+          conversation: orca.backend.ObservedConversation[B]
+      ): AgentResult[B] =
+        AgentResult[B](
+          wireId = WireSessionId[B](wireId),
+          output = output,
+          usage = Usage.empty
+        )
 
   private def makeCall(
       backend: SequencedBackend
@@ -190,10 +206,13 @@ class AgentCallTest extends munit.FunSuite:
     supervised:
       val _ = call.autonomous.run("anything")
       val structured = seen.get().collect {
-        case orca.events.OrcaEvent.StructuredResult(raw, summary) =>
-          (raw, summary)
+        case orca.events.OrcaEvent.StructuredResult(raw, announcement, _) =>
+          (raw, announcement)
       }
-      assertEquals(structured, List(("""{"value":99}""", Some("answer is 99"))))
+      assertEquals(
+        structured,
+        List(("""{"value":99}""", Announcement.Say("answer is 99")))
+      )
 
   test(
     "autonomous instruction follows the backend's declared structured-output mode"
@@ -288,58 +307,25 @@ class AgentCallTest extends munit.FunSuite:
         received.get()
       )
 
-  test(
-    "autonomous emits StructuredResult with summary=None under default Announce"
-  ):
-    // No specific Announce[Answer] in scope, so the catch-all
-    // `Announce.default` resolves — the emission maps that to `None`, the
-    // "no instance wired" arm of the tri-state summary: renderers fall back
-    // to showing the raw payload so the result stays visible.
-    val backend = new SequencedBackend(List("""{"value":1}"""))
-    val seen = AtomicReference[List[orca.events.OrcaEvent]](Nil)
+  test("autonomous StructuredResult names the agent that produced it"):
+    // Reviewers run in parallel, so an unnamed result line can't be told apart.
+    val backend = new SequencedBackend(List("""{"value":3}"""))
+    val seen = AtomicReference[List[OrcaEvent]](Nil)
     supervised:
       val _ = new AgentCall[BackendTag.ClaudeCode.type, Answer](
         backend = backend,
         config = AgentConfig(retrySchedule = fastRetry),
         prompts = DefaultPrompts,
-        events = (e: orca.events.OrcaEvent) => {
+        events = (e: OrcaEvent) => {
           val _ = seen.updateAndGet(e :: _)
         },
         interaction = stubInteraction,
-        agentName = "claude"
+        agentName = "reviewer-a"
       ).autonomous.run("anything")
-      val structured = seen.get().collect {
-        case orca.events.OrcaEvent.StructuredResult(raw, summary) =>
-          (raw, summary)
-      }
-      assertEquals(structured, List(("""{"value":1}""", None)))
-
-  test(
-    "autonomous emits StructuredResult with summary=Some(\"\") for a deliberately-silent Announce"
-  ):
-    // A specific Announce that returns no message (Announce.from(_ => ""),
-    // like ReviewResult's) is DELIBERATE silence — distinct from the
-    // no-instance `None` above: renderers show nothing rather than falling
-    // back to the raw payload.
-    given orca.agents.Announce[Answer] = orca.agents.Announce.from(_ => "")
-    val backend = new SequencedBackend(List("""{"value":7}"""))
-    val seen = AtomicReference[List[orca.events.OrcaEvent]](Nil)
-    supervised:
-      val _ = new AgentCall[BackendTag.ClaudeCode.type, Answer](
-        backend = backend,
-        config = AgentConfig(retrySchedule = fastRetry),
-        prompts = DefaultPrompts,
-        events = (e: orca.events.OrcaEvent) => {
-          val _ = seen.updateAndGet(e :: _)
-        },
-        interaction = stubInteraction,
-        agentName = "claude"
-      ).autonomous.run("anything")
-      val structured = seen.get().collect {
-        case orca.events.OrcaEvent.StructuredResult(raw, summary) =>
-          (raw, summary)
-      }
-      assertEquals(structured, List(("""{"value":7}""", Some(""))))
+      assertEquals(
+        seen.get().collect { case r: OrcaEvent.StructuredResult => r.agent },
+        List(Some("reviewer-a"))
+      )
 
   test(
     "autonomous emits UserPrompt(serialized) once, plus once per retry"
@@ -410,8 +396,8 @@ class AgentCallTest extends munit.FunSuite:
       )
 
   // `Unobserved` claims the protocol reported nothing, so nothing may be
-  // emitted: an all-zero TokensUsed would read as a turn measured at zero.
-  test("an Unobserved debit emits no TokensUsed"):
+  // emitted: an all-zero UnpricedTurn would read as a turn measured at zero.
+  test("an Unobserved debit emits no UnpricedTurn"):
     val seen = new AtomicReference[List[OrcaEvent]](Nil)
     val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
     val backend = new SequencedBackend(Nil):
@@ -430,7 +416,7 @@ class AgentCallTest extends munit.FunSuite:
           agentName = "claude"
         ).autonomous.run("anything")
       assertEquals(
-        seen.get().collect { case t: OrcaEvent.TokensUsed => t },
+        seen.get().collect { case t: OrcaEvent.UnpricedTurn => t },
         Nil
       )
 
@@ -464,7 +450,7 @@ class AgentCallTest extends munit.FunSuite:
           agentName = "claude"
         ).autonomous.run("anything")
       assertEquals(
-        seen.get().reverse.collect { case t: OrcaEvent.TokensUsed =>
+        seen.get().reverse.collect { case t: OrcaEvent.UnpricedTurn =>
           t.turn
         },
         List(1, 2)
@@ -493,7 +479,7 @@ class AgentCallTest extends munit.FunSuite:
 
   // Ctrl-C at an interactive prompt abandons a turn the user is still billed
   // for; the conversation carries what it spent on the cancellation itself.
-  test("an interactive turn cancelled after the model ran emits TokensUsed"):
+  test("an interactive turn cancelled after the model ran emits UnpricedTurn"):
     val seen = new AtomicReference[List[OrcaEvent]](Nil)
     val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
     val spent = usage(90L, 4L)
@@ -516,14 +502,14 @@ class AgentCallTest extends munit.FunSuite:
           agentName = "claude"
         ).interactive.run("anything")
       assertEquals(
-        seen.get().collect { case t: OrcaEvent.TokensUsed => t.usage },
+        seen.get().collect { case t: OrcaEvent.UnpricedTurn => t.usage },
         List(spent)
       )
 
   // The autonomous path emits a failed turn's debit; the interactive one runs
   // the same models against the same bills and used to report nothing.
   test(
-    "an interactive turn failing after the model ran still emits TokensUsed"
+    "an interactive turn failing after the model ran still emits UnpricedTurn"
   ):
     val seen = new AtomicReference[List[OrcaEvent]](Nil)
     val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
@@ -548,7 +534,7 @@ class AgentCallTest extends munit.FunSuite:
           agentName = "claude"
         ).interactive.run("anything")
       assertEquals(
-        seen.get().collect { case t: OrcaEvent.TokensUsed =>
+        seen.get().collect { case t: OrcaEvent.UnpricedTurn =>
           (t.usage, t.model)
         },
         List((spent, Some(Model("claude-sonnet-5"))))
@@ -575,16 +561,8 @@ class AgentCallTest extends munit.FunSuite:
         "commands that change state — only the turn's own prompt asks it not to"
     val seen = new AtomicReference[List[OrcaEvent]](Nil)
     val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
-    val drivingInteraction: Interaction = new Interaction:
-      val listeners: List[OrcaListener] = Nil
-      def drive[B <: BackendTag](
-          conversation: orca.backend.ObservedConversation[B]
-      ): AgentResult[B] =
-        AgentResult[B](
-          wireId = WireSessionId[B]("server-uuid-cccc"),
-          output = """{"value":5}""",
-          usage = Usage.empty
-        )
+    val drivingInteraction =
+      finishingInteraction("server-uuid-cccc", """{"value":5}""")
     supervised:
       val _ = new AgentCall[BackendTag.ClaudeCode.type, Answer](
         backend = new PromptOnlyBackend,
@@ -597,6 +575,24 @@ class AgentCallTest extends munit.FunSuite:
       val caveats = seen.get().collect { case c: OrcaEvent.Caveat => c.message }
       assert(caveats.contains(expected), caveats)
 
+  test("interactive StructuredResult names no agent"):
+    val seen = new AtomicReference[List[OrcaEvent]](Nil)
+    val drivingInteraction =
+      finishingInteraction("server-uuid-dddd", """{"value":4}""")
+    supervised:
+      val _ = new AgentCall[BackendTag.ClaudeCode.type, Answer](
+        backend = new PromptOnlyBackend,
+        config = AgentConfig(),
+        prompts = DefaultPrompts,
+        events = e => { val _ = seen.updateAndGet(e :: _) },
+        interaction = drivingInteraction,
+        agentName = "claude"
+      ).interactive.run("anything")
+      assertEquals(
+        seen.get().collect { case r: OrcaEvent.StructuredResult => r.agent },
+        List(None)
+      )
+
   test("interactive.runWithSession registers the (clientSid, serverSid) map"):
     // The framework must call `backend.sessions.register(session, result.wireId)`
     // after `interaction.drive` returns, so a follow-up turn on the same session
@@ -606,16 +602,8 @@ class AgentCallTest extends munit.FunSuite:
     val serverSid =
       WireSessionId[BackendTag.ClaudeCode.type]("server-uuid-bbbb")
     val backend = new SequencedBackend(List("""{"value":3}"""))
-    val drivingInteraction: Interaction = new Interaction:
-      val listeners: List[OrcaListener] = Nil
-      def drive[B <: BackendTag](
-          conversation: orca.backend.ObservedConversation[B]
-      ): AgentResult[B] =
-        AgentResult[B](
-          wireId = WireSessionId[B](WireSessionId.value(serverSid)),
-          output = """{"value":3}""",
-          usage = Usage.empty
-        )
+    val drivingInteraction =
+      finishingInteraction(WireSessionId.value(serverSid), """{"value":3}""")
     supervised:
       val answer = new AgentCall[
         BackendTag.ClaudeCode.type,

@@ -2,7 +2,6 @@ package orca.events
 
 import orca.agents.Model
 
-import java.time.LocalDate
 import java.util.concurrent.atomic.AtomicReference
 
 /** Listener that accumulates `TokensUsed` events along three independent axes —
@@ -11,16 +10,14 @@ import java.util.concurrent.atomic.AtomicReference
   *
   * Cost comes off the event, resolved once for the whole attempt by
   * [[CostResolvingDispatcher]] — the tracker prices nothing, so it cannot
-  * report a figure that disagrees with the attempt's. `pricingAsOf` is the
-  * legend's date only; pass the `lastUpdated` of the table the attempt prices
-  * with.
+  * report a figure that disagrees with the attempt's.
   *
   * All axes share the same underlying calls, so summing any of the maps — or
   * any section the summary renders — yields the grand total. The `model` and
   * `role` axes key on `Option` because neither the reported model nor a role
   * tag is always present.
   */
-class CostTracker(pricingAsOf: LocalDate) extends OrcaListener:
+class CostTracker extends OrcaListener:
 
   /** One bucket's running total. Keeping the usage and the cost of the same
     * calls in one value is what stops the two drifting apart per axis.
@@ -67,9 +64,9 @@ class CostTracker(pricingAsOf: LocalDate) extends OrcaListener:
   def onEvent(event: OrcaEvent): Unit = event match
     // `turn` is ignored: a retry's tokens count toward the attempt's spend like
     // any other turn's.
-    case t: OrcaEvent.TokensUsed =>
+    case OrcaEvent.TokensUsed(t, cost) =>
       val _ = state.updateAndGet(
-        _.record(t.agent, t.model, t.usage, t.cost, t.role)
+        _.record(t.agent, t.model, t.usage, cost, t.role)
       )
     case _ => ()
 
@@ -121,8 +118,8 @@ class CostTracker(pricingAsOf: LocalDate) extends OrcaListener:
     * `103.8K`, `3.2M`) from 1000 up, a count and its parenthetical breakdown at
     * one shared unit (`1.63M in (1.15M cache read, 0.48M cache write)`); cost
     * (when known) stays exact and is appended as `$X.XXXX`, with an asterisk
-    * marking an estimated figure and a trailing legend line when any estimate
-    * is present.
+    * marking an estimated figure and a trailing legend line, dated by the
+    * oldest rates any estimate used, when any estimate is present.
     *
     * Per-agent spend is deliberately absent: this block is read at the moment
     * the user wants a verdict, and the attempt's `<id>.cost.jsonl` carries
@@ -160,7 +157,9 @@ class CostTracker(pricingAsOf: LocalDate) extends OrcaListener:
       // The "Estimated" prefix already conveys what the per-line asterisk
       // does, so we drop the marker on the total to avoid `Estimated
       // total: $1.10*` reading like double-counting.
-      val label = if c.estimated then "Estimated total" else "Total"
+      val label = c.basis match
+        case _: CostBasis.Estimated => "Estimated total"
+        case CostBasis.Reported     => "Total"
       // Unqualified, the figure reads as the attempt's full spend; it is only
       // the sum of the turns that could be priced.
       val qualifier = if s.anyUnpriced then " (some turns unpriced)" else ""
@@ -169,12 +168,14 @@ class CostTracker(pricingAsOf: LocalDate) extends OrcaListener:
   /** One explanation per caveat the summary raised; empty when it raised none.
     */
   private def legend(s: State): String =
-    val hasEstimate = s.byAgent.values.flatMap(_.cost).exists(_.estimated)
+    val estimateLine = totalCostOf(s)
+      .map(_.basis)
+      .collect:
+        case CostBasis.Estimated(ratesAsOf) =>
+          s"* estimated from the pricing table " +
+            s"(rates as of $ratesAsOf — may be stale)"
     val legendLines = List(
-      Option.when(hasEstimate)(
-        s"* estimated from the pricing table " +
-          s"(rates as of $pricingAsOf — may be stale)"
-      ),
+      estimateLine,
       Option.when(s.anyUnpriced)(
         "some turns had no usable cost and no pricing-table row " +
           "— add the model via flow(pricing = …)"
@@ -241,16 +242,10 @@ class CostTracker(pricingAsOf: LocalDate) extends OrcaListener:
     s"$$$rounded"
 
   private def formatCost(c: Cost): String =
-    val marker = if c.estimated then "*" else ""
+    val marker = c.basis match
+      case _: CostBasis.Estimated => "*"
+      case CostBasis.Reported     => ""
     s"${formatAmount(c)}$marker"
-
-  /** Print the summary on its own block. Leading newline keeps the output from
-    * landing on top of an active terminal status row; trailing newline ensures
-    * the last line is committed.
-    */
-  def printSummary(): Unit =
-    val s = summary
-    if s.nonEmpty then println(s"\n$s")
 
 private object CostTracker:
 

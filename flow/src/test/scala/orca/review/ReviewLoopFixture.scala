@@ -127,7 +127,7 @@ private[review] class FakeAgent(
   private val remaining = new ConcurrentLinkedQueue[Reply](outputs.asJava)
   private val turns =
     new ConcurrentLinkedQueue[TurnRequest[BackendTag.ClaudeCode.type]]()
-  private val tokens = new ConcurrentLinkedQueue[OrcaEvent.TokensUsed]()
+  private val tokens = new ConcurrentLinkedQueue[OrcaEvent.UnpricedTurn]()
 
   val agent: Agent[BackendTag.ClaudeCode.type] = TestAgent(
     new ScriptedBackend(BackendTag.ClaudeCode, sessions):
@@ -146,8 +146,8 @@ private[review] class FakeAgent(
     ,
     name,
     events = {
-      case t: OrcaEvent.TokensUsed => tokens.add(t): Unit
-      case _                       => ()
+      case t: OrcaEvent.UnpricedTurn => tokens.add(t): Unit
+      case _                         => ()
     },
     prompts = PassthroughPrompts
   )

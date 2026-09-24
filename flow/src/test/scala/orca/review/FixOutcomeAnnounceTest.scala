@@ -8,7 +8,7 @@ import orca.backend.{
   ObservedConversation,
   TurnRequest
 }
-import orca.events.{OrcaEvent, OrcaListener}
+import orca.events.{Announcement, OrcaEvent, OrcaListener}
 import orca.plan.Title
 import ox.supervised
 
@@ -40,7 +40,7 @@ class FixOutcomeAnnounceTest extends munit.FunSuite:
       throw new UnsupportedOperationException("test stub")
 
   test(
-    "the fix turn's StructuredResult carries Some(\"\"), not the raw-JSON fallback"
+    "the fix turn's StructuredResult is Silent, not the raw-JSON fallback"
   ):
     val backend = new CannedBackend(
       """{"fixed":["Fix the thing"],"declined":[]}"""
@@ -59,7 +59,7 @@ class FixOutcomeAnnounceTest extends munit.FunSuite:
         FixRequest("fix it", Nil)
       )
       assertEquals(outcome, FixOutcome(List(Title("Fix the thing")), Nil))
-      val summaries = seen.get().collect {
-        case OrcaEvent.StructuredResult(_, summary) => summary
+      val announcements = seen.get().collect {
+        case r: OrcaEvent.StructuredResult => r.announcement
       }
-      assertEquals(summaries, List(Some("")))
+      assertEquals(announcements, List(Announcement.Silent))

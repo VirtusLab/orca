@@ -45,7 +45,7 @@ final class Agent[B <: BackendTag] private (
     interaction: Interaction,
     naming: AgentName,
     /** Role tag for this agent in the event stream — a second axis on
-      * `OrcaEvent.TokensUsed` alongside [[name]]. The review loop sets
+      * `OrcaEvent.UnpricedTurn` alongside [[name]]. The review loop sets
       * `Some("reviewer")` via [[withRole]] so `CostTracker` can subtotal
       * reviewer spend without baking a prefix into [[name]]. Unrelated to the
       * wire `role` field on a chat message — this is a cost-attribution tag,
@@ -54,8 +54,8 @@ final class Agent[B <: BackendTag] private (
     val role: Option[String]
 ):
   /** Label for this agent in the event stream (the `agent` axis of
-    * `OrcaEvent.TokensUsed`). Set it with [[withName]] to tell agents apart in
-    * the cost report.
+    * `OrcaEvent.UnpricedTurn`). Set it with [[withName]] to tell agents apart
+    * in the cost report.
     */
   def name: String = naming.label
 
@@ -258,7 +258,7 @@ final class Agent[B <: BackendTag] private (
     )
 
   /** One autonomous text turn with the streaming display suppressed: no `▸`
-    * prompt echo, no `●` prose or `⏺` tool lines (`TokensUsed` and `Error`
+    * prompt echo, no `●` prose or `⏺` tool lines (`UnpricedTurn` and `Error`
     * events still flow). For the runtime's internal turns ([[cheapOneShot]]),
     * whose display channel is the caller's own event, so streaming would show
     * the text twice.

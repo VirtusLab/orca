@@ -1,6 +1,6 @@
 package orca.runner.terminal
 
-import orca.events.OrcaEvent
+import orca.events.{Announcement, OrcaEvent}
 import orca.testkit.StageEvents
 import orca.testkit.Usages.usage
 import orca.agents.Model
@@ -313,6 +313,30 @@ class TerminalEventListenerTest extends munit.FunSuite:
     )
     assert(output.contains("● test: reviewing"), output)
 
+  test("a second agent's result summary is prefixed with its name"):
+    val output = renderEvents(
+      List(
+        StageEvents.started("task"),
+        OrcaEvent.AssistantMessage("planning", Some("main")),
+        OrcaEvent.StructuredResult(
+          "{}",
+          Announcement.Say("2 findings"),
+          Some("test")
+        )
+      )
+    )
+    assert(output.contains("▶ test: 2 findings"), output)
+
+  test("a second agent's unannounced result is prefixed with its name"):
+    val output = renderEvents(
+      List(
+        StageEvents.started("task"),
+        OrcaEvent.AssistantMessage("planning", Some("main")),
+        OrcaEvent.StructuredResult("{}", Announcement.Unannounced, Some("test"))
+      )
+    )
+    assert(output.contains("● test: {}"), output)
+
   test("the first agent is named too once a second one has emitted"):
     val output = renderEvents(
       List(
@@ -348,10 +372,16 @@ class TerminalEventListenerTest extends munit.FunSuite:
     assertEquals(output, "")
 
   test(
-    "StructuredResult without a summary renders the collapsed raw payload as a `●` line"
+    "an unannounced StructuredResult renders the collapsed raw payload as a `●` line"
   ):
     val output = renderEvents(
-      List(OrcaEvent.StructuredResult("""{"answer":42}""", None))
+      List(
+        OrcaEvent.StructuredResult(
+          """{"answer":42}""",
+          Announcement.Unannounced,
+          None
+        )
+      )
     )
     assert(output.contains(TerminalEventListener.AssistantGlyph), output)
     assert(output.contains("""{"answer":42}"""), output)
@@ -363,7 +393,8 @@ class TerminalEventListenerTest extends munit.FunSuite:
       List(
         OrcaEvent.StructuredResult(
           """{"answer":42}""",
-          Some("Answer: 42")
+          Announcement.Say("Answer: 42"),
+          None
         )
       )
     )
@@ -372,13 +403,19 @@ class TerminalEventListenerTest extends munit.FunSuite:
     assert(!output.contains("""{"answer":42}"""), output)
 
   test(
-    "StructuredResult with a deliberately-silent summary (Some(\"\")) renders nothing"
+    "a Silent StructuredResult renders nothing"
   ):
     // A specific Announce[O] that says nothing (e.g. ReviewResult — the review
     // loop narrates per-reviewer outcomes itself) must not trigger the raw
     // fallback: that would render the JSON the summary deliberately withheld.
     val output = renderEvents(
-      List(OrcaEvent.StructuredResult("""{"findings":[]}""", Some("")))
+      List(
+        OrcaEvent.StructuredResult(
+          """{"findings":[]}""",
+          Announcement.Silent,
+          None
+        )
+      )
     )
     assertEquals(output, "")
 
@@ -386,7 +423,9 @@ class TerminalEventListenerTest extends munit.FunSuite:
     "StructuredResult raw fallback truncates long payloads with an ellipsis"
   ):
     val long = "{\"x\":\"" + ("a" * 300) + "\"}"
-    val output = renderEvents(List(OrcaEvent.StructuredResult(long, None)))
+    val output = renderEvents(
+      List(OrcaEvent.StructuredResult(long, Announcement.Unannounced, None))
+    )
     assert(output.contains("…"), output)
     val bodyLines = output.split('\n').filter(_.contains("a"))
     assert(
@@ -400,7 +439,9 @@ class TerminalEventListenerTest extends munit.FunSuite:
     "StructuredResult raw fallback collapses multi-line payloads to one line"
   ):
     val raw = "{\n  \"a\": 1,\n  \"b\": 2\n}"
-    val output = renderEvents(List(OrcaEvent.StructuredResult(raw, None)))
+    val output = renderEvents(
+      List(OrcaEvent.StructuredResult(raw, Announcement.Unannounced, None))
+    )
     val rendered = output.split('\n').filter(_.contains("\"a\"")).mkString
     assert(rendered.contains("""{ "a": 1, "b": 2 }"""), rendered)
 
@@ -408,9 +449,14 @@ class TerminalEventListenerTest extends munit.FunSuite:
     val output = renderEvents(
       List(
         OrcaEvent.TokensUsed(
-          "claude",
-          Some(Model("opus")),
-          usage(10L, 5L),
+          OrcaEvent.UnpricedTurn(
+            "claude",
+            Some(Model("opus")),
+            usage(10L, 5L),
+            role = None,
+            turn = 1,
+            session = None
+          ),
           cost = None
         )
       )

@@ -8,16 +8,19 @@ package orca
 // already, so they need no re-export. Opaque types are aliased at the bottom of
 // this file, never `export`ed.
 
-// Usage is carried by OrcaEvent.TokensUsed, so listeners matching it need it in
-// scope; CostTracker is instantiable directly by callers via `extraListeners`.
+// Usage, Cost/CostBasis and Announcement are carried by OrcaEvent cases, so
+// listeners matching them need them in scope; CostTracker is instantiable
+// directly by callers via `extraListeners`.
 export orca.events.{
+  Announcement,
   OrcaEvent,
   OrcaListener,
   Pricing,
-  PriceList,
+  PricingTable,
   ModelPricing,
   Usage,
   Cost,
+  CostBasis,
   CostTracker
 }
 export orca.agents.{

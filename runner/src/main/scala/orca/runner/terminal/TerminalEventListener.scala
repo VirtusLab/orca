@@ -1,6 +1,6 @@
 package orca.runner.terminal
 
-import orca.events.{OrcaEvent, OrcaListener}
+import orca.events.{Announcement, OrcaEvent, OrcaListener}
 
 import java.util.concurrent.atomic.AtomicReference
 
@@ -79,7 +79,7 @@ private[runner] class TerminalEventListener(
       output.log(formatIndented(line))
     case _: OrcaEvent.ToolDenied =>
       () // Reported once, in the end-of-run summary.
-    case _: OrcaEvent.TokensUsed =>
+    case _: (OrcaEvent.TokensUsed | OrcaEvent.UnpricedTurn) =>
       () // Token accounting is owned by CostTracker.
     case OrcaEvent.Step(message) =>
       output.log(formatStepLine(message))
@@ -92,23 +92,21 @@ private[runner] class TerminalEventListener(
     case OrcaEvent.Caveat(message) =>
       // No `formatIndented`, unlike every sibling arm: it is run-scoped.
       output.log(paint(CaveatStyle, s"$CaveatGlyph ") + message)
-    case OrcaEvent.StructuredResult(raw, summary) =>
+    case OrcaEvent.StructuredResult(raw, announcement, agent) =>
       // Surfaces the result whose closing turn the drain withheld in
-      // structured mode. `summary` is tri-state (see the event's scaladoc):
-      // `Some(s)` renders as a `▶` step; `Some("")` renders nothing (the call site
-      // narrates the outcome itself); `None` falls back to the raw payload,
-      // collapsed and truncated, in the `●` style — ADR 0008 requires an
-      // unannounced result stay visible since the streamed JSON was suppressed.
-      summary match
-        case Some("") => ()
-        case Some(s)  => output.log(formatStepLine(s))
-        case None =>
-          val collapsed = Text.oneLine(
-            raw,
-            bodyBudget(MaxStructuredResultRawLength, AssistantGlyph, None)
+      // structured mode. An unannounced result falls back to the raw payload,
+      // collapsed and truncated, in the `●` style — ADR 0008 requires it stay
+      // visible since the streamed JSON was suppressed.
+      announcement match
+        case Announcement.Silent => ()
+        case Announcement.Say(text) =>
+          val who = attribution(agent)
+          output.log(
+            formatStepLine(AgentAttribution.prefix(who, paint) + text)
           )
-          val glyph = paint(AssistantGlyphStyle, s"$AssistantGlyph ")
-          output.log(formatIndented(glyph + collapsed))
+        case Announcement.Unannounced =>
+          assistantLine(raw, MaxStructuredResultRawLength, attribution(agent))
+            .foreach(output.log)
     case OrcaEvent.UserPrompt(text) =>
       // One line so a long task description doesn't dominate the log; empty
       // payloads dropped.
@@ -121,19 +119,8 @@ private[runner] class TerminalEventListener(
         output.log(formatIndented(glyph + collapsed))
     case OrcaEvent.AssistantMessage(text, agent) =>
       // One line per prose turn; empty payloads (turn-without-prose) dropped.
-      val who = attribution(agent)
-      val collapsed =
-        Text.oneLine(
-          text,
-          bodyBudget(MaxAssistantMessageLength, AssistantGlyph, who)
-        )
-      if collapsed.nonEmpty then
-        val glyph = paint(AssistantGlyphStyle, s"$AssistantGlyph ")
-        output.log(
-          formatIndented(
-            glyph + AgentAttribution.prefix(who, paint) + collapsed
-          )
-        )
+      assistantLine(text, MaxAssistantMessageLength, attribution(agent))
+        .foreach(output.log)
     case OrcaEvent.Error(message, agent) =>
       // Named even when it is the stage's only emitter, unlike every other
       // arm: the line exists to say WHICH agent failed, and the stage error
@@ -181,6 +168,19 @@ private[runner] class TerminalEventListener(
       LineBudget.glyphWidth(glyph),
       AgentAttribution.width(agent)
     )
+
+  /** `text` as one `●` line capped at `max` columns, prefixed with `who`;
+    * `None` when nothing is left to show.
+    */
+  private def assistantLine(
+      text: String,
+      max: Int,
+      who: Option[String]
+  ): Option[String] =
+    val collapsed = Text.oneLine(text, bodyBudget(max, AssistantGlyph, who))
+    Option.when(collapsed.nonEmpty):
+      val glyph = paint(AssistantGlyphStyle, s"$AssistantGlyph ")
+      formatIndented(glyph + AgentAttribution.prefix(who, paint) + collapsed)
 
   /** A `▶` step line: magenta-bold glyph, neutral body — matching the
     * assistant-prose styling so the "primary content" accent stays consistent.
