@@ -122,10 +122,11 @@ class ReviewCheckTest extends munit.FunSuite:
     assertEquals(result, OpenFindings.empty)
 
   test("reviewThenFix re-runs a check after its fix turn"):
-    given FlowControl = ReviewLoopFixture.control(
+    val run = ReviewLoopFixture.run(
       new EventDispatcher(Nil),
       lead = Some(new FakeAgent("picker").agent)
     )
+    import run.given
     val check = new ScriptedCheck(
       "bench",
       List(ReviewResult(List(finding("too slow"))), ReviewResult.empty)
@@ -146,10 +147,11 @@ class ReviewCheckTest extends munit.FunSuite:
     assert(check.exhausted, "the check must run again after the fix")
 
   test("reviewThenFix records which source still fails after its fix turn"):
-    given FlowControl = ReviewLoopFixture.control(
+    val run = ReviewLoopFixture.run(
       new EventDispatcher(Nil),
       lead = Some(new FakeAgent("picker").agent)
     )
+    import run.given
     val slow = ReviewResult(List(finding("too slow")))
     val broke = ReviewResult(List(finding("lint broke")))
     val check = new ScriptedCheck("bench", List(slow, slow, slow))
@@ -182,10 +184,11 @@ class ReviewCheckTest extends munit.FunSuite:
     assert(check.exhausted, "the check must run in the round and twice after")
 
   test("one defect still failing in lint and a check is one entry naming both"):
-    given FlowControl = ReviewLoopFixture.control(
+    val run = ReviewLoopFixture.run(
       new EventDispatcher(Nil),
       lead = Some(new FakeAgent("picker").agent)
     )
+    import run.given
     val broke = ReviewResult(List(finding("broke")))
     val check = new ScriptedCheck("bench", List(broke, broke, broke))
     val summariser =
