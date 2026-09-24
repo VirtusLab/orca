@@ -18,10 +18,10 @@ import orca.tools.opencode.OpencodeAgents
 import orca.tools.pi.PiAgents
 import ox.{ResourceScope, releaseAfterScope}
 
-/** The five agents wired for one run — the [[orca.AgentSet]] the `flow(...)`
-  * lead selector resolves against. Built (via [[WiredAgents.build]]) before the
-  * `FlowContext` exists; the run's resource scope closes them (see
-  * [[WiredAgents.closeAfterScope]]).
+/** The five agents wired for one attempt — the [[orca.AgentSet]] the
+  * `flow(...)` lead selector resolves against. Built (via
+  * [[WiredAgents.build]]) before the `FlowContext` exists; the attempt's
+  * resource scope closes them (see [[WiredAgents.closeAfterScope]]).
   */
 private[orca] final class WiredAgents(
     val claude: ClaudeAgent,
@@ -50,12 +50,12 @@ private[orca] final class WiredAgents(
 
 private[orca] object WiredAgents:
 
-  /** Wire the run's agents, filling every `None` override with the production
-    * default. Every factory is applied against `agentWiring` — the run's single
-    * bundle of event sink, interaction, workDir and prompts — so a user agent
-    * is wired into the run exactly like a default one. Default configs live in
-    * the per-backend `*Agents.default` factories. See [[FlowWiring]] for why
-    * every field shares the `Ox ?=>` shape.
+  /** Wire the attempt's agents, filling every `None` override with the
+    * production default. Every factory is applied against `agentWiring` — the
+    * attempt's single bundle of event sink, interaction, workDir and prompts —
+    * so a user agent is wired in exactly like a default one. Default configs
+    * live in the per-backend `*Agents.default` factories. See [[FlowWiring]]
+    * for why every field shares the `Ox ?=>` shape.
     */
   def build(wiring: FlowWiring, agentWiring: AgentWiring)(using
       ox.Ox

@@ -53,7 +53,7 @@ command-line reference.
 > Sandboxes](https://docs.docker.com/ai/sandboxes/), or any other.
 
 **Driven by an agent (headless)**: a coding agent or harness invokes the CLI
-non-interactively to implement a task, e.g. from CI or as a sub-task of another
+non-interactively to implement a change, e.g. from CI or as a sub-task of another
 agent:
 
 ```bash
@@ -101,7 +101,7 @@ import orca.{*, given}
 // agent tools".
 flow(OrcaArgs(args)):
   // `stage` is the committing, resumable unit of work. The plan is produced in
-  // one agentic turn and recorded in the stage log; a re-run with the same
+  // one agentic turn and recorded in the progress log; a re-run with the same
   // prompt skips this stage and reads the stored Plan back.
   val plan = stage("Plan"):
     Plan.autonomous.from(userPrompt, planningAgent).value  
@@ -183,6 +183,91 @@ against your own git repo.
 For convenient editing of Orca flow scripts, with code-completion, you can try
 the [Metals](https://scalameta.org/metals/) VSCode extension.
 
+## Vocabulary
+
+The words this README uses. Orca's internals have their own, in
+[AGENTS.md](AGENTS.md#conventions).
+
+**Flows and runs**
+
+- **flow** — a Scala script whose body is `flow(OrcaArgs(args)): ...`; see [An
+  example flow](#an-example-flow).
+- **flow args** — `OrcaArgs`: the prompt and the command-line flags; see
+  [Command-line usage](#command-line-usage).
+- **prompt** — the user's input text, `userPrompt` in a flow body.
+- **stage** — `stage(name)(body)`: a unit of work that commits on completion and
+  is skipped on resume; see [Flow methods](#flow-methods).
+- **plan task** — one `orca.plan.Task` of a `Plan`. The **plan brief**
+  (`Plan.brief`) is the planner's codebase briefing; see [Data
+  structures](#data-structures).
+- **run** — one prompt's flow execution, across every process it takes to
+  finish; see [The flow lifecycle](#the-flow-lifecycle).
+- **attempt** — one of those processes: one `orca run`, one `flow(...)` call.
+- **re-run / resume** — another attempt of an unfinished run, with the same
+  prompt; it skips the stages already recorded.
+- **progress log** — `.orca/runs/<key>.progress.json`, committed with each
+  stage: which stages finished, and their results.
+- **run target** — where a run works: a new branch (the default), the current
+  branch (`--skip-branch`) or a worktree (`--worktree`).
+- **worktree** — a second checkout of the repository under `.orca/worktrees/`.
+
+**Agents and conversations**
+
+- **harness** (also **backend**) — the coding-agent CLI orca drives: `claude`,
+  `codex`, `opencode`, `pi` or `gemini`.
+- **agent** — a harness with a model and tool settings (`claude`, `codex.mini`,
+  `codingAgent`, …); see [Built-in tools](#built-in-tools).
+- **role agent** — `planningAgent`, `codingAgent` or `reviewAgent`, resolved
+  from settings; see [Coding agent tools](#coding-agent-tools).
+- **cheap tier** — `agent.cheap`: the harness's cheaper model; see
+  [Sessions](#sessions).
+- **turn** — one prompt to an agent and its reply.
+- **one-shot / chat / session** — `agent.run` (one turn), `agent.chat()` (a
+  conversation for this attempt) and `agent.session(name, seed)` (a
+  conversation that survives resume). A **conversation** is the history the
+  harness keeps across turns. [Sessions](#sessions) says which to use.
+- **session name / session key** — the name is the session's role
+  (`"implementer"`), which `orca continue` matches; the key is the name plus the
+  stage the session is created in.
+- **seed / re-seed** — the context a session starts from, usually the plan
+  brief. A session whose conversation is lost is re-seeded: started again from
+  its seed; see [Sessions](#sessions).
+- **structured output** — `resultAs[O]`: a reply parsed into an `O`, which needs
+  a `JsonData[O]`; see [Built-in tools](#built-in-tools).
+
+**Review**
+
+- **reviewer** — a reviewer prompt paired with a read-only agent.
+- **reviewer catalog** — `reviewerCatalog`: every reviewer a run can use; see
+  [Settings](#settings).
+- **roster** — the reviewers one review call is given.
+- **review round** — one pass of the picked reviewers, the lint gate and any
+  checks over the change; see [Review utilities](#review-utilities).
+- **fix turn** — the coder session's `.run` that fixes a round's findings;
+  `maxFixTurns` caps how many.
+- **finding / declined / open finding** — a problem a reviewer, the lint gate or
+  a check reported; one the fixer refused, with a reason; one the review ends
+  without resolving. See [Data structures](#data-structures).
+- **gate** — a stack command: `format`, `lint` or `test`. The lint gate runs
+  each review round.
+- **stack settings** — the project's gate commands, from
+  `.orca/settings.properties`; see [Settings](#settings).
+- **`Configured`** — how a review call takes a gate: from settings (the
+  default), off, or a given value; see [Review utilities](#review-utilities).
+- **`OpenFindings`** — what a review returns: the findings it left open; see
+  [Data structures](#data-structures).
+
+**Safety**
+
+- **capability** — a compile-checked token a call needs: `InStage` (agent
+  calls) and `WorkspaceWrite` (git, `gh` and file writes) come from a
+  `stage(...)` body, `FlowControl` (starting stages, minting sessions) from the
+  `flow(...)` body. `FlowContext` (reads) is not one. See
+  [capabilities](#experimental-capabilities--compile-time-concurrency-checking).
+- **`ToolSet`** — which tools an agent has: `ReadOnly`, `NetworkOnly`, `Full`
+  (the default) or `NoTools`. **Enforcement** is how strictly each harness holds
+  that limit; see [Coding agent tools](#coding-agent-tools).
+
 ## Built-in tools
 
 The following are available inside a `flow(...) { ... }`.
@@ -200,7 +285,7 @@ backend's model accessors and backend-specific extras:
 |---|---|---|
 | `claude` | `haiku`/`sonnet`/`opus`/`fable`, `cheap` (→ haiku), `withModel(Model)`, `withNetworkTools` | Claude Code coding/reviewing agent. Bare `claude` is **Opus with the 1M-token context window** (the coder; reviewers share it); use `claude.sonnet`/`claude.haiku` for cheap one-shot calls, or `claude.fable` for the hardest ones. `interactive` mode lives only on `resultAs[O]`. See [Sessions](#sessions) for durable (`session`) vs ephemeral (`run`/`chat`). |
 | `codex` | `mini`, `cheap` (→ mini), `withModel(Model)` | OpenAI Codex coding/reviewing agent. Bare `codex` pins **GPT-6 Sol** (needs a codex CLI that offers it); use `codex.mini` (GPT-6 Luna) for cheap one-shot calls. |
-| `opencode` | `anthropicOpus`/`anthropicSonnet`/`anthropicHaiku`, `openaiAstra`/`openaiSol`/`openaiLuna`, `cheap` (provider-matched: openai→luna, else anthropicHaiku), `withModel(providerModel)` / `withModel(provider, modelId)` | [OpenCode](https://opencode.ai) coding/reviewing agent, driven over HTTP+SSE against a headless `opencode serve` (started lazily, shared for the run; sessions survive it — see [Sessions](#sessions)). Spans providers, so models are provider-qualified: use an accessor (`opencode.openaiLuna`) or `opencode.withModel("openai/gpt-5-mini")` / `opencode.withModel("ollama", "llama3.1")`. Inherits the user's configured `opencode` providers/auth. |
+| `opencode` | `anthropicOpus`/`anthropicSonnet`/`anthropicHaiku`, `openaiAstra`/`openaiSol`/`openaiLuna`, `cheap` (provider-matched: openai→luna, else anthropicHaiku), `withModel(providerModel)` / `withModel(provider, modelId)` | [OpenCode](https://opencode.ai) coding/reviewing agent, driven over HTTP+SSE against a headless `opencode serve` (started lazily, shared for the attempt; sessions survive it — see [Sessions](#sessions)). Spans providers, so models are provider-qualified: use an accessor (`opencode.openaiLuna`) or `opencode.withModel("openai/gpt-5-mini")` / `opencode.withModel("ollama", "llama3.1")`. Inherits the user's configured `opencode` providers/auth. |
 | `pi` | `withModel(Model)` | [Pi](https://pi.dev/) coding agent backend, driven through `pi --mode rpc`. Pi handles provider/model selection through its own CLI configuration; pin a model with `pi.withModel(Model("provider/model"))`. Interactive calls can ask clarifying questions via Orca's `ask_user` bridge. |
 | `gemini` | `flash`, `cheap` (→ flash), `withModel(Model)` | Google Gemini CLI coding/reviewing agent, driven via `gemini --output-format stream-json`. Bare `gemini` pins **Gemini 3.1 Pro (preview)**; use `gemini.flash` (Gemini 3.8 Flash) for cheaper one-shot calls. Structured output is prompt-enforced (Gemini has no schema flag); `withReadOnly` maps to `--approval-mode plan`. See [ADR 0015](adr/0015-gemini-stream-json-driver.md). |
 | `git` | `push`, `head`, `headCommit`, `isAncestorOfHead`, `branchExists`, `isIgnored`, `uncommittedDiff`, `changedFiles`, `reviewChanges`, `pendingChanges`, `diffVsBase`, `defaultBase`, `show`, `fileAt` | Git reads against the working tree, plus `push`. The runtime owns the run's branch and commits, so branch switching and committing are not on `git`. Commits and branch names are typed (`orca.gitref.CommitHash`, `orca.gitref.BranchName`); `head` answers the branch HEAD is on or the commit it is detached at (`orca.gitref.Head`). Recoverable failures (`NoDefaultBase`, `PushFailure` — `NonFastForward`/`RemoteDeclined`, `GitReadFailed`) surface as `Either`; `.orThrow` converts a `Left` back to an exception when the case is unexpected. `uncommittedDiff` covers the whole repository minus `.orca/` bookkeeping, tracked files only, and is empty once the work is committed — `diffVsBase` is the branch-wide view. `reviewChanges` is what `reviewAndFixLoop` hands reviewers: that diff plus the contents of files new to the repo, together with the list of every path in the change set, how much of each changed, and each file's own part of the diff. It takes an optional commit to compare against (`headCommit` reads one) so work already committed still shows up. `changedFiles` is the path list on its own, for a consumer gating on file names — the diff text alone names neither a binary change nor a rename, and leaves a trailing tab on a path containing a space. `pendingChanges` describes what the next commit will include: a `--stat` summary, the new files, and the diff. `isIgnored` answers `false` when git cannot answer. |
@@ -248,8 +333,8 @@ There are two ways to drive a model in a flow:
   accessors — so `codingAgent.opus` won't compile; that's the cue to name the
   backend. Pin any other model with `withModel(Model("…"))`.
 
-Two axes constrain an agent. **Capability** (`ToolSet`) is
-which tools exist at all:
+Two axes constrain an agent. **`ToolSet`** is which tools exist
+at all:
 
 ```scala
 // ReadOnly — reads only, no shell, no edits (reviewers, plan review, brief).
@@ -326,7 +411,7 @@ Any tool (except `git`) or agent `flow(...)` builds by default can be replaced
 by a named argument. Plain tools take the value directly (`gh = Some(myGh)`, `interaction
 = Some(myInteraction)` — your own `orca.backend.Interaction` implementation,
 e.g. for Slack; not exported from `orca.*`, so import it by its full path).
-Agents take a **factory** that receives the run's `AgentWiring` (event sink,
+Agents take a **factory** that receives the attempt's `AgentWiring` (event sink,
 interaction, workDir, prompts), so a tuned agent lands on the same dispatcher
 as the defaults:
 
@@ -389,13 +474,13 @@ Each run is bound to exactly one feature branch and one progress log
   stage that re-runs.
   `--worktree` (`RunTarget.Worktree`) runs the whole flow in
   `.orca/worktrees/<hash>` of this repository — a second checkout, keyed on the
-  same prompt hash as the progress log, created on the first run and reused by
-  every later one for that prompt. It isolates the run: two runs never share a
+  same prompt hash as the progress log, created on the first attempt and reused by
+  every later attempt for that prompt. It isolates the run: two runs never share a
   checkout or a branch. Uncommitted work does NOT come along — a worktree is
   made from a commit — so `--worktree` is refused with
   `--skip-branch` and with `--keep-changes`: `RunTarget.Worktree` carries
   neither a branch mode nor an `Uncommitted`, so the pair is refused while argv
-  is parsed and has no representation after that. The first run in a worktree
+  is parsed and has no representation after that. The first attempt in a worktree
   pays a cold build (no build outputs, no dependencies, none of the untracked
   local config a project may need), an editor or indexer that ignores
   `.gitignore` will see the second checkout, and orca never removes it. The run
@@ -441,7 +526,7 @@ Each run is bound to exactly one feature branch and one progress log
 
 ### Settings
 
-Two files, both plain `key = value` lines, parsed once per run before setup:
+Two files, both plain `key = value` lines, parsed once per attempt before setup:
 
 - **`{workDir}/.orca/settings.properties`** — committed, hand-editable project
   settings: the stack commands (`format`/`lint`/`test`) and, per role, which
@@ -530,7 +615,7 @@ written to .orca/settings.properties — review and edit as needed.
 Runs with an existing, stack-complete file — the steady state, including CI —
 make no model call.
 
-**Reviewer prompts.** Reviewers come from three tiers, read once per run before
+**Reviewer prompts.** Reviewers come from three tiers, read once per attempt before
 setup like the settings files:
 
 - **`{workDir}/.orca/reviewers/*.md`** — committed project reviewers.
@@ -540,7 +625,7 @@ setup like the settings files:
 
 A reviewer's identity is its filename stem — `.orca/reviewers/orca.md` is the
 reviewer `orca` — compared case-insensitively. A file whose stem matches a
-lower tier replaces it, keeping its position in the roster; anything else is
+lower tier replaces it, keeping its position in the catalog; anything else is
 appended, sorted by name. Project beats global beats built-in, so
 `.orca/reviewers/scala-fp.md` retunes the shipped `scala-fp` for this project
 without changing how many reviewers run. A reviewer that adds a new name joins
@@ -573,7 +658,7 @@ is the reviewer's system prompt. A `name:` key, if present, is ignored.
 other `.md` must parse as a reviewer: a missing or unterminated frontmatter
 block, a missing `description:`, an empty body, an invalid `files:` regex, or
 two files claiming one name abort the run before any tree mutation, naming every
-bad file at once — a reviewer silently dropped from the roster would read as a
+bad file at once — a reviewer silently dropped from the catalog would read as a
 clean review. A symlinked prompt aborts too, but only in `.orca/reviewers/`:
 that directory is committed and orca runs against repos it did not write, while
 the global tier is your own config home and is read through links like
@@ -599,13 +684,13 @@ a "gates off" file.
 (`runs/<key>.progress.json`) ride the branch, while machine-local state lives
 under `.orca/cache/`, which writes its own `.gitignore`: each run's durable
 session records (`runs/<key>.sessions.json`, whose backend ids mean nothing in
-another checkout), and per attempt — one process — a manifest
+another checkout), and per attempt a manifest
 (`attempts/<id>.manifest.json`, what `orca continue` lists) and a cost log
 (`attempts/<id>.cost.jsonl`: one line per agent turn with agent, role, model,
 stage, token usage and cost — the per-agent and per-model detail the closing
 summary leaves out). The cache is safe to delete; only the newest 20–40
 attempts are kept. If
-your `.gitignore` covers all of `.orca/`, every run warns to remove that line so
+your `.gitignore` covers all of `.orca/`, every attempt warns to remove that line so
 settings can be committed — the cache stays ignored on its own.
 
 </details>
@@ -668,8 +753,8 @@ Use:
   history: it lives in `.orca/cache/`, so the stage that minted it can fail and
   its retry still resumes the same conversation.
 - **Ephemeral — `agent.chat()`.** A `Chat` handle continuing one conversation
-  across `.run` calls *within this run only* — no seeding, no persistence. Runs
-  need only the shared `InStage` capability, so chats work inside a
+  across `.run` calls *within this attempt only* — no seeding, no persistence. Its
+  calls need only the shared `InStage` capability, so chats work inside a
   `Par.mapUnordered` fork: parallel reviewers each holding a multi-turn
   conversation is the canonical use. `session.chat` is a durable session's
   conversation as an ephemeral chat (one live continuation at a time).
@@ -707,8 +792,8 @@ and each new one is primed from its seed and the completed-stage preamble.
 mini, gemini → flash, opencode → anthropicHaiku, others → self) — used by the
 runtime for branch naming and default commit messages.
 
-**Backend swaps across runs.** If a settings edit changes a role's agent
-between runs (e.g. `codingAgent = codex` becomes `codingAgent = claude`), a
+**Backend swaps across attempts.** If a settings edit changes a role's agent
+between attempts (e.g. `codingAgent = codex` becomes `codingAgent = claude`), a
 session recorded under the old backend isn't resumed against the new one —
 orca mints a fresh session from the seed and warns.
 
@@ -839,7 +924,9 @@ planner.
 caller surfaces back to the reporter. `triage` returns a `Triage` sum type the
 caller pattern-matches (`NotABug` / `Untestable` / `Testable`).
 
-Review utilities, available via `import orca.review.*`:
+### Review utilities
+
+Available via `import orca.review.*`:
 
 | Method | Use |
 |---|---|
@@ -1022,7 +1109,7 @@ layer — replace the whole set via `flow(prompts = ...)`. See [ADR
 ## Data structures
 
 Common types you'll see in flow scripts. Most `derives JsonData`, making them
-valid stage results (the stage log can record and replay them) and usable as
+valid stage results (the progress log can record and replay them) and usable as
 structured LLM output via `claude.resultAs[T]`. Exceptions: `Sessioned` and
 `Verdict` do not derive `JsonData` — they are intermediate values, not stage
 results.
@@ -1102,7 +1189,7 @@ results.
   `skipped` is `Some(SkippedReview)` when the review never ran.
 - **`orca.StackSettings(format, lint, test)`** — the resolved per-project
   tooling commands (each field a `List[String]`, run via `bash -c`; empty = gate
-  disabled). Resolved once per run — see [Settings](#settings) — and read back
+  disabled). Resolved once per attempt — see [Settings](#settings) — and read back
   via `summon[FlowContext].stackSettings`; pass `flow(stackSettings =
   Some(...))` to pin it.
 - **`orca.Configured[A]`** — three-state default for `reviewAndFixLoop`'s
@@ -1203,7 +1290,7 @@ action non-interactively and exits.
 | `orca edit <flow>` | `--to project\|global` | open a flow in `$VISUAL`/`$EDITOR`/vi (`--to` required to customize a built-in) |
 | `orca create "<goal>"` | `--name <file>`, `--global` | author a new flow: the built-in `simple.sc` flow writes it in an isolated sandbox with the configured role agents; `--name` is auto-derived when omitted. The sandbox is a fresh repository with no remote, so the flow's closing PR step opens nothing and says so |
 | `orca fork <source> "<changes>"` | `--name <file>`, `--global` | fork an existing flow, the same way |
-| `orca continue [selector]` | `--list`, `--json` | resume a recorded harness session (no selector = newest); `selector` is an id from `--list` (it keeps naming the same session while other runs record theirs), a session name, or a branch — a name matching several sessions in one working tree resumes the most recent of them; a selector matching both a name and a branch is refused |
+| `orca continue [selector]` | `--list`, `--json` | resume a recorded harness session (no selector = newest); `selector` is an id from `--list` (it keeps naming the same session while other attempts record theirs), a session name, or a branch — a name matching several sessions in one working tree resumes the most recent of them; a selector matching both a name and a branch is refused |
 | `orca config` | `--planning-agent`, `--coding-agent`, `--review-agent`, each taking `harness[:model]`; or `--edit project\|global` | show the configured role agents, set any subset, or hand-edit that tier's settings file in `$VISUAL`/`$EDITOR`/vi (created from its template if absent) |
 | `orca list` | `--json` | list discovered flows across the project/global/built-in tiers |
 | `orca clear-stack` | `--yes` | clear discovered stack settings so the next flow run re-detects them |

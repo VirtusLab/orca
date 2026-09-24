@@ -21,9 +21,9 @@ private val log = LoggerFactory.getLogger("orca.flow")
   * parent. On resume, if the progress log holds an entry for this id whose JSON
   * decodes to `T`, the decoded value is returned without running `body`; a
   * decode failure (result type changed under this id) falls through and
-  * re-runs. A fresh run appends a `StageEntry(id, resultJson)`, force-adds the
-  * log, and commits — the commit also `add -A`s code changes, so a stage yields
-  * one commit covering code + progress.
+  * re-runs. Otherwise it runs `body`, appends a `StageEntry(id, resultJson)`,
+  * force-adds the log, and commits — the commit also `add -A`s code changes, so
+  * a stage yields one commit covering code + progress.
   *
   * A nested stage's commit stages the whole tree, so it sweeps up any
   * uncommitted edits the outer stage's body made before the nesting point. If

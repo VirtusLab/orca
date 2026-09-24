@@ -962,8 +962,8 @@ object FlowLifecycle:
   /** Failure teardown (ADR 0018 §2.5): discard the failed stage's uncommitted
     * partial edits with `git reset --hard` (which restores the last committed
     * log) plus, when `startingTree` allows it, the files the stage newly
-    * created, staying on the feature branch so the next run resumes in place.
-    * Kept tracked changes that no commit has carried yet are put back.
+    * created, staying on the feature branch so the next attempt resumes in
+    * place. Kept tracked changes that no commit has carried yet are put back.
     *
     * Touches nothing when HEAD is off `featureBranch`: the body moved it, so
     * the edits there are not known to be only the failed stage's.
