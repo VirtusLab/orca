@@ -49,6 +49,10 @@ private[terminal] class TerminalEventRenderer(
       stack = stack.drop(1)
       stageEmitters = StageEmitters.Silent
       output.setStatus(stack.headOption)
+    case OrcaEvent.ActivityStarted(label) =>
+      output.setStatus(Some(label))
+    case _: OrcaEvent.ActivityEnded =>
+      output.setStatus(stack.headOption)
     case OrcaEvent.ToolUse(tool, args, agent) =>
       // Recorded before the branch: an agent whose reads go out unnamed is
       // still an emitter, so its prose and writes get named once the stage has

@@ -487,6 +487,27 @@ class TerminalEventRendererTest extends munit.FunSuite:
       s"outer stage title leaked into the status bar; tail was: '$tail'"
     )
 
+  test("an activity outside any stage pins its label until it ends"):
+    val started = renderWith(
+      animated = true,
+      List(OrcaEvent.ActivityStarted("Naming the branch"))
+    )
+    assert(
+      started.contains("Naming the branch"),
+      s"activity label missing from the status row; got: '$started'"
+    )
+    val ended = renderWith(
+      animated = true,
+      List(
+        OrcaEvent.ActivityStarted("Naming the branch"),
+        OrcaEvent.ActivityEnded()
+      )
+    )
+    assert(
+      ended.endsWith("\r\u001b[2K"),
+      s"status row should be cleared once the activity ends; got: '$ended'"
+    )
+
   test("nested stages indent inner content; no ✔ ever appears in the log"):
     val output = renderEvents(
       List(
