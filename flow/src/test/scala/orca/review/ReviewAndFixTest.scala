@@ -1246,7 +1246,8 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
 
   test("a flow's own open finding reaches round one's reviewers"):
-    given FlowControl = control
+    val run = freshRun
+    import run.given
     val reviewer = new FakeAgent("r", outputs = List(ReviewResult.empty))
     val _ = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
