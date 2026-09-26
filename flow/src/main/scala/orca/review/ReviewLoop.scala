@@ -746,6 +746,8 @@ private[review] class ReviewFixLoop(
     * reported as a `Step`; it stops neither the commands after it nor the
     * review, and repeats every round the command keeps failing.
     *
+    * Why formatting sits here rather than in its own stage or commit: ADR 0024.
+    *
     * Takes [[WorkspaceWrite]] because it rewrites the tree (ADR 0018 §2.2), and
     * because that token is fork-opaque: moving this step into the reviewer
     * fan-out becomes a compile error rather than a race with the reviewers
