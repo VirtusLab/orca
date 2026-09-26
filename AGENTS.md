@@ -2,8 +2,8 @@
 
 Internals, architecture, and coding conventions for hacking on the library
 itself. Build/test commands and the recipes for running a locally modified
-orca live in [CONTRIBUTING.md](CONTRIBUTING.md); end-user documentation in
-the [README](README.md).
+orca live in [CONTRIBUTING.md](CONTRIBUTING.md); end-user documentation at
+[orca.virtuslab.com](https://orca.virtuslab.com) (source in `docs/`).
 
 Orca is implemented in Scala 3 on top of [Ox](https://ox.softwaremill.com/)
 for structured concurrency, [tapir](https://tapir.softwaremill.com/) for
@@ -151,7 +151,7 @@ most easily broken:
   turn here, that the tree holds only what earlier stages committed — the
   re-seeded case needs no telling, its preamble already says so.
 
-  The user surface is three rungs (README "Sessions"): `agent.run` (one-shot)
+  The user surface is three rungs (docs, "Talking to agents"): `agent.run` (one-shot)
   / `agent.chat()` (ephemeral `Chat`, fork-safe, `InStage`-only) /
   `agent.session(name, seed)` (durable `FlowSession`, flow-thread-only
   — the owner-thread assert on every `FlowSession` turn enforces it at runtime, and
@@ -311,10 +311,10 @@ Three location classes decide what survives:
 | `.orca/cache/pi-sessions/<session id>/` | cache | pi's own `--session-dir` transcripts | pi | `PiSessionStore` (resume probe), shell pi resume | `PiSessionStore.prune` after 30 days untouched |
 | `.orca/cache/lint-*.txt` | cache | lint output too large to inline in a prompt | `Lint` | the summarising agent | `lint`'s `finally` |
 | `.orca/cache/{,runs/,attempts/}.<file>.<uuid>.tmp` | cache | in-flight temp of an `OrcaFile` replace: beside a cache file, in `.orca/cache/` for a committed one (progress log, settings) so it is never committed | `OrcaDir.OrcaFile` | — (`AttemptManifestWriter`'s pruning skips dot-files) | the rename that completes the write |
-| `.orca/worktrees/<key>/` (+ branch `orca-worktree-<key>`) | worktrees | a `--worktree` run's checkout, with its own `.orca/` inside | `WorktreeRun` | `WorktreeScan` (shell) | never — see README |
+| `.orca/worktrees/<key>/` (+ branch `orca-worktree-<key>`) | worktrees | a `--worktree` run's checkout, with its own `.orca/` inside | `WorktreeRun` | `WorktreeScan` (shell) | never — see the docs, "Branches, resume and worktrees" |
 | `<workDir>/.gemini/settings.json` | user tree | an `mcpServers.orca` entry for one interactive gemini turn | `GeminiSettings` | gemini | restored at turn end, and a stale entry from a crash dropped at the next interactive turn; a `.gemini/` orca created is removed when left empty |
 | `$TMPDIR/orca-*` (system prompts, claude MCP config, codex schema, pi extension) | temp | per-turn IPC files handed to a CLI on argv | each backend | the CLI | turn end |
-| `$TMPDIR/orca-authoring-<n>/` | temp | the authoring flow's sandbox repo; `.orca/cache/orca-api-<version>/` inside holds the README + example flows (+ `fork-source/`) | `AuthoringSandbox`, `FlowAuthoring` | the coding agent | success or cancel; kept on failure, and nothing else prunes it |
+| `$TMPDIR/orca-authoring-<n>/` | temp | the authoring flow's sandbox repo; `.orca/cache/orca-api-<version>/` inside holds the bundled docs + example flows (+ `fork-source/`) | `AuthoringSandbox`, `FlowAuthoring` | the coding agent | success or cancel; kept on failure, and nothing else prunes it |
 | `$XDG_CACHE_HOME/orca/shell/<version>/flows/` | XDG cache | built-in flows extracted from the jar | `BuiltInFlows` | `FlowCatalog`, scala-cli | never; nothing prunes older versions |
 | `$XDG_CACHE_HOME/orca/shell/workspace/` | XDG cache | scala-cli `--workspace` build state | scala-cli | scala-cli | never; nothing prunes it |
 

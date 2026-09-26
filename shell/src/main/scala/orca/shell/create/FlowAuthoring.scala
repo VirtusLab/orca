@@ -17,12 +17,12 @@ private[shell] object FlowAuthoring:
 
   private val resourcePrefix = "/orca/shell/api/"
 
-  /** The bundled files' basenames, matching the resource-generator's copy
-    * (build.sbt) — the README plus the two example flows used as few-shot
-    * material.
+  /** The bundled files' basenames, matching the resource-generator's output
+    * (build.sbt) — the documentation pages joined into one file, plus the two
+    * example flows used as few-shot material.
     */
   private val bundledNames =
-    List("README.md", "implement.sc", "implement-interactive.sc")
+    List("orca-docs.md", "implement.sc", "implement-interactive.sc")
 
   /** Ensures a `.sc` suffix on a user-supplied filename. */
   def normalizedFileName(raw: String): String =
@@ -340,7 +340,7 @@ private[shell] object FlowAuthoring:
       case _: IllegalArgumentException =>
         Left(s"'$fileName' isn't a valid flow filename")
 
-  /** Writes the bundled README + two example flows into
+  /** Writes the bundled documentation + two example flows into
     * `<cacheBase>/orca-api-<version>/`, returning that directory. `cacheBase`
     * must be the cache of a freshly created authoring sandbox
     * ([[orca.shell.actions.AuthorAction]]), so the material sits inside the
@@ -371,10 +371,10 @@ private[shell] object FlowAuthoring:
   /** The authoring task handed to the built-in `simple.sc` flow as its
     * `userPrompt` (ADR 0021 §9): the goal and target path, the verbatim
     * version-pinned header to start the file with, the line-1 `//` description
-    * convention, pointers to the extracted README/examples, the `scala-cli
+    * convention, pointers to the extracted docs/examples, the `scala-cli
     * compile` verification step, the runtime-vs-compile-time rules caveat, and
-    * — last resort only — the raw README URL at `build`'s git ref. Kept in one
-    * place since the prompt text is itself the deliverable.
+    * — last resort only — the docs' source tree at `build`'s git ref. Kept in
+    * one place since the prompt text is itself the deliverable.
     */
   def initialPrompt(
       goal: String,
@@ -382,7 +382,7 @@ private[shell] object FlowAuthoring:
       apiDir: os.Path,
       build: OrcaBuild
   ): String =
-    val readme = apiDir / "README.md"
+    val docs = apiDir / "orca-docs.md"
     val example1 = apiDir / "implement.sc"
     val example2 = apiDir / "implement-interactive.sc"
     // The goal now comes from a multiline prompt (inputMultiline), so it's
@@ -400,7 +400,7 @@ private[shell] object FlowAuthoring:
          |Line 1 of the file must be a `//` comment giving a one-line description
          |of the flow — the shell's flow listing uses it as the description.
          |
-         |The Orca API reference is at $readme — read it before writing the
+         |The Orca documentation is at $docs — read it before writing the
          |flow. Two example flows are at $example1 and $example2; start from
          |whichever is closer to the goal.
          |
@@ -410,12 +410,12 @@ private[shell] object FlowAuthoring:
          |Caveat: some authoring rules (fork-boundary captures, stage
          |push-after-commit ordering, no concurrent stages) are enforced at runtime,
          |not by the compiler — a script can compile and still violate them.
-         |Follow the README's Authoring rules section beyond what the compiler
+         |Follow the documentation's "Stages" page beyond what the compiler
          |catches.
          |
-         |Last resort, only if the local README above is somehow missing: the
-         |reference is at
-         |https://raw.githubusercontent.com/VirtusLab/orca/${build.gitRef}/README.md
+         |Last resort, only if the local documentation above is somehow missing:
+         |its source is at
+         |https://github.com/VirtusLab/orca/tree/${build.gitRef}/docs
          |""".stripMargin
 
   /** Two-space-indents every line of `text` — the shared block-quoting used by
@@ -442,11 +442,11 @@ private[shell] object FlowAuthoring:
     os.copy(sourcePath, copy, createFolders = true)
     copy
 
-  /** The shared tail of the fork/edit authoring task — API-reference pointers,
-    * the compile-check step, the runtime-rules caveat, and the last-resort
-    * README URL — appended after `opening` states what to do and to which
-    * paths. Shared by [[forkPrompt]] and [[editPrompt]] so the two prompts,
-    * which differ only in how they describe the action (copy-then-change vs.
+  /** The shared tail of the fork/edit authoring task — documentation pointers,
+    * the compile-check step, the runtime-rules caveat, and the last-resort docs
+    * URL — appended after `opening` states what to do and to which paths.
+    * Shared by [[forkPrompt]] and [[editPrompt]] so the two prompts, which
+    * differ only in how they describe the action (copy-then-change vs.
     * edit-in-place), can't drift on everything else.
     */
   private def changePrompt(
@@ -455,13 +455,13 @@ private[shell] object FlowAuthoring:
       apiDir: os.Path,
       build: OrcaBuild
   ): String =
-    val readme = apiDir / "README.md"
+    val docs = apiDir / "orca-docs.md"
     val example1 = apiDir / "implement.sc"
     val example2 = apiDir / "implement-interactive.sc"
     // `opening` already carries the user's typed changes: interpolating it here
     // would run a second `stripMargin` pass over that text.
     opening + "\n\n" +
-      s"""The Orca API reference is at $readme — read it if the changes need API
+      s"""The Orca documentation is at $docs — read it if the changes need API
          |surface the source doesn't already use. Two example flows are at
          |$example1 and $example2.
          |
@@ -471,12 +471,12 @@ private[shell] object FlowAuthoring:
          |Caveat: some authoring rules (fork-boundary captures, stage
          |push-after-commit ordering, no concurrent stages) are enforced at runtime,
          |not by the compiler — a script can compile and still violate them.
-         |Follow the README's Authoring rules section beyond what the compiler
+         |Follow the documentation's "Stages" page beyond what the compiler
          |catches.
          |
-         |Last resort, only if the local README above is somehow missing: the
-         |reference is at
-         |https://raw.githubusercontent.com/VirtusLab/orca/${build.gitRef}/README.md
+         |Last resort, only if the local documentation above is somehow missing:
+         |its source is at
+         |https://github.com/VirtusLab/orca/tree/${build.gitRef}/docs
          |""".stripMargin
 
   /** The authoring task for a fork (ADR 0021 §9): states the source path and
