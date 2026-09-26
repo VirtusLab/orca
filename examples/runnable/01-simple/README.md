@@ -26,7 +26,7 @@ the variant where the planner can ask clarifying questions, see
 ## Prerequisites
 
 - JDK 21+, [scala-cli](https://scala-cli.virtuslab.org/).
-- `claude` logged in (see the repo root README).
+- `claude` logged in (see [Agent CLIs](../../../docs/using/agent-clis.md)).
 - `cargo` on PATH — the seed is a small Rust crate, so first-run
   auto-discovery resolves cargo commands into
   `.orca/settings.properties`, which the review loop reads by

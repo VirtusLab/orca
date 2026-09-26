@@ -38,7 +38,7 @@ divide, modulo, power, …) before drafting tasks.
 ## Prerequisites
 
 - JDK 21+, [scala-cli](https://scala-cli.virtuslab.org/).
-- `claude` logged in (see the repo root README).
+- `claude` logged in (see [Agent CLIs](../../../docs/using/agent-clis.md)).
 - `cargo` on PATH — same Rust calculator starter as 01-simple.
 
 ## Run

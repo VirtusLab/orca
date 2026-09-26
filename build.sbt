@@ -257,19 +257,22 @@ lazy val shell = (project in file("shell"))
       IO.write(indexFile, flowFiles.map(_.getName).mkString("\n"))
       copied.toSeq :+ indexFile
     }.taskValue,
-    // Bundles the README plus two example flows as jar resources under
+    // Bundles the documentation plus two example flows as jar resources under
     // orca/shell/api/ (ADR 0021 §9), so `CreateFlow` can extract them into the
-    // authoring harness's workspace as its API reference material.
+    // authoring harness's workspace as its API reference material. The docs
+    // pages are concatenated into one file in toctree order, each headed by
+    // its path, since the authoring prompt points at a single reference file.
     Compile / resourceGenerators += Def.task {
       val base = (ThisBuild / baseDirectory).value
       val outDir = (Compile / resourceManaged).value / "orca" / "shell" / "api"
       IO.createDirectory(outDir)
-      val sources = List(
-        base / "README.md",
+      val docsFile = outDir / "orca-docs.md"
+      IO.write(docsFile, ConcatDocs(base / "docs"))
+      val examples = List(
         base / "flows" / "implement.sc",
         base / "flows" / "implement-interactive.sc"
       )
-      sources.map { f =>
+      docsFile :: examples.map { f =>
         val target = outDir / f.getName
         IO.copyFile(f, target)
         target
@@ -302,6 +305,7 @@ lazy val orcaRoot = (project in file("."))
         List(
           file("README.md"),
           file("AGENTS.md"),
+          file("docs"),
           file("examples"),
           file("flows")
         )
