@@ -48,3 +48,6 @@ openspec/
 # agent scratch (SDD ledger/reports, transient worktrees)
 .superpowers/
 .claude/worktrees/
+
+.superset
+docs/_build
