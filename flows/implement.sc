@@ -3,7 +3,7 @@
 //> using dep "org.virtuslab::orca:0.1.10"
 //> using jvm 21
 
-/** Autonomous planning + coding flow — the README example.
+/** Autonomous planning + coding flow — the one the documentation's tutorial builds.
   *
   * The planner breaks the prompt into tasks; each task is implemented on the
   * run's feature branch and reviewed in a single pass. A final stage then loops

@@ -26,7 +26,7 @@ class FlowAuthoringTest extends munit.FunSuite:
     val target = TempDirs.dir()
     val dir = FlowAuthoring.extractApiMaterial(target, "0.0.18")
     assertEquals(dir, target / "orca-api-0.0.18")
-    List("README.md", "implement.sc", "implement-interactive.sc").foreach:
+    List("orca-docs.md", "implement.sc", "implement-interactive.sc").foreach:
       name => assertEquals(os.read(dir / name), resourceText(name))
 
   // --- initialPrompt ---
@@ -71,8 +71,8 @@ class FlowAuthoringTest extends munit.FunSuite:
     assert(prompt.contains("""//> using dep "org.virtuslab::orca:0.0.18""""))
     assert(prompt.contains("//> using jvm 21"))
 
-  test("initialPrompt points at the extracted README and both examples"):
-    assert(prompt.contains((apiDir / "README.md").toString))
+  test("initialPrompt points at the extracted docs and both examples"):
+    assert(prompt.contains((apiDir / "orca-docs.md").toString))
     assert(prompt.contains((apiDir / "implement.sc").toString))
     assert(prompt.contains((apiDir / "implement-interactive.sc").toString))
 
@@ -104,10 +104,10 @@ class FlowAuthoringTest extends munit.FunSuite:
       "//> using repository ivy2Local"
     )
 
-  test("initialPrompt's last-resort line is the tag-pinned raw README URL"):
+  test("initialPrompt's last-resort line is the tag-pinned docs source URL"):
     assert(
       prompt.contains(
-        "https://raw.githubusercontent.com/VirtusLab/orca/v0.0.18/README.md"
+        "https://github.com/VirtusLab/orca/tree/v0.0.18/docs"
       )
     )
 
@@ -484,8 +484,8 @@ class FlowAuthoringTest extends munit.FunSuite:
     assert(fork.contains("Create the Orca flow"))
     assert(fork.contains("by copying"))
 
-  test("forkPrompt points at the extracted README and both examples"):
-    assert(fork.contains((apiDir / "README.md").toString))
+  test("forkPrompt points at the extracted docs and both examples"):
+    assert(fork.contains((apiDir / "orca-docs.md").toString))
     assert(fork.contains((apiDir / "implement.sc").toString))
     assert(fork.contains((apiDir / "implement-interactive.sc").toString))
 
@@ -541,8 +541,8 @@ class FlowAuthoringTest extends munit.FunSuite:
     assert(!edit.contains("Create the Orca flow"))
     assert(!edit.contains("by copying"))
 
-  test("editPrompt points at the extracted README and both examples"):
-    assert(edit.contains((apiDir / "README.md").toString))
+  test("editPrompt points at the extracted docs and both examples"):
+    assert(edit.contains((apiDir / "orca-docs.md").toString))
     assert(edit.contains((apiDir / "implement.sc").toString))
     assert(edit.contains((apiDir / "implement-interactive.sc").toString))
 

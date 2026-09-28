@@ -2,8 +2,9 @@
 
 How to build, test, and run a locally modified Orca. Internals, architecture,
 and coding conventions live in [AGENTS.md](AGENTS.md); end-user documentation
-in the [README](README.md). **sbt 1.12+** is needed in addition to the
-runtime requirements listed in the README.
+at [orca.virtuslab.com](https://orca.virtuslab.com), with its source and build
+instructions in [`docs/`](docs/README.md). **sbt 1.12+** is needed in addition
+to the runtime requirements listed in the README.
 
 ## Build and test
 

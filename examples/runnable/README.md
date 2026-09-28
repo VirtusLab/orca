@@ -20,7 +20,7 @@ Both examples expect:
 
 - **JDK 21+** and [scala-cli](https://scala-cli.virtuslab.org/).
 - `claude` CLI logged in (`claude auth login` — see the
-  [repo root README](../../README.md#authenticating-the-coding-agents)).
+  [Agent CLIs](../../docs/using/agent-clis.md)).
 - `cargo` on PATH — both seed a small Rust calculator crate.
 
 Seed a project:
@@ -73,6 +73,6 @@ Maven Central.
 
 ## Reading the output
 
-The repo root README has a [glyph legend](../../README.md#how-it-works) for the
+The docs have a [glyph legend](../../docs/using/output-and-files.md) for the
 rendered output. The full design rationale lives in
 [ADR 0008](../../adr/0008-terminal-output-design.md).
