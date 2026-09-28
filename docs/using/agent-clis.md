@@ -1,58 +1,72 @@
 # Agent CLIs
 
-Orca drives the coding-agent CLIs you already have, the
+Orca drives the coding-agent CLIs you already have, which it calls
 [harnesses](../glossary/users.md#agents-and-conversations): `claude`, `codex`,
-`opencode`, `pi` and `gemini`. Each one manages its own authentication; Orca
-stores no secrets. Before running a flow, log in to the harness you use, and to
-`gh` if the flow opens PRs or reads issues, each per its own instructions.
+`opencode`, `pi` and `gemini`. Each harness manages its own authentication,
+and Orca stores no secrets. Before you run a flow, log in to the harness you
+use, following its own instructions, and to `gh` if the flow opens PRs or reads
+issues.
 
 ## Run in a sandbox
 
 ```{warning}
-Run Orca in a sandbox. By default the coding agent edits files and runs shell
-commands without asking.
+Run Orca in a sandbox. Flows run unattended by default: the coding agent has
+the full tool set (`ToolSet.Full`) and every tool call is auto-approved
+(`AutoApprove.All`), so it edits files and runs shell commands without asking.
 ```
 
-You can narrow an agent's tools or auto-approval in the flow, see
-[Choosing agents](../authoring/choosing-agents.md). For an unattended run the
-practical boundary is a VPS or a local sandbox such as
-[Sandcat](https://github.com/VirtusLab/sandcat) or [Docker
-Sandboxes](https://docs.docker.com/ai/sandboxes/).
+You can narrow an agent's tools or auto-approval in the flow itself, see
+[Choosing agents](../authoring/choosing-agents.md). For an unattended run,
+however, the practical boundary is a VPS or a local sandbox such as
+[Sandcat](https://github.com/VirtusLab/sandcat) or
+[Docker Sandboxes](https://docs.docker.com/ai/sandboxes/).
 
 ## Your instruction files apply
 
-Orca's agents are ordinary harness sessions started in your repository. They
-load the same instruction files (`~/.claude/CLAUDE.md`, `CLAUDE.md`,
-`CLAUDE.local.md`, `AGENTS.md`, `GEMINI.md`, …), MCP servers, plugins and hooks
-as your own sessions.
+Orca's agents are ordinary harness sessions started in your repository, so
+they load the same instruction files (`~/.claude/CLAUDE.md`, `CLAUDE.md`,
+`CLAUDE.local.md`, `AGENTS.md`, `GEMINI.md`, …), MCP servers, plugins and
+hooks as your own sessions do.
 
-No one is present to approve tool calls, so:
+The difference is that no one is present to approve tool calls. This has a few
+consequences:
 
 - Coding turns auto-approve every tool by default.
-- On claude, read-only roles (the planner, reviewers, and the agent that picks
-  reviewers) can use only the tools Orca allows. Your MCP tools are blocked
-  unless your claude settings `permissions.allow` them.
-- On claude, opencode and pi, cheap one-shots (branch names, default commit
-  messages) run with no tools and no MCP servers.
+- On claude, the read-only roles (the planner, the reviewers, and the agent
+  that picks reviewers) can use only the tools Orca allows. In particular,
+  your MCP tools are blocked unless your claude settings `permissions.allow`
+  them.
+- On claude, opencode and pi, cheap one-shots such as branch names and default
+  commit messages run with no tools and no MCP servers.
 
-Check your instructions for:
+Because of this, it is worth checking your instruction files for two things:
 
-- **Mandatory tool calls.** "Always call X first" needs X allowed, or write
-  "if available".
-- **A human in the loop.** In autonomous flows, "ask me before X" or "wait for
-  confirmation" cannot work.
+- **Mandatory tool calls.** An instruction like "always call X first" only
+  works if X is allowed; otherwise, write "if available".
+- **A human in the loop.** In an autonomous flow, "ask me before X" or "wait
+  for confirmation" cannot work, as there is nobody to answer.
 
 ## OpenCode with a local Ollama model
 
-- **Launcher, zero config.** In the flow script, pass a launcher:
-  `flow(OrcaArgs(args), opencode = Some(w => OpencodeAgents.default(w, OpencodeLauncher.ollama("qwen3-coder"))))`.
-  Orca starts the server via `ollama launch opencode`, which injects Ollama's
-  provider config and pins that one model. Use bare `opencode`, no `withModel`.
-  Needs the `ollama` CLI with the model already pulled. See
-  [Extending flows in code](../authoring/extending.md).
-- **Manual config.** Declare an `ollama` provider in
-  `~/.config/opencode/opencode.json` (baseURL `http://localhost:11434/v1`, your
-  models, `num_ctx` raised for tool use), then
-  `opencode.withModel("ollama", "qwen3-coder")` (see
-  [Backends](../api/backends.md)). This way you can declare several models and
-  switch between them per turn.
+There are two ways to point OpenCode at a model served by Ollama.
+
+### Launcher, zero config
+
+Pass a launcher in the flow script:
+
+```scala
+flow(OrcaArgs(args), opencode = Some(w => OpencodeAgents.default(w, OpencodeLauncher.ollama("qwen3-coder"))))
+```
+
+Orca then starts the server via `ollama launch opencode`, which injects
+Ollama's provider config and pins that one model. Use bare `opencode` in this
+case, without `withModel`. This needs the `ollama` CLI with the model already
+pulled. See [Extending flows in code](../authoring/extending.md).
+
+### Manual config
+
+Declare an `ollama` provider in `~/.config/opencode/opencode.json` (with
+baseURL `http://localhost:11434/v1`, your models, and `num_ctx` raised for tool
+use), then select a model with `opencode.withModel("ollama", "qwen3-coder")`
+(see [Backends](../api/backends.md)). This way you can declare several models
+and switch between them per turn.

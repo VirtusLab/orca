@@ -1,26 +1,74 @@
 # Built-in flows
 
-Orca ships these flows; each name links to its source. `orca list` shows them
-together with your project and global flows; `orca view <flow>` prints the
-source. Every flow that changes
-code opens a PR if `gh` can reach the repository on GitHub. Otherwise it says
-so and leaves the committed work on the feature branch.
+Orca ships with the flows described below. `orca list` shows them together
+with your project and global flows, and `orca view <flow>` prints a flow's
+source. Every flow that changes code opens a PR if `gh` can reach the
+repository on GitHub; otherwise it says so and leaves the committed work on the
+feature branch.
 
-All of them take the [role agents](../glossary/users.md#agents-and-conversations)
-from [settings](settings.md) and need those agents logged in. `gh` is optional
-unless noted.
+All of the flows take the
+[role agents](../glossary/users.md#agents-and-conversations) from
+[settings](settings.md), and those agents need to be logged in. `gh` is
+optional unless a flow says otherwise.
 
-| Flow | Prompt | Does |
-|---|---|---|
-| [`implement.sc`](https://github.com/VirtusLab/orca/blob/master/flows/implement.sc) | what to build | Plans the prompt into tasks. Implements each task on the run's branch and reviews it once. Then runs a review-and-fix loop over the whole change. The default choice. |
-| [`implement-interactive.sc`](https://github.com/VirtusLab/orca/blob/master/flows/implement-interactive.sc) | what to build | Same as `implement.sc`, but the planner can ask you clarifying questions before producing the plan. On a re-run a finished planning stage is skipped, so you are not asked again. |
-| [`implement-enhanced.sc`](https://github.com/VirtusLab/orca/blob/master/flows/implement-enhanced.sc) | what to build | `implement.sc` plus two steps: the planner critiques and improves its own draft, and a documentation stage updates the project's docs from what the tasks changed. |
-| [`simple.sc`](https://github.com/VirtusLab/orca/blob/master/flows/simple.sc) | one well-scoped task | No planning. The prompt is the one task, handed straight to the coder, then reviewed. For small changes where a plan is overhead. Also what `orca create` and `orca fork` run. |
-| [`issue-pr.sc`](https://github.com/VirtusLab/orca/blob/master/flows/issue-pr.sc) | `owner/repo#N` or an issue URL | Reads the issue and checks it against the repository: are its claims right, is detail missing, is it a duplicate, is the scope sane. Then either posts a rejection comment or plans, implements, reviews and opens a PR. Branch `fix/issue-<n>`. Needs `gh`. |
-| [`issue-pr-bugfix.sc`](https://github.com/VirtusLab/orca/blob/master/flows/issue-pr-bugfix.sc) | `owner/repo#N` or an issue URL | The bug-report variant. Triages first: not a bug (comments), a bug no test can show (comments with reproduction steps), or a testable bug. For a testable bug it writes a failing test, opens a tentative PR, waits for CI to go red, confirms the failure matches the report, then fixes and updates the PR. Needs `gh`. |
-| [`review.sc`](https://github.com/VirtusLab/orca/blob/master/flows/review.sc) | a PR reference or URL, a branch, "the uncommitted changes", a commit range, or a diff on stdin | Review only: picks reviewers, runs them concurrently, prints every finding. When the target is a PR, posts the report on it; a re-run replaces the earlier report. Nothing is fixed or committed. |
+## `implement.sc`
 
-Examples:
+This is the default choice. You give it a description of what to build; it
+plans the prompt into tasks, implements each task on the run's branch and
+reviews it once, then runs a review-and-fix loop over the whole change.
+[Source](https://github.com/VirtusLab/orca/blob/master/flows/implement.sc).
+
+## `implement-interactive.sc`
+
+The same as `implement.sc`, except that the planner can ask you clarifying
+questions before it produces the plan. Note that on a re-run a finished
+planning stage is skipped, so you are not asked again.
+[Source](https://github.com/VirtusLab/orca/blob/master/flows/implement-interactive.sc).
+
+## `implement-enhanced.sc`
+
+`implement.sc` with two extra steps: the planner critiques and improves its
+own draft, and a documentation stage updates the project's docs based on what
+the tasks changed.
+[Source](https://github.com/VirtusLab/orca/blob/master/flows/implement-enhanced.sc).
+
+## `simple.sc`
+
+There is no planning here: the prompt is the one task, handed straight to the
+coder and then reviewed. This is useful for small, well-scoped changes, where a
+plan would be overhead. It is also the flow that `orca create` and `orca fork`
+run. [Source](https://github.com/VirtusLab/orca/blob/master/flows/simple.sc).
+
+## `issue-pr.sc`
+
+You give it an issue, as `owner/repo#N` or as a URL. The flow reads the issue
+and checks it against the repository: are its claims right, is any detail
+missing, is it a duplicate, is the scope sane. Depending on the outcome, it
+either posts a rejection comment or plans, implements, reviews and opens a PR.
+The branch is named `fix/issue-<n>`. This flow needs `gh`.
+[Source](https://github.com/VirtusLab/orca/blob/master/flows/issue-pr.sc).
+
+## `issue-pr-bugfix.sc`
+
+The bug-report variant of `issue-pr.sc`, taking the same prompt. It triages
+the issue first, with three possible outcomes: it is not a bug (the flow
+comments), it is a bug that no test can show (the flow comments with
+reproduction steps), or it is a testable bug. For a testable bug, the flow
+writes a failing test, opens a tentative PR, waits for CI to go red, confirms
+that the failure matches the report, and only then fixes the bug and updates
+the PR. This flow needs `gh`.
+[Source](https://github.com/VirtusLab/orca/blob/master/flows/issue-pr-bugfix.sc).
+
+## `review.sc`
+
+Review only. The prompt says what to review: a PR reference or URL, a branch,
+"the uncommitted changes", a commit range, or a diff on stdin. The flow picks
+reviewers, runs them concurrently and prints every finding. When the target is
+a PR, it also posts the report on it, and a re-run replaces the earlier report.
+Nothing is fixed or committed.
+[Source](https://github.com/VirtusLab/orca/blob/master/flows/review.sc).
+
+## Examples
 
 ```bash
 orca run implement.sc "Add a multiply function to the calculator crate"
@@ -30,18 +78,20 @@ orca run review.sc "acme/widgets#42"
 git diff | orca run review.sc
 ```
 
-Re-run with the same prompt: the progress log, and for the issue flows the
-branch name and the marker that identifies their comment, are derived from it.
+To resume a run, re-run it with the same prompt: the progress log, and for the
+issue flows also the branch name and the marker that identifies their comment,
+are derived from it.
 
 ## Runnable examples
 
 Two self-contained examples under
 [`examples/runnable/`](https://github.com/VirtusLab/orca/tree/master/examples/runnable)
-seed a small Rust project into a temp directory and run a flow against it:
+seed a small Rust project into a temporary directory and run a flow against
+it:
 
-- `01-simple`: autonomous planning, then implement and review each task.
-- `02-interactive`: the same shape, but the planner can pause to ask you
+- `01-simple` runs autonomous planning, then implements and reviews each task.
+- `02-interactive` has the same shape, but the planner can pause to ask you
   questions.
 
-Each has a `create-test-project.sh` and a README with the exact commands. They
-need `cargo` on `PATH`.
+Each example comes with a `create-test-project.sh` script and a README with
+the exact commands to run. They need `cargo` on `PATH`.

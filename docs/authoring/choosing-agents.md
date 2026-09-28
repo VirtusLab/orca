@@ -1,24 +1,26 @@
 # Choosing agents
 
-A call takes an agent. Name it one of two ways.
+Every call that talks to an agent takes the agent as a parameter. You can name
+it in one of two ways.
 
-**The role agents: `planningAgent`, `codingAgent`, `reviewAgent`.** Harness
-agnostic. Each is resolved from [settings](../using/settings.md), defaulting to
-claude. Use `planningAgent` for `Plan.*` calls, `codingAgent` for the
-implementer's session, and `reviewAgent` for `allReviewers(...)`; the review
-helpers default to it. Change settings and the whole flow follows. The shipped
-flows use only role agents.
+**The role agents: `planningAgent`, `codingAgent`, `reviewAgent`.** These are
+harness agnostic. Each is resolved from [settings](../using/settings.md) and
+defaults to claude. Use `planningAgent` for `Plan.*` calls, `codingAgent` for
+the implementer's session, and `reviewAgent` for `allReviewers(...)`; the
+review helpers default to it. When you change the settings, the whole flow
+follows. The shipped flows use only role agents.
 
-`codingAgent` is also the run's primary: its cheap tier names the branch,
-discovers the stack settings and writes default commit messages.
+`codingAgent` is also the run's primary agent: its cheap tier names the
+branch, discovers the stack settings and writes the default commit messages.
 
 **A specific harness and model: `claude.opus`, `codex.mini`,
-`gemini.flash`.** Use a concrete accessor when a step needs a particular harness
-or tier regardless of settings, say `claude.opus` for a step that must have the
-strongest model. `codingAgent.opus` does not compile: model accessors exist
-only on concrete harnesses. If you need a model, name the harness. Pin any
-other model with `withModel(Model("…"))`. The models and accessors of each
-harness are listed in [Backends](../api/backends.md).
+`gemini.flash`.** Use a concrete accessor when a step needs a particular
+harness or tier regardless of the settings, for example `claude.opus` for a
+step that must have the strongest model. Note that `codingAgent.opus` does not
+compile: model accessors exist only on concrete harnesses, so if you need a
+specific model, name the harness. Any other model can be pinned with
+`withModel(Model("…"))`. The models and accessors of each harness are listed in
+[Backends](../api/backends.md).
 
 ## The cheap tier
 
@@ -30,11 +32,11 @@ harness are listed in [Backends](../api/backends.md).
 - opencode: luna when the provider is openai, else haiku
 - pi: no cheaper model; `pi.cheap` is `pi`
 
-Use it for one-shot summaries and pickers.
+It is useful for one-shot summaries and pickers.
 
 ## Tool sets
 
-`ToolSet` decides which tools exist at all:
+`ToolSet` decides which tools exist at all for a given agent:
 
 ```scala
 // ReadOnly: reads only, no shell, no edits. Reviewers, plan review, briefs.
@@ -69,17 +71,20 @@ val limited =
 ```
 
 `AutoApprove.Only` fits interactive flows, where a human answers anything
-outside the set. In an autonomous turn nobody can answer, so a call outside the
-set hangs. Only claude enforces the set per tool; codex and gemini cannot
-restrict per tool, so `Only` becomes full auto-approval there. For an
-unattended run the practical boundary is a sandbox, see
+outside the set. Only claude enforces the set per tool; codex and gemini
+cannot restrict per tool, so `Only` becomes full auto-approval there.
+
+```{warning}
+In an autonomous turn nobody can answer the prompt, so a call outside the set
+hangs. For an unattended run, the practical boundary is a sandbox, see
 [Agent CLIs](../using/agent-clis.md).
+```
 
 ## How strongly each harness enforces a limit
 
-A `ToolSet` requests a restriction. Each harness enforces it differently. When
-a harness cannot enforce the requested limit, the turn's output is marked with
-`!`.
+A `ToolSet` requests a restriction, and each harness enforces it differently.
+When a harness cannot enforce the requested limit, the turn's output is marked
+with `!`.
 
 | `ToolSet`, `AutoApprove` | Claude Code | Codex | OpenCode | Pi | Gemini |
 |---|---|---|---|---|---|
@@ -89,23 +94,29 @@ a harness cannot enforce the requested limit, the turn's output is marked with
 | Full, Only(_) | Hard | SandboxApprox | Ignored | Ignored | Ignored |
 | NoTools, * | Hard | PromptOnly | Hard | Hard | PromptOnly |
 
-Hard: the CLI blocks the tools. PromptOnly: the agent is told, nothing blocks
-it. SandboxApprox: a sandbox approximates the set. Ignored: the harness cannot
-apply the restriction; auto-approval is always on there. A codex turn that
-continues a conversation with `Only` is Ignored rather than SandboxApprox.
+The values mean:
+
+- Hard: the CLI blocks the tools.
+- PromptOnly: the agent is told about the restriction, but nothing blocks it.
+- SandboxApprox: a sandbox approximates the set.
+- Ignored: the harness cannot apply the restriction; auto-approval is always on
+  there.
+
+Note that a codex turn that continues a conversation with `Only` is Ignored
+rather than SandboxApprox.
 
 ## Tuning an agent
 
 Every harness shares these builders: `withModel`, `withCheapModel`,
-`withAutoApprove`, `withSystemPrompt`, `withName` (its own line in the cost
-log), `withReadOnly`, `withNetworkOnly`, `withSelfManagedGit`. Each returns a
-new agent on the same harness. Agents on the same harness can continue each
-other's conversations, see `chat.withAgent` in
-[Talking to agents](talking-to-agents.md).
+`withAutoApprove`, `withSystemPrompt`, `withName` (which gives the agent its
+own line in the cost log), `withReadOnly`, `withNetworkOnly` and
+`withSelfManagedGit`. Each returns a new agent on the same harness. Agents on
+the same harness can continue each other's conversations; see `chat.withAgent`
+in [Talking to agents](talking-to-agents.md).
 
-`withSelfManagedGit` opts one agent out of the rule that the runtime owns git:
-by default every write-capable turn is told not to commit, push or switch
-branches.
+By default, the runtime owns git: every write-capable turn is told not to
+commit, push or switch branches. `withSelfManagedGit` opts one agent out of
+this rule.
 
-To replace an agent for the whole flow, or supply your own tool
+To replace an agent for the whole flow, or to supply your own tool
 implementations, see [Extending flows in code](extending.md).

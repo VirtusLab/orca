@@ -1,43 +1,59 @@
 # Gates and checks
 
-Each review round can run three kinds of non-LLM verification alongside the
-reviewers: a format gate, a lint gate, and Scala checks.
+Besides the reviewers, each review round can run three kinds of verification
+that do not involve an LLM: a format gate, a lint gate, and Scala checks. This
+page describes each of them, and how to turn the gates on and off.
 
 ## Format
 
-`formatCommands` run before each review round, in the flow's working
-directory, so reviewers never see formatting noise.
+The `formatCommands` run before each review round, in the flow's working
+directory. This way the reviewers never see formatting noise in the change set.
 
 ## Lint
 
-`lint` runs alongside the reviewers each round. A `Lint(commands, agent)` is the
-shell commands plus the cheap agent that summarises their output into a
+The `lint` gate runs alongside the reviewers, each round. It is described by a
+`Lint(commands, agent)` value: the shell commands to run, plus the cheap agent
+that summarises their output into a
 [`ReviewResult`](../api/data-structures.md#review).
 
-The standalone call is available too, and works inside a fork:
+The lint gate is also available as a standalone call, which you can use inside
+a fork as well. It comes in two variants:
 
-| Call | Does |
-|---|---|
-| `lint(commands, agent, instructions?)` | runs the commands in order with `bash -c`, all of them even if one fails, then has `agent` turn the labelled output into a `ReviewResult`. Long output is written under `.orca/cache/` for the agent to read, so it cannot overflow the context |
-| `lint(commands, summariser, instructions)` | as above, summarising into an existing `Lint.summariser(agent)` conversation, so a gate run several times in one stage resumes the session; returns a `LintReport`. Do not reuse a summariser after it has reported findings: it may repeat them when a later run no longer shows them. The review loop does this for you |
+- `lint(commands, agent, instructions?)` runs the commands in order with
+  `bash -c`, all of them even if one fails, and then has `agent` turn the
+  labelled output into a `ReviewResult`. Long output is written under
+  `.orca/cache/` for the agent to read, so it cannot overflow the context.
+- `lint(commands, summariser, instructions)` works as above, but summarises
+  into an existing `Lint.summariser(agent)` conversation, so that a gate which
+  runs several times in one stage resumes the same session. It returns a
+  `LintReport`. The review loop does this for you.
 
-The `test` commands are not run by the review loop, which stays deliberately
-cheap. Read them as `summon[FlowContext].stackSettings.test` (see
+```{warning}
+Do not reuse a summariser after it has reported findings: it may repeat them
+when a later run no longer shows them.
+```
+
+Note that the review loop does not run the `test` commands, as it stays
+deliberately cheap. If you want to run the tests, read them as
+`summon[FlowContext].stackSettings.test` (see
 [Data structures](../api/data-structures.md#settings)) and run them in a stage
 of your own.
 
 ## Checks
 
-A `ReviewCheck` is Scala code with a `name` and `evaluate(): ReviewResult`: a
-benchmark, an HTTP probe, an assertion. Pass it in the `checks` list of either
-review call; its findings go to the fixer with the reviewers'.
+A `ReviewCheck` is Scala code with a `name` and an `evaluate(): ReviewResult`
+method: for example a benchmark, an HTTP probe, or an assertion. Pass it in the
+`checks` list of either review call, and its findings go to the fixer together
+with the reviewers' findings.
 
 Checks run one at a time, after the format commands and before the reviewers
 and the lint gate, so a check that builds or times the code has the machine to
 itself. A check must not modify sources. Keep a finding's title the same across
-rounds and put measurements in its description: the loop matches a check's
-finding to the one it already holds by its title and file. With no reviewers,
-the loop just evaluates the check and fixes:
+rounds and put the measurements in its description, because the loop matches a
+check's finding to the one it already holds by its title and file.
+
+With no reviewers at all, the loop just evaluates the check and fixes. For
+example:
 
 ```scala
 val benchmark = new ReviewCheck:
@@ -61,15 +77,16 @@ stage("Speed up"):
 ```
 
 `InStage` is the capability every agent run takes, see
-[Capabilities](capabilities.md). In one `reviewThenFix` call a check can run up
-to three times: before the review, after the fix, and after the second fix.
+[Capabilities](capabilities.md). Note that in one `reviewThenFix` call a check
+can run up to three times: before the review, after the fix, and after the
+second fix.
 
 ## Turning gates on and off
 
-`formatCommands` and `lint` on `reviewThenFix` and `reviewAndFixLoop` are
-`Configured` values. The default reads the project's
-[stack settings](../using/settings.md); `Off` disables the gate; `Use(value)`
-gives one explicitly:
+The `formatCommands` and `lint` parameters of `reviewThenFix` and
+`reviewAndFixLoop` are `Configured` values. The default reads the project's
+[stack settings](../using/settings.md); `Off` disables the gate; and
+`Use(value)` gives one explicitly:
 
 ```scala
 enum Configured[+A]:
@@ -78,14 +95,14 @@ enum Configured[+A]:
   case Use(value: A)  // explicit value; settings ignored
 ```
 
-`FromSettings` uses `stackSettings.format` for `formatCommands` and
+`FromSettings` uses `stackSettings.format` for `formatCommands`, and
 `Lint(stackSettings.lint, reviewAgent.cheap)` for `lint`. An empty command list
-means no gate, so empty settings behave like `Off`. For format-only, pass
-`lint = Configured.Off`.
+means no gate, so empty settings behave like `Off`. If you want the format gate
+only, pass `lint = Configured.Off`.
 
 ## Recording your own findings
 
-`OpenFinding.custom(title, reason, location)` is an open finding a flow records
-itself, say a gate it runs outside the loop still failing. Add it to the
-`OpenFindings` handed to the PR step, or pass it in `priorOpenFindings` so a
-loop's reviewers see it.
+`OpenFinding.custom(title, reason, location)` is an open finding that a flow
+records itself, for example when a gate it runs outside the loop still fails.
+Add it to the `OpenFindings` handed to the PR step, or pass it in
+`priorOpenFindings` so that a loop's reviewers see it.
