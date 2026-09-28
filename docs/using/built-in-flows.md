@@ -1,7 +1,8 @@
 # Built-in flows
 
-Orca ships these flows. `orca list` shows them together with your project and
-global flows; `orca view <flow>` prints the source. Every flow that changes
+Orca ships these flows; each name links to its source. `orca list` shows them
+together with your project and global flows; `orca view <flow>` prints the
+source. Every flow that changes
 code opens a PR if `gh` can reach the repository on GitHub. Otherwise it says
 so and leaves the committed work on the feature branch.
 
@@ -11,13 +12,13 @@ unless noted.
 
 | Flow | Prompt | Does |
 |---|---|---|
-| `implement.sc` | what to build | Plans the prompt into tasks. Implements each task on the run's branch and reviews it once. Then runs a review-and-fix loop over the whole change. The default choice. |
-| `implement-interactive.sc` | what to build | Same as `implement.sc`, but the planner can ask you clarifying questions before producing the plan. On a re-run a finished planning stage is skipped, so you are not asked again. |
-| `implement-enhanced.sc` | what to build | `implement.sc` plus two steps: the planner critiques and improves its own draft, and a documentation stage updates the project's docs from what the tasks changed. |
-| `simple.sc` | one well-scoped task | No planning. The prompt is the one task, handed straight to the coder, then reviewed. For small changes where a plan is overhead. Also what `orca create` and `orca fork` run. |
-| `issue-pr.sc` | `owner/repo#N` or an issue URL | Reads the issue and checks it against the repository: are its claims right, is detail missing, is it a duplicate, is the scope sane. Then either posts a rejection comment or plans, implements, reviews and opens a PR. Branch `fix/issue-<n>`. Needs `gh`. |
-| `issue-pr-bugfix.sc` | `owner/repo#N` or an issue URL | The bug-report variant. Triages first: not a bug (comments), a bug no test can show (comments with reproduction steps), or a testable bug. For a testable bug it writes a failing test, opens a tentative PR, waits for CI to go red, confirms the failure matches the report, then fixes and updates the PR. Needs `gh`. |
-| `review.sc` | a PR reference or URL, a branch, "the uncommitted changes", a commit range, or a diff on stdin | Review only: picks reviewers, runs them concurrently, prints every finding. When the target is a PR, posts the report on it; a re-run replaces the earlier report. Nothing is fixed or committed. |
+| [`implement.sc`](https://github.com/VirtusLab/orca/blob/master/flows/implement.sc) | what to build | Plans the prompt into tasks. Implements each task on the run's branch and reviews it once. Then runs a review-and-fix loop over the whole change. The default choice. |
+| [`implement-interactive.sc`](https://github.com/VirtusLab/orca/blob/master/flows/implement-interactive.sc) | what to build | Same as `implement.sc`, but the planner can ask you clarifying questions before producing the plan. On a re-run a finished planning stage is skipped, so you are not asked again. |
+| [`implement-enhanced.sc`](https://github.com/VirtusLab/orca/blob/master/flows/implement-enhanced.sc) | what to build | `implement.sc` plus two steps: the planner critiques and improves its own draft, and a documentation stage updates the project's docs from what the tasks changed. |
+| [`simple.sc`](https://github.com/VirtusLab/orca/blob/master/flows/simple.sc) | one well-scoped task | No planning. The prompt is the one task, handed straight to the coder, then reviewed. For small changes where a plan is overhead. Also what `orca create` and `orca fork` run. |
+| [`issue-pr.sc`](https://github.com/VirtusLab/orca/blob/master/flows/issue-pr.sc) | `owner/repo#N` or an issue URL | Reads the issue and checks it against the repository: are its claims right, is detail missing, is it a duplicate, is the scope sane. Then either posts a rejection comment or plans, implements, reviews and opens a PR. Branch `fix/issue-<n>`. Needs `gh`. |
+| [`issue-pr-bugfix.sc`](https://github.com/VirtusLab/orca/blob/master/flows/issue-pr-bugfix.sc) | `owner/repo#N` or an issue URL | The bug-report variant. Triages first: not a bug (comments), a bug no test can show (comments with reproduction steps), or a testable bug. For a testable bug it writes a failing test, opens a tentative PR, waits for CI to go red, confirms the failure matches the report, then fixes and updates the PR. Needs `gh`. |
+| [`review.sc`](https://github.com/VirtusLab/orca/blob/master/flows/review.sc) | a PR reference or URL, a branch, "the uncommitted changes", a commit range, or a diff on stdin | Review only: picks reviewers, runs them concurrently, prints every finding. When the target is a PR, posts the report on it; a re-run replaces the earlier report. Nothing is fixed or committed. |
 
 Examples:
 

@@ -1,7 +1,7 @@
 # Quick start
 
 A flow is a Scala script that tells coding agents what to do. The built-in
-`implement.sc` flow plans the work, hands each task to a coding agent, has
+[`implement.sc`](https://github.com/VirtusLab/orca/blob/master/flows/implement.sc) flow plans the work, hands each task to a coding agent, has
 every change reviewed by another agent, and opens a pull request. Because the
 flow is a program, these steps always happen. Nothing depends on an agent
 remembering them.
@@ -52,8 +52,8 @@ continues from the last commit. [How Orca works](how-it-works.md) has the full
 picture.
 
 ```{warning}
-By default, agents edit files and run shell commands without asking. Run Orca
-in a sandbox: see [Run in a sandbox](../using/agent-clis.md#run-in-a-sandbox).
+By default, agents edit files and run shell commands without asking, so
+[run Orca in a sandbox](../using/agent-clis.md#run-in-a-sandbox).
 ```
 
 ## Next steps

@@ -38,8 +38,9 @@ from the first unfinished stage. See
 Orca creates the feature branch and, at the end, removes the progress log
 (there is nothing left to resume) and opens the PR. Agents are told not to
 commit, push or switch branches. They edit files; the flow decides what
-happens to the edits. The compiler helps: a call that writes to the repository
-or runs an agent does not compile outside a stage. See
+happens to the edits. A flow can only push, write files, post to GitHub or run
+an agent from inside a stage. Such a call anywhere else is a compile error, so
+every side effect is checkpointed by the stage's commit. See
 [Stages](../authoring/stages.md).
 
 ## Agents are yours
