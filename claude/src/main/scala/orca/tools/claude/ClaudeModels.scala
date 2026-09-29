@@ -11,7 +11,7 @@ private[orca] object ClaudeModels:
     */
   val Haiku: Model = Model("claude-haiku-4-5")
 
-  val Sonnet: Model = Model("claude-sonnet-5")
+  val Sonnet: Model = Model("claude-sonnet-5-5")
 
   /** The default coding model: Opus with the 1M-token context window, via the
     * `[1m]` model-alias suffix. A coder session runs many model requests over

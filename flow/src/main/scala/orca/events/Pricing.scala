@@ -205,6 +205,7 @@ object Pricing:
     Model("claude-opus-4-6") -> anthropic(5),
     Model("claude-opus-4-5") -> anthropic(5),
     Model("claude-opus-4-1") -> anthropic(15),
+    Model("claude-sonnet-5-5") -> anthropic(2),
     Model("claude-sonnet-5") -> anthropic(2),
     Model("claude-sonnet-4-6") -> anthropic(3),
     Model("claude-sonnet-4-5") -> anthropic(3),
