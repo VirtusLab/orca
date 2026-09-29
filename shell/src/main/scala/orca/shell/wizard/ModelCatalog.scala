@@ -59,7 +59,7 @@ private[shell] object ModelCatalog:
   def freeTextHint(tag: BackendTag): String =
     tag match
       case BackendTag.Opencode =>
-        " (provider/model, e.g. anthropic/claude-sonnet-5)"
+        " (provider/model, e.g. anthropic/claude-sonnet-5-5)"
       case BackendTag.Pi => " (name or pattern, `:thinking` suffix allowed)"
       case _             => ""
 

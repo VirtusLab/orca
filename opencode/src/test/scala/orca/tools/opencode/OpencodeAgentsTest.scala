@@ -38,7 +38,7 @@ class OpencodeAgentsTest extends munit.FunSuite:
     )
     assertEquals(
       modelOf(toolWith(b).anthropicSonnet, b),
-      Some("anthropic/claude-sonnet-5")
+      Some("anthropic/claude-sonnet-5-5")
     )
     assertEquals(
       modelOf(toolWith(b).anthropicHaiku, b),
