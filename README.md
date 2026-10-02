@@ -28,8 +28,9 @@ Orca assumes that it has configured, logged-in access to Claude, Codex,
 OpenCode, Pi or Gemini (depending which backend you use), as well as `gh` and
 `git`.
 
-> [!NOTE] Orca is designed to be run as part of a single-developer workflow. For
-> a platform designed for teams, see
+> [!NOTE] 
+> Orca is designed to be run as part of a single-developer workflow. For a
+> platform designed for teams, see
 > [Visdom](https://virtuslab.com/services/visdom): VirtusLab's AI-native SDLC
 > platform.
 
@@ -69,12 +70,13 @@ A flow is a scala-cli script, so it also runs with no install:
 scala-cli run --workspace "$(mktemp -d)" implement.sc -- "add a rate limiter to /login"
 ```
 
-> [!WARNING] **Orca is designed to work in a sandboxed environment!** Coding
-> agent tool usage is auto-approved by default: write-capable turns let the
-> agent edit files and run shell commands without prompting. Use a VPS or a
-> local sandbox such as [Sandcat](https://github.com/VirtusLab/sandcat) or
-> [Docker Sandboxes](https://docs.docker.com/ai/sandboxes/), or narrow the
-> agents' tools in the flow.
+> [!WARNING] 
+> **Orca is designed to work in a sandboxed environment!** Coding agent tool
+> usage is auto-approved by default: write-capable turns let the agent edit
+> files and run shell commands without prompting. Use a VPS or a local sandbox
+> such as [Sandcat](https://github.com/VirtusLab/sandcat) or [Docker
+> Sandboxes](https://docs.docker.com/ai/sandboxes/), or narrow the agents' tools
+> in the flow.
 
 ## A flow
 
