@@ -71,10 +71,10 @@ scala-cli run --workspace "$(mktemp -d)" implement.sc -- "add a rate limiter to 
 ```
 
 > [!WARNING] 
-> **Orca is designed to work in a sandboxed environment!** Coding agent tool
-> usage is auto-approved by default: write-capable turns let the agent edit
-> files and run shell commands without prompting. Use a VPS or a local sandbox
-> such as [Sandcat](https://github.com/VirtusLab/sandcat) or [Docker
+> **Orca should be used in a sandboxed environment!** Coding agent tool usage is
+> auto-approved by default: write-capable turns let the agent edit files and run
+> shell commands without prompting. Use a VPS or a local sandbox such as
+> [Sandcat](https://github.com/VirtusLab/sandcat) or [Docker
 > Sandboxes](https://docs.docker.com/ai/sandboxes/), or narrow the agents' tools
 > in the flow.
 
