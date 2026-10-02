@@ -36,7 +36,7 @@ OpenCode, Pi or Gemini (depending which backend you use), as well as `gh` and
 
 ## Documentation
 
-[orca.virtuslab.com](https://orca.virtuslab.com)
+Is available here: [orca.virtuslab.com](https://orca.virtuslab.com)
 
 ## Install
 
