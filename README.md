@@ -8,9 +8,10 @@ reviewed by another agent, don't try to coerce the agents; just express that
 requirement in code. Don't waste tokens on formatting, committing, or creating
 PRs - all of this can be handled by an ordinary script.
 
-Orca comes with an `orca` cli, which can be used interactively by humans, or
-headlessly by humans and agents alike. A number of built-in flows, implementing
-e.g. a plan-implement-review loop, allow you to start using Orca right away.
+Orca comes with an `orca` cli and a skill, which can be used interactively by
+humans, or headlessly by humans and agents alike. A number of built-in flows,
+implementing e.g. a plan-implement-review loop, allow you to start using Orca
+right away.
 
 Orca flow scripts are written in Scala, and can be run with a single command
 through [scala-cli](https://scala-cli.virtuslab.org), which is installed by the
@@ -27,11 +28,18 @@ Orca assumes that it has configured, logged-in access to Claude, Codex,
 OpenCode, Pi or Gemini (depending which backend you use), as well as `gh` and
 `git`.
 
-**Documentation: [orca.virtuslab.com](https://orca.virtuslab.com)**
+> [!NOTE] Orca is designed to be run as part of a single-developer workflow. For
+> a platform designed for teams, see
+> [Visdom](https://virtuslab.com/services/visdom): VirtusLab's AI-native SDLC
+> platform.
+
+## Documentation
+
+[orca.virtuslab.com](https://orca.virtuslab.com)
 
 ## Install
 
-One command installs `scala-cli` (via its official installer) if you don't have
+The below installs `scala-cli` (via its official installer) if you don't have
 it already, and writes the `orca` executable to `~/.local/bin/orca`:
 
 ```bash
@@ -44,7 +52,7 @@ Run `orca` in your repository. The first run asks which agent and model to use
 for planning, coding and review. Then pick a flow (`implement.sc` comes first)
 and enter your prompt.
 
-The same, without the menu, for example from a coding agent or CI:
+The same can be run non-interactively:
 
 ```bash
 orca run implement.sc "add a rate limiter to /login"
@@ -53,7 +61,7 @@ orca run implement.sc "add a rate limiter to /login"
 Orca creates a feature branch, plans the change into tasks, implements and
 reviews each one, reviews the whole change, and opens a PR when the repository
 is on GitHub. Each stage is committed as it finishes; if the run is interrupted,
-run the same command again and it continues from the last commit.
+run the same command again and it will continue from the last commit.
 
 A flow is a scala-cli script, so it also runs with no install:
 
@@ -70,8 +78,8 @@ scala-cli run --workspace "$(mktemp -d)" implement.sc -- "add a rate limiter to 
 
 ## A flow
 
-Flows are ordinary Scala scripts. This one plans, implements each task with a
-review, and opens a PR:
+Flows are ordinary Scala scripts. For example, the below one plans, implements
+each task with a review, and opens a PR:
 
 ```scala
 //> using scala 3.9.0
