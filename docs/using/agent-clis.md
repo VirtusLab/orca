@@ -46,6 +46,27 @@ Because of this, it is worth checking your instruction files for two things:
 - **A human in the loop.** In an autonomous flow, "ask me before X" or "wait
   for confirmation" cannot work, as there is nobody to answer.
 
+### Allowing MCP tools for claude's read-only roles
+
+The read-only roles see your MCP servers, but a call is denied unless a
+`permissions.allow` rule names it. The run's summary lists such calls as
+`denied tool calls: mcp__<server>__<tool>`. Allow a whole server or single
+tools in `~/.claude/settings.json` (all your repositories) or a committed
+`.claude/settings.json` (this repository):
+
+```json
+{
+  "permissions": {
+    "allow": ["mcp__docs", "mcp__tracker__get_issue"]
+  }
+}
+```
+
+Allow only read-only tools: anything allowed here runs unprompted in every
+claude session, not only in Orca's. If you previously answered "don't ask
+again" in a session, that rule went to `.claude/settings.local.json`, which
+is not committed.
+
 ## OpenCode with a local Ollama model
 
 There are two ways to point OpenCode at a model served by Ollama.
