@@ -77,7 +77,7 @@ most easily broken:
   cross a `fork` boundary (two concurrent forks racing on the same git index or
   progress log is exactly what this is meant to catch — ADR 0018 §6). A helper that does
   both (e.g. the lifecycle's `freshRun`, which names the branch via the cheap
-  model AND performs the setup git writes) takes BOTH; `Flow`'s
+  model AND performs the setup git writes) takes BOTH; `stage.scala`'s
   `recordAndCommit` instead mints its own tokens through the `RuntimeInStage`
   door. Only a `stage` body mints — and is handed both tokens together. Don't relax
   this: production mints go through `orca.RuntimeInStage.token()` /
@@ -301,7 +301,7 @@ Three location classes decide what survives:
 
 | Path | Class | Holds | Written by | Read by | Removed by |
 |---|---|---|---|---|---|
-| `.orca/runs/<key>.progress.json` | committed | `ProgressLog`: header (branches, `branchMode`, `startingCommit`, `userPrompt`, `flow`), one `StageEntry` per completed stage (`id` as `StagePath` segments, `resultJson`), `published` | `ProgressStore` (`FlowLifecycle.freshRun`, `Flow.recordAndCommit`, `recordOpenedPr`) | `Flow.resumeFrom`, `RecoveryCheck`, `FlowLifecycle`, shell `ResumeDetector` (header) | success teardown, in a final commit |
+| `.orca/runs/<key>.progress.json` | committed | `ProgressLog`: header (branches, `branchMode`, `startingCommit`, `userPrompt`, `flow`), one `StageEntry` per completed stage (`id` as `StagePath` segments, `resultJson`), `published` | `ProgressStore` (`FlowLifecycle.freshRun`, `stage.scala`'s `recordAndCommit`, `recordOpenedPr`) | `stage.scala`'s `resumeFrom`, `RecoveryCheck`, `FlowLifecycle`, shell `ResumeDetector` (header) | success teardown, in a final commit |
 | `.orca/cache/runs/<key>.sessions.json` | cache | `SessionRecord` per durable session: `name`, `stage`, `id`, `seed`, `resumeWireId`, `backend` | `SessionStore` (`Session.mintSession`, `persistResumeWireId`) | `Session` | success teardown; nothing else prunes them |
 | `.orca/cache/attempts/<id>.manifest.json` | cache | `AttemptManifest`: `workDir`, `pid`, `startedAt`, `finishedAt`, `status`, `orcaVersion`, `flow`, `branch`, `sessions[]` (`ManifestSession`) — written when the attempt starts, then on every stage transition, `BranchBound`, `SessionCommitted` and finish | `AttemptManifestWriter` | shell `ManifestReader` → session picker / `orca continue` (attempts with no session are left out) | pruning: newest 20 attempts with a session ∪ newest 20 of any kind |
 | `.orca/cache/attempts/<id>.cost.jsonl` | cache | one `CostRecord` line per `TokensUsed` (agent, role, model, stage, turn, apiCalls, usage, cost, conversationKey) — created on the first `TokensUsed` | `CostLog` via `AttemptManifestWriter` | nothing in orca; a measurement record for people and scripts | pruned with its manifest |
