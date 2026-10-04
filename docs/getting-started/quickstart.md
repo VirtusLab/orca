@@ -30,6 +30,19 @@ launcher to `~/.local/bin/orca`. If you would rather not install anything, or
 want to run a pinned version, [Orca Shell](../using/shell.md) describes what
 the script does and how to run the shell directly.
 
+### Install the skill (optional)
+
+The `orca` skill lets a coding agent you already use delegate work to Orca. In
+Claude Code:
+
+```text
+/plugin marketplace add VirtusLab/orca
+/plugin install orca@orca-skills
+```
+
+In Pi: `pi install git:github.com/VirtusLab/orca`. For other harnesses, see
+[From a coding agent, with the skill](ways-to-use.md#from-a-coding-agent-with-the-skill).
+
 ## First run
 
 ```bash
