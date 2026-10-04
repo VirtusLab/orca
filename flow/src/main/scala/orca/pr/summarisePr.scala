@@ -24,8 +24,8 @@ object PrSummary:
   * ([[BoundedDiff.prPayload]]) rather than sent as is, which no context window
   * would take.
   *
-  * Use a cheap model. The autonomous call runs with `PromptEvent.Suppress`
-  * because the diff dominates the prompt and would dwarf the event log.
+  * The autonomous call runs with `PromptEvent.Suppress` because the diff
+  * dominates the prompt and would dwarf the event log.
   */
 def summarisePr(
     agent: Agent[?],

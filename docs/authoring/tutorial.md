@@ -104,7 +104,7 @@ The last step opens a pull request:
 
 ```scala
   openPrIfGitHub(
-    summarisingAgent = codingAgent.cheap,
+    summarisingAgent = codingAgent,
     openFindings = openFindings
   )
 ```

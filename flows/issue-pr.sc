@@ -22,8 +22,8 @@
   *   1. On rejection: posts the agent's reply on the issue.
   *   1. On proceed: implements each task and reviews it in a single pass, then
   *      loops a review over everything the run changed.
-  *   1. Pushes the branch and opens a PR with a cheap-model-generated title
-  *      and description, plus a section listing whatever the final review
+  *   1. Pushes the branch and opens a PR with a generated title and
+  *      description, plus a section listing whatever the final review
   *      left unfixed.
   *
   * The feature branch is named deterministically from the issue number
@@ -107,7 +107,7 @@ flow(
       )
 
     openPrFromBranch(
-      summarisingAgent = codingAgent.cheap,
+      summarisingAgent = codingAgent,
       openFindings = openFindings,
       body = summary =>
         s"""${summary.body}

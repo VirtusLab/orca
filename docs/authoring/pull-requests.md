@@ -32,8 +32,7 @@ or `gh` login.
 `summarisePr(agent, diff, context?, instructions?): PrSummary` turns a branch
 diff into a [`PrSummary(title, body)`](../api/data-structures.md#labels-and-handles),
 ready for `gh.createPr`. `context` is an optional preamble that the model
-anchors the description to. An oversized diff is truncated. Use a
-[cheap](choosing-agents.md#the-cheap-tier) model here.
+anchors the description to. An oversized diff is truncated.
 
 ```{note}
 Both open calls create stages, so they cannot be called inside a `stage(...)`
@@ -58,7 +57,7 @@ your own `context`, you need to add the `Closes` line yourself, through
 val issue = gh.readIssue(handle)   // handle: an IssueHandle
 
 openPrIfGitHub(
-  summarisingAgent = codingAgent.cheap,
+  summarisingAgent = codingAgent,
   openFindings = openFindings,
   context = Some(issue.body),
   body = s => s"${s.body}\n\nCloses #42."

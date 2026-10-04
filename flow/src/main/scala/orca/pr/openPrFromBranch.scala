@@ -21,11 +21,14 @@ import ox.either.orThrow
   * cut short by [[summarisePr]].
   *
   * Customise the PR text with `title`/`body`, both given the generated
-  * [[PrSummary]]. Point `summarisingAgent` at a cheap model. `context` anchors
-  * it to the originating issue or prompt. Omitted, it is the run's user prompt,
-  * and the summariser adds `Closes` lines for the issues the prompt says to
-  * fix. A flow that passes `context` adds its own `Closes` line through `body`
-  * (`body = s => s"${s.body}\n\nCloses #42."`).
+  * [[PrSummary]]. `context` anchors the summary to the originating issue or
+  * prompt. When omitted, the run's user prompt is used, and the summariser adds
+  * `Closes` lines for the issues the prompt says to fix. When passed, the flow
+  * adds its own `Closes` line through `body`:
+  *
+  * ```scala
+  * body = s => s"${s.body}\n\nCloses #42."
+  * ```
   *
   * `openFindings` is what the run's review loop returned still open; it goes
   * into the body after `body`'s text as its own section
