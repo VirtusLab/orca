@@ -47,6 +47,17 @@ it already, and writes the `orca` executable to `~/.local/bin/orca`:
 curl -fsSL https://raw.githubusercontent.com/VirtusLab/orca/master/install.sh | bash
 ```
 
+To let a coding agent delegate work to Orca, install the `orca` skill. In
+Claude Code:
+
+```text
+/plugin marketplace add VirtusLab/orca
+/plugin install orca@orca-skills
+```
+
+In Pi: `pi install git:github.com/VirtusLab/orca`. For OpenCode, Codex and
+per-project installs, see [`skills/orca/README.md`](skills/orca/README.md).
+
 ## Start using
 
 Run `orca` in your repository. The first run asks which agent and model to use
