@@ -280,6 +280,12 @@ lazy val shell = (project in file("shell"))
     }.taskValue
   )
 
+lazy val checkClassNameCase =
+  taskKey[Unit]("Fails if two compiled orca classes differ only in letter case")
+
+lazy val aggregatedClassScopes =
+  ScopeFilter(inAggregates(ThisProject, includeRoot = false), inConfigurations(Compile, Test))
+
 lazy val orcaRoot = (project in file("."))
   .settings(commonSettings)
   .settings(
@@ -315,6 +321,17 @@ lazy val orcaRoot = (project in file("."))
     // Subprojects inherit the stock `UpdateVersionInDocs`-backed `updateDocs`
     // from ossPublishSettings; disable aggregation so `release` doesn't also
     // invoke each of them (they'd noisily warn about missing `doc`/`docs`).
-    updateDocs / aggregate := false
+    updateDocs / aggregate := false,
+    // Compares names rather than relying on the filesystem: Linux CI's
+    // case-sensitive filesystem never produces the collision itself.
+    checkClassNameCase := {
+      val _ = compile.all(aggregatedClassScopes).value
+      val collisions = ClassNameCase.collisions(classDirectory.all(aggregatedClassScopes).value)
+      if (collisions.nonEmpty)
+        sys.error(
+          "Class names differing only in case (break on case-insensitive filesystems):\n" +
+            collisions.mkString("\n")
+        )
+    }
   )
   .aggregate(tools, flow, claude, codex, opencode, pi, gemini, runner, shell)

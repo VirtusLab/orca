@@ -31,7 +31,7 @@ jobs:
           java-version: '21'
       - uses: sbt/setup-sbt@v1
       - uses: coursier/cache-action@v6
-      - run: sbt +test
+      - run: sbt +test checkClassNameCase
 
   # Compiles every built-in flow against a locally published build, so an API
   # change that breaks the flows fails here instead of shipping. Independent of
