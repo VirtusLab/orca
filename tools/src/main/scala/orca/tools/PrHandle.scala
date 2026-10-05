@@ -61,9 +61,7 @@ object PrHandle:
   def fromUrl(s: String): Option[PrHandle] =
     UrlPattern
       .findFirstMatchIn(s)
-      .flatMap:
-        case UrlPattern(host, owner, repo, number) =>
-          fromFields(host, owner, repo, number).toOption
+      .flatMap(m => fromExactUrl(m.matched).toOption)
 
   /** `s` as a handle when all of it is a PR browser URL. */
   private def fromExactUrl(s: String): Either[String, PrHandle] =

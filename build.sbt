@@ -3,9 +3,9 @@ import com.softwaremill.Publish.{ossPublishSettings, updateDocs}
 import com.softwaremill.UpdateVersionInDocs
 import Dependencies.*
 
-ThisBuild / scalaVersion := V.scala
+scalaVersion := V.scala
 
-ThisBuild / scalacOptions ++= Seq(
+scalacOptions ++= Seq(
   "-release",
   "21",
   "-deprecation",
@@ -16,7 +16,7 @@ ThisBuild / scalacOptions ++= Seq(
   "-Wnonunit-statement"
 )
 
-ThisBuild / javacOptions ++= Seq("--release", "21")
+javacOptions ++= Seq("--release", "21")
 
 // Makes sbt-git answer its read-only queries with the `git` CLI instead of the
 // bundled JGit, which reads a linked worktree's `.git` *file* as a bare repo and
@@ -34,48 +34,59 @@ useReadableConsoleGit
 lazy val buildVersionProperty =
   Def.setting("-Dorca.build.version=" + version.value)
 
-lazy val commonSettings = commonSmlBuildSettings ++ ossPublishSettings ++ Seq(
-  organization := "org.virtuslab",
-  versionScheme := Some("semver-spec"),
-  libraryDependencies ++= Seq(munit),
-  testFrameworks += new TestFramework("munit.Framework"),
-  // Tests shell out to `git`, which reads the developer's global and system
-  // config unless told otherwise: a global ignore rule or `commit.gpgsign`
-  // changes what a fixture repo does, usually with no hint why. Pointing both
-  // config files at an empty one neutralises the whole class at once (git
-  // 2.32+). `GIT_CONFIG_COUNT=0` drops config passed via inherited
-  // `GIT_CONFIG_KEY_<n>`/`GIT_CONFIG_VALUE_<n>` vars. Fixtures set
-  // `user.name`/`user.email` in the repo, so commits still work. Env vars can
-  // only be set on a new process, hence the fork.
-  Test / fork := true,
-  Test / envVars ++= Map(
-    "GIT_CONFIG_GLOBAL" -> "/dev/null",
-    "GIT_CONFIG_SYSTEM" -> "/dev/null",
-    "GIT_CONFIG_COUNT" -> "0"
-  ),
-  homepage := Some(url("https://github.com/VirtusLab/orca")),
-  organizationHomepage := Some(url("https://virtuslab.com")),
-  licenses := Seq(
-    "Apache 2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0")
-  ),
-  scmInfo := Some(
-    ScmInfo(
-      url("https://github.com/VirtusLab/orca"),
-      "scm:git:git@github.com:VirtusLab/orca.git"
-    )
-  ),
-  developers := List(
-    Developer(
-      id = "virtuslab",
-      name = "VirtusLab",
-      email = "info@virtuslab.com",
-      url = url("https://virtuslab.com")
-    )
+// sbt 2 runs forked tests through its own worker, so `java.class.path` in the
+// test JVM holds only that worker's jars. Tests that start a compiler or a
+// child JVM on the Test classpath read it from this property instead.
+lazy val testClasspathProperty = Def.task {
+  val converter = fileConverter.value
+  val classpath = (Test / fullClasspath).value.map(entry =>
+    converter.toPath(entry.data).toString
+  )
+  "-Dorca.test.classpath=" + classpath.mkString(java.io.File.pathSeparator)
+}
+
+commonSmlBuildSettings
+ossPublishSettings
+
+organization := "org.virtuslab"
+versionScheme := Some("semver-spec")
+libraryDependencies ++= Seq(munit)
+testFrameworks += new TestFramework("munit.Framework")
+// Tests shell out to `git`, which reads the developer's global and system
+// config unless told otherwise: a global ignore rule or `commit.gpgsign`
+// changes what a fixture repo does, usually with no hint why. Pointing both
+// config files at an empty one neutralises the whole class at once (git
+// 2.32+). `GIT_CONFIG_COUNT=0` drops config passed via inherited
+// `GIT_CONFIG_KEY_<n>`/`GIT_CONFIG_VALUE_<n>` vars. Fixtures set
+// `user.name`/`user.email` in the repo, so commits still work. Env vars can
+// only be set on a new process, hence the fork.
+Test / fork := true
+Test / envVars ++= Map(
+  "GIT_CONFIG_GLOBAL" -> "/dev/null",
+  "GIT_CONFIG_SYSTEM" -> "/dev/null",
+  "GIT_CONFIG_COUNT" -> "0"
+)
+homepage := Some(url("https://github.com/VirtusLab/orca"))
+organizationHomepage := Some(url("https://virtuslab.com"))
+licenses := Seq(
+  "Apache 2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0")
+)
+scmInfo := Some(
+  ScmInfo(
+    url("https://github.com/VirtusLab/orca"),
+    "scm:git:git@github.com:VirtusLab/orca.git"
+  )
+)
+developers := List(
+  Developer(
+    id = "virtuslab",
+    name = "VirtusLab",
+    email = "info@virtuslab.com",
+    url = url("https://virtuslab.com")
   )
 )
 
 lazy val tools = (project in file("tools"))
-  .settings(commonSettings)
   .settings(
     name := "orca-tools",
     libraryDependencies ++= Seq(
@@ -97,7 +108,6 @@ lazy val tools = (project in file("tools"))
 
 lazy val claude = (project in file("claude"))
   .dependsOn(tools, tools % "test->test")
-  .settings(commonSettings)
   .settings(
     name := "orca-claude",
     libraryDependencies ++= Seq(
@@ -110,7 +120,6 @@ lazy val claude = (project in file("claude"))
 
 lazy val codex = (project in file("codex"))
   .dependsOn(tools, tools % "test->test")
-  .settings(commonSettings)
   .settings(
     name := "orca-codex",
     libraryDependencies ++= Seq(osLib, jsoniter, jsoniterMacros)
@@ -118,7 +127,6 @@ lazy val codex = (project in file("codex"))
 
 lazy val pi = (project in file("pi"))
   .dependsOn(tools, tools % "test->test")
-  .settings(commonSettings)
   .settings(
     name := "orca-pi",
     libraryDependencies ++= Seq(osLib, jsoniter, jsoniterMacros)
@@ -129,7 +137,6 @@ lazy val pi = (project in file("pi"))
 // small testable trait, plus jsoniter for the wire DTOs.
 lazy val opencode = (project in file("opencode"))
   .dependsOn(tools, tools % "test->test")
-  .settings(commonSettings)
   .settings(
     name := "orca-opencode",
     libraryDependencies ++= Seq(osLib, jsoniter, jsoniterMacros)
@@ -137,7 +144,6 @@ lazy val opencode = (project in file("opencode"))
 
 lazy val gemini = (project in file("gemini"))
   .dependsOn(tools, tools % "test->test")
-  .settings(commonSettings)
   .settings(
     name := "orca-gemini",
     libraryDependencies ++= Seq(osLib, jsoniter, jsoniterMacros)
@@ -145,9 +151,9 @@ lazy val gemini = (project in file("gemini"))
 
 lazy val flow = (project in file("flow"))
   .dependsOn(tools, tools % "test->test")
-  .settings(commonSettings)
   .settings(
     name := "orca-flow",
+    Test / javaOptions += testClasspathProperty.value,
     libraryDependencies ++= Seq(
       ox,
       jsoniterMacros,
@@ -168,11 +174,10 @@ lazy val runner = (project in file("runner"))
     pi,
     gemini
   )
-  .settings(commonSettings)
   .settings(
     // Published as just "orca" so flow-script coordinates stay short.
     name := "orca",
-    // This module leans on the fork in `commonSettings` for a second reason:
+    // This module leans on the fork in the common settings for a second reason:
     // `flow(...)` mutates the global logback root logger (OrcaLog's per-run
     // appender) and can `System.exit` on a NonFatal failure, neither of which
     // may reach the shared test runner.
@@ -187,10 +192,11 @@ lazy val runner = (project in file("runner"))
     // semantics the guard exists to enforce.
     Test / parallelExecution := false,
     Test / javaOptions += buildVersionProperty.value,
+    Test / javaOptions += testClasspathProperty.value,
     // `flow(...)` resolves the global settings file and reviewer directory from
     // the config home, so the tests here that drive it would otherwise read —
     // and abort on — whatever the developer keeps in ~/.config/orca. Scoped to
-    // this module rather than `commonSettings` because the var reaches every
+    // this module rather than the common settings because the var reaches every
     // subprocess a test spawns, and `gh` takes its auth from
     // $XDG_CONFIG_HOME/gh (`tools`' integration suite needs the real login).
     // Created here, so a tool that expects its config home to exist finds an
@@ -216,16 +222,24 @@ lazy val shell = (project in file("shell"))
   // (`PiSessionStore`) and gemini's session listing (`GeminiSessionList`) to
   // build the resume argv for a recorded chat (ADR 0021 §8).
   .dependsOn(runner, pi, gemini, tools % "test->test")
-  .settings(commonSettings)
   .settings(
     name := "orca-shell",
     Compile / mainClass := Some("orca.shell.Main"),
     // mainargs backs the non-interactive CLI subcommands (ADR 0021 §10,
     // cli/Cli.scala); already on the classpath transitively via `runner`, but
     // declared explicitly since shell uses it directly.
-    libraryDependencies ++= Seq(osLib, jsoniter, jsoniterMacros, ox, jline, jlineConsoleUi, fansi, mainargs),
+    libraryDependencies ++= Seq(
+      osLib,
+      jsoniter,
+      jsoniterMacros,
+      ox,
+      jline,
+      jlineConsoleUi,
+      fansi,
+      mainargs
+    ),
     // ChildTerminal's SIGINT test mutates process-global JVM signal state
-    // (`sun.misc.Signal.handle` on INT). The fork in `commonSettings` keeps
+    // (`sun.misc.Signal.handle` on INT). The fork in the common settings keeps
     // that state out of the sbt/Bloop daemon's own JVM; serialize so no
     // concurrently running suite observes the temporarily-ignored handler —
     // the same isolation runner uses for its lock and logger state.
@@ -235,7 +249,8 @@ lazy val shell = (project in file("shell"))
     // it too — the same version a `publishLocal` in the same sbt session
     // publishes.
     Compile / resourceGenerators += Def.task {
-      val file = (Compile / resourceManaged).value / "orca" / "shell" / "version"
+      val file =
+        (Compile / resourceManaged).value / "orca" / "shell" / "version"
       IO.write(file, version.value)
       Seq(file)
     }.taskValue,
@@ -245,9 +260,11 @@ lazy val shell = (project in file("shell"))
     // generated `index` sidecar (newline-separated filenames).
     Compile / resourceGenerators += Def.task {
       val srcDir = (ThisBuild / baseDirectory).value / "flows"
-      val outDir = (Compile / resourceManaged).value / "orca" / "shell" / "flows"
+      val outDir =
+        (Compile / resourceManaged).value / "orca" / "shell" / "flows"
       IO.createDirectory(outDir)
-      val flowFiles = IO.listFiles(srcDir).filter(_.getName.endsWith(".sc")).sortBy(_.getName)
+      val flowFiles =
+        IO.listFiles(srcDir).filter(_.getName.endsWith(".sc")).sortBy(_.getName)
       val copied = flowFiles.map { f =>
         val target = outDir / f.getName
         IO.copyFile(f, target)
@@ -272,11 +289,12 @@ lazy val shell = (project in file("shell"))
         base / "flows" / "implement.sc",
         base / "flows" / "implement-interactive.sc"
       )
-      docsFile :: examples.map { f =>
+      val copied: Seq[File] = docsFile :: examples.map { f =>
         val target = outDir / f.getName
         IO.copyFile(f, target)
         target
       }
+      copied
     }.taskValue
   )
 
@@ -284,10 +302,12 @@ lazy val checkClassNameCase =
   taskKey[Unit]("Fails if two compiled orca classes differ only in letter case")
 
 lazy val aggregatedClassScopes =
-  ScopeFilter(inAggregates(ThisProject, includeRoot = false), inConfigurations(Compile, Test))
+  ScopeFilter(
+    inAggregates(ThisProject, includeRoot = false),
+    inConfigurations(Compile, Test)
+  )
 
-lazy val orcaRoot = (project in file("."))
-  .settings(commonSettings)
+lazy val orcaRoot = rootProject
   .settings(
     publish / skip := true,
     name := "orca-root",
@@ -297,7 +317,7 @@ lazy val orcaRoot = (project in file("."))
     // actually use today). The scala-cli pass also keeps `//> using scala`
     // pins in sync with `V.scala` — the build's own Scala version and the
     // floor consumers must be on.
-    updateDocs := {
+    updateDocs := Def.uncached {
       val log = sLog.value
       val org = organization.value
       val ver = version.value
@@ -324,9 +344,11 @@ lazy val orcaRoot = (project in file("."))
     updateDocs / aggregate := false,
     // Compares names rather than relying on the filesystem: Linux CI's
     // case-sensitive filesystem never produces the collision itself.
-    checkClassNameCase := {
+    checkClassNameCase := Def.uncached {
       val _ = compile.all(aggregatedClassScopes).value
-      val collisions = ClassNameCase.collisions(classDirectory.all(aggregatedClassScopes).value)
+      val collisions = ClassNameCase.collisions(
+        classDirectory.all(aggregatedClassScopes).value
+      )
       if (collisions.nonEmpty)
         sys.error(
           "Class names differing only in case (break on case-insensitive filesystems):\n" +

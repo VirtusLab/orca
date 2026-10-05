@@ -10,7 +10,7 @@ on:
 # `ORCA_INTEGRATION=1` need an authenticated `claude`/`gh` and stay skipped —
 # except `BuiltInFlowsCompileTest`, which needs only scala-cli and gets its own
 # `flow-scripts` job, with the env var scoped to that one `testOnly`. Run the
-# rest locally with `ORCA_INTEGRATION=1 sbt test`.
+# rest locally with `ORCA_INTEGRATION=1 sbt testFull`.
 #
 # Publish runs inline (rather than reusing
 # softwaremill/github-actions-workflows) because `secrets: inherit` only
@@ -31,7 +31,7 @@ jobs:
           java-version: '21'
       - uses: sbt/setup-sbt@v1
       - uses: coursier/cache-action@v6
-      - run: sbt +test checkClassNameCase
+      - run: sbt "+testFull ; checkClassNameCase"
 
   # Compiles every built-in flow against a locally published build, so an API
   # change that breaks the flows fails here instead of shipping. Independent of
@@ -50,8 +50,6 @@ jobs:
       # points JAVA_HOME at its own JDK 17 — sbt then rejects `-release 21`.
       # setup-java runs second so JAVA_HOME ends up on 21. scala-cli picks its
       # own JVM per script (`//> using jvm 21`).
-      # `apps` defaults to `sbtn`, which pulls the newest sbt release zip from
-      # GitHub. Nothing here uses sbtn, and that download has failed the job.
       - uses: VirtusLab/scala-cli-setup@v1
         with:
           apps: scala-cli
@@ -62,7 +60,7 @@ jobs:
       - uses: sbt/setup-sbt@v1
       - uses: coursier/cache-action@v6
       - run: |
-          sbt publishLocal "shell/testOnly *BuiltInFlowsCompileTest" | tee sbt.log
+          sbt "publishLocal ; shell/testOnly *BuiltInFlowsCompileTest" | tee sbt.log
           if grep "Couldn't resolve a member" sbt.log; then
             echo "::error::Unresolved scaladoc link(s), see above"
             exit 1

@@ -3,14 +3,15 @@
 How to build, test, and run a locally modified Orca. Internals, architecture,
 and coding conventions live in [AGENTS.md](AGENTS.md); end-user documentation
 at [orca.virtuslab.com](https://orca.virtuslab.com), with its source and build
-instructions in [`docs/`](docs/README.md). **sbt 1.12+** is needed in addition
+instructions in [`docs/`](docs/README.md). **sbt 2** (the launcher; the build pins sbt 2.0.10) is needed in addition
 to the runtime requirements listed in the README.
 
 ## Build and test
 
 ```bash
 sbt compile                             # build every module
-sbt test                                # unit tests across all modules
+sbt testFull                            # all unit tests across all modules
+sbt test                                # only the tests affected by changes since the last run
 sbt "flow/test"                         # scope to one module
 sbt "flow/testOnly *LintTest"           # scope to one suite
 sbt scalafmtAll                         # reformat every source in place
@@ -35,12 +36,16 @@ to load rather than carrying on with a fallback version.
 Some tests shell out to real external tools and skip by default:
 
 ```bash
-ORCA_INTEGRATION=1 sbt test
+ORCA_INTEGRATION=1 sbt testFull
 ORCA_INTEGRATION=1 sbt "claude/testOnly orca.tools.claude.ClaudeIntegrationTest"
 ORCA_INTEGRATION=1 sbt "tools/testOnly orca.tools.OsGitHubIntegrationTest"
-ORCA_INTEGRATION=1 sbt publishLocal "shell/testOnly *BuiltInFlowsCompileTest"
-ORCA_INTEGRATION=1 sbt publishLocal "runner/testOnly *ScalaCliSmokeTest"
+ORCA_INTEGRATION=1 sbt "publishLocal ; shell/testOnly *BuiltInFlowsCompileTest"
+ORCA_INTEGRATION=1 sbt "publishLocal ; runner/testOnly *ScalaCliSmokeTest"
 ```
+
+sbt 2's `sbt` command is a client of a background sbt server, and tests see
+the environment that server was started with: run `sbt shutdown` first if one
+is already running without `ORCA_INTEGRATION=1`.
 
 | Suite | Needs |
 |---|---|
@@ -85,7 +90,7 @@ invocation out of the scratch project, the same fix the `orca` shim applies
 half costs you a wall of `Downloading` lines or a silent exit 1 (ADR 0021).
 
 ```bash
-version="$(sbt -batch -error "print shell/version" | tail -1)"
+version="$(sbt -error "print shell/version" | head -1)"
 mkdir -p /tmp/orca-dev/project /tmp/orca-dev/xdg/{config,cache} /tmp/orca-dev/workspace
 cd /tmp/orca-dev/project
 git init -q 2>/dev/null; git commit -q --allow-empty -m scratch 2>/dev/null; true
