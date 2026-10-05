@@ -120,7 +120,7 @@ flow(OrcaArgs(args)):
       diff = ReviewDiff.WholeRun
     )
 
-  openPrIfGitHub(summarisingAgent = codingAgent.cheap, openFindings = openFindings)
+  openPrIfGitHub(summarisingAgent = codingAgent, openFindings = openFindings)
 ```
 
 Each `stage` commits on completion and is skipped on resume. The tutorial at

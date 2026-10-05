@@ -40,6 +40,6 @@ flow(OrcaArgs(args)):
     )
 
   openPrIfGitHub(
-    summarisingAgent = codingAgent.cheap,
+    summarisingAgent = codingAgent,
     openFindings = openFindings
   )
