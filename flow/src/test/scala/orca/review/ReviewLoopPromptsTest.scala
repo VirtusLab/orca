@@ -3,6 +3,7 @@ package orca.review
 import orca.agents.{AgentInput, given}
 import orca.gitref.CommitHash
 import orca.plan.{Task, Title}
+import orca.review.diff.{DiffSample, LastSent, ReReviewChanges}
 import orca.util.{JsonSchemaGen, TextUtil}
 
 import scala.compiletime.constValueTuple

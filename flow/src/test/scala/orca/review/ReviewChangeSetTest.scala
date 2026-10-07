@@ -2,6 +2,13 @@ package orca.review
 
 import orca.{FlowContext, InStage, TestRun, stage}
 import orca.plan.Title
+import orca.review.diff.{
+  DiffDelivery,
+  DiffMessage,
+  DiffSample,
+  LastSent,
+  ReReviewChanges
+}
 import orca.events.EventDispatcher
 import orca.testkit.TextReplyingAgent
 
@@ -234,6 +241,15 @@ class ReviewChangeSetTest extends munit.FunSuite:
       sections.toMap
     )
 
+  /** What a resumed reviewer holding `previous` is sent about `current`. */
+  private def reReviewOf(
+      previous: LastSent,
+      current: DiffSample
+  ): ReReviewChanges =
+    DiffDelivery.next(previous, current).message match
+      case DiffMessage.ReReview(changes) => changes
+      case other => fail(s"expected a re-review message, got $other")
+
   test("a too-large re-sample sends only the sections that changed"):
     // Under a whole-run diff the delta since a reviewer's last look is
     // typically one fix, so that is what it is sent — not the run's whole file
@@ -245,7 +261,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
     val current = sampleOf(
       List(unchangedFile, "b.scala" -> diffSection("b.scala", "three"))
     )
-    ReReviewChanges.of(previous, current) match
+    reReviewOf(previous, current) match
       case ReReviewChanges.Sections(sections, changed, unchanged) =>
         assertEquals(changed, List("b.scala"))
         assertEquals(unchanged, List("a.scala"))
@@ -263,7 +279,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
         "b.scala" -> diffSection("b.scala", "two", 1200)
       )
     )
-    ReReviewChanges.of(LastSent.NoteOnly(DiffSample.empty), current) match
+    reReviewOf(LastSent.NoteOnly(DiffSample.empty), current) match
       case ReReviewChanges.Sections(_, changed, unchanged) =>
         assertEquals(changed, List("a.scala", "b.scala"))
         assertEquals(unchanged, Nil)
@@ -278,7 +294,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
       LastSent.Inline(sampleOf(sections, preamble = "# skipped 1 file\n"))
     val current = sampleOf(sections, preamble = "# skipped 2 files\n")
     assertEquals(
-      ReReviewChanges.of(previous, current),
+      reReviewOf(previous, current),
       ReReviewChanges.Paths(List("a.scala"))
     )
 
@@ -289,7 +305,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
       sections = Map("a.scala" -> "two")
     )
     assertEquals(
-      ReReviewChanges.of(previous, current),
+      reReviewOf(previous, current),
       ReReviewChanges.Updated(current.diff)
     )
 

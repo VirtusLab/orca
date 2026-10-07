@@ -1,6 +1,7 @@
 package orca.review
 
 import orca.agents.AgentInput
+import orca.review.diff.{DiffMessage, LastSent, ReReviewChanges}
 import org.slf4j.LoggerFactory
 
 /** Records what each review turn was actually sent, at DEBUG.
@@ -19,38 +20,26 @@ import org.slf4j.LoggerFactory
 private[review] object ReviewLogging:
   private val log = LoggerFactory.getLogger("orca.flow")
 
-  /** A reviewer's first turn: the change set it was handed, then the prompt. */
-  def initialReview(
-      reviewer: String,
-      round: Int,
-      sample: DiffSample,
-      prompt: String
-  ): Unit =
-    log.debug(
-      "review prompt: reviewer={} round={} payload=initial chars={} files={}\n{}",
-      reviewer,
-      round,
-      sample.diff.length,
-      joined(sample.paths),
-      prompt
-    )
-
-  /** A resumed reviewer's turn. The payload's shape is what a post-mortem needs
-    * first: it says whether the reviewer was sent the change set, part of it, a
+  /** A reviewer's turn. The payload's shape is what a post-mortem needs first:
+    * it says whether the reviewer was sent the whole change set, part of it, a
     * file list, or nothing at all.
     */
-  def reReview(
+  def review(
       reviewer: String,
       round: Int,
-      changes: ReReviewChanges,
+      message: DiffMessage,
       prompt: String
   ): Unit =
-    val (shape, chars, files) = changes match
-      case ReReviewChanges.Updated(diff) => ("updated", diff.length, Nil)
-      case ReReviewChanges.Sections(diff, changed, _) =>
+    val (shape, chars, files) = message match
+      case DiffMessage.Initial(sample) =>
+        ("initial", sample.diff.length, sample.paths)
+      case DiffMessage.ReReview(ReReviewChanges.Updated(diff)) =>
+        ("updated", diff.length, Nil)
+      case DiffMessage.ReReview(ReReviewChanges.Sections(diff, changed, _)) =>
         ("sections", diff.length, changed)
-      case ReReviewChanges.Paths(paths) => ("paths", 0, paths)
-      case ReReviewChanges.AlreadySeen(last) =>
+      case DiffMessage.ReReview(ReReviewChanges.Paths(paths)) =>
+        ("paths", 0, paths)
+      case DiffMessage.ReReview(ReReviewChanges.AlreadySeen(last)) =>
         (s"already-seen/${lastSentShape(last)}", 0, Nil)
     log.debug(
       "review prompt: reviewer={} round={} payload={} chars={} files={}\n{}",
