@@ -1,8 +1,8 @@
 package orca.review
 
-import orca.BoundedDiff
 import orca.gitref.CommitHash
 import orca.plan.Task
+import orca.review.diff.{DiffCoverage, LastSent, ReReviewChanges}
 import orca.util.PromptResource
 
 /** Default prompt fragments for the helpers in this package. Each `val` is the
@@ -63,32 +63,47 @@ object ReviewLoopPrompts:
     * `task` and `userRequest` render as separately labelled sections under the
     * task title.
     *
-    * `diffIntro` introduces the diff, and `base` names the commit `diff` was
-    * sampled against when the loop knows that describes this diff. The base is
-    * sent alongside the diff, never instead of it: it only lets a reviewer read
-    * the repo at that commit, and a reviewer with no way to do so is
-    * unaffected.
+    * `coverage` says what the diff covers, and names the commit `diff` was
+    * sampled against when there is one. The base is sent alongside the diff,
+    * never instead of it: it only lets a reviewer read the repo at that commit,
+    * and a reviewer with no way to do so is unaffected.
     *
     * `open` matters for a reviewer first activated after round one — see
     * [[reviewAndFixLoop]].
     */
-  def initialReview(
+  private[review] def initialReview(
       task: Task,
       userRequest: String,
       diff: String,
-      diffIntro: String,
-      base: Option[CommitHash],
+      coverage: DiffCoverage,
       open: List[OpenFinding]
   ): String =
     PromptResource.render(
       InitialReviewTemplate,
       "taskTitle" -> task.title.value,
       "taskContext" -> taskContext(task, userRequest),
-      "diffIntro" -> diffIntro,
+      "diffIntro" -> diffIntro(coverage),
       "diffBlock" -> diffBlock(diff),
-      "baseNote" -> baseNote(base),
+      "baseNote" -> baseNote(coverage.base),
       "openFindings" -> openFindingsBlock(open)
     )
+
+  /** The sentence introducing the initial diff: what the change set covers. A
+    * pinned diff says nothing about how far back it reaches.
+    */
+  private def diffIntro(coverage: DiffCoverage): String =
+    coverage match
+      case DiffCoverage.Stage(_) =>
+        "Diff (everything this task has changed since its stage began, " +
+          s"committed or not). $GitDiffHeadWarning:"
+      case DiffCoverage.Since(start) =>
+        s"Diff (everything changed since commit ${start.short}, reaching back " +
+          s"past the current stage, committed or not). $GitDiffHeadWarning:"
+      case DiffCoverage.Pinned => "Diff (the change set under review):"
+
+  private val GitDiffHeadWarning: String =
+    "Do not use `git diff HEAD` instead — it does not show work that has " +
+      "been committed"
 
   /** The task's context as labelled sections under the title: what the user
     * asked for, then the planner's description of this task. Both are short
@@ -185,27 +200,23 @@ object ReviewLoopPrompts:
       case ReReviewChanges.Updated(diff) =>
         "Diff (the change set under review, re-sampled from the same baseline " +
           "as your initial diff, so it includes the fixer's edits whether or " +
-          "not they were committed). Do not use `git diff HEAD` instead — it " +
-          s"does not show work that has been committed:\n\n${diffBlock(diff)}"
+          s"not they were committed). $GitDiffHeadWarning:\n\n${diffBlock(diff)}"
       case ReReviewChanges.Paths(paths) =>
         "The change set under review is too large to include here. These " +
           "files have changed since the baseline of your initial diff — read " +
-          "them directly. Do not use `git diff HEAD` instead — it does not " +
-          s"show work that has been committed:\n\n" +
-          BoundedDiff.pathList(paths, ReReviewChanges.InlineThreshold)
+          s"them directly. $GitDiffHeadWarning:\n\n" +
+          ReReviewChanges.pathsListing(paths)
       case ReReviewChanges.Sections(sections, _, Nil) =>
         "The change set under review is too large to include whole. Below is " +
           "as much of it as fits; any file it does not show is named after " +
-          "it. Do not use `git diff HEAD` instead — it does not show work " +
-          s"that has been committed:\n\n${diffBlock(sections)}"
+          s"it. $GitDiffHeadWarning:\n\n${diffBlock(sections)}"
       case ReReviewChanges.Sections(sections, _, unchanged) =>
         "The change set under review is too large to include whole. Below is " +
           "the part of it that changed since your previous round; any file " +
-          "that part does not show is named after it. Do not use `git diff " +
-          "HEAD` instead — it does not show work that has been " +
-          s"committed:\n\n${diffBlock(sections)}\n\nThe rest of the change " +
+          s"that part does not show is named after it. $GitDiffHeadWarning:\n\n" +
+          s"${diffBlock(sections)}\n\nThe rest of the change " +
           "set is unchanged since your previous round — you need not re-read " +
-          s"it:\n\n${BoundedDiff.pathList(unchanged, ReReviewChanges.PathListBudget)}"
+          s"it:\n\n${ReReviewChanges.unchangedListing(unchanged)}"
       case ReReviewChanges.AlreadySeen(LastSent.Inline(_)) =>
         "No new change set this round — the diff already in this conversation " +
           "is the one under review. Check the code itself to see whether your " +
@@ -232,135 +243,3 @@ object ReviewLoopPrompts:
       "(no change set could be sampled — do not conclude that nothing " +
         "changed; inspect the code the task describes)"
     else s"```diff\n$diff\n```"
-
-/** What the reviewer was last sent about the change set: the sample it compares
-  * against, and how much of it reached the conversation — an empty sample
-  * reaches it only as the placeholder note.
-  */
-private[review] enum LastSent(val sample: DiffSample):
-  case Inline(s: DiffSample) extends LastSent(s)
-  case SectionsOnly(s: DiffSample) extends LastSent(s)
-  case PathsOnly(s: DiffSample) extends LastSent(s)
-  case NoteOnly(s: DiffSample) extends LastSent(s)
-
-private[review] object LastSent:
-  /** Whether a sample renders as the placeholder note instead of a diff. Shared
-    * so the prompt and the recorded [[LastSent]] can't disagree.
-    */
-  def nothingToShow(diff: String): Boolean = diff.trim.isEmpty
-
-  /** Records a sample sent inline — an empty one reaches the reviewer as the
-    * placeholder note, not as a diff.
-    */
-  def inlined(sample: DiffSample): LastSent =
-    if nothingToShow(sample.diff) then NoteOnly(sample) else Inline(sample)
-
-/** What a resumed reviewer is told about the change set this round.
-  *
-  * A resumed reviewer already holds every change set it has been sent. Sending
-  * it the same one again, under text saying it was freshly re-sampled, would
-  * claim the fixer's edits are inside a diff that predates them, and the
-  * reviewer would re-report findings that were already fixed. A
-  * [[ReviewDiff.Pinned]] diff produces exactly that repeat.
-  */
-private[review] enum ReReviewChanges:
-  /** Re-sampled, and different from what this reviewer last saw. */
-  case Updated(diff: String)
-
-  /** Changed, but past [[ReReviewChanges.InlineThreshold]], so only the diff
-    * sections of the files that changed since this reviewer's last round are
-    * sent — bounded so a resumed conversation accumulates at most that
-    * threshold per round.
-    *
-    * `changed` is the paths whose per-file diff differs from the sample this
-    * reviewer last received — under a whole-run diff the delta since its last
-    * round is typically one fix, not the run's whole file list. Nothing but the
-    * run's trace reads it, where it indexes which files a round sent.
-    *
-    * `unchanged` is the rest of the change set; empty when the previous sample
-    * gave nothing to compare against, in which case `changed` is every path.
-    */
-  case Sections(
-      diff: String,
-      changed: List[String],
-      unchanged: List[String]
-  )
-
-  /** Changed and past the threshold, with no section to send: either the delta
-    * named no path to cut sections for, or not even the first section fits the
-    * budget. `paths` is the whole change set, which the reviewer reads itself.
-    */
-  case Paths(paths: List[String])
-
-  /** Byte-identical to what this reviewer already holds, so nothing is sent.
-    * Carries how that change set reached the conversation: after a [[Sections]]
-    * round only the changed files' sections, after a [[Paths]] round only the
-    * paths, and after an empty sample only the placeholder note, which is no
-    * change set at all, so the reviewer must not be told it holds one.
-    */
-  case AlreadySeen(last: LastSent)
-
-private[review] object ReReviewChanges:
-  /** Max diff length (chars) a re-review prompt inlines. Past it the change set
-    * is not sent whole: the reviewer gets the sections of the files that
-    * changed since its last round, bounded so the whole block stays within this
-    * same budget — a resumed conversation accumulates at most that much per
-    * round. Bigger than [[Lint.InlineLintThreshold]] because the diff is the
-    * reviewer's primary evidence, not tool output.
-    */
-  private[review] val InlineThreshold: Int = 16 * 1024
-
-  /** Share of [[InlineThreshold]] the path list naming the rest of the change
-    * set may take, leaving the rest for the sections. Reserved whether or not
-    * that list turns out to be empty, so one number bounds the whole block.
-    */
-  private[review] val PathListBudget: Int = InlineThreshold / 4
-
-  /** Classify this round's sample against what the reviewer last received. The
-    * [[DiffSample]] carries the paths alongside the diff they describe, so
-    * [[Sections]] can never name a different change set than the one it stands
-    * in for.
-    *
-    * Equality is tested before size, so a [[ReviewDiff.Pinned]] diff never
-    * reaches [[Sections]]: pinned samples are byte-identical every round, so a
-    * resume always classifies [[AlreadySeen]]. The whole sample is compared,
-    * sections included: `diff` may leave out an edited file.
-    */
-  def of(previous: LastSent, current: DiffSample): ReReviewChanges =
-    if current == previous.sample then AlreadySeen(previous)
-    else if current.diff.length > InlineThreshold then
-      val unchanged = unchangedSince(previous.sample, current)
-      val changed = current.paths.filterNot(unchanged.toSet)
-      // A delta naming no path cannot point the reviewer anywhere (the samples
-      // differ outside every file's section, e.g. in a `# skipped` line), so
-      // fall back to the full list — with no sections to send, since there is
-      // nothing to cut them from.
-      if changed.isEmpty then Paths(current.paths)
-      else
-        BoundedDiff.sectionsPayload(
-          current.sections,
-          changed,
-          InlineThreshold - PathListBudget
-        ) match
-          case BoundedDiff.SectionsCut.Rendered(sections) =>
-            Sections(sections, changed, unchanged)
-          // One file bigger than the budget leaves room for no section at all,
-          // and a payload of nothing but a trailer would claim to carry
-          // sections it doesn't have.
-          case BoundedDiff.SectionsCut.NothingFits => Paths(current.paths)
-    else Updated(current.diff)
-
-  /** The paths in `current` whose diff section is byte-identical in `previous`
-    * — what [[Sections]] may tell a resumed reviewer it need not re-read. A
-    * path without a section in both samples is never called unchanged: its
-    * edits cannot be compared.
-    */
-  private def unchangedSince(
-      previous: DiffSample,
-      current: DiffSample
-  ): List[String] =
-    current.paths.filter(p =>
-      (current.sections.get(p), previous.sections.get(p)) match
-        case (Some(c), Some(pr)) => c == pr
-        case _                   => false
-    )

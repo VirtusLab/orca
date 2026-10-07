@@ -78,19 +78,19 @@ Each reviewer receives the task and the change set.
   against the planner's choice, and not only against the code. A flow with no
   planning stage passes its prompt as the title and an empty description.
 - **The change set.** By default, everything the enclosing stage has produced
-  since it began, whether or not the agent committed along the way. It is
-  re-sampled each round, so later rounds see the fixes. Passing
+  since it began, whether or not the agent committed along the way. New,
+  untracked files are included too, until the whole diff reaches 2 MiB; files
+  past that point, and unreadable ones, are only named. It is re-sampled each
+  round, so later rounds see the fixes. When the diff starts from a known
+  commit, reviewers are told which, so they can read a file as it was before
+  the change. Passing
   `diff = ReviewDiff.WholeRun` widens it to everything since the commit the
   run started from, which is what you want for a stage that follows the
-  per-task work; reviewers are then told that the change spans every stage.
+  per-task work; reviewers are then told the change reaches back past the
+  current stage, to that commit.
   Passing `diff = ReviewDiff.Pinned(text)` sends exactly that text, every
-  round: reviewers are not told a base commit, the picker's changed-file list
-  is read off the diff text, and a reviewer resumed in a later round is told
-  there is no new change set.
-
-Note that a change set larger than 128 KiB is cut down: the reviewer gets as
-many whole files as fit, followed by a list naming every other changed file
-with its line counts, and reads those itself. A pinned diff is sent as given.
+  round: reviewers are not told a base commit, and the picker's changed-file
+  list is read off the diff text.
 
 ```{note}
 `WholeRun` needs the commit the run started from. If the progress log has none
@@ -99,6 +99,41 @@ a step saying so and returns without reviewing.
 ```
 
 Every finding reaches the fixer unfiltered.
+
+### The first round
+
+A reviewer's first prompt carries the whole diff, up to 128K characters. A
+larger diff is cut down: the reviewer gets as many whole files as fit, followed
+by a list naming every other changed file with its line counts, and reads those
+itself. A pinned diff is never cut.
+
+A reviewer that first runs in a later round gets this same first prompt, with
+the current diff.
+
+### Later rounds
+
+A reviewer keeps its conversation across rounds, so it still has every diff it
+was sent before. Each later round it gets the findings still open, and one of:
+
+- **nothing new**, when the diff is the same as the last one it got. It is told
+  to check the code to see whether its findings still stand. A pinned diff
+  always ends up here, since it never changes.
+- **the whole new diff**, when it is at most 16K characters.
+- **only the files that changed since its last round**, when the diff is
+  larger. They are shown in full, in order, until the next one would not fit,
+  followed by a list of the rest; together these take up to 12K characters.
+  After them comes a list of the files that did not change since its last
+  round (up to 4K characters).
+- **just the list of all files in the change set**, when even the first
+  changed file's diff does not fit, when no changed file has a diff to show
+  (it is only named), or when the diff changed but no single file's diff did.
+  The reviewer reads them itself.
+
+The smaller limit keeps later rounds cheap, since everything sent stays in the
+reviewer's conversation.
+
+If no diff can be sampled, the reviewer is told so, and to check the code
+rather than assume nothing changed.
 
 ## Rosters
 

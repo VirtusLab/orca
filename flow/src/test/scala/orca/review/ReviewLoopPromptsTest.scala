@@ -3,6 +3,7 @@ package orca.review
 import orca.agents.{AgentInput, given}
 import orca.gitref.CommitHash
 import orca.plan.{Task, Title}
+import orca.review.diff.{DiffCoverage, DiffSample, LastSent, ReReviewChanges}
 import orca.util.{JsonSchemaGen, TextUtil}
 
 import scala.compiletime.constValueTuple
@@ -18,7 +19,7 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
   // the assertions are about the wording reaching the reviewer, not the
   // line breaks it arrives with.
   private def rendered(
-      base: Option[CommitHash] = None,
+      coverage: DiffCoverage = DiffCoverage.Pinned,
       task: Task = Task(Title("do the thing"), "split the list in halves"),
       userRequest: String = "add a median function"
   ): String =
@@ -27,8 +28,7 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
         task = task,
         userRequest = userRequest,
         diff = "",
-        diffIntro = "Diff:",
-        base = base,
+        coverage = coverage,
         open = Nil
       )
     )
@@ -187,7 +187,8 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
   test("initialReview names the commit the diff was sampled against"):
     // Sent alongside the diff, not instead of it: a reviewer can read the repo
     // at that commit, via the MCP tool or a shell.
-    val prompt = rendered(base = CommitHash.from("abc1234"))
+    val prompt =
+      rendered(coverage = DiffCoverage.Stage(CommitHash.from("abc1234")))
     assert(
       prompt.contains("everything that changed since commit abc1234"),
       prompt
@@ -362,3 +363,41 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
     // Same separator argument as the base-commit section above.
     val prompt = reRendered()
     assert(!prompt.contains("These findings were reported earlier"), prompt)
+
+  test("the no-sections prompt tells the reviewer to read the files"):
+    val prompt = ReviewLoopPrompts.reReview(
+      ReReviewChanges.Paths(List("a.scala")),
+      open = Nil
+    )
+    assert(prompt.contains("- a.scala"), prompt)
+    assert(prompt.contains("read them directly"), prompt)
+
+  test("the whole-delta prompt offers the sections as all that fits"):
+    // Nothing counts as unchanged, so the arm below's closing list would name
+    // no file; this arm says what the payload is instead.
+    val prompt = ReviewLoopPrompts.reReview(
+      ReReviewChanges.Sections(
+        "+three\n",
+        List("b.scala"),
+        Nil
+      ),
+      open = Nil
+    )
+    assert(prompt.contains("as much of it as fits"), prompt)
+    assert(!prompt.contains("unchanged since your previous round"), prompt)
+
+  test("the delta prompt sends the sections and names the rest as unchanged"):
+    val prompt = ReviewLoopPrompts.reReview(
+      ReReviewChanges.Sections(
+        "+three\n",
+        List("b.scala"),
+        List("a.scala")
+      ),
+      open = Nil
+    )
+    assert(prompt.contains("+three"), prompt)
+    assert(prompt.contains("- a.scala"), prompt)
+    assert(
+      prompt.contains("unchanged since your previous round"),
+      prompt
+    )
