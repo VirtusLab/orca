@@ -4,7 +4,7 @@ import orca.BoundedDiff
 
 /** What one reviewer is sent about the change set in a round. */
 private[review] enum DiffMessage:
-  /** The reviewer's first round: the sample's diff, as sampled. */
+  /** The reviewer's first round: the sample's diff. */
   case Initial(sample: DiffSample)
 
   /** A later round, in a conversation that already holds earlier change sets:

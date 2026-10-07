@@ -363,3 +363,41 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
     // Same separator argument as the base-commit section above.
     val prompt = reRendered()
     assert(!prompt.contains("These findings were reported earlier"), prompt)
+
+  test("the no-sections prompt tells the reviewer to read the files"):
+    val prompt = ReviewLoopPrompts.reReview(
+      ReReviewChanges.Paths(List("a.scala")),
+      open = Nil
+    )
+    assert(prompt.contains("- a.scala"), prompt)
+    assert(prompt.contains("read them directly"), prompt)
+
+  test("the whole-delta prompt offers the sections as all that fits"):
+    // Nothing counts as unchanged, so the arm below's closing list would name
+    // no file; this arm says what the payload is instead.
+    val prompt = ReviewLoopPrompts.reReview(
+      ReReviewChanges.Sections(
+        "+three\n",
+        List("b.scala"),
+        Nil
+      ),
+      open = Nil
+    )
+    assert(prompt.contains("as much of it as fits"), prompt)
+    assert(!prompt.contains("unchanged since your previous round"), prompt)
+
+  test("the delta prompt sends the sections and names the rest as unchanged"):
+    val prompt = ReviewLoopPrompts.reReview(
+      ReReviewChanges.Sections(
+        "+three\n",
+        List("b.scala"),
+        List("a.scala")
+      ),
+      open = Nil
+    )
+    assert(prompt.contains("+three"), prompt)
+    assert(prompt.contains("- a.scala"), prompt)
+    assert(
+      prompt.contains("unchanged since your previous round"),
+      prompt
+    )

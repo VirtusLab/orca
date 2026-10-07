@@ -4,7 +4,7 @@ import orca.BoundedDiff
 import orca.gitref.CommitHash
 import orca.tools.GitTool
 
-/** How the loop reads a `orca.review.ReviewDiff` each round. Every answer that
+/** How the loop reads an `orca.review.ReviewDiff` each round. Every answer that
   * depends on where the diff came from lives here, so no consumer re-decides
   * from the enum.
   */
@@ -37,13 +37,12 @@ private[review] object ReviewDiffSource:
   def pinned(diff: String): ReviewDiffSource = Pinned(diff)
 
   /** Everything the working tree has changed since `coverage.base`, bounded to
-    * [[BoundedDiff.ReviewThreshold]]. Private, built only by [[stage]] and
-    * [[wholeRun]]: how far back the sample reaches and the coverage the
-    * reviewer is told are one decision, and a caller free to pair them itself
-    * could hand over a whole branch described as one stage's work.
+    * [[BoundedDiff.ReviewThreshold]].
     */
-  private case class Sampled(git: GitTool, coverage: DiffCoverage)
-      extends ReviewDiffSource:
+  private case class Sampled(
+      git: GitTool,
+      coverage: DiffCoverage.Stage | DiffCoverage.Since
+  ) extends ReviewDiffSource:
     def sample(): DiffSample =
       val changes = git.reviewChanges(coverage.base)
       DiffSample(
@@ -69,7 +68,7 @@ private[review] object ReviewDiffSource:
     * Only for [[Pinned]], where the diff text is all there is. Diff text can't
     * name every changed file: a binary change and a 100%-similarity rename
     * carry no `+++` header, and for a path with a space the capture includes
-    * git's disambiguating trailing tab. The sampled sources ask git instead.
+    * git's disambiguating trailing tab. [[Sampled]] asks git instead.
     */
   private def extractChangedFiles(diff: String): List[String] =
     "(?m)^\\+\\+\\+ b/(.+)$".r

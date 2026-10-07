@@ -2,8 +2,6 @@ package orca.review
 
 import orca.{FlowContext, InStage, TestRun, stage}
 import orca.plan.Title
-import orca.review.diff.ReReviewChanges
-import orca.review.diff.DiffDeliveryTest.diffSection
 import orca.events.EventDispatcher
 import orca.testkit.TextReplyingAgent
 
@@ -217,44 +215,6 @@ class ReviewChangeSetTest extends munit.FunSuite:
     assert(resumePrompt.contains("- big.scala"), resumePrompt)
     assert(resumePrompt.contains("read them directly"), resumePrompt)
     assert(!resumePrompt.contains("// line 2999"), resumePrompt)
-
-  test("the no-sections prompt tells the reviewer to read the files"):
-    val prompt = ReviewLoopPrompts.reReview(
-      ReReviewChanges.Paths(List("a.scala")),
-      open = Nil
-    )
-    assert(prompt.contains("- a.scala"), prompt)
-    assert(prompt.contains("read them directly"), prompt)
-
-  test("the whole-delta prompt offers the sections as all that fits"):
-    // Nothing counts as unchanged, so the arm below's closing list would name
-    // no file; this arm says what the payload is instead.
-    val prompt = ReviewLoopPrompts.reReview(
-      ReReviewChanges.Sections(
-        diffSection("b.scala", "three"),
-        List("b.scala"),
-        Nil
-      ),
-      open = Nil
-    )
-    assert(prompt.contains("as much of it as fits"), prompt)
-    assert(!prompt.contains("unchanged since your previous round"), prompt)
-
-  test("the delta prompt sends the sections and names the rest as unchanged"):
-    val prompt = ReviewLoopPrompts.reReview(
-      ReReviewChanges.Sections(
-        diffSection("b.scala", "three"),
-        List("b.scala"),
-        List("a.scala")
-      ),
-      open = Nil
-    )
-    assert(prompt.contains("+three"), prompt)
-    assert(prompt.contains("- a.scala"), prompt)
-    assert(
-      prompt.contains("unchanged since your previous round"),
-      prompt
-    )
 
   test("a too-large delta reaches a resumed reviewer as the fix's sections"):
     // End to end: round two's change set is past the inline threshold, but the

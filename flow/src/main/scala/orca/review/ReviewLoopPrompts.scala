@@ -101,9 +101,6 @@ object ReviewLoopPrompts:
           s"past the current stage, committed or not). $GitDiffHeadWarning:"
       case DiffCoverage.Pinned => "Diff (the change set under review):"
 
-  /** Keeps a reviewer from fetching the diff itself: `git diff HEAD` misses
-    * committed work.
-    */
   private val GitDiffHeadWarning: String =
     "Do not use `git diff HEAD` instead — it does not show work that has " +
       "been committed"

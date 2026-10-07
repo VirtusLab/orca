@@ -1,7 +1,5 @@
 package orca.review.diff
 
-import orca.review.diff.DiffDeliveryTest.diffSection
-
 /** What a resumed reviewer is sent when the change set has grown past what a
   * re-review prompt inlines, and what it is recorded as holding.
   */
@@ -18,6 +16,13 @@ class DiffDeliveryTest extends munit.FunSuite:
       sections.toMap
     )
 
+  /** A minimal per-file diff section, padded to `pad` filler lines so a sample
+    * can be pushed past the inline threshold.
+    */
+  private def diffSection(path: String, marker: String, pad: Int = 0): String =
+    s"diff --git a/$path b/$path\n--- a/$path\n+++ b/$path\n" +
+      s"@@ -1 +1 @@\n+$marker\n" + ("+filler\n" * pad)
+
   /** What a resumed reviewer holding `previous` is sent about `current`. */
   private def reReviewOf(
       previous: LastSent,
@@ -28,11 +33,8 @@ class DiffDeliveryTest extends munit.FunSuite:
       case other => fail(s"expected a re-review message, got $other")
 
   test("a too-large re-sample sends only the sections that changed"):
-    // Under a whole-run diff the delta since a reviewer's last look is
-    // typically one fix, so that is what it is sent — not the run's whole file
-    // list to re-read, and not the whole diff again. What it holds afterwards
-    // is the whole sample, so a later rewrite of the same files still
-    // registers.
+    // What it holds afterwards is the whole sample, so a later rewrite of the
+    // same files still registers.
     val unchangedFile = "a.scala" -> diffSection("a.scala", "one", 4000)
     val previous = LastSent.Inline(
       sampleOf(List(unchangedFile, "b.scala" -> diffSection("b.scala", "two")))
@@ -91,11 +93,3 @@ class DiffDeliveryTest extends munit.FunSuite:
       reReviewOf(previous, current),
       ReReviewChanges.Updated(current.diff)
     )
-
-object DiffDeliveryTest:
-  /** A minimal per-file diff section, padded to `pad` filler lines so a sample
-    * can be pushed past the inline threshold.
-    */
-  def diffSection(path: String, marker: String, pad: Int = 0): String =
-    s"diff --git a/$path b/$path\n--- a/$path\n+++ b/$path\n" +
-      s"@@ -1 +1 @@\n+$marker\n" + ("+filler\n" * pad)
