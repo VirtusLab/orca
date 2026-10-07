@@ -27,8 +27,8 @@ planning stage is skipped, so you are not asked again.
 
 ## `implement-enhanced.sc`
 
-`implement.sc` with two extra steps: the planner critiques and improves its
-own draft, and a documentation stage updates the project's docs based on what
+`implement.sc` with two extra steps: a separate critic reviews the draft plan
+and the planner revises it, and a documentation stage updates the project's docs based on what
 the tasks changed.
 [Source](https://github.com/VirtusLab/orca/blob/master/flows/implement-enhanced.sc).
 
