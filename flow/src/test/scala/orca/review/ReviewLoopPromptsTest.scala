@@ -3,7 +3,7 @@ package orca.review
 import orca.agents.{AgentInput, given}
 import orca.gitref.CommitHash
 import orca.plan.{Task, Title}
-import orca.review.diff.{DiffSample, LastSent, ReReviewChanges}
+import orca.review.diff.{DiffCoverage, DiffSample, LastSent, ReReviewChanges}
 import orca.util.{JsonSchemaGen, TextUtil}
 
 import scala.compiletime.constValueTuple
@@ -19,7 +19,7 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
   // the assertions are about the wording reaching the reviewer, not the
   // line breaks it arrives with.
   private def rendered(
-      base: Option[CommitHash] = None,
+      coverage: DiffCoverage = DiffCoverage.Pinned,
       task: Task = Task(Title("do the thing"), "split the list in halves"),
       userRequest: String = "add a median function"
   ): String =
@@ -28,8 +28,7 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
         task = task,
         userRequest = userRequest,
         diff = "",
-        diffIntro = "Diff:",
-        base = base,
+        coverage = coverage,
         open = Nil
       )
     )
@@ -188,7 +187,8 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
   test("initialReview names the commit the diff was sampled against"):
     // Sent alongside the diff, not instead of it: a reviewer can read the repo
     // at that commit, via the MCP tool or a shell.
-    val prompt = rendered(base = CommitHash.from("abc1234"))
+    val prompt =
+      rendered(coverage = DiffCoverage.Stage(CommitHash.from("abc1234")))
     assert(
       prompt.contains("everything that changed since commit abc1234"),
       prompt

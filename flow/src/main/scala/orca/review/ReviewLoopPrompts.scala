@@ -1,9 +1,8 @@
 package orca.review
 
-import orca.BoundedDiff
 import orca.gitref.CommitHash
 import orca.plan.Task
-import orca.review.diff.{LastSent, ReReviewChanges}
+import orca.review.diff.{DiffCoverage, LastSent, ReReviewChanges}
 import orca.util.PromptResource
 
 /** Default prompt fragments for the helpers in this package. Each `val` is the
@@ -64,32 +63,50 @@ object ReviewLoopPrompts:
     * `task` and `userRequest` render as separately labelled sections under the
     * task title.
     *
-    * `diffIntro` introduces the diff, and `base` names the commit `diff` was
-    * sampled against when the loop knows that describes this diff. The base is
-    * sent alongside the diff, never instead of it: it only lets a reviewer read
-    * the repo at that commit, and a reviewer with no way to do so is
-    * unaffected.
+    * `coverage` says what the diff covers, and names the commit `diff` was
+    * sampled against when there is one. The base is sent alongside the diff,
+    * never instead of it: it only lets a reviewer read the repo at that commit,
+    * and a reviewer with no way to do so is unaffected.
     *
     * `open` matters for a reviewer first activated after round one — see
     * [[reviewAndFixLoop]].
     */
-  def initialReview(
+  private[review] def initialReview(
       task: Task,
       userRequest: String,
       diff: String,
-      diffIntro: String,
-      base: Option[CommitHash],
+      coverage: DiffCoverage,
       open: List[OpenFinding]
   ): String =
     PromptResource.render(
       InitialReviewTemplate,
       "taskTitle" -> task.title.value,
       "taskContext" -> taskContext(task, userRequest),
-      "diffIntro" -> diffIntro,
+      "diffIntro" -> diffIntro(coverage),
       "diffBlock" -> diffBlock(diff),
-      "baseNote" -> baseNote(base),
+      "baseNote" -> baseNote(coverage.base),
       "openFindings" -> openFindingsBlock(open)
     )
+
+  /** The sentence introducing the initial diff: what the change set covers. A
+    * pinned diff says nothing about how far back it reaches.
+    */
+  private def diffIntro(coverage: DiffCoverage): String =
+    coverage match
+      case DiffCoverage.Stage(_) =>
+        "Diff (everything this task has changed since its stage began, " +
+          s"committed or not). $NotGitDiffHead:"
+      case DiffCoverage.Since(start) =>
+        s"Diff (everything changed since commit ${start.short}, reaching back " +
+          s"past the current stage, committed or not). $NotGitDiffHead:"
+      case DiffCoverage.Pinned => "Diff (the change set under review):"
+
+  /** Why a reviewer must not fetch the diff itself: work committed during the
+    * stage is not in it.
+    */
+  private val NotGitDiffHead: String =
+    "Do not use `git diff HEAD` instead — it does not show work that has " +
+      "been committed"
 
   /** The task's context as labelled sections under the title: what the user
     * asked for, then the planner's description of this task. Both are short
@@ -186,27 +203,23 @@ object ReviewLoopPrompts:
       case ReReviewChanges.Updated(diff) =>
         "Diff (the change set under review, re-sampled from the same baseline " +
           "as your initial diff, so it includes the fixer's edits whether or " +
-          "not they were committed). Do not use `git diff HEAD` instead — it " +
-          s"does not show work that has been committed:\n\n${diffBlock(diff)}"
+          s"not they were committed). $NotGitDiffHead:\n\n${diffBlock(diff)}"
       case ReReviewChanges.Paths(paths) =>
         "The change set under review is too large to include here. These " +
           "files have changed since the baseline of your initial diff — read " +
-          "them directly. Do not use `git diff HEAD` instead — it does not " +
-          s"show work that has been committed:\n\n" +
-          BoundedDiff.pathList(paths, ReReviewChanges.InlineThreshold)
+          s"them directly. $NotGitDiffHead:\n\n" +
+          ReReviewChanges.pathsListing(paths)
       case ReReviewChanges.Sections(sections, _, Nil) =>
         "The change set under review is too large to include whole. Below is " +
           "as much of it as fits; any file it does not show is named after " +
-          "it. Do not use `git diff HEAD` instead — it does not show work " +
-          s"that has been committed:\n\n${diffBlock(sections)}"
+          s"it. $NotGitDiffHead:\n\n${diffBlock(sections)}"
       case ReReviewChanges.Sections(sections, _, unchanged) =>
         "The change set under review is too large to include whole. Below is " +
           "the part of it that changed since your previous round; any file " +
-          "that part does not show is named after it. Do not use `git diff " +
-          "HEAD` instead — it does not show work that has been " +
-          s"committed:\n\n${diffBlock(sections)}\n\nThe rest of the change " +
+          s"that part does not show is named after it. $NotGitDiffHead:\n\n" +
+          s"${diffBlock(sections)}\n\nThe rest of the change " +
           "set is unchanged since your previous round — you need not re-read " +
-          s"it:\n\n${BoundedDiff.pathList(unchanged, ReReviewChanges.PathListBudget)}"
+          s"it:\n\n${ReReviewChanges.unchangedListing(unchanged)}"
       case ReReviewChanges.AlreadySeen(LastSent.Inline(_)) =>
         "No new change set this round — the diff already in this conversation " +
           "is the one under review. Check the code itself to see whether your " +

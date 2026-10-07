@@ -574,8 +574,7 @@ private[review] class ReviewFixLoop(
           task = task,
           userRequest = userRequest,
           diff = sample.diff,
-          diffIntro = diffSource.diffIntro,
-          base = diffSource.base,
+          coverage = diffSource.coverage,
           open = open
         )
       case DiffMessage.ReReview(changes) =>
@@ -844,7 +843,7 @@ private[review] class ReviewFixLoop(
     * applies.
     */
   private def prepareSelection(): List[ReviewBatch] -> List[RosterEntry] =
-    reviewerSelection.prepare(roster, task.title, diffSource.selectorFiles)
+    reviewerSelection.prepare(roster, task.title, diffSource.sample().paths)
 
   /** Run [[evaluate]] and [[fixTurn]] rounds as `shape` says and return what is
     * left open, threading the immutable [[ReviewLoopState]] (reviewer history +

@@ -14,19 +14,8 @@ private[review] sealed trait ReviewDiffSource:
     */
   def sample(): DiffSample
 
-  /** The commit reviewers are told the diff was sampled against, so a
-    * shell-capable reviewer can read past it.
-    */
-  def base: Option[CommitHash]
-
-  /** The sentence introducing the diff in the initial-review prompt; it states
-    * what the change set covers.
-    */
-  def diffIntro: String
-
-  /** The changed files `orca.review.ReviewerSelector` is handed at loop start.
-    */
-  def selectorFiles: List[String]
+  /** How far back [[sample]] reaches. */
+  def coverage: DiffCoverage
 
 private[review] object ReviewDiffSource:
   /** Reads `orca.review.ReviewDiff.SampleFromStage` (ADR 0018 §2.1): everything
@@ -54,21 +43,16 @@ private[review] object ReviewDiffSource:
     )
 
   /** Everything the working tree has changed since the enclosing stage began.
-    * Private, built only by [[stage]]: how far back `base` reaches and what
-    * `diffIntro` tells the reviewer it covers are one decision, and a caller
-    * free to pair them itself could hand over a whole branch described as one
-    * stage's work.
+    * Private, built only by [[stage]]: how far back `base` reaches and the
+    * coverage the reviewer is told are one decision, and a caller free to pair
+    * them itself could hand over a whole branch described as one stage's work.
     */
   private case class StageSampled(
       git: GitTool,
       base: Option[CommitHash]
   ) extends ReviewDiffSource:
     def sample(): DiffSample = sampleSince(git, base)
-    def selectorFiles: List[String] = git.changedFiles(base)
-    def diffIntro: String =
-      "Diff (everything this task has changed since its stage began, " +
-        "committed or not). Do not use `git diff HEAD` instead — it does not " +
-        "show work that has been committed:"
+    def coverage: DiffCoverage = DiffCoverage.Stage(base)
 
   /** Everything the working tree has changed since `start`. Private for the
     * same pairing reason as [[StageSampled]]. Holds the [[CommitHash]] itself,
@@ -79,15 +63,7 @@ private[review] object ReviewDiffSource:
       start: CommitHash
   ) extends ReviewDiffSource:
     def sample(): DiffSample = sampleSince(git, Some(start))
-    def base: Option[CommitHash] = Some(start)
-    def selectorFiles: List[String] = git.changedFiles(Some(start))
-    // Names the concrete base rather than claiming the run's full history:
-    // after a corrupt-log restart the recorded base is the restart's HEAD,
-    // which excludes the first attempt's commits.
-    def diffIntro: String =
-      s"Diff (everything changed since commit ${start.short}, reaching back " +
-        "past the current stage, committed or not). Do not use `git diff " +
-        "HEAD` instead — it does not show work that has been committed:"
+    def coverage: DiffCoverage = DiffCoverage.Since(start)
 
   /** Reads `orca.review.ReviewDiff.Pinned`: the caller has already decided what
     * a reviewer should see, so the text is sent as given and only that text can
@@ -101,12 +77,7 @@ private[review] object ReviewDiffSource:
       DiffSample(diff, extractChangedFiles(diff), Map.empty)
 
     def sample(): DiffSample = pinnedSample
-    def base: Option[CommitHash] = None
-    def selectorFiles: List[String] = pinnedSample.paths
-
-    // Says nothing about how far back the change set reaches: a pinned diff
-    // need not be stage-base-to-working-tree.
-    def diffIntro: String = "Diff (the change set under review):"
+    def coverage: DiffCoverage = DiffCoverage.Pinned
 
   /** Parse a unified diff and return the changed file paths (the `b/` side of
     * each `+++ b/<path>` header). Filters out `/dev/null` so deletions don't

@@ -69,7 +69,7 @@ private[review] object DiffDelivery:
       BoundedDiff.sectionsPayload(
         current.sections,
         changed,
-        ReReviewChanges.InlineThreshold - ReReviewChanges.PathListBudget
+        ReReviewChanges.SectionsBudget
       ) match
         case BoundedDiff.SectionsCut.Rendered(sections) =>
           DiffDelivery(
@@ -179,4 +179,17 @@ private[review] object ReReviewChanges:
     * set may take, leaving the rest for the sections. Reserved whether or not
     * that list turns out to be empty, so one number bounds the whole block.
     */
-  val PathListBudget: Int = InlineThreshold / 4
+  private val PathListBudget: Int = InlineThreshold / 4
+
+  /** What the sections of a [[Sections]] payload may take, trailer included. */
+  private[diff] val SectionsBudget: Int = InlineThreshold - PathListBudget
+
+  /** The paths of a [[Paths]] payload, listed within [[InlineThreshold]]. */
+  def pathsListing(paths: List[String]): String =
+    BoundedDiff.pathList(paths, InlineThreshold)
+
+  /** The unchanged paths of a [[Sections]] payload, listed within the share
+    * reserved for them.
+    */
+  def unchangedListing(paths: List[String]): String =
+    BoundedDiff.pathList(paths, PathListBudget)
