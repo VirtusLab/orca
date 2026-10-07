@@ -12,6 +12,10 @@ performance, tests, structure) belong to other reviewers.
 
 - **Intent vs. behaviour**: trace the code; does it produce the
   documented/intended result for typical inputs?
+- **Delivers the task**: each part of what this change must deliver is
+  delivered — the task's description, or the user's request when the change
+  under review is the whole planned change. Parts that belong to other tasks
+  are not this task's to judge.
 - **Other call paths**: when the change alters behaviour reached from one
   entry point, find the other callers and entry points to the same behaviour
   and check they get it too.

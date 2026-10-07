@@ -39,6 +39,8 @@ search is your scope: do not review the files it finds for anything else.
   added to in step. Suggest the single place that should produce the rest.
 - **Re-derived values**: a consumer re-parses, re-defaults, or re-computes what
   a producer already decided, instead of taking its result.
+- **Contradiction**: the change leaves two related rules a reader cannot both
+  follow — in code, prompts, or docs. Say which one should win.
 - **Prose duplication**: the same explanation in several comments, docs, or
   prompts. Keep it in the home closest to what it describes; the others point to
   it or say nothing.

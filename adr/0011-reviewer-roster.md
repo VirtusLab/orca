@@ -255,5 +255,6 @@ Every reviewer prompt is a `.md` file with YAML frontmatter
 >   it traces every hunk to the task and flags drive-by refactors, renames,
 >   reformatting and unrelated fixes. Its slug is unchanged, so a project file
 >   named `simplicity.md` still shadows it.
-> - **code-functionality** checks that a behaviour change reaches every call
->   path to that behaviour, not only the one the diff edits.
+> - **code-functionality** checks that the change delivers everything its task
+>   asks, and that a behaviour change reaches every call path to that
+>   behaviour, not only the one the diff edits.
