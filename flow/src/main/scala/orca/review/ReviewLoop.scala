@@ -378,7 +378,7 @@ def reviewAndFixLoop(
             )
           )
           ReviewDiffSource.wholeRun(ctx.git, c)
-    case ReviewDiff.Pinned(d) => Some(ReviewDiffSource.Pinned(d))
+    case ReviewDiff.Pinned(d) => Some(ReviewDiffSource.pinned(d))
   val seededOpen = IdentifiedFinding.withSeedIds(priorOpenFindings)
   diffSource match
     case None =>

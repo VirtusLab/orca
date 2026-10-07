@@ -95,16 +95,16 @@ object ReviewLoopPrompts:
     coverage match
       case DiffCoverage.Stage(_) =>
         "Diff (everything this task has changed since its stage began, " +
-          s"committed or not). $NotGitDiffHead:"
+          s"committed or not). $GitDiffHeadWarning:"
       case DiffCoverage.Since(start) =>
         s"Diff (everything changed since commit ${start.short}, reaching back " +
-          s"past the current stage, committed or not). $NotGitDiffHead:"
+          s"past the current stage, committed or not). $GitDiffHeadWarning:"
       case DiffCoverage.Pinned => "Diff (the change set under review):"
 
-  /** Why a reviewer must not fetch the diff itself: work committed during the
-    * stage is not in it.
+  /** Keeps a reviewer from fetching the diff itself: `git diff HEAD` misses
+    * committed work.
     */
-  private val NotGitDiffHead: String =
+  private val GitDiffHeadWarning: String =
     "Do not use `git diff HEAD` instead — it does not show work that has " +
       "been committed"
 
@@ -203,20 +203,20 @@ object ReviewLoopPrompts:
       case ReReviewChanges.Updated(diff) =>
         "Diff (the change set under review, re-sampled from the same baseline " +
           "as your initial diff, so it includes the fixer's edits whether or " +
-          s"not they were committed). $NotGitDiffHead:\n\n${diffBlock(diff)}"
+          s"not they were committed). $GitDiffHeadWarning:\n\n${diffBlock(diff)}"
       case ReReviewChanges.Paths(paths) =>
         "The change set under review is too large to include here. These " +
           "files have changed since the baseline of your initial diff — read " +
-          s"them directly. $NotGitDiffHead:\n\n" +
+          s"them directly. $GitDiffHeadWarning:\n\n" +
           ReReviewChanges.pathsListing(paths)
       case ReReviewChanges.Sections(sections, _, Nil) =>
         "The change set under review is too large to include whole. Below is " +
           "as much of it as fits; any file it does not show is named after " +
-          s"it. $NotGitDiffHead:\n\n${diffBlock(sections)}"
+          s"it. $GitDiffHeadWarning:\n\n${diffBlock(sections)}"
       case ReReviewChanges.Sections(sections, _, unchanged) =>
         "The change set under review is too large to include whole. Below is " +
           "the part of it that changed since your previous round; any file " +
-          s"that part does not show is named after it. $NotGitDiffHead:\n\n" +
+          s"that part does not show is named after it. $GitDiffHeadWarning:\n\n" +
           s"${diffBlock(sections)}\n\nThe rest of the change " +
           "set is unchanged since your previous round — you need not re-read " +
           s"it:\n\n${ReReviewChanges.unchangedListing(unchanged)}"

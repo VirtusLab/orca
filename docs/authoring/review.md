@@ -79,13 +79,14 @@ Each reviewer receives the task and the change set.
   planning stage passes its prompt as the title and an empty description.
 - **The change set.** By default, everything the enclosing stage has produced
   since it began, whether or not the agent committed along the way. New,
-  untracked files are included in full; very large or unreadable ones are only
-  named. It is re-sampled each round, so later rounds see the fixes. When the
+  untracked files are included too; past the first 2 MiB of them, and for
+  unreadable ones, only the name is given. It is re-sampled each round, so later rounds see the fixes. When the
   diff starts from a known commit, reviewers are told which, so they can read
   a file as it was before the change. Passing
   `diff = ReviewDiff.WholeRun` widens it to everything since the commit the
   run started from, which is what you want for a stage that follows the
-  per-task work; reviewers are then told that the change spans every stage.
+  per-task work; reviewers are then told the change reaches back past the
+  current stage, to that commit.
   Passing `diff = ReviewDiff.Pinned(text)` sends exactly that text, every
   round: reviewers are not told a base commit, and the picker's changed-file
   list is read off the diff text.
@@ -121,10 +122,11 @@ was sent before. Each later round it gets the findings still open, and one of:
   larger. They are shown in full, in order, until the next one would not fit,
   followed by a list of the rest; together these take up to 12K characters.
   After them comes a list of the files that did not change since its last
-  round.
+  round (up to 4K characters).
 - **just the list of all files in the change set**, when the first changed
-  file alone is too large, or when no single file's diff changed. The reviewer
-  reads them itself.
+  file's diff alone is too large or there is none to show, or when the diff
+  changed but no file's own diff did (for example, only the list of skipped
+  files changed). The reviewer reads them itself.
 
 The smaller limit keeps later rounds cheap, since everything sent stays in the
 reviewer's conversation.

@@ -1,10 +1,9 @@
 package orca.review.diff
 
-/** A change set as the loop hands it out: the diff text a reviewer's first
-  * prompt carries, the paths describing the same change set, and each path's
-  * own diff section where the sample has one (see `orca.tools.ReviewSample`).
-  * Sampled together, so a consumer can never pair one round's diff with
-  * another's file list.
+/** A change set as the loop hands it out: the diff text a reviewer is sent, the
+  * paths describing the same change set, and each path's own diff section where
+  * the sample has one (see `orca.tools.ReviewSample`). Sampled together, so a
+  * consumer can never pair one round's diff with another's file list.
   *
   * A sampled `diff` is already bounded to `orca.BoundedDiff.ReviewThreshold`; a
   * pinned one is as the caller gave it.

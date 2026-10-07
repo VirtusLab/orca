@@ -4,7 +4,7 @@ import orca.BoundedDiff
 
 /** What one reviewer is sent about the change set in a round. */
 private[review] enum DiffMessage:
-  /** The reviewer's first round: the sample's diff, whole. */
+  /** The reviewer's first round: the sample's diff, as sampled. */
   case Initial(sample: DiffSample)
 
   /** A later round, in a conversation that already holds earlier change sets:
@@ -15,22 +15,20 @@ private[review] enum DiffMessage:
 /** One reviewer's round: the message to send it, and what it was sent, which
   * its next round compares against.
   */
-private[review] case class DiffDelivery(
+private[review] case class DiffDelivery private (
     message: DiffMessage,
     lastSent: LastSent
 )
 
 private[review] object DiffDelivery:
-  /** A reviewer's first round. */
   def first(current: DiffSample): DiffDelivery =
     DiffDelivery(DiffMessage.Initial(current), LastSent.inlined(current))
 
   /** A later round, given what the reviewer was sent in its previous one.
     *
-    * Equality is tested before size, so a [[ReviewDiffSource.Pinned]] diff
-    * never reaches a cut: pinned samples are byte-identical every round. The
-    * whole sample is compared, sections included: `diff` may leave out an
-    * edited file.
+    * Equality is tested before size, so a pinned diff never reaches a cut:
+    * pinned samples are byte-identical every round. The whole sample is
+    * compared, sections included: `diff` may leave out an edited file.
     */
   def next(previous: LastSent, current: DiffSample): DiffDelivery =
     if current == previous.sample then
@@ -125,8 +123,8 @@ private[review] object LastSent:
   * A resumed reviewer already holds every change set it has been sent. Sending
   * it the same one again, under text saying it was freshly re-sampled, would
   * claim the fixer's edits are inside a diff that predates them, and the
-  * reviewer would re-report findings that were already fixed. A
-  * [[ReviewDiffSource.Pinned]] diff produces exactly that repeat.
+  * reviewer would re-report findings that were already fixed. A pinned diff
+  * produces exactly that repeat.
   */
 private[review] enum ReReviewChanges:
   /** Re-sampled, and different from what this reviewer last saw. */

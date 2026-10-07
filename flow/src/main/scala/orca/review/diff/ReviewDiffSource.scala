@@ -22,54 +22,37 @@ private[review] object ReviewDiffSource:
     * the working tree has changed since the enclosing stage began.
     */
   def stage(git: GitTool, base: Option[CommitHash]): ReviewDiffSource =
-    StageSampled(git, base)
+    Sampled(git, DiffCoverage.Stage(base))
 
   /** Reads `orca.review.ReviewDiff.WholeRun`: everything the working tree has
     * changed since `start`, the commit the run bound at.
     */
   def wholeRun(git: GitTool, start: CommitHash): ReviewDiffSource =
-    WholeRunSampled(git, start)
-
-  /** The change set since `base`, bounded to [[BoundedDiff.ReviewThreshold]].
-    * Shared by both sampled sources so they can't diverge on what a sample
-    * carries.
-    */
-  private def sampleSince(git: GitTool, base: Option[CommitHash]): DiffSample =
-    val changes = git.reviewChanges(base)
-    DiffSample(
-      BoundedDiff.reviewPayload(changes),
-      changes.files.map(_.path),
-      changes.sections
-    )
-
-  /** Everything the working tree has changed since the enclosing stage began.
-    * Private, built only by [[stage]]: how far back `base` reaches and the
-    * coverage the reviewer is told are one decision, and a caller free to pair
-    * them itself could hand over a whole branch described as one stage's work.
-    */
-  private case class StageSampled(
-      git: GitTool,
-      base: Option[CommitHash]
-  ) extends ReviewDiffSource:
-    def sample(): DiffSample = sampleSince(git, base)
-    def coverage: DiffCoverage = DiffCoverage.Stage(base)
-
-  /** Everything the working tree has changed since `start`. Private for the
-    * same pairing reason as [[StageSampled]]. Holds the [[CommitHash]] itself,
-    * unwrapped at each git call per that type's contract.
-    */
-  private case class WholeRunSampled(
-      git: GitTool,
-      start: CommitHash
-  ) extends ReviewDiffSource:
-    def sample(): DiffSample = sampleSince(git, Some(start))
-    def coverage: DiffCoverage = DiffCoverage.Since(start)
+    Sampled(git, DiffCoverage.Since(start))
 
   /** Reads `orca.review.ReviewDiff.Pinned`: the caller has already decided what
     * a reviewer should see, so the text is sent as given and only that text can
     * name its files.
     */
-  case class Pinned(diff: String) extends ReviewDiffSource:
+  def pinned(diff: String): ReviewDiffSource = Pinned(diff)
+
+  /** Everything the working tree has changed since `coverage.base`, bounded to
+    * [[BoundedDiff.ReviewThreshold]]. Private, built only by [[stage]] and
+    * [[wholeRun]]: how far back the sample reaches and the coverage the
+    * reviewer is told are one decision, and a caller free to pair them itself
+    * could hand over a whole branch described as one stage's work.
+    */
+  private case class Sampled(git: GitTool, coverage: DiffCoverage)
+      extends ReviewDiffSource:
+    def sample(): DiffSample =
+      val changes = git.reviewChanges(coverage.base)
+      DiffSample(
+        BoundedDiff.reviewPayload(changes),
+        changes.files.map(_.path),
+        changes.sections
+      )
+
+  private case class Pinned(diff: String) extends ReviewDiffSource:
     // The diff is constant, so its file list is scraped once rather than per
     // round. No sections: a pinned sample is the same every round, so it never
     // reaches a cut that would need them.

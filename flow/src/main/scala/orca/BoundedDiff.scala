@@ -7,8 +7,8 @@ import orca.tools.{ChangedFile, FileChange, PendingChanges, ReviewSample}
   * `orca.defaultCommitMessage`), the reviewer's initial prompt
   * ([[reviewPayload]], see `orca.review.reviewAndFixLoop`), a resumed
   * reviewer's per-round delta ([[sectionsPayload]], see
-  * `orca.review.diff.ReReviewChanges`) and the PR summariser's ([[prPayload]],
-  * see `orca.pr.summarisePr`).
+  * `orca.review.diff.DiffDelivery`) and the PR summariser's ([[prPayload]], see
+  * `orca.pr.summarisePr`).
   *
   * The first three keep the same rule: what is left out is still named. A
   * commit subject gets the `--stat` summary ahead of the diff; a reviewer gets
