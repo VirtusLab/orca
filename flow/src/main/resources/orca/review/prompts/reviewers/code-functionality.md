@@ -12,6 +12,9 @@ performance, tests, structure) belong to other reviewers.
 
 - **Intent vs. behaviour**: trace the code; does it produce the
   documented/intended result for typical inputs?
+- **Other call paths**: when the change alters behaviour reached from one
+  entry point, find the other callers and entry points to the same behaviour
+  and check they get it too.
 - **Edge cases**: empty collections, zero, negative, max/min, boundary indices,
   unicode, missing/null, malformed input. Pick the ones that apply.
 - **Failure modes**: every external call, parse, or shell-out has a sad path —

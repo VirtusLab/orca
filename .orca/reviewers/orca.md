@@ -42,9 +42,9 @@ shipped reviewers running beside you.
   exhaustively downstream.
 - **Modelling**: three or more same-typed adjacent parameters — or two whose
   swap compiles — take named arguments or a case class; a wire field's absence
-  is decided once, at decode, never re-defaulted per call site; one decision,
-  one home, so display and summary code consumes the production resolver
-  instead of mirroring the rule.
+  is decided once, at decode, never re-defaulted per call site.
+- **Deliberate duplication**: `README.md` carries its own API reference for the
+  public surface, restating scaladoc on purpose — never report it as a copy.
 - **Invisible in a diff**: terminal escapes are written as explicit unicode
   escapes (`\u001b`), never raw bytes; code that generates code — prompts,
   skeletons, templates — is tested by compiling or running the artifact, not by
