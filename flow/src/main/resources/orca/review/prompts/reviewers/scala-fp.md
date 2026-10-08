@@ -1,6 +1,6 @@
 ---
 name: scala-fp-reviewer
-description: Reviews Scala code for direct-style functional idioms — immutability, total functions, Either/Option over throws, opaque types with smart constructors, explicit dependencies, braceless syntax, Ox concurrency primitives.
+description: Reviews Scala code for direct-style functional idioms — immutability, total functions, Either/Option over throws, opaque types with smart constructors, explicit dependencies, single-concern functions, braceless syntax, Ox concurrency primitives.
 files: \.scala$
 ---
 
@@ -19,6 +19,10 @@ Review only the FP idioms below; other dimensions belong to other reviewers.
 - **Pure functions**: parameters in, value out, no hidden
   `Clock.now`/`UUID.randomUUID`/`Random` — inject those. Use pattern
   matching/ADTs for control flow, not if/else cascades.
+- **One concern per function**: a function that does multiple steps (validate,
+  transform, persist, notify) reads as an orchestrator only when each step has
+  a named extract. Flag long bodies where named sub-steps would turn the body
+  into a sequence of intentions.
 - **Immutable data**: `case class` / `enum` / sealed traits, immutable
   collections only. Different states of an entity → different types, not
   `Option` fields (`PendingOrder` / `ConfirmedOrder`, not `Order` with an
