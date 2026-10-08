@@ -110,16 +110,24 @@ class RunPruningTest extends munit.FunSuite:
     RunPruning.pruneRuns(cacheRuns, current)
     assert(!os.exists(empty))
 
-  test("keeps the trace logs of the newest 20 attempts, rolled parts included"):
-    val runDir = TempDirs.dir()
-    val log = runDir / OrcaDir.EventLogName
-    os.write(log, "")
-    val traces = (0 until 21).toList.map: i =>
+  test(
+    "keeps the trace logs of the newest 40 attempts across runs, rolled parts included"
+  ):
+    val cacheRuns = TempDirs.dir()
+    val runDirs = List(cacheRuns / "a", cacheRuns / "b")
+    val logs = runDirs.map(dir =>
+      (dir / OrcaDir.EventLogName).tap(os.write(_, "", createFolders = true))
+    )
+    // Attempts alternate between the two runs, so the oldest is in run `a`.
+    val traces = (0 until 41).toList.map: i =>
       val id = AttemptId(Instant.ofEpochMilli(1_000_000L + i), pid = 7)
       List(OrcaDir.TraceLogSuffix, OrcaDir.RolledTraceLogSuffix).map: suffix =>
-        (runDir / s"${id.value}$suffix").tap(os.write(_, ""))
-    RunPruning.pruneTraces(runDir)
-    assertEquals(os.list(runDir).toSet, traces.drop(1).flatten.toSet + log)
+        (runDirs(i % 2) / s"${id.value}$suffix").tap(os.write(_, ""))
+    RunPruning.pruneTraces(cacheRuns)
+    assertEquals(
+      runDirs.flatMap(os.list(_)).toSet,
+      traces.drop(1).flatten.toSet ++ logs
+    )
 
   test("removing legacy files leaves the run directories alone"):
     val cache = TempDirs.dir()

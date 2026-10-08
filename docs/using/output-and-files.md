@@ -67,8 +67,8 @@ Orca <version>
 The cache is safe to delete. At the start of each attempt, run directories are
 pruned to the newest 20 that recorded a session, plus the newest 20 of any
 kind. A run with sessions recorded after its last success may still be resumed,
-so it is never pruned. Each run directory keeps the trace logs of its newest 20
-attempts.
+so it is never pruned. Trace logs are kept for the newest 40 attempts across
+all runs.
 
 ### The event log
 

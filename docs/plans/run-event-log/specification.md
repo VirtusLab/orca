@@ -126,9 +126,11 @@ deletes:
 Of the rest, it keeps the newest 20 run directories that recorded a session,
 plus the newest 20 of any kind, by modification time of `events.jsonl`.
 
-In the current run's directory only, it keeps the trace logs (rolled parts
-included) of the newest 20 attempts, by the attempt id in the file name. This
-also removes traces of attempts that died before `AttemptStarted`.
+Across all kept run directories, it keeps the trace logs (rolled parts
+included) of the newest 40 attempts, by the attempt id in the file name. The
+limit is global, not per run, because resumable runs are kept without limit
+and traces are the bulk of the cache. This also removes traces of attempts
+that died before `AttemptStarted`.
 
 ## Startup banner
 

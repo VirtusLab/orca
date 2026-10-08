@@ -4,18 +4,23 @@ import orca.{OrcaDir, RunKey}
 
 import scala.util.control.NonFatal
 
-/** Bounds `.orca/cache/runs/` by run count and each run directory by trace
-  * count, and removes the cache files older versions wrote (ADR 0025). Runs at
-  * attempt start. Each delete is guarded on its own, so a file a concurrent
-  * cleanup got to first does not stop the rest.
+/** Bounds `.orca/cache/runs/` by run count and by trace count, and removes the
+  * cache files older versions wrote (ADR 0025). Runs at attempt start. Each
+  * delete is guarded on its own, so a file a concurrent cleanup got to first
+  * does not stop the rest.
   */
 private[orca] object RunPruning:
 
   /** How many of the newest runs, and of the newest runs that recorded a
-    * session, are kept; also how many attempts' trace logs a run directory
-    * keeps. Resumable runs are kept regardless.
+    * session, are kept. Resumable runs are kept regardless.
     */
   val MaxKept: Int = 20
+
+  /** How many attempts' trace logs are kept, across all runs. Counted apart
+    * from runs, since resumable runs are kept without limit and traces are the
+    * bulk of the cache.
+    */
+  val MaxKeptTraces: Int = 40
 
   /** Deletes the run directories under `cacheRuns` outside the kept sets. Kept:
     * the `current` run's, every run with a session minted after its last
@@ -31,16 +36,20 @@ private[orca] object RunPruning:
     val kept = keptRuns(runs)
     runs.filterNot(kept.contains).foreach(run => removeGuarded(run.dir))
 
-  /** Deletes the trace logs, rolled parts included, of every attempt in
-    * `runDir` but the newest [[MaxKept]] by attempt id.
+  /** Deletes the trace logs, rolled parts included, of every attempt in the run
+    * directories under `cacheRuns` but the newest [[MaxKeptTraces]] by attempt
+    * id.
     */
-  def pruneTraces(runDir: os.Path): Unit =
-    val byAttempt = listed(runDir)
+  def pruneTraces(cacheRuns: os.Path): Unit =
+    val byAttempt = listed(cacheRuns)
+      .filter(os.isDir(_, followLinks = false))
+      .flatMap(listed)
       .filter(os.isFile(_, followLinks = false))
       .groupBy(OrcaDir.attemptIdOf)
       .collect:
         case (Some(id), files) => id -> files
-    val kept = byAttempt.keys.toList.sortBy(_.value).reverse.take(MaxKept).toSet
+    val kept =
+      byAttempt.keys.toList.sortBy(_.value).reverse.take(MaxKeptTraces).toSet
     for
       (id, files) <- byAttempt if !kept.contains(id)
       file <- files

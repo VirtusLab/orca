@@ -50,7 +50,7 @@ private[orca] object RunEventLog:
       clock: () => Instant
   )(using Ox, BufferCapacity): RunEventLog =
     val eventLog = OrcaDir.ensureEventLog(workDir, runKey)
-    prune(workDir, runKey, eventLog / os.up)
+    prune(workDir, runKey)
     val loaded = SessionProjection.records(RunEventReader.read(eventLog))
     endTornLine(eventLog)
     val appender = Actor.create(EventAppender(eventLog))
@@ -87,10 +87,11 @@ private[orca] object RunEventLog:
 
   private val log = LoggerFactory.getLogger("orca.flow")
 
-  private def prune(workDir: os.Path, runKey: RunKey, runDir: os.Path): Unit =
+  private def prune(workDir: os.Path, runKey: RunKey): Unit =
+    val cacheRuns = OrcaDir.cacheRunsPath(workDir)
     RunPruning.removeLegacy(OrcaDir.cachePath(workDir))
-    RunPruning.pruneRuns(OrcaDir.cacheRunsPath(workDir), runKey)
-    RunPruning.pruneTraces(runDir)
+    RunPruning.pruneRuns(cacheRuns, runKey)
+    RunPruning.pruneTraces(cacheRuns)
 
 private class ActorRunEventLog(
     owner: ActorRef[ProjectionOwner],
