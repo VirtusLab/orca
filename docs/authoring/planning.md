@@ -26,14 +26,14 @@ The `instructions` argument is optional and replaces the helper's prompt, see
 
 ## The plan
 
-A plan is a `Plan(epicId, description, tasks, brief)`, where:
+A plan is a `Plan(id, description, tasks, brief)`, where:
 
 - `tasks` is the list of `Task(title: Title, description: String)` to
   implement, in order. `Title` wraps a short label.
 - `brief` is a concise briefing on the codebase. Feed it to the implementer
   session as its seed; `plan.taskPrompt(task)` prepends the brief to a task's
   description.
-- `epicId` is a kebab-case identifier for the plan. It is not the branch name:
+- `id` is a kebab-case identifier for the plan. It is not the branch name:
   the run names its branch separately.
 
 ## `WithChat`

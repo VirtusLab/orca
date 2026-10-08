@@ -13,7 +13,7 @@ Focus your review on four dimensions:
 - **Conciseness** — no redundant or busy-work tasks; each description carries only
   what an implementer needs, with no padding.
 
-Keep the same epicId unless it is clearly wrong. If the plan includes a Brief
+Keep the same id unless it is clearly wrong. If the plan includes a Brief
 section, refine it in the same spirit; do not invent one if it has none. Return
 the complete improved plan, not just the changes.
 

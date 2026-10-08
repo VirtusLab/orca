@@ -12,8 +12,8 @@ results.
 These are the types the planning calls described in
 [Planning](../authoring/planning.md) produce.
 
-- **`orca.plan.Plan(epicId, description, tasks, brief)`** is the task list the
-  planner generates in one round trip. `epicId` is a kebab-case identifier for
+- **`orca.plan.Plan(id, description, tasks, brief)`** is the task list the
+  planner generates in one round trip. `id` is a kebab-case identifier for
   the plan, not the branch name, and `description` is the planner's epic
   summary. `brief` is the planner's short codebase briefing; use it as the
   session seed, as in `agent.session("implementer", seed = plan.brief)`.

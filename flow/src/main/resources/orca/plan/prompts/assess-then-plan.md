@@ -19,7 +19,7 @@ Things to look for:
 Then return one of:
 
   - `decision: "Proceed"` with a `plan` (the same plan shape used by the
-    autonomous planner — epic id, description, ordered list of tasks, and a
+    autonomous planner — id, description, ordered list of tasks, and a
     `brief`). Each task should be atomic (impl + tests together), independent of
     later tasks, shippable on its own, and small enough for one focused
     implementer turn. Fill the plan's `brief` field with a concise codebase

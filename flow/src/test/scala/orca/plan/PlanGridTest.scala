@@ -18,7 +18,7 @@ class PlanGridTest extends munit.FunSuite:
   private given orca.InStage = orca.InStage.unsafe
 
   private val samplePlan = Plan(
-    epicId = "x",
+    id = "x",
     description = "d",
     tasks = List(Task(Title("t1"), "body")),
     brief = "the brief"

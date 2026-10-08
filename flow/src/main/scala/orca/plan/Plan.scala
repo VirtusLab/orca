@@ -11,10 +11,9 @@ import scala.annotation.unused
   * planner's structured output, and feeds the implementer session seed (ADR
   * 0018 §2.6).
   *
-  * `epicId` is a kebab-case identifier for the plan itself (it heads the
-  * markdown render), NOT the git branch name: the flow derives and announces
-  * its own branch at setup via [[orca.BranchNamingStrategy]], so the two can
-  * differ.
+  * `id` is a kebab-case identifier for the plan itself (it heads the markdown
+  * render), NOT the git branch name: the flow derives and announces its own
+  * branch at setup via [[orca.BranchNamingStrategy]], so the two can differ.
   *
   * ==Planning grid==
   *
@@ -36,7 +35,7 @@ import scala.annotation.unused
   * progress log, not a plan file, is what resume reads.
   */
 case class Plan(
-    epicId: String,
+    id: String,
     description: String,
     tasks: List[Task],
     brief: String
@@ -233,7 +232,7 @@ object Plan:
     if plan.tasks.isEmpty then ""
     else
       val plural = if plan.tasks.size == 1 then "" else "s"
-      // No branch name here: `epicId` is the plan's own identifier, not the git
+      // No branch name here: `id` is the plan's own identifier, not the git
       // branch (derived and announced separately at setup).
       val header = s"Planned ${plan.tasks.size} task$plural:"
       val body = plan.tasks.map(t => s"  - ${t.title}").mkString("\n")
@@ -251,7 +250,7 @@ object Plan:
     else s"$base\n## Brief\n\n${plan.brief.stripLineEnd}\n"
 
   private def renderPlan(plan: Plan): String =
-    val header = s"# Plan: ${plan.epicId}\n"
+    val header = s"# Plan: ${plan.id}\n"
     val descriptionBlock =
       if plan.description.trim.isEmpty then ""
       else s"\n${plan.description.stripLineEnd}\n"
