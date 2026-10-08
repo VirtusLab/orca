@@ -48,7 +48,7 @@ class ClaudeArgsTest extends munit.FunSuite:
     // Plan mode served claude-sonnet-5 for the bare alias (2.1.220) — see
     // ClaudeArgs.modelArgs.
     val args = streamJson(AgentConfig(model = Some(Model("haiku"))))
-    assert(args.containsSlice(Seq("--model", "claude-haiku-4-5")), args)
+    assert(args.containsSlice(Seq("--model", "claude-haiku-5-5")), args)
 
   test("the `sonnet` alias is left bare"):
     // Guards against generalising the rewrite to aliases the CLI resolves fine.

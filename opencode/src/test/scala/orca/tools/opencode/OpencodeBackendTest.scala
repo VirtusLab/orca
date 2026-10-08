@@ -138,7 +138,7 @@ class OpencodeBackendTest extends munit.FunSuite:
       val backend = new OpencodeBackend(new FakeHandle(new FakeHttp(Nil)))
       assertEquals(
         backend.cheapModel(Some(Model("ollama/llama3.1"))),
-        Some(Model("anthropic/claude-haiku-4-5"))
+        Some(Model("anthropic/claude-haiku-5-5"))
       )
 
   test("registerSession lets a later call resume that server session directly"):

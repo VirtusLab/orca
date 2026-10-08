@@ -163,7 +163,7 @@ final class Agent[B <: BackendTag] private (
 
   /** Pin the model that [[cheap]] resolves to, overriding the backend default.
     * Lets a flow specify both a leading and a cheap model, e.g.
-    * `_.opencode.anthropicSonnet.withCheapModel(Model("anthropic/claude-haiku-4-5"))`.
+    * `_.opencode.anthropicSonnet.withCheapModel(Model("anthropic/claude-haiku-5-5"))`.
     */
   def withCheapModel(model: Model): Agent[B] =
     copy(config = config.copy(cheapModel = Some(model)))

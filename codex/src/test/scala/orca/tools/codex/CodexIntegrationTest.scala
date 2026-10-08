@@ -132,7 +132,7 @@ class CodexIntegrationTest extends munit.FunSuite:
         prompt = "Reply with the single word: READY.",
         session = fresh,
         config = AgentConfig(
-          model = Some(Model("gpt-6-sol")),
+          model = Some(Model("gpt-6.1-sol")),
           systemPrompt = Some("You are a terse reviewer."),
           tools = ToolSet.ReadOnly
         )

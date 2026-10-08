@@ -9,7 +9,7 @@ private[orca] object ClaudeModels:
     * covers a `claude:haiku` pin too, so neither spelling tracks a new haiku
     * generation: this constant is the one place to bump when one ships.
     */
-  val Haiku: Model = Model("claude-haiku-4-5")
+  val Haiku: Model = Model("claude-haiku-5-5")
 
   val Sonnet: Model = Model("claude-sonnet-5-5")
 

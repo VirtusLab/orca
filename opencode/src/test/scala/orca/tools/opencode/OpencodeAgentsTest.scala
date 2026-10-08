@@ -42,13 +42,13 @@ class OpencodeAgentsTest extends munit.FunSuite:
     )
     assertEquals(
       modelOf(toolWith(b).anthropicHaiku, b),
-      Some("anthropic/claude-haiku-4-5")
+      Some("anthropic/claude-haiku-5-5")
     )
     assertEquals(
       modelOf(toolWith(b).openaiAstra, b),
       Some("openai/gpt-6-astra")
     )
-    assertEquals(modelOf(toolWith(b).openaiSol, b), Some("openai/gpt-6-sol"))
+    assertEquals(modelOf(toolWith(b).openaiSol, b), Some("openai/gpt-6.1-sol"))
     assertEquals(
       modelOf(toolWith(b).openaiLuna, b),
       Some("openai/gpt-6-luna")
