@@ -61,6 +61,7 @@ and `issue` an `IssueHandle`.
 | Method | Does |
 |---|---|
 | `availability()` | probes whether a PR can be opened from this checkout |
+| `prHandle(ref)` | a `PrHandle` from a PR URL or `owner/repo#N`; `Either[String, PrHandle]` |
 | `createPr(title, body)` | opens a PR; `Either[PrCreateFailed, PrHandle]` |
 | `updatePr(pr, title, body)` | replaces a PR's title and body |
 | `readIssue(issue)`, `readIssueComments(issue)`, `readPrComments(pr)` | read an issue, its comments, or a PR's comments |

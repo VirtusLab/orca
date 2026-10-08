@@ -412,6 +412,16 @@ with a test pinning the observed wire shape.
   inline.
 - Tests target exactly one scenario each.
 
+### Built-in flows
+
+- `flows/*.sc` are examples users read and fork, so keep each one short: its
+  stages, their order and its decisions visible at a glance.
+- Move logic that is generic, or that isn't the flow's own shape, into the
+  library: parsing, rendering, reviewer selection, host resolution, prompt
+  assembly, retry policies. A flow keeps only what makes it that flow.
+- Prefer a library helper used by one flow over 30 lines in a script; prefer
+  the script when the code *is* the flow's shape (the stage sequence).
+
 ### Review vocabulary
 
 Three words for the review loop, used the same way in identifiers, prompt text,

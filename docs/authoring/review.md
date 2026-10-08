@@ -135,6 +135,16 @@ reviewer's conversation.
 If no diff can be sampled, the reviewer is told so, and to check the code
 rather than assume nothing changed.
 
+## Reviewing without fixing
+
+`reviewOnce(reviewers, target, selection?)` runs one review pass and fixes
+nothing; there is no coder session. `target` is a
+[`ReviewTarget(summary, diffPath, changedFiles)`](../api/data-structures.md#review):
+the reviewers read the diff from the file at `diffPath`. `selection` defaults
+to `ReviewerSelector.agentDriven`, and the picked reviewers run concurrently.
+It returns a `ReviewReport`; `report.render` is markdown to print or post on a
+PR. `flows/review.sc` uses it.
+
 ## Rosters
 
 There are three ways to build the `reviewers` list:

@@ -13,16 +13,12 @@ The operations are:
 
 - `from(userPrompt, agent, instructions?)` returns a `Plan`. Autonomously, it
   plans in one turn; interactively, you drive the planner conversationally.
-- `assessThenPlan(userPrompt, agent, instructions?)` returns a `Verdict[Plan]`.
-  It first assesses the prompt, then either continues with `Proceed(plan)` or
-  returns a `Rejection`. Interactively, it can ask the user to clarify instead
-  of rejecting.
 - `roadmap(userPrompt, agent, instructions?)` returns a `Roadmap`, which
   splits a change too large for one plan into ordered epics. See
   [Roadmaps](#roadmaps).
-- `triage(report, agent, instructions?)` returns a `Triage`, which classifies
-  a bug report as not a bug, untestable, or testable. Interactively, it can ask
-  clarifying questions.
+- `triage(report, agent, instructions?)` returns a `Triage`, which rejects a
+  request or accepts it as a bug or a change. See [Triage](#triage).
+  Interactively, it can ask clarifying questions.
 
 The `instructions` argument is optional and replaces the helper's prompt, see
 [Customising prompts](extending.md#customising-prompts).
@@ -76,16 +72,18 @@ A roadmap is a `Roadmap(description, epics, brief)`, where each
 comes: `roadmap.epicPrompt(epic)` is the planning input for `from`, naming the
 epics already done. `.reviewed()` works on a `WithChat[Roadmap]` as on a plan.
 
-## Verdicts and triage
+## Triage
 
-`assessThenPlan` returns a `Verdict`: either `Verdict.Proceed(plan)`, meaning
-the plan should be implemented, or `Verdict.Rejection(kind, body)`, where
-`kind` says whether the rejection is a question, a critique or a refusal. The
-flow shows a rejection to whoever asked, for example as an issue comment;
-`flows/issue-pr.sc` does this.
+`triage` checks a request (a bug report, a feature request or any other ask)
+against the repository and returns a `Triage`:
 
-`triage` returns a `Triage` sum type to pattern-match on: the cases are
-`NotABug`, `Untestable` and `Testable`, each carrying its own fields.
-`flows/issue-pr-bugfix.sc` uses it to decide between a comment and a
-reproduction test. The same flow asks the agent for a `BugReportMatch` to check
-that a CI failure matches the report.
+- `Triage.Reject(reply)`: the request should not be done; `reply` is the
+  answer to whoever asked.
+- `Triage.Accept(summary, brief, kind)`: the work should be done. `brief` is
+  what triage verified, for seeding the planner. `kind` is
+  `TestableBug(failingTestPath)`, `UntestableBug(reproductionSteps)` or
+  `Change`.
+
+`flows/resolve.sc` uses it to reject, reproduce or go straight to planning.
+For a testable bug, the same flow asks the agent for a `BugReportMatch` to check
+that the failing test's output matches the report.
