@@ -11,6 +11,7 @@ import orca.shell.sessions.EventLogFixtures.{
   writeEventLog
 }
 import orca.testkit.TempDirs
+import ox.discard
 
 import java.time.Instant
 
@@ -361,3 +362,131 @@ class EventLogReaderTest extends munit.FunSuite:
     assertEquals(attempts.size, 1)
     assertEquals(warnings.size, 1)
     assert(warnings.head.contains("symlink"), warnings.head)
+
+  /** Writes an attempt started at `startedAt` with `sessions` sessions as run
+    * `runKey`'s event log, last modified at `modifiedAt`.
+    */
+  private def writeDatedAttempt(
+      workDir: os.Path,
+      runKey: RunKey,
+      startedAt: String,
+      sessions: Int,
+      modifiedAt: String
+  ): Unit =
+    writeEventLog(
+      workDir,
+      manifest(
+        workDir = workDir.toString,
+        startedAt = startedAt,
+        sessions = List.fill(sessions)(durable(lastActiveAt = startedAt))
+      ),
+      runKey
+    )
+    os.mtime
+      .set(
+        OrcaDir.eventLogPath(workDir, runKey),
+        Instant.parse(modifiedAt).toEpochMilli
+      )
+      .discard
+
+  test("the newest session count skips a newer attempt with no sessions"):
+    val workDir = TempDirs.dir()
+    writeDatedAttempt(
+      workDir,
+      RunKey.of("with sessions"),
+      startedAt = "2026-07-18T10:00:00Z",
+      sessions = 2,
+      modifiedAt = "2026-07-18T10:30:00Z"
+    )
+    writeDatedAttempt(
+      workDir,
+      RunKey.of("no sessions"),
+      startedAt = "2026-07-18T11:00:00Z",
+      sessions = 0,
+      modifiedAt = "2026-07-18T11:30:00Z"
+    )
+    assertEquals(EventLogReader.newestSessionCount(workDir, Nil), Some(2))
+
+  test("the newest session count does not read a log older than its attempt"):
+    val workDir = TempDirs.dir()
+    writeDatedAttempt(
+      workDir,
+      RunKey.of("kept"),
+      startedAt = "2026-07-18T10:00:00Z",
+      sessions = 1,
+      modifiedAt = "2026-07-18T10:30:00Z"
+    )
+    // Inconsistent on purpose: a newer attempt in a log modified before the
+    // kept attempt started. Its count shows up only if the log is read.
+    writeDatedAttempt(
+      workDir,
+      RunKey.of("trap"),
+      startedAt = "2026-07-18T12:00:00Z",
+      sessions = 3,
+      modifiedAt = "2026-07-18T09:00:00Z"
+    )
+    assertEquals(EventLogReader.newestSessionCount(workDir, Nil), Some(1))
+
+  test("the newest session count is None with no event logs"):
+    assertEquals(EventLogReader.newestSessionCount(TempDirs.dir(), Nil), None)
+
+  test("the newest session count comes from the newest attempt in a log"):
+    val workDir = TempDirs.dir()
+    List(("2026-07-18T10:00:00Z", 1L, 2), ("2026-07-18T11:00:00Z", 2L, 1))
+      .foreach: (startedAt, pid, sessions) =>
+        writeEventLog(
+          workDir,
+          manifest(
+            workDir = workDir.toString,
+            startedAt = startedAt,
+            pid = pid,
+            sessions = List.fill(sessions)(durable(lastActiveAt = startedAt))
+          )
+        )
+    assertEquals(EventLogReader.newestSessionCount(workDir, Nil), Some(1))
+
+  test("the newest session count counts a repeated commit once"):
+    val workDir = TempDirs.dir()
+    appendEvents(
+      workDir,
+      started,
+      commit("a", "2026-07-18T10:01:00Z"),
+      commit("a", "2026-07-18T10:02:00Z"),
+      commit("b", "2026-07-18T10:03:00Z")
+    )
+    assertEquals(EventLogReader.newestSessionCount(workDir, Nil), Some(2))
+
+  test("the newest session count spans other worktrees"):
+    val checkout = TempDirs.dir()
+    val worktree = TempDirs.dir()
+    writeDatedAttempt(
+      checkout,
+      key,
+      startedAt = "2026-07-18T10:00:00Z",
+      sessions = 1,
+      modifiedAt = "2026-07-18T10:30:00Z"
+    )
+    writeDatedAttempt(
+      worktree,
+      key,
+      startedAt = "2026-07-18T11:00:00Z",
+      sessions = 2,
+      modifiedAt = "2026-07-18T11:30:00Z"
+    )
+    assertEquals(
+      EventLogReader.newestSessionCount(checkout, List(worktree)),
+      Some(2)
+    )
+
+  test("the newest session count skips a worktree with a symlinked .orca"):
+    val checkout = TempDirs.dir()
+    val worktree = TempDirs.dir()
+    writeAttempt(checkout, "2026-07-18T10:00:00Z")
+    val outside = TempDirs.dir() / "outside-runs"
+    os.makeDir.all(outside)
+    os.makeDir.all(worktree / ".orca" / "cache")
+    os.symlink(runsDir(worktree), outside)
+    assertEquals(
+      EventLogReader.newestSessionCount(checkout, List(worktree)),
+      Some(1)
+    )

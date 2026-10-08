@@ -1,11 +1,14 @@
 package orca.shell.sessions
 
 import orca.{AttemptId, OrcaDir}
-import orca.runlog.RunEvent
+import orca.runlog.{RunEvent, RunEventReader}
 import orca.runner.manifest.AttemptManifest
 
 import java.io.{IOException, UncheckedIOException}
 import java.nio.file.NoSuchFileException
+import java.time.Instant
+import scala.annotation.tailrec
+import scala.util.Try
 import scala.util.control.NonFatal
 
 /** An attempt's projection paired with its id and its [[ObservedStatus]] — read
@@ -68,6 +71,70 @@ private[shell] object EventLogReader:
       perDir.flatMap(_.attempts).sortBy(_.manifest.startedAt).reverse,
       perDir.flatMap(_.warnings)
     )
+
+  /** The session count of the newest attempt, by start time, that committed a
+    * session, across the same directories as [[list]]; `None` when there is
+    * none. Cheaper than [[list]] for a menu redraw: event logs are visited
+    * newest-first by mtime and the scan stops at the first log last modified
+    * before the newest such attempt so far started, since it cannot hold a
+    * newer one.
+    *
+    * `own` is read as strictly as in [[list]]; a failure in another worktree
+    * drops that worktree silently, as do unreadable logs — [[list]] reports
+    * them when Continue a session is opened.
+    */
+  def newestSessionCount(
+      own: os.Path,
+      otherWorktrees: List[os.Path]
+  ): Option[Int] =
+    val logs = datedEventLogs(own) ++
+      otherWorktrees.flatMap(dir => Try(datedEventLogs(dir)).getOrElse(Nil))
+    newestWithSessions(logs.sortBy(-_.mtime), None).map(_.sessions)
+
+  private case class DatedLog(path: os.Path, mtime: Long)
+
+  private case class AttemptSessions(startedAt: Instant, sessions: Int)
+
+  /** `workDir`'s event logs with their mtimes; a log that vanished since it was
+    * listed (pruned) is left out.
+    */
+  private def datedEventLogs(workDir: os.Path): List[DatedLog] =
+    val dir = OrcaDir.cacheRunsPath(workDir)
+    OrcaDir.assertNoOrcaSymlinks(workDir, dir)
+    if !os.exists(dir) then Nil
+    else
+      eventLogs(workDir, dir).flatMap: log =>
+        Try(os.mtime(log)).toOption.map(DatedLog(log, _))
+
+  /** `logs` are newest-first by mtime. */
+  @tailrec private def newestWithSessions(
+      logs: List[DatedLog],
+      newest: Option[AttemptSessions]
+  ): Option[AttemptSessions] =
+    logs match
+      case log :: rest
+          if !newest.exists(n => log.mtime < n.startedAt.toEpochMilli) =>
+        newestWithSessions(
+          rest,
+          (newest.toList ++ attemptsWithSessions(log.path))
+            .maxByOption(_.startedAt)
+        )
+      case _ => newest
+
+  private val CountedTypes: Set[Class[? <: RunEvent]] =
+    Set(classOf[RunEvent.AttemptStarted], classOf[RunEvent.SessionCommitted])
+
+  /** The attempts in `log` that [[list]] would offer, with their session
+    * counts.
+    */
+  private def attemptsWithSessions(log: os.Path): List[AttemptSessions] =
+    RunEventReader
+      .readOnly(log, CountedTypes)
+      .groupBy(_.attempt)
+      .toList
+      .flatMap(AttemptProjection.of(_, _))
+      .filter(_.continuable)
+      .map(m => AttemptSessions(m.startedAt, m.sessions.size))
 
   private def guarded(
       workDir: os.Path,
