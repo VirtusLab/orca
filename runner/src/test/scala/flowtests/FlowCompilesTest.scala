@@ -336,10 +336,9 @@ object FlowCanary:
         gh.writeComment(pr, "pr comment")
         gh.updatePr(pr, "new title", "new body")
 
-  /** Branch + PR surface — exercised by `flows/implement-enhanced.sc`. Pins the
-    * branch ops the runtime exposes to flow scripts and the `createPr` `Either`
-    * with its recoverable `PrAlreadyExists`. The flow runtime owns branch +
-    * resume (ADR 0018 §2.5).
+  /** Branch + PR surface. Pins the branch ops the runtime exposes to flow
+    * scripts and the `createPr` `Either` with its recoverable
+    * `PrAlreadyExists`. The flow runtime owns branch + resume (ADR 0018 §2.5).
     */
   def branchAndPrSurface(): Unit =
     flow(OrcaArgs()):
@@ -421,11 +420,11 @@ object FlowCanary:
     )
 
   /** Post-planning step (`reviewed`) plus the per-task stage loop — exercised
-    * by `flows/implement-enhanced.sc`. Pins that the `WithChat[Plan]` extension
-    * resolves through `import orca.*` alone. Plans are always briefed: the
-    * `brief` rides in the structured output, so `plan.brief` /
-    * `plan.taskPrompt` are always available. Resume is the progress log (ADR
-    * 0018 §2.8), and the task loop is a plain per-task `stage(...)`.
+    * by `flows/epic.sc`. Pins that the `WithChat[Plan]` extension resolves
+    * through `import orca.*` alone. Plans are always briefed: the `brief` rides
+    * in the structured output, so `plan.brief` / `plan.taskPrompt` are always
+    * available. Resume is the progress log (ADR 0018 §2.8), and the task loop
+    * is a plain per-task `stage(...)`.
     */
   def planReviewAndBriefSurface(): Unit =
     flow(OrcaArgs()):
@@ -470,47 +469,33 @@ object FlowCanary:
             task = task
           )
 
-  /** `implement-interactive.sc`: interactive plan → session → task loop. Only
-    * the planning call differs from `implementFlowShape`.
+  /** `epic.sc`: roadmap → per epic a nested plan stage, task stages and an epic
+    * review loop → `openPrIfGitHub`, the best-effort PR step every
+    * code-producing flow ends with.
     */
-  def interactivePlanFlowShape(): Unit =
+  def epicFlowShape(): Unit =
     flow(OrcaArgs()):
-      val plan: Plan = stage("Plan"):
-        Plan.interactive.from(userPrompt, claude).value
-
-      for task <- plan.tasks do
-        stage(s"task: ${task.title}"):
-          val session = claude.session("implementer", seed = plan.brief)
-          val _ = session.run(task.description)
+      val roadmap: Roadmap = stage("Plan epics"):
+        Plan.autonomous.roadmap(userPrompt, claude).reviewed().value
+      val perEpic: List[OpenFindings] =
+        for epic <- roadmap.epics yield stage(s"Epic: ${epic.title}"):
+          val plan: Plan = stage("Plan"):
+            Plan.autonomous.from(roadmap.epicPrompt(epic), claude).value
+          val tasks =
+            for task <- plan.tasks yield stage(s"Task: ${task.title}"):
+              val session = claude.session("implementer", seed = plan.brief)
+              val _ = session.run(task.description)
+              reviewThenFix(session, allReviewers(claude), task)
           reviewAndFixLoop(
-            coderSession = session,
+            coderSession = claude.session("epic-fixer", seed = plan.brief),
             reviewers = allReviewers(claude),
-            task = task
+            task = Task(epic.title, epic.goal),
+            maxFixTurns = 3,
+            priorOpenFindings = tasks.flatMap(_.findings)
           )
-
-  /** `implement-enhanced.sc`: plan → `.reviewed` → task loop with `taskPrompt`
-    * and a per-task session → `openPrIfGitHub`, the best-effort PR step every
-    * code-producing flow ends with, carrying what the loops left open.
-    */
-  def enhancedImplementFlowShape(): Unit =
-    flow(OrcaArgs()):
-      val plan: Plan = stage("Plan"):
-        Plan.autonomous.from(userPrompt, claude).reviewed().value
-
-      val taskOpenFindings =
-        for task <- plan.tasks yield stage(s"task: ${task.title}"):
-          val session = claude.session("implementer", seed = plan.brief)
-          val _ = session.run(plan.taskPrompt(task))
-          reviewAndFixLoop(
-            coderSession = session,
-            reviewers = allReviewers(claude),
-            task = task
-          )
-
       val _ = openPrIfGitHub(
         summarisingAgent = claude.haiku,
-        openFindings =
-          OpenFindings(taskOpenFindings.flatMap(_.findings), skipped = None)
+        openFindings = OpenFindings(perEpic.flatMap(_.findings), skipped = None)
       )
 
   /** Role agents (ADR 0020): the three role accessors hand out backend-pinned
@@ -541,7 +526,7 @@ object FlowCanary:
   /** Cross-backend review — claude implements, codex reviews — pinned with
     * concrete accessors instead of the role ones. Exercises the
     * `allReviewers(codex)` shape, `claude.opus` planning, and a docs stage with
-    * a session of its own (`flows/implement-enhanced.sc`).
+    * a session of its own (`flows/epic.sc`).
     */
   def crossBackendReviewShape(): Unit =
     flow(OrcaArgs()):

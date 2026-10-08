@@ -22,9 +22,6 @@
   *
   * Requires the configured role agents logged in (`claude` by default); `gh` is
   * optional. The seeded calculator example also needs `cargo` on PATH.
-  *
-  * For the variant where the planner can ask clarifying questions, see
-  * `implement-interactive.sc`.
   */
 
 import orca.{*, given}

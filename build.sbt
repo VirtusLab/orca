@@ -270,7 +270,7 @@ lazy val shell = (project in file("shell"))
       IO.write(docsFile, ConcatDocs(base / "docs"))
       val examples = List(
         base / "flows" / "implement.sc",
-        base / "flows" / "implement-interactive.sc"
+        base / "flows" / "epic.sc"
       )
       docsFile :: examples.map { f =>
         val target = outDir / f.getName
