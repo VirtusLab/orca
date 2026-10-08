@@ -25,7 +25,7 @@ private[shell] object SessionAction:
     * execs its harness child (security fold-in, ADR 0021 §10), by both the
     * CLI's tty-gated `orca continue` and the interactive picker. A no-selector
     * `orca continue` could otherwise resume whatever session a hostile repo's
-    * `.orca/cache/attempts/` manifest names without the user ever having chosen
+    * `.orca/cache/runs/` event log names without the user ever having chosen
     * it; the notice gives them a chance to Ctrl-C.
     */
   def resumeNotice(selection: SessionSelection): String =

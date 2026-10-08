@@ -7,7 +7,7 @@ import orca.shell.resume.{InterruptedRun, ResumeDetector}
 import orca.shell.run.FlowLauncher
 import orca.shell.sessions.{
   AttemptListing,
-  ManifestReader,
+  EventLogReader,
   ObservedStatus,
   SessionIndex,
   SessionPicker
@@ -29,25 +29,25 @@ private[shell] case class MenuContext(
 private[shell] object ShellMenu:
 
   /** Runs the main menu until Exit is chosen or the top-level prompt is
-    * cancelled (Ctrl-C / EOF). Continue a session re-reads
-    * `.orca/cache/attempts/` on every redraw (ADR 0021 §8) — a flow run started
-    * from this same menu can only have just finished, so the freshest listing
-    * is worth the re-read. `ResumeDetector.detect` is likewise re-evaluated
-    * every redraw (ADR 0021 §3 amendment). Both scans share ONE
-    * `WorktreeScan.dirs` resolution — the discovery is a git subprocess or two,
-    * and nothing between them can change the answer — over a bounded set of
-    * directories, so a redraw stays cheap enough to repeat and consistent with
-    * Continue's own re-read. Re-discovering per redraw is the point: a
-    * `--worktree` run started from this very menu creates a worktree that was
-    * not there when the shell started. The `branch:` line
-    * ([[ConfigSummary.branchLine]]) is printed here for the same reason: a flow
-    * run started from this menu can leave HEAD on a new branch, so it is
-    * re-read per redraw rather than printed once with the startup summary.
+    * cancelled (Ctrl-C / EOF). Continue a session re-reads the runs' event logs
+    * on every redraw (ADR 0021 §8) — a flow run started from this same menu can
+    * only have just finished, so the freshest listing is worth the re-read.
+    * `ResumeDetector.detect` is likewise re-evaluated every redraw (ADR 0021 §3
+    * amendment). Both scans share ONE `WorktreeScan.dirs` resolution — the
+    * discovery is a git subprocess or two, and nothing between them can change
+    * the answer — over a bounded set of directories, so a redraw stays cheap
+    * enough to repeat and consistent with Continue's own re-read.
+    * Re-discovering per redraw is the point: a `--worktree` run started from
+    * this very menu creates a worktree that was not there when the shell
+    * started. The `branch:` line ([[ConfigSummary.branchLine]]) is printed here
+    * for the same reason: a flow run started from this menu can leave HEAD on a
+    * new branch, so it is re-read per redraw rather than printed once with the
+    * startup summary.
     */
   @tailrec def loop(context: MenuContext)(using env: ShellEnv): Unit =
     val scanDirs = WorktreeScan.dirs(env.workDir)
     val AttemptListing(attempts, warnings) =
-      ManifestReader.list(
+      EventLogReader.list(
         scanDirs.own,
         scanDirs.worktrees,
         ObservedStatus.processAlive

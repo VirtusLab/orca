@@ -4,7 +4,7 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.{
   CodecMakerConfig,
   ConfiguredJsonValueCodec
 }
-import orca.agents.{BackendTag, JsonData, SessionKey}
+import orca.agents.{BackendTag, SessionKey}
 
 import java.time.Instant
 
@@ -13,12 +13,6 @@ import java.time.Instant
   */
 private[orca] enum AttemptStatus:
   case Running, Succeeded, Failed
-
-private[orca] object AttemptStatus:
-  given codec: ConfiguredJsonValueCodec[AttemptStatus] =
-    ConfiguredJsonValueCodec.derived[AttemptStatus](using
-      CodecMakerConfig.withDiscriminatorFieldName(None)
-    )
 
 /** How a manifest session was opened, as [[ManifestSession.kind]] reads it:
   * under an `agent.session(name, seed)` key, or as an ephemeral `run`/`chat`
@@ -57,13 +51,13 @@ private[orca] case class ManifestSession(
   def kind: SessionKind =
     if minted.isDefined then SessionKind.Durable else SessionKind.Ephemeral
 
-/** A per-attempt manifest written to
-  * `.orca/cache/attempts/<AttemptId>.manifest.json`, read by the shell to offer
-  * "continue a session". A stale [[AttemptStatus.Running]] with a dead `pid`
-  * means the attempt crashed, and the shell still offers its recorded sessions.
+/** One attempt as the shell's "continue a session" listing sees it, projected
+  * from the attempt's events in its run's event log (ADR 0025). A stale
+  * [[AttemptStatus.Running]] with a dead `pid` means the attempt crashed, and
+  * the shell still offers its recorded sessions.
   *
-  * Written from the attempt's start, so `sessions` is empty until the first
-  * `SessionCommitted`; [[continuable]] is what the shell and pruning ask.
+  * `sessions` is empty until the first `SessionCommitted`; [[continuable]] is
+  * what the shell asks.
   *
   * `branch` is the branch the attempt bound to; `None` until `BranchBound`
   * fires, so an attempt that failed before binding has none.
@@ -84,15 +78,3 @@ private[orca] case class AttemptManifest(
 ):
   /** Whether the attempt recorded a session the shell can offer to continue. */
   def continuable: Boolean = sessions.nonEmpty
-
-private[orca] object AttemptManifest:
-  // Only a jsoniter codec — no `JsonData`/`Schema` half, deliberately: the
-  // manifest crosses the process/disk boundary to the shell, never an HTTP or
-  // LLM boundary, so it needs on-disk (de)serialisation but no tool schema.
-  //
-  // Strict (`JsonData.strictCodecConfig`): `sessions` absent must not read as
-  // empty, since the menu renders the count verbatim.
-  given codec: ConfiguredJsonValueCodec[AttemptManifest] =
-    ConfiguredJsonValueCodec.derived[AttemptManifest](using
-      JsonData.strictCodecConfig
-    )

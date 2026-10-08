@@ -40,7 +40,7 @@ private[shell] object Cli:
 
   private val nameMapper = Util.kebabCaseNameMapper
 
-  /** Every CLI-path diagnostic (errors, `ManifestReader` warnings) goes here,
+  /** Every CLI-path diagnostic (errors, `EventLogReader` warnings) goes here,
     * plain text with no ANSI/fansi coloring — unlike
     * [[orca.shell.ui.ShellOutput.error]], which is stdout-and-colored for the
     * interactive shell. `--json`/table data is exclusively `println` (stdout);

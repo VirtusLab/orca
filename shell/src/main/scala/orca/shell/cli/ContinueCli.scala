@@ -5,7 +5,7 @@ import orca.shell.ScanDirs
 import orca.shell.actions.SessionAction
 import orca.shell.sessions.{
   AttemptListing,
-  ManifestReader,
+  EventLogReader,
   SessionIndex,
   SessionSelection
 }
@@ -19,7 +19,7 @@ import Cli.{actionFailure, complete, requireTty, usageFailure, withTerminal}
 private[cli] object ContinueCli:
 
   /** `continue`'s full behavior over explicit `dirs`/`tty`/`processAlive` (test
-    * seam) — tests seed each directory with `.orca/cache/attempts/` manifests,
+    * seam) — tests seed each directory with `.orca/cache/runs/` event logs,
     * simulate a terminal or a pipe via `tty`, and fake process liveness via
     * `processAlive`. The directories arrive resolved
     * ([[orca.shell.WorktreeScan.dirs]], at the real entry point), so nothing
@@ -34,7 +34,7 @@ private[cli] object ContinueCli:
       processAlive: AttemptManifest => Boolean
   ): Int =
     val AttemptListing(attempts, warnings) =
-      ManifestReader.list(dirs.own, dirs.worktrees, processAlive)
+      EventLogReader.list(dirs.own, dirs.worktrees, processAlive)
     warnings.foreach(Cli.diagnostic)
     val index = SessionIndex.of(attempts)
     if list then

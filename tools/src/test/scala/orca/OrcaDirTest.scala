@@ -147,19 +147,6 @@ class OrcaDirTest extends munit.FunSuite:
     assertEquals(os.read(OrcaDir.settingsPath(wd)), "format = x\n")
     assertEquals(os.read(outside), "kept")
 
-  test("attemptsPath points at .orca/cache/attempts without creating anything"):
-    val wd = TempDirs.dir()
-    assertEquals(OrcaDir.attemptsPath(wd), wd / ".orca" / "cache" / "attempts")
-    assert(!os.exists(wd / ".orca"))
-
-  test("manifestPath is named after the attempt id"):
-    val wd = TempDirs.dir()
-    val id = AttemptId(Instant.ofEpochMilli(1700000000000L), 42L)
-    assertEquals(
-      OrcaDir.manifestPath(wd, id),
-      wd / ".orca" / "cache" / "attempts" / "1700000000000-42.manifest.json"
-    )
-
   test("attemptIdOf maps a trace log and its rolled part to their attempt"):
     val wd = TempDirs.dir()
     val key = RunKey.of("p")

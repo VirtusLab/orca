@@ -5,7 +5,7 @@ import java.time.Instant
 class ObservedStatusTest extends munit.FunSuite:
 
   private def attempt(pid: Long, startedAt: Instant) =
-    ManifestFixtures.manifest(
+    EventLogFixtures.manifest(
       pid = pid,
       startedAt = startedAt.toString,
       sessions = Nil

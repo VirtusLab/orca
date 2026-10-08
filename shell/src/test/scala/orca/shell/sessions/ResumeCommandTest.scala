@@ -2,7 +2,7 @@ package orca.shell.sessions
 
 import orca.agents.BackendTag
 import orca.runner.manifest.ManifestSession
-import orca.shell.sessions.ManifestFixtures.ephemeral
+import orca.shell.sessions.EventLogFixtures.ephemeral
 
 class ResumeCommandTest extends munit.FunSuite:
 

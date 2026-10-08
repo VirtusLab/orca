@@ -2,7 +2,7 @@ package orca.shell.actions
 
 import orca.StagePath
 import orca.runner.manifest.{AttemptManifest, ManifestSession}
-import orca.shell.sessions.ManifestFixtures.{durable, manifest, selection}
+import orca.shell.sessions.EventLogFixtures.{durable, manifest, selection}
 import orca.testkit.TempDirs
 import orca.tools.pi.PiSessionStore
 

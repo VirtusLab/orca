@@ -45,9 +45,6 @@ private[orca] object OrcaDir:
   /** Suffix of a progress log's file name, after the [[RunKey]]. */
   val ProgressLogSuffix: String = ".progress.json"
 
-  /** Suffix of an attempt manifest's file name, after the [[AttemptId]]. */
-  val ManifestSuffix: String = ".manifest.json"
-
   private val TraceLogStem = ".trace"
 
   /** Suffix of a trace log's file name, after the [[AttemptId]]. */
@@ -154,22 +151,6 @@ private[orca] object OrcaDir:
       writeIfAbsent(cache / ".gitignore", gitignoreContents)
       writeIfAbsent(cache / "CACHEDIR.TAG", cachedirTagContents)
 
-  /** `<workDir>/.orca/cache/attempts`, passively — the shell's manifest listing
-    * (ADR 0021 §8), which must not create `.orca` as a side effect of reading
-    * it.
-    */
-  def attemptsPath(workDir: os.Path): os.Path = cachePath(workDir) / "attempts"
-
-  /** `<workDir>/.orca/cache/attempts/<id>.manifest.json` — the manifest of
-    * attempt `id`.
-    */
-  def manifestPath(workDir: os.Path, id: AttemptId): os.Path =
-    attemptsPath(workDir) / s"${id.value}$ManifestSuffix"
-
-  /** Whether `file` is named like an attempt manifest under [[attemptsPath]].
-    */
-  def isManifest(file: os.Path): Boolean = file.last.endsWith(ManifestSuffix)
-
   /** `<workDir>/.orca/cache/runs/<key>/<id>.trace.log` — the trace log of
     * attempt `id` of the run keyed `key`; its rolled-over part ends in
     * [[RolledTraceLogSuffix]].
@@ -187,12 +168,12 @@ private[orca] object OrcaDir:
   ): String =
     (runDirPath(workDir, key) / s"${id.value}$TraceLogStem.%i.log").toString
 
-  /** The attempt a file under [[attemptsPath]] or [[runDirPath]] belongs to:
-    * the [[AttemptId]] before a manifest or trace-log suffix. `None` for
-    * anything else there, including an in-flight temp file.
+  /** The attempt a file under [[runDirPath]] belongs to: the [[AttemptId]]
+    * before a trace-log suffix. `None` for anything else there, including an
+    * in-flight temp file.
     */
   def attemptIdOf(file: os.Path): Option[AttemptId] =
-    List(ManifestSuffix, TraceLogSuffix, RolledTraceLogSuffix)
+    List(TraceLogSuffix, RolledTraceLogSuffix)
       .collectFirst:
         case suffix if file.last.endsWith(suffix) =>
           file.last.dropRight(suffix.length)
@@ -201,7 +182,7 @@ private[orca] object OrcaDir:
   /** `<workDir>/.orca/cache/pi-sessions`, passively. Holds one child directory
     * per orca session id, each pi's own `--session-dir` transcript store;
     * living in the cache is what lets a pi chat be resumed after the run that
-    * created it. Passive like [[attemptsPath]], for the read side (pi's
+    * created it. Passive like [[cacheRunsPath]], for the read side (pi's
     * existence probe) — only [[ensurePiSessions]] creates.
     */
   def piSessionsPath(workDir: os.Path): os.Path =
