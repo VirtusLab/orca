@@ -261,3 +261,11 @@ Every reviewer prompt is a `.md` file with YAML frontmatter
 >   ordering, cancellation — replacing "Concurrency lives in performance"
 >   above: **performance** skips code with no performance implications, where
 >   races still happen. **performance** keeps contention and parallelism.
+>   A path that runs its own copy of the old logic is **single-source**'s.
+> - **test** also checks that a test can fail and is deterministic, and
+>   coverage a removed or weakened test loses. The picker no longer skips it
+>   for a change that touches no test file: missing coverage is its job.
+> - **security** adds argument injection and weak cryptography, and counts an
+>   input as untrusted only when someone other than the operator or the
+>   author can set it.
+> - **scala-fp** also runs on `.sc` scripts.

@@ -506,12 +506,13 @@ claude's `num_turns` (tool calls + 1) counts something else.
 
 The rules distilled from recurring review findings live in
 [`.orca/reviewers/orca.md`](.orca/reviewers/orca.md) — the reviewer orca runs
-against every Scala change here, discovered per
+against every Scala, flow-script, prompt and doc change here, discovered per
 [ADR 0023](adr/0023-reviewer-discovery.md). Read it before writing code. Those
 rules have no second copy: they change there or not at all.
 
-That file also condenses rules the sections below own in full — comments,
-capability tokens, `.orca` writes, subprocesses, review vocabulary, and 0.x
+That file also condenses rules the sections below and above own in full —
+comments, capability tokens, `.orca` writes, subprocesses, mutable state,
+failure types, listeners, run/backend and review vocabulary, and 0.x
 versioning. Change one of those and change the condensed line with it.
 
 ### Versioning (0.x)

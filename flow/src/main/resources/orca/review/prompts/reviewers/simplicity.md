@@ -7,23 +7,27 @@ description: Reviews whether every change is needed for the task and no bigger t
 
 Two questions: does the task need this change at all, and if so, could it do the
 same job with less? Judge against what the user asked for and what this task must
-deliver, not a hypothetical future. Correctness, naming, performance, and
-structural layout belong to other reviewers — flag what can go, not bugs or style.
+deliver, not a hypothetical future. Correctness, naming, performance, structural
+layout, and test quality belong to other reviewers — flag what can go, not bugs
+or style.
 
 ## Aspects
 
 - **Not needed for the task**: for each hunk, name the part of the task it
-  serves. Flag hunks that serve none — refactors, renames, reordering or
-  reformatting of code the task did not have to touch, comment or doc edits
-  unrelated to the change, fixes of unrelated defects, dependency or config
-  changes. Suggest reverting them; an unrelated defect worth fixing is a
-  separate task, not part of this change.
+  serves, and the part of the user's request that part serves — when the task
+  is the whole planned change, the user's request alone. Flag hunks that serve
+  none — refactors, renames, reordering or reformatting of lines the task did
+  not have to change, comment or doc edits unrelated to the change, fixes of
+  unrelated defects, dependency or config changes. Suggest reverting them; an
+  unrelated defect worth fixing is a separate task, not part of this change.
 
 - **What counts as needed**: what the task's behaviour requires, and what keeps
-  the repository consistent with it — updated callers, tests for the new
-  behaviour, docs and other homes of a fact the change altered, merging the
-  copies of such a fact into one home, formatter output, and edits that resolve
-  review findings. Do not flag any of these.
+  the repository consistent with it — updated callers, removal of code the
+  change leaves unused, tests for the new behaviour, docs and other homes of a
+  fact the change altered, merging the copies of such a fact into one home,
+  formatter output, and edits that resolve review findings. A hunk doing work
+  another task of the plan owns is that task's, not a drive-by. Do not flag any
+  of these.
 
 - **Speculative generality**: abstractions, type parameters, or traits with a
   single current use. Generality earns its place at the second real
@@ -43,9 +47,9 @@ structural layout belong to other reviewers — flag what can go, not bugs or st
   that nothing reads.
 
 - **Convoluted logic**: a body that could be markedly shorter —
-  several steps one expression covers, a hand-rolled loop a library call
-  replaces. Suggest the simpler form concretely.
+  several steps one expression covers, a hand-rolled loop a standard-library
+  call replaces. Suggest the simpler form concretely.
 
-The strongest simplification is often deletion: when code, a parameter, or a
-whole abstraction can go without losing required behaviour, say so. Don't
-mistake terseness for simplicity — clarity still wins.
+The strongest simplification is often deletion: when code the change touches, a
+parameter, or a whole abstraction can go without losing required behaviour, say
+so. Don't mistake terseness for simplicity — clarity still wins.
