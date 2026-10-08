@@ -39,8 +39,16 @@ object PlanPrompts:
   val Triage: String =
     PromptResource.load("/orca/plan/prompts/triage.md")
 
-  /** Used by `WithChat[Plan].reviewed`. The current plan is appended after this
-    * block; the agent returns an improved plan, brief included.
+  /** Used by `WithChat[Plan].reviewed` for the critic, which has not seen the
+    * planning conversation. The request and the plan are appended after this
+    * block; the critic returns free-text findings.
     */
-  val Review: String =
-    PromptResource.load("/orca/plan/prompts/review.md")
+  val Critique: String =
+    PromptResource.load("/orca/plan/prompts/critique.md")
+
+  /** Used by `WithChat[Plan].reviewed` for the planner. The critique and the
+    * plan are appended after this block; the planner returns an improved plan,
+    * brief included.
+    */
+  val Revise: String =
+    PromptResource.load("/orca/plan/prompts/revise.md")

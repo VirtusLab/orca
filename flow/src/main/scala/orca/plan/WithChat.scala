@@ -3,7 +3,7 @@ package orca.plan
 import orca.agents.Chat
 
 /** A planning-phase result paired with the (ephemeral) [[orca.agents.Chat]]
-  * that produced it.
+  * that produced it, and the request it was produced for.
   *
   * Every `Plan.{autonomous,interactive}.*` operation returns one of these, so
   * the caller can continue the same conversation into the implementation phase
@@ -16,11 +16,13 @@ import orca.agents.Chat
   * continues with write access restored.
   *
   * Only the library pairs a value with a chat, so `.reviewed()` always
-  * continues the conversation that produced the plan. Destructure at the call
-  * site:
+  * continues the conversation that produced the plan, and shows its critic the
+  * request that conversation was given. Destructure at the call site:
   *
   * {{{
   * val WithChat(chat, plan) = Plan.autonomous.from(userPrompt, claude)
   * }}}
   */
-final case class WithChat[+A] private[orca] (chat: Chat[?], value: A)
+final case class WithChat[+A] private[orca] (chat: Chat[?], value: A)(
+    private[orca] val request: String
+)
