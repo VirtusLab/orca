@@ -51,7 +51,7 @@ class EventLogRoundTripTest extends munit.FunSuite:
     assertEquals(attempts.map(_.observedStatus), List(ObservedStatus.Succeeded))
     assertEquals(
       attempts
-        .flatMap(_.manifest.sessions)
+        .flatMap(_.record.sessions)
         .map(s => (s.backend, s.wireId, s.minted, s.stage)),
       List(
         (BackendTag.ClaudeCode, Some("wire-1"), Some(coderKey), Some("code"))

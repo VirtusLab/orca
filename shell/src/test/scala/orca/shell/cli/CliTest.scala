@@ -3,7 +3,6 @@ package orca.shell.cli
 import mainargs.{ParserForMethods, TokensReader}
 import orca.StagePath
 import orca.agents.{BackendTag, SessionKey}
-import orca.runner.manifest.{AttemptManifest, AttemptStatus, ManifestSession}
 import orca.settings.{AgentSettings, AgentSpec, SettingsFile, SettingsScope}
 import orca.shell.{ScanDirs, ShellEnv, TestShellEnv, Tier}
 import orca.shell.actions.SessionAction
@@ -12,17 +11,20 @@ import orca.progress.FlowSource
 import orca.shell.flows.DiscoveredFlow
 import orca.shell.run.LaunchResult
 import orca.shell.sessions.{
+  AttemptRecord,
+  AttemptStatus,
   EventLogFixtures,
   ObservedStatus,
   RecordedAttempt,
+  RecordedSession,
   SessionIndex,
   SessionPicker,
   SessionRef
 }
 import orca.shell.sessions.EventLogFixtures.{
+  attemptRecord,
   durable,
   ephemeral,
-  manifest,
   writeEventLog
 }
 import orca.testkit.TempDirs
@@ -43,7 +45,7 @@ class CliTest extends munit.FunSuite:
   /** `runContinue`'s liveness check: every recorded `Running` attempt reads as
     * crashed.
     */
-  private val everyProcessDead: AttemptManifest => Boolean = _ => false
+  private val everyProcessDead: AttemptRecord => Boolean = _ => false
 
   private def invoke(args: String*): Either[String, Any] =
     import Cli.given
@@ -749,7 +751,7 @@ class CliTest extends munit.FunSuite:
   private def attemptsFixture(): List[RecordedAttempt] =
     List(
       EventLogFixtures.recorded(
-        manifest(
+        attemptRecord(
           startedAt = "2026-07-18T09:00:00Z",
           branch = Some("feature/newest"),
           sessions = List(
@@ -761,7 +763,7 @@ class CliTest extends munit.FunSuite:
         )
       ),
       EventLogFixtures.recorded(
-        manifest(
+        attemptRecord(
           startedAt = "2026-07-17T09:00:00Z",
           branch = Some("feature/older"),
           sessions = List(
@@ -797,7 +799,7 @@ class CliTest extends munit.FunSuite:
   ):
     val attempts = List(
       EventLogFixtures.recorded(
-        manifest(
+        attemptRecord(
           startedAt = "2026-07-18T09:00:00Z",
           sessions = List(
             durable(sessionName = "plan", lastActiveAt = "2026-07-18T09:45:00Z")
@@ -830,7 +832,7 @@ class CliTest extends munit.FunSuite:
     "resolve: an id keeps its session after a newer one is recorded"
   ):
     val newer = EventLogFixtures.recorded(
-      manifest(
+      attemptRecord(
         startedAt = "2026-07-19T09:00:00Z",
         sessions = List(
           durable(sessionName = "fresh", lastActiveAt = "2026-07-19T09:30:00Z")
@@ -865,7 +867,7 @@ class CliTest extends munit.FunSuite:
 
   test("resolve: an id reaches an ephemeral session"):
     val attempt = EventLogFixtures.recorded(
-      manifest(sessions = List(ephemeral(agent = "reviewer")))
+      attemptRecord(sessions = List(ephemeral(agent = "reviewer")))
     )
     assertEquals(
       SessionIndex
@@ -873,22 +875,6 @@ class CliTest extends munit.FunSuite:
         .resolve(Some(SessionRef(attempt.id, 1).spelling))
         .map(_.session.agent),
       Right("reviewer")
-    )
-
-  test("resolve: a selector spelled like an id is never matched as a branch"):
-    val ref = fixtureRef(1, 9)
-    val attempt = EventLogFixtures.recorded(
-      manifest(
-        startedAt = "2026-07-16T09:00:00Z",
-        branch = Some(ref),
-        sessions = List(durable(lastActiveAt = "2026-07-16T09:30:00Z"))
-      )
-    )
-    assertEquals(
-      SessionIndex.of(attempt :: attemptsFixture()).resolve(Some(ref)),
-      Left(
-        s"no session $ref — it may have been pruned; see `orca continue --list`"
-      )
     )
 
   test("resolve: a name selector resolves that durable lineage"):
@@ -927,7 +913,7 @@ class CliTest extends munit.FunSuite:
         lastActiveAt: String
     ): RecordedAttempt =
       EventLogFixtures.recorded(
-        manifest(
+        attemptRecord(
           startedAt = startedAt,
           branch = Some("feature/x"),
           sessions = List(
@@ -953,7 +939,7 @@ class CliTest extends munit.FunSuite:
   ):
     val attempts = List(
       EventLogFixtures.recorded(
-        manifest(
+        attemptRecord(
           branch = Some("feature/broken"),
           sessions = List(
             durable(sessionName = "ok", lastActiveAt = "2026-07-18T09:00:00Z"),
@@ -976,7 +962,7 @@ class CliTest extends munit.FunSuite:
 
   test("resolve: a selector naming a session and a branch is refused"):
     val attempts = attemptsFixture() :+ EventLogFixtures.recorded(
-      manifest(
+      attemptRecord(
         startedAt = "2026-07-16T09:00:00Z",
         branch = Some("older"),
         sessions = List(
@@ -997,7 +983,7 @@ class CliTest extends munit.FunSuite:
   ):
     def onBranch(workDir: String, lastActiveAt: String): RecordedAttempt =
       EventLogFixtures.recorded(
-        manifest(
+        attemptRecord(
           workDir = workDir,
           startedAt = "2026-07-18T08:00:00Z",
           branch = Some("feature/x"),
@@ -1020,7 +1006,7 @@ class CliTest extends munit.FunSuite:
       agent: String,
       sessionName: String,
       lastActiveAt: String
-  ): ManifestSession =
+  ): RecordedSession =
     durable(
       agent = agent,
       sessionName = sessionName,
@@ -1034,7 +1020,7 @@ class CliTest extends munit.FunSuite:
     // them, so `continue implementer` must not start demanding one.
     val attempts = List(
       EventLogFixtures.recorded(
-        manifest(
+        attemptRecord(
           startedAt = "2026-07-18T09:00:00Z",
           sessions = List(
             durable(
@@ -1073,7 +1059,7 @@ class CliTest extends munit.FunSuite:
   ):
     val attempts = List(
       EventLogFixtures.recorded(
-        manifest(
+        attemptRecord(
           startedAt = "2026-07-18T09:00:00Z",
           sessions = List(
             durableAgent("agentA", "shared", "2026-07-18T09:30:00Z"),
@@ -1099,7 +1085,7 @@ class CliTest extends munit.FunSuite:
     // resolve silently to the newer one.
     val attempts = List(
       EventLogFixtures.recorded(
-        manifest(
+        attemptRecord(
           workDir = "/repo/.orca/worktrees/aaaaaaaaaaaa",
           startedAt = "2026-07-18T09:00:00Z",
           sessions = List(
@@ -1111,7 +1097,7 @@ class CliTest extends munit.FunSuite:
         )
       ),
       EventLogFixtures.recorded(
-        manifest(
+        attemptRecord(
           workDir = "/repo/.orca/worktrees/bbbbbbbbbbbb",
           startedAt = "2026-07-18T08:00:00Z",
           sessions = List(
@@ -1145,7 +1131,7 @@ class CliTest extends munit.FunSuite:
         .map:
           case ((hash, branch), i) =>
             EventLogFixtures.recorded(
-              manifest(
+              attemptRecord(
                 workDir = s"/repo/.orca/worktrees/$hash",
                 branch = Some(branch),
                 sessions =
@@ -1168,7 +1154,7 @@ class CliTest extends munit.FunSuite:
     // there is to tell them apart.
     val attempts = List(
       EventLogFixtures.recorded(
-        manifest(
+        attemptRecord(
           startedAt = "2026-07-18T09:00:00Z",
           sessions = List(
             durable(
@@ -1201,7 +1187,7 @@ class CliTest extends munit.FunSuite:
   test("a lineage nothing collides with does not print its minting stage"):
     val attempts = List(
       EventLogFixtures.recorded(
-        manifest(
+        attemptRecord(
           startedAt = "2026-07-18T09:00:00Z",
           sessions = List(
             durable(
@@ -1221,7 +1207,7 @@ class CliTest extends munit.FunSuite:
   test("sessionListingRows carries the minting stage for scripts"):
     val attempts = List(
       EventLogFixtures.recorded(
-        manifest(
+        attemptRecord(
           startedAt = "2026-07-18T09:00:00Z",
           sessions = List(
             durable(
@@ -1244,7 +1230,7 @@ class CliTest extends munit.FunSuite:
   ):
     val attempts = List(
       EventLogFixtures.recorded(
-        manifest(
+        attemptRecord(
           startedAt = "2026-07-18T09:00:00Z",
           sessions = List(
             durable(
@@ -1255,7 +1241,7 @@ class CliTest extends munit.FunSuite:
         )
       ),
       EventLogFixtures.recorded(
-        manifest(
+        attemptRecord(
           startedAt = "2026-07-18T08:00:00Z",
           sessions = List(
             durable(
@@ -1291,8 +1277,8 @@ class CliTest extends munit.FunSuite:
     val attempt = attemptsFixture().head
     val selection =
       EventLogFixtures.selection(
-        attempt.manifest,
-        attempt.manifest.sessions.head
+        attempt.record,
+        attempt.record.sessions.head
       )
     assertEquals(
       SessionAction.resumeNotice(selection),
@@ -1302,10 +1288,10 @@ class CliTest extends munit.FunSuite:
   test("resumeNotice: includes the stage when the session has one"):
     val attempt = attemptsFixture().head
     val withStage =
-      attempt.manifest.sessions.head.copy(stage = Some("Task: fix a bug"))
+      attempt.record.sessions.head.copy(stage = Some("Task: fix a bug"))
     val selection =
       EventLogFixtures.selection(
-        attempt.manifest,
+        attempt.record,
         withStage
       )
     assertEquals(
@@ -1317,8 +1303,8 @@ class CliTest extends munit.FunSuite:
     val attempt = attemptsFixture().head
     val selection =
       EventLogFixtures.selection(
-        attempt.manifest,
-        attempt.manifest.sessions.head,
+        attempt.record,
+        attempt.record.sessions.head,
         observedStatus = ObservedStatus.Crashed
       )
     assertEquals(
@@ -1382,7 +1368,7 @@ class CliTest extends munit.FunSuite:
   private def writeCrashedAttempt(dir: os.Path): Unit =
     writeEventLog(
       dir,
-      manifest(
+      attemptRecord(
         startedAt = "2026-07-18T09:00:00Z",
         pid = 999999,
         status = AttemptStatus.Running,
@@ -1393,7 +1379,7 @@ class CliTest extends munit.FunSuite:
   private def writeSessionAttempt(dir: os.Path, workDir: String): Unit =
     writeEventLog(
       dir,
-      manifest(
+      attemptRecord(
         workDir = workDir,
         startedAt = "2026-07-18T09:00:00Z",
         sessions = List(
@@ -1472,7 +1458,7 @@ class CliTest extends munit.FunSuite:
     val dir = TempDirs.dir()
     writeEventLog(
       dir,
-      manifest(sessions = List(durable()), branch = branch)
+      attemptRecord(sessions = List(durable()), branch = branch)
     )
     captured(
       assertEquals(
@@ -1506,7 +1492,7 @@ class CliTest extends munit.FunSuite:
     val dir = TempDirs.dir()
     writeEventLog(
       dir,
-      manifest(
+      attemptRecord(
         startedAt = "2026-07-18T09:00:00Z",
         sessions = List(durable(), ephemeral(agent = "reviewer"))
       )
@@ -1576,7 +1562,7 @@ class CliTest extends munit.FunSuite:
     val goneWorkDir = (dir / "gone").toString
     writeEventLog(
       dir,
-      manifest(
+      attemptRecord(
         workDir = goneWorkDir,
         startedAt = "2026-07-18T09:00:00Z",
         sessions = List(

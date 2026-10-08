@@ -3,11 +3,10 @@ package orca.shell.sessions
 import orca.{AttemptId, OrcaDir, OrcaFlowException, RunKey, StagePath}
 import orca.agents.{BackendTag, SessionKey}
 import orca.runlog.RunEvent
-import orca.runner.manifest.{AttemptManifest, AttemptStatus}
 import orca.shell.sessions.EventLogFixtures.{
+  attemptRecord,
   durable,
   ephemeral,
-  manifest,
   writeEventLog
 }
 import orca.testkit.TempDirs
@@ -17,8 +16,8 @@ import java.time.Instant
 
 class EventLogReaderTest extends munit.FunSuite:
 
-  private val alwaysDead: AttemptManifest => Boolean = _ => false
-  private val alwaysAlive: AttemptManifest => Boolean = _ => true
+  private val alwaysDead: AttemptRecord => Boolean = _ => false
+  private val alwaysAlive: AttemptRecord => Boolean = _ => true
 
   private val key = RunKey.of("a prompt")
 
@@ -34,7 +33,7 @@ class EventLogReaderTest extends munit.FunSuite:
   ): Unit =
     writeEventLog(
       workDir,
-      manifest(
+      attemptRecord(
         workDir = workDir.toString,
         startedAt = startedAt,
         status = status,
@@ -96,7 +95,7 @@ class EventLogReaderTest extends munit.FunSuite:
 
   test("an attempt reads back as the attempt its events record"):
     val workDir = TempDirs.dir()
-    val written = manifest(
+    val written = attemptRecord(
       workDir = workDir.toString,
       branch = Some("orca-fix"),
       sessions = List(durable(stage = Some("code")), ephemeral(agent = "r"))
@@ -105,7 +104,7 @@ class EventLogReaderTest extends munit.FunSuite:
     val AttemptListing(attempts, warnings) =
       EventLogReader.list(workDir, Nil, alwaysDead)
     assertEquals(warnings, Nil)
-    assertEquals(attempts.map(_.manifest), List(written))
+    assertEquals(attempts.map(_.record), List(written))
     assertEquals(
       attempts.map(_.id),
       List(AttemptId(written.startedAt, written.pid))
@@ -119,7 +118,7 @@ class EventLogReaderTest extends munit.FunSuite:
       EventLogReader.list(workDir, Nil, alwaysDead)
     assertEquals(warnings, Nil)
     assertEquals(
-      attempts.map(_.manifest.startedAt.toString),
+      attempts.map(_.record.startedAt.toString),
       List(
         "2026-07-18T12:00:00Z",
         "2026-07-18T11:00:00Z",
@@ -146,7 +145,7 @@ class EventLogReaderTest extends munit.FunSuite:
     )
     val AttemptListing(attempts, _) =
       EventLogReader.list(workDir, Nil, alwaysDead)
-    val sessions = attempts.flatMap(_.manifest.sessions)
+    val sessions = attempts.flatMap(_.record.sessions)
     assertEquals(sessions.map(_.wireId), List(Some("a"), Some("b")))
     assertEquals(sessions.head.stage, Some("code"))
     assertEquals(
@@ -166,7 +165,7 @@ class EventLogReaderTest extends munit.FunSuite:
     val AttemptListing(attempts, _) =
       EventLogReader.list(workDir, Nil, alwaysDead)
     assertEquals(
-      attempts.flatMap(_.manifest.sessions).map(_.backend),
+      attempts.flatMap(_.record.sessions).map(_.backend),
       List(BackendTag.ClaudeCode, BackendTag.Codex)
     )
 
@@ -176,7 +175,7 @@ class EventLogReaderTest extends munit.FunSuite:
     writeAttempt(workDir, "2026-07-18T11:00:00Z")
     val AttemptListing(attempts, _) =
       EventLogReader.list(workDir, Nil, alwaysDead)
-    assertEquals(attempts.map(_.manifest.sessions.size), List(1, 1))
+    assertEquals(attempts.map(_.record.sessions.size), List(1, 1))
 
   test("every run directory is read, and other entries under runs are ignored"):
     val workDir = TempDirs.dir()
@@ -229,7 +228,7 @@ class EventLogReaderTest extends munit.FunSuite:
     val AttemptListing(attempts, warnings) =
       EventLogReader.list(workDir, Nil, alwaysDead)
     assertEquals(warnings, Nil)
-    assertEquals(attempts.flatMap(_.manifest.sessions).size, 1)
+    assertEquals(attempts.flatMap(_.record.sessions).size, 1)
 
   test("an event of an unknown type is skipped without a warning"):
     val workDir = TempDirs.dir()
@@ -318,7 +317,7 @@ class EventLogReaderTest extends munit.FunSuite:
       EventLogReader.list(checkout, List(worktree), alwaysDead)
     assertEquals(warnings, Nil)
     assertEquals(
-      attempts.map(_.manifest.startedAt.toString),
+      attempts.map(_.record.startedAt.toString),
       List(
         "2026-07-18T12:00:00Z",
         "2026-07-18T11:00:00Z",
@@ -375,7 +374,7 @@ class EventLogReaderTest extends munit.FunSuite:
   ): Unit =
     writeEventLog(
       workDir,
-      manifest(
+      attemptRecord(
         workDir = workDir.toString,
         startedAt = startedAt,
         sessions = List.fill(sessions)(durable(lastActiveAt = startedAt))
@@ -436,7 +435,7 @@ class EventLogReaderTest extends munit.FunSuite:
       .foreach: (startedAt, pid, sessions) =>
         writeEventLog(
           workDir,
-          manifest(
+          attemptRecord(
             workDir = workDir.toString,
             startedAt = startedAt,
             pid = pid,

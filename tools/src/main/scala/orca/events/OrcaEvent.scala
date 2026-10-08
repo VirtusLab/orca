@@ -158,13 +158,12 @@ enum OrcaEvent:
     * unrelated to a git commit; "commits" here means the mapping becomes
     * durable enough for a later call to resume against it (ADR 0021 §8). Fires
     * once per (backend, clientId, wireId) commit; listeners dedup on a resumed
-    * session's later turns. `backend` is persisted as the manifest's `backend`
-    * (`orca.runner.manifest.ManifestSession`). `wireId` is the persistable id
-    * ([[orca.agents.Agent.resumeWireId]]) — `None` for backends that keep
-    * nothing durably resumable, so a non-resumable commit still fires
-    * accurately. `sessionKey` is the key the flow minted the session under
-    * (`agent.session(name, seed)`) — `None` for a one-shot or chat turn, which
-    * is minted under no key.
+    * session's later turns. `backend` is persisted in the run's event log.
+    * `wireId` is the persistable id ([[orca.agents.Agent.resumeWireId]]) —
+    * `None` for backends that keep nothing durably resumable, so a
+    * non-resumable commit still fires accurately. `sessionKey` is the key the
+    * flow minted the session under (`agent.session(name, seed)`) — `None` for a
+    * one-shot or chat turn, which is minted under no key.
     */
   case SessionCommitted(
       backend: BackendTag,
@@ -178,7 +177,7 @@ enum OrcaEvent:
   /** Fires once per attempt, right after the run is bound to its branch —
     * fresh, resumed and `--skip-branch` runs alike. `branch` is the branch
     * actually bound, which may be a fallback name rather than the one the
-    * naming strategy proposed. The attempt manifest writer records it.
+    * naming strategy proposed. The run's event log records it.
     */
   case BranchBound(branch: String)
 
@@ -186,10 +185,10 @@ object OrcaEvent:
   /** The one identity a backend conversation is known by across events: its
     * wire id once the backend has minted one, else the client id orca
     * allocated. Named here so [[OrcaEvent.UnpricedTurn.conversationKey]] and
-    * the manifest writer's session dedup key cannot drift apart — if they did,
-    * turns would stop joining to the sessions that produced them. Distinct from
-    * [[orca.agents.SessionKey]], which is the `(name, stage)` a flow minted a
-    * durable session under.
+    * the event log's `SessionCommitted.conversationKey` cannot drift apart — if
+    * they did, turns would stop joining to the sessions that produced them.
+    * Distinct from [[orca.agents.SessionKey]], which is the `(name, stage)` a
+    * flow minted a durable session under.
     */
   def conversationKey(clientId: String, wireId: Option[String]): String =
     wireId.getOrElse(clientId)

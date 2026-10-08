@@ -3,7 +3,6 @@ package orca.shell.sessions
 import orca.AttemptId
 import orca.agents.SessionKey
 import orca.runlog.{AttemptOutcome, RunEvent}
-import orca.runner.manifest.{AttemptManifest, AttemptStatus, ManifestSession}
 
 /** One attempt as the shell lists it, projected from that attempt's events in
   * its run's event log.
@@ -19,22 +18,21 @@ private[sessions] object AttemptProjection:
     * minted key once seen, since a chat turn continuing a durable session
     * carries none.
     */
-  def of(id: AttemptId, events: List[RunEvent]): Option[AttemptManifest] =
+  def of(id: AttemptId, events: List[RunEvent]): Option[AttemptRecord] =
     events
       .collectFirst { case s: RunEvent.AttemptStarted => s }
       .map: started =>
         val finished = events.collectFirst:
           case f: RunEvent.AttemptFinished => f
-        AttemptManifest(
+        AttemptRecord(
           orcaVersion = started.orcaVersion,
           flow = started.flow,
           workDir = started.workDir,
           branch = events.collect { case b: RunEvent.BranchBound =>
-            b.branch.value
+            b.branch
           }.lastOption,
           pid = started.pid,
           startedAt = id.startedAt,
-          finishedAt = finished.map(_.at),
           status =
             finished.fold(AttemptStatus.Running)(f => statusOf(f.outcome)),
           sessions = sessionsOf(events)
@@ -45,7 +43,7 @@ private[sessions] object AttemptProjection:
       case AttemptOutcome.Succeeded => AttemptStatus.Succeeded
       case AttemptOutcome.Failed    => AttemptStatus.Failed
 
-  private def sessionsOf(events: List[RunEvent]): List[ManifestSession] =
+  private def sessionsOf(events: List[RunEvent]): List[RecordedSession] =
     val commits = events.collect { case c: RunEvent.SessionCommitted => c }
     val byKey = commits.groupBy(c => (c.backend, c.conversationKey))
     commits
@@ -58,8 +56,8 @@ private[sessions] object AttemptProjection:
   private def sessionOf(
       commit: RunEvent.SessionCommitted,
       minted: Option[SessionKey]
-  ): ManifestSession =
-    ManifestSession(
+  ): RecordedSession =
+    RecordedSession(
       backend = commit.backend,
       wireId = commit.wireId,
       agent = commit.agent,

@@ -2,7 +2,7 @@ package orca.shell.sessions
 
 import orca.StagePath
 import orca.agents.BackendTag
-import orca.shell.sessions.EventLogFixtures.{durable, ephemeral, manifest}
+import orca.shell.sessions.EventLogFixtures.{attemptRecord, durable, ephemeral}
 
 class SessionPickerTest extends munit.FunSuite:
 
@@ -20,7 +20,7 @@ class SessionPickerTest extends munit.FunSuite:
   // sessions.
   private def mixedAttempts(): List[orca.shell.sessions.RecordedAttempt] =
     val attempt1 = EventLogFixtures.recorded(
-      manifest(
+      attemptRecord(
         startedAt = "2026-07-16T09:00:00Z",
         sessions = List(
           durable(stage = Some("Plan"), lastActiveAt = "2026-07-16T09:05:00Z"),
@@ -33,7 +33,7 @@ class SessionPickerTest extends munit.FunSuite:
       )
     )
     val attempt2 = EventLogFixtures.recorded(
-      manifest(
+      attemptRecord(
         startedAt = "2026-07-17T09:00:00Z",
         sessions = List(
           durable(
@@ -56,7 +56,7 @@ class SessionPickerTest extends munit.FunSuite:
       )
     )
     val attempt3 = EventLogFixtures.recorded(
-      manifest(
+      attemptRecord(
         startedAt = "2026-07-18T09:00:00Z",
         sessions = List(
           durable(
@@ -155,7 +155,7 @@ class SessionPickerTest extends munit.FunSuite:
     "sessionRows (expanded): earlier-occurrence rows are labeled with the session name and an (earlier occurrence) marker"
   ):
     val attempt1 = EventLogFixtures.recorded(
-      manifest(
+      attemptRecord(
         startedAt = "2026-07-17T09:00:00Z",
         sessions = List(
           durable(stage = Some("Plan"), lastActiveAt = "2026-07-17T09:05:00Z")
@@ -163,7 +163,7 @@ class SessionPickerTest extends munit.FunSuite:
       )
     )
     val attempt2 = EventLogFixtures.recorded(
-      manifest(
+      attemptRecord(
         startedAt = "2026-07-18T09:00:00Z",
         sessions = List(
           durable(stage = Some("Task"), lastActiveAt = "2026-07-18T09:05:00Z")
@@ -187,7 +187,7 @@ class SessionPickerTest extends munit.FunSuite:
     "sessionRows (expanded): ephemeral rows are labeled with agent, role, stage and an (ephemeral) marker"
   ):
     val run = EventLogFixtures.recorded(
-      manifest(sessions =
+      attemptRecord(sessions =
         List(
           ephemeral(
             agent = "code-structure",
@@ -210,7 +210,7 @@ class SessionPickerTest extends munit.FunSuite:
     "sessionRows omits the earlier-occurrences expander when there's only one occurrence"
   ):
     val run = EventLogFixtures.recorded(
-      manifest(sessions = List(durable()))
+      attemptRecord(sessions = List(durable()))
     )
     assertEquals(
       SessionPicker
@@ -221,7 +221,7 @@ class SessionPickerTest extends munit.FunSuite:
 
   test("sessionRows singularises a count of 1 in the expander label"):
     val run = EventLogFixtures.recorded(
-      manifest(sessions = List(durable(), ephemeral()))
+      attemptRecord(sessions = List(durable(), ephemeral()))
     )
     assertEquals(
       SessionPicker
@@ -237,7 +237,7 @@ class SessionPickerTest extends munit.FunSuite:
     "sessionRows keeps two sessions sharing a name apart by their minting stage"
   ):
     val run = EventLogFixtures.recorded(
-      manifest(sessions =
+      attemptRecord(sessions =
         List(
           durable(
             agent = "coder",
@@ -270,7 +270,7 @@ class SessionPickerTest extends munit.FunSuite:
     "sessionRows groups durable lineages by (agent, sessionName), not agent alone"
   ):
     val run = EventLogFixtures.recorded(
-      manifest(sessions =
+      attemptRecord(sessions =
         List(
           durable(
             agent = "coder",
@@ -301,7 +301,10 @@ class SessionPickerTest extends munit.FunSuite:
       "feat-b" -> "2026-07-18T09:00:00Z"
     ).map: (b, at) =>
       EventLogFixtures.recorded(
-        manifest(branch = Some(b), sessions = List(durable(lastActiveAt = at)))
+        attemptRecord(
+          branch = Some(b),
+          sessions = List(durable(lastActiveAt = at))
+        )
       )
     assertEquals(
       SessionPicker
@@ -317,7 +320,7 @@ class SessionPickerTest extends munit.FunSuite:
     val attempts = List("2026-07-18T10:00:00Z", "2026-07-18T09:00:00Z").map:
       at =>
         EventLogFixtures.recorded(
-          manifest(
+          attemptRecord(
             branch = Some("feat-a"),
             sessions = List(durable(lastActiveAt = at))
           )
@@ -345,7 +348,7 @@ class SessionPickerTest extends munit.FunSuite:
       )
     ).map: (startedAt, sessions) =>
       EventLogFixtures.recorded(
-        manifest(
+        attemptRecord(
           startedAt = startedAt,
           branch = Some("feat-a"),
           sessions = sessions
@@ -365,7 +368,7 @@ class SessionPickerTest extends munit.FunSuite:
   test("sessionRows suffixes a crashed attempt's rows with `(crashed)`"):
     val run =
       EventLogFixtures.recorded(
-        manifest(sessions = List(durable()), branch = Some("feat-a")),
+        attemptRecord(sessions = List(durable()), branch = Some("feat-a")),
         observedStatus = ObservedStatus.Crashed
       )
     assertEquals(
@@ -377,7 +380,9 @@ class SessionPickerTest extends munit.FunSuite:
 
   test("sessionRows disables a wireId-less session, naming its harness"):
     val run = EventLogFixtures.recorded(
-      manifest(sessions = List(durable(backend = BackendTag.Pi, wireId = None)))
+      attemptRecord(sessions =
+        List(durable(backend = BackendTag.Pi, wireId = None))
+      )
     )
     assertEquals(
       SessionPicker
@@ -389,7 +394,7 @@ class SessionPickerTest extends munit.FunSuite:
   test("sessionRows enables a claude session with a wireId"):
     val run =
       EventLogFixtures.recorded(
-        manifest(sessions = List(durable()))
+        attemptRecord(sessions = List(durable()))
       )
     assertEquals(
       SessionPicker

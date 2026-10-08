@@ -2,7 +2,6 @@ package orca.shell.sessions
 
 import orca.{AttemptId, OrcaDir}
 import orca.runlog.{RunEvent, RunEventReader}
-import orca.runner.manifest.AttemptManifest
 
 import java.io.{IOException, UncheckedIOException}
 import java.nio.file.NoSuchFileException
@@ -12,12 +11,12 @@ import scala.util.Try
 import scala.util.control.NonFatal
 
 /** An attempt's projection paired with its id and its [[ObservedStatus]] — read
-  * that rather than `manifest.status`, which cannot tell a crashed attempt from
-  * a running one.
+  * that rather than `record.status`, which cannot tell a crashed attempt from a
+  * running one.
   */
 private[shell] case class RecordedAttempt(
     id: AttemptId,
-    manifest: AttemptManifest,
+    record: AttemptRecord,
     observedStatus: ObservedStatus
 )
 
@@ -62,13 +61,13 @@ private[shell] object EventLogReader:
   def list(
       own: os.Path,
       otherWorktrees: List[os.Path],
-      processAlive: AttemptManifest => Boolean
+      processAlive: AttemptRecord => Boolean
   ): AttemptListing =
     val perDir =
       readRunsDir(own, processAlive) ::
         otherWorktrees.map(guarded(_, processAlive))
     AttemptListing(
-      perDir.flatMap(_.attempts).sortBy(_.manifest.startedAt).reverse,
+      perDir.flatMap(_.attempts).sortBy(_.record.startedAt).reverse,
       perDir.flatMap(_.warnings)
     )
 
@@ -133,12 +132,12 @@ private[shell] object EventLogReader:
       .groupBy(_.attempt)
       .toList
       .flatMap(AttemptProjection.of(_, _))
-      .filter(_.continuable)
+      .filter(_.sessions.nonEmpty)
       .map(m => AttemptSessions(m.startedAt, m.sessions.size))
 
   private def guarded(
       workDir: os.Path,
-      processAlive: AttemptManifest => Boolean
+      processAlive: AttemptRecord => Boolean
   ): AttemptListing =
     try readRunsDir(workDir, processAlive)
     catch
@@ -154,7 +153,7 @@ private[shell] object EventLogReader:
   /** One directory's attempts (the caller sorts) and its warnings. */
   private def readRunsDir(
       workDir: os.Path,
-      processAlive: AttemptManifest => Boolean
+      processAlive: AttemptRecord => Boolean
   ): AttemptListing =
     val dir = OrcaDir.cacheRunsPath(workDir)
     OrcaDir.assertNoOrcaSymlinks(workDir, dir)
@@ -176,7 +175,7 @@ private[shell] object EventLogReader:
 
   private def readEventLog(
       file: os.Path,
-      processAlive: AttemptManifest => Boolean
+      processAlive: AttemptRecord => Boolean
   ): AttemptListing =
     readEvents(file) match
       case Left(warning) => AttemptListing(Nil, List(warning))
@@ -197,7 +196,7 @@ private[shell] object EventLogReader:
   private def listAttempts(
       file: os.Path,
       events: List[RunEvent],
-      processAlive: AttemptManifest => Boolean
+      processAlive: AttemptRecord => Boolean
   ): AttemptListing =
     val results = events
       .groupBy(_.attempt)
@@ -209,7 +208,7 @@ private[shell] object EventLogReader:
           .map(id -> _)
     AttemptListing(
       results.collect:
-        case Right((id, m)) if m.continuable =>
+        case Right((id, m)) if m.sessions.nonEmpty =>
           RecordedAttempt(id, m, ObservedStatus.of(m, processAlive)),
       results.collect { case Left(warning) => warning }
     )

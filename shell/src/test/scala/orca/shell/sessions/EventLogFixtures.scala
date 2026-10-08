@@ -2,9 +2,8 @@ package orca.shell.sessions
 
 import orca.{AttemptId, OrcaDir, RunKey, StagePath}
 import orca.agents.{BackendTag, SessionKey}
-import orca.gitref.BranchName
+import orca.testkit.branchName
 import orca.runlog.{AttemptOutcome, RunEvent}
-import orca.runner.manifest.{AttemptManifest, AttemptStatus, ManifestSession}
 
 import java.time.Instant
 
@@ -14,23 +13,22 @@ import java.time.Instant
   */
 private[shell] object EventLogFixtures:
 
-  def manifest(
+  def attemptRecord(
       workDir: String = "/work",
       startedAt: String = "2026-07-18T10:00:00Z",
       pid: Long = 1,
       status: AttemptStatus = AttemptStatus.Succeeded,
-      sessions: List[ManifestSession],
+      sessions: List[RecordedSession],
       branch: Option[String] = None
-  ): AttemptManifest =
+  ): AttemptRecord =
     val started = Instant.parse(startedAt)
-    AttemptManifest(
+    AttemptRecord(
       orcaVersion = "0.0.test",
       flow = Some("a-flow.sc"),
       workDir = workDir,
-      branch = branch,
+      branch = branch.map(branchName),
       pid = pid,
       startedAt = started,
-      finishedAt = Option.when(status != AttemptStatus.Running)(started),
       status = status,
       sessions = sessions
     )
@@ -44,8 +42,8 @@ private[shell] object EventLogFixtures:
       lastActiveAt: String = "2026-07-18T10:00:00Z",
       backend: BackendTag = BackendTag.ClaudeCode,
       wireId: Option[String] = Some("uuid")
-  ): ManifestSession =
-    ManifestSession(
+  ): RecordedSession =
+    RecordedSession(
       backend = backend,
       wireId = wireId,
       agent = agent,
@@ -67,8 +65,8 @@ private[shell] object EventLogFixtures:
       lastActiveAt: String = "2026-07-18T10:00:00Z",
       backend: BackendTag = BackendTag.ClaudeCode,
       wireId: Option[String] = Some("uuid")
-  ): ManifestSession =
-    ManifestSession(
+  ): RecordedSession =
+    RecordedSession(
       backend = backend,
       wireId = wireId,
       agent = agent,
@@ -78,64 +76,64 @@ private[shell] object EventLogFixtures:
       lastActiveAt = Instant.parse(lastActiveAt)
     )
 
-  /** `manifest` as [[EventLogReader]] records it: under the attempt id its
+  /** `attempt` as [[EventLogReader]] records it: under the attempt id its
     * `startedAt` and `pid` spell.
     */
   def recorded(
-      manifest: AttemptManifest,
+      attempt: AttemptRecord,
       observedStatus: ObservedStatus
   ): RecordedAttempt =
     RecordedAttempt(
-      AttemptId(manifest.startedAt, manifest.pid),
-      manifest,
+      AttemptId(attempt.startedAt, attempt.pid),
+      attempt,
       observedStatus
     )
 
   /** [[recorded]] with the writing process still alive. */
-  def recorded(manifest: AttemptManifest): RecordedAttempt =
-    recorded(manifest, ObservedStatus.of(manifest, _ => true))
+  def recorded(attempt: AttemptRecord): RecordedAttempt =
+    recorded(attempt, ObservedStatus.of(attempt, _ => true))
 
-  /** `session`, recorded in `manifest`, as a [[SessionIndex]] holds it, with
-    * the writing process still alive.
+  /** `session`, recorded in `attempt`, as a [[SessionIndex]] holds it, with the
+    * writing process still alive.
     */
   def selection(
-      manifest: AttemptManifest,
-      session: ManifestSession
+      attempt: AttemptRecord,
+      session: RecordedSession
   ): SessionSelection =
-    selection(manifest, session, ObservedStatus.of(manifest, _ => true))
+    selection(attempt, session, ObservedStatus.of(attempt, _ => true))
 
-  /** `session`, recorded in `manifest`, as a [[SessionIndex]] holds it. */
+  /** `session`, recorded in `attempt`, as a [[SessionIndex]] holds it. */
   def selection(
-      manifest: AttemptManifest,
-      session: ManifestSession,
+      attempt: AttemptRecord,
+      session: RecordedSession,
       observedStatus: ObservedStatus
   ): SessionSelection =
     SessionSelection(
       SessionRef(
-        AttemptId(manifest.startedAt, manifest.pid),
-        manifest.sessions.indexOf(session) + 1
+        AttemptId(attempt.startedAt, attempt.pid),
+        attempt.sessions.indexOf(session) + 1
       ),
-      manifest,
+      attempt,
       session,
       observedStatus
     )
 
-  /** Appends the events `manifest` is projected from to the event log of the
-    * run keyed `key` under `dir`, as attempt `startedAt`-`pid`. Each session
-    * gets its own conversation key, so none merge.
+  /** Appends the events `attempt` is projected from to the event log of the run
+    * keyed `key` under `dir`, as attempt `startedAt`-`pid`. Each session gets
+    * its own conversation key, so none merge.
     */
   def writeEventLog(
       dir: os.Path,
-      manifest: AttemptManifest,
+      attempt: AttemptRecord,
       key: RunKey = RunKey.of("a prompt")
   ): Unit =
     os.write.append(
       OrcaDir.eventLogPath(dir, key),
-      eventsOf(manifest).map(RunEvent.encodeLine(_) + "\n").mkString,
+      eventsOf(attempt).map(RunEvent.encodeLine(_) + "\n").mkString,
       createFolders = true
     )
 
-  private def eventsOf(m: AttemptManifest): List[RunEvent] =
+  private def eventsOf(m: AttemptRecord): List[RunEvent] =
     val id = AttemptId(m.startedAt, m.pid)
     val started = RunEvent.AttemptStarted(
       m.startedAt,
@@ -148,7 +146,7 @@ private[shell] object EventLogFixtures:
       trace = None
     )
     val branch = m.branch.map: b =>
-      RunEvent.BranchBound(m.startedAt, id, BranchName.parse(b).toOption.get)
+      RunEvent.BranchBound(m.startedAt, id, b)
     val commits = m.sessions.zipWithIndex.map: (s, i) =>
       RunEvent.SessionCommitted(
         s.lastActiveAt,
@@ -161,10 +159,8 @@ private[shell] object EventLogFixtures:
         minted = s.minted,
         stage = s.stage.map(StagePath.FlowBody.child(_, 0))
       )
-    val finished = m.finishedAt
-      .zip(outcomeOf(m.status))
-      .map: (at, outcome) =>
-        RunEvent.AttemptFinished(at, id, outcome)
+    val finished = outcomeOf(m.status).map: outcome =>
+      RunEvent.AttemptFinished(m.startedAt, id, outcome)
     (started :: branch.toList) ++ commits ++ finished
 
   private def outcomeOf(status: AttemptStatus): Option[AttemptOutcome] =

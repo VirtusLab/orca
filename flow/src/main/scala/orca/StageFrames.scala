@@ -137,8 +137,8 @@ private[orca] trait StageFrames:
     *
     * The only door that MINTS a [[SessionKey]], so a minted key is always
     * scoped to where the call sits and always claimed. `SessionRecord.key`
-    * rebuilds one from persisted halves, and `ManifestSession.minted` reads one
-    * back from the attempt manifest.
+    * rebuilds one from persisted halves, and a run's event log reads one back
+    * as `SessionCommitted.minted`.
     *
     * For a mint inside a stage the check is sound rather than best-effort,
     * because a stage body is all-or-nothing: two mints of one name in one stage

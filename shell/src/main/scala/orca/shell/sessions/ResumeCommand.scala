@@ -1,7 +1,6 @@
 package orca.shell.sessions
 
 import orca.agents.BackendTag
-import orca.runner.manifest.ManifestSession
 import orca.settings.AgentSpec
 
 /** Per-harness interactive resume argv (ADR 0021 §8's resume table). This is
@@ -18,7 +17,7 @@ private[shell] object ResumeCommand:
     * gemini's row still needs [[build]]'s live index lookup, and pi's its
     * session-dir check.
     */
-  def staticGate(s: ManifestSession): Either[String, String] =
+  def staticGate(s: RecordedSession): Either[String, String] =
     s.wireId.toRight(
       s"${AgentSpec.harnessNameFor(s.backend)} session has no resumable id"
     )
@@ -39,13 +38,13 @@ private[shell] object ResumeCommand:
     * otherwise be parsed as a flag by the harness CLI.
     */
   def build(
-      s: ManifestSession,
+      s: RecordedSession,
       geminiIndex: String => Option[Int],
       piSessionDir: String => Either[String, os.Path]
   ): Either[String, Seq[String]] =
     staticGate(s).flatMap: wireId =>
       if wireId.isBlank || wireId.startsWith("-") then
-        Left(s"manifest wireId `$wireId` is not a valid session id")
+        Left(s"recorded wireId `$wireId` is not a valid session id")
       else
         val binary = AgentSpec.harnessNameFor(s.backend)
         s.backend match
@@ -63,6 +62,6 @@ private[shell] object ResumeCommand:
                 )
           case BackendTag.Pi =>
             // An absolute --session-dir, so the argv doesn't depend on the
-            // child's cwd matching the manifest's workDir.
+            // child's cwd matching the attempt's workDir.
             piSessionDir(wireId).map: dir =>
               Seq(binary, "--session-dir", dir.toString, "--continue")

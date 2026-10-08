@@ -1,10 +1,10 @@
 package orca.shell.cli
 
-import orca.runner.manifest.AttemptManifest
 import orca.shell.ScanDirs
 import orca.shell.actions.SessionAction
 import orca.shell.sessions.{
   AttemptListing,
+  AttemptRecord,
   EventLogReader,
   SessionIndex,
   SessionSelection
@@ -31,7 +31,7 @@ private[cli] object ContinueCli:
       list: Boolean,
       json: Boolean,
       tty: Boolean,
-      processAlive: AttemptManifest => Boolean
+      processAlive: AttemptRecord => Boolean
   ): Int =
     val AttemptListing(attempts, warnings) =
       EventLogReader.list(dirs.own, dirs.worktrees, processAlive)
