@@ -3,7 +3,8 @@ package orca.shell.sessions
 import orca.{AttemptId, StagePath}
 import orca.agents.{BackendTag, SessionKey}
 import orca.events.OrcaEvent
-import orca.runner.manifest.{AttemptManifestWriter, AttemptOutcome}
+import orca.runner.manifest.AttemptManifestWriter
+import orca.runlog.AttemptOutcome
 import orca.testkit.{StageEvents, TempDirs}
 import ox.channels.BufferCapacity
 import ox.supervised

@@ -1,5 +1,6 @@
 package orca.runner.manifest
 
+import orca.runlog.AttemptOutcome
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import orca.{AttemptId, OrcaDir}
 import orca.agents.{BackendTag, Model}

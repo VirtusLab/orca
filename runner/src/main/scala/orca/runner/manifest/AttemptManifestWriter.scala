@@ -3,18 +3,13 @@ package orca.runner.manifest
 import orca.{AttemptId, OrcaDir}
 import orca.util.JsonFile
 import orca.events.{OrcaEvent, OrcaListener}
+import orca.runlog.AttemptOutcome
 import org.slf4j.LoggerFactory
 import ox.Ox
 import ox.channels.{Actor, ActorRef, BufferCapacity}
 
 import java.time.Instant
 import scala.util.control.NonFatal
-
-/** How an attempt ended, passed to [[AttemptManifestWriter.finish]]. Has no
-  * `Running` case, so an unfinished status cannot be recorded as the end.
-  */
-private[orca] enum AttemptOutcome:
-  case Succeeded, Failed
 
 /** Always-attached listener (like [[LoggingListener]]) that writes the attempt
   * manifest ([[AttemptManifest]], ADR 0021 §8) to

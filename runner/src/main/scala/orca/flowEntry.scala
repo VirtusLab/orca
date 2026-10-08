@@ -40,7 +40,8 @@ import orca.runner.{
   WiredAgents,
   WorktreeRun
 }
-import orca.runner.manifest.{AttemptManifestWriter, AttemptOutcome}
+import orca.runner.manifest.AttemptManifestWriter
+import orca.runlog.AttemptOutcome
 import orca.runner.terminal.TerminalInteraction
 import orca.subprocess.OsProcCliRunner
 import org.slf4j.LoggerFactory
