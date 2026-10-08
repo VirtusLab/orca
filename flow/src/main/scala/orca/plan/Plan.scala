@@ -22,10 +22,8 @@ import scala.annotation.unused
   *   - **mode** — [[Plan.autonomous]] (single agentic turn, read-only, no
   *     human) or [[Plan.interactive]] (a conversation the agent can drive via
   *     `ask_user`).
-  *   - **operation** — `from` (produce a [[Plan]] directly), `assessThenPlan`
-  *     (skeptically assess first, returning a [[Verdict]] that either proceeds
-  *     with a plan or rejects), or `triage` (classify a bug report into a
-  *     [[Triage]] verdict).
+  *   - **operation** — `from` (produce a [[Plan]] directly) or `triage` (assess
+  *     a request into a [[Triage]] verdict).
   *
   * Every cell returns a [[WithChat]] — the result plus the chat that produced
   * it. A `WithChat[Plan]` can be continued read-only into [[Plan.reviewed]]
@@ -68,31 +66,17 @@ object Plan:
     )(using FlowContext, InStage): WithChat[Plan] =
       autonomousResult[Plan, Plan](agent, userPrompt, instructions)(identity)
 
-    /** Skeptically assess `userPrompt` (typically a bug/feature report) and
-      * either proceed with a plan or reject with a [[Verdict.Rejection]] the
-      * caller surfaces to whoever filed it.
-      */
-    def assessThenPlan(
-        userPrompt: String,
-        agent: Agent[?],
-        instructions: String = PlanPrompts.AssessThenPlan
-    )(using FlowContext, InStage): WithChat[Verdict[Plan]] =
-      autonomousResult[AssessedPlan, Verdict[Plan]](
-        agent,
-        userPrompt,
-        instructions
-      )(a => getOrFail(a.toVerdict))
-
-    /** Classify a bug report into a [[Triage]] verdict (not-a-bug / untestable
-      * / testable).
+    /** Skeptically assess `report` (a bug report, feature request or other ask)
+      * into a [[Triage]] verdict: reject with a reply, or accept as a testable
+      * bug, an untestable bug or a change.
       */
     def triage(
         report: String,
         agent: Agent[?],
         instructions: String = PlanPrompts.Triage
     )(using FlowContext, InStage): WithChat[Triage] =
-      autonomousResult[BugTriage, Triage](agent, report, instructions)(b =>
-        getOrFail(b.toTriage)
+      autonomousResult[TriageReply, Triage](agent, report, instructions)(r =>
+        getOrFail(r.toTriage)
       )
 
   /** Interactive planning — opens a conversation the user can drive (clarifying
@@ -116,40 +100,25 @@ object Plan:
         identity
       )
 
-    /** Skeptically assess `userPrompt`, but able to ask the reporter clarifying
-      * questions mid-turn rather than only rejecting with a
-      * [[Verdict.RejectionKind.Question]].
-      */
-    def assessThenPlan(
-        userPrompt: String,
-        agent: Agent[?],
-        instructions: String = PlanPrompts.AssessThenPlan
-    )(using FlowContext, InStage): WithChat[Verdict[Plan]] =
-      interactiveResult[AssessedPlan, Verdict[Plan]](
-        agent,
-        userPrompt,
-        instructions
-      )(a => getOrFail(a.toVerdict))
-
-    /** Classify a bug report into a [[Triage]] verdict, able to ask the
-      * reporter clarifying questions before deciding.
+    /** Assess `report` into a [[Triage]] verdict, able to ask the reporter
+      * clarifying questions before deciding.
       */
     def triage(
         report: String,
         agent: Agent[?],
         instructions: String = PlanPrompts.Triage
     )(using FlowContext, InStage): WithChat[Triage] =
-      interactiveResult[BugTriage, Triage](agent, report, instructions)(b =>
-        getOrFail(b.toTriage)
+      interactiveResult[TriageReply, Triage](agent, report, instructions)(r =>
+        getOrFail(r.toTriage)
       )
 
   /** Append the operation's instruction block to the caller's input. */
   private def withInstructions(input: String, instructions: String): String =
     s"$input\n\n$instructions"
 
-  /** Surface a structured-contract violation (a `toVerdict` / `toTriage`
-    * `Left`) as a flow failure. The decode succeeded but the field combination
-    * was incoherent past the retry loop, so it's a system-level failure.
+  /** Surface a structured-contract violation (a `toTriage` `Left`) as a flow
+    * failure. The decode succeeded but the field combination was incoherent
+    * past the retry loop, so it's a system-level failure.
     */
   private def getOrFail[A](result: Either[String, A]): A =
     result.fold(msg => throw OrcaFlowException(msg), identity)

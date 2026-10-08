@@ -5,7 +5,7 @@ import orca.testkit.{ScriptedBackend, TestAgent}
 
 /** An agent whose every structured turn answers `value`, recording the tool
   * tier and session each turn ran with. One stub serves every autonomous
-  * planning operation — pass a `Plan`, `AssessedPlan`, or `BugTriage`.
+  * planning operation — pass a `Plan` or `TriageReply`.
   */
 private[plan] class CannedResult[T: JsonData](value: T):
 

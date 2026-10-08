@@ -359,8 +359,7 @@ object FlowCanary:
 
   /** Planning grid surface; exercised across `flows/`. Pins the full `mode ×
     * operation` grid: every cell returns `WithChat[<result>]` where the result
-    * is `Plan` (`from`), `Verdict[Plan]` (`assessThenPlan`), or `Triage`
-    * (`triage`).
+    * is `Plan` (`from`) or `Triage` (`triage`).
     */
   def planningGridSurface(): Unit =
     flow(OrcaArgs()):
@@ -383,18 +382,6 @@ object FlowCanary:
           intFromPi.value
         )
 
-        // --- assessThenPlan → WithChat[Verdict[Plan]], both modes ---
-        val autoAssess: WithChat[Verdict[Plan]] =
-          Plan.autonomous.assessThenPlan(userPrompt, claude.opus)
-        val intAssess: WithChat[Verdict[Plan]] =
-          Plan.interactive.assessThenPlan(userPrompt, claude)
-        val _ = intAssess
-        autoAssess.value match
-          case Verdict.Proceed(_)                                   => ()
-          case Verdict.Rejection(Verdict.RejectionKind.Question, _) => ()
-          case Verdict.Rejection(Verdict.RejectionKind.Critique, _) => ()
-          case Verdict.Rejection(Verdict.RejectionKind.Rebuff, _)   => ()
-
         // --- triage → WithChat[Triage], both modes ---
         val autoTriage: WithChat[Triage] =
           Plan.autonomous.triage(userPrompt, claude.opus)
@@ -402,9 +389,10 @@ object FlowCanary:
         // Destructure the concretely-typed interactive result.
         val WithChat(_, triage) = Plan.interactive.triage(userPrompt, claude)
         triage match
-          case Triage.NotABug(_)        => ()
-          case Triage.Untestable(_, _)  => ()
-          case Triage.Testable(_, _, _) => ()
+          case Triage.Reject(_)                                  => ()
+          case Triage.Accept(_, _, Triage.Kind.TestableBug(_))   => ()
+          case Triage.Accept(_, _, Triage.Kind.UntestableBug(_)) => ()
+          case Triage.Accept(_, _, Triage.Kind.Change)           => ()
 
   /** A helper function over the role agents needs no backend type parameter:
     * the plan, its review on an agent variant and the session each pass through
@@ -570,142 +558,6 @@ object FlowCanary:
         val _ = documenter.run(
           "Update project docs based on the changes made."
         )
-
-  /** `issue-pr.sc`: read issue outside stage, `assessThenPlan`, optional plan,
-    * task loop with a per-task session seeded from the plan brief, push, PR.
-    * Also exercises `BranchNamingStrategy.issue` and the `Verdict` match.
-    */
-  def issuePrFlowShape(): Unit =
-    val orcaArgs = OrcaArgs("acme/widgets#42")
-    val issueHandle = IssueHandle.parseOrThrow(orcaArgs.userPrompt)
-    flow(
-      orcaArgs,
-      branchNaming = Some(BranchNamingStrategy.issue(issueHandle))
-    ):
-      // Read outside stage (no InStage needed).
-      val issue: Issue = gh.readIssue(issueHandle)
-
-      val (maybePlan, rejectionBody) = stage("Assess and plan"):
-        Plan.autonomous.assessThenPlan(issue.body, claude.opus).value match
-          case Verdict.Rejection(_, body) => (None: Option[Plan], body)
-          case Verdict.Proceed(plan)      => (Some(plan), "")
-
-      if maybePlan.isEmpty then
-        stage("Comment: rejection"):
-          gh.writeComment(issueHandle, rejectionBody)
-
-      maybePlan.foreach: plan =>
-        for task <- plan.tasks do
-          stage(s"task: ${task.title}"):
-            val session = claude.session("implementer", seed = plan.brief)
-            val _ = session.run(task.description)
-            reviewAndFixLoop(
-              coderSession = session,
-              reviewers = allReviewers(claude),
-              task = task
-            )
-
-        val _ = openPrFromBranch(
-          summarisingAgent = claude.haiku,
-          openFindings = OpenFindings.empty,
-          body =
-            summary => s"${summary.body}\n\nCloses ${issueHandle.shortRef}."
-        )
-
-  /** `issue-pr-bugfix.sc`: the push-after-edit authoring rule (ADR 0018).
-    * "Write failing test" commits the test; a LATER "Push + open PR" stage
-    * pushes it. Also covers `triage`, `waitForBuild` outside a stage,
-    * `session.run` in a nested helper, and the final push+updatePr stage whose
-    * hand-written body goes through `bodyWithOpenFindings`.
-    */
-  def bugfixFlowShape(): Unit =
-    import scala.concurrent.duration.DurationInt
-    val orcaArgs = OrcaArgs("acme/widgets#42")
-    val issueHandle = IssueHandle.parseOrThrow(orcaArgs.userPrompt)
-    flow(
-      orcaArgs,
-      branchNaming = Some(BranchNamingStrategy.issue(issueHandle))
-    ):
-      // Pure read outside any stage.
-      val issue: Issue = gh.readIssue(issueHandle)
-
-      val session =
-        claude.session("fixer", seed = issue.body)
-
-      val triage: Triage = stage("Triage"):
-        Plan.autonomous.triage(issue.body, claude).value
-
-      triage match
-        case Triage.NotABug(explanation) =>
-          stage("Comment: not a bug"):
-            gh.writeComment(issueHandle, explanation)
-
-        case Triage.Untestable(_, steps) =>
-          stage("Comment: repro steps"):
-            gh.writeComment(issueHandle, steps)
-
-        case Triage.Testable(summary, _, failingTestPath) =>
-          // Stage 1: write + commit the test.
-          stage("Write failing test"):
-            val _ = session.run(
-              s"Write the failing test at $failingTestPath."
-            )
-
-          // Stage 2: LATER stage — push the already-committed test, open PR.
-          // (Authoring rule R8: push must be in a later stage than the edit.)
-          val pr: PrHandle = stage("Push + open tentative PR"):
-            git.push().orThrow
-            val handle =
-              gh.createPr(title = summary, body = "Failing test only.").orThrow
-            // Inside the stage, so its commit carries the record for a resume.
-            recordOpenedPr(handle)
-            handle
-
-          // `waitForBuild` is a pure polling read — outside any stage.
-          if gh
-              .waitForBuild(pr, 30.minutes)
-              .orThrow
-              .outcome == BuildOutcome.Success
-          then
-            fail(
-              "CI passed on the failing-test commit — reproduction is wrong."
-            )
-          display(s"CI red on ${pr.shortRef} — confirmed")
-
-          // Implement the fix in per-task stages.
-          val fixPlan: Plan = stage("Plan the fix"):
-            Plan.autonomous
-              .from(s"Fix ${issueHandle.shortRef}", claude)
-              .reviewed()
-              .value
-          val taskOpenFindings =
-            for task <- fixPlan.tasks yield stage(s"task: ${task.title}"):
-              val _ = session.run(fixPlan.taskPrompt(task))
-              // An explicit override beats the settings file; the summariser
-              // rides on the coding role's cheap tier via `codingAgent`.
-              reviewAndFixLoop(
-                coderSession = session,
-                reviewers = allReviewers(claude),
-                task = task,
-                lint = Configured.Use(
-                  Lint(List("sbt Test/compile"), codingAgent.cheap)
-                )
-              )
-
-          // Stage: push fix + finalise PR (later than the fix-task stages).
-          stage("Push fix + finalise PR"):
-            git.push().orThrow
-            gh.updatePr(
-              pr,
-              title = "fix: " + summary,
-              body = bodyWithOpenFindings(
-                "Failing test + fix.",
-                OpenFindings(
-                  taskOpenFindings.flatMap(_.findings),
-                  skipped = None
-                )
-              )
-            )
 
 object StackSettingsCanary:
   /** `StackSettings` (ADR 0019) is part of the script surface: it must resolve

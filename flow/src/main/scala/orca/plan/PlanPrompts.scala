@@ -24,17 +24,8 @@ object PlanPrompts:
   val Planning: String =
     PromptResource.load("/orca/plan/prompts/planning.md")
 
-  /** Used by `Plan.{autonomous,interactive}.assessThenPlan`. Asks the agent to
-    * first verify the report against the repo, then either return a
-    * critique/rebuff/follow-up question, or a plan in the usual shape. The
-    * agent gets tool access (Read/Bash) — that's the point of the verification.
-    */
-  val AssessThenPlan: String =
-    PromptResource.load("/orca/plan/prompts/assess-then-plan.md")
-
-  /** Used by `Plan.{autonomous,interactive}.triage`. Structured-output
-    * instructions that pick out the `NotABug` / `Untestable` / `Testable`
-    * variants via the underlying wire fields.
+  /** Used by `Plan.{autonomous,interactive}.triage`: assess the request, then
+    * pick `Reject` / `TestableBug` / `UntestableBug` / `Change`.
     */
   val Triage: String =
     PromptResource.load("/orca/plan/prompts/triage.md")

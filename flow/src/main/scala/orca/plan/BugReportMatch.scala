@@ -2,9 +2,9 @@ package orca.plan
 
 import orca.agents.{Announce, JsonData}
 
-/** The agent's verdict on whether a CI failure (or other reproduction artefact)
-  * actually matches the original bug report. Used after CI comes back red to
-  * confirm we're chasing the right defect before implementing a fix.
+/** The agent's verdict on whether a failing test's output reproduces the
+  * original report. Used after the reproduction test runs, before any fix is
+  * planned.
   */
 case class BugReportMatch(
     /** Whether the failing-test output (or reproduction artefact) is a faithful
