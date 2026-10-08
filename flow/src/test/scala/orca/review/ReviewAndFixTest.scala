@@ -942,7 +942,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       run.context.git
         .headCommit()
         .getOrElse(fail("the fixture repo has no HEAD"))
-    run.control.withStage("review", Some(base)): _ =>
+    run.control.withStage("review", _ => Some(base)): _ =>
       val reviewer =
         new FakeAgent("capturing", outputs = List(ReviewResult.empty))
       val _ = reviewAndFixLoop(
@@ -966,7 +966,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       run.context.git
         .headCommit()
         .getOrElse(fail("the fixture repo has no HEAD"))
-    run.control.withStage("review", Some(base)): _ =>
+    run.control.withStage("review", _ => Some(base)): _ =>
       val reviewer =
         new FakeAgent("capturing", outputs = List(ReviewResult.empty))
       val _ = reviewAndFixLoop(
@@ -995,7 +995,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       run.context.git
         .headCommit()
         .getOrElse(fail("the fixture repo has no HEAD"))
-    run.control.withStage("review", Some(base)): _ =>
+    run.control.withStage("review", _ => Some(base)): _ =>
       val reviewer =
         new FakeAgent("capturing", outputs = List(ReviewResult.empty))
       val _ = reviewAndFixLoop(
@@ -1020,44 +1020,45 @@ class ReviewAndFixTest extends munit.FunSuite:
       )
     os.write(run.context.workDir / "earlier.txt", "an earlier stage's work")
     assert(run.context.runtimeGit.commit("earlier stage").isRight)
-    run.control.withStage("final review", run.context.git.headCommit()): _ =>
-      os.write(run.context.workDir / "later.txt", "this stage's work")
-      val reviewer =
-        new FakeAgent("capturing", outputs = List(ReviewResult.empty))
-      val _ = reviewAndFixLoop(
-        coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
-        reviewers = List(asReviewer(reviewer)),
-        task = titled("final review"),
-        reviewerSelection = ReviewerSelector.allEveryRound,
-        diff = ReviewDiff.WholeRun
-      )
-      val sent = reviewer.seenPrompts.headOption
-        .getOrElse(fail("the fresh-session run was never called"))
-      assert(
-        sent.contains(s"since commit ${runStart.value}"),
-        s"the run's starting commit must be the base: $sent"
-      )
-      assert(sent.contains("earlier.txt"), s"committed work missing: $sent")
-      assert(sent.contains("later.txt"), s"uncommitted work missing: $sent")
-      // The framing has to name the concrete base, not claim the run's full
-      // history — after a corrupt-log restart the recorded base excludes the
-      // first attempt's commits — and must not read as one stage's work.
-      assert(
-        sent.contains(s"everything changed since commit ${runStart.short}"),
-        s"base-naming framing missing: $sent"
-      )
-      assert(
-        !sent.contains("since its stage began"),
-        s"stage framing leaked: $sent"
-      )
-      // The run's log also names the base, so a reader can tell what the final
-      // review covered without opening a prompt.
-      assert(
-        steps.messages.contains(
-          s"reviewing everything changed since commit ${runStart.short}"
-        ),
-        steps.messages.mkString("\n")
-      )
+    run.control.withStage("final review", _ => run.context.git.headCommit()):
+      _ =>
+        os.write(run.context.workDir / "later.txt", "this stage's work")
+        val reviewer =
+          new FakeAgent("capturing", outputs = List(ReviewResult.empty))
+        val _ = reviewAndFixLoop(
+          coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
+          reviewers = List(asReviewer(reviewer)),
+          task = titled("final review"),
+          reviewerSelection = ReviewerSelector.allEveryRound,
+          diff = ReviewDiff.WholeRun
+        )
+        val sent = reviewer.seenPrompts.headOption
+          .getOrElse(fail("the fresh-session run was never called"))
+        assert(
+          sent.contains(s"since commit ${runStart.value}"),
+          s"the run's starting commit must be the base: $sent"
+        )
+        assert(sent.contains("earlier.txt"), s"committed work missing: $sent")
+        assert(sent.contains("later.txt"), s"uncommitted work missing: $sent")
+        // The framing has to name the concrete base, not claim the run's full
+        // history — after a corrupt-log restart the recorded base excludes the
+        // first attempt's commits — and must not read as one stage's work.
+        assert(
+          sent.contains(s"everything changed since commit ${runStart.short}"),
+          s"base-naming framing missing: $sent"
+        )
+        assert(
+          !sent.contains("since its stage began"),
+          s"stage framing leaked: $sent"
+        )
+        // The run's log also names the base, so a reader can tell what the final
+        // review covered without opening a prompt.
+        assert(
+          steps.messages.contains(
+            s"reviewing everything changed since commit ${runStart.short}"
+          ),
+          steps.messages.mkString("\n")
+        )
 
   test("a whole-run diff is re-sampled, so a later round sees the fixes"):
     // The base is fixed for the run, the sample is not: a fix made after round

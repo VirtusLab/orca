@@ -54,8 +54,16 @@ case class ProgressHeader(
   */
 case class StageEntry(id: StagePath.Stage, resultJson: RawJson) derives JsonData
 
-/** One run's persisted state: the outcome of each completed stage, and where it
-  * published its work ([[PublishedWork]], once the run has).
+/** The commit a stage started from, recorded when it is first entered, so a
+  * re-entry after a crash diffs from the same commit rather than from a HEAD
+  * that already holds the stage's own nested commits.
+  */
+case class StageStart(id: StagePath.Stage, baseCommit: CommitHash)
+    derives JsonData
+
+/** One run's persisted state: the outcome of each completed stage, where it
+  * published its work ([[PublishedWork]], once the run has), and the commit
+  * each entered stage started from.
   *
   * Everything here rides the feature branch, committed at each stage boundary.
   * Machine-local state that would be meaningless in another checkout lives in
@@ -65,7 +73,8 @@ case class StageEntry(id: StagePath.Stage, resultJson: RawJson) derives JsonData
 case class ProgressLog(
     header: ProgressHeader,
     entries: List[StageEntry],
-    published: Option[PublishedWork]
+    published: Option[PublishedWork],
+    stageStarts: List[StageStart]
 ) derives JsonData
 
 object ProgressLog:

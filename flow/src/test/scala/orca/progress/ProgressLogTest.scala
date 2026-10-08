@@ -48,13 +48,19 @@ class ProgressLogTest extends FunSuite:
           resultJson = RawJson("""{"files":["a.scala"]}""")
         )
       ),
-      published = Some(PublishedWork("https://example.test/pr/1"))
+      published = Some(PublishedWork("https://example.test/pr/1")),
+      stageStarts = List(
+        StageStart(
+          id = StagePath.FlowBody.child("Implement", 0),
+          baseCommit = CommitHash.from("1" * 40).get
+        )
+      )
     )
     assertEquals(roundTrip(log), log)
 
   test("ProgressHeader round-trips branchMode = Reused (skip-branch mode)"):
     val log =
-      ProgressLog(header("my-work", BranchMode.Reused), Nil, None)
+      ProgressLog(header("my-work", BranchMode.Reused), Nil, None, Nil)
     assertEquals(roundTrip(log).header.branchMode, BranchMode.Reused)
 
   test("ProgressHeader round-trips a detached start (no startingBranch)"):
@@ -68,9 +74,10 @@ class ProgressLogTest extends FunSuite:
         id = StagePath.FlowBody.child("x", 0),
         resultJson = RawJson("1")
       )
-    val json = writeToString(ProgressLog(header("feat/x"), List(entry), None))(
-      using codec
-    ).replace("""[{"name":"x","occurrence":0}]""", "[]")
+    val json =
+      writeToString(ProgressLog(header("feat/x"), List(entry), None, Nil))(using
+        codec
+      ).replace("""[{"name":"x","occurrence":0}]""", "[]")
     intercept[JsonReaderException](
       readFromString[ProgressLog](json)(using codec): Unit
     )
@@ -78,8 +85,8 @@ class ProgressLogTest extends FunSuite:
   test("a branch that isn't a valid branch name fails to decode"):
     // Hand-editable like the commit below; only a valid name may reach git.
     val codec = summon[JsonData[ProgressLog]].codec
-    val json = writeToString(ProgressLog(header("feat/x"), Nil, None))(using
-      codec
+    val json = writeToString(ProgressLog(header("feat/x"), Nil, None, Nil))(
+      using codec
     ).replace("\"feat/x\"", "\"HEAD\"")
     intercept[JsonReaderException](
       readFromString[ProgressLog](json)(using
@@ -91,8 +98,8 @@ class ProgressLogTest extends FunSuite:
     // The header is committed, hand-editable content; only a hash may reach
     // git as a diff base, so anything else fails the whole log.
     val codec = summon[JsonData[ProgressLog]].codec
-    val json = writeToString(ProgressLog(header("feat/x"), Nil, None))(using
-      codec
+    val json = writeToString(ProgressLog(header("feat/x"), Nil, None, Nil))(
+      using codec
     ).replace("0badc0ffee0ddf00d1234567890abcdef1234567", "--output=/etc/pw")
     intercept[JsonReaderException](
       readFromString[ProgressLog](json)(using
@@ -102,8 +109,8 @@ class ProgressLogTest extends FunSuite:
 
   test("a header missing userPrompt fails to decode"):
     val codec = summon[JsonData[ProgressLog]].codec
-    val json = writeToString(ProgressLog(header("feat/x"), Nil, None))(using
-      codec
+    val json = writeToString(ProgressLog(header("feat/x"), Nil, None, Nil))(
+      using codec
     ).replace(""""userPrompt":"fix the flaky test",""", "")
     intercept[JsonReaderException](
       readFromString[ProgressLog](json)(using

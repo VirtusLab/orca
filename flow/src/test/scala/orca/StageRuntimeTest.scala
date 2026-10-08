@@ -4,7 +4,8 @@ import orca.testkit.TextReplyingAgent
 
 import orca.util.RawJson
 import orca.events.{EventDispatcher, OrcaEvent, OrcaListener, StageOutcome}
-import orca.progress.StageEntry
+import orca.gitref.CommitHash
+import orca.progress.{StageEntry, StageStart}
 import ox.either.orThrow
 
 import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
@@ -396,6 +397,48 @@ class StageRuntimeTest extends munit.FunSuite:
       run.control.progressStore.load().toList.flatMap(_.entries).map(_.id),
       List(StagePath.FlowBody.child("dup", 1))
     )
+
+  test("a re-entered stage keeps the base it recorded when first entered"):
+    val run = TestRun.create(
+      new EventDispatcher(Nil),
+      lead = Some(commitMessageAgent)
+    )
+    import run.given
+    val atEntry = run.context.git.headCommit()
+    val _ = intercept[RuntimeException]:
+      stage[String]("outer"):
+        val _ = stage("inner"):
+          os.write(run.dir / "inner.txt", "1")
+          "inner-result"
+        throw new RuntimeException("crash after the nested commit")
+
+    val resumed = reopen(run.dir, _ => ())
+    import resumed.given
+    val base = stage("outer"):
+      val _ = stage("inner")("not run: replayed")
+      resumed.control.stageBaseCommit
+    assertEquals(base, atEntry)
+
+  test("a recorded base HEAD does not descend from falls back to HEAD"):
+    val listener = new RecordingListener
+    val run = TestRun.create(
+      new EventDispatcher(List(listener)),
+      lead = Some(commitMessageAgent)
+    )
+    import run.given
+    val id = StagePath.FlowBody.child("outer", 0)
+    // Not in the repository at all, as after a rebase dropped it.
+    val stranger = CommitHash.from("0" * 40).get
+    locally:
+      given WorkspaceWrite = WorkspaceWrite.unsafe
+      run.control.progressStore.recordStageStart(StageStart(id, stranger))
+    val atEntry = run.context.git.headCommit()
+    val base = stage("outer")(run.control.stageBaseCommit)
+    assertEquals(base, atEntry)
+    val steps = listener.events.collect:
+      case OrcaEvent.Step(m) if m.contains(stranger.short) => m
+    assertEquals(steps.size, 1, listener.events)
+    assert(steps.head.contains(id.display), steps.head)
 
   // --- helpers ---
 
