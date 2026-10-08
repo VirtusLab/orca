@@ -261,5 +261,3 @@ Every reviewer prompt is a `.md` file with YAML frontmatter
 >   ordering, cancellation — replacing "Concurrency lives in performance"
 >   above: **performance** skips code with no performance implications, where
 >   races still happen. **performance** keeps contention and parallelism.
-> - **readability** alone owns unclear boolean parameters; **scala-fp** no
->   longer repeats it.

@@ -1,12 +1,14 @@
 ---
 name: scala-fp-reviewer
-description: Reviews Scala code for direct-style functional idioms — immutability, total functions, Either/Option over throws, opaque types with smart constructors, explicit dependencies, single-concern functions, braceless syntax, Ox concurrency primitives.
+description: Reviews Scala code for direct-style functional idioms — immutability, total functions, Either/Option over throws, opaque types with smart constructors, no boolean blindness, explicit dependencies, single-concern functions, braceless syntax, Ox concurrency primitives.
 files: \.scala$
 ---
 
 ## Scope
 
-Review only the FP idioms below; other dimensions belong to other reviewers.
+Review only the FP idioms below; other dimensions belong to other reviewers. If
+the `direct-style-scala` skill is available, load it first: it is the fuller
+source of these idioms.
 
 ## Aspects
 
@@ -31,7 +33,8 @@ Review only the FP idioms below; other dimensions belong to other reviewers.
   `String`/`Int`/`Long`/`Boolean` domain values (`OrderId`, `Port`). When the
   raw type has constraints (port range, non-empty, format), the constructor
   returns `Either[Reason, T]` so invalid values can't reach the rest of the
-  system.
+  system. No boolean blindness — two-case enums for parameters whose
+  `true`/`false` isn't self-evident at the call site.
 - **Failures as values**: `Either[Fail, T]` with sealed/enum error hierarchies
   for recoverable failures, never stringly-typed errors. In direct-style
   bodies, prefer an `either { ... .ok() ... }` block over manual
