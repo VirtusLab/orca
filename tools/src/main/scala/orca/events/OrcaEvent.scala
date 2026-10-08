@@ -2,6 +2,7 @@ package orca.events
 
 import orca.StagePath
 import orca.agents.{BackendTag, Model, SessionKey}
+import orca.gitref.BranchName
 
 /** Flow-level event fanned out to every registered [[OrcaListener]]. Covers
   * stage transitions, tool invocations, token usage, structured results, and
@@ -179,7 +180,7 @@ enum OrcaEvent:
     * actually bound, which may be a fallback name rather than the one the
     * naming strategy proposed. The run's event log records it.
     */
-  case BranchBound(branch: String)
+  case BranchBound(branch: BranchName)
 
 object OrcaEvent:
   /** The one identity a backend conversation is known by across events: its

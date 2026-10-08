@@ -49,9 +49,8 @@ private[orca] object RunEventLog:
       tracePath: Option[os.Path],
       clock: () => Instant
   )(using Ox, BufferCapacity): RunEventLog =
-    val runDir = OrcaDir.ensureRunDir(workDir, runKey)
-    prune(workDir, runKey, runDir)
-    val eventLog = OrcaDir.eventLogPath(workDir, runKey)
+    val eventLog = OrcaDir.ensureEventLog(workDir, runKey)
+    prune(workDir, runKey, eventLog / os.up)
     val loaded = SessionProjection.records(RunEventReader.read(eventLog))
     endTornLine(eventLog)
     val appender = Actor.create(EventAppender(eventLog))
@@ -119,15 +118,15 @@ private case class Projection(
     openStages: List[StagePath.Stage]
 ):
   /** The projection after `event`, with the events it maps to, stamped with
-    * `at` and `attempt`; `Left` when `event` cannot be recorded.
+    * `at` and `attempt`.
     */
   def observe(
       event: OrcaEvent,
       at: Instant,
       attempt: AttemptId
-  ): (Projection, Either[String, List[RunEvent]]) =
+  ): (Projection, List[RunEvent]) =
     val events = eventsOf(event, at, attempt)
-    (withRecordsAfter(events.getOrElse(Nil)).withStagesAfter(event), events)
+    (withRecordsAfter(events).withStagesAfter(event), events)
 
   /** The projection after upserting `record` by its key, with the events that
     * record it: a new key mints; a known key whose record differs only by a
@@ -157,21 +156,17 @@ private case class Projection(
       event: OrcaEvent,
       at: Instant,
       attempt: AttemptId
-  ): Either[String, List[RunEvent]] =
+  ): List[RunEvent] =
     event match
       case OrcaEvent.StageStarted(path) =>
-        Right(List(RunEvent.StageStarted(at, attempt, path)))
+        List(RunEvent.StageStarted(at, attempt, path))
       case OrcaEvent.StageEnded(path, outcome) =>
-        Right(List(RunEvent.StageEnded(at, attempt, path, outcome)))
+        List(RunEvent.StageEnded(at, attempt, path, outcome))
       case OrcaEvent.BranchBound(branch) =>
-        BranchName
-          .parse(branch)
-          .map(b => List(RunEvent.BranchBound(at, attempt, b)))
-      case e: OrcaEvent.SessionCommitted =>
-        Right(List(committed(e, at, attempt)))
-      case t: OrcaEvent.TokensUsed =>
-        Right(List(turn(t, at, attempt)))
-      case _ => Right(Nil)
+        List(RunEvent.BranchBound(at, attempt, branch))
+      case e: OrcaEvent.SessionCommitted => List(committed(e, at, attempt))
+      case t: OrcaEvent.TokensUsed       => List(turn(t, at, attempt))
+      case _                             => Nil
 
   private def upsertEvents(
       record: SessionRecord,
@@ -261,12 +256,7 @@ private class ProjectionOwner(
 
   def observed(event: OrcaEvent): Unit =
     guarded(s"recording ${event.getClass.getSimpleName}"):
-      val (next, events) = state.observe(event, clock(), attempt)
-      events match
-        case Right(recorded) => advance((next, recorded))
-        case Left(reason) =>
-          state = next
-          log.warn(s"event not recorded: $reason")
+      advance(state.observe(event, clock(), attempt))
 
   def upserted(record: SessionRecord): Unit =
     guarded("recording a session"):

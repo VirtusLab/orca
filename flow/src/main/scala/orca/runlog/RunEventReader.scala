@@ -8,6 +8,7 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
 import com.github.plokhotnyuk.jsoniter_scala.macros.JsonCodecMaker
 
 import java.io.{IOException, UncheckedIOException}
+import java.nio.file.NoSuchFileException
 
 /** Reads a run's event log. Lines that do not decode — a torn last line after a
   * crash, an unknown `type` — are skipped. An absent or unreadable file reads
@@ -16,7 +17,14 @@ import java.io.{IOException, UncheckedIOException}
 private[orca] object RunEventReader:
 
   /** Every event in `path`, in file order. */
-  def read(path: os.Path): List[RunEvent] =
+  def read(path: os.Path): List[RunEvent] = readOrError(path).getOrElse(Nil)
+
+  /** [[read]], but an unreadable file is the error that stopped the read; an
+    * absent file still reads as no events.
+    */
+  def readOrError(
+      path: os.Path
+  ): Either[IOException | UncheckedIOException, List[RunEvent]] =
     decodedLines(path)(RunEvent.decodeLine)
 
   /** The events in `path` whose case is one of `types`, in file order. Other
@@ -32,13 +40,15 @@ private[orca] object RunEventReader:
       typeOf(line)
         .filter(names.contains)
         .flatMap(_ => RunEvent.decodeLine(line))
-    )
+    ).getOrElse(Nil)
 
   private def decodedLines(path: os.Path)(
       decode: String => Option[RunEvent]
-  ): List[RunEvent] =
-    try os.read.lines.stream(path).flatMap(decode(_)).toList
-    catch case _: IOException | _: UncheckedIOException => Nil
+  ): Either[IOException | UncheckedIOException, List[RunEvent]] =
+    try Right(os.read.lines.stream(path).flatMap(decode(_)).toList)
+    catch
+      case _: NoSuchFileException                  => Right(Nil)
+      case e: (IOException | UncheckedIOException) => Left(e)
 
   private case class TypeOnly(`type`: String)
 

@@ -225,7 +225,7 @@ object FlowLifecycle:
     val stack = resolveStackSettings(agent, workDir, resolution, emit)
     val binding =
       session.bindBranch(preflight.startingHead, preflight.protectedBranches)
-    emit(OrcaEvent.BranchBound(binding.featureBranch.value))
+    emit(OrcaEvent.BranchBound(binding.featureBranch))
     // Its own commit, on the bound branch, so no later `add -A` sweep carries
     // it under an unrelated message.
     stack match

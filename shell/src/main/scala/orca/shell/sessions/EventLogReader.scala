@@ -3,8 +3,6 @@ package orca.shell.sessions
 import orca.{AttemptId, OrcaDir}
 import orca.runlog.{RunEvent, RunEventReader}
 
-import java.io.{IOException, UncheckedIOException}
-import java.nio.file.NoSuchFileException
 import java.time.Instant
 import scala.annotation.tailrec
 import scala.util.Try
@@ -133,7 +131,7 @@ private[shell] object EventLogReader:
       .toList
       .flatMap(AttemptProjection.of(_, _))
       .filter(_.sessions.nonEmpty)
-      .map(m => AttemptSessions(m.startedAt, m.sessions.size))
+      .map(record => AttemptSessions(record.startedAt, record.sessions.size))
 
   private def guarded(
       workDir: os.Path,
@@ -181,17 +179,14 @@ private[shell] object EventLogReader:
       case Left(warning) => AttemptListing(Nil, List(warning))
       case Right(events) => listAttempts(file, events, processAlive)
 
-  /** Every decodable event in `file`; a file that vanished since it was listed
-    * (pruned) has none. Unlike [[orca.runlog.RunEventReader.read]], an
-    * unreadable file is a warning: its attempts would otherwise drop out of the
-    * listing unnoticed.
+  /** Every decodable event in `file`. An unreadable file is a warning: its
+    * attempts would otherwise drop out of the listing unnoticed.
     */
   private def readEvents(file: os.Path): Either[String, List[RunEvent]] =
-    try Right(os.read.lines.stream(file).flatMap(RunEvent.decodeLine(_)).toList)
-    catch
-      case _: NoSuchFileException => Right(Nil)
-      case e: (IOException | UncheckedIOException) =>
-        Left(s"skipping $file: ${firstLine(e)}")
+    RunEventReader
+      .readOrError(file)
+      .left
+      .map(e => s"skipping $file: ${firstLine(e)}")
 
   private def listAttempts(
       file: os.Path,
@@ -208,7 +203,7 @@ private[shell] object EventLogReader:
           .map(id -> _)
     AttemptListing(
       results.collect:
-        case Right((id, m)) if m.sessions.nonEmpty =>
-          RecordedAttempt(id, m, ObservedStatus.of(m, processAlive)),
+        case Right((id, record)) if record.sessions.nonEmpty =>
+          RecordedAttempt(id, record, ObservedStatus.of(record, processAlive)),
       results.collect { case Left(warning) => warning }
     )

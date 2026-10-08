@@ -54,8 +54,8 @@ attempt's start time and pid. Under `.orca/cache/` you will find:
 - `runs/<key>/<id>.trace.log`: a DEBUG trace with prompts, agent output and
   tool calls. It rolls over at 4 MB, to `<id>.trace.1.log`.
 
-Each run starts by printing the paths of its progress log, event log and trace
-log:
+Each attempt starts by printing the paths of its run's progress log and event
+log and its own trace log:
 
 ```text
 Orca <version>

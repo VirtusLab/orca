@@ -20,11 +20,16 @@ private[orca] case class RunRequest(
     extraListeners: List[OrcaListener],
     wiring: FlowWiring,
     pricing: PricingTable,
-    // Starts the attempt's event log, also the run's session store, in the
-    // given scope. `runFlow` calls it once it holds the working tree's lock.
-    startRunLog: Ox => RunEventLog,
+    // `runFlow` calls it once it holds the working tree's lock.
+    startRunLog: RunLogStarter,
     setup: SetupOptions
 )
+
+/** Starts the attempt's event log, also the run's session store, in the
+  * caller's scope.
+  */
+private[orca] trait RunLogStarter:
+  def start(using Ox): RunEventLog
 
 /** The part of a [[RunRequest]] read after the agents and tools are built: role
   * resolution, reviewer discovery and `FlowLifecycle.setup`.

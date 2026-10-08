@@ -1014,7 +1014,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       "a brand new task",
       emit = e => { val _ = emitted.updateAndGet(e :: _) }
     )
-    (setup, emitted.get().collect { case OrcaEvent.BranchBound(b) => b })
+    (setup, emitted.get().collect { case OrcaEvent.BranchBound(b) => b.value })
 
   test("setup: a fresh run emits the branch it bound to, once"):
     val (setup, bound) = setupRecordingBound(GitRepo.seeded())
@@ -1043,7 +1043,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       )
     )
     assertEquals(
-      emitted.get().collect { case OrcaEvent.BranchBound(b) => b },
+      emitted.get().collect { case OrcaEvent.BranchBound(b) => b.value },
       List("my-work")
     )
 

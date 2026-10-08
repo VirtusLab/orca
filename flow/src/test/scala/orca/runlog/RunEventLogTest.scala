@@ -1,8 +1,8 @@
 package orca.runlog
 
-import orca.{AttemptId, OrcaDir, RunKey, StagePath}
-import orca.agents.BackendTag
-import orca.events.{OrcaEvent, StageOutcome, Usage}
+import orca.{AttemptId, OrcaDir, OrcaFlowException, RunKey, StagePath}
+import orca.agents.{BackendTag, Model, SessionKey}
+import orca.events.{Cost, CostBasis, OrcaEvent, StageOutcome, Usage}
 import orca.gitref.BranchName
 import orca.sessions.SessionRecord
 import orca.testkit.TempDirs
@@ -111,7 +111,7 @@ class RunEventLogTest extends munit.FunSuite:
   test("events land in emission order with full stage paths"):
     val events = logged(TempDirs.dir()): log =>
       log.onEvent(OrcaEvent.StageStarted(outer))
-      log.onEvent(OrcaEvent.BranchBound("feature/x"))
+      log.onEvent(OrcaEvent.BranchBound(branch("feature/x")))
       log.onEvent(OrcaEvent.StageStarted(inner))
       log.onEvent(OrcaEvent.StageEnded(inner, StageOutcome.Failed))
     assertEquals(
@@ -150,6 +150,83 @@ class RunEventLogTest extends munit.FunSuite:
         case e: RunEvent.Turn             => e.stage
       ,
       List(None, None)
+    )
+
+  test("a SessionCommitted keys a wire-less session by its client id"):
+    val minted = SessionKey("impl", StagePath.FlowBody)
+    val events = logged(TempDirs.dir()):
+      _.onEvent(
+        OrcaEvent.SessionCommitted(
+          BackendTag.Pi,
+          clientId = "c",
+          wireId = None,
+          sessionKey = Some(minted),
+          agent = "pi",
+          role = Some("coder")
+        )
+      )
+    assertEquals(
+      events,
+      List(
+        RunEvent.SessionCommitted(
+          at,
+          attempt,
+          backend = BackendTag.Pi,
+          wireId = None,
+          conversationKey = "c",
+          agent = "pi",
+          role = Some("coder"),
+          minted = Some(minted),
+          stage = None
+        )
+      )
+    )
+
+  test("a Turn carries the turn's identity, model, usage and cost"):
+    val usage = Usage(
+      freshInputTokens = 1,
+      cacheReadInputTokens = 2,
+      cacheWriteInputTokens = 3,
+      outputTokens = 4,
+      reasoningOutputTokens = 5,
+      cost = None,
+      apiCalls = Some(3L)
+    )
+    val cost = Cost(
+      BigDecimal("0.5"),
+      CostBasis.Estimated(java.time.LocalDate.parse("2026-10-01"))
+    )
+    val events = logged(TempDirs.dir()):
+      _.onEvent(
+        OrcaEvent.TokensUsed(
+          OrcaEvent.UnpricedTurn(
+            "pi",
+            Some(Model("m")),
+            usage,
+            Some("reviewer"),
+            2,
+            "c"
+          ),
+          Some(cost)
+        )
+      )
+    assertEquals(
+      events,
+      List(
+        RunEvent.Turn(
+          at,
+          attempt,
+          agent = "pi",
+          role = Some("reviewer"),
+          model = Some("m"),
+          stage = None,
+          turn = 2,
+          apiCalls = Some(3L),
+          usage = TurnUsage(1, 2, 3, 4, 5),
+          cost = Some(cost),
+          conversationKey = "c"
+        )
+      )
     )
 
   test("upserting a new key with a wire id writes SessionMinted and its id"):
@@ -199,17 +276,6 @@ class RunEventLogTest extends munit.FunSuite:
       )
     )
 
-  test("a BranchBound whose branch does not parse is not recorded"):
-    val events = logged(TempDirs.dir()): log =>
-      log.onEvent(OrcaEvent.BranchBound("not a..branch"))
-      log.onEvent(OrcaEvent.StageStarted(outer))
-    assertEquals(events, List(RunEvent.StageStarted(at, attempt, outer)))
-
-  test("records reflect an earlier upsert"):
-    withLog(TempDirs.dir()): log =>
-      log.upsert(record)
-      assertEquals(log.records(), List(record))
-
   test("a success in an earlier log hides the sessions before it"):
     val dir = TempDirs.dir()
     val later = record.copy(name = "reviewer", id = "id-2")
@@ -253,6 +319,15 @@ class RunEventLogTest extends munit.FunSuite:
       log.onEvent(committed)
       log.upsert(record)
       assertEquals(log.records(), List(record))
+
+  test("a symlinked event log is refused and its target left untouched"):
+    val dir = TempDirs.dir()
+    val target = TempDirs.dir() / "target"
+    os.write(target, "kept")
+    os.makeDir.all(OrcaDir.runDirPath(dir, key))
+    os.symlink(OrcaDir.eventLogPath(dir, key), target)
+    val _ = intercept[OrcaFlowException](withLog(dir)(_ => ()))
+    assertEquals(os.read(target), "kept")
 
   test("start removes the cache files of older versions"):
     val dir = TempDirs.dir()

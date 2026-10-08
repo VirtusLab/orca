@@ -34,6 +34,7 @@ import orca.runner.{
   OrcaLog,
   RoleAgents,
   RoleOverrides,
+  RunLogStarter,
   RunRequest,
   SetupOptions,
   WiredAgents,
@@ -224,9 +225,8 @@ def flow(
             prompts = prompts
           ),
           pricing = pricing,
-          startRunLog = ox =>
-            given Ox = ox
-            RunEventLog.start(
+          startRunLog = new RunLogStarter:
+            def start(using Ox): RunEventLog = RunEventLog.start(
               dir,
               runKey,
               attemptId,
@@ -297,11 +297,17 @@ private[orca] def runFlow(request: RunRequest)(
     supervised:
       // Under the lock: an attempt refused there must not prune the run cache
       // or append to the event log a running attempt of the run writes.
-      val runLog = request.startRunLog(summon[Ox])
+      val runLog = request.startRunLog.start
       try runLogged(request, runLog)(body)
       catch
-        case NonFatal(e) =>
-          runLog.finish(AttemptOutcome.Failed)
+        // An interrupt means the scope is shutting down and has interrupted the
+        // log's actors too; an ask to them would never be answered.
+        case e: InterruptedException => throw e
+        // Fatal errors too, so the queued events are flushed and the attempt
+        // is recorded as failed, not crashed.
+        case e: Throwable =>
+          try runLog.finish(AttemptOutcome.Failed)
+          catch case NonFatal(f) => e.addSuppressed(f)
           throw e
       runLog.finish(AttemptOutcome.Succeeded)
 

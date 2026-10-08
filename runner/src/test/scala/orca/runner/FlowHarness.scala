@@ -12,10 +12,10 @@ import orca.{
 import orca.agents.Agent
 import orca.backend.Interaction
 import orca.events.{OrcaEvent, OrcaListener, Pricing}
-import orca.runlog.TestRunLog
+import orca.runlog.{RunEventLog, TestRunLog}
 import orca.testkit.TempDirs
 import orca.runner.terminal.TerminalInteraction
-import ox.supervised
+import ox.{Ox, supervised}
 
 import java.io.{ByteArrayOutputStream, PrintStream}
 import java.util.concurrent.atomic.AtomicReference
@@ -83,8 +83,10 @@ object FlowHarness:
       extraListeners = extraListeners,
       wiring = wiring,
       pricing = Pricing.default,
-      startRunLog =
-        ox => TestRunLog.start(workDir, RunKey.of(args.userPrompt))(using ox),
+      startRunLog = new RunLogStarter:
+        def start(using Ox): RunEventLog =
+          TestRunLog.start(workDir, RunKey.of(args.userPrompt))
+      ,
       setup = SetupOptions(
         branchNaming = branchNaming,
         stackSettings = stackSettings,

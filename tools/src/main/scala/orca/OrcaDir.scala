@@ -141,6 +141,13 @@ private[orca] object OrcaDir:
   def eventLogPath(workDir: os.Path, key: RunKey): os.Path =
     runDirPath(workDir, key) / EventLogName
 
+  /** [[ensureRunDir]], then [[eventLogPath]] for appending; refuses a symlinked
+    * event log as well as a symlinked directory.
+    */
+  def ensureEventLog(workDir: os.Path, key: RunKey): os.Path =
+    val _ = ensureRunDir(workDir, key)
+    eventLogPath(workDir, key).tap(abortIfOrcaComponentSymlink(workDir, _))
+
   /** Idempotently ensure `.orca/cache/` exists, writing its self-ignoring
     * `.gitignore` and `CACHEDIR.TAG` before returning so nothing lands in the
     * dir before the exclusion is in place. Markers are written only when
