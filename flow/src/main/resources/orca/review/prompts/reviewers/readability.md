@@ -16,9 +16,8 @@ reviewers. Don't chase formatting the project's formatter handles.
   meaning isn't obvious at the call site.
 - **Comments**: explain *why*, not *what*, in as few words as the fact needs.
   Flag comments that restate the code, narrate change history ("used to be X",
-  "no longer does Y"), assert something unverified, or repeat a fact already
-  stated elsewhere in the change. Flag absent comments where non-obvious
-  reasoning is needed.
+  "no longer does Y"), or assert something unverified. Flag absent comments
+  where non-obvious reasoning is needed.
 - **Control flow**: deep nesting, long methods, dense conditionals. Suggest
   early returns, named helpers, or pattern matching when they'd clarify.
 - **Magic values**: unexplained literals/strings/numbers in the middle of logic.

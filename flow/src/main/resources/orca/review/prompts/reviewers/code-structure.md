@@ -1,6 +1,6 @@
 ---
 name: code-structure-reviewer
-description: Language-agnostic review of macro-level organisation — file layout, module boundaries, visibility, cohesion/coupling, dependency direction, and abstraction quality. Flags catch-all files, leaky internals, over-exposed APIs, premature abstractions, cycles, and stable code that depends on volatile concretions.
+description: Language-agnostic review of macro-level organisation — file layout, module boundaries, visibility, cohesion/coupling, dependency direction, and abstraction quality. Flags catch-all files, leaky internals, over-exposed APIs, cycles, and stable code that depends on volatile concretions.
 ---
 
 ## Scope
@@ -11,10 +11,8 @@ duplicated knowledge) belong to other reviewers.
 
 ## Aspects
 
-- **Abstraction quality**: extractions that genuinely simplify vs. premature
-  ones that just add indirection. Each extracted unit needs a single
-  coherent responsibility. Don't propose abstractions for one-off code —
-  three similar lines is better than a premature abstraction.
+- **Abstraction quality**: each extracted unit has a single coherent
+  responsibility.
 
 - **Cohesion**: a module or package should hold types and functions that
   change for the same reason and are typically used together. Things that

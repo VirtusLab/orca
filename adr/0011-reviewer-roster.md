@@ -248,9 +248,8 @@ Every reviewer prompt is a `.md` file with YAML frontmatter
 >   the change touches (a rule, default, mapping, decision) has one home, in
 >   code, prompts or docs — and the homes a change failed to update. It is the
 >   one reviewer that searches the repository beyond the diff, limited to the
->   facts the diff touches. Duplication moves to it from **code-structure**,
->   which keeps abstraction quality, including the warning against premature
->   abstraction.
+>   facts the diff touches. Duplication moves to it from **code-structure**;
+>   premature abstraction is left to **simplicity**.
 > - **simplicity** also owns whether each change is needed for the task at all:
 >   it traces every hunk to the task and flags drive-by refactors, renames,
 >   reformatting and unrelated fixes. Its slug is unchanged, so a project file
@@ -258,3 +257,6 @@ Every reviewer prompt is a `.md` file with YAML frontmatter
 > - **code-functionality** checks that the change delivers everything its task
 >   asks, and that a behaviour change reaches every call path to that
 >   behaviour, not only the one the diff edits.
+>   It no longer checks concurrency, which stays with **performance**.
+> - **readability** alone owns unclear boolean parameters and long functions;
+>   **scala-fp** no longer repeats them.

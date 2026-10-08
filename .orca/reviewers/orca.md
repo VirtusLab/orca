@@ -25,8 +25,7 @@ shipped reviewers running beside you.
   with a reason it wrote; `OpenFinding(s)` is what the run leaves unresolved,
   each with an `OpenReason`. `issue` means a GitHub issue. Don't name the open
   set after one of its reasons, and don't rename inside a dated record.
-- **Comments are present-tense facts**: no history ("no longer", "renamed
-  from"), no plan or epic labels, no teaching Scala mechanics; in `flows/*.sc`,
+- **Comments are present-tense facts**: no plan or epic labels, no teaching Scala mechanics; in `flows/*.sc`,
   only facts about that file.
 - **Capability discipline**: `InStage.unsafe`/`WorkspaceWrite.unsafe` only in
   `RuntimeInStage` and tests; never drop a `(using InStage)` or `(using
@@ -36,15 +35,11 @@ shipped reviewers running beside you.
   over `os.write.over`.
 - **Subprocesses capture stderr** — `QuietProc.call` or a `CliRunner`.
 - **Enums, not flags**: a domain mode is an enum, never a `Boolean` or a raw
-  string compared to literals; two flags or `Option`s whose combinations
-  include impossible states are one ADT. Protocol strings are parsed into an
+  string compared to literals. Protocol strings are parsed into an
   enum at the boundary (`Unknown(raw)` for unrecognised values) and matched
   exhaustively downstream.
 - **Modelling**: three or more same-typed adjacent parameters — or two whose
-  swap compiles — take named arguments or a case class; a wire field's absence
-  is decided once, at decode, never re-defaulted per call site.
-- **Deliberate duplication**: `README.md` carries its own API reference for the
-  public surface, restating scaladoc on purpose — never report it as a copy.
+  swap compiles — take named arguments or a case class.
 - **Invisible in a diff**: terminal escapes are written as explicit unicode
   escapes (`\u001b`), never raw bytes; code that generates code — prompts,
   skeletons, templates — is tested by compiling or running the artifact, not by

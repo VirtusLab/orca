@@ -11,10 +11,9 @@ bug.
 
 ## Aspects
 
-- **Minimality**: every test must justify its existence by covering a distinct
-  property no other test covers. Flag redundant tests for removal.
-- **No duplication**: two tests exercising the same path with different literals
-  are duplicates. Pick one.
+- **Minimality**: every test covers a property no other test covers; two tests
+  exercising the same path with different literals are duplicates. Flag
+  redundant tests for removal.
 - **Single property per test**: one behaviour per test. Multi-property tests get
   split; tightly-coupled facets of one scenario are fine.
 - **Coverage of new behaviour**: enumerate the properties/branches the changed

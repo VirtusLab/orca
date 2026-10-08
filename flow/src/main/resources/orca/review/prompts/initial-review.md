@@ -43,7 +43,8 @@ looks wrong, report it as a finding against that choice — say which part of th
 task you mean.
 
 What the user asked for is what the work has to satisfy. Where that and what was
-planned differ, what the user asked for wins.
+planned differ, what the user asked for wins. Work that belongs to another task
+of the plan is not this review's to judge.
 
 ## Always report these
 

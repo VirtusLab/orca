@@ -5,7 +5,7 @@ description: Reviews CPU/memory efficiency, algorithmic complexity, I/O and netw
 
 ## Scope
 
-Performance and concurrent safety only. Other dimensions (correctness, style,
+Performance and concurrency only. Other dimensions (correctness, style,
 tests) belong to other reviewers. If the change has no performance implications
 (startup, one-shot, trivially-small data), report no findings.
 
