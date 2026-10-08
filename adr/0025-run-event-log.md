@@ -1,6 +1,6 @@
 # 0025. One event log per run for cached state
 
-Status: Proposed · Date: 2026-10-08
+Status: Accepted · Date: 2026-10-08
 Related: [ADR 0018](0018-stage-bound-flow-runtime.md) (progress log; the
 2026-09-18 session store amendment), [ADR 0019](0019-project-stack-settings.md)
 (`.orca/` layout), [ADR 0021](0021-orca-shell.md) §8 (attempt manifest and cost

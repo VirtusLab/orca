@@ -849,6 +849,13 @@ resume is global, but the resumed context still references that directory):
 > the estimate was last checked. It replaces the `estimated` flag; summing
 > costs keeps the oldest `ratesAsOf` among the estimates.
 
+> **Amendment (2026-10-08).** The attempt manifest and the cost log are
+> replaced by the run's event log, `.orca/cache/runs/<key>/events.jsonl`, and
+> the trace log moves to `.orca/cache/runs/<key>/<id>.trace.log`. The shell
+> builds the attempt listing from the event logs. The event format is public:
+> additive changes only within one `schema` number. See
+> [ADR 0025](0025-run-event-log.md).
+
 ### 9. Creating a new flow with a harness
 
 Menu flow (feedback item 9, goal-first): pick global vs project target upfront

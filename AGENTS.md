@@ -173,7 +173,7 @@ most easily broken:
   the mint sits in — taken from `StageFrames` rather than supplied by the
   author. Two stages therefore cannot name one
   session, and a per-task loop needs no per-task label. The whole key reaches
-  `OrcaEvent.SessionCommitted`, the attempt manifest and the shell's session
+  `OrcaEvent.SessionCommitted`, the run's event log and the shell's session
   picker.
   Identity and label are separate here: `SessionKey.describe` renders a key for
   the run's own diagnostics (a stage path displays with `#0` suffixes), and a
@@ -184,30 +184,33 @@ most easily broken:
   share, and `orca continue --list` gives it a column. `SessionIndex` groups
   sessions into lineages keyed by `(workDir, branch, agent, minted key)`, and
   `orca continue <selector>` matches a `--list` id (`SessionRef`: the attempt id
-  and the session's position in its manifest), a session name or a recorded
+  and the session's position among the attempt's sessions), a session name or a recorded
   branch. Neither half of a `SessionKey` is
   hashed or turned into a filename, and only `name` is validated (non-empty).
   Reordering or skipping *other* `session(...)` calls between attempts doesn't
   re-key this one; renaming the stage a mint sits in does. Minting one name
   twice in one stage throws (`FlowControl.claimSessionKey`, the only door that
   MINTS a key — `SessionRecord.key` rebuilds one from persisted halves, and
-  `ManifestSession.minted` reads one back from the manifest); re-minting on resume is the reuse path, since only
+  `RecordedSession.minted` reads one back from the event log); re-minting on resume is the reuse path, since only
   this execution's keys are tracked. For a mint inside a stage that check is
   sound because a stage body is all-or-nothing: two mints of one name in one
   stage both execute or neither does. The flow body offers no such guarantee —
   two mutually exclusive mints there are never both claimed — which costs the
   warning, not correctness.
 
-  Records live in `.orca/cache/runs/<key>.sessions.json`
-  (`orca.sessions.SessionStore`), under the same `RunKey` as the progress log, NOT
-  in the log itself: a backend session id is a machine-local handle, and the
+  Records live in the run's event log, `.orca/cache/runs/<key>/events.jsonl`,
+  as `SessionMinted` and `SessionWireId` events (`orca.sessions.SessionStore`,
+  implemented by `orca.runlog.RunEventLog`; ADR 0025), under the same `RunKey`
+  as the progress log, NOT in the progress log itself: a backend session id is
+  a machine-local handle, and the
   committed log is erased back to the last stage commit by the failure
   teardown's `git reset --hard` — which is exactly the stage a resume re-runs,
   so a record in the log could never be read back. The cache survives that
   reset, its `git clean -fd`, and the resume-time stash, and follows the
   directory a `--worktree` run happens in. A missing or unreadable file costs
-  nothing but a re-seed. `teardownSuccess` drops it with the log, so a later run
-  of the same prompt opens fresh conversations.
+  nothing but a re-seed. `teardownSuccess` appends `RunSucceeded`, and the
+  session store ignores everything before the last one, so a later run of the
+  same prompt opens fresh conversations.
 
   A mint sits wherever the session is used — inside the driving stage, or above
   the stages that share it. What R22 blocks is one specific route out of a
@@ -302,15 +305,13 @@ Three location classes decide what survives:
 | Path | Class | Holds | Written by | Read by | Removed by |
 |---|---|---|---|---|---|
 | `.orca/runs/<key>.progress.json` | committed | `ProgressLog`: header (branches, `branchMode`, `startingCommit`, `userPrompt`, `flow`), one `StageEntry` per completed stage (`id` as `StagePath` segments, `resultJson`), `published` | `ProgressStore` (`FlowLifecycle.freshRun`, `stage.scala`'s `recordAndCommit`, `recordOpenedPr`) | `stage.scala`'s `resumeFrom`, `RecoveryCheck`, `FlowLifecycle`, shell `ResumeDetector` (header) | success teardown, in a final commit |
-| `.orca/cache/runs/<key>.sessions.json` | cache | `SessionRecord` per durable session: `name`, `stage`, `id`, `seed`, `resumeWireId`, `backend` | `SessionStore` (`Session.mintSession`, `persistResumeWireId`) | `Session` | success teardown; nothing else prunes them |
-| `.orca/cache/attempts/<id>.manifest.json` | cache | `AttemptManifest`: `workDir`, `pid`, `startedAt`, `finishedAt`, `status`, `orcaVersion`, `flow`, `branch`, `sessions[]` (`ManifestSession`) — written when the attempt starts, then on every stage transition, `BranchBound`, `SessionCommitted` and finish | `AttemptManifestWriter` | shell `ManifestReader` → session picker / `orca continue` (attempts with no session are left out) | pruning: newest 20 attempts with a session ∪ newest 20 of any kind |
-| `.orca/cache/attempts/<id>.cost.jsonl` | cache | one `CostRecord` line per `TokensUsed` (agent, role, model, stage, turn, apiCalls, usage, cost, conversationKey) — created on the first `TokensUsed` | `CostLog` via `AttemptManifestWriter` | nothing in orca; a measurement record for people and scripts | pruned with its manifest |
-| `.orca/cache/attempts/<id>.trace.log` (+ `.trace.1.log`) | cache | DEBUG trace of logger `orca`: prompts, agent output, tool calls; 4 MB roll | `OrcaLog` | people (path in the banner) | pruned with its manifest |
+| `.orca/cache/runs/<key>/events.jsonl` | cache | the run's append-only `RunEvent` log, one JSON line per event: `AttemptStarted`, `BranchBound`, `StageStarted`/`StageEnded`, `SessionMinted`/`SessionWireId` (session records), `SessionCommitted`, `Turn` (token usage and cost), `RunSucceeded`, `AttemptFinished`; a public format, documented in docs/using/output-and-files.md | `RunEventLog`: the run's `SessionStore` and an `OrcaListener` | `RunEventLog` at attempt start (session records after the last `RunSucceeded`), shell `EventLogReader` → session picker / `orca continue` (attempts with no session are left out), people and scripts | pruning at attempt start, by run directory: never the current run or one with a `SessionMinted` after its last `RunSucceeded`; else newest 20 runs with a session ∪ newest 20 of any kind |
+| `.orca/cache/runs/<key>/<id>.trace.log` (+ `.trace.1.log`) | cache | DEBUG trace of logger `orca`: prompts, agent output, tool calls; 4 MB roll | `OrcaLog` | people (path in the banner and in `AttemptStarted.trace`) | pruned with its run directory; within one, all but the newest 20 attempts' traces at attempt start |
 | `.orca/cache/flow.lock` | cache | an OS file lock, held for the run; holder pid | `FlowLock` | `FlowLock` on contention | never; the OS releases the lock when the holder exits |
 | `.orca/cache/worktree-<key>.lock` (main checkout) | cache | an OS file lock, held while the worktree is resolved; holder pid | `FlowLock` | `FlowLock` on contention | never; the OS releases the lock when the holder exits |
 | `.orca/cache/pi-sessions/<session id>/` | cache | pi's own `--session-dir` transcripts | pi | `PiSessionStore` (resume probe), shell pi resume | `PiSessionStore.prune` after 30 days untouched |
 | `.orca/cache/lint-*.txt` | cache | lint output too large to inline in a prompt | `Lint` | the summarising agent | `lint`'s `finally` |
-| `.orca/cache/{,runs/,attempts/}.<file>.<uuid>.tmp` | cache | in-flight temp of an `OrcaFile` replace: beside a cache file, in `.orca/cache/` for a committed one (progress log, settings) so it is never committed | `OrcaDir.OrcaFile` | — (`AttemptManifestWriter`'s pruning skips dot-files) | the rename that completes the write |
+| `.orca/cache/.<file>.<uuid>.tmp` | cache | in-flight temp of an `OrcaFile` replace of a committed file (progress log, settings), staged in the cache so it is never committed | `OrcaDir.OrcaFile` | — | the rename that completes the write |
 | `.orca/worktrees/<key>/` (+ branch `orca-worktree-<key>`) | worktrees | a `--worktree` run's checkout, with its own `.orca/` inside | `WorktreeRun` | `WorktreeScan` (shell) | never — see the docs, "Branches, resume and worktrees" |
 | `<workDir>/.gemini/settings.json` | user tree | an `mcpServers.orca` entry for one interactive gemini turn | `GeminiSettings` | gemini | restored at turn end, and a stale entry from a crash dropped at the next interactive turn; a `.gemini/` orca created is removed when left empty |
 | `$TMPDIR/orca-*` (system prompts, claude MCP config, codex schema, pi extension) | temp | per-turn IPC files handed to a CLI on argv | each backend | the CLI | turn end |
@@ -322,10 +323,10 @@ Why the resume state is two files: the log must be committed (resume from the
 pushed branch), while a backend session id is a machine-local handle, and a
 record written inside a failing stage would be erased by that stage's `reset
 --hard` — so records live in the cache under the same key (ADR 0018, 2026-09-18
-amendment). Why the manifest is not the session store: it is keyed by attempt,
-pruned by count, carries no seed, and flows the other way — listener output for
-a person picking a session, not input the run reads back (ADR 0021 §8). Why the cost log is not in the manifest: different write shape (append vs
-whole rewrite) and different creation gate.
+amendment). Why one event log holds the session records, the shell's attempt
+data and the cost: one file per run links every attempt to its run, has one
+lifecycle and one pruning rule, and gives scripts a run's cost from one file
+(ADR 0025).
 
 ## Testing approach
 
@@ -451,14 +452,16 @@ prose:
 - **run** — one prompt's flow execution across every process that resumes it.
   Keyed by `RunKey`, the 12-hex prefix of SHA-256(prompt). A run owns one
   feature branch, one progress log (`.orca/runs/<key>.progress.json`), one
-  session-records file (`.orca/cache/runs/<key>.sessions.json`) and, under
-  `--worktree`, one checkout. It ends at success teardown, which removes both
-  files. "Resume interrupted run" resumes a run.
+  event log (`.orca/cache/runs/<key>/events.jsonl`) and, under `--worktree`,
+  one checkout. It ends at success teardown, which removes the progress log and
+  appends `RunSucceeded` to the event log. "Resume interrupted run" resumes a
+  run.
 - **attempt** — one process: one `orca run`, one `flow(...)` call. Keyed by
-  `AttemptId` (`<startedAt ms>-<pid>`). An attempt owns one manifest
-  (`.orca/cache/attempts/<id>.manifest.json`) and one cost log
-  (`<id>.cost.jsonl`). A fresh attempt starts a run; a resumed attempt
-  continues one. `orca continue` picks a session out of an attempt's manifest.
+  `AttemptId` (`<startedAt ms>-<pid>`). An attempt owns its events in the
+  run's event log (each line's `attempt` field) and one trace log
+  (`.orca/cache/runs/<key>/<id>.trace.log`). A fresh attempt starts a run; a
+  resumed attempt continues one. `orca continue` picks a session out of the
+  event log.
 
 A **plan task** (`orca.plan.Task`) is a flow-author concept and names none of
 these files. Never call a process a run.
@@ -497,7 +500,7 @@ Words for talking to a coding agent, from the outside in:
   the wire id) or `ServerMinted` (the backend mints it on the first turn).
 - **conversation key** (`OrcaEvent.conversationKey`) — the wire id, or the
   client id before one is known; the one key turns and sessions join on in
-  events and the cost log.
+  events and the event log.
 
 A CLI's own "turn" can differ: codex's `turn.completed` ends orca's turn, but
 claude's `num_turns` (tool calls + 1) counts something else.
@@ -516,10 +519,12 @@ versioning. Change one of those and change the condensed line with it.
 
 ### Versioning (0.x)
 
-Orca is 0.x: no backwards compatibility is owed anywhere.
+Orca is 0.x: no backwards compatibility is owed anywhere. The one exception
+is the run event log (`RunEvent`), a public format: within one `schema`
+number, change it only additively (ADR 0025).
 
 - No default values on domain or persisted fields (case classes that travel
-  through `JsonData`, progress-log/manifest types, config records). Every
+  through `JsonData`, progress-log/event-log types, config records). Every
   call site passes them explicitly — a default silently papers over a call
   site that forgot the field, which is exactly the bug class this rule
   catches.
