@@ -4,11 +4,10 @@ import orca.events.EventDispatcher
 import orca.testkit.ScriptedBackend
 
 /** Runtime wiring of the autonomous planning grid: each operation pairs its
-  * result with the producing chat, and `triage` converts the wire [[BugTriage]]
-  * into a [[Triage]]. The conversions themselves are covered by
-  * [[AssessThenPlanTest]] (toVerdict) and [[BugTriageTest]] (toTriage); the
-  * interactive cells share the same helper and are pinned at compile time by
-  * `flowtests.FlowCompilesTest`.
+  * result with the producing chat, and `triage` converts the wire
+  * [[TriageReply]] into a [[Triage]]. The conversion itself is covered by
+  * [[TriageReplyTest]]; the interactive cells share the same helper and are
+  * pinned at compile time by `flowtests.FlowCompilesTest`.
   */
 class PlanGridTest extends munit.FunSuite:
 
@@ -19,7 +18,7 @@ class PlanGridTest extends munit.FunSuite:
   private given orca.InStage = orca.InStage.unsafe
 
   private val samplePlan = Plan(
-    epicId = "x",
+    id = "x",
     description = "d",
     tasks = List(Task(Title("t1"), "body")),
     brief = "the brief"
@@ -35,26 +34,41 @@ class PlanGridTest extends munit.FunSuite:
     )
     assertEquals(result.value, samplePlan)
 
-  test("autonomous.triage converts the wire BugTriage into a Triage"):
-    val wire = BugTriage(
-      kind = BugTriage.Kind.Testable,
-      notBugExplanation = "",
-      reproductionSteps = "",
-      failingTestPath = Some("src/test/scala/FooTest.scala"),
-      branchName = "fix-foo",
-      summary = "Foo overflows"
+  test("autonomous.triage converts the wire TriageReply into a Triage"):
+    val wire = TriageReply(
+      kind = TriageReply.Kind.TestableBug,
+      reply = "",
+      summary = "Foo overflows",
+      brief = "see Foo.scala",
+      failingTestPath = "src/test/scala/FooTest.scala",
+      reproductionSteps = ""
     )
     val canned = new CannedResult(wire)
     val result = Plan.autonomous.triage("report", canned.agent)
     assertEquals(Some(result.chat.id.value), canned.lastSession)
     assertEquals(
       result.value,
-      Triage.Testable(
-        "Foo overflows",
-        "fix-foo",
-        "src/test/scala/FooTest.scala"
+      Triage.Accept(
+        summary = "Foo overflows",
+        brief = "see Foo.scala",
+        kind = Triage.Kind.TestableBug("src/test/scala/FooTest.scala")
       )
     )
+
+  test("autonomous.triage fails the flow on an incoherent reply"):
+    val wire = TriageReply(
+      kind = TriageReply.Kind.Reject,
+      reply = "",
+      summary = "",
+      brief = "",
+      failingTestPath = "",
+      reproductionSteps = ""
+    )
+    val canned = new CannedResult(wire)
+    val e = intercept[orca.OrcaFlowException](
+      Plan.autonomous.triage("report", canned.agent)
+    )
+    assert(e.getMessage.contains("reply is empty"), e.getMessage)
 
   test(
     "the handed-out chat is bound to the base agent, not the NetworkOnly sibling"

@@ -11,10 +11,9 @@ import scala.annotation.unused
   * planner's structured output, and feeds the implementer session seed (ADR
   * 0018 §2.6).
   *
-  * `epicId` is a kebab-case identifier for the plan itself (it heads the
-  * markdown render), NOT the git branch name: the flow derives and announces
-  * its own branch at setup via [[orca.BranchNamingStrategy]], so the two can
-  * differ.
+  * `id` is a kebab-case identifier for the plan itself (it heads the markdown
+  * render), NOT the git branch name: the flow derives and announces its own
+  * branch at setup via [[orca.BranchNamingStrategy]], so the two can differ.
   *
   * ==Planning grid==
   *
@@ -23,10 +22,9 @@ import scala.annotation.unused
   *   - **mode** — [[Plan.autonomous]] (single agentic turn, read-only, no
   *     human) or [[Plan.interactive]] (a conversation the agent can drive via
   *     `ask_user`).
-  *   - **operation** — `from` (produce a [[Plan]] directly), `assessThenPlan`
-  *     (skeptically assess first, returning a [[Verdict]] that either proceeds
-  *     with a plan or rejects), or `triage` (classify a bug report into a
-  *     [[Triage]] verdict).
+  *   - **operation** — `from` (produce a [[Plan]] directly), `roadmap` (split a
+  *     large request into a [[Roadmap]] of epics) or `triage` (assess a request
+  *     into a [[Triage]] verdict).
   *
   * Every cell returns a [[WithChat]] — the result plus the chat that produced
   * it. A `WithChat[Plan]` can be critiqued and revised with [[Plan.reviewed]],
@@ -36,7 +34,7 @@ import scala.annotation.unused
   * progress log, not a plan file, is what resume reads.
   */
 case class Plan(
-    epicId: String,
+    id: String,
     description: String,
     tasks: List[Task],
     brief: String
@@ -69,31 +67,29 @@ object Plan:
     )(using FlowContext, InStage): WithChat[Plan] =
       autonomousResult[Plan, Plan](agent, userPrompt, instructions)(identity)
 
-    /** Skeptically assess `userPrompt` (typically a bug/feature report) and
-      * either proceed with a plan or reject with a [[Verdict.Rejection]] the
-      * caller surfaces to whoever filed it.
-      */
-    def assessThenPlan(
-        userPrompt: String,
-        agent: Agent[?],
-        instructions: String = PlanPrompts.AssessThenPlan
-    )(using FlowContext, InStage): WithChat[Verdict[Plan]] =
-      autonomousResult[AssessedPlan, Verdict[Plan]](
-        agent,
-        userPrompt,
-        instructions
-      )(a => getOrFail(a.toVerdict))
-
-    /** Classify a bug report into a [[Triage]] verdict (not-a-bug / untestable
-      * / testable).
+    /** Skeptically assess `request` (a bug report, feature request or other
+      * ask) into a [[Triage]] verdict: reject with a reply, or accept as a
+      * testable bug, an untestable bug or a change.
       */
     def triage(
-        report: String,
+        request: String,
         agent: Agent[?],
         instructions: String = PlanPrompts.Triage
     )(using FlowContext, InStage): WithChat[Triage] =
-      autonomousResult[BugTriage, Triage](agent, report, instructions)(b =>
-        getOrFail(b.toTriage)
+      autonomousResult[TriageReply, Triage](agent, request, instructions)(r =>
+        getOrFail(r.toTriage)
+      )
+
+    /** Split `userPrompt` into a [[Roadmap]] of epics, each planned into tasks
+      * later with [[from]] and [[Roadmap.epicPrompt]].
+      */
+    def roadmap(
+        userPrompt: String,
+        agent: Agent[?],
+        instructions: String = PlanPrompts.Roadmap
+    )(using FlowContext, InStage): WithChat[Roadmap] =
+      autonomousResult[Roadmap, Roadmap](agent, userPrompt, instructions)(
+        identity
       )
 
   /** Interactive planning — opens a conversation the user can drive (clarifying
@@ -117,40 +113,37 @@ object Plan:
         identity
       )
 
-    /** Skeptically assess `userPrompt`, but able to ask the reporter clarifying
-      * questions mid-turn rather than only rejecting with a
-      * [[Verdict.RejectionKind.Question]].
-      */
-    def assessThenPlan(
-        userPrompt: String,
-        agent: Agent[?],
-        instructions: String = PlanPrompts.AssessThenPlan
-    )(using FlowContext, InStage): WithChat[Verdict[Plan]] =
-      interactiveResult[AssessedPlan, Verdict[Plan]](
-        agent,
-        userPrompt,
-        instructions
-      )(a => getOrFail(a.toVerdict))
-
-    /** Classify a bug report into a [[Triage]] verdict, able to ask the
-      * reporter clarifying questions before deciding.
+    /** Assess `request` into a [[Triage]] verdict, able to ask whoever asked
+      * clarifying questions before deciding.
       */
     def triage(
-        report: String,
+        request: String,
         agent: Agent[?],
         instructions: String = PlanPrompts.Triage
     )(using FlowContext, InStage): WithChat[Triage] =
-      interactiveResult[BugTriage, Triage](agent, report, instructions)(b =>
-        getOrFail(b.toTriage)
+      interactiveResult[TriageReply, Triage](agent, request, instructions)(r =>
+        getOrFail(r.toTriage)
+      )
+
+    /** Split `userPrompt` into a [[Roadmap]] of epics, able to ask clarifying
+      * questions first.
+      */
+    def roadmap(
+        userPrompt: String,
+        agent: Agent[?],
+        instructions: String = PlanPrompts.Roadmap
+    )(using FlowContext, InStage): WithChat[Roadmap] =
+      interactiveResult[Roadmap, Roadmap](agent, userPrompt, instructions)(
+        identity
       )
 
   /** Append the operation's instruction block to the caller's input. */
   private def withInstructions(input: String, instructions: String): String =
     s"$input\n\n$instructions"
 
-  /** Surface a structured-contract violation (a `toVerdict` / `toTriage`
-    * `Left`) as a flow failure. The decode succeeded but the field combination
-    * was incoherent past the retry loop, so it's a system-level failure.
+  /** Surface a structured-contract violation (a `toTriage` `Left`) as a flow
+    * failure. The decode succeeded but the field combination was incoherent
+    * past the retry loop, so it's a system-level failure.
     */
   private def getOrFail[A](result: Either[String, A]): A =
     result.fold(msg => throw OrcaFlowException(msg), identity)
@@ -220,19 +213,37 @@ object Plan:
         critiqueInstructions: String = PlanPrompts.Critique,
         reviseInstructions: String = PlanPrompts.Revise,
         variant: Agent[?] => Agent[?] = identity
-    )(using @unused ctx: FlowContext, ev: InStage): WithChat[Plan] =
-      val plan = render(planned.value)
-      val critique = variant(planned.chat.agent.withReadOnly)
-        .chat()
-        .run(
-          s"$critiqueInstructions\n\n# Request\n\n${planned.request}\n\n$plan"
-        )
-      val improved = planned.chat
-        .withAgent(agent => variant(agent.withReadOnly))
-        .resultAs[Plan]
-        .autonomous
-        .run(s"$reviseInstructions\n\n# Critique\n\n$critique\n\n$plan")
-      WithChat(planned.chat, improved)(planned.request)
+    )(using FlowContext, InStage): WithChat[Plan] =
+      critiqueThenRevise(
+        planned,
+        critiqueInstructions,
+        reviseInstructions,
+        variant,
+        render(planned.value)
+      )
+
+  /** A critic in a fresh conversation judges `rendered` against the request;
+    * then `planned`'s own chat revises it. Both turns run on `variant` of the
+    * read-only agent. Shared by every `reviewed` extension.
+    */
+  private[plan] def critiqueThenRevise[A: JsonData: Announce](
+      planned: WithChat[A],
+      critiqueInstructions: String,
+      reviseInstructions: String,
+      variant: Agent[?] => Agent[?],
+      rendered: String
+  )(using @unused ctx: FlowContext, ev: InStage): WithChat[A] =
+    val critique = variant(planned.chat.agent.withReadOnly)
+      .chat()
+      .run(
+        s"$critiqueInstructions\n\n# Request\n\n${planned.request}\n\n$rendered"
+      )
+    val improved = planned.chat
+      .withAgent(agent => variant(agent.withReadOnly))
+      .resultAs[A]
+      .autonomous
+      .run(s"$reviseInstructions\n\n# Critique\n\n$critique\n\n$rendered")
+    WithChat(planned.chat, improved)(planned.request)
 
   /** Empty plans render as nothing — surfacing "0 tasks planned" muddies the
     * picture; a planning failure is more useful as an explicit `fail(...)` from
@@ -242,7 +253,7 @@ object Plan:
     if plan.tasks.isEmpty then ""
     else
       val plural = if plan.tasks.size == 1 then "" else "s"
-      // No branch name here: `epicId` is the plan's own identifier, not the git
+      // No branch name here: `id` is the plan's own identifier, not the git
       // branch (derived and announced separately at setup).
       val header = s"Planned ${plan.tasks.size} task$plural:"
       val body = plan.tasks.map(t => s"  - ${t.title}").mkString("\n")
@@ -260,7 +271,7 @@ object Plan:
     else s"$base\n## Brief\n\n${plan.brief.stripLineEnd}\n"
 
   private def renderPlan(plan: Plan): String =
-    val header = s"# Plan: ${plan.epicId}\n"
+    val header = s"# Plan: ${plan.id}\n"
     val descriptionBlock =
       if plan.description.trim.isEmpty then ""
       else s"\n${plan.description.stripLineEnd}\n"

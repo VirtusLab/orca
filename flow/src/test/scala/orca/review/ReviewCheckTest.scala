@@ -79,7 +79,7 @@ class ReviewCheckTest extends munit.FunSuite:
       formatCommands = Configured.Use(List(s"touch '$formatted'")),
       lint = Configured.Off,
       checks = List(check),
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     assertEquals(order.asScala.toList, List("check", "reviewer"))
 
@@ -113,7 +113,7 @@ class ReviewCheckTest extends munit.FunSuite:
       formatCommands = Configured.Off,
       lint = Configured.Use(Lint(List("echo lint-output"), summariser.agent)),
       checks = List(check),
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     val fixPrompt =
       coder.seenPrompts.headOption.getOrElse(fail("the fix turn never ran"))

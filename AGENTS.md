@@ -96,7 +96,8 @@ most easily broken:
   in files carrying the `captureChecking`/`separationChecking` language
   imports *and* only where the fork thunks are widened to the impure
   `() => T` element type — which `CheckedPar`'s `C^` signature forces at the
-  one production call site, `ReviewLoop`'s reviewer fan-out (pinned by
+  production call sites, the reviewer fan-outs of `ReviewLoop` and
+  `reviewOnce` (pinned by
   `CcNegativeCompileTest`; see `CheckedPar`'s scaladoc for the verified
   mechanics). Everywhere else — user flow scripts, examples, the rest of
   orca — the rule is enforced at runtime only: a `WorkspaceWrite` is bound to
@@ -411,6 +412,16 @@ with a test pinning the observed wire shape.
   plans are deleted after execution. Cite ADRs, code, or state the fact
   inline.
 - Tests target exactly one scenario each.
+
+### Built-in flows
+
+- `flows/*.sc` are examples users read and fork, so keep each one short: its
+  stages, their order and its decisions visible at a glance.
+- Move logic that is generic, or that isn't the flow's own shape, into the
+  library: parsing, rendering, reviewer selection, host resolution, prompt
+  assembly, retry policies. A flow keeps only what makes it that flow.
+- Prefer a library helper used by one flow over 30 lines in a script; prefer
+  the script when the code *is* the flow's shape (the stage sequence).
 
 ### Review vocabulary
 

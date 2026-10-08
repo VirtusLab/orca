@@ -44,7 +44,16 @@ export orca.agents.{
   schemaFromJsonData,
   codecFromJsonData
 }
-export orca.plan.{BugReportMatch, Plan, Task, Triage, Verdict, WithChat}
+export orca.plan.{
+  BugReportMatch,
+  Epic,
+  Plan,
+  Roadmap,
+  Task,
+  Triage,
+  WithChat,
+  reproduceBug
+}
 // PrSummary is the result type of openPrFromBranch and summarisePr;
 // orcaCommentMarker is the idempotency marker gh.upsertComment keys on;
 // recordOpenedPr is for a flow that opens its PR with a bare gh.createPr, and
@@ -67,13 +76,15 @@ export orca.pr.{
 // parameter and LintReport is what the summariser-taking `lint` returns;
 // ReviewCheck is implemented for reviewAndFixLoop's `checks`. Location is a
 // ReviewFinding and OpenFinding field type, and SkippedReview an OpenFindings
-// one — needed by any flow that consumes findings.
+// one — needed by any flow that consumes findings. reviewOnce returns a
+// ReviewReport of ReviewerFindings.
 export orca.review.{
   allReviewers,
   buildReviewers,
   lint,
   minimalReviewers,
   reviewAndFixLoop,
+  reviewOnce,
   reviewThenFix,
   Lint,
   LintReport,
@@ -83,12 +94,14 @@ export orca.review.{
   Reviewer,
   ReviewerAgent,
   ReviewerCatalog,
+  ReviewerFindings,
   ReviewerPrompts,
   ReviewBatch,
   ReviewCheck,
   ReviewDiff,
   ReviewerSelector,
   ReviewFinding,
+  ReviewReport,
   ReviewResult,
   RosterEntry,
   SkippedReview

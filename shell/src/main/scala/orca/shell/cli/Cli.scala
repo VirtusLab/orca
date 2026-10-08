@@ -251,7 +251,7 @@ private[cli] class CliCommands(using env: ShellEnv):
     EditCli.run(flow, to, isTty)
 
   @main(doc =
-    "Author a new flow: runs the built-in simple.sc flow in an " +
+    "Author a new flow: runs the built-in quick.sc flow in an " +
       "isolated sandbox, using the configured role agents. The goal is " +
       "required; the filename is derived from it when omitted.\n" +
       """Example: orca create "summarize a PR's review threads""""
@@ -269,7 +269,7 @@ private[cli] class CliCommands(using env: ShellEnv):
     AuthorCli.create(goal, name, tierOf(global), isTty)
 
   @main(doc =
-    "Fork an existing flow: runs the built-in simple.sc flow " +
+    "Fork an existing flow: runs the built-in quick.sc flow " +
       "in an isolated sandbox, using the configured role agents. The changes " +
       "are required; the filename defaults to <source>-fork.sc.\n" +
       """Example: orca fork implement.sc "add a retry step""""

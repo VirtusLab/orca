@@ -26,24 +26,26 @@ private[review] object DiffDelivery:
 
   /** A later round, given what the reviewer was sent in its previous one.
     *
-    * Equality is tested before size, so a pinned diff never reaches a cut:
-    * pinned samples are byte-identical every round. The whole sample is
-    * compared, sections included: `diff` may leave out an edited file.
+    * The whole sample is compared, sections included: the diff may leave out an
+    * edited file. A diff in a file is the same every round, so it is never
+    * re-sent.
     */
   def next(previous: LastSent, current: DiffSample): DiffDelivery =
-    if current == previous.sample then
-      // Nothing is sent, so the next round compares against the same sample.
-      DiffDelivery(
-        DiffMessage.ReReview(ReReviewChanges.AlreadySeen(previous)),
-        previous
-      )
-    else if current.diff.length > ReReviewChanges.InlineThreshold then
-      cut(previous, current)
-    else
-      DiffDelivery(
-        DiffMessage.ReReview(ReReviewChanges.Updated(current.diff)),
-        LastSent.inlined(current)
-      )
+    current.text match
+      case DiffText.Inline(diff) if current != previous.sample =>
+        if diff.length > ReReviewChanges.InlineThreshold then
+          cut(previous, current)
+        else
+          DiffDelivery(
+            DiffMessage.ReReview(ReReviewChanges.Updated(diff)),
+            LastSent.inlined(current)
+          )
+      case _ =>
+        // Nothing is sent, so the next round compares against the same sample.
+        DiffDelivery(
+          DiffMessage.ReReview(ReReviewChanges.AlreadySeen(previous)),
+          previous
+        )
 
   /** A change set too large to re-send whole. `lastSent` still records the
     * whole sample, not the part that was sent: the next round compares against
@@ -116,14 +118,16 @@ private[review] object LastSent:
     * placeholder note, not as a diff.
     */
   def inlined(sample: DiffSample): LastSent =
-    if nothingToShow(sample.diff) then NoteOnly(sample) else Inline(sample)
+    sample.text match
+      case DiffText.Inline(diff) if nothingToShow(diff) => NoteOnly(sample)
+      case _                                            => Inline(sample)
 
 /** What a resumed reviewer is told about the change set this round.
   *
   * A resumed reviewer already holds every change set it has been sent. Sending
   * it the same one again, under text saying it was freshly re-sampled, would
   * claim the fixer's edits are inside a diff that predates them, and the
-  * reviewer would re-report findings that were already fixed. A pinned diff
+  * reviewer would re-report findings that were already fixed. A diff in a file
   * produces exactly that repeat.
   */
 private[review] enum ReReviewChanges:

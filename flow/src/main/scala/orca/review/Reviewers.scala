@@ -38,8 +38,8 @@ case class Reviewer(
     )
 
   /** Whether this reviewer applies to a change set. An empty `changedFiles` is
-    * "unknown", not "nothing changed" — a pinned diff can miss files its text
-    * doesn't name — so every reviewer applies then.
+    * "unknown", not "nothing changed" — a [[ReviewDiff.InFile]] caller may not
+    * know the file list — so every reviewer applies then.
     */
   def appliesTo(changedFiles: List[String]): Boolean =
     changedFiles.isEmpty ||

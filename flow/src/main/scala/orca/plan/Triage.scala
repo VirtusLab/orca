@@ -1,40 +1,32 @@
 package orca.plan
 
-import orca.agents.{Announce, JsonData}
+import orca.agents.{Announce, JsonData, schemaFromJsonData, codecFromJsonData}
 
-/** Outcome of triaging a bug report against a codebase. Three variants:
-  *
-  *   - [[Triage.NotABug]] — intended behavior, user error, or out-of-scope. The
-  *     flow surfaces `explanation` back on the original issue and stops.
-  *   - [[Triage.Untestable]] — a real bug, but CI can't host a focused
-  *     reproduction (UI-only, races, environment-specific). The flow posts
-  *     `reproductionSteps` on the issue and stops; no PR.
-  *   - [[Triage.Testable]] — a real bug with a CI-runnable reproduction. The
-  *     flow lands a failing test at `failingTestPath`, opens a PR on
-  *     `branchName`, then implements the fix.
-  *
-  * Each variant carries exactly the fields its branch needs, so callers
-  * pattern-match instead of guarding the wide-record [[BugTriage]] wire format
-  * with runtime `Option#get` / empty-string checks.
-  *
-  * Produced by [[Plan.autonomous.triage]] / [[Plan.interactive.triage]],
-  * wrapped in a [[WithChat]]. Flows typically discard the triage chat
-  * (`.value`) and seed a fresh implementer session from the issue body.
-  *
-  * A `stage` can record and replay a `Triage` result — the triage stage is a
-  * checkpoint before the failing-test / fix pipeline (ADR 0018 §3.2).
+/** Outcome of triaging a request — a bug report, a feature request, or any
+  * other ask — against the codebase. `Reject` carries the reply to send back to
+  * whoever asked. `Accept` means the work should be done: `brief` is what
+  * triage verified (files involved, root cause when known), for seeding the
+  * planner, and `kind` says what has to happen before planning.
   */
 enum Triage derives JsonData:
-  case NotABug(explanation: String)
-  case Untestable(summary: String, reproductionSteps: String)
-  // `branchName` is only the LLM's suggestion; the actual feature branch comes
-  // from the runtime (BranchNamingStrategy), so flows should wildcard it.
-  case Testable(summary: String, branchName: String, failingTestPath: String)
+  case Reject(reply: String)
+  case Accept(summary: String, brief: String, kind: Triage.Kind)
 
 object Triage:
+  enum Kind derives JsonData:
+    /** A defect a focused test can show; the test goes at `failingTestPath`. */
+    case TestableBug(failingTestPath: String)
+
+    /** A defect no focused test can show (UI-only, races, environment). */
+    case UntestableBug(reproductionSteps: String)
+
+    /** Not a defect: a feature or other change. */
+    case Change
+
   given Announce[Triage] = Announce.from:
-    case Triage.NotABug(explanation) => s"Not a bug: $explanation"
-    case Triage.Untestable(summary, _) =>
-      s"Triage: $summary — documenting reproduction (no PR)"
-    case Triage.Testable(summary, branch, path) =>
-      s"Triage: $summary — failing test at $path on branch '$branch'"
+    case Reject(_) => "Triage: rejected"
+    case Accept(summary, _, Kind.TestableBug(path)) =>
+      s"Triage: bug — $summary; failing test at $path"
+    case Accept(summary, _, Kind.UntestableBug(_)) =>
+      s"Triage: bug — $summary; no automated reproduction"
+    case Accept(summary, _, Kind.Change) => s"Triage: change — $summary"

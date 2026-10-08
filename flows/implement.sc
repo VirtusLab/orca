@@ -3,28 +3,15 @@
 //> using dep "org.virtuslab::orca:0.1.10"
 //> using jvm 21
 
-/** Autonomous planning + coding flow — the one the documentation's tutorial builds.
+/** For a feature or change that needs a plan. Each task gets one review; a
+  * final review loop then checks the whole change.
   *
-  * The planner breaks the prompt into tasks; each task is implemented on the
-  * run's feature branch and reviewed in a single pass. A final stage then loops
-  * a review over everything the run changed, checking the per-task fixes with
-  * fresh eyes.
-  *
-  * A PR follows when the repository is on GitHub; otherwise the run says so and
-  * ends on the feature branch, work committed either way.
-  *
-  * `examples/runnable/01-simple/create-test-project.sh` seeds a calculator
-  * crate into a temp dir and copies this script alongside it; from there:
+  * To try it on a sample project, run
+  * `examples/runnable/01-simple/create-test-project.sh` (needs `cargo`), then:
   *
   * ```bash
   * scala-cli run --workspace "$(mktemp -d)" implement.sc -- "Add a multiply function to the calculator crate"
   * ```
-  *
-  * Requires the configured role agents logged in (`claude` by default); `gh` is
-  * optional. The seeded calculator example also needs `cargo` on PATH.
-  *
-  * For the variant where the planner can ask clarifying questions, see
-  * `implement-interactive.sc`.
   */
 
 import orca.{*, given}
@@ -44,7 +31,7 @@ flow(OrcaArgs(args)):
           task = task
         )
 
-  // Nothing reviews again after this loop, hence the raised fix-turn cap.
+  // Nothing reviews after this loop, so it gets more fix turns.
   val openFindings = stage("Final review"):
     val finalFixer = codingAgent.session("final-fixer", seed = plan.brief)
     reviewAndFixLoop(

@@ -43,7 +43,11 @@ class FlowCatalogTest extends munit.FunSuite:
     val project = TempDirs.dir()
     val global = TempDirs.dir()
     val builtIn = TempDirs.dir()
-    flow(builtIn, "issue-pr.sc", "// Turn an issue into a PR.\nval x = 1")
+    flow(
+      builtIn,
+      "resolve.sc",
+      "// Resolve a request or GitHub issue.\nval x = 1"
+    )
 
     val result = FlowCatalog.list(project, global, builtIn)
 

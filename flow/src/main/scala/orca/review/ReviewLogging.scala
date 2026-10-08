@@ -32,7 +32,7 @@ private[review] object ReviewLogging:
   ): Unit =
     val (shape, chars, files) = message match
       case DiffMessage.Initial(sample) =>
-        ("initial", sample.diff.length, sample.paths)
+        ("initial", sample.text.promptLength, sample.paths)
       case DiffMessage.ReReview(ReReviewChanges.Updated(diff)) =>
         ("updated", diff.length, Nil)
       case DiffMessage.ReReview(ReReviewChanges.Sections(diff, changed, _)) =>

@@ -45,6 +45,8 @@ trait ProgressStore:
 
   /** Upsert an entry by id: replaces an existing entry with the same id
     * in-place, or appends if no entry with that id exists. Last write wins.
+    * Drops the stage's [[StageStart]]: a completed stage replays and never
+    * needs its base again.
     *
     * Requires [[writeHeader]] to have been called first (a log must already
     * exist); otherwise it throws.
@@ -61,6 +63,12 @@ trait ProgressStore:
     * `findOpenPr` lookup locates it, and refuses otherwise.
     */
   def recordPublished(work: PublishedWork)(using WorkspaceWrite): Unit
+
+  /** Record the commit stage `start.id` started from, replacing any base
+    * already recorded for it. Requires [[writeHeader]] first; otherwise it
+    * throws. Does not commit: the next stage commit carries it.
+    */
+  def recordStageStart(start: StageStart)(using WorkspaceWrite): Unit
 
 object ProgressStore:
 
@@ -117,7 +125,7 @@ private class OsProgressStore(workDir: os.Path, key: RunKey)
 
   def writeHeader(header: ProgressHeader)(using ws: WorkspaceWrite): Unit =
     ws.check("progressStore.writeHeader")
-    writeLog(ProgressLog(header, Nil, None))
+    writeLog(ProgressLog(header, Nil, None, Nil))
 
   def upsertEntry(entry: StageEntry)(using ws: WorkspaceWrite): Unit =
     ws.check("progressStore.upsertEntry")
@@ -127,11 +135,20 @@ private class OsProgressStore(workDir: os.Path, key: RunKey)
     ws.check("progressStore.recordPublished")
     writeLog(currentLogOrThrow("recordPublished").copy(published = Some(work)))
 
-  /** Read-modify-write precondition for [[upsertEntry]] and
-    * [[recordPublished]]: both require a log to already exist. Routed through
-    * [[loadDetailed]] so an `Absent` log (writeHeader never ran), a `Corrupt`
-    * one (a torn write or external edit mid-run) and an `Unreadable` one get
-    * distinct messages.
+  def recordStageStart(start: StageStart)(using ws: WorkspaceWrite): Unit =
+    ws.check("progressStore.recordStageStart")
+    val log = currentLogOrThrow("recordStageStart")
+    writeLog(
+      log.copy(stageStarts =
+        log.stageStarts.filterNot(_.id == start.id) :+ start
+      )
+    )
+
+  /** Read-modify-write precondition for [[upsertEntry]], [[recordPublished]]
+    * and [[recordStageStart]]: all require a log to already exist. Routed
+    * through [[loadDetailed]] so an `Absent` log (writeHeader never ran), a
+    * `Corrupt` one (a torn write or external edit mid-run) and an `Unreadable`
+    * one get distinct messages.
     */
   private def currentLogOrThrow(callerName: String): ProgressLog =
     loadDetailed() match
@@ -154,7 +171,10 @@ private class OsProgressStore(workDir: os.Path, key: RunKey)
     val updated =
       if idx >= 0 then log.entries.updated(idx, entry)
       else log.entries :+ entry
-    log.copy(entries = updated)
+    log.copy(
+      entries = updated,
+      stageStarts = log.stageStarts.filterNot(_.id == entry.id)
+    )
 
   // Rewrite the whole file each time rather than append JSONL: the log is a
   // single structured document whose entries `withEntry` replaces in place,

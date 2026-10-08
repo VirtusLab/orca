@@ -153,7 +153,7 @@ private[menu] object AuthoringMenu:
   /** Create+agent: tier → goal, filename auto-derived from the goal's
     * [[FlowAuthoring.suggestFilenameForGoal]] slug (uniquified on collision —
     * never prompted for), then hands off to [[AuthorAction.create]], which runs
-    * the built-in `simple.sc` flow in a throwaway
+    * the built-in `quick.sc` flow in a throwaway
     * [[orca.shell.create.AuthoringSandbox]]. Cancelling any prompt aborts back
     * to the menu without launching anything.
     */

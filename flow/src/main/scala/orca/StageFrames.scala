@@ -98,17 +98,18 @@ private[orca] trait StageFrames:
 
   /** Run `f` with a stage named `name` open, passing its path: bump the current
     * frame's occurrence counter for `name` and push a child frame recording
-    * `baseCommit`, popped when `f` returns or throws. Called exactly once per
-    * stage attempt — see the class doc's "Exactly-once bump" invariant.
+    * `baseCommit` resolved for that path, popped when `f` returns or throws.
+    * Called exactly once per stage attempt — see the class doc's "Exactly-once
+    * bump" invariant.
     */
   private[orca] def withStage[R](
       name: String,
-      baseCommit: Option[CommitHash]
+      baseCommit: StagePath.Stage => Option[CommitHash]
   )(f: StagePath.Stage => R): R =
     assertOwnerThread("stage(...)")
     val enclosing = frames
     val path = enclosing.head.path.child(name, enclosing.head.next(name))
-    frames = new Frame(path = path, baseCommit = baseCommit) :: enclosing
+    frames = new Frame(path = path, baseCommit = baseCommit(path)) :: enclosing
     try f(path)
     finally frames = enclosing
 

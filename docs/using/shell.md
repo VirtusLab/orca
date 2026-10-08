@@ -57,7 +57,7 @@ job. The commands are:
   terminal (see also `--plain` and `--color`).
 - `orca edit <flow>` opens a flow in `$VISUAL`, `$EDITOR` or `vi`. To
   customise a built-in flow, `--to project` or `--to global` is required.
-- `orca create "<goal>"` runs the built-in `simple.sc` flow in an isolated
+- `orca create "<goal>"` runs the built-in `quick.sc` flow in an isolated
   sandbox to have the configured agents write a new flow. `--name <file>`
   sets the file name, which is otherwise derived, and `--global` makes it a
   global flow.

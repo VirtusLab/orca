@@ -24,17 +24,8 @@ object PlanPrompts:
   val Planning: String =
     PromptResource.load("/orca/plan/prompts/planning.md")
 
-  /** Used by `Plan.{autonomous,interactive}.assessThenPlan`. Asks the agent to
-    * first verify the report against the repo, then either return a
-    * critique/rebuff/follow-up question, or a plan in the usual shape. The
-    * agent gets tool access (Read/Bash) — that's the point of the verification.
-    */
-  val AssessThenPlan: String =
-    PromptResource.load("/orca/plan/prompts/assess-then-plan.md")
-
-  /** Used by `Plan.{autonomous,interactive}.triage`. Structured-output
-    * instructions that pick out the `NotABug` / `Untestable` / `Testable`
-    * variants via the underlying wire fields.
+  /** Used by `Plan.{autonomous,interactive}.triage`: assess the request, then
+    * pick `Reject` / `TestableBug` / `UntestableBug` / `Change`.
     */
   val Triage: String =
     PromptResource.load("/orca/plan/prompts/triage.md")
@@ -52,3 +43,36 @@ object PlanPrompts:
     */
   val Revise: String =
     PromptResource.load("/orca/plan/prompts/revise.md")
+
+  /** Used by `Plan.{autonomous,interactive}.roadmap`: split the request into
+    * ordered epics, with a shared brief.
+    */
+  val Roadmap: String = PromptResource.load("/orca/plan/prompts/roadmap.md")
+
+  /** Used by `WithChat[Roadmap].reviewed` for the critic; the request and the
+    * roadmap are appended after it.
+    */
+  val RoadmapCritique: String =
+    PromptResource.load("/orca/plan/prompts/roadmap-critique.md")
+
+  /** Used by `WithChat[Roadmap].reviewed` for the planner; the critique and the
+    * roadmap are appended after it.
+    */
+  val RoadmapRevise: String =
+    PromptResource.load("/orca/plan/prompts/roadmap-revise.md")
+
+  /** Used by [[reproduceBug]]: write the failing test. The test path is
+    * appended after it.
+    */
+  val Reproduce: String =
+    PromptResource.load("/orca/plan/prompts/reproduce.md")
+
+  /** Used by [[reproduceBug]] when the check rejects the first test. */
+  val ReproduceRetry: String =
+    PromptResource.load("/orca/plan/prompts/reproduce-retry.md")
+
+  /** Used by [[reproduceBug]] to judge the test; the test path and the request
+    * are appended after it.
+    */
+  val ReproductionCheck: String =
+    PromptResource.load("/orca/plan/prompts/reproduction-check.md")

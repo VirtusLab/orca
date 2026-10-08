@@ -170,6 +170,12 @@ that stage's progress entry. Why two stages can't run concurrently — the
 > review in that state aborts the stage. It predates this amendment and no flow
 > reaches it — setup commits the progress header before any user stage runs.
 
+> **Amendment (2026-10-07).** A stage's base commit is recorded in the progress
+> log (`stageStarts`) when the stage is first entered, and a re-entered stage
+> reuses it while HEAD still descends from it. Before this, a stage that crashed
+> after its nested stages committed restarted from the later HEAD, so a
+> `SampleFromStage` review missed those commits.
+
 ### 2.2 Capability gating
 
 **Requirements.**

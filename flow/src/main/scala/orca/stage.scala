@@ -6,7 +6,8 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
 }
 import orca.events.{OrcaEvent, StageOutcome}
 import orca.agents.JsonData
-import orca.progress.StageEntry
+import orca.gitref.CommitHash
+import orca.progress.{StageEntry, StageStart}
 import orca.util.{RawJson, TextUtil}
 import org.slf4j.LoggerFactory
 
@@ -50,9 +51,42 @@ private def inStageFrame[R](name: String)(f: StagePath.Stage => R)(using
     ctx: FlowContext,
     fc: FlowControl
 ): R =
-  // HEAD is read HERE, before the body: once the body's agent starts
-  // committing, the commit this stage began from is no longer recoverable.
-  fc.withStage(name, ctx.git.headCommit())(f)
+  // On first entry HEAD is read here, before the body: once the body's agent
+  // starts committing, HEAD is past the commit this stage began from.
+  // runStage records it so a re-entry reuses it.
+  fc.withStage(name, id => recordedBase(id).orElse(ctx.git.headCommit()))(f)
+
+/** The base recorded when stage `id` was first entered, if HEAD still descends
+  * from it. A rebase or fresh clone can strand it; diffing from there would
+  * span unrelated history, so the stage starts from HEAD instead and says so.
+  */
+private def recordedBase(id: StagePath.Stage)(using
+    ctx: FlowContext,
+    fc: FlowControl
+): Option[CommitHash] =
+  recordedStart(id).flatMap: base =>
+    if ctx.git.isAncestorOfHead(base) then Some(base)
+    else
+      reportStrandedBase(id, base)
+      None
+
+private def recordedStart(id: StagePath.Stage)(using
+    fc: FlowControl
+): Option[CommitHash] =
+  fc.progressStore
+    .load()
+    .flatMap(_.stageStarts.find(_.id == id))
+    .map(_.baseCommit)
+
+private def reportStrandedBase(id: StagePath.Stage, base: CommitHash)(using
+    ctx: FlowContext
+): Unit =
+  ctx.emit(
+    OrcaEvent.Step(
+      s"stage '${id.display}': its recorded start ${base.short} is no " +
+        "longer behind HEAD; using HEAD as the stage's base instead"
+    )
+  )
 
 /** Where a stage's result came from: this attempt, or the progress log. */
 private[orca] enum Staged[+T]:
@@ -129,6 +163,9 @@ private def runStage[T: JsonData](
 ): T =
   ctx.emit(OrcaEvent.StageStarted(id))
   try
+    fc.stageBaseCommit.foreach: base =>
+      given WorkspaceWrite = RuntimeInStage.workspaceToken()
+      fc.progressStore.recordStageStart(StageStart(id, base))
     val result =
       given InStage = RuntimeInStage.token()
       given WorkspaceWrite = RuntimeInStage.workspaceToken()

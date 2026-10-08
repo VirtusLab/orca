@@ -25,7 +25,7 @@ class ProgressStoreTest extends FunSuite:
     val store = ProgressStore.default(workDir, RunKey.of("my prompt"))
     store.writeHeader(header)
     val loaded = store.load()
-    assertEquals(loaded, Some(ProgressLog(header, Nil, None)))
+    assertEquals(loaded, Some(ProgressLog(header, Nil, None, Nil)))
 
   test(
     "upsertEntry with same id replaces (last write wins), different id appends"
@@ -56,6 +56,34 @@ class ProgressStoreTest extends FunSuite:
 
     val loaded = store.load()
     assertEquals(loaded.map(_.entries), Some(List(aPrime, b)))
+
+  test("recordStageStart replaces the base recorded for a stage"):
+    val workDir = TempDirs.dir()
+    val store = ProgressStore.default(workDir, RunKey.of("my prompt"))
+    store.writeHeader(header)
+    val id = StagePath.FlowBody.child("s", 0)
+    val commitA = CommitHash.from("a" * 40).get
+    val commitB = CommitHash.from("b" * 40).get
+    store.recordStageStart(StageStart(id, commitA))
+    store.recordStageStart(StageStart(id, commitB))
+    assertEquals(
+      store.load().map(_.stageStarts),
+      Some(List(StageStart(id, commitB)))
+    )
+
+  test("upsertEntry drops the completed stage's recorded start"):
+    val workDir = TempDirs.dir()
+    val store = ProgressStore.default(workDir, RunKey.of("my prompt"))
+    store.writeHeader(header)
+    val done = StagePath.FlowBody.child("done", 0)
+    val open = StageStart(
+      StagePath.FlowBody.child("open", 0),
+      CommitHash.from("a" * 40).get
+    )
+    store.recordStageStart(StageStart(done, CommitHash.from("b" * 40).get))
+    store.recordStageStart(open)
+    store.upsertEntry(StageEntry(done, RawJson("1")))
+    assertEquals(store.load().map(_.stageStarts), Some(List(open)))
 
   test("the persisted file embeds resultJson verbatim, not string-escaped"):
     // `resultJson` is a RawJson: the stage result lands in the file as a JSON
@@ -130,7 +158,7 @@ class ProgressStoreTest extends FunSuite:
     val peeked = store.peek().fold(fail(_), identity)
     os.remove.all(store.path / os.up)
     store.restoreIfRemoved(peeked)
-    assertEquals(store.load(), Some(ProgressLog(header, Nil, None)))
+    assertEquals(store.load(), Some(ProgressLog(header, Nil, None, Nil)))
 
   test("restoreIfRemoved leaves a log that is still there untouched"):
     val workDir = TempDirs.dir()

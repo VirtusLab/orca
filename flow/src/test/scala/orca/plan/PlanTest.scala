@@ -14,7 +14,7 @@ class PlanTest extends munit.FunSuite:
 
   test("Plan round-trips through JSON via the JsonData codec (brief included)"):
     val plan = Plan(
-      epicId = "calculator-features",
+      id = "calculator-features",
       description = "Round out Calculator with the missing arithmetic ops.",
       tasks = List(
         Task(
@@ -38,7 +38,7 @@ class PlanTest extends munit.FunSuite:
 
   test("Announce[Plan] produces a header + per-task bullet summary"):
     val plan = Plan(
-      epicId = "feat-pair",
+      id = "feat-pair",
       description = "",
       tasks = List(
         Task(Title("Add feature A"), "do A"),
@@ -62,7 +62,7 @@ class PlanTest extends munit.FunSuite:
   // --- Markdown renderer (cosmetic summary; never parsed back, ADR 0018 §2.8) ---
 
   private val samplePlan = Plan(
-    epicId = "add-divide-method",
+    id = "add-divide-method",
     description = "Extend Calculator with safe integer division.",
     tasks = List(
       Task(Title("add-divide"), "Add a divide method."),

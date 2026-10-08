@@ -52,9 +52,10 @@ trait FlowControl extends caps.ExclusiveCapability:
   /** Run `f` with a stage named `name` open, passing its path — see
     * [[StageFrames.withStage]].
     */
-  private[orca] def withStage[R](name: String, baseCommit: Option[CommitHash])(
-      f: StagePath.Stage => R
-  ): R
+  private[orca] def withStage[R](
+      name: String,
+      baseCommit: StagePath.Stage => Option[CommitHash]
+  )(f: StagePath.Stage => R): R
 
   /** Throw unless no stage is open — see [[StageFrames.assertAtFlowBody]]. */
   private[orca] def assertAtFlowBody(what: String): Unit

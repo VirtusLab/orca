@@ -66,7 +66,7 @@ object PrHandle:
           fromFields(host, owner, repo, number).toOption
 
   /** `s` as a handle when all of it is a PR browser URL. */
-  private def fromExactUrl(s: String): Either[String, PrHandle] =
+  private[tools] def fromExactUrl(s: String): Either[String, PrHandle] =
     s match
       case UrlPattern(host, owner, repo, number) =>
         fromFields(host, owner, repo, number)

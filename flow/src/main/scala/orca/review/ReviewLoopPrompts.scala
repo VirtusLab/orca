@@ -2,7 +2,7 @@ package orca.review
 
 import orca.gitref.CommitHash
 import orca.plan.Task
-import orca.review.diff.{DiffCoverage, LastSent, ReReviewChanges}
+import orca.review.diff.{DiffCoverage, DiffText, LastSent, ReReviewChanges}
 import orca.util.PromptResource
 
 /** Default prompt fragments for the helpers in this package. Each `val` is the
@@ -74,7 +74,7 @@ object ReviewLoopPrompts:
   private[review] def initialReview(
       task: Task,
       userRequest: String,
-      diff: String,
+      diff: DiffText,
       coverage: DiffCoverage,
       open: List[OpenFinding]
   ): String =
@@ -89,7 +89,7 @@ object ReviewLoopPrompts:
     )
 
   /** The sentence introducing the initial diff: what the change set covers. A
-    * pinned diff says nothing about how far back it reaches.
+    * caller-supplied diff says nothing about how far back it reaches.
     */
   private def diffIntro(coverage: DiffCoverage): String =
     coverage match
@@ -99,7 +99,7 @@ object ReviewLoopPrompts:
       case DiffCoverage.Since(start) =>
         s"Diff (everything changed since commit ${start.short}, reaching back " +
           s"past the current stage, committed or not). $GitDiffHeadWarning:"
-      case DiffCoverage.Pinned => "Diff (the change set under review):"
+      case DiffCoverage.Fixed => "Diff (the change set under review):"
 
   private val GitDiffHeadWarning: String =
     "Do not use `git diff HEAD` instead — it does not show work that has " +
@@ -200,7 +200,7 @@ object ReviewLoopPrompts:
       case ReReviewChanges.Updated(diff) =>
         "Diff (the change set under review, re-sampled from the same baseline " +
           "as your initial diff, so it includes the fixer's edits whether or " +
-          s"not they were committed). $GitDiffHeadWarning:\n\n${diffBlock(diff)}"
+          s"not they were committed). $GitDiffHeadWarning:\n\n${inlineDiffBlock(diff)}"
       case ReReviewChanges.Paths(paths) =>
         "The change set under review is too large to include here. These " +
           "files have changed since the baseline of your initial diff — read " +
@@ -209,12 +209,12 @@ object ReviewLoopPrompts:
       case ReReviewChanges.Sections(sections, _, Nil) =>
         "The change set under review is too large to include whole. Below is " +
           "as much of it as fits; any file it does not show is named after " +
-          s"it. $GitDiffHeadWarning:\n\n${diffBlock(sections)}"
+          s"it. $GitDiffHeadWarning:\n\n${inlineDiffBlock(sections)}"
       case ReReviewChanges.Sections(sections, _, unchanged) =>
         "The change set under review is too large to include whole. Below is " +
           "the part of it that changed since your previous round; any file " +
           s"that part does not show is named after it. $GitDiffHeadWarning:\n\n" +
-          s"${diffBlock(sections)}\n\nThe rest of the change " +
+          s"${inlineDiffBlock(sections)}\n\nThe rest of the change " +
           "set is unchanged since your previous round — you need not re-read " +
           s"it:\n\n${ReReviewChanges.unchangedListing(unchanged)}"
       case ReReviewChanges.AlreadySeen(LastSent.Inline(_)) =>
@@ -234,11 +234,18 @@ object ReviewLoopPrompts:
           "that nothing changed — check the code the task describes to see " +
           "whether your earlier findings still stand."
 
+  /** The diff, or a pointer to the file holding it. */
+  private def diffBlock(text: DiffText): String =
+    text match
+      case DiffText.Inline(diff) => inlineDiffBlock(diff)
+      case DiffText.InFile(path) =>
+        s"The complete diff is in `$path` — read it first."
+
   /** The diff as a fenced block, or a note when nothing could be sampled. An
     * empty sample means the loop couldn't describe the change, not that none
     * was made (ADR 0011), so the note has to say so.
     */
-  private def diffBlock(diff: String): String =
+  private def inlineDiffBlock(diff: String): String =
     if LastSent.nothingToShow(diff) then
       "(no change set could be sampled — do not conclude that nothing " +
         "changed; inspect the code the task describes)"
