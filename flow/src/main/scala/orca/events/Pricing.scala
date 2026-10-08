@@ -178,7 +178,7 @@ object Pricing:
           .flatMap(table.get)
 
   /** When every row of [[default]] was last checked. */
-  private val ShippedRatesAsOf: LocalDate = LocalDate.of(2026, 9, 22)
+  private val ShippedRatesAsOf: LocalDate = LocalDate.of(2026, 10, 8)
 
   /** Default community-maintained pricing snapshot, in USD per million tokens.
     * Override by passing your own [[PricingTable]] to `flow(pricing = …)`.
@@ -205,10 +205,13 @@ object Pricing:
     Model("claude-opus-4-6") -> anthropic(5),
     Model("claude-opus-4-5") -> anthropic(5),
     Model("claude-opus-4-1") -> anthropic(15),
-    Model("claude-sonnet-5-5") -> anthropic(2),
+    Model("claude-sonnet-5-5") -> anthropic(2, BigDecimal("0.10")),
     Model("claude-sonnet-5") -> anthropic(2),
     Model("claude-sonnet-4-6") -> anthropic(3),
     Model("claude-sonnet-4-5") -> anthropic(3),
+    // The ≤100K-token-prompt rate: longer prompts bill 5× more, so
+    // long-context turns are under-estimated.
+    Model("claude-haiku-5-5") -> anthropic(BigDecimal("0.10")),
     Model("claude-haiku-4-5") -> anthropic(1),
     // --- OpenAI (codex, opencode) ---
     // The GPT-5.6 and GPT-6 families price cache writes separately, at 1.25×
@@ -220,6 +223,13 @@ object Pricing:
       cacheReadUsdPerMillion = 1,
       outputUsdPerMillion = 50,
       cacheWriteUsdPerMillion = 12.50,
+      ratesAsOf = ShippedRatesAsOf
+    ),
+    Model("gpt-6.1-sol") -> ModelPricing(
+      inputUsdPerMillion = 2,
+      cacheReadUsdPerMillion = 0.10,
+      outputUsdPerMillion = 10,
+      cacheWriteUsdPerMillion = 2.50,
       ratesAsOf = ShippedRatesAsOf
     ),
     Model("gpt-6-sol") -> ModelPricing(

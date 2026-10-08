@@ -32,7 +32,7 @@ private[shell] object ModelCatalog:
         )
       case BackendTag.Codex =>
         List(
-          "gpt-6-sol" -> "recommended",
+          "gpt-6.1-sol" -> "recommended",
           "gpt-6-astra" -> "most capable",
           "gpt-6-luna" -> "fast"
         )
