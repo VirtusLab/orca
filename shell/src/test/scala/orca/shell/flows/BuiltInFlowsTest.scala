@@ -26,8 +26,8 @@ class BuiltInFlowsTest extends munit.FunSuite:
         "implement.sc",
         "issue-pr-bugfix.sc",
         "issue-pr.sc",
-        "review.sc",
-        "simple.sc"
+        "quick.sc",
+        "review.sc"
       )
     )
 
@@ -166,7 +166,7 @@ class BuiltInFlowsTest extends munit.FunSuite:
     "implement-enhanced.sc",
     "implement-interactive.sc",
     "implement.sc",
-    "simple.sc"
+    "quick.sc"
   )
 
   /** The flows that finish with [[orca.pr.openPrFromBranch]]. */

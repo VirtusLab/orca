@@ -3,7 +3,7 @@
 //> using dep "org.virtuslab::orca:0.1.10"
 //> using jvm 21
 
-/** Minimal implement-and-review flow.
+/** Quick implement-and-review flow.
   *
   * No `Plan` stage: the prompt itself is the one and only task, handed straight
   * to the coder. Useful for small, already-well-scoped changes (authoring a
@@ -15,7 +15,7 @@
   * `orca fork` it is always the latter: the authoring sandbox has no remote.
   *
   * ```bash
-  * scala-cli run --workspace "$(mktemp -d)" simple.sc -- "Add a .gitignore entry for build artifacts"
+  * scala-cli run --workspace "$(mktemp -d)" quick.sc -- "Add a .gitignore entry for build artifacts"
   * ```
   *
   * Requires the configured role agents logged in (`claude` by default); `gh` is

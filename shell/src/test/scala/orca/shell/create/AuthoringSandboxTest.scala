@@ -27,7 +27,7 @@ class AuthoringSandboxTest extends munit.FunSuite:
     finally AuthoringSandbox.delete(sandbox)
 
   test("create: the sandbox has no remote"):
-    // What makes the authoring flow's closing PR step skip: `simple.sc` ends
+    // What makes the authoring flow's closing PR step skip: `quick.sc` ends
     // with `openPrIfGitHub`, which finds no origin here and says so instead of
     // failing the run.
     val sandbox = AuthoringSandbox.create(flowName)

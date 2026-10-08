@@ -7,9 +7,9 @@ import orca.util.PromptResource
 
 import scala.util.control.NonFatal
 
-/** Creates a new flow by authoring it through the built-in `simple.sc` flow
-  * (ADR 0021 §9): extracts the bundled API material, builds the initial prompt.
-  * The menu wiring itself (target-tier/filename/goal prompts) lives in
+/** Creates a new flow by authoring it through the built-in `quick.sc` flow (ADR
+  * 0021 §9): extracts the bundled API material, builds the initial prompt. The
+  * menu wiring itself (target-tier/filename/goal prompts) lives in
   * `menu.AuthoringMenu`; the flow launch lives in
   * `orca.shell.actions.AuthorAction`.
   */
@@ -368,7 +368,7 @@ private[shell] object FlowAuthoring:
        |${build.usingDirectives}
        |//> using jvm 21""".stripMargin
 
-  /** The authoring task handed to the built-in `simple.sc` flow as its
+  /** The authoring task handed to the built-in `quick.sc` flow as its
     * `userPrompt` (ADR 0021 §9): the goal and target path, the verbatim
     * version-pinned header to start the file with, the line-1 `//` description
     * convention, pointers to the extracted docs/examples, the `scala-cli

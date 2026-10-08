@@ -26,7 +26,7 @@
   * reads that file and explores the repo around it.
   *
   * Nothing here fixes anything — for review-then-fix, use `implement.sc` or
-  * `simple.sc`.
+  * `quick.sc`.
   *
   * ```bash
   * scala-cli run --workspace "$(mktemp -d)" review.sc -- "acme/widgets#42"
