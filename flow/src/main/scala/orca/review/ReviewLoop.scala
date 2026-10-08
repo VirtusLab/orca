@@ -20,15 +20,9 @@ import orca.{
   WorkspaceWrite
 }
 import orca.plan.Task
-import orca.review.diff.{
-  DiffDelivery,
-  DiffMessage,
-  DiffSample,
-  LastSent,
-  ReviewDiffSource
-}
+import orca.review.diff.{DiffSample, ReviewDiffSource}
 
-import orca.agents.{Chat, PromptEvent}
+import orca.agents.PromptEvent
 import orca.events.OrcaEvent
 
 import orca.util.TextUtil
@@ -180,15 +174,6 @@ private[review] def announceFixTurn(
     s"Fixed ${outcome.fixed.size}, declined ${outcome.declined.size}$nextRound"
   )
 
-/** One reviewer's live [[Chat]]. The chat bundles the role-tagged agent with
-  * its conversation id, so a resume just calls the chat again.
-  *
-  * `lastSent` is the change set this reviewer was last sent, not the last one
-  * sampled: a resume compares against it to decide whether there is anything
-  * new to send ([[DiffDelivery.next]]).
-  */
-private case class SessionEntry(chat: Chat[?], lastSent: LastSent)
-
 /** All cross-round state for `reviewAndFixLoop`, in one immutable record.
   * `history` is consulted by [[ReviewerSelector]]; `sessions` holds one
   * [[SessionEntry]] per reviewer that has run at least once; `lintChat` is
@@ -337,9 +322,9 @@ def reviewAndFixLoop(
     maxFixTurns: Int = DefaultMaxFixTurns,
     fixInstructions: String = ReviewLoopPrompts.Fix,
     /** Where the change set under review comes from: sampled from the enclosing
-      * stage each round, sampled from where the whole run started, or pinned by
-      * the caller. The choice changes what reviewers and the selector are told,
-      * not just the diff text — see [[ReviewDiff]].
+      * stage each round, sampled from where the whole run started, or read from
+      * a file the caller wrote. The choice changes what reviewers and the
+      * selector are told, not just the diff text — see [[ReviewDiff]].
       */
     diff: ReviewDiff = ReviewDiff.SampleFromStage,
     /** What earlier reviews left open — typically the findings of per-task
@@ -358,30 +343,11 @@ def reviewAndFixLoop(
     fc: FlowControl,
     ws: WorkspaceWrite
 ): OpenFindings =
-  // `fc` is read here, at loop entry, so what the loop carries is the plain
-  // commit hash rather than the capability it came from. `None` comes from
-  // `WholeRun` alone: with no commit recorded there is nothing to diff against,
-  // and reviewing some other range would be worse than not reviewing. The
-  // ancestor probe runs here, at review time, not only when a resume bound the
-  // branch: a rebase mid-run — and a fresh run's commit, which binding never
-  // checked — would otherwise diff unrelated history.
-  val diffSource: Option[ReviewDiffSource] = diff match
-    case ReviewDiff.SampleFromStage =>
-      Some(ReviewDiffSource.stage(ctx.git, fc.stageBaseCommit))
-    case ReviewDiff.WholeRun =>
-      fc.startingCommit
-        .filter(ctx.git.isAncestorOfHead)
-        .map: c =>
-          ctx.emit(
-            OrcaEvent.Step(
-              s"reviewing everything changed since commit ${c.short}"
-            )
-          )
-          ReviewDiffSource.wholeRun(ctx.git, c)
-    case ReviewDiff.Pinned(d) => Some(ReviewDiffSource.pinned(d))
   val seededOpen = IdentifiedFinding.withSeedIds(priorOpenFindings)
-  diffSource match
-    case None =>
+  // Resolved at loop entry, so the loop carries a plain commit hash rather
+  // than `fc`.
+  ReviewDiff.resolve(diff) match
+    case Left(skipped @ SkippedReview.NoStartingCommit) =>
       ctx.emit(
         OrcaEvent.Step(
           "skipping this review: the run has no usable starting commit to " +
@@ -391,8 +357,8 @@ def reviewAndFixLoop(
         )
       )
       // The seeds stay in: nothing after this loop reports them.
-      OpenFindings(seededOpen, skipped = Some(SkippedReview.NoStartingCommit))
-    case Some(source) =>
+      OpenFindings(seededOpen, skipped = Some(skipped))
+    case Right(source) =>
       new ReviewFixLoop(
         ReviewLoopConfig(
           coderSession = coderSession,
@@ -528,57 +494,12 @@ private[review] class ReviewFixLoop(
 
   private val roster: List[RosterEntry] = RosterEntry.roster(reviewers)
 
+  private val framing: ReviewFraming =
+    ReviewFraming(task, userRequest, diffSource.coverage)
+
   // Displayed for the lint gate's own findings, and the identity its LLM runs
   // are tagged with.
   private val lintName: String = "lint"
-
-  /** Run one reviewer against an immutable sessions snapshot, minting its
-    * [[Chat]] on its first round so a later round can resume it. Returns the
-    * review result plus the [[SessionEntry]] the caller folds into the next
-    * state. Pure with respect to its inputs — no shared-state side effects — so
-    * the caller can run many in parallel.
-    *
-    * `stored` is the reviewer's existing [[SessionEntry]], if any. `open` is
-    * every finding still open, with its reason; a reviewer joining after round
-    * one gets them too. The run carries the `reviewer` cost role
-    * ([[ReviewerPrompts.Role]]) so the `TokensUsed` breakdown can subtotal
-    * reviewer spend.
-    *
-    * The fixer's `fixed` titles are deliberately not sent — see
-    * [[reviewAndFixLoop]].
-    */
-  private def reviewWithSession(
-      e: RosterEntry,
-      stored: Option[SessionEntry],
-      current: DiffSample,
-      open: List[OpenFinding],
-      round: Int
-  ): (ReviewResult, SessionEntry) =
-    val (chat, delivery) = stored match
-      case Some(se) => (se.chat, DiffDelivery.next(se.lastSent, current))
-      case None =>
-        (
-          e.agent.withRole(ReviewerPrompts.Role).chat(),
-          DiffDelivery.first(current)
-        )
-    val prompt = promptFor(delivery.message, open)
-    ReviewLogging.review(e.name.value, round, delivery.message, prompt)
-    val result =
-      chat.resultAs[ReviewResult].autonomous.run(prompt, PromptEvent.Suppress)
-    (result, SessionEntry(chat, delivery.lastSent))
-
-  private def promptFor(message: DiffMessage, open: List[OpenFinding]): String =
-    message match
-      case DiffMessage.Initial(sample) =>
-        ReviewLoopPrompts.initialReview(
-          task = task,
-          userRequest = userRequest,
-          diff = sample.diff,
-          coverage = diffSource.coverage,
-          open = open
-        )
-      case DiffMessage.ReReview(changes) =>
-        ReviewLoopPrompts.reReview(changes, open)
 
   /** What one fork of the round's fan-out came back with — the same
     * contribution the loop state folds in, tagged with which kind of agent
@@ -622,7 +543,7 @@ private[review] class ReviewFixLoop(
         val stored = currentState.sessions.get(e.id)
         () =>
           val (result, session) =
-            reviewWithSession(e, stored, current, open, round)
+            ReviewerTurn.run(e, stored, current, framing, open, round)
           AgentOutcome.Reviewer(
             RoundContribution(
               e,

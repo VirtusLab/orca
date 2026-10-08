@@ -21,7 +21,7 @@ class BuiltInFlowsTest extends munit.FunSuite:
     assertEquals(
       indexNames.sorted,
       List(
-        "epic.sc",
+        "epics.sc",
         "implement.sc",
         "quick.sc",
         "resolve.sc",
@@ -53,7 +53,7 @@ class BuiltInFlowsTest extends munit.FunSuite:
     * pinned as an exact set below.
     */
   private val taskBasedFlows: List[String] = List(
-    "epic.sc",
+    "epics.sc",
     "implement.sc",
     "resolve.sc"
   )
@@ -168,7 +168,7 @@ class BuiltInFlowsTest extends munit.FunSuite:
 
   /** The flows that finish with [[orca.pr.openPrIfGitHub]]. */
   private val bestEffortPrFlows = List(
-    "epic.sc",
+    "epics.sc",
     "implement.sc",
     "quick.sc",
     "resolve.sc"

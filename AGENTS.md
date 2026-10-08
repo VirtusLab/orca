@@ -96,7 +96,8 @@ most easily broken:
   in files carrying the `captureChecking`/`separationChecking` language
   imports *and* only where the fork thunks are widened to the impure
   `() => T` element type — which `CheckedPar`'s `C^` signature forces at the
-  one production call site, `ReviewLoop`'s reviewer fan-out (pinned by
+  production call sites, the reviewer fan-outs of `ReviewLoop` and
+  `reviewOnce` (pinned by
   `CcNegativeCompileTest`; see `CheckedPar`'s scaladoc for the verified
   mechanics). Everywhere else — user flow scripts, examples, the rest of
   orca — the rule is enforced at runtime only: a `WorkspaceWrite` is bound to

@@ -3,24 +3,12 @@
 //> using dep "org.virtuslab::orca:0.1.10"
 //> using jvm 21
 
-/** Epic-sized planning + coding flow, for a change too large for one plan.
-  *
-  * The planner splits the prompt into epics and critiques that outline. Each
-  * epic is planned into tasks just before it runs, so its planner reads the
-  * code earlier epics produced. Every task gets one review pass, every epic a
-  * review loop over everything it changed, and the whole run a final review
-  * loop. A documentation stage updates the project's docs before the final
-  * review.
-  *
-  * A PR follows when the repository is on GitHub; otherwise the run says so and
-  * ends on the feature branch, work committed either way.
+/** For a change too large for one plan. Each epic is planned just before it
+  * runs, so its plan sees the code earlier epics wrote.
   *
   * ```bash
-  * scala-cli run --workspace "$(mktemp -d)" epic.sc -- "Add user accounts: storage, sign-up, login and password reset"
+  * scala-cli run --workspace "$(mktemp -d)" epics.sc -- "Add user accounts: storage, sign-up, login and password reset"
   * ```
-  *
-  * Requires the configured role agents logged in (`claude` by default); `gh` is
-  * optional.
   */
 
 import orca.{*, given}
@@ -54,7 +42,7 @@ flow(OrcaArgs(args)):
                 task = task
               )
 
-        // Before the next epic builds on this one: everything it changed.
+        // Review the whole epic before the next one builds on it.
         val epicFixer = codingAgent.session("epic-fixer", seed = seed)
         reviewAndFixLoop(
           coderSession = epicFixer,
@@ -64,9 +52,6 @@ flow(OrcaArgs(args)):
           priorOpenFindings = taskOpenFindings.flatMap(_.findings)
         )
 
-  // Its own stage, so the docs commit exists before the push below. The
-  // documenter implemented none of the epics, so the prompt points it at the
-  // branch diff for what actually changed.
   stage("Update documentation"):
     val documenter = codingAgent.session("documenter", seed = roadmap.brief)
     documenter.run(
@@ -75,7 +60,7 @@ flow(OrcaArgs(args)):
         "doc-comments) to match. Only update what's affected — no new sections."
     )
 
-  // Nothing reviews again after this loop, hence the raised fix-turn cap.
+  // Nothing reviews after this loop, so it gets more fix turns.
   val openFindings = stage("Final review"):
     val finalFixer = codingAgent.session("final-fixer", seed = roadmap.brief)
     reviewAndFixLoop(

@@ -22,7 +22,7 @@ private[shell] object FlowAuthoring:
     * example flows used as few-shot material.
     */
   private val bundledNames =
-    List("orca-docs.md", "implement.sc", "epic.sc")
+    List("orca-docs.md", "implement.sc", "epics.sc")
 
   /** Ensures a `.sc` suffix on a user-supplied filename. */
   def normalizedFileName(raw: String): String =
@@ -384,7 +384,7 @@ private[shell] object FlowAuthoring:
   ): String =
     val docs = apiDir / "orca-docs.md"
     val example1 = apiDir / "implement.sc"
-    val example2 = apiDir / "epic.sc"
+    val example2 = apiDir / "epics.sc"
     // The goal now comes from a multiline prompt (inputMultiline), so it's
     // indented as its own block rather than trailing "Goal: " on one line —
     // keeps a multi-paragraph goal visually distinct from the rest of the
@@ -457,7 +457,7 @@ private[shell] object FlowAuthoring:
   ): String =
     val docs = apiDir / "orca-docs.md"
     val example1 = apiDir / "implement.sc"
-    val example2 = apiDir / "epic.sc"
+    val example2 = apiDir / "epics.sc"
     // `opening` already carries the user's typed changes: interpolating it here
     // would run a second `stripMargin` pass over that text.
     opening + "\n\n" +

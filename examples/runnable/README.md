@@ -10,7 +10,7 @@ the `.sc` files in [`flows/`](../../flows/) — alongside it.
 | [01-simple](01-simple/) | One-shot planning + coding for small tasks. Autonomous planner; the plan is in memory — no resume, no on-disk state. |
 
 The other flow scripts in [`flows/`](../../flows/) (`quick.sc`,
-`epic.sc`, `resolve.sc`, `review.sc`) have no seed harness — run them
+`epics.sc`, `resolve.sc`, `review.sc`) have no seed harness — run them
 against your own git repo.
 
 ## Prerequisites

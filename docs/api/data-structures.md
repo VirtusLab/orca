@@ -106,11 +106,9 @@ Two handles represent a conversation with an agent.
   `reason.describe` is the sentence shown to a reader. Entries merge across
   rounds by `id`, never by title. `skipped` is `Some(SkippedReview)` when the
   review never ran.
-- **`orca.review.ReviewTarget(summary, diffPath, changedFiles)`** is what
-  `reviewOnce` reviews: a one-line summary, the repo-relative path of a file
-  holding the unified diff, and the changed files.
-- **`orca.review.ReviewReport(target, byReviewer)`** is what `reviewOnce`
-  returns: each reviewer's findings as a `ReviewerFindings(reviewer, findings)`.
+- **`orca.review.ReviewReport(task, changedFiles, byReviewer)`** is what
+  `reviewOnce` returns: each reviewer's findings as a
+  `ReviewerFindings(reviewer, findings)`.
   `report.render` is the report as markdown, fit to print or post on a PR.
 - **`orca.review.Lint(commands, agent)`** is the lint gate bundle: the shell
   commands plus the cheap agent that summarises their output into a

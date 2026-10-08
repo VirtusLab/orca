@@ -11,7 +11,7 @@ class DiffDeliveryTest extends munit.FunSuite:
       preamble: String = ""
   ): DiffSample =
     DiffSample(
-      preamble + sections.map(_._2).mkString,
+      DiffText.Inline(preamble + sections.map(_._2).mkString),
       sections.map(_._1),
       sections.toMap
     )
@@ -91,5 +91,5 @@ class DiffDeliveryTest extends munit.FunSuite:
     )
     assertEquals(
       reReviewOf(previous, current),
-      ReReviewChanges.Updated(current.diff)
+      ReReviewChanges.Updated("one")
     )

@@ -109,14 +109,11 @@ class ReviewChangeSetTest extends munit.FunSuite:
       .getOrElse(fail("the reviewer ran once; no resume happened"))
     assert(resumePrompt.contains("fixed.scala"), resumePrompt)
 
-  test("a pinned diff is not re-sent to a resumed reviewer as a fresh sample"):
+  test("a diff in a file is not re-sent to a resumed reviewer as fresh"):
     val run = stagingRun()
-    // `ReviewDiff.Pinned` is one constant for the whole loop, so round two's
-    // sample is byte-identical to round one's. Re-sending it would claim the
-    // fixer's edits are inside a diff that predates them. The pinned diff is
-    // past the inline threshold on purpose: equality is tested before size, so
-    // a pinned diff never reaches the path-listing branch either, which is what
-    // lets that branch take its paths from git.
+    // `ReviewDiff.InFile` is one constant for the whole loop, so round two's
+    // sample equals round one's. Re-sending it would claim the fixer's edits
+    // are inside a diff that predates them.
     val reviewer = new FakeAgent(
       "r",
       outputs =
@@ -133,16 +130,16 @@ class ReviewChangeSetTest extends munit.FunSuite:
         reviewers = List(asReviewer(reviewer)),
         task = titled("build the widget"),
         reviewerSelection = ReviewerSelector.allEveryRound,
-        diff = ReviewDiff.Pinned(
-          "+++ b/pinned.scala\n" + (1 to 3000)
-            .map(i => s"+// line $i")
-            .mkString("\n")
-        )
+        diff = ReviewDiff.InFile("change.diff", List("pinned.scala"))
       )
     val resumePrompt = reviewer.seenPrompts
       .lift(1)
       .getOrElse(fail("the reviewer ran once; no resume happened"))
-    assert(!resumePrompt.contains("pinned.scala"), resumePrompt)
+    assert(!resumePrompt.contains("change.diff"), resumePrompt)
+    assert(
+      resumePrompt.contains("No new change set this round"),
+      resumePrompt
+    )
 
   test("after an empty-sample round an unchanged sample says so again"):
     val run = stagingRun()
@@ -165,8 +162,7 @@ class ReviewChangeSetTest extends munit.FunSuite:
         coderSession = ReviewLoopFixture.coderSession(coder),
         reviewers = List(asReviewer(reviewer)),
         task = titled("build the widget"),
-        reviewerSelection = ReviewerSelector.allEveryRound,
-        diff = ReviewDiff.Pinned("")
+        reviewerSelection = ReviewerSelector.allEveryRound
       )
     val resumePrompt = reviewer.seenPrompts
       .lift(1)

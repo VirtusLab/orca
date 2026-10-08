@@ -76,8 +76,8 @@ export orca.pr.{
 // parameter and LintReport is what the summariser-taking `lint` returns;
 // ReviewCheck is implemented for reviewAndFixLoop's `checks`. Location is a
 // ReviewFinding and OpenFinding field type, and SkippedReview an OpenFindings
-// one — needed by any flow that consumes findings. reviewOnce takes a
-// ReviewTarget and returns a ReviewReport of ReviewerFindings.
+// one — needed by any flow that consumes findings. reviewOnce returns a
+// ReviewReport of ReviewerFindings.
 export orca.review.{
   allReviewers,
   buildReviewers,
@@ -103,7 +103,6 @@ export orca.review.{
   ReviewFinding,
   ReviewReport,
   ReviewResult,
-  ReviewTarget,
   RosterEntry,
   SkippedReview
 }

@@ -18,10 +18,10 @@ private[review] enum DiffCoverage:
     */
   case Since(start: CommitHash)
 
-  /** A caller-pinned diff: its reach is unknown, and it need not start at any
-    * commit.
+  /** A diff the caller supplied: its reach is unknown, and it need not start at
+    * any commit.
     */
-  case Pinned
+  case Fixed
 
   /** The commit the diff was sampled against, when the reviewer may be told
     * one.
@@ -29,4 +29,4 @@ private[review] enum DiffCoverage:
   def base: Option[CommitHash] = this match
     case Stage(stageBase) => stageBase
     case Since(start)     => Some(start)
-    case Pinned           => None
+    case Fixed            => None

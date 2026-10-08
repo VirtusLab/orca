@@ -3,7 +3,13 @@ package orca.review
 import orca.agents.{AgentInput, given}
 import orca.gitref.CommitHash
 import orca.plan.{Task, Title}
-import orca.review.diff.{DiffCoverage, DiffSample, LastSent, ReReviewChanges}
+import orca.review.diff.{
+  DiffCoverage,
+  DiffSample,
+  DiffText,
+  LastSent,
+  ReReviewChanges
+}
 import orca.util.{JsonSchemaGen, TextUtil}
 
 import scala.compiletime.constValueTuple
@@ -19,7 +25,7 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
   // the assertions are about the wording reaching the reviewer, not the
   // line breaks it arrives with.
   private def rendered(
-      coverage: DiffCoverage = DiffCoverage.Pinned,
+      coverage: DiffCoverage = DiffCoverage.Fixed,
       task: Task = Task(Title("do the thing"), "split the list in halves"),
       userRequest: String = "add a median function"
   ): String =
@@ -27,7 +33,7 @@ class ReviewLoopPromptsTest extends munit.FunSuite:
       ReviewLoopPrompts.initialReview(
         task = task,
         userRequest = userRequest,
-        diff = "",
+        diff = DiffText.Inline(""),
         coverage = coverage,
         open = Nil
       )

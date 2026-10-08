@@ -3,36 +3,21 @@
 //> using dep "org.virtuslab::orca:0.1.10"
 //> using jvm 21
 
-/** Request → triage → fix or change → PR, fully autonomous.
+/** The prompt is a bug report, a feature request, or a GitHub issue
+  * (`<owner>/<repo>#<number>` or its URL; needs `gh`). For an issue, the branch
+  * is `fix/issue-<n>` and replies are posted on the issue.
   *
-  * The prompt is any request: a bug report, a feature request, a change — or a
-  * GitHub issue reference (`<owner>/<repo>#<number>` or the issue's URL), in
-  * which case the issue is read and the branch is named after it
-  * (`fix/issue-<n>`), so a re-run after a crash lands on the same branch.
+  * Triage rejects the request with a reply, or accepts it as:
   *
-  * Triage checks the request against the repository and either rejects it — the
-  * reply is posted on the issue, or printed — or accepts it as one of:
-  *
-  *   - a bug a test can show: a failing test is written and checked to fail
-  *     the way the request describes, before anything is fixed;
-  *   - a bug no test can show: fixed anyway; the PR (and the issue) say there
-  *     is no automated reproduction and list the steps;
-  *   - a change: planned and implemented directly.
-  *
-  * Accepted work is planned, implemented task by task with a single review pass
-  * each, reviewed as a whole in a loop, and opened as a PR when the repository
-  * is on GitHub.
+  *   - a bug a test can show: a failing test is written first;
+  *   - a bug no test can show: fixed, and the PR lists manual reproduction
+  *     steps;
+  *   - a change: planned and built directly.
   *
   * ```bash
   * scala-cli run --workspace "$(mktemp -d)" resolve.sc -- "acme/widgets#42"
   * scala-cli run --workspace "$(mktemp -d)" resolve.sc -- "Dividing by zero crashes the calculator"
   * ```
-  *
-  * Use the same prompt on re-runs: the progress log and the issue-comment
-  * marker are keyed on it.
-  *
-  * Requires the configured role agents logged in (`claude` by default); `gh`
-  * when the prompt is an issue reference.
   */
 
 import orca.{*, given}
@@ -43,9 +28,6 @@ val orcaArgs = OrcaArgs(args)
 val issueHandle: Option[IssueHandle] =
   IssueHandle.parseIssue(orcaArgs.userPrompt).toOption
 
-/** What the planner is asked: the request, triage's findings, and for a
-  * testable bug the committed test the fix must turn green.
-  */
 def planningInput(request: String, brief: String, kind: Triage.Kind): String =
   val testNote = kind match
     case Triage.Kind.TestableBug(path) =>
@@ -54,9 +36,6 @@ def planningInput(request: String, brief: String, kind: Triage.Kind): String =
     case Triage.Kind.UntestableBug(_) | Triage.Kind.Change => ""
   s"$request\n\nTriage findings:\n$brief$testNote"
 
-/** The PR body: the generated summary, the issue it closes, and for an
-  * untestable bug the steps reviewers can reproduce it with.
-  */
 def prBody(summary: String, kind: Triage.Kind): String =
   val repro = kind match
     case Triage.Kind.UntestableBug(steps) =>
@@ -125,7 +104,7 @@ flow(orcaArgs, branchNaming = issueHandle.map(BranchNamingStrategy.issue(_))):
               userRequest = Some(request)
             )
 
-      // Nothing reviews again after this loop, hence the raised fix-turn cap.
+      // Nothing reviews after this loop, so it gets more fix turns.
       val openFindings = stage("Final review"):
         val finalFixer = codingAgent.session("final-fixer", seed = plan.brief)
         reviewAndFixLoop(

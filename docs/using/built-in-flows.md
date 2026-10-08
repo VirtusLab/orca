@@ -25,14 +25,14 @@ run's branch and reviews it once, then runs a review-and-fix loop over the
 whole change.
 [Source](https://github.com/VirtusLab/orca/blob/master/flows/implement.sc).
 
-## `epic.sc`
+## `epics.sc`
 
 For a change too large for one plan. The planner splits the prompt into epics
 and critiques that outline. Each epic is planned into tasks just before it
 runs, so it builds on the code earlier epics produced; its tasks are reviewed
 once each, and the epic as a whole in a loop. A documentation stage and a final
 review over the whole change follow.
-[Source](https://github.com/VirtusLab/orca/blob/master/flows/epic.sc).
+[Source](https://github.com/VirtusLab/orca/blob/master/flows/epics.sc).
 
 ## `resolve.sc`
 
@@ -59,7 +59,7 @@ Nothing is fixed or committed.
 
 ```bash
 orca run implement.sc "Add a multiply function to the calculator crate"
-orca run epic.sc "Add user accounts: storage, sign-up, login"
+orca run epics.sc "Add user accounts: storage, sign-up, login"
 orca run resolve.sc "acme/widgets#42"
 orca run resolve.sc "Dividing by zero crashes the calculator"
 orca run review.sc "acme/widgets#42"

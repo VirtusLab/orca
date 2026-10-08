@@ -240,7 +240,9 @@ object FlowCanary:
       val report: ReviewReport = stage("review"):
         reviewOnce(
           allReviewers(reviewAgent),
-          ReviewTarget("summary", ".orca/review.diff", List("a.scala"))
+          Task(Title("summary"), ""),
+          ReviewDiff.InFile(".orca/review.diff", List("a.scala")),
+          userRequest = Some("")
         )
       val _: List[Option[Location]] =
         report.byReviewer.flatMap(_.findings).map(_.location)
@@ -418,7 +420,7 @@ object FlowCanary:
     )
 
   /** Post-planning step (`reviewed`) plus the per-task stage loop — exercised
-    * by `flows/epic.sc`. Pins that the `WithChat[Plan]` extension resolves
+    * by `flows/epics.sc`. Pins that the `WithChat[Plan]` extension resolves
     * through `import orca.*` alone. Plans are always briefed: the `brief` rides
     * in the structured output, so `plan.brief` / `plan.taskPrompt` are always
     * available. Resume is the progress log (ADR 0018 §2.8), and the task loop
@@ -467,8 +469,8 @@ object FlowCanary:
             task = task
           )
 
-  /** `epic.sc`: roadmap → per epic a nested plan stage, task stages and an epic
-    * review loop → `openPrIfGitHub`, the best-effort PR step every
+  /** `epics.sc`: roadmap → per epic a nested plan stage, task stages and an
+    * epic review loop → `openPrIfGitHub`, the best-effort PR step every
     * code-producing flow ends with.
     */
   def epicFlowShape(): Unit =
@@ -561,7 +563,7 @@ object FlowCanary:
   /** Cross-backend review — claude implements, codex reviews — pinned with
     * concrete accessors instead of the role ones. Exercises the
     * `allReviewers(codex)` shape, `claude.opus` planning, and a docs stage with
-    * a session of its own (`flows/epic.sc`).
+    * a session of its own (`flows/epics.sc`).
     */
   def crossBackendReviewShape(): Unit =
     flow(OrcaArgs()):

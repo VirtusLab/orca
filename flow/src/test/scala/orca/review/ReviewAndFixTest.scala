@@ -50,7 +50,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewers = List(asReviewer(silentReviewer)),
       task = titled("do the thing"),
       reviewerSelection = ReviewerSelector.allEveryRound,
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     assertEquals(result, OpenFindings.empty)
 
@@ -76,7 +76,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewers = List(asReviewer(reviewer)),
       task = titled("build the widget"),
       reviewerSelection = ReviewerSelector.allEveryRound,
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     val fixPrompt =
       coder.seenPrompts.lastOption.getOrElse(fail("the fix turn never ran"))
@@ -104,7 +104,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewers = List(asReviewer(first), asReviewer(second)),
       task = titled("build the widget"),
       reviewerSelection = ReviewerSelector.allEveryRound,
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     assert(
       steps.messages.exists(_.contains("- I2.1 c")),
@@ -125,7 +125,7 @@ class ReviewAndFixTest extends munit.FunSuite:
         List(asReviewer(new FakeAgent("quiet", List(ReviewResult.empty)))),
       task = titled("build the widget"),
       reviewerSelection = ReviewerSelector.allEveryRound,
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     assert(
       steps.messages.contains("No findings"),
@@ -142,7 +142,7 @@ class ReviewAndFixTest extends munit.FunSuite:
         List(asReviewer(new FakeAgent("quiet", List(ReviewResult.empty)))),
       task = titled("build the widget"),
       reviewerSelection = ReviewerSelector.allEveryRound,
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     val emitted = steps.messages
     assert(
@@ -185,7 +185,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewers = List(asReviewer(reviewer)),
       task = titled("build the widget"),
       reviewerSelection = ReviewerSelector.allEveryRound,
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     val emitted = steps.messages
     assert(emitted.contains("No new findings"), emitted.mkString("\n"))
@@ -219,7 +219,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       task = titled("build the widget"),
       maxFixTurns = 1,
       reviewerSelection = ReviewerSelector.allEveryRound,
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     val emitted = steps.messages
     assert(emitted.contains(capExitMessage(1)), emitted.mkString)
@@ -260,7 +260,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewers = List(asReviewer(reviewer)),
       task = titled("build the widget"),
       reviewerSelection = ReviewerSelector.allEveryRound,
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     val emitted = steps.messages
     assertEquals(
@@ -300,7 +300,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       task = titled("build the widget"),
       maxFixTurns = 1,
       reviewerSelection = ReviewerSelector.allEveryRound,
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     assertEquals(
       result.findings,
@@ -354,7 +354,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewers = List(asReviewer(reviewer)),
       task = titled("build the widget"),
       reviewerSelection = ReviewerSelector.allEveryRound,
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     assertEquals(result, OpenFindings.empty)
     val roundThree = reviewer.seenPrompts
@@ -392,7 +392,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewers = List(asReviewer(reviewer)),
       task = titled("build the widget"),
       reviewerSelection = ReviewerSelector.allEveryRound,
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     assertEquals(result, OpenFindings.empty)
 
@@ -414,7 +414,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewers = List(asReviewer(reviewer)),
       task = titled("build the widget"),
       reviewerSelection = ReviewerSelector.allEveryRound,
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     assertEquals(reviewer.seenPrompts.size, 4)
 
@@ -435,7 +435,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewers = List(asReviewer(reviewer)),
       task = titled("build the widget"),
       reviewerSelection = ReviewerSelector.allEveryRound,
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     assert(
       steps.messages.contains(
@@ -461,7 +461,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewers = List(asReviewer(reviewer)),
       task = titled("build the widget"),
       reviewerSelection = ReviewerSelector.allEveryRound,
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     assert(
       steps.messages.contains("Fixed 0, declined 1"),
@@ -485,7 +485,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewers = List(asReviewer(reviewer)),
       task = titled("build the widget"),
       reviewerSelection = ReviewerSelector.allEveryRound,
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     assertEquals(
       steps.messages.filter(_.startsWith("Round ")),
@@ -523,7 +523,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewers = List(asReviewer(reviewer)),
       task = titled("build the widget"),
       reviewerSelection = ReviewerSelector.allEveryRound,
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     val fixPrompt =
       coder.seenPrompts.lastOption.getOrElse(fail("the fix turn never ran"))
@@ -550,7 +550,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewers = List(asReviewer(reviewer)),
       task = titled("build the widget"),
       reviewerSelection = ReviewerSelector.allEveryRound,
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     assertEquals(
       result.findings,
@@ -604,7 +604,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewers = List(asReviewer(reviewer)),
       task = titled("build the widget"),
       reviewerSelection = ReviewerSelector.allEveryRound,
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     assertEquals(
       result.findings,
@@ -657,7 +657,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewers = List(asReviewer(reviewer)),
       task = titled("build the widget"),
       reviewerSelection = ReviewerSelector.allEveryRound,
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     assertEquals(
       result.findings,
@@ -706,7 +706,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewers = List(asReviewer(early), asReviewer(late)),
       task = titled("build the widget"),
       reviewerSelection = joinsInRoundThree,
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     val joined = late.seenPrompts.headOption
       .getOrElse(fail("the late reviewer never ran"))
@@ -742,7 +742,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewers = List(asReviewer(reviewerA), asReviewer(reviewerB)),
       task = titled("multi"),
       reviewerSelection = ReviewerSelector.allEveryRound,
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     assertEquals(
       result.findings.map(_.title).toSet,
@@ -771,7 +771,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       task = titled("never ending"),
       maxFixTurns = 2,
       reviewerSelection = ReviewerSelector.allEveryRound,
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     val reviewerSessions = reviewer.seenSessions
     assert(
@@ -811,7 +811,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       // summariser.
       lint = Configured.Use(Lint(List("echo lint-output"), summariser.agent)),
       maxFixTurns = 2,
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     val lintSessions = summariser.seenSessions
     assertEquals(lintSessions.size, 3)
@@ -845,7 +845,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewerSelection = ReviewerSelector.allEveryRound,
       lint = Configured.Use(Lint(List("echo lint-output"), summariser.agent)),
       maxFixTurns = 1,
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     val lintSessions = summariser.seenSessions
     assertEquals(lintSessions.size, 2)
@@ -856,7 +856,7 @@ class ReviewAndFixTest extends munit.FunSuite:
           .map(SessionId.value)}"
     )
 
-  test("a pinned diff is embedded in the reviewer's first prompt"):
+  test("a diff in a file is pointed to in the reviewer's first prompt"):
     val run = freshRun
     import run.given
     val captureReviewer =
@@ -867,11 +867,14 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewers = List(asReviewer(captureReviewer)),
       task = titled("do thing"),
       reviewerSelection = ReviewerSelector.allEveryRound,
-      diff = ReviewDiff.Pinned("--- a/Foo.scala\n+++ b/Foo.scala\n+ added line")
+      diff = ReviewDiff.InFile("change.diff", List("Foo.scala"))
     )
     val sent = captureReviewer.seenPrompts.headOption
       .getOrElse(fail("the fresh-session run was never called"))
-    assert(sent.contains("--- a/Foo.scala"), s"diff missing from prompt: $sent")
+    assert(
+      sent.contains("The complete diff is in `change.diff`"),
+      s"diff path missing from prompt: $sent"
+    )
     assert(sent.contains("do thing"), s"task missing from prompt: $sent")
 
   test("the reviewer's first prompt carries the task and the user's request"):
@@ -891,7 +894,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewers = List(asReviewer(reviewer)),
       task = Task(Title("Median"), "on an even count, average the two middle"),
       reviewerSelection = ReviewerSelector.allEveryRound,
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     val sent = reviewer.seenPrompts.headOption
       .getOrElse(fail("the fresh-session run was never called"))
@@ -920,7 +923,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       task = titled("Median"),
       userRequest = Some("the median rounds down on ties"),
       reviewerSelection = ReviewerSelector.allEveryRound,
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     val sent = reviewer.seenPrompts.headOption
       .getOrElse(fail("the fresh-session run was never called"))
@@ -955,8 +958,8 @@ class ReviewAndFixTest extends munit.FunSuite:
         .getOrElse(fail("the fresh-session run was never called"))
       assert(sent.contains(s"since commit $base"), s"base missing: $sent")
 
-  test("a pinned diff is framed without the stage's base commit or scope"):
-    // The pinned diff may describe a change set that isn't stage-base-to-tree,
+  test("a diff in a file is framed without the stage's base commit or scope"):
+    // The diff may describe a change set that isn't stage-base-to-tree,
     // so neither naming that commit as its base nor the sampled path's "since
     // its stage began" framing can be claimed: both send the reviewer to the
     // wrong history.
@@ -974,8 +977,7 @@ class ReviewAndFixTest extends munit.FunSuite:
         reviewers = List(asReviewer(reviewer)),
         task = titled("do thing"),
         reviewerSelection = ReviewerSelector.allEveryRound,
-        diff =
-          ReviewDiff.Pinned("--- a/Foo.scala\n+++ b/Foo.scala\n+ added line")
+        diff = ReviewDiff.InFile("change.diff", List("Foo.scala"))
       )
       val sent = reviewer.seenPrompts.headOption
         .getOrElse(fail("the fresh-session run was never called"))
@@ -986,7 +988,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       )
 
   test("a sampled diff is framed as everything the stage has changed"):
-    // The framing the pinned path can't claim, on the path that can — a
+    // The framing a diff in a file can't claim, on the path that can — a
     // reviewer that reads it as "since the last commit" would skip committed
     // work.
     val run = ReviewLoopFixture.run(new EventDispatcher(Nil))
@@ -1228,7 +1230,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewers = List(asReviewer(reviewer)),
       task = titled("final review"),
       reviewerSelection = ReviewerSelector.allEveryRound,
-      diff = ReviewDiff.Pinned(""),
+      diff = ReviewDiff.InFile("change.diff", Nil),
       priorOpenFindings =
         List(declinedNit("R1.I1.1", "the shape is deliberate"))
     )
@@ -1255,7 +1257,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewers = List(asReviewer(reviewer)),
       task = titled("final review"),
       reviewerSelection = ReviewerSelector.allEveryRound,
-      diff = ReviewDiff.Pinned(""),
+      diff = ReviewDiff.InFile("change.diff", Nil),
       priorOpenFindings = List(
         OpenFinding.custom(
           Title("p99 regressed"),
@@ -1303,7 +1305,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewers = List(asReviewer(reviewer)),
       task = titled("build the widget"),
       reviewerSelection = ReviewerSelector.allEveryRound,
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     val resumed = reviewer.seenPrompts
       .lift(1)
@@ -1347,7 +1349,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewers = List(asReviewer(reviewerX), asReviewer(reviewerY)),
       reviewerSelection = ReviewerSelector.agentDriven(agent = picker.agent),
       task = titled("picker-routing check"),
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     assertEquals(
       result.findings,
@@ -1393,7 +1395,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(asReviewer(reviewerX), asReviewer(reviewerY)),
       task = titled("default selection"),
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     assertEquals(
       result.findings,
@@ -1443,7 +1445,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewers = List(asReviewer(quiet), asReviewer(loud)),
       task = titled("narrowing check"),
       maxFixTurns = 2,
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     assertEquals(quiet.seenSessions.size, 1)
     assertEquals(loud.seenSessions.size, 3)
@@ -1480,7 +1482,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       // summariser.
       lint = Configured.Use(Lint(List("echo lint-output"), summariser.agent)),
       maxFixTurns = 2,
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     assertEquals(quiet.seenSessions.size, 3)
 
@@ -1507,7 +1509,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewers = List(asReviewer(reviewerX)),
       task = titled("no-picker check"),
       reviewerSelection = ReviewerSelector.allEveryRound,
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     assertEquals(
       result.findings,
@@ -1544,7 +1546,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       // `echo` emits output so `lint` doesn't short-circuit before calling the
       // summariser.
       lint = Configured.Use(Lint(List("echo lint-output"), summariser.agent)),
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     assert(
       steps.messages.contains("Running 3 review agents: a, b, lint"),
@@ -1597,7 +1599,7 @@ class ReviewAndFixTest extends munit.FunSuite:
         reviewers = List(asReviewer(slow), asReviewer(fast)),
         task = titled("ordering check"),
         reviewerSelection = ReviewerSelector.allEveryRound,
-        diff = ReviewDiff.Pinned("")
+        diff = ReviewDiff.InFile("change.diff", Nil)
       )
     )
     runner.start()
@@ -1654,7 +1656,7 @@ class ReviewAndFixTest extends munit.FunSuite:
         Lint(List("echo lint-output"), rendezvousReviewer("lint").agent)
       ),
       reviewerSelection = ReviewerSelector.allEveryRound,
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
 
   test("a round fan-out is capped, and the lint gate still starts with it"):
@@ -1702,7 +1704,7 @@ class ReviewAndFixTest extends munit.FunSuite:
         Lint(List("echo lint-output"), turn("lint", lintEntry.set).agent)
       ),
       reviewerSelection = ReviewerSelector.allEveryRound,
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     assertEquals(oversized.size, MaxConcurrentReviewTasks + 1)
     assertEquals(peak.get(), MaxConcurrentReviewTasks)
@@ -1733,7 +1735,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       task = titled("format check"),
       reviewerSelection = ReviewerSelector.allEveryRound,
       formatCommands = Configured.Use(List(s"echo x >> '$counter'")),
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     val runs = if os.exists(counter) then os.read.lines(counter).size else 0
     assertEquals(runs, 2)
@@ -1752,7 +1754,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       task = titled("fail-open format"),
       reviewerSelection = ReviewerSelector.allEveryRound,
       formatCommands = Configured.Use(List("false", s"echo ran >> '$log'")),
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     assertEquals(os.read.lines(log).toList, List("ran"))
 
@@ -1767,7 +1769,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       task = titled("reported format failure"),
       reviewerSelection = ReviewerSelector.allEveryRound,
       formatCommands = Configured.Use(List("exit 3")),
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     val emitted = steps.messages
     assert(
@@ -1786,7 +1788,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       task = titled("silent format success"),
       reviewerSelection = ReviewerSelector.allEveryRound,
       formatCommands = Configured.Use(List("true")),
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     val emitted = steps.messages
     assert(
@@ -1829,7 +1831,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewers = List(asReviewer(reviewer)),
       task = titled("settings-driven gates"),
       reviewerSelection = ReviewerSelector.allEveryRound,
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     assertEquals(os.read.lines(fmtLog).toList, List("first", "second"))
     assertEquals(
@@ -1857,7 +1859,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewers = List(asReviewer(reviewer)),
       task = titled("empty settings"),
       reviewerSelection = ReviewerSelector.allEveryRound,
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     assertEquals(result, OpenFindings.empty)
 
@@ -1883,7 +1885,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewerSelection = ReviewerSelector.allEveryRound,
       formatCommands = Configured.Off,
       lint = Configured.Off,
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     assertEquals(result, OpenFindings.empty)
     assert(!os.exists(fmtLog), "format must not run under Configured.Off")
@@ -1912,7 +1914,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewerSelection = ReviewerSelector.allEveryRound,
       formatCommands = Configured.Use(List(s"echo explicit >> '$fmtLog'")),
       lint = Configured.Use(Lint(List("echo overridden"), summariser.agent)),
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     assertEquals(result, OpenFindings.empty)
     assertEquals(os.read.lines(fmtLog).toList, List("explicit"))
@@ -1930,7 +1932,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewers = List(asReviewer(reviewer)),
       task = titled("cost labelling"),
       reviewerSelection = ReviewerSelector.allEveryRound,
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     assertEquals(
       reviewer.seenIdentities,
@@ -1960,7 +1962,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewers = List(asReviewer(rosterX), asReviewer(rosterY)),
       reviewerSelection = onlyX,
       task = titled("roster-bound selection"),
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     assertEquals(
       result.findings,
@@ -1997,7 +1999,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewers = List(asReviewer(rosterA)),
       reviewerSelection = emptySelector,
       task = titled("empty selection"),
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     assert(
       rosterA.seenSessions.isEmpty,
@@ -2036,7 +2038,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewers = List(asReviewer(rosterX)),
       reviewerSelection = dupSelector,
       task = titled("duplicate selection"),
-      diff = ReviewDiff.Pinned("")
+      diff = ReviewDiff.InFile("change.diff", Nil)
     )
     assertEquals(rosterX.seenSessions.size, 1)
     assertEquals(
@@ -2086,7 +2088,7 @@ class ReviewAndFixTest extends munit.FunSuite:
         reviewers = List(asReviewer(reviewer)),
         task = titled("seed check"),
         reviewerSelection = ReviewerSelector.allEveryRound,
-        diff = ReviewDiff.Pinned("")
+        diff = ReviewDiff.InFile("change.diff", Nil)
       )
       coder.seenPrompts.lastOption.getOrElse(fail("the fix turn never ran"))
 

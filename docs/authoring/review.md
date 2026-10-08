@@ -88,9 +88,10 @@ Each reviewer receives the task and the change set.
   run started from, which is what you want for a stage that follows the
   per-task work; reviewers are then told the change reaches back past the
   current stage, to that commit.
-  Passing `diff = ReviewDiff.Pinned(text)` sends exactly that text, every
-  round: reviewers are not told a base commit, and the picker's changed-file
-  list is read off the diff text.
+  Passing `diff = ReviewDiff.InFile(path, changedFiles)` points reviewers at
+  a diff you already wrote to `path` (repo-relative), every round; they read
+  it themselves. Reviewers are not told a base commit, and the picker sees
+  `changedFiles`.
 
 ```{note}
 `WholeRun` needs the commit the run started from. If the progress log has none
@@ -105,7 +106,7 @@ Every finding reaches the fixer unfiltered.
 A reviewer's first prompt carries the whole diff, up to 128K characters. A
 larger diff is cut down: the reviewer gets as many whole files as fit, followed
 by a list naming every other changed file with its line counts, and reads those
-itself. A pinned diff is never cut.
+itself. An `InFile` diff is never cut: the prompt only names its file.
 
 A reviewer that first runs in a later round gets this same first prompt, with
 the current diff.
@@ -116,7 +117,7 @@ A reviewer keeps its conversation across rounds, so it still has every diff it
 was sent before. Each later round it gets the findings still open, and one of:
 
 - **nothing new**, when the diff is the same as the last one it got. It is told
-  to check the code to see whether its findings still stand. A pinned diff
+  to check the code to see whether its findings still stand. An `InFile` diff
   always ends up here, since it never changes.
 - **the whole new diff**, when it is at most 16K characters.
 - **only the files that changed since its last round**, when the diff is
@@ -137,13 +138,15 @@ rather than assume nothing changed.
 
 ## Reviewing without fixing
 
-`reviewOnce(reviewers, target, selection?)` runs one review pass and fixes
-nothing; there is no coder session. `target` is a
-[`ReviewTarget(summary, diffPath, changedFiles)`](../api/data-structures.md#review):
-the reviewers read the diff from the file at `diffPath`. `selection` defaults
-to `ReviewerSelector.agentDriven`, and the picked reviewers run concurrently.
-It returns a `ReviewReport`; `report.render` is markdown to print or post on a
-PR. `flows/review.sc` uses it.
+`reviewOnce(reviewers, task, diff, userRequest?, reviewerSelection?)` runs one
+review pass and fixes nothing; there is no coder session. Reviewers get the
+same first prompt as in a loop's first round, so `task`, `diff` and
+`userRequest` mean what they do there. `reviewerSelection` defaults to
+`ReviewerSelector.agentDriven`, and the picked reviewers run concurrently. A
+`WholeRun` diff with no usable starting commit fails the flow. It returns a
+[`ReviewReport`](../api/data-structures.md#review); `report.render` is markdown
+to print or post on a PR. `flows/review.sc` uses it, with an `InFile` diff that
+its first stage writes.
 
 ## Rosters
 

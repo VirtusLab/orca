@@ -26,7 +26,7 @@ class FlowAuthoringTest extends munit.FunSuite:
     val target = TempDirs.dir()
     val dir = FlowAuthoring.extractApiMaterial(target, "0.0.18")
     assertEquals(dir, target / "orca-api-0.0.18")
-    List("orca-docs.md", "implement.sc", "epic.sc").foreach: name =>
+    List("orca-docs.md", "implement.sc", "epics.sc").foreach: name =>
       assertEquals(os.read(dir / name), resourceText(name))
 
   // --- initialPrompt ---
@@ -74,7 +74,7 @@ class FlowAuthoringTest extends munit.FunSuite:
   test("initialPrompt points at the extracted docs and both examples"):
     assert(prompt.contains((apiDir / "orca-docs.md").toString))
     assert(prompt.contains((apiDir / "implement.sc").toString))
-    assert(prompt.contains((apiDir / "epic.sc").toString))
+    assert(prompt.contains((apiDir / "epics.sc").toString))
 
   test("initialPrompt states the compile-check line"):
     assert(prompt.contains(s"scala-cli compile $targetPath"))
@@ -487,7 +487,7 @@ class FlowAuthoringTest extends munit.FunSuite:
   test("forkPrompt points at the extracted docs and both examples"):
     assert(fork.contains((apiDir / "orca-docs.md").toString))
     assert(fork.contains((apiDir / "implement.sc").toString))
-    assert(fork.contains((apiDir / "epic.sc").toString))
+    assert(fork.contains((apiDir / "epics.sc").toString))
 
   test("forkPrompt states the compile-check line"):
     assert(fork.contains(s"scala-cli compile $targetPath"))
@@ -544,7 +544,7 @@ class FlowAuthoringTest extends munit.FunSuite:
   test("editPrompt points at the extracted docs and both examples"):
     assert(edit.contains((apiDir / "orca-docs.md").toString))
     assert(edit.contains((apiDir / "implement.sc").toString))
-    assert(edit.contains((apiDir / "epic.sc").toString))
+    assert(edit.contains((apiDir / "epics.sc").toString))
 
   test("editPrompt states the compile-check line"):
     assert(edit.contains(s"scala-cli compile $targetPath"))

@@ -1,6 +1,10 @@
 package orca.review
 
-/** Where `reviewAndFixLoop` gets the change set under review. */
+import orca.{FlowContext, FlowControl}
+import orca.events.OrcaEvent
+import orca.review.diff.ReviewDiffSource
+
+/** Where a review gets the change set under review. */
 enum ReviewDiff:
   /** Everything the enclosing stage has produced since it began (ADR 0018
     * §2.1), re-sampled every round so each round's reviewers see the fixer's
@@ -19,11 +23,38 @@ enum ReviewDiff:
     */
   case WholeRun
 
-  /** A caller-pinned diff, sent as given. Pinning also changes what reviewers
-    * are told: the prompt does not claim the change set covers the stage, no
-    * base commit is named (the pinned set need not be the stage's), the
-    * selector's changed-file list is scraped from the diff text, and every
-    * later round finds the same text, so a resumed reviewer is told there is no
-    * new change set.
+  /** A diff already written to `path` (repo-relative), which reviewers read
+    * themselves; `changedFiles` is the file list the reviewer selector sees.
+    * Both stay the same every round, so a resumed reviewer is told there is no
+    * new change set, and reviewers are not told what the diff covers or which
+    * commit it starts at.
     */
-  case Pinned(diff: String)
+  case InFile(path: String, changedFiles: List[String])
+
+object ReviewDiff:
+  /** The source `diff` names, or why there is nothing to review.
+    *
+    * `WholeRun` checks its starting commit here, at review time, not only when
+    * a resume bound the branch: a rebase mid-run — and a fresh run's commit,
+    * which binding never checked — would otherwise diff unrelated history.
+    * Reviewing some other range would be worse than not reviewing.
+    */
+  private[review] def resolve(diff: ReviewDiff)(using
+      ctx: FlowContext,
+      fc: FlowControl
+  ): Either[SkippedReview, ReviewDiffSource] =
+    diff match
+      case ReviewDiff.SampleFromStage =>
+        Right(ReviewDiffSource.stage(ctx.git, fc.stageBaseCommit))
+      case ReviewDiff.WholeRun =>
+        fc.startingCommit.filter(ctx.git.isAncestorOfHead) match
+          case Some(c) =>
+            ctx.emit(
+              OrcaEvent.Step(
+                s"reviewing everything changed since commit ${c.short}"
+              )
+            )
+            Right(ReviewDiffSource.wholeRun(ctx.git, c))
+          case None => Left(SkippedReview.NoStartingCommit)
+      case ReviewDiff.InFile(path, changedFiles) =>
+        Right(ReviewDiffSource.inFile(path, changedFiles))
