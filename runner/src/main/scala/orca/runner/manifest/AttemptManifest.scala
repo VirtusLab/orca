@@ -9,7 +9,7 @@ import orca.agents.{BackendTag, JsonData, SessionKey}
 import java.time.Instant
 
 /** Where an attempt stands, as [[AttemptManifest.status]] records it: `Running`
-  * until [[AttemptManifestWriter.finish]] records how it ended.
+  * until the attempt records how it ended.
   */
 private[orca] enum AttemptStatus:
   case Running, Succeeded, Failed
@@ -64,10 +64,6 @@ private[orca] case class ManifestSession(
   *
   * Written from the attempt's start, so `sessions` is empty until the first
   * `SessionCommitted`; [[continuable]] is what the shell and pruning ask.
-  *
-  * Carries no cost or turn data: that lives in the attempt's
-  * `<AttemptId>.cost.jsonl` ([[CostLog]]), which this file neither references
-  * nor requires.
   *
   * `branch` is the branch the attempt bound to; `None` until `BranchBound`
   * fires, so an attempt that failed before binding has none.

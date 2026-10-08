@@ -4,6 +4,8 @@ import orca.{BranchNamingStrategy, ConfigHome, OrcaArgs, StackSettings}
 import orca.backend.Interaction
 import orca.events.{OrcaListener, PricingTable}
 import orca.progress.FlowSource
+import orca.runlog.RunEventLog
+import ox.Ox
 
 /** Everything one `flow(...)` attempt was asked to do, built once by `flow` and
   * handed to `runFlow`. `workDir` is where the attempt runs (a `--worktree`
@@ -18,6 +20,9 @@ private[orca] case class RunRequest(
     extraListeners: List[OrcaListener],
     wiring: FlowWiring,
     pricing: PricingTable,
+    // Starts the attempt's event log, also the run's session store, in the
+    // given scope. `runFlow` calls it once it holds the working tree's lock.
+    startRunLog: Ox => RunEventLog,
     setup: SetupOptions
 )
 

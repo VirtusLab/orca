@@ -19,7 +19,7 @@ import orca.agents.{
 }
 import orca.events.OrcaEvent
 import orca.progress.{BranchMode, ProgressHeader, ProgressStore, StageEntry}
-import orca.sessions.{SessionRecord, SessionStore}
+import orca.sessions.{SessionRecord, TestSessionStore}
 import orca.testkit.{
   GitRepo,
   PassthroughPrompts,
@@ -224,7 +224,7 @@ class FlowSessionTest extends FunSuite:
   ): TestRun =
     val dir = TempDirs.dir()
     val store = ProgressStore.default(dir, RunKey.of("p"))
-    val sessionStore = SessionStore.default(dir, RunKey.of("p"))
+    val sessionStore = new TestSessionStore
     given WorkspaceWrite = WorkspaceWrite.unsafe
     store.writeHeader(
       ProgressHeader(
@@ -747,7 +747,7 @@ class FlowSessionTest extends FunSuite:
     // something to report.
     val dir = GitRepo.seeded()
     val store = ProgressStore.default(dir, RunKey.of("p"))
-    val sessionStore = SessionStore.default(dir, RunKey.of("p"))
+    val sessionStore = new TestSessionStore
     store.writeHeader(
       ProgressHeader(
         Some(orca.testkit.branchName("main")),

@@ -30,7 +30,7 @@ import orca.progress.{
   PublishedWork,
   StageEntry
 }
-import orca.sessions.SessionStore
+import orca.runlog.{AttemptOutcome, RunEvent, RunEventReader, TestRunLog}
 import orca.runner.terminal.TerminalInteraction
 import orca.tools.{
   GitHubAvailability,
@@ -161,16 +161,16 @@ class FlowLifecycleTest extends munit.FunSuite:
       OrcaDir.worktreesPath(workDir) / RunKey.of(prompt).value
     assertEquals(ranIn.get(), Some(worktree), "the run must happen there")
     assert(logSeen.get(), "the progress log must live inside the worktree")
-    // The attempt manifest is the one consumer above `runFlow`, so it is what
-    // pins resolution to `flow()`: were it to move down into `runFlow`, the
-    // manifest would land in the invoking checkout while everything else moved.
+    // The event log is started above `runFlow`, so it is what pins resolution
+    // to `flow()`: were it to move down into `runFlow`, the log would land in
+    // the invoking checkout while everything else moved.
     assert(
-      os.exists(OrcaDir.attemptsPath(worktree)),
-      "the attempt manifest must be written inside the worktree"
+      os.exists(OrcaDir.eventLogPath(worktree, RunKey.of(prompt))),
+      "the event log must be written inside the worktree"
     )
     assert(
-      !os.exists(OrcaDir.attemptsPath(workDir)),
-      "the invoking checkout must get no attempt manifest"
+      !os.exists(OrcaDir.cacheRunsPath(workDir)),
+      "the invoking checkout must get no run cache"
     )
     // The work is on a branch of the worktree's own — neither the detached
     // start point nor the invoking checkout's branch.
@@ -469,7 +469,6 @@ class FlowLifecycleTest extends munit.FunSuite:
     // reuse branch is reachable in production.
     val workDir = GitRepo.seeded()
     val prompt = "resume-session-loop"
-    val sessions = SessionStore.default(workDir, RunKey.of(prompt))
     val agent = StubAgent.claude
     val tasks = List("parse the input", "wire it up", "document it")
     val failing = "wire it up"
@@ -491,7 +490,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       runFlowForTest(workDir, prompt):
         val _ = taskLoop(Some(failing))
     assertEquals(bodyRuns.get(), 2, "the run stops at the failing task")
-    val firstRecords = sessions.records()
+    val firstRecords = TestRunLog.records(workDir, RunKey.of(prompt))
     assertEquals(
       firstRecords.map(_.stage),
       List(
@@ -657,7 +656,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         .stack,
       flowSource = None,
       store = store,
-      sessionStore = scratchSessions(),
+      runLog = new InMemoryRunEventLog,
       emit = e => { val _ = emitted.updateAndGet(e :: _) }
     )
 
@@ -702,7 +701,7 @@ class FlowLifecycleTest extends munit.FunSuite:
           .stack,
         flowSource = None,
         store = store,
-        sessionStore = scratchSessions(),
+        runLog = new InMemoryRunEventLog,
         emit = _ => ()
       )
     assert(thrown.getMessage.contains("cannot be read"), thrown.getMessage)
@@ -803,7 +802,7 @@ class FlowLifecycleTest extends munit.FunSuite:
           .stack,
         flowSource = None,
         store = ProgressStore.default(workDir, RunKey.of("a brand new task")),
-        sessionStore = scratchSessions(),
+        runLog = new InMemoryRunEventLog,
         emit = _ => ()
       )
     assert(thrown.getMessage.contains("my-work"), thrown.getMessage)
@@ -958,7 +957,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         .stack,
       flowSource = None,
       store = store,
-      sessionStore = scratchSessions(),
+      runLog = new InMemoryRunEventLog,
       emit = _ => ()
     )
     assertEquals(setup.startingCommit, boundAt)
@@ -1179,7 +1178,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         .stack,
       flowSource = None,
       store = store,
-      sessionStore = scratchSessions(),
+      runLog = new InMemoryRunEventLog,
       emit = e => { val _ = emitted.updateAndGet(e :: _) }
     )
     emitted.get().collect { case s: OrcaEvent.Step => s.message }
@@ -1254,7 +1253,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         .stack,
       flowSource = None,
       store = ProgressStore.default(workDir, RunKey.of(prompt)),
-      sessionStore = scratchSessions(),
+      runLog = new InMemoryRunEventLog,
       emit = emit,
       tty = tty,
       ask = ask
@@ -1303,7 +1302,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       resolution =
         FlowLifecycle.readSettings(workDir, noGlobalSettings, None).stack,
       store = store,
-      sessionStore = scratchSessions(),
+      runLog = new InMemoryRunEventLog,
       flowSource = Some(FlowSource.Catalog("implement.sc")),
       emit = _ => ()
     )
@@ -1422,7 +1421,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         .stack,
       flowSource = None,
       store = ProgressStore.default(workDir, RunKey.of(prompt)),
-      sessionStore = scratchSessions(),
+      runLog = new InMemoryRunEventLog,
       emit = e => { val _ = emitted.updateAndGet(e :: _) }
     )
     (
@@ -1766,19 +1765,12 @@ class FlowLifecycleTest extends munit.FunSuite:
       )
     )
 
+  private val keepChanges: RunTarget = RunTarget.NewBranch(Uncommitted.Keep)
+
   /** Drive `runFlow` directly (exit-free) with a null-sink interaction so no
     * TTY is needed and a body failure surfaces as a thrown exception rather
     * than a `System.exit`.
     */
-  /** A session store over a scratch directory, for fixtures that build a
-    * `FlowSetup` or call `setup` directly: neither reads the records, and
-    * `teardownSuccess` only discards them.
-    */
-  private def scratchSessions(): SessionStore =
-    SessionStore.default(TempDirs.dir(), RunKey.of("fixture"))
-
-  private val keepChanges: RunTarget = RunTarget.NewBranch(Uncommitted.Keep)
-
   private def runFlowForTest(
       workDir: os.Path,
       prompt: String,
@@ -2034,6 +2026,55 @@ class FlowLifecycleTest extends munit.FunSuite:
       branchNames(workDir).contains(featureBranch),
       s"'$featureBranch' must survive teardown: ${branchNames(workDir)}"
     )
+
+  test(
+    "a successful run ends its event log with RunSucceeded, then AttemptFinished"
+  ):
+    val workDir = GitRepo.seeded()
+    val prompt = "event-log-success"
+    var featureBranch = ""
+    runFlowForTest(workDir, prompt):
+      featureBranch = summon[FlowContext].git.currentBranch()
+      val _ = stage("open PR"):
+        orca.pr.recordOpenedPr(handoffPr)
+        "done"
+    val events =
+      RunEventReader.read(OrcaDir.eventLogPath(workDir, RunKey.of(prompt)))
+    // Only the dispatcher delivers stage events to the log.
+    assert(
+      events.exists:
+        case RunEvent.StageStarted(_, _, stage) => stage.name == "open PR"
+        case _                                  => false
+      ,
+      s"the stage's start must be recorded: $events"
+    )
+    events.takeRight(2) match
+      case List(
+            RunEvent.RunSucceeded(_, _, branch, published),
+            RunEvent.AttemptFinished(_, _, AttemptOutcome.Succeeded)
+          ) =>
+        assertEquals(branch.value, featureBranch)
+        assertEquals(published, Some(handoffPr.url))
+      case other => fail(s"unexpected tail: $other")
+
+  test(
+    "a failed run ends its event log with AttemptFinished, not RunSucceeded"
+  ):
+    val workDir = GitRepo.seeded()
+    val prompt = "event-log-failure"
+    val _ = intercept[ReportedFailure]:
+      runFlowForTest(workDir, prompt):
+        val _ = stage[String]("crash"):
+          throw new RuntimeException("boom")
+    val events =
+      RunEventReader.read(OrcaDir.eventLogPath(workDir, RunKey.of(prompt)))
+    assert(
+      !events.exists(_.isInstanceOf[RunEvent.RunSucceeded]),
+      s"a failed run must not record success: $events"
+    )
+    events.lastOption match
+      case Some(RunEvent.AttemptFinished(_, _, AttemptOutcome.Failed)) => ()
+      case other => fail(s"unexpected last event: $other")
 
   test("a run inside a worktree that opened a PR stays on the work"):
     // The worktree reports RunTarget.NewBranch — a resume relaunched without
@@ -3137,7 +3178,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         .get
     val setup = FlowLifecycle.FlowSetup(
       store = store,
-      sessionStore = scratchSessions(),
+      runLog = new InMemoryRunEventLog,
       featureBranch = featureBranch,
       startingHead = Head.OnBranch(branchName("main")),
       stackSettings = StackSettings.empty,
@@ -3174,7 +3215,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       git.forceCommitOnly(workDir / "code.txt", "work")
     val setup = FlowLifecycle.FlowSetup(
       store = store,
-      sessionStore = scratchSessions(),
+      runLog = new InMemoryRunEventLog,
       featureBranch = FeatureBranch
         .resolveReused(branchName("feat/work"), Set.empty)
         .toOption
@@ -3300,7 +3341,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       .call(cwd = workDir)
     val setup = FlowLifecycle.FlowSetup(
       store = store,
-      sessionStore = scratchSessions(),
+      runLog = new InMemoryRunEventLog,
       featureBranch = FeatureBranch
         .resolveReused(branchName(TeardownPushBranch), Set.empty)
         .toOption
@@ -3403,7 +3444,7 @@ class FlowLifecycleTest extends munit.FunSuite:
   ): FlowLifecycle.FlowSetup =
     FlowLifecycle.FlowSetup(
       store = store,
-      sessionStore = scratchSessions(),
+      runLog = new InMemoryRunEventLog,
       featureBranch =
         FeatureBranch.resolveReused(branchName(branch), Set.empty).toOption.get,
       startingHead = Head.OnBranch(branchName("main")),
@@ -3994,6 +4035,10 @@ class FlowLifecycleTest extends munit.FunSuite:
         thrown.getMessage,
         s"a flow is already running in this working tree (pid " +
           s"${holder.wrapped.pid()}) — wait for it to finish, or stop it"
+      )
+      assert(
+        !os.exists(OrcaDir.cacheRunsPath(workDir)),
+        "a refused attempt must not touch the run cache"
       )
     finally LockHolder.kill(holder)
 

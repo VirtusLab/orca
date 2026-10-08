@@ -48,12 +48,6 @@ private[orca] object OrcaDir:
   /** Suffix of an attempt manifest's file name, after the [[AttemptId]]. */
   val ManifestSuffix: String = ".manifest.json"
 
-  /** Suffix of a cost log's file name, after the [[AttemptId]]. `.jsonl`, not
-    * `.json`: the manifest listing selects by suffix, and a cost log must never
-    * reach it as a manifest that fails to decode.
-    */
-  val CostLogSuffix: String = ".cost.jsonl"
-
   private val TraceLogStem = ".trace"
 
   /** Suffix of a trace log's file name, after the [[AttemptId]]. */
@@ -114,18 +108,6 @@ private[orca] object OrcaDir:
     */
   def cachePath(workDir: os.Path): os.Path = rootPath(workDir) / "cache"
 
-  /** `<workDir>/.orca/cache/runs/<key>.sessions.json` — the durable-session
-    * records of the run keyed `key`, paired with the progress log at
-    * [[progressPath]] under the same key. Untracked, so the records survive the
-    * failure teardown's `git reset --hard` that the committed log cannot.
-    */
-  def sessionRecordsPath(workDir: os.Path, key: RunKey): os.Path =
-    cacheRunsPath(workDir) / s"${key.value}.sessions.json"
-
-  /** The session records of the run keyed `key`, cleared for writing. */
-  def sessionRecordsFile(workDir: os.Path, key: RunKey): OrcaFile =
-    cacheFile(workDir, sessionRecordsPath(workDir, key))
-
   /** `<workDir>/.orca/cache/flow.lock` — held by the run in `workDir`. */
   def flowLockPath(workDir: os.Path): os.Path = cachePath(workDir) / "flow.lock"
 
@@ -172,19 +154,11 @@ private[orca] object OrcaDir:
       writeIfAbsent(cache / ".gitignore", gitignoreContents)
       writeIfAbsent(cache / "CACHEDIR.TAG", cachedirTagContents)
 
-  /** `<workDir>/.orca/cache/attempts`, passively — the read-side counterpart to
-    * [[ensureAttempts]] for the shell's manifest listing (ADR 0021 §8), which
-    * must not create `.orca` as a side effect of reading it.
+  /** `<workDir>/.orca/cache/attempts`, passively — the shell's manifest listing
+    * (ADR 0021 §8), which must not create `.orca` as a side effect of reading
+    * it.
     */
   def attemptsPath(workDir: os.Path): os.Path = cachePath(workDir) / "attempts"
-
-  /** Idempotently ensure `<workDir>/.orca/cache/attempts/` exists and return
-    * it. Holds the manifests and cost logs `AttemptManifestWriter` writes (ADR
-    * 0021 §8). Created at every attempt's start: the shell ranks worktrees by
-    * this directory's mtime.
-    */
-  def ensureAttempts(workDir: os.Path): os.Path =
-    ensureCacheDir(workDir, attemptsPath(workDir))
 
   /** `<workDir>/.orca/cache/attempts/<id>.manifest.json` — the manifest of
     * attempt `id`.
@@ -192,19 +166,9 @@ private[orca] object OrcaDir:
   def manifestPath(workDir: os.Path, id: AttemptId): os.Path =
     attemptsPath(workDir) / s"${id.value}$ManifestSuffix"
 
-  /** The manifest of attempt `id`, cleared for writing. */
-  def manifestFile(workDir: os.Path, id: AttemptId): OrcaFile =
-    cacheFile(workDir, manifestPath(workDir, id))
-
   /** Whether `file` is named like an attempt manifest under [[attemptsPath]].
     */
   def isManifest(file: os.Path): Boolean = file.last.endsWith(ManifestSuffix)
-
-  /** `<workDir>/.orca/cache/attempts/<id>.cost.jsonl` — the cost log of attempt
-    * `id`.
-    */
-  def costLogPath(workDir: os.Path, id: AttemptId): os.Path =
-    attemptsPath(workDir) / s"${id.value}$CostLogSuffix"
 
   /** `<workDir>/.orca/cache/runs/<key>/<id>.trace.log` — the trace log of
     * attempt `id` of the run keyed `key`; its rolled-over part ends in
@@ -224,11 +188,11 @@ private[orca] object OrcaDir:
     (runDirPath(workDir, key) / s"${id.value}$TraceLogStem.%i.log").toString
 
   /** The attempt a file under [[attemptsPath]] or [[runDirPath]] belongs to:
-    * the [[AttemptId]] before a manifest, cost-log or trace-log suffix. `None`
-    * for anything else there, including an in-flight temp file.
+    * the [[AttemptId]] before a manifest or trace-log suffix. `None` for
+    * anything else there, including an in-flight temp file.
     */
   def attemptIdOf(file: os.Path): Option[AttemptId] =
-    List(ManifestSuffix, CostLogSuffix, TraceLogSuffix, RolledTraceLogSuffix)
+    List(ManifestSuffix, TraceLogSuffix, RolledTraceLogSuffix)
       .collectFirst:
         case suffix if file.last.endsWith(suffix) =>
           file.last.dropRight(suffix.length)
@@ -303,11 +267,6 @@ private[orca] object OrcaDir:
   /** `file`, committed with the rest of `.orca`'s root. */
   private def committedFile(workDir: os.Path, file: os.Path): OrcaFile =
     OrcaFile(ensureDir(workDir, file / os.up) / file.last, ensureCache(workDir))
-
-  /** `file` under `.orca/cache`, staged beside itself. */
-  private def cacheFile(workDir: os.Path, file: os.Path): OrcaFile =
-    val dir = ensureCacheDir(workDir, file / os.up)
-    OrcaFile(dir / file.last, dir)
 
   /** Idempotently create `dir` under `.orca`, refusing to write through a
     * symlinked component.

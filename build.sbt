@@ -162,6 +162,7 @@ lazy val runner = (project in file("runner"))
     tools,
     tools % "test->test",
     flow,
+    flow % "test->test",
     claude,
     codex,
     opencode,

@@ -4,7 +4,8 @@ import munit.FunSuite
 import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
 import orca.agents.{Agent, BackendTag, SessionId, WireSessionId}
 import orca.backend.{Dispatch, IdScheme, ResumeOrigin, SessionSupport}
-import orca.sessions.{SessionRecord, SessionStore}
+import orca.runlog.TestRunLog
+import orca.sessions.SessionRecord
 import orca.tools.OsGitTool
 import orca.testkit.{ScriptedBackend, TempDirs, TestAgent}
 
@@ -36,10 +37,8 @@ class SessionTest extends FunSuite:
     * turn against, learning `wire`.
     */
   private def recordImplementer(dir: os.Path, wire: String): Unit =
-    given WorkspaceWrite = WorkspaceWrite.unsafe
-    SessionStore
-      .default(dir, RunKey.of("p"))
-      .upsert(
+    TestRunLog.attempt(dir, RunKey.of("p")):
+      _.upsert(
         SessionRecord(
           name = "implementer",
           stage = StagePath.FlowBody,
@@ -50,29 +49,29 @@ class SessionTest extends FunSuite:
         )
       )
 
-  /** Run `f` with a fresh control and context over `dir` — a new pair per
-    * simulated run, as a new process would build. `agent.session(...)` reads
-    * and writes only the session store, so no progress header is written here;
-    * the tests that drive `stage(...)` use [[TestRun.create]], which writes
-    * one.
+  /** Run `f` as one attempt over `dir`, with a fresh control, context and event
+    * log, as a new process would build. `agent.session(...)` reads and writes
+    * only the session store, so no progress header is written here; the tests
+    * that drive `stage(...)` use [[TestRun.create]], which writes one.
     */
   private def inRun[T](dir: os.Path, listeners: List[OrcaListener] = Nil)(
       f: (FlowContext, FlowControl) ?=> T
   ): T =
-    f(using
-      new TestFlowContext(
-        new EventDispatcher(listeners),
-        "p",
-        wiredGit = Some(new OsGitTool(dir))
-      ),
-      new TestFlowControl(
-        orca.progress.ProgressStore.default(dir, RunKey.of("p")),
-        SessionStore.default(dir, RunKey.of("p"))
+    TestRunLog.attempt(dir, RunKey.of("p")): log =>
+      f(using
+        new TestFlowContext(
+          new EventDispatcher(listeners),
+          "p",
+          wiredGit = Some(new OsGitTool(dir))
+        ),
+        new TestFlowControl(
+          orca.progress.ProgressStore.default(dir, RunKey.of("p")),
+          log
+        )
       )
-    )
 
   private def records(dir: os.Path): List[SessionRecord] =
-    SessionStore.default(dir, RunKey.of("p")).records()
+    TestRunLog.records(dir, RunKey.of("p"))
 
   /** Captures emitted `Step` messages so a test can assert on warnings. */
   private class RecordingListener extends OrcaListener:
@@ -112,7 +111,7 @@ class SessionTest extends FunSuite:
     val _ = stage("Task: add multiply", commitMessage):
       agent.session("implementer", seed = "brief").chat.id.value
     assertEquals(
-      records(run.dir).map(_.stage),
+      run.control.sessionStore.records().map(_.stage),
       List(StagePath.FlowBody.child("Task: add multiply", 0))
     )
 
@@ -138,7 +137,7 @@ class SessionTest extends FunSuite:
         agent.session("implementer", seed = "brief").chat.id.value
     assertEquals(ids.distinct.size, 3, s"expected three sessions; got: $ids")
     assertEquals(
-      records(run.dir).map(_.stage),
+      run.control.sessionStore.records().map(_.stage),
       List(
         StagePath.FlowBody.child("Task", 0),
         StagePath.FlowBody.child("Task", 1),
@@ -159,8 +158,7 @@ class SessionTest extends FunSuite:
         val id = agent.session("implementer", seed = "brief").chat.id.value
         if failAt.contains(i) then throw new RuntimeException(id)
         id
-    val _ =
-      intercept[RuntimeException](loop(Some(1))(using run.context, run.control))
+    val _ = intercept[RuntimeException](inRun(run.dir)(loop(Some(1))))
     val recorded = records(run.dir).map(_.id)
     val resumed = inRun(run.dir)(loop(None))
     assertEquals(
@@ -185,7 +183,7 @@ class SessionTest extends FunSuite:
       yield stage("Task", commitMessage):
         agent.session("implementer", seed = "brief").chat.id.value
     assertEquals(
-      records(run.dir).map(_.stage),
+      run.control.sessionStore.records().map(_.stage),
       List(
         StagePath.FlowBody.child("Implement", 0).child("Task", 0),
         StagePath.FlowBody.child("Implement", 0).child("Task", 1)
@@ -208,9 +206,7 @@ class SessionTest extends FunSuite:
           val id = agent.session("implementer", seed = "brief").chat.id.value
           if failAt.contains(i) then throw new RuntimeException(id)
           id
-    val _ = intercept[RuntimeException](
-      attempt(Some(1))(using run.context, run.control)
-    )
+    val _ = intercept[RuntimeException](inRun(run.dir)(attempt(Some(1))))
     val recorded = records(run.dir).map(_.id)
     assertEquals(
       inRun(run.dir)(attempt(None)),
@@ -225,8 +221,7 @@ class SessionTest extends FunSuite:
     val agent = stubAgent(BackendTag.ClaudeCode)
     def mint()(using FlowContext, FlowControl): String =
       agent.session("implementer", seed = "s").chat.id.value
-    val (a, b) =
-      import run.given
+    val (a, b) = inRun(run.dir):
       (
         stage("A", commitMessage)(mint()),
         intercept[RuntimeException](
@@ -287,8 +282,7 @@ class SessionTest extends FunSuite:
     def mint()(using FlowContext, FlowControl): String =
       agent.session("implementer", seed = "b").chat.id.value
     val original =
-      import run.given
-      stage("Task: parse the input", commitMessage)(mint())
+      inRun(run.dir)(stage("Task: parse the input", commitMessage)(mint()))
     // A re-plan reworded the task, so the stage that owns the key is a
     // different stage: nothing recorded there to resume.
     val reworded = inRun(run.dir):
@@ -431,10 +425,8 @@ class SessionTest extends FunSuite:
     // Resuming must not trust it verbatim — parse it, and on failure mint
     // fresh exactly like the tag-mismatch and no-record cases.
     val dir = TempDirs.dir()
-    given WorkspaceWrite = WorkspaceWrite.unsafe
-    SessionStore
-      .default(dir, RunKey.of("p"))
-      .upsert(
+    TestRunLog.attempt(dir, RunKey.of("p")):
+      _.upsert(
         SessionRecord(
           name = "implementer",
           stage = StagePath.FlowBody,
@@ -469,10 +461,10 @@ class SessionTest extends FunSuite:
 
   test("no stage commits a session record"):
     val run = TestRun.create(new EventDispatcher(Nil))
-    import run.given
     val agent = stubAgent(BackendTag.ClaudeCode)
-    val minted = stage("Implement", commitMessage):
-      agent.session("implementer", seed = "brief").chat.id.value
+    val minted = inRun(run.dir):
+      stage("Implement", commitMessage):
+        agent.session("implementer", seed = "brief").chat.id.value
     assertEquals(records(run.dir).map(_.id), List(minted))
     // The record is machine-local: it lands in the self-ignoring cache, so the
     // stage's commit carries nothing of it and the tree stays clean.
@@ -495,14 +487,14 @@ class SessionTest extends FunSuite:
       agent.session("implementer", seed = "brief").chat.id.value
 
     val firstAttempt = intercept[RuntimeException]:
-      import run.given
-      // A stage that mints and COMPLETES first, so the reset below has a
-      // committed state to revert to — the shape that erased a record kept in
-      // the log, where the failing stage's write was the uncommitted delta.
-      val _ = stage("Plan", commitMessage):
-        agent.session("planner", seed = "brief").chat.id.value
-      stage[String]("Implement", commitMessage):
-        throw new RuntimeException(mint())
+      inRun(run.dir):
+        // A stage that mints and COMPLETES first, so the reset below has a
+        // committed state to revert to — the shape that erased a record kept
+        // in the log, where the failing stage's write was the uncommitted delta.
+        val _ = stage("Plan", commitMessage):
+          agent.session("planner", seed = "brief").chat.id.value
+        stage[String]("Implement", commitMessage):
+          throw new RuntimeException(mint())
     new OsGitTool(run.dir).discardUncommitted(orca.tools.UntrackedFiles.Remove)(
       using WorkspaceWrite.unsafe
     )
@@ -515,6 +507,17 @@ class SessionTest extends FunSuite:
       1,
       "the re-run must reuse the record, not append a second"
     )
+
+  test("a session record survives the resume-time stash of a dirty tree"):
+    val run = TestRun.create(new EventDispatcher(Nil))
+    val agent = stubAgent(BackendTag.ClaudeCode)
+    val minted =
+      inRun(run.dir)(agent.session("implementer", seed = "brief").chat.id.value)
+    os.write.over(run.dir / "dirty.txt", "uncommitted")
+    new OsGitTool(run.dir).ensureClean("orca: pre-resume")(using
+      WorkspaceWrite.unsafe
+    )
+    assertEquals(records(run.dir).map(_.id), List(minted))
 
   private def uncommitted(dir: os.Path): String =
     os.proc("git", "status", "--porcelain").call(cwd = dir).out.text().trim

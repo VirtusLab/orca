@@ -3,7 +3,7 @@ package orca.runlog
 import orca.{AttemptId, OrcaDir, RunKey, StagePath}
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.gitref.BranchName
-import orca.sessions.SessionRecord
+import orca.sessions.{SessionRecord, SessionStore}
 import org.slf4j.LoggerFactory
 import ox.Ox
 import ox.channels.{Actor, ActorRef, BufferCapacity}
@@ -15,21 +15,11 @@ import scala.util.control.NonFatal
   * `.orca/cache/runs/<key>/events.jsonl` (ADR 0025), and the run's
   * durable-session records read back from it.
   *
-  * Every call waits until the in-memory projection is updated, so [[records]]
-  * sees every earlier [[upsert]]; appending to the file happens in the
-  * background, in call order. No call throws: a failed append is logged and
-  * dropped.
+  * Every call waits until the in-memory projection is updated; appending to the
+  * file happens in the background, in call order. No call throws: a failed
+  * append is logged and dropped.
   */
-private[orca] trait RunEventLog extends OrcaListener:
-  /** The run's durable-session records since its last success, in mint order.
-    */
-  def records(): List[SessionRecord]
-
-  /** Upserts `record` by its [[orca.agents.SessionKey]]. Writes nothing when
-    * the run already holds this exact record.
-    */
-  def upsert(record: SessionRecord): Unit
-
+private[orca] trait RunEventLog extends OrcaListener, SessionStore:
   /** Records the run's success on `branch`, with the published PR/MR reference;
     * [[records]] is empty afterwards.
     */

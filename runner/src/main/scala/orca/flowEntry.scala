@@ -22,7 +22,6 @@ import orca.agents.{
   Prompts
 }
 import orca.progress.ProgressStore
-import orca.sessions.SessionStore
 import orca.review.ReviewerCatalog
 import orca.runner.{
   DefaultFlowContext,
@@ -40,8 +39,7 @@ import orca.runner.{
   WiredAgents,
   WorktreeRun
 }
-import orca.runner.manifest.AttemptManifestWriter
-import orca.runlog.AttemptOutcome
+import orca.runlog.{AttemptOutcome, RunEventLog}
 import orca.runner.terminal.TerminalInteraction
 import orca.subprocess.OsProcCliRunner
 import org.slf4j.LoggerFactory
@@ -113,13 +111,13 @@ import scala.util.control.NonFatal
   * '''`--worktree`.''' `workDir` is where the run starts looking, not always
   * where it happens: with `--worktree` the run moves into
   * `.orca/worktrees/<prompt hash>` of this repository, created on first use and
-  * reused after, and everything below it — git, the progress log, the session
-  * manifest — uses that directory instead. A refusal (no repository, no
-  * commits, something orca did not create already at the path) ends the run
-  * before any of that starts. `--worktree` combines with neither
-  * `--skip-branch` nor `--keep-changes`, and `RunTarget` — what `args` carries
-  * those three flags as — has no case for either pair, so the refusal happens
-  * once, converting argv (`OrcaArgs.parse`).
+  * reused after, and everything below it — git, the progress log, the event log
+  * — uses that directory instead. A refusal (no repository, no commits,
+  * something orca did not create already at the path) ends the run before any
+  * of that starts. `--worktree` combines with neither `--skip-branch` nor
+  * `--keep-changes`, and `RunTarget` — what `args` carries those three flags as
+  * — has no case for either pair, so the refusal happens once, converting argv
+  * (`OrcaArgs.parse`).
   *
   * Overrides default to `None` so the runtime can build the default lazily —
   * `TerminalInteraction` in particular takes the resolved `workDir`, which
@@ -153,8 +151,8 @@ def flow(
   installUncaughtExceptionHandler()
   // Tally token usage for the summary printed on exit (success or failure).
   val costTracker = new CostTracker
-  // Read once and threaded explicitly from here down (AttemptManifestWriter, and
-  // the progress header via `runFlow`/`FlowLifecycle.setup`).
+  // Read once and threaded explicitly from here down (RunEventLog, and the
+  // progress header via `runFlow`/`FlowLifecycle.setup`).
   val flowSource = FlowSourceProperty.read()
   val runKey = RunKey.of(args.userPrompt)
 
@@ -194,87 +192,79 @@ def flow(
     val clock = () => Instant.now()
     val attemptId = AttemptId(clock(), ProcessHandle.current().pid())
     val orcaLog = startTrace(dir, attemptId)
-    try runAttempt(dir, attemptId, clock)
+    try runAttempt(dir, attemptId, orcaLog.file, clock)
     finally orcaLog.finish()
 
   def runAttempt(
       dir: os.Path,
       attemptId: AttemptId,
+      tracePath: Option[os.Path],
       clock: () => Instant
   ): AttemptOutcome =
-    supervised:
-      // Per-attempt manifest (ADR 0021 §8), always attached like
-      // LoggingListener. Its actor fork lives in this scope, spanning
-      // construction through `finish`; the `System.exit` at the end of `flow()`
-      // stays OUTSIDE it.
-      val manifestWriter = AttemptManifestWriter.start(
-        dir,
-        OrcaBanner.version,
-        flowSource.map(_.fileName),
-        attemptId,
-        clock
-      )
-      // Tally tool calls the harness refused and print them beside the cost.
-      val deniedToolTracker = new DeniedToolTracker
-      var outcome = AttemptOutcome.Failed
-      // `try/finally` so the cost summary always lands — even when a fatal
-      // throwable (OOM, StackOverflow) escapes the NonFatal catch below.
-      try
-        outcome =
-          try
-            runFlow(
-              RunRequest(
-                args = args,
-                workDir = dir,
-                interaction = interaction,
-                extraListeners = extraListeners ++ List(
-                  costTracker,
-                  deniedToolTracker,
-                  manifestWriter
-                ),
-                wiring = FlowWiring(
-                  claude = claude,
-                  codex = codex,
-                  opencode = opencode,
-                  pi = pi,
-                  gemini = gemini,
-                  gh = gh,
-                  fs = fs,
-                  prompts = prompts
-                ),
-                pricing = pricing,
-                setup = SetupOptions(
-                  branchNaming = branchNaming,
-                  stackSettings = stackSettings,
-                  roles =
-                    RoleOverrides(planningAgent, codingAgent, reviewAgent),
-                  configHome = ConfigHome.default,
-                  flowSource = flowSource
-                )
-              )
-            )(body)
-            AttemptOutcome.Succeeded
-          catch
-            // Already shown on the user's event surface; only the exit code
-            // remains.
-            case _: ReportedFailure => AttemptOutcome.Failed
-            // Backstop for any other NonFatal — a pre-dispatcher failure (agent
-            // factory, TerminalInteraction start) has no event surface, so print
-            // it to stderr rather than exit 1 in silence.
-            case NonFatal(e) =>
-              System.err.println(s"[orca] ${TextUtil.throwableMessage(e)}")
-              AttemptOutcome.Failed
-        outcome
-      finally
-        manifestWriter.finish(outcome)
-        printRunSummary(List(costTracker.summary, deniedToolTracker.summary))
+    // Tally tool calls the harness refused and print them beside the cost.
+    val deniedToolTracker = new DeniedToolTracker
+    // `try/finally` so the cost summary always lands — even when a fatal
+    // throwable (OOM, StackOverflow) escapes the NonFatal catch below.
+    try
+      runFlow(
+        RunRequest(
+          args = args,
+          workDir = dir,
+          interaction = interaction,
+          extraListeners =
+            extraListeners ++ List(costTracker, deniedToolTracker),
+          wiring = FlowWiring(
+            claude = claude,
+            codex = codex,
+            opencode = opencode,
+            pi = pi,
+            gemini = gemini,
+            gh = gh,
+            fs = fs,
+            prompts = prompts
+          ),
+          pricing = pricing,
+          startRunLog = ox =>
+            given Ox = ox
+            RunEventLog.start(
+              dir,
+              runKey,
+              attemptId,
+              OrcaBanner.version,
+              flowSource.map(_.fileName),
+              tracePath,
+              clock
+            )
+          ,
+          setup = SetupOptions(
+            branchNaming = branchNaming,
+            stackSettings = stackSettings,
+            roles = RoleOverrides(planningAgent, codingAgent, reviewAgent),
+            configHome = ConfigHome.default,
+            flowSource = flowSource
+          )
+        )
+      )(body)
+      AttemptOutcome.Succeeded
+    catch
+      // Already shown on the user's event surface; only the exit code
+      // remains.
+      case _: ReportedFailure => AttemptOutcome.Failed
+      // Backstop for any other NonFatal — a pre-dispatcher failure (agent
+      // factory, TerminalInteraction start) has no event surface, so print
+      // it to stderr rather than exit 1 in silence.
+      case NonFatal(e) =>
+        System.err.println(s"[orca] ${TextUtil.throwableMessage(e)}")
+        AttemptOutcome.Failed
+    finally
+      printRunSummary(List(costTracker.summary, deniedToolTracker.summary))
 
-  // The guard comes before the worktree, trace or manifest exist, so a nested
+  // The guard comes before the worktree, trace or event log exist, so a nested
   // `flow()` throws having touched nothing, and never reaches the exit: the
   // outer body fails with it and tears down as usual.
   val outcome = FlowLock.processGuarded:
     resolveRunDir() match
-      // A refusal has no dispatcher, manifest or trace to carry it, so it
+      // A refusal has no dispatcher, event log or trace to carry it, so it
       // reaches the user the way the NonFatal backstop above does.
       case Left(message) =>
         System.err.println(s"[orca] $message")
@@ -293,64 +283,83 @@ def flow(
   * agents exist (e.g. an agent-override factory) has no event surface and
   * escapes unwrapped.
   *
-  * A [[LoggingListener]] is always appended to the request's listeners.
+  * Starts the attempt's [[RunEventLog]] once it holds the working tree's lock,
+  * and finishes it with the attempt's outcome. A [[LoggingListener]] and the
+  * log are always appended to the request's listeners.
   */
 private[orca] def runFlow(request: RunRequest)(
     body: (FlowContext, FlowControl) ?=> Unit
 ): Unit =
   val workDir = request.workDir
-  val wiring = request.wiring
   // Before `supervised:` (the lock needs no `Ox` scope), so a violation is
   // caught before any git mutation. See [[FlowLock]].
   FlowLock.workdirLocked(workDir):
-    // Default TerminalInteraction is built inside `supervised:` because its
-    // worker is a `forkUser` bound to that scope; close() in the body's
-    // `finally` lets it drain before the scope joins it.
     supervised:
-      val effectiveInteraction = request.interaction.getOrElse(
-        TerminalInteraction.start(workDir = Some(workDir))
+      // Under the lock: an attempt refused there must not prune the run cache
+      // or append to the event log a running attempt of the run writes.
+      val runLog = request.startRunLog(summon[Ox])
+      try runLogged(request, runLog)(body)
+      catch
+        case NonFatal(e) =>
+          runLog.finish(AttemptOutcome.Failed)
+          throw e
+      runLog.finish(AttemptOutcome.Succeeded)
+
+/** `runFlow`'s work once the lock is held and the event log started. */
+private def runLogged(request: RunRequest, runLog: RunEventLog)(
+    body: (FlowContext, FlowControl) ?=> Unit
+)(using Ox): Unit =
+  val workDir = request.workDir
+  val wiring = request.wiring
+  // Default TerminalInteraction's worker is a `forkUser` bound to the caller's
+  // `supervised:` scope; close() in the `finally` lets it drain before the
+  // scope joins it.
+  val effectiveInteraction = request.interaction.getOrElse(
+    TerminalInteraction.start(workDir = Some(workDir))
+  )
+  try
+    // Cost is resolved on the way in, so the terminal summary, the
+    // on-disk cost log and any listener a caller added all read one
+    // figure — none of them holds a price table of its own.
+    val dispatcher: OrcaListener = new CostResolvingDispatcher(
+      request.pricing,
+      new EventDispatcher(
+        effectiveInteraction.listeners ++ List(
+          new LoggingListener,
+          runLog
+        ) ++ request.extraListeners
       )
-      try
-        // Cost is resolved on the way in, so the terminal summary, the
-        // on-disk cost log and any listener a caller added all read one
-        // figure — none of them holds a price table of its own.
-        val dispatcher: OrcaListener = new CostResolvingDispatcher(
-          request.pricing,
-          new EventDispatcher(
-            effectiveInteraction.listeners ++ List(
-              new LoggingListener
-            ) ++ request.extraListeners
-          )
-        )
-        // One wiring bundle handed to every agent factory, so overrides and
-        // defaults build against the SAME dispatcher, interaction, workDir and
-        // prompts. Agent construction is pure (no subprocess spawns until the
-        // first gated `run`) and runs BEFORE the reporting bracket below, so a
-        // factory failure escapes unwrapped (no agents to close yet).
-        val agentWiring = AgentWiring(
-          events = dispatcher,
-          interaction = effectiveInteraction,
-          workDir = workDir,
-          prompts = wiring.prompts
-        )
-        val agents = WiredAgents.build(wiring, agentWiring)
-        val runtimeGit =
-          wiring.git.getOrElse(new OsGitTool(workDir, dispatcher))
-        val ghTool = wiring.gh.getOrElse(
-          new OsGitHubTool(OsProcCliRunner, workDir, events = dispatcher)
-        )
-        val fsTool = wiring.fs.getOrElse(new OsFsTool(workDir))
-        runInContext(
-          args = request.args,
-          workDir = workDir,
-          options = request.setup,
-          dispatcher = dispatcher,
-          agents = agents,
-          runtimeGit = runtimeGit,
-          ghTool = ghTool,
-          fsTool = fsTool
-        )(body)
-      finally effectiveInteraction.close()
+    )
+    // One wiring bundle handed to every agent factory, so overrides and
+    // defaults build against the SAME dispatcher, interaction, workDir and
+    // prompts. Agent construction is pure (no subprocess spawns until the
+    // first gated `run`) and runs BEFORE the reporting bracket below, so a
+    // factory failure escapes unwrapped (no agents to close yet).
+    val agentWiring = AgentWiring(
+      events = dispatcher,
+      interaction = effectiveInteraction,
+      workDir = workDir,
+      prompts = wiring.prompts
+    )
+    val agents = WiredAgents.build(wiring, agentWiring)
+    val runtimeGit =
+      wiring.git.getOrElse(new OsGitTool(workDir, dispatcher))
+    val ghTool = wiring.gh.getOrElse(
+      new OsGitHubTool(OsProcCliRunner, workDir, events = dispatcher)
+    )
+    val fsTool = wiring.fs.getOrElse(new OsFsTool(workDir))
+    runInContext(
+      args = request.args,
+      workDir = workDir,
+      options = request.setup,
+      dispatcher = dispatcher,
+      agents = agents,
+      runtimeGit = runtimeGit,
+      ghTool = ghTool,
+      fsTool = fsTool,
+      runLog = runLog
+    )(body)
+  finally effectiveInteraction.close()
 
 /** The settings→roles→setup→context→body sequence of `runFlow`: read both
   * settings files, resolve the three role agents (`RoleAgents.resolveAll`, ADR
@@ -371,12 +380,12 @@ private def runInContext(
     agents: WiredAgents,
     runtimeGit: RuntimeGit,
     ghTool: GitHubTool,
-    fsTool: FsTool
+    fsTool: FsTool,
+    runLog: RunEventLog
 )(body: (FlowContext, FlowControl) ?=> Unit): Unit =
   val debug = OrcaDebug.enabled || args.verbose
   val runKey = RunKey.of(args.userPrompt)
   val store = ProgressStore.default(workDir, runKey)
-  val sessions = SessionStore.default(workDir, runKey)
   // This method takes no `Ox`, as `resourceScope` can't start where one is
   // visible.
   resourceScope:
@@ -431,7 +440,7 @@ private def runInContext(
         options.branchNaming,
         settingsRead.stack,
         store,
-        sessions,
+        runLog,
         flowSource = options.flowSource,
         emit = dispatcher.onEvent
       )
@@ -452,7 +461,7 @@ private def runInContext(
     )
     val control = new DefaultFlowControl(
       progressStore = store,
-      sessionStore = sessions,
+      sessionStore = runLog,
       startingCommit = flowSetup.startingCommit
     )
     FlowLifecycle.run(ctx, control, flowSetup, debug = debug)(body)

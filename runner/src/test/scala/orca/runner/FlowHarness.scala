@@ -5,12 +5,14 @@ import orca.{
   BranchNamingStrategy,
   ConfigHome,
   OrcaArgs,
+  RunKey,
   StackSettings,
   runFlow
 }
 import orca.agents.Agent
 import orca.backend.Interaction
 import orca.events.{OrcaEvent, OrcaListener, Pricing}
+import orca.runlog.TestRunLog
 import orca.testkit.TempDirs
 import orca.runner.terminal.TerminalInteraction
 import ox.supervised
@@ -58,7 +60,8 @@ object FlowHarness:
       )(body)
 
   /** A [[RunRequest]] with test defaults: nothing overridden, no
-    * progress-header flow source, and a config home that doesn't exist.
+    * progress-header flow source, a config home that doesn't exist, and an
+    * event log in `workDir`.
     */
   def request(
       args: OrcaArgs,
@@ -80,6 +83,8 @@ object FlowHarness:
       extraListeners = extraListeners,
       wiring = wiring,
       pricing = Pricing.default,
+      startRunLog =
+        ox => TestRunLog.start(workDir, RunKey.of(args.userPrompt))(using ox),
       setup = SetupOptions(
         branchNaming = branchNaming,
         stackSettings = stackSettings,

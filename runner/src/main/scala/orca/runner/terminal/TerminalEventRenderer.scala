@@ -125,7 +125,7 @@ private[terminal] class TerminalEventRenderer(
       val who = AgentAttribution.prefix(agent, paint)
       output.log(formatIndented(glyph + who + paint(fansi.Color.Red, message)))
     case _: OrcaEvent.SessionCommitted =>
-      () // Session/manifest tracking (ADR 0021 §8) is AttemptManifestWriter's job.
+      () // Recorded in the run event log (ADR 0025), not shown.
 
   /** The current indent string. */
   def currentIndent: String = "  " * stack.length
