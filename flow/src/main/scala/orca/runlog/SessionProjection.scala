@@ -12,18 +12,15 @@ private[orca] object SessionProjection:
     * id, and is ignored when there is none.
     */
   def records(events: List[RunEvent]): List[SessionRecord] =
-    sinceLastSuccess(events).foldLeft(List.empty[SessionRecord])(applied)
+    events.foldLeft(List.empty[SessionRecord])(applied)
 
-  private def sinceLastSuccess(events: List[RunEvent]): List[RunEvent] =
-    events.drop(
-      events.lastIndexWhere(_.isInstanceOf[RunEvent.RunSucceeded]) + 1
-    )
-
-  private def applied(
+  /** `records` after `event`, by the rules of [[records]]. */
+  def applied(
       records: List[SessionRecord],
       event: RunEvent
   ): List[SessionRecord] =
     event match
+      case _: RunEvent.RunSucceeded => Nil
       case m: RunEvent.SessionMinted =>
         val record = SessionRecord(
           name = m.name,
