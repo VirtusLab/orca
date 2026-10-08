@@ -23,9 +23,8 @@ class BuiltInFlowsTest extends munit.FunSuite:
       List(
         "epic.sc",
         "implement.sc",
-        "issue-pr-bugfix.sc",
-        "issue-pr.sc",
         "quick.sc",
+        "resolve.sc",
         "review.sc"
       )
     )
@@ -56,8 +55,7 @@ class BuiltInFlowsTest extends munit.FunSuite:
   private val taskBasedFlows: List[String] = List(
     "epic.sc",
     "implement.sc",
-    "issue-pr-bugfix.sc",
-    "issue-pr.sc"
+    "resolve.sc"
   )
 
   test("a single-pass task review always comes with a whole-run final review"):
@@ -75,17 +73,9 @@ class BuiltInFlowsTest extends munit.FunSuite:
       taskBasedFlows
     )
 
-  /** The text of the `reviewAndFixLoop(...)` call following a flow's `"Final
-    * review"` stage, cut at the call's own closing paren so the pins below
-    * can't be satisfied by some other call in the file.
-    */
-  private def finalReviewCall(name: String): String =
-    val text = resourceText(name)
-    val stage = text.indexOf("\"Final review\"")
-    assert(stage >= 0, s"$name has no final review stage")
-    val open = text.indexOf("reviewAndFixLoop(", stage)
-    assert(open >= 0, s"$name's final review does not call reviewAndFixLoop")
-    val from = open + "reviewAndFixLoop".length
+  /** The call starting at `open` in `text`, cut at its own closing paren. */
+  private def callAt(text: String, open: Int): String =
+    val from = text.indexOf('(', open)
     var depth = 0
     var i = from
     while i < text.length && (i == from || depth > 0) do
@@ -96,10 +86,22 @@ class BuiltInFlowsTest extends munit.FunSuite:
       i += 1
     assert(
       depth == 0,
-      s"$name's reviewAndFixLoop call never closes — the scan counts every " +
-        "paren, a string's or a comment's included"
+      s"the call at $open never closes — the scan counts every paren, a " +
+        "string's or a comment's included"
     )
     text.substring(open, i)
+
+  /** The text of the `reviewAndFixLoop(...)` call following a flow's `"Final
+    * review"` stage, cut at the call's own closing paren so the pins below
+    * can't be satisfied by some other call in the file.
+    */
+  private def finalReviewCall(name: String): String =
+    val text = resourceText(name)
+    val stage = text.indexOf("\"Final review\"")
+    assert(stage >= 0, s"$name has no final review stage")
+    val open = text.indexOf("reviewAndFixLoop(", stage)
+    assert(open >= 0, s"$name's final review does not call reviewAndFixLoop")
+    callAt(text, open)
 
   test("a flow's final review reviews the whole run"):
     // `diff = ReviewDiff.WholeRun` is what makes the stage a whole-run review
@@ -149,77 +151,68 @@ class BuiltInFlowsTest extends munit.FunSuite:
     outside.foreach: (name, stated) =>
       assertEquals(stated.distinct, List(DefaultMaxFixTurns.toString), name)
 
-  /** A flow's last statement: from the last line where one starts — flow-body
-    * indentation, opening with a name — to the end, so a call spread over
-    * several lines is whole, its own closing paren included.
+  /** Whether `name`'s `openPrIfGitHub(...)` call ends the block it sits in:
+    * every non-blank line after its closing paren is indented less than the
+    * line the call starts on. Covers a flow that calls it last in a match arm.
     */
-  private def lastStatement(name: String): String =
-    val fromEnd =
-      resourceText(name).linesIterator.toList.reverse.dropWhile(_.trim.isEmpty)
-    val (deeper, rest) = fromEnd.span(!_.matches("  [A-Za-z].*"))
-    (rest.headOption.toList ++ deeper.reverse).mkString("\n")
+  private def prStepEndsItsBlock(name: String): Boolean =
+    val text = resourceText(name)
+    val open = text.lastIndexOf("openPrIfGitHub(")
+    val lineStart = text.lastIndexOf('\n', open) + 1
+    val indent = text.substring(lineStart).takeWhile(_ == ' ').length
+    val after = text.substring(open + callAt(text, open).length)
+    after.linesIterator
+      .drop(1) // the rest of the call's closing line
+      .filter(_.trim.nonEmpty)
+      .forall(_.takeWhile(_ == ' ').length < indent)
 
   /** The flows that finish with [[orca.pr.openPrIfGitHub]]. */
   private val bestEffortPrFlows = List(
     "epic.sc",
     "implement.sc",
-    "quick.sc"
+    "quick.sc",
+    "resolve.sc"
   )
 
-  /** The flows that finish with [[orca.pr.openPrFromBranch]]. */
-  private val requiredPrFlows = List("issue-pr.sc")
-
-  /** The flows that open their PR with a bare `gh.createPr`: no helper writes
-    * the body or records the handle, so each does both itself. Derived, so a
-    * second such flow is covered by the rules below rather than skipped.
-    */
-  private def ownBodyPrFlows: List[String] =
-    indexNames.filter(resourceText(_).contains("gh.createPr(")).sorted
-
   test("every code-producing flow takes the best-effort PR step"):
-    // Three exact sets that partition the flows by how they open their PR, so a
-    // code-producing flow that drops the step — or reaches for the
-    // GitHub-requiring one — shows up here, and so does a `review.sc` that
-    // grows a PR step it should not have.
+    // An exact set, so a code-producing flow that drops the step shows up
+    // here, and so does a `review.sc` that grows a PR step it should not have.
+    // No flow opens its PR another way: the GitHub-requiring step, or a bare
+    // `gh.createPr` that writes its own body and records its own handle.
     assertEquals(
       indexNames.filter(resourceText(_).contains("openPrIfGitHub(")).sorted,
       bestEffortPrFlows
     )
+    val otherPrSteps = List("openPrFromBranch(", "gh.createPr(")
     assertEquals(
-      indexNames.filter(resourceText(_).contains("openPrFromBranch(")).sorted,
-      requiredPrFlows
+      indexNames.filter(n => otherPrSteps.exists(resourceText(n).contains)),
+      Nil
     )
-    assertEquals(ownBodyPrFlows, List("issue-pr-bugfix.sc"))
 
-  test("the best-effort PR step is each flow's last statement"):
+  test("the best-effort PR step ends its flow's block"):
     // "Ends with", not merely "calls": the step pushes the branch and describes
     // it from the whole branch diff, so a call placed above the final review
     // would summarise work the review then keeps changing.
     bestEffortPrFlows.foreach: name =>
-      assert(
-        lastStatement(name).matches("(?s)\\s*(?:val _ = )?openPrIfGitHub\\(.*"),
-        s"$name ends with: ${lastStatement(name)}"
-      )
+      assert(prStepEndsItsBlock(name), name)
 
-  test("a flow that opens its own PR records it for the lifecycle"):
-    // A bare `gh.createPr` hands the flow the handle, so it only reaches the
-    // lifecycle — and the run only ends on the start branch — if the flow
-    // records it itself.
-    ownBodyPrFlows.foreach: name =>
-      assert(resourceText(name).contains("recordOpenedPr("), name)
+  test("resolve.sc never treats a PR URL as an issue"):
+    // `IssueHandle.parse` accepts PR URLs (review.sc relies on it), so without
+    // this guard a PR URL prompt would be read, commented on and closed as an
+    // issue.
+    assert(
+      resourceText("resolve.sc").contains("""contains("/pull/") then None""")
+    )
 
   test("every flow that opens a PR hands it what its review left open"):
     // The whole point of the required `openFindings` parameter: a flow that
     // drops it opens a PR saying nothing about the findings it shipped. The
     // argument must be the review stage's own value — `OpenFindings.empty`
     // satisfies the compiler and is exactly the regression to catch.
-    (bestEffortPrFlows ++ requiredPrFlows).foreach: name =>
+    bestEffortPrFlows.foreach: name =>
       val text = resourceText(name)
       assert(text.contains("openFindings = openFindings"), name)
       assert(text.contains("val openFindings = stage("), name)
-    // A flow writing its own body appends the section itself.
-    ownBodyPrFlows.foreach: name =>
-      assert(resourceText(name).contains("bodyWithOpenFindings("), name)
 
   private def withTempHome(body: os.Path => Unit): Unit =
     val home = os.temp.dir(prefix = "orca-built-in-flows-test")
@@ -250,7 +243,7 @@ class BuiltInFlowsTest extends munit.FunSuite:
         home / ".cache",
         OrcaBuild.Snapshot(runningVersion)
       )
-      val content = os.read(dir / "issue-pr.sc")
+      val content = os.read(dir / "implement.sc")
       val lines = content.linesIterator.toList
       val depLineIdx = lines.indexWhere(_.startsWith("//> using dep "))
       assert(depLineIdx >= 0, "expected a using-dep line")

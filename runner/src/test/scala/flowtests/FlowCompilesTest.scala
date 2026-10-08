@@ -271,8 +271,8 @@ object FlowCanary:
       stage("start"):
         val _ = claude.run(userPrompt)
 
-  /** `summarisePr` + `PrSummary` surface; exercised by `flows/issue-pr.sc`.
-    * Pins the call shape (`agent`, `diff`, optional `context`, optional
+  /** `summarisePr` + `PrSummary` surface; exercised by `flows/resolve.sc`. Pins
+    * the call shape (`agent`, `diff`, optional `context`, optional
     * `instructions`) and the result type.
     */
   def summarisePrSurface(): Unit =
@@ -306,9 +306,7 @@ object FlowCanary:
           case Left(_: PushFailure.RemoteDeclined) => ()
           case Right(_)                            => ()
 
-  /** Issue/PR-comment surface on `gh` — exercised by the issue-pr plan in
-    * `flows/`.
-    */
+  /** Issue/PR-comment surface on `gh` — exercised by `flows/resolve.sc`. */
   def issueAndPrSurface(): Unit =
     flow(OrcaArgs()):
       stage("gh"):
@@ -497,6 +495,42 @@ object FlowCanary:
         summarisingAgent = claude.haiku,
         openFindings = OpenFindings(perEpic.flatMap(_.findings), skipped = None)
       )
+
+  /** `resolve.sc`: optional issue → triage → reject comment, or reproduce /
+    * comment by kind → plan → final review → PR with a custom body.
+    */
+  def resolveFlowShape(): Unit =
+    val handle: Option[IssueHandle] = IssueHandle.parse("acme/w#1").toOption
+    flow(OrcaArgs(), branchNaming = handle.map(BranchNamingStrategy.issue(_))):
+      val triage: Triage = stage("Triage"):
+        Plan.autonomous.triage(userPrompt, claude).value
+      triage match
+        case Triage.Reject(reply) =>
+          handle.foreach: issue =>
+            stage("Comment"):
+              gh.upsertComment(
+                issue,
+                orcaCommentMarker(userPrompt, "reject"),
+                reply
+              )
+        case Triage.Accept(_, brief, kind) =>
+          val verdict: BugReportMatch = stage("Reproduce"):
+            claude.resultAs[BugReportMatch].autonomous.run(brief)
+          val _ = (verdict.matches, kind)
+          val openFindings = stage("Final review"):
+            reviewAndFixLoop(
+              coderSession = claude.session("final-fixer", seed = brief),
+              reviewers = allReviewers(claude),
+              task = Task(Title("t"), brief),
+              diff = ReviewDiff.WholeRun,
+              maxFixTurns = 5
+            )
+          val _ = openPrIfGitHub(
+            summarisingAgent = claude,
+            openFindings = openFindings,
+            body = s => s.body,
+            context = handle.map(_.shortRef)
+          )
 
   /** Role agents (ADR 0020): the three role accessors hand out backend-pinned
     * agents (so their sessions thread), and the per-role programmatic overrides
