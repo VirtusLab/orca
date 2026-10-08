@@ -230,32 +230,29 @@ object FlowCanary:
         val _: List[ReviewerAgent[?]] = minimalReviewers(claude)
         val _: ReviewerCatalog = reviewerCatalog
         val _: List[Reviewer] = reviewerCatalog.all
+        val _: List[Option[Regex]] = reviewerCatalog.all.map(_.filePattern)
 
-  /** `flows/review.sc`: reviewers run for their findings alone, with no coder
-    * session and no fix loop. Pins the roster's file filters, a parallel
-    * fan-out of structured `ReviewResult` turns over built reviewers, and
-    * reading a finding's location.
+  /** `flows/review.sc`: one review pass over a resolved target, no coder
+    * session, report rendered and posted on a PR resolved from its ref.
     */
   def reviewOnlyShape(): Unit =
     flow(OrcaArgs()):
-      stage("review"):
-        val candidates: List[Reviewer] = narrowToChangedFiles()
-        val _: List[Option[Regex]] = candidates.map(_.filePattern)
-        val reviewers = buildReviewers(reviewAgent, candidates)
-        val results: List[ReviewResult] = Par.mapUnordered(4)(reviewers): r =>
-          r.agent.resultAs[ReviewResult].autonomous.run(r.definition.name.value)
-        val _: List[Option[Location]] =
-          results.flatMap(_.findings).map(_.location)
-
-  /** `flows/review.sc`'s `pickReviewers` is a top-level helper, so it resolves
-    * the catalog against a `FlowContext` alone, with no `FlowControl` in scope.
-    * Pins that shape separately.
-    */
-  private def narrowToChangedFiles()(using
-      FlowContext,
-      InStage
-  ): List[Reviewer] =
-    reviewerCatalog.all.filter(_.appliesTo(List("a.scala")))
+      val report: ReviewReport = stage("review"):
+        reviewOnce(
+          allReviewers(reviewAgent),
+          ReviewTarget("summary", ".orca/review.diff", List("a.scala"))
+        )
+      val _: List[Option[Location]] =
+        report.byReviewer.flatMap(_.findings).map(_.location)
+      stage("post"):
+        gh.prHandle("acme/widgets#1") match
+          case Right(pr) =>
+            gh.upsertComment(
+              pr,
+              orcaCommentMarker(userPrompt, "review"),
+              report.render
+            )
+          case Left(_) => ()
 
   /** Config overrides must be reachable as unqualified names so users can write
     * `flow(args = ..., workDir = ...)` straight from `import orca.*`.

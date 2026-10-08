@@ -10,9 +10,8 @@
   * piped straight in (`git diff | orca run review.sc`). A resolver stage works
   * out what that refers to and materialises the diff once; from there the flow:
   *
-  *   1. Narrows the run's reviewer roster to the ones whose `files:` pattern
-  *      matches the changed paths, then has a cheap-tier agent pick from what's
-  *      left.
+  *   1. Has a cheap-tier agent pick reviewers, after each reviewer's `files:`
+  *      filter.
   *   1. Runs the picked reviewers concurrently, each returning a structured
   *      `ReviewResult`.
   *   1. Prints every finding, in reviewer-completion order.
@@ -45,104 +44,54 @@ import orca.{*, given}
   */
 val DiffPath: String = ".orca/review.diff"
 
-/** What the resolver worked out, minus the diff itself. `prRef` is the
-  * `<owner>/<repo>#<number>` form when the target is a GitHub PR, absent
-  * otherwise — it decides whether the report is posted as well as printed.
+/** The resolver's answer: the target, plus the `<owner>/<repo>#<number>` ref
+  * when it is a GitHub PR, which decides whether the report is also posted.
   */
-case class ReviewTarget(
-    summary: String,
-    changedFiles: List[String],
-    prRef: Option[String]
-) derives JsonData
-
-/** Single-property envelope around [[ReviewTarget]]: a cheap-tier model handed
-  * a multi-property result schema tends to stuff everything under the first
-  * property. Same reason [[PickedReviewers]] carries a single list.
-  */
-case class ResolvedTarget(target: ReviewTarget) derives JsonData
-
-case class PickedReviewers(names: List[String]) derives JsonData
-
-/** One reviewer's findings, named so the report can attribute each one. */
-case class ReviewerFindings(reviewer: String, findings: List[ReviewFinding])
+case class Resolved(target: ReviewTarget, prRef: Option[String])
     derives JsonData
 
-case class AllFindings(byReviewer: List[ReviewerFindings]) derives JsonData
-
 flow(OrcaArgs(args)):
-  val target = stage("Resolve what to review"):
-    resolveTarget().target
+  val resolved = stage("Resolve what to review"):
+    resolveTarget()
 
-  if target.changedFiles.isEmpty then
-    fail(s"No changed files found for: ${target.summary}")
+  if resolved.target.changedFiles.isEmpty then
+    fail(s"No changed files found for: ${resolved.target.summary}")
 
-  display(s"Reviewing ${target.summary} — ${target.changedFiles.size} file(s)")
+  display(
+    s"Reviewing ${resolved.target.summary} — " +
+      s"${resolved.target.changedFiles.size} file(s)"
+  )
 
-  val picked = stage("Pick reviewers"):
-    PickedReviewers(pickReviewers(target).map(_.name.value))
+  val report = stage("Review"):
+    reviewOnce(allReviewers(reviewAgent), resolved.target)
 
-  val findings = stage("Run reviewers"):
-    val reviewers = buildReviewers(
-      reviewAgent,
-      reviewerCatalog.all.filter(r => picked.names.contains(r.name.value))
-    )
-    // Results come back in completion order, hence the pairing with the
-    // reviewer's name.
-    AllFindings(Par.mapUnordered(4)(reviewers): r =>
-      ReviewerFindings(
-        r.definition.name.value,
-        r.agent
-          .resultAs[ReviewResult]
-          .autonomous
-          .run(reviewPrompt(target))
-          .findings
-      ))
+  display(report.render)
 
-  val report = renderReport(target, findings.byReviewer)
-  display(report)
-
-  target.prRef.foreach: ref =>
+  resolved.prRef.foreach: ref =>
     stage("Post report on the PR"):
-      // `owner/repo#42` names no host, so ask gh which one this checkout is
-      // on — a GitHub Enterprise checkout must get its report, not a
-      // same-named repo elsewhere. Inside the stage, so a resume replays the
-      // record instead of asking gh again.
-      val host = gh.availability() match
-        case GitHubAvailability.Available(host, _, _) => host
-        case GitHubAvailability.Unavailable(why) =>
-          fail(s"cannot post the report on $ref: ${why.explanation} — post " +
-            "the report above on the PR yourself")
-
-      val issue = IssueHandle.parseOrThrow(ref)
-
-      val pr = PrHandle
-        .from(host, issue.owner, issue.repo, issue.number)
-        .fold(
-          why => fail(s"cannot post the report on $ref: $why — post the " +
-            "report above on the PR yourself"),
-          identity
-        )
-
-      gh.upsertComment(
-        pr,
-        orcaCommentMarker(userPrompt, "review"),
-        report
-      )
+      gh.prHandle(ref) match
+        case Right(pr) =>
+          gh.upsertComment(
+            pr,
+            orcaCommentMarker(userPrompt, "review"),
+            report.render
+          )
+        case Left(why) =>
+          fail(s"cannot post the report on $ref: $why — post the report " +
+            "above on the PR yourself")
 
   // The diff is scratch, and this flow should leave the tree as it found it. A
   // failed run keeps the file deliberately: the resolve stage is skipped on
   // resume, so the reviewers re-read this same path.
   os.remove.all(os.pwd / os.RelPath(DiffPath))
 
-// ============================== flow helpers ==============================
-
 /** Work out what the prompt refers to and leave its unified diff at
   * [[DiffPath]]. Written to disk rather than returned, so the diff never costs
   * output tokens.
   */
-def resolveTarget()(using FlowContext, InStage): ResolvedTarget =
-  reviewAgent.cheap
-    .resultAs[ResolvedTarget]
+def resolveTarget()(using FlowContext, InStage): Resolved =
+  val resolved = reviewAgent.cheap
+    .resultAs[Resolved]
     .autonomous
     .run(
       s"""Work out what change the following request refers to, and write its
@@ -160,94 +109,12 @@ def resolveTarget()(using FlowContext, InStage): ResolvedTarget =
          |pr diff … > $DiffPath`, or a heredoc when the request already carries
          |the diff). Do NOT reproduce the diff in your answer.
          |
-         |Then report: a one-line summary of what is under review (e.g. "PR
-         |acme/widgets#42: add pagination"), the repo-relative paths of the
-         |changed files, and — only when the target is a GitHub PR — its
-         |`<owner>/<repo>#<number>` ref.""".stripMargin
+         |Then report: `target.summary`, a one-line summary of what is under
+         |review (e.g. "PR acme/widgets#42: add pagination"); `target.diffPath`,
+         |which is always `$DiffPath`; `target.changedFiles`, the repo-relative
+         |paths of the changed files; and `prRef`, only when the target is a
+         |GitHub PR, its `<owner>/<repo>#<number>` ref.""".stripMargin
     )
-
-/** The reviewers worth running: the roster narrowed by each reviewer's `files:`
-  * pattern, then by a cheap-tier pick over what survives. Falls back to the
-  * pattern-matched set if the pick comes back empty or names nothing real — a
-  * miscounted pick should under-select, never review nothing.
-  */
-def pickReviewers(target: ReviewTarget)(using
-    FlowContext,
-    InStage
-): List[Reviewer] =
-  val candidates = reviewerCatalog.all.filter(_.appliesTo(target.changedFiles))
-
-  val listing = candidates
-    .map(r => s"- ${r.name}: ${r.description}")
-    .mkString("\n")
-
-  val picked = reviewAgent.cheap
-    .resultAs[PickedReviewers]
-    .autonomous
-    .run(
-      s"""Pick the reviewers whose dimension is relevant to the change below.
-         |The goal is to skip the ones that clearly don't apply, not to run
-         |them all — but when several apply, name all of them. Copy each name
-         |verbatim.
-         |
-         |Under review: ${target.summary}
-         |
-         |Changed files:
-         |${target.changedFiles.mkString("\n")}
-         |
-         |Available reviewers:
-         |$listing""".stripMargin
-    )
-
-  val named =
-    candidates.filter(c => picked.names.exists(n => ReviewerSlug(n) == c.name))
-  if named.isEmpty then candidates else named
-
-/** What each reviewer is asked: findings scoped to the change, with location
-  * and a suggested fix — reading the diff off disk, since a read-only reviewer
-  * cannot produce one.
-  */
-def reviewPrompt(target: ReviewTarget): String =
-  s"""Under review: ${target.summary}
-     |
-     |The complete diff is in `$DiffPath` — read it first. Review only what it
-     |changes, plus the code that interacts directly with it; you may read
-     |anything in the repository to check a claim, but do not report findings in
-     |code this change doesn't touch.
-     |
-     |Report each finding with: a one-line title, a description with enough
-     |context to act on, the file and line where applicable, and a concrete
-     |suggested fix. Report only what is worth acting on — no nitpicks, no
-     |restating what the change already does well. If nothing in your dimension
-     |applies, report no findings."""
-    .stripMargin
-
-// ============================== report ==============================
-
-/** The whole report as markdown — printed to the console, and posted verbatim
-  * when the target is a PR. One flat list: findings keep the order the
-  * reviewers reported them in, which is the only ordering key the flow has.
-  */
-def renderReport(
-    target: ReviewTarget,
-    byReviewer: List[ReviewerFindings]
-): String =
-  val attributed = byReviewer.flatMap(r => r.findings.map(r.reviewer -> _))
-  val header =
-    s"## Review: ${target.summary}\n\n" +
-      s"${attributed.size} finding(s) from ${byReviewer.size} reviewer(s) " +
-      s"across ${target.changedFiles.size} changed file(s)."
-
-  if attributed.isEmpty then s"$header\n\nNo findings reported."
-  else s"$header\n\n${attributed.map(renderFinding).mkString("\n")}"
-
-def renderFinding(attributed: (String, ReviewFinding)): String =
-  val (reviewer, finding) = attributed
-  val where = finding.location
-    .map:
-      case Location(file, Some(line)) => s" — `$file:$line`"
-      case Location(file, None)       => s" — `$file`"
-    .getOrElse("")
-  val suggestion = finding.suggestion.fold("")(s => s"\n  - suggestion: $s")
-  s"- **${finding.title}** ($reviewer)$where\n" +
-    s"  - ${finding.description}$suggestion"
+  // The path is this flow's, not the agent's: reviewers read it and cleanup
+  // removes it, so they must agree whatever the agent reports.
+  resolved.copy(target = resolved.target.copy(diffPath = DiffPath))
