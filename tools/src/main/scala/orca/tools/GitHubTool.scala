@@ -60,6 +60,9 @@ object IssueHandle:
             s"'https://github.com/<owner>/<repo>/{issues,pull}/<number>', got: '$s'"
         )
 
+  /** Whether `s` is the `<owner>/<repo>#<number>` short-form. */
+  private[tools] def isShortRef(s: String): Boolean = ShortRefPattern.matches(s)
+
   /** Same as [[parse]] but throws [[OrcaFlowException]] on malformed input, so
     * the message bubbles up through the stage error path.
     */
@@ -174,6 +177,28 @@ trait GitHubTool:
     * out; no remote, no credential and no such repository are answered at once.
     */
   def availability(): GitHubAvailability
+
+  /** A handle for the PR `ref` names: a PR browser URL (its host kept), or
+    * `<owner>/<repo>#<number>`, which names no host and so resolves on the host
+    * this checkout's GitHub repository is on. `Left` says why there is none.
+    */
+  def prHandle(ref: String): Either[String, PrHandle] =
+    PrHandle
+      .fromExactUrl(ref.trim)
+      .orElse:
+        for
+          issue <- IssueHandle.parse(ref)
+          // Only the short form names no host; every URL `parse` accepts is
+          // on github.com.
+          host <-
+            if !IssueHandle.isShortRef(ref) then Right("github.com")
+            else
+              availability() match
+                case GitHubAvailability.Available(host, _, _) => Right(host)
+                case GitHubAvailability.Unavailable(why) =>
+                  Left(why.explanation)
+          handle <- PrHandle.from(host, issue.owner, issue.repo, issue.number)
+        yield handle
 
   /** Open a PR from the current branch as it exists on the remote: the branch
     * must already be pushed to the repo the PR targets (fork clones are
