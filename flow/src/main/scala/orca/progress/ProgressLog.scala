@@ -59,8 +59,8 @@ case class StageEntry(id: StagePath.Stage, resultJson: RawJson) derives JsonData
   *
   * Everything here rides the feature branch, committed at each stage boundary.
   * Machine-local state that would be meaningless in another checkout lives in
-  * `.orca/cache/` instead — the durable session records
-  * ([[orca.sessions.SessionStore]]) and the attempt manifest.
+  * `.orca/cache/` instead — the run's event log, which the durable session
+  * records ([[orca.sessions.SessionStore]]) are projected from.
   */
 case class ProgressLog(
     header: ProgressHeader,

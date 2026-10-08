@@ -454,7 +454,7 @@ class AgentTest extends munit.FunSuite:
       List(1)
     )
 
-  // The manifest writer (ADR 0021 §8) needs the wire id known after the
+  // The run's event log (ADR 0025) needs the wire id known after the
   // backend call returns, so `SessionCommitted` fires post-`runAutonomous`
   // with whatever that call just committed.
   test(
@@ -476,7 +476,7 @@ class AgentTest extends munit.FunSuite:
     assertEquals(committed.head.role, None)
     assertEquals(committed.head.sessionKey, None)
 
-  // The manifest classifies a session as durable off this field alone and
+  // The shell classifies a session as durable off this field alone and
   // groups its lineages by it, so the key a `FlowSession` hands to
   // `runText` has to survive to the event whole.
   test("a named session's key reaches SessionCommitted"):
@@ -519,7 +519,7 @@ class AgentTest extends munit.FunSuite:
 
   // `quietTextTurn` runs its turn on a fresh session, bypassing
   // `runText` entirely — it must never surface a session to the
-  // manifest writer.
+  // run's event log.
   test("quietTextTurn emits no SessionCommitted"):
     val seen =
       new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)

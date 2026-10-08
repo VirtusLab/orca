@@ -10,11 +10,10 @@ import orca.OrcaDir
 
 import scala.util.control.NonFatal
 
-/** Whole-file JSON documents that a later process reads back: the progress log,
-  * the durable session records, the attempt manifest. Each is rewritten whole
-  * on every change, so [[write]] replaces it atomically — a plain
-  * `os.write.over` torn by a kill would leave the reader unparseable content
-  * where a resume was expected.
+/** Whole-file JSON documents that a later process reads back, such as the
+  * progress log. Each is rewritten whole on every change, so [[write]] replaces
+  * it atomically — a plain `os.write.over` torn by a kill would leave the
+  * reader unparseable content where a resume was expected.
   */
 object JsonFile:
 

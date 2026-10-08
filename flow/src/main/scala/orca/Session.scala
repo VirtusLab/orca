@@ -50,8 +50,9 @@ final class FlowSession private[orca] (
       */
     val chat: Chat[?],
     /** The key this session was minted under. Carried onto every turn's
-      * `OrcaEvent.SessionCommitted`, which is what names the session in the run
-      * manifest and tells same-named sessions apart in the shell's picker.
+      * `OrcaEvent.SessionCommitted`, which is what names the session in the
+      * run's event log and tells same-named sessions apart in the shell's
+      * picker.
       */
     private[orca] val key: SessionKey
 ):

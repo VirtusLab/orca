@@ -838,8 +838,8 @@ class FlowSessionTest extends FunSuite:
     )
 
   test("run hands the session's key to the turn, for SessionCommitted"):
-    // The manifest's session name, minting stage and `kind` all come off the
-    // event, so the whole key has to reach the emission edge from here.
+    // The event log's `SessionCommitted.minted` comes off the event, so the
+    // whole key has to reach the emission edge from here.
     val run = makeRun(sessions = Nil)
     import run.given
     val agent = new StubAgentForSeeded(existsResult = true)

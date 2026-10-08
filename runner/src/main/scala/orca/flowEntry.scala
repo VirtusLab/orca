@@ -319,7 +319,7 @@ private def runLogged(request: RunRequest, runLog: RunEventLog)(
   )
   try
     // Cost is resolved on the way in, so the terminal summary, the
-    // on-disk cost log and any listener a caller added all read one
+    // run's event log and any listener a caller added all read one
     // figure — none of them holds a price table of its own.
     val dispatcher: OrcaListener = new CostResolvingDispatcher(
       request.pricing,
