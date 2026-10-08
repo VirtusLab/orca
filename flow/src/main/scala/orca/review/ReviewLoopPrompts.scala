@@ -43,6 +43,12 @@ object ReviewLoopPrompts:
   val SummariseLint: String =
     PromptResource.load("/orca/review/prompts/summarise-lint.md")
 
+  /** What each [[reviewOnce]] reviewer is asked, after the target's summary and
+    * diff path.
+    */
+  val ReviewOnce: String =
+    PromptResource.load("/orca/review/prompts/review-once.md")
+
   /** The always-report categories, worded once. Substituted into both review
     * templates at init; [[openFindingsBlock]] back-references the copy those
     * templates render below it.
