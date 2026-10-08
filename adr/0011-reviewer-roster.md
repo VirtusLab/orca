@@ -242,3 +242,30 @@ Every reviewer prompt is a `.md` file with YAML frontmatter
 > ADR 0023 also moves a reviewer's description and `files:` pattern off
 > `ReviewerPrompts`' by-name maps onto the reviewer itself, so a discovered
 > reviewer cannot reach the picker as a bare name — see it for both.
+
+> **Amendment (2026-10-07).** The roster is nine reviewers:
+> - **single-source** is new. It owns duplicated knowledge — whether each fact
+>   the change touches (a rule, default, mapping, decision) has one home, in
+>   code, prompts or docs — and the homes a change failed to update. It is the
+>   one reviewer that searches the repository beyond the diff, limited to the
+>   facts the diff touches. Duplication moves to it from **code-structure**;
+>   premature abstraction is left to **simplicity**.
+> - **simplicity** also owns whether each change is needed for the task at all:
+>   it traces every hunk to the task and flags drive-by refactors, renames,
+>   reformatting and unrelated fixes. Its slug is unchanged, so a project file
+>   named `simplicity.md` still shadows it.
+> - **code-functionality** checks that the change delivers everything its task
+>   asks, and that a behaviour change reaches every call path to that
+>   behaviour, not only the one the diff edits.
+>   It also owns whether concurrent code is correct — races, deadlocks,
+>   ordering, cancellation — replacing "Concurrency lives in performance"
+>   above: **performance** skips code with no performance implications, where
+>   races still happen. **performance** keeps contention and parallelism.
+>   A path that runs its own copy of the old logic is **single-source**'s.
+> - **test** also checks that a test can fail and is deterministic, and
+>   coverage a removed or weakened test loses. The picker no longer skips it
+>   for a change that touches no test file: missing coverage is its job.
+> - **security** adds argument injection and weak cryptography, and counts an
+>   input as untrusted only when someone other than the operator or the
+>   author can set it.
+> - **scala-fp** also runs on `.sc` scripts.

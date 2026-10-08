@@ -1,8 +1,8 @@
 # Custom reviewers
 
 A reviewer is a prompt that says what to look for, paired with a read-only
-agent. Orca ships eight of them: code-functionality, test, readability,
-code-structure, simplicity, performance, security and scala-fp. You can add
+agent. Orca ships nine of them: code-functionality, test, readability,
+code-structure, single-source, simplicity, performance, security and scala-fp. You can add
 your own, or retune a shipped one, by writing a Markdown file; no code changes
 are needed.
 
@@ -16,7 +16,7 @@ the repository:
 |---|---|---|
 | project | `.orca/reviewers/*.md` | committed with the repository |
 | global | `~/.config/orca/reviewers/*.md` (`$XDG_CONFIG_HOME/orca/reviewers/`) | your own, in every project |
-| built-in | shipped with Orca | the eight above |
+| built-in | shipped with Orca | the nine above |
 
 The tiers merge into one **catalog**. A reviewer's name is its filename stem,
 compared case-insensitively, so `.orca/reviewers/orca.md` is the reviewer
