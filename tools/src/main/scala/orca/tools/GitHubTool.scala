@@ -60,6 +60,17 @@ object IssueHandle:
             s"'https://github.com/<owner>/<repo>/{issues,pull}/<number>', got: '$s'"
         )
 
+  private val PullUrlPattern =
+    s"""\\s*(?:https?://)?(?:www\\.)?github\\.com/$Owner/$Repo/pull/\\d+/?\\s*""".r
+
+  /** Like [[parse]], but rejects a PR URL: for a prompt that names an issue to
+    * work on. A short-form ref is accepted even when GitHub numbers a PR with
+    * it.
+    */
+  def parseIssue(s: String): Either[String, IssueHandle] =
+    if PullUrlPattern.matches(s) then Left(s"expected an issue, got a PR: '$s'")
+    else parse(s)
+
   /** Whether `s` is the `<owner>/<repo>#<number>` short-form. */
   private[tools] def isShortRef(s: String): Boolean = ShortRefPattern.matches(s)
 

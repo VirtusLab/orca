@@ -440,6 +440,32 @@ class StageRuntimeTest extends munit.FunSuite:
     assertEquals(steps.size, 1, listener.events)
     assert(steps.head.contains(id.display), steps.head)
 
+  test("a stage that fell back to HEAD reuses that base after a second crash"):
+    val run = TestRun.create(
+      new EventDispatcher(Nil),
+      lead = Some(commitMessageAgent)
+    )
+    import run.given
+    val id = StagePath.FlowBody.child("outer", 0)
+    locally:
+      given WorkspaceWrite = WorkspaceWrite.unsafe
+      run.control.progressStore
+        .recordStageStart(StageStart(id, CommitHash.from("0" * 40).get))
+    val atFallback = run.context.git.headCommit()
+    val _ = intercept[RuntimeException]:
+      stage[String]("outer"):
+        val _ = stage("inner"):
+          os.write(run.dir / "inner.txt", "1")
+          "inner-result"
+        throw new RuntimeException("crash after the nested commit")
+
+    val resumed = reopen(run.dir, _ => ())
+    import resumed.given
+    val base = stage("outer"):
+      val _ = stage("inner")("not run: replayed")
+      resumed.control.stageBaseCommit
+    assertEquals(base, atFallback)
+
   // --- helpers ---
 
   private def reopen(

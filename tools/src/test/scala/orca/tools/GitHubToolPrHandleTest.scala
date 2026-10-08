@@ -23,9 +23,9 @@ class GitHubToolPrHandleTest extends munit.FunSuite:
     // The stub's `availability()` throws, so any probe fails the test.
     assertEquals(
       StubGitHubTool()
-        .prHandle("https://github.com/acme/widgets/pull/7")
+        .prHandle("https://ghe.acme.io/acme/widgets/pull/7")
         .map(_.url),
-      Right("https://github.com/acme/widgets/pull/7")
+      Right("https://ghe.acme.io/acme/widgets/pull/7")
     )
 
   test("a short ref with GitHub unavailable is a Left naming why"):
@@ -36,12 +36,6 @@ class GitHubToolPrHandleTest extends munit.FunSuite:
 
   test("text that is no PR reference is a Left"):
     assert(enterprise.prHandle("the uncommitted changes").isLeft)
-
-  test("a github.com URL variant stays on github.com"):
-    assertEquals(
-      enterprise.prHandle("https://github.com/acme/widgets/pull/7/").map(_.url),
-      Right("https://github.com/acme/widgets/pull/7")
-    )
 
   test("a github.com URL variant needs no probe"):
     assertEquals(

@@ -57,7 +57,7 @@ class ProgressStoreTest extends FunSuite:
     val loaded = store.load()
     assertEquals(loaded.map(_.entries), Some(List(aPrime, b)))
 
-  test("recordStageStart keeps the first base recorded for a stage"):
+  test("recordStageStart replaces the base recorded for a stage"):
     val workDir = TempDirs.dir()
     val store = ProgressStore.default(workDir, RunKey.of("my prompt"))
     store.writeHeader(header)
@@ -68,7 +68,7 @@ class ProgressStoreTest extends FunSuite:
     store.recordStageStart(StageStart(id, commitB))
     assertEquals(
       store.load().map(_.stageStarts),
-      Some(List(StageStart(id, commitA)))
+      Some(List(StageStart(id, commitB)))
     )
 
   test("upsertEntry drops the completed stage's recorded start"):

@@ -67,16 +67,16 @@ object Plan:
     )(using FlowContext, InStage): WithChat[Plan] =
       autonomousResult[Plan, Plan](agent, userPrompt, instructions)(identity)
 
-    /** Skeptically assess `report` (a bug report, feature request or other ask)
-      * into a [[Triage]] verdict: reject with a reply, or accept as a testable
-      * bug, an untestable bug or a change.
+    /** Skeptically assess `request` (a bug report, feature request or other
+      * ask) into a [[Triage]] verdict: reject with a reply, or accept as a
+      * testable bug, an untestable bug or a change.
       */
     def triage(
-        report: String,
+        request: String,
         agent: Agent[?],
         instructions: String = PlanPrompts.Triage
     )(using FlowContext, InStage): WithChat[Triage] =
-      autonomousResult[TriageReply, Triage](agent, report, instructions)(r =>
+      autonomousResult[TriageReply, Triage](agent, request, instructions)(r =>
         getOrFail(r.toTriage)
       )
 
@@ -113,15 +113,15 @@ object Plan:
         identity
       )
 
-    /** Assess `report` into a [[Triage]] verdict, able to ask the reporter
+    /** Assess `request` into a [[Triage]] verdict, able to ask whoever asked
       * clarifying questions before deciding.
       */
     def triage(
-        report: String,
+        request: String,
         agent: Agent[?],
         instructions: String = PlanPrompts.Triage
     )(using FlowContext, InStage): WithChat[Triage] =
-      interactiveResult[TriageReply, Triage](agent, report, instructions)(r =>
+      interactiveResult[TriageReply, Triage](agent, request, instructions)(r =>
         getOrFail(r.toTriage)
       )
 

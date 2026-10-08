@@ -34,7 +34,7 @@ These are the types the planning calls described in
   [Triage](../authoring/planning.md#triage).
 - **`orca.plan.BugReportMatch(matches, explanation)`** is the agent's decision
   on whether a failing test's output matches the original report. It is a
-  structured-output type `resolve.sc` asks for.
+  structured-output type `reproduceBug` asks for.
 
 ## Conversations
 
@@ -65,7 +65,8 @@ Two handles represent a conversation with an agent.
   return it.
 - **`orca.tools.IssueHandle`** identifies a GitHub issue. It carries no host:
   `gh` calls taking it use gh's default host, which is `GH_HOST` if set, else
-  the host gh is logged in to.
+  the host gh is logged in to. `IssueHandle.parse` reads `owner/repo#n` or a
+  github.com issue or PR URL; `IssueHandle.parseIssue` rejects the PR URL.
 - **`orca.tools.GitHubAvailability`** is what `gh.availability` answers.
   `Available(host, owner, repo)` is the repository gh resolves.
   `Unavailable(why)` means no PR can be opened, and `why` is a

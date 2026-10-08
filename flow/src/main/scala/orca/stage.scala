@@ -51,8 +51,9 @@ private def inStageFrame[R](name: String)(f: StagePath.Stage => R)(using
     ctx: FlowContext,
     fc: FlowControl
 ): R =
-  // HEAD is read HERE, before the body: once the body's agent starts
-  // committing, the commit this stage began from is no longer recoverable.
+  // On first entry HEAD is read here, before the body: once the body's agent
+  // starts committing, HEAD is past the commit this stage began from.
+  // runStage records it so a re-entry reuses it.
   fc.withStage(name, id => recordedBase(id).orElse(ctx.git.headCommit()))(f)
 
 /** The base recorded when stage `id` was first entered, if HEAD still descends

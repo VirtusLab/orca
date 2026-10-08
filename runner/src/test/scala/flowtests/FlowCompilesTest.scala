@@ -500,7 +500,8 @@ object FlowCanary:
     * comment by kind → plan → final review → PR with a custom body.
     */
   def resolveFlowShape(): Unit =
-    val handle: Option[IssueHandle] = IssueHandle.parse("acme/w#1").toOption
+    val handle: Option[IssueHandle] =
+      IssueHandle.parseIssue("acme/w#1").toOption
     flow(OrcaArgs(), branchNaming = handle.map(BranchNamingStrategy.issue(_))):
       val triage: Triage = stage("Triage"):
         Plan.autonomous.triage(userPrompt, claude).value
@@ -514,9 +515,9 @@ object FlowCanary:
                 reply
               )
         case Triage.Accept(_, brief, kind) =>
-          val verdict: BugReportMatch = stage("Reproduce"):
-            claude.resultAs[BugReportMatch].autonomous.run(brief)
-          val _ = (verdict.matches, kind)
+          stage("Reproduce"):
+            reproduceBug(request = userPrompt, testPath = "T.scala", claude)
+          val _ = kind
           val openFindings = stage("Final review"):
             reviewAndFixLoop(
               coderSession = claude.session("final-fixer", seed = brief),

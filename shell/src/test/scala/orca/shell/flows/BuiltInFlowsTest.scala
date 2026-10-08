@@ -196,14 +196,6 @@ class BuiltInFlowsTest extends munit.FunSuite:
     bestEffortPrFlows.foreach: name =>
       assert(prStepEndsItsBlock(name), name)
 
-  test("resolve.sc never treats a PR URL as an issue"):
-    // `IssueHandle.parse` accepts PR URLs (review.sc relies on it), so without
-    // this guard a PR URL prompt would be read, commented on and closed as an
-    // issue.
-    assert(
-      resourceText("resolve.sc").contains("""contains("/pull/") then None""")
-    )
-
   test("every flow that opens a PR hands it what its review left open"):
     // The whole point of the required `openFindings` parameter: a flow that
     // drops it opens a PR saying nothing about the findings it shipped. The

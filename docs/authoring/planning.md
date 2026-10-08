@@ -16,7 +16,7 @@ The operations are:
 - `roadmap(userPrompt, agent, instructions?)` returns a `Roadmap`, which
   splits a change too large for one plan into ordered epics. See
   [Roadmaps](#roadmaps).
-- `triage(report, agent, instructions?)` returns a `Triage`, which rejects a
+- `triage(request, agent, instructions?)` returns a `Triage`, which rejects a
   request or accepts it as a bug or a change. See [Triage](#triage).
   Interactively, it can ask clarifying questions.
 
@@ -85,5 +85,7 @@ against the repository and returns a `Triage`:
   `Change`.
 
 `flows/resolve.sc` uses it to reject, reproduce or go straight to planning.
-For a testable bug, the same flow asks the agent for a `BugReportMatch` to check
-that the failing test's output matches the report.
+For a testable bug, it calls `reproduceBug(request, testPath, agent)` inside a
+stage: the agent writes the failing test, and a separate turn returns a
+`BugReportMatch` saying whether the failure is the one the request describes.
+After a second mismatch the stage fails.

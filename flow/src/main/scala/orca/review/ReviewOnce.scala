@@ -7,17 +7,6 @@ import orca.plan.Title
 // Not under capture checking: `derives JsonData` expands tapir's Schema macro,
 // which does not type-check there (same split as FixRequest.scala).
 
-/** A change to review once: a one-line `summary`, the repo-relative path of a
-  * file holding its unified diff, and the files it changes. The diff stays in a
-  * file because read-only reviewers cannot produce it themselves, and pasting a
-  * large diff into every reviewer's prompt costs each of them the whole diff.
-  */
-case class ReviewTarget(
-    summary: String,
-    diffPath: String,
-    changedFiles: List[String]
-) derives JsonData
-
 /** One reviewer's findings, named so a report can attribute each one. */
 case class ReviewerFindings(reviewer: String, findings: List[ReviewFinding])
     derives JsonData

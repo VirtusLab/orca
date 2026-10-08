@@ -64,9 +64,9 @@ trait ProgressStore:
     */
   def recordPublished(work: PublishedWork)(using WorkspaceWrite): Unit
 
-  /** Record the commit stage `start.id` started from, unless one is already
-    * recorded for it. Requires [[writeHeader]] first; otherwise it throws. Does
-    * not commit: the next stage commit carries it.
+  /** Record the commit stage `start.id` started from, replacing any base
+    * already recorded for it. Requires [[writeHeader]] first; otherwise it
+    * throws. Does not commit: the next stage commit carries it.
     */
   def recordStageStart(start: StageStart)(using WorkspaceWrite): Unit
 
@@ -138,8 +138,11 @@ private class OsProgressStore(workDir: os.Path, key: RunKey)
   def recordStageStart(start: StageStart)(using ws: WorkspaceWrite): Unit =
     ws.check("progressStore.recordStageStart")
     val log = currentLogOrThrow("recordStageStart")
-    if !log.stageStarts.exists(_.id == start.id) then
-      writeLog(log.copy(stageStarts = log.stageStarts :+ start))
+    writeLog(
+      log.copy(stageStarts =
+        log.stageStarts.filterNot(_.id == start.id) :+ start
+      )
+    )
 
   /** Read-modify-write precondition for [[upsertEntry]], [[recordPublished]]
     * and [[recordStageStart]]: all require a log to already exist. Routed

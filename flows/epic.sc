@@ -27,8 +27,11 @@ import orca.{*, given}
 
 flow(OrcaArgs(args)):
   val roadmap = stage("Plan epics"):
-    Plan.autonomous.roadmap(userPrompt, planningAgent).reviewed().value
-  if roadmap.epics.isEmpty then fail("The planner produced no epics")
+    val planned =
+      Plan.autonomous.roadmap(userPrompt, planningAgent).reviewed().value
+    if planned.epics.isEmpty then
+      fail("The planner produced no epics; re-run to plan again, or reword the prompt")
+    planned
 
   val epicOpenFindings =
     for epic <- roadmap.epics yield

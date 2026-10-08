@@ -44,3 +44,19 @@ object PlanPrompts:
     */
   val Review: String =
     PromptResource.load("/orca/plan/prompts/review.md")
+
+  /** Used by [[reproduceBug]]: write the failing test. The test path is
+    * appended after it.
+    */
+  val Reproduce: String =
+    PromptResource.load("/orca/plan/prompts/reproduce.md")
+
+  /** Used by [[reproduceBug]] when the check rejects the first test. */
+  val ReproduceRetry: String =
+    PromptResource.load("/orca/plan/prompts/reproduce-retry.md")
+
+  /** Used by [[reproduceBug]] to judge the test; the test path and the request
+    * are appended after it.
+    */
+  val ReproductionCheck: String =
+    PromptResource.load("/orca/plan/prompts/reproduction-check.md")

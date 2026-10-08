@@ -39,68 +39,9 @@ import orca.{*, given}
 
 val orcaArgs = OrcaArgs(args)
 
-/** The issue the prompt names, when the whole prompt is an issue reference. A
-  * PR URL also parses as one, but a PR is not a request to resolve.
-  */
+/** The issue the prompt names, when the whole prompt is an issue reference. */
 val issueHandle: Option[IssueHandle] =
-  if orcaArgs.userPrompt.contains("/pull/") then None
-  else IssueHandle.parse(orcaArgs.userPrompt).toOption
-
-/** Write a test at `testPath` that fails the way `request` describes, and have
-  * a second agent confirm it. The reproducer retries once when the check
-  * disagrees; a second disagreement fails the stage, so a re-run starts over.
-  */
-def reproduce(request: String, testPath: String)(using
-    FlowContext,
-    FlowControl,
-    InStage,
-    WorkspaceWrite
-): Unit =
-  val reproducer = codingAgent.session("reproducer", seed = request)
-  reproducer.run(
-    s"""Write a focused test at `$testPath` that fails on the current code in
-       |the way the request describes. Run only that test and confirm it
-       |fails.""".stripMargin
-  )
-  val first = checkReproduction(request, testPath)
-  if !first.matches then
-    reproducer.run(
-      s"""A separate check says the test does not reproduce the request:
-         |${first.explanation}
-         |
-         |Fix the test at `$testPath`, then run it again.""".stripMargin
-    )
-    val second = checkReproduction(request, testPath)
-    if !second.matches then
-      fail(
-        s"Could not reproduce the request: ${second.explanation}. Add " +
-          "reproduction details to the request (or the issue) and re-run; " +
-          "the Reproduce stage starts over."
-      )
-
-/** Run the test at `testPath` and judge whether its failure is the one
-  * `request` describes. Full tier: a wrong "matches" lets a bogus reproduction
-  * through, a wrong "doesn't" aborts a sound one.
-  */
-def checkReproduction(request: String, testPath: String)(using
-    FlowContext,
-    InStage
-): BugReportMatch =
-  val testHint = summon[FlowContext].stackSettings.test match
-    case Nil      => ""
-    case commands => s"\nThe project's test command: ${commands.mkString(" && ")}"
-  codingAgent
-    .resultAs[BugReportMatch]
-    .autonomous
-    .run(
-      s"""Run only the test at `$testPath`. It must fail, and the failure must
-         |be the defect the request below describes — a passing test, or a
-         |failure for another reason (compile error, wrong assertion), does not
-         |match.$testHint
-         |
-         |Request:
-         |$request""".stripMargin
-    )
+  IssueHandle.parseIssue(orcaArgs.userPrompt).toOption
 
 /** What the planner is asked: the request, triage's findings, and for a
   * testable bug the committed test the fix must turn green.
@@ -110,7 +51,7 @@ def planningInput(request: String, brief: String, kind: Triage.Kind): String =
     case Triage.Kind.TestableBug(path) =>
       s"\n\nA failing test at `$path` reproduces the bug and is committed on " +
         "this branch. The fix must make it pass without breaking other tests."
-    case _ => ""
+    case Triage.Kind.UntestableBug(_) | Triage.Kind.Change => ""
   s"$request\n\nTriage findings:\n$brief$testNote"
 
 /** The PR body: the generated summary, the issue it closes, and for an
@@ -121,7 +62,7 @@ def prBody(summary: String, kind: Triage.Kind): String =
     case Triage.Kind.UntestableBug(steps) =>
       s"\n\n## No automated reproduction\n\nNo focused test can show this " +
         s"bug, so none was added. To reproduce it by hand:\n\n$steps"
-    case _ => ""
+    case Triage.Kind.TestableBug(_) | Triage.Kind.Change => ""
   val closes = issueHandle.fold("")(i => s"\n\nCloses ${i.shortRef}.")
   s"$summary$repro$closes"
 
@@ -148,7 +89,11 @@ flow(orcaArgs, branchNaming = issueHandle.map(BranchNamingStrategy.issue(_))):
       kind match
         case Triage.Kind.TestableBug(testPath) =>
           stage("Reproduce"):
-            reproduce(request, testPath)
+            reproduceBug(
+              request = request,
+              testPath = testPath,
+              agent = codingAgent
+            )
         case Triage.Kind.UntestableBug(steps) =>
           issueHandle.foreach: issue =>
             stage("Comment: reproduction steps"):
@@ -161,7 +106,10 @@ flow(orcaArgs, branchNaming = issueHandle.map(BranchNamingStrategy.issue(_))):
 
       val plan = stage("Plan"):
         Plan.autonomous
-          .from(planningInput(request, brief, kind), planningAgent)
+          .from(
+            planningInput(request = request, brief = brief, kind = kind),
+            planningAgent
+          )
           .reviewed()
           .value
 
