@@ -30,6 +30,15 @@ object PlanPrompts:
   val Triage: String =
     PromptResource.load("/orca/plan/prompts/triage.md")
 
+  /** Used by `Plan.{autonomous,interactive}.roadmap`: split the request into
+    * ordered epics, with a shared brief.
+    */
+  val Roadmap: String = PromptResource.load("/orca/plan/prompts/roadmap.md")
+
+  /** Used by `WithChat[Roadmap].reviewed`; the roadmap is appended after it. */
+  val RoadmapReview: String =
+    PromptResource.load("/orca/plan/prompts/roadmap-review.md")
+
   /** Used by `WithChat[Plan].reviewed`. The current plan is appended after this
     * block; the agent returns an improved plan, brief included.
     */

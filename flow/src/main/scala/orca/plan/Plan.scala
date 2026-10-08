@@ -22,8 +22,9 @@ import scala.annotation.unused
   *   - **mode** — [[Plan.autonomous]] (single agentic turn, read-only, no
   *     human) or [[Plan.interactive]] (a conversation the agent can drive via
   *     `ask_user`).
-  *   - **operation** — `from` (produce a [[Plan]] directly) or `triage` (assess
-  *     a request into a [[Triage]] verdict).
+  *   - **operation** — `from` (produce a [[Plan]] directly), `roadmap` (split a
+  *     large request into a [[Roadmap]] of epics) or `triage` (assess a request
+  *     into a [[Triage]] verdict).
   *
   * Every cell returns a [[WithChat]] — the result plus the chat that produced
   * it. A `WithChat[Plan]` can be continued read-only into [[Plan.reviewed]]
@@ -79,6 +80,18 @@ object Plan:
         getOrFail(r.toTriage)
       )
 
+    /** Split `userPrompt` into a [[Roadmap]] of epics, each planned into tasks
+      * later with [[from]] and [[Roadmap.epicPrompt]].
+      */
+    def roadmap(
+        userPrompt: String,
+        agent: Agent[?],
+        instructions: String = PlanPrompts.Roadmap
+    )(using FlowContext, InStage): WithChat[Roadmap] =
+      autonomousResult[Roadmap, Roadmap](agent, userPrompt, instructions)(
+        identity
+      )
+
   /** Interactive planning — opens a conversation the user can drive (clarifying
     * questions, refinements) before the agent produces the result. Not
     * read-only: the prompt is what forbids edits here, and the user sees any
@@ -110,6 +123,18 @@ object Plan:
     )(using FlowContext, InStage): WithChat[Triage] =
       interactiveResult[TriageReply, Triage](agent, report, instructions)(r =>
         getOrFail(r.toTriage)
+      )
+
+    /** Split `userPrompt` into a [[Roadmap]] of epics, able to ask clarifying
+      * questions first.
+      */
+    def roadmap(
+        userPrompt: String,
+        agent: Agent[?],
+        instructions: String = PlanPrompts.Roadmap
+    )(using FlowContext, InStage): WithChat[Roadmap] =
+      interactiveResult[Roadmap, Roadmap](agent, userPrompt, instructions)(
+        identity
       )
 
   /** Append the operation's instruction block to the caller's input. */
@@ -185,13 +210,25 @@ object Plan:
     def reviewed(
         instructions: String = PlanPrompts.Review,
         variant: Agent[?] => Agent[?] = identity
-    )(using @unused ctx: FlowContext, ev: InStage): WithChat[Plan] =
-      val improved = planned.chat
-        .withAgent(agent => variant(agent.withReadOnly))
-        .resultAs[Plan]
-        .autonomous
-        .run(s"$instructions\n\n${render(planned.value)}")
-      WithChat(planned.chat, improved)
+    )(using FlowContext, InStage): WithChat[Plan] =
+      reviewedResult(planned, instructions, variant, render(planned.value))
+
+  /** One self-review turn on `planned`'s chat: `rendered` is appended to
+    * `instructions`, and the turn runs on `variant` of the read-only chat
+    * agent. Shared by every `reviewed` extension.
+    */
+  private[plan] def reviewedResult[A: JsonData: Announce](
+      planned: WithChat[A],
+      instructions: String,
+      variant: Agent[?] => Agent[?],
+      rendered: String
+  )(using @unused ctx: FlowContext, ev: InStage): WithChat[A] =
+    val improved = planned.chat
+      .withAgent(agent => variant(agent.withReadOnly))
+      .resultAs[A]
+      .autonomous
+      .run(s"$instructions\n\n$rendered")
+    WithChat(planned.chat, improved)
 
   /** Empty plans render as nothing — surfacing "0 tasks planned" muddies the
     * picture; a planning failure is more useful as an explicit `fail(...)` from

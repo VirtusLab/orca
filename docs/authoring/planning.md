@@ -17,6 +17,9 @@ The operations are:
   It first assesses the prompt, then either continues with `Proceed(plan)` or
   returns a `Rejection`. Interactively, it can ask the user to clarify instead
   of rejecting.
+- `roadmap(userPrompt, agent, instructions?)` returns a `Roadmap`, which
+  splits a change too large for one plan into ordered epics. See
+  [Roadmaps](#roadmaps).
 - `triage(report, agent, instructions?)` returns a `Triage`, which classifies
   a bug report as not a bug, untestable, or testable. Interactively, it can ask
   clarifying questions.
@@ -65,6 +68,13 @@ val plan = Plan.autonomous.from(userPrompt, planningAgent).reviewed().value
 
 `.reviewed(variant = _.cheap)` runs the review turn on a variant of the
 planner's agent, for example its cheap model.
+
+## Roadmaps
+
+A roadmap is a `Roadmap(description, epics, brief)`, where each
+`Epic(title: Title, goal: String)` is planned into tasks only when its turn
+comes: `roadmap.epicPrompt(epic)` is the planning input for `from`, naming the
+epics already done. `.reviewed()` works on a `WithChat[Roadmap]` as on a plan.
 
 ## Verdicts and triage
 

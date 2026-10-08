@@ -394,6 +394,16 @@ object FlowCanary:
           case Triage.Accept(_, _, Triage.Kind.UntestableBug(_)) => ()
           case Triage.Accept(_, _, Triage.Kind.Change)           => ()
 
+        // --- roadmap → WithChat[Roadmap], both modes, plus its review ---
+        val autoRoadmap: WithChat[Roadmap] =
+          Plan.autonomous.roadmap(userPrompt, claude.opus).reviewed()
+        val intRoadmap: WithChat[Roadmap] =
+          Plan.interactive.roadmap(userPrompt, claude)
+        val _ = (
+          autoRoadmap.value.epicPrompt(autoRoadmap.value.epics.head),
+          intRoadmap.value.epics
+        )
+
   /** A helper function over the role agents needs no backend type parameter:
     * the plan, its review on an agent variant and the session each pass through
     * plain signatures.
