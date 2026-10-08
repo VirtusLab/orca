@@ -10,7 +10,7 @@ import ch.qos.logback.core.rolling.{
   SizeBasedTriggeringPolicy
 }
 import ch.qos.logback.core.util.{Duration, FileSize}
-import orca.{AttemptId, OrcaDir}
+import orca.{AttemptId, OrcaDir, RunKey}
 import org.slf4j.{Logger, LoggerFactory}
 
 import java.nio.charset.StandardCharsets.UTF_8
@@ -54,13 +54,14 @@ private[orca] final class OrcaLog private (
         t.setAdditive(true)
 
 private[orca] object OrcaLog:
-  /** Attach a DEBUG file appender writing attempt `id`'s trace log under
-    * `workDir` (`OrcaDir.traceLogPath`) and return the handle. Everything the
-    * `orca` loggers emit before this call is not in the trace.
+  /** Attach a DEBUG file appender writing attempt `id`'s trace log in the
+    * directory of the run keyed `key` (`OrcaDir.traceLogPath`) and return the
+    * handle. Everything the `orca` loggers emit before this call is not in the
+    * trace.
     */
-  def start(workDir: os.Path, id: AttemptId): OrcaLog =
-    val _ = OrcaDir.ensureAttempts(workDir)
-    val file = OrcaDir.traceLogPath(workDir, id)
+  def start(workDir: os.Path, key: RunKey, id: AttemptId): OrcaLog =
+    val _ = OrcaDir.ensureRunDir(workDir, key)
+    val file = OrcaDir.traceLogPath(workDir, key, id)
     loggerContext() match
       case Some(ctx) =>
         val encoder = new PatternLayoutEncoder
@@ -74,7 +75,7 @@ private[orca] object OrcaLog:
         appender.setName("orca-attempt-trace")
         appender.setFile(file.toString)
         appender.setEncoder(encoder)
-        capSize(ctx, appender, OrcaDir.traceLogRollPattern(workDir, id))
+        capSize(ctx, appender, OrcaDir.traceLogRollPattern(workDir, key, id))
         appender.start()
 
         val orcaLogger = ctx.getLogger("orca")

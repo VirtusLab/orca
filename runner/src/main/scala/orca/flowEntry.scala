@@ -175,8 +175,13 @@ def flow(
   // tool/subprocess call at DEBUG. It lives under `dir`, so resolving `dir` is
   // not traced.
   def startTrace(dir: os.Path, attemptId: AttemptId): OrcaLog =
-    val orcaLog = OrcaLog.start(dir, attemptId)
-    OrcaBanner.print(System.err, orcaLog.file)
+    val orcaLog = OrcaLog.start(dir, runKey, attemptId)
+    OrcaBanner.print(
+      System.err,
+      progress = OrcaDir.progressPath(dir, runKey),
+      events = OrcaDir.eventLogPath(dir, runKey),
+      trace = orcaLog.file
+    )
     flowLog.info("user prompt: {}", args.userPrompt)
     val where = args.target match
       case RunTarget.Worktree => s"$dir (worktree)"
