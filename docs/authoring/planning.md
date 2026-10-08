@@ -55,15 +55,17 @@ val WithChat(chat, plan) = Plan.autonomous.from(userPrompt, planningAgent)
 ## Reviewing the plan
 
 Given a `WithChat[Plan]`, `.reviewed()` refines the plan before implementing
-it: the planner reviews its own draft with read-only tools and returns an
-improved `Plan`. It chains naturally:
+it. A critic in a fresh conversation, which has not seen the planner's
+exploration, checks the plan against the request and the code. The planner then
+weighs the critique and returns an improved `Plan`. Both turns are read-only. It
+chains naturally:
 
 ```scala
 val plan = Plan.autonomous.from(userPrompt, planningAgent).reviewed().value
 ```
 
-`.reviewed(variant = _.cheap)` runs the review turn on a variant of the
-planner's agent, for example its cheap model.
+`.reviewed(variant = _.cheap)` runs both turns on a variant of the planner's
+agent, for example its cheap model.
 
 ## Roadmaps
 

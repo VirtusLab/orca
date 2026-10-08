@@ -27,8 +27,8 @@ import scala.annotation.unused
   *     into a [[Triage]] verdict).
   *
   * Every cell returns a [[WithChat]] — the result plus the chat that produced
-  * it. A `WithChat[Plan]` can be continued read-only into [[Plan.reviewed]]
-  * (self-critique), or discarded for a fresh implementer session.
+  * it. A `WithChat[Plan]` can be critiqued and revised with [[Plan.reviewed]],
+  * or discarded for a fresh implementer session.
   *
   * As a single case class it is a valid stage result (ADR 0018 §2.3) — the
   * progress log, not a plan file, is what resume reads.
@@ -155,8 +155,8 @@ object Plan:
     * Runs `NetworkOnly`: reads plus read-only network, so the planner can fetch
     * an issue/PR and verify external claims. How strongly each backend blocks
     * edits varies — see the enforcement matrix in `AGENTS.md`. Reviewers and
-    * the post-planning `reviewed` turn default to plain `withReadOnly` instead,
-    * with no network.
+    * the post-planning `reviewed` turns default to plain `withReadOnly`
+    * instead, with no network.
     */
   private def autonomousResult[O: JsonData: Announce, A](
       agent: Agent[?],
@@ -175,7 +175,7 @@ object Plan:
       .resultAs[O]
       .autonomous
       .run(withInstructions(input, instructions))
-    WithChat(chat, convert(raw))
+    WithChat(chat, convert(raw))(input)
 
   /** Interactive counterpart to [[autonomousResult]] — no per-turn restriction
     * (interactive planning runs with normal permissions, see [[interactive]]),
@@ -194,41 +194,56 @@ object Plan:
       .resultAs[O]
       .interactive
       .run(withInstructions(input, instructions))
-    WithChat(chat, convert(raw))
+    WithChat(chat, convert(raw))(input)
 
-  // `reviewed` resumes the planning chat read-only, reusing the planner's
-  // exploration. Defined here to keep it in the implicit scope of
-  // `WithChat[Plan]`.
+  // Defined here to keep `reviewed` in the implicit scope of `WithChat[Plan]`.
 
   extension (planned: WithChat[Plan])
-    /** Resume the planning conversation for a critical self-review, returning
-      * the improved plan (brief included) paired with the (same) chat. The
-      * review turn runs on `variant` of the read-only chat agent — the one the
-      * planning call was given — e.g. `_.cheap` or `_.withName("plan-review")`;
-      * the handed-back chat keeps the original binding.
+    /** Have the plan critiqued, then revised by its planner. The critic runs in
+      * a fresh conversation, so it judges the plan against the request and the
+      * code without the planner's assumptions; the planner then resumes its
+      * conversation, weighs each point, and returns the improved plan (brief
+      * included) paired with the (same) chat.
+      *
+      * Both turns run read-only on `variant` of the agent the planning call was
+      * given — e.g. `_.cheap` or `_.withName("plan-review")`; the handed-back
+      * chat keeps the original binding.
       */
     def reviewed(
-        instructions: String = PlanPrompts.Review,
+        critiqueInstructions: String = PlanPrompts.Critique,
+        reviseInstructions: String = PlanPrompts.Revise,
         variant: Agent[?] => Agent[?] = identity
     )(using FlowContext, InStage): WithChat[Plan] =
-      reviewedResult(planned, instructions, variant, render(planned.value))
+      critiqueThenRevise(
+        planned,
+        critiqueInstructions,
+        reviseInstructions,
+        variant,
+        render(planned.value)
+      )
 
-  /** One self-review turn on `planned`'s chat: `rendered` is appended to
-    * `instructions`, and the turn runs on `variant` of the read-only chat
-    * agent. Shared by every `reviewed` extension.
+  /** A critic in a fresh conversation judges `rendered` against the request;
+    * then `planned`'s own chat revises it. Both turns run on `variant` of the
+    * read-only agent. Shared by every `reviewed` extension.
     */
-  private[plan] def reviewedResult[A: JsonData: Announce](
+  private[plan] def critiqueThenRevise[A: JsonData: Announce](
       planned: WithChat[A],
-      instructions: String,
+      critiqueInstructions: String,
+      reviseInstructions: String,
       variant: Agent[?] => Agent[?],
       rendered: String
   )(using @unused ctx: FlowContext, ev: InStage): WithChat[A] =
+    val critique = variant(planned.chat.agent.withReadOnly)
+      .chat()
+      .run(
+        s"$critiqueInstructions\n\n# Request\n\n${planned.request}\n\n$rendered"
+      )
     val improved = planned.chat
       .withAgent(agent => variant(agent.withReadOnly))
       .resultAs[A]
       .autonomous
-      .run(s"$instructions\n\n$rendered")
-    WithChat(planned.chat, improved)
+      .run(s"$reviseInstructions\n\n# Critique\n\n$critique\n\n$rendered")
+    WithChat(planned.chat, improved)(planned.request)
 
   /** Empty plans render as nothing — surfacing "0 tasks planned" muddies the
     * picture; a planning failure is more useful as an explicit `fail(...)` from
@@ -245,8 +260,8 @@ object Plan:
       s"$header\n$body"
 
   /** Render a plan to markdown (tasks as plain bullets, the brief as a trailing
-    * `## Brief` section). Used by [[Plan.reviewed]] to feed the plan back into
-    * the self-review prompt, and usable as a human-readable summary. Never
+    * `## Brief` section). Used by [[Plan.reviewed]] to feed the plan to the
+    * critic and the planner, and usable as a human-readable summary. Never
     * parsed back — the progress log is the sole resume mechanism (ADR 0018
     * §2.8).
     */

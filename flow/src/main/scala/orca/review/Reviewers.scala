@@ -240,6 +240,7 @@ object ReviewerPrompts:
   val ScalaFp: Reviewer = load("scala-fp")
   val Security: Reviewer = load("security")
   val Simplicity: Reviewer = load("simplicity")
+  val SingleSource: Reviewer = load("single-source")
   val Test: Reviewer = load("test")
 
   /** Every reviewer the library ships with. Order matches how `allReviewers`
@@ -250,6 +251,7 @@ object ReviewerPrompts:
     Test,
     Readability,
     CodeStructure,
+    SingleSource,
     Simplicity,
     Performance,
     Security,

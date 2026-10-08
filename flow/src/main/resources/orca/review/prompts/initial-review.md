@@ -3,7 +3,9 @@ Task: {{taskTitle}}{{taskContext}}
 Review the change below — do NOT survey unrelated files in the project. Start
 from what the diff modifies, and follow it into the code that has to keep
 working now that it has changed: unchanged code is in scope precisely when the
-change alters what it can be handed.
+change alters what it can be handed. Your scope may name other code to read —
+such as other places that encode a fact the change touches; reading that is
+following the change, not surveying.
 
 {{diffIntro}}
 
@@ -41,7 +43,8 @@ looks wrong, report it as a finding against that choice — say which part of th
 task you mean.
 
 What the user asked for is what the work has to satisfy. Where that and what was
-planned differ, what the user asked for wins.
+planned differ, what the user asked for wins. Work that belongs to another task
+of the plan is not this review's to judge.
 
 ## Always report these
 

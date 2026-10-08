@@ -1,6 +1,7 @@
 package orca.plan
 
 import orca.events.EventDispatcher
+import orca.testkit.ScriptedBackend
 
 /** Runtime wiring of the autonomous planning grid: each operation pairs its
   * result with the producing chat, and `triage` converts the wire
@@ -92,7 +93,7 @@ class PlanGridTest extends munit.FunSuite:
   private def planned(reply: CannedResult[Plan]): WithChat[Plan] =
     val chat = reply.agent.chat()
     val _ = chat.resultAs[Plan].autonomous.run("plan")
-    WithChat(chat, samplePlan)
+    WithChat(chat, samplePlan)("the request")
 
   test("reviewed returns the improved plan on the original chat binding"):
     val improved = samplePlan.copy(description = "tighter", brief = "sharper")
@@ -103,6 +104,25 @@ class PlanGridTest extends munit.FunSuite:
       result.chat eq input.chat,
       "reviewed must hand back the original chat, not the review sibling's"
     )
+
+  test("reviewed critiques the plan in a fresh conversation"):
+    val reply = new CannedResult(samplePlan)
+    val input = planned(reply)
+    val _ = input.reviewed()
+    val critique = reply.turns(1)
+    assertNotEquals(critique.session, input.chat.id.value)
+    assertEquals(critique.tools, orca.agents.ToolSet.ReadOnly)
+    assert(critique.prompt.contains("the request"), critique.prompt)
+    assert(critique.prompt.contains(Plan.render(samplePlan)), critique.prompt)
+
+  test("reviewed hands the critique to the planning conversation"):
+    val reply = new CannedResult(samplePlan)
+    val input = planned(reply)
+    val _ = input.reviewed()
+    val critiqueOutput = ScriptedBackend.json(samplePlan)
+    val revise = reply.turns.last
+    assertEquals(revise.session, input.chat.id.value)
+    assert(revise.prompt.contains(critiqueOutput), revise.prompt)
 
   test("reviewed continues the planning conversation read-only"):
     val reply = new CannedResult(samplePlan)

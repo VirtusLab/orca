@@ -91,8 +91,9 @@ Plan.interactive.from(
 
 The prompt objects and the constants they hold are:
 
-- `orca.plan.PlanPrompts`: `Planning`, `Roadmap`, `RoadmapReview`, `Triage`,
-  `Review`
+- `orca.plan.PlanPrompts`: `Planning`, `Triage`, `Critique`, `Revise`,
+  `Roadmap`, `RoadmapCritique`, `RoadmapRevise`, `Reproduce`, `ReproduceRetry`,
+  `ReproductionCheck`
 - `orca.pr.PrPrompts`: `Summarise`
 - `orca.review.ReviewLoopPrompts`: `Fix`, `SelectReviewers`, `SummariseLint`
 - `orca.review.ReviewerPrompts`: the per-reviewer system prompts

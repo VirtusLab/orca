@@ -41,17 +41,23 @@ object Roadmap:
         roadmap.epics.map(e => s"  - ${e.title}").mkString("\n")
 
   extension (planned: WithChat[Roadmap])
-    /** Resume the roadmap chat for a critical self-review, returning the
-      * improved roadmap on the same chat. The review turn runs on `variant` of
-      * the read-only chat agent.
+    /** Have the roadmap critiqued in a fresh conversation, then revised by its
+      * planner, as `WithChat[Plan].reviewed` does for a plan.
       */
     def reviewed(
-        instructions: String = PlanPrompts.RoadmapReview,
+        critiqueInstructions: String = PlanPrompts.RoadmapCritique,
+        reviseInstructions: String = PlanPrompts.RoadmapRevise,
         variant: Agent[?] => Agent[?] = identity
     )(using FlowContext, InStage): WithChat[Roadmap] =
-      Plan.reviewedResult(planned, instructions, variant, render(planned.value))
+      Plan.critiqueThenRevise(
+        planned,
+        critiqueInstructions,
+        reviseInstructions,
+        variant,
+        render(planned.value)
+      )
 
-  /** Markdown for the self-review prompt; never parsed back. */
+  /** Markdown for the critique and revise prompts; never parsed back. */
   private def render(roadmap: Roadmap): String =
     val epics = roadmap.epics
       .map(e => s"\n## Epic: ${e.title}\n\n${e.goal.stripLineEnd}\n")

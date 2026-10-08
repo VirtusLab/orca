@@ -27,8 +27,8 @@ whole change.
 
 ## `epics.sc`
 
-For a change too large for one plan. The planner splits the prompt into epics
-and critiques that outline. Each epic is planned into tasks just before it
+For a change too large for one plan. The planner splits the prompt into epics;
+a separate critic reviews that outline and the planner revises it. Each epic is planned into tasks just before it
 runs, so it builds on the code earlier epics produced; its tasks are reviewed
 once each, and the epic as a whole in a loop. A documentation stage and a final
 review over the whole change follow.

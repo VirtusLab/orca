@@ -31,24 +31,28 @@ class RoadmapTest extends munit.FunSuite:
     assertEquals(Some(result.chat.id.value), canned.lastSession)
     assertEquals(canned.lastToolSet, Some(orca.agents.ToolSet.NetworkOnly))
 
-  test("reviewed continues the roadmap chat read-only"):
-    val improved = roadmap.copy(description = "tighter")
-    val reply = new CannedResult(improved)
+  /** `roadmap` on a planning chat whose agent answers `reply`. */
+  private def planned(reply: CannedResult[Roadmap]): WithChat[Roadmap] =
     val chat = reply.agent.chat()
     val _ = chat.resultAs[Roadmap].autonomous.run("plan")
-    val result = WithChat(chat, roadmap).reviewed()
-    assertEquals(result.value, improved)
-    assert(result.chat eq chat)
-    assertEquals(reply.lastSession, Some(chat.id.value))
-    assertEquals(reply.lastToolSet, Some(orca.agents.ToolSet.ReadOnly))
+    WithChat(chat, roadmap)("the request")
 
-  test("reviewed runs its variant of the read-only agent"):
+  test("reviewed returns the revised roadmap on the planning chat"):
+    val improved = roadmap.copy(description = "tighter")
+    val input = planned(new CannedResult(improved))
+    val result = input.reviewed()
+    assertEquals(result.value, improved)
+    assert(result.chat eq input.chat)
+
+  test("reviewed critiques the roadmap with the roadmap prompt"):
     val reply = new CannedResult(roadmap)
-    val onlyReads = orca.agents.AutoApprove.Only(Set("Read"))
-    val _ = WithChat(reply.agent.chat(), roadmap)
-      .reviewed(variant = _.withAutoApprove(onlyReads))
-    assertEquals(reply.lastAutoApprove, Some(onlyReads))
-    assertEquals(reply.lastToolSet, Some(orca.agents.ToolSet.ReadOnly))
+    val input = planned(reply)
+    val _ = input.reviewed()
+    val critique = reply.turns(1)
+    assertNotEquals(critique.session, input.chat.id.value)
+    assert(critique.prompt.startsWith(PlanPrompts.RoadmapCritique))
+    assert(critique.prompt.contains("the request"), critique.prompt)
+    assert(critique.prompt.contains("## Epic: Storage"), critique.prompt)
 
   test("Announce[Roadmap] lists the epics under a header"):
     val msg = summon[orca.agents.Announce[Roadmap]].message(roadmap).get

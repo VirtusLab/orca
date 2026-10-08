@@ -30,20 +30,36 @@ object PlanPrompts:
   val Triage: String =
     PromptResource.load("/orca/plan/prompts/triage.md")
 
+  /** Used by `WithChat[Plan].reviewed` for the critic, which has not seen the
+    * planning conversation. The request and the plan are appended after this
+    * block; the critic returns free-text findings.
+    */
+  val Critique: String =
+    PromptResource.load("/orca/plan/prompts/critique.md")
+
+  /** Used by `WithChat[Plan].reviewed` for the planner. The critique and the
+    * plan are appended after this block; the planner returns an improved plan,
+    * brief included.
+    */
+  val Revise: String =
+    PromptResource.load("/orca/plan/prompts/revise.md")
+
   /** Used by `Plan.{autonomous,interactive}.roadmap`: split the request into
     * ordered epics, with a shared brief.
     */
   val Roadmap: String = PromptResource.load("/orca/plan/prompts/roadmap.md")
 
-  /** Used by `WithChat[Roadmap].reviewed`; the roadmap is appended after it. */
-  val RoadmapReview: String =
-    PromptResource.load("/orca/plan/prompts/roadmap-review.md")
-
-  /** Used by `WithChat[Plan].reviewed`. The current plan is appended after this
-    * block; the agent returns an improved plan, brief included.
+  /** Used by `WithChat[Roadmap].reviewed` for the critic; the request and the
+    * roadmap are appended after it.
     */
-  val Review: String =
-    PromptResource.load("/orca/plan/prompts/review.md")
+  val RoadmapCritique: String =
+    PromptResource.load("/orca/plan/prompts/roadmap-critique.md")
+
+  /** Used by `WithChat[Roadmap].reviewed` for the planner; the critique and the
+    * roadmap are appended after it.
+    */
+  val RoadmapRevise: String =
+    PromptResource.load("/orca/plan/prompts/roadmap-revise.md")
 
   /** Used by [[reproduceBug]]: write the failing test. The test path is
     * appended after it.
