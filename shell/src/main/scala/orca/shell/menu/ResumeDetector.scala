@@ -1,4 +1,4 @@
-package orca.shell.resume
+package orca.shell.menu
 
 import orca.gitref.BranchName
 import orca.progress.{FlowSource, ProgressHeader, ProgressLog, ProgressScan}
@@ -8,7 +8,7 @@ import orca.util.JsonFile
 /** An unfinished flow run, byte-identically relaunchable: the flow script and
   * the exact prompt that started it (ADR 0021 §3 amendment).
   */
-private[shell] case class InterruptedRun(
+private[menu] case class InterruptedRun(
     flow: FlowSource,
     userPrompt: String,
     /** The branch the run works on, from the progress log's header. */
@@ -30,7 +30,7 @@ private[shell] case class InterruptedRun(
   * 0018), so the log's mere presence on the current branch IS the detection
   * signal. No exit-code bookkeeping needed.
   */
-private[shell] object ResumeDetector:
+private[menu] object ResumeDetector:
 
   /** The newest unfinished progress log's flow+prompt, or `None` when there is
     * nothing to offer: nothing found by the scan (see

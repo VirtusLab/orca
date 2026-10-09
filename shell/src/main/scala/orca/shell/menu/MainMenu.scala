@@ -1,6 +1,5 @@
 package orca.shell.menu
 
-import orca.shell.resume.InterruptedRun
 import orca.shell.ui.Choice
 import orca.util.TextUtil
 

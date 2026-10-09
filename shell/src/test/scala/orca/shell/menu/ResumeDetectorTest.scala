@@ -1,4 +1,4 @@
-package orca.shell.resume
+package orca.shell.menu
 
 import orca.{OrcaDir, RunKey, WorkspaceWrite}
 import orca.gitref.CommitHash

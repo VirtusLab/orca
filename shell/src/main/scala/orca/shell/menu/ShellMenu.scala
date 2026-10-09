@@ -3,7 +3,6 @@ package orca.shell.menu
 import org.jline.terminal.Terminal
 import orca.shell.{ScanDirs, ShellEnv, WorktreeScan}
 import orca.shell.actions.{ConfigSummary, EditAction, SessionAction, ViewAction}
-import orca.shell.resume.{InterruptedRun, ResumeDetector}
 import orca.shell.run.FlowLauncher
 import orca.shell.sessions.{
   AttemptListing,
