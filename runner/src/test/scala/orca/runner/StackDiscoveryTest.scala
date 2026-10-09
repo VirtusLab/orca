@@ -2,7 +2,7 @@ package orca.runner
 
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import orca.StackSettings
-import orca.agents.JsonData
+import orca.json.JsonData
 import orca.settings.{
   SettingsEntry,
   SettingsFile,

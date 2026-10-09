@@ -1,6 +1,6 @@
 package orca.review
 
-import orca.util.{TextUtil, TextWrap}
+import orca.util.TextUtil
 
 // Rendering of review outcomes into `Step`-body text for the event log.
 

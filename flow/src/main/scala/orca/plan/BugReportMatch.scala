@@ -1,6 +1,7 @@
 package orca.plan
 
-import orca.agents.{Announce, JsonData}
+import orca.agents.Announce
+import orca.json.JsonData
 
 /** The agent's verdict on whether a failing test's output reproduces the
   * original report. Used after the reproduction test runs, before any fix is

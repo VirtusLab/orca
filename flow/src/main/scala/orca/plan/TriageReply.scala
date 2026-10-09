@@ -1,6 +1,7 @@
 package orca.plan
 
-import orca.agents.{Announce, JsonData, schemaFromJsonData, codecFromJsonData}
+import orca.agents.Announce
+import orca.json.{JsonData, schemaFromJsonData, codecFromJsonData}
 
 /** Wire shape of a triage turn: a flat record whose `kind` names the outcome,
   * plus per-outcome fields. Flat rather than a discriminated union so the

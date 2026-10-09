@@ -14,7 +14,7 @@ package orca.backend
   * `<server>__<tool>` or the bare slug — and gemini must NOT match a name
   * merely containing the slug).
   */
-private[orca] final case class AskUserEchoes(ids: Set[String]):
+private[backend] final case class AskUserEchoes(ids: Set[String]):
 
   /** Remember `id` so the paired tool-result echo is dropped when it arrives.
     */
@@ -26,5 +26,5 @@ private[orca] final case class AskUserEchoes(ids: Set[String]):
   def consume(id: String): Option[AskUserEchoes] =
     Option.when(ids.contains(id))(AskUserEchoes(ids - id))
 
-private[orca] object AskUserEchoes:
+private[backend] object AskUserEchoes:
   val empty: AskUserEchoes = AskUserEchoes(Set.empty)

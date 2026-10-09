@@ -15,7 +15,7 @@ import ox.discard
   * thread, concurrent with iteration and more than once. [[tryExitCode]] is
   * read only after [[lines]] ends.
   */
-private[orca] trait StreamSource:
+private[backend] trait StreamSource:
   /** Primary lines in arrival order; the iterator ends when the source closes
     * (process EOF, or the connection closing). Blocks on `next()`.
     */
@@ -55,7 +55,7 @@ private[orca] trait StreamSource:
     */
   def tryExitCode: Option[Int]
 
-private[orca] object StreamSource:
+private[backend] object StreamSource:
   /** Adapt a spawned subprocess: stdout/stderr lines, SIGINT, and exit code. */
   def fromProcess(process: PipedCliProcess): StreamSource =
     new StreamSource:

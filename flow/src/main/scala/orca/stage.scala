@@ -5,10 +5,10 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
   writeToString
 }
 import orca.events.{OrcaEvent, StageOutcome}
-import orca.agents.JsonData
 import orca.gitref.CommitHash
+import orca.json.{JsonData, RawJson}
 import orca.progress.{StageEntry, StageStart}
-import orca.util.{RawJson, TextUtil}
+import orca.util.TextUtil
 import org.slf4j.LoggerFactory
 
 import scala.util.control.NonFatal

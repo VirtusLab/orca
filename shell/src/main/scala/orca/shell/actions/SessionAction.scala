@@ -6,8 +6,8 @@ import orca.shell.run.ChildTerminal
 import orca.shell.sessions.{ResumeCommand, SessionNaming, SessionSelection}
 import orca.shell.ui.ShellOutput
 import orca.subprocess.QuietProc
-import orca.tools.gemini.GeminiSessionList
-import orca.tools.pi.PiSessionStore
+import orca.backend.gemini.GeminiSessionList
+import orca.backend.pi.PiSessionStore
 
 import java.time.Instant
 import scala.util.Try

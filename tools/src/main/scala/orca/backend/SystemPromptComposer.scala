@@ -19,7 +19,7 @@ import orca.util.PromptResource
   * paragraph: the composed prompt joins pieces with blank lines, so a hard wrap
   * in the source file would put line breaks inside a rule.
   */
-private[orca] object SystemPromptComposer:
+private[backend] object SystemPromptComposer:
 
   /** Standing rule appended to every write-capable agent turn: orca's runtime
     * owns git, so the agent must never commit, push, or switch branches itself.

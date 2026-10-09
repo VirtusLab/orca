@@ -1,6 +1,6 @@
 package orca.gitref
 
-import orca.agents.JsonData
+import orca.json.JsonData
 
 /** A local branch name that satisfies `git check-ref-format --branch`, so it
   * reaches git as a branch and never as an option, a range or the pseudo-ref

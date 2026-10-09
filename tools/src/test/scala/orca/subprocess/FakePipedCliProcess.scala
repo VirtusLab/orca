@@ -1,7 +1,5 @@
 package orca.subprocess
 
-import orca.sweep.EnvCookie
-
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.atomic.{
   AtomicBoolean,

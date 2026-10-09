@@ -1,6 +1,6 @@
 package orca.tools
 
-import orca.agents.JsonData
+import orca.json.JsonData
 
 /** A handle to an open pull request. `host` is the bare GitHub hostname the PR
   * lives on — `github.com` or a GitHub Enterprise hostname — and every gh call

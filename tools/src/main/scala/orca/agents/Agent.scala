@@ -3,6 +3,7 @@ package orca.agents
 import orca.InStage
 import orca.backend.{AgentBackend, AgentResult, Interaction}
 import orca.events.{OrcaEvent, OrcaListener}
+import orca.json.JsonData
 import orca.util.TextUtil
 import org.slf4j.LoggerFactory
 import ox.tap

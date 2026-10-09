@@ -11,9 +11,10 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.{
   ConfiguredJsonValueCodec
 }
 import orca.{AttemptId, StagePath}
-import orca.agents.{BackendTag, JsonData, SessionKey}
+import orca.agents.{BackendTag, SessionKey}
 import orca.events.{Cost, StageOutcome}
 import orca.gitref.BranchName
+import orca.json.JsonData
 
 import java.time.Instant
 

@@ -1,0 +1,126 @@
+package orca.backend.gemini
+
+import orca.agents.{
+  AutoApprove,
+  BackendTag,
+  AgentConfig,
+  Model,
+  WireSessionId,
+  ToolSet
+}
+
+class GeminiArgsTest extends munit.FunSuite:
+
+  test("headless emits gemini -p <prompt> --output-format stream-json"):
+    val args = GeminiArgs.headless("summarize", AgentConfig())
+    assertEquals(args.head, "gemini")
+    assert(
+      args.containsSlice(Seq("--output-format", "stream-json")),
+      args.toString
+    )
+    assert(args.containsSlice(Seq("-p", "summarize")), args.toString)
+
+  test("headless passes --skip-trust so headless runs in an untrusted dir"):
+    // Without it gemini refuses to run in a non-trusted folder (exit 55) and
+    // silently overrides --approval-mode back to "default".
+    val args = GeminiArgs.headless("x", AgentConfig())
+    assert(args.contains("--skip-trust"), args.toString)
+
+  test("headless passes --model when AgentConfig.model is set"):
+    val args = GeminiArgs.headless(
+      "x",
+      AgentConfig().copy(model = Some(Model("gemini-2.5-flash")))
+    )
+    assert(args.containsSlice(Seq("--model", "gemini-2.5-flash")))
+
+  test("AutoApprove.All maps to --approval-mode yolo"):
+    val args = GeminiArgs.headless(
+      "x",
+      AgentConfig().copy(autoApprove = AutoApprove.All)
+    )
+    assert(args.containsSlice(Seq("--approval-mode", "yolo")), args.toString)
+
+  test("AutoApprove.Only widens to --approval-mode yolo"):
+    // Gemini has no per-tool CLI allowlist; Only(_) widens to yolo so headless
+    // turns progress instead of blocking on an approval no one can answer (ADR
+    // 0015).
+    val args = GeminiArgs.headless(
+      "x",
+      AgentConfig().copy(autoApprove = AutoApprove.Only(Set("Bash")))
+    )
+    assert(args.containsSlice(Seq("--approval-mode", "yolo")), args.toString)
+    assert(!args.contains("plan"))
+
+  test(
+    "ToolSet.ReadOnly maps to --approval-mode plan and overrides autoApprove"
+  ):
+    val args = GeminiArgs.headless(
+      "x",
+      AgentConfig().copy(
+        tools = ToolSet.ReadOnly,
+        autoApprove = AutoApprove.All
+      )
+    )
+    assert(args.containsSlice(Seq("--approval-mode", "plan")), args.toString)
+    assert(!args.containsSlice(Seq("--approval-mode", "yolo")))
+
+  test("ToolSet.NetworkOnly stays in plan mode and pre-approves web_fetch"):
+    val args =
+      GeminiArgs.headless(
+        "x",
+        AgentConfig().copy(tools = ToolSet.NetworkOnly)
+      )
+    assert(args.containsSlice(Seq("--approval-mode", "plan")), args.toString)
+    assert(
+      args.containsSlice(Seq("--allowed-tools", "web_fetch")),
+      args.toString
+    )
+
+  test("ToolSet.NoTools stays in plan mode and allows no real MCP server"):
+    val args =
+      GeminiArgs.headless("x", AgentConfig().copy(tools = ToolSet.NoTools))
+    assert(args.containsSlice(Seq("--approval-mode", "plan")), args.toString)
+    assert(
+      args.containsSlice(
+        Seq("--allowed-mcp-server-names", "orca-no-mcp-servers")
+      ),
+      args.toString
+    )
+
+  test("resume builds gemini ... --resume <id> with the prompt"):
+    val sid = WireSessionId[BackendTag.Gemini.type]("uuid-123")
+    val args = GeminiArgs.resume(sid, "next step", AgentConfig())
+    assertEquals(args.head, "gemini")
+    assert(args.containsSlice(Seq("--resume", "uuid-123")), args.toString)
+    assert(args.containsSlice(Seq("-p", "next step")), args.toString)
+
+  test("resume re-emits --approval-mode plan for ToolSet.ReadOnly"):
+    // Backs the Fresh == Resumed claim in GeminiArgs.enforcementCell.
+    val sid = WireSessionId[BackendTag.Gemini.type]("sid")
+    val args =
+      GeminiArgs.resume(sid, "x", AgentConfig().copy(tools = ToolSet.ReadOnly))
+    assert(args.contains("--resume"), args.toString)
+    assert(args.containsSlice(Seq("--approval-mode", "plan")), args.toString)
+
+  test("resume re-emits --allowed-tools web_fetch for ToolSet.NetworkOnly"):
+    // Without it a resumed planner loses its only network read.
+    val sid = WireSessionId[BackendTag.Gemini.type]("sid")
+    val args = GeminiArgs.resume(
+      sid,
+      "x",
+      AgentConfig().copy(tools = ToolSet.NetworkOnly)
+    )
+    assert(args.contains("--resume"), args.toString)
+    assert(
+      args.containsSlice(Seq("--allowed-tools", "web_fetch")),
+      args.toString
+    )
+
+  test("resume propagates --model when AgentConfig.model is set"):
+    val sid = WireSessionId[BackendTag.Gemini.type]("sid")
+    val args = GeminiArgs.resume(
+      sid,
+      "x",
+      AgentConfig().copy(model = Some(Model("gemini-2.5-pro")))
+    )
+    assert(args.containsSlice(Seq("--model", "gemini-2.5-pro")))

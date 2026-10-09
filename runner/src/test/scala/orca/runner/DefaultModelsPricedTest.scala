@@ -5,9 +5,9 @@ import orca.backend.AgentWiring
 import orca.events.{OrcaListener, Pricing}
 import orca.testkit.TestAgent
 import orca.testkit.Usages.usage
-import orca.tools.claude.ClaudeAgents
-import orca.tools.codex.CodexAgents
-import orca.tools.gemini.GeminiAgents
+import orca.backend.claude.ClaudeAgents
+import orca.backend.codex.CodexAgents
+import orca.backend.gemini.GeminiAgents
 
 /** The pins live in the backend modules, the price table in flow — neither side
   * can check on its own that a wired default turn is priceable. Gemini matters

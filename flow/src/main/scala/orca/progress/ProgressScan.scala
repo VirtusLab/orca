@@ -1,7 +1,7 @@
 package orca.progress
 
 import orca.OrcaDir
-import orca.util.JsonFile
+import orca.json.JsonFile
 
 /** A progress log found by [[ProgressScan.progressLogs]]: its path plus the
   * header it parsed cleanly to.

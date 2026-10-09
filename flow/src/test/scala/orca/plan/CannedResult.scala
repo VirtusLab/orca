@@ -1,6 +1,7 @@
 package orca.plan
 
-import orca.agents.{Agent, AutoApprove, BackendTag, JsonData, ToolSet}
+import orca.agents.{Agent, AutoApprove, BackendTag, ToolSet}
+import orca.json.JsonData
 import orca.testkit.{ScriptedBackend, TestAgent}
 
 /** An agent whose every structured turn answers `value`, recording the tool

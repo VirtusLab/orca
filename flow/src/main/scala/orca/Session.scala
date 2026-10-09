@@ -9,12 +9,12 @@ import orca.agents.{
   WireSessionId,
   AgentInput,
   Announce,
-  JsonData,
   PromptEvent
 }
 import orca.backend.{Dispatch, ResumeOrigin}
 import orca.events.OrcaEvent
 import orca.gitref.CommitHash
+import orca.json.JsonData
 import orca.progress.ProgressLog
 import orca.sessions.SessionRecord
 import orca.util.PromptResource

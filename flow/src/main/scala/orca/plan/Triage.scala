@@ -1,6 +1,7 @@
 package orca.plan
 
-import orca.agents.{Announce, JsonData, schemaFromJsonData, codecFromJsonData}
+import orca.agents.Announce
+import orca.json.{JsonData, schemaFromJsonData, codecFromJsonData}
 
 /** Outcome of triaging a request — a bug report, a feature request, or any
   * other ask — against the codebase. `Reject` carries the reply to send back to

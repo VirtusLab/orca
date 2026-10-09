@@ -1,6 +1,5 @@
 package orca.subprocess
 
-import orca.sweep.EnvCookie
 import orca.testkit.ProcessProbe.{alive, awaitDead, awaitTrue}
 import orca.testkit.TempDirs
 import ox.discard

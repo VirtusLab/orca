@@ -36,7 +36,7 @@ Some tests shell out to real external tools and skip by default:
 
 ```bash
 ORCA_INTEGRATION=1 sbt test
-ORCA_INTEGRATION=1 sbt "claude/testOnly orca.tools.claude.ClaudeIntegrationTest"
+ORCA_INTEGRATION=1 sbt "claude/testOnly orca.backend.claude.ClaudeIntegrationTest"
 ORCA_INTEGRATION=1 sbt "tools/testOnly orca.tools.OsGitHubIntegrationTest"
 ORCA_INTEGRATION=1 sbt publishLocal "shell/testOnly *BuiltInFlowsCompileTest"
 ORCA_INTEGRATION=1 sbt publishLocal "runner/testOnly *ScalaCliSmokeTest"
@@ -44,7 +44,7 @@ ORCA_INTEGRATION=1 sbt publishLocal "runner/testOnly *ScalaCliSmokeTest"
 
 | Suite | Needs |
 |---|---|
-| `{Claude,Codex,Gemini,Opencode,Pi}IntegrationTest` (one per `orca.tools.<backend>`) | that backend's CLI authenticated |
+| `{Claude,Codex,Gemini,Opencode,Pi}IntegrationTest` (one per `orca.backend.<backend>`) | that backend's CLI authenticated |
 | `OsGitHubIntegrationTest` | `gh` authenticated |
 | `BuiltInFlowsCompileTest`, `FlowAuthoringSmokeTest` | `scala-cli`, and a `publishLocal` in the same sbt invocation |
 | `ScalaCliSmokeTest` | the above, plus `claude` authenticated — it starts a real flow |

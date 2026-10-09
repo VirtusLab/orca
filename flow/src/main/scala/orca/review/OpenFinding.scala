@@ -1,6 +1,7 @@
 package orca.review
 
-import orca.agents.{Announce, JsonData, given}
+import orca.agents.Announce
+import orca.json.{JsonData, given}
 import orca.plan.Title
 import orca.util.TextUtil
 

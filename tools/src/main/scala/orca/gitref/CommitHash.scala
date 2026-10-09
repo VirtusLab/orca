@@ -1,6 +1,6 @@
 package orca.gitref
 
-import orca.agents.JsonData
+import orca.json.JsonData
 
 /** A git commit hash that has passed the shape check, so what carries it can't
   * be confused with an arbitrary string.

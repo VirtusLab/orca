@@ -4,11 +4,11 @@ import orca.agents.{AutoApprove, BackendTag, Enforcement, ToolSet, TurnDispatch}
 import orca.backend.AgentBackend
 import orca.events.OrcaListener
 import orca.subprocess.StubCliRunner
-import orca.tools.claude.ClaudeBackend
-import orca.tools.codex.CodexBackend
-import orca.tools.gemini.GeminiBackend
-import orca.tools.opencode.OpencodeBackend
-import orca.tools.pi.PiBackend
+import orca.backend.claude.ClaudeBackend
+import orca.backend.codex.CodexBackend
+import orca.backend.gemini.GeminiBackend
+import orca.backend.opencode.OpencodeBackend
+import orca.backend.pi.PiBackend
 
 import ox.supervised
 import orca.testkit.{RepoRoot, TempDirs}

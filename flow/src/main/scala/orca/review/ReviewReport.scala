@@ -1,6 +1,6 @@
 package orca.review
 
-import orca.agents.{JsonData, given}
+import orca.json.{JsonData, given}
 import orca.plan.Task
 
 // Not under capture checking: `derives JsonData` expands tapir's Schema macro,

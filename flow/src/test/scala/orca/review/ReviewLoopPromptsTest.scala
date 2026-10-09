@@ -1,7 +1,8 @@
 package orca.review
 
-import orca.agents.{AgentInput, given}
+import orca.agents.{AgentInput, JsonSchemaGen}
 import orca.gitref.CommitHash
+import orca.json.given
 import orca.plan.{Task, Title}
 import orca.review.diff.{
   DiffCoverage,
@@ -10,7 +11,7 @@ import orca.review.diff.{
   LastSent,
   ReReviewChanges
 }
-import orca.util.{JsonSchemaGen, TextUtil}
+import orca.util.TextUtil
 
 import scala.compiletime.constValueTuple
 import scala.deriving.Mirror

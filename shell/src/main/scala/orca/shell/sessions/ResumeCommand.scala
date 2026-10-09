@@ -25,7 +25,7 @@ private[shell] object ResumeCommand:
   /** Left = not resumable: [[staticGate]]'s checks, plus whatever the caller's
     * live lookups report — gemini's `geminiIndex` (it resumes by index, not by
     * uuid, so the caller looks the wire id up in
-    * [[orca.tools.gemini.GeminiSessionList]]) and pi's `piSessionDir` (its
+    * [[orca.backend.gemini.GeminiSessionList]]) and pi's `piSessionDir` (its
     * transcripts live on disk;
     * [[orca.shell.actions.SessionAction.piSessionDir]] resolves the path or
     * says why it can't). Each lookup is a function invoked only by its own
