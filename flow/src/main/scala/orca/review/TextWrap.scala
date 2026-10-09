@@ -1,4 +1,4 @@
-package orca.util
+package orca.review
 
 /** Word-wrapping helper for multi-line event-log messages (review comments
   * etc.), with a hanging indent on continuation lines.
@@ -8,7 +8,7 @@ package orca.util
   * wanting a different width post-process. The default 76 columns leaves room
   * for the `▶ ` glyph at typical stage-depth indents.
   */
-private[orca] object TextWrap:
+private[review] object TextWrap:
 
   /** Wrap `s` to `maxWidth` characters, breaking at whitespace. Continuation
     * lines are prefixed with `continuation`. Existing `\n`s are respected —

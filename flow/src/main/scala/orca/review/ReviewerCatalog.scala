@@ -2,7 +2,7 @@ package orca.review
 
 import orca.OrcaFlowException
 import orca.discovery.{Origin, TierPrecedence, TierWinner}
-import orca.util.{ParsedPrompt, PromptResource, TextUtil}
+import orca.util.TextUtil
 
 /** The two tiers a reviewer `.md` file can be discovered in. `BuiltIn` is not
   * one of them: the shipped set is read from the classpath, never from a
@@ -216,8 +216,7 @@ object ReviewerCatalog:
   private def read(
       path: os.Path
   ): Either[ReviewerPromptFailure, ReviewerFile] =
-    try
-      Right(ReviewerFile(path, PromptResource.parseWithMetadata(os.read(path))))
+    try Right(ReviewerFile(path, ParsedPrompt.parse(os.read(path))))
     catch
       case e: java.io.IOException =>
         Left(

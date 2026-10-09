@@ -2,7 +2,6 @@ package orca.review
 
 import orca.{FlowContext, OrcaFlowException}
 import orca.agents.{BackendTag, Agent}
-import orca.util.{ParsedPrompt, PromptResource}
 
 import ox.either
 import ox.either.ok
@@ -228,7 +227,7 @@ object ReviewerPrompts:
     val path = s"/orca/review/prompts/reviewers/$slug.md"
     reviewerFrom(
       ReviewerSlug(slug),
-      PromptResource.loadWithMetadata(path),
+      ParsedPrompt.load(path),
       path
     )
       .fold(f => throw new RuntimeException(f.message), identity)
