@@ -50,7 +50,7 @@ object ReviewerSelector:
 
   /** Identity the picker's turn is billed under, beside the reviewers it
     * selects (`lint` is the other such non-reviewer under that role). It is a
-    * whole turn per loop, so it gets its own line in the attempt's cost log
+    * whole turn per loop, so it gets its own `Turn` in the run's event log
     * rather than disappearing into the review agent's own spend.
     */
   private[review] val PickerName: String = "picker"

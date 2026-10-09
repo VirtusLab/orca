@@ -53,7 +53,7 @@ class PiIntegrationTest extends munit.FunSuite:
       )
 
     // A second instance stands in for the next orca run: the wire id comes back
-    // from the attempt manifest, and only Pi's on-disk session dir carries context.
+    // from the run's event log, and only Pi's on-disk session dir carries context.
     val next = PiBackend.create(OsProcCliRunner, workDir = workDir)
     next.sessions.rehydrate(session, session.onWire)
     assertEquals(

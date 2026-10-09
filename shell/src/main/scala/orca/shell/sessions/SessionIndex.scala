@@ -1,6 +1,7 @@
 package orca.shell.sessions
 
 import orca.agents.SessionKey
+import orca.gitref.BranchName
 
 /** What makes two recorded sessions the same durable conversation. Flow session
   * keys are static ("implementer" on the same task in every run), so the key
@@ -12,7 +13,7 @@ import orca.agents.SessionKey
   */
 private[shell] case class LineageKey(
     workDir: String,
-    branch: Option[String],
+    branch: Option[BranchName],
     agent: String,
     minted: SessionKey
 )
@@ -22,7 +23,7 @@ private[shell] object LineageKey:
   /** The lineage `s` belongs to; `None` for an ephemeral session. */
   def of(s: SessionSelection): Option[LineageKey] =
     s.session.minted.map(
-      LineageKey(s.manifest.workDir, s.manifest.branch, s.session.agent, _)
+      LineageKey(s.attempt.workDir, s.attempt.branch, s.session.agent, _)
     )
 
 /** Every recorded session, grouped the way `continue` offers them (ADR 0021
@@ -87,7 +88,7 @@ private[shell] case class SessionIndex private (
       selector: String
   ): Either[String, SessionSelection] =
     val byName = latest.filter(_.session.minted.exists(_.name == selector))
-    val byBranch = latest.filter(_.manifest.branch.contains(selector))
+    val byBranch = latest.filter(_.attempt.branch.exists(_.value == selector))
     (byName, byBranch) match
       case (Nil, Nil) =>
         Left(
@@ -109,7 +110,7 @@ private[shell] case class SessionIndex private (
     // within one of those, lineages differ only by their minting stage — a path
     // id no user should have to spell out — so `continue <name>` takes the most
     // recent, as it does when there is only one.
-    val contexts = matches.map(s => (s.manifest.workDir, s.session.agent))
+    val contexts = matches.map(s => (s.attempt.workDir, s.session.agent))
     if contexts.distinct.sizeIs > 1 then
       val agents = matches.map(_.session.agent).distinct
       // Same name in two worktrees matches on one agent, so naming agents alone
@@ -130,7 +131,7 @@ private[shell] case class SessionIndex private (
   ): Either[String, SessionSelection] =
     // One branch in two working directories is two unrelated runs (harness
     // sessions are cwd-scoped), so the newest of them would be a guess.
-    if matches.map(_.manifest.workDir).distinct.sizeIs > 1 then
+    if matches.map(_.attempt.workDir).distinct.sizeIs > 1 then
       Left(
         SessionIndex.ambiguity(
           selector = branch,
@@ -161,10 +162,10 @@ private[shell] object SessionIndex:
     val all =
       for
         attempt <- attempts
-        (session, i) <- attempt.manifest.sessions.zipWithIndex
+        (session, i) <- attempt.record.sessions.zipWithIndex
       yield SessionSelection(
         SessionRef(attempt.id, i + 1),
-        attempt.manifest,
+        attempt.record,
         session,
         attempt.observedStatus
       )
@@ -183,7 +184,7 @@ private[shell] object SessionIndex:
     sessions.sortBy(_.session.lastActiveAt).reverse
 
   private def workDirsOf(matches: List[SessionSelection]): String =
-    s"working directories: ${matches.map(_.manifest.workDir).distinct.mkString(", ")}"
+    s"working directories: ${matches.map(_.attempt.workDir).distinct.mkString(", ")}"
 
   /** Why a selector won't guess between the contexts named by `where`, and what
     * to do instead.

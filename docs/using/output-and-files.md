@@ -49,17 +49,71 @@ state:
 In these paths, `<key>` is derived from the prompt and `<id>` from the
 attempt's start time and pid. Under `.orca/cache/` you will find:
 
-- `runs/<key>.sessions.json`: a run's durable session records.
-- `attempts/<id>.manifest.json`: the attempt's sessions and status. This is
-  what [`orca continue`](shell.md) lists.
-- `attempts/<id>.cost.jsonl`: one line per agent turn, with the agent, role,
-  model, stage, token usage and cost. This is the per-agent and per-model
-  detail that the closing summary leaves out.
-- `attempts/<id>.trace.log`: a DEBUG trace with prompts, agent output and tool
-  calls. Its path is printed at the start of a run, and it rolls over at 4 MB.
+- `runs/<key>/events.jsonl`: the run's event log, described below. This is
+  what [`orca continue`](shell.md) lists sessions from.
+- `runs/<key>/<id>.trace.log`: a DEBUG trace with prompts, agent output and
+  tool calls. It rolls over at 4 MB, to `<id>.trace.1.log`.
 
-The cache is safe to delete. Attempt files are pruned to the newest 20 that
-recorded a session, plus the newest 20 of any kind.
+Each attempt starts by printing the paths of its run's progress log and event
+log and its own trace log:
+
+```text
+Orca <version>
+  progress: <path to progress log>
+  events:   <path to event log>
+  trace:    <path to trace log>
+```
+
+The cache is safe to delete. At the start of each attempt, run directories are
+pruned to the newest 20 that recorded a session, plus the newest 20 of any
+kind. A run with sessions recorded after its last success may still be resumed,
+so it is never pruned. Trace logs are kept for the newest 40 attempts across
+all runs.
+
+### The event log
+
+The event log is append-only, with one JSON object per line. A run of the same
+prompt appends to the same file. Every line has:
+
+- `type`: the event type, e.g. `"Turn"`;
+- `at`: an ISO-8601 instant;
+- `attempt`: the attempt's `<id>`.
+
+A `stage` field is a stage path: a JSON array of `{"name", "occurrence"}`
+segments, outermost first. On `SessionCommitted` and `Turn` it is the
+innermost open stage, and is absent outside any stage. Fields marked `?` are
+optional (absent or `null`).
+
+| `type` | Fields | Written when |
+|---|---|---|
+| `AttemptStarted` | `schema`, `orcaVersion`, `flow?`, `workDir`, `pid`, `trace?` (path of the trace log) | the attempt starts |
+| `BranchBound` | `branch` | the run's feature branch is known |
+| `StageStarted` | `stage` | a stage starts |
+| `StageEnded` | `stage`, `outcome` (`Completed` / `Failed` / `Replayed`) | a stage ends |
+| `SessionMinted` | `name`, `stage`, `id`, `seed`, `backend` | `agent.session(name, seed)` creates a durable session |
+| `SessionWireId` | `id`, `wireId` | a durable session learns the id its backend resumes it by |
+| `SessionCommitted` | `backend`, `wireId?`, `conversationKey`, `agent`, `role?`, `minted?` (`{name, stage}`), `stage?` | after each agent turn, repeats included |
+| `Turn` | `agent`, `role?`, `model?`, `stage?`, `turn`, `apiCalls?`, `usage`, `cost?`, `conversationKey` | an agent turn reports its token usage |
+| `RunSucceeded` | `branch`, `published?` (the PR/MR reference) | the run succeeds |
+| `AttemptFinished` | `outcome` (`Succeeded` / `Failed`) | the attempt ends |
+
+A successful attempt writes `RunSucceeded` and then `AttemptFinished`. Only
+sessions minted after the last `RunSucceeded` are resumed. An attempt without
+`AttemptFinished` whose process is gone crashed.
+
+The format is public. `schema` on `AttemptStarted` starts at `1`. Within one
+schema number, changes are additive only: new event types and new optional
+fields. Readers should ignore unknown types and fields, and skip a line that
+does not parse (a crash can leave a torn last line).
+
+For example, the total cost of a run:
+
+```bash
+jq -s 'map(select(.type == "Turn") | .cost.amount // 0) | add' events.jsonl
+```
+
+A `Turn` with `cost: null` was not priced and is not in the sum. If any
+`Turn` has an `Estimated` cost basis, the sum is an estimate.
 
 ```{note}
 If your `.gitignore` covers all of `.orca/`, every attempt warns you to remove

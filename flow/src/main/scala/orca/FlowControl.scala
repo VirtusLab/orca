@@ -44,8 +44,8 @@ trait FlowControl extends caps.ExclusiveCapability:
     */
   def progressStore: ProgressStore
 
-  /** The store backing this run's durable session records — the machine-local
-    * half, in `.orca/cache/` (see [[orca.sessions.SessionStore]]).
+  /** This run's durable session records — the machine-local half, kept in the
+    * run's event log in `.orca/cache/` (see [[orca.sessions.SessionStore]]).
     */
   def sessionStore: SessionStore
 

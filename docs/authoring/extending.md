@@ -47,7 +47,7 @@ The parameters are:
 - `gh`, `fs`: your own tool implementations, for example `gh = Some(myGh)`.
 - `prompts`: the per-call prompt wrappers (autonomous, interactive, retry), as
   one set.
-- `pricing`: the price table that the cost log and the closing summary use.
+- `pricing`: the price table that the event log and the closing summary use.
 
 ## Replacing an agent
 

@@ -31,7 +31,7 @@ private[orca] object PiSessionStore:
 
   /** The dir pi writes `id`'s transcripts into, or `None` when `id` is not a
     * usable directory name. Ids orca mints always are; the check is for ids
-    * read back from a manifest or progress log, which are files on disk that
+    * read back from an event log or progress log, which are files on disk that
     * could have been hand-edited into a path that escapes the store.
     */
   def dirFor(workDir: os.Path, id: String): Option[os.Path] =

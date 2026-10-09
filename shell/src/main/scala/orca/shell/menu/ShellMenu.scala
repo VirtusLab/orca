@@ -1,13 +1,13 @@
 package orca.shell.menu
 
 import org.jline.terminal.Terminal
-import orca.shell.{ShellEnv, WorktreeScan}
+import orca.shell.{ScanDirs, ShellEnv, WorktreeScan}
 import orca.shell.actions.{ConfigSummary, EditAction, SessionAction, ViewAction}
 import orca.shell.resume.{InterruptedRun, ResumeDetector}
 import orca.shell.run.FlowLauncher
 import orca.shell.sessions.{
   AttemptListing,
-  ManifestReader,
+  ContinuableAttempts,
   ObservedStatus,
   SessionIndex,
   SessionPicker
@@ -29,32 +29,25 @@ private[shell] case class MenuContext(
 private[shell] object ShellMenu:
 
   /** Runs the main menu until Exit is chosen or the top-level prompt is
-    * cancelled (Ctrl-C / EOF). Continue a session re-reads
-    * `.orca/cache/attempts/` on every redraw (ADR 0021 §8) — a flow run started
-    * from this same menu can only have just finished, so the freshest listing
-    * is worth the re-read. `ResumeDetector.detect` is likewise re-evaluated
+    * cancelled (Ctrl-C / EOF). Continue a session's count is re-read from the
+    * runs' event logs on every redraw (ADR 0021 §8) — a flow run started from
+    * this same menu can only have just finished — and the full listing only
+    * when the item is chosen. `ResumeDetector.detect` is likewise re-evaluated
     * every redraw (ADR 0021 §3 amendment). Both scans share ONE
     * `WorktreeScan.dirs` resolution — the discovery is a git subprocess or two,
     * and nothing between them can change the answer — over a bounded set of
-    * directories, so a redraw stays cheap enough to repeat and consistent with
-    * Continue's own re-read. Re-discovering per redraw is the point: a
-    * `--worktree` run started from this very menu creates a worktree that was
-    * not there when the shell started. The `branch:` line
-    * ([[ConfigSummary.branchLine]]) is printed here for the same reason: a flow
-    * run started from this menu can leave HEAD on a new branch, so it is
-    * re-read per redraw rather than printed once with the startup summary.
+    * directories, so a redraw stays cheap enough to repeat. Re-discovering per
+    * redraw is the point: a `--worktree` run started from this very menu
+    * creates a worktree that was not there when the shell started. The
+    * `branch:` line ([[ConfigSummary.branchLine]]) is printed here for the same
+    * reason: a flow run started from this menu can leave HEAD on a new branch,
+    * so it is re-read per redraw rather than printed once with the startup
+    * summary.
     */
   @tailrec def loop(context: MenuContext)(using env: ShellEnv): Unit =
     val scanDirs = WorktreeScan.dirs(env.workDir)
-    val AttemptListing(attempts, warnings) =
-      ManifestReader.list(
-        scanDirs.own,
-        scanDirs.worktrees,
-        ObservedStatus.processAlive
-      )
-    warnings.foreach(ShellOutput.info)
     val continueSessionCount =
-      attempts.headOption.map(_.manifest.sessions.size)
+      ContinuableAttempts.newestSessionCount(scanDirs.own, scanDirs.worktrees)
     val resumeOffer = ResumeDetector.detect(scanDirs.all)
     ConfigSummary.branchLine(env.workDir).foreach(ShellOutput.info)
     context.ui.select(
@@ -63,14 +56,14 @@ private[shell] object ShellMenu:
     ) match
       case UiOutcome.Cancelled | UiOutcome.Selected(MenuItem.Exit) => ()
       case UiOutcome.Selected(item) =>
-        handle(item, context, resumeOffer, SessionIndex.of(attempts))
+        handle(item, context, resumeOffer, scanDirs)
         loop(context)
 
   private def handle(
       item: MenuItem,
       context: MenuContext,
       resumeOffer: Option[InterruptedRun],
-      sessions: SessionIndex
+      scanDirs: ScanDirs
   )(using ShellEnv): Unit =
     import context.{terminal, ui}
     val spawnEditor: SpawnEditor = EditAction.editInPlace
@@ -98,8 +91,20 @@ private[shell] object ShellMenu:
       case MenuItem.ForkFlow =>
         AuthoringMenu.createForkFlow(ui, terminal, spawnEditor)
       case MenuItem.ContinueSession =>
-        continueSession(ui, terminal, sessions, expanded = false)
+        continueSession(ui, terminal, sessionIndex(scanDirs), expanded = false)
       case MenuItem.Exit => ()
+
+  /** Every continuable session in `scanDirs`, printing the listing's warnings.
+    */
+  private def sessionIndex(scanDirs: ScanDirs): SessionIndex =
+    val AttemptListing(attempts, warnings) =
+      ContinuableAttempts.list(
+        scanDirs.own,
+        scanDirs.worktrees,
+        ObservedStatus.processAlive
+      )
+    warnings.foreach(ShellOutput.info)
+    SessionIndex.of(attempts)
 
   /** Prints the chosen flow's source (highlighted when `tty`) and returns — the
     * menu redraws on the next loop iteration, so no pager is needed (ADR 0021

@@ -136,30 +136,6 @@ class OrcaDirTest extends munit.FunSuite:
       wd / ".orca" / "runs" / s"${RunKey.of("p").value}.progress.json"
     )
 
-  test("sessionRecordsPath is .orca/cache/runs/<key>.sessions.json"):
-    val wd = TempDirs.dir()
-    assertEquals(
-      OrcaDir.sessionRecordsPath(wd, RunKey.of("p")),
-      wd / ".orca" / "cache" / "runs" / s"${RunKey.of("p").value}.sessions.json"
-    )
-    assert(!os.exists(wd / ".orca"))
-
-  test("sessionRecordsFile creates .orca/cache/runs, with the cache markers"):
-    val wd = TempDirs.dir()
-    val file = OrcaDir.sessionRecordsFile(wd, RunKey.of("p"))
-    assert(os.isDir(file.path / os.up))
-    assert(os.exists(wd / ".orca" / "cache" / ".gitignore"))
-
-  test("sessionRecordsFile aborts on a symlinked .orca/cache/runs"):
-    val wd = TempDirs.dir()
-    val outside = TempDirs.dir() / "outside-runs"
-    os.makeDir.all(outside)
-    OrcaDir.ensureCache(wd).discard
-    os.symlink(wd / ".orca" / "cache" / "runs", outside)
-    intercept[OrcaFlowException](
-      OrcaDir.sessionRecordsFile(wd, RunKey.of("p"))
-    ).discard
-
   test("settingsFile's replace swaps a symlink for a file, target untouched"):
     val wd = TempDirs.dir()
     val outside = TempDirs.dir() / "outside.properties"
@@ -171,49 +147,55 @@ class OrcaDirTest extends munit.FunSuite:
     assertEquals(os.read(OrcaDir.settingsPath(wd)), "format = x\n")
     assertEquals(os.read(outside), "kept")
 
-  test("ensureAttempts creates .orca/cache/attempts, including the cache dir"):
-    val wd = TempDirs.dir()
-    val attempts = OrcaDir.ensureAttempts(wd)
-    assertEquals(attempts, wd / ".orca" / "cache" / "attempts")
-    assert(os.isDir(attempts))
-    assert(os.exists(wd / ".orca" / "cache" / ".gitignore"))
-
-  test("ensureAttempts aborts on a symlinked .orca/cache/attempts"):
-    val wd = TempDirs.dir()
-    val outside = TempDirs.dir() / "outside-attempts"
-    os.makeDir.all(outside)
-    OrcaDir.ensureCache(wd).discard
-    os.symlink(OrcaDir.attemptsPath(wd), outside)
-    intercept[OrcaFlowException](OrcaDir.ensureAttempts(wd)).discard
-
-  test("attemptsPath points at .orca/cache/attempts without creating anything"):
-    val wd = TempDirs.dir()
-    assertEquals(OrcaDir.attemptsPath(wd), wd / ".orca" / "cache" / "attempts")
-    assert(!os.exists(wd / ".orca"))
-
-  test("manifestPath, costLogPath and traceLogPath share the attempt id"):
-    val wd = TempDirs.dir()
-    val id = AttemptId(Instant.ofEpochMilli(1700000000000L), 42L)
-    assertEquals(
-      OrcaDir.manifestPath(wd, id),
-      wd / ".orca" / "cache" / "attempts" / "1700000000000-42.manifest.json"
-    )
-    assertEquals(
-      OrcaDir.costLogPath(wd, id),
-      wd / ".orca" / "cache" / "attempts" / "1700000000000-42.cost.jsonl"
-    )
-    assertEquals(
-      OrcaDir.traceLogPath(wd, id),
-      wd / ".orca" / "cache" / "attempts" / "1700000000000-42.trace.log"
-    )
-
   test("attemptIdOf maps a trace log and its rolled part to their attempt"):
+    val wd = TempDirs.dir()
+    val key = RunKey.of("p")
     val id = AttemptId(Instant.ofEpochMilli(1700000000000L), 42L)
+    val rolled = os.Path(
+      OrcaDir
+        .traceLogRollPattern(wd, key, id)
+        .replace("%i", OrcaDir.TraceLogRollIndex.toString)
+    )
     assertEquals(
-      List("1700000000000-42.trace.log", "1700000000000-42.trace.1.log")
-        .map(name => OrcaDir.attemptIdOf(os.root / name)),
+      List(OrcaDir.traceLogPath(wd, key, id), rolled).map(OrcaDir.attemptIdOf),
       List(Some(id), Some(id))
     )
+
+  test("run-dir paths sit under .orca/cache/runs/<key> and create nothing"):
+    val wd = TempDirs.dir()
+    val key = RunKey.of("p")
+    val runDir = wd / ".orca" / "cache" / "runs" / key.value
+    val id = AttemptId(Instant.ofEpochMilli(1700000000000L), 42L)
+    assertEquals(OrcaDir.cacheRunsPath(wd), wd / ".orca" / "cache" / "runs")
+    assertEquals(OrcaDir.runDirPath(wd, key), runDir)
+    assertEquals(OrcaDir.eventLogPath(wd, key), runDir / "events.jsonl")
+    assertEquals(
+      OrcaDir.traceLogPath(wd, key, id),
+      runDir / "1700000000000-42.trace.log"
+    )
+    assertEquals(
+      OrcaDir.traceLogRollPattern(wd, key, id),
+      (runDir / "1700000000000-42.trace.%i.log").toString
+    )
+    assert(!os.exists(wd / ".orca"))
+
+  test("ensureRunDir creates .orca/cache/runs/<key>, with the cache markers"):
+    val wd = TempDirs.dir()
+    val key = RunKey.of("p")
+    val runDir = OrcaDir.ensureRunDir(wd, key)
+    assertEquals(runDir, OrcaDir.runDirPath(wd, key))
+    assert(os.isDir(runDir))
+    assert(os.exists(wd / ".orca" / "cache" / ".gitignore"))
+    assert(os.exists(wd / ".orca" / "cache" / "CACHEDIR.TAG"))
+
+  test("ensureRunDir aborts on a symlinked .orca/cache/runs/<key>"):
+    val wd = TempDirs.dir()
+    val key = RunKey.of("p")
+    val outside = TempDirs.dir() / "outside-run"
+    os.makeDir.all(outside)
+    os.makeDir.all(OrcaDir.cacheRunsPath(wd))
+    os.symlink(OrcaDir.runDirPath(wd, key), outside)
+    intercept[OrcaFlowException](OrcaDir.ensureRunDir(wd, key)).discard
 
   test(
     "ensurePiSessions creates .orca/cache/pi-sessions, including the cache markers"

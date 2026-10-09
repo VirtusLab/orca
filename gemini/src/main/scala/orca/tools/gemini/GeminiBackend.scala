@@ -54,13 +54,13 @@ private[orca] class GeminiBackend(
 ) extends AgentBackend[BackendTag.Gemini.type]:
 
   /** Gemini's sessions are server-side and durable: the client→server map is
-    * persisted in the session records (`.orca/cache/runs/<key>.sessions.json`)
-    * and rehydrated on resume. The existence probe looks for the resolved
-    * SERVER id in [[GeminiSessionList]] — gemini mints its own id; the caller's
-    * stable id never appears there. [[SessionSupport.dispatchFor]] answers
-    * `Fresh` when no server id is mapped (including an id rejected by the
-    * [[orca.agents.SessionId.isSafe]] guard), or when the probe exits non-zero
-    * or throws.
+    * persisted in the session records (the run's event log,
+    * `.orca/cache/runs/<key>/events.jsonl`) and rehydrated on resume. The
+    * existence probe looks for the resolved SERVER id in [[GeminiSessionList]]
+    * — gemini mints its own id; the caller's stable id never appears there.
+    * [[SessionSupport.dispatchFor]] answers `Fresh` when no server id is mapped
+    * (including an id rejected by the [[orca.agents.SessionId.isSafe]] guard),
+    * or when the probe exits non-zero or throws.
     */
   val tag: BackendTag.Gemini.type = BackendTag.Gemini
 

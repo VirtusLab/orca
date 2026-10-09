@@ -5,11 +5,11 @@ import orca.tools.Worktrees
 
 /** Where the shell's per-redraw scans look: the checkout it was started in, and
   * the worktrees orca itself created for that repository (`--worktree` runs
-  * live in one, and leave their progress log and attempt manifests there).
+  * live in one, and leave their progress log and event log there).
   *
-  * The two are kept apart rather than concatenated: `ManifestReader` reads the
-  * shell's own directory strictly and the rest guarded, and a plain list would
-  * leave that difference to list position.
+  * The two are kept apart rather than concatenated: `ContinuableAttempts` reads
+  * the shell's own directory strictly and the rest guarded, and a plain list
+  * would leave that difference to list position.
   */
 private[shell] case class ScanDirs(own: os.Path, worktrees: List[os.Path]):
   /** Every directory to scan, for a consumer that treats them all alike. */
@@ -25,8 +25,7 @@ private[shell] object WorktreeScan:
   /** How many worktrees are scanned besides the shell's own directory. Orca
     * never removes a worktree and makes one per distinct prompt, so
     * `.orca/worktrees/` grows for the life of the repository — while these
-    * scans run on every menu redraw. Matches `AttemptManifestWriter`'s own
-    * kept-attempts budget.
+    * scans run on every menu redraw. Matches run pruning's kept-runs budget.
     *
     * A worktree past the cap is invisible to both scans: its sessions do not
     * reach `continue`, and an interrupted run in it is not offered. Ranked by
@@ -40,12 +39,11 @@ private[shell] object WorktreeScan:
     * capped at [[MaxScannedWorktrees]].
     *
     * Scoped to one checkout because that is how the data is stored: `.orca/` is
-    * per-checkout, and a worktree's runs leave their progress log and session
-    * manifests in the worktree, not in the checkout that created it. So the
-    * checkout that made the worktrees sees itself and all of them, while a
-    * worktree — whose own `.orca/worktrees/` is empty — sees only itself. To
-    * survey every run in the repository, run the shell from the checkout the
-    * worktrees hang off.
+    * per-checkout, and a worktree's runs leave their progress log and event log
+    * in the worktree, not in the checkout that created it. So the checkout that
+    * made the worktrees sees itself and all of them, while a worktree — whose
+    * own `.orca/worktrees/` is empty — sees only itself. To survey every run in
+    * the repository, run the shell from the checkout the worktrees hang off.
     *
     * Only `workDir` when git has nothing to say (not a repository, git
     * unavailable): the shell's own directory is always worth scanning.
@@ -70,13 +68,21 @@ private[shell] object WorktreeScan:
         .map(_._2)
     )
 
-  /** When a worktree last recorded an attempt — the mtime of its
-    * `.orca/cache/attempts/`, which `AttemptManifestWriter` creates as it
-    * starts and rewrites per manifest. `0` for a worktree that never ran one,
-    * and for one that just went away: this runs on every menu redraw, over
+  /** When a worktree last recorded an attempt — the newest mtime of its runs'
+    * `events.jsonl` under `.orca/cache/runs/`; a directory's own mtime changes
+    * only when an entry is added or removed. `0` for a worktree that never ran
+    * one, and for one that just went away: this runs on every menu redraw, over
     * directories a `git worktree remove` in another terminal can delete
     * mid-scan, and every step downstream of it survives that. Both answers sort
     * last.
     */
   private def lastAttemptAt(worktree: os.Path): Long =
-    scala.util.Try(os.mtime(OrcaDir.attemptsPath(worktree))).getOrElse(0L)
+    scala.util
+      .Try:
+        os.list(OrcaDir.cacheRunsPath(worktree))
+          .map(_ / OrcaDir.EventLogName)
+          .filter(os.isFile)
+          .map(os.mtime(_))
+          .maxOption
+          .getOrElse(0L)
+      .getOrElse(0L)

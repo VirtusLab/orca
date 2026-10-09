@@ -16,7 +16,7 @@ import orca.{
 import orca.agents.Agent
 import orca.events.OrcaEvent
 import orca.util.{JsonFile, TextUtil}
-import orca.sessions.SessionStore
+import orca.runlog.RunEventLog
 import orca.gitref.{BranchName, CommitHash, Head}
 import orca.progress.{
   BranchMode,
@@ -124,7 +124,8 @@ object FlowLifecycle:
     */
   private[orca] case class FlowSetup(
       store: ProgressStore,
-      sessionStore: SessionStore,
+      // The run's event log; also its session store.
+      runLog: RunEventLog,
       featureBranch: FeatureBranch,
       startingHead: Head,
       stackSettings: StackSettings,
@@ -181,7 +182,7 @@ object FlowLifecycle:
       // malformed file has already aborted before this point.
       resolution: SettingsResolution,
       store: ProgressStore,
-      sessionStore: SessionStore,
+      runLog: RunEventLog,
       // Stamped into a freshly-written header (`freshRun`).
       flowSource: Option[FlowSource],
       emit: OrcaEvent => Unit,
@@ -224,7 +225,7 @@ object FlowLifecycle:
     val stack = resolveStackSettings(agent, workDir, resolution, emit)
     val binding =
       session.bindBranch(preflight.startingHead, preflight.protectedBranches)
-    emit(OrcaEvent.BranchBound(binding.featureBranch.value))
+    emit(OrcaEvent.BranchBound(binding.featureBranch))
     // Its own commit, on the bound branch, so no later `add -A` sweep carries
     // it under an unrelated message.
     stack match
@@ -233,7 +234,7 @@ object FlowLifecycle:
     val startingTree = StartingTree.capture(untracked, git, emit)
     FlowSetup(
       store,
-      sessionStore,
+      runLog,
       binding.featureBranch,
       binding.startingHead,
       stack.settings,
@@ -855,10 +856,9 @@ object FlowLifecycle:
         None
 
   /** Successful teardown (ADR 0018 §2.5): remove the progress-log file in a
-    * final commit so a merged branch is clean, drop the run's cached session
-    * records with it, push that commit when the branch was already published
-    * with the log on it, then hand off to [[finishBranch]] for where HEAD
-    * lands.
+    * final commit so a merged branch is clean, record the run's success in its
+    * event log, push that commit when the branch was already published with the
+    * log on it, then hand off to [[finishBranch]] for where HEAD lands.
     *
     * Errors during log removal, the cleanup commit, the push, or the branch
     * handoff are cosmetic on an already-successful run — every leg runs through
@@ -892,10 +892,13 @@ object FlowLifecycle:
               setup.featureBranch
             )
         bestEffort("remove progress log")(setup.store.remove())
-        // Dropped with the log, and for the same reason: a later run of this
-        // prompt is a new run, not a resume, so it must open fresh backend
-        // conversations rather than continue this one's.
-        bestEffort("remove session records")(setup.sessionStore.discard())
+        // Ends the run's session records with the log, and for the same
+        // reason: a later run of this prompt is a new run, not a resume, so it
+        // must open fresh backend conversations rather than continue this one's.
+        setup.runLog.runSucceeded(
+          setup.featureBranch,
+          published.work.map(_.reference)
+        )
         // Pathspec-scoped to the log file, so uncommitted files the cleanliness
         // policy left in the tree stay out of this bookkeeping commit;
         // force-staged, because `.orca/` may be gitignored. A log never

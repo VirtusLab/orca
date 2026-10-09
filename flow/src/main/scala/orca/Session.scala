@@ -19,6 +19,8 @@ import orca.progress.ProgressLog
 import orca.sessions.SessionRecord
 import orca.util.PromptResource
 
+import scala.annotation.unused
+
 /** A durable, resumable LLM-session handle — the single door for sessions that
   * must survive a flow crash and resume. Obtain one with `agent.session(name,
   * seed)`. It owns the probe → seed/preamble → run → persist protocol, so a
@@ -48,8 +50,9 @@ final class FlowSession private[orca] (
       */
     val chat: Chat[?],
     /** The key this session was minted under. Carried onto every turn's
-      * `OrcaEvent.SessionCommitted`, which is what names the session in the run
-      * manifest and tells same-named sessions apart in the shell's picker.
+      * `OrcaEvent.SessionCommitted`, which is what names the session in the
+      * run's event log and tells same-named sessions apart in the shell's
+      * picker.
       */
     private[orca] val key: SessionKey
 ):
@@ -60,15 +63,15 @@ final class FlowSession private[orca] (
     * A session store holding no record for this session is an empty seed, not
     * an error.
     *
-    * The [[WorkspaceWrite]] token is taken explicitly rather than self-minted,
-    * making "durable runs are flow-thread-only, never from a `fork`" a
-    * signature-level fact (ADR 0018 §6); inside a stage it is already ambient.
+    * The [[WorkspaceWrite]] token, required though unused, makes "durable runs
+    * are flow-thread-only, never from a `fork`" a signature-level fact (ADR
+    * 0018 §6); inside a stage it is already ambient.
     */
   def run(prompt: String)(using
-      FlowContext,
-      FlowControl,
-      InStage,
-      WorkspaceWrite
+      ctx: FlowContext,
+      fc: FlowControl,
+      ev: InStage,
+      @unused ws: WorkspaceWrite
   ): String =
     val output = chat.agent.runText(
       effectivePrompt(chat, prompt),
@@ -118,7 +121,7 @@ final class FlowSessionCall[O] private[orca] (chat: Chat[?], key: SessionKey)(
       fc: FlowControl,
       ai: AgentInput[I],
       ev: InStage,
-      ws: WorkspaceWrite
+      @unused ws: WorkspaceWrite
   ): O =
     val serialized = ai.serialize(input)
     val output = call.autonomous
@@ -176,9 +179,8 @@ extension [B <: BackendTag](agent: Agent[B])
     *
     * No LLM call and no commit, so it is callable outside a stage as well as
     * inside one (and, minting a fresh UUID, is not referentially transparent).
-    * Having no ambient token there, its store write self-mints a
-    * [[WorkspaceWrite]] via [[RuntimeInStage]]; the record outlives the minting
-    * stage either way — see [[orca.sessions.SessionStore]].
+    * The record outlives the minting stage — see
+    * [[orca.sessions.SessionStore]].
     */
   def session(name: String, seed: String)(using
       ctx: FlowContext,
@@ -287,16 +289,12 @@ private def warnInvalidRecordedId(ctx: FlowContext, key: SessionKey): Unit =
     )
   )
 
-/** Mints its own [[WorkspaceWrite]] via [[RuntimeInStage]] — see `session`'s
-  * scaladoc.
-  */
 private def mintSession[B <: BackendTag](
     agent: Agent[B],
     key: SessionKey,
     seed: String
 )(using fc: FlowControl): SessionId[B] =
   val freshId = SessionId.fresh[B]
-  given WorkspaceWrite = RuntimeInStage.workspaceToken()
   fc.sessionStore.upsert(
     SessionRecord(
       name = key.name,
@@ -381,13 +379,9 @@ private val InterruptedAttemptNotice: String =
 /** After a run, persist the backend's now-learned resume wire id (durable
   * backends only — one without a probe returns `None`), so a resumed run's
   * `agent.session(...)` can rehydrate it. Upserts only when the wire id
-  * differs, so a no-op run writes nothing. Takes the [[WorkspaceWrite]] token
-  * explicitly to keep these writes flow-thread-only (ADR 0018 §6).
+  * differs, so a no-op run writes nothing.
   */
-private def persistResumeWireId(chat: Chat[?])(using
-    fc: FlowControl,
-    ws: WorkspaceWrite
-): Unit =
+private def persistResumeWireId(chat: Chat[?])(using fc: FlowControl): Unit =
   for
     wireId <- chat.agent.resumeWireId(chat.id)
     record <- fc.sessionStore.records().find(_.id == chat.id.value)

@@ -1,14 +1,14 @@
 package orca.shell.actions
 
 import orca.StagePath
-import orca.runner.manifest.{AttemptManifest, ManifestSession}
-import orca.shell.sessions.ManifestFixtures.{durable, manifest, selection}
+import orca.shell.sessions.{AttemptRecord, RecordedSession}
+import orca.shell.sessions.EventLogFixtures.{attemptRecord, durable, selection}
 import orca.testkit.TempDirs
 import orca.tools.pi.PiSessionStore
 
 class SessionActionTest extends munit.FunSuite:
 
-  private def session(stage: Option[String] = None): ManifestSession =
+  private def session(stage: Option[String] = None): RecordedSession =
     durable(
       sessionName = "newest",
       sessionStage = StagePath.FlowBody.child("Task: fix a bug", 0),
@@ -16,8 +16,8 @@ class SessionActionTest extends munit.FunSuite:
       lastActiveAt = "2026-07-18T09:45:00Z"
     )
 
-  private def manifestOf(s: ManifestSession): AttemptManifest =
-    manifest(startedAt = "2026-07-18T09:00:00Z", sessions = List(s))
+  private def attemptOf(s: RecordedSession): AttemptRecord =
+    attemptRecord(startedAt = "2026-07-18T09:00:00Z", sessions = List(s))
 
   // `continue <name>` picks the newest of the sessions sharing a name, so this
   // line is where the user sees which one it landed on.
@@ -25,7 +25,7 @@ class SessionActionTest extends munit.FunSuite:
     val s = session()
     assertEquals(
       SessionAction.identityNotice(
-        selection(manifestOf(s), s),
+        selection(attemptOf(s), s),
         "claude"
       ),
       "resuming session 'newest' [claude], in /work"
@@ -35,7 +35,7 @@ class SessionActionTest extends munit.FunSuite:
     val s = session(stage = Some("Task: fix a bug"))
     assertEquals(
       SessionAction.identityNotice(
-        selection(manifestOf(s), s),
+        selection(attemptOf(s), s),
         "claude"
       ),
       "resuming session 'newest' [claude], stage 'Task: fix a bug', in /work"

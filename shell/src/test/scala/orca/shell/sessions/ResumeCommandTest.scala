@@ -1,22 +1,21 @@
 package orca.shell.sessions
 
 import orca.agents.BackendTag
-import orca.runner.manifest.ManifestSession
-import orca.shell.sessions.ManifestFixtures.ephemeral
+import orca.shell.sessions.EventLogFixtures.ephemeral
 
 class ResumeCommandTest extends munit.FunSuite:
 
   private def session(
       backend: BackendTag,
       wireId: Option[String]
-  ): ManifestSession =
+  ): RecordedSession =
     ephemeral(backend = backend, wireId = wireId)
 
   /** [[ResumeCommand.build]] with lookup stubs that fail the test if invoked —
     * each test overrides only the lookup its harness actually reads.
     */
   private def build(
-      s: ManifestSession,
+      s: RecordedSession,
       geminiIndex: String => Option[Int] = _ => fail("gemini lookup invoked"),
       piSessionDir: String => Either[String, os.Path] = _ =>
         fail("pi lookup invoked")

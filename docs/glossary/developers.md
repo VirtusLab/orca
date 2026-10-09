@@ -33,14 +33,14 @@ Run and attempt are defined in the
 
 - **run** — A run is keyed by `RunKey`, the 12-hex prefix of SHA-256(prompt).
   It owns one feature branch, one progress log
-  (`.orca/runs/<key>.progress.json`), one session-records file
-  (`.orca/cache/runs/<key>.sessions.json`) and, under `--worktree`, one
-  checkout. A successful run ends by deleting its progress log and
-  session-records file.
+  (`.orca/runs/<key>.progress.json`), one event log
+  (`.orca/cache/runs/<key>/events.jsonl`) and, under `--worktree`, one
+  checkout. A successful run ends by deleting its progress log and appending
+  `RunSucceeded` to its event log.
 - **attempt** — An attempt is keyed by `AttemptId` (`<startedAt ms>-<pid>`).
-  It owns one manifest (`.orca/cache/attempts/<id>.manifest.json`) and one
-  cost log (`<id>.cost.jsonl`). A fresh attempt starts a run; a resumed attempt
-  continues one.
+  It owns its events in the run's event log and one trace log
+  (`.orca/cache/runs/<key>/<id>.trace.log`). A fresh attempt starts a run; a
+  resumed attempt continues one.
 
 Never call a process a run. "Task" means only a plan task, and a plan task has
 no file of its own.
@@ -71,7 +71,7 @@ These are the words for talking to a coding agent, from the outside in.
   backend mints it on the first turn (codex, gemini, opencode).
 - **conversation key** — The conversation key (`OrcaEvent.conversationKey`) is
   the wire id, or the client id before one is known. It is the one key that
-  turns and sessions join on, in events and in the cost log.
+  turns and sessions join on, in events and in the event log.
 - **dispatch** — A dispatch is `SessionSupport.dispatchFor`'s answer for the
   next turn: `Fresh` opens a conversation, `Resume` continues one.
   `ResumeOrigin` says whether this attempt or an earlier one opened it.

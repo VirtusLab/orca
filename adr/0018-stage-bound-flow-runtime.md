@@ -811,6 +811,13 @@ list output and opencode's directory-scoping should be pinned when the probes la
 > and the run starts fresh. `orca.util.JsonFile` is the one read/write path for
 > every whole-file document. The 0.x compatibility carve-outs are withdrawn.
 
+> **Amendment (2026-10-08).** Session records leave
+> `.orca/cache/runs/<key>.sessions.json` for the run's event log,
+> `.orca/cache/runs/<key>/events.jsonl`, as `SessionMinted` and
+> `SessionWireId` events. Success appends `RunSucceeded` instead of deleting
+> the records, and the store ignores records before the last one. `upsert` no
+> longer takes `WorkspaceWrite`. See [ADR 0025](0025-run-event-log.md).
+
 > **Amendment (2026-09-18, session store).** `SessionRecord` leaves the committed
 > progress log for `.orca/cache/sessions-<prompt hash>.json`
 > (`orca.sessions.SessionStore`), keyed by the same prompt hash as the log.

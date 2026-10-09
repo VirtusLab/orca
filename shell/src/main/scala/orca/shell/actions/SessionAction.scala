@@ -25,7 +25,7 @@ private[shell] object SessionAction:
     * execs its harness child (security fold-in, ADR 0021 §10), by both the
     * CLI's tty-gated `orca continue` and the interactive picker. A no-selector
     * `orca continue` could otherwise resume whatever session a hostile repo's
-    * `.orca/cache/attempts/` manifest names without the user ever having chosen
+    * `.orca/cache/runs/` event log names without the user ever having chosen
     * it; the notice gives them a chance to Ctrl-C.
     */
   def resumeNotice(selection: SessionSelection): String =
@@ -36,22 +36,23 @@ private[shell] object SessionAction:
 
   /** The notice [[resumeNotice]] prints — name, harness, stage, recorded
     * branch, crashed status, and `workDir`. `harnessName` is the settings-file
-    * harness name (`claude`, `codex`, …), not the manifest's `backend` tag.
+    * harness name (`claude`, `codex`, …), not the recorded `backend` tag.
     */
   def identityNotice(selection: SessionSelection, harnessName: String): String =
     val session = selection.session
     val name = SessionNaming.displayName(session)
     val stage = session.stage.fold("")(s => s", stage '$s'")
-    val branch = selection.manifest.branch.fold("")(b => s", on branch '$b'")
+    val branch =
+      selection.attempt.branch.fold("")(b => s", on branch '${b.value}'")
     val crashed = SessionNaming.crashedSuffix(selection.observedStatus)
-    s"resuming session '$name' [$harnessName]$stage$branch, in ${selection.manifest.workDir}$crashed"
+    s"resuming session '$name' [$harnessName]$stage$branch, in ${selection.attempt.workDir}$crashed"
 
-  /** Parses the manifest's stored `workDir` and confirms it's still a directory
-    * — a checkout deleted after its run finished otherwise crashes resume:
-    * `os.Path` throws `IllegalArgumentException` on a relative or malformed
-    * string, and `os.proc`'s `cwd` throws `IOException` on a well-formed but
-    * now-missing directory. Both collapse to the one message here rather than
-    * propagating past the caller.
+  /** Parses the attempt's recorded `workDir` and confirms it's still a
+    * directory — a checkout deleted after its run finished otherwise crashes
+    * resume: `os.Path` throws `IllegalArgumentException` on a relative or
+    * malformed string, and `os.proc`'s `cwd` throws `IOException` on a
+    * well-formed but now-missing directory. Both collapse to the one message
+    * here rather than propagating past the caller.
     */
   private[shell] def validatedWorkDir(raw: String): Either[String, os.Path] =
     val resolved =
@@ -59,7 +60,7 @@ private[shell] object SessionAction:
       catch case NonFatal(_) => None
     resolved.toRight(s"the recorded working directory $raw no longer exists")
 
-  /** Pi's transcript dir for the manifest's recorded `wireId` under its
+  /** Pi's transcript dir for the session's recorded `wireId` under its
     * `workDir`, or why the chat can't be reattached — the pi counterpart to the
     * gemini index lookup below. Applies [[PiSessionStore.resumable]], the same
     * predicate the backend's own probe uses. Each cause reads back separately,
@@ -73,7 +74,7 @@ private[shell] object SessionAction:
     PiSessionStore
       .dirFor(workDir, wireId)
       .toRight(
-        s"the manifest's pi session id `${displayable(wireId)}` is not a directory name"
+        s"the recorded pi session id `${displayable(wireId)}` is not a directory name"
       )
       .flatMap: dir =>
         if PiSessionStore.resumable(dir, workDir, Instant.now()) then Right(dir)
@@ -90,7 +91,7 @@ private[shell] object SessionAction:
     raw.filterNot(_.isControl).take(80)
 
   /** Hands [[ResumeCommand.build]] the two live lookups — gemini's index (its
-    * [[GeminiSessionList]] from the manifest's `workDir`, matched against the
+    * [[GeminiSessionList]] from the attempt's `workDir`, matched against the
     * wire id) and pi's [[piSessionDir]] — each invoked only by its own
     * harness's branch, then execs the resume command as a tty-inherited child
     * under [[ChildTerminal.withChild]] (ADR 0021 §2) from that same `workDir` —
@@ -98,7 +99,7 @@ private[shell] object SessionAction:
     * session lookup by cwd; pi's transcripts live under it). A failed or
     * missing `gemini` binary is treated the same as "index not found":
     * [[ResumeCommand.build]] reports it as not resumable. [[validatedWorkDir]]
-    * guards the manifest's `workDir` up front, and both lookups run under it;
+    * guards the attempt's `workDir` up front, and both lookups run under it;
     * the exec itself is further wrapped in a `NonFatal` backstop (e.g. the
     * checkout vanishing in the gap between that check and this exec, or the
     * resume binary itself being missing). Left carries the final "can't
@@ -109,7 +110,7 @@ private[shell] object SessionAction:
       terminal: Terminal,
       selection: SessionSelection
   ): Either[String, Int] =
-    validatedWorkDir(selection.manifest.workDir) match
+    validatedWorkDir(selection.attempt.workDir) match
       case Left(reason) => Left(s"can't resume — $reason")
       case Right(workDir) =>
         def geminiIndex(uuid: String): Option[Int] =

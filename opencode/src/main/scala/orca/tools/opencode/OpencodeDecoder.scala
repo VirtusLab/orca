@@ -206,9 +206,9 @@ private[opencode] final class OpencodeDecoder(
 
   /** What a COMPLETED turn reports. Unlike [[failedTurnDebit]] there is no
     * "nothing measured" case to represent: every completed turn owes a
-    * `UnpricedTurn`, since the cost log keeps one line per turn and its `turn`
-    * index counts them. A message that carried no `tokens` settles at zero —
-    * still carrying any cost opencode reported alongside them.
+    * `UnpricedTurn`, since the run's event log keeps one `Turn` per turn and
+    * its `turn` index counts them. A message that carried no `tokens` settles
+    * at zero — still carrying any cost opencode reported alongside them.
     */
   private def settledUsage(info: Option[AssistantInfo]): Usage =
     info
