@@ -5,7 +5,7 @@ import orca.shell.actions.SessionAction
 import orca.shell.sessions.{
   AttemptListing,
   AttemptRecord,
-  EventLogReader,
+  ContinuableAttempts,
   SessionIndex,
   SessionSelection
 }
@@ -34,7 +34,7 @@ private[cli] object ContinueCli:
       processAlive: AttemptRecord => Boolean
   ): Int =
     val AttemptListing(attempts, warnings) =
-      EventLogReader.list(dirs.own, dirs.worktrees, processAlive)
+      ContinuableAttempts.list(dirs.own, dirs.worktrees, processAlive)
     warnings.foreach(Cli.diagnostic)
     val index = SessionIndex.of(attempts)
     if list then

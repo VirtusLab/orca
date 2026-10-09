@@ -7,7 +7,7 @@ import orca.shell.resume.{InterruptedRun, ResumeDetector}
 import orca.shell.run.FlowLauncher
 import orca.shell.sessions.{
   AttemptListing,
-  EventLogReader,
+  ContinuableAttempts,
   ObservedStatus,
   SessionIndex,
   SessionPicker
@@ -47,7 +47,7 @@ private[shell] object ShellMenu:
   @tailrec def loop(context: MenuContext)(using env: ShellEnv): Unit =
     val scanDirs = WorktreeScan.dirs(env.workDir)
     val continueSessionCount =
-      EventLogReader.newestSessionCount(scanDirs.own, scanDirs.worktrees)
+      ContinuableAttempts.newestSessionCount(scanDirs.own, scanDirs.worktrees)
     val resumeOffer = ResumeDetector.detect(scanDirs.all)
     ConfigSummary.branchLine(env.workDir).foreach(ShellOutput.info)
     context.ui.select(
@@ -98,7 +98,7 @@ private[shell] object ShellMenu:
     */
   private def sessionIndex(scanDirs: ScanDirs): SessionIndex =
     val AttemptListing(attempts, warnings) =
-      EventLogReader.list(
+      ContinuableAttempts.list(
         scanDirs.own,
         scanDirs.worktrees,
         ObservedStatus.processAlive

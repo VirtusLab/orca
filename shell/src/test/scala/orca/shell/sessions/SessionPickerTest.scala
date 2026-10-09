@@ -76,7 +76,7 @@ class SessionPickerTest extends munit.FunSuite:
       attempt3,
       attempt2,
       attempt1
-    ) // newest first, as EventLogReader.list returns
+    ) // newest first, as ContinuableAttempts.list returns
 
   test(
     "sessionRows (collapsed): shows only the newest durable occurrence, starred"

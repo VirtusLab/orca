@@ -18,18 +18,19 @@ private[shell] case class RecordedAttempt(
     observedStatus: ObservedStatus
 )
 
-/** What [[EventLogReader.list]] found: the continuable attempts, newest first,
-  * and one warning per file, attempt or directory it had to skip.
+/** What [[ContinuableAttempts.list]] found: the continuable attempts, newest
+  * first, and one warning per file, attempt or directory it had to skip.
   */
 private[shell] case class AttemptListing(
     attempts: List[RecordedAttempt],
     warnings: List[String]
 )
 
-/** Reads the runs' event logs, `.orca/cache/runs/<key>/events.jsonl` (ADR
-  * 0025), for the shell's "continue a session" menu.
+/** The attempts whose sessions the shell's "continue a session" menu offers,
+  * built from the runs' event logs, `.orca/cache/runs/<key>/events.jsonl` (ADR
+  * 0025).
   */
-private[shell] object EventLogReader:
+private[shell] object ContinuableAttempts:
 
   /** Newest-first by `startedAt` across `own` and every directory in
     * `otherWorktrees` — a `--worktree` run keeps its event log in its own tree,

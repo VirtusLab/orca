@@ -8,8 +8,9 @@ import orca.runlog.{AttemptOutcome, RunEvent}
 import java.time.Instant
 
 /** Attempts and sessions as the shell's tests build them, written to disk as
-  * the events [[EventLogReader]] projects them from, through the production
-  * codec, so a fixture can never drift from the shape the reader accepts.
+  * the events [[ContinuableAttempts]] projects them from, through the
+  * production codec, so a fixture can never drift from the shape the reader
+  * accepts.
   */
 private[shell] object EventLogFixtures:
 
@@ -76,7 +77,7 @@ private[shell] object EventLogFixtures:
       lastActiveAt = Instant.parse(lastActiveAt)
     )
 
-  /** `attempt` as [[EventLogReader]] records it: under the attempt id its
+  /** `attempt` as [[ContinuableAttempts]] records it: under the attempt id its
     * `startedAt` and `pid` spell.
     */
   def recorded(

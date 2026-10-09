@@ -12,8 +12,8 @@ import java.time.Instant
 
 /** One round trip through the REAL codecs on both ends: [[RunEventLog]] (the
   * production writer `flow()` attaches) writes a session to disk, then
-  * [[EventLogReader.list]] reads it back, so a schema drift between the two is
-  * caught here.
+  * [[ContinuableAttempts.list]] reads it back, so a schema drift between the
+  * two is caught here.
   */
 class EventLogRoundTripTest extends munit.FunSuite:
 
@@ -46,7 +46,7 @@ class EventLogRoundTripTest extends munit.FunSuite:
       log.finish(AttemptOutcome.Succeeded)
 
     val AttemptListing(attempts, warnings) =
-      EventLogReader.list(workDir, Nil, processAlive = _ => true)
+      ContinuableAttempts.list(workDir, Nil, processAlive = _ => true)
     assertEquals(warnings, Nil)
     assertEquals(attempts.map(_.observedStatus), List(ObservedStatus.Succeeded))
     assertEquals(

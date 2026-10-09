@@ -7,9 +7,9 @@ import orca.tools.Worktrees
   * the worktrees orca itself created for that repository (`--worktree` runs
   * live in one, and leave their progress log and event log there).
   *
-  * The two are kept apart rather than concatenated: `EventLogReader` reads the
-  * shell's own directory strictly and the rest guarded, and a plain list would
-  * leave that difference to list position.
+  * The two are kept apart rather than concatenated: `ContinuableAttempts` reads
+  * the shell's own directory strictly and the rest guarded, and a plain list
+  * would leave that difference to list position.
   */
 private[shell] case class ScanDirs(own: os.Path, worktrees: List[os.Path]):
   /** Every directory to scan, for a consumer that treats them all alike. */

@@ -14,7 +14,7 @@ import ox.discard
 
 import java.time.Instant
 
-class EventLogReaderTest extends munit.FunSuite:
+class ContinuableAttemptsTest extends munit.FunSuite:
 
   private val alwaysDead: AttemptRecord => Boolean = _ => false
   private val alwaysAlive: AttemptRecord => Boolean = _ => true
@@ -88,7 +88,7 @@ class EventLogReaderTest extends munit.FunSuite:
   test("an absent runs dir lists nothing and creates nothing"):
     val workDir = TempDirs.dir()
     assertEquals(
-      EventLogReader.list(workDir, Nil, alwaysDead),
+      ContinuableAttempts.list(workDir, Nil, alwaysDead),
       AttemptListing(Nil, Nil)
     )
     assert(!os.exists(workDir / ".orca"), "reading must not create .orca")
@@ -102,7 +102,7 @@ class EventLogReaderTest extends munit.FunSuite:
     )
     writeEventLog(workDir, written)
     val AttemptListing(attempts, warnings) =
-      EventLogReader.list(workDir, Nil, alwaysDead)
+      ContinuableAttempts.list(workDir, Nil, alwaysDead)
     assertEquals(warnings, Nil)
     assertEquals(attempts.map(_.record), List(written))
     assertEquals(
@@ -115,7 +115,7 @@ class EventLogReaderTest extends munit.FunSuite:
     List("2026-07-18T10:00:00Z", "2026-07-18T12:00:00Z", "2026-07-18T11:00:00Z")
       .foreach(writeAttempt(workDir, _))
     val AttemptListing(attempts, warnings) =
-      EventLogReader.list(workDir, Nil, alwaysDead)
+      ContinuableAttempts.list(workDir, Nil, alwaysDead)
     assertEquals(warnings, Nil)
     assertEquals(
       attempts.map(_.record.startedAt.toString),
@@ -144,7 +144,7 @@ class EventLogReaderTest extends munit.FunSuite:
       commit("a", "2026-07-18T10:03:00Z", stage = Some("code"))
     )
     val AttemptListing(attempts, _) =
-      EventLogReader.list(workDir, Nil, alwaysDead)
+      ContinuableAttempts.list(workDir, Nil, alwaysDead)
     val sessions = attempts.flatMap(_.record.sessions)
     assertEquals(sessions.map(_.wireId), List(Some("a"), Some("b")))
     assertEquals(sessions.head.stage, Some("code"))
@@ -163,7 +163,7 @@ class EventLogReaderTest extends munit.FunSuite:
       commit("a", "2026-07-18T10:02:00Z", backend = BackendTag.Codex)
     )
     val AttemptListing(attempts, _) =
-      EventLogReader.list(workDir, Nil, alwaysDead)
+      ContinuableAttempts.list(workDir, Nil, alwaysDead)
     assertEquals(
       attempts.flatMap(_.record.sessions).map(_.backend),
       List(BackendTag.ClaudeCode, BackendTag.Codex)
@@ -174,7 +174,7 @@ class EventLogReaderTest extends munit.FunSuite:
     writeAttempt(workDir, "2026-07-18T10:00:00Z")
     writeAttempt(workDir, "2026-07-18T11:00:00Z")
     val AttemptListing(attempts, _) =
-      EventLogReader.list(workDir, Nil, alwaysDead)
+      ContinuableAttempts.list(workDir, Nil, alwaysDead)
     assertEquals(attempts.map(_.record.sessions.size), List(1, 1))
 
   test("every run directory is read, and other entries under runs are ignored"):
@@ -188,7 +188,7 @@ class EventLogReaderTest extends munit.FunSuite:
       createFolders = true
     )
     val AttemptListing(attempts, warnings) =
-      EventLogReader.list(workDir, Nil, alwaysDead)
+      ContinuableAttempts.list(workDir, Nil, alwaysDead)
     assertEquals(warnings, Nil)
     assertEquals(attempts.size, 2)
 
@@ -196,7 +196,7 @@ class EventLogReaderTest extends munit.FunSuite:
     val workDir = TempDirs.dir()
     appendEvents(workDir, started)
     assertEquals(
-      EventLogReader.list(workDir, Nil, alwaysDead),
+      ContinuableAttempts.list(workDir, Nil, alwaysDead),
       AttemptListing(Nil, Nil)
     )
 
@@ -204,21 +204,21 @@ class EventLogReaderTest extends munit.FunSuite:
     val workDir = TempDirs.dir()
     writeAttempt(workDir, "2026-07-18T10:00:00Z", AttemptStatus.Running)
     val AttemptListing(attempts, _) =
-      EventLogReader.list(workDir, Nil, alwaysDead)
+      ContinuableAttempts.list(workDir, Nil, alwaysDead)
     assertEquals(attempts.map(_.observedStatus), List(ObservedStatus.Crashed))
 
   test("an unfinished attempt with a live pid is running"):
     val workDir = TempDirs.dir()
     writeAttempt(workDir, "2026-07-18T10:00:00Z", AttemptStatus.Running)
     val AttemptListing(attempts, _) =
-      EventLogReader.list(workDir, Nil, alwaysAlive)
+      ContinuableAttempts.list(workDir, Nil, alwaysAlive)
     assertEquals(attempts.map(_.observedStatus), List(ObservedStatus.Running))
 
   test("a failed attempt with a dead pid is not crashed"):
     val workDir = TempDirs.dir()
     writeAttempt(workDir, "2026-07-18T10:00:00Z", AttemptStatus.Failed)
     val AttemptListing(attempts, _) =
-      EventLogReader.list(workDir, Nil, alwaysDead)
+      ContinuableAttempts.list(workDir, Nil, alwaysDead)
     assertEquals(attempts.map(_.observedStatus), List(ObservedStatus.Failed))
 
   test("a torn last line is skipped without a warning"):
@@ -226,7 +226,7 @@ class EventLogReaderTest extends munit.FunSuite:
     appendEvents(workDir, started, commit("a", "2026-07-18T10:01:00Z"))
     appendLines(workDir, """{"type":"SessionCommitted","at":"2026-07""")
     val AttemptListing(attempts, warnings) =
-      EventLogReader.list(workDir, Nil, alwaysDead)
+      ContinuableAttempts.list(workDir, Nil, alwaysDead)
     assertEquals(warnings, Nil)
     assertEquals(attempts.flatMap(_.record.sessions).size, 1)
 
@@ -238,7 +238,7 @@ class EventLogReaderTest extends munit.FunSuite:
       s"""{"type":"SomethingNew","at":"2026-07-18T10:02:00Z","attempt":"${attemptId.value}"}"""
     )
     val AttemptListing(attempts, warnings) =
-      EventLogReader.list(workDir, Nil, alwaysDead)
+      ContinuableAttempts.list(workDir, Nil, alwaysDead)
     assertEquals(warnings, Nil)
     assertEquals(attempts.size, 1)
 
@@ -248,7 +248,7 @@ class EventLogReaderTest extends munit.FunSuite:
     val workDir = TempDirs.dir()
     appendEvents(workDir, commit("a", "2026-07-18T10:01:00Z"))
     val AttemptListing(attempts, warnings) =
-      EventLogReader.list(workDir, Nil, alwaysDead)
+      ContinuableAttempts.list(workDir, Nil, alwaysDead)
     assertEquals(attempts, Nil)
     assertEquals(warnings.size, 1)
     assert(
@@ -267,7 +267,7 @@ class EventLogReaderTest extends munit.FunSuite:
     )
     try
       val AttemptListing(attempts, warnings) =
-        EventLogReader.list(workDir, Nil, alwaysDead)
+        ContinuableAttempts.list(workDir, Nil, alwaysDead)
       assertEquals(attempts, Nil)
       assertEquals(warnings.size, 1)
       assert(warnings.head.contains(log.toString), warnings.head)
@@ -279,7 +279,7 @@ class EventLogReaderTest extends munit.FunSuite:
     appendEvents(checkout, commit("a", "2026-07-18T10:01:00Z"))
     appendEvents(worktree, commit("a", "2026-07-18T10:01:00Z"))
     val AttemptListing(_, warnings) =
-      EventLogReader.list(checkout, List(worktree), alwaysDead)
+      ContinuableAttempts.list(checkout, List(worktree), alwaysDead)
     assertEquals(warnings.size, 2)
     List(checkout, worktree).foreach: dir =>
       val log = OrcaDir.eventLogPath(dir, key).toString
@@ -292,7 +292,7 @@ class EventLogReaderTest extends munit.FunSuite:
     os.makeDir.all(workDir / ".orca" / "cache")
     os.symlink(runsDir(workDir), outside)
     val ex = intercept[OrcaFlowException](
-      EventLogReader.list(workDir, Nil, alwaysDead)
+      ContinuableAttempts.list(workDir, Nil, alwaysDead)
     )
     assert(ex.getMessage.contains("symlink"), ex.getMessage)
 
@@ -303,7 +303,7 @@ class EventLogReaderTest extends munit.FunSuite:
     os.makeDir.all(runsDir(workDir))
     os.symlink(runsDir(workDir) / key.value, outside)
     val ex = intercept[OrcaFlowException](
-      EventLogReader.list(workDir, Nil, alwaysDead)
+      ContinuableAttempts.list(workDir, Nil, alwaysDead)
     )
     assert(ex.getMessage.contains("symlink"), ex.getMessage)
 
@@ -314,7 +314,7 @@ class EventLogReaderTest extends munit.FunSuite:
     writeAttempt(worktree, "2026-07-18T12:00:00Z")
     writeAttempt(checkout, "2026-07-18T11:00:00Z")
     val AttemptListing(attempts, warnings) =
-      EventLogReader.list(checkout, List(worktree), alwaysDead)
+      ContinuableAttempts.list(checkout, List(worktree), alwaysDead)
     assertEquals(warnings, Nil)
     assertEquals(
       attempts.map(_.record.startedAt.toString),
@@ -340,7 +340,7 @@ class EventLogReaderTest extends munit.FunSuite:
     )
     try
       val AttemptListing(attempts, warnings) =
-        EventLogReader.list(checkout, List(worktree), alwaysDead)
+        ContinuableAttempts.list(checkout, List(worktree), alwaysDead)
       assertEquals(attempts.size, 1)
       assertEquals(warnings.size, 1)
       assert(warnings.head.contains(worktree.toString), warnings.head)
@@ -357,7 +357,7 @@ class EventLogReaderTest extends munit.FunSuite:
     // The hard abort stays for the caller's OWN directory (the case above);
     // refusing to read someone else's tree is the whole remedy there.
     val AttemptListing(attempts, warnings) =
-      EventLogReader.list(checkout, List(worktree), alwaysDead)
+      ContinuableAttempts.list(checkout, List(worktree), alwaysDead)
     assertEquals(attempts.size, 1)
     assertEquals(warnings.size, 1)
     assert(warnings.head.contains("symlink"), warnings.head)
@@ -404,7 +404,7 @@ class EventLogReaderTest extends munit.FunSuite:
       sessions = 0,
       modifiedAt = "2026-07-18T11:30:00Z"
     )
-    assertEquals(EventLogReader.newestSessionCount(workDir, Nil), Some(2))
+    assertEquals(ContinuableAttempts.newestSessionCount(workDir, Nil), Some(2))
 
   test("the newest session count does not read a log older than its attempt"):
     val workDir = TempDirs.dir()
@@ -424,10 +424,13 @@ class EventLogReaderTest extends munit.FunSuite:
       sessions = 3,
       modifiedAt = "2026-07-18T09:00:00Z"
     )
-    assertEquals(EventLogReader.newestSessionCount(workDir, Nil), Some(1))
+    assertEquals(ContinuableAttempts.newestSessionCount(workDir, Nil), Some(1))
 
   test("the newest session count is None with no event logs"):
-    assertEquals(EventLogReader.newestSessionCount(TempDirs.dir(), Nil), None)
+    assertEquals(
+      ContinuableAttempts.newestSessionCount(TempDirs.dir(), Nil),
+      None
+    )
 
   test("the newest session count comes from the newest attempt in a log"):
     val workDir = TempDirs.dir()
@@ -442,7 +445,7 @@ class EventLogReaderTest extends munit.FunSuite:
             sessions = List.fill(sessions)(durable(lastActiveAt = startedAt))
           )
         )
-    assertEquals(EventLogReader.newestSessionCount(workDir, Nil), Some(1))
+    assertEquals(ContinuableAttempts.newestSessionCount(workDir, Nil), Some(1))
 
   test("the newest session count counts a repeated commit once"):
     val workDir = TempDirs.dir()
@@ -453,7 +456,7 @@ class EventLogReaderTest extends munit.FunSuite:
       commit("a", "2026-07-18T10:02:00Z"),
       commit("b", "2026-07-18T10:03:00Z")
     )
-    assertEquals(EventLogReader.newestSessionCount(workDir, Nil), Some(2))
+    assertEquals(ContinuableAttempts.newestSessionCount(workDir, Nil), Some(2))
 
   test("the newest session count spans other worktrees"):
     val checkout = TempDirs.dir()
@@ -473,7 +476,7 @@ class EventLogReaderTest extends munit.FunSuite:
       modifiedAt = "2026-07-18T11:30:00Z"
     )
     assertEquals(
-      EventLogReader.newestSessionCount(checkout, List(worktree)),
+      ContinuableAttempts.newestSessionCount(checkout, List(worktree)),
       Some(2)
     )
 
@@ -486,6 +489,6 @@ class EventLogReaderTest extends munit.FunSuite:
     os.makeDir.all(worktree / ".orca" / "cache")
     os.symlink(runsDir(worktree), outside)
     assertEquals(
-      EventLogReader.newestSessionCount(checkout, List(worktree)),
+      ContinuableAttempts.newestSessionCount(checkout, List(worktree)),
       Some(1)
     )
