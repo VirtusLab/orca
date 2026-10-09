@@ -67,10 +67,10 @@ private[tools] case class GhIssueJson(
     state: String
 ) derives ConfiguredJsonValueCodec
 
-private[orca] given ghCommentListCodec: JsonValueCodec[List[GhCommentJson]] =
+private[tools] given ghCommentListCodec: JsonValueCodec[List[GhCommentJson]] =
   JsonCodecMaker.make
-private[orca] given ghIdentifiedCommentListCodec
+private[tools] given ghIdentifiedCommentListCodec
     : JsonValueCodec[List[GhIdentifiedCommentJson]] =
   JsonCodecMaker.make
-private[orca] given ghPrListCodec: JsonValueCodec[List[GhPrListJson]] =
+private[tools] given ghPrListCodec: JsonValueCodec[List[GhPrListJson]] =
   JsonCodecMaker.make

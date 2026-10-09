@@ -7,7 +7,7 @@ import orca.tools.{RuntimeGit, UncommittedSnapshot, UntrackedFiles}
 /** What the working tree held when the body started, which decides what failure
   * teardown may delete and what it puts back.
   */
-private[orca] enum StartingTree:
+private[runner] enum StartingTree:
   /** Clean, or stashed clean by setup: every untracked file is the run's. */
   case Clean
 
@@ -60,7 +60,7 @@ private[orca] enum StartingTree:
         )
     case Kept(None) | Clean => ()
 
-private[orca] object StartingTree:
+private[runner] object StartingTree:
 
   /** The starting tree for setup's `untracked` verdict. Call after setup's last
     * commit, so a snapshot's base is where HEAD stays until the first stage

@@ -3,7 +3,7 @@ package orca.backend.claude
 import orca.agents.Model
 
 /** The Claude model tiers orca pins by name. */
-private[orca] object ClaudeModels:
+private[claude] object ClaudeModels:
   /** The cheap tier. Spelled out rather than the `haiku` alias, which the CLI
     * mis-resolved under plan mode — see `ClaudeArgs.modelArgs`. That rewrite
     * covers a `claude:haiku` pin too, so neither spelling tracks a new haiku

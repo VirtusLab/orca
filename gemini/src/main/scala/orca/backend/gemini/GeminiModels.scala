@@ -3,7 +3,7 @@ package orca.backend.gemini
 import orca.agents.Model
 
 /** The Gemini model tiers orca pins by name. */
-private[orca] object GeminiModels:
+private[gemini] object GeminiModels:
 
   /** The strong default model that bare `gemini` pins; `flash` opts down. The
     * only 3.x Pro, still a preview; Google may rename it on GA — override via

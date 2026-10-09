@@ -3,7 +3,7 @@ package orca.backend.codex
 import orca.agents.Model
 
 /** The codex model tiers orca pins by name. */
-private[orca] object CodexModels:
+private[codex] object CodexModels:
 
   /** The strong default model that bare `codex` pins; `mini` opts down.
     *

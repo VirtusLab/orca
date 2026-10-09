@@ -8,7 +8,7 @@ import orca.util.TextUtil
   * one of them: the shipped set is read from the classpath, never from a
   * directory, so it can be shadowed but never discovered.
   */
-private[orca] enum ReviewerFileTier:
+private[review] enum ReviewerFileTier:
   case Project, Global
 
   def origin: Origin = this match
@@ -19,7 +19,7 @@ private[orca] enum ReviewerFileTier:
   * file, plus every lower-precedence tier defining the same slug — including
   * `BuiltIn` when it overrides a shipped reviewer.
   */
-private[orca] case class DiscoveredReviewer(
+private[review] case class DiscoveredReviewer(
     reviewer: Reviewer,
     tier: ReviewerFileTier,
     shadows: List[Origin]

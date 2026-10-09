@@ -36,7 +36,7 @@ private[orca] object StackKey:
     )
 
 /** The agent role keys: valid in both scopes, single-valued. */
-private[orca] enum AgentKey(val raw: String) extends SettingKey:
+private[settings] enum AgentKey(val raw: String) extends SettingKey:
   case PlanningAgent extends AgentKey("planningAgent")
   case CodingAgent extends AgentKey("codingAgent")
   case ReviewAgent extends AgentKey("reviewAgent")

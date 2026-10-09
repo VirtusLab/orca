@@ -11,7 +11,7 @@ import orca.agents.{AutoApprove, BackendTag}
   * blocking the subprocess: `ApproveTool` is auto-denied and `UserQuestion`
   * auto-answered, both also surfacing as `OrcaEvent.Error`.
   */
-private[orca] object AutonomousDrain:
+private[backend] object AutonomousDrain:
 
   /** Why the tool wasn't already approved. The auto-approve set is blamed only
     * when the tool really is outside it: a backend that ignores orca's set
