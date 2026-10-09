@@ -1,7 +1,8 @@
 package orca.pr
 
 import orca.{BoundedDiff, FlowContext, InStage}
-import orca.agents.{Announce, JsonData, Agent, PromptEvent}
+import orca.agents.{Announce, Agent, PromptEvent}
+import orca.json.JsonData
 
 import scala.annotation.unused
 

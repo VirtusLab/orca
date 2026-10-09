@@ -48,6 +48,7 @@ backend-agnostic role accessors (ADR 0020) — `stage`/`display`/`fail`,
 Implementations live in
 focused subpackages: `orca.tools` (os-backed git/gh/fs impls + their traits),
 `orca.gitref` (validated branch names and commit hashes, and `Head`),
+`orca.json` (`JsonData`, `RawJson`, whole-file `JsonFile` documents),
 `orca.agents` + `orca.backend` (LLM SPI, `SessionSupport`, per-backend
 decoders; the SPI is `private[orca]` or `private[backend]`, so a new harness
 is added in orca itself), `orca.subprocess` (subprocess shim), `orca.events`
@@ -288,7 +289,7 @@ session. Settings and user-authored files (`settings.properties`, `flows/`,
 SHA-256(user prompt)); `<id>` is an `AttemptId` (`<startedAt epoch ms>-<pid>`) —
 see "Persisted-state vocabulary" below for what a run and an attempt are.
 `OrcaDir` owns every path under `.orca/`. Every whole-file JSON document is read
-and written through `orca.util.JsonFile`, and every whole-file write replaces an
+and written through `orca.json.JsonFile`, and every whole-file write replaces an
 `OrcaDir.OrcaFile` atomically.
 
 Three location classes decide what survives:

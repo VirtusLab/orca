@@ -12,12 +12,12 @@ import orca.agents.{
   Agent,
   BackendTag,
   ConversationNotHeld,
-  JsonData,
   SessionId,
   SessionKey,
   WireSessionId
 }
 import orca.events.OrcaEvent
+import orca.json.{JsonData, RawJson}
 import orca.progress.{BranchMode, ProgressHeader, ProgressStore, StageEntry}
 import orca.sessions.{SessionRecord, TestSessionStore}
 import orca.testkit.{
@@ -27,7 +27,6 @@ import orca.testkit.{
   TempDirs,
   TestAgent
 }
-import orca.util.RawJson
 
 /** Tests for [[FlowSession]] — the durable-session handle that owns the probe →
   * seed/preamble → run → persist protocol (ADR 0018 §2.6).

@@ -39,11 +39,9 @@ export orca.agents.{
   PromptEvent,
   ToolSet,
   BackendTag,
-  JsonData,
-  Announce,
-  schemaFromJsonData,
-  codecFromJsonData
+  Announce
 }
+export orca.json.{JsonData, schemaFromJsonData, codecFromJsonData}
 export orca.plan.{
   BugReportMatch,
   Epic,

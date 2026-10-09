@@ -1,6 +1,6 @@
 package orca.progress
 
-import orca.agents.JsonData
+import orca.json.JsonData
 
 /** The fact that a run published its work somewhere durable, as the
   * human-readable `reference` that names it — a PR, MR, or change URL. Written

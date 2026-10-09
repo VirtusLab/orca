@@ -1,4 +1,4 @@
-package orca.util
+package orca.agents
 
 import _root_.io.circe.{Json, JsonObject}
 import _root_.io.circe.syntax.EncoderOps
@@ -32,7 +32,7 @@ import sttp.tapir.docs.apispec.schema.TapirSchemaToJsonSchema
   * output is still valid JSON Schema, just more constrained, so the strictest
   * dialect any backend requires is safe as the single common form.
   */
-object JsonSchemaGen:
+private[orca] object JsonSchemaGen:
   def apply[O](using schema: Schema[O]): String =
     val jsonSchema =
       TapirSchemaToJsonSchema(schema, markOptionsAsNullable = true)
@@ -47,7 +47,7 @@ object JsonSchemaGen:
     * constraints. Exposed for tests; production code uses [[apply]] which
     * applies it automatically.
     */
-  private[util] def toOpenAiStrict(json: Json): Json =
+  private[agents] def toOpenAiStrict(json: Json): Json =
     json.fold(
       jsonNull = json,
       jsonBoolean = _ => json,

@@ -1,7 +1,7 @@
 package orca.plan
 
+import orca.json.JsonData
 import orca.plan.Title
-import orca.agents.{JsonData}
 
 /** A single task in a [[Plan]] — one decomposed sub-item of a plan, distinct
   * from the run's task (`OrcaArgs.userPrompt`), which is the whole run's

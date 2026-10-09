@@ -2,9 +2,8 @@ package orca.progress
 
 import com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec
 import orca.StagePath
-import orca.agents.{JsonData, given}
 import orca.gitref.{BranchName, CommitHash, Head}
-import orca.util.RawJson
+import orca.json.{JsonData, RawJson, given}
 
 /** Whether orca minted [[ProgressHeader.branch]] itself or bound to a
   * pre-existing one. Gates the throwaway-branch auto-delete
@@ -49,7 +48,7 @@ case class ProgressHeader(
   *
   * `resultJson` is type-erased at rest — the log is heterogeneous across stage
   * types; deserialisation to a typed value happens at the stage call site. A
-  * [[orca.util.RawJson]], embedded verbatim rather than string-escaped so the
+  * [[orca.json.RawJson]], embedded verbatim rather than string-escaped so the
   * persisted file stays directly readable when debugging.
   */
 case class StageEntry(id: StagePath.Stage, resultJson: RawJson) derives JsonData

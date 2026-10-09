@@ -1,4 +1,4 @@
-package orca.util
+package orca.agents
 
 import io.circe.parser.parse
 import io.circe.{Json, JsonObject}

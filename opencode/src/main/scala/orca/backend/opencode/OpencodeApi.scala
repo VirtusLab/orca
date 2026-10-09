@@ -1,13 +1,13 @@
 package orca.backend.opencode
 
 import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
-import orca.util.RawJson
+import orca.json.RawJson
 
 /** Wire DTOs for the OpenCode HTTP server (ADR 0014).
   *
   * Every shape declares only the fields orca reads or writes; jsoniter's
   * default config skips the rest, so server-side protocol additions don't break
-  * decoding. [[orca.util.RawJson]] holds variable-shape subtrees (the output
+  * decoding. [[orca.json.RawJson]] holds variable-shape subtrees (the output
   * schema we send, the `structured` payload and tool `input` we read).
   *
   * Read shapes give every field a default so a partial/early message frame

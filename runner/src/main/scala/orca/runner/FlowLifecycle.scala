@@ -15,7 +15,8 @@ import orca.{
 }
 import orca.agents.Agent
 import orca.events.OrcaEvent
-import orca.util.{JsonFile, TextUtil}
+import orca.json.JsonFile
+import orca.util.TextUtil
 import orca.runlog.RunEventLog
 import orca.gitref.{BranchName, CommitHash, Head}
 import orca.progress.{

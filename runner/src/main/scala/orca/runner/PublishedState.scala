@@ -1,7 +1,7 @@
 package orca.runner
 
+import orca.json.JsonFile
 import orca.progress.{ProgressLog, PublishedWork}
-import orca.util.JsonFile
 
 /** What success teardown knows about the work this run published, read back
   * from the progress log.

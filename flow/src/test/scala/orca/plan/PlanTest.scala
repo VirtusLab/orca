@@ -1,7 +1,7 @@
 package orca.plan
 
+import orca.json.JsonData
 import orca.plan.Title
-import orca.agents.JsonData
 
 import com.github.plokhotnyuk.jsoniter_scala.core.{
   readFromString,

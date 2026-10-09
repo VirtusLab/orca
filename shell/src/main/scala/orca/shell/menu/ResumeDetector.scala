@@ -1,9 +1,9 @@
 package orca.shell.menu
 
 import orca.gitref.BranchName
+import orca.json.JsonFile
 import orca.progress.{FlowSource, ProgressHeader, ProgressLog, ProgressScan}
 import orca.shell.actions.FlowResolution
-import orca.util.JsonFile
 
 /** An unfinished flow run, byte-identically relaunchable: the flow script and
   * the exact prompt that started it (ADR 0021 §3 amendment).

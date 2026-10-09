@@ -2,8 +2,8 @@ package orca.progress
 
 import munit.FunSuite
 import orca.{RunKey, StagePath, WorkspaceWrite}
-import orca.util.RawJson
 import orca.gitref.CommitHash
+import orca.json.RawJson
 import orca.testkit.{TempDirs, branchName}
 
 class ProgressStoreTest extends FunSuite:

@@ -16,7 +16,7 @@ import orca.backend.opencode.OpencodeApi.{
   ModelRef,
   OutputFormat
 }
-import orca.util.RawJson
+import orca.json.RawJson
 
 /** Maps an [[orca.agents.AgentConfig]] onto OpenCode's wire shapes: the `serve`
   * launch argv and the per-turn message body (ADR 0014).

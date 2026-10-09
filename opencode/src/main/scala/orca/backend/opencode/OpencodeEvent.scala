@@ -7,7 +7,7 @@ import orca.backend.opencode.OpencodeApi.{
   PermissionRequest,
   QuestionRequest
 }
-import orca.util.RawJson
+import orca.json.RawJson
 
 /** One event parsed from the OpenCode `GET /event` SSE stream (ADR 0014).
   *

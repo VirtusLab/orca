@@ -5,7 +5,7 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
   readFromString,
   writeToString
 }
-import orca.agents.given
+import orca.json.given
 import orca.testkit.prHandle
 
 class PrHandleTest extends munit.FunSuite:

@@ -1,5 +1,6 @@
 package orca.agents
 
+import orca.json.JsonData
 import orca.testkit.ScriptedBackend
 import orca.backend.{
   Interaction,

@@ -5,7 +5,7 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
   writeToString
 }
 import orca.backend.opencode.OpencodeApi.*
-import orca.util.RawJson
+import orca.json.RawJson
 
 class OpencodeApiTest extends munit.FunSuite:
 

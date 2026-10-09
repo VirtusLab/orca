@@ -7,7 +7,6 @@ import orca.agents.{
   BackendTag,
   Enforcement,
   EnforcementCell,
-  JsonData,
   Model,
   AgentConfig,
   SessionId,
@@ -17,6 +16,7 @@ import orca.agents.{
   WireSessionId
 }
 import orca.events.{Announcement, OrcaEvent, OrcaListener, TurnDebit, Usage}
+import orca.json.JsonData
 import orca.testkit.Usages.usage
 
 import orca.backend.{

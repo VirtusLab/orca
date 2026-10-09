@@ -1,7 +1,8 @@
 package orca.plan
 
 import orca.{FlowContext, InStage, OrcaFlowException}
-import orca.agents.{Announce, JsonData, Agent, given}
+import orca.agents.{Announce, Agent}
+import orca.json.{JsonData, given}
 
 import scala.annotation.unused
 

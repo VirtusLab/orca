@@ -1,8 +1,8 @@
 package orca
 
 import orca.testkit.TextReplyingAgent
+import orca.json.RawJson
 
-import orca.util.RawJson
 import orca.events.{EventDispatcher, OrcaEvent, OrcaListener, StageOutcome}
 import orca.gitref.CommitHash
 import orca.progress.{StageEntry, StageStart}

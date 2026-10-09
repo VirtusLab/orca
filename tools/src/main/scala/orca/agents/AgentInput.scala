@@ -1,6 +1,7 @@
 package orca.agents
 
 import com.github.plokhotnyuk.jsoniter_scala.core.writeToString
+import orca.json.JsonData
 
 /** Serializes an arbitrary value into the string embedded in the prompt sent to
   * the LLM, so callers don't have to pre-stringify their arguments.

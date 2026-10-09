@@ -6,11 +6,10 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
   writeToString
 }
 import munit.FunSuite
-import orca.agents.JsonData
 import orca.StagePath
 import orca.gitref.CommitHash
+import orca.json.{JsonData, RawJson}
 import orca.testkit
-import orca.util.RawJson
 
 class ProgressLogTest extends FunSuite:
 

@@ -1,8 +1,9 @@
 package orca.runner
 
 import orca.{InStage, StackSettings}
-import orca.agents.{Agent, Announce, JsonData, PromptEvent, given}
+import orca.agents.{Agent, Announce, PromptEvent}
 import orca.events.OrcaEvent
+import orca.json.{JsonData, given}
 import orca.settings.{SettingsEntry, StackCommand, StackKey, StackValue}
 import orca.subprocess.PathProbe
 import orca.util.{PromptResource, TextUtil}
@@ -19,7 +20,7 @@ private[runner] case class DiscoveredCommand(
 
 /** A gate's proposed commands, or a one-line reason it was left unset. The
   * strict output schema requires BOTH keys on every gate (Options nullable —
-  * see [[orca.util.JsonSchemaGen]]), so the agent emits `"commands": []` /
+  * see [[orca.agents.JsonSchemaGen]]), so the agent emits `"commands": []` /
   * `"unsetReason": null` for whichever side doesn't apply. The Scala-side
   * defaults keep the jsoniter parse lenient about a genuinely omitted field.
   */

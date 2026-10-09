@@ -1,4 +1,4 @@
-package orca.util
+package orca.json
 
 import com.github.plokhotnyuk.jsoniter_scala.core.{
   JsonReader,

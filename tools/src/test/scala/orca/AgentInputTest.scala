@@ -1,6 +1,7 @@
 package orca
 
-import orca.agents.{AgentInput, JsonData}
+import orca.agents.AgentInput
+import orca.json.JsonData
 
 case class User(name: String, age: Int) derives JsonData
 

@@ -9,14 +9,14 @@ class GeminiSettingsTest extends munit.FunSuite:
 
   private given mapCodec
       : com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec[
-        Map[String, orca.util.RawJson]
+        Map[String, orca.json.RawJson]
       ] = JsonCodecMaker.make
 
   private def settingsFile(workDir: os.Path): os.Path =
     workDir / ".gemini" / "settings.json"
 
-  private def topLevel(content: String): Map[String, orca.util.RawJson] =
-    readFromString[Map[String, orca.util.RawJson]](content)
+  private def topLevel(content: String): Map[String, orca.json.RawJson] =
+    readFromString[Map[String, orca.json.RawJson]](content)
 
   test(
     "register creates settings.json with the orca MCP server when none exists"

@@ -1,6 +1,6 @@
 package orca.review
 
-import orca.agents.{JsonData, given}
+import orca.json.{JsonData, given}
 import orca.plan.Title
 
 /** Where a [[ReviewFinding]] points in the diff. `line` narrows further within

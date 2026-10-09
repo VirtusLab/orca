@@ -1,7 +1,6 @@
 package orca.runner
 
 import orca.ReportedFailure
-import orca.util.RawJson
 import orca.{
   BranchNamingStrategy,
   FlowContext,
@@ -21,6 +20,7 @@ import orca.{
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.agents.{Agent, BackendTag, ClaudeAgent, OpencodeAgent, SessionId}
 import orca.gitref.{BranchName, CommitHash, Head}
+import orca.json.RawJson
 import orca.progress.{
   BranchMode,
   FeatureBranch,

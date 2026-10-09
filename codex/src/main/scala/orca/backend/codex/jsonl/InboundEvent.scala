@@ -1,7 +1,7 @@
 package orca.backend.codex.jsonl
 
 import orca.events.{Usage}
-import orca.util.RawJson
+import orca.json.RawJson
 
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec

@@ -2,7 +2,7 @@ package orca.backend.gemini
 
 import orca.OrcaFlowException
 import orca.backend.mcp.{AskUserMcpServer, McpHost}
-import orca.util.RawJson
+import orca.json.RawJson
 
 import com.github.plokhotnyuk.jsoniter_scala.core.{
   JsonValueCodec,

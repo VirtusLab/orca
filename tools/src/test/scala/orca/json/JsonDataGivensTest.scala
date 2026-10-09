@@ -1,4 +1,4 @@
-package orca.agents
+package orca.json
 
 import com.github.plokhotnyuk.jsoniter_scala.core.{
   readFromString,

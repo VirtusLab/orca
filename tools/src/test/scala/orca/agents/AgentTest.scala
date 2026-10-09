@@ -1,6 +1,7 @@
 package orca.agents
 
 import orca.StagePath
+import orca.json.JsonData
 import orca.testkit.{ScriptedBackend, ScriptedTurn, TestAgent}
 import orca.backend.{
   LiveTurn,

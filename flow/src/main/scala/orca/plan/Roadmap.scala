@@ -1,7 +1,8 @@
 package orca.plan
 
 import orca.{FlowContext, InStage}
-import orca.agents.{Agent, Announce, JsonData, given}
+import orca.agents.{Agent, Announce}
+import orca.json.{JsonData, given}
 
 /** One part of a [[Roadmap]]: planned into tasks only when its turn comes. */
 case class Epic(title: Title, goal: String) derives JsonData
