@@ -9,7 +9,7 @@ import scala.util.control.NonFatal
   * delete is guarded on its own, so a file a concurrent cleanup got to first
   * does not stop the rest.
   */
-private[orca] object RunPruning:
+private[runlog] object RunPruning:
 
   /** How many of the newest runs, and of the newest runs that recorded a
     * session, are kept. Resumable runs are kept regardless.

@@ -10,7 +10,7 @@ import orca.events.Usage
   * only the portion backends reported, while the turn's resolved
   * [[orca.events.Cost]] says whether it was reported or estimated.
   */
-private[orca] case class TurnUsage(
+private[runlog] case class TurnUsage(
     freshInputTokens: Long,
     cacheReadInputTokens: Long,
     cacheWriteInputTokens: Long,
@@ -18,7 +18,7 @@ private[orca] case class TurnUsage(
     reasoningOutputTokens: Long
 )
 
-private[orca] object TurnUsage:
+private[runlog] object TurnUsage:
   def of(usage: Usage): TurnUsage = TurnUsage(
     freshInputTokens = usage.freshInputTokens,
     cacheReadInputTokens = usage.cacheReadInputTokens,

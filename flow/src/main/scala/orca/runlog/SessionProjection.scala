@@ -3,7 +3,7 @@ package orca.runlog
 import orca.sessions.SessionRecord
 
 /** The run's durable-session records, as the event log describes them. */
-private[orca] object SessionProjection:
+private[runlog] object SessionProjection:
 
   /** The records written since the last [[RunEvent.RunSucceeded]], one per
     * [[orca.agents.SessionKey]] in the order the keys were first minted. A
