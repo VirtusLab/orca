@@ -11,11 +11,11 @@ import orca.agents.{
   PiAgent
 }
 import orca.backend.AgentWiring
-import orca.tools.claude.ClaudeAgents
-import orca.tools.codex.CodexAgents
-import orca.tools.gemini.GeminiAgents
-import orca.tools.opencode.OpencodeAgents
-import orca.tools.pi.PiAgents
+import orca.backend.claude.ClaudeAgents
+import orca.backend.codex.CodexAgents
+import orca.backend.gemini.GeminiAgents
+import orca.backend.opencode.OpencodeAgents
+import orca.backend.pi.PiAgents
 import ox.{ResourceScope, releaseAfterScope}
 
 /** The five agents wired for one attempt — the [[orca.AgentSet]] the

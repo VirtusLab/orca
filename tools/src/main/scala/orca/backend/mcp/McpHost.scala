@@ -23,14 +23,14 @@ import scala.util.control.NonFatal
   * Lives as long as the scope [[McpHost.start]] ran in — the turn, not the
   * backend, so a long flow doesn't accumulate bindings.
   */
-private[orca] class McpHost private[mcp] (val port: Int):
+private[backend] class McpHost private[mcp] (val port: Int):
 
   /** The URL an MCP client (claude's `.mcp.json`, codex's
     * `mcp_servers.<name>.url`) should target.
     */
   val url: String = s"${McpHost.UrlPrefix}$port/mcp"
 
-private[orca] object McpHost:
+private[backend] object McpHost:
 
   private val UrlPrefix: String = "http://127.0.0.1:"
 

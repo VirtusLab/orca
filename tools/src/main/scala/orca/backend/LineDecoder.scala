@@ -13,7 +13,7 @@ import orca.events.TurnDebit
   * state outside `S`. A throw from it is reported as a parse-error `Error`
   * event and leaves the state unchanged.
   */
-private[orca] trait LineDecoder[B <: BackendTag, S]:
+private[backend] trait LineDecoder[B <: BackendTag, S]:
 
   /** The user-facing backend name, prefixed to stderr lines and failures. */
   def backendName: String
@@ -48,7 +48,7 @@ private[orca] trait LineDecoder[B <: BackendTag, S]:
   def isStderrNoise(line: String): Boolean = false
 
 /** The result of decoding one line. */
-private[orca] enum Step[B <: BackendTag, S]:
+private[backend] enum Step[B <: BackendTag, S]:
   case Continue(state: S, events: List[TurnEvent])
 
   /** The turn's outcome is known: `events` are the last ones it emits, and any
@@ -56,7 +56,7 @@ private[orca] enum Step[B <: BackendTag, S]:
     */
   case Settle(state: S, events: List[TurnEvent], outcome: Settled[B])
 
-private[orca] object Step:
+private[backend] object Step:
   def continue[B <: BackendTag, S](
       state: S,
       events: TurnEvent*
@@ -66,6 +66,6 @@ private[orca] object Step:
   * [[orca.AgentTurnFailed]] with `message` plus the diagnostics the
   * [[DecodedTurn]] collected.
   */
-private[orca] enum Settled[B <: BackendTag]:
+private[backend] enum Settled[B <: BackendTag]:
   case Succeeded(result: AgentResult[B])
   case Failed(message: String, debit: TurnDebit)

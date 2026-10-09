@@ -4,7 +4,7 @@ import orca.StagePath
 import orca.shell.sessions.{AttemptRecord, RecordedSession}
 import orca.shell.sessions.EventLogFixtures.{attemptRecord, durable, selection}
 import orca.testkit.TempDirs
-import orca.tools.pi.PiSessionStore
+import orca.backend.pi.PiSessionStore
 
 class SessionActionTest extends munit.FunSuite:
 

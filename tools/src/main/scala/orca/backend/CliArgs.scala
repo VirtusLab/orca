@@ -7,7 +7,7 @@ import orca.agents.AgentConfig
   * suitable for concatenation into a backend's argv. Empty `Seq` when the field
   * is absent, so callers don't have to special-case `None`.
   */
-private[orca] object CliArgs:
+private[backend] object CliArgs:
 
   /** Render an optional value as its two-token flag `Seq(name, render(value))`,
     * or an empty `Seq` for `None`.

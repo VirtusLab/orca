@@ -23,7 +23,7 @@ private[mcp] case class GitHubIssueInput(
   * sequence and serves both from the issues endpoint, so a `github_pr` would be
   * the same call under a different name.
   */
-private[orca] object GitHubMcpServer:
+private[backend] object GitHubMcpServer:
 
   private[orca] val ServerName: String = "orca_github"
 
