@@ -98,8 +98,8 @@ whatever the shell does here is new machinery.
 `examples/implement.sc` starts:
 
 ```scala
-//> using scala 3.8.4
-//> using dep "org.virtuslab::orca:0.0.17"
+//> using scala 3.9.0
+//> using dep "org.virtuslab::orca:0.2.0"
 //> using jvm 21
 ```
 
@@ -264,7 +264,7 @@ printed `-cp` and main class, then load/invoke in the shell JVM. It eliminates
 ## 3. The classpath/version problem
 
 A flow may pin a different orca than the shell runs (shell 0.0.18, script
-`//> using dep org.virtuslab::orca:0.0.15`). Three postures:
+`//> using dep org.virtuslab::orca:0.2.0`). Three postures:
 
 1. **Isolated classloader, script's own orca.** Child-first `URLClassLoader`
    over the script's full resolved classpath. Version freedom is preserved,
@@ -489,7 +489,7 @@ flow / create a flow via harness / continue a session / re-configure / exit):
    here.
 5. **Latency of repeated small flows.** Measured, warm Bloop cache
    (§S2): ~0.6 s total for a trivial script, ~0.85 s with
-   `org.virtuslab::orca:0.0.17` on the classpath — *including* the child JVM
+   `org.virtuslab::orca:0.2.0` on the classpath — *including* the child JVM
    start the proponent budgeted at 1–2 s. Even the "tiny flow in a loop" case
    spends multiples of that per LLM call. The latency argument for in-process
    is dead on the numbers.
@@ -513,7 +513,7 @@ and two of the six steelman points actively favor subprocess.
 ### S2. Measurements (verifying §2c/§2d empirical claims)
 
 - Warm `scala-cli run demo.sc` (hello-world): 0.56–0.69 s wall. With
-  `//> using dep org.virtuslab::orca:0.0.17` + `//> using jvm 21`: 0.80–0.89 s.
+  `//> using dep org.virtuslab::orca:0.2.0` + `//> using jvm 21`: 0.80–0.89 s.
   Cold first compile of a new trivial script: ~1.5 s. The proponent's
   "~1–2 s JVM start" is conservative; the real warm figure is **under 1 s**.
 - `--server=false`: 2.6 s per run *even fully cached* (no compile output) —

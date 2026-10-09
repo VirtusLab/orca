@@ -24,7 +24,7 @@ somewhere. This document compares the delivery options.
   separate reference doc to point at.
 - **Release-pinned correctness**: `build.sbt` runs `UpdateVersionInDocs` on
   release (lines ~197–204), rewriting the `//> using dep
-  "org.virtuslab::orca:X.Y.Z"` lines in `README.md` and the examples. So the
+  "org.virtuslab::orca:0.2.0"` lines in `README.md` and the examples. So the
   README **at a given git tag** always shows the matching dependency
   coordinate — a tag-pinned copy is internally version-consistent for free.
 - **Tag convention**: `git tag -l` → `v0.0.0` … `v0.0.17`, i.e. `vX.Y.Z`.
@@ -184,7 +184,7 @@ them: "example flows are at <paths>; start from the closest one."
 Whatever the channel, the initial prompt itself must state:
 
 1. **The exact version pin**: the flow must start with
-   `//> using scala 3.8.4`, `//> using dep "org.virtuslab::orca:<version>"`,
+   `//> using scala 3.9.0`, `//> using dep "org.virtuslab::orca:<version>"`,
    `//> using jvm 21` — with `<version>` filled in by the shell (it knows its
    own release; topic 4). Don't rely on the agent copying it from the
    reference — state it verbatim in the prompt. (The tag-pinned README shows

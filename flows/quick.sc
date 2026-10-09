@@ -1,6 +1,6 @@
 // Implement a task directly — no planning stage — review it, then open a PR.
 //> using scala 3.9.0
-//> using dep "org.virtuslab::orca:0.1.10"
+//> using dep "org.virtuslab::orca:0.2.0"
 //> using jvm 21
 
 /** For small, well-scoped changes: the prompt is the only task, with no plan.

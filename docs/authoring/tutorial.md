@@ -11,7 +11,7 @@ pins the Scala version, the Orca dependency and the JVM:
 
 ```scala
 //> using scala 3.9.0
-//> using dep "org.virtuslab::orca:0.1.10"
+//> using dep "org.virtuslab::orca:0.2.0"
 //> using jvm 21
 
 import orca.{*, given}

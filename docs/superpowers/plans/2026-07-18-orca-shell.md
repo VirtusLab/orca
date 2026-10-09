@@ -215,11 +215,11 @@ class Wizard(ui: ShellUi, probe: String => Boolean, globalSettingsPath: os.Path)
 - [ ] **Step 1: Failing tests** (rule: first non-empty line in the leading blank/`//`-comment/`//>`-directive block that is `//` but not `//>`, marker+whitespace stripped; stop at first other line):
 ```scala
 test("line-1 comment before directives"):
-  assertEquals(FlowDescription.extract(List("// Do the thing.", "//> using scala 3.8.4", "val x = 1")), Some("Do the thing."))
+  assertEquals(FlowDescription.extract(List("// Do the thing.", "//> using scala 3.9.0", "val x = 1")), Some("Do the thing."))
 test("comment after directives still found"):
-  assertEquals(FlowDescription.extract(List("//> using scala 3.8.4", "", "// Later.", "code")), Some("Later."))
+  assertEquals(FlowDescription.extract(List("//> using scala 3.9.0", "", "// Later.", "code")), Some("Later."))
 test("directive is not a description"):
-  assertEquals(FlowDescription.extract(List("//> using scala 3.8.4", "val x = 1")), None)
+  assertEquals(FlowDescription.extract(List("//> using scala 3.9.0", "val x = 1")), None)
 test("block comment terminates the scan"):
   assertEquals(FlowDescription.extract(List("/** doc */", "// not reached")), None)
 ```
@@ -282,7 +282,7 @@ object BuiltInFlows:
     * injects `//> using repository ivy2Local` (ADR §7). Returns the dir. */
   def extracted(env: String => Option[String], home: os.Path, version: String): os.Path
 ```
-- [ ] **Step 1: Failing tests:** resources present on test classpath (the generator ran): index lists the six names, each resource readable; `extracted` into a temp `XDG_CACHE_HOME` creates files once (second call no-op — assert mtimes stable) for a release-looking version; for `"dev"` rewrites `using dep "org.virtuslab::orca:X"` → running version and injects the ivy2Local line.
+- [ ] **Step 1: Failing tests:** resources present on test classpath (the generator ran): index lists the six names, each resource readable; `extracted` into a temp `XDG_CACHE_HOME` creates files once (second call no-op — assert mtimes stable) for a release-looking version; for `"dev"` rewrites `using dep "org.virtuslab::orca:0.2.0"` → running version and injects the ivy2Local line.
 - [ ] **Step 2:** FAIL → implement (resource read via `getClass.getResourceAsStream`; XDG resolution mirroring `GlobalSettings.path`'s env handling) → PASS. Commit: `Shell: bundle built-in flows as resources, extract to XDG cache`.
 
 ### Task 3.5: View & edit
@@ -339,7 +339,7 @@ object FlowLauncher:
   def run(ui: ShellUi, flow: os.Path, task: String, workDir: os.Path): LaunchResult
 enum LaunchResult { case Ok; case Failed(exit: Int); case Cancelled }
 ```
-- [ ] **Step 1: Failing tests** for `argv`: forced includes `--dep org.virtuslab::orca:0.0.18` before the flow path? (order: `scala-cli`, `run`, `--jvm`, `21`? — no: flows pin their own jvm; keep argv minimal: `Seq("scala-cli", "run", flow.toString) ++ dep ++ Seq("--", task)`; verbose adds `-v` after `--`? OrcaArgs takes `--verbose` — check `runner/src/main/scala/orca/OrcaArgs.scala` and match its flag). Non-release shell version (`ShellVersion.isRelease == false`) → `orcaVersion = None` (never force an unpublishable version).
+- [ ] **Step 1: Failing tests** for `argv`: forced includes `--dep org.virtuslab::orca:0.2.0` before the flow path? (order: `scala-cli`, `run`, `--jvm`, `21`? — no: flows pin their own jvm; keep argv minimal: `Seq("scala-cli", "run", flow.toString) ++ dep ++ Seq("--", task)`; verbose adds `-v` after `--`? OrcaArgs takes `--verbose` — check `runner/src/main/scala/orca/OrcaArgs.scala` and match its flag). Non-release shell version (`ShellVersion.isRelease == false`) → `orcaVersion = None` (never force an unpublishable version).
 - [ ] **Step 2:** FAIL → implement `argv` → PASS.
 - [ ] **Step 3:** Implement `run`: spawn via `os.proc(argv).call(cwd = workDir, stdin = os.Inherit, stdout = os.Inherit, stderr = os.Inherit, check = false)`; on nonzero exit run `scala-cli compile <flow> --dep …` capturing stderr — nonzero there = compile failure → show notice ("this flow pins an orca version incompatible with the shell (<v>); sessions from a pin-honouring run can't be continued — run anyway?") and offer fallback re-run. Commit: `Shell: flow launcher with forced orca version and pin-honouring fallback`.
 

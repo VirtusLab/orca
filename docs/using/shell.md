@@ -27,7 +27,7 @@ works. The `--workspace` option keeps scala-cli's build metadata out of the
 current directory:
 
 ```bash
-scala-cli run --workspace "${XDG_CACHE_HOME:-$HOME/.cache}/orca/shell/workspace" --jvm 21 --quiet --verbose --dep "org.virtuslab::orca-shell:0.1.10" --main-class orca.shell.Main
+scala-cli run --workspace "${XDG_CACHE_HOME:-$HOME/.cache}/orca/shell/workspace" --jvm 21 --quiet --verbose --dep "org.virtuslab::orca-shell:0.2.0" --main-class orca.shell.Main
 ```
 
 ## The interactive shell

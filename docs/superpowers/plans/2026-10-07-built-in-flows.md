@@ -1177,7 +1177,7 @@ Keep the `Location` / `filePattern` pins if no other canary covers them (grep `f
 ```scala
 // Plan a large change as epics, then plan, build and review each epic in turn.
 //> using scala 3.9.0
-//> using dep "org.virtuslab::orca:0.1.10"
+//> using dep "org.virtuslab::orca:0.2.0"
 //> using jvm 21
 
 /** Epic-sized planning + coding flow, for a change too large for one plan.
@@ -1321,7 +1321,7 @@ Check: an empty `roadmap.epics` should `fail("The planner produced no epics")` r
 ```scala
 // Resolve a request or GitHub issue: triage, reproduce a bug, fix or build it, PR.
 //> using scala 3.9.0
-//> using dep "org.virtuslab::orca:0.1.10"
+//> using dep "org.virtuslab::orca:0.2.0"
 //> using jvm 21
 
 /** Request → triage → fix or change → PR, fully autonomous.

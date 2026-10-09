@@ -22,8 +22,8 @@ scala-cli. Every flow script self-bootstraps via directives
 (`examples/implement.sc` and friends all start with):
 
 ```scala
-//> using scala 3.8.4
-//> using dep "org.virtuslab::orca:0.0.17"
+//> using scala 3.9.0
+//> using dep "org.virtuslab::orca:0.2.0"
 //> using jvm 21
 ```
 
@@ -102,7 +102,7 @@ A ~5-line POSIX script `orca` (or `orca-shell`):
 ```bash
 #!/usr/bin/env bash
 exec scala-cli run --jvm 21 \
-  --dep "org.virtuslab::orca-shell:0.0.18" \
+  --dep "org.virtuslab::orca-shell:0.2.0" \
   --main-class orca.shell.Main -- "$@"
 ```
 
@@ -137,7 +137,7 @@ exec scala-cli run --jvm 21 \
 Mechanics (per [coursier install docs](https://get-coursier.io/docs/cli-install)
 and [app descriptors](https://get-coursier.io/docs/cli-appdescriptors)): an
 app descriptor is a JSON file — `{"dependencies":
-["org.virtuslab::orca-shell:latest.release"], "repositories": ["central"],
+["org.virtuslab::orca-shell:0.2.0"], "repositories": ["central"],
 "mainClass": "orca.shell.Main", "launcherType": "bootstrap"}` — served from a
 *channel*. Channels are (1) JAR-based, published to Maven Central (like
 `io.get-coursier:apps`), (2) **URL-based — a JSON file at any public URL**
@@ -191,7 +191,7 @@ startup, not a launch-story foundation.
 
 ### 2d. Documented one-liner only
 
-`scala-cli run --jvm 21 --dep org.virtuslab::orca-shell:0.0.18 --main-class
+`scala-cli run --jvm 21 --dep org.virtuslab::orca-shell:0.2.0 --main-class
 orca.shell.Main` in the README, bumped by `updateDocs` like every other
 coordinate. Zero infrastructure, fully consistent with orca's current
 "the README is the installer" story — but unmemorable for the *flagship
@@ -286,7 +286,7 @@ Chain that already exists, extended by one directory:
 
 1. `release` (sbt-softwaremill custom command): set version 0.0.18 → run
    `updateDocs` → `UpdateScalaCliVersionInDocs` rewrites
-   `//> using dep "org.virtuslab::orca:0.0.18"` and `//> using scala` in
+   `//> using dep "org.virtuslab::orca:0.2.0"` and `//> using scala` in
    `README.md`, `AGENTS.md`, `examples/`, **`flows/`** (added) → commit
    "Release 0.0.18" → tag `v0.0.18` → push.
 2. CI on the tag runs `sbt ci-release`; dynver derives 0.0.18 from the tag;
@@ -308,7 +308,7 @@ just warn. Same edge already exists for examples today; not new risk.
    class `orca.shell.Main`, depends on `runner`.
 2. Executable = **shim script installed by a curl-able `install.sh`** into
    `~/.local/bin/orca`, exec-ing
-   `scala-cli run --jvm 21 --dep org.virtuslab::orca-shell:latest.release
+   `scala-cli run --jvm 21 --dep org.virtuslab::orca-shell:0.2.0
    --main-class orca.shell.Main -- "$@"` — literal compliance with
    "launching scala-cli", zero new prerequisites, no version-bump churn in
    the shim itself; the README also documents the raw one-liner (pinned

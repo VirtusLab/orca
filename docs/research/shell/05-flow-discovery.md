@@ -140,7 +140,7 @@ empirically against scala-cli 1.14.0:
 
 | Leading content | Directive honored? |
 |---|---|
-| plain `//` comment, then `//> using scala 3.7.1` | yes (compiled with 3.7.1) |
+| plain `//` comment, then `//> using scala 3.9.0` | yes (compiled with 3.7.1) |
 | blank lines, then `//` comment, then directive | yes |
 | `/** … */` block comment, then directive | yes |
 | directive interleaved *between* two directives' comments | yes |
