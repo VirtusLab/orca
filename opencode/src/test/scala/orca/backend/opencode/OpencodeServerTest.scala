@@ -10,7 +10,7 @@ import orca.subprocess.{
   PipedCliProcess,
   SpawnStubCliRunner
 }
-import orca.sweep.SweepFixtures
+import orca.backend.SweepFixtures
 import orca.testkit.TempDirs
 import ox.{fork, supervised, timeout}
 import ox.channels.ChannelClosedException
@@ -199,7 +199,7 @@ class OpencodeServerTest extends munit.FunSuite with SweepFixtures:
       s"""echo "opencode server listening on http://127.0.0.1:1"
          |( setsid bash -c 'echo $$$$ > "$pidFile"; sleep 60' >/dev/null 2>&1 </dev/null & )
          |sleep 60""".stripMargin
-    val listener = new RecordingListener
+    val listener = new StepRecorder
     try
       supervised:
         val server = OpencodeServer(

@@ -16,7 +16,7 @@ generation.
 ```
 orca/
 ├── build.sbt / project/
-├── tools/      # tool traits + os-backed impls (git/gh/fs), internal LLM SPI + session durability, InStage, events, subprocess, sweep
+├── tools/      # tool traits + os-backed impls (git/gh/fs), internal LLM SPI + session durability, InStage, events, subprocess
 ├── flow/       # stage/display/fail + FlowContext/FlowControl; orca.{plan,review,pr,progress}
 ├── claude/ codex/ gemini/ opencode/ pi/   # one module per coding-agent backend
 ├── runner/     # flow() entry, DefaultFlowContext/DefaultFlowControl, FlowLifecycle, terminal UI
@@ -50,8 +50,7 @@ focused subpackages: `orca.tools` (os-backed git/gh/fs impls + their traits),
 `orca.gitref` (validated branch names and commit hashes, and `Head`),
 `orca.agents` + `orca.backend` (LLM SPI, `SessionSupport`, per-backend
 decoders; the SPI is `private[orca]` or `private[backend]`, so a new harness
-is added in orca itself), `orca.subprocess` (subprocess shim), `orca.sweep`
-(finds agent work that outlived its process), `orca.events`
+is added in orca itself), `orca.subprocess` (subprocess shim), `orca.events`
 (event bus), one `orca.backend.<backend>` per coding agent, and `orca.runner` /
 `orca.runner.terminal` (wiring + terminal UI). The flow module adds
 `orca.{plan,review,pr,progress}`.
@@ -562,7 +561,7 @@ number, change it only additively (ADR 0025).
   with `os.Inherit` is only for the `shell/` terminal handoffs (editor, flow
   run, agent session) and `TtyProbe`, which inherits the fd it probes.
 - Every `spawnPiped` child carries a unique `ORCA_TURN_COOKIE`
-  (`orca.sweep.EnvCookie`). `SubprocessSpawn.open` registers `EnvCookieSweep`
+  (`orca.subprocess.EnvCookie`). `SubprocessSpawn.open` registers `EnvCookieSweep`
   with the turn scope, so at turn end it scans `/proc/*/environ` for the
   agent's cookie and REPORTS what is still running — the backstop for work an
   agent detached from orca's process tree, which no parent-link teardown can

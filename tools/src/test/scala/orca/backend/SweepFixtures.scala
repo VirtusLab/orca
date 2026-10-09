@@ -1,4 +1,4 @@
-package orca.sweep
+package orca.backend
 
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.subprocess.{OsProcCliRunner, PipedCliProcess}
@@ -51,7 +51,7 @@ trait SweepFixtures:
       pid = readPid(path)
     pid.getOrElse(fail(s"the detached worker never wrote its pid to $path"))
 
-  protected class RecordingListener extends OrcaListener:
+  protected class StepRecorder extends OrcaListener:
     private val recorded = new AtomicReference[List[String]](Nil)
     def onEvent(event: OrcaEvent): Unit = event match
       case OrcaEvent.Step(message) =>

@@ -1,6 +1,7 @@
-package orca.sweep
+package orca.backend
 
 import orca.events.{OrcaEvent, OrcaListener}
+import orca.subprocess.EnvCookie
 
 import org.slf4j.LoggerFactory
 import ox.{discard, sleep}
@@ -26,9 +27,9 @@ import scala.util.control.NonFatal
   * cannot support has nothing to act on. A sweep that appears to do nothing on
   * a Mac is working as intended, not broken.
   */
-private[orca] object EnvCookieSweep:
+private[backend] object EnvCookieSweep:
 
-  private val log = LoggerFactory.getLogger("orca.sweep")
+  private val log = LoggerFactory.getLogger("orca.backend")
 
   /** `ORCA_SWEEP_KILL=1` — kill survivors instead of only naming them. */
   private val killsSurvivors: Boolean =
@@ -71,7 +72,7 @@ private[orca] object EnvCookieSweep:
   def sweep(cookie: EnvCookie): List[ProcessHandle] =
     if !supported then Nil
     else
-      val entry = cookie.environEntry
+      val entry = environEntry(cookie)
       val self = ProcessHandle.current().pid
       ProcessHandle
         .allProcesses()
@@ -83,6 +84,10 @@ private[orca] object EnvCookieSweep:
     * another user both read as `false` — the file is gone or unreadable, which
     * is all this needs to decide.
     */
+  /** The `NAME=value` pair as it appears in `/proc/<pid>/environ`. */
+  private def environEntry(cookie: EnvCookie): String =
+    s"${EnvCookie.VarName}=${cookie.value}"
+
   private def carriesEntry(pid: Long, entry: String): Boolean =
     try
       new String(

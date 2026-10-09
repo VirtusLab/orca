@@ -3,7 +3,6 @@ package orca.backend
 import orca.OrcaFlowException
 import orca.events.OrcaListener
 import orca.subprocess.PipedCliProcess
-import orca.sweep.EnvCookieSweep
 
 import ox.{ResourceScope, releaseAfterScope}
 

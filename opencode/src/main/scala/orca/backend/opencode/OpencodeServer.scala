@@ -3,7 +3,7 @@ package orca.backend.opencode
 import orca.OrcaFlowException
 import orca.events.OrcaListener
 import orca.subprocess.{CliRunner, PipedCliProcess}
-import orca.sweep.EnvCookieSweep
+import orca.backend.EnvCookieSweep
 import ox.{
   Fork,
   Ox,

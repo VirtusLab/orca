@@ -1,6 +1,6 @@
-package orca.sweep
+package orca.backend
 
-import orca.subprocess.PipedCliProcess
+import orca.subprocess.{EnvCookie, PipedCliProcess}
 
 class EnvCookieSweepTest extends munit.FunSuite with SweepFixtures:
 
@@ -28,7 +28,7 @@ class EnvCookieSweepTest extends munit.FunSuite with SweepFixtures:
       val cookie = cookieOf(process)
       assertEquals(survivorPids(cookie), List(detachedPid))
 
-      val listener = RecordingListener()
+      val listener = new StepRecorder
       EnvCookieSweep.afterScope(Some(cookie), listener)
       assertEquals(listener.steps.size, 1)
       assert(
