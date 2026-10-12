@@ -112,3 +112,20 @@ class IssueHandleTest extends munit.FunSuite:
   test("parseOrThrow surfaces the message as an OrcaFlowException"):
     val e = intercept[orca.OrcaFlowException](IssueHandle.parseOrThrow("junk"))
     assert(e.getMessage.contains("junk"), e.getMessage)
+
+  test("parseIssue rejects a PR URL"):
+    assert(
+      IssueHandle.parseIssue("https://github.com/acme/widgets/pull/7").isLeft
+    )
+
+  test("parseIssue accepts an issue URL"):
+    assertEquals(
+      IssueHandle.parseIssue("https://github.com/acme/widgets/issues/7"),
+      Right(expected)
+    )
+
+  test("parseIssue accepts a short ref"):
+    assertEquals(IssueHandle.parseIssue("acme/widgets#7"), Right(expected))
+
+  test("parseIssue rejects freeform text containing a ref"):
+    assert(IssueHandle.parseIssue("please fix acme/widgets#7 soon").isLeft)

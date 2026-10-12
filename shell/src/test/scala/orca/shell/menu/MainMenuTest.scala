@@ -1,7 +1,6 @@
 package orca.shell.menu
 
 import orca.progress.FlowSource
-import orca.shell.resume.InterruptedRun
 import orca.testkit.branchName
 
 class MainMenuTest extends munit.FunSuite:

@@ -2,7 +2,6 @@ package orca.backend
 
 import orca.OrcaFlowException
 import orca.events.OrcaListener
-import orca.sweep.SweepFixtures
 
 import ox.{supervised, timeout}
 
@@ -12,7 +11,7 @@ class SubprocessSpawnTest extends munit.FunSuite with SweepFixtures:
 
   onLinux("sweeps the spawned process when the scope ends, not before"):
     val pidFile = os.temp.dir(prefix = "orca-spawn-") / "detached.pid"
-    val listener = new RecordingListener
+    val listener = new StepRecorder
     try
       supervised:
         val process =

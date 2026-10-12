@@ -35,7 +35,7 @@ import scala.util.control.NonFatal
   * own is out of reach; if it holds stdout or stderr, the process's streams end
   * shortly after the root's exit anyway ([[orca.subprocess.PipedCliProcess]]).
   */
-private[orca] object DecodedTurn:
+private[backend] object DecodedTurn:
 
   /** Cap on in-flight unread events. The reader blocks once full, so a slow
     * consumer's backpressure flows back into the subprocess pipe.

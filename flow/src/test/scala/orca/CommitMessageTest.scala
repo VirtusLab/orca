@@ -2,8 +2,8 @@ package orca
 
 import orca.events.EventDispatcher
 import orca.agents.{Agent, BackendTag}
-import orca.sessions.SessionRecord
 import orca.testkit.{ScriptedBackend, TestAgent, TextReplyingAgent}
+import ox.discard
 
 import java.util.concurrent.ConcurrentLinkedQueue
 
@@ -138,18 +138,11 @@ class CommitMessageTest extends munit.FunSuite:
         "done"
       val _ = stage("second"):
         os.write.over(run.dir / "seed.txt", "second change")
-        // A mid-body session-store write, to pin that the stage diff carries
+        // A mid-stage event-log append, to pin that the stage diff carries
         // nothing from `.orca/` — the log the first stage committed included.
-        run.control.sessionStore.upsert(
-          SessionRecord(
-            name = "s",
-            stage = StagePath.FlowBody,
-            id = "sid",
-            seed = "seed",
-            resumeWireId = Some("wire"),
-            backend = BackendTag.ClaudeCode
-          )
-        )
+        val key = RunKey.of("p")
+        OrcaDir.ensureRunDir(run.dir, key).discard
+        os.write.append(OrcaDir.eventLogPath(run.dir, key), "{}\n")
         "done"
       val _ = nextPrompt(prompts)
       val second = nextPrompt(prompts)

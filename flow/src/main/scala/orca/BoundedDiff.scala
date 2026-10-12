@@ -7,7 +7,7 @@ import orca.tools.{ChangedFile, FileChange, PendingChanges, ReviewSample}
   * `orca.defaultCommitMessage`), the reviewer's initial prompt
   * ([[reviewPayload]], see `orca.review.reviewAndFixLoop`), a resumed
   * reviewer's per-round delta ([[sectionsPayload]], see
-  * `orca.review.ReReviewChanges`) and the PR summariser's ([[prPayload]], see
+  * `orca.review.diff.DiffDelivery`) and the PR summariser's ([[prPayload]], see
   * `orca.pr.summarisePr`).
   *
   * The first three keep the same rule: what is left out is still named. A
@@ -42,7 +42,7 @@ private[orca] object BoundedDiff:
     * a cap here leaves ~96% of change sets inlined whole (the median is 6 KB),
     * while the largest, at 2.1 MB, fits no context window at all.
     *
-    * Much larger than `orca.review.ReReviewChanges.InlineThreshold`, which
+    * Much larger than `orca.review.diff.ReReviewChanges.InlineThreshold`, which
     * bounds a different thing: that one bounds what a single re-review prompt
     * inlines, so a resumed conversation accumulates at most that much per round
     * — a cost question, and cost bites far below the size at which a request

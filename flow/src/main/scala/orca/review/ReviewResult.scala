@@ -1,6 +1,7 @@
 package orca.review
 
-import orca.agents.{Announce, JsonData, given}
+import orca.agents.Announce
+import orca.json.{JsonData, given}
 
 case class ReviewResult(
     findings: List[ReviewFinding]

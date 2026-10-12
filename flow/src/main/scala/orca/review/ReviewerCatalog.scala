@@ -2,13 +2,13 @@ package orca.review
 
 import orca.OrcaFlowException
 import orca.discovery.{Origin, TierPrecedence, TierWinner}
-import orca.util.{ParsedPrompt, PromptResource, TextUtil}
+import orca.util.TextUtil
 
 /** The two tiers a reviewer `.md` file can be discovered in. `BuiltIn` is not
   * one of them: the shipped set is read from the classpath, never from a
   * directory, so it can be shadowed but never discovered.
   */
-private[orca] enum ReviewerFileTier:
+private[review] enum ReviewerFileTier:
   case Project, Global
 
   def origin: Origin = this match
@@ -19,7 +19,7 @@ private[orca] enum ReviewerFileTier:
   * file, plus every lower-precedence tier defining the same slug — including
   * `BuiltIn` when it overrides a shipped reviewer.
   */
-private[orca] case class DiscoveredReviewer(
+private[review] case class DiscoveredReviewer(
     reviewer: Reviewer,
     tier: ReviewerFileTier,
     shadows: List[Origin]
@@ -216,8 +216,7 @@ object ReviewerCatalog:
   private def read(
       path: os.Path
   ): Either[ReviewerPromptFailure, ReviewerFile] =
-    try
-      Right(ReviewerFile(path, PromptResource.parseWithMetadata(os.read(path))))
+    try Right(ReviewerFile(path, ParsedPrompt.parse(os.read(path))))
     catch
       case e: java.io.IOException =>
         Left(

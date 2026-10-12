@@ -1,6 +1,6 @@
 # Runnable examples
 
-Two end-to-end Orca flows you can seed and run with one command. Each ships a
+An end-to-end Orca flow you can seed and run with one command. It ships a
 `create-test-project.sh` that copies a small starter (in the example's
 `test-project/`) into a temp dir, inits git, and copies the flow script — one of
 the `.sc` files in [`flows/`](../../flows/) — alongside it.
@@ -8,20 +8,19 @@ the `.sc` files in [`flows/`](../../flows/) — alongside it.
 | Example | When to use it |
 | ------- | -------------- |
 | [01-simple](01-simple/) | One-shot planning + coding for small tasks. Autonomous planner; the plan is in memory — no resume, no on-disk state. |
-| [02-interactive](02-interactive/) | Same shape as 01, but the planner can ask clarifying questions via the `ask_user` MCP tool. Use when the prompt is open-ended. |
 
-The other flow scripts in [`flows/`](../../flows/) (`issue-pr.sc`,
-`issue-pr-bugfix.sc`, `implement-enhanced.sc`) have no seed harness — run them
+The other flow scripts in [`flows/`](../../flows/) (`quick.sc`,
+`epics.sc`, `resolve.sc`, `review.sc`) have no seed harness — run them
 against your own git repo.
 
 ## Prerequisites
 
-Both examples expect:
+The example expects:
 
 - **JDK 21+** and [scala-cli](https://scala-cli.virtuslab.org/).
 - `claude` CLI logged in (`claude auth login` — see the
   [Agent CLIs](../../docs/using/agent-clis.md)).
-- `cargo` on PATH — both seed a small Rust calculator crate.
+- `cargo` on PATH — it seeds a small Rust calculator crate.
 
 Seed a project:
 

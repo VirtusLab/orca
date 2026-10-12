@@ -2,6 +2,7 @@ package orca.agents
 
 import orca.{InStage, OrcaFlowException}
 import orca.backend.Dispatch
+import orca.json.JsonData
 
 /** An EPHEMERAL multi-turn agent conversation — tool-using, workspace-editing,
   * exactly as capable as any other agent turn; "chat" names its lifetime, not

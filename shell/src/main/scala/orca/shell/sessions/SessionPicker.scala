@@ -32,7 +32,7 @@ private[shell] object SessionPicker:
     * `expanded` reveals both collapsed groups in place, in
     * [[SessionIndex.listing]] order. Disabling a row previews only what
     * [[ResumeCommand.staticGate]] can tell without a live harness call: a
-    * wireId-less session. The checks that need the manifest's `workDir` or a
+    * wireId-less session. The checks that need the attempt's `workDir` or a
     * live call — gemini's `gemini --list-sessions` index, pi's session dir —
     * are deferred to selection, in [[orca.shell.actions.SessionAction.resume]],
     * so those rows stay enabled pending that later check.
@@ -43,7 +43,7 @@ private[shell] object SessionPicker:
   ): List[Choice[PickerRow]] =
     val tag = SessionNaming.dirTag(index)
     val where = (s: SessionSelection) =>
-      tag(s.manifest.workDir, s.manifest.branch)
+      tag(s.attempt.workDir, s.attempt.branch.map(_.value))
     val primary = index.latest
     val primaryLabels = primary.map(s => (s, primaryLabel(s) + where(s)))
     val mintedIn = mintedInTag(primaryLabels)
@@ -150,6 +150,6 @@ private[shell] object SessionPicker:
     */
   private def rowTail(selection: SessionSelection, marker: String): String =
     val harness = AgentSpec.harnessNameFor(selection.session.backend)
-    val branch = selection.manifest.branch.fold("")(b => s" on $b")
+    val branch = selection.attempt.branch.fold("")(b => s" on ${b.value}")
     val crashed = SessionNaming.crashedSuffix(selection.observedStatus)
     s"[$harness]$marker$branch$crashed"

@@ -6,7 +6,6 @@ import orca.gitref.BranchName
 import orca.progress.FeatureBranch
 import orca.shell.ShellEnv
 import orca.shell.actions.FlowResolution
-import orca.shell.resume.InterruptedRun
 import orca.shell.run.{FallbackPolicy, FlowLauncher, LaunchedFlow, PinPolicy}
 import orca.shell.ui.{Choice, ShellOutput, ShellUi, UiOutcome}
 import orca.util.TextUtil

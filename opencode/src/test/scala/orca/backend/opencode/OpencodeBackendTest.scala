@@ -1,0 +1,311 @@
+package orca.backend.opencode
+
+import orca.testkit.OpenTurn
+import orca.OrcaFlowException
+import orca.backend.StreamSource
+import orca.agents.{
+  TurnDispatch,
+  BackendTag,
+  AgentConfig,
+  Model,
+  SessionId,
+  StructuredOutputMode,
+  WireSessionId
+}
+import ox.supervised
+
+class OpencodeBackendTest extends munit.FunSuite:
+
+  /** Serves a canned turn over SSE and records POSTs. `events` hands back the
+    * same canned stream each call. `statusFor` controls what `getStatus`
+    * returns for each path prefix: defaults to 404 for unknown paths.
+    */
+  private class FakeHttp(
+      sse: List[String],
+      statusFor: String => Int = _ => 404
+  ) extends OpencodeHttp:
+    var posts: List[(String, String)] = Nil
+    def postJson(path: String, body: String): String =
+      posts = posts :+ (path -> body)
+      if path == "/session" then """{"id":"ses_server1"}""" else ""
+    def events(): StreamSource = new StreamSource:
+      def lines: Iterator[String] = sse.iterator
+      def errorLines: Iterator[String] = Iterator.empty
+      def interrupt(): Unit = ()
+      def tryExitCode: Option[Int] = Some(0)
+    override def getStatus(path: String): Int = statusFor(path)
+
+  /** Fake [[OpencodeServerHandle]] standing in for the server. `http` forces
+    * `httpThunk` on every access — a test wanting to assert a spawn never
+    * happens passes `fail(...)` as the thunk.
+    */
+  private class FakeHandle(httpThunk: => OpencodeHttp)
+      extends OpencodeServerHandle:
+    def http(): OpencodeHttp = httpThunk
+
+  private def data(json: String): String = s"data: $json"
+
+  private def turn(
+      sessionId: String,
+      finish: String,
+      extra: List[String]
+  ): List[String] =
+    extra ++ List(
+      data(
+        s"""{"type":"message.updated","properties":{"info":{"role":"assistant","sessionID":"$sessionId","modelID":"gpt-4o-mini","finish":"$finish"}}}"""
+      ),
+      data(
+        s"""{"type":"session.idle","properties":{"sessionID":"$sessionId"}}"""
+      )
+    )
+
+  private def fresh = SessionId.fresh[BackendTag.Opencode.type]
+
+  test(
+    "runAutonomous creates a session, fires prompt_async, returns the result"
+  ):
+    supervised:
+      val http = new FakeHttp(
+        turn(
+          "ses_server1",
+          "stop",
+          List(
+            data(
+              """{"type":"message.part.delta","properties":{"sessionID":"ses_server1","field":"text","delta":"done"}}"""
+            )
+          )
+        )
+      )
+      val backend = new OpencodeBackend(new FakeHandle(http))
+      val client = fresh
+      val result =
+        backend.runAutonomous("hi", client, AgentConfig())
+
+      assertEquals(result.output, "done")
+      assertEquals(result.model, Some(Model("gpt-4o-mini")))
+      // The result reports the WIRE id — the server-minted ses_server1 — while
+      // the client→server mapping is recorded in the registry.
+      assertEquals(
+        result.wireId,
+        WireSessionId[BackendTag.Opencode.type]("ses_server1")
+      )
+      // The turn settled via `session.idle`, so NO `/abort` POST fires for
+      // this just-idle session, which may be resumed next turn.
+      assertEquals(
+        http.posts.map(_._1),
+        List(
+          "/session",
+          "/session/ses_server1/prompt_async"
+        )
+      )
+      val (_, body) = http.posts.find(_._1.endsWith("/prompt_async")).get
+      assert(body.contains(""""text":"hi""""), body)
+
+  test(
+    "a second call with the same session resumes (one POST /session, two turns)"
+  ):
+    supervised:
+      val http = new FakeHttp(turn("ses_server1", "stop", Nil))
+      val backend = new OpencodeBackend(new FakeHandle(http))
+      val client = fresh
+      val _ =
+        backend.runAutonomous("one", client, AgentConfig())
+      val _ =
+        backend.runAutonomous("two", client, AgentConfig())
+      assertEquals(http.posts.count(_._1 == "/session"), 1)
+      assertEquals(http.posts.count(_._1.endsWith("/prompt_async")), 2)
+
+  test("opencode declares Tool structured-output mode"):
+    // The declaration behind the prompt's delivery instruction:
+    // `format: json_schema` (the body field asserted in OpencodeArgsTest) makes
+    // the server deliver the payload through an injected StructuredOutput tool.
+    supervised:
+      val backend = new OpencodeBackend(new FakeHandle(new FakeHttp(Nil)))
+      assertEquals(backend.structuredOutputMode, StructuredOutputMode.Tool)
+
+  // Provider-matched, so incidental work doesn't pull in a second provider's
+  // auth.
+  test("an openai-led agent's cheap tier is openai luna"):
+    supervised:
+      val backend = new OpencodeBackend(new FakeHandle(new FakeHttp(Nil)))
+      assertEquals(
+        backend.cheapModel(Some(Model("openai/gpt-6-sol"))),
+        Some(Model("openai/gpt-6-luna"))
+      )
+
+  test("any other agent's cheap tier is anthropic haiku"):
+    supervised:
+      val backend = new OpencodeBackend(new FakeHandle(new FakeHttp(Nil)))
+      assertEquals(
+        backend.cheapModel(Some(Model("ollama/llama3.1"))),
+        Some(Model("anthropic/claude-haiku-5-5"))
+      )
+
+  test("registerSession lets a later call resume that server session directly"):
+    supervised:
+      val http = new FakeHttp(turn("ses_X", "stop", Nil))
+      val backend = new OpencodeBackend(new FakeHandle(http))
+      val client = fresh
+      backend.sessions.register(
+        client,
+        WireSessionId[BackendTag.Opencode.type]("ses_X")
+      )
+      val _ =
+        backend.runAutonomous("hi", client, AgentConfig())
+      assertEquals(
+        http.posts.count(_._1 == "/session"),
+        0
+      ) // resumed, not created
+      assert(http.posts.exists(_._1 == "/session/ses_X/prompt_async"))
+
+  test("an interactive turn can ask the user"):
+    supervised:
+      val http = new FakeHttp(
+        turn(
+          "ses_server1",
+          "stop",
+          List(
+            data(
+              """{"type":"message.part.delta","properties":{"sessionID":"ses_server1","field":"text","delta":"hi"}}"""
+            )
+          )
+        )
+      )
+      val backend = new OpencodeBackend(new FakeHandle(http))
+      val live = OpenTurn.interactive(backend)(
+        "q",
+        fresh,
+        "display",
+        AgentConfig(),
+        outputSchema = Some("""{"type":"object"}""")
+      )
+      assertEquals(live.canAskUser, true)
+      assertEquals(
+        live.outputSchema,
+        Some("""{"type":"object"}""")
+      ) // schema threaded through
+      live.events.foreach(_ => ())
+      assertEquals(live.awaitResult().toOption.get.output, "hi")
+
+  test(
+    "dispatch never spawns the server when there is no client→server " +
+      "mapping (the no-spurious-spawn guarantee)"
+  ):
+    supervised:
+      // Nothing has mapped this client id, so `dispatchFor` must
+      // short-circuit WITHOUT forcing `http` — the fake
+      // handle fails the test if it is ever forced.
+      val backend = new OpencodeBackend(
+        new FakeHandle(fail("must not spawn"))
+      )
+      val client = fresh
+      assertEquals(
+        backend.sessions.dispatchFor(client).asTurnDispatch,
+        TurnDispatch.Fresh
+      )
+
+  test(
+    "a probe with a rehydrated wire id spawns the server and returns its answer"
+  ):
+    supervised:
+      // Mirrors resume: `agent.session(...)` reusing a record registers the
+      // client→server mapping before any turn has touched the server, so `http`
+      // has never been forced when `dispatchFor` is called. The probe must still
+      // force the lazy spawn and contact the fresh server rather than
+      // short-circuiting on whether it was already running.
+      val http = new FakeHttp(
+        Nil,
+        path => if path == "/session/ses_server1" then 200 else 404
+      )
+      val backend = new OpencodeBackend(new FakeHandle(http))
+      val client = fresh
+      backend.sessions.rehydrate(
+        client,
+        WireSessionId[BackendTag.Opencode.type]("ses_server1")
+      )
+      assertEquals(
+        backend.sessions.dispatchFor(client).asTurnDispatch,
+        TurnDispatch.Resumed
+      )
+
+  test(
+    "an unmapped client id opens fresh even when the server is up"
+  ):
+    supervised:
+      // Server started (would answer 200), but the probed client id was never
+      // mapped to a server id, so the probe must not run on the client id.
+      val existingId = "ses_server1"
+      val http = new FakeHttp(
+        turn(existingId, "stop", Nil),
+        path => if path == s"/session/$existingId" then 200 else 404
+      )
+      val backend = new OpencodeBackend(new FakeHandle(http))
+      val _ =
+        backend.runAutonomous("hi", fresh, AgentConfig())
+      // A different, unmapped client id resolves to no server id → false.
+      assertEquals(
+        backend.sessions.dispatchFor(fresh).asTurnDispatch,
+        TurnDispatch.Fresh
+      )
+
+  test("probeSession returns true when getStatus is 200"):
+    supervised:
+      val http = new FakeHttp(
+        Nil,
+        path => if path == "/session/ses_abc" then 200 else 404
+      )
+      val backend = new OpencodeBackend(new FakeHandle(http))
+      assert(backend.probeSession("ses_abc", http))
+
+  test("probeSession returns false when getStatus is 404"):
+    supervised:
+      val http = new FakeHttp(Nil, _ => 404)
+      val backend = new OpencodeBackend(new FakeHandle(http))
+      assert(!backend.probeSession("ses_missing", http))
+
+  test(
+    "a rehydrated id opens fresh when the mapped server id is unknown to the server"
+  ):
+    supervised:
+      val http = new FakeHttp(Nil, _ => 404)
+      val backend = new OpencodeBackend(new FakeHandle(http))
+      val client = fresh
+      backend.sessions.rehydrate(
+        client,
+        WireSessionId[BackendTag.Opencode.type]("ses_server1")
+      )
+      assertEquals(
+        backend.sessions.dispatchFor(client).asTurnDispatch,
+        TurnDispatch.Fresh
+      )
+
+  test(
+    "probeSession returns false when getStatus throws (verifies NonFatal catch)"
+  ):
+    supervised:
+      val http = new FakeHttp(Nil):
+        override def getStatus(path: String): Int =
+          throw new java.io.IOException("connection refused")
+      val backend = new OpencodeBackend(new FakeHandle(http))
+      assert(!backend.probeSession("ses_abc", http))
+
+  test(
+    "a session-creation failure never opens the SSE stream (open-path leak)"
+  ):
+    supervised:
+      var eventsOpened = false
+      val http = new FakeHttp(Nil):
+        override def events(): StreamSource =
+          eventsOpened = true
+          super.events()
+        override def postJson(path: String, body: String): String =
+          if path == "/session" then
+            throw new OrcaFlowException("boom: session create failed")
+          else super.postJson(path, body)
+      val backend = new OpencodeBackend(new FakeHandle(http))
+      val _ = intercept[OrcaFlowException]:
+        backend.runAutonomous("hi", fresh, AgentConfig())
+      assert(
+        !eventsOpened,
+        "GET /event must not open when POST /session throws"
+      )

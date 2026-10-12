@@ -1,6 +1,7 @@
 package orca.review
 
-import orca.agents.{AgentInput, JsonData, given}
+import orca.agents.AgentInput
+import orca.json.{JsonData, given}
 
 /** The fix instruction plus the findings handed to the coding agent each round.
   *

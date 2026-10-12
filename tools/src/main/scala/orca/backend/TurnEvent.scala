@@ -91,5 +91,5 @@ private[orca] enum TurnEvent:
 /** The events a turn's background drains (stderr, `ask_user`) and its opening
   * prompt may send: none of them affects the message grammar.
   */
-private[orca] type NeutralEvent = TurnEvent.UserMessage | TurnEvent.Error |
+private[backend] type NeutralEvent = TurnEvent.UserMessage | TurnEvent.Error |
   TurnEvent.Question

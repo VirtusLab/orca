@@ -1,13 +1,7 @@
 package orca.testkit
 
 import com.github.plokhotnyuk.jsoniter_scala.core.writeToString
-import orca.agents.{
-  BackendTag,
-  JsonData,
-  Model,
-  StructuredOutputMode,
-  WireSessionId
-}
+import orca.agents.{BackendTag, Model, StructuredOutputMode, WireSessionId}
 import orca.backend.{
   AgentBackend,
   AgentResult,
@@ -17,6 +11,7 @@ import orca.backend.{
   TurnRequest
 }
 import orca.events.Usage
+import orca.json.JsonData
 import ox.Ox
 
 /** An `AgentBackend` double whose every turn, autonomous or interactive, is a

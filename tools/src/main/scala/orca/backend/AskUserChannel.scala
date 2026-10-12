@@ -3,7 +3,7 @@ package orca.backend
 import orca.backend.mcp.AskUserSession
 
 /** How a turn's agent reaches the user with a question. */
-private[orca] enum AskUserChannel:
+private[backend] enum AskUserChannel:
   case Unavailable
 
   /** Through orca's `ask_user` MCP server (claude, codex, gemini). */

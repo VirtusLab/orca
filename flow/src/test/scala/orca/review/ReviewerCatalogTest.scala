@@ -52,7 +52,7 @@ class ReviewerCatalogTest extends munit.FunSuite:
       reviewer.filePattern.toString
     )
     assert(
-      !reviewer.appliesTo(List("README.md")),
+      !reviewer.appliesTo(List("build.sbt")),
       reviewer.filePattern.toString
     )
     // `orca` is not a shipped slug, so it is additive rather than a shadow.

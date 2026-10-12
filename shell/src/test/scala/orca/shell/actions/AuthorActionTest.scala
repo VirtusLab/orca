@@ -68,7 +68,7 @@ class AuthorActionTest extends munit.FunSuite:
   private given env: ShellEnv = TestShellEnv()
 
   private val builtInFlow =
-    BuiltInFlows.extracted(env.cacheHome, OrcaBuild.current) / "simple.sc"
+    BuiltInFlows.extracted(env.cacheHome, OrcaBuild.current) / "quick.sc"
 
   private def captured(body: => Unit): String =
     val buffer = new java.io.ByteArrayOutputStream()
@@ -112,7 +112,7 @@ class AuthorActionTest extends munit.FunSuite:
     )
 
   test(
-    "create: launches the built-in simple.sc flow in a sandbox git repo, prompt targeting the sandbox"
+    "create: launches the built-in quick.sc flow in a sandbox git repo, prompt targeting the sandbox"
   ):
     withTerminal: terminal =>
       val target = projectTarget("new.sc")

@@ -27,7 +27,7 @@ works. The `--workspace` option keeps scala-cli's build metadata out of the
 current directory:
 
 ```bash
-scala-cli run --workspace "${XDG_CACHE_HOME:-$HOME/.cache}/orca/shell/workspace" --jvm 21 --quiet --verbose --dep "org.virtuslab::orca-shell:0.1.10" --main-class orca.shell.Main
+scala-cli run --workspace "${XDG_CACHE_HOME:-$HOME/.cache}/orca/shell/workspace" --jvm 21 --quiet --verbose --dep "org.virtuslab::orca-shell:0.2.0" --main-class orca.shell.Main
 ```
 
 ## The interactive shell
@@ -57,7 +57,7 @@ job. The commands are:
   terminal (see also `--plain` and `--color`).
 - `orca edit <flow>` opens a flow in `$VISUAL`, `$EDITOR` or `vi`. To
   customise a built-in flow, `--to project` or `--to global` is required.
-- `orca create "<goal>"` runs the built-in `simple.sc` flow in an isolated
+- `orca create "<goal>"` runs the built-in `quick.sc` flow in an isolated
   sandbox to have the configured agents write a new flow. `--name <file>`
   sets the file name, which is otherwise derived, and `--global` makes it a
   global flow.

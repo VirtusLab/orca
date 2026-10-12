@@ -12,14 +12,14 @@ import orca.agents.{
   Agent,
   BackendTag,
   ConversationNotHeld,
-  JsonData,
   SessionId,
   SessionKey,
   WireSessionId
 }
 import orca.events.OrcaEvent
+import orca.json.{JsonData, RawJson}
 import orca.progress.{BranchMode, ProgressHeader, ProgressStore, StageEntry}
-import orca.sessions.{SessionRecord, SessionStore}
+import orca.sessions.{SessionRecord, TestSessionStore}
 import orca.testkit.{
   GitRepo,
   PassthroughPrompts,
@@ -27,7 +27,6 @@ import orca.testkit.{
   TempDirs,
   TestAgent
 }
-import orca.util.RawJson
 
 /** Tests for [[FlowSession]] — the durable-session handle that owns the probe →
   * seed/preamble → run → persist protocol (ADR 0018 §2.6).
@@ -224,7 +223,7 @@ class FlowSessionTest extends FunSuite:
   ): TestRun =
     val dir = TempDirs.dir()
     val store = ProgressStore.default(dir, RunKey.of("p"))
-    val sessionStore = SessionStore.default(dir, RunKey.of("p"))
+    val sessionStore = new TestSessionStore
     given WorkspaceWrite = WorkspaceWrite.unsafe
     store.writeHeader(
       ProgressHeader(
@@ -747,7 +746,7 @@ class FlowSessionTest extends FunSuite:
     // something to report.
     val dir = GitRepo.seeded()
     val store = ProgressStore.default(dir, RunKey.of("p"))
-    val sessionStore = SessionStore.default(dir, RunKey.of("p"))
+    val sessionStore = new TestSessionStore
     store.writeHeader(
       ProgressHeader(
         Some(orca.testkit.branchName("main")),
@@ -838,8 +837,8 @@ class FlowSessionTest extends FunSuite:
     )
 
   test("run hands the session's key to the turn, for SessionCommitted"):
-    // The manifest's session name, minting stage and `kind` all come off the
-    // event, so the whole key has to reach the emission edge from here.
+    // The event log's `SessionCommitted.minted` comes off the event, so the
+    // whole key has to reach the emission edge from here.
     val run = makeRun(sessions = Nil)
     import run.given
     val agent = new StubAgentForSeeded(existsResult = true)

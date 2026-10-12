@@ -9,13 +9,13 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.{
   ConfiguredJsonValueCodec
 }
 import orca.StagePath
-import orca.runner.manifest.SessionKind
 import orca.shell.flows.DiscoveredFlow
 import orca.settings.AgentSpec
 import orca.shell.sessions.{
   ObservedStatus,
   ResumeCommand,
   SessionIndex,
+  SessionKind,
   SessionNaming
 }
 
@@ -77,8 +77,8 @@ private[cli] object Tables:
       SessionRow(
         id = selection.ref.spelling,
         sessionName = SessionNaming.displayName(session),
-        workDir = selection.manifest.workDir,
-        branch = selection.manifest.branch,
+        workDir = selection.attempt.workDir,
+        branch = selection.attempt.branch.map(_.value),
         kind = session.kind,
         stage = session.stage,
         sessionStage = session.minted.map(_.stage),

@@ -65,12 +65,12 @@ intact. The `harness` part is one of `claude`, `codex`, `opencode`, `pi` or
 ```properties
 planningAgent = claude:opus
 codingAgent = codex:gpt-5-mini
-reviewAgent = opencode:anthropic/claude-haiku-4-5
+reviewAgent = opencode:anthropic/claude-haiku-5-5
 ```
 
 The model part is passed to the harness verbatim, and Orca does not validate
 model ids. There is one exception: claude's bare `haiku` alias is sent as
-`claude-haiku-4-5`, because the CLI may resolve the bare alias to a pricier
+`claude-haiku-5-5`, because the CLI may resolve the bare alias to a pricier
 model.
 
 Note that agent keys are read even when `flow(stackSettings = Some(...))` pins

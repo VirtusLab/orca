@@ -1,7 +1,5 @@
 package orca.subprocess
 
-import orca.sweep.EnvCookie
-
 import org.slf4j.LoggerFactory
 import ox.{abandonOnInterruptReads, discard, raceResult, sleep}
 

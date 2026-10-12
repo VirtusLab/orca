@@ -9,7 +9,7 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.{
   ConfiguredJsonValueCodec,
   JsonCodecMaker
 }
-import orca.agents.JsonData
+import orca.json.JsonData
 import sttp.tapir.Schema
 
 import scala.annotation.tailrec

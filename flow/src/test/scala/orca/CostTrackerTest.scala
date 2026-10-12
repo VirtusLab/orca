@@ -500,9 +500,9 @@ class CostTrackerTest extends munit.FunSuite:
       tracker.summary
     )
 
-  test("summary leaves per-agent spend to the run's cost log"):
-    // The block is read at the point the user wants a verdict; the cost log
-    // carries `agent` on every turn for anyone who wants that fold.
+  test("summary leaves per-agent spend to the run's event log"):
+    // The block is read at the point the user wants a verdict; the event log
+    // carries `agent` on every `Turn` for anyone who wants that fold.
     val tracker = new CostTracker
     tracker.onEvent(
       tokens("lint", Some("opus"), usage(1L, 1L, None), role = Some("reviewer"))

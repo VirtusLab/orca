@@ -44,17 +44,18 @@ trait FlowControl extends caps.ExclusiveCapability:
     */
   def progressStore: ProgressStore
 
-  /** The store backing this run's durable session records — the machine-local
-    * half, in `.orca/cache/` (see [[orca.sessions.SessionStore]]).
+  /** This run's durable session records — the machine-local half, kept in the
+    * run's event log in `.orca/cache/` (see [[orca.sessions.SessionStore]]).
     */
   def sessionStore: SessionStore
 
   /** Run `f` with a stage named `name` open, passing its path — see
     * [[StageFrames.withStage]].
     */
-  private[orca] def withStage[R](name: String, baseCommit: Option[CommitHash])(
-      f: StagePath.Stage => R
-  ): R
+  private[orca] def withStage[R](
+      name: String,
+      baseCommit: StagePath.Stage => Option[CommitHash]
+  )(f: StagePath.Stage => R): R
 
   /** Throw unless no stage is open — see [[StageFrames.assertAtFlowBody]]. */
   private[orca] def assertAtFlowBody(what: String): Unit

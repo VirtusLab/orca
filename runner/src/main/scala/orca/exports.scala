@@ -39,12 +39,19 @@ export orca.agents.{
   PromptEvent,
   ToolSet,
   BackendTag,
-  JsonData,
-  Announce,
-  schemaFromJsonData,
-  codecFromJsonData
+  Announce
 }
-export orca.plan.{BugReportMatch, Plan, Task, Triage, Verdict, WithChat}
+export orca.json.{JsonData, schemaFromJsonData, codecFromJsonData}
+export orca.plan.{
+  BugReportMatch,
+  Epic,
+  Plan,
+  Roadmap,
+  Task,
+  Triage,
+  WithChat,
+  reproduceBug
+}
 // PrSummary is the result type of openPrFromBranch and summarisePr;
 // orcaCommentMarker is the idempotency marker gh.upsertComment keys on;
 // recordOpenedPr is for a flow that opens its PR with a bare gh.createPr, and
@@ -67,13 +74,15 @@ export orca.pr.{
 // parameter and LintReport is what the summariser-taking `lint` returns;
 // ReviewCheck is implemented for reviewAndFixLoop's `checks`. Location is a
 // ReviewFinding and OpenFinding field type, and SkippedReview an OpenFindings
-// one — needed by any flow that consumes findings.
+// one — needed by any flow that consumes findings. reviewOnce returns a
+// ReviewReport of ReviewerFindings.
 export orca.review.{
   allReviewers,
   buildReviewers,
   lint,
   minimalReviewers,
   reviewAndFixLoop,
+  reviewOnce,
   reviewThenFix,
   Lint,
   LintReport,
@@ -83,12 +92,14 @@ export orca.review.{
   Reviewer,
   ReviewerAgent,
   ReviewerCatalog,
+  ReviewerFindings,
   ReviewerPrompts,
   ReviewBatch,
   ReviewCheck,
   ReviewDiff,
   ReviewerSelector,
   ReviewFinding,
+  ReviewReport,
   ReviewResult,
   RosterEntry,
   SkippedReview
@@ -114,21 +125,21 @@ export orca.tools.{
 // backend's default-agent factory (`ClaudeAgents.default(w).opus`, …) and its
 // model-tier extensions (`claude.opus`, `codex.mini`, …).
 export orca.backend.AgentWiring
-export orca.tools.claude.ClaudeAgents
-export orca.tools.claude.ClaudeAgents.{
+export orca.backend.claude.ClaudeAgents
+export orca.backend.claude.ClaudeAgents.{
   haiku,
   sonnet,
   opus,
   fable,
   withNetworkTools
 }
-export orca.tools.codex.CodexAgents
-export orca.tools.codex.CodexAgents.mini
-export orca.tools.gemini.GeminiAgents
-export orca.tools.gemini.GeminiAgents.flash
-export orca.tools.pi.PiAgents
-export orca.tools.opencode.OpencodeAgents
-export orca.tools.opencode.OpencodeAgents.{
+export orca.backend.codex.CodexAgents
+export orca.backend.codex.CodexAgents.mini
+export orca.backend.gemini.GeminiAgents
+export orca.backend.gemini.GeminiAgents.flash
+export orca.backend.pi.PiAgents
+export orca.backend.opencode.OpencodeAgents
+export orca.backend.opencode.OpencodeAgents.{
   anthropicOpus,
   anthropicSonnet,
   anthropicHaiku,
@@ -152,6 +163,6 @@ type FindingId = orca.review.FindingId
 val FindingId: orca.review.FindingId.type = orca.review.FindingId
 type Model = orca.agents.Model
 val Model: orca.agents.Model.type = orca.agents.Model
-type OpencodeLauncher = orca.tools.opencode.OpencodeLauncher
-val OpencodeLauncher: orca.tools.opencode.OpencodeLauncher.type =
-  orca.tools.opencode.OpencodeLauncher
+type OpencodeLauncher = orca.backend.opencode.OpencodeLauncher
+val OpencodeLauncher: orca.backend.opencode.OpencodeLauncher.type =
+  orca.backend.opencode.OpencodeLauncher

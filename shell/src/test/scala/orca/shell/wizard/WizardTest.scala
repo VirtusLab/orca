@@ -610,7 +610,7 @@ class WizardTest extends munit.FunSuite:
     assertEquals(ModelCatalog.curated(BackendTag.Gemini), Nil)
     assertEquals(
       ModelCatalog.curated(BackendTag.Codex).map(_._1),
-      List("gpt-6-sol", "gpt-6-astra", "gpt-6-luna")
+      List("gpt-6.1-sol", "gpt-6-astra", "gpt-6-luna")
     )
 
   test("roleDefault starts only planning on claude off the flagship"):

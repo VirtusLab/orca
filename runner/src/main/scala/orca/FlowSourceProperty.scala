@@ -4,7 +4,7 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
   readFromString,
   writeToString
 }
-import orca.agents.JsonData
+import orca.json.JsonData
 import orca.progress.FlowSource
 
 import scala.util.Try

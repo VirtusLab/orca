@@ -20,7 +20,7 @@ import java.util.concurrent.atomic.AtomicBoolean
   * of the turn scope (the drainer, and the MCP server's request handlers), so
   * the scope's end unblocks them.
   */
-private[orca] class AskUserBridge(using BufferCapacity):
+private[backend] class AskUserBridge(using BufferCapacity):
 
   private val pending: Channel[(String, Channel[String])] =
     Channel.bufferedDefault

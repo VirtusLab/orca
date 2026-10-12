@@ -28,7 +28,7 @@ class ProgressScanTest extends FunSuite:
     val store = ProgressStore.default(workDir, RunKey.of("my prompt"))
     store.writeHeader(header)
     List(
-      "abc123def456.sessions.json", // another document
+      "abc123def456.other.json", // another document
       "abc123def456.progress.txt", // wrong extension
       ".abc123def456.progress.json.1.tmp" // an in-flight temp file
     ).foreach(name => os.write(workDir / ".orca" / "runs" / name, "{}"))

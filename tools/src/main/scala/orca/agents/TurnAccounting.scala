@@ -16,7 +16,7 @@ import orca.events.{OrcaEvent, OrcaListener, TurnDebit, Usage}
   *   the model the caller configured, used wherever the turn itself reports
   *   none.
   */
-private[orca] class TurnAccounting[B <: BackendTag](
+private[agents] class TurnAccounting[B <: BackendTag](
     events: OrcaListener,
     agentName: String,
     role: Option[String],
@@ -90,6 +90,6 @@ private[orca] class TurnAccounting[B <: BackendTag](
       )
     )
 
-private[orca] object TurnAccounting:
+private[agents] object TurnAccounting:
   /** The turn number of a call shape that runs one turn and never retries. */
   val OnlyTurn: Int = 1

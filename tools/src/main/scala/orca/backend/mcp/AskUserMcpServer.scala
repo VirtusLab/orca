@@ -15,7 +15,7 @@ private[mcp] case class AskUserInput(question: String) derives Codec, Schema
 /** The `ask_user` MCP tool: each invocation enqueues the question on an
   * [[AskUserBridge]] and blocks until the host supplies an answer.
   */
-private[orca] object AskUserMcpServer:
+private[backend] object AskUserMcpServer:
 
   /** MCP server name advertised to every backend (`mcp_servers.<name>` in
     * codex's config, the `mcpServers` map key in claude's `.mcp.json`). All

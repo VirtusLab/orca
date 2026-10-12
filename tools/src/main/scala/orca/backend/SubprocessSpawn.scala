@@ -3,7 +3,6 @@ package orca.backend
 import orca.OrcaFlowException
 import orca.events.OrcaListener
 import orca.subprocess.PipedCliProcess
-import orca.sweep.EnvCookieSweep
 
 import ox.{ResourceScope, releaseAfterScope}
 
@@ -21,7 +20,7 @@ import ox.{ResourceScope, releaseAfterScope}
   * `sessionLabel` is the backend's descriptor for the failure message —
   * deliberately not the bare backend name, which is pinned by tests.
   */
-private[orca] object SubprocessSpawn:
+private[backend] object SubprocessSpawn:
 
   def open[C](sessionLabel: String, events: OrcaListener)(
       spawn: => PipedCliProcess

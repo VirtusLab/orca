@@ -8,7 +8,7 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
 import com.networknt.schema.{InputFormat, JsonSchemaFactory, SpecVersion}
 import io.circe.parser.parse
 import munit.FunSuite
-import orca.util.JsonSchemaGen
+import orca.json.{JsonData, given}
 
 private enum Colour derives JsonData:
   case Red, Green

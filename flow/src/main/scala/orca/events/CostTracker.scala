@@ -123,8 +123,8 @@ class CostTracker extends OrcaListener:
     * oldest rates any estimate used, when any estimate is present.
     *
     * Per-agent spend is deliberately absent: this block is read at the moment
-    * the user wants a verdict, and the attempt's `<id>.cost.jsonl` carries
-    * `agent` on every turn for anyone who wants that fold.
+    * the user wants a verdict, and the run's event log carries `agent` on every
+    * `Turn` for anyone who wants that fold.
     *
     * A turn that spent tokens but resolved to no cost contributes nothing to
     * the total, so the total's label carries `(some turns unpriced)` and gains

@@ -19,8 +19,8 @@ import orca.shell.run.{
 }
 import orca.shell.ui.{ShellOutput, ShellUi}
 
-/** Authors a new, forked or edited flow by running the built-in `simple.sc`
-  * flow with an authoring task as its prompt (ADR 0021 §9): the configured
+/** Authors a new, forked or edited flow by running the built-in `quick.sc` flow
+  * with an authoring task as its prompt (ADR 0021 §9): the configured
   * coding/review agents — and their model pins — do the writing, exactly as
   * they would for any other flow run. No planning stage: the task
   * (copy-and-modify, or write from a goal) is small and well-scoped enough that
@@ -36,7 +36,7 @@ private[shell] object AuthorAction:
     * precedence: authoring always uses orca's own copy, never a same-named flow
     * a project or the global tier happens to define.
     */
-  private val AuthoringFlowName = "simple.sc"
+  private val AuthoringFlowName = "quick.sc"
 
   /** A new file (create/fork) must not exist at the destination; an edit
     * overwrites the flow it edits.

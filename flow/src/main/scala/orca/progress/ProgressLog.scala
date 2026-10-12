@@ -2,9 +2,8 @@ package orca.progress
 
 import com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec
 import orca.StagePath
-import orca.agents.{JsonData, given}
 import orca.gitref.{BranchName, CommitHash, Head}
-import orca.util.RawJson
+import orca.json.{JsonData, RawJson, given}
 
 /** Whether orca minted [[ProgressHeader.branch]] itself or bound to a
   * pre-existing one. Gates the throwaway-branch auto-delete
@@ -49,23 +48,32 @@ case class ProgressHeader(
   *
   * `resultJson` is type-erased at rest — the log is heterogeneous across stage
   * types; deserialisation to a typed value happens at the stage call site. A
-  * [[orca.util.RawJson]], embedded verbatim rather than string-escaped so the
+  * [[orca.json.RawJson]], embedded verbatim rather than string-escaped so the
   * persisted file stays directly readable when debugging.
   */
 case class StageEntry(id: StagePath.Stage, resultJson: RawJson) derives JsonData
 
-/** One run's persisted state: the outcome of each completed stage, and where it
-  * published its work ([[PublishedWork]], once the run has).
+/** The commit a stage started from, recorded when it is first entered, so a
+  * re-entry after a crash diffs from the same commit rather than from a HEAD
+  * that already holds the stage's own nested commits.
+  */
+case class StageStart(id: StagePath.Stage, baseCommit: CommitHash)
+    derives JsonData
+
+/** One run's persisted state: the outcome of each completed stage, where it
+  * published its work ([[PublishedWork]], once the run has), and the commit
+  * each entered stage started from.
   *
   * Everything here rides the feature branch, committed at each stage boundary.
   * Machine-local state that would be meaningless in another checkout lives in
-  * `.orca/cache/` instead — the durable session records
-  * ([[orca.sessions.SessionStore]]) and the attempt manifest.
+  * `.orca/cache/` instead — the run's event log, which the durable session
+  * records ([[orca.sessions.SessionStore]]) are projected from.
   */
 case class ProgressLog(
     header: ProgressHeader,
     entries: List[StageEntry],
-    published: Option[PublishedWork]
+    published: Option[PublishedWork],
+    stageStarts: List[StageStart]
 ) derives JsonData
 
 object ProgressLog:

@@ -11,12 +11,12 @@ import orca.StagePath
   * Built only inside orca, never by a flow script:
   * `FlowControl.claimSessionKey` mints one for a session about to be created —
   * the only door that also claims it — while `SessionRecord.key` rebuilds one
-  * from persisted halves and `ManifestSession.minted` reads one back through
+  * from persisted halves and a run's event log reads one back through
   * [[SessionKey.codec]].
   *
   * Minted by `agent.session(name, seed)`, persisted as an
   * `orca.sessions.SessionRecord`, and carried onto
-  * [[orca.events.OrcaEvent.SessionCommitted]] so the attempt manifest and the
+  * [[orca.events.OrcaEvent.SessionCommitted]] so the run's event log and the
   * shell's session picker can tell same-named sessions apart.
   */
 case class SessionKey private[orca] (name: String, stage: StagePath):
@@ -32,7 +32,7 @@ case class SessionKey private[orca] (name: String, stage: StagePath):
 
 object SessionKey:
   /** `{"name": ..., "stage": ...}`, the stage in [[StagePath]]'s persisted
-    * form, for the attempt manifest.
+    * form, for the run's event log.
     */
   private[orca] given codec: JsonValueCodec[SessionKey] =
     JsonCodecMaker.make[SessionKey]

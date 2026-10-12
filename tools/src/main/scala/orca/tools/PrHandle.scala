@@ -1,6 +1,6 @@
 package orca.tools
 
-import orca.agents.JsonData
+import orca.json.JsonData
 
 /** A handle to an open pull request. `host` is the bare GitHub hostname the PR
   * lives on — `github.com` or a GitHub Enterprise hostname — and every gh call
@@ -64,7 +64,7 @@ object PrHandle:
       .flatMap(m => fromExactUrl(m.matched).toOption)
 
   /** `s` as a handle when all of it is a PR browser URL. */
-  private def fromExactUrl(s: String): Either[String, PrHandle] =
+  private[tools] def fromExactUrl(s: String): Either[String, PrHandle] =
     s match
       case UrlPattern(host, owner, repo, number) =>
         fromFields(host, owner, repo, number)

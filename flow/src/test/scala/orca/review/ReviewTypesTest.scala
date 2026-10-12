@@ -1,7 +1,8 @@
 package orca.review
 
 import orca.plan.Title
-import orca.agents.{AgentInput, given}
+import orca.agents.AgentInput
+import orca.json.given
 import com.github.plokhotnyuk.jsoniter_scala.core.{
   readFromString,
   writeToString

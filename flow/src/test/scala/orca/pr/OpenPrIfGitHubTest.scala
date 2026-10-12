@@ -181,7 +181,7 @@ class OpenPrIfGitHubTest extends FunSuite:
     val run =
       prRun(dir, store, _ => (), calls, availability = available)
     val e = intercept[OrcaFlowException](
-      run.control.withStage("outer", None): _ =>
+      run.control.withStage("outer", _ => None): _ =>
         openPrIfGitHub(
           summarisingAgent = new StubSummariser().agent,
           openFindings = OpenFindings.empty

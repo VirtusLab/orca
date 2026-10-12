@@ -15,9 +15,9 @@ private[shell] enum LaunchResult:
 
 /** Which orca a launched flow runs on (ADR 0021 §2). */
 private[shell] enum PinPolicy:
-  /** The shell's own [[OrcaBuild]], replacing the flow's pin, so the run
-    * manifest writer is guaranteed present; `onIncompatible` decides what
-    * happens when the flow doesn't compile against it.
+  /** The shell's own [[OrcaBuild]], replacing the flow's pin, so the run event
+    * log writer is guaranteed present; `onIncompatible` decides what happens
+    * when the flow doesn't compile against it.
     */
   case Force(onIncompatible: FallbackPolicy)
 

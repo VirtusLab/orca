@@ -70,7 +70,7 @@ object FlowCanary:
         val _ = chat.run("keep going")
 
   /** A session may be minted inside the stage that drives it — the shape
-    * `flows/simple.sc` uses when one stage owns the whole conversation.
+    * `flows/quick.sc` uses when one stage owns the whole conversation.
     */
   def sessionMintedInsideItsStage(): Unit =
     flow(OrcaArgs()):
@@ -230,32 +230,31 @@ object FlowCanary:
         val _: List[ReviewerAgent[?]] = minimalReviewers(claude)
         val _: ReviewerCatalog = reviewerCatalog
         val _: List[Reviewer] = reviewerCatalog.all
+        val _: List[Option[Regex]] = reviewerCatalog.all.map(_.filePattern)
 
-  /** `flows/review.sc`: reviewers run for their findings alone, with no coder
-    * session and no fix loop. Pins the roster's file filters, a parallel
-    * fan-out of structured `ReviewResult` turns over built reviewers, and
-    * reading a finding's location.
+  /** `flows/review.sc`: one review pass over a resolved target, no coder
+    * session, report rendered and posted on a PR resolved from its ref.
     */
   def reviewOnlyShape(): Unit =
     flow(OrcaArgs()):
-      stage("review"):
-        val candidates: List[Reviewer] = narrowToChangedFiles()
-        val _: List[Option[Regex]] = candidates.map(_.filePattern)
-        val reviewers = buildReviewers(reviewAgent, candidates)
-        val results: List[ReviewResult] = Par.mapUnordered(4)(reviewers): r =>
-          r.agent.resultAs[ReviewResult].autonomous.run(r.definition.name.value)
-        val _: List[Option[Location]] =
-          results.flatMap(_.findings).map(_.location)
-
-  /** `flows/review.sc`'s `pickReviewers` is a top-level helper, so it resolves
-    * the catalog against a `FlowContext` alone, with no `FlowControl` in scope.
-    * Pins that shape separately.
-    */
-  private def narrowToChangedFiles()(using
-      FlowContext,
-      InStage
-  ): List[Reviewer] =
-    reviewerCatalog.all.filter(_.appliesTo(List("a.scala")))
+      val report: ReviewReport = stage("review"):
+        reviewOnce(
+          allReviewers(reviewAgent),
+          Task(Title("summary"), ""),
+          ReviewDiff.InFile(".orca/review.diff", List("a.scala")),
+          userRequest = Some("")
+        )
+      val _: List[Option[Location]] =
+        report.byReviewer.flatMap(_.findings).map(_.location)
+      stage("post"):
+        gh.prHandle("acme/widgets#1") match
+          case Right(pr) =>
+            gh.upsertComment(
+              pr,
+              orcaCommentMarker(userPrompt, "review"),
+              report.render
+            )
+          case Left(_) => ()
 
   /** Config overrides must be reachable as unqualified names so users can write
     * `flow(args = ..., workDir = ...)` straight from `import orca.*`.
@@ -274,8 +273,8 @@ object FlowCanary:
       stage("start"):
         val _ = claude.run(userPrompt)
 
-  /** `summarisePr` + `PrSummary` surface; exercised by `flows/issue-pr.sc`.
-    * Pins the call shape (`agent`, `diff`, optional `context`, optional
+  /** `summarisePr` + `PrSummary` surface; exercised by `flows/resolve.sc`. Pins
+    * the call shape (`agent`, `diff`, optional `context`, optional
     * `instructions`) and the result type.
     */
   def summarisePrSurface(): Unit =
@@ -309,9 +308,7 @@ object FlowCanary:
           case Left(_: PushFailure.RemoteDeclined) => ()
           case Right(_)                            => ()
 
-  /** Issue/PR-comment surface on `gh` — exercised by the issue-pr plan in
-    * `flows/`.
-    */
+  /** Issue/PR-comment surface on `gh` — exercised by `flows/resolve.sc`. */
   def issueAndPrSurface(): Unit =
     flow(OrcaArgs()):
       stage("gh"):
@@ -339,10 +336,9 @@ object FlowCanary:
         gh.writeComment(pr, "pr comment")
         gh.updatePr(pr, "new title", "new body")
 
-  /** Branch + PR surface — exercised by `flows/implement-enhanced.sc`. Pins the
-    * branch ops the runtime exposes to flow scripts and the `createPr` `Either`
-    * with its recoverable `PrAlreadyExists`. The flow runtime owns branch +
-    * resume (ADR 0018 §2.5).
+  /** Branch + PR surface. Pins the branch ops the runtime exposes to flow
+    * scripts and the `createPr` `Either` with its recoverable
+    * `PrAlreadyExists`. The flow runtime owns branch + resume (ADR 0018 §2.5).
     */
   def branchAndPrSurface(): Unit =
     flow(OrcaArgs()):
@@ -359,8 +355,7 @@ object FlowCanary:
 
   /** Planning grid surface; exercised across `flows/`. Pins the full `mode ×
     * operation` grid: every cell returns `WithChat[<result>]` where the result
-    * is `Plan` (`from`), `Verdict[Plan]` (`assessThenPlan`), or `Triage`
-    * (`triage`).
+    * is `Plan` (`from`) or `Triage` (`triage`).
     */
   def planningGridSurface(): Unit =
     flow(OrcaArgs()):
@@ -383,18 +378,6 @@ object FlowCanary:
           intFromPi.value
         )
 
-        // --- assessThenPlan → WithChat[Verdict[Plan]], both modes ---
-        val autoAssess: WithChat[Verdict[Plan]] =
-          Plan.autonomous.assessThenPlan(userPrompt, claude.opus)
-        val intAssess: WithChat[Verdict[Plan]] =
-          Plan.interactive.assessThenPlan(userPrompt, claude)
-        val _ = intAssess
-        autoAssess.value match
-          case Verdict.Proceed(_)                                   => ()
-          case Verdict.Rejection(Verdict.RejectionKind.Question, _) => ()
-          case Verdict.Rejection(Verdict.RejectionKind.Critique, _) => ()
-          case Verdict.Rejection(Verdict.RejectionKind.Rebuff, _)   => ()
-
         // --- triage → WithChat[Triage], both modes ---
         val autoTriage: WithChat[Triage] =
           Plan.autonomous.triage(userPrompt, claude.opus)
@@ -402,9 +385,20 @@ object FlowCanary:
         // Destructure the concretely-typed interactive result.
         val WithChat(_, triage) = Plan.interactive.triage(userPrompt, claude)
         triage match
-          case Triage.NotABug(_)        => ()
-          case Triage.Untestable(_, _)  => ()
-          case Triage.Testable(_, _, _) => ()
+          case Triage.Reject(_)                                  => ()
+          case Triage.Accept(_, _, Triage.Kind.TestableBug(_))   => ()
+          case Triage.Accept(_, _, Triage.Kind.UntestableBug(_)) => ()
+          case Triage.Accept(_, _, Triage.Kind.Change)           => ()
+
+        // --- roadmap → WithChat[Roadmap], both modes, plus its review ---
+        val autoRoadmap: WithChat[Roadmap] =
+          Plan.autonomous.roadmap(userPrompt, claude.opus).reviewed()
+        val intRoadmap: WithChat[Roadmap] =
+          Plan.interactive.roadmap(userPrompt, claude)
+        val _ = (
+          autoRoadmap.value.epicPrompt(autoRoadmap.value.epics.head),
+          intRoadmap.value.epics
+        )
 
   /** A helper function over the role agents needs no backend type parameter:
     * the plan, its review on an agent variant and the session each pass through
@@ -426,11 +420,11 @@ object FlowCanary:
     )
 
   /** Post-planning step (`reviewed`) plus the per-task stage loop — exercised
-    * by `flows/implement-enhanced.sc`. Pins that the `WithChat[Plan]` extension
-    * resolves through `import orca.*` alone. Plans are always briefed: the
-    * `brief` rides in the structured output, so `plan.brief` /
-    * `plan.taskPrompt` are always available. Resume is the progress log (ADR
-    * 0018 §2.8), and the task loop is a plain per-task `stage(...)`.
+    * by `flows/epics.sc`. Pins that the `WithChat[Plan]` extension resolves
+    * through `import orca.*` alone. Plans are always briefed: the `brief` rides
+    * in the structured output, so `plan.brief` / `plan.taskPrompt` are always
+    * available. Resume is the progress log (ADR 0018 §2.8), and the task loop
+    * is a plain per-task `stage(...)`.
     */
   def planReviewAndBriefSurface(): Unit =
     flow(OrcaArgs()):
@@ -475,48 +469,71 @@ object FlowCanary:
             task = task
           )
 
-  /** `implement-interactive.sc`: interactive plan → session → task loop. Only
-    * the planning call differs from `implementFlowShape`.
+  /** `epics.sc`: roadmap → per epic a nested plan stage, task stages and an
+    * epic review loop → `openPrIfGitHub`, the best-effort PR step every
+    * code-producing flow ends with.
     */
-  def interactivePlanFlowShape(): Unit =
+  def epicFlowShape(): Unit =
     flow(OrcaArgs()):
-      val plan: Plan = stage("Plan"):
-        Plan.interactive.from(userPrompt, claude).value
-
-      for task <- plan.tasks do
-        stage(s"task: ${task.title}"):
-          val session = claude.session("implementer", seed = plan.brief)
-          val _ = session.run(task.description)
+      val roadmap: Roadmap = stage("Plan epics"):
+        Plan.autonomous.roadmap(userPrompt, claude).reviewed().value
+      val perEpic: List[OpenFindings] =
+        for epic <- roadmap.epics yield stage(s"Epic: ${epic.title}"):
+          val plan: Plan = stage("Plan"):
+            Plan.autonomous.from(roadmap.epicPrompt(epic), claude).value
+          val tasks =
+            for task <- plan.tasks yield stage(s"Task: ${task.title}"):
+              val session = claude.session("implementer", seed = plan.brief)
+              val _ = session.run(task.description)
+              reviewThenFix(session, allReviewers(claude), task)
           reviewAndFixLoop(
-            coderSession = session,
+            coderSession = claude.session("epic-fixer", seed = plan.brief),
             reviewers = allReviewers(claude),
-            task = task
+            task = Task(epic.title, epic.goal),
+            maxFixTurns = 3,
+            priorOpenFindings = tasks.flatMap(_.findings)
           )
-
-  /** `implement-enhanced.sc`: plan → `.reviewed` → task loop with `taskPrompt`
-    * and a per-task session → `openPrIfGitHub`, the best-effort PR step every
-    * code-producing flow ends with, carrying what the loops left open.
-    */
-  def enhancedImplementFlowShape(): Unit =
-    flow(OrcaArgs()):
-      val plan: Plan = stage("Plan"):
-        Plan.autonomous.from(userPrompt, claude).reviewed().value
-
-      val taskOpenFindings =
-        for task <- plan.tasks yield stage(s"task: ${task.title}"):
-          val session = claude.session("implementer", seed = plan.brief)
-          val _ = session.run(plan.taskPrompt(task))
-          reviewAndFixLoop(
-            coderSession = session,
-            reviewers = allReviewers(claude),
-            task = task
-          )
-
       val _ = openPrIfGitHub(
         summarisingAgent = claude.haiku,
-        openFindings =
-          OpenFindings(taskOpenFindings.flatMap(_.findings), skipped = None)
+        openFindings = OpenFindings(perEpic.flatMap(_.findings), skipped = None)
       )
+
+  /** `resolve.sc`: optional issue → triage → reject comment, or reproduce /
+    * comment by kind → plan → final review → PR with a custom body.
+    */
+  def resolveFlowShape(): Unit =
+    val handle: Option[IssueHandle] =
+      IssueHandle.parseIssue("acme/w#1").toOption
+    flow(OrcaArgs(), branchNaming = handle.map(BranchNamingStrategy.issue(_))):
+      val triage: Triage = stage("Triage"):
+        Plan.autonomous.triage(userPrompt, claude).value
+      triage match
+        case Triage.Reject(reply) =>
+          handle.foreach: issue =>
+            stage("Comment"):
+              gh.upsertComment(
+                issue,
+                orcaCommentMarker(userPrompt, "reject"),
+                reply
+              )
+        case Triage.Accept(_, brief, kind) =>
+          stage("Reproduce"):
+            reproduceBug(request = userPrompt, testPath = "T.scala", claude)
+          val _ = kind
+          val openFindings = stage("Final review"):
+            reviewAndFixLoop(
+              coderSession = claude.session("final-fixer", seed = brief),
+              reviewers = allReviewers(claude),
+              task = Task(Title("t"), brief),
+              diff = ReviewDiff.WholeRun,
+              maxFixTurns = 5
+            )
+          val _ = openPrIfGitHub(
+            summarisingAgent = claude,
+            openFindings = openFindings,
+            body = s => s.body,
+            context = handle.map(_.shortRef)
+          )
 
   /** Role agents (ADR 0020): the three role accessors hand out backend-pinned
     * agents (so their sessions thread), and the per-role programmatic overrides
@@ -546,7 +563,7 @@ object FlowCanary:
   /** Cross-backend review — claude implements, codex reviews — pinned with
     * concrete accessors instead of the role ones. Exercises the
     * `allReviewers(codex)` shape, `claude.opus` planning, and a docs stage with
-    * a session of its own (`flows/implement-enhanced.sc`).
+    * a session of its own (`flows/epics.sc`).
     */
   def crossBackendReviewShape(): Unit =
     flow(OrcaArgs()):
@@ -570,142 +587,6 @@ object FlowCanary:
         val _ = documenter.run(
           "Update project docs based on the changes made."
         )
-
-  /** `issue-pr.sc`: read issue outside stage, `assessThenPlan`, optional plan,
-    * task loop with a per-task session seeded from the plan brief, push, PR.
-    * Also exercises `BranchNamingStrategy.issue` and the `Verdict` match.
-    */
-  def issuePrFlowShape(): Unit =
-    val orcaArgs = OrcaArgs("acme/widgets#42")
-    val issueHandle = IssueHandle.parseOrThrow(orcaArgs.userPrompt)
-    flow(
-      orcaArgs,
-      branchNaming = Some(BranchNamingStrategy.issue(issueHandle))
-    ):
-      // Read outside stage (no InStage needed).
-      val issue: Issue = gh.readIssue(issueHandle)
-
-      val (maybePlan, rejectionBody) = stage("Assess and plan"):
-        Plan.autonomous.assessThenPlan(issue.body, claude.opus).value match
-          case Verdict.Rejection(_, body) => (None: Option[Plan], body)
-          case Verdict.Proceed(plan)      => (Some(plan), "")
-
-      if maybePlan.isEmpty then
-        stage("Comment: rejection"):
-          gh.writeComment(issueHandle, rejectionBody)
-
-      maybePlan.foreach: plan =>
-        for task <- plan.tasks do
-          stage(s"task: ${task.title}"):
-            val session = claude.session("implementer", seed = plan.brief)
-            val _ = session.run(task.description)
-            reviewAndFixLoop(
-              coderSession = session,
-              reviewers = allReviewers(claude),
-              task = task
-            )
-
-        val _ = openPrFromBranch(
-          summarisingAgent = claude.haiku,
-          openFindings = OpenFindings.empty,
-          body =
-            summary => s"${summary.body}\n\nCloses ${issueHandle.shortRef}."
-        )
-
-  /** `issue-pr-bugfix.sc`: the push-after-edit authoring rule (ADR 0018).
-    * "Write failing test" commits the test; a LATER "Push + open PR" stage
-    * pushes it. Also covers `triage`, `waitForBuild` outside a stage,
-    * `session.run` in a nested helper, and the final push+updatePr stage whose
-    * hand-written body goes through `bodyWithOpenFindings`.
-    */
-  def bugfixFlowShape(): Unit =
-    import scala.concurrent.duration.DurationInt
-    val orcaArgs = OrcaArgs("acme/widgets#42")
-    val issueHandle = IssueHandle.parseOrThrow(orcaArgs.userPrompt)
-    flow(
-      orcaArgs,
-      branchNaming = Some(BranchNamingStrategy.issue(issueHandle))
-    ):
-      // Pure read outside any stage.
-      val issue: Issue = gh.readIssue(issueHandle)
-
-      val session =
-        claude.session("fixer", seed = issue.body)
-
-      val triage: Triage = stage("Triage"):
-        Plan.autonomous.triage(issue.body, claude).value
-
-      triage match
-        case Triage.NotABug(explanation) =>
-          stage("Comment: not a bug"):
-            gh.writeComment(issueHandle, explanation)
-
-        case Triage.Untestable(_, steps) =>
-          stage("Comment: repro steps"):
-            gh.writeComment(issueHandle, steps)
-
-        case Triage.Testable(summary, _, failingTestPath) =>
-          // Stage 1: write + commit the test.
-          stage("Write failing test"):
-            val _ = session.run(
-              s"Write the failing test at $failingTestPath."
-            )
-
-          // Stage 2: LATER stage — push the already-committed test, open PR.
-          // (Authoring rule R8: push must be in a later stage than the edit.)
-          val pr: PrHandle = stage("Push + open tentative PR"):
-            git.push().orThrow
-            val handle =
-              gh.createPr(title = summary, body = "Failing test only.").orThrow
-            // Inside the stage, so its commit carries the record for a resume.
-            recordOpenedPr(handle)
-            handle
-
-          // `waitForBuild` is a pure polling read — outside any stage.
-          if gh
-              .waitForBuild(pr, 30.minutes)
-              .orThrow
-              .outcome == BuildOutcome.Success
-          then
-            fail(
-              "CI passed on the failing-test commit — reproduction is wrong."
-            )
-          display(s"CI red on ${pr.shortRef} — confirmed")
-
-          // Implement the fix in per-task stages.
-          val fixPlan: Plan = stage("Plan the fix"):
-            Plan.autonomous
-              .from(s"Fix ${issueHandle.shortRef}", claude)
-              .reviewed()
-              .value
-          val taskOpenFindings =
-            for task <- fixPlan.tasks yield stage(s"task: ${task.title}"):
-              val _ = session.run(fixPlan.taskPrompt(task))
-              // An explicit override beats the settings file; the summariser
-              // rides on the coding role's cheap tier via `codingAgent`.
-              reviewAndFixLoop(
-                coderSession = session,
-                reviewers = allReviewers(claude),
-                task = task,
-                lint = Configured.Use(
-                  Lint(List("sbt Test/compile"), codingAgent.cheap)
-                )
-              )
-
-          // Stage: push fix + finalise PR (later than the fix-task stages).
-          stage("Push fix + finalise PR"):
-            git.push().orThrow
-            gh.updatePr(
-              pr,
-              title = "fix: " + summary,
-              body = bodyWithOpenFindings(
-                "Failing test + fix.",
-                OpenFindings(
-                  taskOpenFindings.flatMap(_.findings),
-                  skipped = None
-                )
-              )
-            )
 
 object StackSettingsCanary:
   /** `StackSettings` (ADR 0019) is part of the script surface: it must resolve

@@ -1,6 +1,6 @@
 package orca.progress
 
-import orca.agents.JsonData
+import orca.json.JsonData
 import orca.util.TextUtil
 
 /** The flow script a run executes, as the shell launched it. Recorded in the

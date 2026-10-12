@@ -1,7 +1,5 @@
 package orca.subprocess
 
-import orca.sweep.EnvCookie
-
 trait CliProcess:
   def sendSigInt(): Unit
   def isAlive: Boolean
@@ -63,9 +61,9 @@ trait PipedCliProcess extends CliProcess:
     */
   def tryExitCode: Option[Int]
 
-  /** Cookie put in this process's environment at spawn;
-    * [[orca.sweep.EnvCookieSweep]] sweeps for it. `None` only where there is no
-    * OS process to carry one (test fakes) — anything that really spawns must
+  /** Cookie put in this process's environment at spawn; the backend's
+    * environment-cookie sweep looks for it. `None` only where there is no OS
+    * process to carry one (test fakes) — anything that really spawns must
     * answer `Some`, or its turn's leaked work goes unreported with nothing to
     * show that it was never looked for. Abstract for that reason: a default
     * would make "didn't think about it" and "no process" the same answer.

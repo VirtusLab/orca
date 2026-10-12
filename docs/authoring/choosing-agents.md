@@ -109,7 +109,7 @@ rather than SandboxApprox.
 
 Every harness shares these builders: `withModel`, `withCheapModel`,
 `withAutoApprove`, `withSystemPrompt`, `withName` (which gives the agent its
-own line in the cost log), `withReadOnly`, `withNetworkOnly` and
+own `agent` in the event log), `withReadOnly`, `withNetworkOnly` and
 `withSelfManagedGit`. Each returns a new agent on the same harness. Agents on
 the same harness can continue each other's conversations; see `chat.withAgent`
 in [Talking to agents](talking-to-agents.md).

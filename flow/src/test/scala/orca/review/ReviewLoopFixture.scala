@@ -9,8 +9,9 @@ import orca.{
   TestFlowControl,
   TestRun
 }
-import orca.agents.{Agent, BackendTag, JsonData, SessionId, SessionKey}
+import orca.agents.{Agent, BackendTag, SessionId, SessionKey}
 import orca.backend.{AgentResult, IdScheme, SessionSupport, TurnRequest}
+import orca.json.JsonData
 import orca.testkit.{PassthroughPrompts, ScriptedBackend, TestAgent}
 import orca.AgentTurnFailed
 import orca.events.{EventDispatcher, OrcaEvent, OrcaListener, TurnDebit}

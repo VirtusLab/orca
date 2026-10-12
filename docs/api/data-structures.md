@@ -3,17 +3,16 @@
 This page lists the types you meet in flow scripts. Most of them derive
 `JsonData`, which makes them valid stage results (the progress log can record
 and replay them) and lets you ask for them as structured LLM output via
-`agent.resultAs[T]`. Handles (`FlowSession`, `Chat`) and intermediate values
-(`WithChat`, `Verdict`) do not derive `JsonData`, so they cannot be stage
-results.
+`agent.resultAs[T]`. Handles (`FlowSession`, `Chat`) and `WithChat` do not
+derive `JsonData`, so they cannot be stage results.
 
 ## Planning
 
 These are the types the planning calls described in
 [Planning](../authoring/planning.md) produce.
 
-- **`orca.plan.Plan(epicId, description, tasks, brief)`** is the task list the
-  planner generates in one round trip. `epicId` is a kebab-case identifier for
+- **`orca.plan.Plan(id, description, tasks, brief)`** is the task list the
+  planner generates in one round trip. `id` is a kebab-case identifier for
   the plan, not the branch name, and `description` is the planner's epic
   summary. `brief` is the planner's short codebase briefing; use it as the
   session seed, as in `agent.session("implementer", seed = plan.brief)`.
@@ -23,15 +22,19 @@ These are the types the planning calls described in
 - **`orca.plan.WithChat(chat, value)`** is returned by every `Plan.*` planning
   call: the result together with the `Chat` that produced it. You never build
   one yourself; destructure it instead: `val WithChat(chat, plan) = ...`.
-- **`orca.plan.Verdict[A]`** is either `Verdict.Proceed(value)` or
-  `Verdict.Rejection(kind, body)`, where `kind` is one of `Question`,
-  `Critique` or `Rebuff`. `assessThenPlan` returns a `Verdict[Plan]`; see
-  [Verdicts and triage](../authoring/planning.md#verdicts-and-triage).
-- **`orca.plan.Triage`** is what `triage` returns: `NotABug`, `Untestable` or
-  `Testable`, each case carrying its own fields.
-- **`orca.plan.BugReportMatch`** is the agent's decision on whether a CI
-  failure matches the original report. It is a structured-output type the
-  bug-fix flow asks for.
+- **`orca.plan.Roadmap(description, epics, brief)`** is what `roadmap`
+  returns: a change too large for one plan, split into ordered epics. `brief`
+  is shared by every epic's planner and implementers.
+  `roadmap.epicPrompt(epic)` is the planning input for one epic.
+- **`orca.plan.Epic(title: Title, goal: String)`** is one part of a roadmap,
+  planned into tasks only when its turn comes.
+- **`orca.plan.Triage`** is what `triage` returns: `Reject(reply)` or
+  `Accept(summary, brief, kind)`, where `kind` is `TestableBug(failingTestPath)`,
+  `UntestableBug(reproductionSteps)` or `Change`; see
+  [Triage](../authoring/planning.md#triage).
+- **`orca.plan.BugReportMatch(matches, explanation)`** is the agent's decision
+  on whether a failing test's output matches the original report. It is a
+  structured-output type `reproduceBug` asks for.
 
 ## Conversations
 
@@ -61,8 +64,9 @@ Two handles represent a conversation with an agent.
   to it. Its `JsonData` form is the PR URL, so a push-and-open-PR stage can
   return it.
 - **`orca.tools.IssueHandle`** identifies a GitHub issue. It carries no host:
-  issue flows use gh's default host, which is `GH_HOST` if set, else the host
-  gh is logged in to.
+  `gh` calls taking it use gh's default host, which is `GH_HOST` if set, else
+  the host gh is logged in to. `IssueHandle.parse` reads `owner/repo#n` or a
+  github.com issue or PR URL; `IssueHandle.parseIssue` rejects the PR URL.
 - **`orca.tools.GitHubAvailability`** is what `gh.availability` answers.
   `Available(host, owner, repo)` is the repository gh resolves.
   `Unavailable(why)` means no PR can be opened, and `why` is a
@@ -102,6 +106,10 @@ Two handles represent a conversation with an agent.
   `reason.describe` is the sentence shown to a reader. Entries merge across
   rounds by `id`, never by title. `skipped` is `Some(SkippedReview)` when the
   review never ran.
+- **`orca.review.ReviewReport(task, changedFiles, byReviewer)`** is what
+  `reviewOnce` returns: each reviewer's findings as a
+  `ReviewerFindings(reviewer, findings)`.
+  `report.render` is the report as markdown, fit to print or post on a PR.
 - **`orca.review.Lint(commands, agent)`** is the lint gate bundle: the shell
   commands plus the cheap agent that summarises their output into a
   `ReviewResult`.

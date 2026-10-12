@@ -108,7 +108,7 @@ class OpenPrFromBranchTest extends FunSuite:
     val calls = new ConcurrentLinkedQueue[String]()
     val run = prRun(dir, store, _ => (), calls)
     val e = intercept[OrcaFlowException](
-      run.control.withStage("outer", None): _ =>
+      run.control.withStage("outer", _ => None): _ =>
         openPrFromBranch(
           summarisingAgent = new StubSummariser().agent,
           openFindings = OpenFindings.empty

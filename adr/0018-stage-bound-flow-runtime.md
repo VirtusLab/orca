@@ -170,6 +170,12 @@ that stage's progress entry. Why two stages can't run concurrently — the
 > review in that state aborts the stage. It predates this amendment and no flow
 > reaches it — setup commits the progress header before any user stage runs.
 
+> **Amendment (2026-10-07).** A stage's base commit is recorded in the progress
+> log (`stageStarts`) when the stage is first entered, and a re-entered stage
+> reuses it while HEAD still descends from it. Before this, a stage that crashed
+> after its nested stages committed restarted from the later HEAD, so a
+> `SampleFromStage` review missed those commits.
+
 ### 2.2 Capability gating
 
 **Requirements.**
@@ -804,6 +810,13 @@ list output and opencode's directory-scoping should be pinned when the probes la
 > strict — no defaults, no tolerant decoding; an older log reads as `Corrupt`
 > and the run starts fresh. `orca.util.JsonFile` is the one read/write path for
 > every whole-file document. The 0.x compatibility carve-outs are withdrawn.
+
+> **Amendment (2026-10-08).** Session records leave
+> `.orca/cache/runs/<key>.sessions.json` for the run's event log,
+> `.orca/cache/runs/<key>/events.jsonl`, as `SessionMinted` and
+> `SessionWireId` events. Success appends `RunSucceeded` instead of deleting
+> the records, and the store ignores records before the last one. `upsert` no
+> longer takes `WorkspaceWrite`. See [ADR 0025](0025-run-event-log.md).
 
 > **Amendment (2026-09-18, session store).** `SessionRecord` leaves the committed
 > progress log for `.orca/cache/sessions-<prompt hash>.json`

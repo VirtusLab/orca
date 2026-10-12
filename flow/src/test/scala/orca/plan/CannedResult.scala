@@ -1,11 +1,12 @@
 package orca.plan
 
-import orca.agents.{Agent, AutoApprove, BackendTag, JsonData, ToolSet}
+import orca.agents.{Agent, AutoApprove, BackendTag, ToolSet}
+import orca.json.JsonData
 import orca.testkit.{ScriptedBackend, TestAgent}
 
 /** An agent whose every structured turn answers `value`, recording the tool
   * tier and session each turn ran with. One stub serves every autonomous
-  * planning operation — pass a `Plan`, `AssessedPlan`, or `BugTriage`.
+  * planning operation — pass a `Plan` or `TriageReply`.
   */
 private[plan] class CannedResult[T: JsonData](value: T):
 
@@ -22,10 +23,20 @@ private[plan] class CannedResult[T: JsonData](value: T):
     */
   var lastSession: Option[String] = None
 
+  /** Every turn's session, prompt and tool tier, oldest first. */
+  var turns: List[(session: String, prompt: String, tools: ToolSet)] = Nil
+
   val agent: Agent[BackendTag.ClaudeCode.type] =
     TestAgent(ScriptedBackend.replying(BackendTag.ClaudeCode): turn =>
       lastToolSet = Some(turn.config.tools)
       lastAutoApprove = Some(turn.config.autoApprove)
       lastSession = Some(turn.session.value)
+      turns = turns.appended(
+        (
+          session = turn.session.value,
+          prompt = turn.prompt,
+          tools = turn.config.tools
+        )
+      )
       ScriptedBackend.json(value)
     )

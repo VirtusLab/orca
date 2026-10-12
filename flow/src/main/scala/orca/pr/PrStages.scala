@@ -9,7 +9,8 @@ import orca.{
   git,
   userPrompt
 }
-import orca.agents.{Agent, JsonData, given}
+import orca.agents.Agent
+import orca.json.{JsonData, given}
 import orca.tools.{NoDefaultBase, PrHandle}
 
 // The stages [[openPrFromBranch]] and [[openPrIfGitHub]] both run. They share

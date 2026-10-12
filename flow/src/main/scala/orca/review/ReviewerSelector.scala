@@ -50,7 +50,7 @@ object ReviewerSelector:
 
   /** Identity the picker's turn is billed under, beside the reviewers it
     * selects (`lint` is the other such non-reviewer under that role). It is a
-    * whole turn per loop, so it gets its own line in the attempt's cost log
+    * whole turn per loop, so it gets its own `Turn` in the run's event log
     * rather than disappearing into the review agent's own spend.
     */
   private[review] val PickerName: String = "picker"
@@ -236,10 +236,10 @@ object ReviewerSelector:
     * [[Reviewer.appliesTo]] the change set.
     *
     * An empty `changedFiles` is read as "unknown", not "nothing changed": a
-    * [[ReviewDiff.Pinned]] diff can miss files its diff text doesn't name.
-    * Every reviewer stays eligible then, and a `Step` names the file-gated ones
-    * that were kept: dropping one here removes it from the whole review and
-    * nothing downstream can put it back.
+    * [[ReviewDiff.InFile]] caller may not know the file list. Every reviewer
+    * stays eligible then, and a `Step` names the file-gated ones that were
+    * kept: dropping one here removes it from the whole review and nothing
+    * downstream can put it back.
     */
   private def eligibleForPicker(
       all: List[RosterEntry],

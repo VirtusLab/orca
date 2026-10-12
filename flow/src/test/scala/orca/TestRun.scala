@@ -4,7 +4,7 @@ import orca.agents.{Agent, BackendTag}
 import orca.events.EventDispatcher
 import orca.progress.{BranchMode, ProgressHeader, ProgressStore}
 import orca.review.ReviewerCatalog
-import orca.sessions.SessionStore
+import orca.sessions.TestSessionStore
 import orca.testkit.GitRepo
 import orca.tools.OsGitTool
 
@@ -62,7 +62,7 @@ object TestRun:
     TestRun(
       new TestFlowControl(
         store,
-        SessionStore.default(dir, runKey),
+        new TestSessionStore,
         Option.when(startingCommitUsable)(headCommit)
       ),
       context,

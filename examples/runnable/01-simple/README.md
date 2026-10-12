@@ -6,9 +6,7 @@ implement each task in sequence with a review-and-fix loop.
 The plan lives entirely in memory for one run — there's no plan file,
 no resume, no on-disk state beyond the git commits the flow produces.
 Use this when the task is small enough to finish in one session and
-concrete enough that the planner doesn't need to ask anything. For
-the variant where the planner can ask clarifying questions, see
-[02-interactive](../02-interactive/).
+concrete enough that the planner doesn't need to ask anything.
 
 ## What it does
 

@@ -13,7 +13,7 @@ import scala.util.control.NonFatal
   * and a teardown error must not turn a finished turn into a failed (and
   * retried) one.
   */
-private[orca] object TurnResources:
+private[backend] object TurnResources:
 
   private val log = LoggerFactory.getLogger("orca.backend")
 

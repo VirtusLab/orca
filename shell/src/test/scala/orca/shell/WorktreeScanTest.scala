@@ -1,11 +1,14 @@
 package orca.shell
 
-import orca.OrcaDir
+import orca.{OrcaDir, RunKey}
 import orca.testkit.{GitRepo, TempDirs}
 import orca.tools.Worktrees
 import ox.discard
 
 class WorktreeScanTest extends munit.FunSuite:
+
+  private def eventLog(worktree: os.Path): os.Path =
+    OrcaDir.eventLogPath(worktree, RunKey.of("a prompt"))
 
   test("outside a git repository the shell's own directory is the whole list"):
     val dir = TempDirs.dir()
@@ -50,25 +53,40 @@ class WorktreeScanTest extends munit.FunSuite:
       name =>
         val path = OrcaDir.ensureWorktrees(repo) / name
         assertEquals(Worktrees.add(repo, path), Right(()))
-        os.makeDir.all(OrcaDir.attemptsPath(path))
+        os.write(eventLog(path), "", createFolders = true)
         path
     // Newest attempt last-recorded wins; the shell's own checkout stays first.
-    os.mtime.set(OrcaDir.attemptsPath(worktrees(0)), 1000L).discard
-    os.mtime.set(OrcaDir.attemptsPath(worktrees(2)), 3000L).discard
-    os.mtime.set(OrcaDir.attemptsPath(worktrees(1)), 2000L).discard
+    os.mtime.set(eventLog(worktrees(0)), 1000L).discard
+    os.mtime.set(eventLog(worktrees(2)), 3000L).discard
+    os.mtime.set(eventLog(worktrees(1)), 2000L).discard
     assertEquals(
       WorktreeScan.dirs(repo).all,
       List(repo, worktrees(2), worktrees(1), worktrees(0))
     )
+
+  test("a worktree ranks by the newest of its runs' event logs"):
+    val repo = GitRepo.seeded()
+    val List(oneRun, twoRuns) = List("aaaaaaaaaaaa", "bbbbbbbbbbbb").map:
+      name =>
+        val path = OrcaDir.ensureWorktrees(repo) / name
+        assertEquals(Worktrees.add(repo, path), Right(()))
+        path
+    val older = OrcaDir.eventLogPath(twoRuns, RunKey.of("older"))
+    List(eventLog(oneRun), eventLog(twoRuns), older).foreach:
+      os.write(_, "", createFolders = true)
+    os.mtime.set(older, 1000L).discard
+    os.mtime.set(eventLog(oneRun), 2000L).discard
+    os.mtime.set(eventLog(twoRuns), 3000L).discard
+    assertEquals(WorktreeScan.dirs(repo).all, List(repo, twoRuns, oneRun))
 
   test("only the most recently used worktrees are scanned, up to the cap"):
     val repo = GitRepo.seeded()
     val worktrees = (0 to WorktreeScan.MaxScannedWorktrees).toList.map: i =>
       val path = OrcaDir.ensureWorktrees(repo) / f"wt$i%012d"
       assertEquals(Worktrees.add(repo, path), Right(()))
-      os.makeDir.all(OrcaDir.attemptsPath(path))
+      os.write(eventLog(path), "", createFolders = true)
       // Ascending mtimes, so index 0 is the least recently used.
-      os.mtime.set(OrcaDir.attemptsPath(path), 1000L + i * 1000L).discard
+      os.mtime.set(eventLog(path), 1000L + i * 1000L).discard
       path
     val scanned = WorktreeScan.dirs(repo)
     assertEquals(scanned.worktrees.size, WorktreeScan.MaxScannedWorktrees)

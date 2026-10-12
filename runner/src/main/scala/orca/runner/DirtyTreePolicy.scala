@@ -6,7 +6,7 @@ import scala.io.StdIn
 /** What setup does with a working tree holding uncommitted or untracked files
   * (ADR 0018 §2.5) — the outcome of [[DirtyTreePolicy.decide]].
   */
-private[orca] enum DirtyTreeChoice:
+private[runner] enum DirtyTreeChoice:
   /** Stash everything, so the run starts from committed content. */
   case Stash
 

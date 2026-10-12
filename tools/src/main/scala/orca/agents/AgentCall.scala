@@ -3,7 +3,7 @@ package orca.agents
 import orca.AgentTurnFailed
 import orca.backend.{Interaction, AgentBackend}
 import orca.events.{OrcaEvent, OrcaListener}
-import orca.util.JsonSchemaGen
+import orca.json.JsonData
 import ox.resilience.{ResultPolicy, RetryConfig, retry}
 
 /** Structured-output gateway — obtained via `agent.resultAs[O]`. Splits the

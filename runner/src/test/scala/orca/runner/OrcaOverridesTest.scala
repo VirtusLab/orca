@@ -6,7 +6,7 @@ import orca.testkit.{GitRepo, ScriptedBackend, TestAgent}
 import orca.agents.{BackendTag, ClaudeAgent, Model, OpencodeAgent, PiAgent}
 import orca.events.{CostTracker, OrcaEvent, OrcaListener}
 import orca.testkit.Usages.usage
-import orca.tools.opencode.OpencodeAgents
+import orca.backend.opencode.OpencodeAgents
 import _root_.orca.runner.terminal.TerminalInteraction
 import ox.supervised
 

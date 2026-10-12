@@ -1,6 +1,7 @@
 package orca.review
 
-import orca.agents.{Announce, JsonData}
+import orca.agents.Announce
+import orca.json.JsonData
 import orca.util.PromptResource
 
 import sttp.tapir.Validator

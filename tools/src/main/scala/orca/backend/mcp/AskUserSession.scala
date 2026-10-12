@@ -8,9 +8,12 @@ import ox.channels.BufferCapacity
   * scope — the server is registered with it, and its handlers blocked on the
   * bridge are forks of it.
   */
-private[orca] case class AskUserSession(bridge: AskUserBridge, server: McpHost)
+private[backend] case class AskUserSession(
+    bridge: AskUserBridge,
+    server: McpHost
+)
 
-private[orca] object AskUserSession:
+private[backend] object AskUserSession:
 
   def allocate()(using Ox, BufferCapacity): AskUserSession =
     val bridge = new AskUserBridge

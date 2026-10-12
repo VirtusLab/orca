@@ -14,7 +14,7 @@ import orca.tools.{
   RuntimeGit
 }
 import orca.progress.{BranchMode, ProgressHeader, ProgressStore}
-import orca.sessions.SessionStore
+import orca.sessions.TestSessionStore
 import orca.testkit.{
   GitRepo,
   PassthroughPrompts,
@@ -159,7 +159,7 @@ private[pr] def prRun(
   TestRun(
     new TestFlowControl(
       store,
-      SessionStore.default(dir, RunKey.of("p")),
+      new TestSessionStore,
       store.load().map(_.header.startingCommit)
     ),
     new TestFlowContext(

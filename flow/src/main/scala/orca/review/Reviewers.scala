@@ -2,7 +2,6 @@ package orca.review
 
 import orca.{FlowContext, OrcaFlowException}
 import orca.agents.{BackendTag, Agent}
-import orca.util.{ParsedPrompt, PromptResource}
 
 import ox.either
 import ox.either.ok
@@ -38,8 +37,8 @@ case class Reviewer(
     )
 
   /** Whether this reviewer applies to a change set. An empty `changedFiles` is
-    * "unknown", not "nothing changed" — a pinned diff can miss files its text
-    * doesn't name — so every reviewer applies then.
+    * "unknown", not "nothing changed" — a [[ReviewDiff.InFile]] caller may not
+    * know the file list — so every reviewer applies then.
     */
   def appliesTo(changedFiles: List[String]): Boolean =
     changedFiles.isEmpty ||
@@ -228,7 +227,7 @@ object ReviewerPrompts:
     val path = s"/orca/review/prompts/reviewers/$slug.md"
     reviewerFrom(
       ReviewerSlug(slug),
-      PromptResource.loadWithMetadata(path),
+      ParsedPrompt.load(path),
       path
     )
       .fold(f => throw new RuntimeException(f.message), identity)
@@ -240,6 +239,7 @@ object ReviewerPrompts:
   val ScalaFp: Reviewer = load("scala-fp")
   val Security: Reviewer = load("security")
   val Simplicity: Reviewer = load("simplicity")
+  val SingleSource: Reviewer = load("single-source")
   val Test: Reviewer = load("test")
 
   /** Every reviewer the library ships with. Order matches how `allReviewers`
@@ -250,6 +250,7 @@ object ReviewerPrompts:
     Test,
     Readability,
     CodeStructure,
+    SingleSource,
     Simplicity,
     Performance,
     Security,

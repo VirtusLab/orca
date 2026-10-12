@@ -32,7 +32,7 @@ private[mcp] case class GitFileAtInput(rev: String, path: String)
   * reviewer git use: both re-derive the change set the prompt already carries
   * (`docs/research/run-cost/12-reviewer-tool-surface.md` §6).
   */
-private[orca] object RepoMcpServer:
+private[backend] object RepoMcpServer:
 
   /** MCP server name advertised to the backend. Distinct from
     * [[AskUserMcpServer.ServerName]] because the two serve different turn kinds

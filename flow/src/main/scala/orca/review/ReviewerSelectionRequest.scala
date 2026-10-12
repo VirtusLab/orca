@@ -1,6 +1,7 @@
 package orca.review
 
-import orca.agents.{AgentInput, JsonData, given}
+import orca.agents.AgentInput
+import orca.json.{JsonData, given}
 import orca.plan.Title
 
 /** The `(name, description)` pair the picker LLM sees for one reviewer.

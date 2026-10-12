@@ -5,7 +5,6 @@ import orca.discovery.Origin
 import orca.progress.FlowSource
 import orca.shell.TestShellEnv
 import orca.shell.flows.DiscoveredFlow
-import orca.shell.resume.InterruptedRun
 import orca.shell.run.{LaunchResult, LaunchedFlow}
 import orca.shell.ui.UiOutcome
 import orca.testkit.{TempDirs, branchName}

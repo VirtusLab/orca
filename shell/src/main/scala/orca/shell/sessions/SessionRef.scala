@@ -3,9 +3,9 @@ package orca.shell.sessions
 import orca.AttemptId
 
 /** A recorded session's id: its attempt, and its 1-based position in that
-  * attempt's manifest `sessions`. It stays valid while other flows run, since a
-  * manifest only appends sessions and updates them in place. Spelled `<attempt
-  * id>:<position>`, e.g. `1758612345678-4242:2`.
+  * attempt's sessions, in first-commit order. It stays valid while other flows
+  * run, since the event log is append-only. Spelled `<attempt id>:<position>`,
+  * e.g. `1758612345678-4242:2`.
   */
 private[shell] case class SessionRef(attempt: AttemptId, position: Int):
   def spelling: String = s"${attempt.value}:$position"

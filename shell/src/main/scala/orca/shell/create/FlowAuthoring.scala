@@ -7,9 +7,9 @@ import orca.util.PromptResource
 
 import scala.util.control.NonFatal
 
-/** Creates a new flow by authoring it through the built-in `simple.sc` flow
-  * (ADR 0021 §9): extracts the bundled API material, builds the initial prompt.
-  * The menu wiring itself (target-tier/filename/goal prompts) lives in
+/** Creates a new flow by authoring it through the built-in `quick.sc` flow (ADR
+  * 0021 §9): extracts the bundled API material, builds the initial prompt. The
+  * menu wiring itself (target-tier/filename/goal prompts) lives in
   * `menu.AuthoringMenu`; the flow launch lives in
   * `orca.shell.actions.AuthorAction`.
   */
@@ -22,7 +22,7 @@ private[shell] object FlowAuthoring:
     * example flows used as few-shot material.
     */
   private val bundledNames =
-    List("orca-docs.md", "implement.sc", "implement-interactive.sc")
+    List("orca-docs.md", "implement.sc", "epics.sc")
 
   /** Ensures a `.sc` suffix on a user-supplied filename. */
   def normalizedFileName(raw: String): String =
@@ -368,7 +368,7 @@ private[shell] object FlowAuthoring:
        |${build.usingDirectives}
        |//> using jvm 21""".stripMargin
 
-  /** The authoring task handed to the built-in `simple.sc` flow as its
+  /** The authoring task handed to the built-in `quick.sc` flow as its
     * `userPrompt` (ADR 0021 §9): the goal and target path, the verbatim
     * version-pinned header to start the file with, the line-1 `//` description
     * convention, pointers to the extracted docs/examples, the `scala-cli
@@ -384,7 +384,7 @@ private[shell] object FlowAuthoring:
   ): String =
     val docs = apiDir / "orca-docs.md"
     val example1 = apiDir / "implement.sc"
-    val example2 = apiDir / "implement-interactive.sc"
+    val example2 = apiDir / "epics.sc"
     // The goal now comes from a multiline prompt (inputMultiline), so it's
     // indented as its own block rather than trailing "Goal: " on one line —
     // keeps a multi-paragraph goal visually distinct from the rest of the
@@ -457,7 +457,7 @@ private[shell] object FlowAuthoring:
   ): String =
     val docs = apiDir / "orca-docs.md"
     val example1 = apiDir / "implement.sc"
-    val example2 = apiDir / "implement-interactive.sc"
+    val example2 = apiDir / "epics.sc"
     // `opening` already carries the user's typed changes: interpolating it here
     // would run a second `stripMargin` pass over that text.
     opening + "\n\n" +

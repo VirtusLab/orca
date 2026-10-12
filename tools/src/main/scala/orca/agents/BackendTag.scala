@@ -11,7 +11,7 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.{
   * session id from one backend can't accidentally flow into another. Distinct
   * from the runtime SPI [[orca.backend.AgentBackend]].
   *
-  * Persisted (session records, attempt manifests) and emitted as its case name.
+  * Persisted in the run's event log, and emitted, as its case name.
   */
 enum BackendTag:
   case ClaudeCode, Codex, Opencode, Pi, Gemini
