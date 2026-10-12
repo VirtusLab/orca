@@ -44,8 +44,8 @@ ORCA_INTEGRATION=1 sbt "publishLocal ; runner/testOnly *ScalaCliSmokeTest"
 ```
 
 sbt 2's `sbt` command is a client of a background sbt server, and tests see
-the environment that server was started with: run `sbt shutdown` first if one
-is already running without `ORCA_INTEGRATION=1`.
+the environment that server was started with: run `sbt shutdown` first, otherwise
+the tests won't see `ORCA_INTEGRATION=1`.
 
 | Suite | Needs |
 |---|---|
