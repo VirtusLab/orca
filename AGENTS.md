@@ -354,21 +354,25 @@ with a test pinning the observed wire shape.
 
 ### Iterating quickly
 
-- Prefer plain `sbt <cmd>` in agent/non-interactive shells. Avoid
-  `sbt --client` unless you know the persistent sbt server was started with
-  the repo's direnv/JDK 21 environment; otherwise the client can attach to a
-  stale server running a different Java and fail despite the current shell's
-  `JAVA_HOME`.
+- In sbt 2, plain `sbt <cmd>` is a client that attaches to a persistent
+  background sbt server (starting one if none is running). That server keeps
+  the Java and environment it was started with (JDK, `JAVA_HOME`, direnv vars,
+  `ORCA_INTEGRATION`), so if it was started from a different environment, run
+  `sbt shutdown` first, or use `sbt --server <cmd>` for a one-off sbt in the
+  foreground. Pass several commands as one argument, joined with `;`
+  (`sbt "publishLocal ; shell/testOnly ..."`): the client doesn't accept them
+  as separate arguments.
 - `sbt ~test` re-runs tests on save.
 - Don't run `clean`. The incremental build is reliable and nothing here is
   known to go stale; a profiled run lost 49 minutes to 13
   `clean compile Test/compile test` cycles at 228 s each, against ~65 s for
   the same work incrementally.
 - `sbt test` is what `.orca/settings.properties` configures — use it while
-  iterating, and keep the `ORCA_INTEGRATION=1` suites (CONTRIBUTING.md), which
-  shell out to real CLIs, for final verification.
+  iterating (in sbt 2 it only reruns the tests affected by changes; `sbt
+  testFull` runs all of them), and keep the `ORCA_INTEGRATION=1` suites
+  (CONTRIBUTING.md), which shell out to real CLIs, for final verification.
 - For capture-checking experiments, take flow's test classpath once with
-  `CP=$(sbt -batch -error "export flow/Test/dependencyClasspath")`, then
+  `CP=$(sbt --server -batch -error "print flow/Test/dependencyClasspathFiles" | sed -n 's/^\* //p' | paste -sd: -)`, then
   compile fixtures directly with
   `java -cp "$CP" dotty.tools.dotc.Main -classpath "$CP" -d out Fixture.scala`.
   Verify CC enforcement claims this way — empirically, against the pinned

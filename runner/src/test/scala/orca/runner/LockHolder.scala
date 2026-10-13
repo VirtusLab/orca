@@ -32,7 +32,12 @@ object LockHolder:
     os.proc(
       os.Path(System.getProperty("java.home")) / "bin" / "java",
       "-cp",
-      System.getProperty("java.class.path"),
+      // In sbt 2 `java.class.path` holds only the forked worker's jars.
+      // The build passes the Test classpath instead
+      sys.props.getOrElse(
+        "orca.test.classpath",
+        System.getProperty("java.class.path")
+      ),
       "orca.runner.LockHolder",
       args
     ).spawn(stderr = os.Inherit)

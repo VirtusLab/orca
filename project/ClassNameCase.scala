@@ -11,7 +11,7 @@ object ClassNameCase {
     */
   def collisions(classDirs: Seq[File]): Seq[String] = {
     val names = classDirs.flatMap { dir =>
-      (dir ** "*.class").get.flatMap(IO.relativize(dir, _))
+      (dir ** "*.class").get().flatMap(IO.relativize(dir, _))
     }.distinct
     names
       .groupBy(_.toLowerCase)

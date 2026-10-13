@@ -41,10 +41,16 @@ class CcNegativeCompileTest extends munit.FunSuite:
     def doReport(dia: Diagnostic)(using Context): Unit =
       val _ = diagnostics += dia
 
-  /** The Test classpath. Tests are forked, so it is what the JVM was started
-    * with, plus the two sbt jars that run the fork — inert to `dotc`.
+  /** The Test classpath. Tests are forked, but sbt 2 starts the fork through
+    * its own worker, so `java.class.path` holds only the worker's jars; the
+    * build passes the real classpath as `orca.test.classpath`. Falls back to
+    * `java.class.path` when run outside sbt.
     */
-  private def classpath: String = System.getProperty("java.class.path")
+  private def classpath: String =
+    sys.props.getOrElse(
+      "orca.test.classpath",
+      System.getProperty("java.class.path")
+    )
 
   /** Compile one fixture source with `dotc` and return its error messages. Each
     * call spins a fresh reporter and output dir; the classpath (the expensive
