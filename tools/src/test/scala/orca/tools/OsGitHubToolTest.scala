@@ -403,6 +403,34 @@ class OsGitHubToolTest extends munit.FunSuite:
     assert(args.containsSlice(Seq("--body", "hello")))
     assert(args.containsSlice(Seq("--head", "feat")))
 
+  test("createPr passes --draft only for a draft PR"):
+    def createArgs(readiness: PrReadiness): Seq[String] =
+      val cli = createPrRunner(
+        CliResult(0, "https://github.com/acme/widgets/pull/42\n", "")
+      )
+      val _ = new OsGitHubTool(cli)
+        .createPr("feat: hi", "hello", readiness)
+        .orThrow
+      cli.calls.last.args
+    assert(createArgs(PrReadiness.Draft).contains("--draft"))
+    assert(!createArgs(PrReadiness.Ready).contains("--draft"))
+
+  test("createPr leaves an existing PR alone, whatever the readiness"):
+    val cli = createPrRunner(
+      CliResult(1, "", "a pull request for branch \"feat\" already exists"),
+      CliResult(
+        0,
+        "[{\"number\":42,\"url\":\"https://github.com/acme/widgets/pull/42\"}]",
+        ""
+      )
+    )
+    val pr = new OsGitHubTool(cli)
+      .createPr("feat: hi", "hello", PrReadiness.Draft)
+      .orThrow
+    assertEquals(pr, samplePr)
+    assert(!cli.calls.exists(_.args.containsSlice(Seq("pr", "ready"))))
+    assert(!cli.calls.exists(_.args.containsSlice(Seq("pr", "edit"))))
+
   test("createPr parses the PR URL returned by gh"):
     val cli = createPrRunner(
       CliResult(0, "https://github.com/acme/widgets/pull/42\n", "")

@@ -15,7 +15,7 @@ import orca.agents.Agent
 import orca.events.OrcaEvent
 import orca.progress.ThrowawayBranch
 import orca.review.OpenFindings
-import orca.tools.{GitHubAvailability, NoDefaultBase, PrHandle}
+import orca.tools.{GitHubAvailability, NoDefaultBase, PrHandle, PrReadiness}
 import orca.util.TextUtil
 
 import scala.util.control.NonFatal
@@ -45,7 +45,8 @@ def openPrIfGitHub(
     title: PrSummary => String = _.title,
     body: PrSummary => String = _.body,
     context: Option[String] = None,
-    instructions: String = PrPrompts.Summarise
+    instructions: String = PrPrompts.Summarise,
+    readiness: PrReadiness = PrReadiness.Ready
 )(using
     ctx: FlowContext,
     control: FlowControl,
@@ -62,7 +63,8 @@ def openPrIfGitHub(
     // threaded through the legs below.
     body = summary => bodyWithOpenFindings(body(summary), openFindings),
     context = context,
-    instructions = instructions
+    instructions = instructions,
+    readiness = readiness
   ).fold(skipped, Some(_))
 
 /** [[openPrFromBranch]]'s three stages, the two remote-facing legs under
@@ -82,7 +84,8 @@ private def pushThenCreate(
     title: PrSummary => String,
     body: PrSummary => String,
     context: Option[String],
-    instructions: String
+    instructions: String,
+    readiness: PrReadiness
 )(using FlowContext, FlowControl): Either[String, PrHandle] =
   for
     push <- gatedStage(PushStage)(preFlight(base))(_ => pushBestEffort())
@@ -90,7 +93,7 @@ private def pushThenCreate(
     summary <- summarise(summarisingAgent, base, context, instructions).left
       .map(baseStopReason)
     create = tracedStage(CreateStage)(
-      createBestEffort(title(summary), body(summary))
+      createBestEffort(title(summary), body(summary), readiness)
     )
     pr <- create.value.outcome.left.map(refusalLine(_, create))
   yield pr
@@ -147,7 +150,11 @@ private def pushBestEffort()(using FlowContext, WorkspaceWrite): PushResult =
 /** [[openPrFromBranch]]'s create with the `gh pr create` under [[bestEffort]],
   * as [[pushBestEffort]] is for the push.
   */
-private def createBestEffort(title: String, body: String)(using
+private def createBestEffort(
+    title: String,
+    body: String,
+    readiness: PrReadiness
+)(using
     FlowContext,
     FlowControl,
     WorkspaceWrite
@@ -155,7 +162,7 @@ private def createBestEffort(title: String, body: String)(using
   bestEffort(
     "could not open a PR",
     "open it yourself from the pushed branch"
-  )(gh.createPr(title = title, body = body)) match
+  )(gh.createPr(title = title, body = body, readiness = readiness)) match
     case Left(reason) => CreateResult.Refused(reason)
     // Outside `bestEffort`, so a log that cannot be written fails the run.
     case Right(pr) => recordOpened(pr)

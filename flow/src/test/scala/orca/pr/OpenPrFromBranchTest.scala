@@ -10,6 +10,7 @@ import orca.tools.{
   GitHubAvailability,
   PrCreateFailed,
   PrHandle,
+  PrReadiness,
   PushFailure
 }
 import orca.events.{OrcaEvent, OrcaListener}
@@ -99,6 +100,39 @@ class OpenPrFromBranchTest extends FunSuite:
     assertEquals(
       r.stages,
       List("Push branch", "Generate PR title and description", "Open PR")
+    )
+
+  test("openPrFromBranch passes the requested readiness to gh.createPr"):
+    def readinessFor(requested: Option[PrReadiness]): List[PrReadiness] =
+      val (dir, store) = seededPrRepo()
+      val readinesses = new ConcurrentLinkedQueue[PrReadiness]()
+      val run = prRun(
+        dir,
+        store,
+        _ => (),
+        new ConcurrentLinkedQueue[String](),
+        prReadinesses = readinesses
+      )
+      val agent = new StubSummariser().agent
+      requested match
+        case Some(r) =>
+          val _ = openPrFromBranch(agent, OpenFindings.empty, readiness = r)(
+            using
+            run.context,
+            run.control,
+            summon[OutsideStage]
+          )
+        case None =>
+          val _ = openPrFromBranch(agent, OpenFindings.empty)(using
+            run.context,
+            run.control,
+            summon[OutsideStage]
+          )
+      readinesses.asScala.toList
+    assertEquals(readinessFor(None), List(PrReadiness.Ready))
+    assertEquals(
+      readinessFor(Some(PrReadiness.Draft)),
+      List(PrReadiness.Draft)
     )
 
   test("openPrFromBranch reached inside a stage is refused before it pushes"):

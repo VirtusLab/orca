@@ -36,6 +36,7 @@ import orca.tools.{
   GitHubAvailability,
   GitHubTool,
   OsGitTool,
+  PrReadiness,
   RuntimeGit,
   UntrackedFiles,
   Worktrees
@@ -1955,7 +1956,11 @@ class FlowLifecycleTest extends munit.FunSuite:
   private class StubGh extends StubGitHubTool:
     override def availability(): GitHubAvailability =
       GitHubAvailability.Available(host = "github.com", owner = "a", repo = "w")
-    override def createPr(title: String, body: String)(using WorkspaceWrite) =
+    override def createPr(
+        title: String,
+        body: String,
+        readiness: PrReadiness
+    )(using WorkspaceWrite) =
       Right(handoffPr)
 
   /** A claude whose structured call answers with a fixed [[PrSummary]] — what

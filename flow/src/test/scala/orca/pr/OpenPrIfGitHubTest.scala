@@ -9,6 +9,7 @@ import orca.tools.{
   NoDefaultBase,
   PrCreateFailed,
   PrHandle,
+  PrReadiness,
   PushFailure
 }
 import orca.{OrcaFlowException, OutsideStage, WorkspaceWrite}
@@ -213,6 +214,39 @@ class OpenPrIfGitHubTest extends FunSuite:
     assert(
       r.steps.head.contains("Opening a PR on github.com/acme/widgets"),
       r.steps
+    )
+
+  test("openPrIfGitHub passes the requested readiness to gh.createPr"):
+    def readinessFor(requested: Option[PrReadiness]): List[PrReadiness] =
+      val (dir, store) = seededPrRepo()
+      val readinesses = new ConcurrentLinkedQueue[PrReadiness]()
+      val run = prRun(
+        dir,
+        store,
+        _ => (),
+        new ConcurrentLinkedQueue[String](),
+        availability = available,
+        prReadinesses = readinesses
+      )
+      val agent = new StubSummariser().agent
+      requested match
+        case Some(r) =>
+          val _ = openPrIfGitHub(agent, OpenFindings.empty, readiness = r)(using
+            run.context,
+            run.control,
+            summon[OutsideStage]
+          )
+        case None =>
+          val _ = openPrIfGitHub(agent, OpenFindings.empty)(using
+            run.context,
+            run.control,
+            summon[OutsideStage]
+          )
+      readinesses.asScala.toList
+    assertEquals(readinessFor(None), List(PrReadiness.Ready))
+    assertEquals(
+      readinessFor(Some(PrReadiness.Draft)),
+      List(PrReadiness.Draft)
     )
 
   test("open findings reach the body of the PR this step opens"):

@@ -10,6 +10,7 @@ import orca.tools.{
   OsGitTool,
   PrCreateFailed,
   PrHandle,
+  PrReadiness,
   PushFailure,
   RuntimeGit
 }
@@ -62,13 +63,19 @@ private[pr] class RecordingGh(
     calls: ConcurrentLinkedQueue[String],
     availabilityAnswer: => GitHubAvailability,
     createPrAnswer: => Either[PrCreateFailed, PrHandle] = Right(samplePr),
-    bodies: ConcurrentLinkedQueue[String]
+    bodies: ConcurrentLinkedQueue[String],
+    readinesses: ConcurrentLinkedQueue[PrReadiness]
 ) extends StubGitHubTool:
   override def availability(): GitHubAvailability =
     calls.add("availability"): Unit
     availabilityAnswer
-  override def createPr(title: String, body: String)(using WorkspaceWrite) =
+  override def createPr(
+      title: String,
+      body: String,
+      readiness: PrReadiness
+  )(using WorkspaceWrite) =
     calls.add("createPr"): Unit
+    readinesses.add(readiness): Unit
     bodies.add(body): Unit
     createPrAnswer
 
@@ -154,7 +161,9 @@ private[pr] def prRun(
     push: => Either[PushFailure, Unit] = Right(()),
     base: => Either[NoDefaultBase, String] = Right("main"),
     prBodies: ConcurrentLinkedQueue[String] =
-      new ConcurrentLinkedQueue[String]()
+      new ConcurrentLinkedQueue[String](),
+    prReadinesses: ConcurrentLinkedQueue[PrReadiness] =
+      new ConcurrentLinkedQueue[PrReadiness]()
 ): TestRun =
   TestRun(
     new TestFlowControl(
@@ -168,7 +177,9 @@ private[pr] def prRun(
       wiredGit = Some(
         new RecordingGit(new OsGitTool(dir), calls, branchDiff, push, base)
       ),
-      wiredGh = Some(new RecordingGh(calls, availability, createPr, prBodies))
+      wiredGh = Some(
+        new RecordingGh(calls, availability, createPr, prBodies, prReadinesses)
+      )
     ),
     dir
   )

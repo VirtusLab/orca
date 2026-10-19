@@ -124,6 +124,12 @@ enum CheckState:
   case Failure
   case Unknown(raw: String)
 
+/** Whether [[GitHubTool.createPr]] opens a PR ready for review or as a draft.
+  */
+enum PrReadiness:
+  case Ready
+  case Draft
+
 /** Recoverable [[GitHubTool.createPr]] failure modes. Common when re-running a
   * flow against an already-pushed branch. Other gh failures (auth, network)
   * remain thrown.
@@ -217,8 +223,16 @@ trait GitHubTool:
     * included. Refusals with a recovery path come back as `Left`s; throws on
     * detached HEAD, on gh output carrying no PR URL, and on system failures
     * (auth, network).
+    *
+    * `readiness` applies only to a PR this call opens (`gh pr create --draft`).
+    * When an open PR already exists for the branch, it is returned as it is:
+    * neither draft nor ready state is changed.
     */
-  def createPr(title: String, body: String)(using
+  def createPr(
+      title: String,
+      body: String,
+      readiness: PrReadiness = PrReadiness.Ready
+  )(using
       WorkspaceWrite
   ): Either[PrCreateFailed, PrHandle]
 
@@ -466,7 +480,7 @@ private[orca] class OsGitHubTool(
       )
     catch case NonFatal(e) => Left(cannotRunGh(e))
 
-  def createPr(title: String, body: String)(using
+  def createPr(title: String, body: String, readiness: PrReadiness)(using
       ws: WorkspaceWrite
   ): Either[PrCreateFailed, PrHandle] =
     ws.check("gh.createPr")
@@ -480,15 +494,12 @@ private[orca] class OsGitHubTool(
     // its progress log would be misread as "branch not pushed". Bare branch
     // name, no `owner:` prefix, matching `findOpenPr`.
     val head = headBranchForPr()
+    val draftFlag = readiness match
+      case PrReadiness.Draft => Seq("--draft")
+      case PrReadiness.Ready => Nil
     val result = runGhResult(
-      "pr",
-      "create",
-      "--title",
-      title,
-      "--body",
-      body,
-      "--head",
-      head
+      Seq("pr", "create", "--title", title, "--body", body, "--head", head) ++
+        draftFlag: _*
     )
     if result.exitCode == 0 then
       val output = result.stdout.trim

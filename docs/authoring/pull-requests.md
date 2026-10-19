@@ -9,7 +9,7 @@ There are two calls that open a PR, and one that only writes its description.
 
 ### `openPrIfGitHub`
 
-`openPrIfGitHub(summarisingAgent, openFindings, title?, body?, context?, instructions?): Option[PrHandle]`
+`openPrIfGitHub(summarisingAgent, openFindings, title?, body?, context?, instructions?, readiness?): Option[PrHandle]`
 pushes the branch, summarises the change and opens the PR, provided that
 `gh.availability` says the checkout is on a reachable GitHub. Otherwise it
 emits one step saying why and returns `None`; the run then finishes. This is
@@ -23,7 +23,7 @@ included.
 
 ### `openPrFromBranch`
 
-`openPrFromBranch(summarisingAgent, openFindings, title?, body?, context?, instructions?): PrHandle`
+`openPrFromBranch(summarisingAgent, openFindings, title?, body?, context?, instructions?, readiness?): PrHandle`
 runs the same three stages, but fails the run when there is no GitHub remote
 or `gh` login.
 
@@ -38,6 +38,12 @@ anchors the description to. An oversized diff is truncated.
 Both open calls create stages, so they cannot be called inside a `stage(...)`
 body. Call them at the top level of the flow.
 ```
+
+### Draft PRs
+
+Both open calls take `readiness: PrReadiness = PrReadiness.Ready`. Pass
+`PrReadiness.Draft` to open the PR as a draft. It applies only to a PR the run
+opens: a PR already open for the branch is reused with its state unchanged.
 
 ### Findings, title, body and context
 
