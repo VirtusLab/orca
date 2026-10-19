@@ -114,6 +114,10 @@ own `agent` in the event log), `withReadOnly`, `withNetworkOnly` and
 the same harness can continue each other's conversations; see `chat.withAgent`
 in [Talking to agents](talking-to-agents.md).
 
+`claude` also has `withEffort(Effort.Medium)`, which sets the reasoning effort
+(`Low`, `Medium`, `High`, `XHigh`, `Max`). The other harnesses do not offer it,
+so it does not compile on them. It cannot be set in `settings.properties`.
+
 By default, the runtime owns git: every write-capable turn is told not to
 commit, push or switch branches. `withSelfManagedGit` opts one agent out of
 this rule.

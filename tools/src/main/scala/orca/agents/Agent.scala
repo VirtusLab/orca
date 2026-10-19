@@ -177,6 +177,12 @@ final class Agent[B <: BackendTag] private (
   def withSelfManagedGit: Agent[B] =
     copy(config = config.copy(selfManagedGit = true))
 
+  /** Sibling whose config pins [[AgentConfig.effort]] to `effort`. Backends
+    * that support it expose this as `withEffort`.
+    */
+  private[orca] def withEffortLevel(effort: Effort): Agent[B] =
+    copy(config = config.copy(effort = Some(effort)))
+
   /** Sibling whose config pins [[AgentConfig.networkTools]] to `tools`.
     * Backends that support network tools expose it as their own validated
     * builder.

@@ -29,7 +29,8 @@ with no model chosen, for example plain `claude`; `cheap` is the model that
 
 Claude Code. Bare `claude` is Opus with the 1M-token context window. The model
 accessors are `haiku`, `sonnet`, `opus` and `fable`; `cheap` picks haiku, and
-`withModel(Model)` sets any model id.
+`withModel(Model)` sets any model id. `withEffort(Effort)` sets the reasoning
+effort.
 
 Use `claude.sonnet` or `claude.haiku` for cheap one-shot calls, and
 `claude.fable` for the hardest ones.

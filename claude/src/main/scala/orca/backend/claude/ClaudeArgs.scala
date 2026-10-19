@@ -46,6 +46,7 @@ private[claude] object ClaudeArgs:
       "--include-partial-messages"
     ) ++
       modelArgs(config) ++
+      CliArgs.flag("--effort", config.effort)(_.name) ++
       systemPromptFileArgs(systemPromptFile) ++
       sessionArgs(dispatch) ++
       permissionWiring(
