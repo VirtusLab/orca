@@ -1,8 +1,7 @@
 package orca.agents
 
 /** How much reasoning an agent spends per turn. Set with
-  * `claude.sonnet.withEffort(Effort.Medium)`; only harnesses that expose the
-  * knob offer `withEffort` (today: claude).
+  * `claude.sonnet.withEffort(Effort.Medium)`.
   */
 enum Effort(val name: String):
   case Low extends Effort("low")

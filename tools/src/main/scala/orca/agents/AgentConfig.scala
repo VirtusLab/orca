@@ -37,9 +37,7 @@ case class AgentConfig(
       * backend's default set.
       */
     networkTools: Option[NetworkTools] = None,
-    /** Reasoning effort; `None` leaves the backend's default. Set only through
-      * a backend-specific `withEffort`.
-      */
+    /** Reasoning effort; `None` leaves the backend's default. */
     effort: Option[Effort] = None,
     retrySchedule: Schedule = AgentConfig.defaultRetrySchedule
 ):

@@ -155,12 +155,15 @@ final class Agent[B <: BackendTag] private (
   /** A cheaper/faster variant of this model for incidental work (commit-message
     * summaries, reviewer selection, prompt shortening): the model pinned via
     * [[withCheapModel]] if one was set, otherwise the backend's built-in cheap
-    * tier, otherwise this agent unchanged.
+    * tier, otherwise this agent unchanged. Switching model resets
+    * [[AgentConfig.effort]] to the backend default.
     */
   def cheap: Agent[B] =
     config.cheapModel
       .orElse(backend.cheapModel(config.model))
-      .fold(this)(withModel)
+      .fold(this)(model =>
+        copy(config = config.copy(model = Some(model), effort = None))
+      )
 
   /** Pin the model that [[cheap]] resolves to, overriding the backend default.
     * Lets a flow specify both a leading and a cheap model, e.g.

@@ -22,6 +22,9 @@ class ClaudeAgentsTest extends munit.FunSuite:
     assertEquals(tuned.config.effort, Some(Effort.Medium))
     assert(tuned.sharesBackendWith(claude))
 
+  test("cheap drops the effort along with the leading model"):
+    assertEquals(claude.withEffort(Effort.Max).cheap.config.effort, None)
+
   // One backend holds the sessions, the close latch and the enforcement
   // notices, so a sibling on another backend would lose all three.
   test("withNetworkTools stays on the agent's backend"):
