@@ -155,12 +155,15 @@ final class Agent[B <: BackendTag] private (
   /** A cheaper/faster variant of this model for incidental work (commit-message
     * summaries, reviewer selection, prompt shortening): the model pinned via
     * [[withCheapModel]] if one was set, otherwise the backend's built-in cheap
-    * tier, otherwise this agent unchanged.
+    * tier, otherwise this agent unchanged. Switching model resets
+    * [[AgentConfig.effort]] to the backend default.
     */
   def cheap: Agent[B] =
     config.cheapModel
       .orElse(backend.cheapModel(config.model))
-      .fold(this)(withModel)
+      .fold(this)(model =>
+        copy(config = config.copy(model = Some(model), effort = None))
+      )
 
   /** Pin the model that [[cheap]] resolves to, overriding the backend default.
     * Lets a flow specify both a leading and a cheap model, e.g.
@@ -176,6 +179,12 @@ final class Agent[B <: BackendTag] private (
     */
   def withSelfManagedGit: Agent[B] =
     copy(config = config.copy(selfManagedGit = true))
+
+  /** Sibling whose config pins [[AgentConfig.effort]] to `effort`. Backends
+    * that support it expose this as `withEffort`.
+    */
+  private[orca] def withEffortLevel(effort: Effort): Agent[B] =
+    copy(config = config.copy(effort = Some(effort)))
 
   /** Sibling whose config pins [[AgentConfig.networkTools]] to `tools`.
     * Backends that support network tools expose it as their own validated

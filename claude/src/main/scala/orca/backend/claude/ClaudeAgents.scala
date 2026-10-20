@@ -1,6 +1,6 @@
 package orca.backend.claude
 
-import orca.agents.{Agent, AgentConfig, ClaudeAgent}
+import orca.agents.{Agent, AgentConfig, ClaudeAgent, Effort}
 import orca.backend.AgentWiring
 import orca.subprocess.OsProcCliRunner
 
@@ -31,6 +31,12 @@ object ClaudeAgents:
     def sonnet: ClaudeAgent = agent.withModel(ClaudeModels.Sonnet)
     def opus: ClaudeAgent = agent.withModel(ClaudeModels.Opus1M)
     def fable: ClaudeAgent = agent.withModel(ClaudeModels.Fable)
+
+    /** Set the reasoning effort, passed as `--effort <level>`:
+      * `claude.sonnet.withEffort(Effort.Medium)`.
+      */
+    def withEffort(effort: Effort): ClaudeAgent =
+      agent.withEffortLevel(effort)
 
     /** Set the network tools added to the read-only `--tools` allowlist on
       * [[orca.agents.ToolSet.NetworkOnly]] turns, replacing the default
