@@ -114,10 +114,20 @@ own `agent` in the event log), `withReadOnly`, `withNetworkOnly` and
 the same harness can continue each other's conversations; see `chat.withAgent`
 in [Talking to agents](talking-to-agents.md).
 
-`claude` also has `withEffort(Effort.Medium)`, which sets the reasoning effort
-(`Low`, `Medium`, `High`, `XHigh`, `Max`); `cheap` drops it. Orca wires it only
-for claude so far, so it does not compile on the other harnesses. It cannot be
-set in `settings.properties`.
+`withEffort(Effort.High)` sets the reasoning effort; `cheap` drops it. The
+levels are `Off`, `Minimal`, `Low`, `Medium`, `High`, `XHigh` and `Max`, and
+each harness accepts some of them:
+
+| Harness  | Levels                    | Sent as                         |
+|----------|---------------------------|---------------------------------|
+| claude   | `Low` to `Max`            | `--effort`                      |
+| codex    | all                       | `-c model_reasoning_effort=...` |
+| pi       | all but `Max`             | `--thinking`                    |
+| opencode | depends on the model      | the message's `variant`         |
+| gemini   | none; does not compile    |                                 |
+
+A level the harness does not accept throws when the agent is built. It cannot
+be set in `settings.properties`.
 
 By default, the runtime owns git: every write-capable turn is told not to
 commit, push or switch branches. `withSelfManagedGit` opts one agent out of

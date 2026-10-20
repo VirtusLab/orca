@@ -29,8 +29,7 @@ with no model chosen, for example plain `claude`; `cheap` is the model that
 
 Claude Code. Bare `claude` is Opus with the 1M-token context window. The model
 accessors are `haiku`, `sonnet`, `opus` and `fable`; `cheap` picks haiku, and
-`withModel(Model)` sets any model id. `withEffort(Effort)` sets the reasoning
-effort.
+`withModel(Model)` sets any model id.
 
 Use `claude.sonnet` or `claude.haiku` for cheap one-shot calls, and
 `claude.fable` for the hardest ones.
@@ -66,6 +65,9 @@ anything else to anthropicHaiku. To choose another model, use
 selection follow Pi's own configuration; to pick one, use
 `withModel(Model("provider/model"))`. Interactive calls can ask clarifying
 questions through Orca's `ask_user` bridge.
+
+`withEffort` overrides a level in the model pattern (`sonnet:high`). Pi lowers
+a level the model does not support to the nearest one it does.
 
 ## `gemini`
 

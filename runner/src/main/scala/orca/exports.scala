@@ -131,7 +131,6 @@ export orca.backend.claude.ClaudeAgents.{
   sonnet,
   opus,
   fable,
-  withEffort,
   withNetworkTools
 }
 export orca.backend.codex.CodexAgents

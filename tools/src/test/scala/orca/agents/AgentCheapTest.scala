@@ -25,6 +25,10 @@ class AgentCheapTest extends munit.FunSuite:
       .withReadOnly
     assertEquals(agent.cheap.config.model, Some(Model("cheap-x")))
 
+  test("cheap drops the effort along with the leading model"):
+    val agent = TestAgent(TieredBackend).withEffort(Effort.High)
+    assertEquals(agent.cheap.config.effort, None)
+
   test("cheap keeps the agent's name and role"):
     val agent = TestAgent(TieredBackend).withName("coder").withRole("coding")
     assertEquals(
