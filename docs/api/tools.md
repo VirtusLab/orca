@@ -76,9 +76,9 @@ returns `Either[BuildWaitFailed, BuildStatus]`.
 `createPr` is idempotent by branch: if a PR is already open for the branch, it
 returns that one as it is: `readiness` applies only to a PR this call opens, and
 never changes the state of an existing one. `upsertComment` finds a prior
-comment carrying `marker` and edits it in place, posting a new one only when there is none. `updatePr`
-is harmless to re-run. This idempotency is what makes a resumed stage safe, see
-[Pull requests](../authoring/pull-requests.md).
+comment carrying `marker` and edits it in place, posting a new one only when
+there is none. `updatePr` is harmless to re-run. This idempotency is what makes
+a resumed stage safe, see [Pull requests](../authoring/pull-requests.md).
 
 ## `fs`
 

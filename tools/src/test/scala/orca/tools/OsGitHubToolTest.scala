@@ -428,8 +428,15 @@ class OsGitHubToolTest extends munit.FunSuite:
       .createPr("feat: hi", "hello", PrReadiness.Draft)
       .orThrow
     assertEquals(pr, samplePr)
-    assert(!cli.calls.exists(_.args.containsSlice(Seq("pr", "ready"))))
-    assert(!cli.calls.exists(_.args.containsSlice(Seq("pr", "edit"))))
+    // Only the create and the lookup reach gh: nothing edits the found PR.
+    assertEquals(
+      cli.calls.map(_.args.take(3)),
+      List(
+        Seq("git", "symbolic-ref", "--quiet"),
+        Seq("gh", "pr", "create"),
+        Seq("gh", "pr", "list")
+      )
+    )
 
   test("createPr parses the PR URL returned by gh"):
     val cli = createPrRunner(

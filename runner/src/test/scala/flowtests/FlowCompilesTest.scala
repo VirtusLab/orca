@@ -353,6 +353,22 @@ object FlowCanary:
           case Left(e)                  => throw e
           case Right(_)                 => ()
 
+  /** Draft PRs: `PrReadiness` resolves from `import orca.*` alone and both open
+    * calls take it.
+    */
+  def draftPrSurface(): Unit =
+    flow(OrcaArgs()):
+      val _: Option[PrHandle] = openPrIfGitHub(
+        summarisingAgent = claude.haiku,
+        openFindings = OpenFindings.empty,
+        readiness = PrReadiness.Draft
+      )
+      val _: PrHandle = openPrFromBranch(
+        summarisingAgent = claude.haiku,
+        openFindings = OpenFindings.empty,
+        readiness = PrReadiness.Draft
+      )
+
   /** Planning grid surface; exercised across `flows/`. Pins the full `mode ×
     * operation` grid: every cell returns `WithChat[<result>]` where the result
     * is `Plan` (`from`) or `Triage` (`triage`).

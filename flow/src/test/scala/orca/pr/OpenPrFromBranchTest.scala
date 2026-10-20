@@ -1,7 +1,15 @@
 package orca.pr
 
 import munit.FunSuite
-import orca.{BoundedDiff, OrcaFlowException, OutsideStage, interceptReported}
+import orca.{
+  BoundedDiff,
+  FlowContext,
+  FlowControl,
+  OrcaFlowException,
+  OutsideStage,
+  interceptReported
+}
+import orca.agents.Agent
 import orca.plan.Title
 import orca.progress.PublishedWork
 import orca.review.{FindingId, OpenFinding, OpenFindings, OpenReason}
@@ -75,6 +83,25 @@ class OpenPrFromBranchTest extends FunSuite:
       steps.asScala.toList
     )
 
+  /** The readiness each `gh.createPr` got while `open` ran over a fresh seeded
+    * repo, given a summariser to pass on.
+    */
+  private def createPrReadinesses(
+      open: Agent[?] => (FlowContext, FlowControl) ?=> Any
+  ): List[PrReadiness] =
+    val (dir, store) = seededPrRepo()
+    val readinesses = new ConcurrentLinkedQueue[PrReadiness]()
+    val run = prRun(
+      dir,
+      store,
+      _ => (),
+      new ConcurrentLinkedQueue[String](),
+      prReadinesses = readinesses
+    )
+    import run.given
+    val _ = open(new StubSummariser().agent)
+    readinesses.asScala.toList
+
   private val oneOpen = OpenFindings(
     List(
       OpenFinding(
@@ -102,36 +129,24 @@ class OpenPrFromBranchTest extends FunSuite:
       List("Push branch", "Generate PR title and description", "Open PR")
     )
 
-  test("openPrFromBranch passes the requested readiness to gh.createPr"):
-    def readinessFor(requested: Option[PrReadiness]): List[PrReadiness] =
-      val (dir, store) = seededPrRepo()
-      val readinesses = new ConcurrentLinkedQueue[PrReadiness]()
-      val run = prRun(
-        dir,
-        store,
-        _ => (),
-        new ConcurrentLinkedQueue[String](),
-        prReadinesses = readinesses
-      )
-      val agent = new StubSummariser().agent
-      requested match
-        case Some(r) =>
-          val _ = openPrFromBranch(agent, OpenFindings.empty, readiness = r)(
-            using
-            run.context,
-            run.control,
-            summon[OutsideStage]
-          )
-        case None =>
-          val _ = openPrFromBranch(agent, OpenFindings.empty)(using
-            run.context,
-            run.control,
-            summon[OutsideStage]
-          )
-      readinesses.asScala.toList
-    assertEquals(readinessFor(None), List(PrReadiness.Ready))
+  test("openPrFromBranch opens a ready PR by default and a draft on request"):
     assertEquals(
-      readinessFor(Some(PrReadiness.Draft)),
+      createPrReadinesses(agent =>
+        openPrFromBranch(
+          summarisingAgent = agent,
+          openFindings = OpenFindings.empty
+        )
+      ),
+      List(PrReadiness.Ready)
+    )
+    assertEquals(
+      createPrReadinesses(agent =>
+        openPrFromBranch(
+          summarisingAgent = agent,
+          openFindings = OpenFindings.empty,
+          readiness = PrReadiness.Draft
+        )
+      ),
       List(PrReadiness.Draft)
     )
 
