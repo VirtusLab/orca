@@ -51,7 +51,7 @@ codingAgent = codex
 reviewAgent = opencode:anthropic/claude-sonnet-4-5
 ```
 
-Value grammar: `harness:model`, split at the FIRST `:` (so a model id
+Value grammar: `harness[:model][@effort]`, split at the FIRST `:` (so a model id
 containing `:` survives), model optional. `harness` ∈ `claude | codex |
 opencode | pi | gemini` — an unrecognised name is a parse error naming the
 valid set. The model part is passed **verbatim** to the harness's
@@ -59,10 +59,11 @@ valid set. The model part is passed **verbatim** to the harness's
 `Model`'s existing contract: for claude the CLI itself accepts aliases
 (`opus`, `sonnet`), for opencode it is the provider-qualified `provider/model`
 form its existing validation checks. An empty value is equivalent to the key
-being absent (the existing parser rule for stack keys too). An optional
-trailing `@<level>` sets the reasoning effort; only an effort level name
-counts, so a model id containing `@` survives, and a level the harness does not
-accept is a parse error.
+being absent (the existing parser rule for stack keys too). The optional
+`@<level>` sets the reasoning effort and is split off first. An all-letter
+suffix after the last `@` is read as a level, so a model id like
+`claude-sonnet-4@20250514` survives; an unknown level, or one the harness does
+not accept, is a parse error.
 
 ### 2. Locations & precedence
 

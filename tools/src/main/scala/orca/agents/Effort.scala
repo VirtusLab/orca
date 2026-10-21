@@ -13,9 +13,9 @@ enum Effort:
   private[orca] def label: String = toString.toLowerCase
 
 object Effort:
-  /** The level named `label` (see [[Effort.label]]), ignoring case. */
+  /** The level named `label` (see [[Effort.label]]). */
   private[orca] def fromLabel(label: String): Option[Effort] =
-    values.find(_.label == label.toLowerCase)
+    values.find(_.label == label)
 
 /** The [[Effort]] levels harness `B` accepts, and the value it is sent as. A
   * harness without an instance has no effort setting, so `withEffort` does not

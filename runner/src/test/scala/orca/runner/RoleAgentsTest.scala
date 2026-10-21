@@ -142,9 +142,7 @@ class RoleAgentsTest extends munit.FunSuite:
 
   test("a project effort is applied to the role's agent"):
     val roles = resolvedRoles(
-      AgentSettings(coding =
-        Some(AgentSpec(BackendTag.Codex, None, Some(Effort.Low)))
-      ),
+      AgentSettings(coding = AgentSpec.parse("codex@low").toOption),
       wiredAgents()
     )
     assertEquals(roles.coding.config.effort, Some(Effort.Low))
@@ -152,7 +150,7 @@ class RoleAgentsTest extends munit.FunSuite:
   test("resolveAll announces a project effort after the model"):
     val resolution = resolveInScope(
       project = AgentSettings(coding =
-        Some(AgentSpec(BackendTag.Codex, Some("gpt-5-mini"), Some(Effort.Low)))
+        AgentSpec.parse("codex:gpt-5-mini@low").toOption
       ),
       global = AgentSettings.empty,
       overrides = RoleOverrides(None, None, None),

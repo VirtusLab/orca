@@ -120,15 +120,26 @@ private[shell] class Wizard(
         choices,
         default = Some(currentTag.getOrElse(fallback))
       )
-      sameHarness = currentTag.contains(tag)
-      currentModel = if sameHarness then current.flatMap(_.model) else None
-      model <- selectModel(role, tag, currentModel)
-    // The wizard has no effort step, so it keeps a hand-written one.
-    yield AgentSpec(
-      tag,
-      model,
-      if sameHarness then current.flatMap(_.effort) else None
-    )
+      spec <- selectSpec(role, tag, current)
+    yield spec
+
+  /** The model step for `tag`, asked again until the pick, plus any effort kept
+    * from `current`, reads back as a valid settings value: a free-text model
+    * ending in `@<level>` is read as an effort.
+    */
+  private def selectSpec(
+      role: Wizard.Role,
+      tag: BackendTag,
+      current: Option[AgentSpec]
+  ): UiOutcome[AgentSpec] =
+    val currentModel = current.filter(_.backend == tag).flatMap(_.model)
+    selectModel(role, tag, currentModel).flatMap: model =>
+      val picked = current.fold(AgentSpec(tag, model))(_.repinned(tag, model))
+      AgentSpec.parse(picked.render) match
+        case Right(spec) => UiOutcome.Selected(spec)
+        case Left(problem) =>
+          ShellOutput.error(problem)
+          selectSpec(role, tag, current)
 
   /** The per-harness model step ([[ModelCatalog.pick]]). `currentModel` is the
     * role's existing pin, already dropped by the caller if the harness changed.

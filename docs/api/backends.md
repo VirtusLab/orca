@@ -84,6 +84,5 @@ Structured output is prompt-enforced, since Gemini has no schema flag.
 How strongly each backend enforces a `ToolSet` is tabulated in
 [Choosing agents](../authoring/choosing-agents.md#how-strongly-each-harness-enforces-a-limit).
 
-In `settings.properties` a backend is named by the same word, with an optional
-model after a colon, for example `codingAgent = codex:gpt-5-mini`. See
-[Settings](../using/settings.md).
+In `settings.properties` a backend is named by the same word; see
+[Settings](../using/settings.md#agent-keys) for the value form.

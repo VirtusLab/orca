@@ -74,13 +74,11 @@ model ids. There is one exception: claude's bare `haiku` alias is sent as
 model.
 
 The optional `@effort` part sets the reasoning effort, as `withEffort` does in
-code: `claude:opus@high`, or `codex@low` with no model. The level is one of
-`off`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`, and
-[Choosing agents](../authoring/choosing-agents.md#tuning-an-agent) lists which
-ones each harness accepts. A level the harness does not accept, or any level on
-gemini, is an error. Only a trailing `@` followed by a level name counts, so a
-model id containing `@`, such as `claude-sonnet-4@20250514`, is passed on as
-is.
+code: `claude:opus@high`, or `codex@low` with no model. The level is written in
+lowercase, and [Choosing agents](../authoring/choosing-agents.md#tuning-an-agent)
+lists the levels each harness accepts; any other is an error. Only letters
+after the last `@` are read as a level, so a model id such as
+`claude-sonnet-4@20250514` is passed on as is.
 
 Note that agent keys are read even when `flow(stackSettings = Some(...))` pins
 the stack commands. At setup, Orca announces where each role came from:

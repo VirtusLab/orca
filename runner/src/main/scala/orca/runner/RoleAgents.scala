@@ -18,7 +18,7 @@ private[runner] case class ResolvedRoles(
 
 /** Where a resolved role's agent came from, in precedence order. Drives the
   * role-announcement `Step`'s `(source)` suffix; the winning [[AgentSpec]] (if
-  * any) drives the `harness:model` part.
+  * any) drives the `harness[:model]` part.
   */
 private[runner] enum RoleSource:
   case Override, Project, Global, Default

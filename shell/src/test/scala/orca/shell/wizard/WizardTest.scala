@@ -186,6 +186,22 @@ class WizardTest extends munit.FunSuite:
         Some(AgentSpec(BackendTag.Opencode, Some("anthropic/claude-sonnet-5")))
       )
 
+  test("a free-text model with a level the harness rejects is asked again"):
+    withTempPath: path =>
+      val ui = ScriptedUi(
+        selectScript = List.fill(3)(UiOutcome.Selected(BackendTag.Pi)),
+        inputScript = List(
+          UiOutcome.Selected("sonnet@max"), // pi has no max
+          UiOutcome.Selected("sonnet@high"),
+          UiOutcome.Selected(""),
+          UiOutcome.Selected("")
+        )
+      )
+      assert(Wizard(ui, probe, path).run(reconfigure = false))
+
+      val agents = parse(os.read(path))
+      assertEquals(agents.planning, AgentSpec.parse("pi:sonnet@high").toOption)
+
   test(
     "first run starts planning on fable, the role's own default model"
   ):
@@ -342,10 +358,7 @@ class WizardTest extends munit.FunSuite:
       assert(Wizard(ui, probe, path).run(reconfigure = true))
 
       val agents = parse(os.read(path))
-      assertEquals(
-        agents.coding,
-        Some(AgentSpec(BackendTag.ClaudeCode, None, Some(Effort.High)))
-      )
+      assertEquals(agents.coding.flatMap(_.effort), Some(Effort.High))
 
   test("re-configure onto harness default clears an existing pin"):
     withTempPath: path =>

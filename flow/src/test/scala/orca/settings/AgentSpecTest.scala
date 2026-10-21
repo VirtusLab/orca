@@ -42,23 +42,37 @@ class AgentSpecTest extends FunSuite:
       Right(AgentSpec(BackendTag.ClaudeCode, None))
     )
 
+  private def fields(value: String) =
+    AgentSpec.parse(value).map(s => (s.backend, s.model, s.effort))
+
   test("parse of harness:model@effort sets the effort"):
     assertEquals(
-      AgentSpec.parse("claude:sonnet@high"),
-      Right(AgentSpec(BackendTag.ClaudeCode, Some("sonnet"), Some(Effort.High)))
+      fields("claude:sonnet@high"),
+      Right((BackendTag.ClaudeCode, Some("sonnet"), Some(Effort.High)))
     )
 
   test("parse of harness@effort sets the effort with no model pin"):
     assertEquals(
-      AgentSpec.parse("codex@low"),
-      Right(AgentSpec(BackendTag.Codex, None, Some(Effort.Low)))
+      fields("codex@low"),
+      Right((BackendTag.Codex, None, Some(Effort.Low)))
     )
 
-  test("parse keeps an @ that is not followed by an effort level in the model"):
+  test("parse keeps an @ followed by more than letters in the model"):
     assertEquals(
-      AgentSpec.parse("claude:claude-sonnet-4@20250514"),
-      Right(AgentSpec(BackendTag.ClaudeCode, Some("claude-sonnet-4@20250514")))
+      fields("claude:claude-sonnet-4@20250514"),
+      Right((BackendTag.ClaudeCode, Some("claude-sonnet-4@20250514"), None))
     )
+
+  test("parse of an unknown effort is a Left listing the valid levels"):
+    assertEquals(
+      AgentSpec.parse("claude:opus@hgih"),
+      Left(
+        "unknown effort `hgih` — valid: off, minimal, low, medium, high, xhigh, max"
+      )
+    )
+
+  test("parse of a trailing @ is a Left"):
+    assert(AgentSpec.parse("claude:sonnet@").isLeft)
 
   test("parse of a level the harness does not accept is a Left"):
     assertEquals(
@@ -75,6 +89,17 @@ class AgentSpecTest extends FunSuite:
     )
 
   test("render reads back through parse"):
-    val spec =
-      AgentSpec(BackendTag.Pi, Some("sonnet:high"), Some(Effort.Minimal))
-    assertEquals(AgentSpec.parse(spec.render), Right(spec))
+    val spec = AgentSpec.parse("pi:sonnet:high@minimal")
+    assertEquals(spec.flatMap(s => AgentSpec.parse(s.render)), spec)
+
+  test("repinned keeps the effort on the same harness"):
+    val spec = AgentSpec
+      .parse("claude:sonnet@high")
+      .map(_.repinned(BackendTag.ClaudeCode, None))
+    assertEquals(spec.map(_.effort), Right(Some(Effort.High)))
+
+  test("repinned drops the effort when the harness changes"):
+    val spec = AgentSpec
+      .parse("claude:sonnet@high")
+      .map(_.repinned(BackendTag.Gemini, None))
+    assertEquals(spec.map(_.effort), Right(None))
