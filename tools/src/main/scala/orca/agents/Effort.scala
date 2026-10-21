@@ -9,6 +9,14 @@ import scala.annotation.implicitNotFound
 enum Effort:
   case Off, Minimal, Low, Medium, High, XHigh, Max
 
+  /** The name settings use for this level: `off`, `xhigh`, …. */
+  private[orca] def label: String = toString.toLowerCase
+
+object Effort:
+  /** The level named `label` (see [[Effort.label]]), ignoring case. */
+  private[orca] def fromLabel(label: String): Option[Effort] =
+    values.find(_.label == label.toLowerCase)
+
 /** The [[Effort]] levels harness `B` accepts, and the value it is sent as. A
   * harness without an instance has no effort setting, so `withEffort` does not
   * compile on it.
@@ -18,20 +26,31 @@ final class EffortSupport[B <: BackendTag] private (
     harness: String,
     levels: Map[Effort, String]
 ):
-  /** `effort`, or `IllegalArgumentException` if the harness does not accept it.
-    */
-  private[agents] def validated(effort: Effort): Effort =
-    if levels.contains(effort) then effort
+  /** `effort`, or a message naming the levels the harness accepts. */
+  private[orca] def check(effort: Effort): Either[String, Effort] =
+    if levels.contains(effort) then Right(effort)
     else
-      throw IllegalArgumentException(
-        s"$harness has no $effort effort; it accepts " +
-          Effort.values.filter(levels.contains).mkString(", ")
+      Left(
+        s"$harness has no `${effort.label}` effort; it accepts " +
+          Effort.values.filter(levels.contains).map(_.label).mkString(", ")
       )
 
-  /** The harness's value for a level [[validated]] accepted. */
+  /** The harness's value for a level [[check]] accepted. */
   private[orca] def wire(effort: Effort): String = levels(effort)
 
 object EffortSupport:
+
+  /** The instance for `tag`, for code that only knows the harness at run time;
+    * `None` for a harness without an effort setting.
+    */
+  private[orca] def forTag(tag: BackendTag): Option[EffortSupport[?]] =
+    tag match
+      case BackendTag.ClaudeCode => Some(claude)
+      case BackendTag.Codex      => Some(codex)
+      case BackendTag.Opencode   => Some(opencode)
+      case BackendTag.Pi         => Some(pi)
+      case BackendTag.Gemini     => None
+
   private val upToMax: Map[Effort, String] = Map(
     Effort.Low -> "low",
     Effort.Medium -> "medium",

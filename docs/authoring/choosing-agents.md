@@ -126,8 +126,9 @@ each harness accepts some of them:
 | opencode | all; the model decides which apply | the message's `variant`         |
 | gemini   | none; does not compile             |                                 |
 
-A level the harness does not accept throws when the agent is built. It cannot
-be set in `settings.properties`.
+A level the harness does not accept throws when the agent is built. In settings
+and `orca config`, append it to the agent value instead, as in
+`claude:sonnet@high`; see [Settings](../using/settings.md#agent-keys).
 
 By default, the runtime owns git: every write-capable turn is told not to
 commit, push or switch branches. `withSelfManagedGit` opts one agent out of

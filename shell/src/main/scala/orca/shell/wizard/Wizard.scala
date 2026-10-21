@@ -120,10 +120,15 @@ private[shell] class Wizard(
         choices,
         default = Some(currentTag.getOrElse(fallback))
       )
-      currentModel =
-        if currentTag.contains(tag) then current.flatMap(_.model) else None
+      sameHarness = currentTag.contains(tag)
+      currentModel = if sameHarness then current.flatMap(_.model) else None
       model <- selectModel(role, tag, currentModel)
-    yield AgentSpec(tag, model)
+    // The wizard has no effort step, so it keeps a hand-written one.
+    yield AgentSpec(
+      tag,
+      model,
+      if sameHarness then current.flatMap(_.effort) else None
+    )
 
   /** The per-harness model step ([[ModelCatalog.pick]]). `currentModel` is the
     * role's existing pin, already dropped by the caller if the harness changed.

@@ -320,11 +320,11 @@ private[cli] class CliCommands(using env: ShellEnv):
       "Example: orca config --coding-agent codex"
   )
   def config(
-      @arg(doc = "planning role, as harness[:model]")
+      @arg(doc = "planning role, as harness[:model][@effort]")
       planningAgent: Option[String] = None,
-      @arg(doc = "coding role, as harness[:model]")
+      @arg(doc = "coding role, as harness[:model][@effort]")
       codingAgent: Option[String] = None,
-      @arg(doc = "review role, as harness[:model]")
+      @arg(doc = "review role, as harness[:model][@effort]")
       reviewAgent: Option[String] = None,
       @arg(doc =
         "rewrite a malformed settings file from scratch instead of refusing"

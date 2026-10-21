@@ -1496,7 +1496,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       os.read(OrcaDir.settingsPath(workDir)),
       """# orca settings — edit freely, commit with the project.
         |# format/lint/test: one shell command per key; `off` disables the gate. Delete the stack lines (or the whole file) to re-run auto-discovery.
-        |# planningAgent/codingAgent/reviewAgent (harness[:model]): override the global settings file; a flow's own code overrides both.
+        |# planningAgent/codingAgent/reviewAgent (harness[:model][@effort]): override the global settings file; a flow's own code overrides both.
         |# seed.txt; seeded fixture
         |format = echo fmt
         |# no lint config found
@@ -1738,7 +1738,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       content,
       """# orca settings — edit freely, commit with the project.
         |# format/lint/test: one shell command per key; `off` disables the gate. Delete the stack lines (or the whole file) to re-run auto-discovery.
-        |# planningAgent/codingAgent/reviewAgent (harness[:model]): override the global settings file; a flow's own code overrides both.
+        |# planningAgent/codingAgent/reviewAgent (harness[:model][@effort]): override the global settings file; a flow's own code overrides both.
         |# no formatter config found
         |format = off
         |# no evidence found

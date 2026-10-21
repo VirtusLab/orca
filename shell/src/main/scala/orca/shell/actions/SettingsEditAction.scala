@@ -27,7 +27,7 @@ private[shell] object SettingsEditAction:
       "# lint = cargo check --tests\n" +
       "# test = cargo test\n" +
       "\n" +
-      "# Role agents — harness[:model]; harness: claude|codex|opencode|pi|gemini.\n" +
+      "# Role agents — harness[:model][@effort]; harness: claude|codex|opencode|pi|gemini.\n" +
       "# planningAgent = claude:fable\n" +
       "# codingAgent = claude:opus\n" +
       "# reviewAgent = claude:opus\n"

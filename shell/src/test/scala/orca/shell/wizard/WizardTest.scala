@@ -1,6 +1,6 @@
 package orca.shell.wizard
 
-import orca.agents.BackendTag
+import orca.agents.{BackendTag, Effort}
 import orca.settings.{AgentSettings, AgentSpec, SettingsFile, SettingsScope}
 import orca.shell.ui.{Choice, ShellUi, UiOutcome}
 
@@ -325,6 +325,27 @@ class WizardTest extends munit.FunSuite:
 
       val agents = parse(os.read(path))
       assertEquals(agents.coding, Some(AgentSpec(BackendTag.Gemini, None)))
+
+  test("re-configure keeps a hand-written effort on the same harness"):
+    withTempPath: path =>
+      os.write(path, "codingAgent = claude:sonnet@high\n")
+      val ui = ScriptedUi(
+        selectScript = List(
+          UiOutcome.Selected(BackendTag.ClaudeCode),
+          UiOutcome.Selected(ModelCatalog.ModelPick.Default),
+          UiOutcome.Selected(BackendTag.ClaudeCode),
+          UiOutcome.Selected(ModelCatalog.ModelPick.Default),
+          UiOutcome.Selected(BackendTag.ClaudeCode),
+          UiOutcome.Selected(ModelCatalog.ModelPick.Default)
+        )
+      )
+      assert(Wizard(ui, probe, path).run(reconfigure = true))
+
+      val agents = parse(os.read(path))
+      assertEquals(
+        agents.coding,
+        Some(AgentSpec(BackendTag.ClaudeCode, None, Some(Effort.High)))
+      )
 
   test("re-configure onto harness default clears an existing pin"):
     withTempPath: path =>

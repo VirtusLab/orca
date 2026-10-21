@@ -18,7 +18,7 @@ private[runner] case class ResolvedRoles(
 
 /** Where a resolved role's agent came from, in precedence order. Drives the
   * role-announcement `Step`'s `(source)` suffix; the winning [[AgentSpec]] (if
-  * any) drives the `harness[:model]` part.
+  * any) drives the `harness:model` part.
   */
 private[runner] enum RoleSource:
   case Override, Project, Global, Default
@@ -177,7 +177,7 @@ private[orca] object RoleAgents:
             val source =
               if projectSpec.isDefined then RoleSource.Project
               else RoleSource.Global
-            val agent = agents.agentFor(spec.backend, spec.model)
+            val agent = agents.agentFor(spec)
             val (harness, model) = harnessAndModel(agent, Some(spec))
             RoleChoice(label, agent, source, harness, model, foreign = false)
           case None =>
@@ -215,11 +215,13 @@ private[orca] object RoleAgents:
     */
   private val UnpinnedModelLabel = "<harness default>"
 
-  /** One role's announcement segment, `label=harness:model (source)` — pure
-    * formatting of [[RoleChoice]]'s precomputed fields.
+  /** One role's announcement segment, `label=harness:model[@effort] (source)` —
+    * pure formatting of [[RoleChoice]]'s precomputed fields and the agent's
+    * effort.
     */
   private def announce(c: RoleChoice): String =
-    s"${c.label}=${c.harness}:${c.model.getOrElse(UnpinnedModelLabel)} (${sourceLabel(c.source)})"
+    val effort = c.agent.config.effort.fold("")("@" + _.label)
+    s"${c.label}=${c.harness}:${c.model.getOrElse(UnpinnedModelLabel)}$effort (${sourceLabel(c.source)})"
 
   private def sourceLabel(source: RoleSource): String =
     source match

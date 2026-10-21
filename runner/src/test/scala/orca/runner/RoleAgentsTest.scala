@@ -6,6 +6,7 @@ import orca.agents.{
   BackendTag,
   ClaudeAgent,
   CodexAgent,
+  Effort,
   GeminiAgent,
   Model,
   OpencodeAgent,
@@ -137,6 +138,29 @@ class RoleAgentsTest extends munit.FunSuite:
     assert(
       resolution.announcement.contains("coding=codex:gpt-6-sol (project)"),
       s"expected the wired codex's own model: ${resolution.announcement}"
+    )
+
+  test("a project effort is applied to the role's agent"):
+    val roles = resolvedRoles(
+      AgentSettings(coding =
+        Some(AgentSpec(BackendTag.Codex, None, Some(Effort.Low)))
+      ),
+      wiredAgents()
+    )
+    assertEquals(roles.coding.config.effort, Some(Effort.Low))
+
+  test("resolveAll announces a project effort after the model"):
+    val resolution = resolveInScope(
+      project = AgentSettings(coding =
+        Some(AgentSpec(BackendTag.Codex, Some("gpt-5-mini"), Some(Effort.Low)))
+      ),
+      global = AgentSettings.empty,
+      overrides = RoleOverrides(None, None, None),
+      agents = wiredAgents()
+    )
+    assert(
+      resolution.announcement.contains("coding=codex:gpt-5-mini@low (project)"),
+      resolution.announcement
     )
 
   test("resolveAll renders a project model pin as harness:model"):

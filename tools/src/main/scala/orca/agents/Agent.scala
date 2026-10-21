@@ -185,7 +185,15 @@ final class Agent[B <: BackendTag] private (
     * for a level the harness does not accept.
     */
   def withEffort(effort: Effort)(using support: EffortSupport[B]): Agent[B] =
-    copy(config = config.copy(effort = Some(support.validated(effort))))
+    support.check(effort) match
+      case Right(accepted) => withCheckedEffort(accepted)
+      case Left(problem)   => throw IllegalArgumentException(problem)
+
+  /** [[withEffort]] for a level already passed through this harness's
+    * [[EffortSupport.check]], when only the harness's tag is known.
+    */
+  private[orca] def withCheckedEffort(effort: Effort): Agent[B] =
+    copy(config = config.copy(effort = Some(effort)))
 
   /** Sibling whose config pins [[AgentConfig.networkTools]] to `tools`.
     * Backends that support network tools expose it as their own validated

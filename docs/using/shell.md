@@ -67,7 +67,8 @@ job. The commands are:
   selector, the newest one. `--list` shows the sessions, as JSON with
   `--json`.
 - `orca config` shows the role agents. `--planning-agent`, `--coding-agent`
-  and `--review-agent`, each taking `harness[:model]`, set any subset of them.
+  and `--review-agent`, each taking `harness[:model][@effort]` (see
+  [Settings](settings.md#agent-keys)), set any subset of them.
   Alternatively, `--edit project|global` opens a settings file for
   hand-editing, creating it from a template if it does not exist.
 - `orca list` lists project, global and built-in flows, as JSON with `--json`.
@@ -118,7 +119,7 @@ orca continue              # resume the last session
 orca continue --list
 orca continue feat/rate-limiter
 orca config --coding-agent codex
-orca config --review-agent claude:sonnet
+orca config --review-agent claude:sonnet@high
 orca view implement.sc
 ```
 

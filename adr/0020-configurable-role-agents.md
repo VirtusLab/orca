@@ -59,7 +59,10 @@ valid set. The model part is passed **verbatim** to the harness's
 `Model`'s existing contract: for claude the CLI itself accepts aliases
 (`opus`, `sonnet`), for opencode it is the provider-qualified `provider/model`
 form its existing validation checks. An empty value is equivalent to the key
-being absent (the existing parser rule for stack keys too).
+being absent (the existing parser rule for stack keys too). An optional
+trailing `@<level>` sets the reasoning effort; only an effort level name
+counts, so a model id containing `@` survives, and a level the harness does not
+accept is a parse error.
 
 ### 2. Locations & precedence
 

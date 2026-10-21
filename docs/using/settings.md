@@ -38,7 +38,7 @@ For example, this is what a typical file written by
 ```properties
 # orca settings — edit freely, commit with the project.
 # format/lint/test: one shell command per key; `off` disables the gate. Delete the stack lines (or the whole file) to re-run auto-discovery.
-# planningAgent/codingAgent/reviewAgent (harness[:model]): override the global settings file; a flow's own code overrides both.
+# planningAgent/codingAgent/reviewAgent (harness[:model][@effort]): override the global settings file; a flow's own code overrides both.
 # Cargo.toml; via rustfmt
 format = cargo fmt
 # Cargo.toml
@@ -57,13 +57,13 @@ see [Gates and checks](../authoring/gates-and-checks.md).
 
 The keys `planningAgent`, `codingAgent` and `reviewAgent` choose which agent
 plays each role. They are valid in both files and are single-valued, so a
-repeated agent key is an error. The value has the form `harness[:model]` and is
-split at the first `:`, which means that a model id containing `:` survives
+repeated agent key is an error. The value has the form
+`harness[:model][@effort]` and is split at the first `:`, which means that a model id containing `:` survives
 intact. The `harness` part is one of `claude`, `codex`, `opencode`, `pi` or
 `gemini`; any other name is an error that lists the valid ones.
 
 ```properties
-planningAgent = claude:opus
+planningAgent = claude:opus@high
 codingAgent = codex:gpt-5-mini
 reviewAgent = opencode:anthropic/claude-haiku-5-5
 ```
@@ -72,6 +72,15 @@ The model part is passed to the harness verbatim, and Orca does not validate
 model ids. There is one exception: claude's bare `haiku` alias is sent as
 `claude-haiku-5-5`, because the CLI may resolve the bare alias to a pricier
 model.
+
+The optional `@effort` part sets the reasoning effort, as `withEffort` does in
+code: `claude:opus@high`, or `codex@low` with no model. The level is one of
+`off`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`, and
+[Choosing agents](../authoring/choosing-agents.md#tuning-an-agent) lists which
+ones each harness accepts. A level the harness does not accept, or any level on
+gemini, is an error. Only a trailing `@` followed by a level name counts, so a
+model id containing `@`, such as `claude-sonnet-4@20250514`, is passed on as
+is.
 
 Note that agent keys are read even when `flow(stackSettings = Some(...))` pins
 the stack commands. At setup, Orca announces where each role came from:

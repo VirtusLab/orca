@@ -73,5 +73,5 @@ private[shell] object ConfigAction:
     os.write.over(globalSettingsPath, content, createFolders = true)
     ShellOutput.info(
       s"Settings written to $globalSettingsPath — hand-editable any time " +
-        "(`harness[:model]`, e.g. `claude:sonnet`)."
+        "(`harness[:model][@effort]`, e.g. `claude:sonnet@high`)."
     )
