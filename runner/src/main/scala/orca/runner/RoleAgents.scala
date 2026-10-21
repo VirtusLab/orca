@@ -218,7 +218,7 @@ private[orca] object RoleAgents:
   /** One role's announcement segment, `label=harness:model[@effort] (source)`.
     */
   private def announce(c: RoleChoice): String =
-    val effort = c.agent.config.effort.fold("")("@" + _.label)
+    val effort = AgentSpec.effortSuffix(c.agent.config.effort)
     s"${c.label}=${c.harness}:${c.model.getOrElse(UnpinnedModelLabel)}$effort (${sourceLabel(c.source)})"
 
   private def sourceLabel(source: RoleSource): String =

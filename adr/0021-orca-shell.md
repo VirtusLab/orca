@@ -289,9 +289,9 @@ pin. Preselection: planning defaults to `fable`/`gpt-5.6-sol`, coding/review
 to `opus`/`gpt-5.6-sol`; re-configure preselects an existing pin's curated
 row (or "enter manually" prefilled with it), and picking "harness default"
 clears the pin. The wizard's closing note tells users the file is
-hand-editable (`harness[:model][@effort]`); the harness-change/mint-fresh-sessions
-detail (ADR 0020 §8) was dropped from that note per user feedback — unnecessary
-detail at write time.
+hand-editable (`harness[:model][@effort]`); the
+harness-change/mint-fresh-sessions detail (ADR 0020 §8) was dropped from that
+note per user feedback — unnecessary detail at write time.
 
 Write path: file absent → fresh write with a wizard-appropriate header (not
 `SettingsFile.Header`, whose stack-discovery wording doesn't apply) and

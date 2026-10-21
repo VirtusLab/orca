@@ -31,10 +31,10 @@ private[shell] object ResumeCommand:
     * harness's branch, with the already-validated wire id — a non-applicable
     * lookup is never called, so it can't be mistaken for a failed one.
     *
-    * Binary names come from [[orca.agents.BackendTag.harnessName]] (the
-    * settings-file spelling — `claude`, `codex`, …). Also rejects a blank
-    * wireId or one starting with `-` — passed straight into an argv slot, such
-    * a value could otherwise be parsed as a flag by the harness CLI.
+    * Binary names come from [[orca.agents.BackendTag.harnessName]]. Also
+    * rejects a blank wireId or one starting with `-` — passed straight into an
+    * argv slot, such a value could otherwise be parsed as a flag by the harness
+    * CLI.
     */
   def build(
       s: RecordedSession,

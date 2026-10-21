@@ -134,6 +134,7 @@ private[shell] class Wizard(
   ): UiOutcome[AgentSpec] =
     val currentModel = current.filter(_.backend == tag).flatMap(_.model)
     selectModel(role, tag, currentModel).flatMap: model =>
+      // parse splits a typed `@<level>` off the model
       AgentSpec.parse(AgentSpec(tag, model).render) match
         case Right(typed) if typed.effort.isDefined => UiOutcome.Selected(typed)
         case Right(typed) =>

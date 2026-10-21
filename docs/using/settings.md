@@ -76,9 +76,10 @@ model.
 
 The optional `@effort` part sets the reasoning effort, as `withEffort` does in
 code: `claude:opus@high`, or `codex@low` with no model. The level is written in
-lowercase, and [Choosing agents](../authoring/choosing-agents.md#tuning-an-agent)
-lists the levels each harness accepts; any other is an error. Only letters
-after the last `@` are read as a level, so a model id such as
+lowercase, and
+[Choosing agents](../authoring/choosing-agents.md#tuning-an-agent) lists the
+levels each harness accepts; any other is an error. Only letters after the
+last `@` are read as a level, so a model id such as
 `claude-sonnet-4@20250514` is passed on as is.
 
 Note that agent keys are read even when `flow(stackSettings = Some(...))` pins

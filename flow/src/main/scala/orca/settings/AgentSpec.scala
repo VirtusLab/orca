@@ -16,7 +16,7 @@ private[orca] case class AgentSpec private (
   /** The settings value [[AgentSpec.parse]] reads back into this spec. */
   def render: String =
     backend.harnessName + model.fold("")(":" + _) +
-      effort.fold("")("@" + _.label)
+      AgentSpec.effortSuffix(effort)
 
   /** This spec moved to `tag` with `model`, keeping the effort only when the
     * harness stays the same.
@@ -28,6 +28,10 @@ private[orca] object AgentSpec:
   /** A spec with no effort. */
   def apply(backend: BackendTag, model: Option[String]): AgentSpec =
     new AgentSpec(backend, model, None)
+
+  /** The `@<level>` part of a settings value; empty without an effort. */
+  def effortSuffix(effort: Option[Effort]): String =
+    effort.fold("")("@" + _.label)
 
   /** The settings value's form, for help texts and file headers. */
   final val ValueForm = "harness[:model][@effort]"
