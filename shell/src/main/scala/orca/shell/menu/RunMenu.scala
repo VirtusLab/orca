@@ -131,8 +131,7 @@ private[menu] object RunMenu:
           userPrompt = run.userPrompt,
           verbose = false,
           target = DefaultRunTarget,
-          branch = None,
-          prReadiness = run.prReadiness
+          branch = None
         )
         launch(
           PinPolicy.Force(FallbackPolicy.Ask(ui)),

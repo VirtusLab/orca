@@ -1,10 +1,11 @@
 package orca.shell.menu
 
+import orca.tools.PrReadiness
+
 import orca.{OrcaDir, RunKey, WorkspaceWrite}
 import orca.gitref.CommitHash
 import orca.progress.{BranchMode, FlowSource, ProgressHeader, ProgressStore}
 import orca.testkit.{TempDirs, branchName}
-import orca.tools.PrReadiness
 
 class ResumeDetectorTest extends munit.FunSuite:
 
@@ -14,8 +15,7 @@ class ResumeDetectorTest extends munit.FunSuite:
 
   private def header(
       userPrompt: String = "fix the flaky test",
-      flow: Option[FlowSource] = Some(FlowSource.Catalog("implement.sc")),
-      prReadiness: PrReadiness = PrReadiness.Ready
+      flow: Option[FlowSource] = Some(FlowSource.Catalog("implement.sc"))
   ): ProgressHeader =
     ProgressHeader(
       startingBranch = Some(branchName("main")),
@@ -24,7 +24,7 @@ class ResumeDetectorTest extends munit.FunSuite:
       userPrompt = userPrompt,
       flow = flow,
       startingCommit = CommitHash.from("0" * 40).get,
-      prReadiness = prReadiness
+      prReadiness = PrReadiness.Ready
     )
 
   // The scan's own guards (symlinked log file, symlinked or missing `.orca`)
@@ -50,16 +50,6 @@ class ResumeDetectorTest extends munit.FunSuite:
           log = OrcaDir.progressPath(workDir, RunKey.of("fix the flaky test"))
         )
       )
-    )
-
-  test("detect carries the run's recorded readiness"):
-    val workDir = TempDirs.dir()
-    ProgressStore
-      .default(workDir, RunKey.of("fix the flaky test"))
-      .writeHeader(header(prReadiness = PrReadiness.Draft))
-    assertEquals(
-      ResumeDetector.detect(List(workDir)).map(_.prReadiness),
-      Some(PrReadiness.Draft)
     )
 
   test(

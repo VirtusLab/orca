@@ -34,6 +34,7 @@ import orca.runner.{
   OrcaLog,
   RoleAgents,
   RoleOverrides,
+  RunGitHubTool,
   RunLogStarter,
   RunRequest,
   SetupOptions,
@@ -351,12 +352,7 @@ private def runLogged(request: RunRequest, runLog: RunEventLog)(
     val runtimeGit =
       wiring.git.getOrElse(new OsGitTool(workDir, dispatcher))
     val ghTool = wiring.gh.getOrElse(
-      new OsGitHubTool(
-        OsProcCliRunner,
-        workDir,
-        events = dispatcher,
-        defaultReadiness = request.args.prReadiness
-      )
+      new OsGitHubTool(OsProcCliRunner, workDir, events = dispatcher)
     )
     val fsTool = wiring.fs.getOrElse(new OsFsTool(workDir))
     runInContext(
@@ -465,7 +461,7 @@ private def runInContext(
       reviewAgent = resolvedRoles.review,
       wired = agents,
       runtimeGit = runtimeGit,
-      gh = ghTool,
+      gh = RunGitHubTool(ghTool, flowSetup.prReadiness),
       fs = fsTool,
       stackSettings = flowSetup.stackSettings,
       reviewerCatalog = reviewerCatalog

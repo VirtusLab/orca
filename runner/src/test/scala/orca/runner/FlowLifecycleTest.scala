@@ -35,7 +35,6 @@ import orca.runner.terminal.TerminalInteraction
 import orca.tools.{
   GitHubAvailability,
   GitHubTool,
-  OsGitHubTool,
   OsGitTool,
   PrReadiness,
   RuntimeGit,
@@ -48,6 +47,8 @@ import ox.either.orThrow
 
 import java.io.{ByteArrayOutputStream, PrintStream}
 import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
+import java.util.concurrent.ConcurrentLinkedQueue
+import scala.jdk.CollectionConverters.*
 import orca.testkit.{
   GitRepo,
   PushlessGit,
@@ -251,7 +252,8 @@ class FlowLifecycleTest extends munit.FunSuite:
         branchMode = BranchMode.Created,
         userPrompt = prompt,
         flow = None,
-        startingCommit = unreachableCommit
+        startingCommit = unreachableCommit,
+        prReadiness = PrReadiness.Ready
       )
     )
     git.forceAdd(store.path)
@@ -324,7 +326,8 @@ class FlowLifecycleTest extends munit.FunSuite:
         branchMode = BranchMode.Created,
         userPrompt = prompt,
         flow = None,
-        startingCommit = GitRepo.headCommit(workDir)
+        startingCommit = GitRepo.headCommit(workDir),
+        prReadiness = PrReadiness.Ready
       )
     )
     git.forceAdd(store.path)
@@ -607,7 +610,8 @@ class FlowLifecycleTest extends munit.FunSuite:
         branchMode = BranchMode.Created,
         userPrompt = prompt,
         flow = None,
-        startingCommit = unreachableCommit
+        startingCommit = unreachableCommit,
+        prReadiness = PrReadiness.Ready
       )
     )
     git.forceAdd(store.path)
@@ -741,7 +745,8 @@ class FlowLifecycleTest extends munit.FunSuite:
         branchMode = BranchMode.Created,
         userPrompt = userPrompt,
         flow = flow,
-        startingCommit = unreachableCommit
+        startingCommit = unreachableCommit,
+        prReadiness = PrReadiness.Ready
       )
     )
     store
@@ -913,7 +918,8 @@ class FlowLifecycleTest extends munit.FunSuite:
           branchMode = BranchMode.Created,
           userPrompt = prompt,
           flow = None,
-          startingCommit = unreachableCommit
+          startingCommit = unreachableCommit,
+          prReadiness = PrReadiness.Ready
         )
       )
     val _ = writeForeignLog(workDir, branch = "feat/resume-me")
@@ -998,7 +1004,8 @@ class FlowLifecycleTest extends munit.FunSuite:
           branchMode = BranchMode.Created,
           startingCommit = unreachableCommit,
           userPrompt = prompt,
-          flow = None
+          flow = None,
+          prReadiness = PrReadiness.Ready
         )
       )
     val setup = setupForSettings(workDir, Some(StackSettings.empty), prompt)
@@ -1114,6 +1121,38 @@ class FlowLifecycleTest extends munit.FunSuite:
     assertEquals(
       setupWithBranch(workDir, "feat/x", git).featureBranch.value,
       "feat/x"
+    )
+
+  /** [[setupWithBranch]]'s twin for `--draft`: one prompt, so a second call
+    * resumes the first.
+    */
+  private def setupWithReadiness(
+      workDir: os.Path,
+      prReadiness: PrReadiness
+  ): FlowLifecycle.FlowSetup =
+    val prompt = "a task with a chosen readiness"
+    setupForSettings(
+      workDir,
+      Some(StackSettings.empty),
+      prompt,
+      args = Some(OrcaArgs(prompt, prReadiness = prReadiness))
+    )
+
+  test("setup: a fresh run records its --draft in the header"):
+    val workDir = GitRepo.seeded()
+    val setup = setupWithReadiness(workDir, PrReadiness.Draft)
+    assertEquals(setup.prReadiness, PrReadiness.Draft)
+    assertEquals(
+      setup.store.load().map(_.header.prReadiness),
+      Some(PrReadiness.Draft)
+    )
+
+  test("setup: a resume keeps the first attempt's readiness over its own"):
+    val workDir = GitRepo.seeded()
+    val _ = setupWithReadiness(workDir, PrReadiness.Draft)
+    assertEquals(
+      setupWithReadiness(workDir, PrReadiness.Ready).prReadiness,
+      PrReadiness.Draft
     )
 
   test("setup: --branch naming the detected default branch is refused"):
@@ -1599,7 +1638,8 @@ class FlowLifecycleTest extends munit.FunSuite:
         branchMode = BranchMode.Created,
         userPrompt = prompt,
         flow = None,
-        startingCommit = unreachableCommit
+        startingCommit = unreachableCommit,
+        prReadiness = PrReadiness.Ready
       )
     )
     git.forceAdd(store.path)
@@ -1801,23 +1841,26 @@ class FlowLifecycleTest extends munit.FunSuite:
         )
       )(body)
 
-  test("--draft becomes the default readiness of the run's gh"):
+  test("a createPr without a readiness opens the run's --draft"):
     val workDir = GitRepo.seeded()
-    var seen: Option[PrReadiness] = None
-    runFlowForTest(workDir, "draft-gh", prReadiness = PrReadiness.Draft):
-      seen = summon[orca.FlowContext].gh match
-        case tool: OsGitHubTool => Some(tool.defaultReadiness)
-        case _                  => None
-    assertEquals(seen, Some(PrReadiness.Draft))
-
-  test("--draft is recorded in the run's progress header"):
-    val workDir = GitRepo.seeded()
-    val prompt = "draft-header"
-    val store = ProgressStore.default(workDir, RunKey.of(prompt))
-    var seen: Option[PrReadiness] = None
-    runFlowForTest(workDir, prompt, prReadiness = PrReadiness.Draft):
-      seen = store.load().map(_.header.prReadiness)
-    assertEquals(seen, Some(PrReadiness.Draft))
+    val readinesses = new ConcurrentLinkedQueue[Option[PrReadiness]]()
+    val gh = new StubGitHubTool:
+      override def createPr(
+          title: String,
+          body: String,
+          readiness: Option[PrReadiness]
+      )(using WorkspaceWrite) =
+        readinesses.add(readiness): Unit
+        Right(handoffPr)
+    runFlowForTest(
+      workDir,
+      "draft-gh",
+      gh = Some(gh),
+      prReadiness = PrReadiness.Draft
+    ):
+      given WorkspaceWrite = WorkspaceWrite.unsafe
+      val _ = summon[orca.FlowContext].gh.createPr("t", "b")
+    assertEquals(readinesses.asScala.toList, List(Some(PrReadiness.Draft)))
 
   test(
     "teardownSuccess is best-effort: a non-missing-file removal error does not fail an otherwise-successful run"
@@ -2783,7 +2826,8 @@ class FlowLifecycleTest extends munit.FunSuite:
         branchMode = BranchMode.Reused,
         userPrompt = prompt,
         flow = None,
-        startingCommit = unreachableCommit
+        startingCommit = unreachableCommit,
+        prReadiness = PrReadiness.Ready
       )
     )
     git.forceAdd(store.path)
@@ -2908,7 +2952,8 @@ class FlowLifecycleTest extends munit.FunSuite:
         branchMode = BranchMode.Created,
         userPrompt = prompt,
         flow = None,
-        startingCommit = unreachableCommit
+        startingCommit = unreachableCommit,
+        prReadiness = PrReadiness.Ready
       )
     )
     git.forceAdd(store.path)
@@ -3210,7 +3255,8 @@ class FlowLifecycleTest extends munit.FunSuite:
       branchMode = BranchMode.Reused,
       startingTree = StartingTree.Clean,
       startingCommit = startedAt,
-      worktree = None
+      worktree = None,
+      prReadiness = PrReadiness.Ready
     )
     FlowLifecycle.teardownSuccess(
       git,
@@ -3250,7 +3296,8 @@ class FlowLifecycleTest extends munit.FunSuite:
       branchMode = BranchMode.Created,
       startingTree = StartingTree.Clean,
       startingCommit = startedAt,
-      worktree = None
+      worktree = None,
+      prReadiness = PrReadiness.Ready
     )
     (git, workDir, setup)
 
@@ -3376,7 +3423,8 @@ class FlowLifecycleTest extends munit.FunSuite:
       branchMode = BranchMode.Reused,
       startingTree = StartingTree.Clean,
       startingCommit = None,
-      worktree = None
+      worktree = None,
+      prReadiness = PrReadiness.Ready
     )
     TeardownPushRepo(git, remote, setup, store.path.subRelativeTo(workDir))
 
@@ -3477,7 +3525,8 @@ class FlowLifecycleTest extends munit.FunSuite:
       branchMode = branchMode,
       startingTree = StartingTree.Clean,
       startingCommit = startingCommit,
-      worktree = None
+      worktree = None,
+      prReadiness = PrReadiness.Ready
     )
 
   test(
@@ -3595,7 +3644,8 @@ class FlowLifecycleTest extends munit.FunSuite:
         branchMode = BranchMode.Created,
         startingCommit = base,
         userPrompt = prompt,
-        flow = None
+        flow = None,
+        prReadiness = PrReadiness.Ready
       )
     )
     store.upsertEntry(
@@ -3658,7 +3708,8 @@ class FlowLifecycleTest extends munit.FunSuite:
         branchMode = BranchMode.Created,
         userPrompt = prompt,
         flow = None,
-        startingCommit = GitRepo.headCommit(workDir)
+        startingCommit = GitRepo.headCommit(workDir),
+        prReadiness = PrReadiness.Ready
       )
     )
     git.forceAdd(store.path)
@@ -3722,7 +3773,8 @@ class FlowLifecycleTest extends munit.FunSuite:
         branchMode = BranchMode.Created,
         userPrompt = prompt,
         flow = None,
-        startingCommit = unreachableCommit
+        startingCommit = unreachableCommit,
+        prReadiness = PrReadiness.Ready
       )
     )
     git.forceAdd(store.path)
@@ -3784,7 +3836,8 @@ class FlowLifecycleTest extends munit.FunSuite:
         branchMode = BranchMode.Created,
         userPrompt = prompt,
         flow = None,
-        startingCommit = unreachableCommit
+        startingCommit = unreachableCommit,
+        prReadiness = PrReadiness.Ready
       )
     )
     git.forceAdd(store.path)
@@ -3842,7 +3895,8 @@ class FlowLifecycleTest extends munit.FunSuite:
         branchMode = BranchMode.Created,
         userPrompt = "a different prompt",
         flow = None,
-        startingCommit = unreachableCommit
+        startingCommit = unreachableCommit,
+        prReadiness = PrReadiness.Ready
       )
     )
     git.forceAdd(store.path)
@@ -3887,7 +3941,8 @@ class FlowLifecycleTest extends munit.FunSuite:
         branchMode = BranchMode.Created,
         userPrompt = prompt,
         flow = None,
-        startingCommit = unreachableCommit
+        startingCommit = unreachableCommit,
+        prReadiness = PrReadiness.Ready
       )
     )
     git.forceAdd(store.path)

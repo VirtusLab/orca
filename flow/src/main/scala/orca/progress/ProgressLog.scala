@@ -26,8 +26,8 @@ enum BranchMode derives JsonData:
   * `userPrompt` is the full prompt: the shell's "Resume interrupted run" offer
   * relaunches the run byte-identically (ADR 0021 §3 amendment), and
   * `RecoveryCheck` refuses a log whose prompt is not the current one. `flow` is
-  * `None` for a run started outside the shell. `prReadiness` is the run's
-  * `--draft`, which that relaunch passes on.
+  * `None` for a run started outside the shell. `prReadiness` is the first
+  * attempt's `--draft`, which every resume keeps.
   *
   * `startingCommit` is the commit HEAD pointed at when the run bound its branch
   * — the diff base for a review of everything the whole run changed.
@@ -41,7 +41,7 @@ case class ProgressHeader(
     userPrompt: String,
     flow: Option[FlowSource],
     startingCommit: CommitHash,
-    prReadiness: PrReadiness = PrReadiness.Ready
+    prReadiness: PrReadiness
 ) derives JsonData:
   /** Where the run started, which a successful run may hand HEAD back to. */
   def startingHead: Head =

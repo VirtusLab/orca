@@ -8,7 +8,6 @@ import orca.shell.flows.DiscoveredFlow
 import orca.shell.run.{LaunchResult, LaunchedFlow}
 import orca.shell.ui.UiOutcome
 import orca.testkit.{TempDirs, branchName}
-import orca.tools.PrReadiness
 
 import MenuFixtures.{captured, withDumbTerminal}
 
@@ -205,16 +204,6 @@ class RunMenuTest extends munit.FunSuite:
       launch.map(_._2.userPrompt),
       Some("fix the flaky test\nwith detail")
     )
-
-  test("resumeInterruptedRun: launches with the recorded readiness"):
-    val workDir = TempDirs.dir()
-    val _ = projectFlow(workDir, "resume-flow.sc")
-    val launch = resumed(
-      interrupted(FlowSource.Catalog("resume-flow.sc"), workDir)
-        .copy(prReadiness = PrReadiness.Draft),
-      workDir
-    )
-    assertEquals(launch.map(_._2.prReadiness), Some(PrReadiness.Draft))
 
   test(
     "resumeInterruptedRun: the run happens in the directory its log was found in, with the default target"

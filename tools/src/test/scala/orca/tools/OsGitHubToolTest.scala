@@ -403,31 +403,18 @@ class OsGitHubToolTest extends munit.FunSuite:
     assert(args.containsSlice(Seq("--body", "hello")))
     assert(args.containsSlice(Seq("--head", "feat")))
 
-  /** The `gh pr create` argv of a tool with `defaultReadiness`. */
-  private def createArgs(
-      defaultReadiness: PrReadiness,
-      readiness: Option[PrReadiness]
-  ): Seq[String] =
-    val cli = createPrRunner(
-      CliResult(0, "https://github.com/acme/widgets/pull/42\n", "")
-    )
-    val _ = new OsGitHubTool(cli, defaultReadiness = defaultReadiness)
-      .createPr("feat: hi", "hello", readiness)
-      .orThrow
-    cli.calls.last.args
-
   test("createPr passes --draft only for a draft PR"):
-    assert(
-      createArgs(PrReadiness.Ready, Some(PrReadiness.Draft)).contains("--draft")
-    )
-    assert(
-      !createArgs(PrReadiness.Draft, Some(PrReadiness.Ready))
-        .contains("--draft")
-    )
-
-  test("createPr without a readiness opens the tool's default"):
-    assert(createArgs(PrReadiness.Draft, None).contains("--draft"))
-    assert(!createArgs(PrReadiness.Ready, None).contains("--draft"))
+    def createArgs(readiness: Option[PrReadiness]): Seq[String] =
+      val cli = createPrRunner(
+        CliResult(0, "https://github.com/acme/widgets/pull/42\n", "")
+      )
+      val _ = new OsGitHubTool(cli)
+        .createPr("feat: hi", "hello", readiness)
+        .orThrow
+      cli.calls.last.args
+    assert(createArgs(Some(PrReadiness.Draft)).contains("--draft"))
+    assert(!createArgs(Some(PrReadiness.Ready)).contains("--draft"))
+    assert(!createArgs(None).contains("--draft"))
 
   test("createPr leaves an existing PR alone, whatever the readiness"):
     val cli = createPrRunner(

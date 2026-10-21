@@ -1,5 +1,7 @@
 package orca
 
+import orca.tools.PrReadiness
+
 import munit.FunSuite
 import orca.backend.{
   AgentResult,
@@ -232,7 +234,8 @@ class FlowSessionTest extends FunSuite:
         BranchMode.Created,
         userPrompt = "p",
         flow = None,
-        startingCommit = orca.gitref.CommitHash.from("0" * 40).get
+        startingCommit = orca.gitref.CommitHash.from("0" * 40).get,
+        prReadiness = PrReadiness.Ready
       )
     )
     for record <- sessions do sessionStore.upsert(record)
@@ -754,7 +757,8 @@ class FlowSessionTest extends FunSuite:
         BranchMode.Created,
         userPrompt = "p",
         flow = None,
-        startingCommit = orca.gitref.CommitHash.from("0" * 40).get
+        startingCommit = orca.gitref.CommitHash.from("0" * 40).get,
+        prReadiness = PrReadiness.Ready
       )
     )
     sessionStore.upsert(

@@ -1,5 +1,7 @@
 package orca.progress
 
+import orca.tools.PrReadiness
+
 import com.github.plokhotnyuk.jsoniter_scala.core.{
   JsonReaderException,
   readFromString,
@@ -28,7 +30,8 @@ class ProgressLogTest extends FunSuite:
       userPrompt = "fix the flaky test",
       flow = flow,
       startingCommit =
-        CommitHash.from("0badc0ffee0ddf00d1234567890abcdef1234567").get
+        CommitHash.from("0badc0ffee0ddf00d1234567890abcdef1234567").get,
+      prReadiness = PrReadiness.Ready
     )
 
   test("ProgressLog round-trips through JsonData codec"):

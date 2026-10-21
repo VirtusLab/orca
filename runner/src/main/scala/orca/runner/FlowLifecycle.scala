@@ -33,7 +33,7 @@ import orca.progress.{
 }
 import orca.settings.{AgentSettings, SettingsFile, SettingsScope}
 import orca.subprocess.TtyProbe
-import orca.tools.{RuntimeGit, UntrackedFiles}
+import orca.tools.{PrReadiness, RuntimeGit, UntrackedFiles}
 import org.slf4j.LoggerFactory
 import ox.either.orThrow
 
@@ -137,7 +137,11 @@ object FlowLifecycle:
         * `--worktree`, or a resume the shell relaunched into one without the
         * flag. The closing summary names it.
         */
-      worktree: Option[os.Path]
+      worktree: Option[os.Path],
+      /** What a `createPr` without a readiness opens: this run's `--draft`, or
+        * on resume the first attempt's.
+        */
+      prReadiness: PrReadiness
   )
 
   /** The branch half of [[FlowSetup]], resolved by whichever of
@@ -152,7 +156,8 @@ object FlowLifecycle:
       featureBranch: FeatureBranch,
       startingHead: Head,
       branchMode: BranchMode,
-      startingCommit: Option[CommitHash]
+      startingCommit: Option[CommitHash],
+      prReadiness: PrReadiness
   )
 
   /** Bind the run to a branch + progress log before the body runs (ADR 0018
@@ -245,7 +250,8 @@ object FlowLifecycle:
       // From where the run IS, not from the flag: the shell relaunches a resume
       // inside the worktree its log was found in WITHOUT `--worktree` (the flag
       // would re-derive a path), and that run has to name the tree too.
-      Option.when(WorktreeRun.isWorktreeRun(workDir))(workDir)
+      Option.when(WorktreeRun.isWorktreeRun(workDir))(workDir),
+      binding.prReadiness
     )
 
   /** [[setup]]'s fixed inputs — the coding-role agent, git, the progress store,
@@ -377,7 +383,8 @@ object FlowLifecycle:
         startingHead,
         if args.target.skipBranch then BranchMode.Reused
         else BranchMode.Created,
-        Some(headAtBinding)
+        Some(headAtBinding),
+        args.prReadiness
       )
 
     /** Fresh run: resolve + create the branch, then commit the header as the
@@ -495,7 +502,8 @@ object FlowLifecycle:
         featureBranch,
         header.startingHead,
         header.branchMode,
-        startingCommit
+        startingCommit,
+        header.prReadiness
       )
 
     /** What a resumed run says about itself, once. `createBranch` and

@@ -1,5 +1,7 @@
 package orca.progress
 
+import orca.tools.PrReadiness
+
 import munit.FunSuite
 import orca.{RunKey, WorkspaceWrite}
 import orca.gitref.CommitHash
@@ -17,7 +19,8 @@ class ProgressScanTest extends FunSuite:
     branchMode = BranchMode.Created,
     userPrompt = "my prompt",
     flow = None,
-    startingCommit = CommitHash.from("0" * 40).get
+    startingCommit = CommitHash.from("0" * 40).get,
+    prReadiness = PrReadiness.Ready
   )
 
   test("progressLogPaths is empty when .orca doesn't exist"):

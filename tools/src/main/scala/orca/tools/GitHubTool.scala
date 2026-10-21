@@ -312,17 +312,13 @@ trait GitHubTool:
   *
   * `events` lets the tool publish a [[OrcaEvent.Step]] when a PR is opened so
   * the URL surfaces in the event log. Defaults to `OrcaListener.noop`.
-  *
-  * `defaultReadiness` is what a [[createPr]] without a `readiness` opens: the
-  * run's `--draft`.
   */
 private[orca] class OsGitHubTool(
     cli: CliRunner,
     workDir: os.Path = os.pwd,
     pollInterval: FiniteDuration = 30.seconds,
     events: OrcaListener = OrcaListener.noop,
-    readRetry: Schedule = OsGitHubTool.defaultReadRetry,
-    private[orca] val defaultReadiness: PrReadiness = PrReadiness.Ready
+    readRetry: Schedule = OsGitHubTool.defaultReadRetry
 ) extends GitHubTool:
 
   import OsGitHubTool.*
@@ -500,7 +496,7 @@ private[orca] class OsGitHubTool(
     // its progress log would be misread as "branch not pushed". Bare branch
     // name, no `owner:` prefix, matching `findOpenPr`.
     val head = headBranchForPr()
-    val draftFlag = readiness.getOrElse(defaultReadiness) match
+    val draftFlag = readiness.getOrElse(PrReadiness.Ready) match
       case PrReadiness.Draft => Seq("--draft")
       case PrReadiness.Ready => Nil
     val result = runGhResult(

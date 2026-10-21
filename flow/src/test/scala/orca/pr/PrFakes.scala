@@ -140,7 +140,8 @@ private[pr] def seededPrRepo(
       branchMode,
       userPrompt = "p",
       flow = None,
-      startingCommit = startedAt
+      startingCommit = startedAt,
+      prReadiness = PrReadiness.Ready
     )
   )
   (dir, store)
