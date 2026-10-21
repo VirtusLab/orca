@@ -72,7 +72,12 @@ class AgentSpecTest extends FunSuite:
     )
 
   test("parse of a trailing @ is a Left"):
-    assert(AgentSpec.parse("claude:sonnet@").isLeft)
+    assertEquals(
+      AgentSpec.parse("claude:sonnet@"),
+      Left(
+        "missing effort after `@` — valid: off, minimal, low, medium, high, xhigh, max"
+      )
+    )
 
   test("parse of a level the harness does not accept is a Left"):
     assertEquals(
@@ -91,12 +96,6 @@ class AgentSpecTest extends FunSuite:
   test("render reads back through parse"):
     val spec = AgentSpec.parse("pi:sonnet:high@minimal")
     assertEquals(spec.flatMap(s => AgentSpec.parse(s.render)), spec)
-
-  test("repinned keeps the effort on the same harness"):
-    val spec = AgentSpec
-      .parse("claude:sonnet@high")
-      .map(_.repinned(BackendTag.ClaudeCode, None))
-    assertEquals(spec.map(_.effort), Right(Some(Effort.High)))
 
   test("repinned drops the effort when the harness changes"):
     val spec = AgentSpec

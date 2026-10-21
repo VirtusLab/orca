@@ -17,7 +17,8 @@ Note that `interactive` exists only on `resultAs[O]`. [`FlowSession` and
 All five backends also share the builders `withModel`, `withCheapModel`,
 `withAutoApprove`, `withSystemPrompt`, `withName`, `withReadOnly`,
 `withNetworkOnly` and `withSelfManagedGit`; see
-[Choosing agents](../authoring/choosing-agents.md) for what each one does.
+[Choosing agents](../authoring/choosing-agents.md) for what each one does. All
+but `gemini` also have `withEffort`.
 `Model` wraps a model id string.
 
 The sections below describe what differs between the backends: which model
@@ -66,8 +67,8 @@ selection follow Pi's own configuration; to pick one, use
 `withModel(Model("provider/model"))`. Interactive calls can ask clarifying
 questions through Orca's `ask_user` bridge.
 
-`withEffort` overrides a level in the model pattern (`sonnet:high`). Pi lowers
-a level the model does not support to the nearest one it does.
+`withEffort` replaces a thinking level given in the model (Pi's `sonnet:high`
+form). Pi lowers a level the model does not support to the nearest one it does.
 
 ## `gemini`
 

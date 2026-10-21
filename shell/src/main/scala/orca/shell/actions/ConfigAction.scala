@@ -1,7 +1,7 @@
 package orca.shell.actions
 
 import orca.OrcaDir
-import orca.settings.{AgentSettings, SettingsFile, SettingsScope}
+import orca.settings.{AgentSettings, AgentSpec, SettingsFile, SettingsScope}
 import orca.shell.ui.ShellOutput
 
 /** Shows or writes the user-global settings file's role agents (ADR 0021 §4).
@@ -73,5 +73,5 @@ private[shell] object ConfigAction:
     os.write.over(globalSettingsPath, content, createFolders = true)
     ShellOutput.info(
       s"Settings written to $globalSettingsPath — hand-editable any time " +
-        "(`harness[:model][@effort]`, e.g. `claude:sonnet@high`)."
+        s"(`${AgentSpec.ValueForm}`, e.g. `claude:sonnet@high`)."
     )

@@ -1,7 +1,6 @@
 package orca.shell.sessions
 
 import orca.agents.BackendTag
-import orca.settings.AgentSpec
 
 /** Per-harness interactive resume argv (ADR 0021 §8's resume table). This is
   * harness-session REATTACH — exec'ing the harness CLI's own resume flag
@@ -19,7 +18,7 @@ private[shell] object ResumeCommand:
     */
   def staticGate(s: RecordedSession): Either[String, String] =
     s.wireId.toRight(
-      s"${AgentSpec.harnessNameFor(s.backend)} session has no resumable id"
+      s"${s.backend.harnessName} session has no resumable id"
     )
 
   /** Left = not resumable: [[staticGate]]'s checks, plus whatever the caller's
@@ -32,10 +31,10 @@ private[shell] object ResumeCommand:
     * harness's branch, with the already-validated wire id — a non-applicable
     * lookup is never called, so it can't be mistaken for a failed one.
     *
-    * Binary names come from [[AgentSpec.harnessNameFor]] (the settings-file
-    * spelling — `claude`, `codex`, …). Also rejects a blank wireId or one
-    * starting with `-` — passed straight into an argv slot, such a value could
-    * otherwise be parsed as a flag by the harness CLI.
+    * Binary names come from [[orca.agents.BackendTag.harnessName]] (the
+    * settings-file spelling — `claude`, `codex`, …). Also rejects a blank
+    * wireId or one starting with `-` — passed straight into an argv slot, such
+    * a value could otherwise be parsed as a flag by the harness CLI.
     */
   def build(
       s: RecordedSession,
@@ -46,7 +45,7 @@ private[shell] object ResumeCommand:
       if wireId.isBlank || wireId.startsWith("-") then
         Left(s"recorded wireId `$wireId` is not a valid session id")
       else
-        val binary = AgentSpec.harnessNameFor(s.backend)
+        val binary = s.backend.harnessName
         s.backend match
           case BackendTag.ClaudeCode =>
             Right(Seq(binary, "--resume", wireId))

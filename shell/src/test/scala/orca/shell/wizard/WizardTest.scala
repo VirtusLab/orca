@@ -360,6 +360,22 @@ class WizardTest extends munit.FunSuite:
       val agents = parse(os.read(path))
       assertEquals(agents.coding.flatMap(_.effort), Some(Effort.High))
 
+  test("re-configure with a typed effort replaces the existing one"):
+    withTempPath: path =>
+      os.write(path, "planningAgent = pi:sonnet@high\n")
+      val ui = ScriptedUi(
+        selectScript = List.fill(3)(UiOutcome.Selected(BackendTag.Pi)),
+        inputScript = List(
+          UiOutcome.Selected("sonnet@low"),
+          UiOutcome.Selected(""),
+          UiOutcome.Selected("")
+        )
+      )
+      assert(Wizard(ui, probe, path).run(reconfigure = true))
+
+      val agents = parse(os.read(path))
+      assertEquals(agents.planning, AgentSpec.parse("pi:sonnet@low").toOption)
+
   test("re-configure onto harness default clears an existing pin"):
     withTempPath: path =>
       os.write(

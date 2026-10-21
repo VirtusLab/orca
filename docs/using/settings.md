@@ -58,9 +58,10 @@ see [Gates and checks](../authoring/gates-and-checks.md).
 The keys `planningAgent`, `codingAgent` and `reviewAgent` choose which agent
 plays each role. They are valid in both files and are single-valued, so a
 repeated agent key is an error. The value has the form
-`harness[:model][@effort]` and is split at the first `:`, which means that a model id containing `:` survives
-intact. The `harness` part is one of `claude`, `codex`, `opencode`, `pi` or
-`gemini`; any other name is an error that lists the valid ones.
+`harness[:model][@effort]`. The model is split off at the first `:`, so a model
+id containing `:` survives intact. The `harness` part is one of `claude`,
+`codex`, `opencode`, `pi` or `gemini`; any other name is an error that lists
+the valid ones.
 
 ```properties
 planningAgent = claude:opus@high

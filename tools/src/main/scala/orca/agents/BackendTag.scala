@@ -16,6 +16,16 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.{
 enum BackendTag:
   case ClaudeCode, Codex, Opencode, Pi, Gemini
 
+  /** The harness's name in settings and messages, which is also its CLI binary:
+    * `claude`, `codex`, ….
+    */
+  private[orca] def harnessName: String = this match
+    case ClaudeCode => "claude"
+    case Codex      => "codex"
+    case Opencode   => "opencode"
+    case Pi         => "pi"
+    case Gemini     => "gemini"
+
 object BackendTag:
   given codec: ConfiguredJsonValueCodec[BackendTag] =
     ConfiguredJsonValueCodec.derived[BackendTag](using

@@ -10,7 +10,6 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.{
 }
 import orca.StagePath
 import orca.shell.flows.DiscoveredFlow
-import orca.settings.AgentSpec
 import orca.shell.sessions.{
   ObservedStatus,
   ResumeCommand,
@@ -82,7 +81,7 @@ private[cli] object Tables:
         kind = session.kind,
         stage = session.stage,
         sessionStage = session.minted.map(_.stage),
-        harness = AgentSpec.harnessNameFor(session.backend),
+        harness = session.backend.harnessName,
         lastActiveAt = session.lastActiveAt.toString,
         resumable = gate.isRight,
         reason = gate.left.toOption,

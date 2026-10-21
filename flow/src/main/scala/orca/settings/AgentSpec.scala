@@ -5,8 +5,8 @@ import orca.agents.{BackendTag, Effort, EffortSupport}
 /** One configured role agent: a harness plus an optional model pin and effort,
   * the parsed form of a `harness[:model][@effort]` settings value. The model
   * string is passed verbatim to the harness's `withModel` — orca does not
-  * normalise or validate model ids. `effort` is always one the harness accepts:
-  * only [[AgentSpec.parse]] sets it.
+  * normalise or validate model ids. `effort` is always one the harness accepts;
+  * the constructor is private.
   */
 private[orca] case class AgentSpec private (
     backend: BackendTag,
@@ -15,7 +15,7 @@ private[orca] case class AgentSpec private (
 ):
   /** The settings value [[AgentSpec.parse]] reads back into this spec. */
   def render: String =
-    AgentSpec.harnessNameFor(backend) + model.fold("")(":" + _) +
+    backend.harnessName + model.fold("")(":" + _) +
       effort.fold("")("@" + _.label)
 
   /** This spec moved to `tag` with `model`, keeping the effort only when the
@@ -29,52 +29,54 @@ private[orca] object AgentSpec:
   def apply(backend: BackendTag, model: Option[String]): AgentSpec =
     new AgentSpec(backend, model, None)
 
-  /** The settings-file harness name for a backend tag (`claude`, `codex`, …) —
-    * lowercase, distinct from the tag's case name.
+  /** The settings value's form, for help texts and file headers. */
+  final val ValueForm = "harness[:model][@effort]"
+
+  /** Settings-file harness names — the reverse of [[BackendTag.harnessName]].
     */
-  def harnessNameFor(tag: BackendTag): String = tag match
-    case BackendTag.ClaudeCode => "claude"
-    case BackendTag.Codex      => "codex"
-    case BackendTag.Opencode   => "opencode"
-    case BackendTag.Pi         => "pi"
-    case BackendTag.Gemini     => "gemini"
-
-  /** Settings-file harness names — the reverse of [[harnessNameFor]]. */
   val harnessNames: Map[String, BackendTag] =
-    BackendTag.values.map(t => harnessNameFor(t) -> t).toMap
+    BackendTag.values.map(t => t.harnessName -> t).toMap
 
-  /** Left = human-readable problem for the settings-error message. Split at the
-    * FIRST `:` so a model id containing `:` survives; an empty model part means
-    * no pin.
+  /** Reads a `harness[:model][@effort]` value; Left = human-readable problem
+    * for the settings-error message. `@effort` is split off first, then the
+    * rest at the FIRST `:`, so a model id containing `:` survives; an empty
+    * model part means no pin.
     */
   def parse(value: String): Either[String, AgentSpec] =
     for
       (pinned, effort) <- splitEffort(value)
-      (harness, model) = pinned.indexOf(':') match
-        case -1 => (pinned.trim, None)
-        case i =>
-          (
-            pinned.take(i).trim,
-            Some(pinned.drop(i + 1).trim).filter(_.nonEmpty)
-          )
+      (harness, model) = splitModel(pinned)
       tag <- harnessNames
         .get(harness)
         .toRight(
           s"unknown harness `$harness` — valid: " +
             harnessNames.keys.toList.sorted.mkString(", ")
         )
-      checked <- effort match
-        case None => Right(None)
-        case Some(level) =>
-          EffortSupport
-            .forTag(tag)
-            .toRight(s"$harness has no effort setting")
-            .flatMap(_.check(level))
-            .map(Some(_))
+      checked <- checkEffort(tag, effort)
     yield new AgentSpec(tag, model, checked)
 
-  /** Splits off a trailing `@<level>`. Only an all-letter suffix is read as a
-    * level, so a model id like Vertex's `claude-sonnet-4@20250514` survives.
+  /** `harness[:model]` as the harness and the model, if any. */
+  private def splitModel(pinned: String): (String, Option[String]) =
+    pinned.indexOf(':') match
+      case -1 => (pinned.trim, None)
+      case i =>
+        (pinned.take(i).trim, Some(pinned.drop(i + 1).trim).filter(_.nonEmpty))
+
+  /** `effort`, if the harness accepts it. */
+  private def checkEffort(
+      tag: BackendTag,
+      effort: Option[Effort]
+  ): Either[String, Option[Effort]] =
+    effort.fold(Right(None)): level =>
+      EffortSupport
+        .forTag(tag)
+        .toRight(s"${tag.harnessName} has no effort setting")
+        .flatMap(_.check(level))
+        .map(Some(_))
+
+  /** Splits off a trailing `@<level>`. Only an all-letter (or empty) suffix is
+    * read as a level, so a model id like Vertex's `claude-sonnet-4@20250514`
+    * survives.
     */
   private def splitEffort(
       value: String
@@ -83,15 +85,15 @@ private[orca] object AgentSpec:
       case -1 => Right((value, None))
       case i =>
         val suffix = value.drop(i + 1).trim
-        if suffix.nonEmpty && !suffix.forall(_.isLetter) then
-          Right((value, None))
+        if !suffix.forall(_.isLetter) then Right((value, None))
         else
+          val valid = Effort.values.map(_.label).mkString(", ")
           Effort
             .fromLabel(suffix)
             .map(effort => (value.take(i), Some(effort)))
             .toRight(
-              s"unknown effort `$suffix` — valid: " +
-                Effort.values.map(_.label).mkString(", ")
+              if suffix.isEmpty then s"missing effort after `@` — valid: $valid"
+              else s"unknown effort `$suffix` — valid: $valid"
             )
 
 /** The agent keys of one settings file; [[orElse]] layers one set over a

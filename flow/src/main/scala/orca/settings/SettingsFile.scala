@@ -150,7 +150,7 @@ private[orca] object SettingsFile:
       "# format/lint/test: one shell command per key; `off` disables the " +
       "gate. Delete the stack lines (or the whole file) to re-run " +
       "auto-discovery.\n" +
-      "# planningAgent/codingAgent/reviewAgent (harness[:model][@effort]): override " +
+      s"# planningAgent/codingAgent/reviewAgent (${AgentSpec.ValueForm}): override " +
       "the global settings file; a flow's own code overrides both."
 
   /** The full settings-file text for `entries` under [[Header]],
@@ -176,7 +176,7 @@ private[orca] object SettingsFile:
     */
   private[orca] val GlobalHeader: String =
     "# orca global settings — role agents; edit freely. " +
-      "Values: harness[:model][@effort]"
+      s"Values: ${AgentSpec.ValueForm}"
 
   /** A fresh global settings file: [[GlobalHeader]] plus one `key = value` line
     * per role `agents` sets, in planning/coding/review order. Round-trips

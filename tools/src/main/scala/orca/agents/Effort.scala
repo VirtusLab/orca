@@ -23,7 +23,7 @@ object Effort:
   */
 @implicitNotFound("This harness has no effort setting.")
 final class EffortSupport[B <: BackendTag] private (
-    harness: String,
+    tag: BackendTag,
     levels: Map[Effort, String]
 ):
   /** `effort`, or a message naming the levels the harness accepts. */
@@ -31,7 +31,7 @@ final class EffortSupport[B <: BackendTag] private (
     if levels.contains(effort) then Right(effort)
     else
       Left(
-        s"$harness has no `${effort.label}` effort; it accepts " +
+        s"${tag.harnessName} has no `${effort.label}` effort; it accepts " +
           Effort.values.filter(levels.contains).map(_.label).mkString(", ")
       )
 
@@ -51,7 +51,7 @@ object EffortSupport:
       case BackendTag.Pi         => Some(pi)
       case BackendTag.Gemini     => None
 
-  private val upToMax: Map[Effort, String] = Map(
+  private val lowToMax: Map[Effort, String] = Map(
     Effort.Low -> "low",
     Effort.Medium -> "medium",
     Effort.High -> "high",
@@ -60,18 +60,18 @@ object EffortSupport:
   )
 
   given claude: EffortSupport[BackendTag.ClaudeCode.type] =
-    EffortSupport("claude", upToMax)
+    EffortSupport(BackendTag.ClaudeCode, lowToMax)
 
   given codex: EffortSupport[BackendTag.Codex.type] =
     EffortSupport(
-      "codex",
-      upToMax + (Effort.Off -> "none") + (Effort.Minimal -> "minimal")
+      BackendTag.Codex,
+      lowToMax + (Effort.Off -> "none") + (Effort.Minimal -> "minimal")
     )
 
   given pi: EffortSupport[BackendTag.Pi.type] =
     EffortSupport(
-      "pi",
-      upToMax - Effort.Max + (Effort.Off -> "off") +
+      BackendTag.Pi,
+      lowToMax - Effort.Max + (Effort.Off -> "off") +
         (Effort.Minimal -> "minimal")
     )
 
@@ -80,6 +80,6 @@ object EffortSupport:
     */
   given opencode: EffortSupport[BackendTag.Opencode.type] =
     EffortSupport(
-      "opencode",
-      upToMax + (Effort.Off -> "none") + (Effort.Minimal -> "minimal")
+      BackendTag.Opencode,
+      lowToMax + (Effort.Off -> "none") + (Effort.Minimal -> "minimal")
     )

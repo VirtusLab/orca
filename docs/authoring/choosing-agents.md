@@ -114,9 +114,9 @@ own `agent` in the event log), `withReadOnly`, `withNetworkOnly` and
 the same harness can continue each other's conversations; see `chat.withAgent`
 in [Talking to agents](talking-to-agents.md).
 
-`withEffort(Effort.High)` sets the reasoning effort; `cheap` drops it. The
-levels are `Off`, `Minimal`, `Low`, `Medium`, `High`, `XHigh` and `Max`, and
-each harness accepts some of them:
+`withEffort(Effort.High)` sets the reasoning effort; `cheap` drops it when it
+switches to a cheaper model. The levels are `Off`, `Minimal`, `Low`, `Medium`,
+`High`, `XHigh` and `Max`, and each harness accepts some of them:
 
 | Harness  | Levels                             | Sent as                         |
 |----------|------------------------------------|---------------------------------|
@@ -126,9 +126,9 @@ each harness accepts some of them:
 | opencode | all; the model decides which apply | the message's `variant`         |
 | gemini   | none; does not compile             |                                 |
 
-A level the harness does not accept throws when the agent is built. In settings
-and `orca config`, append it to the agent value instead, as in
-`claude:sonnet@high`; see [Settings](../using/settings.md#agent-keys).
+`withEffort` throws on a level the harness does not accept. In settings and
+`orca config`, write the level after `@`, as in `claude:sonnet@high`; see
+[Settings](../using/settings.md#agent-keys).
 
 By default, the runtime owns git: every write-capable turn is told not to
 commit, push or switch branches. `withSelfManagedGit` opts one agent out of
