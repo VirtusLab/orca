@@ -64,7 +64,7 @@ private[pr] class RecordingGh(
     availabilityAnswer: => GitHubAvailability,
     createPrAnswer: => Either[PrCreateFailed, PrHandle] = Right(samplePr),
     bodies: ConcurrentLinkedQueue[String],
-    readinesses: ConcurrentLinkedQueue[PrReadiness]
+    readinesses: ConcurrentLinkedQueue[Option[PrReadiness]]
 ) extends StubGitHubTool:
   override def availability(): GitHubAvailability =
     calls.add("availability"): Unit
@@ -72,7 +72,7 @@ private[pr] class RecordingGh(
   override def createPr(
       title: String,
       body: String,
-      readiness: PrReadiness
+      readiness: Option[PrReadiness]
   )(using WorkspaceWrite) =
     calls.add("createPr"): Unit
     readinesses.add(readiness): Unit
@@ -148,7 +148,7 @@ private[pr] def seededPrRepo(
 /** A run over `dir`/`store` whose `git`/`gh` record into `calls` and whose
   * events reach `listener`. `availability` is only reached by a helper that
   * probes, so it defaults to refusing. `prBodies` collects what `createPr` was
-  * given, for a test that reads it back. `runReadiness` stands for `--draft`.
+  * given, for a test that reads it back.
   */
 private[pr] def prRun(
     dir: os.Path,
@@ -162,9 +162,8 @@ private[pr] def prRun(
     base: => Either[NoDefaultBase, String] = Right("main"),
     prBodies: ConcurrentLinkedQueue[String] =
       new ConcurrentLinkedQueue[String](),
-    prReadinesses: ConcurrentLinkedQueue[PrReadiness] =
-      new ConcurrentLinkedQueue[PrReadiness](),
-    runReadiness: PrReadiness = PrReadiness.Ready
+    prReadinesses: ConcurrentLinkedQueue[Option[PrReadiness]] =
+      new ConcurrentLinkedQueue[Option[PrReadiness]]()
 ): TestRun =
   TestRun(
     new TestFlowControl(
@@ -175,7 +174,6 @@ private[pr] def prRun(
     new TestFlowContext(
       new EventDispatcher(List(listener)),
       "p",
-      prReadiness = runReadiness,
       wiredGit = Some(
         new RecordingGit(new OsGitTool(dir), calls, branchDiff, push, base)
       ),

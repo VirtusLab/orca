@@ -3,6 +3,7 @@ package orca.tools
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import orca.{OrcaFlowException, WorkspaceWrite}
 import orca.events.{OrcaEvent, OrcaListener}
+import orca.json.JsonData
 import orca.subprocess.{CliResult, CliRunner}
 import orca.util.TextUtil
 import ox.sleep
@@ -126,7 +127,7 @@ enum CheckState:
 
 /** Whether [[GitHubTool.createPr]] opens a PR ready for review or as a draft.
   */
-enum PrReadiness:
+enum PrReadiness derives JsonData:
   case Ready
   case Draft
 
@@ -224,14 +225,15 @@ trait GitHubTool:
     * detached HEAD, on gh output carrying no PR URL, and on system failures
     * (auth, network).
     *
-    * `readiness` applies only to a PR this call opens (`gh pr create --draft`).
-    * When an open PR already exists for the branch, it is returned as it is:
-    * neither draft nor ready state is changed.
+    * `readiness` applies only to a PR this call opens (`gh pr create --draft`);
+    * when omitted, the run's `--draft` decides. When an open PR already exists
+    * for the branch, it is returned as it is: neither draft nor ready state is
+    * changed.
     */
   def createPr(
       title: String,
       body: String,
-      readiness: PrReadiness = PrReadiness.Ready
+      readiness: Option[PrReadiness] = None
   )(using
       WorkspaceWrite
   ): Either[PrCreateFailed, PrHandle]
@@ -310,13 +312,17 @@ trait GitHubTool:
   *
   * `events` lets the tool publish a [[OrcaEvent.Step]] when a PR is opened so
   * the URL surfaces in the event log. Defaults to `OrcaListener.noop`.
+  *
+  * `defaultReadiness` is what a [[createPr]] without a `readiness` opens: the
+  * run's `--draft`.
   */
 private[orca] class OsGitHubTool(
     cli: CliRunner,
     workDir: os.Path = os.pwd,
     pollInterval: FiniteDuration = 30.seconds,
     events: OrcaListener = OrcaListener.noop,
-    readRetry: Schedule = OsGitHubTool.defaultReadRetry
+    readRetry: Schedule = OsGitHubTool.defaultReadRetry,
+    private[orca] val defaultReadiness: PrReadiness = PrReadiness.Ready
 ) extends GitHubTool:
 
   import OsGitHubTool.*
@@ -480,8 +486,8 @@ private[orca] class OsGitHubTool(
       )
     catch case NonFatal(e) => Left(cannotRunGh(e))
 
-  def createPr(title: String, body: String, readiness: PrReadiness)(using
-      ws: WorkspaceWrite
+  def createPr(title: String, body: String, readiness: Option[PrReadiness])(
+      using ws: WorkspaceWrite
   ): Either[PrCreateFailed, PrHandle] =
     ws.check("gh.createPr")
     // Inspect exit code + stderr ourselves to split the recoverable failures
@@ -494,7 +500,7 @@ private[orca] class OsGitHubTool(
     // its progress log would be misread as "branch not pushed". Bare branch
     // name, no `owner:` prefix, matching `findOpenPr`.
     val head = headBranchForPr()
-    val draftFlag = readiness match
+    val draftFlag = readiness.getOrElse(defaultReadiness) match
       case PrReadiness.Draft => Seq("--draft")
       case PrReadiness.Ready => Nil
     val result = runGhResult(

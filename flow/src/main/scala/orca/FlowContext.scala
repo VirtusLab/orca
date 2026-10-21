@@ -3,7 +3,7 @@ package orca
 import orca.events.OrcaEvent
 import orca.tools.FsTool
 import orca.tools.{GitTool, RuntimeGit}
-import orca.tools.{GitHubTool, PrReadiness}
+import orca.tools.GitHubTool
 import orca.agents.Agent
 import orca.review.ReviewerCatalog
 
@@ -70,11 +70,6 @@ trait FlowContext extends AgentSet:
   def reviewerCatalog: ReviewerCatalog
 
   def userPrompt: String
-
-  /** How the run opens its PR when the flow does not say: `Draft` under
-    * `--draft`.
-    */
-  def prReadiness: PrReadiness
 
   /** The library's event sink. Flows use `display`, `fail` and `.announce`. */
   private[orca] def emit(event: OrcaEvent): Unit

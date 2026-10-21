@@ -25,7 +25,11 @@ class StubGitHubTool extends GitHubTool:
     throw new NotImplementedError(s"$endpoint is not wired in this stub")
 
   def availability(): GitHubAvailability = nyi("availability")
-  def createPr(title: String, body: String, readiness: PrReadiness)(using
+  def createPr(
+      title: String,
+      body: String,
+      readiness: Option[PrReadiness]
+  )(using
       WorkspaceWrite
   ): Either[PrCreateFailed, PrHandle] = nyi("createPr")
   def updatePr(pr: PrHandle, title: String, body: String)(using

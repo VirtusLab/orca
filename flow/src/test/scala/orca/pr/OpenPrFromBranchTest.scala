@@ -84,21 +84,20 @@ class OpenPrFromBranchTest extends FunSuite:
     )
 
   /** The readiness each `gh.createPr` got while `open` ran over a fresh seeded
-    * repo of a run with `runReadiness`, given a summariser to pass on.
+    * repo, given a summariser to pass on.
     */
-  private def createPrReadinesses(runReadiness: PrReadiness)(
+  private def createPrReadinesses(
       open: Agent[?] => (FlowContext, FlowControl) ?=> Any
-  ): List[PrReadiness] =
+  ): List[Option[PrReadiness]] =
     val (dir, store) = seededPrRepo()
-    val readinesses = new ConcurrentLinkedQueue[PrReadiness]()
+    val readinesses = new ConcurrentLinkedQueue[Option[PrReadiness]]()
     val run = prRun(
       dir,
       store,
       _ => (),
       new ConcurrentLinkedQueue[String](),
       availability = GitHubAvailability.Available("github.com", "acme", "w"),
-      prReadinesses = readinesses,
-      runReadiness = runReadiness
+      prReadinesses = readinesses
     )
     import run.given
     val _ = open(new StubSummariser().agent)
@@ -131,47 +130,46 @@ class OpenPrFromBranchTest extends FunSuite:
       List("Push branch", "Generate PR title and description", "Open PR")
     )
 
-  test("both open calls follow the run's readiness by default"):
-    for runReadiness <- List(PrReadiness.Ready, PrReadiness.Draft) do
-      assertEquals(
-        createPrReadinesses(runReadiness)(agent =>
-          openPrFromBranch(
-            summarisingAgent = agent,
-            openFindings = OpenFindings.empty
-          )
-        ),
-        List(runReadiness)
-      )
-      assertEquals(
-        createPrReadinesses(runReadiness)(agent =>
-          openPrIfGitHub(
-            summarisingAgent = agent,
-            openFindings = OpenFindings.empty
-          )
-        ),
-        List(runReadiness)
-      )
-
-  test("an explicit readiness overrides the run's"):
+  test("both open calls leave the readiness to gh by default"):
     assertEquals(
-      createPrReadinesses(PrReadiness.Draft)(agent =>
+      createPrReadinesses(agent =>
+        openPrFromBranch(
+          summarisingAgent = agent,
+          openFindings = OpenFindings.empty
+        )
+      ),
+      List(None)
+    )
+    assertEquals(
+      createPrReadinesses(agent =>
+        openPrIfGitHub(
+          summarisingAgent = agent,
+          openFindings = OpenFindings.empty
+        )
+      ),
+      List(None)
+    )
+
+  test("both open calls pass an explicit readiness on"):
+    assertEquals(
+      createPrReadinesses(agent =>
         openPrFromBranch(
           summarisingAgent = agent,
           openFindings = OpenFindings.empty,
-          readiness = Some(PrReadiness.Ready)
+          readiness = Some(PrReadiness.Draft)
         )
       ),
-      List(PrReadiness.Ready)
+      List(Some(PrReadiness.Draft))
     )
     assertEquals(
-      createPrReadinesses(PrReadiness.Draft)(agent =>
+      createPrReadinesses(agent =>
         openPrIfGitHub(
           summarisingAgent = agent,
           openFindings = OpenFindings.empty,
-          readiness = Some(PrReadiness.Ready)
+          readiness = Some(PrReadiness.Draft)
         )
       ),
-      List(PrReadiness.Ready)
+      List(Some(PrReadiness.Draft))
     )
 
   test("openPrFromBranch reached inside a stage is refused before it pushes"):

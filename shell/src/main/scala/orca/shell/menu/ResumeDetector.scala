@@ -4,6 +4,7 @@ import orca.gitref.BranchName
 import orca.json.JsonFile
 import orca.progress.{FlowSource, ProgressHeader, ProgressLog, ProgressScan}
 import orca.shell.actions.FlowResolution
+import orca.tools.PrReadiness
 
 /** An unfinished flow run, byte-identically relaunchable: the flow script and
   * the exact prompt that started it (ADR 0021 §3 amendment).
@@ -20,7 +21,8 @@ private[menu] case class InterruptedRun(
       */
     dir: os.Path,
     /** The progress log itself, under `dir`. */
-    log: os.Path
+    log: os.Path,
+    prReadiness: PrReadiness = PrReadiness.Ready
 )
 
 /** Detects an interrupted run for the main menu's "Resume interrupted run"
@@ -69,7 +71,8 @@ private[menu] object ResumeDetector:
           header.userPrompt,
           header.branch,
           dir = found.dir,
-          log = found.path
+          log = found.path,
+          prReadiness = header.prReadiness
         )
       )
 

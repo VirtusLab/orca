@@ -351,7 +351,12 @@ private def runLogged(request: RunRequest, runLog: RunEventLog)(
     val runtimeGit =
       wiring.git.getOrElse(new OsGitTool(workDir, dispatcher))
     val ghTool = wiring.gh.getOrElse(
-      new OsGitHubTool(OsProcCliRunner, workDir, events = dispatcher)
+      new OsGitHubTool(
+        OsProcCliRunner,
+        workDir,
+        events = dispatcher,
+        defaultReadiness = request.args.prReadiness
+      )
     )
     val fsTool = wiring.fs.getOrElse(new OsFsTool(workDir))
     runInContext(
@@ -453,7 +458,6 @@ private def runInContext(
     )
     val ctx = new DefaultFlowContext(
       userPrompt = args.userPrompt,
-      prReadiness = args.prReadiness,
       workDir = workDir,
       dispatcher = dispatcher,
       planningAgent = resolvedRoles.planning,

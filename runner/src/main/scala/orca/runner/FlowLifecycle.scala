@@ -434,7 +434,8 @@ object FlowLifecycle:
             else BranchMode.Created,
           userPrompt = args.userPrompt,
           flow = flowSource,
-          startingCommit = headAtBinding
+          startingCommit = headAtBinding,
+          prReadiness = args.prReadiness
         )
       )
       git.forceCommitOnly(store.path, "orca: progress log")

@@ -35,6 +35,7 @@ import orca.runner.terminal.TerminalInteraction
 import orca.tools.{
   GitHubAvailability,
   GitHubTool,
+  OsGitHubTool,
   OsGitTool,
   PrReadiness,
   RuntimeGit,
@@ -1779,7 +1780,8 @@ class FlowLifecycleTest extends munit.FunSuite:
       claude: ClaudeAgent = StubAgent.claude,
       gh: Option[GitHubTool] = None,
       git: Option[RuntimeGit] = None,
-      target: RunTarget = RunTarget.NewBranch(Uncommitted.Stash)
+      target: RunTarget = RunTarget.NewBranch(Uncommitted.Stash),
+      prReadiness: PrReadiness = PrReadiness.Ready
   )(body: (orca.FlowContext, orca.FlowControl) ?=> Unit): Unit =
     supervised:
       val interaction = TerminalInteraction.start(
@@ -1789,7 +1791,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       )
       runFlow(
         FlowHarness.request(
-          args = OrcaArgs(prompt, target = target),
+          args = OrcaArgs(prompt, target = target, prReadiness = prReadiness),
           stackSettings = Some(StackSettings.empty),
           wiring = FlowWiring(claude = Some(_ => claude), gh = gh, git = git),
           workDir = workDir,
@@ -1798,6 +1800,24 @@ class FlowLifecycleTest extends munit.FunSuite:
           branchNaming = None
         )
       )(body)
+
+  test("--draft becomes the default readiness of the run's gh"):
+    val workDir = GitRepo.seeded()
+    var seen: Option[PrReadiness] = None
+    runFlowForTest(workDir, "draft-gh", prReadiness = PrReadiness.Draft):
+      seen = summon[orca.FlowContext].gh match
+        case tool: OsGitHubTool => Some(tool.defaultReadiness)
+        case _                  => None
+    assertEquals(seen, Some(PrReadiness.Draft))
+
+  test("--draft is recorded in the run's progress header"):
+    val workDir = GitRepo.seeded()
+    val prompt = "draft-header"
+    val store = ProgressStore.default(workDir, RunKey.of(prompt))
+    var seen: Option[PrReadiness] = None
+    runFlowForTest(workDir, prompt, prReadiness = PrReadiness.Draft):
+      seen = store.load().map(_.header.prReadiness)
+    assertEquals(seen, Some(PrReadiness.Draft))
 
   test(
     "teardownSuccess is best-effort: a non-missing-file removal error does not fail an otherwise-successful run"
@@ -1959,7 +1979,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     override def createPr(
         title: String,
         body: String,
-        readiness: PrReadiness
+        readiness: Option[PrReadiness]
     )(using WorkspaceWrite) =
       Right(handoffPr)
 

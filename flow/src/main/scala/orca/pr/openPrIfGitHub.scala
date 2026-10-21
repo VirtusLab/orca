@@ -64,7 +64,7 @@ def openPrIfGitHub(
     body = summary => bodyWithOpenFindings(body(summary), openFindings),
     context = context,
     instructions = instructions,
-    readiness = readiness.getOrElse(ctx.prReadiness)
+    readiness = readiness
   ).fold(skipped, Some(_))
 
 /** [[openPrFromBranch]]'s three stages, the two remote-facing legs under
@@ -85,7 +85,7 @@ private def pushThenCreate(
     body: PrSummary => String,
     context: Option[String],
     instructions: String,
-    readiness: PrReadiness
+    readiness: Option[PrReadiness]
 )(using FlowContext, FlowControl): Either[String, PrHandle] =
   for
     push <- gatedStage(PushStage)(preFlight(base))(_ => pushBestEffort())
@@ -153,7 +153,7 @@ private def pushBestEffort()(using FlowContext, WorkspaceWrite): PushResult =
 private def createBestEffort(
     title: String,
     body: String,
-    readiness: PrReadiness
+    readiness: Option[PrReadiness]
 )(using
     FlowContext,
     FlowControl,
