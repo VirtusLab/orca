@@ -37,9 +37,10 @@ import ox.either.orThrow
   * findings it left unfixed. The same section is printed to the run output,
   * also when opening the PR fails.
   *
-  * `readiness` opens the PR as a draft with [[orca.tools.PrReadiness.Draft]].
-  * It applies only to a PR this run opens: a PR that already exists for the
-  * branch is returned as it is.
+  * `readiness` says whether the PR opens as a draft; when omitted, the run's
+  * [[orca.FlowContext.prReadiness]] (`--draft`) decides. It applies only to a
+  * PR this run opens: a PR that already exists for the branch is returned as it
+  * is.
   *
   * `gh.createPr` is idempotent by head branch: a re-run that already opened the
   * PR gets the existing handle back rather than failing. Returns that handle,
@@ -57,9 +58,13 @@ def openPrFromBranch(
     body: PrSummary => String = _.body,
     context: Option[String] = None,
     instructions: String = PrPrompts.Summarise,
-    readiness: PrReadiness = PrReadiness.Ready
-)(using FlowContext, FlowControl, OutsideStage): PrHandle =
-  summon[FlowControl].assertAtFlowBody("openPrFromBranch(...)")
+    readiness: Option[PrReadiness] = None
+)(using
+    ctx: FlowContext,
+    control: FlowControl,
+    outside: OutsideStage
+): PrHandle =
+  control.assertAtFlowBody("openPrFromBranch(...)")
   reportOpenFindings(openFindings)
   // A refusal throws inside its stage, so it is never recorded and a resume
   // retries it. A recorded `Refused` is one [[openPrIfGitHub]] wrote.
@@ -78,7 +83,7 @@ def openPrFromBranch(
       .createPr(
         title = title(summary),
         body = bodyWithOpenFindings(body(summary), openFindings),
-        readiness = readiness
+        readiness = readiness.getOrElse(ctx.prReadiness)
       )
       .orThrow
     recordOpened(pr)

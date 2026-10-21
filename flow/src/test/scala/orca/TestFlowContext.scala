@@ -13,7 +13,7 @@ import orca.agents.{
 import orca.review.ReviewerCatalog
 import orca.tools.FsTool
 import orca.tools.RuntimeGit
-import orca.tools.GitHubTool
+import orca.tools.{GitHubTool, PrReadiness}
 
 /** FlowContext stub for unit-testing stage/fail and other helpers. Tool and
   * agent accessors are lazy so merely constructing the context doesn't throw;
@@ -23,6 +23,7 @@ import orca.tools.GitHubTool
 class TestFlowContext(
     dispatcher: EventDispatcher,
     val userPrompt: String = "",
+    val prReadiness: PrReadiness = PrReadiness.Ready,
     val workDir: os.Path = orca.testkit.TempDirs.dir(),
     val stackSettings: StackSettings = StackSettings.empty,
     val reviewerCatalog: ReviewerCatalog = ReviewerCatalog.builtIn,

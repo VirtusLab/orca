@@ -2,7 +2,7 @@ package orca.runner
 
 import orca.{FlowContext, StackSettings}
 import orca.review.ReviewerCatalog
-import orca.tools.{FsTool, GitHubTool, RuntimeGit}
+import orca.tools.{FsTool, GitHubTool, PrReadiness, RuntimeGit}
 import orca.agents.Agent
 import orca.events.{OrcaEvent, OrcaListener}
 
@@ -13,6 +13,7 @@ import orca.events.{OrcaEvent, OrcaListener}
   */
 private[orca] class DefaultFlowContext(
     val userPrompt: String,
+    val prReadiness: PrReadiness,
     val workDir: os.Path,
     dispatcher: OrcaListener,
     // The three role agents (ADR 0020), resolved by `runFlow`.

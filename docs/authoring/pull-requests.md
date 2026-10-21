@@ -41,9 +41,10 @@ body. Call them at the top level of the flow.
 
 ### Draft PRs
 
-Both open calls take `readiness: PrReadiness = PrReadiness.Ready`. Pass
-`PrReadiness.Draft` to open the PR as a draft. It applies only to a PR the run
-opens: a PR already open for the branch is reused with its state unchanged.
+Both open calls open a draft when the run gets `--draft`, and a ready PR
+otherwise. A flow can override this with `readiness = Some(PrReadiness.Draft)`
+or `Some(PrReadiness.Ready)`. It applies only to a PR the run opens: a PR
+already open for the branch is reused with its state unchanged.
 
 ### Findings, title, body and context
 

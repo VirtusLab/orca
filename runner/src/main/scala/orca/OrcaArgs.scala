@@ -2,13 +2,15 @@ package orca
 
 import mainargs.ParserForClass
 import orca.gitref.BranchName
+import orca.tools.PrReadiness
 
 /** Parsed command-line arguments for the `orca` entry point. */
 case class OrcaArgs(
     userPrompt: String = "",
     verbose: Boolean = false,
     target: RunTarget = RunTarget.NewBranch(Uncommitted.Stash),
-    branch: Option[BranchName] = None
+    branch: Option[BranchName] = None,
+    prReadiness: PrReadiness = PrReadiness.Ready
 ):
   /** The argv [[OrcaArgs.parse]] reads back as this value; the shell passes it
     * to a flow child. A `branch` with a [[RunTarget.CurrentBranch]] target
@@ -32,7 +34,10 @@ case class OrcaArgs(
         Seq("--skip-branch", "--keep-changes")
       case RunTarget.Worktree => Seq("--worktree")
     val branchArgv = branch.toList.flatMap(name => Seq("--branch", name.value))
-    promptArgv ++ verboseArgv ++ targetArgv ++ branchArgv
+    val draftArgv = prReadiness match
+      case PrReadiness.Draft => Seq("--draft")
+      case PrReadiness.Ready => Nil
+    promptArgv ++ verboseArgv ++ targetArgv ++ branchArgv ++ draftArgv
 
 object OrcaArgs:
 

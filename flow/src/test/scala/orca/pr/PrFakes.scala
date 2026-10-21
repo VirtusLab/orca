@@ -148,7 +148,7 @@ private[pr] def seededPrRepo(
 /** A run over `dir`/`store` whose `git`/`gh` record into `calls` and whose
   * events reach `listener`. `availability` is only reached by a helper that
   * probes, so it defaults to refusing. `prBodies` collects what `createPr` was
-  * given, for a test that reads it back.
+  * given, for a test that reads it back. `runReadiness` stands for `--draft`.
   */
 private[pr] def prRun(
     dir: os.Path,
@@ -163,7 +163,8 @@ private[pr] def prRun(
     prBodies: ConcurrentLinkedQueue[String] =
       new ConcurrentLinkedQueue[String](),
     prReadinesses: ConcurrentLinkedQueue[PrReadiness] =
-      new ConcurrentLinkedQueue[PrReadiness]()
+      new ConcurrentLinkedQueue[PrReadiness](),
+    runReadiness: PrReadiness = PrReadiness.Ready
 ): TestRun =
   TestRun(
     new TestFlowControl(
@@ -174,6 +175,7 @@ private[pr] def prRun(
     new TestFlowContext(
       new EventDispatcher(List(listener)),
       "p",
+      prReadiness = runReadiness,
       wiredGit = Some(
         new RecordingGit(new OsGitTool(dir), calls, branchDiff, push, base)
       ),

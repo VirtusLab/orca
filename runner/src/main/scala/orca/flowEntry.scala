@@ -453,6 +453,7 @@ private def runInContext(
     )
     val ctx = new DefaultFlowContext(
       userPrompt = args.userPrompt,
+      prReadiness = args.prReadiness,
       workDir = workDir,
       dispatcher = dispatcher,
       planningAgent = resolvedRoles.planning,

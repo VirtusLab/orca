@@ -46,7 +46,7 @@ def openPrIfGitHub(
     body: PrSummary => String = _.body,
     context: Option[String] = None,
     instructions: String = PrPrompts.Summarise,
-    readiness: PrReadiness = PrReadiness.Ready
+    readiness: Option[PrReadiness] = None
 )(using
     ctx: FlowContext,
     control: FlowControl,
@@ -64,7 +64,7 @@ def openPrIfGitHub(
     body = summary => bodyWithOpenFindings(body(summary), openFindings),
     context = context,
     instructions = instructions,
-    readiness = readiness
+    readiness = readiness.getOrElse(ctx.prReadiness)
   ).fold(skipped, Some(_))
 
 /** [[openPrFromBranch]]'s three stages, the two remote-facing legs under

@@ -3,6 +3,7 @@ package orca
 import mainargs.{Flag, ParserForClass, arg}
 import orca.gitref.BranchName
 import orca.progress.FeatureBranch
+import orca.tools.PrReadiness
 
 /** The argv shape mainargs parses, shared by a flow's own argv
   * ([[OrcaArgs.parse]]) and `orca run`, so each option is declared once. It
@@ -29,7 +30,9 @@ private[orca] case class RawArgs(
     @arg(doc =
       "name of the branch to create for this run (default: derived from the prompt); not with --skip-branch"
     )
-    branch: Option[String]
+    branch: Option[String],
+    @arg(doc = "open the run's pull request as a draft")
+    draft: Flag
 ):
   /** Refuses a prompt given both positionally and with `--prompt`, an invalid
     * `--branch`, and a refused flag pair.
@@ -51,7 +54,15 @@ private[orca] case class RawArgs(
         keepChanges = keepChanges.value,
         branch = branchName
       )
-    yield CheckedArgs(givenPrompt, verbose.value, target, branchName)
+      prReadiness =
+        if draft.value then PrReadiness.Draft else PrReadiness.Ready
+    yield CheckedArgs(
+      givenPrompt,
+      verbose.value,
+      target,
+      branchName,
+      prReadiness
+    )
 
 private[orca] object RawArgs:
   given ParserForClass[RawArgs] = ParserForClass[RawArgs]
@@ -63,12 +74,14 @@ private[orca] case class CheckedArgs(
     givenPrompt: Option[String],
     verbose: Boolean,
     target: RunTarget,
-    branch: Option[BranchName]
+    branch: Option[BranchName],
+    prReadiness: PrReadiness
 ):
   def withPrompt(userPrompt: String): OrcaArgs =
     OrcaArgs(
       userPrompt = userPrompt,
       verbose = verbose,
       target = target,
-      branch = branch
+      branch = branch,
+      prReadiness = prReadiness
     )
