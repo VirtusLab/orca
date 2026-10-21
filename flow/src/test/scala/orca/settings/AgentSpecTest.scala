@@ -93,9 +93,11 @@ class AgentSpecTest extends FunSuite:
       Left("gemini has no effort setting")
     )
 
-  test("render reads back through parse"):
-    val spec = AgentSpec.parse("pi:sonnet:high@minimal")
-    assertEquals(spec.flatMap(s => AgentSpec.parse(s.render)), spec)
+  test("render gives back the parsed value"):
+    assertEquals(
+      AgentSpec.parse("pi:sonnet:high@minimal").map(_.render),
+      Right("pi:sonnet:high@minimal")
+    )
 
   test("repinned drops the effort when the harness changes"):
     val spec = AgentSpec

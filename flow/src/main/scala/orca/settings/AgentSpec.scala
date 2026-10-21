@@ -5,8 +5,7 @@ import orca.agents.{BackendTag, Effort, EffortSupport}
 /** One configured role agent: a harness plus an optional model pin and effort,
   * the parsed form of a `harness[:model][@effort]` settings value. The model
   * string is passed verbatim to the harness's `withModel` — orca does not
-  * normalise or validate model ids. `effort` is always one the harness accepts;
-  * the constructor is private.
+  * normalise or validate model ids. `effort` is always one the harness accepts.
   */
 private[orca] case class AgentSpec private (
     backend: BackendTag,

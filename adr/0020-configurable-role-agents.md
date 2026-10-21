@@ -239,12 +239,14 @@ naming each resolved role, its harness/model, and its source
 run here?":
 
 ```text
-agents: planning=claude (default), coding=codex:gpt-5-mini (project), review=claude (global)
+agents: planning=claude (default), coding=codex:gpt-5-mini@low (project), review=claude (global)
 ```
 
 The harness+model shown is the winning `AgentSpec`; an override shows its
 resolved backend's harness with no model (the override's pin isn't a spec);
-the built-in default shows `claude` with no model.
+the built-in default shows `claude` with no model. A role whose resolved agent
+has an effort set, from settings or an override's `withEffort`, also shows
+`@<level>`.
 
 ### 11. Non-goals
 
